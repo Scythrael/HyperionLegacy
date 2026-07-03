@@ -44,6 +44,7 @@ export function prestige(state: GameState): { next: GameState; gained: number } 
     augmentPoints: state.augmentPoints + gained,
     prestigeCount: state.prestigeCount + 1,
     gameTimeSeconds: state.gameTimeSeconds,
+    tickDurationSeconds: state.tickDurationSeconds,
   };
   return { next, gained };
 }

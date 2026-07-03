@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tick } from "./tick";
+import { tick, prestige } from "./tick";
 import { freshState } from "./model";
 
 describe("tick — closed-form requirement", () => {
@@ -36,5 +36,17 @@ describe("tick — closed-form requirement", () => {
     const noBonus = tick(10, { ...base, augmentPoints: 0 });
     const withBonus = tick(10, { ...base, augmentPoints: 10 }); // multiplier = 2x
     expect(withBonus.resources.ore).toBeCloseTo(noBonus.resources.ore * 2, 6);
+  });
+});
+
+describe("prestige — tickDurationSeconds persistence", () => {
+  it("carries tickDurationSeconds forward through a prestige reset", () => {
+    const base = freshState();
+    base.modules.fabricator = 5;
+    base.lifetimeComponents = 100; // sqrt(100) = 10 Augment Points, so prestige actually fires
+    base.tickDurationSeconds = 7; // simulate a future bonus having shortened it
+
+    const { next } = prestige(base);
+    expect(next.tickDurationSeconds).toBe(7);
   });
 });
