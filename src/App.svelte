@@ -168,7 +168,7 @@
         {#if DEV_MODE_ENV}
           <button class="icon-btn" on:click={() => (devPanelOpen = !devPanelOpen)} title="Toggle debug panel">Dev</button>
         {/if}
-        <button class="icon-btn" on:click={() => (optionsPanelOpen = !optionsPanelOpen)} title="Options">⚙</button>
+        <button class="icon-btn" on:click={() => (optionsPanelOpen = !optionsPanelOpen)} title="Options" aria-label="Options">⚙</button>
       </div>
     </Panel>
 
