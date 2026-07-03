@@ -27,3 +27,8 @@ write it down so you don't relitigate it later.
   either way), but a keyboard user can currently Tab past the backdrop
   into page content behind it. Worth fixing once this modal pattern gets
   reused for anything else, so the fix lands once instead of per-modal.
+- Theme switching only affects the "primary"/accent color tokens — it does
+  not recolor `.log-entry` text (`#9fc4cc`, hardcoded, predates the theme
+  feature) or the Starfield's dots (`#bfe9f5`, same). Intentional scope
+  limit per the design doc, not a bug, but worth writing down so "theme
+  switching looks incomplete" doesn't get rediscovered as a surprise.
