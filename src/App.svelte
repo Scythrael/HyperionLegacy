@@ -24,7 +24,8 @@
   let devPanelOpen = false;
   let speed = 1;
   let logEntries: string[] = [];
-  let lastTick = Date.now();
+  let barCycleStart = Date.now();
+  let nowTick = Date.now();
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
 
@@ -46,14 +47,25 @@
     } else {
       pushLog("New save initialized.");
     }
-    lastTick = Date.now();
+    barCycleStart = Date.now();
+    nowTick = Date.now();
 
-    // Active tick loop — tech spec §2, nominal 10 Hz.
+    // Tick-bar loop — checks cycle progress every 100ms, fires a discrete
+    // tick() call once per full cycle. barSeconds is floored at 1 real
+    // second so dev-speed presets never make the bar flicker unreadably;
+    // multiple game-ticks just batch into that one visual cycle, which is
+    // still correct because tick() is closed-form (see design doc).
     tickHandle = setInterval(() => {
+      if (speed === 0) return; // paused — bar and resources both freeze
+      const barSeconds = Math.max(1, state.tickDurationSeconds / speed);
       const now = Date.now();
-      const delta = ((now - lastTick) / 1000) * speed;
-      lastTick = now;
-      state = tick(delta, state);
+      nowTick = now;
+      const progress = (now - barCycleStart) / 1000 / barSeconds;
+      if (progress >= 1) {
+        const gameSecondsThisCycle = barSeconds * speed;
+        state = tick(gameSecondsThisCycle, state);
+        barCycleStart = now;
+      }
     }, 100);
 
     // Autosave every 30s — tech spec §6.
@@ -105,6 +117,9 @@
   }
 
   $: mult = globalMultiplier(state);
+  $: barSeconds = Math.max(1, state.tickDurationSeconds / (speed || 1));
+  $: tickProgress = Math.min(1, Math.max(0, (nowTick - barCycleStart) / 1000 / barSeconds));
+  $: tickRemaining = Math.max(0, barSeconds * (1 - tickProgress));
 </script>
 
 <div class="root">
@@ -141,6 +156,14 @@
             </div>
           {/each}
         </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">TICK</div>
+        <div class="tick-bar-track">
+          <div class="tick-bar-fill" style="width:{tickProgress * 100}%"></div>
+        </div>
+        <div class="tick-bar-readout">{tickRemaining.toFixed(1)}s</div>
       </section>
 
       <section class="panel">
@@ -303,6 +326,25 @@
   }
   .resource-label { font-size: 10px; color: var(--color-text-secondary); margin-bottom: 4px; }
   .resource-value { font-family: var(--font-mono); font-size: 16px; }
+  .tick-bar-track {
+    height: 10px;
+    border-radius: 6px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid rgba(103, 232, 249, 0.14);
+    overflow: hidden;
+  }
+  .tick-bar-fill {
+    height: 100%;
+    background: var(--color-accent);
+    transition: width 0.1s linear;
+  }
+  .tick-bar-readout {
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    text-align: right;
+  }
   .module-list { display: flex; flex-direction: column; gap: 10px; }
   .module-card {
     padding: 12px;
