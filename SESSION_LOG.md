@@ -13,3 +13,9 @@ panel. Verified the closed-form tick property with a unit test and a clean
 production build. Next: play it for real, then start on §10.6's first
 addition (missions) or push toward the boss-encounter design question
 (§5.1) since that's flagged highest priority in the open design doc.
+
+**Session 2** — Renamed the project from working title "Fleet Admiral" to
+"Hyperion Legacy" per design doc §8.E.10 (package.json, index.html, README,
+both design docs). Confirmed GitHub remote and Vercel preview deployment
+are already live. Next: continue building per §10.6 (missions or boss
+encounter design, §5.1).

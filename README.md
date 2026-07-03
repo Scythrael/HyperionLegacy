@@ -1,10 +1,12 @@
-# Fleet Admiral [prototype]
+# Hyperion Legacy [prototype]
 
 A browser-based incremental idle game where you're a fleet admiral. This
 repo is the §10.5 minimal prototype: one closed-form generator stack, one
 prestige tier, versioned saves, a dev-only debug panel. See
 `fleet_admiral_master_design.md` and `fleet_admiral_technical_spec.md` in
-the parent design project for the full design and architecture.
+`docs/projectdocs/` for the full design and architecture. ("Fleet Admiral"
+was the working title during design; the project is now named Hyperion
+Legacy — see design doc §8.E.10.)
 
 ## Run it locally
 
@@ -53,26 +55,15 @@ src/
 
 ## Deploying to Vercel
 
-1. Push this repo to GitHub (see steps below if you haven't yet).
-2. Go to vercel.com, sign in with GitHub, "Add New Project", select this repo.
-3. Vercel auto-detects Vite. Accept defaults.
-4. In Project Settings → Environment Variables, add `VITE_DEV_MODE=true`
-   scoped to **Preview only** (leave Production unset/false). This keeps
-   the debug panel out of your public production build while keeping it
-   available on every branch preview URL.
-5. Push to `main` → deploys to production. Push to any other branch →
-   deploys to its own preview URL, shareable with a playtester.
+Already set up: this repo lives at `github.com/Scythrael/HyperionLegacy` and
+is connected to Vercel. Push to `main` → deploys to production. Push to any
+other branch → deploys to its own preview URL, shareable with a playtester
+(e.g. https://scythrael-hl-test-crystalis.vercel.app/).
 
-## Pushing to GitHub for the first time
-
-```bash
-git init
-git add .
-git commit -m "Fleet Admiral prototype: closed-form generator stack, tier 1 prestige, versioned saves"
-git branch -M main
-git remote add origin <your-empty-github-repo-url>
-git push -u origin main
-```
+`VITE_DEV_MODE=true` is scoped to **Preview only** in Project Settings →
+Environment Variables (leave Production unset/false). This keeps the debug
+panel out of the public production build while keeping it available on
+every branch preview URL.
 
 ## Next steps (design doc §10.6)
 
