@@ -39,11 +39,16 @@
   }
   /* Each bar is centered on its chamfer cut's midpoint and rotated around
      its own center (no transform-origin override — default center is the
-     point) so it stays inside the .panel clip-path with only ~0.6px of
-     margin at width:10px. Don't widen these bars or shrink the 2px/6px
-     offsets without re-deriving the margin against the 14px chamfer cut
-     in .panel above — it's easy to push a corner back outside the
-     clip-path and have it silently disappear. */
+     point), so its long (10px) edge runs parallel to the clip-path cut
+     line rather than crossing it. That means the clip-path doesn't trim
+     a small corner off each end — it slices along the bar's full length,
+     cutting away the outer half of its 2px thickness and leaving roughly
+     a 1px-wide visible line flush against the inside of the chamfer cut.
+     This is expected and is why the bars read as thin accent lines rather
+     than solid 2px bars. Don't widen these bars or change the 2px/6px
+     offsets without re-deriving this against the 14px chamfer cut in
+     .panel above — it's easy to shift the surviving sliver to the wrong
+     side of the cut, or clip it away entirely. */
   .corner-tl {
     top: 6px;
     left: 2px;
