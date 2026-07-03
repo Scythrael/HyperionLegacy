@@ -37,6 +37,13 @@
     background: var(--color-accent-bright);
     pointer-events: none;
   }
+  /* Each bar is centered on its chamfer cut's midpoint and rotated around
+     its own center (no transform-origin override — default center is the
+     point) so it stays inside the .panel clip-path with only ~0.6px of
+     margin at width:10px. Don't widen these bars or shrink the 2px/6px
+     offsets without re-deriving the margin against the 14px chamfer cut
+     in .panel above — it's easy to push a corner back outside the
+     clip-path and have it silently disappear. */
   .corner-tl {
     top: 6px;
     left: 2px;
