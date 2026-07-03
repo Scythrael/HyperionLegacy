@@ -50,3 +50,24 @@ describe("prestige — tickDurationSeconds persistence", () => {
     expect(next.tickDurationSeconds).toBe(7);
   });
 });
+
+describe("prestige — lifetimeComponents resets (regression)", () => {
+  it("resets lifetimeComponents to 0 after a successful prestige", () => {
+    const base = freshState();
+    base.lifetimeComponents = 100; // sqrt(100) = 10 Augment Points
+
+    const { next, gained } = prestige(base);
+    expect(gained).toBe(10);
+    expect(next.lifetimeComponents).toBe(0);
+  });
+
+  it("yields nothing on a second immediate prestige with no new components produced", () => {
+    const base = freshState();
+    base.lifetimeComponents = 100;
+
+    const { next: afterFirst } = prestige(base);
+    const { gained: secondGain } = prestige(afterFirst);
+
+    expect(secondGain).toBe(0);
+  });
+});

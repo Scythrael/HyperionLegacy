@@ -40,7 +40,6 @@ export function prestige(state: GameState): { next: GameState; gained: number } 
 
   const next: GameState = {
     ...freshState(),
-    lifetimeComponents: state.lifetimeComponents,
     augmentPoints: state.augmentPoints + gained,
     prestigeCount: state.prestigeCount + 1,
     gameTimeSeconds: state.gameTimeSeconds,
