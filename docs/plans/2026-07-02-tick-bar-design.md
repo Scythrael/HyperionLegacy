@@ -91,6 +91,20 @@ the bar to visibly jump. This is a dev-only control, not seen by a normal
 player, so it's not worth the complexity of preserving fractional progress
 across a speed change.
 
+**Superseded by a post-implementation fix:** the pseudocode above's bare
+`if (speed === 0) return;` was found during final review to have a real
+bug, not just a cosmetic one — `barCycleStart` stays frozen while paused,
+but real wall-clock time keeps advancing, so resuming after any sufficiently
+long pause caused `progress` to read as `>= 1` immediately and fire an
+instant, unearned `tick()` grant. The actual implementation in `App.svelte`
+(commit `76b4b31`) adds a `paused` flag and resets `barCycleStart`/`nowTick`
+on the first poll after resuming, discarding the paused wall-clock gap
+entirely rather than misreading it as elapsed cycle time. Fractional
+progress accumulated before a pause is intentionally discarded on resume
+(the bar restarts at 0%) rather than preserved — an acceptable
+simplification for a dev-only control. This doc's pseudocode above is
+historical design intent, not current behavior.
+
 ## UI
 
 New panel in `App.svelte`, positioned in `<main>` between the `RESOURCES`
