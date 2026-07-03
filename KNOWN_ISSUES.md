@@ -20,3 +20,10 @@ write it down so you don't relitigate it later.
   Dev-only control gated behind `DEV_MODE_ENV`, never seen by a normal
   player, so preserving fractional progress across a speed change isn't
   worth the added complexity.
+- The delete-save confirmation modal (the first modal in this codebase)
+  doesn't trap focus or move it to the input on open, and Escape doesn't
+  close it — only the Cancel/Delete buttons do. Doesn't create a safety
+  risk (the typed-"DELETE" gate to the actual deletion is unaffected
+  either way), but a keyboard user can currently Tab past the backdrop
+  into page content behind it. Worth fixing once this modal pattern gets
+  reused for anything else, so the fix lands once instead of per-modal.

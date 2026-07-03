@@ -321,7 +321,7 @@
         <div class="panel-title">DELETE SAVE</div>
         <p class="modal-warning">This will permanently erase your progress. This can't be undone.</p>
         <p class="modal-instruction">Type <strong>DELETE</strong> to confirm.</p>
-        <input class="modal-input" type="text" bind:value={deleteConfirmText} />
+        <input class="modal-input" type="text" bind:value={deleteConfirmText} aria-label="Type DELETE to confirm" />
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelDelete}>Cancel</button>
           <button class="dev-btn danger" disabled={deleteConfirmText !== "DELETE"} on:click={confirmDelete}>Delete</button>
