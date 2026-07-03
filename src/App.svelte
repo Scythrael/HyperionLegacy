@@ -26,6 +26,7 @@
   let devPanelOpen = false;
   let currentTheme: ThemeName = "cyan";
   let optionsPanelOpen = false;
+  let deleteModalOpen = false;
   let speed = 1;
   let logEntries: string[] = [];
   let barCycleStart = Date.now();
@@ -184,6 +185,25 @@
           {/each}
         </div>
       </Panel>
+
+      {#if optionsPanelOpen}
+        <Panel>
+          <div class="panel-title">OPTIONS</div>
+          <div class="theme-row">
+            {#each THEME_NAMES as name}
+              <button
+                class="theme-swatch"
+                class:active={currentTheme === name}
+                style="background:{THEME_PREVIEW_COLORS[name]}"
+                title={name}
+                aria-label={name}
+                on:click={() => setTheme(name)}
+              ></button>
+            {/each}
+          </div>
+          <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
+        </Panel>
+      {/if}
 
       <Panel>
         <div class="panel-title">TICK</div>
@@ -401,6 +421,18 @@
     font-size: 12px;
     letter-spacing: 1px;
     cursor: pointer;
+  }
+  .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .theme-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+  }
+  .theme-swatch.active {
+    border-color: var(--color-text-primary);
   }
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
