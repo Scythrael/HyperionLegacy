@@ -39,7 +39,7 @@ export interface GameState {
 export function freshState(): GameState {
   return {
     resources: { ore: 0, ingots: 0, components: 0 },
-    modules: { miner: 0, refinery: 0, fabricator: 0 },
+    modules: { miner: 1, refinery: 0, fabricator: 0 },
     lifetimeComponents: 0,
     augmentPoints: 0,
     prestigeCount: 0,
