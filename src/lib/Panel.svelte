@@ -38,27 +38,27 @@
     pointer-events: none;
   }
   .corner-tl {
-    top: 4px;
-    left: -2px;
-    transform: rotate(45deg);
-    transform-origin: left center;
+    top: 6px;
+    left: 2px;
+    width: 10px;
+    transform: rotate(-45deg);
   }
   .corner-tr {
-    top: 4px;
-    right: -2px;
-    transform: rotate(-45deg);
-    transform-origin: right center;
+    top: 6px;
+    right: 2px;
+    width: 10px;
+    transform: rotate(45deg);
   }
   .corner-bl {
-    bottom: 4px;
-    left: -2px;
-    transform: rotate(-45deg);
-    transform-origin: left center;
+    bottom: 6px;
+    left: 2px;
+    width: 10px;
+    transform: rotate(45deg);
   }
   .corner-br {
-    bottom: 4px;
-    right: -2px;
-    transform: rotate(45deg);
-    transform-origin: right center;
+    bottom: 6px;
+    right: 2px;
+    width: 10px;
+    transform: rotate(-45deg);
   }
 </style>
