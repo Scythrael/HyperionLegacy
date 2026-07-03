@@ -329,10 +329,19 @@
   .resource-value { font-family: var(--font-mono); font-size: 16px; }
   .tick-bar-track {
     height: 10px;
-    border-radius: 6px;
     background: var(--color-panel-bg-strong);
     border: 1px solid rgba(103, 232, 249, 0.14);
     overflow: hidden;
+    clip-path: polygon(
+      4px 0,
+      calc(100% - 4px) 0,
+      100% 4px,
+      100% calc(100% - 4px),
+      calc(100% - 4px) 100%,
+      4px 100%,
+      0 calc(100% - 4px),
+      0 4px
+    );
   }
   .tick-bar-fill {
     height: 100%;
