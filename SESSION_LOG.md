@@ -39,3 +39,28 @@ accent placement) before considering it finished — the tick bar's fill is
 geometrically safe at any width (it's cropped by its already-clipped
 parent, not given its own clip-path), so the low-fill-percentage look is
 purely an aesthetic gut-check, not a suspected bug.
+
+**Session 5** — Added a player-facing options menu (new always-visible gear
+icon, distinct from the relabeled dev-only "Dev" button): 6 selectable
+accent-color themes (cyan/green/blue/red/white/gray) via CSS custom
+properties and a `data-theme` attribute, backed by a tested `theme.ts`
+module and persisted under its own `localStorage` key separate from the
+save file so theme survives a delete; and a typed-confirmation ("type
+DELETE") modal — the first modal in this codebase — gating the existing
+reset-save function for real players. Code review surfaced more than the
+plan scoped: 8 hardcoded-cyan CSS rules in App.svelte and 1 in
+Panel.svelte's glow filter (all would otherwise not have repainted on
+theme switch, fixed by referencing `--color-accent-rgb`), plus two
+accessibility gaps — a missing `aria-label` on the icon-only Options gear
+button and on the delete-confirm text input. The modal's lack of focus
+trapping and Escape-to-close was identified but deliberately not fixed
+this pass; logged in KNOWN_ISSUES.md as worth solving once when this
+becomes a template for future modals, rather than bolted on under review
+pressure for this one (doesn't weaken the typed-confirmation safety gate
+either way). 8 tasks in the original plan, 11 commits once review-driven
+fixes are counted. Next: get eyes on this in an actual browser — check all
+6 themes actually look distinct and readable (especially white/gray
+against existing text colors), confirm the delete modal correctly covers
+the full viewport rather than being clipped or mispositioned, and manually
+click through the "type DELETE" flow end-to-end since it hasn't been
+exercised outside of code review.
