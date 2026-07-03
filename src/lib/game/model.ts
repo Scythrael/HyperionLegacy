@@ -51,7 +51,7 @@ export function freshState(): GameState {
 
 export function costFor(moduleKey: ModuleKey, count: number): number {
   const m = MODULES[moduleKey];
-  return m.baseCost * Math.pow(m.costMult, count);
+  return Math.ceil(m.baseCost * Math.pow(m.costMult, count));
 }
 
 // Layer 4 (prestige-persistent) per tech spec §3. The only layer implemented
