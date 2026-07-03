@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import Starfield from "./lib/Starfield.svelte";
+  import Panel from "./lib/Panel.svelte";
   import {
     MODULES,
     RESOURCE_ORDER,
@@ -138,7 +139,7 @@
 <div class="root">
   <Starfield />
   <div class="frame">
-    <header class="panel header">
+    <Panel class="header">
       <div class="header-left">
         <span class="title">FLEET ADMIRAL</span>
         <span class="subtitle">prototype build · single ship · single sector</span>
@@ -156,10 +157,10 @@
           <button class="icon-btn" on:click={() => (devPanelOpen = !devPanelOpen)} title="Toggle debug panel">⚙</button>
         {/if}
       </div>
-    </header>
+    </Panel>
 
     <main class="main">
-      <section class="panel">
+      <Panel>
         <div class="panel-title">RESOURCES</div>
         <div class="resource-grid">
           {#each RESOURCE_ORDER as r}
@@ -169,17 +170,17 @@
             </div>
           {/each}
         </div>
-      </section>
+      </Panel>
 
-      <section class="panel">
+      <Panel>
         <div class="panel-title">TICK</div>
         <div class="tick-bar-track">
           <div class="tick-bar-fill" style="width:{tickProgress * 100}%"></div>
         </div>
         <div class="tick-bar-readout">{tickRemaining.toFixed(1)}s</div>
-      </section>
+      </Panel>
 
-      <section class="panel">
+      <Panel>
         <div class="panel-title">GENERATOR STACK</div>
         <div class="module-list">
           {#each Object.entries(MODULES) as [key, m]}
@@ -208,9 +209,9 @@
             </div>
           {/each}
         </div>
-      </section>
+      </Panel>
 
-      <section class="panel">
+      <Panel>
         <div class="panel-title">PRESTIGE — TIER 1</div>
         <p class="prestige-text">
           Retire this run for Augment Points (√ of lifetime components produced). Resources and modules reset;
@@ -222,10 +223,10 @@
           </div>
           <button class="prestige-btn" on:click={doPrestige}>Prestige</button>
         </div>
-      </section>
+      </Panel>
 
       {#if DEV_MODE_ENV && devPanelOpen}
-        <section class="panel dev-panel">
+        <Panel class="dev-panel">
           <div class="panel-title dev-title">DEBUG PANEL (dev-only)</div>
           <div class="dev-row">
             <span class="dev-label">Speed</span>
@@ -251,10 +252,10 @@
             <button class="dev-btn" on:click={doSave}>Save now</button>
             <button class="dev-btn danger" on:click={resetSave}>Reset save</button>
           </div>
-        </section>
+        </Panel>
       {/if}
 
-      <section class="panel">
+      <Panel>
         <div class="panel-title">LOG</div>
         <div class="log-list">
           {#if logEntries.length === 0}
@@ -264,7 +265,7 @@
             <div class="log-entry">{entry}</div>
           {/each}
         </div>
-      </section>
+      </Panel>
     </main>
   </div>
 </div>
@@ -281,22 +282,6 @@
     max-width: 720px;
     margin: 0 auto;
     padding: 20px 16px 60px;
-  }
-  .panel {
-    padding: 16px;
-    border-radius: 14px;
-    background: var(--color-panel-bg);
-    backdrop-filter: blur(10px);
-    border: 1px solid var(--color-border);
-    box-shadow: 0 0 24px rgba(30, 80, 100, 0.15);
-  }
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 16px;
   }
   .header-left { display: flex; flex-direction: column; }
   .title {
@@ -395,7 +380,6 @@
     letter-spacing: 1px;
     cursor: pointer;
   }
-  .dev-panel { border-color: rgba(251, 191, 36, 0.5); }
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .dev-label { font-size: 11px; color: var(--color-text-secondary); width: 78px; }
