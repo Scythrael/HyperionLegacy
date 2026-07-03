@@ -186,12 +186,15 @@
             {@const count = state.modules[key as ModuleKey]}
             {@const cost = costFor(key as ModuleKey, count)}
             {@const rate = m.baseRate * count * mult}
+            {@const perTick = rate * state.tickDurationSeconds}
             {@const affordable = state.resources.ore >= cost}
             <div class="module-card">
               <div class="module-top">
                 <div>
                   <div class="module-name">{m.label}</div>
-                  <div class="module-rate">{formatNumber(rate)} {m.unit} · owned {count}</div>
+                  <div class="module-rate">
+                    {formatNumber(perTick)} {m.unit.replace("/s", "")}/tick · {formatNumber(rate)} {m.unit} · owned {count}
+                  </div>
                 </div>
                 <button
                   class="buy-btn"
