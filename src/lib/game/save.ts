@@ -1,12 +1,11 @@
-// Save file contract — tech spec §6. Versioned from commit one (Ops §8.E.1),
-// even though there is exactly one version and zero migrations right now.
+// Save file contract — tech spec §6. Versioned from commit one (Ops §8.E.1).
 // When the schema changes: bump SAVE_VERSION, add a migrate_vN_to_vN+1
 // function to MIGRATIONS, and never touch old migrations again.
 
 import LZString from "lz-string";
 import { type GameState } from "./model";
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -17,12 +16,16 @@ export interface SaveFile {
   state: GameState;
 }
 
-// Migration stub. Empty today; this is intentional per Ops §8.E.1 —
-// retrofitting versioning after real saves exist is the thing to avoid.
-// Example of what a future entry looks like:
-//   2: (state: any): GameState => ({ ...state, newField: 0 }),
+// Migration table, keyed by the version a save is migrating FROM.
+// v1 -> v2: tick bar feature (docs/plans/2026-07-02-tick-bar-plan.md, Task 1)
+// added tickDurationSeconds to GameState. Saves made before that field
+// existed need it backfilled to the default of 10 seconds.
+// Per Ops §8.E.1: once a migration ships, it is never edited again — the
+// next schema change gets a new entry (3: ...), not a rewrite of this one.
 type Migration = (state: any) => any;
-const MIGRATIONS: Record<number, Migration> = {};
+const MIGRATIONS: Record<number, Migration> = {
+  1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
+};
 
 export function migrate(save: SaveFile): GameState {
   let state = save.state;
