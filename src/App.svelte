@@ -27,6 +27,7 @@
   let currentTheme: ThemeName = "cyan";
   let optionsPanelOpen = false;
   let deleteModalOpen = false;
+  let deleteConfirmText = "";
   let speed = 1;
   let logEntries: string[] = [];
   let barCycleStart = Date.now();
@@ -135,6 +136,18 @@
     state = freshState();
     createdAt = Date.now();
     pushLog("Save reset.");
+  }
+
+  function confirmDelete() {
+    if (deleteConfirmText !== "DELETE") return;
+    resetSave();
+    deleteModalOpen = false;
+    deleteConfirmText = "";
+  }
+
+  function cancelDelete() {
+    deleteModalOpen = false;
+    deleteConfirmText = "";
   }
 
   function setTheme(name: ThemeName) {
@@ -301,6 +314,21 @@
       </Panel>
     </main>
   </div>
+
+  {#if deleteModalOpen}
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">DELETE SAVE</div>
+        <p class="modal-warning">This will permanently erase your progress. This can't be undone.</p>
+        <p class="modal-instruction">Type <strong>DELETE</strong> to confirm.</p>
+        <input class="modal-input" type="text" bind:value={deleteConfirmText} />
+        <div class="modal-row">
+          <button class="dev-btn" on:click={cancelDelete}>Cancel</button>
+          <button class="dev-btn danger" disabled={deleteConfirmText !== "DELETE"} on:click={confirmDelete}>Delete</button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -451,4 +479,32 @@
   .log-list { display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; }
   .log-empty { font-size: 12px; color: var(--color-text-dim); }
   .log-entry { font-size: 12px; color: #9fc4cc; font-family: var(--font-mono); }
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 20px;
+  }
+  .modal-dialog {
+    max-width: 360px;
+    width: 100%;
+  }
+  .modal-warning { font-size: 13px; color: var(--color-danger); line-height: 1.5; margin: 0 0 10px; }
+  .modal-instruction { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 8px; }
+  .modal-input {
+    width: 100%;
+    padding: 8px 10px;
+    margin-bottom: 14px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid var(--color-border-strong);
+    border-radius: 8px;
+    color: var(--color-text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .modal-row { display: flex; justify-content: flex-end; gap: 8px; }
 </style>
