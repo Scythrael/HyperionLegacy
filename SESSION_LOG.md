@@ -35,6 +35,7 @@ accents partway through, which was fixed and re-reviewed before moving on.
 Options menu, theme switching, and an in-game delete-save option are
 explicitly deferred to a follow-up design. Next: get eyes on this in an
 actual browser and tune pixel values (chamfer size, glow intensity, corner
-accent placement) before considering it finished — in particular, check
-whether the tick bar's 4px chamfer looks awkward at very low fill
-percentages, flagged but not confirmed during review.
+accent placement) before considering it finished — the tick bar's fill is
+geometrically safe at any width (it's cropped by its already-clipped
+parent, not given its own clip-path), so the low-fill-percentage look is
+purely an aesthetic gut-check, not a suspected bug.
