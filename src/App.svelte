@@ -15,6 +15,7 @@
   import { tick, prestige } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave } from "./lib/game/save";
+  import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
 
   // DEV_MODE — Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
@@ -23,6 +24,8 @@
   let state: GameState = freshState();
   let createdAt = Date.now();
   let devPanelOpen = false;
+  let currentTheme: ThemeName = "cyan";
+  let optionsPanelOpen = false;
   let speed = 1;
   let logEntries: string[] = [];
   let barCycleStart = Date.now();
@@ -40,6 +43,9 @@
   }
 
   onMount(() => {
+    currentTheme = loadTheme();
+    document.documentElement.dataset.theme = currentTheme;
+
     const loadedSave = loadFromLocalStorage();
     if (loadedSave) {
       createdAt = loadedSave.createdAt;
@@ -128,6 +134,12 @@
     state = freshState();
     createdAt = Date.now();
     pushLog("Save reset.");
+  }
+
+  function setTheme(name: ThemeName) {
+    currentTheme = name;
+    document.documentElement.dataset.theme = name;
+    saveTheme(name);
   }
 
   $: mult = globalMultiplier(state);
