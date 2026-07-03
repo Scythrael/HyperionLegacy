@@ -15,3 +15,8 @@ write it down so you don't relitigate it later.
 - Corrupt-save handling doesn't yet surface a raw-export option to the
   player (tech spec §6 requirement) — currently just fails to load silently
   and starts fresh.
+- Switching the dev panel's speed presets mid-cycle causes the tick bar to
+  visibly jump, since `barCycleStart` isn't reset when `speed` changes.
+  Dev-only control gated behind `DEV_MODE_ENV`, never seen by a normal
+  player, so preserving fractional progress across a speed change isn't
+  worth the added complexity.

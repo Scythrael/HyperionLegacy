@@ -19,3 +19,9 @@ addition (missions) or push toward the boss-encounter design question
 both design docs). Confirmed GitHub remote and Vercel preview deployment
 are already live. Next: continue building per §10.6 (missions or boss
 encounter design, §5.1).
+
+**Session 3** — Added the tick bar: resource production now grants in discrete
+lumps on a 10-second cycle (`tickDurationSeconds` on `GameState`, persisted
+through saves and prestige) instead of continuous smooth accrual, with a new
+UI panel showing cycle progress and time remaining. Next: continue per
+§10.6 (missions or the boss-encounter design question, §5.1).
