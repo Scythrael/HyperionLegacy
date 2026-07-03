@@ -18,7 +18,7 @@
     background: var(--color-panel-bg);
     backdrop-filter: blur(10px);
     border: 1px solid var(--color-border);
-    filter: drop-shadow(0 0 8px rgba(103, 232, 249, 0.35));
+    filter: drop-shadow(0 0 8px rgba(var(--color-accent-rgb), 0.35));
     clip-path: polygon(
       14px 0,
       calc(100% - 14px) 0,
