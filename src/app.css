@@ -1,0 +1,46 @@
+/* Theme tokens — tech spec §9.6.2. Change the palette here, never inline. */
+:root {
+  --color-bg-deep: #060a12;
+  --color-bg-mid: #0a1120;
+  --color-panel-bg: rgba(20, 40, 60, 0.32);
+  --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+  --color-border: rgba(103, 232, 249, 0.18);
+  --color-border-strong: rgba(103, 232, 249, 0.4);
+  --color-accent: #67e8f9;
+  --color-accent-bright: #8ff0e0;
+  --color-text-primary: #e6f4f8;
+  --color-text-secondary: #8fa3ad;
+  --color-text-dim: #5a7a85;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+  --color-success: #34d399;
+
+  --font-display: "Orbitron", sans-serif;
+  --font-body: "Space Grotesk", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(180deg, var(--color-bg-deep) 0%, var(--color-bg-mid) 60%, #081018 100%);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+button {
+  font-family: var(--font-body);
+}
+
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+}
