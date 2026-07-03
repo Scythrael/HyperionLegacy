@@ -34,6 +34,7 @@ export interface GameState {
   augmentPoints: number;
   prestigeCount: number;
   gameTimeSeconds: number; // accumulated in-game seconds, per tech spec §1
+  tickDurationSeconds: number; // length of one tick-bar cycle; shrinks via future bonuses
 }
 
 export function freshState(): GameState {
@@ -44,6 +45,7 @@ export function freshState(): GameState {
     augmentPoints: 0,
     prestigeCount: 0,
     gameTimeSeconds: 0,
+    tickDurationSeconds: 10,
   };
 }
 
