@@ -199,25 +199,6 @@
         </div>
       </Panel>
 
-      {#if optionsPanelOpen}
-        <Panel>
-          <div class="panel-title">OPTIONS</div>
-          <div class="theme-row">
-            {#each THEME_NAMES as name}
-              <button
-                class="theme-swatch"
-                class:active={currentTheme === name}
-                style="background:{THEME_PREVIEW_COLORS[name]}"
-                title={name}
-                aria-label={name}
-                on:click={() => setTheme(name)}
-              ></button>
-            {/each}
-          </div>
-          <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
-        </Panel>
-      {/if}
-
       <Panel>
         <div class="panel-title">TICK</div>
         <div class="tick-bar-track">
@@ -314,6 +295,30 @@
       </Panel>
     </main>
   </div>
+
+  {#if optionsPanelOpen}
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">OPTIONS</div>
+        <div class="theme-row">
+          {#each THEME_NAMES as name}
+            <button
+              class="theme-swatch"
+              class:active={currentTheme === name}
+              style="background:{THEME_PREVIEW_COLORS[name]}"
+              title={name}
+              aria-label={name}
+              on:click={() => setTheme(name)}
+            ></button>
+          {/each}
+        </div>
+        <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
+        <div class="modal-row">
+          <button class="dev-btn" on:click={() => (optionsPanelOpen = false)}>Close</button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
 
   {#if deleteModalOpen}
     <div class="modal-backdrop">
@@ -484,6 +489,7 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(6px);
     display: flex;
     align-items: center;
     justify-content: center;
