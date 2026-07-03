@@ -26,6 +26,7 @@
   let logEntries: string[] = [];
   let barCycleStart = Date.now();
   let nowTick = Date.now();
+  let paused = false;
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
 
@@ -56,9 +57,21 @@
     // multiple game-ticks just batch into that one visual cycle, which is
     // still correct because tick() is closed-form (see design doc).
     tickHandle = setInterval(() => {
-      if (speed === 0) return; // paused — bar and resources both freeze
-      const barSeconds = Math.max(1, state.tickDurationSeconds / speed);
+      if (speed === 0) {
+        paused = true;
+        return; // paused — bar and resources both freeze
+      }
       const now = Date.now();
+      if (paused) {
+        // Resuming: discard the paused wall-clock gap entirely rather than
+        // letting it read as elapsed cycle time (which would fire an
+        // instant, unearned tick on resume).
+        barCycleStart = now;
+        nowTick = now;
+        paused = false;
+        return;
+      }
+      const barSeconds = Math.max(1, state.tickDurationSeconds / speed);
       nowTick = now;
       const progress = (now - barCycleStart) / 1000 / barSeconds;
       if (progress >= 1) {
