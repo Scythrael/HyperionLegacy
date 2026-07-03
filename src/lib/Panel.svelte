@@ -68,4 +68,15 @@
     width: 10px;
     transform: rotate(-45deg);
   }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .dev-panel {
+    border-color: rgba(251, 191, 36, 0.5);
+  }
 </style>
