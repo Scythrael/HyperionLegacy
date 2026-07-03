@@ -5,6 +5,10 @@
 
 <section class="panel {className}">
   <slot />
+  <span class="corner corner-tl" aria-hidden="true"></span>
+  <span class="corner corner-tr" aria-hidden="true"></span>
+  <span class="corner corner-bl" aria-hidden="true"></span>
+  <span class="corner corner-br" aria-hidden="true"></span>
 </section>
 
 <style>
@@ -25,5 +29,36 @@
       0 calc(100% - 14px),
       0 14px
     );
+  }
+  .corner {
+    position: absolute;
+    width: 12px;
+    height: 2px;
+    background: var(--color-accent-bright);
+    pointer-events: none;
+  }
+  .corner-tl {
+    top: 4px;
+    left: -2px;
+    transform: rotate(45deg);
+    transform-origin: left center;
+  }
+  .corner-tr {
+    top: 4px;
+    right: -2px;
+    transform: rotate(-45deg);
+    transform-origin: right center;
+  }
+  .corner-bl {
+    bottom: 4px;
+    left: -2px;
+    transform: rotate(-45deg);
+    transform-origin: left center;
+  }
+  .corner-br {
+    bottom: 4px;
+    right: -2px;
+    transform: rotate(45deg);
+    transform-origin: right center;
   }
 </style>
