@@ -166,8 +166,9 @@
           <div class="stat-value">×{mult.toFixed(2)}</div>
         </div>
         {#if DEV_MODE_ENV}
-          <button class="icon-btn" on:click={() => (devPanelOpen = !devPanelOpen)} title="Toggle debug panel">⚙</button>
+          <button class="icon-btn" on:click={() => (devPanelOpen = !devPanelOpen)} title="Toggle debug panel">Dev</button>
         {/if}
+        <button class="icon-btn" on:click={() => (optionsPanelOpen = !optionsPanelOpen)} title="Options">⚙</button>
       </div>
     </Panel>
 
