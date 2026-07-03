@@ -295,15 +295,15 @@
   .stat-pill {
     padding: 6px 10px;
     border-radius: 8px;
-    background: rgba(103, 232, 249, 0.08);
-    border: 1px solid rgba(103, 232, 249, 0.2);
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
     text-align: right;
   }
   .stat-label { font-size: 9px; color: var(--color-text-secondary); text-transform: uppercase; }
   .stat-value { font-family: var(--font-mono); font-size: 13px; color: var(--color-accent); }
   .icon-btn {
-    background: rgba(103, 232, 249, 0.1);
-    border: 1px solid rgba(103, 232, 249, 0.25);
+    background: rgba(var(--color-accent-rgb), 0.1);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.25);
     border-radius: 8px;
     padding: 6px 10px;
     color: var(--color-accent);
@@ -322,7 +322,7 @@
     padding: 10px 8px;
     border-radius: 10px;
     background: var(--color-panel-bg-strong);
-    border: 1px solid rgba(103, 232, 249, 0.14);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
     text-align: center;
   }
   .resource-label { font-size: 10px; color: var(--color-text-secondary); margin-bottom: 4px; }
@@ -330,7 +330,7 @@
   .tick-bar-track {
     height: 10px;
     background: var(--color-panel-bg-strong);
-    border: 1px solid rgba(103, 232, 249, 0.14);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
     overflow: hidden;
     clip-path: polygon(
       4px 0,
@@ -360,13 +360,13 @@
     padding: 12px;
     border-radius: 10px;
     background: var(--color-panel-bg-strong);
-    border: 1px solid rgba(103, 232, 249, 0.12);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
   }
   .module-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
   .module-name { font-size: 13px; font-weight: 600; }
   .module-rate { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); margin-top: 2px; }
   .buy-btn {
-    background: rgba(103, 232, 249, 0.15);
+    background: rgba(var(--color-accent-rgb), 0.15);
     border: 1px solid var(--color-border-strong);
     border-radius: 8px;
     padding: 8px 10px;
