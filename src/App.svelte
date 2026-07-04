@@ -121,6 +121,7 @@
       ensureCaptainCycles(now);
       let captains = state.captains;
       let anyFired = false;
+      const fleetMult = globalMultiplier(state); // invariant for this whole poll -- nothing in this loop touches augmentPoints
 
       for (let i = 0; i < captains.length; i++) {
         const captain = captains[i];
@@ -129,7 +130,6 @@
         cycle.nowTick = now;
         const progress = (now - cycle.barCycleStart) / 1000 / barSeconds;
         if (progress >= 1) {
-          const fleetMult = globalMultiplier(state);
           const gameSecondsThisCycle = barSeconds * speed;
           if (!anyFired) {
             captains = [...captains]; // copy on first write this poll
