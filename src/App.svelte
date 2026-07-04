@@ -9,7 +9,11 @@
     freshState,
     costFor,
     globalMultiplier,
+    isModuleUnlocked,
+    isResourceUnlocked,
+    RESEARCH_PROJECTS,
     type ModuleKey,
+    type ResearchKey,
     type GameState,
   } from "./lib/game/model";
   import { tick, prestige } from "./lib/game/tick";
@@ -104,6 +108,7 @@
   });
 
   function buyModule(key: ModuleKey) {
+    if (!isModuleUnlocked(key, state)) return;
     const cost = costFor(key, state.modules[key]);
     if (state.resources.ore < cost) return;
     state = {
@@ -154,6 +159,17 @@
     currentTheme = name;
     document.documentElement.dataset.theme = name;
     saveTheme(name);
+  }
+
+  function startResearch(key: ResearchKey) {
+    const project = RESEARCH_PROJECTS[key];
+    if (state.resources.components < project.costComponents) return;
+    state = {
+      ...state,
+      resources: { ...state.resources, components: state.resources.components - project.costComponents },
+      research: { ...state.research, [key]: { ...state.research[key], started: true } },
+    };
+    pushLog(`Research started: ${project.label}.`);
   }
 
   $: mult = globalMultiplier(state);
