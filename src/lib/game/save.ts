@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import { type GameState } from "./model";
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -21,7 +21,22 @@ export interface SaveFile {
 // v2 -> v3: research feature (docs/plans/2026-07-03-research-plan.md, Task 3)
 // added `research` to GameState. Saves made before that field existed need
 // it backfilled to a fresh, not-yet-started alloySynthesis entry.
-// Per Ops §8.E.1: MIGRATIONS[1] is never edited again now that it's shipped.
+// v3 -> v4: HOTFIX. The same research feature also added a 4th module/
+// resource pair (modules.synthesizer, resources.alloys) to MODULES/
+// RESOURCE_KEY, but MIGRATIONS[2] only backfilled `research` -- it never
+// backfilled these two fields. Any save migrated through the *unpatched*
+// MIGRATIONS[2] already got re-stamped as v3 by the next autosave (serialize()
+// always writes the current SAVE_VERSION), but still has an object literal
+// missing the `synthesizer`/`alloys` keys entirely -- not just a numeric
+// zero. That undefined count makes costFor() -> Math.pow(x, undefined) ->
+// NaN, which makes affordable = ore >= NaN always false: Synthesizer looks
+// permanently unaffordable no matter how much ore you have.
+// Because those already-v3-stamped saves will never re-run MIGRATIONS[2]
+// (their version field already reads 3), patching MIGRATIONS[2] cannot fix
+// them. Per Ops §8.E.1 (never edit a shipped migration body), this repair
+// has to be a new v3 -> v4 step instead, so it runs for both the
+// already-corrupted v3 saves and any v1/v2 save still chaining through.
+// Per Ops §8.E.1: MIGRATIONS[1] and MIGRATIONS[2] are never edited again now that they're shipped.
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -33,6 +48,11 @@ const MIGRATIONS: Record<number, Migration> = {
     // (serialize() always writes a fully-typed GameState), but worth
     // knowing if a future migration or refactor ever produces a partial one.
     research: state.research ?? { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
+  }),
+  3: (state: any): GameState => ({
+    ...state,
+    modules: { ...state.modules, synthesizer: state.modules?.synthesizer ?? 0 },
+    resources: { ...state.resources, alloys: state.resources?.alloys ?? 0 },
   }),
 };
 
