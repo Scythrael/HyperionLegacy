@@ -418,7 +418,7 @@
     margin-bottom: 12px;
     font-weight: 600;
   }
-  .resource-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .resource-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .resource-card {
     padding: 10px 8px;
     border-radius: 10px;
@@ -428,7 +428,7 @@
   }
   .resource-label { font-size: 10px; color: var(--color-text-secondary); margin-bottom: 4px; }
   .resource-value { font-family: var(--font-mono); font-size: 16px; }
-  .resource-value.locked { color: var(--color-text-dim); font-size: 18px; }
+  .resource-value.locked { color: var(--color-text-dim); }
   .tick-bar-track {
     height: 10px;
     background: var(--color-panel-bg-strong);
