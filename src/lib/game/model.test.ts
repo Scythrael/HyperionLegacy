@@ -7,6 +7,7 @@ import {
   isResourceUnlocked,
   captainMultiplier,
   specializationMultiplier,
+  fleetLifetimeComponents,
   SPECIALIZATIONS,
 } from "./model";
 
@@ -142,5 +143,18 @@ describe("SPECIALIZATIONS — launch set", () => {
     expect(keys).toHaveLength(3);
     const resources = keys.map((k) => SPECIALIZATIONS[k as keyof typeof SPECIALIZATIONS].resource);
     expect(resources.sort()).toEqual(["components", "ingots", "ore"]);
+  });
+});
+
+describe("fleetLifetimeComponents — shared by prestige()'s gate and the UI preview", () => {
+  it("sums lifetimeComponents across every captain", () => {
+    const state = freshState();
+    state.captains[0].lifetimeComponents = 36;
+    state.captains[1].lifetimeComponents = 64;
+    expect(fleetLifetimeComponents(state)).toBe(100);
+  });
+
+  it("is 0 for a fresh state", () => {
+    expect(fleetLifetimeComponents(freshState())).toBe(0);
   });
 });

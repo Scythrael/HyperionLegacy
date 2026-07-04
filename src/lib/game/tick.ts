@@ -18,6 +18,7 @@ import {
   specializationMultiplier,
   freshCaptains,
   freshCaptainStack,
+  fleetLifetimeComponents,
   RESEARCH_PROJECTS,
   type GameState,
   type CaptainState,
@@ -116,8 +117,7 @@ export function captainPrestige(
 // specialization, captainPoints, individual prestige count, and stack
 // progress along with it. gameTimeSeconds still carries forward unchanged.
 export function prestige(state: GameState): { next: GameState; gained: number } {
-  const totalLifetimeComponents = state.captains.reduce((sum, c) => sum + c.lifetimeComponents, 0);
-  const gained = Math.floor(Math.sqrt(totalLifetimeComponents));
+  const gained = Math.floor(Math.sqrt(fleetLifetimeComponents(state)));
   if (gained <= 0) return { next: state, gained: 0 };
 
   const next: GameState = {

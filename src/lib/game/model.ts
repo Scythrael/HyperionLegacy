@@ -188,6 +188,14 @@ export function globalMultiplier(state: GameState): number {
   return 1 + state.augmentPoints * 0.1;
 }
 
+// Summed lifetime components across every captain -- the gate Fleet Prestige
+// checks (tick.ts's prestige()) and the exact figure App.svelte's Fleet
+// Prestige panel previews. Shared here so the two can never drift apart if
+// this formula ever changes (e.g. a future weighting or cap).
+export function fleetLifetimeComponents(state: GameState): number {
+  return state.captains.reduce((sum, c) => sum + c.lifetimeComponents, 0);
+}
+
 // Per-captain multiplier, from that captain's OWN captainPrestige history.
 // Same shape as globalMultiplier, deliberately -- a captain's own prestige
 // track is a smaller, faster echo of the fleet-wide one.

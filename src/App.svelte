@@ -11,6 +11,7 @@
     globalMultiplier,
     captainMultiplier,
     specializationMultiplier,
+    fleetLifetimeComponents,
     isModuleUnlocked,
     isResourceUnlocked,
     RESEARCH_PROJECTS,
@@ -436,8 +437,7 @@
 
       <Panel>
         <div class="panel-title">FLEET PRESTIGE — TIER 2</div>
-        {@const fleetLifetimeComponents = state.captains.reduce((sum, c) => sum + c.lifetimeComponents, 0)}
-        {@const fleetGain = Math.floor(Math.sqrt(fleetLifetimeComponents))}
+        {@const fleetGain = Math.floor(Math.sqrt(fleetLifetimeComponents(state)))}
         <p class="prestige-text">
           Retire the WHOLE FLEET for Augment Points (√ of combined lifetime components across every
           captain). Resets every captain back to the starting roster of 2 — wiping all specializations,
