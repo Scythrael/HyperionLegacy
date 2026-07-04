@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import { type GameState } from "./model";
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -17,14 +17,23 @@ export interface SaveFile {
 }
 
 // Migration table, keyed by the version a save is migrating FROM.
-// v1 -> v2: tick bar feature (docs/plans/2026-07-02-tick-bar-plan.md, Task 1)
-// added tickDurationSeconds to GameState. Saves made before that field
-// existed need it backfilled to the default of 10 seconds.
-// Per Ops §8.E.1: once a migration ships, it is never edited again — the
-// next schema change gets a new entry (3: ...), not a rewrite of this one.
+// v1 -> v2: tick bar feature added tickDurationSeconds (see MIGRATIONS[1]).
+// v2 -> v3: research feature (docs/plans/2026-07-03-research-plan.md, Task 3)
+// added `research` to GameState. Saves made before that field existed need
+// it backfilled to a fresh, not-yet-started alloySynthesis entry.
+// Per Ops §8.E.1: MIGRATIONS[1] is never edited again now that it's shipped.
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
+  2: (state: any): GameState => ({
+    ...state,
+    // `??` only catches `research` being entirely absent (the actual v2
+    // shape). It does NOT repair a present-but-malformed research object
+    // (e.g. `research: {}`) -- not reachable through any current code path
+    // (serialize() always writes a fully-typed GameState), but worth
+    // knowing if a future migration or refactor ever produces a partial one.
+    research: state.research ?? { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
+  }),
 };
 
 export function migrate(save: SaveFile): GameState {

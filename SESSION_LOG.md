@@ -64,3 +64,28 @@ against existing text colors), confirm the delete modal correctly covers
 the full viewport rather than being clipped or mispositioned, and manually
 click through the "type DELETE" flow end-to-end since it hasn't been
 exercised outside of code review.
+
+**Session 6** — Added the Research system (right-sized against the design
+doc's fuller §4.8 vision, which assumes Energy/materials/synthesis that
+don't exist in this prototype yet): one timed project, Alloy Synthesis
+(500 components, 180 game-seconds), unlocking a 4th resource+module tier
+(alloys/Synthesizer) that slots into the existing generic MODULES/
+RESOURCE_KEY patterns — `tick()`'s production loop needed zero changes to
+make alloys accrue once unlocked. Research progresses on the same
+game-time clock as everything else (verified with the same "one big jump
+equals many small ticks" closed-form test used for resource production),
+so it advances correctly through offline catch-up and the dev speed
+multiplier rather than needing a separate wall-clock timer. Generator
+Stack and Resources both show visible locked placeholders for
+Synthesizer/alloys until research completes, per the design doc's
+"visible walls are motivating" principle already applied to the panel
+redesign. 7 tasks in the original plan, 12 commits once review-driven
+fixes are counted — notably a `.resource-grid` CSS fix (still hardcoded
+to 3 columns despite `RESOURCE_ORDER` having 4 entries since Task 1,
+which is what actually made the 4th, locked alloys card render instead of
+wrapping onto its own row) and a defensive clamp on the research progress
+bar to `[0,1]`. Next: get eyes on this in an actual browser — start
+research, confirm the progress bar advances and completes, confirm
+Synthesizer actually becomes buyable and starts producing alloys
+afterward, and try the dev panel's offline-simulation buttons to confirm
+research also completes correctly across a simulated offline gap.

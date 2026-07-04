@@ -9,7 +9,11 @@
     freshState,
     costFor,
     globalMultiplier,
+    isModuleUnlocked,
+    isResourceUnlocked,
+    RESEARCH_PROJECTS,
     type ModuleKey,
+    type ResearchKey,
     type GameState,
   } from "./lib/game/model";
   import { tick, prestige } from "./lib/game/tick";
@@ -104,6 +108,7 @@
   });
 
   function buyModule(key: ModuleKey) {
+    if (!isModuleUnlocked(key, state)) return;
     const cost = costFor(key, state.modules[key]);
     if (state.resources.ore < cost) return;
     state = {
@@ -156,6 +161,19 @@
     saveTheme(name);
   }
 
+  function startResearch(key: ResearchKey) {
+    const project = RESEARCH_PROJECTS[key];
+    const entry = state.research[key];
+    if (entry.started || entry.completed) return; // not safe to call twice by construction otherwise
+    if (state.resources.components < project.costComponents) return;
+    state = {
+      ...state,
+      resources: { ...state.resources, components: state.resources.components - project.costComponents },
+      research: { ...state.research, [key]: { ...entry, started: true } },
+    };
+    pushLog(`Research started: ${project.label}.`);
+  }
+
   $: mult = globalMultiplier(state);
   $: barSeconds = Math.max(1, state.tickDurationSeconds / (speed || 1));
   $: tickProgress = Math.min(1, Math.max(0, (nowTick - barCycleStart) / 1000 / barSeconds));
@@ -191,9 +209,14 @@
         <div class="panel-title">RESOURCES</div>
         <div class="resource-grid">
           {#each RESOURCE_ORDER as r}
+            {@const unlocked = isResourceUnlocked(r, state)}
             <div class="resource-card">
               <div class="resource-label">{RESOURCE_LABEL[r]}</div>
-              <div class="resource-value">{formatNumber(state.resources[r])}</div>
+              {#if unlocked}
+                <div class="resource-value">{formatNumber(state.resources[r])}</div>
+              {:else}
+                <div class="resource-value locked">🔒</div>
+              {/if}
             </div>
           {/each}
         </div>
@@ -211,31 +234,72 @@
         <div class="panel-title">GENERATOR STACK</div>
         <div class="module-list">
           {#each Object.entries(MODULES) as [key, m]}
-            {@const count = state.modules[key as ModuleKey]}
-            {@const cost = costFor(key as ModuleKey, count)}
-            {@const rate = m.baseRate * count * mult}
-            {@const perTick = rate * state.tickDurationSeconds}
-            {@const affordable = state.resources.ore >= cost}
-            <div class="module-card">
-              <div class="module-top">
-                <div>
-                  <div class="module-name">{m.label}</div>
-                  <div class="module-rate">
-                    {formatNumber(perTick)} {m.unit.replace("/s", "")}/tick · {formatNumber(rate)} {m.unit} · owned {count}
+            {@const unlocked = isModuleUnlocked(key as ModuleKey, state)}
+            {#if unlocked}
+              {@const count = state.modules[key as ModuleKey]}
+              {@const cost = costFor(key as ModuleKey, count)}
+              {@const rate = m.baseRate * count * mult}
+              {@const perTick = rate * state.tickDurationSeconds}
+              {@const affordable = state.resources.ore >= cost}
+              <div class="module-card">
+                <div class="module-top">
+                  <div>
+                    <div class="module-name">{m.label}</div>
+                    <div class="module-rate">
+                      {formatNumber(perTick)} {m.unit.replace("/s", "")}/tick · {formatNumber(rate)} {m.unit} · owned {count}
+                    </div>
+                  </div>
+                  <button
+                    class="buy-btn"
+                    disabled={!affordable}
+                    style="opacity:{affordable ? 1 : 0.4}"
+                    on:click={() => buyModule(key as ModuleKey)}
+                  >
+                    Buy · {formatNumber(cost)} ore
+                  </button>
+                </div>
+              </div>
+            {:else}
+              <div class="module-card locked">
+                <div class="module-top">
+                  <div>
+                    <div class="module-name">{m.label}</div>
+                    <div class="module-rate">🔒 Locked — requires {RESEARCH_PROJECTS.alloySynthesis.label} research</div>
                   </div>
                 </div>
-                <button
-                  class="buy-btn"
-                  disabled={!affordable}
-                  style="opacity:{affordable ? 1 : 0.4}"
-                  on:click={() => buyModule(key as ModuleKey)}
-                >
-                  Buy · {formatNumber(cost)} ore
-                </button>
               </div>
-            </div>
+            {/if}
           {/each}
         </div>
+      </Panel>
+
+      <Panel>
+        <div class="panel-title">RESEARCH</div>
+        {#if state.research.alloySynthesis.completed}
+          <p class="research-status">✓ {RESEARCH_PROJECTS.alloySynthesis.label} — Complete</p>
+        {:else if state.research.alloySynthesis.started}
+          {@const project = RESEARCH_PROJECTS.alloySynthesis}
+          {@const progress = Math.min(1, state.research.alloySynthesis.progressSeconds / project.durationSeconds)}
+          {@const remaining = Math.max(0, project.durationSeconds - state.research.alloySynthesis.progressSeconds)}
+          <div class="research-name">{project.label}</div>
+          <div class="research-bar-track">
+            <div class="research-bar-fill" style="width:{progress * 100}%"></div>
+          </div>
+          <div class="research-readout">{remaining.toFixed(0)}s remaining</div>
+        {:else}
+          {@const project = RESEARCH_PROJECTS.alloySynthesis}
+          {@const affordable = state.resources.components >= project.costComponents}
+          <div class="research-name">{project.label}</div>
+          <div class="research-cost">Cost: {formatNumber(project.costComponents)} components</div>
+          <button
+            class="buy-btn"
+            disabled={!affordable}
+            style="opacity:{affordable ? 1 : 0.4}"
+            on:click={() => startResearch("alloySynthesis")}
+          >
+            Start Research
+          </button>
+        {/if}
       </Panel>
 
       <Panel>
@@ -383,7 +447,7 @@
     margin-bottom: 12px;
     font-weight: 600;
   }
-  .resource-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .resource-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .resource-card {
     padding: 10px 8px;
     border-radius: 10px;
@@ -393,6 +457,7 @@
   }
   .resource-label { font-size: 10px; color: var(--color-text-secondary); margin-bottom: 4px; }
   .resource-value { font-family: var(--font-mono); font-size: 16px; }
+  .resource-value.locked { color: var(--color-text-dim); }
   .tick-bar-track {
     height: 10px;
     background: var(--color-panel-bg-strong);
@@ -421,6 +486,32 @@
     color: var(--color-text-secondary);
     text-align: right;
   }
+  .research-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .research-cost { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 10px; }
+  .research-status { font-size: 13px; color: var(--color-success); margin: 0; }
+  .research-bar-track {
+    height: 10px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    overflow: hidden;
+    margin-bottom: 6px;
+    clip-path: polygon(
+      4px 0,
+      calc(100% - 4px) 0,
+      100% 4px,
+      100% calc(100% - 4px),
+      calc(100% - 4px) 100%,
+      4px 100%,
+      0 calc(100% - 4px),
+      0 4px
+    );
+  }
+  .research-bar-fill {
+    height: 100%;
+    background: var(--color-accent);
+    transition: width 0.2s linear;
+  }
+  .research-readout { font-size: 11px; color: var(--color-text-secondary); text-align: right; }
   .module-list { display: flex; flex-direction: column; gap: 10px; }
   .module-card {
     padding: 12px;
@@ -428,6 +519,7 @@
     background: var(--color-panel-bg-strong);
     border: 1px solid rgba(var(--color-accent-rgb), 0.12);
   }
+  .module-card.locked { opacity: 0.5; }
   .module-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
   .module-name { font-size: 13px; font-weight: 600; }
   .module-rate { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); margin-top: 2px; }
