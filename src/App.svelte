@@ -9,12 +9,17 @@
     freshState,
     costFor,
     globalMultiplier,
+    captainMultiplier,
+    specializationMultiplier,
     isModuleUnlocked,
     isResourceUnlocked,
     RESEARCH_PROJECTS,
+    SPECIALIZATIONS,
     type ModuleKey,
     type ResearchKey,
+    type SpecializationKey,
     type GameState,
+    type CaptainState,
   } from "./lib/game/model";
   import { tick, tickCaptainStack, prestige, captainPrestige } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
@@ -34,6 +39,7 @@
   let deleteConfirmText = "";
   let speed = 1;
   let logEntries: string[] = [];
+  let activeCaptainIndex = 0;
   let paused = false;
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
@@ -159,15 +165,22 @@
     clearInterval(saveHandle);
   });
 
+  function updateActiveCaptain(updater: (c: CaptainState) => CaptainState) {
+    const captains = [...state.captains];
+    captains[activeCaptainIndex] = updater(captains[activeCaptainIndex]);
+    state = { ...state, captains };
+  }
+
   function buyModule(key: ModuleKey) {
-    if (!isModuleUnlocked(key, state)) return;
-    const cost = costFor(key, state.modules[key]);
-    if (state.resources.ore < cost) return;
-    state = {
-      ...state,
-      resources: { ...state.resources, ore: state.resources.ore - cost },
-      modules: { ...state.modules, [key]: state.modules[key] + 1 },
-    };
+    const captain = activeCaptain;
+    if (!isModuleUnlocked(key, captain)) return;
+    const cost = costFor(key, captain.modules[key]);
+    if (captain.resources.ore < cost) return;
+    updateActiveCaptain((c) => ({
+      ...c,
+      resources: { ...c.resources, ore: c.resources.ore - cost },
+      modules: { ...c.modules, [key]: c.modules[key] + 1 },
+    }));
   }
 
   function doPrestige() {
@@ -178,14 +191,14 @@
     doSave();
   }
 
-  function grantResource(resource: keyof GameState["resources"], amount: number) {
-    state = { ...state, resources: { ...state.resources, [resource]: state.resources[resource] + amount } };
-    pushLog(`[DEV] Granted ${formatNumber(amount)} ${resource}.`);
+  function grantResource(resource: keyof CaptainState["resources"], amount: number) {
+    updateActiveCaptain((c) => ({ ...c, resources: { ...c.resources, [resource]: c.resources[resource] + amount } }));
+    pushLog(`[${activeCaptain.label}] [DEV] Granted ${formatNumber(amount)} ${resource}.`);
   }
 
   function simulateOffline(hours: number) {
-    state = tick(hours * 3600, state);
-    pushLog(`[DEV] Simulated ${hours}h offline.`);
+    state = tick(hours * 3600, state); // fleet-wide: advances every captain, matches real offline catch-up
+    pushLog(`[DEV] Simulated ${hours}h offline for the whole fleet.`);
   }
 
   function resetSave() {
@@ -215,18 +228,24 @@
 
   function startResearch(key: ResearchKey) {
     const project = RESEARCH_PROJECTS[key];
-    const entry = state.research[key];
+    const captain = activeCaptain;
+    const entry = captain.research[key];
     if (entry.started || entry.completed) return; // not safe to call twice by construction otherwise
-    if (state.resources.components < project.costComponents) return;
-    state = {
-      ...state,
-      resources: { ...state.resources, components: state.resources.components - project.costComponents },
-      research: { ...state.research, [key]: { ...entry, started: true } },
-    };
-    pushLog(`Research started: ${project.label}.`);
+    if (captain.resources.components < project.costComponents) return;
+    updateActiveCaptain((c) => ({
+      ...c,
+      resources: { ...c.resources, components: c.resources.components - project.costComponents },
+      research: { ...c.research, [key]: { ...entry, started: true } },
+    }));
+    pushLog(`[${captain.label}] Research started: ${project.label}.`);
   }
 
   $: mult = globalMultiplier(state);
+  $: activeCaptain = state.captains[activeCaptainIndex];
+  $: activeCycle = captainCycles[activeCaptain?.id] ?? { barCycleStart: Date.now(), nowTick: Date.now() };
+  $: activeBarSeconds = Math.max(1, (activeCaptain?.tickDurationSeconds ?? 10) / (speed || 1));
+  $: activeTickProgress = Math.min(1, Math.max(0, (activeCycle.nowTick - activeCycle.barCycleStart) / 1000 / activeBarSeconds));
+  $: activeTickRemaining = Math.max(0, activeBarSeconds * (1 - activeTickProgress));
 </script>
 
 <div class="root">
@@ -235,7 +254,7 @@
     <Panel class="header">
       <div class="header-left">
         <span class="title">FLEET ADMIRAL</span>
-        <span class="subtitle">prototype build · single ship · single sector</span>
+        <span class="subtitle">prototype build · multi-captain · single sector</span>
       </div>
       <div class="header-right">
         <div class="stat-pill">
@@ -254,15 +273,23 @@
     </Panel>
 
     <main class="main">
+      <div class="captain-tabs">
+        {#each state.captains as captain, i}
+          <button class="captain-tab" class:active={i === activeCaptainIndex} on:click={() => (activeCaptainIndex = i)}>
+            {captain.label}
+          </button>
+        {/each}
+      </div>
+
       <Panel>
         <div class="panel-title">RESOURCES</div>
         <div class="resource-grid">
           {#each RESOURCE_ORDER as r}
-            {@const unlocked = isResourceUnlocked(r, state)}
+            {@const unlocked = isResourceUnlocked(r, activeCaptain)}
             <div class="resource-card">
               <div class="resource-label">{RESOURCE_LABEL[r]}</div>
               {#if unlocked}
-                <div class="resource-value">{formatNumber(state.resources[r])}</div>
+                <div class="resource-value">{formatNumber(activeCaptain.resources[r])}</div>
               {:else}
                 <div class="resource-value locked">🔒</div>
               {/if}
@@ -274,22 +301,23 @@
       <Panel>
         <div class="panel-title">TICK</div>
         <div class="tick-bar-track">
-          <div class="tick-bar-fill" style="width:{tickProgress * 100}%"></div>
+          <div class="tick-bar-fill" style="width:{activeTickProgress * 100}%"></div>
         </div>
-        <div class="tick-bar-readout">{tickRemaining.toFixed(1)}s</div>
+        <div class="tick-bar-readout">{activeTickRemaining.toFixed(1)}s</div>
       </Panel>
 
       <Panel>
         <div class="panel-title">GENERATOR STACK</div>
         <div class="module-list">
           {#each Object.entries(MODULES) as [key, m]}
-            {@const unlocked = isModuleUnlocked(key as ModuleKey, state)}
+            {@const unlocked = isModuleUnlocked(key as ModuleKey, activeCaptain)}
             {#if unlocked}
-              {@const count = state.modules[key as ModuleKey]}
+              {@const count = activeCaptain.modules[key as ModuleKey]}
               {@const cost = costFor(key as ModuleKey, count)}
-              {@const rate = m.baseRate * count * mult}
-              {@const perTick = rate * state.tickDurationSeconds}
-              {@const affordable = state.resources.ore >= cost}
+              {@const specMult = specializationMultiplier(activeCaptain, m.resource)}
+              {@const rate = m.baseRate * count * mult * captainMultiplier(activeCaptain) * specMult}
+              {@const perTick = rate * activeCaptain.tickDurationSeconds}
+              {@const affordable = activeCaptain.resources.ore >= cost}
               <div class="module-card">
                 <div class="module-top">
                   <div>
@@ -324,12 +352,12 @@
 
       <Panel>
         <div class="panel-title">RESEARCH</div>
-        {#if state.research.alloySynthesis.completed}
+        {#if activeCaptain.research.alloySynthesis.completed}
           <p class="research-status">✓ {RESEARCH_PROJECTS.alloySynthesis.label} — Complete</p>
-        {:else if state.research.alloySynthesis.started}
+        {:else if activeCaptain.research.alloySynthesis.started}
           {@const project = RESEARCH_PROJECTS.alloySynthesis}
-          {@const progress = Math.min(1, state.research.alloySynthesis.progressSeconds / project.durationSeconds)}
-          {@const remaining = Math.max(0, project.durationSeconds - state.research.alloySynthesis.progressSeconds)}
+          {@const progress = Math.min(1, activeCaptain.research.alloySynthesis.progressSeconds / project.durationSeconds)}
+          {@const remaining = Math.max(0, project.durationSeconds - activeCaptain.research.alloySynthesis.progressSeconds)}
           <div class="research-name">{project.label}</div>
           <div class="research-bar-track">
             <div class="research-bar-fill" style="width:{progress * 100}%"></div>
@@ -337,7 +365,7 @@
           <div class="research-readout">{remaining.toFixed(0)}s remaining</div>
         {:else}
           {@const project = RESEARCH_PROJECTS.alloySynthesis}
-          {@const affordable = state.resources.components >= project.costComponents}
+          {@const affordable = activeCaptain.resources.components >= project.costComponents}
           <div class="research-name">{project.label}</div>
           <div class="research-cost">Cost: {formatNumber(project.costComponents)} components</div>
           <button
@@ -489,6 +517,22 @@
     cursor: pointer;
   }
   .main { display: flex; flex-direction: column; gap: 14px; }
+  .captain-tabs { display: flex; gap: 8px; }
+  .captain-tab {
+    flex: 1;
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .captain-tab.active {
+    background: rgba(var(--color-accent-rgb), 0.15);
+    color: var(--color-accent-bright);
+    border-color: var(--color-accent);
+  }
   .panel-title {
     font-size: 11px;
     letter-spacing: 1.5px;
