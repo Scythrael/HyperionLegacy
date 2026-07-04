@@ -8,7 +8,7 @@
 // Test this assumption in game.test.ts before adding anything that breaks
 // it (capacity caps, consumption chains, anything stateful mid-tick).
 
-import { MODULES, globalMultiplier, freshState, type GameState } from "./model";
+import { MODULES, globalMultiplier, freshState, RESEARCH_PROJECTS, type GameState } from "./model";
 
 export function tick(deltaSeconds: number, state: GameState): GameState {
   if (deltaSeconds <= 0) return state;
@@ -24,11 +24,25 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     }
   }
 
+  // Research progress — independent of the production loop above. Each started,
+  // incomplete project accrues wall-clock seconds until it hits its duration, then
+  // is marked completed and clamped there (no overshoot on large offline-catchup ticks).
+  const research = { ...state.research };
+  for (const key of Object.keys(RESEARCH_PROJECTS) as (keyof typeof RESEARCH_PROJECTS)[]) {
+    const project = research[key];
+    if (project.started && !project.completed) {
+      const duration = RESEARCH_PROJECTS[key].durationSeconds;
+      const newProgress = Math.min(project.progressSeconds + deltaSeconds, duration);
+      research[key] = { ...project, progressSeconds: newProgress, completed: newProgress >= duration };
+    }
+  }
+
   const producedComponents = Math.max(0, resources.components - state.resources.components);
 
   return {
     ...state,
     resources,
+    research,
     lifetimeComponents: state.lifetimeComponents + producedComponents,
     gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
   };
