@@ -209,9 +209,14 @@
         <div class="panel-title">RESOURCES</div>
         <div class="resource-grid">
           {#each RESOURCE_ORDER as r}
+            {@const unlocked = isResourceUnlocked(r, state)}
             <div class="resource-card">
               <div class="resource-label">{RESOURCE_LABEL[r]}</div>
-              <div class="resource-value">{formatNumber(state.resources[r])}</div>
+              {#if unlocked}
+                <div class="resource-value">{formatNumber(state.resources[r])}</div>
+              {:else}
+                <div class="resource-value locked">🔒</div>
+              {/if}
             </div>
           {/each}
         </div>
@@ -229,29 +234,41 @@
         <div class="panel-title">GENERATOR STACK</div>
         <div class="module-list">
           {#each Object.entries(MODULES) as [key, m]}
-            {@const count = state.modules[key as ModuleKey]}
-            {@const cost = costFor(key as ModuleKey, count)}
-            {@const rate = m.baseRate * count * mult}
-            {@const perTick = rate * state.tickDurationSeconds}
-            {@const affordable = state.resources.ore >= cost}
-            <div class="module-card">
-              <div class="module-top">
-                <div>
-                  <div class="module-name">{m.label}</div>
-                  <div class="module-rate">
-                    {formatNumber(perTick)} {m.unit.replace("/s", "")}/tick · {formatNumber(rate)} {m.unit} · owned {count}
+            {@const unlocked = isModuleUnlocked(key as ModuleKey, state)}
+            {#if unlocked}
+              {@const count = state.modules[key as ModuleKey]}
+              {@const cost = costFor(key as ModuleKey, count)}
+              {@const rate = m.baseRate * count * mult}
+              {@const perTick = rate * state.tickDurationSeconds}
+              {@const affordable = state.resources.ore >= cost}
+              <div class="module-card">
+                <div class="module-top">
+                  <div>
+                    <div class="module-name">{m.label}</div>
+                    <div class="module-rate">
+                      {formatNumber(perTick)} {m.unit.replace("/s", "")}/tick · {formatNumber(rate)} {m.unit} · owned {count}
+                    </div>
+                  </div>
+                  <button
+                    class="buy-btn"
+                    disabled={!affordable}
+                    style="opacity:{affordable ? 1 : 0.4}"
+                    on:click={() => buyModule(key as ModuleKey)}
+                  >
+                    Buy · {formatNumber(cost)} ore
+                  </button>
+                </div>
+              </div>
+            {:else}
+              <div class="module-card locked">
+                <div class="module-top">
+                  <div>
+                    <div class="module-name">{m.label}</div>
+                    <div class="module-rate">🔒 Locked — requires {RESEARCH_PROJECTS.alloySynthesis.label} research</div>
                   </div>
                 </div>
-                <button
-                  class="buy-btn"
-                  disabled={!affordable}
-                  style="opacity:{affordable ? 1 : 0.4}"
-                  on:click={() => buyModule(key as ModuleKey)}
-                >
-                  Buy · {formatNumber(cost)} ore
-                </button>
               </div>
-            </div>
+            {/if}
           {/each}
         </div>
       </Panel>
@@ -411,6 +428,7 @@
   }
   .resource-label { font-size: 10px; color: var(--color-text-secondary); margin-bottom: 4px; }
   .resource-value { font-family: var(--font-mono); font-size: 16px; }
+  .resource-value.locked { color: var(--color-text-dim); font-size: 18px; }
   .tick-bar-track {
     height: 10px;
     background: var(--color-panel-bg-strong);
@@ -446,6 +464,7 @@
     background: var(--color-panel-bg-strong);
     border: 1px solid rgba(var(--color-accent-rgb), 0.12);
   }
+  .module-card.locked { opacity: 0.5; }
   .module-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
   .module-name { font-size: 13px; font-weight: 600; }
   .module-rate { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); margin-top: 2px; }
