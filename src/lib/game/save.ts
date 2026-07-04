@@ -27,6 +27,11 @@ const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
   2: (state: any): GameState => ({
     ...state,
+    // `??` only catches `research` being entirely absent (the actual v2
+    // shape). It does NOT repair a present-but-malformed research object
+    // (e.g. `research: {}`) -- not reachable through any current code path
+    // (serialize() always writes a fully-typed GameState), but worth
+    // knowing if a future migration or refactor ever produces a partial one.
     research: state.research ?? { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
   }),
 };
