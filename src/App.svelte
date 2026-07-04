@@ -274,6 +274,35 @@
       </Panel>
 
       <Panel>
+        <div class="panel-title">RESEARCH</div>
+        {#if state.research.alloySynthesis.completed}
+          <p class="research-status">✓ {RESEARCH_PROJECTS.alloySynthesis.label} — Complete</p>
+        {:else if state.research.alloySynthesis.started}
+          {@const project = RESEARCH_PROJECTS.alloySynthesis}
+          {@const progress = state.research.alloySynthesis.progressSeconds / project.durationSeconds}
+          {@const remaining = Math.max(0, project.durationSeconds - state.research.alloySynthesis.progressSeconds)}
+          <div class="research-name">{project.label}</div>
+          <div class="research-bar-track">
+            <div class="research-bar-fill" style="width:{progress * 100}%"></div>
+          </div>
+          <div class="research-readout">{remaining.toFixed(0)}s remaining</div>
+        {:else}
+          {@const project = RESEARCH_PROJECTS.alloySynthesis}
+          {@const affordable = state.resources.components >= project.costComponents}
+          <div class="research-name">{project.label}</div>
+          <div class="research-cost">Cost: {formatNumber(project.costComponents)} components</div>
+          <button
+            class="buy-btn"
+            disabled={!affordable}
+            style="opacity:{affordable ? 1 : 0.4}"
+            on:click={() => startResearch("alloySynthesis")}
+          >
+            Start Research
+          </button>
+        {/if}
+      </Panel>
+
+      <Panel>
         <div class="panel-title">PRESTIGE — TIER 1</div>
         <p class="prestige-text">
           Retire this run for Augment Points (√ of lifetime components produced). Resources and modules reset;
@@ -457,6 +486,32 @@
     color: var(--color-text-secondary);
     text-align: right;
   }
+  .research-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .research-cost { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 10px; }
+  .research-status { font-size: 13px; color: var(--color-success); margin: 0; }
+  .research-bar-track {
+    height: 10px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    overflow: hidden;
+    margin-bottom: 6px;
+    clip-path: polygon(
+      4px 0,
+      calc(100% - 4px) 0,
+      100% 4px,
+      100% calc(100% - 4px),
+      calc(100% - 4px) 100%,
+      4px 100%,
+      0 calc(100% - 4px),
+      0 4px
+    );
+  }
+  .research-bar-fill {
+    height: 100%;
+    background: var(--color-accent);
+    transition: width 0.2s linear;
+  }
+  .research-readout { font-size: 11px; color: var(--color-text-secondary); text-align: right; }
   .module-list { display: flex; flex-direction: column; gap: 10px; }
   .module-card {
     padding: 12px;
