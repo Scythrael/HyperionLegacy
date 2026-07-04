@@ -192,7 +192,8 @@
     const { next, gained } = prestige(state);
     if (gained <= 0) return;
     state = next;
-    pushLog(`Prestige performed. +${gained} Augment Points.`);
+    activeCaptainIndex = 0; // fleet prestige always yields exactly 2 captains, back to Captain 1's tab
+    pushLog(`Fleet Prestige performed. +${gained} Augment Points. Captain roster reset.`);
     doSave();
   }
 
@@ -434,16 +435,19 @@
       </Panel>
 
       <Panel>
-        <div class="panel-title">PRESTIGE — TIER 1</div>
+        <div class="panel-title">FLEET PRESTIGE — TIER 2</div>
+        {@const fleetLifetimeComponents = state.captains.reduce((sum, c) => sum + c.lifetimeComponents, 0)}
         <p class="prestige-text">
-          Retire this run for Augment Points (√ of lifetime components produced). Resources and modules reset;
-          Augment Points and the global multiplier persist.
+          Retire the WHOLE FLEET for Augment Points (√ of combined lifetime components across every
+          captain). Resets every captain back to the starting roster of 2 — wiping all specializations,
+          Captain Points, and individual progress along with resources and modules. Augment Points and
+          the global multiplier persist.
         </p>
         <div class="prestige-row">
           <div class="prestige-yield">
-            Would yield <strong>{formatNumber(Math.floor(Math.sqrt(state.lifetimeComponents)))}</strong> Augment Points
+            Would yield <strong>{formatNumber(Math.floor(Math.sqrt(fleetLifetimeComponents)))}</strong> Augment Points
           </div>
-          <button class="prestige-btn" on:click={doPrestige}>Prestige</button>
+          <button class="prestige-btn" on:click={doPrestige}>Fleet Prestige</button>
         </div>
       </Panel>
 
