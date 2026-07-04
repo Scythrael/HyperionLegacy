@@ -165,6 +165,11 @@
     clearInterval(saveHandle);
   });
 
+  // Read the active captain via the `activeCaptain` derivation (or a local
+  // `const captain = activeCaptain` alias) BEFORE calling this -- the `c`
+  // argument passed into `updater` is the source of truth for the write.
+  // Don't reference the outer `activeCaptain` inside the updater callback;
+  // it's a closure-captured pre-update snapshot, not guaranteed to match `c`.
   function updateActiveCaptain(updater: (c: CaptainState) => CaptainState) {
     const captains = [...state.captains];
     captains[activeCaptainIndex] = updater(captains[activeCaptainIndex]);
@@ -242,6 +247,13 @@
 
   $: mult = globalMultiplier(state);
   $: activeCaptain = state.captains[activeCaptainIndex];
+  // Fallback only covers the one-frame window before onMount's
+  // ensureCaptainCycles seeds an entry. It assumes captains.length never
+  // shrinks and activeCaptainIndex never points past the end -- true today
+  // since only freshCaptains() ever replaces the whole array (always 2
+  // entries). If a future feature ever removes a captain slot, this
+  // fallback would silently show 0% progress instead of erroring; revisit
+  // this assumption then.
   $: activeCycle = captainCycles[activeCaptain?.id] ?? { barCycleStart: Date.now(), nowTick: Date.now() };
   $: activeBarSeconds = Math.max(1, (activeCaptain?.tickDurationSeconds ?? 10) / (speed || 1));
   $: activeTickProgress = Math.min(1, Math.max(0, (activeCycle.nowTick - activeCycle.barCycleStart) / 1000 / activeBarSeconds));
