@@ -16,7 +16,7 @@
     type ResearchKey,
     type GameState,
   } from "./lib/game/model";
-  import { tick, prestige } from "./lib/game/tick";
+  import { tick, tickCaptainStack, prestige, captainPrestige } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
@@ -34,11 +34,29 @@
   let deleteConfirmText = "";
   let speed = 1;
   let logEntries: string[] = [];
-  let barCycleStart = Date.now();
-  let nowTick = Date.now();
   let paused = false;
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
+  let lastPollTime = Date.now();
+
+  // Per-captain cycle tracking, keyed by captain id. Each captain's own
+  // tickDurationSeconds can diverge from the others' (nothing does that yet,
+  // but the data model is built for it -- see design doc), so each needs its
+  // own independent barCycleStart/nowTick rather than one shared pair.
+  interface CaptainCycle {
+    barCycleStart: number;
+    nowTick: number;
+  }
+  let captainCycles: Record<number, CaptainCycle> = {};
+
+  function ensureCaptainCycles(now: number) {
+    for (const captain of state.captains) {
+      if (!captainCycles[captain.id]) {
+        captainCycles[captain.id] = { barCycleStart: now, nowTick: now };
+      }
+    }
+    captainCycles = captainCycles; // reassign to trigger Svelte reactivity on the mutated object
+  }
 
   function pushLog(msg: string) {
     logEntries = [msg, ...logEntries].slice(0, 8);
@@ -61,36 +79,70 @@
     } else {
       pushLog("New save initialized.");
     }
-    barCycleStart = Date.now();
-    nowTick = Date.now();
+    lastPollTime = Date.now();
+    ensureCaptainCycles(lastPollTime);
 
-    // Tick-bar loop — checks cycle progress every 100ms, fires a discrete
-    // tick() call once per full cycle. barSeconds is floored at 1 real
-    // second so dev-speed presets never make the bar flicker unreadably;
-    // multiple game-ticks just batch into that one visual cycle, which is
-    // still correct because tick() is closed-form (see design doc).
+    // Tick-bar loop — checks EVERY captain's own cycle progress every 100ms,
+    // firing tickCaptainStack independently for whichever captain(s)
+    // complete a cycle on this poll. Fleet-wide gameTimeSeconds advances
+    // continuously off real elapsed time every poll, decoupled from any
+    // single captain's cadence (gameTimeSeconds is fleet bookkeeping; it is
+    // never read by tickCaptainStack's production math, so this decoupling
+    // cannot desync production from time). barSeconds is floored at 1 real
+    // second per captain so dev-speed presets never make that captain's bar
+    // flicker unreadably — multiple game-ticks just batch into one visual
+    // cycle, which is still correct because tickCaptainStack is closed-form.
     tickHandle = setInterval(() => {
+      const now = Date.now();
+
       if (speed === 0) {
         paused = true;
-        return; // paused — bar and resources both freeze
+        lastPollTime = now; // freeze the fleet clock too while paused
+        return;
       }
-      const now = Date.now();
+
       if (paused) {
-        // Resuming: discard the paused wall-clock gap entirely rather than
-        // letting it read as elapsed cycle time (which would fire an
-        // instant, unearned tick on resume).
-        barCycleStart = now;
-        nowTick = now;
+        // Resuming: discard the paused wall-clock gap entirely for the fleet
+        // clock AND every captain's cycle, rather than letting it read as
+        // elapsed time (which would fire unearned progress on resume).
+        lastPollTime = now;
+        for (const id of Object.keys(captainCycles)) {
+          captainCycles[Number(id)].barCycleStart = now;
+        }
+        captainCycles = captainCycles;
         paused = false;
         return;
       }
-      const barSeconds = Math.max(1, state.tickDurationSeconds / speed);
-      nowTick = now;
-      const progress = (now - barCycleStart) / 1000 / barSeconds;
-      if (progress >= 1) {
-        const gameSecondsThisCycle = barSeconds * speed;
-        state = tick(gameSecondsThisCycle, state);
-        barCycleStart = now;
+
+      const realElapsedSeconds = (now - lastPollTime) / 1000;
+      lastPollTime = now;
+      state = { ...state, gameTimeSeconds: state.gameTimeSeconds + realElapsedSeconds * speed };
+
+      ensureCaptainCycles(now);
+      let captains = state.captains;
+      let anyFired = false;
+
+      for (let i = 0; i < captains.length; i++) {
+        const captain = captains[i];
+        const cycle = captainCycles[captain.id];
+        const barSeconds = Math.max(1, captain.tickDurationSeconds / speed);
+        cycle.nowTick = now;
+        const progress = (now - cycle.barCycleStart) / 1000 / barSeconds;
+        if (progress >= 1) {
+          const fleetMult = globalMultiplier(state);
+          const gameSecondsThisCycle = barSeconds * speed;
+          if (!anyFired) {
+            captains = [...captains]; // copy on first write this poll
+            anyFired = true;
+          }
+          captains[i] = tickCaptainStack(gameSecondsThisCycle, captain, fleetMult);
+          cycle.barCycleStart = now;
+        }
+      }
+
+      captainCycles = captainCycles; // reassign to trigger reactivity on the mutated cycle map
+      if (anyFired) {
+        state = { ...state, captains };
       }
     }, 100);
 
@@ -175,9 +227,6 @@
   }
 
   $: mult = globalMultiplier(state);
-  $: barSeconds = Math.max(1, state.tickDurationSeconds / (speed || 1));
-  $: tickProgress = Math.min(1, Math.max(0, (nowTick - barCycleStart) / 1000 / barSeconds));
-  $: tickRemaining = Math.max(0, barSeconds * (1 - tickProgress));
 </script>
 
 <div class="root">
