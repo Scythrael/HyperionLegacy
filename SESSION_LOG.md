@@ -89,3 +89,40 @@ research, confirm the progress bar advances and completes, confirm
 Synthesizer actually becomes buyable and starts producing alloys
 afterward, and try the dev panel's offline-simulation buttons to confirm
 research also completes correctly across a simulated offline gap.
+
+**Session 7** — Began the Captain/Ship feature (Phase 1 of
+docs/plans/2026-07-03-captain-ship-design.md), scoped down from the master
+design doc's fuller vision (which assumes augments/mission-spoils/parallel
+multi-ship operation that don't exist yet): the single implicit production
+pool became an array of independent per-captain stacks (`captains:
+CaptainState[]`), each with its own resources/modules/research/tick cadence.
+`tick()`'s body was extracted into `tickCaptainStack()`, reused in a loop —
+the closed-form invariant (one big jump equals many small ticks) now holds
+per captain, verified with a captain exercising modules, research, AND a
+specialization simultaneously. Added a two-tier prestige system: Captain
+Prestige (per captain, grants Captain Points, lets the player pick one of 3
+specializations — Mining/Refining/Fabrication, each a flat +25% to its
+resource) and an extended Fleet Prestige (gates on combined lifetime
+components across every captain, collapses the whole roster back to the
+starting 2). Save schema bumped to v5, migrating the old flat shape into
+captains[0] with a fresh captains[1] alongside it. The tick-bar loop in
+App.svelte was rewritten to track each captain's cycle independently rather
+than one shared cycle. 7 tasks in the original plan, 13 commits once
+review-driven fixes are counted — notably a guard against `captainPrestige`
+being called with an unmatched `captainId` (plus restoring research-progress
+test coverage caught missing in the same pass), and cloning nested fields in
+the v4→v5 migration so a captain's resources/modules don't alias the
+original save object. Code review also surfaced two pre-existing-but-worth-
+noting quirks, now logged in KNOWN_ISSUES.md rather than fixed under review
+pressure: the tick-bar poll losing production on a long throttled/
+backgrounded-tab gap (predates this branch, confirmed via `git show
+94d1801~1`, but now applies per-captain instead of once), and a cosmetic
+stale-tick-bar-progress-after-prestige quirk (both prestige tiers reset a
+captain's stack but not its `barCycleStart`, self-corrects within one
+cycle). Next: get eyes on this in an actual browser — switch between
+captain tabs, confirm each captain's stack ticks and produces
+independently, run both prestige tiers, confirm the specialization picker
+actually boosts the right resource, and confirm a real existing save
+migrates cleanly to the 2-captain shape with progress intact. Phase 2 (a
+fleet-wide skill tree that makes captain-slot count actually unlockable,
+replacing today's fixed 2) is a separate, not-yet-started design.

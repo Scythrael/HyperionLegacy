@@ -32,3 +32,37 @@ write it down so you don't relitigate it later.
   feature) or the Starfield's dots (`#bfe9f5`, same). Intentional scope
   limit per the design doc, not a bug, but worth writing down so "theme
   switching looks incomplete" doesn't get rediscovered as a surprise.
+- The tick-bar poll (`App.svelte`, 100ms `setInterval`) only fires ONE
+  `tickCaptainStack`/`tick` call per poll when a cycle completes, even if
+  the real-world gap since the last poll was long enough to cover several
+  cycles (e.g. a throttled or backgrounded browser tab). Production for the
+  "extra" cycles in that gap is lost rather than credited — it isn't
+  clamped or caught up, it just never happened. Predates the captain/ship
+  feature (present in the old single-cycle code too — confirmed via
+  `git show 94d1801~1`), but now applies independently to every captain's
+  own cadence instead of one shared clock, so a backgrounded tab with N
+  captains running loses progress N times over instead of once. Worth
+  fixing (compute cycles-elapsed and batch them into one closed-form
+  `tickCaptainStack` call per captain, rather than one bounded tick) before
+  any real playtest that leaves the tab backgrounded for a while.
+- Both prestige tiers (`captainPrestige`, fleet-wide `prestige` in
+  `tick.ts`) reset a captain's resources/modules/research via
+  `freshCaptainStack()`, but neither touches that captain's entry in
+  `App.svelte`'s `captainCycles` map (`barCycleStart`/`nowTick`). For up to
+  one cycle after a prestige, the affected captain's tick-bar can show
+  leftover progress from before the reset instead of starting at 0 — purely
+  a cosmetic display quirk, self-corrects on the captain's next real cycle
+  boundary, no resource/math corruption. Pre-existing since Task 6 added
+  `captainPrestige` (Task 7's Fleet Prestige has the identical gap). Worth
+  a one-line fix (reset `captainCycles[id].barCycleStart` alongside the
+  state reset) whenever someone is next in that function for another
+  reason.
+- `prestige()`'s fleet-wide reset (`tick.ts`) always collapses `captains`
+  back to exactly 2 via `freshCaptains()` — a Phase-1 simplification, not a
+  configurable slot count. Once Phase 2's skill tree can unlock additional
+  captain slots, this needs to become "reset to however many slots the
+  player has earned," not a hardcoded 2. Not yet noted in-code near
+  `freshCaptains()`/`prestige()` (unlike the `SPECIALIZATIONS` object,
+  which already has an explicit "add a 4th entry here" note for its own
+  future extension) — worth flagging here since Phase 2 is an explicitly
+  planned next step for this feature, not a hypothetical.
