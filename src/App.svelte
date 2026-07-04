@@ -279,7 +279,7 @@
           <p class="research-status">✓ {RESEARCH_PROJECTS.alloySynthesis.label} — Complete</p>
         {:else if state.research.alloySynthesis.started}
           {@const project = RESEARCH_PROJECTS.alloySynthesis}
-          {@const progress = state.research.alloySynthesis.progressSeconds / project.durationSeconds}
+          {@const progress = Math.min(1, state.research.alloySynthesis.progressSeconds / project.durationSeconds)}
           {@const remaining = Math.max(0, project.durationSeconds - state.research.alloySynthesis.progressSeconds)}
           <div class="research-name">{project.label}</div>
           <div class="research-bar-track">
