@@ -69,14 +69,23 @@ const MIGRATIONS: Record<number, Migration> = {
     resources: { ...state.resources, alloys: state.resources?.alloys ?? 0 },
   }),
   4: (state: any): GameState => {
+    // fresh[0] is discarded -- captainOne below carries the real migrated
+    // data instead of a blank stack. Only fresh[1] (a genuinely never-played
+    // second captain) is used, byte-for-byte identical to what a brand-new
+    // save's Captain 2 looks like, since it's the same function call.
     const fresh = freshCaptains();
     const captainOne: CaptainState = {
       id: 1,
       label: "Captain 1",
       shipType: "resourcer",
-      resources: state.resources,
-      modules: state.modules,
-      research: state.research,
+      // Cloned (not passed by reference) so the pre-migration `state` object
+      // and the new captains[0] can never end up aliased to the same nested
+      // objects -- defense in depth, consistent with MIGRATIONS[3]'s spread
+      // above, even though no current caller retains a handle to the raw
+      // pre-migration object.
+      resources: { ...state.resources },
+      modules: { ...state.modules },
+      research: { ...state.research },
       lifetimeComponents: state.lifetimeComponents,
       tickDurationSeconds: state.tickDurationSeconds,
       captainPoints: 0,
