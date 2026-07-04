@@ -58,6 +58,45 @@ describe("tickCaptainStack — closed-form requirement (single captain)", () => 
 
     expect(withPoints.resources.ore).toBeCloseTo(noPoints.resources.ore * 2, 6);
   });
+
+  // Research-progress coverage carried forward from the pre-Phase-1 tick()
+  // suite (the research loop's logic is unchanged, only re-scoped from
+  // state.research to captain.research -- these were dropped from the plan's
+  // replacement test file without the same explicit callout given to the
+  // tickDurationSeconds-persistence test, flagged in Task 2 review).
+  it("advances progressSeconds for a started, incomplete project", () => {
+    const base = freshCaptains()[0];
+    base.research.alloySynthesis.started = true;
+
+    const result = tickCaptainStack(90, base, 1);
+    expect(result.research.alloySynthesis.progressSeconds).toBe(90);
+    expect(result.research.alloySynthesis.completed).toBe(false);
+  });
+
+  it("completes exactly at the project's duration", () => {
+    const base = freshCaptains()[0];
+    base.research.alloySynthesis.started = true;
+
+    const result = tickCaptainStack(180, base, 1);
+    expect(result.research.alloySynthesis.progressSeconds).toBe(180);
+    expect(result.research.alloySynthesis.completed).toBe(true);
+  });
+
+  it("caps progressSeconds at duration, never overshoots", () => {
+    const base = freshCaptains()[0];
+    base.research.alloySynthesis.started = true;
+
+    const result = tickCaptainStack(500, base, 1); // way more than the 180s duration
+    expect(result.research.alloySynthesis.progressSeconds).toBe(180);
+    expect(result.research.alloySynthesis.completed).toBe(true);
+  });
+
+  it("never advances an unstarted project", () => {
+    const base = freshCaptains()[0]; // started: false by default
+    const result = tickCaptainStack(1000, base, 1);
+    expect(result.research.alloySynthesis.progressSeconds).toBe(0);
+    expect(result.research.alloySynthesis.completed).toBe(false);
+  });
 });
 
 describe("tick — loops tickCaptainStack over every captain, advances fleet gameTimeSeconds once", () => {
@@ -116,6 +155,14 @@ describe("captainPrestige — per-captain reset", () => {
   it("does nothing if gained <= 0", () => {
     const state = freshState(); // lifetimeComponents 0 for both captains
     const { next, gained } = captainPrestige(state, 1, "mining");
+    expect(gained).toBe(0);
+    expect(next).toBe(state);
+  });
+
+  it("does nothing if no captain has the given id, rather than throwing", () => {
+    const state = freshState();
+    state.captains[0].lifetimeComponents = 100; // would otherwise be eligible
+    const { next, gained } = captainPrestige(state, 999, "mining");
     expect(gained).toBe(0);
     expect(next).toBe(state);
   });

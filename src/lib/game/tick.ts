@@ -89,6 +89,7 @@ export function captainPrestige(
   chosenSpec: SpecializationKey
 ): { next: GameState; gained: number } {
   const idx = state.captains.findIndex((c) => c.id === captainId);
+  if (idx === -1) return { next: state, gained: 0 }; // no captain with this id -- nothing to prestige
   const captain = state.captains[idx];
   const gained = Math.floor(Math.sqrt(captain.lifetimeComponents));
   if (gained <= 0) return { next: state, gained: 0 };
