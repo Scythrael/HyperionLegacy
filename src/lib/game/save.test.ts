@@ -50,3 +50,31 @@ describe("migrate — research field backfill", () => {
     expect(SAVE_VERSION).toBe(3);
   });
 });
+
+describe("migrate — chained v1 -> v3 migration", () => {
+  it("backfills both tickDurationSeconds and research on a genuine v1 save missing both", () => {
+    // A real pre-tick-bar save never had tickDurationSeconds OR research --
+    // both fields were added by later features. Stripping only one (as the
+    // other describe blocks above do) never exercises MIGRATIONS[1] and
+    // MIGRATIONS[2] actually running back-to-back on the same object.
+    const legacyState = freshState();
+    delete (legacyState as any).tickDurationSeconds;
+    delete (legacyState as any).research;
+
+    const save: SaveFile = {
+      version: 1,
+      created_at: 0,
+      last_saved_at: 0,
+      game_time_seconds: 0,
+      state: legacyState,
+    };
+
+    const migrated = migrate(save);
+    expect(migrated.tickDurationSeconds).toBe(10);
+    expect(migrated.research.alloySynthesis).toEqual({
+      started: false,
+      progressSeconds: 0,
+      completed: false,
+    });
+  });
+});
