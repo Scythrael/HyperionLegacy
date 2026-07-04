@@ -90,18 +90,26 @@ describe("tick — research progress", () => {
     const base = freshState();
     base.research.alloySynthesis.started = true;
 
-    const bigJump = tick(180, base);
+    // Deltas comfortably overshoot the 180s duration (not land exactly on
+    // it) so both paths clamp to the literal duration value well before
+    // finishing, and stay there deterministically — landing exactly ON
+    // the boundary would make this test flaky, since summing 0.1 exactly
+    // 1800 times lands at 179.99999999999406 (IEEE754), just under 180,
+    // while a single tick(180, ...) call hits exactly 180 — a real
+    // mismatch on the `completed` boolean despite both being numerically
+    // equal to 6 decimal places. Overshooting sidesteps this rather than
+    // masking it with a looser assertion.
+    const bigJump = tick(200, base);
 
     let stepped = base;
-    for (let i = 0; i < 1800; i++) {
+    for (let i = 0; i < 2000; i++) {
       stepped = tick(0.1, stepped);
     }
 
-    expect(bigJump.research.alloySynthesis.progressSeconds).toBeCloseTo(
-      stepped.research.alloySynthesis.progressSeconds,
-      6
-    );
-    expect(bigJump.research.alloySynthesis.completed).toBe(stepped.research.alloySynthesis.completed);
+    expect(bigJump.research.alloySynthesis.progressSeconds).toBe(180);
+    expect(stepped.research.alloySynthesis.progressSeconds).toBe(180);
+    expect(bigJump.research.alloySynthesis.completed).toBe(true);
+    expect(stepped.research.alloySynthesis.completed).toBe(true);
   });
 });
 
