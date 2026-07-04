@@ -196,6 +196,15 @@
     doSave();
   }
 
+  function doCaptainPrestige(spec: SpecializationKey) {
+    const { next, gained } = captainPrestige(state, activeCaptain.id, spec);
+    if (gained <= 0) return;
+    const label = activeCaptain.label;
+    state = next;
+    pushLog(`[${label}] Captain Prestige performed. +${gained} Captain Points (${SPECIALIZATIONS[spec].label}).`);
+    doSave();
+  }
+
   function grantResource(resource: keyof CaptainState["resources"], amount: number) {
     updateActiveCaptain((c) => ({ ...c, resources: { ...c.resources, [resource]: c.resources[resource] + amount } }));
     pushLog(`[${activeCaptain.label}] [DEV] Granted ${formatNumber(amount)} ${resource}.`);
@@ -389,6 +398,39 @@
             Start Research
           </button>
         {/if}
+      </Panel>
+
+      <Panel>
+        <div class="panel-title">CAPTAIN PRESTIGE — TIER 1</div>
+        {@const captainGain = Math.floor(Math.sqrt(activeCaptain.lifetimeComponents))}
+        <p class="prestige-text">
+          Retire {activeCaptain.label}'s current run for Captain Points (√ of THIS captain's lifetime
+          components). Resets {activeCaptain.label}'s resources, modules, and research. Choose a
+          specialization as part of the reset — picking again later respecs.
+        </p>
+        <div class="prestige-row">
+          <div class="prestige-yield">
+            Would yield <strong>{formatNumber(captainGain)}</strong> Captain Points
+          </div>
+        </div>
+        {#if activeCaptain.specialization}
+          <div class="spec-current">
+            Current specialization: <strong>{SPECIALIZATIONS[activeCaptain.specialization].label}</strong>
+            · {formatNumber(activeCaptain.captainPoints)} Captain Points · {activeCaptain.captainPrestigeCount} prestiges
+          </div>
+        {/if}
+        <div class="spec-picker">
+          {#each Object.entries(SPECIALIZATIONS) as [key, def]}
+            <button
+              class="spec-btn"
+              disabled={captainGain <= 0}
+              style="opacity:{captainGain <= 0 ? 0.4 : 1}"
+              on:click={() => doCaptainPrestige(key as SpecializationKey)}
+            >
+              {def.label}
+            </button>
+          {/each}
+        </div>
       </Panel>
 
       <Panel>
@@ -652,6 +694,18 @@
     letter-spacing: 1px;
     cursor: pointer;
   }
+  .spec-current { font-size: 11px; color: var(--color-text-secondary); margin: 10px 0; }
+  .spec-picker { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .spec-btn {
+    background: rgba(var(--color-accent-rgb), 0.1);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--color-accent-bright);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .spec-btn:disabled { cursor: not-allowed; }
   .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
   .theme-swatch {
     width: 28px;
