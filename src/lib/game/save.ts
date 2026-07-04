@@ -23,7 +23,7 @@ export interface SaveFile {
 // it backfilled to a fresh, not-yet-started alloySynthesis entry.
 // v3 -> v4: HOTFIX. The same research feature also added a 4th module/
 // resource pair (modules.synthesizer, resources.alloys) to MODULES/
-// RESOURCE_KEY, but MIGRATIONS[2] only backfilled `research` -- it never
+// RESOURCE_ORDER, but MIGRATIONS[2] only backfilled `research` -- it never
 // backfilled these two fields. Any save migrated through the *unpatched*
 // MIGRATIONS[2] already got re-stamped as v3 by the next autosave (serialize()
 // always writes the current SAVE_VERSION), but still has an object literal
@@ -36,7 +36,6 @@ export interface SaveFile {
 // them. Per Ops §8.E.1 (never edit a shipped migration body), this repair
 // has to be a new v3 -> v4 step instead, so it runs for both the
 // already-corrupted v3 saves and any v1/v2 save still chaining through.
-// Per Ops §8.E.1: MIGRATIONS[1] and MIGRATIONS[2] are never edited again now that they're shipped.
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -51,6 +50,14 @@ const MIGRATIONS: Record<number, Migration> = {
   }),
   3: (state: any): GameState => ({
     ...state,
+    // `state.modules?.` / `state.resources?.` guard against `modules`/
+    // `resources` being wholesale absent, not just missing one key -- not
+    // reachable through any current code path (freshState() has always
+    // populated both objects fully, and every mutation site spreads the
+    // existing object rather than reconstructing it), but if that ever
+    // stopped being true, this would silently drop the other module/
+    // resource keys rather than throwing. Same category of unreachable-but-
+    // worth-knowing gap as MIGRATIONS[2]'s `??` comment above.
     modules: { ...state.modules, synthesizer: state.modules?.synthesizer ?? 0 },
     resources: { ...state.resources, alloys: state.resources?.alloys ?? 0 },
   }),
