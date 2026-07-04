@@ -3,9 +3,9 @@
 // function to MIGRATIONS, and never touch old migrations again.
 
 import LZString from "lz-string";
-import { type GameState } from "./model";
+import { type GameState, type CaptainState, freshCaptains } from "./model";
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -36,6 +36,13 @@ export interface SaveFile {
 // them. Per Ops §8.E.1 (never edit a shipped migration body), this repair
 // has to be a new v3 -> v4 step instead, so it runs for both the
 // already-corrupted v3 saves and any v1/v2 save still chaining through.
+// v4 -> v5: Multi-Captain Stacks (docs/plans/2026-07-03-captain-ship-plan.md,
+// Task 3). The single flat resources/modules/research/lifetimeComponents/
+// tickDurationSeconds shape moves into captains[0]; a fresh captains[1] is
+// added alongside it. The old top-level fields are dropped from the migrated
+// shape (they no longer exist on GameState at all -- there is nothing to
+// backfill them TO on the fleet-wide object, unlike prior migrations which
+// only ever added missing fields to an otherwise-intact shape).
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -61,6 +68,27 @@ const MIGRATIONS: Record<number, Migration> = {
     modules: { ...state.modules, synthesizer: state.modules?.synthesizer ?? 0 },
     resources: { ...state.resources, alloys: state.resources?.alloys ?? 0 },
   }),
+  4: (state: any): GameState => {
+    const fresh = freshCaptains();
+    const captainOne: CaptainState = {
+      id: 1,
+      label: "Captain 1",
+      shipType: "resourcer",
+      resources: state.resources,
+      modules: state.modules,
+      research: state.research,
+      lifetimeComponents: state.lifetimeComponents,
+      tickDurationSeconds: state.tickDurationSeconds,
+      captainPoints: 0,
+      captainPrestigeCount: 0,
+      specialization: null,
+    };
+    const { resources, modules, research, lifetimeComponents, tickDurationSeconds, ...fleetWide } = state;
+    return {
+      ...fleetWide,
+      captains: [captainOne, fresh[1]],
+    };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {
