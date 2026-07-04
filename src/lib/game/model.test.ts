@@ -135,3 +135,12 @@ describe("specializationMultiplier", () => {
     expect(specializationMultiplier(captain, "components")).toBe(1);
   });
 });
+
+describe("SPECIALIZATIONS — launch set", () => {
+  it("has exactly 3 entries, one per base resource, alloys excluded", () => {
+    const keys = Object.keys(SPECIALIZATIONS);
+    expect(keys).toHaveLength(3);
+    const resources = keys.map((k) => SPECIALIZATIONS[k as keyof typeof SPECIALIZATIONS].resource);
+    expect(resources.sort()).toEqual(["components", "ingots", "ore"]);
+  });
+});

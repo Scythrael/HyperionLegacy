@@ -101,6 +101,11 @@ export interface GameState {
 // not "erase them back to before they existed." Only a captain slot that has
 // NEVER been played (Captain 2 in a brand-new/migrated save, before its first
 // captainPrestige) starts with zero modules instead -- see freshCaptains().
+//
+// NOTE for whoever adds a 12th CaptainState field: this Pick<> list is what
+// BOTH prestige tiers reset. It is not compiler-checked against "everything
+// captainPrestige/prestige should reset" -- a new field silently keeps
+// whatever the pre-reset captain had unless you also add it here on purpose.
 export function freshCaptainStack(): Pick<
   CaptainState,
   "resources" | "modules" | "research" | "lifetimeComponents" | "tickDurationSeconds"
@@ -134,11 +139,14 @@ export function freshCaptains(): CaptainState[] {
       id: 2,
       label: "Captain 2",
       shipType: "resourcer",
-      resources: { ore: 0, ingots: 0, components: 0, alloys: 0 },
+      // Spreads the same shared baseline as Captain 1, then overrides modules
+      // back to all-zero -- a never-played slot gets no head start. Sharing
+      // freshCaptainStack() here (instead of a fully separate hand-written
+      // literal) means any new CaptainState field added to that helper is
+      // guaranteed identical for both captains unless explicitly overridden,
+      // rather than relying on two literals staying in sync by hand.
+      ...freshCaptainStack(),
       modules: { miner: 0, refinery: 0, fabricator: 0, synthesizer: 0 },
-      research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
-      lifetimeComponents: 0,
-      tickDurationSeconds: 10,
       captainPoints: 0,
       captainPrestigeCount: 0,
       specialization: null,
