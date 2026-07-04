@@ -1,6 +1,8 @@
 // Data model — tech spec §1 (Data Model) and §3 (Generator Stack Structure).
-// Flat entity store, ID-referenced. Prototype scope: one ship's module stack,
-// no captains/crew/sectors yet — those are Section 10.6 iteration items.
+// Phase 1 of the captain/ship feature (docs/plans/2026-07-03-captain-ship-design.md):
+// the single flat stack is now N independent per-captain stacks. Fleet-wide
+// fields (augmentPoints, prestigeCount, gameTimeSeconds) stay on GameState;
+// everything else moves into CaptainState.
 
 export type ResourceKey = "ore" | "ingots" | "components" | "alloys";
 export type ModuleKey = "miner" | "refinery" | "fabricator" | "synthesizer";
@@ -47,27 +49,109 @@ export const RESEARCH_PROJECTS: Record<ResearchKey, ResearchProjectDef> = {
   alloySynthesis: { label: "Alloy Synthesis", costComponents: 500, durationSeconds: 180 },
 };
 
-export interface GameState {
+// Only "resourcer" is real today. Modeled as a union (not a bare string) so
+// Phase 3+'s combat-type ships slot in as a new literal without touching
+// every existing call site that pattern-matches on this field.
+export type ShipType = "resourcer";
+
+export type SpecializationKey = "mining" | "refining" | "fabrication";
+
+export interface SpecializationDef {
+  label: string;
+  resource: ResourceKey;
+  bonusMult: number; // e.g. 0.25 for +25% to the matching module's production
+}
+
+// Exactly 3 at launch, one per base resource. Alloys/Synthesizer intentionally
+// excluded -- it's still gated behind research, so a specialization for it
+// would be dead weight for most of a captain's early life. Add a 4th entry
+// here (and nowhere else -- App.svelte's picker iterates this object) if a
+// synthesis specialization is ever wanted.
+export const SPECIALIZATIONS: Record<SpecializationKey, SpecializationDef> = {
+  mining: { label: "Mining Specialist", resource: "ore", bonusMult: 0.25 },
+  refining: { label: "Refining Specialist", resource: "ingots", bonusMult: 0.25 },
+  fabrication: { label: "Fabrication Specialist", resource: "components", bonusMult: 0.25 },
+};
+
+export interface CaptainState {
+  id: number;
+  label: string; // placeholder, e.g. "Captain 1" -- naming UI deferred per master doc §10.7
+  shipType: ShipType;
   resources: Record<ResourceKey, number>;
   modules: Record<ModuleKey, number>;
-  lifetimeComponents: number;
-  augmentPoints: number;
-  prestigeCount: number;
-  gameTimeSeconds: number; // accumulated in-game seconds, per tech spec §1
-  tickDurationSeconds: number; // length of one tick-bar cycle; shrinks via future bonuses
   research: Record<ResearchKey, ResearchState>;
+  lifetimeComponents: number;
+  tickDurationSeconds: number; // this captain's own tick-bar cycle length; cadences can diverge between captains
+  captainPoints: number; // earned via THIS captain's own prestige (captainPrestige)
+  captainPrestigeCount: number;
+  specialization: SpecializationKey | null;
+}
+
+export interface GameState {
+  captains: CaptainState[];
+  augmentPoints: number; // fleet-wide, from Fleet Prestige
+  prestigeCount: number; // fleet-wide Fleet Prestige count
+  gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
+}
+
+// The baseline BOTH prestige tiers reset a captain's stack to: 1 free Mining
+// Laser, everything else zeroed. This is the same floor the old single-stack
+// prestige() has always reset to (freshState() always gave 1 free miner) --
+// prestiging is "start this captain's economy over with a small foothold,"
+// not "erase them back to before they existed." Only a captain slot that has
+// NEVER been played (Captain 2 in a brand-new/migrated save, before its first
+// captainPrestige) starts with zero modules instead -- see freshCaptains().
+export function freshCaptainStack(): Pick<
+  CaptainState,
+  "resources" | "modules" | "research" | "lifetimeComponents" | "tickDurationSeconds"
+> {
+  return {
+    resources: { ore: 0, ingots: 0, components: 0, alloys: 0 },
+    modules: { miner: 1, refinery: 0, fabricator: 0, synthesizer: 0 },
+    research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
+    lifetimeComponents: 0,
+    tickDurationSeconds: 10,
+  };
+}
+
+// The starting 2-captain roster for both a brand-new save (freshState) and a
+// post-Fleet-Prestige reset. Captain 1 gets the shared reset baseline (1 free
+// miner); Captain 2 starts from an entirely empty stack -- deliberately
+// asymmetric, since Captain 2 is a slot that has never been played before,
+// not a captain being reset. See docs/plans/2026-07-03-captain-ship-design.md.
+export function freshCaptains(): CaptainState[] {
+  return [
+    {
+      id: 1,
+      label: "Captain 1",
+      shipType: "resourcer",
+      ...freshCaptainStack(),
+      captainPoints: 0,
+      captainPrestigeCount: 0,
+      specialization: null,
+    },
+    {
+      id: 2,
+      label: "Captain 2",
+      shipType: "resourcer",
+      resources: { ore: 0, ingots: 0, components: 0, alloys: 0 },
+      modules: { miner: 0, refinery: 0, fabricator: 0, synthesizer: 0 },
+      research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
+      lifetimeComponents: 0,
+      tickDurationSeconds: 10,
+      captainPoints: 0,
+      captainPrestigeCount: 0,
+      specialization: null,
+    },
+  ];
 }
 
 export function freshState(): GameState {
   return {
-    resources: { ore: 0, ingots: 0, components: 0, alloys: 0 },
-    modules: { miner: 1, refinery: 0, fabricator: 0, synthesizer: 0 },
-    lifetimeComponents: 0,
+    captains: freshCaptains(),
     augmentPoints: 0,
     prestigeCount: 0,
     gameTimeSeconds: 0,
-    tickDurationSeconds: 10,
-    research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
   };
 }
 
@@ -78,19 +162,36 @@ export function costFor(moduleKey: ModuleKey, count: number): number {
 
 // Only one gated module/resource exists right now (Synthesizer/alloys, behind
 // Alloy Synthesis research). If a second gated module is ever added, this
-// needs a real lookup instead of a single hardcoded key check.
-export function isModuleUnlocked(key: ModuleKey, state: GameState): boolean {
-  if (key === "synthesizer") return state.research.alloySynthesis.completed;
+// needs a real lookup instead of a single hardcoded key check. Per-captain as
+// of Phase 1: each captain's OWN research state gates THEIR OWN Synthesizer.
+export function isModuleUnlocked(key: ModuleKey, captain: CaptainState): boolean {
+  if (key === "synthesizer") return captain.research.alloySynthesis.completed;
   return true;
 }
 
-export function isResourceUnlocked(key: ResourceKey, state: GameState): boolean {
-  if (key === "alloys") return state.research.alloySynthesis.completed;
+export function isResourceUnlocked(key: ResourceKey, captain: CaptainState): boolean {
+  if (key === "alloys") return captain.research.alloySynthesis.completed;
   return true;
 }
 
-// Layer 4 (prestige-persistent) per tech spec §3. The only layer implemented
-// so far — crew/captain/fleet layers arrive as those entities are built.
+// Fleet-wide multiplier, from Fleet Prestige's augmentPoints. Applies equally
+// to every captain's production.
 export function globalMultiplier(state: GameState): number {
   return 1 + state.augmentPoints * 0.1;
+}
+
+// Per-captain multiplier, from that captain's OWN captainPrestige history.
+// Same shape as globalMultiplier, deliberately -- a captain's own prestige
+// track is a smaller, faster echo of the fleet-wide one.
+export function captainMultiplier(captain: CaptainState): number {
+  return 1 + captain.captainPoints * 0.1;
+}
+
+// 1 + bonusMult if this captain has a specialization matching the given
+// resource, else 1. A captain with no specialization (specialization: null)
+// always returns 1 for every resource.
+export function specializationMultiplier(captain: CaptainState, resource: ResourceKey): number {
+  if (!captain.specialization) return 1;
+  const spec = SPECIALIZATIONS[captain.specialization];
+  return spec.resource === resource ? 1 + spec.bonusMult : 1;
 }
