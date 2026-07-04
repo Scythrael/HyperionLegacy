@@ -163,11 +163,13 @@
 
   function startResearch(key: ResearchKey) {
     const project = RESEARCH_PROJECTS[key];
+    const entry = state.research[key];
+    if (entry.started || entry.completed) return; // not safe to call twice by construction otherwise
     if (state.resources.components < project.costComponents) return;
     state = {
       ...state,
       resources: { ...state.resources, components: state.resources.components - project.costComponents },
-      research: { ...state.research, [key]: { ...state.research[key], started: true } },
+      research: { ...state.research, [key]: { ...entry, started: true } },
     };
     pushLog(`Research started: ${project.label}.`);
   }
