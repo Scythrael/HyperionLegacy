@@ -437,6 +437,7 @@
       <Panel>
         <div class="panel-title">FLEET PRESTIGE — TIER 2</div>
         {@const fleetLifetimeComponents = state.captains.reduce((sum, c) => sum + c.lifetimeComponents, 0)}
+        {@const fleetGain = Math.floor(Math.sqrt(fleetLifetimeComponents))}
         <p class="prestige-text">
           Retire the WHOLE FLEET for Augment Points (√ of combined lifetime components across every
           captain). Resets every captain back to the starting roster of 2 — wiping all specializations,
@@ -445,9 +446,16 @@
         </p>
         <div class="prestige-row">
           <div class="prestige-yield">
-            Would yield <strong>{formatNumber(Math.floor(Math.sqrt(fleetLifetimeComponents)))}</strong> Augment Points
+            Would yield <strong>{formatNumber(fleetGain)}</strong> Augment Points
           </div>
-          <button class="prestige-btn" on:click={doPrestige}>Fleet Prestige</button>
+          <button
+            class="prestige-btn"
+            disabled={fleetGain <= 0}
+            style="opacity:{fleetGain <= 0 ? 0.4 : 1}"
+            on:click={doPrestige}
+          >
+            Fleet Prestige
+          </button>
         </div>
       </Panel>
 
