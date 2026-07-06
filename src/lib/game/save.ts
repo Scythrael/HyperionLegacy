@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import { type GameState, type CaptainState, freshCaptains } from "./model";
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -72,6 +72,19 @@ export interface SaveFile {
 // save arriving here), this ONLY grants rank 1 regardless of actual count --
 // not reachable through any current code path, but worth knowing, same
 // category of gap as MIGRATIONS[2]/[3]'s comments above.
+// v7 -> v8: Home Planet & Mission Expeditions (docs/plans/2026-07-06-home-
+// planet-expeditions-plan.md, Task 4). GameState gains `homePlanet.storage`
+// (a fleet-wide loot stockpile, separate from any captain's own resources)
+// and CaptainState gains `mission` (null when idle, populated while a
+// captain is off running a mission expedition). Existing v7 saves have
+// neither: `homePlanet` is backfilled to a fresh, all-zero storage object,
+// and every captain in the roster gets `mission: null` if they don't already
+// have a `mission` field. `c.mission ?? null` is written so it's a no-op
+// (not a fresh reassignment) when `mission` is already present and already
+// `null` -- this matters for the chained multi-version test below, where a
+// v1 save chains all the way to v8 and captains picked up other fields along
+// the way; we don't want this step to clobber anything already correctly
+// set by an earlier step in the same chain.
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -139,6 +152,13 @@ const MIGRATIONS: Record<number, Migration> = {
     // comment above for why that's the only case a real pre-v7 save can be in.
     unlockedSkillNodes: state.unlockedSkillNodes ?? ((state.captains?.length ?? 1) >= 2 ? ["commandRank1"] : []),
     skillPoints: state.skillPoints ?? 0,
+  }),
+  7: (state: any): GameState => ({
+    ...state,
+    // Fleet-wide loot stockpile, absent entirely on any pre-v8 save -- backfill
+    // to a fresh, all-zero storage object. See the file-header comment above.
+    homePlanet: state.homePlanet ?? { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 } },
+    captains: state.captains.map((c: any) => ({ ...c, mission: c.mission ?? null })),
   }),
 };
 
