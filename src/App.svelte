@@ -502,7 +502,7 @@
                   style="opacity:{affordable ? 1 : 0.4}"
                   on:click={() => doBuySkillNode(nodeKey)}
                 >
-                  Unlock · {node.costSkillPoints} SP
+                  Unlock · {node.costSkillPoints} Skill Points
                 </button>
               {/if}
             </div>
@@ -528,7 +528,7 @@
                   style="opacity:{affordable ? 1 : 0.4}"
                   on:click={() => doBuySkillNode(nodeKey)}
                 >
-                  Unlock · {node.costSkillPoints} SP
+                  Unlock · {node.costSkillPoints} Skill Points
                 </button>
               {/if}
             </div>
