@@ -35,6 +35,7 @@ import {
   type CaptainMissionState,
   type LootMaterialKey,
   type MissionPhase,
+  type MissionKey,
 } from "./model";
 
 export function tickCaptainStack(
@@ -216,14 +217,40 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     researchDurationMults[key] = researchDurationMult(state, key);
   }
 
-  const captains = state.captains.map((captain) =>
-    tickCaptainStack(deltaSeconds, captain, fleetMult, researchDurationMults)
-  );
+  // Captains on a mission are mutually exclusive with their normal Generator
+  // Stack/research economy this tick (design doc, Phase 3a) -- they skip
+  // tickCaptainStack entirely and instead advance tickCaptainMission, which
+  // uses its OWN discrete tick-count cadence (ticksElapsed), not continuous
+  // deltaSeconds. Converting deltaSeconds -> ticksElapsed via THIS captain's
+  // own tickDurationSeconds keeps mission progress on the same per-captain
+  // cadence convention tickCaptainStack already relies on (see file header).
+  // Loot delivered home (homePlanetDelta) this tick is summed across every
+  // captain on a mission and applied to state.homePlanet.storage once below,
+  // same "accumulate locally, apply once" shape as gameTimeSeconds.
+  const homePlanetDelta = emptyLootTotals();
+  const captains = state.captains.map((captain) => {
+    if (captain.mission !== null) {
+      const ticksElapsed = deltaSeconds / captain.tickDurationSeconds;
+      const { captain: updatedCaptain, homePlanetDelta: delta } = tickCaptainMission(ticksElapsed, captain);
+      (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
+        homePlanetDelta[key] += delta[key];
+      });
+      return updatedCaptain;
+    }
+    return tickCaptainStack(deltaSeconds, captain, fleetMult, researchDurationMults);
+  });
 
   return {
     ...state,
     captains,
     gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
+    homePlanet: {
+      storage: {
+        commonOre: state.homePlanet.storage.commonOre + homePlanetDelta.commonOre,
+        uncommonMaterial: state.homePlanet.storage.uncommonMaterial + homePlanetDelta.uncommonMaterial,
+        rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
+      },
+    },
   };
 }
 
@@ -330,4 +357,53 @@ export function buySkillNode(state: GameState, nodeKey: SkillNodeKey): { next: G
     },
     success: true,
   };
+}
+
+// Dispatches an idle captain (mission === null) on a mission. Finds the
+// captain by id (not array index -- ids and indices can diverge once
+// captains are ever removed/reordered, though nothing does that today;
+// mirrors captainPrestige's/buySkillNode's existing id-lookup convention).
+// Fails (same state reference, unchanged) if no captain has that id, or if
+// they already have an active mission -- mirrors captainPrestige's
+// not-found guard and buySkillNode's already-unlocked guard. On success,
+// seeds a brand-new CaptainMissionState at the very start of the cycle
+// (phase "ordersReceived", zero progress, empty cargo, not recalled).
+export function dispatchCaptainOnMission(
+  state: GameState,
+  captainId: number,
+  missionKey: MissionKey
+): { next: GameState; success: boolean } {
+  const idx = state.captains.findIndex((c) => c.id === captainId);
+  if (idx === -1) return { next: state, success: false };
+  if (state.captains[idx].mission !== null) return { next: state, success: false };
+
+  const captains = [...state.captains];
+  captains[idx] = {
+    ...captains[idx],
+    mission: {
+      missionKey,
+      phase: "ordersReceived",
+      phaseProgressTicks: 0,
+      cargo: emptyLootTotals(),
+      recalled: false,
+    },
+  };
+  return { next: { ...state, captains }, success: true };
+}
+
+// Flags an active mission as recalled. Deliberately does NOT reset phase,
+// phaseProgressTicks, or cargo -- recall only flags intent; tickCaptainMission
+// (Task 2) already knows to end the mission (mission -> null) instead of
+// auto-repeating once the CURRENT cycle's unloading phase completes. So
+// recall takes effect at the end of the current cycle, not immediately --
+// a deliberate design choice, not a bug. Fails if no captain has that id,
+// or if they have no active mission to recall.
+export function recallCaptain(state: GameState, captainId: number): { next: GameState; success: boolean } {
+  const idx = state.captains.findIndex((c) => c.id === captainId);
+  if (idx === -1) return { next: state, success: false };
+  if (state.captains[idx].mission === null) return { next: state, success: false };
+
+  const captains = [...state.captains];
+  captains[idx] = { ...captains[idx], mission: { ...captains[idx].mission!, recalled: true } };
+  return { next: { ...state, captains }, success: true };
 }
