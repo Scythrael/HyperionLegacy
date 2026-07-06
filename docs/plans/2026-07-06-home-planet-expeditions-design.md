@@ -169,4 +169,23 @@ Material quantities).
   new top-level navigation — the Missions and Home Planet panels slot into the existing single-page
   panel-stack layout, same as every other panel added this session. The five-tab structure is
   captured here so it isn't lost, to be picked up when Shipyard/PvP/Homeworld structures are
-  actually designed.
+  actually designed. **Confirmed as the very next phase after Phase 3a ships**, ahead of the
+  salvage/Energy Phase 3b and everything else below.
+- **Home Planet storage capacity + upgrades.** Storage should be finite (not unbounded, as this
+  design currently has it), starting small enough that it takes days of real accumulation to fill,
+  with research/upgrade options to grow it over time. Deliberately shipped as unbounded in Phase 3a
+  to prove the mission loop first; capacity + upgrades becomes its own small follow-up plan
+  immediately after, per explicit user decision during Phase 3a's implementation.
+- **Prestige redesign — what to reset vs. what to keep.** Missions introduce a new kind of
+  real-time investment (hours of travel/auto-repeat) that the current two-tier prestige system
+  (Phase 1) resets indiscriminately, same as it always has for a captain's quick resource/module
+  economy. That already-existing split (some things reset, some — Skill Points, unlocked skill
+  nodes, Home Planet storage — never do) is the right instinct, but missions expose a real gap:
+  prestiging mid-mission currently just cancels it and discards in-transit cargo (see Task 3 of
+  `docs/plans/2026-07-06-home-planet-expeditions-plan.md`), which can now mean losing hours of real
+  time to a single click. Explicitly shelved rather than fixed piecemeal — deserves a real design
+  pass on its own (e.g., should missions grant a permanent, never-reset "Captain Experience" stat
+  alongside/instead of the existing captainPoints reset-for-multiplier loop; should prestiging a
+  captain with an active mission simply be blocked until they're recalled) once there's more mission
+  content to design against, not a snap decision mid-implementation. Phase 3a ships with today's
+  behavior unchanged (prestige cancels an active mission) until this is revisited.
