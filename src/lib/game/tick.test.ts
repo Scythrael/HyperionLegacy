@@ -202,8 +202,8 @@ describe("prestige — fleet-wide reset (extended for multi-captain)", () => {
     expect(next.captains).toHaveLength(2);
     expect(next.captains[0].captainPoints).toBe(0);
     expect(next.captains[0].specialization).toBe(null);
-    expect(next.captains[0].modules.miner).toBe(1); // back to Captain 1's head start
-    expect(next.captains[1].modules.miner).toBe(0); // back to Captain 2's empty start
+    expect(next.captains[0].modules.miner).toBe(1); // back to the shared head start
+    expect(next.captains[1].modules.miner).toBe(1); // back to the shared head start (regression: was 0, a softlock)
   });
 
   it("carries augmentPoints/prestigeCount/gameTimeSeconds forward, does nothing if gained <= 0", () => {

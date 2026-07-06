@@ -120,10 +120,16 @@ export function freshCaptainStack(): Pick<
 }
 
 // The starting 2-captain roster for both a brand-new save (freshState) and a
-// post-Fleet-Prestige reset. Captain 1 gets the shared reset baseline (1 free
-// miner); Captain 2 starts from an entirely empty stack -- deliberately
-// asymmetric, since Captain 2 is a slot that has never been played before,
-// not a captain being reset. See docs/plans/2026-07-03-captain-ship-design.md.
+// post-Fleet-Prestige reset. Both captains get the SAME shared reset baseline
+// (1 free miner) -- an earlier version of this function deliberately zeroed
+// out Captain 2's modules to make a "never played" slot feel distinct from a
+// "just reset" one, but that was a genuine softlock: every module (including
+// the miner itself) costs ore to buy, and ore is only ever produced BY a
+// miner, so a captain starting at 0 miners has no possible path to ever
+// afford anything, forever. Confirmed live in production (a user reported
+// Captain 2 "never improves"). There is no other resource-free entry point
+// into this game's economy, so 1 free miner is the floor every captain needs
+// to be playable at all -- not just a nice-to-have head start.
 export function freshCaptains(): CaptainState[] {
   return [
     {
@@ -139,14 +145,11 @@ export function freshCaptains(): CaptainState[] {
       id: 2,
       label: "Captain 2",
       shipType: "resourcer",
-      // Spreads the same shared baseline as Captain 1, then overrides modules
-      // back to all-zero -- a never-played slot gets no head start. Sharing
-      // freshCaptainStack() here (instead of a fully separate hand-written
-      // literal) means any new CaptainState field added to that helper is
-      // guaranteed identical for both captains unless explicitly overridden,
-      // rather than relying on two literals staying in sync by hand.
+      // Sharing freshCaptainStack() here (instead of a fully separate
+      // hand-written literal) means any new CaptainState field added to that
+      // helper is guaranteed identical for both captains, rather than relying
+      // on two literals staying in sync by hand.
       ...freshCaptainStack(),
-      modules: { miner: 0, refinery: 0, fabricator: 0, synthesizer: 0 },
       captainPoints: 0,
       captainPrestigeCount: 0,
       specialization: null,

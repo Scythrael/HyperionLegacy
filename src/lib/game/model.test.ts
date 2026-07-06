@@ -29,12 +29,20 @@ describe("freshState — captain roster shape", () => {
     expect(c1.modules.synthesizer).toBe(0);
   });
 
-  it("Captain 2 has id 2, label 'Captain 2', and starts completely empty (no head start)", () => {
+  it("Captain 2 has id 2, label 'Captain 2', and gets the SAME 1-miner head start as Captain 1", () => {
+    // Regression test: Captain 2 previously started with 0 miners, which is
+    // an unrecoverable softlock -- every module (including the miner itself)
+    // costs ore, and only a miner produces ore, so 0 miners means 0 ore
+    // forever, means nothing is ever affordable. Confirmed live in
+    // production. Both captains must share the same playable floor.
     const state = freshState();
     const c2 = state.captains[1];
     expect(c2.id).toBe(2);
     expect(c2.label).toBe("Captain 2");
-    expect(c2.modules.miner).toBe(0);
+    expect(c2.modules.miner).toBe(1);
+    expect(c2.modules.refinery).toBe(0);
+    expect(c2.modules.fabricator).toBe(0);
+    expect(c2.modules.synthesizer).toBe(0);
   });
 
   it("both captains start with 0 resources, 0 captainPoints, 0 captainPrestigeCount, null specialization", () => {

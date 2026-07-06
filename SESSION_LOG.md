@@ -126,3 +126,20 @@ actually boosts the right resource, and confirm a real existing save
 migrates cleanly to the 2-captain shape with progress intact. Phase 2 (a
 fleet-wide skill tree that makes captain-slot count actually unlockable,
 replacing today's fixed 2) is a separate, not-yet-started design.
+
+**Session 8** — HOTFIX: user reported Captain 2 "never improves" on the live
+Phase 1 deploy. Root cause: `freshCaptains()` deliberately gave Captain 2 a
+totally empty stack (0 modules) to feel distinct from a reset captain, but
+every module costs ore and only the Mining Laser produces ore — so a captain
+starting at 0 miners has no possible path to ever afford anything, a genuine
+softlock, not a balance nitpick. Fixed `freshCaptains()` so both captains
+share the same 1-free-miner floor (the same baseline `freshCaptainStack()`
+already uses for both prestige tiers), and added a `MIGRATIONS[5]` (v5→v6)
+step repairing any already-serialized save with a captain permanently stuck
+at 0 miners, since a shipped migration body can't be edited retroactively
+(same constraint that shaped the v2→v3 hotfix earlier this project). Safe to
+apply unconditionally since there's no "sell modules" mechanic anywhere in
+this game — a captain sitting at exactly 0 miners can only be this bug, never
+a deliberate player choice. Next: confirm on the live site that Captain 2 is
+now buyable/playable, and that an existing affected save gets repaired on
+next load.

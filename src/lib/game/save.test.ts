@@ -32,8 +32,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 5", () => {
-    expect(SAVE_VERSION).toBe(5);
+  it("current SAVE_VERSION is 6", () => {
+    expect(SAVE_VERSION).toBe(6);
   });
 });
 
@@ -71,8 +71,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 5", () => {
-    expect(SAVE_VERSION).toBe(5);
+  it("current SAVE_VERSION is 6", () => {
+    expect(SAVE_VERSION).toBe(6);
   });
 });
 
@@ -199,10 +199,11 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.captains[0].captainPrestigeCount).toBe(0);
     expect(migrated.captains[0].specialization).toBe(null);
 
-    // Captain 2: fresh, empty, never played.
+    // Captain 2: fresh, never played, but still gets the shared 1-miner
+    // floor -- see model.ts's freshCaptains() regression comment.
     expect(migrated.captains[1].id).toBe(2);
     expect(migrated.captains[1].label).toBe("Captain 2");
-    expect(migrated.captains[1].modules.miner).toBe(0);
+    expect(migrated.captains[1].modules.miner).toBe(1);
     expect(migrated.captains[1].lifetimeComponents).toBe(0);
 
     // Fleet-wide fields survive untouched; old top-level per-stack fields are gone.
@@ -216,16 +217,113 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBeUndefined();
   });
 
-  it("current SAVE_VERSION is 5", () => {
-    expect(SAVE_VERSION).toBe(5);
+  it("current SAVE_VERSION is 6", () => {
+    expect(SAVE_VERSION).toBe(6);
   });
 });
 
-describe("migrate — chained v1 -> v5 migration", () => {
-  it("backfills every field across all four migration steps on a genuine v1 save missing all of them", () => {
+describe("migrate — captain miner-floor backfill (hotfix)", () => {
+  it("repairs a captain permanently stuck at 0 miners, leaves an unaffected captain untouched", () => {
+    // The real-world corrupted shape: a save that already migrated through
+    // the unpatched v4->v5 step (or was otherwise created with the old
+    // freshCaptains()), so captains[1] is permanently stuck at 0 miners --
+    // and since every module costs ore and only a miner produces ore, that
+    // captain can never afford anything, ever (confirmed live in
+    // production). captains[0] has real, non-zero progress and must survive
+    // completely untouched.
+    const corruptedState: any = {
+      augmentPoints: 5,
+      prestigeCount: 1,
+      gameTimeSeconds: 4000,
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          resources: { ore: 800, ingots: 300, components: 40, alloys: 0 },
+          modules: { miner: 12, refinery: 3, fabricator: 1, synthesizer: 0 },
+          research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
+          lifetimeComponents: 40,
+          tickDurationSeconds: 10,
+          captainPoints: 0,
+          captainPrestigeCount: 0,
+          specialization: null,
+        },
+        {
+          id: 2,
+          label: "Captain 2",
+          shipType: "resourcer",
+          resources: { ore: 0, ingots: 0, components: 0, alloys: 0 },
+          modules: { miner: 0, refinery: 0, fabricator: 0, synthesizer: 0 },
+          research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
+          lifetimeComponents: 0,
+          tickDurationSeconds: 10,
+          captainPoints: 0,
+          captainPrestigeCount: 0,
+          specialization: null,
+        },
+      ],
+    };
+
+    const save: SaveFile = {
+      version: 5,
+      created_at: 0,
+      last_saved_at: 0,
+      game_time_seconds: 4000,
+      state: corruptedState,
+    };
+
+    const migrated: any = migrate(save);
+    expect(migrated.captains[1].modules.miner).toBe(1); // repaired
+    expect(migrated.captains[1].modules.refinery).toBe(0); // other modules untouched
+    expect(migrated.captains[0].modules.miner).toBe(12); // unaffected captain fully untouched
+    expect(migrated.captains[0].resources.ore).toBe(800);
+  });
+
+  it("does not touch a captain who already has miners (only exactly-0 is repaired)", () => {
+    const state: any = {
+      augmentPoints: 0,
+      prestigeCount: 0,
+      gameTimeSeconds: 0,
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          resources: { ore: 0, ingots: 0, components: 0, alloys: 0 },
+          modules: { miner: 3, refinery: 0, fabricator: 0, synthesizer: 0 },
+          research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
+          lifetimeComponents: 0,
+          tickDurationSeconds: 10,
+          captainPoints: 0,
+          captainPrestigeCount: 0,
+          specialization: null,
+        },
+      ],
+    };
+
+    const save: SaveFile = {
+      version: 5,
+      created_at: 0,
+      last_saved_at: 0,
+      game_time_seconds: 0,
+      state,
+    };
+
+    const migrated: any = migrate(save);
+    expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
+  });
+
+  it("current SAVE_VERSION is 6", () => {
+    expect(SAVE_VERSION).toBe(6);
+  });
+});
+
+describe("migrate — chained v1 -> v6 migration", () => {
+  it("backfills every field across all five migration steps on a genuine v1 save missing all of them", () => {
     // The real v1 shape: no tickDurationSeconds, no research, no
     // synthesizer/alloys fields, AND (obviously) no captains array at all --
-    // this exercises MIGRATIONS[1] through [4] running back-to-back on the
+    // this exercises MIGRATIONS[1] through [5] running back-to-back on the
     // same object, not just one isolated step.
     const legacyState: any = {
       resources: { ore: 10, ingots: 0, components: 0 },
@@ -255,7 +353,7 @@ describe("migrate — chained v1 -> v5 migration", () => {
     expect(migrated.captains[0].modules.synthesizer).toBe(0);
     expect(migrated.captains[0].resources.alloys).toBe(0);
     expect(migrated.captains[0].modules.miner).toBe(1); // original v1 progress preserved
-    expect(migrated.captains[1].modules.miner).toBe(0); // fresh second captain
+    expect(migrated.captains[1].modules.miner).toBe(1); // fresh second captain, shared 1-miner floor
     expect(migrated.gameTimeSeconds).toBe(100); // fleet-wide field survives the whole chain
   });
 });

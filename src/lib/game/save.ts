@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import { type GameState, type CaptainState, freshCaptains } from "./model";
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -43,6 +43,20 @@ export interface SaveFile {
 // shape (they no longer exist on GameState at all -- there is nothing to
 // backfill them TO on the fleet-wide object, unlike prior migrations which
 // only ever added missing fields to an otherwise-intact shape).
+// v5 -> v6: HOTFIX. freshCaptains() originally gave Captain 2 a deliberately
+// empty stack (0 modules) to feel distinct from a "just reset" captain. That
+// was a genuine softlock: every module (including the miner) costs ore, and
+// only a miner produces ore, so a captain starting at 0 miners can never
+// afford anything, ever. Confirmed live in production. freshCaptains() itself
+// is already fixed (both captains now get 1 free miner), which is enough for
+// brand-new saves -- but any save that already migrated through the
+// unpatched MIGRATIONS[4] has a captain permanently frozen at 0 miners baked
+// into its serialized state, and (per Ops §8.E.1) that migration body can't
+// be edited to fix them retroactively. This step repairs any captain with
+// modules.miner === 0: there's no "sell modules" mechanic anywhere in this
+// game, so the ONLY way a captain can be sitting at 0 miners is this exact
+// bug -- a captain who was ever actually playable would have bought
+// something by now. Safe to apply unconditionally for that reason.
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -98,6 +112,12 @@ const MIGRATIONS: Record<number, Migration> = {
       captains: [captainOne, fresh[1]],
     };
   },
+  5: (state: any): GameState => ({
+    ...state,
+    captains: state.captains.map((c: any) =>
+      c.modules?.miner === 0 ? { ...c, modules: { ...c.modules, miner: 1 } } : c
+    ),
+  }),
 };
 
 export function migrate(save: SaveFile): GameState {
