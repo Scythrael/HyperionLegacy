@@ -409,8 +409,9 @@
           <p class="research-status">✓ {RESEARCH_PROJECTS.alloySynthesis.label} — Complete</p>
         {:else if activeCaptain.research.alloySynthesis.started}
           {@const project = RESEARCH_PROJECTS.alloySynthesis}
-          {@const progress = Math.min(1, activeCaptain.research.alloySynthesis.progressSeconds / project.durationSeconds)}
-          {@const remaining = Math.max(0, project.durationSeconds - activeCaptain.research.alloySynthesis.progressSeconds)}
+          {@const effectiveDuration = project.durationSeconds * researchDurationMult(state, "alloySynthesis")}
+          {@const progress = Math.min(1, activeCaptain.research.alloySynthesis.progressSeconds / effectiveDuration)}
+          {@const remaining = Math.max(0, effectiveDuration - activeCaptain.research.alloySynthesis.progressSeconds)}
           <div class="research-name">{project.label}</div>
           <div class="research-bar-track">
             <div class="research-bar-fill" style="width:{progress * 100}%"></div>
@@ -418,9 +419,11 @@
           <div class="research-readout">{remaining.toFixed(0)}s remaining</div>
         {:else}
           {@const project = RESEARCH_PROJECTS.alloySynthesis}
+          {@const effectiveDuration = project.durationSeconds * researchDurationMult(state, "alloySynthesis")}
           {@const affordable = activeCaptain.resources.components >= project.costComponents}
           <div class="research-name">{project.label}</div>
           <div class="research-cost">Cost: {formatNumber(project.costComponents)} components</div>
+          <div class="research-cost">Duration: {effectiveDuration.toFixed(0)}s</div>
           <button
             class="buy-btn"
             disabled={!affordable}
