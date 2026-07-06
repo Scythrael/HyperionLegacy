@@ -73,6 +73,58 @@ export const SPECIALIZATIONS: Record<SpecializationKey, SpecializationDef> = {
   fabrication: { label: "Fabrication Specialist", resource: "components", bonusMult: 0.25 },
 };
 
+export type SkillBranchKey = "command" | "research";
+
+export type SkillNodeKey = "commandRank1" | "commandRank2" | "commandRank3" | "researchAlloySynthesisSpeed";
+
+export type SkillNodeEffect =
+  | { type: "unlockCaptainSlot" }
+  | { type: "researchSpeedMult"; researchKey: ResearchKey; mult: number };
+
+export interface SkillNodeDef {
+  branch: SkillBranchKey;
+  label: string;
+  costSkillPoints: number;
+  requires: SkillNodeKey | null; // prerequisite node in the SAME branch; null means no prerequisite
+  effect: SkillNodeEffect;
+}
+
+// 3 Command ranks (unlock captain slots 2/3/4, increasing cost) + 1 Research
+// node (a one-time Alloy Synthesis speed buff). Add a new entry here (and
+// nowhere else -- App.svelte's panel iterates this object grouped by
+// `branch`) if a new node is ever wanted; SKILL_TREE.test.ts's "launch set"
+// tests will need updating to match whatever the new set looks like.
+export const SKILL_TREE: Record<SkillNodeKey, SkillNodeDef> = {
+  commandRank1: {
+    branch: "command",
+    label: "Recruit Captain (2nd slot)",
+    costSkillPoints: 1,
+    requires: null,
+    effect: { type: "unlockCaptainSlot" },
+  },
+  commandRank2: {
+    branch: "command",
+    label: "Recruit Captain (3rd slot)",
+    costSkillPoints: 2,
+    requires: "commandRank1",
+    effect: { type: "unlockCaptainSlot" },
+  },
+  commandRank3: {
+    branch: "command",
+    label: "Recruit Captain (4th slot)",
+    costSkillPoints: 3,
+    requires: "commandRank2",
+    effect: { type: "unlockCaptainSlot" },
+  },
+  researchAlloySynthesisSpeed: {
+    branch: "research",
+    label: "Synthesis Efficiency",
+    costSkillPoints: 1,
+    requires: null,
+    effect: { type: "researchSpeedMult", researchKey: "alloySynthesis", mult: 0.75 },
+  },
+};
+
 export interface CaptainState {
   id: number;
   label: string; // placeholder, e.g. "Captain 1" -- naming UI deferred per master doc §10.7
@@ -92,6 +144,8 @@ export interface GameState {
   augmentPoints: number; // fleet-wide, from Fleet Prestige
   prestigeCount: number; // fleet-wide Fleet Prestige count
   gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
+  skillPoints: number; // unspent, fleet-wide -- earned 1 per Fleet Prestige, never reset by it
+  unlockedSkillNodes: SkillNodeKey[]; // fleet-wide, persistent, never reset by Fleet Prestige
 }
 
 // The baseline BOTH prestige tiers reset a captain's stack to: 1 free Mining
@@ -119,50 +173,37 @@ export function freshCaptainStack(): Pick<
   };
 }
 
-// The starting 2-captain roster for both a brand-new save (freshState) and a
-// post-Fleet-Prestige reset. Both captains get the SAME shared reset baseline
-// (1 free miner) -- an earlier version of this function deliberately zeroed
-// out Captain 2's modules to make a "never played" slot feel distinct from a
-// "just reset" one, but that was a genuine softlock: every module (including
-// the miner itself) costs ore to buy, and ore is only ever produced BY a
-// miner, so a captain starting at 0 miners has no possible path to ever
-// afford anything, forever. Confirmed live in production (a user reported
-// Captain 2 "never improves"). There is no other resource-free entry point
-// into this game's economy, so 1 free miner is the floor every captain needs
-// to be playable at all -- not just a nice-to-have head start.
-export function freshCaptains(): CaptainState[] {
-  return [
-    {
-      id: 1,
-      label: "Captain 1",
+// Generates `count` captains (ids 1..count) sharing the same reset baseline
+// (1 free miner) -- see the softlock regression note on freshCaptainStack()
+// above. Used for: a brand-new save (freshState calls freshCaptains(1) --
+// Phase 2's Command branch is now how the roster grows past 1), a
+// post-Fleet-Prestige reset (freshCaptains(captainSlotCount(state)) in
+// tick.ts, so earned slot count survives the reset), and save migration
+// (backfilling a never-played slot at the real v4->v5 migration's shape).
+export function freshCaptains(count: number): CaptainState[] {
+  const captains: CaptainState[] = [];
+  for (let i = 1; i <= count; i++) {
+    captains.push({
+      id: i,
+      label: `Captain ${i}`,
       shipType: "resourcer",
       ...freshCaptainStack(),
       captainPoints: 0,
       captainPrestigeCount: 0,
       specialization: null,
-    },
-    {
-      id: 2,
-      label: "Captain 2",
-      shipType: "resourcer",
-      // Sharing freshCaptainStack() here (instead of a fully separate
-      // hand-written literal) means any new CaptainState field added to that
-      // helper is guaranteed identical for both captains, rather than relying
-      // on two literals staying in sync by hand.
-      ...freshCaptainStack(),
-      captainPoints: 0,
-      captainPrestigeCount: 0,
-      specialization: null,
-    },
-  ];
+    });
+  }
+  return captains;
 }
 
 export function freshState(): GameState {
   return {
-    captains: freshCaptains(),
+    captains: freshCaptains(1),
     augmentPoints: 0,
     prestigeCount: 0,
     gameTimeSeconds: 0,
+    skillPoints: 0,
+    unlockedSkillNodes: [],
   };
 }
 
@@ -197,6 +238,36 @@ export function globalMultiplier(state: GameState): number {
 // this formula ever changes (e.g. a future weighting or cap).
 export function fleetLifetimeComponents(state: GameState): number {
   return state.captains.reduce((sum, c) => sum + c.lifetimeComponents, 0);
+}
+
+// 1 (the floor every save starts with) + however many "unlockCaptainSlot"
+// Command nodes have been bought. This is what BOTH a mid-game slot
+// purchase (tick.ts's buySkillNode) and a Fleet Prestige reset
+// (tick.ts's prestige, via freshCaptains(captainSlotCount(state))) treat as
+// "how many captains should exist" -- fixes the Phase-1 gap where Fleet
+// Prestige always collapsed the roster back to a hardcoded 2 regardless of
+// what had actually been earned.
+export function captainSlotCount(state: GameState): number {
+  return (
+    1 +
+    state.unlockedSkillNodes.filter((key) => SKILL_TREE[key].effect.type === "unlockCaptainSlot").length
+  );
+}
+
+// Product of every unlocked researchSpeedMult node's mult targeting this
+// researchKey (1 if none apply). Fleet-wide, computed once per tick() call
+// (see tick.ts) and applied identically to every captain's copy of that
+// research project, same "compute once, apply everywhere" shape as
+// globalMultiplier.
+export function researchDurationMult(state: GameState, researchKey: ResearchKey): number {
+  let mult = 1;
+  for (const nodeKey of state.unlockedSkillNodes) {
+    const effect = SKILL_TREE[nodeKey].effect;
+    if (effect.type === "researchSpeedMult" && effect.researchKey === researchKey) {
+      mult *= effect.mult;
+    }
+  }
+  return mult;
 }
 
 // Per-captain multiplier, from that captain's OWN captainPrestige history.
