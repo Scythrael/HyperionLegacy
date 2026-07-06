@@ -81,11 +81,28 @@ export function tickCaptainStack(
   };
 }
 
+// Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
+// there's no compiler link between this array and the union type, so a 6th
+// phase added to MissionPhase without a matching entry here would silently
+// wrap `.indexOf()` to -1 instead of erroring.
 const MISSION_PHASE_ORDER: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
 
 function emptyLootTotals(): Record<LootMaterialKey, number> {
   return { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
 }
+
+// requiredTicksForPhase always returns a whole number, but phaseProgressTicks
+// accumulates via repeated float addition across many small tickCaptainMission
+// calls (e.g. offline catch-up feeding one big ticksElapsed vs. the live loop
+// feeding many small ones -- see the closed-form test). Summing a
+// non-terminating binary fraction like 0.1 many times lands a hair short of
+// (or past) the true integer boundary, e.g. 9.999999999999982 instead of 10.
+// Left unhandled, that residue is invisible to a strict `>=` boundary check
+// AND undercounts the extraction loot rolls below (Math.floor never sees the
+// final whole-tick crossing) -- so one big ticksElapsed call and many small
+// ones summing to the same total can disagree on both phase and loot,
+// breaking the exact guarantee this function exists to provide.
+const MISSION_TICK_EPSILON = 1e-9;
 
 // The mission-progress analog of tickCaptainStack: MUST be closed-form,
 // exactly like tickCaptainStack, but generalized from "one continuous
@@ -122,7 +139,16 @@ export function tickCaptainMission(
   while (remaining > 0 && mission !== null) {
     const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
     const ticksLeftInPhase = requiredTicks - mission.phaseProgressTicks;
-    const ticksToApply = Math.min(remaining, ticksLeftInPhase);
+    let ticksToApply = Math.min(remaining, ticksLeftInPhase);
+
+    // Snap to the exact phase boundary when float drift leaves the tentative
+    // post-step progress within epsilon of it. Recomputing ticksToApply from
+    // requiredTicks (rather than nudging the comparison alone) keeps the
+    // extraction roll count below and the completion check further down
+    // reading the SAME corrected value, so neither can disagree with the other.
+    if (Math.abs(mission.phaseProgressTicks + ticksToApply - requiredTicks) < MISSION_TICK_EPSILON) {
+      ticksToApply = requiredTicks - mission.phaseProgressTicks;
+    }
 
     if (mission.phase === "extracting") {
       // Roll loot once per WHOLE tick boundary crossed during this step --
