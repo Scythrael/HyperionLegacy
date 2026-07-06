@@ -22,6 +22,9 @@ import {
   fleetLifetimeComponents,
   captainSlotCount,
   researchDurationMult,
+  requiredTicksForPhase,
+  rollLootTable,
+  MISSIONS,
   RESEARCH_PROJECTS,
   SKILL_TREE,
   type GameState,
@@ -29,6 +32,9 @@ import {
   type SpecializationKey,
   type ResearchKey,
   type SkillNodeKey,
+  type CaptainMissionState,
+  type LootMaterialKey,
+  type MissionPhase,
 } from "./model";
 
 export function tickCaptainStack(
@@ -73,6 +79,96 @@ export function tickCaptainStack(
     research,
     lifetimeComponents: captain.lifetimeComponents + producedComponents,
   };
+}
+
+const MISSION_PHASE_ORDER: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
+
+function emptyLootTotals(): Record<LootMaterialKey, number> {
+  return { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
+}
+
+// The mission-progress analog of tickCaptainStack: MUST be closed-form,
+// exactly like tickCaptainStack, but generalized from "one continuous
+// quantity clamped at one threshold" to "a sequence of 5 phase thresholds
+// that wraps back to the start on completion, unless recalled." One call
+// with a large ticksElapsed must resolve EVERY phase transition, extraction
+// loot roll, and auto-repeat cycle that ticksElapsed represents -- not just
+// the first one -- which is what the while loop below does.
+//
+// `ticksElapsed` is NOT deltaSeconds -- it's the caller's job (tick(), in
+// this same file) to convert deltaSeconds into ticksElapsed by dividing by
+// the captain's own tickDurationSeconds, same cadence used for that
+// captain's normal production. This keeps mission progress on the same
+// per-captain cadence as everything else, rather than inventing a second
+// timing system.
+//
+// This function is built and tested IN ISOLATION as of this commit -- it is
+// NOT yet called from tick()/tickCaptainStack() or anywhere else in the app.
+// Wiring it into the actual game loop is a separate, later task.
+export function tickCaptainMission(
+  ticksElapsed: number,
+  captain: CaptainState,
+  rng: () => number = Math.random
+): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, number> } {
+  if (!captain.mission || ticksElapsed <= 0) {
+    return { captain, homePlanetDelta: emptyLootTotals() };
+  }
+
+  const missionDef = MISSIONS[captain.mission.missionKey];
+  let mission: CaptainMissionState | null = { ...captain.mission, cargo: { ...captain.mission.cargo } };
+  let remaining = ticksElapsed;
+  const homePlanetDelta = emptyLootTotals();
+
+  while (remaining > 0 && mission !== null) {
+    const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
+    const ticksLeftInPhase = requiredTicks - mission.phaseProgressTicks;
+    const ticksToApply = Math.min(remaining, ticksLeftInPhase);
+
+    if (mission.phase === "extracting") {
+      // Roll loot once per WHOLE tick boundary crossed during this step --
+      // NOT once per step, since a single step can span many whole ticks
+      // during a large offline-catchup jump. E.g. going from
+      // phaseProgressTicks 2.4 by ticksToApply 4 (to 6.4) crosses whole
+      // boundaries 3, 4, 5, 6 -- 4 rolls, matching 4 whole ticks' worth of
+      // extraction, regardless of how this call got chunked.
+      const fromWhole = Math.floor(mission.phaseProgressTicks);
+      const toWhole = Math.floor(mission.phaseProgressTicks + ticksToApply);
+      const rollsThisStep = toWhole - fromWhole;
+      for (let i = 0; i < rollsThisStep; i++) {
+        const material = rollLootTable(missionDef.lootTable, rng);
+        mission.cargo[material] += missionDef.extractionRatePerTick;
+      }
+    }
+
+    mission.phaseProgressTicks += ticksToApply;
+    remaining -= ticksToApply;
+
+    if (mission.phaseProgressTicks >= requiredTicks) {
+      const nextIndex = MISSION_PHASE_ORDER.indexOf(mission.phase) + 1;
+      if (nextIndex >= MISSION_PHASE_ORDER.length) {
+        // Just completed "unloading" -- one full cycle is done.
+        (Object.keys(mission.cargo) as LootMaterialKey[]).forEach((key) => {
+          homePlanetDelta[key] += mission.cargo[key];
+        });
+        if (mission.recalled) {
+          mission = null;
+        } else {
+          mission = {
+            missionKey: mission.missionKey,
+            phase: "ordersReceived",
+            phaseProgressTicks: 0,
+            cargo: emptyLootTotals(),
+            recalled: false,
+          };
+        }
+      } else {
+        mission.phase = MISSION_PHASE_ORDER[nextIndex];
+        mission.phaseProgressTicks = 0;
+      }
+    }
+  }
+
+  return { captain: { ...captain, mission }, homePlanetDelta };
 }
 
 export function tick(deltaSeconds: number, state: GameState): GameState {

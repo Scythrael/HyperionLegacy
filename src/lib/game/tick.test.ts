@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { tick, tickCaptainStack, prestige, captainPrestige, buySkillNode } from "./tick";
-import { freshState, freshCaptains } from "./model";
+import { tick, tickCaptainStack, prestige, captainPrestige, buySkillNode, tickCaptainMission } from "./tick";
+import { freshState, freshCaptains, MISSIONS, type CaptainMissionState } from "./model";
 
 const NO_RESEARCH_BUFFS = { alloySynthesis: 1 };
 
@@ -293,5 +293,160 @@ describe("buySkillNode", () => {
     const { next, success } = buySkillNode(state, "researchAlloySynthesisSpeed");
     expect(success).toBe(false);
     expect(next).toBe(state);
+  });
+});
+
+function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
+  return {
+    missionKey,
+    phase: "ordersReceived",
+    phaseProgressTicks: 0,
+    cargo: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 },
+    recalled: false,
+  };
+}
+
+const ALWAYS_COMMON_ORE = () => 0; // lands on the first (commonOre) bucket every time -- see rollLootTable
+
+describe("tickCaptainMission — closed-form requirement", () => {
+  it("one big jump equals many small ticks, across multiple phase transitions", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain("shortOreRun");
+    // shortOreRun total ticks per cycle: 1 (orders) + 3 (out) + 10 (extract) + 3 (back) + 1 (unload) = 18.
+    // 40 ticksElapsed crosses more than one full cycle (auto-repeat).
+    const bigJump = tickCaptainMission(40, base, ALWAYS_COMMON_ORE);
+
+    let stepped = base;
+    for (let i = 0; i < 400; i++) {
+      stepped = tickCaptainMission(0.1, stepped, ALWAYS_COMMON_ORE);
+    }
+
+    expect(bigJump.captain.mission).toEqual(stepped.captain.mission);
+    expect(bigJump.homePlanetDelta).toEqual(stepped.homePlanetDelta);
+  });
+
+  it("zero or negative ticksElapsed is a no-op", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain();
+    const result = tickCaptainMission(0, base, ALWAYS_COMMON_ORE);
+    expect(result.captain).toBe(base);
+    expect(result.homePlanetDelta).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 });
+  });
+
+  it("a captain with no active mission is returned unchanged", () => {
+    const base = freshCaptains(1)[0]; // mission: null
+    const result = tickCaptainMission(100, base, ALWAYS_COMMON_ORE);
+    expect(result.captain).toBe(base);
+  });
+});
+
+describe("tickCaptainMission — phase progression", () => {
+  it("advances phaseProgressTicks within ordersReceived without completing it", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain();
+    const { captain } = tickCaptainMission(0.5, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.phase).toBe("ordersReceived");
+    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.5, 6);
+  });
+
+  it("completes ordersReceived (1 tick) and moves into transitOut", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain();
+    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.phase).toBe("transitOut");
+    expect(captain.mission!.phaseProgressTicks).toBe(0);
+  });
+
+  it("carries leftover ticks into the next phase in the same call", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain();
+    // 1.5 ticks: completes the 1-tick ordersReceived phase, carries 0.5 into transitOut.
+    const { captain } = tickCaptainMission(1.5, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.phase).toBe("transitOut");
+    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.5, 6);
+  });
+
+  it("advances all the way through extracting, transitBack, and unloading in one big call", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain(); // shortOreRun: 1+3+10+3+1 = 18 ticks for one full cycle
+    const { captain, homePlanetDelta } = tickCaptainMission(17.9, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.phase).toBe("unloading");
+    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.9, 6);
+    expect(homePlanetDelta).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 }); // not unloaded yet
+  });
+});
+
+describe("tickCaptainMission — extraction loot rolls", () => {
+  it("rolls loot once per whole tick crossed during extracting, adding extractionRatePerTick units each time", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // 3.5 ticks of extracting crosses whole boundaries 1, 2, 3 -- 3 rolls, all commonOre (rate 10 each).
+    const { captain } = tickCaptainMission(3.5, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.cargo.commonOre).toBe(30);
+    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(3.5, 6);
+  });
+
+  it("a large jump resolves every extraction tick's loot roll, not just the last one", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // Exactly 10 ticks completes extracting (cargoCapacity 100 / rate 10).
+    const { captain } = tickCaptainMission(10, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.cargo.commonOre).toBe(100);
+    expect(captain.mission!.phase).toBe("transitBack"); // extracting completed, advanced
+  });
+
+  it("respects the injected rng for a non-common tier", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    const ALWAYS_RARE = () => 0.9999; // lands in the last bucket (rareMaterial) -- see rollLootTable
+    const { captain } = tickCaptainMission(1, base, ALWAYS_RARE);
+    expect(captain.mission!.cargo.rareMaterial).toBe(10);
+    expect(captain.mission!.cargo.commonOre).toBe(0);
+  });
+});
+
+describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () => {
+  it("completing a full cycle (not recalled) delivers cargo to homePlanetDelta and restarts at ordersReceived", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
+    base.mission.cargo = { commonOre: 90, uncommonMaterial: 8, rareMaterial: 2 };
+    const { captain, homePlanetDelta } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE); // 1 tick completes unloadTicks=1
+
+    expect(homePlanetDelta).toEqual({ commonOre: 90, uncommonMaterial: 8, rareMaterial: 2 });
+    expect(captain.mission!.phase).toBe("ordersReceived"); // auto-repeated
+    expect(captain.mission!.phaseProgressTicks).toBe(0);
+    expect(captain.mission!.cargo).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 }); // reset
+    expect(captain.mission!.recalled).toBe(false);
+  });
+
+  it("completing a full cycle WHILE recalled ends the mission (mission becomes null)", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0, recalled: true };
+    base.mission.cargo = { commonOre: 50, uncommonMaterial: 0, rareMaterial: 0 };
+    const { captain, homePlanetDelta } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE);
+
+    expect(homePlanetDelta).toEqual({ commonOre: 50, uncommonMaterial: 0, rareMaterial: 0 });
+    expect(captain.mission).toBe(null);
+  });
+
+  it("a big jump can complete multiple full auto-repeat cycles, accumulating homePlanetDelta across all of them", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain(); // shortOreRun, 18 ticks/cycle
+    const { captain, homePlanetDelta } = tickCaptainMission(36, base, ALWAYS_COMMON_ORE); // exactly 2 full cycles
+
+    // Each cycle extracts 100 commonOre (10 ticks * 10/tick, always-common rng); 2 cycles = 200.
+    expect(homePlanetDelta).toEqual({ commonOre: 200, uncommonMaterial: 0, rareMaterial: 0 });
+    expect(captain.mission!.phase).toBe("ordersReceived"); // mid-3rd-cycle-start, not recalled
+    expect(captain.mission!.phaseProgressTicks).toBe(0);
+  });
+
+  it("recall takes effect at the end of the CURRENT cycle, not immediately", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 5, recalled: true };
+    // 3 more ticks: still mid-extraction, far from completing the cycle -- recalled flag is inert until unloading finishes.
+    const { captain } = tickCaptainMission(3, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission).not.toBe(null);
+    expect(captain.mission!.phase).toBe("extracting");
+    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(8, 6);
   });
 });
