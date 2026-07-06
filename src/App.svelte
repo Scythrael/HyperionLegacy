@@ -18,14 +18,26 @@
     SPECIALIZATIONS,
     SKILL_TREE,
     researchDurationMult,
+    MISSIONS,
     type ModuleKey,
     type ResearchKey,
     type SpecializationKey,
     type SkillNodeKey,
     type GameState,
     type CaptainState,
+    type MissionKey,
+    type LootMaterialKey,
   } from "./lib/game/model";
-  import { tick, tickCaptainStack, prestige, captainPrestige, buySkillNode } from "./lib/game/tick";
+  import {
+    tick,
+    tickCaptainStack,
+    tickCaptainMission,
+    dispatchCaptainOnMission,
+    recallCaptain,
+    prestige,
+    captainPrestige,
+    buySkillNode,
+  } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
@@ -106,15 +118,17 @@
     ensureCaptainCycles(lastPollTime);
 
     // Tick-bar loop — checks EVERY captain's own cycle progress every 100ms,
-    // firing tickCaptainStack independently for whichever captain(s)
-    // complete a cycle on this poll. Fleet-wide gameTimeSeconds advances
-    // continuously off real elapsed time every poll, decoupled from any
-    // single captain's cadence (gameTimeSeconds is fleet bookkeeping; it is
-    // never read by tickCaptainStack's production math, so this decoupling
-    // cannot desync production from time). barSeconds is floored at 1 real
-    // second per captain so dev-speed presets never make that captain's bar
-    // flicker unreadably — multiple game-ticks just batch into one visual
-    // cycle, which is still correct because tickCaptainStack is closed-form.
+    // firing tickCaptainStack (idle captains) or tickCaptainMission (captains
+    // with an active mission -- Phase 3a) independently for whichever
+    // captain(s) complete a cycle on this poll. Fleet-wide gameTimeSeconds
+    // advances continuously off real elapsed time every poll, decoupled from
+    // any single captain's cadence (gameTimeSeconds is fleet bookkeeping; it
+    // is never read by tickCaptainStack's or tickCaptainMission's production
+    // math, so this decoupling cannot desync production from time).
+    // barSeconds is floored at 1 real second per captain so dev-speed
+    // presets never make that captain's bar flicker unreadably — multiple
+    // game-ticks just batch into one visual cycle, which is still correct
+    // because both tickCaptainStack and tickCaptainMission are closed-form.
     tickHandle = setInterval(() => {
       const now = Date.now();
 
@@ -150,6 +164,18 @@
         researchMults[key] = researchDurationMult(state, key);
       }
 
+      // Mirrors tick()'s own homePlanetDelta accumulation in tick.ts: summed
+      // locally across every captain whose mission advances THIS poll, then
+      // merged into state.homePlanet.storage once below -- same "accumulate
+      // locally, apply once" shape as gameTimeSeconds and captains itself.
+      // Starts all-zero and stays that way (anyLootDelivered stays false) on
+      // a poll where no captain's bar completes or no completed captain is on
+      // a mission, so the homePlanet merge below can be skipped entirely on
+      // the (overwhelmingly common) no-op poll -- same reactivity-churn
+      // discipline as the existing anyFired guard.
+      let anyLootDelivered = false;
+      const homePlanetDelta: Record<LootMaterialKey, number> = { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
+
       for (let i = 0; i < captains.length; i++) {
         const captain = captains[i];
         const cycle = captainCycles[captain.id];
@@ -162,7 +188,23 @@
             captains = [...captains]; // copy on first write this poll
             anyFired = true;
           }
-          captains[i] = tickCaptainStack(gameSecondsThisCycle, captain, fleetMult, researchMults);
+          if (captain.mission) {
+            // Same deltaSeconds -> ticksElapsed conversion tick() uses in
+            // tick.ts (divide by THIS captain's own tickDurationSeconds) --
+            // keeps the live loop's mission cadence identical to the offline
+            // catch-up path's, which is the whole point of this task.
+            const ticksElapsed = gameSecondsThisCycle / captain.tickDurationSeconds;
+            const { captain: updatedCaptain, homePlanetDelta: delta } = tickCaptainMission(ticksElapsed, captain);
+            captains[i] = updatedCaptain;
+            if (delta.commonOre !== 0 || delta.uncommonMaterial !== 0 || delta.rareMaterial !== 0) {
+              anyLootDelivered = true;
+              homePlanetDelta.commonOre += delta.commonOre;
+              homePlanetDelta.uncommonMaterial += delta.uncommonMaterial;
+              homePlanetDelta.rareMaterial += delta.rareMaterial;
+            }
+          } else {
+            captains[i] = tickCaptainStack(gameSecondsThisCycle, captain, fleetMult, researchMults);
+          }
           cycle.barCycleStart = now;
         }
       }
@@ -170,6 +212,20 @@
       captainCycles = captainCycles; // reassign to trigger reactivity on the mutated cycle map
       if (anyFired) {
         state = { ...state, captains };
+      }
+      if (anyLootDelivered) {
+        // Field-by-field, matching tick.ts's own homePlanet merge exactly --
+        // added ONTO existing totals, never replacing them.
+        state = {
+          ...state,
+          homePlanet: {
+            storage: {
+              commonOre: state.homePlanet.storage.commonOre + homePlanetDelta.commonOre,
+              uncommonMaterial: state.homePlanet.storage.uncommonMaterial + homePlanetDelta.uncommonMaterial,
+              rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
+            },
+          },
+        };
       }
     }, 100);
 
