@@ -316,13 +316,18 @@ describe("tickCaptainMission — closed-form requirement", () => {
     // 40 ticksElapsed crosses more than one full cycle (auto-repeat).
     const bigJump = tickCaptainMission(40, base, ALWAYS_COMMON_ORE);
 
-    let stepped = base;
+    let steppedCaptain = base;
+    const steppedDelta = { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
     for (let i = 0; i < 400; i++) {
-      stepped = tickCaptainMission(0.1, stepped, ALWAYS_COMMON_ORE);
+      const result = tickCaptainMission(0.1, steppedCaptain, ALWAYS_COMMON_ORE);
+      steppedCaptain = result.captain;
+      steppedDelta.commonOre += result.homePlanetDelta.commonOre;
+      steppedDelta.uncommonMaterial += result.homePlanetDelta.uncommonMaterial;
+      steppedDelta.rareMaterial += result.homePlanetDelta.rareMaterial;
     }
 
-    expect(bigJump.captain.mission).toEqual(stepped.captain.mission);
-    expect(bigJump.homePlanetDelta).toEqual(stepped.homePlanetDelta);
+    expect(bigJump.captain.mission).toEqual(steppedCaptain.mission);
+    expect(bigJump.homePlanetDelta).toEqual(steppedDelta);
   });
 
   it("zero or negative ticksElapsed is a no-op", () => {

@@ -168,6 +168,16 @@ export function tickCaptainMission(
 
     mission.phaseProgressTicks += ticksToApply;
     remaining -= ticksToApply;
+    // A phase that completes with call budget left over (spilling into the
+    // next phase within this same call) can leave a sub-epsilon residue in
+    // `remaining` even after the snap above (e.g. 2.58e-15), since `remaining`
+    // itself was never snapped -- only `ticksToApply` was. Left uncorrected,
+    // that residue becomes the NEXT phase's starting phaseProgressTicks,
+    // making a many-small-calls chain disagree with a single big call even
+    // though every phase transition landed on the exact same boundary.
+    if (Math.abs(remaining) < MISSION_TICK_EPSILON) {
+      remaining = 0;
+    }
 
     if (mission.phaseProgressTicks >= requiredTicks) {
       const nextIndex = MISSION_PHASE_ORDER.indexOf(mission.phase) + 1;
