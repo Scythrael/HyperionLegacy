@@ -222,6 +222,12 @@ export function requiredTicksForPhase(phase: MissionPhase, missionDef: MissionDe
 // each entry's actual probability mass equal to its stated weight; a
 // non-strict comparison would silently shift one unit of probability mass
 // from each entry to the next one in the table.
+//
+// Assumes `lootTable` is non-empty with positive weights -- true of every
+// MISSIONS entry today. An empty table (or one summing to 0) would fall
+// through the loop and crash on `lootTable[-1].material` below, rather than
+// silently misbehaving -- not reachable through any current code path, but
+// worth knowing if a future mission is ever defined with a malformed table.
 export function rollLootTable(lootTable: LootTableEntry[], rng: () => number = Math.random): LootMaterialKey {
   const totalWeight = lootTable.reduce((sum, entry) => sum + entry.weight, 0);
   const roll = rng() * totalWeight;
