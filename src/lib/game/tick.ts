@@ -130,6 +130,11 @@ export function captainPrestige(
 // had actually been unlocked; see KNOWN_ISSUES.md). skillPoints and
 // unlockedSkillNodes are fleet-wide persistent progression, same tier as
 // augmentPoints -- neither is reset here, only earned/spent elsewhere.
+// `unlockedSkillNodes: state.unlockedSkillNodes` reuses the same array
+// reference rather than cloning it -- safe because buySkillNode (the only
+// writer) always replaces it via `[...state.unlockedSkillNodes, nodeKey]`,
+// never mutates in place, so no caller can ever observe this reused
+// reference change out from under it.
 export function prestige(state: GameState): { next: GameState; gained: number } {
   const gained = Math.floor(Math.sqrt(fleetLifetimeComponents(state)));
   if (gained <= 0) return { next: state, gained: 0 };
@@ -160,6 +165,13 @@ export function buySkillNode(state: GameState, nodeKey: SkillNodeKey): { next: G
   if (node.requires && !state.unlockedSkillNodes.includes(node.requires)) return { next: state, success: false };
   if (state.skillPoints < node.costSkillPoints) return { next: state, success: false };
 
+  // `captains.length + 1` for the new id relies on `captains.length` staying
+  // in lockstep with `captainSlotCount(state)` -- true today because the
+  // only two mutators of either value (this function and prestige(),
+  // via freshCaptains(captainSlotCount(state))) always keep them in sync by
+  // construction, but nothing enforces this invariant at compile- or
+  // run-time. A future change that lets them diverge (e.g. a node that
+  // REMOVES a slot) would silently produce a duplicate or skipped id here.
   let captains = state.captains;
   if (node.effect.type === "unlockCaptainSlot") {
     const nextId = captains.length + 1;
