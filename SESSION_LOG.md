@@ -143,3 +143,42 @@ this game — a captain sitting at exactly 0 miners can only be this bug, never
 a deliberate player choice. Next: confirm on the live site that Captain 2 is
 now buyable/playable, and that an existing affected save gets repaired on
 next load.
+
+**Session 9** — Added the Fleet Admiral Skill Tree (Phase 2 of the captain/ship
+feature, docs/plans/2026-07-06-skill-tree-design.md): a generic branch/node
+skill tree (Command: 3 ranks unlocking captain slots 2/3/4 at increasing
+Skill Point cost; Research: 1 node cutting Alloy Synthesis's duration by
+25%), earned at 1 Skill Point per Fleet Prestige. Captain-slot count is now
+a real, derived, persistent number (`captainSlotCount`) instead of a
+hardcoded 2 — fixing the exact gap flagged in KNOWN_ISSUES.md when Phase 1
+shipped (now removed from that file): Fleet Prestige rebuilds the roster at
+however many slots have actually been earned, and Skill Points/unlocked
+nodes survive a Fleet Prestige the same way Augment Points already do. A
+brand-new game now starts with just 1 captain — existing saves are
+grandfathered via a v6→v7 migration that marks the first Command rank as
+already-unlocked so returning players don't lose their existing 2nd captain.
+`tickCaptainStack` gained a 4th parameter for research-speed buffs, computed
+once per `tick()` the same way the fleet multiplier already is; the
+closed-form invariant was re-verified with all four multipliers (fleet/
+captain/specialization/research speed) active at once. 5 tasks in the
+original plan, 7 commits once review-driven fixes are counted — notably
+Task 1 needed an authorized deviation fixing 8 pre-existing
+`freshCaptains()` call sites within `model.test.ts` itself (plus 1 new one)
+so the whole file stayed internally consistent with the new required `count`
+parameter, and Task 3 needed an authorized-by-precedent deviation deleting a
+redundant "chained v1→v6 migration" test block, strictly superseded by the
+new v1→v7 chained test. Code review also surfaced two forward-looking,
+currently-unreachable gaps, deliberately left as in-code comments only
+(same "not reachable today but worth knowing" treatment already given to
+`MIGRATIONS[2]`/`[3]`, not duplicated into KNOWN_ISSUES.md): `buySkillNode`
+computing a new captain id off `captains.length + 1` relies on an unenforced
+invariant that `captains.length` always matches `captainSlotCount(state)`,
+and `MIGRATIONS[6]` only ever grandfathers `commandRank1`, never rank 2/3,
+which is fine since no real pre-v7 save can have more than 2 captains. Next:
+get eyes on this in an actual browser — unlock Command rank 1, confirm a new
+captain tab appears and is immediately playable (not another softlock),
+unlock the Research node and confirm Alloy Synthesis actually completes
+sooner, and confirm an existing save keeps its 2nd captain after migrating.
+The resourcing/combat/science specialization redesign and "fleet starbase"
+navigation ideas raised during this feature's brainstorm remain explicitly
+deferred to a future, not-yet-started design.

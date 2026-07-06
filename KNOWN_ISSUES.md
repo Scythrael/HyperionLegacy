@@ -57,12 +57,3 @@ write it down so you don't relitigate it later.
   a one-line fix (reset `captainCycles[id].barCycleStart` alongside the
   state reset) whenever someone is next in that function for another
   reason.
-- `prestige()`'s fleet-wide reset (`tick.ts`) always collapses `captains`
-  back to exactly 2 via `freshCaptains()` — a Phase-1 simplification, not a
-  configurable slot count. Once Phase 2's skill tree can unlock additional
-  captain slots, this needs to become "reset to however many slots the
-  player has earned," not a hardcoded 2. Not yet noted in-code near
-  `freshCaptains()`/`prestige()` (unlike the `SPECIALIZATIONS` object,
-  which already has an explicit "add a 4th entry here" note for its own
-  future extension) — worth flagging here since Phase 2 is an explicitly
-  planned next step for this feature, not a hypothetical.
