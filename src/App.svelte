@@ -16,13 +16,16 @@
     isResourceUnlocked,
     RESEARCH_PROJECTS,
     SPECIALIZATIONS,
+    SKILL_TREE,
+    researchDurationMult,
     type ModuleKey,
     type ResearchKey,
     type SpecializationKey,
+    type SkillNodeKey,
     type GameState,
     type CaptainState,
   } from "./lib/game/model";
-  import { tick, tickCaptainStack, prestige, captainPrestige } from "./lib/game/tick";
+  import { tick, tickCaptainStack, prestige, captainPrestige, buySkillNode } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
@@ -129,6 +132,10 @@
       let captains = state.captains;
       let anyFired = false;
       const fleetMult = globalMultiplier(state); // invariant for this whole poll -- nothing in this loop touches augmentPoints
+      const researchMults = {} as Record<ResearchKey, number>;
+      for (const key of Object.keys(RESEARCH_PROJECTS) as ResearchKey[]) {
+        researchMults[key] = researchDurationMult(state, key);
+      }
 
       for (let i = 0; i < captains.length; i++) {
         const captain = captains[i];
@@ -142,7 +149,7 @@
             captains = [...captains]; // copy on first write this poll
             anyFired = true;
           }
-          captains[i] = tickCaptainStack(gameSecondsThisCycle, captain, fleetMult);
+          captains[i] = tickCaptainStack(gameSecondsThisCycle, captain, fleetMult, researchMults);
           cycle.barCycleStart = now;
         }
       }
@@ -193,8 +200,8 @@
     const { next, gained } = prestige(state);
     if (gained <= 0) return;
     state = next;
-    activeCaptainIndex = 0; // fleet prestige always yields exactly 2 captains, back to Captain 1's tab
-    pushLog(`Fleet Prestige performed. +${gained} Augment Points. Captain roster reset.`);
+    activeCaptainIndex = 0; // Captain 1's slot always survives a Fleet Prestige reset, regardless of roster size
+    pushLog(`Fleet Prestige performed. +${gained} Augment Points, +1 Skill Point. Captain roster reset.`);
     doSave();
   }
 
@@ -204,6 +211,14 @@
     const label = activeCaptain.label;
     state = next;
     pushLog(`[${label}] Captain Prestige performed. +${gained} Captain Points (${SPECIALIZATIONS[spec].label}).`);
+    doSave();
+  }
+
+  function doBuySkillNode(nodeKey: SkillNodeKey) {
+    const { next, success } = buySkillNode(state, nodeKey);
+    if (!success) return;
+    state = next;
+    pushLog(`Skill unlocked: ${SKILL_TREE[nodeKey].label}.`);
     doSave();
   }
 
@@ -261,10 +276,12 @@
   // Fallback only covers the one-frame window before onMount's
   // ensureCaptainCycles seeds an entry. It assumes captains.length never
   // shrinks and activeCaptainIndex never points past the end -- true today
-  // since only freshCaptains() ever replaces the whole array (always 2
-  // entries). If a future feature ever removes a captain slot, this
-  // fallback would silently show 0% progress instead of erroring; revisit
-  // this assumption then.
+  // since only freshCaptains() ever replaces the whole array, and the
+  // roster can be any size >= 1 (Command-branch skill nodes and Fleet
+  // Prestige only ever grow it or reset it back to captainSlotCount(state),
+  // never shrink it below 1). If a future feature ever removes a captain
+  // slot, this fallback would silently show 0% progress instead of
+  // erroring; revisit this assumption then.
   $: activeCycle = captainCycles[activeCaptain?.id] ?? { barCycleStart: Date.now(), nowTick: Date.now() };
   $: activeBarSeconds = Math.max(1, (activeCaptain?.tickDurationSeconds ?? 10) / (speed || 1));
   $: activeTickProgress = Math.min(1, Math.max(0, (activeCycle.nowTick - activeCycle.barCycleStart) / 1000 / activeBarSeconds));
@@ -439,10 +456,11 @@
         <div class="panel-title">FLEET PRESTIGE — TIER 2</div>
         {@const fleetGain = Math.floor(Math.sqrt(fleetLifetimeComponents(state)))}
         <p class="prestige-text">
-          Retire the WHOLE FLEET for Augment Points (√ of combined lifetime components across every
-          captain). Resets every captain back to the starting roster of 2 — wiping all specializations,
-          Captain Points, and individual progress along with resources and modules. Augment Points and
-          the global multiplier persist.
+          Retire the WHOLE FLEET for Augment Points and a Skill Point (√ of combined lifetime
+          components across every captain). Resets every captain back to your currently unlocked
+          roster size — wiping all specializations, Captain Points, and individual progress along
+          with resources and modules. Augment Points, the global multiplier, and your unlocked
+          skills all persist.
         </p>
         <div class="prestige-row">
           <div class="prestige-yield">
@@ -456,6 +474,65 @@
           >
             Fleet Prestige
           </button>
+        </div>
+      </Panel>
+
+      <Panel>
+        <div class="panel-title">SKILL TREE</div>
+        <p class="prestige-text">
+          Unspent Skill Points: <strong>{formatNumber(state.skillPoints)}</strong>
+        </p>
+        <div class="skill-branch">
+          <div class="skill-branch-title">Command</div>
+          {#each Object.entries(SKILL_TREE).filter(([, n]) => n.branch === "command") as [key, node]}
+            {@const nodeKey = key as SkillNodeKey}
+            {@const owned = state.unlockedSkillNodes.includes(nodeKey)}
+            {@const prereqMet = !node.requires || state.unlockedSkillNodes.includes(node.requires)}
+            {@const affordable = state.skillPoints >= node.costSkillPoints}
+            <div class="skill-node" class:owned class:locked={!prereqMet && !owned}>
+              <div class="skill-node-label">{node.label}</div>
+              {#if owned}
+                <span class="skill-node-status">✓ Unlocked</span>
+              {:else if !prereqMet}
+                <span class="skill-node-status">🔒 Requires previous rank</span>
+              {:else}
+                <button
+                  class="buy-btn"
+                  disabled={!affordable}
+                  style="opacity:{affordable ? 1 : 0.4}"
+                  on:click={() => doBuySkillNode(nodeKey)}
+                >
+                  Unlock · {node.costSkillPoints} SP
+                </button>
+              {/if}
+            </div>
+          {/each}
+        </div>
+        <div class="skill-branch">
+          <div class="skill-branch-title">Research</div>
+          {#each Object.entries(SKILL_TREE).filter(([, n]) => n.branch === "research") as [key, node]}
+            {@const nodeKey = key as SkillNodeKey}
+            {@const owned = state.unlockedSkillNodes.includes(nodeKey)}
+            {@const prereqMet = !node.requires || state.unlockedSkillNodes.includes(node.requires)}
+            {@const affordable = state.skillPoints >= node.costSkillPoints}
+            <div class="skill-node" class:owned class:locked={!prereqMet && !owned}>
+              <div class="skill-node-label">{node.label}</div>
+              {#if owned}
+                <span class="skill-node-status">✓ Unlocked</span>
+              {:else if !prereqMet}
+                <span class="skill-node-status">🔒 Requires previous rank</span>
+              {:else}
+                <button
+                  class="buy-btn"
+                  disabled={!affordable}
+                  style="opacity:{affordable ? 1 : 0.4}"
+                  on:click={() => doBuySkillNode(nodeKey)}
+                >
+                  Unlock · {node.costSkillPoints} SP
+                </button>
+              {/if}
+            </div>
+          {/each}
         </div>
       </Panel>
 
@@ -718,6 +795,31 @@
     cursor: pointer;
   }
   .spec-btn:disabled { cursor: not-allowed; }
+  .skill-branch { margin-bottom: 14px; }
+  .skill-branch:last-child { margin-bottom: 0; }
+  .skill-branch-title {
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    margin-bottom: 8px;
+  }
+  .skill-node {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
+    margin-bottom: 6px;
+    gap: 8px;
+  }
+  .skill-node:last-child { margin-bottom: 0; }
+  .skill-node.owned { border-color: var(--color-success); }
+  .skill-node.locked { opacity: 0.5; }
+  .skill-node-label { font-size: 12px; font-weight: 600; }
+  .skill-node-status { font-size: 11px; color: var(--color-text-secondary); }
   .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
   .theme-swatch {
     width: 28px;
