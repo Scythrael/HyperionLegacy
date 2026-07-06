@@ -77,6 +77,19 @@
   }
 
   onMount(() => {
+    // Browsers restore scroll position across reloads by default (an
+    // absolute pixel offset from the LAST time this page was open). This
+    // page's height changes as content is added (more captain tabs, new
+    // panels like Skill Tree), so an old offset can land well below the top
+    // on a reload -- confirmed live in production after the Skill Tree
+    // panel shipped. This is a single-page app with no in-page anchors to
+    // preserve, so we take control of scroll position ourselves instead of
+    // trusting the browser's restoration.
+    if ("scrollRestoration" in history) {
+      history.scrollRestoration = "manual";
+    }
+    window.scrollTo(0, 0);
+
     currentTheme = loadTheme();
     document.documentElement.dataset.theme = currentTheme;
 
