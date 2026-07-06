@@ -561,8 +561,14 @@ describe("tick() — routes captains on a mission through tickCaptainMission ins
     expect(cap0CargoTotal).toBe(10);
     expect(result.captains[0].mission!.phase).toBe("extracting");
 
-    // Captain 1 completed extracting (10/10 ticks), advanced to transitBack, final cargo 100.
-    expect(result.captains[1].mission!.cargo.commonOre).toBe(100);
+    // Captain 1 completed extracting (10/10 ticks), advanced to transitBack, final cargo 100 --
+    // asserted as a tier-agnostic total since the final roll's tier is rng-dependent (unmocked
+    // Math.random here, same reasoning as captain 0's total check above).
+    const cap1CargoTotal =
+      result.captains[1].mission!.cargo.commonOre +
+      result.captains[1].mission!.cargo.uncommonMaterial +
+      result.captains[1].mission!.cargo.rareMaterial;
+    expect(cap1CargoTotal).toBe(100);
     expect(result.captains[1].mission!.phase).toBe("transitBack");
     expect(result.captains[1].mission!.phaseProgressTicks).toBe(0);
 

@@ -244,6 +244,9 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     ...state,
     captains,
     gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
+    // Field-by-field (not Object.keys().forEach like homePlanetDelta's own
+    // accumulation above) for readability -- must stay in sync with
+    // LootMaterialKey if a 4th tier is ever added.
     homePlanet: {
       storage: {
         commonOre: state.homePlanet.storage.commonOre + homePlanetDelta.commonOre,
