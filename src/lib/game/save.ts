@@ -65,7 +65,13 @@ export interface SaveFile {
 // them: if a save already has 2+ captains, commandRank1 is marked as already
 // unlocked (so captainSlotCount(state) matches what they already have,
 // keeping Fleet Prestige's reset consistent going forward), with no bonus
-// skillPoints granted -- just "don't lose what you already earned."
+// skillPoints granted -- just "don't lose what you already earned." Only
+// commandRank1 is ever granted here, never rank 2/3 -- no real save can have
+// more than 2 captains pre-v7, so there's nothing to grandfather beyond
+// rank 1. If that ever stops being true (a future path produces a >2-captain
+// save arriving here), this ONLY grants rank 1 regardless of actual count --
+// not reachable through any current code path, but worth knowing, same
+// category of gap as MIGRATIONS[2]/[3]'s comments above.
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -129,6 +135,8 @@ const MIGRATIONS: Record<number, Migration> = {
   }),
   6: (state: any): GameState => ({
     ...state,
+    // Grandfathers ONLY commandRank1 -- never rank 2/3 -- see the file-header
+    // comment above for why that's the only case a real pre-v7 save can be in.
     unlockedSkillNodes: state.unlockedSkillNodes ?? ((state.captains?.length ?? 1) >= 2 ? ["commandRank1"] : []),
     skillPoints: state.skillPoints ?? 0,
   }),
