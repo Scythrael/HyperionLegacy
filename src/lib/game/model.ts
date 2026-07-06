@@ -125,6 +125,114 @@ export const SKILL_TREE: Record<SkillNodeKey, SkillNodeDef> = {
   },
 };
 
+export type LootMaterialKey = "commonOre" | "uncommonMaterial" | "rareMaterial";
+
+export interface LootTableEntry {
+  material: LootMaterialKey;
+  weight: number; // out of the table's total weight
+}
+
+export type MissionPhase = "ordersReceived" | "transitOut" | "extracting" | "transitBack" | "unloading";
+
+export interface MissionDef {
+  label: string;
+  transitOutTicks: number;
+  transitBackTicks: number;
+  unloadTicks: number;
+  extractionRatePerTick: number; // total units/tick, regardless of which tier they land as
+  cargoCapacity: number; // total units across all tiers; MUST divide evenly by extractionRatePerTick
+  // for this launch's requiredTicksForPhase() to have no partial-final-tick
+  // edge case -- see that function's comment below if this is ever violated.
+  lootTable: LootTableEntry[];
+}
+
+// 2 missions at launch: a fast, safe ore run and a slower one with better
+// rare-material odds. Add a new entry here (and nowhere else -- App.svelte's
+// Missions panel iterates this object) if a 3rd mission is ever wanted.
+// Both entries' cargoCapacity divides evenly by extractionRatePerTick (100/10
+// = 10) -- keep this true for any future entry too, or update
+// requiredTicksForPhase's extracting case to handle a smaller final tick.
+export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
+  shortOreRun: {
+    label: "Short Ore Run",
+    transitOutTicks: 3,
+    transitBackTicks: 3,
+    unloadTicks: 1,
+    extractionRatePerTick: 10,
+    cargoCapacity: 100,
+    lootTable: [
+      { material: "commonOre", weight: 980 },
+      { material: "uncommonMaterial", weight: 19 },
+      { material: "rareMaterial", weight: 1 },
+    ],
+  },
+  longOreRun: {
+    label: "Long Ore Run",
+    transitOutTicks: 8,
+    transitBackTicks: 8,
+    unloadTicks: 1,
+    extractionRatePerTick: 10,
+    cargoCapacity: 100,
+    lootTable: [
+      { material: "commonOre", weight: 900 },
+      { material: "uncommonMaterial", weight: 80 },
+      { material: "rareMaterial", weight: 20 },
+    ],
+  },
+};
+
+export type MissionKey = keyof typeof MISSIONS;
+
+export interface CaptainMissionState {
+  missionKey: MissionKey;
+  phase: MissionPhase;
+  phaseProgressTicks: number; // continuous (can be fractional mid-tick), like research's progressSeconds
+  cargo: Record<LootMaterialKey, number>;
+  recalled: boolean; // if true, ends the loop (mission -> null) after THIS cycle's unloading completes,
+  // instead of auto-restarting at ordersReceived. Does not interrupt the current cycle mid-flight.
+}
+
+// How many ticks a phase requires before advancing to the next one.
+// "extracting" is the one phase whose length isn't a literal field on
+// MissionDef -- it's however many ticks it takes to extract cargoCapacity
+// units at extractionRatePerTick units/tick. Rounds up, which only matters
+// if cargoCapacity doesn't divide evenly by extractionRatePerTick (today's
+// launch content avoids this; see the MISSIONS comment above).
+export function requiredTicksForPhase(phase: MissionPhase, missionDef: MissionDef): number {
+  switch (phase) {
+    case "ordersReceived":
+      return 1;
+    case "transitOut":
+      return missionDef.transitOutTicks;
+    case "extracting":
+      return Math.ceil(missionDef.cargoCapacity / missionDef.extractionRatePerTick);
+    case "transitBack":
+      return missionDef.transitBackTicks;
+    case "unloading":
+      return missionDef.unloadTicks;
+  }
+}
+
+// Weighted random pick from a loot table. `rng` defaults to Math.random for
+// real gameplay; tests inject a fixed value to hit a specific tier
+// deterministically (see model.test.ts's "rollLootTable" tests for the exact
+// boundary behavior this produces). Walks entries in the table's own order,
+// accumulating weight, and picks the first entry whose cumulative weight
+// STRICTLY EXCEEDS `rng() * totalWeight` -- this (not `>=`) is what keeps
+// each entry's actual probability mass equal to its stated weight; a
+// non-strict comparison would silently shift one unit of probability mass
+// from each entry to the next one in the table.
+export function rollLootTable(lootTable: LootTableEntry[], rng: () => number = Math.random): LootMaterialKey {
+  const totalWeight = lootTable.reduce((sum, entry) => sum + entry.weight, 0);
+  const roll = rng() * totalWeight;
+  let cumulative = 0;
+  for (const entry of lootTable) {
+    cumulative += entry.weight;
+    if (roll < cumulative) return entry.material;
+  }
+  return lootTable[lootTable.length - 1].material; // floating-point fallback, should be unreachable
+}
+
 export interface CaptainState {
   id: number;
   label: string; // placeholder, e.g. "Captain 1" -- naming UI deferred per master doc §10.7
@@ -137,6 +245,7 @@ export interface CaptainState {
   captainPoints: number; // earned via THIS captain's own prestige (captainPrestige)
   captainPrestigeCount: number;
   specialization: SpecializationKey | null;
+  mission: CaptainMissionState | null; // null when idle/running their normal Generator Stack economy
 }
 
 export interface GameState {
@@ -146,6 +255,7 @@ export interface GameState {
   gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
   skillPoints: number; // unspent, fleet-wide -- earned 1 per Fleet Prestige, never reset by it
   unlockedSkillNodes: SkillNodeKey[]; // fleet-wide, persistent, never reset by Fleet Prestige
+  homePlanet: { storage: Record<LootMaterialKey, number> }; // fleet-wide, separate from any captain's own resources
 }
 
 // The baseline BOTH prestige tiers reset a captain's stack to: 1 free Mining
@@ -162,7 +272,7 @@ export interface GameState {
 // whatever the pre-reset captain had unless you also add it here on purpose.
 export function freshCaptainStack(): Pick<
   CaptainState,
-  "resources" | "modules" | "research" | "lifetimeComponents" | "tickDurationSeconds"
+  "resources" | "modules" | "research" | "lifetimeComponents" | "tickDurationSeconds" | "mission"
 > {
   return {
     resources: { ore: 0, ingots: 0, components: 0, alloys: 0 },
@@ -170,6 +280,7 @@ export function freshCaptainStack(): Pick<
     research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
     lifetimeComponents: 0,
     tickDurationSeconds: 10,
+    mission: null, // both prestige tiers cancel any active mission as part of the reset -- see tick.ts
   };
 }
 
@@ -204,6 +315,7 @@ export function freshState(): GameState {
     gameTimeSeconds: 0,
     skillPoints: 0,
     unlockedSkillNodes: [],
+    homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 } },
   };
 }
 
