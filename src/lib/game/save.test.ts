@@ -32,8 +32,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 6", () => {
-    expect(SAVE_VERSION).toBe(6);
+  it("current SAVE_VERSION is 7", () => {
+    expect(SAVE_VERSION).toBe(7);
   });
 });
 
@@ -71,8 +71,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 6", () => {
-    expect(SAVE_VERSION).toBe(6);
+  it("current SAVE_VERSION is 7", () => {
+    expect(SAVE_VERSION).toBe(7);
   });
 });
 
@@ -217,8 +217,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBeUndefined();
   });
 
-  it("current SAVE_VERSION is 6", () => {
-    expect(SAVE_VERSION).toBe(6);
+  it("current SAVE_VERSION is 7", () => {
+    expect(SAVE_VERSION).toBe(7);
   });
 });
 
@@ -314,16 +314,122 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 6", () => {
-    expect(SAVE_VERSION).toBe(6);
+  it("current SAVE_VERSION is 7", () => {
+    expect(SAVE_VERSION).toBe(7);
   });
 });
 
-describe("migrate — chained v1 -> v6 migration", () => {
-  it("backfills every field across all five migration steps on a genuine v1 save missing all of them", () => {
+// NOTE: the pre-Task-3 "migrate — chained v1 -> v6 migration" describe block
+// that used to live here was deleted, not just edited -- same deliberate,
+// authorized deviation from this task's own "keep every existing describe
+// block untouched" instruction as the v1->v5 deletion noted above. It
+// exercised the exact same legacyState literal and is now strictly redundant
+// with "migrate — chained v1 -> v7 migration" below, which covers the same
+// "one genuine legacy save chained through every migration step" property,
+// correctly extended through v7's grandfathering. Keeping both would mean
+// maintaining two overlapping tests of the same property, one of them stale.
+
+describe("migrate — skill tree backfill (v6 -> v7)", () => {
+  it("grandfathers an existing v6 save's 2nd captain as if commandRank1 were already bought", () => {
+    // A genuine v6 save: 2 captains (Phase 1's fixed starting count), no
+    // skill tree fields at all. Hand-written literal -- freshState() no
+    // longer produces this shape (it now starts at 1 captain, post this
+    // same feature), so it can't stand in for a real legacy save here.
+    const legacyState: any = {
+      augmentPoints: 10,
+      prestigeCount: 1,
+      gameTimeSeconds: 500,
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          resources: { ore: 100, ingots: 0, components: 0, alloys: 0 },
+          modules: { miner: 5, refinery: 0, fabricator: 0, synthesizer: 0 },
+          research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
+          lifetimeComponents: 20,
+          tickDurationSeconds: 10,
+          captainPoints: 0,
+          captainPrestigeCount: 0,
+          specialization: null,
+        },
+        {
+          id: 2,
+          label: "Captain 2",
+          shipType: "resourcer",
+          resources: { ore: 0, ingots: 0, components: 0, alloys: 0 },
+          modules: { miner: 1, refinery: 0, fabricator: 0, synthesizer: 0 },
+          research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
+          lifetimeComponents: 0,
+          tickDurationSeconds: 10,
+          captainPoints: 0,
+          captainPrestigeCount: 0,
+          specialization: null,
+        },
+      ],
+    };
+
+    const save: SaveFile = {
+      version: 6,
+      created_at: 0,
+      last_saved_at: 0,
+      game_time_seconds: 500,
+      state: legacyState,
+    };
+
+    const migrated: any = migrate(save);
+    expect(migrated.unlockedSkillNodes).toEqual(["commandRank1"]);
+    expect(migrated.skillPoints).toBe(0); // no bonus grant, just "don't lose what you already have"
+    expect(migrated.captains).toHaveLength(2); // unchanged roster, nothing deleted
+    expect(migrated.captains[0].modules.miner).toBe(5); // existing progress untouched
+    expect(migrated.captains[1].id).toBe(2);
+  });
+
+  it("does not grandfather commandRank1 for a genuine single-captain v6 save", () => {
+    const legacyState: any = {
+      augmentPoints: 0,
+      prestigeCount: 0,
+      gameTimeSeconds: 0,
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          resources: { ore: 0, ingots: 0, components: 0, alloys: 0 },
+          modules: { miner: 1, refinery: 0, fabricator: 0, synthesizer: 0 },
+          research: { alloySynthesis: { started: false, progressSeconds: 0, completed: false } },
+          lifetimeComponents: 0,
+          tickDurationSeconds: 10,
+          captainPoints: 0,
+          captainPrestigeCount: 0,
+          specialization: null,
+        },
+      ],
+    };
+
+    const save: SaveFile = {
+      version: 6,
+      created_at: 0,
+      last_saved_at: 0,
+      game_time_seconds: 0,
+      state: legacyState,
+    };
+
+    const migrated: any = migrate(save);
+    expect(migrated.unlockedSkillNodes).toEqual([]);
+    expect(migrated.skillPoints).toBe(0);
+  });
+
+  it("current SAVE_VERSION is 7", () => {
+    expect(SAVE_VERSION).toBe(7);
+  });
+});
+
+describe("migrate — chained v1 -> v7 migration", () => {
+  it("backfills every field across all six migration steps on a genuine v1 save missing all of them", () => {
     // The real v1 shape: no tickDurationSeconds, no research, no
     // synthesizer/alloys fields, AND (obviously) no captains array at all --
-    // this exercises MIGRATIONS[1] through [5] running back-to-back on the
+    // this exercises MIGRATIONS[1] through [6] running back-to-back on the
     // same object, not just one isolated step.
     const legacyState: any = {
       resources: { ore: 10, ingots: 0, components: 0 },
@@ -343,7 +449,7 @@ describe("migrate — chained v1 -> v6 migration", () => {
     };
 
     const migrated: any = migrate(save);
-    expect(migrated.captains).toHaveLength(2);
+    expect(migrated.captains).toHaveLength(2); // v4->v5's fresh[1], per Step 1's fix above
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
     expect(migrated.captains[0].research.alloySynthesis).toEqual({
       started: false,
@@ -354,6 +460,8 @@ describe("migrate — chained v1 -> v6 migration", () => {
     expect(migrated.captains[0].resources.alloys).toBe(0);
     expect(migrated.captains[0].modules.miner).toBe(1); // original v1 progress preserved
     expect(migrated.captains[1].modules.miner).toBe(1); // fresh second captain, shared 1-miner floor
+    expect(migrated.unlockedSkillNodes).toEqual(["commandRank1"]); // 2 captains -> grandfathered
+    expect(migrated.skillPoints).toBe(0);
     expect(migrated.gameTimeSeconds).toBe(100); // fleet-wide field survives the whole chain
   });
 });

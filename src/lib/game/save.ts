@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import { type GameState, type CaptainState, freshCaptains } from "./model";
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -57,6 +57,15 @@ export interface SaveFile {
 // game, so the ONLY way a captain can be sitting at 0 miners is this exact
 // bug -- a captain who was ever actually playable would have bought
 // something by now. Safe to apply unconditionally for that reason.
+// v6 -> v7: Fleet Admiral Skill Tree (docs/plans/2026-07-06-skill-tree-plan.md,
+// Task 3). GameState gains `skillPoints`/`unlockedSkillNodes`. Existing v6
+// saves already have 2 captains from Phase 1 (freshState() used to always
+// give 2) -- rather than shrinking their roster to match the NEW "starts at
+// 1" default (which would delete a captain's progress), this grandfathers
+// them: if a save already has 2+ captains, commandRank1 is marked as already
+// unlocked (so captainSlotCount(state) matches what they already have,
+// keeping Fleet Prestige's reset consistent going forward), with no bonus
+// skillPoints granted -- just "don't lose what you already earned."
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -87,7 +96,7 @@ const MIGRATIONS: Record<number, Migration> = {
     // data instead of a blank stack. Only fresh[1] (a genuinely never-played
     // second captain) is used, byte-for-byte identical to what a brand-new
     // save's Captain 2 looks like, since it's the same function call.
-    const fresh = freshCaptains();
+    const fresh = freshCaptains(2); // a v4 save is, by construction, always exactly the 2-captain Phase-1 shape
     const captainOne: CaptainState = {
       id: 1,
       label: "Captain 1",
@@ -117,6 +126,11 @@ const MIGRATIONS: Record<number, Migration> = {
     captains: state.captains.map((c: any) =>
       c.modules?.miner === 0 ? { ...c, modules: { ...c.modules, miner: 1 } } : c
     ),
+  }),
+  6: (state: any): GameState => ({
+    ...state,
+    unlockedSkillNodes: state.unlockedSkillNodes ?? ((state.captains?.length ?? 1) >= 2 ? ["commandRank1"] : []),
+    skillPoints: state.skillPoints ?? 0,
   }),
 };
 
