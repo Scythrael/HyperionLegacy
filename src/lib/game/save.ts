@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import { type GameState, type CaptainState, freshCaptains } from "./model";
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -85,6 +85,27 @@ export interface SaveFile {
 // v1 save chains all the way to v8 and captains picked up other fields along
 // the way; we don't want this step to clobber anything already correctly
 // set by an earlier step in the same chain.
+// v8 -> v9: Navigation Restructuring & Progression Overhaul (docs/plans/2026-
+// 07-06-phase4-navigation-progression-overhaul-plan.md, Task 7). This is the
+// first migration in this project's history to correspond to a batch of
+// REMOVED fields as well as added ones: the Generator Stack economy (and
+// everything built on top of it -- Research, Specializations, the Skill
+// Tree, both Prestige tiers) is gone from CaptainState/GameState, replaced by
+// a Homeworld crafting system and a captain XP/leveling system. Per the
+// design doc, this migration does NOT attempt to strip the old fields
+// (`modules`, `resources`, `research`, `captainPoints`, `captainPrestigeCount`,
+// `specialization`, `skillPoints`, `unlockedSkillNodes`, `augmentPoints`,
+// `prestigeCount`) out of an old save's JSON -- once CaptainState/GameState
+// stop declaring them, nothing reads them, so they become harmless, inert
+// extra properties riding along in the serialized blob. Stripping them would
+// be extra risk (more code touching the migrated shape) for zero behavioral
+// benefit. This step's only real job is backfilling the NEW required fields:
+// CaptainState gains `xp`/`level`/`statPoints` (all absent entirely on any
+// pre-v9 save -- backfilled to 0/1/0, the same baseline freshCaptainStack()
+// gives a brand-new captain), and homePlanet.storage gains the 2 new crafted-
+// goods keys `refinedMaterial`/`components` (absent entirely pre-v9,
+// backfilled to 0 each) alongside its existing 3 mission-loot keys, which are
+// preserved via the spread rather than reconstructed.
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -159,6 +180,22 @@ const MIGRATIONS: Record<number, Migration> = {
     // to a fresh, all-zero storage object. See the file-header comment above.
     homePlanet: state.homePlanet ?? { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 } },
     captains: state.captains.map((c: any) => ({ ...c, mission: c.mission ?? null })),
+  }),
+  8: (state: any): GameState => ({
+    ...state,
+    captains: state.captains.map((c: any) => ({
+      ...c,
+      xp: c.xp ?? 0,
+      level: c.level ?? 1,
+      statPoints: c.statPoints ?? 0,
+    })),
+    homePlanet: {
+      storage: {
+        ...state.homePlanet.storage,
+        refinedMaterial: state.homePlanet.storage.refinedMaterial ?? 0,
+        components: state.homePlanet.storage.components ?? 0,
+      },
+    },
   }),
 };
 
