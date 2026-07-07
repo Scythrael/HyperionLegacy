@@ -338,6 +338,16 @@
   }
 
   $: activeCaptain = state.captains[activeCaptainIndex];
+  // Re-added per user request after Phase 4's panel cleanup dropped it --
+  // shown on EVERY tab now (not just Fleet Ops), since it's a persistent
+  // per-captain cadence readout, not something scoped to any one screen.
+  // Fallback only covers the one-frame window before onMount's
+  // ensureCaptainCycles seeds an entry (same assumption noted at
+  // ensureCaptainCycles itself: roster size never shrinks below 1).
+  $: activeCycle = captainCycles[activeCaptain?.id] ?? { barCycleStart: Date.now(), nowTick: Date.now() };
+  $: activeBarSeconds = Math.max(1, (activeCaptain?.tickDurationSeconds ?? 10) / (speed || 1));
+  $: activeTickProgress = Math.min(1, Math.max(0, (activeCycle.nowTick - activeCycle.barCycleStart) / 1000 / activeBarSeconds));
+  $: activeTickRemaining = Math.max(0, activeBarSeconds * (1 - activeTickProgress));
 </script>
 
 <div class="root">
@@ -363,6 +373,14 @@
         <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
         <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
       </div>
+
+      <Panel>
+        <div class="panel-title">TICK — {activeCaptain?.label ?? ""}</div>
+        <div class="tick-bar-track">
+          <div class="tick-bar-fill" style="width:{activeTickProgress * 100}%"></div>
+        </div>
+        <div class="tick-bar-readout">{activeTickRemaining.toFixed(1)}s</div>
+      </Panel>
 
       {#if activeTab === "homeworld"}
       <Panel>

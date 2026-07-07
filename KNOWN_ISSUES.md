@@ -67,8 +67,10 @@ write it down so you don't relitigate it later.
   call per mission captain, rather than one bounded tick) before any real
   playtest that leaves the tab backgrounded for a while.
 - Phase 4 (Generator Stack removal) left several CSS rules in `App.svelte`'s
-  `<style>` block orphaned with no markup referencing them: `.tick-bar-*`,
-  `.research-status`, `.module-*`, `.prestige-row`/`-yield`/`-btn`,
-  `.spec-*`, `.skill-*`. Inert (no broken references, at worst an unused-
-  selector warning), deliberately left for a dedicated stylesheet cleanup
-  rather than expanding the panel-removal task into a full CSS audit.
+  `<style>` block orphaned with no markup referencing them: `.research-status`,
+  `.module-*`, `.prestige-row`/`-yield`/`-btn`, `.spec-*`, `.skill-*`.
+  (`.tick-bar-*` is no longer in this list -- the TICK panel was re-added,
+  now shown on every tab rather than just Fleet Ops.) Inert (no broken
+  references, at worst an unused-selector warning), deliberately left for a
+  dedicated stylesheet cleanup rather than expanding the panel-removal task
+  into a full CSS audit.
