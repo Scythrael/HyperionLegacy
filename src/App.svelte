@@ -603,6 +603,7 @@
 <style>
   .root {
     min-height: 100vh;
+    min-height: 100dvh; /* see app.css's html/body comment -- same mobile-viewport issue */
     position: relative;
     overflow: hidden;
   }
@@ -613,8 +614,12 @@
     margin: 0 auto;
     /* Bottom padding enlarged (60px -> 96px) to clear the fixed .nav-tabs bar
        (Task 1, Phase 4) -- without this, the LOG panel (or whatever ends up
-       last in the active tab) would render partially underneath the bar. */
-    padding: 20px 16px 96px;
+       last in the active tab) would render partially underneath the bar.
+       Also adds env(safe-area-inset-bottom) so devices with a gesture-nav
+       home indicator (which eats into the same bottom region .nav-tabs sits
+       in) get proportionally more clearance instead of a fixed guess that
+       assumes no inset -- falls back to 0px on devices/browsers without it. */
+    padding: 20px 16px calc(96px + env(safe-area-inset-bottom, 0px));
   }
   .header-left { display: flex; flex-direction: column; }
   .title {
@@ -661,6 +666,11 @@
     background: var(--color-panel-bg-strong);
     border-top: 1px solid rgba(var(--color-accent-rgb), 0.3);
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
+    /* Devices with a gesture-nav home indicator reserve a safe area at the
+       bottom of the screen -- without this, the bar's own bottom edge (and
+       its tap targets) can sit under/behind that indicator. Matches
+       .frame's own safe-area addition above so both grow together. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .nav-tab {
     flex: 1;

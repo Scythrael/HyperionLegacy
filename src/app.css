@@ -68,7 +68,17 @@
 
 html, body {
   margin: 0;
+  /* 100vh on mobile browsers is measured against the viewport with the
+     address bar hidden, but the address bar is often visible (and the
+     viewport correspondingly shorter) at page load / while scrolling --
+     the two disagree on how tall the page actually is, which can let the
+     page scroll past where content should stop, revealing content that
+     should already be hidden behind a fixed bottom bar (see App.svelte's
+     .nav-tabs). 100dvh tracks the browser's ACTUAL visible viewport
+     dynamically; declared after 100vh as a progressive enhancement --
+     browsers without dvh support (very old ones) keep the 100vh fallback. */
   min-height: 100vh;
+  min-height: 100dvh;
   background: linear-gradient(180deg, var(--color-bg-deep) 0%, var(--color-bg-mid) 60%, #081018 100%);
   color: var(--color-text-primary);
   font-family: var(--font-body);
@@ -76,6 +86,7 @@ html, body {
 
 #app {
   min-height: 100vh;
+  min-height: 100dvh; /* see html/body comment above */
 }
 
 button {
