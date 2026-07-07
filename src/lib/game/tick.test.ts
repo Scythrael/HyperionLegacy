@@ -648,12 +648,20 @@ describe("recomputeFleetAdmin", () => {
     // assertion would have been false, not just weak, so the scenario below
     // uses artificially high test-only levels (same convention as the
     // existing unlockCaptainSlot test's `state.captains[0].level = 999`)
-    // purely to exercise the "resolve every level-up in one pass" branch:
-    // sum = 900*3 = 2700. xpForNextFleetAdminLevel(1)=500 (crossed, level->2,
-    // adminPoints->1, xp 2700-500=2200 remaining); xpForNextFleetAdminLevel(2)
-    // =2000 (crossed, level->3, adminPoints->2, xp 2200-2000=200 remaining);
-    // xpForNextFleetAdminLevel(3)=4500 (200 < 4500, loop stops). Final:
-    // fleetAdminLevel=3, adminPoints=2, fleetAdminXp=200.
+    // purely to exercise the "resolve every level-up in one pass" branch.
+    //
+    // Hand-traced against the ACTUAL implementation -- recomputeFleetAdmin
+    // does NOT decrement `xp` per level crossed (unlike tickCaptainMission's
+    // `xp -= xpForNextLevel(level)`); it MUST keep xp as the raw target sum,
+    // since the no-op guard at the top (`targetXp === state.fleetAdminXp`)
+    // only works if fleetAdminXp always equals the freshly recomputed sum --
+    // decrementing it would make that guard misfire on the very next call
+    // with an unchanged fleet. sum = 900*3 = 2700, unchanged throughout.
+    // xpForNextFleetAdminLevel(1)=500 (2700>=500, crossed, level->2,
+    // adminPoints->1); xpForNextFleetAdminLevel(2)=2000 (2700>=2000, crossed,
+    // level->3, adminPoints->2); xpForNextFleetAdminLevel(3)=4500
+    // (2700<4500, loop stops). Final: fleetAdminLevel=3, adminPoints=2,
+    // fleetAdminXp=2700 (the unchanged raw sum).
     const state = freshState();
     state.captains = freshCaptains(3);
     state.captains[0].level = 900;
@@ -662,7 +670,7 @@ describe("recomputeFleetAdmin", () => {
     const result = recomputeFleetAdmin(state);
     expect(result.fleetAdminLevel).toBe(3);
     expect(result.adminPoints).toBe(2);
-    expect(result.fleetAdminXp).toBe(200);
+    expect(result.fleetAdminXp).toBe(2700);
     expect(result.fleetAdminLevel).toBeGreaterThan(1); // preserves the plan's original intent-check
     expect(result.adminPoints).toBeGreaterThan(0);
   });
