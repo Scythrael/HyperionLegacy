@@ -19,12 +19,24 @@ write it down so you don't relitigate it later.
   recipes, but a 3rd, non-fabrication recipe would silently fall into the
   "FABRICATION" label. Add a `structureLabel` field to `RecipeDef` if/when
   a 3rd recipe is actually added.
-- `unlockCaptainSlot()` (`tick.ts`) builds its new-captain object literal
+- `buyHomeworldTalent()` (`tick.ts`) builds its new-captain object literal
   inline (`id`/`label`/`shipType`/`...freshCaptainStack()`) instead of
   reusing a shared helper — currently byte-identical to `freshCaptains()`'s
   own construction, so no bug today, but a future field added to that shape
   would need updating in both places. Worth consolidating next time either
   function is touched.
+- 5 of the 6 "real" launch Captain/Homeworld Talent nodes (Captain &amp;
+  Homeworld Talent Trees) — every effect type except `unlockCaptainSlot` —
+  are purchasable, recorded, and shown as "Owned" in the UI, but have zero
+  gameplay effect: `extractionYieldMult`/`rareLootChanceMult`
+  (`tickCaptainMission`'s extraction/loot math), `fleetExtractionYieldMult`
+  (same), `recipeBonusOutput` (`craftRecipe`), and `passiveTrickle` (no
+  passive-income tick exists yet) are none of them actually read anywhere
+  outside `CAPTAIN_TALENTS`/`HOMEWORLD_TALENTS`'s own table definitions.
+  Deliberate for this pass (the tables/buy-functions/UI were the scope; wiring
+  each effect into its consuming system is follow-up work) but worth writing
+  down since a player can spend real statPoints/adminPoints and see nothing
+  change.
 - No captains, crew, ships, sectors, or bosses. This is the §10.5 minimal
   prototype scope on purpose.
 - Corrupt-save handling doesn't yet surface a raw-export option to the
@@ -68,9 +80,11 @@ write it down so you don't relitigate it later.
   playtest that leaves the tab backgrounded for a while.
 - Phase 4 (Generator Stack removal) left several CSS rules in `App.svelte`'s
   `<style>` block orphaned with no markup referencing them: `.research-status`,
-  `.module-*`, `.prestige-row`/`-yield`/`-btn`, `.spec-*`, `.skill-*`.
+  `.module-*`, `.prestige-row`/`-yield`/`-btn`, `.spec-*`.
   (`.tick-bar-*` is no longer in this list -- the TICK panel was re-added,
-  now shown on every tab rather than just Fleet Ops.) Inert (no broken
-  references, at worst an unused-selector warning), deliberately left for a
-  dedicated stylesheet cleanup rather than expanding the panel-removal task
-  into a full CSS audit.
+  now shown on every tab rather than just Fleet Ops. `.skill-*` is no longer
+  in this list either -- the Captain &amp; Homeworld Talent Trees feature
+  reactivated those classes for its own Captain Talents/Homeworld Talents
+  panels.) Inert (no broken references, at worst an unused-selector warning),
+  deliberately left for a dedicated stylesheet cleanup rather than expanding
+  the panel-removal task into a full CSS audit.

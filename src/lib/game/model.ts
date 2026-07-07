@@ -147,17 +147,17 @@ export interface CaptainState {
   xp: number; // accumulated toward the NEXT level -- see xpForNextLevel() below; awarded in tick.ts's tickCaptainMission on cycle completion
   level: number; // starts at 1
   statPoints: number; // unspent, earned on level-up -- spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
-  unlockedCaptainTalents: CaptainTalentKey[]; // logic (buyCaptainTalent) lands in Task 2
+  unlockedCaptainTalents: CaptainTalentKey[]; // this captain's own purchased Captain Talent keys -- see buyCaptainTalent (tick.ts)
 }
 
 export interface GameState {
   captains: CaptainState[];
   gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
   homePlanet: { storage: Record<HomePlanetMaterialKey, number> }; // fleet-wide mission loot + crafted goods, separate from any captain's own state
-  unlockedHomeworldTalents: HomeworldTalentKey[]; // logic (buyHomeworldTalent) lands in Task 2
-  fleetAdminXp: number; // Fleet Admiral leveling -- logic lands in Task 3
+  unlockedHomeworldTalents: HomeworldTalentKey[]; // fleet-wide purchased Homeworld Talent keys -- see buyHomeworldTalent (tick.ts)
+  fleetAdminXp: number; // Fleet Admiral leveling -- see recomputeFleetAdmin (tick.ts)
   fleetAdminLevel: number; // starts at 1
-  adminPoints: number; // unspent, spent via buyHomeworldTalent (Task 2)
+  adminPoints: number; // unspent, spent via buyHomeworldTalent (tick.ts)
 }
 
 export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
