@@ -208,7 +208,7 @@ describe("HOMEWORLD_TALENTS — launch set", () => {
     expect(branches.filter((b) => b === "citizenry").length).toBe(0);
   });
 
-  it("Fleet Logistics has exactly 3 unlockCaptainSlot nodes, matching today's CAPTAIN_SLOT_UNLOCKS count", () => {
+  it("Fleet Logistics has exactly 3 unlockCaptainSlot nodes, matching the original 3-tier slot-unlock design", () => {
     const slotNodes = Object.values(HOMEWORLD_TALENTS).filter((t) => t.effect.type === "unlockCaptainSlot");
     expect(slotNodes).toHaveLength(3);
   });
