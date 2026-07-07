@@ -203,7 +203,7 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     // freshCaptains(), so its shape tracks whatever CaptainState currently
     // requires (xp/level/statPoints as of Phase 4's leveling system) rather
     // than the modules/lifetimeComponents shape this test originally asserted
-    // before the Generator Stack was removed (Tasks 1/5/6) -- that assertion
+    // before the Generator Stack was removed (Task 2) -- that assertion
     // would throw (modules is undefined) since freshCaptains() no longer
     // produces it at all. Asserting the CURRENT baseline instead.
     expect(migrated.captains[1].id).toBe(2);
@@ -593,12 +593,13 @@ describe("migrate — chained v1 -> v9 migration", () => {
     // NOT asserting migrated.captains[1].modules here (unlike the deleted
     // v1->v8 block this test replaces): captains[1] is MIGRATIONS[4]'s
     // fresh[1], built by a LIVE call to model.ts's freshCaptains(), and
-    // CaptainState has not declared modules/resources/etc. since Task 1's
+    // CaptainState has not declared modules/resources/etc. since Task 2's
     // Generator Stack removal -- fresh[1] genuinely has no .modules today, so
     // asserting into it would fail, not verify anything. Pre-existing test/
-    // model drift from Tasks 1/5/6 (see also the now-stale captains[1].modules
-    // assertions in the untouched "v4 -> v5" and "miner-floor hotfix" blocks
-    // above), flagged separately -- out of Task 7's scope to fix here.
+    // model drift from Task 2 (the "v4 -> v5" block above had the identical
+    // problem -- already fixed; the "miner-floor hotfix" block is NOT
+    // affected, since its captains array is a fully hand-written fixture that
+    // never calls freshCaptains()).
     expect(migrated.captains[1].id).toBe(2); // fresh second captain still present
     expect(migrated.unlockedSkillNodes).toEqual(["commandRank1"]); // 2 captains -> grandfathered
     expect(migrated.skillPoints).toBe(0);

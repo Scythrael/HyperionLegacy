@@ -88,10 +88,14 @@ export interface SaveFile {
 // v8 -> v9: Navigation Restructuring & Progression Overhaul (docs/plans/2026-
 // 07-06-phase4-navigation-progression-overhaul-plan.md, Task 7). This is the
 // first migration in this project's history to correspond to a batch of
-// REMOVED fields as well as added ones: the Generator Stack economy (and
-// everything built on top of it -- Research, Specializations, the Skill
-// Tree, both Prestige tiers) is gone from CaptainState/GameState, replaced by
-// a Homeworld crafting system and a captain XP/leveling system. Per the
+// REMOVED fields as well as added ones -- but unlike v4->v5 above, which
+// actively deletes its old top-level fields via destructuring (that data had
+// a new home to move to: captains[0]), this step does NOT delete anything,
+// because there's nowhere for Generator-Stack-era fields to move to: the
+// Generator Stack economy (and everything built on top of it -- Research,
+// Specializations, the Skill Tree, both Prestige tiers) is gone from
+// CaptainState/GameState, replaced by a Homeworld crafting system and a
+// captain XP/leveling system, not migrated to a new location. Per the
 // design doc, this migration does NOT attempt to strip the old fields
 // (`modules`, `resources`, `research`, `captainPoints`, `captainPrestigeCount`,
 // `specialization`, `skillPoints`, `unlockedSkillNodes`, `augmentPoints`,
