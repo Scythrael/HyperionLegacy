@@ -68,8 +68,8 @@
   // Outer bottom nav (Task 1, Phase 4) -- 5 tabs, no router library (see
   // design doc: single-page idle game, no deep-linking/history need). Default
   // lands on Fleet Ops since captains/missions are the core loop today.
-  type TabKey = "homeworld" | "sectorSpace" | "fleetOps" | "battlespace" | "system";
-  let activeTab: TabKey = "fleetOps";
+  type TabKey = "homeworld" | "sectorSpace" | "fleetCaptains" | "fleetOperations" | "battlespace" | "system";
+  let activeTab: TabKey = "fleetCaptains";
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
   let lastPollTime = Date.now();
@@ -411,7 +411,8 @@
       <div class="nav-tabs">
         <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
         <button class="nav-tab" class:active={activeTab === "sectorSpace"} on:click={() => (activeTab = "sectorSpace")}>Sector Space</button>
-        <button class="nav-tab" class:active={activeTab === "fleetOps"} on:click={() => (activeTab = "fleetOps")}>Fleet Ops</button>
+        <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Fleet Captain's</button>
+        <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Fleet Operations</button>
         <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
         <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
       </div>
