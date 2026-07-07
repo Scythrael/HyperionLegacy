@@ -44,7 +44,11 @@ write it down so you don't relitigate it later.
   captains running loses progress N times over instead of once. Worth
   fixing (compute cycles-elapsed and batch them into one closed-form
   `tickCaptainStack` call per captain, rather than one bounded tick) before
-  any real playtest that leaves the tab backgrounded for a while.
+  any real playtest that leaves the tab backgrounded for a while. Since
+  Home Planet & Mission Expeditions (Phase 3a), this same gap also applies
+  to `tickCaptainMission` for any captain on a mission — a missed poll can
+  silently drop an extraction tick's loot roll, which (unlike production
+  throughput) can never be recovered. Same root cause, same fix.
 - Both prestige tiers (`captainPrestige`, fleet-wide `prestige` in
   `tick.ts`) reset a captain's resources/modules/research via
   `freshCaptainStack()`, but neither touches that captain's entry in

@@ -552,6 +552,10 @@
             <div class="research-bar-fill" style="width:{progress * 100}%"></div>
           </div>
           <div class="research-readout">{remainingTicks.toFixed(1)} ticks remaining in phase</div>
+          <div class="research-cost">
+            Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
+            {formatNumber(mission.cargo.rareMaterial)} rare
+          </div>
           {#if mission.recalled}
             <p class="prestige-text mission-recalled-text">Recall ordered — returning to base once the current cycle's unloading completes.</p>
           {:else}
