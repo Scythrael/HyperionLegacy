@@ -23,6 +23,7 @@
     recallCaptain,
     craftRecipe,
     unlockCaptainSlot,
+    recomputeFleetAdmin,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave } from "./lib/game/save";
@@ -244,6 +245,17 @@
           },
         };
       }
+
+      // recomputeFleetAdmin (Task 3, Captain & Homeworld Talent Trees) --
+      // same "both the pure tick() path and the live-loop path need the same
+      // hook" pattern tickCaptainMission's own XP award already established
+      // in Phase 4. Runs unconditionally every poll (not gated behind
+      // anyFired/anyLootDelivered above) since it's a cheap no-op read of
+      // `state` when the aggregate captain-level sum hasn't changed --
+      // recomputeFleetAdmin itself returns the SAME state reference in that
+      // case, so this line doesn't introduce any extra reactivity churn on
+      // the overwhelmingly common poll where nobody just leveled up.
+      state = recomputeFleetAdmin(state);
     }, 100);
 
     // Autosave every 30s — tech spec §6.

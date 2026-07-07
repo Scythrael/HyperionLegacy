@@ -8,6 +8,7 @@ import {
   unlockCaptainSlot,
   buyCaptainTalent,
   buyHomeworldTalent,
+  recomputeFleetAdmin,
 } from "./tick";
 import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
 
@@ -603,5 +604,66 @@ describe("buyHomeworldTalent", () => {
     const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot2"); // requires fleetLogisticsSlot1
     expect(success).toBe(false);
     expect(next).toBe(state);
+  });
+});
+
+describe("recomputeFleetAdmin", () => {
+  it("no-op when the aggregate captain-level sum hasn't changed", () => {
+    const state = freshState();
+    state.captains[0].level = 5;
+    state.fleetAdminXp = 0;
+    // First call establishes the baseline sum; calling again with no captain
+    // level change must not re-award XP for the same sum twice.
+    const once = recomputeFleetAdmin(state);
+    const twice = recomputeFleetAdmin(once);
+    expect(twice).toBe(once); // recomputeFleetAdmin's own no-op branch returns the SAME reference
+    expect(twice.fleetAdminXp).toBe(once.fleetAdminXp);
+    expect(twice.fleetAdminLevel).toBe(once.fleetAdminLevel);
+  });
+
+  it("awards Fleet Admiral XP proportional to the SUM of captain levels, with a much steeper curve", () => {
+    // Hand-traced against xpForNextFleetAdminLevel(level) = 500 * level * level:
+    // captain levels 10 + 5 = targetXp 15. fleetAdminXp starts at 0 (freshState
+    // default), so 15 !== 0 -- proceeds past the no-op guard. xp=15, level=1,
+    // adminPoints=0. Loop check: 15 >= xpForNextFleetAdminLevel(1)=500? No --
+    // loop body never runs. Result: fleetAdminXp=15 (the raw sum, unconsumed),
+    // fleetAdminLevel stays 1, adminPoints stays 0.
+    const state = freshState();
+    state.captains = freshCaptains(2);
+    state.captains[0].level = 10;
+    state.captains[1].level = 5;
+    const result = recomputeFleetAdmin(state);
+    expect(result.fleetAdminXp).toBe(15);
+    expect(result.fleetAdminLevel).toBe(1);
+    expect(result.adminPoints).toBe(0);
+  });
+
+  it("a big jump in aggregate captain levels resolves every Fleet Admiral level-up crossed, not just one", () => {
+    // NOTE: the plan's original draft used 3 captains at level 50 (sum 150),
+    // but under this formula xpForNextFleetAdminLevel(1) = 500 -- a sum of
+    // 150 never crosses even the FIRST Fleet Admiral level-up (confirmed by
+    // hand-trace, see this task's session report for the full analysis: with
+    // today's 4-captain fleet cap, no realistic captain-level sum reaches the
+    // design doc's own "level 3-4 Admiral" framing under this formula). That
+    // assertion would have been false, not just weak, so the scenario below
+    // uses artificially high test-only levels (same convention as the
+    // existing unlockCaptainSlot test's `state.captains[0].level = 999`)
+    // purely to exercise the "resolve every level-up in one pass" branch:
+    // sum = 900*3 = 2700. xpForNextFleetAdminLevel(1)=500 (crossed, level->2,
+    // adminPoints->1, xp 2700-500=2200 remaining); xpForNextFleetAdminLevel(2)
+    // =2000 (crossed, level->3, adminPoints->2, xp 2200-2000=200 remaining);
+    // xpForNextFleetAdminLevel(3)=4500 (200 < 4500, loop stops). Final:
+    // fleetAdminLevel=3, adminPoints=2, fleetAdminXp=200.
+    const state = freshState();
+    state.captains = freshCaptains(3);
+    state.captains[0].level = 900;
+    state.captains[1].level = 900;
+    state.captains[2].level = 900;
+    const result = recomputeFleetAdmin(state);
+    expect(result.fleetAdminLevel).toBe(3);
+    expect(result.adminPoints).toBe(2);
+    expect(result.fleetAdminXp).toBe(200);
+    expect(result.fleetAdminLevel).toBeGreaterThan(1); // preserves the plan's original intent-check
+    expect(result.adminPoints).toBeGreaterThan(0);
   });
 });

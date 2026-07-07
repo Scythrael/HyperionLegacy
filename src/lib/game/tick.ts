@@ -12,6 +12,7 @@ import {
   requiredTicksForPhase,
   rollLootTable,
   xpForNextLevel,
+  xpForNextFleetAdminLevel,
   MISSIONS,
   RECIPES,
   CAPTAIN_SLOT_UNLOCKS,
@@ -176,6 +177,30 @@ export function tickCaptainMission(
   return { captain: { ...captain, mission, xp, level, statPoints }, homePlanetDelta };
 }
 
+// Fleet Admiral XP is NOT accumulated incrementally like captain XP (there's
+// no single "cycle completion" event for the fleet as a whole) -- it's
+// recomputed fresh each call from the sum of every captain's CURRENT level.
+// This makes it naturally idempotent (calling it twice with no captain-level
+// change is a genuine no-op) and naturally closed-form (a big jump in
+// several captains' levels between calls is just a bigger sum on the next
+// call -- there's no "many small calls vs one big call" distinction to get
+// wrong here, unlike tickCaptainMission's own XP hook, since this doesn't
+// process a delta, it recomputes an absolute value every time).
+export function recomputeFleetAdmin(state: GameState): GameState {
+  const targetXp = state.captains.reduce((sum, c) => sum + c.level, 0);
+  if (targetXp === state.fleetAdminXp) return state; // no captain leveled since last check -- same reference
+
+  let xp = targetXp;
+  let level = state.fleetAdminLevel;
+  let adminPoints = state.adminPoints;
+  while (xp >= xpForNextFleetAdminLevel(level)) {
+    level += 1;
+    adminPoints += 1;
+  }
+
+  return { ...state, fleetAdminXp: xp, fleetAdminLevel: level, adminPoints };
+}
+
 // Idle captains (mission === null) have no passive economy anymore --
 // missions are the only way a captain does anything. Only mission captains
 // need advancing; this is the sole reason to even call .map() below rather
@@ -195,7 +220,16 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     return updated;
   });
 
-  return {
+  // recomputeFleetAdmin (Task 3, Captain & Homeworld Talent Trees) wraps the
+  // final state object -- it must run AFTER captains is built above, since
+  // Fleet Admiral XP derives from each captain's POST-tick level (a captain
+  // who just leveled up this exact call must be counted at their new level,
+  // not their pre-tick one). It reads state.captains off the object below,
+  // so it naturally sees the updated array. Does not touch homePlanet at
+  // all -- the spread-then-overwrite pattern immediately below (guarding
+  // against the "prestige silently dropped homePlanet" bug class) is
+  // untouched by this wrapping.
+  return recomputeFleetAdmin({
     ...state,
     captains,
     gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
@@ -216,7 +250,7 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
         rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
       },
     },
-  };
+  });
 }
 
 // Dispatches an idle captain (mission === null) on a mission. Finds the

@@ -185,6 +185,26 @@ export function xpForNextLevel(level: number): number {
   return 100 * level;
 }
 
+// Deliberately much steeper than a captain's own xpForNextLevel -- the
+// intent (per design doc) is "level-50 captains might only mean a level 3-4
+// Fleet Admiral." A simple quadratic-ish curve achieves that without needing
+// per-level hand-tuning (unlike CAPTAIN_SLOT_UNLOCKS-style finite tables).
+//
+// CAUTION (found during Task 3 hand-tracing, not corrected here without
+// approval -- see this task's session report): with today's fleet cap of 4
+// captains (1 starting + 3 CAPTAIN_SLOT_UNLOCKS/fleetLogistics tiers), the
+// design doc's own worked example doesn't actually hold under this formula.
+// xpForNextFleetAdminLevel(1) = 500, but 4 captains all at level 50 only sum
+// to 200 -- short of even the FIRST Fleet Admiral level-up. Reaching Admiral
+// level 3-4 (cumulative sum 2500-7000) is not reachable by any realistic
+// captain-level sum under the current 4-captain cap. The formula is
+// implemented here exactly as the plan specifies; the mismatch against the
+// design doc's own framing is a balance question for a follow-up task, not
+// something silently patched here.
+export function xpForNextFleetAdminLevel(level: number): number {
+  return 500 * level * level;
+}
+
 export interface CaptainSlotUnlockDef {
   atLevel: number; // the unlocking captain must be at least this level
   statPointCost: number; // deducted from the unlocking captain's OWN statPoints
