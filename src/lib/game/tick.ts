@@ -11,8 +11,11 @@
 import {
   requiredTicksForPhase,
   rollLootTable,
+  xpForNextLevel,
   MISSIONS,
   RECIPES,
+  CAPTAIN_SLOT_UNLOCKS,
+  freshCaptainStack,
   type GameState,
   type CaptainState,
   type CaptainMissionState,
@@ -46,6 +49,12 @@ function emptyLootTotals(): Record<LootMaterialKey, number> {
 // breaking the exact guarantee this function exists to provide.
 const MISSION_TICK_EPSILON = 1e-9;
 
+// Flat XP award per completed mission cycle -- a launch placeholder balance
+// value, same spirit as MISSIONS' own hand-tuned tick counts. Awarded once
+// PER CYCLE completed within a call (a big offline-catchup jump can complete
+// several cycles in one call -- see the while loop below), never once per call.
+const XP_PER_MISSION_CYCLE = 50;
+
 // MUST be closed-form: calling this once with a large ticksElapsed must
 // produce the same result as calling it many times with a small ticksElapsed
 // summing to the same total. Generalized from "one continuous quantity
@@ -73,6 +82,12 @@ export function tickCaptainMission(
   let mission: CaptainMissionState | null = { ...captain.mission, cargo: { ...captain.mission.cargo } };
   let remaining = ticksElapsed;
   const homePlanetDelta = emptyLootTotals();
+  // Seeded from the captain's CURRENT xp/level/statPoints -- mutated only
+  // inside the cycle-completion branch below, once per cycle actually
+  // completed within this call (mirrors homePlanetDelta's own accumulation).
+  let xp = captain.xp;
+  let level = captain.level;
+  let statPoints = captain.statPoints;
 
   while (remaining > 0 && mission !== null) {
     const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
@@ -124,6 +139,18 @@ export function tickCaptainMission(
         (Object.keys(mission.cargo) as LootMaterialKey[]).forEach((key) => {
           homePlanetDelta[key] += mission.cargo[key];
         });
+        // XP is awarded once per cycle completed here (this branch can be
+        // reached multiple times within one call's while loop -- e.g. a big
+        // offline-catchup ticksElapsed spanning several full cycles), NOT
+        // once per tickCaptainMission call. Resolve every level-up crossed by
+        // this award, not just one -- a while (not if) loop, same closed-form
+        // spirit as the phase-advancement logic above.
+        xp += XP_PER_MISSION_CYCLE;
+        while (xp >= xpForNextLevel(level)) {
+          xp -= xpForNextLevel(level);
+          level += 1;
+          statPoints += 1;
+        }
         if (mission.recalled) {
           mission = null;
         } else {
@@ -142,7 +169,7 @@ export function tickCaptainMission(
     }
   }
 
-  return { captain: { ...captain, mission }, homePlanetDelta };
+  return { captain: { ...captain, mission, xp, level, statPoints }, homePlanetDelta };
 }
 
 // Idle captains (mission === null) have no passive economy anymore --
@@ -254,4 +281,42 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
   storage[recipe.output.key] += recipe.output.amount;
 
   return { next: { ...state, homePlanet: { storage } }, success: true };
+}
+
+// Spends the unlocking captain's own statPoints plus a shared Components cost
+// to append a new captain slot -- replaces the old Skill Tree Command branch.
+// Any captain who has reached the required level can do this (not a dedicated
+// "admiral" action) -- see design doc. Fails (same state reference) if there's
+// no next slot defined, the captain doesn't exist, isn't at the required
+// level, or either cost isn't affordable.
+export function unlockCaptainSlot(state: GameState, captainId: number): { next: GameState; success: boolean } {
+  const slotIndex = state.captains.length - 1; // captains.length IS the current slot count -- no separate counter needed, since nothing resets the roster anymore
+  const unlockDef = CAPTAIN_SLOT_UNLOCKS[slotIndex];
+  if (!unlockDef) return { next: state, success: false };
+
+  const idx = state.captains.findIndex((c) => c.id === captainId);
+  if (idx === -1) return { next: state, success: false };
+  const captain = state.captains[idx];
+  if (captain.level < unlockDef.atLevel) return { next: state, success: false };
+  if (captain.statPoints < unlockDef.statPointCost) return { next: state, success: false };
+  if (state.homePlanet.storage.components < unlockDef.componentsCost) return { next: state, success: false };
+
+  const captains = [...state.captains];
+  captains[idx] = { ...captain, statPoints: captain.statPoints - unlockDef.statPointCost };
+  const nextId = captains.length + 1;
+  captains.push({
+    id: nextId,
+    label: `Captain ${nextId}`,
+    shipType: "resourcer",
+    ...freshCaptainStack(),
+  });
+
+  return {
+    next: {
+      ...state,
+      captains,
+      homePlanet: { storage: { ...state.homePlanet.storage, components: state.homePlanet.storage.components - unlockDef.componentsCost } },
+    },
+    success: true,
+  };
 }

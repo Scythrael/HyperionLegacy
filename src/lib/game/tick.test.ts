@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tick, tickCaptainMission, dispatchCaptainOnMission, recallCaptain, craftRecipe } from "./tick";
+import { tick, tickCaptainMission, dispatchCaptainOnMission, recallCaptain, craftRecipe, unlockCaptainSlot } from "./tick";
 import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
 
 function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
@@ -159,6 +159,78 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
     expect(captain.mission).not.toBe(null);
     expect(captain.mission!.phase).toBe("extracting");
     expect(captain.mission!.phaseProgressTicks).toBeCloseTo(8, 6);
+  });
+});
+
+describe("tickCaptainMission — awards XP on cycle completion", () => {
+  it("awards no XP when no cycle completes", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain(); // mid-cycle, phaseProgressTicks 0, far from completing
+    const { captain } = tickCaptainMission(0.5, base, ALWAYS_COMMON_ORE);
+    expect(captain.xp).toBe(0);
+    expect(captain.level).toBe(1);
+  });
+
+  it("awards XP once when exactly one cycle completes", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
+    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE); // 1 tick completes unloadTicks=1
+    expect(captain.xp).toBe(50);
+    expect(captain.level).toBe(1); // 50 < xpForNextLevel(1)=100, no level-up yet
+  });
+
+  it("levels up and grants a stat point when accumulated XP crosses the threshold", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
+    base.xp = 60; // + this cycle's 50 = 110, crosses xpForNextLevel(1)=100
+    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE);
+    expect(captain.level).toBe(2);
+    expect(captain.xp).toBe(10); // 110 - 100
+    expect(captain.statPoints).toBe(1);
+  });
+
+  it("a big jump completing multiple cycles awards XP for EACH cycle, resolving multiple level-ups if crossed", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain(); // shortOreRun, 18 ticks/cycle
+    const { captain } = tickCaptainMission(36, base, ALWAYS_COMMON_ORE); // exactly 2 full cycles -> 2 * 50 = 100 XP
+    expect(captain.xp).toBe(0); // 100 XP exactly hits xpForNextLevel(1)=100 -> levels to 2 with 0 leftover
+    expect(captain.level).toBe(2);
+    expect(captain.statPoints).toBe(1);
+  });
+});
+
+describe("unlockCaptainSlot", () => {
+  it("succeeds when level/statPoints/components all meet the next slot's requirement", () => {
+    const state = freshState();
+    state.captains[0].level = 3;
+    state.captains[0].statPoints = 2;
+    state.homePlanet.storage.components = 5;
+    const { next, success } = unlockCaptainSlot(state, 1);
+    expect(success).toBe(true);
+    expect(next.captains).toHaveLength(2);
+    expect(next.captains[0].statPoints).toBe(0);
+    expect(next.homePlanet.storage.components).toBe(0);
+  });
+
+  it("fails if the captain isn't high enough level yet", () => {
+    const state = freshState();
+    state.captains[0].level = 2; // needs 3
+    state.captains[0].statPoints = 2;
+    state.homePlanet.storage.components = 5;
+    const { next, success } = unlockCaptainSlot(state, 1);
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+
+  it("fails if there's no next slot defined (roster already at the table's max)", () => {
+    const state = freshState();
+    state.captains = freshCaptains(4); // all 3 CAPTAIN_SLOT_UNLOCKS entries already used
+    state.captains[0].level = 999;
+    state.captains[0].statPoints = 999;
+    state.homePlanet.storage.components = 999;
+    const { next, success } = unlockCaptainSlot(state, 1);
+    expect(success).toBe(false);
+    expect(next).toBe(state);
   });
 });
 

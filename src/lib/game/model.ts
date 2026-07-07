@@ -2,9 +2,10 @@
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
 // the Generator Stack economy (and everything built on top of it -- Research,
 // Specializations, the Skill Tree, both Prestige tiers) has been retired in
-// favor of the mission-based economy (below) plus a Homeworld crafting system
-// (added in a later task) and a captain XP/leveling system (bare fields added
-// below; the logic that uses them lands in a later task).
+// favor of the mission-based economy (below), a Homeworld crafting system
+// (RECIPES/craftRecipe), and a captain XP/leveling system (xp/level/statPoints
+// on CaptainState, xpForNextLevel/CAPTAIN_SLOT_UNLOCKS below; the XP-awarding
+// and level-up logic itself lives in tick.ts's tickCaptainMission).
 
 // Only "resourcer" is real today. Modeled as a union (not a bare string) so
 // Phase 3+'s combat-type ships slot in as a new literal without touching
@@ -138,9 +139,9 @@ export interface CaptainState {
   shipType: ShipType;
   tickDurationSeconds: number; // this captain's own tick-bar cycle length; cadences can diverge between captains
   mission: CaptainMissionState | null; // null when idle (idle captains have no passive economy -- see tick.ts)
-  xp: number; // accumulated toward the NEXT level -- see xpForNextLevel() (added in a later task)
+  xp: number; // accumulated toward the NEXT level -- see xpForNextLevel() below; awarded in tick.ts's tickCaptainMission on cycle completion
   level: number; // starts at 1
-  statPoints: number; // unspent, earned on level-up -- spent via unlockCaptainSlot() (later task, tick.ts)
+  statPoints: number; // unspent, earned on level-up -- spent via unlockCaptainSlot() (tick.ts)
 }
 
 export interface GameState {
@@ -173,6 +174,30 @@ export const RECIPES: Record<RecipeKey, RecipeDef> = {
   },
 };
 
+// Open-ended (levels can climb indefinitely) -- a formula, not a table, unlike
+// CAPTAIN_SLOT_UNLOCKS below (which is finite and worth hand-tuning per entry).
+export function xpForNextLevel(level: number): number {
+  return 100 * level;
+}
+
+export interface CaptainSlotUnlockDef {
+  atLevel: number; // the unlocking captain must be at least this level
+  statPointCost: number; // deducted from the unlocking captain's OWN statPoints
+  componentsCost: number; // deducted from the shared, fleet-wide homePlanet.storage.components
+}
+
+// Ordered by slot number (index 0 = the 2nd captain slot, since slot 1 always
+// exists). Small and hand-tunable on purpose -- unlike level count, there are
+// only ever a few of these, so a table you can eyeball beats a formula you'd
+// have to reverse-engineer. Add entries here (and nowhere else -- tick.ts's
+// unlockCaptainSlot reads this by index, App.svelte's leveling panel iterates
+// it for display) for a 5th+ slot later.
+export const CAPTAIN_SLOT_UNLOCKS: CaptainSlotUnlockDef[] = [
+  { atLevel: 3, statPointCost: 2, componentsCost: 5 },
+  { atLevel: 6, statPointCost: 4, componentsCost: 15 },
+  { atLevel: 10, statPointCost: 6, componentsCost: 40 },
+];
+
 // What a brand-new (or newly-unlocked) captain slot starts with. There is no
 // more prestige to reset a captain THROUGH -- this is purely the baseline for
 // a slot that has never been played.
@@ -188,8 +213,8 @@ export function freshCaptainStack(): Pick<CaptainState, "tickDurationSeconds" | 
 
 // Generates `count` captains (ids 1..count) sharing the same freshCaptainStack()
 // baseline. Used for: a brand-new save (freshState calls freshCaptains(1)),
-// a slot unlock (tick.ts's unlockCaptainSlot, added in a later task), and
-// save migration (backfilling a never-played slot).
+// a slot unlock (tick.ts's unlockCaptainSlot), and save migration (backfilling
+// a never-played slot).
 export function freshCaptains(count: number): CaptainState[] {
   const captains: CaptainState[] = [];
   for (let i = 1; i <= count; i++) {

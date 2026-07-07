@@ -7,6 +7,8 @@ import {
   rollLootTable,
   MISSIONS,
   RECIPES,
+  xpForNextLevel,
+  CAPTAIN_SLOT_UNLOCKS,
 } from "./model";
 
 describe("freshState — captain roster shape", () => {
@@ -173,6 +175,24 @@ describe("RECIPES — launch set", () => {
     for (const recipe of Object.values(RECIPES)) {
       expect(Object.keys(recipe.inputs).length).toBeGreaterThan(0);
       expect(recipe.output.amount).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("xpForNextLevel", () => {
+  it("grows with level (100 at level 1, 200 at level 2)", () => {
+    expect(xpForNextLevel(1)).toBe(100);
+    expect(xpForNextLevel(2)).toBe(200);
+  });
+});
+
+describe("CAPTAIN_SLOT_UNLOCKS — launch set", () => {
+  it("has 3 entries, each with a positive level/statPoint/components cost", () => {
+    expect(CAPTAIN_SLOT_UNLOCKS).toHaveLength(3);
+    for (const entry of CAPTAIN_SLOT_UNLOCKS) {
+      expect(entry.atLevel).toBeGreaterThan(0);
+      expect(entry.statPointCost).toBeGreaterThan(0);
+      expect(entry.componentsCost).toBeGreaterThan(0);
     }
   });
 });
