@@ -13,6 +13,13 @@ export type ShipType = "resourcer";
 
 export type LootMaterialKey = "commonOre" | "uncommonMaterial" | "rareMaterial";
 
+// Superset of LootMaterialKey: the 3 mission-loot tiers plus the 2 new
+// crafted-good tiers the Homeworld crafting system (RECIPES, below) produces.
+// homePlanet.storage is keyed on this wider type -- both raw loot delivery
+// (tick.ts's tick()) and crafting (tick.ts's craftRecipe()) read/write the
+// SAME storage object, just different subsets of its keys.
+export type HomePlanetMaterialKey = LootMaterialKey | "refinedMaterial" | "components";
+
 export interface LootTableEntry {
   material: LootMaterialKey;
   weight: number; // out of the table's total weight
@@ -139,8 +146,32 @@ export interface CaptainState {
 export interface GameState {
   captains: CaptainState[];
   gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
-  homePlanet: { storage: Record<LootMaterialKey, number> }; // fleet-wide mission loot, separate from any captain's own state
+  homePlanet: { storage: Record<HomePlanetMaterialKey, number> }; // fleet-wide mission loot + crafted goods, separate from any captain's own state
 }
+
+export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
+
+export interface RecipeDef {
+  label: string;
+  inputs: Partial<Record<HomePlanetMaterialKey, number>>;
+  output: { key: HomePlanetMaterialKey; amount: number };
+}
+
+// 2 recipes at launch, one per structure -- proves the crafting mechanic.
+// Add entries here (and nowhere else -- App.svelte's Homeworld panels iterate
+// this object) as the "fully fleshed out crafting system" grows later.
+export const RECIPES: Record<RecipeKey, RecipeDef> = {
+  refineUnobtainium: {
+    label: "Refine Unobtainium Ore",
+    inputs: { commonOre: 10 },
+    output: { key: "refinedMaterial", amount: 1 },
+  },
+  fabricateComponents: {
+    label: "Fabricate Components",
+    inputs: { refinedMaterial: 5 },
+    output: { key: "components", amount: 1 },
+  },
+};
 
 // What a brand-new (or newly-unlocked) captain slot starts with. There is no
 // more prestige to reset a captain THROUGH -- this is purely the baseline for
@@ -176,6 +207,6 @@ export function freshState(): GameState {
   return {
     captains: freshCaptains(1),
     gameTimeSeconds: 0,
-    homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 } },
+    homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
   };
 }

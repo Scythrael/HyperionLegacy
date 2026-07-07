@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { tick, tickCaptainMission, dispatchCaptainOnMission, recallCaptain } from "./tick";
-import { freshState, freshCaptains, MISSIONS, type CaptainMissionState } from "./model";
+import { tick, tickCaptainMission, dispatchCaptainOnMission, recallCaptain, craftRecipe } from "./tick";
+import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
 
 function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
   return {
@@ -398,5 +398,32 @@ describe("recallCaptain", () => {
     const { next, success } = recallCaptain(state, 999);
     expect(success).toBe(false);
     expect(next).toBe(state);
+  });
+});
+
+describe("craftRecipe", () => {
+  it("succeeds when inputs are sufficient: deducts inputs, adds output", () => {
+    const state = freshState();
+    state.homePlanet.storage.commonOre = 25;
+    const { next, success } = craftRecipe(state, "refineUnobtainium");
+    expect(success).toBe(true);
+    expect(next.homePlanet.storage.commonOre).toBe(15);
+    expect(next.homePlanet.storage.refinedMaterial).toBe(1);
+  });
+
+  it("fails (same state reference) when inputs are insufficient", () => {
+    const state = freshState(); // commonOre: 0
+    const { next, success } = craftRecipe(state, "refineUnobtainium");
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+
+  it("supports multi-input recipes, deducting every input listed", () => {
+    const state = freshState();
+    state.homePlanet.storage.refinedMaterial = 12;
+    const { next, success } = craftRecipe(state, "fabricateComponents");
+    expect(success).toBe(true);
+    expect(next.homePlanet.storage.refinedMaterial).toBe(7);
+    expect(next.homePlanet.storage.components).toBe(1);
   });
 });

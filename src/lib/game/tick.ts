@@ -12,12 +12,15 @@ import {
   requiredTicksForPhase,
   rollLootTable,
   MISSIONS,
+  RECIPES,
   type GameState,
   type CaptainState,
   type CaptainMissionState,
   type LootMaterialKey,
   type MissionPhase,
   type MissionKey,
+  type RecipeKey,
+  type HomePlanetMaterialKey,
 } from "./model";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -230,4 +233,25 @@ export function recallCaptain(state: GameState, captainId: number): { next: Game
   const captains = [...state.captains];
   captains[idx] = { ...captains[idx], mission: { ...captains[idx].mission!, recalled: true } };
   return { next: { ...state, captains }, success: true };
+}
+
+// Validates every input in the recipe is affordable, deducts them all, adds
+// the output -- same "same state reference on failure" convention as every
+// other buy/action function in this file (dispatchCaptainOnMission,
+// recallCaptain). Manual-craft-button only this phase; an auto-craft toggle
+// is a deliberate near-term follow-up, not built here.
+export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: GameState; success: boolean } {
+  const recipe = RECIPES[recipeKey];
+  for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
+    const needed = recipe.inputs[key] ?? 0;
+    if (state.homePlanet.storage[key] < needed) return { next: state, success: false };
+  }
+
+  const storage = { ...state.homePlanet.storage };
+  for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
+    storage[key] -= recipe.inputs[key] ?? 0;
+  }
+  storage[recipe.output.key] += recipe.output.amount;
+
+  return { next: { ...state, homePlanet: { storage } }, success: true };
 }

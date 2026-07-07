@@ -6,6 +6,7 @@ import {
   requiredTicksForPhase,
   rollLootTable,
   MISSIONS,
+  RECIPES,
 } from "./model";
 
 describe("freshState — captain roster shape", () => {
@@ -77,9 +78,15 @@ describe("freshState / freshCaptainStack — mission and Home Planet fields", ()
     expect(captain.mission).toBe(null);
   });
 
-  it("freshState's homePlanet storage starts at 0 for every material", () => {
+  it("freshState's homePlanet storage starts at 0 for every material, including the crafted-good tiers", () => {
     const state = freshState();
-    expect(state.homePlanet.storage).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 });
+    expect(state.homePlanet.storage).toEqual({
+      commonOre: 0,
+      uncommonMaterial: 0,
+      rareMaterial: 0,
+      refinedMaterial: 0,
+      components: 0,
+    });
   });
 
   it("freshCaptainStack's mission field is null (a brand-new/unlocked captain slot starts idle)", () => {
@@ -157,5 +164,15 @@ describe("rollLootTable", () => {
     // effective range 981/1000 instead of 980/1000).
     const material = rollLootTable(MISSIONS.shortOreRun.lootTable, () => 980 / 1000);
     expect(material).toBe("uncommonMaterial");
+  });
+});
+
+describe("RECIPES — launch set", () => {
+  it("has exactly 2 recipes with well-formed inputs/output", () => {
+    expect(Object.keys(RECIPES)).toHaveLength(2);
+    for (const recipe of Object.values(RECIPES)) {
+      expect(Object.keys(recipe.inputs).length).toBeGreaterThan(0);
+      expect(recipe.output.amount).toBeGreaterThan(0);
+    }
   });
 });
