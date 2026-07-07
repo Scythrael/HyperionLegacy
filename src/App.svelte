@@ -3,42 +3,19 @@
   import Starfield from "./lib/Starfield.svelte";
   import Panel from "./lib/Panel.svelte";
   import {
-    MODULES,
-    RESOURCE_ORDER,
-    RESOURCE_LABEL,
     freshState,
-    costFor,
-    globalMultiplier,
-    captainMultiplier,
-    specializationMultiplier,
-    fleetLifetimeComponents,
-    isModuleUnlocked,
-    isResourceUnlocked,
-    RESEARCH_PROJECTS,
-    SPECIALIZATIONS,
-    SKILL_TREE,
-    researchDurationMult,
     MISSIONS,
     requiredTicksForPhase,
-    type ModuleKey,
-    type ResearchKey,
-    type SpecializationKey,
-    type SkillNodeKey,
     type GameState,
-    type CaptainState,
     type MissionKey,
     type MissionPhase,
     type LootMaterialKey,
   } from "./lib/game/model";
   import {
     tick,
-    tickCaptainStack,
     tickCaptainMission,
     dispatchCaptainOnMission,
     recallCaptain,
-    prestige,
-    captainPrestige,
-    buySkillNode,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave } from "./lib/game/save";
@@ -49,11 +26,11 @@
   const DEV_MODE_ENV = import.meta.env.VITE_DEV_MODE === "true";
 
   // Display-only phase labels for the MISSIONS panel's phase readout. Purely
-  // a UI concern (unlike RESOURCE_LABEL in model.ts, nothing outside this
-  // file needs to map a MissionPhase to display text), so it lives here
-  // rather than in model.ts. Must stay in sync with MissionPhase's literal
-  // union -- a new phase added there without a matching entry here would
-  // silently render "undefined" instead of a label.
+  // a UI concern -- nothing outside this file needs to map a MissionPhase to
+  // display text, so it lives here rather than in model.ts. Must stay in
+  // sync with MissionPhase's literal union -- a new phase added there
+  // without a matching entry here would silently render "undefined" instead
+  // of a label.
   const MISSION_PHASE_LABEL: Record<MissionPhase, string> = {
     ordersReceived: "Orders Received",
     transitOut: "Transiting Out",
@@ -139,17 +116,19 @@
     ensureCaptainCycles(lastPollTime);
 
     // Tick-bar loop — checks EVERY captain's own cycle progress every 100ms,
-    // firing tickCaptainStack (idle captains) or tickCaptainMission (captains
-    // with an active mission -- Phase 3a) independently for whichever
-    // captain(s) complete a cycle on this poll. Fleet-wide gameTimeSeconds
+    // firing tickCaptainMission (Phase 3a) independently for whichever
+    // mission captain(s) complete a cycle on this poll. Idle captains
+    // (mission === null) have no passive economy anymore -- see the
+    // Phase 4 comment on tick()'s loop body below -- so only mission
+    // captains ever have anything to fire here. Fleet-wide gameTimeSeconds
     // advances continuously off real elapsed time every poll, decoupled from
     // any single captain's cadence (gameTimeSeconds is fleet bookkeeping; it
-    // is never read by tickCaptainStack's or tickCaptainMission's production
-    // math, so this decoupling cannot desync production from time).
+    // is never read by tickCaptainMission's production math, so this
+    // decoupling cannot desync production from time).
     // barSeconds is floored at 1 real second per captain so dev-speed
     // presets never make that captain's bar flicker unreadably — multiple
     // game-ticks just batch into one visual cycle, which is still correct
-    // because both tickCaptainStack and tickCaptainMission are closed-form.
+    // because tickCaptainMission is closed-form.
     tickHandle = setInterval(() => {
       const now = Date.now();
 
@@ -179,11 +158,6 @@
       ensureCaptainCycles(now);
       let captains = state.captains;
       let anyFired = false;
-      const fleetMult = globalMultiplier(state); // invariant for this whole poll -- nothing in this loop touches augmentPoints
-      const researchMults = {} as Record<ResearchKey, number>;
-      for (const key of Object.keys(RESEARCH_PROJECTS) as ResearchKey[]) {
-        researchMults[key] = researchDurationMult(state, key);
-      }
 
       // Mirrors tick()'s own homePlanetDelta accumulation in tick.ts: summed
       // locally across every captain whose mission advances THIS poll, then
@@ -203,28 +177,32 @@
         const barSeconds = Math.max(1, captain.tickDurationSeconds / speed);
         cycle.nowTick = now;
         const progress = (now - cycle.barCycleStart) / 1000 / barSeconds;
-        if (progress >= 1) {
+        // Idle captains (mission === null) have no passive economy anymore --
+        // missions are the only way a captain does anything (mirrors
+        // tick.ts's tick(), which returns idle captains completely
+        // unchanged). Only a captain WITH an active mission has anything to
+        // advance when their bar completes; an idle captain's bar is simply
+        // never reset, which is harmless since nothing reads it once the
+        // TICK panel (the only consumer of per-captain idle bar progress) is
+        // gone -- see this commit's message for the removal reasoning.
+        if (progress >= 1 && captain.mission) {
           const gameSecondsThisCycle = barSeconds * speed;
           if (!anyFired) {
             captains = [...captains]; // copy on first write this poll
             anyFired = true;
           }
-          if (captain.mission) {
-            // Same deltaSeconds -> ticksElapsed conversion tick() uses in
-            // tick.ts (divide by THIS captain's own tickDurationSeconds) --
-            // keeps the live loop's mission cadence identical to the offline
-            // catch-up path's, which is the whole point of this task.
-            const ticksElapsed = gameSecondsThisCycle / captain.tickDurationSeconds;
-            const { captain: updatedCaptain, homePlanetDelta: delta } = tickCaptainMission(ticksElapsed, captain);
-            captains[i] = updatedCaptain;
-            if (delta.commonOre !== 0 || delta.uncommonMaterial !== 0 || delta.rareMaterial !== 0) {
-              anyLootDelivered = true;
-              homePlanetDelta.commonOre += delta.commonOre;
-              homePlanetDelta.uncommonMaterial += delta.uncommonMaterial;
-              homePlanetDelta.rareMaterial += delta.rareMaterial;
-            }
-          } else {
-            captains[i] = tickCaptainStack(gameSecondsThisCycle, captain, fleetMult, researchMults);
+          // Same deltaSeconds -> ticksElapsed conversion tick() uses in
+          // tick.ts (divide by THIS captain's own tickDurationSeconds) --
+          // keeps the live loop's mission cadence identical to the offline
+          // catch-up path's, which is the whole point of this task.
+          const ticksElapsed = gameSecondsThisCycle / captain.tickDurationSeconds;
+          const { captain: updatedCaptain, homePlanetDelta: delta } = tickCaptainMission(ticksElapsed, captain);
+          captains[i] = updatedCaptain;
+          if (delta.commonOre !== 0 || delta.uncommonMaterial !== 0 || delta.rareMaterial !== 0) {
+            anyLootDelivered = true;
+            homePlanetDelta.commonOre += delta.commonOre;
+            homePlanetDelta.uncommonMaterial += delta.uncommonMaterial;
+            homePlanetDelta.rareMaterial += delta.rareMaterial;
           }
           cycle.barCycleStart = now;
         }
@@ -263,55 +241,6 @@
     clearInterval(saveHandle);
   });
 
-  // Read the active captain via the `activeCaptain` derivation (or a local
-  // `const captain = activeCaptain` alias) BEFORE calling this -- the `c`
-  // argument passed into `updater` is the source of truth for the write.
-  // Don't reference the outer `activeCaptain` inside the updater callback;
-  // it's a closure-captured pre-update snapshot, not guaranteed to match `c`.
-  function updateActiveCaptain(updater: (c: CaptainState) => CaptainState) {
-    const captains = [...state.captains];
-    captains[activeCaptainIndex] = updater(captains[activeCaptainIndex]);
-    state = { ...state, captains };
-  }
-
-  function buyModule(key: ModuleKey) {
-    const captain = activeCaptain;
-    if (!isModuleUnlocked(key, captain)) return;
-    const cost = costFor(key, captain.modules[key]);
-    if (captain.resources.ore < cost) return;
-    updateActiveCaptain((c) => ({
-      ...c,
-      resources: { ...c.resources, ore: c.resources.ore - cost },
-      modules: { ...c.modules, [key]: c.modules[key] + 1 },
-    }));
-  }
-
-  function doPrestige() {
-    const { next, gained } = prestige(state);
-    if (gained <= 0) return;
-    state = next;
-    activeCaptainIndex = 0; // Captain 1's slot always survives a Fleet Prestige reset, regardless of roster size
-    pushLog(`Fleet Prestige performed. +${gained} Augment Points, +1 Skill Point. Captain roster reset.`);
-    doSave();
-  }
-
-  function doCaptainPrestige(spec: SpecializationKey) {
-    const { next, gained } = captainPrestige(state, activeCaptain.id, spec);
-    if (gained <= 0) return;
-    const label = activeCaptain.label;
-    state = next;
-    pushLog(`[${label}] Captain Prestige performed. +${gained} Captain Points (${SPECIALIZATIONS[spec].label}).`);
-    doSave();
-  }
-
-  function doBuySkillNode(nodeKey: SkillNodeKey) {
-    const { next, success } = buySkillNode(state, nodeKey);
-    if (!success) return;
-    state = next;
-    pushLog(`Skill unlocked: ${SKILL_TREE[nodeKey].label}.`);
-    doSave();
-  }
-
   function doDispatchCaptainOnMission(missionKey: MissionKey) {
     const captain = activeCaptain;
     const { next, success } = dispatchCaptainOnMission(state, captain.id, missionKey);
@@ -323,17 +252,12 @@
 
   function doRecallCaptain() {
     const captain = activeCaptain;
-    const missionLabel = MISSIONS[captain.mission!.missionKey].label; // captured before the state swap below, mirrors doCaptainPrestige's `label` capture
+    const missionLabel = MISSIONS[captain.mission!.missionKey].label; // captured before the state swap below, same pre-swap-capture idiom as doDispatchCaptainOnMission's `captain.label` above
     const { next, success } = recallCaptain(state, captain.id);
     if (!success) return;
     state = next;
     pushLog(`[${captain.label}] Recall ordered — returning to base from: ${missionLabel}.`);
     doSave();
-  }
-
-  function grantResource(resource: keyof CaptainState["resources"], amount: number) {
-    updateActiveCaptain((c) => ({ ...c, resources: { ...c.resources, [resource]: c.resources[resource] + amount } }));
-    pushLog(`[${activeCaptain.label}] [DEV] Granted ${formatNumber(amount)} ${resource}.`);
   }
 
   function simulateOffline(hours: number) {
@@ -366,35 +290,7 @@
     saveTheme(name);
   }
 
-  function startResearch(key: ResearchKey) {
-    const project = RESEARCH_PROJECTS[key];
-    const captain = activeCaptain;
-    const entry = captain.research[key];
-    if (entry.started || entry.completed) return; // not safe to call twice by construction otherwise
-    if (captain.resources.components < project.costComponents) return;
-    updateActiveCaptain((c) => ({
-      ...c,
-      resources: { ...c.resources, components: c.resources.components - project.costComponents },
-      research: { ...c.research, [key]: { ...entry, started: true } },
-    }));
-    pushLog(`[${captain.label}] Research started: ${project.label}.`);
-  }
-
-  $: mult = globalMultiplier(state);
   $: activeCaptain = state.captains[activeCaptainIndex];
-  // Fallback only covers the one-frame window before onMount's
-  // ensureCaptainCycles seeds an entry. It assumes captains.length never
-  // shrinks and activeCaptainIndex never points past the end -- true today
-  // since only freshCaptains() ever replaces the whole array, and the
-  // roster can be any size >= 1 (Command-branch skill nodes and Fleet
-  // Prestige only ever grow it or reset it back to captainSlotCount(state),
-  // never shrink it below 1). If a future feature ever removes a captain
-  // slot, this fallback would silently show 0% progress instead of
-  // erroring; revisit this assumption then.
-  $: activeCycle = captainCycles[activeCaptain?.id] ?? { barCycleStart: Date.now(), nowTick: Date.now() };
-  $: activeBarSeconds = Math.max(1, (activeCaptain?.tickDurationSeconds ?? 10) / (speed || 1));
-  $: activeTickProgress = Math.min(1, Math.max(0, (activeCycle.nowTick - activeCycle.barCycleStart) / 1000 / activeBarSeconds));
-  $: activeTickRemaining = Math.max(0, activeBarSeconds * (1 - activeTickProgress));
 </script>
 
 <div class="root">
@@ -406,14 +302,6 @@
         <span class="subtitle">prototype build · multi-captain · single sector</span>
       </div>
       <div class="header-right">
-        <div class="stat-pill">
-          <div class="stat-label">Augment Pts</div>
-          <div class="stat-value">{formatNumber(state.augmentPoints)}</div>
-        </div>
-        <div class="stat-pill">
-          <div class="stat-label">Multiplier</div>
-          <div class="stat-value">×{mult.toFixed(2)}</div>
-        </div>
         {#if DEV_MODE_ENV}
           <button class="icon-btn" on:click={() => (devPanelOpen = !devPanelOpen)} title="Toggle debug panel">Dev</button>
         {/if}
@@ -466,107 +354,6 @@
       </div>
 
       <Panel>
-        <div class="panel-title">RESOURCES</div>
-        <div class="resource-grid">
-          {#each RESOURCE_ORDER as r}
-            {@const unlocked = isResourceUnlocked(r, activeCaptain)}
-            <div class="resource-card">
-              <div class="resource-label">{RESOURCE_LABEL[r]}</div>
-              {#if unlocked}
-                <div class="resource-value">{formatNumber(activeCaptain.resources[r])}</div>
-              {:else}
-                <div class="resource-value locked">🔒</div>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      </Panel>
-
-      <Panel>
-        <div class="panel-title">TICK</div>
-        <div class="tick-bar-track">
-          <div class="tick-bar-fill" style="width:{activeTickProgress * 100}%"></div>
-        </div>
-        <div class="tick-bar-readout">{activeTickRemaining.toFixed(1)}s</div>
-      </Panel>
-
-      <Panel>
-        <div class="panel-title">GENERATOR STACK</div>
-        <div class="module-list">
-          {#each Object.entries(MODULES) as [key, m]}
-            {@const unlocked = isModuleUnlocked(key as ModuleKey, activeCaptain)}
-            {#if unlocked}
-              {@const count = activeCaptain.modules[key as ModuleKey]}
-              {@const cost = costFor(key as ModuleKey, count)}
-              {@const specMult = specializationMultiplier(activeCaptain, m.resource)}
-              {@const rate = m.baseRate * count * mult * captainMultiplier(activeCaptain) * specMult}
-              {@const perTick = rate * activeCaptain.tickDurationSeconds}
-              {@const affordable = activeCaptain.resources.ore >= cost}
-              <div class="module-card">
-                <div class="module-top">
-                  <div>
-                    <div class="module-name">{m.label}</div>
-                    <div class="module-rate">
-                      {formatNumber(perTick)} {m.unit.replace("/s", "")}/tick · {formatNumber(rate)} {m.unit} · owned {count}
-                    </div>
-                  </div>
-                  <button
-                    class="buy-btn"
-                    disabled={!affordable}
-                    style="opacity:{affordable ? 1 : 0.4}"
-                    on:click={() => buyModule(key as ModuleKey)}
-                  >
-                    Buy · {formatNumber(cost)} ore
-                  </button>
-                </div>
-              </div>
-            {:else}
-              <div class="module-card locked">
-                <div class="module-top">
-                  <div>
-                    <div class="module-name">{m.label}</div>
-                    <div class="module-rate">🔒 Locked — requires {RESEARCH_PROJECTS.alloySynthesis.label} research</div>
-                  </div>
-                </div>
-              </div>
-            {/if}
-          {/each}
-        </div>
-      </Panel>
-
-      <Panel>
-        <div class="panel-title">RESEARCH</div>
-        {#if activeCaptain.research.alloySynthesis.completed}
-          <p class="research-status">✓ {RESEARCH_PROJECTS.alloySynthesis.label} — Complete</p>
-        {:else if activeCaptain.research.alloySynthesis.started}
-          {@const project = RESEARCH_PROJECTS.alloySynthesis}
-          {@const effectiveDuration = project.durationSeconds * researchDurationMult(state, "alloySynthesis")}
-          {@const progress = Math.min(1, activeCaptain.research.alloySynthesis.progressSeconds / effectiveDuration)}
-          {@const remaining = Math.max(0, effectiveDuration - activeCaptain.research.alloySynthesis.progressSeconds)}
-          <div class="research-name">{project.label}</div>
-          <div class="research-bar-track">
-            <div class="research-bar-fill" style="width:{progress * 100}%"></div>
-          </div>
-          <div class="research-readout">{remaining.toFixed(0)}s remaining</div>
-        {:else}
-          {@const project = RESEARCH_PROJECTS.alloySynthesis}
-          {@const effectiveDuration = project.durationSeconds * researchDurationMult(state, "alloySynthesis")}
-          {@const affordable = activeCaptain.resources.components >= project.costComponents}
-          <div class="research-name">{project.label}</div>
-          <div class="research-cost">Cost: {formatNumber(project.costComponents)} components</div>
-          <div class="research-cost">Duration: {effectiveDuration.toFixed(0)}s</div>
-          <button
-            class="buy-btn"
-            disabled={!affordable}
-            style="opacity:{affordable ? 1 : 0.4}"
-            on:click={() => startResearch("alloySynthesis")}
-          >
-            Start Research
-          </button>
-        {/if}
-      </Panel>
-
-      <Panel>
         <div class="panel-title">MISSIONS</div>
         {#if activeCaptain.mission === null}
           <div class="mission-list">
@@ -602,125 +389,6 @@
             <button class="recall-btn" on:click={doRecallCaptain}>Recall Captain</button>
           {/if}
         {/if}
-      </Panel>
-
-      <Panel>
-        <div class="panel-title">CAPTAIN PRESTIGE — TIER 1</div>
-        {@const captainGain = Math.floor(Math.sqrt(activeCaptain.lifetimeComponents))}
-        <p class="prestige-text">
-          Retire {activeCaptain.label}'s current run for Captain Points (√ of THIS captain's lifetime
-          components). Resets {activeCaptain.label}'s resources, modules, and research. Choose a
-          specialization as part of the reset — picking again later respecs. If {activeCaptain.label}
-          is on an active mission, prestiging cancels it immediately and any in-transit cargo is lost.
-        </p>
-        <div class="prestige-row">
-          <div class="prestige-yield">
-            Would yield <strong>{formatNumber(captainGain)}</strong> Captain Points
-          </div>
-        </div>
-        {#if activeCaptain.specialization}
-          <div class="spec-current">
-            Current specialization: <strong>{SPECIALIZATIONS[activeCaptain.specialization].label}</strong>
-            · {formatNumber(activeCaptain.captainPoints)} Captain Points · {activeCaptain.captainPrestigeCount} prestiges
-          </div>
-        {/if}
-        <div class="spec-picker">
-          {#each Object.entries(SPECIALIZATIONS) as [key, def]}
-            <button
-              class="spec-btn"
-              disabled={captainGain <= 0}
-              style="opacity:{captainGain <= 0 ? 0.4 : 1}"
-              on:click={() => doCaptainPrestige(key as SpecializationKey)}
-            >
-              {def.label}
-            </button>
-          {/each}
-        </div>
-      </Panel>
-
-      <Panel>
-        <div class="panel-title">FLEET PRESTIGE — TIER 2</div>
-        {@const fleetGain = Math.floor(Math.sqrt(fleetLifetimeComponents(state)))}
-        <p class="prestige-text">
-          Retire the WHOLE FLEET for Augment Points and a Skill Point (√ of combined lifetime
-          components across every captain). Resets every captain back to your currently unlocked
-          roster size — wiping all specializations, Captain Points, and individual progress along
-          with resources and modules. Augment Points, the global multiplier, and your unlocked
-          skills all persist. Any captain on an active mission has it cancelled immediately, losing
-          any in-transit cargo.
-        </p>
-        <div class="prestige-row">
-          <div class="prestige-yield">
-            Would yield <strong>{formatNumber(fleetGain)}</strong> Augment Points
-          </div>
-          <button
-            class="prestige-btn"
-            disabled={fleetGain <= 0}
-            style="opacity:{fleetGain <= 0 ? 0.4 : 1}"
-            on:click={doPrestige}
-          >
-            Fleet Prestige
-          </button>
-        </div>
-      </Panel>
-
-      <Panel>
-        <div class="panel-title">SKILL TREE</div>
-        <p class="prestige-text">
-          Unspent Skill Points: <strong>{formatNumber(state.skillPoints)}</strong>
-        </p>
-        <div class="skill-branch">
-          <div class="skill-branch-title">Command</div>
-          {#each Object.entries(SKILL_TREE).filter(([, n]) => n.branch === "command") as [key, node]}
-            {@const nodeKey = key as SkillNodeKey}
-            {@const owned = state.unlockedSkillNodes.includes(nodeKey)}
-            {@const prereqMet = !node.requires || state.unlockedSkillNodes.includes(node.requires)}
-            {@const affordable = state.skillPoints >= node.costSkillPoints}
-            <div class="skill-node" class:owned class:locked={!prereqMet && !owned}>
-              <div class="skill-node-label">{node.label}</div>
-              {#if owned}
-                <span class="skill-node-status">✓ Unlocked</span>
-              {:else if !prereqMet}
-                <span class="skill-node-status">🔒 Requires previous rank</span>
-              {:else}
-                <button
-                  class="buy-btn"
-                  disabled={!affordable}
-                  style="opacity:{affordable ? 1 : 0.4}"
-                  on:click={() => doBuySkillNode(nodeKey)}
-                >
-                  Unlock · {node.costSkillPoints} Skill Points
-                </button>
-              {/if}
-            </div>
-          {/each}
-        </div>
-        <div class="skill-branch">
-          <div class="skill-branch-title">Research</div>
-          {#each Object.entries(SKILL_TREE).filter(([, n]) => n.branch === "research") as [key, node]}
-            {@const nodeKey = key as SkillNodeKey}
-            {@const owned = state.unlockedSkillNodes.includes(nodeKey)}
-            {@const prereqMet = !node.requires || state.unlockedSkillNodes.includes(node.requires)}
-            {@const affordable = state.skillPoints >= node.costSkillPoints}
-            <div class="skill-node" class:owned class:locked={!prereqMet && !owned}>
-              <div class="skill-node-label">{node.label}</div>
-              {#if owned}
-                <span class="skill-node-status">✓ Unlocked</span>
-              {:else if !prereqMet}
-                <span class="skill-node-status">🔒 Requires previous rank</span>
-              {:else}
-                <button
-                  class="buy-btn"
-                  disabled={!affordable}
-                  style="opacity:{affordable ? 1 : 0.4}"
-                  on:click={() => doBuySkillNode(nodeKey)}
-                >
-                  Unlock · {node.costSkillPoints} Skill Points
-                </button>
-              {/if}
-            </div>
-          {/each}
-        </div>
       </Panel>
       {/if}
 
@@ -759,12 +427,6 @@
                 {s === 0 ? "Pause" : `${s}x`}
               </button>
             {/each}
-          </div>
-          <div class="dev-row">
-            <span class="dev-label">Grant</span>
-            <button class="dev-btn" on:click={() => grantResource("ore", 1000)}>+1K ore</button>
-            <button class="dev-btn" on:click={() => grantResource("ingots", 1000)}>+1K ingots</button>
-            <button class="dev-btn" on:click={() => grantResource("components", 1000)}>+1K components</button>
           </div>
           <div class="dev-row">
             <span class="dev-label">Offline sim</span>
