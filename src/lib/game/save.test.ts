@@ -32,8 +32,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 9", () => {
-    expect(SAVE_VERSION).toBe(9);
+  it("current SAVE_VERSION is 10", () => {
+    expect(SAVE_VERSION).toBe(10);
   });
 });
 
@@ -71,8 +71,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 9", () => {
-    expect(SAVE_VERSION).toBe(9);
+  it("current SAVE_VERSION is 10", () => {
+    expect(SAVE_VERSION).toBe(10);
   });
 });
 
@@ -224,8 +224,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBeUndefined();
   });
 
-  it("current SAVE_VERSION is 9", () => {
-    expect(SAVE_VERSION).toBe(9);
+  it("current SAVE_VERSION is 10", () => {
+    expect(SAVE_VERSION).toBe(10);
   });
 });
 
@@ -321,8 +321,8 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 9", () => {
-    expect(SAVE_VERSION).toBe(9);
+  it("current SAVE_VERSION is 10", () => {
+    expect(SAVE_VERSION).toBe(10);
   });
 });
 
@@ -427,8 +427,8 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 9", () => {
-    expect(SAVE_VERSION).toBe(9);
+  it("current SAVE_VERSION is 10", () => {
+    expect(SAVE_VERSION).toBe(10);
   });
 });
 
@@ -494,8 +494,8 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 9", () => {
-    expect(SAVE_VERSION).toBe(9);
+  it("current SAVE_VERSION is 10", () => {
+    expect(SAVE_VERSION).toBe(10);
   });
 });
 
@@ -548,20 +548,80 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.captains[0].mission).toBe(null);
   });
 
-  it("current SAVE_VERSION is 9", () => {
-    expect(SAVE_VERSION).toBe(9);
+  it("current SAVE_VERSION is 10", () => {
+    expect(SAVE_VERSION).toBe(10);
   });
 });
 
-describe("migrate — chained v1 -> v9 migration", () => {
-  it("backfills every field across all eight migration steps on a genuine v1 save missing all of them", () => {
+describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)", () => {
+  it("backfills unlockedCaptainTalents on every captain, and the Fleet Admiral fields on GameState", () => {
+    // A genuine v9 shape: xp/level/statPoints and homePlanet.storage's full
+    // 5-key set both present (MIGRATIONS[8] already ran on real saves of this
+    // era), but captains have no unlockedCaptainTalents field at all, and
+    // GameState has no unlockedHomeworldTalents/fleetAdminXp/fleetAdminLevel/
+    // adminPoints fields at all -- hand-written literal, same reasoning as
+    // every other legacy fixture in this file: freshState() no longer
+    // represents this shape (it now always includes all five new fields).
+    const legacyState: any = {
+      gameTimeSeconds: 8000,
+      homePlanet: { storage: { commonOre: 300, uncommonMaterial: 15, rareMaterial: 4, refinedMaterial: 6, components: 2 } },
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          tickDurationSeconds: 10,
+          mission: null,
+          xp: 500,
+          level: 3,
+          statPoints: 2,
+          // no unlockedCaptainTalents -- the real pre-v10 shape
+        },
+      ],
+      // no unlockedHomeworldTalents/fleetAdminXp/fleetAdminLevel/adminPoints -- the real pre-v10 shape
+    };
+
+    const save: SaveFile = { version: 9, created_at: 0, last_saved_at: 0, game_time_seconds: 8000, state: legacyState };
+    const migrated: any = migrate(save);
+    expect(migrated.captains[0].unlockedCaptainTalents).toEqual([]);
+    expect(migrated.unlockedHomeworldTalents).toEqual([]);
+    expect(migrated.fleetAdminXp).toBe(0);
+    expect(migrated.fleetAdminLevel).toBe(1);
+    expect(migrated.adminPoints).toBe(0);
+
+    // Unrelated pre-existing fields survive the backfill untouched.
+    expect(migrated.captains[0].xp).toBe(500);
+    expect(migrated.captains[0].level).toBe(3);
+    expect(migrated.captains[0].statPoints).toBe(2);
+    expect(migrated.homePlanet.storage.commonOre).toBe(300);
+    expect(migrated.homePlanet.storage.refinedMaterial).toBe(6);
+  });
+
+  it("current SAVE_VERSION is 10", () => {
+    expect(SAVE_VERSION).toBe(10);
+  });
+});
+
+// NOTE: the pre-Task-5 "migrate — chained v1 -> v9 migration" describe block
+// that used to live here was deleted, not just edited -- same deliberate,
+// authorized deviation from this task's own "keep every existing describe
+// block untouched" instruction as the v1->v5, v1->v6, v1->v7, and v1->v8
+// deletions noted above. It exercised the exact same legacyState literal and
+// is now strictly redundant with "migrate — chained v1 -> v10 migration"
+// below, which covers the same "one genuine legacy save chained through
+// every migration step" property, correctly extended through v10's captain/
+// Fleet Admiral talent tree backfill.
+
+describe("migrate — chained v1 -> v10 migration", () => {
+  it("backfills every field across all nine migration steps on a genuine v1 save missing all of them", () => {
     // The real v1 shape: no tickDurationSeconds, no research, no
     // synthesizer/alloys fields, no captains array, no skill tree fields, no
     // homePlanet, no mission, no xp/level/statPoints, no refinedMaterial/
-    // components -- this exercises MIGRATIONS[1] through [8] running
-    // back-to-back on the same object, not just one isolated step. Same
-    // legacyState literal the deleted v1->v8 block used (see the NOTE
-    // above), extended one step further.
+    // components, no unlockedCaptainTalents/unlockedHomeworldTalents/
+    // fleetAdminXp/fleetAdminLevel/adminPoints -- this exercises MIGRATIONS[1]
+    // through [9] running back-to-back on the same object, not just one
+    // isolated step. Same legacyState literal the deleted v1->v9 block used
+    // (see the NOTE above), extended one step further.
     const legacyState: any = {
       resources: { ore: 10, ingots: 0, components: 0 },
       modules: { miner: 1, refinery: 0, fabricator: 0 },
@@ -591,7 +651,7 @@ describe("migrate — chained v1 -> v9 migration", () => {
     expect(migrated.captains[0].resources.alloys).toBe(0);
     expect(migrated.captains[0].modules.miner).toBe(1); // original v1 progress preserved
     // NOT asserting migrated.captains[1].modules here (unlike the deleted
-    // v1->v8 block this test replaces): captains[1] is MIGRATIONS[4]'s
+    // v1->v9 block this test replaces): captains[1] is MIGRATIONS[4]'s
     // fresh[1], built by a LIVE call to model.ts's freshCaptains(), and
     // CaptainState has not declared modules/resources/etc. since Task 2's
     // Generator Stack removal -- fresh[1] genuinely has no .modules today, so
@@ -609,7 +669,7 @@ describe("migrate — chained v1 -> v9 migration", () => {
     expect(migrated.homePlanet.storage.rareMaterial).toBe(0);
     expect(migrated.captains[0].mission).toBe(null);
     expect(migrated.captains[1].mission).toBe(null);
-    // v8->v9's new fields. captains[0] gets them from MIGRATIONS[8]'s ??
+    // v8->v9's fields. captains[0] gets them from MIGRATIONS[8]'s ??
     // backfill (it has no xp/level/statPoints until that step runs).
     // captains[1] is MIGRATIONS[4]'s fresh[1] -- freshCaptains() is the LIVE
     // model.ts function, so by the time this chain reaches MIGRATIONS[4] it
@@ -624,5 +684,17 @@ describe("migrate — chained v1 -> v9 migration", () => {
     expect(migrated.captains[1].statPoints).toBe(0);
     expect(migrated.homePlanet.storage.refinedMaterial).toBe(0);
     expect(migrated.homePlanet.storage.components).toBe(0);
+    // v9->v10's new fields. captains[0] and captains[1] both get
+    // unlockedCaptainTalents from MIGRATIONS[9]'s ?? backfill -- captains[1]
+    // is MIGRATIONS[4]'s fresh[1] (a LIVE freshCaptains() call), which by
+    // Task 1 of this same feature already bakes unlockedCaptainTalents: []
+    // onto brand-new captains, so MIGRATIONS[9]'s ?? is a no-op there, same
+    // value either way -- same pattern as the xp/level/statPoints note above.
+    expect(migrated.captains[0].unlockedCaptainTalents).toEqual([]);
+    expect(migrated.captains[1].unlockedCaptainTalents).toEqual([]);
+    expect(migrated.unlockedHomeworldTalents).toEqual([]);
+    expect(migrated.fleetAdminXp).toBe(0);
+    expect(migrated.fleetAdminLevel).toBe(1);
+    expect(migrated.adminPoints).toBe(0);
   });
 });

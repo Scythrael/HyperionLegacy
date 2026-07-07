@@ -12,9 +12,11 @@ import {
   requiredTicksForPhase,
   rollLootTable,
   xpForNextLevel,
+  xpForNextFleetAdminLevel,
   MISSIONS,
   RECIPES,
-  CAPTAIN_SLOT_UNLOCKS,
+  CAPTAIN_TALENTS,
+  HOMEWORLD_TALENTS,
   freshCaptainStack,
   type GameState,
   type CaptainState,
@@ -24,6 +26,8 @@ import {
   type MissionKey,
   type RecipeKey,
   type HomePlanetMaterialKey,
+  type CaptainTalentKey,
+  type HomeworldTalentKey,
 } from "./model";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -172,6 +176,30 @@ export function tickCaptainMission(
   return { captain: { ...captain, mission, xp, level, statPoints }, homePlanetDelta };
 }
 
+// Fleet Admiral XP is NOT accumulated incrementally like captain XP (there's
+// no single "cycle completion" event for the fleet as a whole) -- it's
+// recomputed fresh each call from the sum of every captain's CURRENT level.
+// This makes it naturally idempotent (calling it twice with no captain-level
+// change is a genuine no-op) and naturally closed-form (a big jump in
+// several captains' levels between calls is just a bigger sum on the next
+// call -- there's no "many small calls vs one big call" distinction to get
+// wrong here, unlike tickCaptainMission's own XP hook, since this doesn't
+// process a delta, it recomputes an absolute value every time).
+export function recomputeFleetAdmin(state: GameState): GameState {
+  const targetXp = state.captains.reduce((sum, c) => sum + c.level, 0);
+  if (targetXp === state.fleetAdminXp) return state; // no captain leveled since last check -- same reference
+
+  let xp = targetXp;
+  let level = state.fleetAdminLevel;
+  let adminPoints = state.adminPoints;
+  while (xp >= xpForNextFleetAdminLevel(level)) {
+    level += 1;
+    adminPoints += 1;
+  }
+
+  return { ...state, fleetAdminXp: xp, fleetAdminLevel: level, adminPoints };
+}
+
 // Idle captains (mission === null) have no passive economy anymore --
 // missions are the only way a captain does anything. Only mission captains
 // need advancing; this is the sole reason to even call .map() below rather
@@ -191,7 +219,16 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     return updated;
   });
 
-  return {
+  // recomputeFleetAdmin (Task 3, Captain & Homeworld Talent Trees) wraps the
+  // final state object -- it must run AFTER captains is built above, since
+  // Fleet Admiral XP derives from each captain's POST-tick level (a captain
+  // who just leveled up this exact call must be counted at their new level,
+  // not their pre-tick one). It reads state.captains off the object below,
+  // so it naturally sees the updated array. Does not touch homePlanet at
+  // all -- the spread-then-overwrite pattern immediately below (guarding
+  // against the "prestige silently dropped homePlanet" bug class) is
+  // untouched by this wrapping.
+  return recomputeFleetAdmin({
     ...state,
     captains,
     gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
@@ -212,7 +249,7 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
         rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
       },
     },
-  };
+  });
 }
 
 // Dispatches an idle captain (mission === null) on a mission. Finds the
@@ -283,40 +320,71 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
   return { next: { ...state, homePlanet: { storage } }, success: true };
 }
 
-// Spends the unlocking captain's own statPoints plus a shared Components cost
-// to append a new captain slot -- replaces the old Skill Tree Command branch.
-// Any captain who has reached the required level can do this (not a dedicated
-// "admiral" action) -- see design doc. Fails (same state reference) if there's
-// no next slot defined, the captain doesn't exist, isn't at the required
-// level, or either cost isn't affordable.
-export function unlockCaptainSlot(state: GameState, captainId: number): { next: GameState; success: boolean } {
-  const slotIndex = state.captains.length - 1; // captains.length IS the current slot count -- no separate counter needed, since nothing resets the roster anymore
-  const unlockDef = CAPTAIN_SLOT_UNLOCKS[slotIndex];
-  if (!unlockDef) return { next: state, success: false };
-
+// Same "same state reference on failure" convention as every other buy/action
+// function in this file. Validates: talent exists, not already unlocked,
+// prerequisite (if any) already unlocked, statPoints sufficient. On success:
+// deducts cost, records the unlock. The effect itself isn't APPLIED here --
+// each effect type is read wherever that stat matters (extractionYieldMult
+// inside tickCaptainMission's extraction math, rareLootChanceMult inside the
+// loot roll) by checking unlockedCaptainTalents at read time, same pattern
+// this codebase already uses for e.g. specialization multipliers historically.
+export function buyCaptainTalent(
+  state: GameState,
+  captainId: number,
+  talentKey: CaptainTalentKey
+): { next: GameState; success: boolean } {
   const idx = state.captains.findIndex((c) => c.id === captainId);
   if (idx === -1) return { next: state, success: false };
   const captain = state.captains[idx];
-  if (captain.level < unlockDef.atLevel) return { next: state, success: false };
-  if (captain.statPoints < unlockDef.statPointCost) return { next: state, success: false };
-  if (state.homePlanet.storage.components < unlockDef.componentsCost) return { next: state, success: false };
+  const talent = CAPTAIN_TALENTS[talentKey];
+
+  if (captain.unlockedCaptainTalents.includes(talentKey)) return { next: state, success: false };
+  if (talent.requires && !captain.unlockedCaptainTalents.includes(talent.requires)) {
+    return { next: state, success: false };
+  }
+  if (captain.statPoints < talent.cost) return { next: state, success: false };
 
   const captains = [...state.captains];
-  captains[idx] = { ...captain, statPoints: captain.statPoints - unlockDef.statPointCost };
-  const nextId = captains.length + 1;
-  captains.push({
-    id: nextId,
-    label: `Captain ${nextId}`,
-    shipType: "resourcer",
-    ...freshCaptainStack(),
-  });
-
-  return {
-    next: {
-      ...state,
-      captains,
-      homePlanet: { storage: { ...state.homePlanet.storage, components: state.homePlanet.storage.components - unlockDef.componentsCost } },
-    },
-    success: true,
+  captains[idx] = {
+    ...captain,
+    statPoints: captain.statPoints - talent.cost,
+    unlockedCaptainTalents: [...captain.unlockedCaptainTalents, talentKey],
   };
+  return { next: { ...state, captains }, success: true };
+}
+
+// Same shape as buyCaptainTalent, fleet-wide. unlockCaptainSlot is the one
+// effect type with an additional side effect beyond "record the unlock" --
+// appending a new captain via freshCaptainStack(), same baseline every other
+// captain-creation path in this codebase uses.
+export function buyHomeworldTalent(
+  state: GameState,
+  talentKey: HomeworldTalentKey
+): { next: GameState; success: boolean } {
+  const talent = HOMEWORLD_TALENTS[talentKey];
+
+  if (state.unlockedHomeworldTalents.includes(talentKey)) return { next: state, success: false };
+  if (talent.requires && !state.unlockedHomeworldTalents.includes(talent.requires)) {
+    return { next: state, success: false };
+  }
+  if (state.adminPoints < talent.cost) return { next: state, success: false };
+
+  const unlockedHomeworldTalents = [...state.unlockedHomeworldTalents, talentKey];
+  const adminPoints = state.adminPoints - talent.cost;
+
+  if (talent.effect.type === "unlockCaptainSlot") {
+    // Gated ENTIRELY on the node's own `talent.cost` in adminPoints, checked
+    // above -- confirmed with the user that Homeworld Talents (fleet-wide
+    // Fleet Admiral prestige) are deliberately independent of any individual
+    // captain's own level/statPoints, unlike the old captain-scoped
+    // CAPTAIN_SLOT_UNLOCKS mechanism this replaced (removed in Task 4).
+    const nextId = state.captains.length + 1;
+    const captains = [
+      ...state.captains,
+      { id: nextId, label: `Captain ${nextId}`, shipType: "resourcer" as const, ...freshCaptainStack() },
+    ];
+    return { next: { ...state, captains, adminPoints, unlockedHomeworldTalents }, success: true };
+  }
+
+  return { next: { ...state, adminPoints, unlockedHomeworldTalents }, success: true };
 }

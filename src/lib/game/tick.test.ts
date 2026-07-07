@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { tick, tickCaptainMission, dispatchCaptainOnMission, recallCaptain, craftRecipe, unlockCaptainSlot } from "./tick";
+import {
+  tick,
+  tickCaptainMission,
+  dispatchCaptainOnMission,
+  recallCaptain,
+  craftRecipe,
+  buyCaptainTalent,
+  buyHomeworldTalent,
+  recomputeFleetAdmin,
+} from "./tick";
 import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
 
 function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
@@ -196,41 +205,6 @@ describe("tickCaptainMission — awards XP on cycle completion", () => {
     expect(captain.xp).toBe(0); // 100 XP exactly hits xpForNextLevel(1)=100 -> levels to 2 with 0 leftover
     expect(captain.level).toBe(2);
     expect(captain.statPoints).toBe(1);
-  });
-});
-
-describe("unlockCaptainSlot", () => {
-  it("succeeds when level/statPoints/components all meet the next slot's requirement", () => {
-    const state = freshState();
-    state.captains[0].level = 3;
-    state.captains[0].statPoints = 2;
-    state.homePlanet.storage.components = 5;
-    const { next, success } = unlockCaptainSlot(state, 1);
-    expect(success).toBe(true);
-    expect(next.captains).toHaveLength(2);
-    expect(next.captains[0].statPoints).toBe(0);
-    expect(next.homePlanet.storage.components).toBe(0);
-  });
-
-  it("fails if the captain isn't high enough level yet", () => {
-    const state = freshState();
-    state.captains[0].level = 2; // needs 3
-    state.captains[0].statPoints = 2;
-    state.homePlanet.storage.components = 5;
-    const { next, success } = unlockCaptainSlot(state, 1);
-    expect(success).toBe(false);
-    expect(next).toBe(state);
-  });
-
-  it("fails if there's no next slot defined (roster already at the table's max)", () => {
-    const state = freshState();
-    state.captains = freshCaptains(4); // all 3 CAPTAIN_SLOT_UNLOCKS entries already used
-    state.captains[0].level = 999;
-    state.captains[0].statPoints = 999;
-    state.homePlanet.storage.components = 999;
-    const { next, success } = unlockCaptainSlot(state, 1);
-    expect(success).toBe(false);
-    expect(next).toBe(state);
   });
 });
 
@@ -513,5 +487,157 @@ describe("craftRecipe", () => {
     expect(success).toBe(true);
     expect(next.homePlanet.storage.refinedMaterial).toBe(7);
     expect(next.homePlanet.storage.components).toBe(1);
+  });
+});
+
+describe("buyCaptainTalent", () => {
+  it("succeeds when affordable and prerequisite met, deducts statPoints, records the unlock", () => {
+    const state = freshState();
+    state.captains[0].statPoints = 2;
+    const { next, success } = buyCaptainTalent(state, 1, "commandExtractionI");
+    expect(success).toBe(true);
+    expect(next.captains[0].statPoints).toBe(0);
+    expect(next.captains[0].unlockedCaptainTalents).toEqual(["commandExtractionI"]);
+  });
+
+  it("fails (same state reference) if already unlocked", () => {
+    const state = freshState();
+    state.captains[0].statPoints = 10;
+    const { next: dispatched } = buyCaptainTalent(state, 1, "commandExtractionI");
+    const { next, success } = buyCaptainTalent(dispatched, 1, "commandExtractionI");
+    expect(success).toBe(false);
+    expect(next).toBe(dispatched);
+  });
+
+  it("fails if the prerequisite isn't unlocked yet", () => {
+    const state = freshState();
+    state.captains[0].statPoints = 10;
+    const { next, success } = buyCaptainTalent(state, 1, "commandExtractionII");
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+
+  it("fails if statPoints are insufficient", () => {
+    const state = freshState();
+    state.captains[0].statPoints = 1; // costs 2
+    const { next, success } = buyCaptainTalent(state, 1, "commandExtractionI");
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+});
+
+describe("buyHomeworldTalent", () => {
+  it("succeeds for a non-slot node: deducts adminPoints, records the unlock", () => {
+    const state = freshState();
+    state.adminPoints = 4;
+    const { next, success } = buyHomeworldTalent(state, "industryBonusOutput");
+    expect(success).toBe(true);
+    expect(next.adminPoints).toBe(0);
+    expect(next.unlockedHomeworldTalents).toEqual(["industryBonusOutput"]);
+  });
+
+  it("succeeds for an unlockCaptainSlot node: also appends a new captain", () => {
+    const state = freshState();
+    state.adminPoints = 3;
+    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot1");
+    expect(success).toBe(true);
+    expect(next.captains).toHaveLength(2);
+    expect(next.captains[1].id).toBe(2);
+  });
+
+  it("fails if adminPoints are insufficient", () => {
+    const state = freshState();
+    state.adminPoints = 2; // costs 3
+    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot1");
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+
+  it("fails (same state reference) if already unlocked", () => {
+    const state = freshState();
+    state.adminPoints = 10;
+    const { next: dispatched } = buyHomeworldTalent(state, "industryBonusOutput");
+    const { next, success } = buyHomeworldTalent(dispatched, "industryBonusOutput");
+    expect(success).toBe(false);
+    expect(next).toBe(dispatched);
+  });
+
+  it("fails if the prerequisite isn't unlocked yet", () => {
+    const state = freshState();
+    state.adminPoints = 10;
+    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot2"); // requires fleetLogisticsSlot1
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+});
+
+describe("recomputeFleetAdmin", () => {
+  it("no-op when the aggregate captain-level sum hasn't changed", () => {
+    const state = freshState();
+    state.captains[0].level = 5;
+    state.fleetAdminXp = 0;
+    // First call establishes the baseline sum; calling again with no captain
+    // level change must not re-award XP for the same sum twice.
+    const once = recomputeFleetAdmin(state);
+    const twice = recomputeFleetAdmin(once);
+    expect(twice).toBe(once); // recomputeFleetAdmin's own no-op branch returns the SAME reference
+    expect(twice.fleetAdminXp).toBe(once.fleetAdminXp);
+    expect(twice.fleetAdminLevel).toBe(once.fleetAdminLevel);
+  });
+
+  it("awards Fleet Admiral XP proportional to the SUM of captain levels, with a much steeper curve", () => {
+    // Hand-traced against xpForNextFleetAdminLevel(level) = 500 * level * level:
+    // captain levels 10 + 5 = targetXp 15. fleetAdminXp starts at 0 (freshState
+    // default), so 15 !== 0 -- proceeds past the no-op guard. xp=15, level=1,
+    // adminPoints=0. Loop check: 15 >= xpForNextFleetAdminLevel(1)=500? No --
+    // loop body never runs. Result: fleetAdminXp=15 (the raw sum, unconsumed),
+    // fleetAdminLevel stays 1, adminPoints stays 0.
+    const state = freshState();
+    state.captains = freshCaptains(2);
+    state.captains[0].level = 10;
+    state.captains[1].level = 5;
+    const result = recomputeFleetAdmin(state);
+    expect(result.fleetAdminXp).toBe(15);
+    expect(result.fleetAdminLevel).toBe(1);
+    expect(result.adminPoints).toBe(0);
+  });
+
+  it("a big jump in aggregate captain levels resolves every Fleet Admiral level-up crossed, not just one", () => {
+    // NOTE: the plan's original draft used 3 captains at level 50 (sum 150),
+    // but under this formula xpForNextFleetAdminLevel(1) = 500 -- a sum of
+    // 150 never crosses even the FIRST Fleet Admiral level-up (confirmed by
+    // hand-trace, see this task's session report for the full analysis: with
+    // today's 4-captain fleet cap, no realistic captain-level sum reaches the
+    // design doc's own "level 3-4 Admiral" framing under this formula). That
+    // assertion would have been false, not just weak, so the scenario below
+    // uses artificially high test-only levels (same convention the removed
+    // unlockCaptainSlot test used to establish via `state.captains[0].level =
+    // 999`, before that test was deleted in Task 4 of
+    // docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) purely to
+    // exercise the "resolve every level-up in one pass" branch.
+    //
+    // Hand-traced against the ACTUAL implementation -- recomputeFleetAdmin
+    // does NOT decrement `xp` per level crossed (unlike tickCaptainMission's
+    // `xp -= xpForNextLevel(level)`); it MUST keep xp as the raw target sum,
+    // since the no-op guard at the top (`targetXp === state.fleetAdminXp`)
+    // only works if fleetAdminXp always equals the freshly recomputed sum --
+    // decrementing it would make that guard misfire on the very next call
+    // with an unchanged fleet. sum = 900*3 = 2700, unchanged throughout.
+    // xpForNextFleetAdminLevel(1)=500 (2700>=500, crossed, level->2,
+    // adminPoints->1); xpForNextFleetAdminLevel(2)=2000 (2700>=2000, crossed,
+    // level->3, adminPoints->2); xpForNextFleetAdminLevel(3)=4500
+    // (2700<4500, loop stops). Final: fleetAdminLevel=3, adminPoints=2,
+    // fleetAdminXp=2700 (the unchanged raw sum).
+    const state = freshState();
+    state.captains = freshCaptains(3);
+    state.captains[0].level = 900;
+    state.captains[1].level = 900;
+    state.captains[2].level = 900;
+    const result = recomputeFleetAdmin(state);
+    expect(result.fleetAdminLevel).toBe(3);
+    expect(result.adminPoints).toBe(2);
+    expect(result.fleetAdminXp).toBe(2700);
+    expect(result.fleetAdminLevel).toBeGreaterThan(1); // preserves the plan's original intent-check
+    expect(result.adminPoints).toBeGreaterThan(0);
   });
 });
