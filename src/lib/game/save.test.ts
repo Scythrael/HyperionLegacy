@@ -32,8 +32,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 10", () => {
-    expect(SAVE_VERSION).toBe(10);
+  it("current SAVE_VERSION is 11", () => {
+    expect(SAVE_VERSION).toBe(11);
   });
 });
 
@@ -71,8 +71,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 10", () => {
-    expect(SAVE_VERSION).toBe(10);
+  it("current SAVE_VERSION is 11", () => {
+    expect(SAVE_VERSION).toBe(11);
   });
 });
 
@@ -224,8 +224,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBeUndefined();
   });
 
-  it("current SAVE_VERSION is 10", () => {
-    expect(SAVE_VERSION).toBe(10);
+  it("current SAVE_VERSION is 11", () => {
+    expect(SAVE_VERSION).toBe(11);
   });
 });
 
@@ -321,8 +321,8 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 10", () => {
-    expect(SAVE_VERSION).toBe(10);
+  it("current SAVE_VERSION is 11", () => {
+    expect(SAVE_VERSION).toBe(11);
   });
 });
 
@@ -427,8 +427,8 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 10", () => {
-    expect(SAVE_VERSION).toBe(10);
+  it("current SAVE_VERSION is 11", () => {
+    expect(SAVE_VERSION).toBe(11);
   });
 });
 
@@ -494,8 +494,8 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 10", () => {
-    expect(SAVE_VERSION).toBe(10);
+  it("current SAVE_VERSION is 11", () => {
+    expect(SAVE_VERSION).toBe(11);
   });
 });
 
@@ -548,8 +548,8 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.captains[0].mission).toBe(null);
   });
 
-  it("current SAVE_VERSION is 10", () => {
-    expect(SAVE_VERSION).toBe(10);
+  it("current SAVE_VERSION is 11", () => {
+    expect(SAVE_VERSION).toBe(11);
   });
 });
 
@@ -597,8 +597,60 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     expect(migrated.homePlanet.storage.refinedMaterial).toBe(6);
   });
 
-  it("current SAVE_VERSION is 10", () => {
-    expect(SAVE_VERSION).toBe(10);
+  it("current SAVE_VERSION is 11", () => {
+    expect(SAVE_VERSION).toBe(11);
+  });
+});
+
+describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => {
+  it("reads tickDurationSeconds off the first captain and strips it from every captain", () => {
+    // A genuine pre-v11 shape: every captain still carries its own
+    // tickDurationSeconds (the per-captain era, before the UI Redesign
+    // collapsed it fleet-wide), and GameState has no top-level
+    // tickDurationSeconds at all.
+    const legacyState: any = {
+      gameTimeSeconds: 500,
+      homePlanet: { storage: { commonOre: 10, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 0,
+      fleetAdminLevel: 1,
+      adminPoints: 0,
+      captains: [
+        { id: 1, label: "Captain 1", shipType: "resourcer", tickDurationSeconds: 10, mission: null, xp: 0, level: 1, statPoints: 0, unlockedCaptainTalents: [] },
+        { id: 2, label: "Captain 2", shipType: "resourcer", tickDurationSeconds: 10, mission: null, xp: 0, level: 1, statPoints: 0, unlockedCaptainTalents: [] },
+      ],
+    };
+
+    const save: SaveFile = { version: 10, created_at: 0, last_saved_at: 0, game_time_seconds: 500, state: legacyState };
+    const migrated: any = migrate(save);
+
+    expect(migrated.tickDurationSeconds).toBe(10);
+    expect(migrated.captains[0].tickDurationSeconds).toBeUndefined();
+    expect(migrated.captains[1].tickDurationSeconds).toBeUndefined();
+
+    // Unrelated pre-existing fields survive the backfill untouched.
+    expect(migrated.captains[0].id).toBe(1);
+    expect(migrated.gameTimeSeconds).toBe(500);
+    expect(migrated.homePlanet.storage.commonOre).toBe(10);
+  });
+
+  it("defaults to 10 if the first captain has no tickDurationSeconds at all (defense in depth, not reachable today)", () => {
+    const legacyState: any = {
+      gameTimeSeconds: 0,
+      homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 0,
+      fleetAdminLevel: 1,
+      adminPoints: 0,
+      captains: [{ id: 1, label: "Captain 1", shipType: "resourcer", mission: null, xp: 0, level: 1, statPoints: 0, unlockedCaptainTalents: [] }],
+    };
+    const save: SaveFile = { version: 10, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
+    const migrated: any = migrate(save);
+    expect(migrated.tickDurationSeconds).toBe(10);
+  });
+
+  it("current SAVE_VERSION is 11", () => {
+    expect(SAVE_VERSION).toBe(11);
   });
 });
 
@@ -611,16 +663,26 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
 // below, which covers the same "one genuine legacy save chained through
 // every migration step" property, correctly extended through v10's captain/
 // Fleet Admiral talent tree backfill.
+//
+// NOTE: the pre-Task-3 (UI Redesign) "migrate — chained v1 -> v10 migration"
+// describe block that used to live here was deleted, not just edited -- same
+// deliberate, authorized deviation from this task's own "keep every existing
+// describe block untouched" instruction as the v1->v5 through v1->v9
+// deletions noted above. It exercised the exact same legacyState literal and
+// is now strictly redundant with "migrate — chained v1 -> v11 migration"
+// below, which covers the same "one genuine legacy save chained through
+// every migration step" property, correctly extended through v11's
+// fleet-wide tickDurationSeconds backfill.
 
-describe("migrate — chained v1 -> v10 migration", () => {
-  it("backfills every field across all nine migration steps on a genuine v1 save missing all of them", () => {
+describe("migrate — chained v1 -> v11 migration", () => {
+  it("backfills every field across all ten migration steps on a genuine v1 save missing all of them", () => {
     // The real v1 shape: no tickDurationSeconds, no research, no
     // synthesizer/alloys fields, no captains array, no skill tree fields, no
     // homePlanet, no mission, no xp/level/statPoints, no refinedMaterial/
     // components, no unlockedCaptainTalents/unlockedHomeworldTalents/
     // fleetAdminXp/fleetAdminLevel/adminPoints -- this exercises MIGRATIONS[1]
-    // through [9] running back-to-back on the same object, not just one
-    // isolated step. Same legacyState literal the deleted v1->v9 block used
+    // through [10] running back-to-back on the same object, not just one
+    // isolated step. Same legacyState literal the deleted v1->v10 block used
     // (see the NOTE above), extended one step further.
     const legacyState: any = {
       resources: { ore: 10, ingots: 0, components: 0 },
@@ -641,7 +703,14 @@ describe("migrate — chained v1 -> v10 migration", () => {
 
     const migrated: any = migrate(save);
     expect(migrated.captains).toHaveLength(2); // v4->v5's fresh[1], per Step 1's fix above
-    expect(migrated.captains[0].tickDurationSeconds).toBe(10);
+    // tickDurationSeconds starts life on captains[0] (MIGRATIONS[1]) and rides
+    // there all the way through until MIGRATIONS[10] (v10->v11) collapses it
+    // back to a single fleet-wide field and strips it from every captain --
+    // asserting the FINAL post-v11 shape here, not the intermediate per-captain
+    // one the pre-Task-3 (UI Redesign) version of this chained test asserted.
+    expect(migrated.tickDurationSeconds).toBe(10);
+    expect(migrated.captains[0].tickDurationSeconds).toBeUndefined();
+    expect(migrated.captains[1].tickDurationSeconds).toBeUndefined();
     expect(migrated.captains[0].research.alloySynthesis).toEqual({
       started: false,
       progressSeconds: 0,
@@ -696,5 +765,15 @@ describe("migrate — chained v1 -> v10 migration", () => {
     expect(migrated.fleetAdminXp).toBe(0);
     expect(migrated.fleetAdminLevel).toBe(1);
     expect(migrated.adminPoints).toBe(0);
+    // v10->v11's fleet-wide tickDurationSeconds collapse. captains[0] and
+    // captains[1] both had tickDurationSeconds:10 by the time MIGRATIONS[10]
+    // runs (captains[0] from MIGRATIONS[1]'s original backfill, captains[1]
+    // from freshCaptains()/freshCaptainStack(), which still set the field on
+    // CaptainState right up until this same UI Redesign feature's Task 1) --
+    // MIGRATIONS[10] reads captains[0]'s value as the new fleet-wide default
+    // and strips the field from both, asserted above alongside the
+    // intermediate captains[0].tickDurationSeconds check for the same reason
+    // the other version-step comments in this chain call out where a field
+    // enters and leaves.
   });
 });

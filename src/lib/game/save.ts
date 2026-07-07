@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import { type GameState, type CaptainState, freshCaptains } from "./model";
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -120,6 +120,20 @@ export interface SaveFile {
 // instead of per-captain). All five fields are absent entirely on any pre-v10
 // save -- backfilled to `[]`, `[]`, `0`, `1`, `0` respectively, the same
 // baseline freshState()/freshCaptainStack() give a brand-new game.
+// v10 -> v11: UI Redesign (docs/plans/2026-07-07-ui-redesign-plan.md, Task 3).
+// Collapses `tickDurationSeconds` from per-captain (where it has lived since
+// MIGRATIONS[4]'s Multi-Captain Stacks split moved it onto captains[0], and
+// onto every subsequently-added captain since) back to a single fleet-wide
+// field on GameState -- every captain now advances on the same shared
+// cadence (see the design doc for why). Reads the value off the FIRST
+// captain (any pre-v11 save's captains all share the same value -- nothing
+// has ever diverged them) as the new fleet-wide default, then strips the
+// now-removed field from every captain via destructuring (same "delete via
+// destructure" idiom MIGRATIONS[4] used when it moved fields IN the other
+// direction). Falls back to 10 if captains[0] somehow has no
+// tickDurationSeconds at all -- not reachable through any current code path
+// (freshCaptainStack always set it pre-v11), but defense in depth, same
+// category as several earlier migrations' `??` comments.
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -219,6 +233,30 @@ const MIGRATIONS: Record<number, Migration> = {
     fleetAdminLevel: state.fleetAdminLevel ?? 1,
     adminPoints: state.adminPoints ?? 0,
   }),
+  10: (state: any): GameState => {
+    // v10 -> v11: UI Redesign (docs/plans/2026-07-07-ui-redesign-plan.md,
+    // Task 3). Collapses tickDurationSeconds from per-captain (where it lived
+    // since MIGRATIONS[4]'s Multi-Captain Stacks split) back to a single
+    // fleet-wide field on GameState -- every captain now advances on the same
+    // shared cadence (see the design doc for why). Reads the value off the
+    // FIRST captain (any pre-v11 save's captains all share the same value --
+    // nothing has ever diverged them) as the new fleet-wide default, then
+    // strips the now-removed field from every captain via destructuring
+    // (same "delete via destructure" idiom MIGRATIONS[4] used when it moved
+    // fields IN the other direction). Falls back to 10 if captains[0] somehow
+    // has no tickDurationSeconds at all -- not reachable through any current
+    // code path (freshCaptainStack always set it pre-v11), but defense in
+    // depth, same category as several earlier migrations' `??` comments.
+    const tickDurationSeconds = state.captains[0]?.tickDurationSeconds ?? 10;
+    return {
+      ...state,
+      tickDurationSeconds,
+      captains: state.captains.map((c: any) => {
+        const { tickDurationSeconds: _unused, ...rest } = c;
+        return rest;
+      }),
+    };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {
