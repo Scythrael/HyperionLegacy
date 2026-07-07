@@ -21,9 +21,9 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   `HomePlanetMaterialKey` storage keys — `refinedMaterial`/`components` (added in Phase 4's crafting
   system) never display anywhere in the UI.
 
-- **Header/layout changes.** Move the captain level bar to the top of the screen; shrink the "FLEET
-  ADMIRAL" header/logo panel; put a captain info pane next to it; let panels use the full screen width
-  instead of today's `max-width: 720px` constraint.
+- **Full-width panels.** Let panels use the full screen width instead of today's `max-width: 720px`
+  constraint. (The rest of this old entry — moving stats to the top, a persistent captain info pane —
+  is being addressed by the 2026-07-07 UI Redesign; see `docs/plans/2026-07-07-ui-redesign-design.md`.)
 
 - **Inventory tab (under Homeworld).** Shows every item/material the fleet has, categorized into
   sub-tabs, with a search box to filter down to what you're looking for.
@@ -47,3 +47,10 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   Defense in the Talent Trees — likely needs its own scoping pass on which roles matter before combat
   exists (e.g. an Engineering seat could plausibly buff the Vector-Fall Engine or crafting today,
   independent of combat) versus which roles are pure Battlespace stubs until then.
+
+- **Ship types, ship-switching, and ship-type-gated mission categories.** Deferred from the
+  2026-07-07 UI Redesign's Fleet Operations tab. Today `ShipType` is only ever `"resourcer"`, with no
+  switching mechanic and no second type. The eventual feature: additional ship types (e.g.
+  "destroyer"), a way for a captain to switch which ship they pilot, and new mission categories
+  (e.g. "Patrol") gated on the piloting captain's current ship type — Fleet Operations' mission-first
+  layout was deliberately built so this only needs a filter/category change later, not a UI rework.
