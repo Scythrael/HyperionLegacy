@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import { type GameState, type CaptainState, freshCaptains } from "./model";
 
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -110,6 +110,16 @@ export interface SaveFile {
 // goods keys `refinedMaterial`/`components` (absent entirely pre-v9,
 // backfilled to 0 each) alongside its existing 3 mission-loot keys, which are
 // preserved via the spread rather than reconstructed.
+// v9 -> v10: Captain & Homeworld Talent Trees (docs/plans/2026-07-07-captain-
+// homeworld-talent-trees-plan.md, Task 5). CaptainState gains
+// `unlockedCaptainTalents` (a per-captain list of purchased captain-talent
+// keys), and GameState gains `unlockedHomeworldTalents` (the fleet-wide
+// counterpart list) plus the new Fleet Admiral leveling trio `fleetAdminXp`/
+// `fleetAdminLevel`/`adminPoints` (mirrors the captain xp/level/statPoints
+// baseline MIGRATIONS[8] already established, just at the fleet-wide level
+// instead of per-captain). All five fields are absent entirely on any pre-v10
+// save -- backfilled to `[]`, `[]`, `0`, `1`, `0` respectively, the same
+// baseline freshState()/freshCaptainStack() give a brand-new game.
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -200,6 +210,14 @@ const MIGRATIONS: Record<number, Migration> = {
         components: state.homePlanet.storage.components ?? 0,
       },
     },
+  }),
+  9: (state: any): GameState => ({
+    ...state,
+    captains: state.captains.map((c: any) => ({ ...c, unlockedCaptainTalents: c.unlockedCaptainTalents ?? [] })),
+    unlockedHomeworldTalents: state.unlockedHomeworldTalents ?? [],
+    fleetAdminXp: state.fleetAdminXp ?? 0,
+    fleetAdminLevel: state.fleetAdminLevel ?? 1,
+    adminPoints: state.adminPoints ?? 0,
   }),
 };
 
