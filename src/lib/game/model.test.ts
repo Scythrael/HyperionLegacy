@@ -9,6 +9,8 @@ import {
   RECIPES,
   xpForNextLevel,
   CAPTAIN_SLOT_UNLOCKS,
+  CAPTAIN_TALENTS,
+  HOMEWORLD_TALENTS,
 } from "./model";
 
 describe("freshState — captain roster shape", () => {
@@ -194,5 +196,46 @@ describe("CAPTAIN_SLOT_UNLOCKS — launch set", () => {
       expect(entry.statPointCost).toBeGreaterThan(0);
       expect(entry.componentsCost).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("CAPTAIN_TALENTS — launch set", () => {
+  it("Command and Resourcefulness have real nodes; Tactical/Science/Diplomacy are empty", () => {
+    const branches = Object.values(CAPTAIN_TALENTS).map((t) => t.branch);
+    expect(branches.filter((b) => b === "command").length).toBeGreaterThan(0);
+    expect(branches.filter((b) => b === "resourcefulness").length).toBeGreaterThan(0);
+    expect(branches.filter((b) => b === "tactical").length).toBe(0);
+    expect(branches.filter((b) => b === "science").length).toBe(0);
+    expect(branches.filter((b) => b === "diplomacy").length).toBe(0);
+  });
+});
+
+describe("HOMEWORLD_TALENTS — launch set", () => {
+  it("Fleet Logistics, Industry, Economy have real nodes; Homeland Defense/Citizenry are empty", () => {
+    const branches = Object.values(HOMEWORLD_TALENTS).map((t) => t.branch);
+    expect(branches.filter((b) => b === "fleetLogistics").length).toBeGreaterThan(0);
+    expect(branches.filter((b) => b === "industry").length).toBeGreaterThan(0);
+    expect(branches.filter((b) => b === "economy").length).toBeGreaterThan(0);
+    expect(branches.filter((b) => b === "homelandDefense").length).toBe(0);
+    expect(branches.filter((b) => b === "citizenry").length).toBe(0);
+  });
+
+  it("Fleet Logistics has exactly 3 unlockCaptainSlot nodes, matching today's CAPTAIN_SLOT_UNLOCKS count", () => {
+    const slotNodes = Object.values(HOMEWORLD_TALENTS).filter((t) => t.effect.type === "unlockCaptainSlot");
+    expect(slotNodes).toHaveLength(3);
+  });
+});
+
+describe("freshState / freshCaptainStack — talent and Fleet Admiral fields", () => {
+  it("a fresh captain has no unlocked talents", () => {
+    expect(freshCaptains(1)[0].unlockedCaptainTalents).toEqual([]);
+  });
+
+  it("freshState starts Fleet Admiral at level 1, 0 xp, 0 adminPoints, no unlocked Homeworld talents", () => {
+    const state = freshState();
+    expect(state.fleetAdminXp).toBe(0);
+    expect(state.fleetAdminLevel).toBe(1);
+    expect(state.adminPoints).toBe(0);
+    expect(state.unlockedHomeworldTalents).toEqual([]);
   });
 });

@@ -142,12 +142,17 @@ export interface CaptainState {
   xp: number; // accumulated toward the NEXT level -- see xpForNextLevel() below; awarded in tick.ts's tickCaptainMission on cycle completion
   level: number; // starts at 1
   statPoints: number; // unspent, earned on level-up -- spent via unlockCaptainSlot() (tick.ts)
+  unlockedCaptainTalents: CaptainTalentKey[]; // logic (buyCaptainTalent) lands in Task 2
 }
 
 export interface GameState {
   captains: CaptainState[];
   gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
   homePlanet: { storage: Record<HomePlanetMaterialKey, number> }; // fleet-wide mission loot + crafted goods, separate from any captain's own state
+  unlockedHomeworldTalents: HomeworldTalentKey[]; // logic (buyHomeworldTalent) lands in Task 2
+  fleetAdminXp: number; // Fleet Admiral leveling -- logic lands in Task 3
+  fleetAdminLevel: number; // starts at 1
+  adminPoints: number; // unspent, spent via buyHomeworldTalent (Task 2)
 }
 
 export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
@@ -198,16 +203,162 @@ export const CAPTAIN_SLOT_UNLOCKS: CaptainSlotUnlockDef[] = [
   { atLevel: 10, statPointCost: 6, componentsCost: 40 },
 ];
 
+// --- Captain & Homeworld Talent Trees (docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) ---
+// Two new data-driven tables, mirroring the exact conventions the (now-deleted)
+// Skill Tree established -- branch/label/cost/requires (same-branch
+// prerequisite) plus a typed effect. CAPTAIN_SLOT_UNLOCKS/unlockCaptainSlot
+// above are DELIBERATELY left untouched here -- Fleet Logistics below absorbs
+// that mechanism's job, but the old table/function stay live side-by-side
+// until Task 4 (a dedicated removal task) proves the new path out.
+export type CaptainTalentBranch = "command" | "tactical" | "science" | "resourcefulness" | "diplomacy";
+export type HomeworldTalentBranch = "fleetLogistics" | "homelandDefense" | "citizenry" | "economy" | "industry";
+
+export type CaptainTalentEffect =
+  | { type: "extractionYieldMult"; mult: number }
+  | { type: "rareLootChanceMult"; mult: number };
+
+export type HomeworldTalentEffect =
+  | { type: "unlockCaptainSlot"; atLevel: number; statPointCost: number; componentsCost: number }
+  | { type: "fleetExtractionYieldMult"; mult: number }
+  | { type: "recipeBonusOutput"; recipeKey: RecipeKey; bonus: number }
+  | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number };
+
+export interface CaptainTalentDef {
+  branch: CaptainTalentBranch;
+  label: string;
+  cost: number; // statPoints
+  requires: CaptainTalentKey | null; // same-branch prerequisite, same convention as the old Skill Tree
+}
+
+export interface HomeworldTalentDef {
+  branch: HomeworldTalentBranch;
+  label: string;
+  cost: number; // adminPoints
+  requires: HomeworldTalentKey | null;
+}
+
+// NOTE: effect lives on the *Def directly below via a second field, not nested
+// inside CaptainTalentDef/HomeworldTalentDef above -- TypeScript can't express
+// "this interface's shape depends on which union member `effect` is" cleanly
+// without generics that would over-complicate a launch table this small, so
+// each entry below is typed with an explicit inline `& { effect: ... }`.
+
+// Only Command and Resourcefulness get real launch content. Tactical, Science,
+// and Diplomacy are deliberately EMPTY (zero entries with that branch) --
+// each depends on a system that doesn't exist yet (combat, a redefined
+// Science mechanic). The UI iterates the fixed 5-branch list, not this
+// table's keys, so an empty branch still renders as a labeled column with
+// nothing in it. Add entries here (and nowhere else -- App.svelte's Captain
+// Talents panel iterates this object) when a branch's system is ready.
+export type CaptainTalentKey =
+  | "commandExtractionI"
+  | "commandExtractionII"
+  | "resourcefulnessRareChanceI"
+  | "resourcefulnessRareChanceII";
+
+export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effect: CaptainTalentEffect }> = {
+  commandExtractionI: {
+    branch: "command",
+    label: "Command Efficiency I",
+    cost: 2,
+    requires: null,
+    effect: { type: "extractionYieldMult", mult: 0.1 },
+  },
+  commandExtractionII: {
+    branch: "command",
+    label: "Command Efficiency II",
+    cost: 4,
+    requires: "commandExtractionI",
+    effect: { type: "extractionYieldMult", mult: 0.15 },
+  },
+  resourcefulnessRareChanceI: {
+    branch: "resourcefulness",
+    label: "Keen Eye I",
+    cost: 2,
+    requires: null,
+    effect: { type: "rareLootChanceMult", mult: 0.25 },
+  },
+  resourcefulnessRareChanceII: {
+    branch: "resourcefulness",
+    label: "Keen Eye II",
+    cost: 4,
+    requires: "resourcefulnessRareChanceI",
+    effect: { type: "rareLootChanceMult", mult: 0.5 },
+  },
+};
+
+// Fleet Logistics absorbs CAPTAIN_SLOT_UNLOCKS' 3 tiers wholesale (Task 4
+// removes the old table/mechanism once this is proven in place -- see plan).
+// Homeland Defense and Citizenry are deliberately EMPTY, same reasoning as
+// Tactical/Science/Diplomacy above (need Battlespace / a population system,
+// neither exists yet).
+export type HomeworldTalentKey =
+  | "fleetLogisticsSlot1"
+  | "fleetLogisticsSlot2"
+  | "fleetLogisticsSlot3"
+  | "fleetLogisticsYield"
+  | "industryBonusOutput"
+  | "economyTrickle";
+
+export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & { effect: HomeworldTalentEffect }> = {
+  fleetLogisticsSlot1: {
+    branch: "fleetLogistics",
+    label: "Recruit Captain (2nd slot)",
+    cost: 3,
+    requires: null,
+    effect: { type: "unlockCaptainSlot", atLevel: 3, statPointCost: 2, componentsCost: 5 },
+  },
+  fleetLogisticsSlot2: {
+    branch: "fleetLogistics",
+    label: "Recruit Captain (3rd slot)",
+    cost: 5,
+    requires: "fleetLogisticsSlot1",
+    effect: { type: "unlockCaptainSlot", atLevel: 6, statPointCost: 4, componentsCost: 15 },
+  },
+  fleetLogisticsSlot3: {
+    branch: "fleetLogistics",
+    label: "Recruit Captain (4th slot)",
+    cost: 8,
+    requires: "fleetLogisticsSlot2",
+    effect: { type: "unlockCaptainSlot", atLevel: 10, statPointCost: 6, componentsCost: 40 },
+  },
+  fleetLogisticsYield: {
+    branch: "fleetLogistics",
+    label: "Fleet Requisitions",
+    cost: 4,
+    requires: null,
+    effect: { type: "fleetExtractionYieldMult", mult: 0.05 },
+  },
+  industryBonusOutput: {
+    branch: "industry",
+    label: "Tooling Upgrade",
+    cost: 4,
+    requires: null,
+    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
+  },
+  economyTrickle: {
+    branch: "economy",
+    label: "Trade Contacts",
+    cost: 3,
+    requires: null,
+    effect: { type: "passiveTrickle", material: "commonOre", perTick: 1 },
+  },
+};
+
 // What a brand-new (or newly-unlocked) captain slot starts with. There is no
 // more prestige to reset a captain THROUGH -- this is purely the baseline for
 // a slot that has never been played.
-export function freshCaptainStack(): Pick<CaptainState, "tickDurationSeconds" | "mission" | "xp" | "level" | "statPoints"> {
+export function freshCaptainStack(): Pick<
+  CaptainState,
+  "tickDurationSeconds" | "mission" | "xp" | "level" | "statPoints" | "unlockedCaptainTalents"
+> {
   return {
     tickDurationSeconds: 10,
     mission: null,
     xp: 0,
     level: 1,
     statPoints: 0,
+    unlockedCaptainTalents: [],
   };
 }
 
@@ -233,5 +384,9 @@ export function freshState(): GameState {
     captains: freshCaptains(1),
     gameTimeSeconds: 0,
     homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
+    unlockedHomeworldTalents: [],
+    fleetAdminXp: 0,
+    fleetAdminLevel: 1,
+    adminPoints: 0,
   };
 }
