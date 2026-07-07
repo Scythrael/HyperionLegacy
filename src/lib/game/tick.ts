@@ -373,13 +373,11 @@ export function buyHomeworldTalent(
   const adminPoints = state.adminPoints - talent.cost;
 
   if (talent.effect.type === "unlockCaptainSlot") {
-    // NOTE: `talent.effect.atLevel`/`.statPointCost`/`.componentsCost` are
-    // populated on every unlockCaptainSlot-effect HOMEWORLD_TALENTS entry
-    // (carried over from the old CAPTAIN_SLOT_UNLOCKS shape) but nothing
-    // reads them here -- this function only gates on the node's own
-    // `talent.cost` in adminPoints, checked above. Task 6's UI is expected
-    // to surface/enforce these three fields as additional requirements on
-    // the buy button; if that never lands, this data is effectively dead.
+    // Gated ENTIRELY on the node's own `talent.cost` in adminPoints, checked
+    // above -- confirmed with the user that Homeworld Talents (fleet-wide
+    // Fleet Admiral prestige) are deliberately independent of any individual
+    // captain's own level/statPoints, unlike the old captain-scoped
+    // CAPTAIN_SLOT_UNLOCKS mechanism this replaced (removed in Task 4).
     const nextId = state.captains.length + 1;
     const captains = [
       ...state.captains,

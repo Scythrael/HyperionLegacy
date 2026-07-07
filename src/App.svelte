@@ -471,26 +471,12 @@
            Homeland Defense/Citizenry (zero entries today, see model.ts)
            render as labeled, empty columns.
 
-           GATING NOTE on unlockCaptainSlot-effect nodes (fleetLogisticsSlot1/
-           2/3): buyHomeworldTalent (tick.ts) ONLY validates the node's own
-           `talent.cost` against state.adminPoints -- it does NOT read or
-           enforce `effect.atLevel`/`effect.statPointCost`/
-           `effect.componentsCost` at all (see the NOTE comment inside
-           buyHomeworldTalent's own unlockCaptainSlot branch). Those 3 fields
-           were carried over from the old CAPTAIN_SLOT_UNLOCKS shape, which
-           was captain-scoped (gated a SPECIFIC captain's own level/
-           statPoints/Components). buyHomeworldTalent takes no captainId --
-           it's a pure fleet-wide adminPoints purchase with no target
-           captain to check a "level X" or "statPoints Y" requirement
-           against, so there is no well-defined captain to enforce those
-           fields on here either. Rather than inventing a resolution (e.g.
-           picking activeCaptain as an arbitrary stand-in, which the
-           underlying function does not do and was never asked to do), this
-           panel surfaces atLevel/statPointCost/componentsCost as READ-ONLY
-           informational text only -- the buy button's disabled state gates
-           SOLELY on what buyHomeworldTalent actually checks (adminPoints,
-           requires-chain, not-already-owned), so the button is never
-           disabled for a reason the underlying function doesn't enforce. -->
+           Homeworld Talents are Fleet Admiral prestige, gated ENTIRELY on
+           adminPoints -- deliberately independent of any individual
+           captain's own level/statPoints (those only ever gate that
+           captain's OWN Captain Talents, above under Fleet Ops). Confirmed
+           with the user rather than inventing a captain-scoped gate for a
+           fleet-wide purchase. -->
       <Panel>
         <div class="panel-title">HOMEWORLD TALENTS</div>
         <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
@@ -515,10 +501,6 @@
                         Requires: {HOMEWORLD_TALENTS[talent.requires!].label}
                       {:else}
                         Cost: {formatNumber(talent.cost)} Admin Points
-                      {/if}
-                      {#if talent.effect.type === "unlockCaptainSlot"}
-                        <br />(Ref. only, not enforced by purchase logic — see code comment above: at captain level
-                        {talent.effect.atLevel}, {talent.effect.statPointCost} stat pts, {talent.effect.componentsCost} components)
                       {/if}
                     </div>
                   </div>

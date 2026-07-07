@@ -224,8 +224,17 @@ export type CaptainTalentEffect =
   | { type: "extractionYieldMult"; mult: number }
   | { type: "rareLootChanceMult"; mult: number };
 
+// unlockCaptainSlot carries no gate beyond the node's own `cost` (adminPoints)
+// -- Homeworld Talents are fleet-wide Fleet Admiral prestige, spent purely
+// from the fleet's adminPoints pool, entirely independent of any individual
+// captain's own level/statPoints (those only ever gate that captain's OWN
+// Captain Talents, a completely separate tree/pool). The old CAPTAIN_SLOT_UNLOCKS
+// mechanism this replaced WAS captain-scoped (atLevel/statPointCost/componentsCost),
+// but that scoping was deliberately dropped, not carried forward, when Fleet
+// Logistics absorbed the job in Task 4 -- confirmed with the user rather than
+// left as unenforced vestigial fields.
 export type HomeworldTalentEffect =
-  | { type: "unlockCaptainSlot"; atLevel: number; statPointCost: number; componentsCost: number }
+  | { type: "unlockCaptainSlot" }
   | { type: "fleetExtractionYieldMult"; mult: number }
   | { type: "recipeBonusOutput"; recipeKey: RecipeKey; bonus: number }
   | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number };
@@ -316,21 +325,21 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     label: "Recruit Captain (2nd slot)",
     cost: 3,
     requires: null,
-    effect: { type: "unlockCaptainSlot", atLevel: 3, statPointCost: 2, componentsCost: 5 },
+    effect: { type: "unlockCaptainSlot" },
   },
   fleetLogisticsSlot2: {
     branch: "fleetLogistics",
     label: "Recruit Captain (3rd slot)",
     cost: 5,
     requires: "fleetLogisticsSlot1",
-    effect: { type: "unlockCaptainSlot", atLevel: 6, statPointCost: 4, componentsCost: 15 },
+    effect: { type: "unlockCaptainSlot" },
   },
   fleetLogisticsSlot3: {
     branch: "fleetLogistics",
     label: "Recruit Captain (4th slot)",
     cost: 8,
     requires: "fleetLogisticsSlot2",
-    effect: { type: "unlockCaptainSlot", atLevel: 10, statPointCost: 6, componentsCost: 40 },
+    effect: { type: "unlockCaptainSlot" },
   },
   fleetLogisticsYield: {
     branch: "fleetLogistics",
