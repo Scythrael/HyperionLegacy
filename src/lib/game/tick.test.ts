@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { tick, tickCaptainMission, dispatchCaptainOnMission, recallCaptain, craftRecipe, unlockCaptainSlot } from "./tick";
+import {
+  tick,
+  tickCaptainMission,
+  dispatchCaptainOnMission,
+  recallCaptain,
+  craftRecipe,
+  unlockCaptainSlot,
+  buyCaptainTalent,
+  buyHomeworldTalent,
+} from "./tick";
 import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
 
 function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
@@ -513,5 +522,69 @@ describe("craftRecipe", () => {
     expect(success).toBe(true);
     expect(next.homePlanet.storage.refinedMaterial).toBe(7);
     expect(next.homePlanet.storage.components).toBe(1);
+  });
+});
+
+describe("buyCaptainTalent", () => {
+  it("succeeds when affordable and prerequisite met, deducts statPoints, records the unlock", () => {
+    const state = freshState();
+    state.captains[0].statPoints = 2;
+    const { next, success } = buyCaptainTalent(state, 1, "commandExtractionI");
+    expect(success).toBe(true);
+    expect(next.captains[0].statPoints).toBe(0);
+    expect(next.captains[0].unlockedCaptainTalents).toEqual(["commandExtractionI"]);
+  });
+
+  it("fails (same state reference) if already unlocked", () => {
+    const state = freshState();
+    state.captains[0].statPoints = 10;
+    const { next: dispatched } = buyCaptainTalent(state, 1, "commandExtractionI");
+    const { next, success } = buyCaptainTalent(dispatched, 1, "commandExtractionI");
+    expect(success).toBe(false);
+    expect(next).toBe(dispatched);
+  });
+
+  it("fails if the prerequisite isn't unlocked yet", () => {
+    const state = freshState();
+    state.captains[0].statPoints = 10;
+    const { next, success } = buyCaptainTalent(state, 1, "commandExtractionII");
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+
+  it("fails if statPoints are insufficient", () => {
+    const state = freshState();
+    state.captains[0].statPoints = 1; // costs 2
+    const { next, success } = buyCaptainTalent(state, 1, "commandExtractionI");
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+});
+
+describe("buyHomeworldTalent", () => {
+  it("succeeds for a non-slot node: deducts adminPoints, records the unlock", () => {
+    const state = freshState();
+    state.adminPoints = 4;
+    const { next, success } = buyHomeworldTalent(state, "industryBonusOutput");
+    expect(success).toBe(true);
+    expect(next.adminPoints).toBe(0);
+    expect(next.unlockedHomeworldTalents).toEqual(["industryBonusOutput"]);
+  });
+
+  it("succeeds for an unlockCaptainSlot node: also appends a new captain", () => {
+    const state = freshState();
+    state.adminPoints = 3;
+    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot1");
+    expect(success).toBe(true);
+    expect(next.captains).toHaveLength(2);
+    expect(next.captains[1].id).toBe(2);
+  });
+
+  it("fails if adminPoints are insufficient", () => {
+    const state = freshState();
+    state.adminPoints = 2; // costs 3
+    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot1");
+    expect(success).toBe(false);
+    expect(next).toBe(state);
   });
 });

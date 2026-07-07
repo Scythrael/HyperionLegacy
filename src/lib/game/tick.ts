@@ -15,6 +15,8 @@ import {
   MISSIONS,
   RECIPES,
   CAPTAIN_SLOT_UNLOCKS,
+  CAPTAIN_TALENTS,
+  HOMEWORLD_TALENTS,
   freshCaptainStack,
   type GameState,
   type CaptainState,
@@ -24,6 +26,8 @@ import {
   type MissionKey,
   type RecipeKey,
   type HomePlanetMaterialKey,
+  type CaptainTalentKey,
+  type HomeworldTalentKey,
 } from "./model";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -281,6 +285,70 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
   storage[recipe.output.key] += recipe.output.amount;
 
   return { next: { ...state, homePlanet: { storage } }, success: true };
+}
+
+// Same "same state reference on failure" convention as every other buy/action
+// function in this file. Validates: talent exists, not already unlocked,
+// prerequisite (if any) already unlocked, statPoints sufficient. On success:
+// deducts cost, records the unlock. The effect itself isn't APPLIED here --
+// each effect type is read wherever that stat matters (extractionYieldMult
+// inside tickCaptainMission's extraction math, rareLootChanceMult inside the
+// loot roll) by checking unlockedCaptainTalents at read time, same pattern
+// this codebase already uses for e.g. specialization multipliers historically.
+export function buyCaptainTalent(
+  state: GameState,
+  captainId: number,
+  talentKey: CaptainTalentKey
+): { next: GameState; success: boolean } {
+  const idx = state.captains.findIndex((c) => c.id === captainId);
+  if (idx === -1) return { next: state, success: false };
+  const captain = state.captains[idx];
+  const talent = CAPTAIN_TALENTS[talentKey];
+
+  if (captain.unlockedCaptainTalents.includes(talentKey)) return { next: state, success: false };
+  if (talent.requires && !captain.unlockedCaptainTalents.includes(talent.requires)) {
+    return { next: state, success: false };
+  }
+  if (captain.statPoints < talent.cost) return { next: state, success: false };
+
+  const captains = [...state.captains];
+  captains[idx] = {
+    ...captain,
+    statPoints: captain.statPoints - talent.cost,
+    unlockedCaptainTalents: [...captain.unlockedCaptainTalents, talentKey],
+  };
+  return { next: { ...state, captains }, success: true };
+}
+
+// Same shape as buyCaptainTalent, fleet-wide. unlockCaptainSlot is the one
+// effect type with an additional side effect beyond "record the unlock" --
+// appending a new captain via freshCaptainStack(), same baseline every other
+// captain-creation path in this codebase uses.
+export function buyHomeworldTalent(
+  state: GameState,
+  talentKey: HomeworldTalentKey
+): { next: GameState; success: boolean } {
+  const talent = HOMEWORLD_TALENTS[talentKey];
+
+  if (state.unlockedHomeworldTalents.includes(talentKey)) return { next: state, success: false };
+  if (talent.requires && !state.unlockedHomeworldTalents.includes(talent.requires)) {
+    return { next: state, success: false };
+  }
+  if (state.adminPoints < talent.cost) return { next: state, success: false };
+
+  const unlockedHomeworldTalents = [...state.unlockedHomeworldTalents, talentKey];
+  const adminPoints = state.adminPoints - talent.cost;
+
+  if (talent.effect.type === "unlockCaptainSlot") {
+    const nextId = state.captains.length + 1;
+    const captains = [
+      ...state.captains,
+      { id: nextId, label: `Captain ${nextId}`, shipType: "resourcer" as const, ...freshCaptainStack() },
+    ];
+    return { next: { ...state, captains, adminPoints, unlockedHomeworldTalents }, success: true };
+  }
+
+  return { next: { ...state, adminPoints, unlockedHomeworldTalents }, success: true };
 }
 
 // Spends the unlocking captain's own statPoints plus a shared Components cost
