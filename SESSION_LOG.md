@@ -263,3 +263,102 @@ after the current cycle's unloading finishes (not immediately), run Fleet
 Prestige and confirm `homePlanet.storage` survives it, and confirm an
 existing pre-v8 save migrates cleanly with a `null` mission and empty
 storage backfilled.
+
+**Session 11** — Added Navigation Restructuring & Progression Overhaul
+(Phase 4, docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
+replaced the single-column panel layout with a 5-tab bottom navigation shell
+(Homeworld / Sector Space / Fleet Ops / Battlespace / System), retired the
+entire Generator Stack economy and everything built on top of it (Research,
+Specializations, Skill Tree, both Prestige tiers), and replaced it with two
+new systems built on the mission-loot economy from Phase 3a: Homeworld
+crafting (a `RECIPES` table and `craftRecipe()` feeding two new fleet-wide
+structures, Refinery and Fabrication) and captain XP/leveling
+(`xpForNextLevel`, `unlockCaptainSlot()`, replacing the Skill Tree's Command
+branch as the way new captain slots get earned). Save schema migrated
+v8 -> v9, backfilling `xp`/`level`/`statPoints` on every captain and
+`refinedMaterial`/`components` on `homePlanet.storage`. New Refinery,
+Fabrication, and Captain Leveling panels landed under Homeworld/Fleet Ops,
+plus an Export Save button under System. 8 tasks in the original plan, 13
+commits once review-driven fixes are counted. `SAVE_VERSION` is now 9.
+
+This was the largest architectural change this project has made: a full
+removal of one entire game system and its replacement with two others, not
+an addition on top of existing systems. The removal was deliberately split
+across 3 separate commits — `model.ts` (`ddf3cfa`), then `tick.ts`
+(`f3a330b`), then `App.svelte` (`e15a668`) — specifically because there is
+no compiler in this environment to catch a missed reference across files;
+the codebase was allowed to sit in a temporarily inconsistent state between
+those commits on purpose, the same sequencing discipline that kept Phase 1's
+original per-captain refactor safe. That discipline paid off directly: while
+removing the dead panels/handlers from `App.svelte` (Task 4), the
+implementer found a genuinely dangling call to the already-deleted
+`tickCaptainStack` still sitting inside `App.svelte`'s live tick-bar loop —
+left in, it would have crashed the app on the very first idle-captain tick
+after this branch shipped. Caught and fixed in the same commit, before it
+ever reached a runnable state.
+
+A second near-miss ran the opposite way — caught early, fixed late, on
+purpose. Building the Homeworld crafting engine (Task 5, `200bc0a`), the
+implementer noticed `App.svelte`'s live tick-bar loop rebuilds
+`homePlanet.storage` without spreading the existing object first, which
+would silently corrupt the new `refinedMaterial`/`components` fields to
+`NaN` the moment a player both received mission loot and crafted something
+in close succession. At the time nothing called `craftRecipe` from the UI
+yet, so the bug was real but inert — flagging and fixing it immediately
+would have meant touching UI code out of scope for a model/tick-layer task.
+It was deliberately left for Task 8 (`a5ca225`), which fixed the spread
+bug FIRST, before adding the crafting UI that would have actually triggered
+it — so the feature never had a live-but-broken window. "Flag it now, fix
+it when you get there" beat "leave a landmine and hope someone remembers,"
+specifically because the fix was scheduled against a known future commit
+rather than left as a hope.
+
+A third bug, unrelated to either of the above, surfaced from a much older
+task. While implementing the v8->v9 save migration (Task 7), reading
+`save.test.ts` in full (this project's standing practice for touching any
+file, precisely because there's no compiler to lean on instead) turned up a
+pre-existing v4->v5 migration test that had been silently broken since
+Task 2 (`ddf3cfa`, all the way back at the start of this same Phase 4
+branch): it asserted `modules.miner` and `lifetimeComponents` on a captain
+object, both fields Task 2's Generator Stack removal had made nonexistent.
+That test had been a latent, runtime-crashing bug for 4 more tasks' worth of
+commits, undiscovered simply because nothing had reason to re-read that
+specific test file until Task 7 touched `save.ts`/`save.test.ts` again.
+Fixed in `5e36995`. This is the same lesson as the crafting-storage bug from
+a different angle: a change in one file can silently invalidate assumptions
+baked into a completely unrelated file's tests, and in an environment with
+no compiler or test runner, the only real defense is deliberately re-reading
+full files — not just diffs — at the start of every task that touches them.
+That practice is exactly what caught this one.
+
+The highest-risk single task was captain leveling (Task 6, `78b7835`),
+which required hooking new XP-awarding logic into `tickCaptainMission()` —
+the three-review-round, closed-form, float-drift-tolerant mission state
+machine from Phase 3a (see Session 10's entry above for that saga). Both
+reviewers for Task 6 independently re-traced the closed-form guarantee (one
+big `ticksElapsed` call must equal many small calls summing to the same
+result) end-to-end for the new XP logic, and both confirmed it correctly
+piggybacks on the function's existing, already-proven cycle-completion
+boundary check rather than introducing new, separate bookkeeping that could
+desync from it.
+
+The other 5 review-driven commits were smaller: `da9f1ad` (stale comment
+referencing a deleted `ResearchState`), `4b9c301` (docs noting orphaned CSS
+from the Task 4 panel removal, and flagging the now-stale prestige/tick-bar
+entry in this same KNOWN_ISSUES.md that this session's docs pass just
+deleted), `118c1f3` (test fixtures updated for `homePlanet.storage`'s
+widened type), and `c64cb4c` (fixed two comments citing the wrong task
+number for the Generator Stack removal, plus one that incorrectly claimed a
+second test block was broken when it wasn't).
+
+Branch `feat/phase4-nav-progression-overhaul` is implementation-complete
+and locally committed (13 commits over `dbc437d`), ready for a final
+holistic review — not yet merged or pushed. Next: get eyes on this in an
+actual browser — click through all 5 tabs, confirm nothing that used to be
+reachable is now permanently hidden, dispatch a captain on a mission and
+confirm it awards XP/levels correctly on cycle completion (including a big
+offline-catchup jump that completes multiple cycles at once), craft both
+Refinery and Fabrication recipes and confirm the storage math is right,
+unlock a new captain slot and confirm the new captain is immediately
+playable, try Export Save, and confirm an existing pre-v9 save migrates
+cleanly with captain leveling fields and crafting storage backfilled.

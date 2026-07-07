@@ -6,10 +6,13 @@ write it down so you don't relitigate it later.
 - No offline-cap or offline-efficiency reduction yet — offline time is
   applied at full rate regardless of duration. Fine for prototype; revisit
   before any real playtest longer than a day.
-- Refinery/Fabricator are priced in ore, not their own tier's precursor
-  resource. Decoupled parallel producers, not a real consumption chain yet.
-  Matches "many parallel small stacks" model from tech spec §3, but worth
-  a deliberate look once missions/research complicate the economy.
+- Homeworld Refinery/Fabrication (Phase 4) each run exactly one hand-picked
+  recipe (`refineUnobtainium`, `fabricateComponents`) with no player choice
+  of inputs/outputs yet — proves the crafting mechanic, not the "fully
+  fleshed out crafting system" the design doc gestures at. Add entries to
+  `RECIPES` (`model.ts`) when that's ready to grow; no auto-craft toggle
+  exists yet either (manual Craft-button only), which is a deliberate
+  near-term follow-up per Task 5's implementation notes.
 - No captains, crew, ships, sectors, or bosses. This is the §10.5 minimal
   prototype scope on purpose.
 - Corrupt-save handling doesn't yet surface a raw-export option to the
@@ -33,36 +36,24 @@ write it down so you don't relitigate it later.
   limit per the design doc, not a bug, but worth writing down so "theme
   switching looks incomplete" doesn't get rediscovered as a surprise.
 - The tick-bar poll (`App.svelte`, 100ms `setInterval`) only fires ONE
-  `tickCaptainStack`/`tick` call per poll when a cycle completes, even if
-  the real-world gap since the last poll was long enough to cover several
-  cycles (e.g. a throttled or backgrounded browser tab). Production for the
-  "extra" cycles in that gap is lost rather than credited — it isn't
-  clamped or caught up, it just never happened. Predates the captain/ship
-  feature (present in the old single-cycle code too — confirmed via
-  `git show 94d1801~1`), but now applies independently to every captain's
-  own cadence instead of one shared clock, so a backgrounded tab with N
-  captains running loses progress N times over instead of once. Worth
-  fixing (compute cycles-elapsed and batch them into one closed-form
-  `tickCaptainStack` call per captain, rather than one bounded tick) before
-  any real playtest that leaves the tab backgrounded for a while. Since
-  Home Planet & Mission Expeditions (Phase 3a), this same gap also applies
-  to `tickCaptainMission` for any captain on a mission — a missed poll can
+  `tick` call per poll when a cycle completes, even if the real-world gap
+  since the last poll was long enough to cover several cycles (e.g. a
+  throttled or backgrounded browser tab). Progress for the "extra" cycles in
+  that gap is lost rather than credited — it isn't clamped or caught up, it
+  just never happened. Predates the captain/ship feature (present in the old
+  single-cycle code too — confirmed via `git show 94d1801~1`), and has
+  moved with the economy ever since: it applied to every captain's
+  `tickCaptainStack` cadence once captains landed, then (Phase 3a) also to
+  `tickCaptainMission` for any captain on a mission — a missed poll there can
   silently drop an extraction tick's loot roll, which (unlike production
-  throughput) can never be recovered. Same root cause, same fix.
-- Both prestige tiers (`captainPrestige`, fleet-wide `prestige` in
-  `tick.ts`) reset a captain's resources/modules/research via
-  `freshCaptainStack()`, but neither touches that captain's entry in
-  `App.svelte`'s `captainCycles` map (`barCycleStart`/`nowTick`). For up to
-  one cycle after a prestige, the affected captain's tick-bar can show
-  leftover progress from before the reset instead of starting at 0 — purely
-  a cosmetic display quirk, self-corrects on the captain's next real cycle
-  boundary, no resource/math corruption. Pre-existing since Task 6 added
-  `captainPrestige` (Task 7's Fleet Prestige has the identical gap). Worth
-  a one-line fix (reset `captainCycles[id].barCycleStart` alongside the
-  state reset) whenever someone is next in that function for another
-  reason. NOTE: `captainPrestige`/`prestige` no longer exist as of Phase 4
-  (Generator Stack removal) -- this whole entry is moot now and can be
-  deleted once Phase 4's docs pass (Task 9) does a full sweep of this file.
+  throughput) can never be recovered. As of Phase 4 (Generator Stack
+  removal), `tickCaptainStack` no longer exists and idle captains
+  (`mission: null`) have no passive economy left to lose ticks from at
+  all — `tickCaptainMission` is now the ONLY per-captain tick path, so this
+  gap applies solely to captains on a mission. Worth fixing (compute
+  cycles-elapsed and batch them into one closed-form `tickCaptainMission`
+  call per mission captain, rather than one bounded tick) before any real
+  playtest that leaves the tab backgrounded for a while.
 - Phase 4 (Generator Stack removal) left several CSS rules in `App.svelte`'s
   `<style>` block orphaned with no markup referencing them: `.tick-bar-*`,
   `.research-status`, `.module-*`, `.prestige-row`/`-yield`/`-btn`,
