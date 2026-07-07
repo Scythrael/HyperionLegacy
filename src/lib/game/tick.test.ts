@@ -278,7 +278,17 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     expect(result.captains[1].mission!.phaseProgressTicks).toBe(0);
 
     // Neither captain reached "unloading" this tick -- nothing delivered home yet.
-    expect(result.homePlanet.storage).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 });
+    // Full 5-key shape (Task 5 widened homePlanet.storage to include the crafted-good
+    // tiers) since tick() spreads the existing storage forward untouched -- a 3-key
+    // expected literal would fail toEqual's strict key-set comparison against the
+    // actual 5-key result, even though every value is still correctly 0.
+    expect(result.homePlanet.storage).toEqual({
+      commonOre: 0,
+      uncommonMaterial: 0,
+      rareMaterial: 0,
+      refinedMaterial: 0,
+      components: 0,
+    });
   });
 
   it("delivers cargo to state.homePlanet.storage, added to existing totals, when a mission's cycle completes this tick", () => {
@@ -295,7 +305,7 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     // (simulating a PRIOR delivery already sitting in storage) to prove this tick's delta is ADDED
     // to existing totals, not overwriting them: expected result = {75, 21, 10}.
     const state = freshState();
-    state.homePlanet.storage = { commonOre: 5, uncommonMaterial: 1, rareMaterial: 0 };
+    state.homePlanet.storage = { commonOre: 5, uncommonMaterial: 1, rareMaterial: 0, refinedMaterial: 0, components: 0 };
     state.captains[0].mission = {
       missionKey: "shortOreRun",
       phase: "unloading",
@@ -306,7 +316,13 @@ describe("tick() — idle captains do nothing, mission captains route through ti
 
     const result = tick(10, state);
 
-    expect(result.homePlanet.storage).toEqual({ commonOre: 75, uncommonMaterial: 21, rareMaterial: 10 });
+    expect(result.homePlanet.storage).toEqual({
+      commonOre: 75,
+      uncommonMaterial: 21,
+      rareMaterial: 10,
+      refinedMaterial: 0,
+      components: 0,
+    });
     expect(result.captains[0].mission!.phase).toBe("ordersReceived"); // auto-repeated
     expect(result.captains[0].mission!.phaseProgressTicks).toBe(0);
     expect(result.captains[0].mission!.cargo).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 });
