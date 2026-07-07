@@ -13,6 +13,18 @@ write it down so you don't relitigate it later.
   `RECIPES` (`model.ts`) when that's ready to grow; no auto-craft toggle
   exists yet either (manual Craft-button only), which is a deliberate
   near-term follow-up per Task 5's implementation notes.
+- The Refinery/Fabrication panel's title (`App.svelte`) is a hardcoded
+  `recipeKey === "refineUnobtainium" ? "REFINERY" : "FABRICATION"` ternary,
+  not derived from `RECIPES` data — correct for both of today's launch
+  recipes, but a 3rd, non-fabrication recipe would silently fall into the
+  "FABRICATION" label. Add a `structureLabel` field to `RecipeDef` if/when
+  a 3rd recipe is actually added.
+- `unlockCaptainSlot()` (`tick.ts`) builds its new-captain object literal
+  inline (`id`/`label`/`shipType`/`...freshCaptainStack()`) instead of
+  reusing a shared helper — currently byte-identical to `freshCaptains()`'s
+  own construction, so no bug today, but a future field added to that shape
+  would need updating in both places. Worth consolidating next time either
+  function is touched.
 - No captains, crew, ships, sectors, or bosses. This is the §10.5 minimal
   prototype scope on purpose.
 - Corrupt-save handling doesn't yet surface a raw-export option to the
