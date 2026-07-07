@@ -19,6 +19,7 @@
     SKILL_TREE,
     researchDurationMult,
     MISSIONS,
+    requiredTicksForPhase,
     type ModuleKey,
     type ResearchKey,
     type SpecializationKey,
@@ -26,6 +27,7 @@
     type GameState,
     type CaptainState,
     type MissionKey,
+    type MissionPhase,
     type LootMaterialKey,
   } from "./lib/game/model";
   import {
@@ -45,6 +47,20 @@
   // DEV_MODE — Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
   const DEV_MODE_ENV = import.meta.env.VITE_DEV_MODE === "true";
+
+  // Display-only phase labels for the MISSIONS panel's phase readout. Purely
+  // a UI concern (unlike RESOURCE_LABEL in model.ts, nothing outside this
+  // file needs to map a MissionPhase to display text), so it lives here
+  // rather than in model.ts. Must stay in sync with MissionPhase's literal
+  // union -- a new phase added there without a matching entry here would
+  // silently render "undefined" instead of a label.
+  const MISSION_PHASE_LABEL: Record<MissionPhase, string> = {
+    ordersReceived: "Orders Received",
+    transitOut: "Transiting Out",
+    extracting: "Extracting",
+    transitBack: "Transiting Back",
+    unloading: "Unloading",
+  };
 
   let state: GameState = freshState();
   let createdAt = Date.now();
@@ -291,6 +307,25 @@
     doSave();
   }
 
+  function doDispatchCaptainOnMission(missionKey: MissionKey) {
+    const captain = activeCaptain;
+    const { next, success } = dispatchCaptainOnMission(state, captain.id, missionKey);
+    if (!success) return;
+    state = next;
+    pushLog(`[${captain.label}] Dispatched on mission: ${MISSIONS[missionKey].label}.`);
+    doSave();
+  }
+
+  function doRecallCaptain() {
+    const captain = activeCaptain;
+    const missionLabel = MISSIONS[captain.mission!.missionKey].label; // captured before the state swap below, mirrors doCaptainPrestige's `label` capture
+    const { next, success } = recallCaptain(state, captain.id);
+    if (!success) return;
+    state = next;
+    pushLog(`[${captain.label}] Recall ordered — returning to base from: ${missionLabel}.`);
+    doSave();
+  }
+
   function grantResource(resource: keyof CaptainState["resources"], amount: number) {
     updateActiveCaptain((c) => ({ ...c, resources: { ...c.resources, [resource]: c.resources[resource] + amount } }));
     pushLog(`[${activeCaptain.label}] [DEV] Granted ${formatNumber(amount)} ${resource}.`);
@@ -492,12 +527,47 @@
       </Panel>
 
       <Panel>
+        <div class="panel-title">MISSIONS</div>
+        {#if activeCaptain.mission === null}
+          <div class="mission-list">
+            {#each Object.entries(MISSIONS) as [key, def]}
+              <div class="mission-card">
+                <div class="research-name">{def.label}</div>
+                <div class="research-cost">Cargo capacity: {formatNumber(def.cargoCapacity)}</div>
+                <button class="buy-btn" on:click={() => doDispatchCaptainOnMission(key as MissionKey)}>
+                  Dispatch · {def.label}
+                </button>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          {@const mission = activeCaptain.mission!}
+          {@const missionDef = MISSIONS[mission.missionKey]}
+          {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
+          {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
+          {@const remainingTicks = Math.max(0, requiredTicks - mission.phaseProgressTicks)}
+          <div class="research-name">{missionDef.label}</div>
+          <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
+          <div class="research-bar-track">
+            <div class="research-bar-fill" style="width:{progress * 100}%"></div>
+          </div>
+          <div class="research-readout">{remainingTicks.toFixed(1)} ticks remaining in phase</div>
+          {#if mission.recalled}
+            <p class="prestige-text mission-recalled-text">Recall ordered — returning to base once the current cycle's unloading completes.</p>
+          {:else}
+            <button class="recall-btn" on:click={doRecallCaptain}>Recall Captain</button>
+          {/if}
+        {/if}
+      </Panel>
+
+      <Panel>
         <div class="panel-title">CAPTAIN PRESTIGE — TIER 1</div>
         {@const captainGain = Math.floor(Math.sqrt(activeCaptain.lifetimeComponents))}
         <p class="prestige-text">
           Retire {activeCaptain.label}'s current run for Captain Points (√ of THIS captain's lifetime
           components). Resets {activeCaptain.label}'s resources, modules, and research. Choose a
-          specialization as part of the reset — picking again later respecs.
+          specialization as part of the reset — picking again later respecs. If {activeCaptain.label}
+          is on an active mission, prestiging cancels it immediately and any in-transit cargo is lost.
         </p>
         <div class="prestige-row">
           <div class="prestige-yield">
@@ -532,7 +602,8 @@
           components across every captain). Resets every captain back to your currently unlocked
           roster size — wiping all specializations, Captain Points, and individual progress along
           with resources and modules. Augment Points, the global multiplier, and your unlocked
-          skills all persist.
+          skills all persist. Any captain on an active mission has it cancelled immediately, losing
+          any in-transit cargo.
         </p>
         <div class="prestige-row">
           <div class="prestige-yield">
@@ -605,6 +676,24 @@
               {/if}
             </div>
           {/each}
+        </div>
+      </Panel>
+
+      <Panel>
+        <div class="panel-title">HOME PLANET</div>
+        <div class="resource-grid resource-grid-3">
+          <div class="resource-card">
+            <div class="resource-label">Common Ore</div>
+            <div class="resource-value">{formatNumber(state.homePlanet.storage.commonOre)}</div>
+          </div>
+          <div class="resource-card">
+            <div class="resource-label">Uncommon Material</div>
+            <div class="resource-value">{formatNumber(state.homePlanet.storage.uncommonMaterial)}</div>
+          </div>
+          <div class="resource-card">
+            <div class="resource-label">Rare Material</div>
+            <div class="resource-value">{formatNumber(state.homePlanet.storage.rareMaterial)}</div>
+          </div>
         </div>
       </Panel>
 
@@ -756,6 +845,13 @@
     font-weight: 600;
   }
   .resource-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  /* HOME PLANET has exactly 3 loot materials, not 4 -- reusing .resource-grid
+     as-is would use its hardcoded repeat(4, 1fr) and leave an empty 4th
+     column (uneven, oddly gapped), since that column count is a literal, not
+     auto-fill/auto-fit. This modifier overrides just the column count; every
+     other .resource-grid rule (gap) and all of .resource-card/-label/-value
+     are reused unchanged. */
+  .resource-grid-3 { grid-template-columns: repeat(3, 1fr); }
   .resource-card {
     padding: 10px 8px;
     border-radius: 10px;
@@ -820,6 +916,29 @@
     transition: width 0.2s linear;
   }
   .research-readout { font-size: 11px; color: var(--color-text-secondary); text-align: right; }
+  .mission-list { display: flex; flex-direction: column; gap: 10px; }
+  .mission-card {
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
+  }
+  .mission-recalled-text { margin-top: 10px; margin-bottom: 0; }
+  /* No existing non-dev-panel "danger" button style to reuse -- .dev-btn.danger
+     is scoped to the amber dev-panel look, and .prestige-btn's warning color
+     is for a different semantic (fleet prestige), not "cancel an in-progress
+     action." Shaped like .spec-btn (same padding/border-radius/font-size)
+     but colored with --color-danger to read as a distinct, cautionary action. */
+  .recall-btn {
+    background: rgba(248, 113, 113, 0.1);
+    border: 1px solid rgba(248, 113, 113, 0.4);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--color-danger);
+    font-size: 11px;
+    cursor: pointer;
+    margin-top: 10px;
+  }
   .module-list { display: flex; flex-direction: column; gap: 10px; }
   .module-card {
     padding: 12px;
