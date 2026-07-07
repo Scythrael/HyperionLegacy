@@ -241,9 +241,11 @@ const MIGRATIONS: Record<number, Migration> = {
     // shared cadence (see the design doc for why). Reads the value off the
     // FIRST captain (any pre-v11 save's captains all share the same value --
     // nothing has ever diverged them) as the new fleet-wide default, then
-    // strips the now-removed field from every captain via destructuring
-    // (same "delete via destructure" idiom MIGRATIONS[4] used when it moved
-    // fields IN the other direction). Falls back to 10 if captains[0] somehow
+    // strips the now-removed field from every captain via destructuring --
+    // the same "delete via destructure" idiom MIGRATIONS[4] used, applied
+    // per-captain here rather than once on the top-level state object (since
+    // MIGRATIONS[4] moved fields IN the other direction: off GameState, onto
+    // captains[0]). Falls back to 10 if captains[0] somehow
     // has no tickDurationSeconds at all -- not reachable through any current
     // code path (freshCaptainStack always set it pre-v11), but defense in
     // depth, same category as several earlier migrations' `??` comments.
