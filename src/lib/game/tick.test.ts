@@ -587,4 +587,21 @@ describe("buyHomeworldTalent", () => {
     expect(success).toBe(false);
     expect(next).toBe(state);
   });
+
+  it("fails (same state reference) if already unlocked", () => {
+    const state = freshState();
+    state.adminPoints = 10;
+    const { next: dispatched } = buyHomeworldTalent(state, "industryBonusOutput");
+    const { next, success } = buyHomeworldTalent(dispatched, "industryBonusOutput");
+    expect(success).toBe(false);
+    expect(next).toBe(dispatched);
+  });
+
+  it("fails if the prerequisite isn't unlocked yet", () => {
+    const state = freshState();
+    state.adminPoints = 10;
+    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot2"); // requires fleetLogisticsSlot1
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
 });
