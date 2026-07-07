@@ -362,3 +362,51 @@ Refinery and Fabrication recipes and confirm the storage math is right,
 unlock a new captain slot and confirm the new captain is immediately
 playable, try Export Save, and confirm an existing pre-v9 save migrates
 cleanly with captain leveling fields and crafting storage backfilled.
+
+**Session 12** — Added Captain & Homeworld Talent Trees
+(docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md): two parallel
+talent trees, each 5 branches (3 real, 2 stubs). Captain Talents (per
+captain, spent from existing `statPoints`) get real content on Command
+(`extractionYieldMult`) and Resourcefulness (`rareLootChanceMult`); Tactical/
+Science/Diplomacy are visible-but-empty stub branches. Homeworld Talents
+(fleet-wide, spent from a new `adminPoints` pool) get real content on Fleet
+Logistics (absorbs the old 3-tier captain-slot-unlock job), Industry
+(`recipeBonusOutput`), and Economy (a small `passiveTrickle` of `commonOre`,
+explicitly the thinnest branch per the design doc); Homeland Defense/
+Citizenry are the other 2 stubs. A new Fleet Admiral leveling system
+(`recomputeFleetAdmin`) feeds `adminPoints`, recomputed each `tick()` call and
+each live-loop poll from the sum of every captain's current level, on a
+curve deliberately much steeper than a captain's own — same closed-form
+"resolve every level crossed in one pass" shape already proven for captain
+leveling, but structurally simpler here since it recomputes an absolute sum
+rather than accumulating a delta. The old `CAPTAIN_SLOT_UNLOCKS`/
+`unlockCaptainSlot()` mechanism (Phase 4) was removed in its own dedicated
+task, once the new Fleet Logistics branch was proven to do the same job —
+same 3-commit-split discipline (model/tick/App.svelte) Phase 4's own big
+removal used, so the codebase never carried two competing slot-unlock
+systems at once for longer than a task boundary. Save schema migrated
+v9 -> v10, backfilling `unlockedCaptainTalents` (empty) on every captain and
+`unlockedHomeworldTalents`/`fleetAdminXp`/`fleetAdminLevel`/`adminPoints`
+(empty/0/1/0) on `GameState`. New Captain Talents and Homeworld Talents
+panels landed under Fleet Ops and Homeworld respectively.
+
+7 tasks in the original plan, 12 commits once review-driven fixes AND one
+extra, unplanned design-correction commit are counted. The design correction
+(`e61108e`): `HOMEWORLD_TALENTS`'s `unlockCaptainSlot`-effect nodes originally
+carried vestigial `atLevel`/`statPointCost`/`componentsCost` fields, copied
+over from the old `CAPTAIN_SLOT_UNLOCKS` shape, that `buyHomeworldTalent`
+never actually enforced — flagged honestly rather than silently shipped (see
+`41de64e`, which surfaced the gap in the same task it was introduced). Rather
+than bolting on an ad hoc enforcement path, the user was asked directly and
+confirmed the right fix was removal: Homeworld Talents are fleet-wide Fleet
+Admiral prestige, gated purely on `adminPoints`, entirely independent of any
+individual captain's own level/statPoints — those only ever gate that
+captain's own, separate Captain Talents tree. The three dead fields and their
+UI/comment scaffolding were removed rather than enforced. Next: get eyes on
+this in an actual browser — unlock a Command and a Resourcefulness talent on
+a captain and confirm the extraction-yield/rare-loot effects actually apply,
+level several captains and confirm the Fleet Admiral bar advances and grants
+`adminPoints`, buy a Fleet Logistics slot-unlock node and confirm a new
+captain appears immediately, confirm both stub-branch sets (5 total) render
+as labeled-but-empty rather than missing entirely, and confirm an existing
+pre-v10 save migrates cleanly with all new fields backfilled.
