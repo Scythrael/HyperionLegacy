@@ -66,13 +66,18 @@
   let createdAt = Date.now();
   let devPanelOpen = false;
   let currentTheme: ThemeName = "cyan";
-  let optionsPanelOpen = false;
   let deleteModalOpen = false;
   let deleteConfirmText = "";
   let speed = 1;
   let logEntries: string[] = [];
   let activeCaptainIndex = 0;
   let paused = false;
+
+  // Outer bottom nav (Task 1, Phase 4) -- 5 tabs, no router library (see
+  // design doc: single-page idle game, no deep-linking/history need). Default
+  // lands on Fleet Ops since captains/missions are the core loop today.
+  type TabKey = "homeworld" | "sectorSpace" | "fleetOps" | "battlespace" | "system";
+  let activeTab: TabKey = "fleetOps";
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
   let lastPollTime = Date.now();
@@ -412,11 +417,46 @@
         {#if DEV_MODE_ENV}
           <button class="icon-btn" on:click={() => (devPanelOpen = !devPanelOpen)} title="Toggle debug panel">Dev</button>
         {/if}
-        <button class="icon-btn" on:click={() => (optionsPanelOpen = !optionsPanelOpen)} title="Options" aria-label="Options">⚙</button>
       </div>
     </Panel>
 
     <main class="main">
+      <div class="nav-tabs">
+        <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
+        <button class="nav-tab" class:active={activeTab === "sectorSpace"} on:click={() => (activeTab = "sectorSpace")}>Sector Space</button>
+        <button class="nav-tab" class:active={activeTab === "fleetOps"} on:click={() => (activeTab = "fleetOps")}>Fleet Ops</button>
+        <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
+        <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
+      </div>
+
+      {#if activeTab === "homeworld"}
+      <Panel>
+        <div class="panel-title">HOME PLANET</div>
+        <div class="resource-grid resource-grid-3">
+          <div class="resource-card">
+            <div class="resource-label">Common Ore</div>
+            <div class="resource-value">{formatNumber(state.homePlanet.storage.commonOre)}</div>
+          </div>
+          <div class="resource-card">
+            <div class="resource-label">Uncommon Material</div>
+            <div class="resource-value">{formatNumber(state.homePlanet.storage.uncommonMaterial)}</div>
+          </div>
+          <div class="resource-card">
+            <div class="resource-label">Rare Material</div>
+            <div class="resource-value">{formatNumber(state.homePlanet.storage.rareMaterial)}</div>
+          </div>
+        </div>
+      </Panel>
+      {/if}
+
+      {#if activeTab === "sectorSpace"}
+      <Panel>
+        <div class="panel-title">SECTOR SPACE</div>
+        <p class="prestige-text">Shipyard and Starbase are still under construction.</p>
+      </Panel>
+      {/if}
+
+      {#if activeTab === "fleetOps"}
       <div class="captain-tabs">
         {#each state.captains as captain, i}
           <button class="captain-tab" class:active={i === activeCaptainIndex} on:click={() => (activeCaptainIndex = i)}>
@@ -682,23 +722,31 @@
           {/each}
         </div>
       </Panel>
+      {/if}
 
+      {#if activeTab === "battlespace"}
       <Panel>
-        <div class="panel-title">HOME PLANET</div>
-        <div class="resource-grid resource-grid-3">
-          <div class="resource-card">
-            <div class="resource-label">Common Ore</div>
-            <div class="resource-value">{formatNumber(state.homePlanet.storage.commonOre)}</div>
-          </div>
-          <div class="resource-card">
-            <div class="resource-label">Uncommon Material</div>
-            <div class="resource-value">{formatNumber(state.homePlanet.storage.uncommonMaterial)}</div>
-          </div>
-          <div class="resource-card">
-            <div class="resource-label">Rare Material</div>
-            <div class="resource-value">{formatNumber(state.homePlanet.storage.rareMaterial)}</div>
-          </div>
+        <div class="panel-title">BATTLESPACE</div>
+        <p class="prestige-text">PvP and PvE fleet operations will live here.</p>
+      </Panel>
+      {/if}
+
+      {#if activeTab === "system"}
+      <Panel>
+        <div class="panel-title">OPTIONS</div>
+        <div class="theme-row">
+          {#each THEME_NAMES as name}
+            <button
+              class="theme-swatch"
+              class:active={currentTheme === name}
+              style="background:{THEME_PREVIEW_COLORS[name]}"
+              title={name}
+              aria-label={name}
+              on:click={() => setTheme(name)}
+            ></button>
+          {/each}
         </div>
+        <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
       </Panel>
 
       {#if DEV_MODE_ENV && devPanelOpen}
@@ -742,32 +790,9 @@
           {/each}
         </div>
       </Panel>
+      {/if}
     </main>
   </div>
-
-  {#if optionsPanelOpen}
-    <div class="modal-backdrop">
-      <Panel class="modal-dialog">
-        <div class="panel-title">OPTIONS</div>
-        <div class="theme-row">
-          {#each THEME_NAMES as name}
-            <button
-              class="theme-swatch"
-              class:active={currentTheme === name}
-              style="background:{THEME_PREVIEW_COLORS[name]}"
-              title={name}
-              aria-label={name}
-              on:click={() => setTheme(name)}
-            ></button>
-          {/each}
-        </div>
-        <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
-        <div class="modal-row">
-          <button class="dev-btn" on:click={() => (optionsPanelOpen = false)}>Close</button>
-        </div>
-      </Panel>
-    </div>
-  {/if}
 
   {#if deleteModalOpen}
     <div class="modal-backdrop">
@@ -796,7 +821,10 @@
     z-index: 1;
     max-width: 720px;
     margin: 0 auto;
-    padding: 20px 16px 60px;
+    /* Bottom padding enlarged (60px -> 96px) to clear the fixed .nav-tabs bar
+       (Task 1, Phase 4) -- without this, the LOG panel (or whatever ends up
+       last in the active tab) would render partially underneath the bar. */
+    padding: 20px 16px 96px;
   }
   .header-left { display: flex; flex-direction: column; }
   .title {
@@ -825,6 +853,42 @@
     cursor: pointer;
   }
   .main { display: flex; flex-direction: column; gap: 14px; }
+  /* Outer nav (Task 1, Phase 4) -- fixed to the bottom of the viewport per
+     the design doc ("tabs along the bottom of the screen"). Deliberately
+     distinct from .captain-tab below (solid panel-strength background,
+     no rounded corners, uppercase+letter-spaced labels) so it reads as the
+     OUTER shell nav rather than a second row of the same widget as the
+     INNER captain switcher. .frame's bottom padding (see above) is sized to
+     clear this bar's height so it never overlaps whatever renders last in
+     the active tab (e.g. the LOG panel under System). */
+  .nav-tabs {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: flex;
+    background: var(--color-panel-bg-strong);
+    border-top: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
+  }
+  .nav-tab {
+    flex: 1;
+    background: transparent;
+    border: none;
+    border-top: 2px solid transparent;
+    padding: 12px 4px 10px;
+    color: var(--color-text-secondary);
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .nav-tab.active {
+    color: var(--color-accent-bright);
+    border-top-color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.08);
+  }
   .captain-tabs { display: flex; gap: 8px; }
   .captain-tab {
     flex: 1;
