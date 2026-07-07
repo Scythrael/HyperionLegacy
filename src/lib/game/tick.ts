@@ -71,7 +71,7 @@ const XP_PER_MISSION_CYCLE = 50;
 // `ticksElapsed` is NOT deltaSeconds -- it's the caller's job (tick(), in
 // this same file) to convert deltaSeconds into ticksElapsed by dividing by
 // the fleet's shared tickDurationSeconds. This keeps mission progress on a
-// consistent per-captain cadence, rather than inventing a second timing
+// consistent fleet-wide cadence, rather than inventing a second timing
 // system.
 export function tickCaptainMission(
   ticksElapsed: number,
