@@ -39,3 +39,11 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
 - **Clerk-based auth (Vercel) + multiplayer.** Login via Clerk, plus multiplayer capabilities: chat,
   PvP, cloud saves. An entirely different category of work (backend/auth/networking) from everything
   built so far, which is 100% client-side. Its own dedicated design whenever it's picked up.
+
+- **Crew system.** Ships (today, 1:1 with captains) gain a crew of individuals with varying roles,
+  tiers, and races. Different races carry different racial bonuses; a crew member's role/seat
+  contributes to a specific ship system (e.g. a Weapons Officer specializing in a given weapon type).
+  The "weapons"/combat angle depends on Battlespace existing first, similar to Tactical/Homeland
+  Defense in the Talent Trees — likely needs its own scoping pass on which roles matter before combat
+  exists (e.g. an Engineering seat could plausibly buff the Vector-Fall Engine or crafting today,
+  independent of combat) versus which roles are pure Battlespace stubs until then.
