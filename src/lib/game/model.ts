@@ -142,7 +142,6 @@ export interface CaptainState {
   id: number;
   label: string; // placeholder, e.g. "Captain 1" -- naming UI deferred per master doc §10.7
   shipType: ShipType;
-  tickDurationSeconds: number; // this captain's own tick-bar cycle length; cadences can diverge between captains
   mission: CaptainMissionState | null; // null when idle (idle captains have no passive economy -- see tick.ts)
   xp: number; // accumulated toward the NEXT level -- see xpForNextLevel() below; awarded in tick.ts's tickCaptainMission on cycle completion
   level: number; // starts at 1
@@ -152,6 +151,7 @@ export interface CaptainState {
 
 export interface GameState {
   captains: CaptainState[];
+  tickDurationSeconds: number; // fleet-wide tick cadence -- every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
   gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
   homePlanet: { storage: Record<HomePlanetMaterialKey, number> }; // fleet-wide mission loot + crafted goods, separate from any captain's own state
   unlockedHomeworldTalents: HomeworldTalentKey[]; // fleet-wide purchased Homeworld Talent keys -- see buyHomeworldTalent (tick.ts)
@@ -369,10 +369,9 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
 // a slot that has never been played.
 export function freshCaptainStack(): Pick<
   CaptainState,
-  "tickDurationSeconds" | "mission" | "xp" | "level" | "statPoints" | "unlockedCaptainTalents"
+  "mission" | "xp" | "level" | "statPoints" | "unlockedCaptainTalents"
 > {
   return {
-    tickDurationSeconds: 10,
     mission: null,
     xp: 0,
     level: 1,
@@ -403,6 +402,7 @@ export function freshCaptains(count: number): CaptainState[] {
 export function freshState(): GameState {
   return {
     captains: freshCaptains(1),
+    tickDurationSeconds: 10,
     gameTimeSeconds: 0,
     homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
     unlockedHomeworldTalents: [],

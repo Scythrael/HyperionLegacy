@@ -26,14 +26,14 @@ describe("freshState — captain roster shape", () => {
     expect(c1.shipType).toBe("resourcer");
   });
 
-  it("starts with tickDurationSeconds 10 and xp:0, level:1, statPoints:0", () => {
+  it("starts with xp:0, level:1, statPoints:0 per captain, and fleet-wide tickDurationSeconds 10", () => {
     const state = freshState();
     for (const c of state.captains) {
-      expect(c.tickDurationSeconds).toBe(10);
       expect(c.xp).toBe(0);
       expect(c.level).toBe(1);
       expect(c.statPoints).toBe(0);
     }
+    expect(state.tickDurationSeconds).toBe(10);
   });
 
   it("fleet-wide fields default to 0", () => {
@@ -65,13 +65,13 @@ describe("freshCaptains(count) — parameterized roster generation", () => {
 });
 
 describe("freshCaptainStack — shared reset baseline", () => {
-  it("returns the baseline a brand-new captain slot starts with", () => {
+  it("returns the baseline a brand-new captain slot starts with (no tickDurationSeconds -- that's fleet-wide now)", () => {
     const stack = freshCaptainStack();
-    expect(stack.tickDurationSeconds).toBe(10);
     expect(stack.mission).toBe(null);
     expect(stack.xp).toBe(0);
     expect(stack.level).toBe(1);
     expect(stack.statPoints).toBe(0);
+    expect((stack as any).tickDurationSeconds).toBeUndefined();
   });
 });
 
