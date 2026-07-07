@@ -250,6 +250,8 @@ export interface HomeworldTalentDef {
 // table's keys, so an empty branch still renders as a labeled column with
 // nothing in it. Add entries here (and nowhere else -- App.svelte's Captain
 // Talents panel iterates this object) when a branch's system is ready.
+// Costs below are launch placeholders, not balance-tested, same spirit as
+// MISSIONS'/RECIPES'/CAPTAIN_SLOT_UNLOCKS' own tunable constants.
 export type CaptainTalentKey =
   | "commandExtractionI"
   | "commandExtractionII"
@@ -291,7 +293,8 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
 // removes the old table/mechanism once this is proven in place -- see plan).
 // Homeland Defense and Citizenry are deliberately EMPTY, same reasoning as
 // Tactical/Science/Diplomacy above (need Battlespace / a population system,
-// neither exists yet).
+// neither exists yet). Costs below are launch placeholders, same as
+// CAPTAIN_TALENTS' own -- not balance-tested.
 export type HomeworldTalentKey =
   | "fleetLogisticsSlot1"
   | "fleetLogisticsSlot2"
