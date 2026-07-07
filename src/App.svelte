@@ -8,12 +8,18 @@
     requiredTicksForPhase,
     RECIPES,
     xpForNextLevel,
+    CAPTAIN_TALENTS,
+    HOMEWORLD_TALENTS,
     type GameState,
     type MissionKey,
     type MissionPhase,
     type LootMaterialKey,
     type RecipeKey,
     type HomePlanetMaterialKey,
+    type CaptainTalentBranch,
+    type HomeworldTalentBranch,
+    type CaptainTalentKey,
+    type HomeworldTalentKey,
   } from "./lib/game/model";
   import {
     tick,
@@ -22,6 +28,8 @@
     recallCaptain,
     craftRecipe,
     recomputeFleetAdmin,
+    buyCaptainTalent,
+    buyHomeworldTalent,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave } from "./lib/game/save";
@@ -301,6 +309,33 @@
     doSave();
   }
 
+  // Captain Talents (Task 6) -- per-captain-scoped, like doDispatchCaptainOnMission
+  // above (reads activeCaptain.id, spends THIS captain's own statPoints).
+  // Same "same state reference on failure" convention as buyCaptainTalent
+  // itself -- success is just checked and bailed on here, no extra validation
+  // duplicated in the UI layer.
+  function doBuyCaptainTalent(talentKey: CaptainTalentKey) {
+    const captain = activeCaptain;
+    const { next, success } = buyCaptainTalent(state, captain.id, talentKey);
+    if (!success) return;
+    state = next;
+    pushLog(`[${captain.label}] Talent learned: ${CAPTAIN_TALENTS[talentKey].label}.`);
+    doSave();
+  }
+
+  // Homeworld Talents (Task 6) -- fleet-wide, spends the shared adminPoints
+  // pool. Unlike doBuyCaptainTalent above, this never touches state.captains
+  // directly here (buyHomeworldTalent itself appends a new captain internally
+  // for unlockCaptainSlot-effect nodes -- see tick.ts) -- App.svelte just
+  // swaps in whatever `next` comes back, same as every other do* handler.
+  function doBuyHomeworldTalent(talentKey: HomeworldTalentKey) {
+    const { next, success } = buyHomeworldTalent(state, talentKey);
+    if (!success) return;
+    state = next;
+    pushLog(`Homeworld talent unlocked: ${HOMEWORLD_TALENTS[talentKey].label}.`);
+    doSave();
+  }
+
   function doExportSave() {
     const raw = exportRawSave();
     if (!raw) return;
@@ -427,6 +462,77 @@
           </button>
         </Panel>
       {/each}
+
+      <!-- Homeworld Talents (Task 6, Captain & Homeworld Talent Trees) --
+           fleet-wide (not per-captain -- reads state.adminPoints /
+           state.unlockedHomeworldTalents directly, never activeCaptain),
+           placed after Refinery/Fabrication above. Same fixed-5-branch
+           iteration pattern as the Captain Talents panel under Fleet Ops, so
+           Homeland Defense/Citizenry (zero entries today, see model.ts)
+           render as labeled, empty columns.
+
+           GATING NOTE on unlockCaptainSlot-effect nodes (fleetLogisticsSlot1/
+           2/3): buyHomeworldTalent (tick.ts) ONLY validates the node's own
+           `talent.cost` against state.adminPoints -- it does NOT read or
+           enforce `effect.atLevel`/`effect.statPointCost`/
+           `effect.componentsCost` at all (see the NOTE comment inside
+           buyHomeworldTalent's own unlockCaptainSlot branch). Those 3 fields
+           were carried over from the old CAPTAIN_SLOT_UNLOCKS shape, which
+           was captain-scoped (gated a SPECIFIC captain's own level/
+           statPoints/Components). buyHomeworldTalent takes no captainId --
+           it's a pure fleet-wide adminPoints purchase with no target
+           captain to check a "level X" or "statPoints Y" requirement
+           against, so there is no well-defined captain to enforce those
+           fields on here either. Rather than inventing a resolution (e.g.
+           picking activeCaptain as an arbitrary stand-in, which the
+           underlying function does not do and was never asked to do), this
+           panel surfaces atLevel/statPointCost/componentsCost as READ-ONLY
+           informational text only -- the buy button's disabled state gates
+           SOLELY on what buyHomeworldTalent actually checks (adminPoints,
+           requires-chain, not-already-owned), so the button is never
+           disabled for a reason the underlying function doesn't enforce. -->
+      <Panel>
+        <div class="panel-title">HOMEWORLD TALENTS</div>
+        <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
+        {#each (["fleetLogistics", "homelandDefense", "citizenry", "economy", "industry"] as HomeworldTalentBranch[]) as branch}
+          {@const nodes = Object.entries(HOMEWORLD_TALENTS).filter(([, def]) => def.branch === branch)}
+          <div class="skill-branch">
+            <div class="skill-branch-title">{branch}</div>
+            {#if nodes.length === 0}
+              <p class="prestige-text">Not yet available.</p>
+            {:else}
+              {#each nodes as [key, talent]}
+                {@const owned = state.unlockedHomeworldTalents.includes(key as HomeworldTalentKey)}
+                {@const locked = !owned && talent.requires !== null && !state.unlockedHomeworldTalents.includes(talent.requires)}
+                {@const buyable = !owned && !locked && state.adminPoints >= talent.cost}
+                <div class="skill-node" class:owned={owned} class:locked={locked}>
+                  <div>
+                    <div class="skill-node-label">{talent.label}</div>
+                    <div class="skill-node-status">
+                      {#if owned}
+                        Owned
+                      {:else if locked}
+                        Requires: {HOMEWORLD_TALENTS[talent.requires!].label}
+                      {:else}
+                        Cost: {formatNumber(talent.cost)} Admin Points
+                      {/if}
+                      {#if talent.effect.type === "unlockCaptainSlot"}
+                        <br />(Ref. only, not enforced by purchase logic — see code comment above: at captain level
+                        {talent.effect.atLevel}, {talent.effect.statPointCost} stat pts, {talent.effect.componentsCost} components)
+                      {/if}
+                    </div>
+                  </div>
+                  {#if !owned}
+                    <button class="buy-btn" disabled={!buyable} on:click={() => doBuyHomeworldTalent(key as HomeworldTalentKey)}>
+                      Unlock
+                    </button>
+                  {/if}
+                </div>
+              {/each}
+            {/if}
+          </div>
+        {/each}
+      </Panel>
       {/if}
 
       {#if activeTab === "sectorSpace"}
@@ -499,6 +605,53 @@
         </div>
         <div class="research-readout">{formatNumber(activeCaptain.xp)} / {formatNumber(xpForNextLevel(activeCaptain.level))} XP</div>
         <div class="research-cost">Stat Points: {formatNumber(activeCaptain.statPoints)}</div>
+      </Panel>
+
+      <!-- Captain Talents (Task 6, Captain & Homeworld Talent Trees) --
+           per-captain-scoped, like Captain Leveling above (reads
+           activeCaptain, not the whole fleet) -- spends THIS captain's own
+           statPoints, records the unlock on THIS captain only
+           (activeCaptain.unlockedCaptainTalents), never touches any other
+           captain's state. Iterates the FIXED 5-branch list, not
+           Object.keys(CAPTAIN_TALENTS) -- so Tactical/Science/Diplomacy
+           (currently zero entries, see model.ts) still render as labeled,
+           empty columns rather than not appearing at all. -->
+      <Panel>
+        <div class="panel-title">CAPTAIN TALENTS — {activeCaptain.label}</div>
+        {#each (["command", "tactical", "science", "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}
+          {@const nodes = Object.entries(CAPTAIN_TALENTS).filter(([, def]) => def.branch === branch)}
+          <div class="skill-branch">
+            <div class="skill-branch-title">{branch}</div>
+            {#if nodes.length === 0}
+              <p class="prestige-text">Not yet available.</p>
+            {:else}
+              {#each nodes as [key, talent]}
+                {@const owned = activeCaptain.unlockedCaptainTalents.includes(key as CaptainTalentKey)}
+                {@const locked = !owned && talent.requires !== null && !activeCaptain.unlockedCaptainTalents.includes(talent.requires)}
+                {@const buyable = !owned && !locked && activeCaptain.statPoints >= talent.cost}
+                <div class="skill-node" class:owned={owned} class:locked={locked}>
+                  <div>
+                    <div class="skill-node-label">{talent.label}</div>
+                    <div class="skill-node-status">
+                      {#if owned}
+                        Owned
+                      {:else if locked}
+                        Requires: {CAPTAIN_TALENTS[talent.requires!].label}
+                      {:else}
+                        Cost: {formatNumber(talent.cost)} Stat Points
+                      {/if}
+                    </div>
+                  </div>
+                  {#if !owned}
+                    <button class="buy-btn" disabled={!buyable} on:click={() => doBuyCaptainTalent(key as CaptainTalentKey)}>
+                      Learn
+                    </button>
+                  {/if}
+                </div>
+              {/each}
+            {/if}
+          </div>
+        {/each}
       </Panel>
       {/if}
 
