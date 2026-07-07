@@ -65,9 +65,11 @@
   let activeCaptainIndex = 0;
   let paused = false;
 
-  // Outer bottom nav (Task 1, Phase 4) -- 5 tabs, no router library (see
-  // design doc: single-page idle game, no deep-linking/history need). Default
-  // lands on Fleet Ops since captains/missions are the core loop today.
+  // Outer bottom nav (Task 1, Phase 4; split from 5 to 6 tabs in the UI
+  // Redesign, Task 7 -- see docs/plans/2026-07-07-ui-redesign-plan.md), no
+  // router library (see design doc: single-page idle game, no deep-linking/
+  // history need). Default lands on Fleet Captain's since captains/missions
+  // are the core loop today.
   type TabKey = "homeworld" | "sectorSpace" | "fleetCaptains" | "fleetOperations" | "battlespace" | "system";
   let activeTab: TabKey = "fleetCaptains";
   let tickHandle: ReturnType<typeof setInterval>;
