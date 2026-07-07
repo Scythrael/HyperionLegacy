@@ -6,19 +6,26 @@
     freshState,
     MISSIONS,
     requiredTicksForPhase,
+    RECIPES,
+    xpForNextLevel,
+    CAPTAIN_SLOT_UNLOCKS,
     type GameState,
     type MissionKey,
     type MissionPhase,
     type LootMaterialKey,
+    type RecipeKey,
+    type HomePlanetMaterialKey,
   } from "./lib/game/model";
   import {
     tick,
     tickCaptainMission,
     dispatchCaptainOnMission,
     recallCaptain,
+    craftRecipe,
+    unlockCaptainSlot,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
-  import { saveToLocalStorage, loadFromLocalStorage, clearSave } from "./lib/game/save";
+  import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
 
   // DEV_MODE — Vercel §9.5.3: true on Preview, false on Production. Locally,
@@ -214,11 +221,22 @@
       }
       if (anyLootDelivered) {
         // Field-by-field, matching tick.ts's own homePlanet merge exactly --
-        // added ONTO existing totals, never replacing them.
+        // added ONTO existing totals, never replacing them. The
+        // `...state.homePlanet.storage` spread MUST come first, before the 3
+        // named-field overwrites below -- otherwise this object literal would
+        // silently drop any OTHER field on homePlanet.storage that this loop
+        // doesn't itself touch (refinedMaterial, components, added by the
+        // Homeworld crafting system) on every poll that delivers loot. This is
+        // the exact class of bug tick.ts's own tick() function already
+        // guards against (see its comment referencing the "prestige silently
+        // dropped homePlanet" production incident) -- this live-loop poll path
+        // is a second, independent place doing the same merge, and needed the
+        // same fix. Do not remove this spread.
         state = {
           ...state,
           homePlanet: {
             storage: {
+              ...state.homePlanet.storage,
               commonOre: state.homePlanet.storage.commonOre + homePlanetDelta.commonOre,
               uncommonMaterial: state.homePlanet.storage.uncommonMaterial + homePlanetDelta.uncommonMaterial,
               rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
@@ -263,6 +281,35 @@
   function simulateOffline(hours: number) {
     state = tick(hours * 3600, state); // fleet-wide: advances every captain, matches real offline catch-up
     pushLog(`[DEV] Simulated ${hours}h offline for the whole fleet.`);
+  }
+
+  function doCraftRecipe(recipeKey: RecipeKey) {
+    const { next, success } = craftRecipe(state, recipeKey);
+    if (!success) return;
+    state = next;
+    pushLog(`Crafted: ${RECIPES[recipeKey].label}.`);
+    doSave();
+  }
+
+  function doUnlockCaptainSlot() {
+    const captain = activeCaptain;
+    const { next, success } = unlockCaptainSlot(state, captain.id);
+    if (!success) return;
+    state = next;
+    pushLog(`[${captain.label}] Spent stat points and Components to unlock a new captain slot.`);
+    doSave();
+  }
+
+  function doExportSave() {
+    const raw = exportRawSave();
+    if (!raw) return;
+    const blob = new Blob([raw], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `fleet-admiral-save-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function resetSave() {
@@ -335,6 +382,32 @@
           </div>
         </div>
       </Panel>
+
+      <!-- Refinery/Fabrication (Task 8, Phase 4) -- one panel per RECIPES
+           entry, fleet-wide (not per-captain -- Homeworld structures belong
+           to the whole fleet, unlike the per-captain MISSIONS panel under
+           Fleet Ops). Iterates RECIPES rather than hardcoding each recipe's
+           markup twice, so a 3rd recipe added to RECIPES later (per that
+           object's own header comment) picks up a panel automatically. -->
+      {#each Object.entries(RECIPES) as [recipeKey, recipe]}
+        {@const inputEntries = Object.entries(recipe.inputs) as [HomePlanetMaterialKey, number][]}
+        {@const affordable = inputEntries.every(([key, amount]) => state.homePlanet.storage[key] >= amount)}
+        <Panel>
+          <div class="panel-title">{recipeKey === "refineUnobtainium" ? "REFINERY" : "FABRICATION"}</div>
+          <div class="research-name">{recipe.label}</div>
+          <div class="research-cost">
+            Requires:
+            {#each inputEntries as [key, amount], i}
+              {formatNumber(amount)} {key}{i < inputEntries.length - 1 ? ", " : ""}
+              (have {formatNumber(state.homePlanet.storage[key])})
+            {/each}
+          </div>
+          <div class="research-cost">Produces: {formatNumber(recipe.output.amount)} {recipe.output.key}</div>
+          <button class="buy-btn" disabled={!affordable} on:click={() => doCraftRecipe(recipeKey as RecipeKey)}>
+            Craft · {recipe.label}
+          </button>
+        </Panel>
+      {/each}
       {/if}
 
       {#if activeTab === "sectorSpace"}
@@ -390,6 +463,40 @@
           {/if}
         {/if}
       </Panel>
+
+      <!-- Captain Leveling (Task 8, Phase 4) -- per-captain-scoped, like
+           MISSIONS above (reads activeCaptain, not the whole fleet), replacing
+           the spot Captain Prestige used to occupy. The Unlock section below
+           is only rendered at all (not merely disabled) when
+           CAPTAIN_SLOT_UNLOCKS has a next entry for the current roster size --
+           once the roster has used up every table entry, there's nothing left
+           to show. -->
+      <Panel>
+        <div class="panel-title">CAPTAIN LEVELING</div>
+        <div class="research-name">Level {activeCaptain.level}</div>
+        <div class="research-bar-track">
+          <div class="research-bar-fill" style="width:{Math.min(100, (activeCaptain.xp / xpForNextLevel(activeCaptain.level)) * 100)}%"></div>
+        </div>
+        <div class="research-readout">{formatNumber(activeCaptain.xp)} / {formatNumber(xpForNextLevel(activeCaptain.level))} XP</div>
+        <div class="research-cost">Stat Points: {formatNumber(activeCaptain.statPoints)}</div>
+
+        {#if CAPTAIN_SLOT_UNLOCKS[state.captains.length - 1]}
+          {@const unlockDef = CAPTAIN_SLOT_UNLOCKS[state.captains.length - 1]}
+          {@const canUnlock =
+            activeCaptain.level >= unlockDef.atLevel &&
+            activeCaptain.statPoints >= unlockDef.statPointCost &&
+            state.homePlanet.storage.components >= unlockDef.componentsCost}
+          <div class="research-cost">
+            Next slot: requires Level {unlockDef.atLevel}, {formatNumber(unlockDef.statPointCost)} Stat Points,
+            {formatNumber(unlockDef.componentsCost)} Components
+            (have Level {activeCaptain.level}, {formatNumber(activeCaptain.statPoints)} Stat Points,
+            {formatNumber(state.homePlanet.storage.components)} Components)
+          </div>
+          <button class="buy-btn" disabled={!canUnlock} on:click={doUnlockCaptainSlot}>
+            Unlock New Captain Slot
+          </button>
+        {/if}
+      </Panel>
       {/if}
 
       {#if activeTab === "battlespace"}
@@ -414,7 +521,10 @@
             ></button>
           {/each}
         </div>
-        <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
+        <div class="dev-row">
+          <button class="dev-btn" on:click={doExportSave}>Export Save</button>
+          <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
+        </div>
       </Panel>
 
       {#if DEV_MODE_ENV && devPanelOpen}
