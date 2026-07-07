@@ -73,24 +73,13 @@
   let saveHandle: ReturnType<typeof setInterval>;
   let lastPollTime = Date.now();
 
-  // Per-captain cycle tracking, keyed by captain id. Each captain's own
-  // tickDurationSeconds can diverge from the others' (nothing does that yet,
-  // but the data model is built for it -- see design doc), so each needs its
-  // own independent barCycleStart/nowTick rather than one shared pair.
-  interface CaptainCycle {
-    barCycleStart: number;
-    nowTick: number;
-  }
-  let captainCycles: Record<number, CaptainCycle> = {};
-
-  function ensureCaptainCycles(now: number) {
-    for (const captain of state.captains) {
-      if (!captainCycles[captain.id]) {
-        captainCycles[captain.id] = { barCycleStart: now, nowTick: now };
-      }
-    }
-    captainCycles = captainCycles; // reassign to trigger Svelte reactivity on the mutated object
-  }
+  // Fleet-wide tick cycle (collapsed from a per-captain-id-keyed map during
+  // the UI Redesign, Task 4 -- see docs/plans/2026-07-07-ui-redesign-plan.md
+  // and docs/plans/2026-07-07-ui-redesign-design.md). tickDurationSeconds is
+  // now a single field on GameState (Task 1 of this same plan), so every
+  // captain advances in lockstep on ONE shared cycle instead of each
+  // captain owning its own independent barCycleStart/nowTick pair.
+  let cycle: { barCycleStart: number; nowTick: number } = { barCycleStart: Date.now(), nowTick: Date.now() };
 
   function pushLog(msg: string) {
     logEntries = [msg, ...logEntries].slice(0, 8);
@@ -127,22 +116,25 @@
       pushLog("New save initialized.");
     }
     lastPollTime = Date.now();
-    ensureCaptainCycles(lastPollTime);
+    cycle = { barCycleStart: lastPollTime, nowTick: lastPollTime };
 
-    // Tick-bar loop — checks EVERY captain's own cycle progress every 100ms,
-    // firing tickCaptainMission (Phase 3a) independently for whichever
-    // mission captain(s) complete a cycle on this poll. Idle captains
-    // (mission === null) have no passive economy anymore -- see the
-    // Phase 4 comment on tick()'s loop body below -- so only mission
+    // Tick-bar loop — checks the ONE shared fleet-wide cycle's progress every
+    // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
+    // in lockstep whenever that shared cycle completes on this poll (Task 4
+    // of the UI Redesign plan collapsed this from a per-captain-cycle loop --
+    // see docs/plans/2026-07-07-ui-redesign-plan.md -- since
+    // tickDurationSeconds is fleet-wide now, per Task 1 of that same plan).
+    // Idle captains (mission === null) have no passive economy anymore -- see
+    // the Phase 4 comment on tick()'s loop body below -- so only mission
     // captains ever have anything to fire here. Fleet-wide gameTimeSeconds
     // advances continuously off real elapsed time every poll, decoupled from
-    // any single captain's cadence (gameTimeSeconds is fleet bookkeeping; it
+    // the shared cycle's cadence (gameTimeSeconds is fleet bookkeeping; it
     // is never read by tickCaptainMission's production math, so this
     // decoupling cannot desync production from time).
-    // barSeconds is floored at 1 real second per captain so dev-speed
-    // presets never make that captain's bar flicker unreadably — multiple
-    // game-ticks just batch into one visual cycle, which is still correct
-    // because tickCaptainMission is closed-form.
+    // barSeconds is floored at 1 real second so dev-speed presets never make
+    // the shared bar flicker unreadably — multiple game-ticks just batch
+    // into one visual cycle, which is still correct because
+    // tickCaptainMission is closed-form.
     tickHandle = setInterval(() => {
       const now = Date.now();
 
@@ -154,13 +146,10 @@
 
       if (paused) {
         // Resuming: discard the paused wall-clock gap entirely for the fleet
-        // clock AND every captain's cycle, rather than letting it read as
-        // elapsed time (which would fire unearned progress on resume).
+        // clock AND the shared cycle, rather than letting it read as elapsed
+        // time (which would fire unearned progress on resume).
         lastPollTime = now;
-        for (const id of Object.keys(captainCycles)) {
-          captainCycles[Number(id)].barCycleStart = now;
-        }
-        captainCycles = captainCycles;
+        cycle.barCycleStart = now;
         paused = false;
         return;
       }
@@ -169,7 +158,13 @@
       lastPollTime = now;
       state = { ...state, gameTimeSeconds: state.gameTimeSeconds + realElapsedSeconds * speed };
 
-      ensureCaptainCycles(now);
+      // barSeconds/progress computed ONCE per poll now, from the fleet-wide
+      // state.tickDurationSeconds -- not per-captain (there's only one cycle
+      // to check now, not a map keyed by captain id).
+      const barSeconds = Math.max(1, state.tickDurationSeconds / speed);
+      cycle.nowTick = now;
+      const progress = (now - cycle.barCycleStart) / 1000 / barSeconds;
+
       let captains = state.captains;
       let anyFired = false;
 
@@ -178,38 +173,33 @@
       // merged into state.homePlanet.storage once below -- same "accumulate
       // locally, apply once" shape as gameTimeSeconds and captains itself.
       // Starts all-zero and stays that way (anyLootDelivered stays false) on
-      // a poll where no captain's bar completes or no completed captain is on
-      // a mission, so the homePlanet merge below can be skipped entirely on
-      // the (overwhelmingly common) no-op poll -- same reactivity-churn
-      // discipline as the existing anyFired guard.
+      // a poll where the shared cycle doesn't complete, or no captain on a
+      // mission delivers loot this cycle, so the homePlanet merge below can
+      // be skipped entirely on the (overwhelmingly common) no-op poll --
+      // same reactivity-churn discipline as the existing anyFired guard.
       let anyLootDelivered = false;
       const homePlanetDelta: Record<LootMaterialKey, number> = { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
 
-      for (let i = 0; i < captains.length; i++) {
-        const captain = captains[i];
-        const cycle = captainCycles[captain.id];
-        const barSeconds = Math.max(1, captain.tickDurationSeconds / speed);
-        cycle.nowTick = now;
-        const progress = (now - cycle.barCycleStart) / 1000 / barSeconds;
-        // Idle captains (mission === null) have no passive economy anymore --
-        // missions are the only way a captain does anything (mirrors
-        // tick.ts's tick(), which returns idle captains completely
-        // unchanged). Only a captain WITH an active mission has anything to
-        // advance when their bar completes; an idle captain's bar is simply
-        // never reset, which is harmless since nothing reads it once the
-        // TICK panel (the only consumer of per-captain idle bar progress) is
-        // gone -- see this commit's message for the removal reasoning.
-        if (progress >= 1 && captain.mission) {
-          const gameSecondsThisCycle = barSeconds * speed;
+      if (progress >= 1) {
+        const gameSecondsThisCycle = barSeconds * speed;
+        // Same deltaSeconds -> ticksElapsed conversion tick() uses in
+        // tick.ts (divide by the fleet's shared tickDurationSeconds) --
+        // computed ONCE here and reused for every captain below, keeping the
+        // live loop's mission cadence identical to the offline catch-up
+        // path's, which is the whole point of this task.
+        const ticksElapsed = gameSecondsThisCycle / state.tickDurationSeconds;
+
+        for (let i = 0; i < captains.length; i++) {
+          const captain = captains[i];
+          // Idle captains (mission === null) have no passive economy anymore
+          // -- missions are the only way a captain does anything (mirrors
+          // tick.ts's tick(), which returns idle captains completely
+          // unchanged).
+          if (captain.mission === null) continue;
           if (!anyFired) {
             captains = [...captains]; // copy on first write this poll
             anyFired = true;
           }
-          // Same deltaSeconds -> ticksElapsed conversion tick() uses in
-          // tick.ts (divide by THIS captain's own tickDurationSeconds) --
-          // keeps the live loop's mission cadence identical to the offline
-          // catch-up path's, which is the whole point of this task.
-          const ticksElapsed = gameSecondsThisCycle / captain.tickDurationSeconds;
           const { captain: updatedCaptain, homePlanetDelta: delta } = tickCaptainMission(ticksElapsed, captain);
           captains[i] = updatedCaptain;
           if (delta.commonOre !== 0 || delta.uncommonMaterial !== 0 || delta.rareMaterial !== 0) {
@@ -218,11 +208,13 @@
             homePlanetDelta.uncommonMaterial += delta.uncommonMaterial;
             homePlanetDelta.rareMaterial += delta.rareMaterial;
           }
-          cycle.barCycleStart = now;
         }
+
+        // Reset once for the whole fleet, not per-captain -- there's only
+        // one shared cycle now.
+        cycle.barCycleStart = now;
       }
 
-      captainCycles = captainCycles; // reassign to trigger reactivity on the mutated cycle map
       if (anyFired) {
         state = { ...state, captains };
       }
@@ -374,16 +366,15 @@
   }
 
   $: activeCaptain = state.captains[activeCaptainIndex];
-  // Re-added per user request after Phase 4's panel cleanup dropped it --
-  // shown on EVERY tab now (not just Fleet Ops), since it's a persistent
-  // per-captain cadence readout, not something scoped to any one screen.
-  // Fallback only covers the one-frame window before onMount's
-  // ensureCaptainCycles seeds an entry (same assumption noted at
-  // ensureCaptainCycles itself: roster size never shrinks below 1).
-  $: activeCycle = captainCycles[activeCaptain?.id] ?? { barCycleStart: Date.now(), nowTick: Date.now() };
-  $: activeBarSeconds = Math.max(1, (activeCaptain?.tickDurationSeconds ?? 10) / (speed || 1));
-  $: activeTickProgress = Math.min(1, Math.max(0, (activeCycle.nowTick - activeCycle.barCycleStart) / 1000 / activeBarSeconds));
-  $: activeTickRemaining = Math.max(0, activeBarSeconds * (1 - activeTickProgress));
+  // Fleet-wide tick readout (collapsed from per-captain activeCycle/
+  // activeBarSeconds/activeTickProgress/activeTickRemaining during the UI
+  // Redesign, Task 4 -- see docs/plans/2026-07-07-ui-redesign-plan.md).
+  // There's only ONE cycle to read now (the shared `cycle` object above), so
+  // these are no longer scoped to activeCaptain at all -- consumed by the new
+  // global header bar landing in Task 6 of that same plan.
+  $: globalBarSeconds = Math.max(1, state.tickDurationSeconds / (speed || 1));
+  $: globalTickProgress = Math.min(1, Math.max(0, (cycle.nowTick - cycle.barCycleStart) / 1000 / globalBarSeconds));
+  $: globalTickRemaining = Math.max(0, globalBarSeconds * (1 - globalTickProgress));
 </script>
 
 <div class="root">
