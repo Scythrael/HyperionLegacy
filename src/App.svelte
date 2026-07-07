@@ -8,6 +8,7 @@
     requiredTicksForPhase,
     RECIPES,
     xpForNextLevel,
+    xpForNextFleetAdminLevel,
     CAPTAIN_TALENTS,
     HOMEWORLD_TALENTS,
     type GameState,
@@ -392,6 +393,20 @@
       </div>
     </Panel>
 
+    <div class="top-bar">
+      <div class="top-bar-row">
+        <span class="top-bar-label">Fleet Admiral · Level {state.fleetAdminLevel}</span>
+        <span class="top-bar-value">{formatNumber(state.fleetAdminXp)} / {formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} XP</span>
+      </div>
+      <div class="research-bar-track">
+        <div class="research-bar-fill" style="width:{Math.min(100, (state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel)) * 100)}%"></div>
+      </div>
+      <div class="tick-bar-track">
+        <div class="tick-bar-fill" style="width:{globalTickProgress * 100}%"></div>
+      </div>
+      <div class="tick-bar-readout">{globalTickRemaining.toFixed(1)}s</div>
+    </div>
+
     <main class="main">
       <div class="nav-tabs">
         <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
@@ -400,14 +415,6 @@
         <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
         <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
       </div>
-
-      <Panel>
-        <div class="panel-title">TICK — {activeCaptain?.label ?? ""}</div>
-        <div class="tick-bar-track">
-          <div class="tick-bar-fill" style="width:{activeTickProgress * 100}%"></div>
-        </div>
-        <div class="tick-bar-readout">{activeTickRemaining.toFixed(1)}s</div>
-      </Panel>
 
       {#if activeTab === "homeworld"}
       <Panel>
@@ -729,8 +736,16 @@
        Also adds env(safe-area-inset-bottom) so devices with a gesture-nav
        home indicator (which eats into the same bottom region .nav-tabs sits
        in) get proportionally more clearance instead of a fixed guess that
-       assumes no inset -- falls back to 0px on devices/browsers without it. */
-    padding: 20px 16px calc(96px + env(safe-area-inset-bottom, 0px));
+       assumes no inset -- falls back to 0px on devices/browsers without it.
+       Top padding grows to clear the new fixed .top-bar (added in the UI
+       Redesign) -- mirrors how the bottom padding already clears the fixed
+       .nav-tabs bar below. 90px is a generous estimate of .top-bar's real
+       height (2 rows of text + 2 progress bars + padding); this is the one
+       piece of this plan that genuinely benefits from a live-device check
+       once deployed, since pixel-exact panel heights can't be verified
+       without a renderer in this environment -- flag as such in the PR/
+       session log if it's ever visibly off. */
+    padding: calc(90px + env(safe-area-inset-top, 0px)) 16px calc(96px + env(safe-area-inset-bottom, 0px));
   }
   .header-left { display: flex; flex-direction: column; }
   .title {
@@ -759,6 +774,30 @@
     cursor: pointer;
   }
   .main { display: flex; flex-direction: column; gap: 14px; }
+  /* Fixed to the TOP of the viewport, mirroring .nav-tabs' fixed-to-bottom
+     treatment -- "always on top" per the design doc, visible regardless of
+     which tab/sub-tab is active. Sits below the (non-fixed, scrolls-away)
+     FLEET ADMIRAL title panel in document order, but visually pins above it
+     once that panel scrolls out of view. */
+  .top-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: var(--color-panel-bg-strong);
+    border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    padding: 10px 16px;
+    /* Devices with a notch/status-bar inset reserve a safe area at the TOP of
+       the screen -- this bar sits flush against it (position: fixed, top: 0),
+       so its own top padding needs to grow to clear that inset, same pattern
+       as .nav-tabs' bottom padding already handles for the bottom inset. */
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  }
+  .top-bar-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .top-bar-label { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
+  .top-bar-value { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); }
   /* Outer nav (Task 1, Phase 4) -- fixed to the bottom of the viewport per
      the design doc ("tabs along the bottom of the screen"). Deliberately
      distinct from .captain-tab below (solid panel-strength background,
