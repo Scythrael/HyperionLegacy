@@ -232,6 +232,15 @@ describe("prestige — fleet-wide reset now uses earned slot count, grants a Ski
     expect(next.unlockedSkillNodes).toEqual(["commandRank1"]); // survives, unlike captain stacks
   });
 
+  it("does NOT reset homePlanet.storage -- fleet-wide storage survives Fleet Prestige same as skillPoints", () => {
+    const state = freshState();
+    state.captains[0].lifetimeComponents = 100;
+    state.homePlanet.storage = { commonOre: 250, uncommonMaterial: 12, rareMaterial: 3 };
+
+    const { next } = prestige(state);
+    expect(next.homePlanet.storage).toEqual({ commonOre: 250, uncommonMaterial: 12, rareMaterial: 3 });
+  });
+
   it("does nothing if gained <= 0 (skillPoints/unlockedSkillNodes untouched, same object returned)", () => {
     const state = freshState();
     state.skillPoints = 5;

@@ -308,6 +308,7 @@ export function prestige(state: GameState): { next: GameState; gained: number } 
     gameTimeSeconds: state.gameTimeSeconds,
     skillPoints: state.skillPoints + 1,
     unlockedSkillNodes: state.unlockedSkillNodes,
+    homePlanet: state.homePlanet, // never reset by Fleet Prestige, same as skillPoints/unlockedSkillNodes
   };
   return { next, gained };
 }
