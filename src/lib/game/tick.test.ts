@@ -226,7 +226,6 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     expect(result.captains[0].id).toBe(before.id);
     expect(result.captains[0].label).toBe(before.label);
     expect(result.captains[0].shipType).toBe(before.shipType);
-    expect(result.captains[0].tickDurationSeconds).toBe(before.tickDurationSeconds);
     expect(result.captains[0].mission).toBe(before.mission);
     expect(result.captains[0].xp).toBe(before.xp);
     expect(result.captains[0].level).toBe(before.level);
@@ -263,7 +262,7 @@ describe("tick() — idle captains do nothing, mission captains route through ti
   it("mission loot aggregates across all captains on missions into state.homePlanet.storage in one tick() call", () => {
     // Hand-traced against tickCaptainMission's CURRENT implementation (tick.ts):
     //
-    // Captain 0: phase "extracting", phaseProgressTicks: 0. tickDurationSeconds=10, deltaSeconds=10
+    // Captain 0: phase "extracting", phaseProgressTicks: 0. state.tickDurationSeconds=10, deltaSeconds=10
     // -> ticksElapsed = 1. requiredTicks for "extracting" (shortOreRun) = ceil(100/10) = 10.
     // ticksLeftInPhase = 10 - 0 = 10; ticksToApply = min(1, 10) = 1. Epsilon-snap check:
     // |0 + 1 - 10| = 9, not < 1e-9, so ticksToApply stays 1. fromWhole = floor(0) = 0,
@@ -339,7 +338,7 @@ describe("tick() — idle captains do nothing, mission captains route through ti
 
   it("delivers cargo to state.homePlanet.storage, added to existing totals, when a mission's cycle completes this tick", () => {
     // Hand-traced: phase "unloading" with unloadTicks=1 (shortOreRun), phaseProgressTicks: 0.
-    // deltaSeconds=10, tickDurationSeconds=10 -> ticksElapsed=1. requiredTicks("unloading")=1.
+    // deltaSeconds=10, state.tickDurationSeconds=10 -> ticksElapsed=1. requiredTicks("unloading")=1.
     // ticksLeftInPhase = 1 - 0 = 1; ticksToApply = min(1,1) = 1. Not "extracting", so no loot roll
     // in this step. phaseProgressTicks becomes 1, remaining becomes 0. 1 >= requiredTicks(1) ->
     // phase completes. MISSION_PHASE_ORDER.indexOf("unloading") = 4 (last), nextIndex = 5 >=

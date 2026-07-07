@@ -70,7 +70,7 @@ const XP_PER_MISSION_CYCLE = 50;
 //
 // `ticksElapsed` is NOT deltaSeconds -- it's the caller's job (tick(), in
 // this same file) to convert deltaSeconds into ticksElapsed by dividing by
-// the captain's own tickDurationSeconds. This keeps mission progress on a
+// the fleet's shared tickDurationSeconds. This keeps mission progress on a
 // consistent per-captain cadence, rather than inventing a second timing
 // system.
 export function tickCaptainMission(
@@ -208,10 +208,14 @@ export function recomputeFleetAdmin(state: GameState): GameState {
 export function tick(deltaSeconds: number, state: GameState): GameState {
   if (deltaSeconds <= 0) return state;
 
+  // Fleet-wide cadence (moved off CaptainState during the UI Redesign -- see
+  // docs/plans/2026-07-07-ui-redesign-design.md) -- read ONCE, applied
+  // uniformly to every captain below, rather than each captain reading its
+  // own field.
+  const ticksElapsed = deltaSeconds / state.tickDurationSeconds;
   const homePlanetDelta = emptyLootTotals();
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
-    const ticksElapsed = deltaSeconds / captain.tickDurationSeconds;
     const { captain: updated, homePlanetDelta: delta } = tickCaptainMission(ticksElapsed, captain);
     (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
       homePlanetDelta[key] += delta[key];
