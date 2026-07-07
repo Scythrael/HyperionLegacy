@@ -72,7 +72,7 @@ export type MissionKey = keyof typeof MISSIONS;
 export interface CaptainMissionState {
   missionKey: MissionKey;
   phase: MissionPhase;
-  phaseProgressTicks: number; // continuous (can be fractional mid-tick), like research's progressSeconds
+  phaseProgressTicks: number; // continuous (can be fractional mid-tick) so multi-tick deltas land on exact phase boundaries
   cargo: Record<LootMaterialKey, number>;
   recalled: boolean; // if true, ends the loop (mission -> null) after THIS cycle's unloading completes,
   // instead of auto-restarting at ordersReceived. Does not interrupt the current cycle mid-flight.
