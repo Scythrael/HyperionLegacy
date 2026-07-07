@@ -60,4 +60,12 @@ write it down so you don't relitigate it later.
   `captainPrestige` (Task 7's Fleet Prestige has the identical gap). Worth
   a one-line fix (reset `captainCycles[id].barCycleStart` alongside the
   state reset) whenever someone is next in that function for another
-  reason.
+  reason. NOTE: `captainPrestige`/`prestige` no longer exist as of Phase 4
+  (Generator Stack removal) -- this whole entry is moot now and can be
+  deleted once Phase 4's docs pass (Task 9) does a full sweep of this file.
+- Phase 4 (Generator Stack removal) left several CSS rules in `App.svelte`'s
+  `<style>` block orphaned with no markup referencing them: `.tick-bar-*`,
+  `.research-status`, `.module-*`, `.prestige-row`/`-yield`/`-btn`,
+  `.spec-*`, `.skill-*`. Inert (no broken references, at worst an unused-
+  selector warning), deliberately left for a dedicated stylesheet cleanup
+  rather than expanding the panel-removal task into a full CSS audit.
