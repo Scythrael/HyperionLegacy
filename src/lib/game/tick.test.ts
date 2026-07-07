@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { tick, tickCaptainStack, prestige, captainPrestige, buySkillNode } from "./tick";
-import { freshState, freshCaptains } from "./model";
+import {
+  tick,
+  tickCaptainStack,
+  prestige,
+  captainPrestige,
+  buySkillNode,
+  tickCaptainMission,
+  dispatchCaptainOnMission,
+  recallCaptain,
+} from "./tick";
+import { freshState, freshCaptains, MISSIONS, type CaptainMissionState } from "./model";
 
 const NO_RESEARCH_BUFFS = { alloySynthesis: 1 };
 
@@ -223,6 +232,15 @@ describe("prestige — fleet-wide reset now uses earned slot count, grants a Ski
     expect(next.unlockedSkillNodes).toEqual(["commandRank1"]); // survives, unlike captain stacks
   });
 
+  it("does NOT reset homePlanet.storage -- fleet-wide storage survives Fleet Prestige same as skillPoints", () => {
+    const state = freshState();
+    state.captains[0].lifetimeComponents = 100;
+    state.homePlanet.storage = { commonOre: 250, uncommonMaterial: 12, rareMaterial: 3 };
+
+    const { next } = prestige(state);
+    expect(next.homePlanet.storage).toEqual({ commonOre: 250, uncommonMaterial: 12, rareMaterial: 3 });
+  });
+
   it("does nothing if gained <= 0 (skillPoints/unlockedSkillNodes untouched, same object returned)", () => {
     const state = freshState();
     state.skillPoints = 5;
@@ -293,5 +311,427 @@ describe("buySkillNode", () => {
     const { next, success } = buySkillNode(state, "researchAlloySynthesisSpeed");
     expect(success).toBe(false);
     expect(next).toBe(state);
+  });
+});
+
+function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
+  return {
+    missionKey,
+    phase: "ordersReceived",
+    phaseProgressTicks: 0,
+    cargo: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 },
+    recalled: false,
+  };
+}
+
+const ALWAYS_COMMON_ORE = () => 0; // lands on the first (commonOre) bucket every time -- see rollLootTable
+
+describe("tickCaptainMission — closed-form requirement", () => {
+  it("one big jump equals many small ticks, across multiple phase transitions", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain("shortOreRun");
+    // shortOreRun total ticks per cycle: 1 (orders) + 3 (out) + 10 (extract) + 3 (back) + 1 (unload) = 18.
+    // 40 ticksElapsed crosses more than one full cycle (auto-repeat).
+    const bigJump = tickCaptainMission(40, base, ALWAYS_COMMON_ORE);
+
+    let steppedCaptain = base;
+    const steppedDelta = { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
+    for (let i = 0; i < 400; i++) {
+      const result = tickCaptainMission(0.1, steppedCaptain, ALWAYS_COMMON_ORE);
+      steppedCaptain = result.captain;
+      steppedDelta.commonOre += result.homePlanetDelta.commonOre;
+      steppedDelta.uncommonMaterial += result.homePlanetDelta.uncommonMaterial;
+      steppedDelta.rareMaterial += result.homePlanetDelta.rareMaterial;
+    }
+
+    expect(bigJump.captain.mission).toEqual(steppedCaptain.mission);
+    expect(bigJump.homePlanetDelta).toEqual(steppedDelta);
+  });
+
+  it("zero or negative ticksElapsed is a no-op", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain();
+    const result = tickCaptainMission(0, base, ALWAYS_COMMON_ORE);
+    expect(result.captain).toBe(base);
+    expect(result.homePlanetDelta).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 });
+  });
+
+  it("a captain with no active mission is returned unchanged", () => {
+    const base = freshCaptains(1)[0]; // mission: null
+    const result = tickCaptainMission(100, base, ALWAYS_COMMON_ORE);
+    expect(result.captain).toBe(base);
+  });
+});
+
+describe("tickCaptainMission — phase progression", () => {
+  it("advances phaseProgressTicks within ordersReceived without completing it", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain();
+    const { captain } = tickCaptainMission(0.5, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.phase).toBe("ordersReceived");
+    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.5, 6);
+  });
+
+  it("completes ordersReceived (1 tick) and moves into transitOut", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain();
+    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.phase).toBe("transitOut");
+    expect(captain.mission!.phaseProgressTicks).toBe(0);
+  });
+
+  it("carries leftover ticks into the next phase in the same call", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain();
+    // 1.5 ticks: completes the 1-tick ordersReceived phase, carries 0.5 into transitOut.
+    const { captain } = tickCaptainMission(1.5, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.phase).toBe("transitOut");
+    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.5, 6);
+  });
+
+  it("advances all the way through extracting, transitBack, and unloading in one big call", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain(); // shortOreRun: 1+3+10+3+1 = 18 ticks for one full cycle
+    const { captain, homePlanetDelta } = tickCaptainMission(17.9, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.phase).toBe("unloading");
+    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.9, 6);
+    expect(homePlanetDelta).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 }); // not unloaded yet
+  });
+});
+
+describe("tickCaptainMission — extraction loot rolls", () => {
+  it("rolls loot once per whole tick crossed during extracting, adding extractionRatePerTick units each time", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // 3.5 ticks of extracting crosses whole boundaries 1, 2, 3 -- 3 rolls, all commonOre (rate 10 each).
+    const { captain } = tickCaptainMission(3.5, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.cargo.commonOre).toBe(30);
+    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(3.5, 6);
+  });
+
+  it("a large jump resolves every extraction tick's loot roll, not just the last one", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // Exactly 10 ticks completes extracting (cargoCapacity 100 / rate 10).
+    const { captain } = tickCaptainMission(10, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission!.cargo.commonOre).toBe(100);
+    expect(captain.mission!.phase).toBe("transitBack"); // extracting completed, advanced
+  });
+
+  it("respects the injected rng for a non-common tier", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    const ALWAYS_RARE = () => 0.9999; // lands in the last bucket (rareMaterial) -- see rollLootTable
+    const { captain } = tickCaptainMission(1, base, ALWAYS_RARE);
+    expect(captain.mission!.cargo.rareMaterial).toBe(10);
+    expect(captain.mission!.cargo.commonOre).toBe(0);
+  });
+});
+
+describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () => {
+  it("completing a full cycle (not recalled) delivers cargo to homePlanetDelta and restarts at ordersReceived", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
+    base.mission.cargo = { commonOre: 90, uncommonMaterial: 8, rareMaterial: 2 };
+    const { captain, homePlanetDelta } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE); // 1 tick completes unloadTicks=1
+
+    expect(homePlanetDelta).toEqual({ commonOre: 90, uncommonMaterial: 8, rareMaterial: 2 });
+    expect(captain.mission!.phase).toBe("ordersReceived"); // auto-repeated
+    expect(captain.mission!.phaseProgressTicks).toBe(0);
+    expect(captain.mission!.cargo).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 }); // reset
+    expect(captain.mission!.recalled).toBe(false);
+  });
+
+  it("completing a full cycle WHILE recalled ends the mission (mission becomes null)", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0, recalled: true };
+    base.mission.cargo = { commonOre: 50, uncommonMaterial: 0, rareMaterial: 0 };
+    const { captain, homePlanetDelta } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE);
+
+    expect(homePlanetDelta).toEqual({ commonOre: 50, uncommonMaterial: 0, rareMaterial: 0 });
+    expect(captain.mission).toBe(null);
+  });
+
+  it("a big jump can complete multiple full auto-repeat cycles, accumulating homePlanetDelta across all of them", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain(); // shortOreRun, 18 ticks/cycle
+    const { captain, homePlanetDelta } = tickCaptainMission(36, base, ALWAYS_COMMON_ORE); // exactly 2 full cycles
+
+    // Each cycle extracts 100 commonOre (10 ticks * 10/tick, always-common rng); 2 cycles = 200.
+    expect(homePlanetDelta).toEqual({ commonOre: 200, uncommonMaterial: 0, rareMaterial: 0 });
+    expect(captain.mission!.phase).toBe("ordersReceived"); // mid-3rd-cycle-start, not recalled
+    expect(captain.mission!.phaseProgressTicks).toBe(0);
+  });
+
+  it("recall takes effect at the end of the CURRENT cycle, not immediately", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 5, recalled: true };
+    // 3 more ticks: still mid-extraction, far from completing the cycle -- recalled flag is inert until unloading finishes.
+    const { captain } = tickCaptainMission(3, base, ALWAYS_COMMON_ORE);
+    expect(captain.mission).not.toBe(null);
+    expect(captain.mission!.phase).toBe("extracting");
+    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(8, 6);
+  });
+});
+
+describe("tick() — routes captains on a mission through tickCaptainMission instead of production", () => {
+  it("a captain on a mission produces NOTHING via their normal Generator Stack this tick", () => {
+    const state = freshState();
+    state.captains[0].modules.miner = 5; // would normally produce 5 ore/s * fleetMult * capMult * specMult
+    state.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "transitOut",
+      phaseProgressTicks: 0,
+      cargo: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 },
+      recalled: false,
+    };
+
+    // tickDurationSeconds defaults to 10 (freshCaptainStack) -> 100s / 10 = 10 mission ticks.
+    // tick() branches on captain.mission !== null BEFORE ever calling tickCaptainStack for this
+    // captain, so resources.ore must stay at its freshState() starting value of 0 regardless of
+    // what tickCaptainMission does internally with those 10 ticks.
+    const result = tick(100, state);
+    expect(result.captains[0].resources.ore).toBe(0);
+  });
+
+  it("a captain with no mission still produces normally (no regression)", () => {
+    const state = freshState();
+    state.captains[0].modules.miner = 1;
+    // mission is null (freshCaptainStack's baseline) -- this captain must go through
+    // tickCaptainStack exactly as tickCaptainStack's own describe block already verifies:
+    // baseRate 1 * count 1 * fleetMult 1 * capMult 1 * specMult 1 * deltaSeconds 10 = 10.
+    const result = tick(10, state);
+    expect(result.captains[0].resources.ore).toBeCloseTo(10, 6);
+  });
+
+  it("gameTimeSeconds still advances by deltaSeconds exactly once, even with mission captains present", () => {
+    const state = freshState();
+    state.captains = freshCaptains(2);
+    state.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "ordersReceived",
+      phaseProgressTicks: 0,
+      cargo: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 },
+      recalled: false,
+    };
+    const result = tick(10, state);
+    expect(result.gameTimeSeconds).toBe(10);
+  });
+
+  it("mission loot aggregates across all captains on missions into state.homePlanet.storage in one tick() call", () => {
+    // Hand-traced against tickCaptainMission's CURRENT implementation (tick.ts):
+    //
+    // Captain 0: phase "extracting", phaseProgressTicks: 0. tickDurationSeconds=10, deltaSeconds=10
+    // -> ticksElapsed = 1. requiredTicks for "extracting" (shortOreRun) = ceil(100/10) = 10.
+    // ticksLeftInPhase = 10 - 0 = 10; ticksToApply = min(1, 10) = 1. Epsilon-snap check:
+    // |0 + 1 - 10| = 9, not < 1e-9, so ticksToApply stays 1. fromWhole = floor(0) = 0,
+    // toWhole = floor(0+1) = 1 -> 1 loot roll, cargo gains 10 units (some tier, rng-dependent).
+    // phaseProgressTicks becomes 1, remaining becomes 0. 1 < 10, so phase does NOT complete this
+    // tick -- captain 0 stays in "extracting", nothing delivered to homePlanetDelta.
+    //
+    // Captain 1: phase "extracting", phaseProgressTicks: 9, cargo.commonOre: 90 (pre-seeded, as if
+    // 9 prior whole-tick rolls all landed commonOre). Same ticksElapsed = 1. ticksLeftInPhase =
+    // 10 - 9 = 1; ticksToApply = min(1, 1) = 1. Epsilon-snap check: |9 + 1 - 10| = 0 < 1e-9 -- true,
+    // so ticksToApply recomputed as 10 - 9 = 1 (unchanged, no drift here since these are whole
+    // numbers). fromWhole = floor(9) = 9, toWhole = floor(9+1) = 10 -> 1 loot roll, cargo.commonOre
+    // becomes 100. phaseProgressTicks becomes 10, which equals requiredTicks (10) -- extracting
+    // phase COMPLETES. MISSION_PHASE_ORDER.indexOf("extracting") = 2, nextIndex = 3 ->
+    // "transitBack" (not the last phase, "unloading"), so captain 1 advances to "transitBack" with
+    // phaseProgressTicks reset to 0. Still no delivery to homePlanetDelta -- that only happens when
+    // "unloading" itself completes, which neither captain reaches this tick.
+    //
+    // So: state.homePlanet.storage must be UNCHANGED (still all zero) after this single tick() call,
+    // even though both captains' onboard cargo grew. This is the "in transit, not yet delivered"
+    // distinction the design doc draws between a captain's own mission.cargo and homePlanet.storage.
+    const state = freshState();
+    state.captains = freshCaptains(2);
+    state.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "extracting",
+      phaseProgressTicks: 0,
+      cargo: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 },
+      recalled: false,
+    };
+    state.captains[1].mission = {
+      missionKey: "shortOreRun",
+      phase: "extracting",
+      phaseProgressTicks: 9,
+      cargo: { commonOre: 90, uncommonMaterial: 0, rareMaterial: 0 },
+      recalled: false,
+    };
+
+    const result = tick(10, state);
+
+    // Captain 0 gained exactly 1 roll's worth (10 units, tier rng-dependent) of onboard cargo.
+    const cap0CargoTotal =
+      result.captains[0].mission!.cargo.commonOre +
+      result.captains[0].mission!.cargo.uncommonMaterial +
+      result.captains[0].mission!.cargo.rareMaterial;
+    expect(cap0CargoTotal).toBe(10);
+    expect(result.captains[0].mission!.phase).toBe("extracting");
+
+    // Captain 1 completed extracting (10/10 ticks), advanced to transitBack, final cargo 100 --
+    // asserted as a tier-agnostic total since the final roll's tier is rng-dependent (unmocked
+    // Math.random here, same reasoning as captain 0's total check above).
+    const cap1CargoTotal =
+      result.captains[1].mission!.cargo.commonOre +
+      result.captains[1].mission!.cargo.uncommonMaterial +
+      result.captains[1].mission!.cargo.rareMaterial;
+    expect(cap1CargoTotal).toBe(100);
+    expect(result.captains[1].mission!.phase).toBe("transitBack");
+    expect(result.captains[1].mission!.phaseProgressTicks).toBe(0);
+
+    // Neither captain reached "unloading" this tick -- nothing delivered home yet.
+    expect(result.homePlanet.storage).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 });
+  });
+
+  it("delivers cargo to state.homePlanet.storage, added to existing totals, when a mission's cycle completes this tick", () => {
+    // Hand-traced: phase "unloading" with unloadTicks=1 (shortOreRun), phaseProgressTicks: 0.
+    // deltaSeconds=10, tickDurationSeconds=10 -> ticksElapsed=1. requiredTicks("unloading")=1.
+    // ticksLeftInPhase = 1 - 0 = 1; ticksToApply = min(1,1) = 1. Not "extracting", so no loot roll
+    // in this step. phaseProgressTicks becomes 1, remaining becomes 0. 1 >= requiredTicks(1) ->
+    // phase completes. MISSION_PHASE_ORDER.indexOf("unloading") = 4 (last), nextIndex = 5 >=
+    // length(5) -- cycle complete: cargo {commonOre:70, uncommonMaterial:20, rareMaterial:10} is
+    // added to homePlanetDelta, then (recalled: false) mission auto-repeats to "ordersReceived"
+    // with phaseProgressTicks 0 and fresh empty cargo.
+    //
+    // state.homePlanet.storage starts pre-seeded at {commonOre:5, uncommonMaterial:1, rareMaterial:0}
+    // (simulating a PRIOR delivery already sitting in storage) to prove this tick's delta is ADDED
+    // to existing totals, not overwriting them: expected result = {75, 21, 10}.
+    const state = freshState();
+    state.homePlanet.storage = { commonOre: 5, uncommonMaterial: 1, rareMaterial: 0 };
+    state.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "unloading",
+      phaseProgressTicks: 0,
+      cargo: { commonOre: 70, uncommonMaterial: 20, rareMaterial: 10 },
+      recalled: false,
+    };
+
+    const result = tick(10, state);
+
+    expect(result.homePlanet.storage).toEqual({ commonOre: 75, uncommonMaterial: 21, rareMaterial: 10 });
+    expect(result.captains[0].mission!.phase).toBe("ordersReceived"); // auto-repeated
+    expect(result.captains[0].mission!.phaseProgressTicks).toBe(0);
+    expect(result.captains[0].mission!.cargo).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 });
+  });
+});
+
+describe("dispatchCaptainOnMission", () => {
+  it("dispatches an idle captain, setting their initial mission state exactly", () => {
+    const state = freshState(); // captains[0].mission is null (idle)
+    const { next, success } = dispatchCaptainOnMission(state, 1, "shortOreRun");
+
+    expect(success).toBe(true);
+    expect(next.captains[0].mission).toEqual({
+      missionKey: "shortOreRun",
+      phase: "ordersReceived",
+      phaseProgressTicks: 0,
+      cargo: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 },
+      recalled: false,
+    });
+  });
+
+  it("leaves the rest of the captain and the rest of state untouched", () => {
+    const state = freshState();
+    state.captains[0].modules.miner = 7;
+    state.captains[0].resources.ore = 123;
+    state.augmentPoints = 4;
+
+    const { next } = dispatchCaptainOnMission(state, 1, "shortOreRun");
+    expect(next.captains[0].modules.miner).toBe(7);
+    expect(next.captains[0].resources.ore).toBe(123);
+    expect(next.augmentPoints).toBe(4);
+  });
+
+  it("fails if the captain is already on a mission (same state reference, unchanged)", () => {
+    const state = freshState();
+    const { next: dispatched } = dispatchCaptainOnMission(state, 1, "shortOreRun");
+
+    const { next, success } = dispatchCaptainOnMission(dispatched, 1, "longOreRun");
+    expect(success).toBe(false);
+    expect(next).toBe(dispatched); // same reference, not a fresh copy
+    expect(next.captains[0].mission!.missionKey).toBe("shortOreRun"); // unchanged, not overwritten
+  });
+
+  it("fails if no captain has the given id, rather than throwing (same state reference, unchanged)", () => {
+    const state = freshState();
+    const { next, success } = dispatchCaptainOnMission(state, 999, "shortOreRun");
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+});
+
+describe("recallCaptain", () => {
+  it("sets recalled: true on the EXISTING mission object without resetting phase/progress/cargo", () => {
+    const state = freshState();
+    state.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "extracting",
+      phaseProgressTicks: 4.5,
+      cargo: { commonOre: 40, uncommonMaterial: 5, rareMaterial: 0 },
+      recalled: false,
+    };
+
+    const { next, success } = recallCaptain(state, 1);
+    expect(success).toBe(true);
+    expect(next.captains[0].mission).toEqual({
+      missionKey: "shortOreRun",
+      phase: "extracting",
+      phaseProgressTicks: 4.5,
+      cargo: { commonOre: 40, uncommonMaterial: 5, rareMaterial: 0 },
+      recalled: true, // only this field flips
+    });
+  });
+
+  it("fails if the captain has no active mission (same state reference, unchanged)", () => {
+    const state = freshState(); // mission: null
+    const { next, success } = recallCaptain(state, 1);
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+
+  it("fails if no captain has the given id, rather than throwing", () => {
+    const state = freshState();
+    const { next, success } = recallCaptain(state, 999);
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+});
+
+describe("captainPrestige and prestige cancel an active mission (falls out of freshCaptainStack's mission: null)", () => {
+  it("captainPrestige resets the prestiged captain's mission to null", () => {
+    const state = freshState();
+    state.captains[0].lifetimeComponents = 100; // gate: floor(sqrt(100)) = 10, gained > 0
+    const { next: dispatched } = dispatchCaptainOnMission(state, 1, "shortOreRun");
+    // dispatchCaptainOnMission only touches `mission` on captain 0 -- lifetimeComponents survives
+    // via the shallow spread, so no need to re-apply it. Confirm that assumption directly:
+    expect(dispatched.captains[0].lifetimeComponents).toBe(100);
+
+    const { next, gained } = captainPrestige(dispatched, 1, "mining");
+    expect(gained).toBe(10);
+    expect(next.captains[0].mission).toBe(null);
+  });
+
+  it("captainPrestige does NOT touch other captains' active missions", () => {
+    const state = freshState();
+    state.captains = freshCaptains(2);
+    state.captains[0].lifetimeComponents = 100;
+    const { next: dispatched } = dispatchCaptainOnMission(state, 2, "longOreRun");
+
+    const { next } = captainPrestige(dispatched, 1, "mining");
+    expect(next.captains[0].mission).toBe(null); // captain 1 had no mission; still null
+    expect(next.captains[1].mission!.missionKey).toBe("longOreRun"); // untouched
+  });
+
+  it("Fleet Prestige (prestige()) resets every captain's mission to null (fresh roster has none)", () => {
+    const state = freshState();
+    state.captains[0].lifetimeComponents = 100; // gate: floor(sqrt(100)) = 10, gained > 0
+    const { next: dispatched } = dispatchCaptainOnMission(state, 1, "shortOreRun");
+    expect(dispatched.captains[0].lifetimeComponents).toBe(100); // survives the dispatch's shallow spread
+
+    const { next, gained } = prestige(dispatched);
+    expect(gained).toBe(10);
+    expect(next.captains[0].mission).toBe(null);
   });
 });

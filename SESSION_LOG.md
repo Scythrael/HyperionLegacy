@@ -182,3 +182,84 @@ sooner, and confirm an existing save keeps its 2nd captain after migrating.
 The resourcing/combat/science specialization redesign and "fleet starbase"
 navigation ideas raised during this feature's brainstorm remain explicitly
 deferred to a future, not-yet-started design.
+
+**Session 10** — Added Home Planet & Mission Expeditions (Phase 3a,
+docs/plans/2026-07-06-home-planet-expeditions-plan.md): a fleet-wide
+`homePlanet.storage` resource pool fed by sending a captain on one of two
+launch missions (`shortOreRun`, `longOreRun`) via a new generic mission
+engine — `tickCaptainMission`, a closed-form phase-cycling state machine
+(ordersReceived -> transitOut -> extracting -> transitBack -> unloading,
+looping until recalled) that advances on the same game-time clock as
+production and research, plus a loot table rolled on each unload. Dispatch/
+Recall actions and new MISSIONS/HOME PLANET panels were wired into
+App.svelte, and a v7->v8 save migration backfills `homePlanet.storage` and
+`mission: null` onto existing captains.
+
+The standout story of this feature was Task 2's closed-form correctness
+guarantee — "one big tick jump equals many small tick calls summing to the
+same total," the same invariant proven for production and research in
+earlier phases — which took three independent review rounds to actually
+hold, not one:
+
+- Round 1 found the closed-form test itself failing: stepping 400 calls of
+  0.1 ticks landed in `transitOut` instead of `extracting`, because summing
+  0.1 (non-terminating in binary) drifts to 9.999999999999982 instead of an
+  exact 10 at the phase boundary, which a strict `>=` completion check
+  missed. Fixed (`bf34ddf`) by snapping tentative post-step progress to the
+  exact phase boundary whenever float drift lands within 1e-9.
+- Round 2 found that fix was itself incomplete: `phaseProgressTicks` still
+  landed at 2.58e-15 instead of exactly 0, because the boundary-snap
+  corrected the applied ticks but never corrected `remaining`, so a
+  sub-epsilon residue from a phase completing mid-call leaked forward as
+  float noise into the next phase's starting progress. Fixed (`1ffd2f1`) by
+  clamping `remaining` to exactly 0 once within epsilon, immediately after
+  the subtraction.
+- The same round separately uncovered a genuine, independent bug in the
+  test itself, pre-existing since the state machine's original commit
+  (`9dda625`): the stepped-loop line `stepped = tickCaptainMission(0.1,
+  stepped, ...)` reassigned `stepped` to the function's full `{ captain,
+  homePlanetDelta }` return value instead of unwrapping `.captain`, so every
+  call after the first fed a malformed object with no `.mission` field back
+  into the next call, and `homePlanetDelta` was never accumulated across the
+  400 calls. Neither round 1 nor round 2's own sanity-check work had
+  noticed, because both had been independently verifying the fix via their
+  own correctly-chained simulations rather than the actual (buggy) test
+  code — a bug hiding in the verification harness itself, invisible to
+  manual review because the reviewers' own mental/simulated models silently
+  "fixed" the same chaining mistake they were checking for. This is a direct
+  consequence of Node/npm/tsc being unavailable in this environment: a real
+  test runner would have caught the malformed intermediate object on its
+  first assertion, instantly. A third review round then re-verified both
+  fixes plus the corrected test against 14 existing tests and 3 additional
+  stress cases (0.037 x 1000 ticks, randomized chunk sizes summing to 90),
+  confirming exact (not approximate) agreement with the single-big-call
+  result before moving on.
+
+Task 6 (wiring the new HOME PLANET panel into App.svelte) surfaced one more
+real bug while testing the panel against Fleet Prestige: `prestige()` in
+tick.ts builds its returned `GameState` as a hand-reconstructed object
+literal rather than spreading `...state`, and had never included the new
+`homePlanet` field — every Fleet Prestige silently wiped mission-loot
+storage, and would have been a TypeScript compile error if a compiler were
+available in this environment. Fixed (`7d1384a`) by adding `homePlanet:
+state.homePlanet` alongside the literal's existing `skillPoints`/
+`unlockedSkillNodes` carry-over lines, since Home Planet storage is
+fleet-wide progress meant to survive Fleet Prestige exactly like those two
+already do. `captainPrestige` was never affected, since it spreads
+`...state` first — the gap was specific to `prestige()`'s
+literal-reconstruction style.
+
+7 tasks in the original plan, 11 commits once review-driven fixes are
+counted (`d18e866` docs-only follow-up on Task 1; `bf34ddf`/`1ffd2f1` the
+two-round Task 2 float-drift saga above; `e291279` removing a ~2% flaky-test
+risk from an unmocked-rng loot assertion in Task 3; `7d1384a` the Task 6
+prestige fix above). Save schema is now v8. Branch `feat/home-planet-
+expeditions` is implementation-complete and locally committed, ready for a
+final holistic review — not yet merged or pushed. Next: get eyes on this in
+an actual browser — dispatch a captain on each of the two missions, watch a
+full phase cycle complete and loot land in Home Planet storage, click
+Recall mid-mission and confirm the captain actually returns to base only
+after the current cycle's unloading finishes (not immediately), run Fleet
+Prestige and confirm `homePlanet.storage` survives it, and confirm an
+existing pre-v8 save migrates cleanly with a `null` mission and empty
+storage backfilled.

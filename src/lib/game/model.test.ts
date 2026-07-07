@@ -10,8 +10,11 @@ import {
   fleetLifetimeComponents,
   captainSlotCount,
   researchDurationMult,
+  requiredTicksForPhase,
+  rollLootTable,
   SPECIALIZATIONS,
   SKILL_TREE,
+  MISSIONS,
 } from "./model";
 
 describe("freshState — captain roster shape", () => {
@@ -234,5 +237,94 @@ describe("fleetLifetimeComponents — shared by prestige()'s gate and the UI pre
 
   it("is 0 for a fresh state", () => {
     expect(fleetLifetimeComponents(freshState())).toBe(0);
+  });
+});
+
+describe("freshState / freshCaptainStack — mission and Home Planet fields", () => {
+  it("a fresh captain starts with no active mission", () => {
+    const captain = freshCaptains(1)[0];
+    expect(captain.mission).toBe(null);
+  });
+
+  it("freshState's homePlanet storage starts at 0 for every material", () => {
+    const state = freshState();
+    expect(state.homePlanet.storage).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 });
+  });
+
+  it("freshCaptainStack resets mission to null (both prestige tiers cancel an active mission)", () => {
+    expect(freshCaptainStack().mission).toBe(null);
+  });
+});
+
+describe("MISSIONS — launch set", () => {
+  it("has exactly 2 missions with the specified tick counts and cargo/extraction values", () => {
+    expect(MISSIONS.shortOreRun.transitOutTicks).toBe(3);
+    expect(MISSIONS.shortOreRun.transitBackTicks).toBe(3);
+    expect(MISSIONS.shortOreRun.unloadTicks).toBe(1);
+    expect(MISSIONS.shortOreRun.extractionRatePerTick).toBe(10);
+    expect(MISSIONS.shortOreRun.cargoCapacity).toBe(100);
+
+    expect(MISSIONS.longOreRun.transitOutTicks).toBe(8);
+    expect(MISSIONS.longOreRun.transitBackTicks).toBe(8);
+    expect(MISSIONS.longOreRun.cargoCapacity).toBe(100);
+  });
+
+  it("each mission's loot table weights sum to 999 or 1000 (sanity check against typos)", () => {
+    for (const key of Object.keys(MISSIONS) as (keyof typeof MISSIONS)[]) {
+      const total = MISSIONS[key].lootTable.reduce((sum, entry) => sum + entry.weight, 0);
+      expect(total).toBeGreaterThanOrEqual(999);
+      expect(total).toBeLessThanOrEqual(1000);
+    }
+  });
+
+  it("longOreRun has better rare-material odds than shortOreRun", () => {
+    const shortRareWeight = MISSIONS.shortOreRun.lootTable.find((e) => e.material === "rareMaterial")!.weight;
+    const longRareWeight = MISSIONS.longOreRun.lootTable.find((e) => e.material === "rareMaterial")!.weight;
+    expect(longRareWeight).toBeGreaterThan(shortRareWeight);
+  });
+});
+
+describe("requiredTicksForPhase", () => {
+  it("ordersReceived is always exactly 1 tick", () => {
+    expect(requiredTicksForPhase("ordersReceived", MISSIONS.shortOreRun)).toBe(1);
+  });
+
+  it("transitOut/transitBack/unloading match the mission definition directly", () => {
+    expect(requiredTicksForPhase("transitOut", MISSIONS.shortOreRun)).toBe(3);
+    expect(requiredTicksForPhase("transitBack", MISSIONS.shortOreRun)).toBe(3);
+    expect(requiredTicksForPhase("unloading", MISSIONS.shortOreRun)).toBe(1);
+  });
+
+  it("extracting is cargoCapacity / extractionRatePerTick, rounded up", () => {
+    // 100 / 10 = exactly 10 -- this plan's launch content is deliberately
+    // chosen to divide evenly, sidestepping a partial-final-tick edge case
+    // (see this task's Step 3 comment on requiredTicksForPhase for why).
+    expect(requiredTicksForPhase("extracting", MISSIONS.shortOreRun)).toBe(10);
+  });
+});
+
+describe("rollLootTable", () => {
+  it("with an rng that always returns 0, always picks the FIRST table entry", () => {
+    const material = rollLootTable(MISSIONS.shortOreRun.lootTable, () => 0);
+    expect(material).toBe(MISSIONS.shortOreRun.lootTable[0].material); // commonOre
+  });
+
+  it("with an rng that always returns just under 1, always picks the LAST table entry", () => {
+    const material = rollLootTable(MISSIONS.shortOreRun.lootTable, () => 0.999999);
+    const lastEntry = MISSIONS.shortOreRun.lootTable[MISSIONS.shortOreRun.lootTable.length - 1];
+    expect(material).toBe(lastEntry.material); // rareMaterial
+  });
+
+  it("with an rng landing exactly on the boundary between two entries, picks the SECOND of the two", () => {
+    // shortOreRun weights: commonOre 980, uncommonMaterial 19, rareMaterial 1
+    // (total 1000). rng() * 1000 = 980.0 lands exactly on the commonOre/
+    // uncommonMaterial boundary -- rollLootTable's cumulative-weight walk
+    // must use a strict `<` comparison (not `<=`) so a value exactly AT a
+    // cumulative boundary falls into the NEXT bucket, not the one that just
+    // ended, keeping each bucket's actual probability mass equal to its
+    // stated weight (a `<=` comparison would silently make commonOre's
+    // effective range 981/1000 instead of 980/1000).
+    const material = rollLootTable(MISSIONS.shortOreRun.lootTable, () => 980 / 1000);
+    expect(material).toBe("uncommonMaterial");
   });
 });
