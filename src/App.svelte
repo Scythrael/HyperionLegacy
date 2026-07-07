@@ -8,7 +8,6 @@
     requiredTicksForPhase,
     RECIPES,
     xpForNextLevel,
-    CAPTAIN_SLOT_UNLOCKS,
     type GameState,
     type MissionKey,
     type MissionPhase,
@@ -22,7 +21,6 @@
     dispatchCaptainOnMission,
     recallCaptain,
     craftRecipe,
-    unlockCaptainSlot,
     recomputeFleetAdmin,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
@@ -303,15 +301,6 @@
     doSave();
   }
 
-  function doUnlockCaptainSlot() {
-    const captain = activeCaptain;
-    const { next, success } = unlockCaptainSlot(state, captain.id);
-    if (!success) return;
-    state = next;
-    pushLog(`[${captain.label}] Spent stat points and Components to unlock a new captain slot.`);
-    doSave();
-  }
-
   function doExportSave() {
     const raw = exportRawSave();
     if (!raw) return;
@@ -496,11 +485,12 @@
 
       <!-- Captain Leveling (Task 8, Phase 4) -- per-captain-scoped, like
            MISSIONS above (reads activeCaptain, not the whole fleet), replacing
-           the spot Captain Prestige used to occupy. The Unlock section below
-           is only rendered at all (not merely disabled) when
-           CAPTAIN_SLOT_UNLOCKS has a next entry for the current roster size --
-           once the roster has used up every table entry, there's nothing left
-           to show. -->
+           the spot Captain Prestige used to occupy. The old Unlock section
+           here (spending a captain's own level/statPoints/Components to add a
+           new captain slot) was removed in Task 4 of
+           docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md --
+           captain slot growth is now purchased fleet-wide through the
+           Homeworld Talents panel's Fleet Logistics branch instead. -->
       <Panel>
         <div class="panel-title">CAPTAIN LEVELING</div>
         <div class="research-name">Level {activeCaptain.level}</div>
@@ -509,23 +499,6 @@
         </div>
         <div class="research-readout">{formatNumber(activeCaptain.xp)} / {formatNumber(xpForNextLevel(activeCaptain.level))} XP</div>
         <div class="research-cost">Stat Points: {formatNumber(activeCaptain.statPoints)}</div>
-
-        {#if CAPTAIN_SLOT_UNLOCKS[state.captains.length - 1]}
-          {@const unlockDef = CAPTAIN_SLOT_UNLOCKS[state.captains.length - 1]}
-          {@const canUnlock =
-            activeCaptain.level >= unlockDef.atLevel &&
-            activeCaptain.statPoints >= unlockDef.statPointCost &&
-            state.homePlanet.storage.components >= unlockDef.componentsCost}
-          <div class="research-cost">
-            Next slot: requires Level {unlockDef.atLevel}, {formatNumber(unlockDef.statPointCost)} Stat Points,
-            {formatNumber(unlockDef.componentsCost)} Components
-            (have Level {activeCaptain.level}, {formatNumber(activeCaptain.statPoints)} Stat Points,
-            {formatNumber(state.homePlanet.storage.components)} Components)
-          </div>
-          <button class="buy-btn" disabled={!canUnlock} on:click={doUnlockCaptainSlot}>
-            Unlock New Captain Slot
-          </button>
-        {/if}
       </Panel>
       {/if}
 

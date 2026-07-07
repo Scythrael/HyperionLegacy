@@ -5,7 +5,6 @@ import {
   dispatchCaptainOnMission,
   recallCaptain,
   craftRecipe,
-  unlockCaptainSlot,
   buyCaptainTalent,
   buyHomeworldTalent,
   recomputeFleetAdmin,
@@ -206,41 +205,6 @@ describe("tickCaptainMission — awards XP on cycle completion", () => {
     expect(captain.xp).toBe(0); // 100 XP exactly hits xpForNextLevel(1)=100 -> levels to 2 with 0 leftover
     expect(captain.level).toBe(2);
     expect(captain.statPoints).toBe(1);
-  });
-});
-
-describe("unlockCaptainSlot", () => {
-  it("succeeds when level/statPoints/components all meet the next slot's requirement", () => {
-    const state = freshState();
-    state.captains[0].level = 3;
-    state.captains[0].statPoints = 2;
-    state.homePlanet.storage.components = 5;
-    const { next, success } = unlockCaptainSlot(state, 1);
-    expect(success).toBe(true);
-    expect(next.captains).toHaveLength(2);
-    expect(next.captains[0].statPoints).toBe(0);
-    expect(next.homePlanet.storage.components).toBe(0);
-  });
-
-  it("fails if the captain isn't high enough level yet", () => {
-    const state = freshState();
-    state.captains[0].level = 2; // needs 3
-    state.captains[0].statPoints = 2;
-    state.homePlanet.storage.components = 5;
-    const { next, success } = unlockCaptainSlot(state, 1);
-    expect(success).toBe(false);
-    expect(next).toBe(state);
-  });
-
-  it("fails if there's no next slot defined (roster already at the table's max)", () => {
-    const state = freshState();
-    state.captains = freshCaptains(4); // all 3 CAPTAIN_SLOT_UNLOCKS entries already used
-    state.captains[0].level = 999;
-    state.captains[0].statPoints = 999;
-    state.homePlanet.storage.components = 999;
-    const { next, success } = unlockCaptainSlot(state, 1);
-    expect(success).toBe(false);
-    expect(next).toBe(state);
   });
 });
 
@@ -646,9 +610,11 @@ describe("recomputeFleetAdmin", () => {
     // today's 4-captain fleet cap, no realistic captain-level sum reaches the
     // design doc's own "level 3-4 Admiral" framing under this formula). That
     // assertion would have been false, not just weak, so the scenario below
-    // uses artificially high test-only levels (same convention as the
-    // existing unlockCaptainSlot test's `state.captains[0].level = 999`)
-    // purely to exercise the "resolve every level-up in one pass" branch.
+    // uses artificially high test-only levels (same convention the removed
+    // unlockCaptainSlot test used to establish via `state.captains[0].level =
+    // 999`, before that test was deleted in Task 4 of
+    // docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) purely to
+    // exercise the "resolve every level-up in one pass" branch.
     //
     // Hand-traced against the ACTUAL implementation -- recomputeFleetAdmin
     // does NOT decrement `xp` per level crossed (unlike tickCaptainMission's

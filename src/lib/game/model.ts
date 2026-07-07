@@ -4,8 +4,13 @@
 // Specializations, the Skill Tree, both Prestige tiers) has been retired in
 // favor of the mission-based economy (below), a Homeworld crafting system
 // (RECIPES/craftRecipe), and a captain XP/leveling system (xp/level/statPoints
-// on CaptainState, xpForNextLevel/CAPTAIN_SLOT_UNLOCKS below; the XP-awarding
-// and level-up logic itself lives in tick.ts's tickCaptainMission).
+// on CaptainState, xpForNextLevel below; the XP-awarding and level-up logic
+// itself lives in tick.ts's tickCaptainMission). Captain slot growth is now
+// handled by the Homeworld Talent Tree's Fleet Logistics branch (below) via
+// buyHomeworldTalent's unlockCaptainSlot effect -- the old level-gated
+// CAPTAIN_SLOT_UNLOCKS table/unlockCaptainSlot() function it superseded were
+// removed in docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md's
+// Task 4.
 
 // Only "resourcer" is real today. Modeled as a union (not a bare string) so
 // Phase 3+'s combat-type ships slot in as a new literal without touching
@@ -141,7 +146,7 @@ export interface CaptainState {
   mission: CaptainMissionState | null; // null when idle (idle captains have no passive economy -- see tick.ts)
   xp: number; // accumulated toward the NEXT level -- see xpForNextLevel() below; awarded in tick.ts's tickCaptainMission on cycle completion
   level: number; // starts at 1
-  statPoints: number; // unspent, earned on level-up -- spent via unlockCaptainSlot() (tick.ts)
+  statPoints: number; // unspent, earned on level-up -- spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
   unlockedCaptainTalents: CaptainTalentKey[]; // logic (buyCaptainTalent) lands in Task 2
 }
 
@@ -179,8 +184,8 @@ export const RECIPES: Record<RecipeKey, RecipeDef> = {
   },
 };
 
-// Open-ended (levels can climb indefinitely) -- a formula, not a table, unlike
-// CAPTAIN_SLOT_UNLOCKS below (which is finite and worth hand-tuning per entry).
+// Open-ended (levels can climb indefinitely) -- a formula, not a finite table
+// like HOMEWORLD_TALENTS' Fleet Logistics branch below (hand-tuned per entry).
 export function xpForNextLevel(level: number): number {
   return 100 * level;
 }
@@ -188,11 +193,11 @@ export function xpForNextLevel(level: number): number {
 // Deliberately much steeper than a captain's own xpForNextLevel -- the
 // intent (per design doc) is "level-50 captains might only mean a level 3-4
 // Fleet Admiral." A simple quadratic-ish curve achieves that without needing
-// per-level hand-tuning (unlike CAPTAIN_SLOT_UNLOCKS-style finite tables).
+// per-level hand-tuning (unlike a Fleet-Logistics-style finite talent table).
 //
 // CAUTION (found during Task 3 hand-tracing, not corrected here without
 // approval -- see this task's session report): with today's fleet cap of 4
-// captains (1 starting + 3 CAPTAIN_SLOT_UNLOCKS/fleetLogistics tiers), the
+// captains (1 starting + 3 Fleet Logistics slot-unlock tiers), the
 // design doc's own worked example doesn't actually hold under this formula.
 // xpForNextFleetAdminLevel(1) = 500, but 4 captains all at level 50 only sum
 // to 200 -- short of even the FIRST Fleet Admiral level-up. Reaching Admiral
@@ -205,31 +210,13 @@ export function xpForNextFleetAdminLevel(level: number): number {
   return 500 * level * level;
 }
 
-export interface CaptainSlotUnlockDef {
-  atLevel: number; // the unlocking captain must be at least this level
-  statPointCost: number; // deducted from the unlocking captain's OWN statPoints
-  componentsCost: number; // deducted from the shared, fleet-wide homePlanet.storage.components
-}
-
-// Ordered by slot number (index 0 = the 2nd captain slot, since slot 1 always
-// exists). Small and hand-tunable on purpose -- unlike level count, there are
-// only ever a few of these, so a table you can eyeball beats a formula you'd
-// have to reverse-engineer. Add entries here (and nowhere else -- tick.ts's
-// unlockCaptainSlot reads this by index, App.svelte's leveling panel iterates
-// it for display) for a 5th+ slot later.
-export const CAPTAIN_SLOT_UNLOCKS: CaptainSlotUnlockDef[] = [
-  { atLevel: 3, statPointCost: 2, componentsCost: 5 },
-  { atLevel: 6, statPointCost: 4, componentsCost: 15 },
-  { atLevel: 10, statPointCost: 6, componentsCost: 40 },
-];
-
 // --- Captain & Homeworld Talent Trees (docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) ---
 // Two new data-driven tables, mirroring the exact conventions the (now-deleted)
 // Skill Tree established -- branch/label/cost/requires (same-branch
-// prerequisite) plus a typed effect. CAPTAIN_SLOT_UNLOCKS/unlockCaptainSlot
-// above are DELIBERATELY left untouched here -- Fleet Logistics below absorbs
-// that mechanism's job, but the old table/function stay live side-by-side
-// until Task 4 (a dedicated removal task) proves the new path out.
+// prerequisite) plus a typed effect. The old level-gated CAPTAIN_SLOT_UNLOCKS
+// table and its unlockCaptainSlot() function (tick.ts) have been removed --
+// Fleet Logistics below (via buyHomeworldTalent's unlockCaptainSlot effect)
+// fully absorbed that mechanism's job as of Task 4.
 export type CaptainTalentBranch = "command" | "tactical" | "science" | "resourcefulness" | "diplomacy";
 export type HomeworldTalentBranch = "fleetLogistics" | "homelandDefense" | "citizenry" | "economy" | "industry";
 
@@ -271,7 +258,7 @@ export interface HomeworldTalentDef {
 // nothing in it. Add entries here (and nowhere else -- App.svelte's Captain
 // Talents panel iterates this object) when a branch's system is ready.
 // Costs below are launch placeholders, not balance-tested, same spirit as
-// MISSIONS'/RECIPES'/CAPTAIN_SLOT_UNLOCKS' own tunable constants.
+// MISSIONS'/RECIPES' own tunable constants.
 export type CaptainTalentKey =
   | "commandExtractionI"
   | "commandExtractionII"
@@ -309,8 +296,8 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
   },
 };
 
-// Fleet Logistics absorbs CAPTAIN_SLOT_UNLOCKS' 3 tiers wholesale (Task 4
-// removes the old table/mechanism once this is proven in place -- see plan).
+// Fleet Logistics' 3 slot-unlock tiers below fully replace the old
+// CAPTAIN_SLOT_UNLOCKS table/unlockCaptainSlot() mechanism, removed in Task 4.
 // Homeland Defense and Citizenry are deliberately EMPTY, same reasoning as
 // Tactical/Science/Diplomacy above (need Battlespace / a population system,
 // neither exists yet). Costs below are launch placeholders, same as
@@ -386,9 +373,11 @@ export function freshCaptainStack(): Pick<
 }
 
 // Generates `count` captains (ids 1..count) sharing the same freshCaptainStack()
-// baseline. Used for: a brand-new save (freshState calls freshCaptains(1)),
-// a slot unlock (tick.ts's unlockCaptainSlot), and save migration (backfilling
-// a never-played slot).
+// baseline. Used for: a brand-new save (freshState calls freshCaptains(1))
+// and save migration (backfilling a never-played slot). NOTE: a slot unlock
+// (tick.ts's buyHomeworldTalent, unlockCaptainSlot effect) does NOT call this
+// function -- it inlines its own captain object using freshCaptainStack()
+// directly, same as this function's loop body does below.
 export function freshCaptains(count: number): CaptainState[] {
   const captains: CaptainState[] = [];
   for (let i = 1; i <= count; i++) {

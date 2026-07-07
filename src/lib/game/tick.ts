@@ -15,7 +15,6 @@ import {
   xpForNextFleetAdminLevel,
   MISSIONS,
   RECIPES,
-  CAPTAIN_SLOT_UNLOCKS,
   CAPTAIN_TALENTS,
   HOMEWORLD_TALENTS,
   freshCaptainStack,
@@ -390,42 +389,4 @@ export function buyHomeworldTalent(
   }
 
   return { next: { ...state, adminPoints, unlockedHomeworldTalents }, success: true };
-}
-
-// Spends the unlocking captain's own statPoints plus a shared Components cost
-// to append a new captain slot -- replaces the old Skill Tree Command branch.
-// Any captain who has reached the required level can do this (not a dedicated
-// "admiral" action) -- see design doc. Fails (same state reference) if there's
-// no next slot defined, the captain doesn't exist, isn't at the required
-// level, or either cost isn't affordable.
-export function unlockCaptainSlot(state: GameState, captainId: number): { next: GameState; success: boolean } {
-  const slotIndex = state.captains.length - 1; // captains.length IS the current slot count -- no separate counter needed, since nothing resets the roster anymore
-  const unlockDef = CAPTAIN_SLOT_UNLOCKS[slotIndex];
-  if (!unlockDef) return { next: state, success: false };
-
-  const idx = state.captains.findIndex((c) => c.id === captainId);
-  if (idx === -1) return { next: state, success: false };
-  const captain = state.captains[idx];
-  if (captain.level < unlockDef.atLevel) return { next: state, success: false };
-  if (captain.statPoints < unlockDef.statPointCost) return { next: state, success: false };
-  if (state.homePlanet.storage.components < unlockDef.componentsCost) return { next: state, success: false };
-
-  const captains = [...state.captains];
-  captains[idx] = { ...captain, statPoints: captain.statPoints - unlockDef.statPointCost };
-  const nextId = captains.length + 1;
-  captains.push({
-    id: nextId,
-    label: `Captain ${nextId}`,
-    shipType: "resourcer",
-    ...freshCaptainStack(),
-  });
-
-  return {
-    next: {
-      ...state,
-      captains,
-      homePlanet: { storage: { ...state.homePlanet.storage, components: state.homePlanet.storage.components - unlockDef.componentsCost } },
-    },
-    success: true,
-  };
 }
