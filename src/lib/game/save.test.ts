@@ -199,12 +199,19 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.captains[0].captainPrestigeCount).toBe(0);
     expect(migrated.captains[0].specialization).toBe(null);
 
-    // Captain 2: fresh, never played, but still gets the shared 1-miner
-    // floor -- see model.ts's freshCaptains() regression comment.
+    // Captain 2: fresh, never played -- built by a LIVE call to model.ts's
+    // freshCaptains(), so its shape tracks whatever CaptainState currently
+    // requires (xp/level/statPoints as of Phase 4's leveling system) rather
+    // than the modules/lifetimeComponents shape this test originally asserted
+    // before the Generator Stack was removed (Tasks 1/5/6) -- that assertion
+    // would throw (modules is undefined) since freshCaptains() no longer
+    // produces it at all. Asserting the CURRENT baseline instead.
     expect(migrated.captains[1].id).toBe(2);
     expect(migrated.captains[1].label).toBe("Captain 2");
-    expect(migrated.captains[1].modules.miner).toBe(1);
-    expect(migrated.captains[1].lifetimeComponents).toBe(0);
+    expect(migrated.captains[1].xp).toBe(0);
+    expect(migrated.captains[1].level).toBe(1);
+    expect(migrated.captains[1].statPoints).toBe(0);
+    expect(migrated.captains[1].mission).toBe(null);
 
     // Fleet-wide fields survive untouched; old top-level per-stack fields are gone.
     expect(migrated.augmentPoints).toBe(42);
