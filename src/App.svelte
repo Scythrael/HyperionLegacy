@@ -784,7 +784,30 @@
            captain's own level/statPoints (those only ever gate that
            captain's OWN Captain Talents, above under Fleet Ops). Confirmed
            with the user rather than inventing a captain-scoped gate for a
-           fleet-wide purchase. -->
+           fleet-wide purchase.
+
+           Talent Tree Visual Redesign (Task 11) -- reuses Task 10's
+           talentDepth/TALENT_ROW_HEIGHT/depthRows/.talent-branch-tree/
+           .talent-branch-connectors/.talent-node treatment verbatim (see the
+           Captain Talents panel under Fleet Ops for the pattern this mirrors
+           -- not reinvented here). The one wrinkle Captain Talents never
+           exercised: the fleetLogistics branch has TWO independent depth-0
+           roots in the SAME row -- fleetLogisticsSlot1 (root of the
+           Slot1->Slot2->Slot3 chain) AND fleetLogisticsYield (its own
+           unrelated root, requires: null) -- both land in depthRows[0].
+           Task 10's row rendering assumed one node per row (.talent-node was
+           `left:0; right:0`, i.e. full-width) and would have silently
+           overlapped two same-row siblings; this HOMEWORLD_TALENTS-side
+           template guards against exactly that by computing a per-node
+           column index within its own row (columnIndex) and columnCount
+           (row.length), then splitting the row's width evenly across
+           columns via an inline left/width/right override on each node (see
+           the `style=` binding below) -- .talent-node's own CSS rule (App.svelte
+           CSS block, near .talent-branch-tree) is left completely untouched;
+           inline style always wins over it, and columnCount === 1 (every row
+           except fleetLogistics' depth-0 row, see below) computes out to the
+           exact same left:0%/width:100% that rule already provides, so no
+           other branch's rendering changes. -->
       <Panel>
         <div class="panel-title">HOMEWORLD TALENTS</div>
         <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
@@ -795,30 +818,81 @@
             {#if nodes.length === 0}
               <p class="prestige-text">Not yet available.</p>
             {:else}
-              {#each nodes as [key, talent]}
-                {@const owned = state.unlockedHomeworldTalents.includes(key as HomeworldTalentKey)}
-                {@const locked = !owned && talent.requires !== null && !state.unlockedHomeworldTalents.includes(talent.requires)}
-                {@const buyable = !owned && !locked && state.adminPoints >= talent.cost}
-                <div class="skill-node" class:owned={owned} class:locked={locked}>
-                  <div>
-                    <div class="skill-node-label">{talent.label}</div>
-                    <div class="skill-node-status">
-                      {#if owned}
-                        Owned
-                      {:else if locked}
-                        Requires: {HOMEWORLD_TALENTS[talent.requires!].label}
-                      {:else}
-                        Cost: {formatNumber(talent.cost)} Admin Points
+              {@const depths = nodes.map(([key]) => talentDepth(key, HOMEWORLD_TALENTS))}
+              {@const maxDepth = Math.max(...depths)}
+              {@const treeHeight = (maxDepth + 1) * TALENT_ROW_HEIGHT}
+              {@const depthRows = Array.from({ length: maxDepth + 1 }, (_, rowDepth) =>
+                nodes.filter(([key]) => talentDepth(key, HOMEWORLD_TALENTS) === rowDepth)
+              )}
+              <!-- Same depthRows grouping as Task 10 (Captain Talents) -- every
+                   branch except fleetLogistics still resolves to one node per
+                   row, same as before. fleetLogistics' depthRows[0] is the
+                   first branch, in EITHER talent tree, to actually hold 2
+                   entries ([fleetLogisticsSlot1, fleetLogisticsYield]) -- see
+                   the {#each row as ..., columnIndex} below, which is the
+                   part of this template Captain Talents never needed. -->
+              <div class="talent-branch-tree" style="height:{treeHeight}px;">
+                <svg class="talent-branch-connectors" viewBox="0 0 100 {treeHeight}" preserveAspectRatio="none">
+                  {#each nodes as [key, talent]}
+                    {#if talent.requires !== null}
+                      {@const owned = state.unlockedHomeworldTalents.includes(key as HomeworldTalentKey)}
+                      {@const thisDepth = talentDepth(key, HOMEWORLD_TALENTS)}
+                      {@const prereqDepth = talentDepth(talent.requires!, HOMEWORLD_TALENTS)}
+                      <line
+                        x1="50"
+                        y1={prereqDepth * TALENT_ROW_HEIGHT + TALENT_ROW_HEIGHT / 2}
+                        x2="50"
+                        y2={thisDepth * TALENT_ROW_HEIGHT + TALENT_ROW_HEIGHT / 2}
+                        stroke={owned ? "var(--color-success)" : "rgba(var(--color-accent-rgb), 0.2)"}
+                        stroke-width="2"
+                        vector-effect="non-scaling-stroke"
+                      />
+                    {/if}
+                  {/each}
+                </svg>
+                {#each depthRows as row, rowDepth}
+                  {#each row as [key, talent], columnIndex}
+                    {@const owned = state.unlockedHomeworldTalents.includes(key as HomeworldTalentKey)}
+                    {@const locked = !owned && talent.requires !== null && !state.unlockedHomeworldTalents.includes(talent.requires)}
+                    {@const buyable = !owned && !locked && state.adminPoints >= talent.cost}
+                    {@const columnCount = row.length}
+                    <!-- columnCount === 1 (every row except fleetLogistics'
+                         depth-0 row) renders left:0%/width:100%/no gap-inset --
+                         byte-identical to Task 10's plain full-width .talent-node,
+                         so single-node rows are visually unchanged. columnCount
+                         === 2 (only fleetLogisticsSlot1 + fleetLogisticsYield's
+                         shared row) splits the row into two side-by-side halves
+                         instead of letting them stack at the same `top` and
+                         overlap -- the calc(...+4px)/calc(...-4px) inset carves
+                         a small visible gap between adjacent siblings' borders
+                         (skipped entirely, via the columnCount>1 ternary, when
+                         there's only one column, so it can never nudge a
+                         single-node row's edges inward). -->
+                    <div
+                      class="skill-node talent-node" class:owned={owned} class:locked={locked}
+                      style="top:{rowDepth * TALENT_ROW_HEIGHT}px; left:calc({(columnIndex / columnCount) * 100}%{columnCount > 1 && columnIndex > 0 ? ' + 4px' : ''}); width:calc({100 / columnCount}%{columnCount > 1 ? ' - 4px' : ''}); right:auto;"
+                    >
+                      <div>
+                        <div class="skill-node-label">{talent.label}</div>
+                        <div class="skill-node-status">
+                          {#if owned}
+                            Owned
+                          {:else if locked}
+                            Requires: {HOMEWORLD_TALENTS[talent.requires!].label}
+                          {:else}
+                            Cost: {formatNumber(talent.cost)} Admin Points
+                          {/if}
+                        </div>
+                      </div>
+                      {#if !owned}
+                        <button class="buy-btn" disabled={!buyable} on:click={() => doBuyHomeworldTalent(key as HomeworldTalentKey)}>
+                          Unlock
+                        </button>
                       {/if}
                     </div>
-                  </div>
-                  {#if !owned}
-                    <button class="buy-btn" disabled={!buyable} on:click={() => doBuyHomeworldTalent(key as HomeworldTalentKey)}>
-                      Unlock
-                    </button>
-                  {/if}
-                </div>
-              {/each}
+                  {/each}
+                {/each}
+              </div>
             {/if}
           </div>
         {/each}
@@ -1938,7 +2012,22 @@
      with absolute positioning driven by each node's depth * TALENT_ROW_HEIGHT
      (set inline via `top`, see markup above) -- its owned/locked border
      styling is untouched, still governed by the existing
-     .skill-node.owned/.skill-node.locked rules above. */
+     .skill-node.owned/.skill-node.locked rules above.
+
+     .talent-node's left:0/right:0 below is a FULL-WIDTH default -- correct
+     for every branch where depthRows never holds more than one node per row
+     (true of every Captain Talents branch, and every Homeworld Talents
+     branch except fleetLogistics). Task 11 (Homeworld Talents) hit the first
+     real same-row-siblings case: fleetLogistics' depth-0 row holds BOTH
+     fleetLogisticsSlot1 and fleetLogisticsYield. Rather than editing this
+     shared rule (which would have to special-case a column count it has no
+     way to know at the CSS level), that template computes each node's own
+     left/width/right inline (splitting the row evenly across however many
+     siblings share it) and overrides right:auto explicitly -- inline style
+     always wins over this class rule's left:0/right:0, so single-node rows
+     (columnCount 1) resolve to the exact same left:0%/width:100% this rule
+     already provides, and multi-node rows split cleanly instead of
+     overlapping. See the Homeworld Talents panel markup for that math. */
   .talent-branch-tree { position: relative; }
   .talent-branch-connectors {
     position: absolute;
