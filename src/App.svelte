@@ -1001,14 +1001,14 @@
                   {@const missionDef = MISSIONS[mission.missionKey]}
                   {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
                   {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
-                  {@const remainingTicks = Math.max(0, requiredTicks - mission.phaseProgressTicks)}
+                  {@const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks))}
                   <div class="mission-card">
                     <div class="research-name">{captain.label} — {missionDef.label}</div>
                     <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
                     <div class="research-bar-track">
                       <div class="research-bar-fill" style="width:{progress * 100}%"></div>
                     </div>
-                    <div class="research-readout">{remainingTicks.toFixed(1)} ticks remaining in phase</div>
+                    <div class="research-readout">{remainingTicks} ticks remaining in phase</div>
                     <div class="research-cost">
                       Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
                       {formatNumber(mission.cargo.rareMaterial)} rare
