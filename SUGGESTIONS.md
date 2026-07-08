@@ -10,6 +10,16 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   1:1 today. Starbase's whole described purpose (damaged/taken offline before a homeworld can be
   bombarded) needs Battlespace to exist first — fully deferred until then.
 
+- **Ship loss / escape pods as a combat consequence.** User idea, 2026-07-08: when Battlespace/combat
+  exists, the user is on the fence about whether ship destruction should be a real possibility, and
+  explicitly does NOT want captain death as a mechanic. If ships can be destroyed, the crew should
+  plausibly end up in escape pods rather than simply being killed off alongside the ship — user wants
+  this "weighed and considered accordingly" once combat is actually being designed, not decided now.
+  Not scoped yet: what escape pods actually mean mechanically (a captain surviving but losing their
+  ship/equipment? a rescue mission to recover them? some recovery cost/delay before they can crew a
+  new ship?), and whether this should be a difficulty-mode toggle (e.g. "standard" mode preventing ship
+  destruction entirely vs. a harder mode allowing it).
+
 - **Loot-rarity-range rework.** Real bug in the already-shipped mission-loot system (Phase 3a):
   currently, rolling a non-common tier on an extraction tick awards the FULL tick's units (10) to
   that tier. Intended behavior: roll a min/max quantity within the rolled tier instead (e.g. 1-3
