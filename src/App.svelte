@@ -559,6 +559,7 @@
       <div class="tab-scroll-area">
       <Panel>
         <div class="panel-title">SECTOR SPACE</div>
+        <p class="locked-heading">🔒 Coming Soon!</p>
         <p class="prestige-text">Shipyard and Starbase are still under construction.</p>
       </Panel>
       </div>
@@ -754,6 +755,7 @@
       <div class="tab-scroll-area">
       <Panel>
         <div class="panel-title">BATTLESPACE</div>
+        <p class="locked-heading">🔒 Coming Soon!</p>
         <p class="prestige-text">PvP and PvE fleet operations will live here.</p>
       </Panel>
       </div>
@@ -1183,6 +1185,13 @@
   }
   .buy-btn:disabled { cursor: not-allowed; }
   .prestige-text { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 12px; }
+  .locked-heading {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    opacity: 0.7;
+    margin: 0 0 6px;
+  }
   .prestige-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
   .prestige-yield { font-size: 12px; }
   .prestige-btn {
