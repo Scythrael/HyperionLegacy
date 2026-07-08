@@ -101,7 +101,8 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   UI pass -- see docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md):
   - **Fleet Skirmishes** -- PvE combat against small pre-set ship groupings, using the player's own
     saved fleet presets.
-  - **Campaign** -- scripted PvE content: skirmishes, assaults, homeworld attacks, etc.
+  - **Campaign** -- see the dedicated entry below, fleshed out considerably beyond "scripted PvE
+    content" since the user expanded on it 2026-07-07.
   - **Fleet Exercises** -- PvP combat maneuvers against other players. Requires multiplayer.
   - **Invasion mode** -- sector-space defense followed by planetary bombardment and ground troops;
     does not capture the planet, but yields loot/prizes. Also wants a leaderboard tied to this mode.
@@ -110,3 +111,37 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   WebSockets/similar, explicitly rejected for v1 in the master design doc, section 7.2) and a chat
   system, neither of which exist. Fleet Skirmishes and Campaign are PvE-only and don't share that
   dependency, so they could in principle be designed/built independently of the multiplayer work.
+
+- **Story Campaign mode (fleshed out 2026-07-07, expands on the Campaign bullet above).** The
+  user's own vision, considerably more developed than the original one-line "scripted PvE content"
+  note:
+  - Campaign is meant to be **the first Battlespace option to unlock**, and Battlespace itself is
+    meant to be **the first tab** a new player unlocks (after onboarding -- see the tutorial-system
+    entry below), i.e. Campaign is the intended on-ramp into the game's harder content, not a
+    late-game unlock.
+  - Structure: **story beats** interspersed with **battles of increasing difficulty**, grouped into
+    **chapters**. Each chapter culminates in a big fight against a "big baddie" -- the player's
+    fleet vs. a wave or two of regular enemies, then a capital-ship boss, and potentially planetary
+    defenses and/or a bombardment/invasion sequence in the same chapter-capping encounter.
+  - Campaign is explicitly meant to **teach and gate**: story-driven pacing is used deliberately to
+    make sure players understand a system before being thrown at harder content ("these will not be
+    easy") -- i.e. Campaign doubles as a structured tutorial/onboarding ramp for the OTHER Battlespace
+    modes (Fleet Skirmishes, Fleet Exercises, Invasion), which unlock as their Campaign equivalent is
+    completed, not available from the start.
+  - **Difficulty tiers: Tier I through Tier X**, each clearable independently, each with its own
+    reward set -- i.e. Campaign isn't a one-time linear playthrough, it's replayable at escalating
+    tiers for better rewards, conceptually similar to how Fleet Operations' own Tier I-V mission
+    difficulty tiers work (docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md), but for
+    story/boss content instead of resource missions.
+  - No design work started -- this depends on the entire Boss Encounter Mechanic being designed
+    first (master design doc, section 5.1, flagged there as "HIGHEST PRIORITY" unresolved design
+    work), plus real ship/crew/combat systems that don't exist yet.
+
+- **Tutorial system with an in-game assistant character.** User idea, 2026-07-07: an assistant
+  character (some kind of AI/aide/XO figure) walks a new player around the Homeworld and the "desk
+  terminal" interface (the game's own framing device -- the player is playing this game AS the
+  admiral's desk terminal, an in-fiction justification for the whole UI). Multiple short tutorials
+  covering different systems, run before Battlespace (and specifically Campaign, see above) ever
+  unlocks. No design work started -- purely a future onboarding-polish idea, would need its own
+  brainstorm once the systems it's meant to introduce (Homeworld, missions, Battlespace/Campaign)
+  are far enough along to actually tutorialize.
