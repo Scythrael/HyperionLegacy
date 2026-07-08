@@ -726,3 +726,77 @@ instead of sitting frozen, and confirm the top bar's Fleet Admiral level/XP
 row updates live; then final holistic review of this branch before merge
 (must land before the Big-Number Migration's implementation begins, since both
 touch `tick.ts`/`model.ts`).
+
+**Session 20** — Big-Number (Decimal) Migration (branch feat/big-number-migration,
+docs/plans/2026-07-08-big-number-migration-plan.md), built via
+subagent-driven-development with the user explicitly asking for elevated care
+("careful coder hats on") beyond this project's normal standard. Motivation:
+resource and XP values need to support unbounded scale — up to and beyond
+`e1,000,000` — far past a JS double's ~1.8e308 ceiling, so
+`break_infinity.js`'s `Decimal` type replaces plain `number` for every
+field that actually needs that headroom. Confirmed field split: `Decimal` for
+`homePlanet.storage`'s 5 keys, mission `cargo`'s 3 keys, captain `xp`,
+`fleetAdminXp`, and `RECIPES[].inputs`/`.output.amount`; plain `number` stays
+for `level`, `statPoints`, `fleetAdminLevel`, `adminPoints`,
+`xpForNextLevel`/`xpForNextFleetAdminLevel`'s signatures and return values, and
+all tick/phase counters, percentages, and rate/chance/capacity fields. One
+real design-time correction worth recording: `CAPTAIN_TALENTS[].cost` and
+`HOMEWORLD_TALENTS[].cost` were initially assumed to need `Decimal` alongside
+the XP they're spent from, but stay plain `number` — they're compared against
+`statPoints`/`adminPoints`, which themselves stay plain `number`, so converting
+the costs would have created a Decimal-vs-plain-number mismatch at the actual
+comparison site rather than fixing anything. `break_infinity.js`'s API surface
+was verified directly against the library's own `.d.ts`
+(`https://cdn.jsdelivr.net/npm/break_infinity.js@2/dist/index.d.ts`) rather
+than assumed from generic Decimal-library familiarity, to resolve two real
+open questions: constructors and every arithmetic (`.plus()`, `.minus()`,
+`.times()`, `.dividedBy()`) and comparison (`.equals()`, `.lt()`, `.gt()`,
+`.lte()`, `.gte()`) method accept a `DecimalSource` (`Decimal | number |
+string`) directly, confirmed — meaning comparisons against plain-number
+thresholds need zero wrapping as long as the Decimal side is always the
+receiver, never the argument-only side of a raw operator; and `.toJSON():
+string` is confirmed present, so `JSON.stringify` calls it automatically,
+embedding a Decimal as a JSON string with no extra serialization code needed.
+`save.ts`'s hydration (`hydrateDecimals`) is called unconditionally as the
+final line of `migrate()`, regardless of how many migration-loop iterations
+ran — a save already sitting at the current `SAVE_VERSION` skips the
+version-keyed migration while-loop entirely, so if hydration lived only inside
+the v11→v12 step it would never run for such saves. `toDecimal()` is
+idempotent (`instanceof Decimal ? value : new Decimal(value)`), so the same
+unconditional call safely handles three different shapes: old saves with
+plain-number fields, current-format saves round-tripped through JSON as
+strings (via `toJSON()`), and states that are already hydrated. The bounded
+level-up loop fix reuses `MAX_LEVEL_UPS_PER_TICK = 10_000` — a constant
+already introduced in the separate, earlier Fleet Admiral XP Rework branch
+(Session 19) for `applyFleetAdminXp` — rather than redefining it, since the
+captain-XP level-up loop in `tickCaptainMission` needed the identical
+safeguard once captain `xp` became `Decimal`; a closed-form/log-based
+alternative (inverting the XP curve algebraically) was considered and
+rejected because log-based inversion on Decimal-scale values is exactly the
+kind of precision-sensitive math most likely to introduce a subtle bug, and a
+bounded per-call iteration cap with carry-forward is simpler and more robust,
+especially since the XP curve itself might change later. `formatNumber` was
+widened from a plain-`number`-only signature to `formatNumber(n: number |
+Decimal)`, branching internally (`instanceof Decimal`) to a new
+`formatDecimal` helper — a Decimal-only rewrite would have broken every
+caller passing a value explicitly outside this migration's scope
+(`offlineSeconds`, `talent.cost`, `xpForNextFleetAdminLevel`'s return), so the
+plain-number branch was kept byte-identical to its pre-migration body, zero
+behavior change for any existing caller. Verification rigor throughout matched
+the user's explicit ask: every commit (18 across Task 0's worktree setup
+through this docs task) was independently checked via `git show`, hand-tracing
+worked examples, and in several cases an independent Python arithmetic check,
+before dispatching the two-stage review (spec-compliance, then code-quality)
+— not merely trusting a subagent's self-report. Two stale plan-doc references
+were caught and corrected mid-implementation rather than followed blindly:
+the plan's own Task 5 amendment (written before the Fleet Admiral XP Rework's
+backlog-drain fix existed) still contained outdated code for
+`recomputeFleetAdmin`, which the plan itself flags as obsolete in favor of the
+real current `applyFleetAdminXp`; and the Task 9/Task 12-final-review
+sections both still named `recomputeFleetAdmin` where the actual function has
+been `applyFleetAdminXp` since the separately-merged Fleet Admiral XP Rework —
+both were caught and the real current code (verified directly, not assumed
+from the plan text) was used instead. Next: final holistic review of this
+branch, then merge — push to `main` still needs separate, explicit
+confirmation from the user first, since it triggers a live Vercel production
+redeploy.

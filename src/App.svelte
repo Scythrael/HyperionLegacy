@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import Decimal from "break_infinity.js";
   import Starfield from "./lib/Starfield.svelte";
   import Panel from "./lib/Panel.svelte";
   import SubTabs from "./lib/SubTabs.svelte";
@@ -291,7 +292,11 @@
       // be skipped entirely on the (overwhelmingly common) no-op poll --
       // same reactivity-churn discipline as the existing anyFired guard.
       let anyLootDelivered = false;
-      const homePlanetDelta: Record<LootMaterialKey, number> = { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
+      const homePlanetDelta: Record<LootMaterialKey, Decimal> = {
+        commonOre: new Decimal(0),
+        uncommonMaterial: new Decimal(0),
+        rareMaterial: new Decimal(0),
+      };
       // Mirrors tick.ts's own tick() fleetAdminXpDelta accumulation (Task 2):
       // summed locally across every captain whose mission cycle completes
       // THIS poll, then handed once to applyFleetAdminXp at the very end of
@@ -370,11 +375,11 @@
           } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
           captains[i] = updatedCaptain;
           fleetAdminXpDelta += captainFleetAdminXpDelta;
-          if (delta.commonOre !== 0 || delta.uncommonMaterial !== 0 || delta.rareMaterial !== 0) {
+          if (!delta.commonOre.equals(0) || !delta.uncommonMaterial.equals(0) || !delta.rareMaterial.equals(0)) {
             anyLootDelivered = true;
-            homePlanetDelta.commonOre += delta.commonOre;
-            homePlanetDelta.uncommonMaterial += delta.uncommonMaterial;
-            homePlanetDelta.rareMaterial += delta.rareMaterial;
+            homePlanetDelta.commonOre = homePlanetDelta.commonOre.plus(delta.commonOre);
+            homePlanetDelta.uncommonMaterial = homePlanetDelta.uncommonMaterial.plus(delta.uncommonMaterial);
+            homePlanetDelta.rareMaterial = homePlanetDelta.rareMaterial.plus(delta.rareMaterial);
           }
         }
 
@@ -387,7 +392,9 @@
           const effect = HOMEWORLD_TALENTS[key].effect;
           if (effect.type === "passiveTrickle" && (LOOT_MATERIAL_KEYS as string[]).includes(effect.material)) {
             anyLootDelivered = true;
-            homePlanetDelta[effect.material as LootMaterialKey] += effect.perTick * ticksElapsed;
+            homePlanetDelta[effect.material as LootMaterialKey] = homePlanetDelta[effect.material as LootMaterialKey].plus(
+              effect.perTick * ticksElapsed
+            );
           }
         }
 
@@ -417,9 +424,9 @@
           homePlanet: {
             storage: {
               ...state.homePlanet.storage,
-              commonOre: state.homePlanet.storage.commonOre + homePlanetDelta.commonOre,
-              uncommonMaterial: state.homePlanet.storage.uncommonMaterial + homePlanetDelta.uncommonMaterial,
-              rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
+              commonOre: state.homePlanet.storage.commonOre.plus(homePlanetDelta.commonOre),
+              uncommonMaterial: state.homePlanet.storage.uncommonMaterial.plus(homePlanetDelta.uncommonMaterial),
+              rareMaterial: state.homePlanet.storage.rareMaterial.plus(homePlanetDelta.rareMaterial),
             },
           },
         };
@@ -640,7 +647,7 @@
   // readout percentage below (unclamped, .toFixed(1)) -- avoids the same
   // division appearing twice and drifting if the formula ever changes,
   // matching the globalTickProgress/globalTickRemaining pattern above.
-  $: fleetAdminXpRatio = state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel);
+  $: fleetAdminXpRatio = state.fleetAdminXp.dividedBy(xpForNextFleetAdminLevel(state.fleetAdminLevel)).toNumber();
 </script>
 
 <div class="root">
@@ -712,8 +719,8 @@
            markup twice, so a 3rd recipe added to RECIPES later (per that
            object's own header comment) picks up a panel automatically. -->
       {#each Object.entries(RECIPES) as [recipeKey, recipe]}
-        {@const inputEntries = Object.entries(recipe.inputs) as [HomePlanetMaterialKey, number][]}
-        {@const affordable = inputEntries.every(([key, amount]) => state.homePlanet.storage[key] >= amount)}
+        {@const inputEntries = Object.entries(recipe.inputs) as [HomePlanetMaterialKey, Decimal][]}
+        {@const affordable = inputEntries.every(([key, amount]) => state.homePlanet.storage[key].gte(amount))}
         <Panel>
           <div class="panel-title">{recipeKey === "refineUnobtainium" ? "REFINERY" : "FABRICATION"}</div>
           <div class="research-name">{recipe.label}</div>
@@ -854,8 +861,9 @@
             <Panel>
               <div class="panel-title">CAPTAIN LEVELING</div>
               <div class="research-name">Level {activeCaptain.level}</div>
+              {@const activeCaptainXpRatio = activeCaptain.xp.dividedBy(xpForNextLevel(activeCaptain.level)).toNumber()}
               <div class="research-bar-track">
-                <div class="research-bar-fill" style="width:{Math.min(100, (activeCaptain.xp / xpForNextLevel(activeCaptain.level)) * 100)}%"></div>
+                <div class="research-bar-fill" style="width:{Math.min(100, activeCaptainXpRatio * 100)}%"></div>
               </div>
               <div class="research-readout">{formatNumber(activeCaptain.xp)} / {formatNumber(xpForNextLevel(activeCaptain.level))} XP</div>
               <div class="research-cost">Stat Points: {formatNumber(activeCaptain.statPoints)}</div>

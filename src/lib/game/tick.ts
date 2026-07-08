@@ -8,6 +8,7 @@
 // gameTimeSeconds once per call (not once per captain -- gameTimeSeconds is
 // fleet bookkeeping, not tied to any single captain's production).
 
+import Decimal from "break_infinity.js";
 import {
   requiredTicksForPhase,
   xpForNextLevel,
@@ -36,8 +37,8 @@ import {
 // wrap `.indexOf()` to -1 instead of erroring.
 const MISSION_PHASE_ORDER: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
 
-function emptyLootTotals(): Record<LootMaterialKey, number> {
-  return { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
+function emptyLootTotals(): Record<LootMaterialKey, Decimal> {
+  return { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
 }
 
 // passiveTrickle's `material` field is typed HomePlanetMaterialKey (the wider
@@ -122,14 +123,15 @@ const XP_PER_MISSION_CYCLE = 50;
 
 // A very large offline-catchup ticksElapsed could complete many mission
 // cycles across many captains in one tick() call, each contributing 1-2
-// Fleet Admiral XP -- summing to a potentially large delta applied in one
-// shot. Capping applyFleetAdminXp's level-up loop at a fixed max per call
-// and carrying any leftover XP forward (it keeps resolving on the NEXT
-// tick() call, which happens continuously during live play) avoids an
-// unbounded loop. This same constant is reused (not redefined) by the
-// separate, not-yet-started Big-Number Migration
-// (docs/plans/2026-07-08-big-number-migration-plan.md), which needs the
-// identical safeguard for captain XP once that field becomes Decimal-typed.
+// Fleet Admiral XP (or a large amount of captain XP) -- summing to a
+// potentially large delta applied in one shot. Capping a level-up loop at a
+// fixed max per call and carrying any leftover XP forward (it keeps
+// resolving on a LATER call) avoids an unbounded loop. Originally added for
+// applyFleetAdminXp only (Fleet Admiral XP Rework); the Big-Number Migration
+// (2026-07-08, docs/plans/2026-07-08-big-number-migration-plan.md, Task 5)
+// has since reused this SAME constant (not redefined it) for the captain XP
+// level-up loop inside tickCaptainMission too, now that captain xp is
+// Decimal-typed -- both loops share this one cap.
 const MAX_LEVEL_UPS_PER_TICK = 10_000;
 
 // Independent per-tier roll for ONE whole tick of extraction (2026-07-07 Loot
@@ -163,24 +165,31 @@ function rollExtractionTick(
     rareChanceMult: number;
   },
   rng: () => number
-): Record<LootMaterialKey, number> {
+): Record<LootMaterialKey, Decimal> {
   const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + bonuses.uncommonChanceMult));
   const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + bonuses.rareChanceMult));
 
-  let uncommonAmount = 0;
+  let uncommonAmount = new Decimal(0);
   if (rng() < effectiveUncommonChance) {
     const amountRoll = rng();
     const baseAmount = amountRoll < 0.75 ? 1 : amountRoll < 0.95 ? 2 : 3;
-    uncommonAmount = baseAmount * (1 + bonuses.uncommonYieldMult);
+    uncommonAmount = new Decimal(baseAmount).times(1 + bonuses.uncommonYieldMult);
   }
 
-  let rareAmount = 0;
+  let rareAmount = new Decimal(0);
   if (rng() < effectiveRareChance) {
-    rareAmount = 1 * (1 + bonuses.rareYieldMult);
+    rareAmount = new Decimal(1).times(1 + bonuses.rareYieldMult);
   }
 
-  const commonAmount =
-    Math.max(0, missionDef.extractionRatePerTick - uncommonAmount - rareAmount) * (1 + bonuses.commonYieldMult);
+  // Split into two named steps -- carve out uncommon/rare, THEN scale by
+  // commonYieldMult -- so this central formula reads the same two-stage
+  // shape the header comment above describes, rather than one long chained
+  // expression that has to be held in your head across a line wrap.
+  const commonBeforeYield = Decimal.max(
+    0,
+    new Decimal(missionDef.extractionRatePerTick).minus(uncommonAmount).minus(rareAmount)
+  );
+  const commonAmount = commonBeforeYield.times(1 + bonuses.commonYieldMult);
 
   return { commonOre: commonAmount, uncommonMaterial: uncommonAmount, rareMaterial: rareAmount };
 }
@@ -215,7 +224,7 @@ export function tickCaptainMission(
     rareYieldMult?: number;
     rareChanceMult?: number;
   } = {}
-): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, number>; fleetAdminXpDelta: number } {
+): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, Decimal>; fleetAdminXpDelta: number } {
   if (!captain.mission || ticksElapsed <= 0) {
     return { captain, homePlanetDelta: emptyLootTotals(), fleetAdminXpDelta: 0 };
   }
@@ -274,9 +283,9 @@ export function tickCaptainMission(
       const rollsThisStep = toWhole - fromWhole;
       for (let i = 0; i < rollsThisStep; i++) {
         const delta = rollExtractionTick(missionDef, resolvedBonuses, rng);
-        mission.cargo.commonOre += delta.commonOre;
-        mission.cargo.uncommonMaterial += delta.uncommonMaterial;
-        mission.cargo.rareMaterial += delta.rareMaterial;
+        mission.cargo.commonOre = mission.cargo.commonOre.plus(delta.commonOre);
+        mission.cargo.uncommonMaterial = mission.cargo.uncommonMaterial.plus(delta.uncommonMaterial);
+        mission.cargo.rareMaterial = mission.cargo.rareMaterial.plus(delta.rareMaterial);
       }
     }
 
@@ -298,20 +307,25 @@ export function tickCaptainMission(
       if (nextIndex >= MISSION_PHASE_ORDER.length) {
         // Just completed "unloading" -- one full cycle is done.
         (Object.keys(mission.cargo) as LootMaterialKey[]).forEach((key) => {
-          homePlanetDelta[key] += mission.cargo[key];
+          homePlanetDelta[key] = homePlanetDelta[key].plus(mission.cargo[key]);
         });
         // XP is awarded once per cycle completed here (this branch can be
         // reached multiple times within one call's while loop -- e.g. a big
         // offline-catchup ticksElapsed spanning several full cycles), NOT
         // once per tickCaptainMission call. Resolve every level-up crossed by
         // this award, not just one -- a while (not if) loop, same closed-form
-        // spirit as the phase-advancement logic above.
-        xp += XP_PER_MISSION_CYCLE;
+        // spirit as the phase-advancement logic above -- bounded by
+        // MAX_LEVEL_UPS_PER_TICK (see that constant's own comment), with any
+        // excess left in xp to resolve on a later call, the same
+        // carry-forward behavior applyFleetAdminXp uses below.
+        xp = xp.plus(XP_PER_MISSION_CYCLE);
         fleetAdminXpDelta += missionDef.fleetAdminXpPerCycle;
-        while (xp >= xpForNextLevel(level)) {
-          xp -= xpForNextLevel(level);
+        let levelUpsThisCall = 0;
+        while (xp.gte(xpForNextLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
+          xp = xp.minus(xpForNextLevel(level));
           level += 1;
           statPoints += 1;
+          levelUpsThisCall += 1;
         }
         if (mission.recalled) {
           mission = null;
@@ -363,16 +377,16 @@ export function tickCaptainMission(
 // actually correct about rather than leaving a comment that overstates what
 // the code did.
 export function applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): GameState {
-  const startingXp = fleetAdminXpDelta > 0 ? state.fleetAdminXp + fleetAdminXpDelta : state.fleetAdminXp;
-  const hasBacklog = startingXp >= xpForNextFleetAdminLevel(state.fleetAdminLevel);
+  const startingXp = fleetAdminXpDelta > 0 ? state.fleetAdminXp.plus(fleetAdminXpDelta) : state.fleetAdminXp;
+  const hasBacklog = startingXp.gte(xpForNextFleetAdminLevel(state.fleetAdminLevel));
   if (fleetAdminXpDelta <= 0 && !hasBacklog) return state; // cheap no-op: no new XP this call, and nothing left over from a prior capped call to resolve
 
   let xp = startingXp;
   let level = state.fleetAdminLevel;
   let adminPoints = state.adminPoints;
   let levelUpsThisCall = 0;
-  while (xp >= xpForNextFleetAdminLevel(level) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
-    xp -= xpForNextFleetAdminLevel(level);
+  while (xp.gte(xpForNextFleetAdminLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
+    xp = xp.minus(xpForNextFleetAdminLevel(level));
     level += 1;
     adminPoints += 1;
     levelUpsThisCall += 1;
@@ -421,7 +435,7 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       fleetAdminXpDelta: captainFleetAdminXpDelta,
     } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
     (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
-      homePlanetDelta[key] += delta[key];
+      homePlanetDelta[key] = homePlanetDelta[key].plus(delta[key]);
     });
     fleetAdminXpDelta += captainFleetAdminXpDelta;
     return updated;
@@ -436,7 +450,9 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   for (const key of state.unlockedHomeworldTalents) {
     const effect = HOMEWORLD_TALENTS[key].effect;
     if (effect.type === "passiveTrickle" && (LOOT_MATERIAL_KEYS as string[]).includes(effect.material)) {
-      homePlanetDelta[effect.material as LootMaterialKey] += effect.perTick * ticksElapsed;
+      homePlanetDelta[effect.material as LootMaterialKey] = homePlanetDelta[effect.material as LootMaterialKey].plus(
+        effect.perTick * ticksElapsed
+      );
     }
   }
 
@@ -463,9 +479,9 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
           // dropped homePlanet" fix caught in the immediately-prior shipped
           // feature (Phase 3a). Do not remove this spread.
           ...state.homePlanet.storage,
-          commonOre: state.homePlanet.storage.commonOre + homePlanetDelta.commonOre,
-          uncommonMaterial: state.homePlanet.storage.uncommonMaterial + homePlanetDelta.uncommonMaterial,
-          rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
+          commonOre: state.homePlanet.storage.commonOre.plus(homePlanetDelta.commonOre),
+          uncommonMaterial: state.homePlanet.storage.uncommonMaterial.plus(homePlanetDelta.uncommonMaterial),
+          rareMaterial: state.homePlanet.storage.rareMaterial.plus(homePlanetDelta.rareMaterial),
         },
       },
     },
@@ -527,14 +543,18 @@ export function recallCaptain(state: GameState, captainId: number): { next: Game
 // is a deliberate near-term follow-up, not built here.
 export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: GameState; success: boolean } {
   const recipe = RECIPES[recipeKey];
+  // recipe.inputs[key] is Decimal | undefined (Partial<Record<...>>), so the
+  // fallback must be a Decimal too -- `?? 0` would leave `needed` typed
+  // `Decimal | number`, and a plain number has no `.lt()`/`.minus()` methods.
   for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
-    const needed = recipe.inputs[key] ?? 0;
-    if (state.homePlanet.storage[key] < needed) return { next: state, success: false };
+    const needed = recipe.inputs[key] ?? new Decimal(0);
+    if (state.homePlanet.storage[key].lt(needed)) return { next: state, success: false };
   }
 
   const storage = { ...state.homePlanet.storage };
   for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
-    storage[key] -= recipe.inputs[key] ?? 0;
+    const needed = recipe.inputs[key] ?? new Decimal(0);
+    storage[key] = storage[key].minus(needed);
   }
 
   // recipeBonusOutput (Homeworld Talent, e.g. industryBonusOutput): a FLAT
@@ -542,12 +562,16 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
   // type's own `bonus: number` field name/shape. Reduce over every unlocked
   // talent (not just industryBonusOutput by name) so any future
   // recipeBonusOutput entry targeting a different recipeKey works without
-  // touching this function again.
+  // touching this function again. effect.bonus stays plain number (Big-Number
+  // Migration field-split table) -- this reduce is unchanged plain-number
+  // arithmetic, unrelated to the Decimal boundary below.
   const bonusOutput = state.unlockedHomeworldTalents.reduce((sum, key) => {
     const effect = HOMEWORLD_TALENTS[key].effect;
     return effect.type === "recipeBonusOutput" && effect.recipeKey === recipeKey ? sum + effect.bonus : sum;
   }, 0);
-  storage[recipe.output.key] += recipe.output.amount + bonusOutput;
+  // bonusOutput (plain number) flows directly into .plus() -- DecimalSource
+  // accepts plain numbers, no wrapping needed.
+  storage[recipe.output.key] = storage[recipe.output.key].plus(recipe.output.amount).plus(bonusOutput);
 
   return { next: { ...state, homePlanet: { storage } }, success: true };
 }

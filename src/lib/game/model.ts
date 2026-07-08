@@ -1,3 +1,5 @@
+import Decimal from "break_infinity.js";
+
 // Data model — tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
 // the Generator Stack economy (and everything built on top of it -- Research,
@@ -108,7 +110,7 @@ export interface CaptainMissionState {
   missionKey: MissionKey;
   phase: MissionPhase;
   phaseProgressTicks: number; // continuous (can be fractional mid-tick) so multi-tick deltas land on exact phase boundaries
-  cargo: Record<LootMaterialKey, number>;
+  cargo: Record<LootMaterialKey, Decimal>;
   recalled: boolean; // if true, ends the loop (mission -> null) after THIS cycle's unloading completes,
   // instead of auto-restarting at ordersReceived. Does not interrupt the current cycle mid-flight.
 }
@@ -139,7 +141,7 @@ export interface CaptainState {
   label: string; // placeholder, e.g. "Captain 1" -- naming UI deferred per master doc §10.7
   shipType: ShipType;
   mission: CaptainMissionState | null; // null when idle (idle captains have no passive economy -- see tick.ts)
-  xp: number; // accumulated toward the NEXT level -- see xpForNextLevel() below; awarded in tick.ts's tickCaptainMission on cycle completion
+  xp: Decimal; // accumulated toward the NEXT level -- see xpForNextLevel() below; awarded in tick.ts's tickCaptainMission on cycle completion
   level: number; // starts at 1
   statPoints: number; // unspent, earned on level-up -- spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
   unlockedCaptainTalents: CaptainTalentKey[]; // this captain's own purchased Captain Talent keys -- see buyCaptainTalent (tick.ts)
@@ -149,9 +151,9 @@ export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence -- every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
   gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
-  homePlanet: { storage: Record<HomePlanetMaterialKey, number> }; // fleet-wide mission loot + crafted goods, separate from any captain's own state
+  homePlanet: { storage: Record<HomePlanetMaterialKey, Decimal> }; // fleet-wide mission loot + crafted goods, separate from any captain's own state
   unlockedHomeworldTalents: HomeworldTalentKey[]; // fleet-wide purchased Homeworld Talent keys -- see buyHomeworldTalent (tick.ts)
-  fleetAdminXp: number; // Fleet Admiral leveling -- see applyFleetAdminXp (tick.ts)
+  fleetAdminXp: Decimal; // Fleet Admiral leveling -- see applyFleetAdminXp (tick.ts)
   fleetAdminLevel: number; // starts at 1
   adminPoints: number; // unspent, spent via buyHomeworldTalent (tick.ts)
 }
@@ -160,8 +162,8 @@ export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
 
 export interface RecipeDef {
   label: string;
-  inputs: Partial<Record<HomePlanetMaterialKey, number>>;
-  output: { key: HomePlanetMaterialKey; amount: number };
+  inputs: Partial<Record<HomePlanetMaterialKey, Decimal>>;
+  output: { key: HomePlanetMaterialKey; amount: Decimal };
 }
 
 // 2 recipes at launch, one per structure -- proves the crafting mechanic.
@@ -170,13 +172,13 @@ export interface RecipeDef {
 export const RECIPES: Record<RecipeKey, RecipeDef> = {
   refineUnobtainium: {
     label: "Refine Unobtainium Ore",
-    inputs: { commonOre: 10 },
-    output: { key: "refinedMaterial", amount: 1 },
+    inputs: { commonOre: new Decimal(10) },
+    output: { key: "refinedMaterial", amount: new Decimal(1) },
   },
   fabricateComponents: {
     label: "Fabricate Components",
-    inputs: { refinedMaterial: 5 },
-    output: { key: "components", amount: 1 },
+    inputs: { refinedMaterial: new Decimal(5) },
+    output: { key: "components", amount: new Decimal(1) },
   },
 };
 
@@ -370,7 +372,7 @@ export function freshCaptainStack(): Pick<
 > {
   return {
     mission: null,
-    xp: 0,
+    xp: new Decimal(0),
     level: 1,
     statPoints: 0,
     unlockedCaptainTalents: [],
@@ -401,9 +403,17 @@ export function freshState(): GameState {
     captains: freshCaptains(1),
     tickDurationSeconds: 10,
     gameTimeSeconds: 0,
-    homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
+    homePlanet: {
+      storage: {
+        commonOre: new Decimal(0),
+        uncommonMaterial: new Decimal(0),
+        rareMaterial: new Decimal(0),
+        refinedMaterial: new Decimal(0),
+        components: new Decimal(0),
+      },
+    },
     unlockedHomeworldTalents: [],
-    fleetAdminXp: 0,
+    fleetAdminXp: new Decimal(0),
     fleetAdminLevel: 1,
     adminPoints: 0,
   };

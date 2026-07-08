@@ -124,3 +124,14 @@ write it down so you don't relitigate it later.
   so there's no prior keyboard-actionable state to compare against), but a real accessibility gap in
   the new locked-tab pattern specifically. Worth revisiting (e.g. `aria-disabled` plus a focusable,
   non-disabled button) once this locked-tab pattern is reused enough to justify the change.
+- `MAX_LEVEL_UPS_PER_TICK = 10_000` (`tick.ts`) caps how many level-ups `tickCaptainMission`'s captain-XP
+  loop and `applyFleetAdminXp` will each resolve in a single call, carrying any leftover XP forward to the
+  next call rather than looping unboundedly. If a single call's XP delta is ever large enough to need MORE
+  than 10,000 level-ups to fully resolve -- most plausibly after a very long offline-catchup delta once
+  captain `xp`/`fleetAdminXp` are `Decimal`-scale -- the displayed level will lag a few ticks behind what
+  the accumulated XP actually supports, catching up over subsequent ticks/calls as the carried-forward
+  remainder keeps draining. Deliberate trade-off (see SESSION_LOG.md Session 19 and Session 20): a bounded
+  per-call cap with carry-forward is simpler and more robust than an algebraic closed-form/log-based
+  level-up formula, especially since the underlying XP curve itself might change. Not a bug -- but worth
+  a real playtest with a deliberately huge offline gap to confirm the lag is only ever a few ticks in
+  practice, not something that compounds or never fully drains.
