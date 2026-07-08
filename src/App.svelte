@@ -32,10 +32,11 @@
     recomputeFleetAdmin,
     buyCaptainTalent,
     buyHomeworldTalent,
-    captainExtractionYieldMult,
-    captainRareLootChanceMult,
-    fleetExtractionYieldMult,
-    applyRareLootChanceMult, // consumed by the captain-selection popup markup (Task 5) for its live drop-rate preview
+    captainCommonYieldMult,
+    captainUncommonYieldMult,
+    captainUncommonChanceMult,
+    captainRareChanceMult,
+    fleetRareYieldMult, // consumed by both the live tick loop below and the captain-selection popup markup (Task 5) for its live drop-rate preview
     LOOT_MATERIAL_KEYS,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
@@ -275,8 +276,11 @@
         // this mirroring, talent points spent on extraction/loot-chance
         // Homeworld Talents would only ever take effect during the one-time
         // offline-catchup tick() call at load, never during live play --
-        // exactly the bug this wiring pass exists to close.
-        const fleetYieldMult = fleetExtractionYieldMult(state);
+        // exactly the bug this wiring pass exists to close. rareYieldMult is
+        // the ONLY Homeworld Talent effect type tied to extraction (per
+        // model.ts -- there is no captain-level rare-yield talent), same as
+        // tick.ts's own tick().
+        const fleetRareYield = fleetRareYieldMult(state);
 
         for (let i = 0; i < captains.length; i++) {
           const captain = captains[i];
@@ -289,9 +293,18 @@
             captains = [...captains]; // copy on first write this poll
             anyFired = true;
           }
+          // 5-field bonuses object (2026-07-07 Loot Tier Rework) -- mirrors
+          // tick.ts's own tick() exactly: 4 captain-level helpers (read at
+          // usage time off THIS captain's unlockedCaptainTalents) plus the
+          // one fleet-wide helper (rareYieldMult only, computed once above,
+          // outside this per-captain loop, since Homeworld Talents are
+          // fleet-wide, not per-captain).
           const bonuses = {
-            extractionYieldMult: captainExtractionYieldMult(captain) + fleetYieldMult,
-            rareLootChanceMult: captainRareLootChanceMult(captain),
+            commonYieldMult: captainCommonYieldMult(captain),
+            uncommonYieldMult: captainUncommonYieldMult(captain),
+            uncommonChanceMult: captainUncommonChanceMult(captain),
+            rareYieldMult: fleetRareYield,
+            rareChanceMult: captainRareChanceMult(captain),
           };
           // Math.random passed explicitly (rather than omitted) since bonuses
           // is positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
@@ -876,17 +889,14 @@
               <div class="panel-title">AVAILABLE MISSIONS</div>
               <div class="mission-list">
                 {#each tierIMissions as [missionKey, missionDef]}
-                  {@const totalWeight = missionDef.lootTable.reduce((sum, e) => sum + e.weight, 0)}
                   <button class="mission-card mission-card-selectable" on:click={() => openMissionPopup(missionKey)}>
                     <div class="mission-portrait-frame" aria-hidden="true">🖼️</div>
                     <div class="mission-card-body">
                       <div class="research-name">{missionDef.label}</div>
                       <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
-                      {#each missionDef.lootTable as entry}
-                        <div class="research-cost">
-                          {entry.material}: {formatNumber(missionDef.extractionRatePerTick)}/tick ({((entry.weight / totalWeight) * 100).toFixed(1)}%)
-                        </div>
-                      {/each}
+                      <div class="research-cost">Common Ore: up to {formatNumber(missionDef.extractionRatePerTick)}/tick</div>
+                      <div class="research-cost">Uncommon Material: 1-3/tick ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">Rare Material: 1/tick ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
                     </div>
                   </button>
                 {/each}
@@ -1050,12 +1060,15 @@
          language. Two-step flow: no captain selected yet shows an idle-
          captain picker list; once missionPopupCaptainId is set, the SAME
          popup re-renders with the live drop-rate/timing preview and swaps in
-         a Dispatch button. This preview's bonus math (extractionYieldMult/
-         rareLootChanceMult/effectiveLootTable/amountPerTick) is hand-traced
-         against tick.ts's own tick()/tickCaptainMission to use the IDENTICAL
-         shape -- see this task's own commit message / plan doc for the
-         trace -- so the numbers shown here are never misleading about what
-         the real dispatched mission will actually do. -->
+         a Dispatch button. This preview's bonus math (2026-07-07 Loot Tier
+         Rework: uncommonChanceMult/rareChanceMult/effectiveUncommonChance/
+         effectiveRareChance/commonYieldMult/uncommonYieldMult/rareYieldMult,
+         replacing the old single-mult/weighted-lootTable shape) is
+         hand-traced against tick.ts's own rollExtractionTick to use the
+         IDENTICAL formula shape (same Math.min(1, missionDef.X * (1 + mult))
+         clamp, same which-mult-affects-which-tier mapping) -- so the numbers
+         shown here are never misleading about what the real dispatched
+         mission will actually do. -->
     {@const missionDef = MISSIONS[missionPopupKey]}
     {@const selectedCaptain = missionPopupCaptainId !== null ? state.captains.find((c) => c.id === missionPopupCaptainId) ?? null : null}
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
@@ -1075,11 +1088,24 @@
             </div>
           {/if}
         {:else}
-          {@const extractionYieldMult = captainExtractionYieldMult(selectedCaptain) + fleetExtractionYieldMult(state)}
-          {@const rareLootChanceMult = captainRareLootChanceMult(selectedCaptain)}
-          {@const effectiveLootTable = applyRareLootChanceMult(missionDef.lootTable, rareLootChanceMult)}
-          {@const totalWeight = effectiveLootTable.reduce((sum, e) => sum + e.weight, 0)}
-          {@const amountPerTick = missionDef.extractionRatePerTick * (1 + extractionYieldMult)}
+          <!-- Per-tier bonus math (2026-07-07 Loot Tier Rework) -- mirrors
+               tick.ts's rollExtractionTick EXACTLY: same Math.min(1, ...)
+               clamp on each tier's occurrence chance, same (1 + mult) yield
+               scaling, same which-mult-affects-which-tier mapping.
+               rareYieldMult is FLEET-WIDE ONLY (fleetLogisticsYield/Fleet
+               Requisitions, a Homeworld Talent, is the ONLY source of
+               rareYieldMult in the whole talent tree -- there is no
+               captain-level rare-yield talent), so it reads
+               fleetRareYieldMult(state) directly with NO captain-level
+               contribution added, unlike commonYieldMult/uncommonYieldMult
+               below which each sum ONLY this captain's own Captain Talents. -->
+          {@const uncommonChanceMult = captainUncommonChanceMult(selectedCaptain)}
+          {@const rareChanceMult = captainRareChanceMult(selectedCaptain)}
+          {@const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + uncommonChanceMult))}
+          {@const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + rareChanceMult))}
+          {@const commonYieldMult = captainCommonYieldMult(selectedCaptain)}
+          {@const uncommonYieldMult = captainUncommonYieldMult(selectedCaptain)}
+          {@const rareYieldMult = fleetRareYieldMult(state)}
           {@const transitOutTicks = missionDef.transitOutTicks}
           {@const extractingTicks = requiredTicksForPhase("extracting", missionDef)}
           {@const transitBackTicks = missionDef.transitBackTicks}
@@ -1089,11 +1115,9 @@
           <div class="research-name">Captain: {selectedCaptain.label}</div>
 
           <div class="panel-title">DROP RATES</div>
-          {#each effectiveLootTable as entry}
-            <div class="research-cost">
-              {entry.material}: {formatNumber(amountPerTick)}/tick ({((entry.weight / totalWeight) * 100).toFixed(1)}%)
-            </div>
-          {/each}
+          <div class="research-cost">Common Ore: up to {formatNumber(missionDef.extractionRatePerTick * (1 + commonYieldMult))}/tick</div>
+          <div class="research-cost">Uncommon Material: 1-3/tick, scaled by {(uncommonYieldMult * 100).toFixed(0)}% ({(effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">Rare Material: 1/tick, scaled by {(rareYieldMult * 100).toFixed(0)}% ({(effectiveRareChance * 100).toFixed(1)}% chance/tick)</div>
 
           <div class="panel-title">TIMING</div>
           <div class="research-cost">Transit out: {transitOutTicks} ticks ({(transitOutTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
