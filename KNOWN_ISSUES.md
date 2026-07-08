@@ -98,18 +98,20 @@ write it down so you don't relitigate it later.
   category as the Phase 4 orphans above -- inert, no broken references,
   deliberately left for the same dedicated stylesheet cleanup rather than
   deleting piecemeal task-by-task.
-- The new `.top-bar` (UI Redesign, Task 6) and the existing `.nav-tabs`
-  (Phase 4) are both `position: fixed`, both `z-index: 50`, pinned to
-  opposite edges (top/bottom) of the viewport, and neither reserves space
-  against the other (no `max-height`, no collision detection) -- on a
-  sufficiently short viewport (e.g. a landscape phone), they could
-  theoretically overlap and clip whatever scrollable content sits between
-  them. Not a regression introduced by this plan -- `.nav-tabs` already had
-  this exposure on its own -- but the new top-bar doubles the fixed-chrome
-  vertical footprint, narrowing the safe margin before it becomes visible in
-  practice. Worth a real-device/short-viewport check before shipping to
-  handheld landscape use; no fix attempted here since it can't be verified
-  without a renderer in this environment.
+- RESOLVED as a side effect of Scroll Containment & Locked Placeholders'
+  Task 1: `.top-bar` and `.nav-tabs` are no longer `position: fixed` at all
+  (both are now normal flex children of `.frame`'s fixed-height column), so
+  the "two independently-fixed elements silently overlap on a short
+  viewport" failure mode this entry used to describe can no longer happen --
+  neither element is out-of-flow anymore. The underlying concern (total
+  fixed-chrome height -- header + top-bar + nav -- versus a short viewport)
+  still exists in a different form: `.tab-body`'s `min-height: 0` lets it
+  get squeezed toward zero visible height instead, with all overflow
+  correctly absorbed by `.tab-scroll-area` rather than clipping -- correct
+  behavior, but could look cramped on a landscape phone. Worth a real-device
+  check on a short viewport before shipping to handheld landscape use; no
+  fix attempted here since it can't be verified without a renderer in this
+  environment.
 - Captain-list slots 5-10 (shown locked/"Coming Soon!") have no unlock mechanism behind them yet --
   `HOMEWORLD_TALENTS`' Fleet Logistics branch only defines 3 slot-unlock tiers
   (`fleetLogisticsSlot1/2/3`), capping the real fleet at 4 captains. Slots 5-10 are a deliberate
