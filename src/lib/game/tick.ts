@@ -134,27 +134,39 @@ const XP_PER_MISSION_CYCLE = 50;
 // Decimal-typed -- both loops share this one cap.
 const MAX_LEVEL_UPS_PER_TICK = 10_000;
 
-// Independent per-tier roll for ONE whole tick of extraction (2026-07-07 Loot
-// Tier Rework -- see the design doc). Replaces the old single mutually-
-// exclusive rollLootTable pick: uncommon and rare are each rolled
-// independently here and CAN both occur in the same tick (not exclusive of
-// each other), each replacing that many units of common ore rather than
-// adding on top of it.
+// Sequential, mutually-exclusive per-tier roll for ONE whole tick of
+// extraction (2026-07-08 Extraction Rework -- see the design doc). Replaces
+// the old independent-and-subtractive mechanic (uncommon and rare each
+// rolled separately, both COULD occur in the same tick, whatever hit was
+// subtracted from a shared extractionRatePerTick pool, common absorbed the
+// leftover). That old bucket-roll for uncommon's amount (75% -> 1 unit, 20%
+// -> 2 units, 5% -> 3 units) and rare's flat-1-unit cap are both GONE --
+// there is no per-tier amount cap anymore. Rare is checked first; if it
+// misses, uncommon is checked; if that also misses, common wins by default.
+// Exactly one of the three tiers wins each tick, and the winner is awarded
+// the FULL extractionRatePerTick base amount for that tick (scaled by its
+// own yieldMult) -- not a fraction of it, not a capped bucket roll.
 //
-// Exactly 3 rng() calls happen, ALWAYS in this order, regardless of outcome:
-//   1. does uncommon occur (rng() < effective uncommon chance)
-//   2. IF uncommon occurred: its base amount (rng() again -- 75% -> 1, 20% -> 2, 5% -> 3)
-//   3. does rare occur (rng() < effective rare chance) -- rare's amount is always 1, no 4th call needed
-// This fixed call count/order matters for hand-tracing a deterministic test
+// Only 1 or 2 rng() calls happen, NEVER 3 or more:
+//   1. does rare occur (rng() < effective rare chance) -- if yes, STOP here, 1 call total.
+//   2. IF rare missed: does uncommon occur (rng() < effective uncommon chance) -- if yes, STOP here, 2 calls total.
+//   3. IF both missed: common wins -- this is a guaranteed, non-conditional return, no roll needed.
+// This fixed, capped call count matters for hand-tracing a deterministic test
 // rng, and for the closed-form guarantee tickCaptainMission depends on (use
-// a CONSTANT, non-stateful rng in tests -- see that function's own comment).
+// a CONSTANT, non-stateful rng in tests -- see that function's own comment):
+// a caller can always reason about how many rng() calls one invocation of
+// this function consumes without needing to know the outcome first.
 //
-// yieldMults scale the AMOUNT actually delivered: commonYieldMult scales the
-// leftover-after-carve-out common amount (so total per-tick delivery CAN
-// exceed extractionRatePerTick -- intentional, this is what "more efficient
-// common extraction" should feel like); uncommonYieldMult/rareYieldMult each
-// scale their own tier's rolled amount, only when that tier actually
-// occurred this tick (nothing to scale if it didn't).
+// Behavior change worth flagging for anyone reading/testing this function:
+// under the OLD mechanic, only commonYieldMult could meaningfully move the
+// deterministic per-tick total in most cases, since uncommon/rare were
+// capped at small flat amounts (1-3 units) regardless of the mission's
+// actual per-tick rate. Under THIS mechanic, uncommonYieldMult and
+// rareYieldMult now ALSO change the deterministic per-tick total whenever
+// that tier wins the roll, because the winning tier receives the FULL
+// per-tick base amount (extractionRatePerTick) scaled by its own mult --
+// e.g. a high rareYieldMult now produces a large delivered amount on any
+// tick where rare actually hits, not just a scaled flat-1 unit like before.
 function rollExtractionTick(
   missionDef: MissionDef,
   bonuses: {
@@ -168,30 +180,15 @@ function rollExtractionTick(
 ): Record<LootMaterialKey, Decimal> {
   const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + bonuses.uncommonChanceMult));
   const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + bonuses.rareChanceMult));
+  const baseAmount = new Decimal(missionDef.extractionRatePerTick);
 
-  let uncommonAmount = new Decimal(0);
-  if (rng() < effectiveUncommonChance) {
-    const amountRoll = rng();
-    const baseAmount = amountRoll < 0.75 ? 1 : amountRoll < 0.95 ? 2 : 3;
-    uncommonAmount = new Decimal(baseAmount).times(1 + bonuses.uncommonYieldMult);
-  }
-
-  let rareAmount = new Decimal(0);
   if (rng() < effectiveRareChance) {
-    rareAmount = new Decimal(1).times(1 + bonuses.rareYieldMult);
+    return { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: baseAmount.times(1 + bonuses.rareYieldMult) };
   }
-
-  // Split into two named steps -- carve out uncommon/rare, THEN scale by
-  // commonYieldMult -- so this central formula reads the same two-stage
-  // shape the header comment above describes, rather than one long chained
-  // expression that has to be held in your head across a line wrap.
-  const commonBeforeYield = Decimal.max(
-    0,
-    new Decimal(missionDef.extractionRatePerTick).minus(uncommonAmount).minus(rareAmount)
-  );
-  const commonAmount = commonBeforeYield.times(1 + bonuses.commonYieldMult);
-
-  return { commonOre: commonAmount, uncommonMaterial: uncommonAmount, rareMaterial: rareAmount };
+  if (rng() < effectiveUncommonChance) {
+    return { commonOre: new Decimal(0), uncommonMaterial: baseAmount.times(1 + bonuses.uncommonYieldMult), rareMaterial: new Decimal(0) };
+  }
+  return { commonOre: baseAmount.times(1 + bonuses.commonYieldMult), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
 }
 
 // MUST be closed-form: calling this once with a large ticksElapsed must
