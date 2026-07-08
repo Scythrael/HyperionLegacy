@@ -675,6 +675,7 @@ Extraction/Keen Eye I-II/Fleet Requisitions and confirm each scales the
 correct tier, exercise Export then Import Save end-to-end (including
 importing a deliberately corrupted file to confirm the inline-error path),
 and confirm the new header layout/labels look right at real viewport sizes.
+Final holistic review of this branch is still pending before merge/push.
 
 **Session 19** — Fleet Admiral XP Rework (branch feat/fleet-admiral-xp-rework,
 docs/plans/2026-07-08-fleet-admiral-xp-rework-plan.md), built via
@@ -725,4 +726,3 @@ instead of sitting frozen, and confirm the top bar's Fleet Admiral level/XP
 row updates live; then final holistic review of this branch before merge
 (must land before the Big-Number Migration's implementation begins, since both
 touch `tick.ts`/`model.ts`).
-Final holistic review of this branch is still pending before merge/push.
