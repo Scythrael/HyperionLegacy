@@ -31,6 +31,8 @@ import {
   type CaptainTalentKey,
   type HomeworldTalentKey,
   type CaptainTalentBranch,
+  type CaptainTalentEffect,
+  type HomeworldTalentEffect,
 } from "./model";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -177,6 +179,69 @@ export function fleetRareYieldMult(state: GameState): number {
     const effect = HOMEWORLD_TALENTS[key].effect;
     return effect.type === "rareYieldMult" ? sum + effect.mult : sum;
   }, 0);
+}
+
+// Talent Tree Visual Redesign (Task 9): pure string-conversion helpers for the
+// Task 12 tooltip work -- turn one CAPTAIN_TALENTS/HOMEWORLD_TALENTS entry's
+// `effect` field into a single human-readable line describing its numeric
+// impact. No side effects, no state read -- these take the effect value
+// directly (as already narrowed off a specific talent's `.effect`), not a
+// GameState/CaptainState, so the tooltip can call them for ANY talent entry
+// (unlocked or not) purely from its static model.ts definition.
+//
+// Percentage rounding follows the SAME .toFixed(1) convention App.svelte
+// already uses for every other displayed chance/yield percentage (e.g. the
+// "Bonus Roll: ...% chance/tick" and mission phase readouts) -- kept
+// consistent rather than introducing a second rounding convention (.toFixed(0))
+// just for this new tooltip text.
+//
+// Discriminated union with no `default` branch: TypeScript's exhaustiveness
+// checking would flag a missing case at compile time if CaptainTalentEffect
+// grows a new member without a matching branch here -- but there is no
+// TypeScript compiler available in this dev environment to actually run that
+// check, so any FUTURE new member added to CaptainTalentEffect in model.ts
+// must have its switch branch added here by hand at the same time, not
+// discovered later by a build failure.
+export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string {
+  switch (effect.type) {
+    case "commonYieldMult":
+      return `+${(effect.mult * 100).toFixed(1)}% Common Ore yield`;
+    case "uncommonYieldMult":
+      return `+${(effect.mult * 100).toFixed(1)}% Uncommon Material yield`;
+    case "uncommonChanceMult":
+      return `+${(effect.mult * 100).toFixed(1)}% Uncommon Material chance`;
+    case "rareChanceMult":
+      return `+${(effect.mult * 100).toFixed(1)}% Rare Material chance`;
+    case "bonusRollChance":
+      return `+${(effect.chance * 100).toFixed(1)}% chance/tick for a bonus roll`;
+    case "bonusRollChanceMult":
+      return `+${(effect.mult * 100).toFixed(1)}% to bonus roll chance`;
+  }
+}
+
+// Same pattern as describeCaptainTalentEffect above, for the Homeworld Talent
+// tree's effect union. recipeBonusOutput looks up RECIPES[effect.recipeKey].label
+// for the recipe's display name -- the SAME lookup App.svelte's own crafting
+// log line already uses (`Crafted: ${RECIPES[recipeKey].label}.`) -- rather
+// than surfacing the raw RecipeKey string. passiveTrickle has no equivalent
+// display-label table anywhere in the codebase for HomePlanetMaterialKey, so
+// it surfaces the raw material key as-is (e.g. "commonOre"), matching how
+// this same codebase already displays raw LootMaterialKey/HomePlanetMaterialKey
+// strings elsewhere with no translation layer (see mission cargo readouts in
+// App.svelte). Introducing a new material-label map is out of scope for this
+// pure-conversion-function task -- flagging it as a real Task 12 (tooltip UI)
+// candidate, not solving it here.
+export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): string {
+  switch (effect.type) {
+    case "unlockCaptainSlot":
+      return "Unlocks a new captain slot";
+    case "rareYieldMult":
+      return `+${(effect.mult * 100).toFixed(1)}% Rare Material yield (fleet-wide)`;
+    case "recipeBonusOutput":
+      return `+${effect.bonus} bonus output per craft (${RECIPES[effect.recipeKey].label})`;
+    case "passiveTrickle":
+      return `+${effect.perTick}/tick passive ${effect.material}`;
+  }
 }
 
 // requiredTicksForPhase always returns a whole number, but phaseProgressTicks
