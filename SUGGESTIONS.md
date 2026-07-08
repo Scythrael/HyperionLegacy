@@ -94,3 +94,19 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   (2) a human-readable description per effect type/value shown on hover, likely requiring a new
   "flavor text" field per talent entry in `CAPTAIN_TALENTS`/`HOMEWORLD_TALENTS` (model.ts) rather
   than deriving text from the raw effect union at render time.
+
+- **Battlespace's 4 real modes (multiplayer-dependent).** User request, 2026-07-07: Battlespace
+  (currently a single "Coming Soon" placeholder tab) is eventually meant to hold 4 distinct game
+  modes, shown as 4 locked placeholder options for now (built alongside the Fleet Operations Mission
+  UI pass -- see docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md):
+  - **Fleet Skirmishes** -- PvE combat against small pre-set ship groupings, using the player's own
+    saved fleet presets.
+  - **Campaign** -- scripted PvE content: skirmishes, assaults, homeworld attacks, etc.
+  - **Fleet Exercises** -- PvP combat maneuvers against other players. Requires multiplayer.
+  - **Invasion mode** -- sector-space defense followed by planetary bombardment and ground troops;
+    does not capture the planet, but yields loot/prizes. Also wants a leaderboard tied to this mode.
+  None of these have any design work done yet -- pure future direction. Fleet Exercises, Invasion,
+  and the leaderboard all depend on real-time multiplayer (which itself depends on a backend +
+  WebSockets/similar, explicitly rejected for v1 in the master design doc, section 7.2) and a chat
+  system, neither of which exist. Fleet Skirmishes and Campaign are PvE-only and don't share that
+  dependency, so they could in principle be designed/built independently of the multiplayer work.
