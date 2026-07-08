@@ -11,6 +11,7 @@ import {
   captainExtractionYieldMult,
   captainRareLootChanceMult,
   fleetExtractionYieldMult,
+  applyRareLootChanceMult,
 } from "./tick";
 import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
 
@@ -170,6 +171,28 @@ describe("tickCaptainMission — extraction loot rolls", () => {
     const { captain } = tickCaptainMission(1, base, rollAt900of1000, { rareLootChanceMult: 0 });
     expect(captain.mission!.cargo.uncommonMaterial).toBe(10);
     expect(captain.mission!.cargo.commonOre).toBe(0);
+  });
+});
+
+describe("applyRareLootChanceMult", () => {
+  it("returns the SAME array reference when rareLootChanceMult is 0 or negative", () => {
+    const table = [{ material: "commonOre" as const, weight: 900 }];
+    expect(applyRareLootChanceMult(table, 0)).toBe(table);
+    expect(applyRareLootChanceMult(table, -1)).toBe(table);
+  });
+
+  it("leaves commonOre's weight untouched but boosts every other entry", () => {
+    const table = [
+      { material: "commonOre" as const, weight: 900 },
+      { material: "uncommonMaterial" as const, weight: 80 },
+      { material: "rareMaterial" as const, weight: 20 },
+    ];
+    const boosted = applyRareLootChanceMult(table, 1); // +100%
+    expect(boosted).toEqual([
+      { material: "commonOre", weight: 900 },
+      { material: "uncommonMaterial", weight: 160 },
+      { material: "rareMaterial", weight: 40 },
+    ]);
   });
 });
 
