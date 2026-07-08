@@ -90,15 +90,19 @@
   type HomeworldSubTab = "resources" | "refinery" | "talents";
   let activeHomeworldSubTab: HomeworldSubTab = "resources";
 
-  // System tab sub-tabs (UI Redesign, Task 10). Options holds the relocated
+  // System tab sub-tabs (UI Redesign, Task 10; gained About in the layout-
+  // width/panel-style fix -- see SESSION_LOG.md). Options holds the relocated
   // theme picker + Export/Delete Save content; Log holds the relocated LOG
   // panel; Debug holds the relocated dev debug panel (only reachable when
   // DEV_MODE_ENV is true -- see the <SubTabs> usage under the System tab
   // below, which omits the "debug" entry from its tabs array entirely when
   // DEV_MODE_ENV is false, so non-dev-mode players never see a Debug button
-  // at all). Defaults to Options since theme/save actions are the most
-  // commonly checked view.
-  type SystemSubTab = "options" | "log" | "debug";
+  // at all); About holds the app title/branding that used to be its own
+  // always-visible header panel above the top bar -- retired in favor of
+  // this out-of-the-way spot, per the user's own request, since the level/
+  // XP/tick bar and the bottom nav ARE the header/footer now. Defaults to
+  // Options since theme/save actions are the most commonly checked view.
+  type SystemSubTab = "options" | "log" | "debug" | "about";
   let activeSystemSubTab: SystemSubTab = "options";
 
   let tickHandle: ReturnType<typeof setInterval>;
@@ -412,15 +416,6 @@
 <div class="root">
   <Starfield />
   <div class="frame">
-    <Panel class="header">
-      <div class="header-left">
-        <span class="title">FLEET ADMIRAL</span>
-        <span class="subtitle">prototype build · multi-captain · single sector</span>
-      </div>
-      <div class="header-right">
-      </div>
-    </Panel>
-
     <div class="top-bar">
       <div class="top-bar-row">
         <span class="top-bar-label">Fleet Admiral · Level {state.fleetAdminLevel}</span>
@@ -767,6 +762,7 @@
           { key: "options", label: "Options" },
           { key: "log", label: "Log" },
           ...(DEV_MODE_ENV ? [{ key: "debug", label: "Debug" }] : []),
+          { key: "about", label: "About" },
           { key: "systemLocked1", label: "Coming Soon!", locked: true },
           { key: "systemLocked2", label: "Coming Soon!", locked: true },
         ]}
@@ -832,6 +828,17 @@
             <div class="log-entry">{entry}</div>
           {/each}
         </div>
+      </Panel>
+      {/if}
+
+      {#if activeSystemSubTab === "about"}
+      <Panel>
+        <div class="panel-title">ABOUT THE APP</div>
+        <div class="header-left">
+          <span class="title">FLEET ADMIRAL</span>
+          <span class="subtitle">prototype build · multi-captain · single sector</span>
+        </div>
+        <p class="prestige-text">Contact info coming soon.</p>
       </Panel>
       {/if}
       </div>
@@ -905,12 +912,14 @@
     flex-direction: column;
     overflow: hidden; /* only .tab-scroll-area (nested inside) actually scrolls */
     /* Horizontal 16px inset unchanged from before. Top padding now the ONLY
-       place safe-area-inset-top is handled (moved off .top-bar below -- since
-       .top-bar sits BELOW Panel.header now instead of being pinned flush
-       against the screen edge via position:fixed, .frame's own top edge is
-       the one flush against the real viewport edge that needs notch/status-
-       bar clearance). Bottom padding is 0 -- .nav-tabs (now the last flex
-       child, flush against .frame's own bottom edge) handles its own bottom
+       place safe-area-inset-top is handled -- .top-bar is the very first
+       element inside .frame now (the old standalone "FLEET ADMIRAL" title
+       Panel above it was retired in favor of an About sub-tab under System,
+       per the user's own request -- the level/XP/tick bar and the bottom
+       nav ARE the header/footer now), so .frame's own top edge is flush
+       against the real viewport edge and needs the notch/status-bar
+       clearance. Bottom padding is 0 -- .nav-tabs (the last flex child,
+       flush against .frame's own bottom edge) handles its own bottom
        safe-area clearance directly, same as it always has. */
     padding: calc(20px + env(safe-area-inset-top, 0px)) 16px 0;
   }
@@ -922,7 +931,6 @@
     color: var(--color-accent-bright);
   }
   .subtitle { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
-  .header-right { display: flex; align-items: center; gap: 8px; }
   .stat-pill {
     padding: 6px 10px;
     border-radius: 8px;
@@ -970,8 +978,10 @@
     gap: 14px; /* preserves the old .main's gap:14px spacing between stacked panels, now scoped to just the scrollable region */
     padding-bottom: 14px; /* breathing room at the very bottom of scrolled content, above .nav-tabs */
   }
-  /* Sits directly below Panel.header in document order (Task 1: no longer
-     position:fixed, so it's a normal flex child now -- see .frame above). */
+  /* The very first element inside .frame now -- the old standalone "FLEET
+     ADMIRAL" title Panel that used to sit above it was retired in favor of
+     an About sub-tab under System (see the SystemSubTab comment above).
+     Also a normal flex child now, not position:fixed (see .frame above). */
   .top-bar {
     background: var(--color-panel-bg-strong);
     border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.3);
