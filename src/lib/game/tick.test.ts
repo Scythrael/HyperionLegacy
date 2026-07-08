@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   tick,
   tickCaptainMission,
@@ -647,22 +647,37 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
   // - fleetLogisticsYield/rareYieldMult (Homeworld Talent) wiring is instead verified via
   //   the composition-invariant test further below, which holds regardless of which tier's
   //   occurrence rng fires and is unaffected by this same total-conservation property.
+  //
+  // CORRECTNESS NOTE on the two commonYieldMult tests below: the "total = rate * (1 +
+  // commonYieldMult) EXACTLY" identity only holds when commonYieldMult is 0 (see the
+  // general formula: total = rate*(1+commonYieldMult) - k*commonYieldMult, where k is
+  // the carved-out uncommon+rare amount for that roll). With commonYieldMult=0.1 and an
+  // uncontrolled real Math.random(), shortOreRun's tiny but nonzero uncommonChance/
+  // rareChance (0.019/0.001) mean k > 0 on ~2% of rolls, which would make these two
+  // tests spuriously fail toBeCloseTo(11, 6) roughly 1 run in 50. Math.random is mocked
+  // to a fixed 0.5 (same value as this file's NOTHING_OCCURS constant, which fails both
+  // occurrence checks for shortOreRun) to force k=0 and make the total genuinely
+  // deterministic, matching what the assertion actually claims.
   it("commandExtractionI (Captain Talent, commonYieldMult) boosts a mission captain's extraction via tick()", () => {
-    const state = freshState();
-    state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.1 commonYieldMult
-    state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      const state = freshState();
+      state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.1 commonYieldMult
+      state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
-    const result = tick(10, state); // tickDurationSeconds=10 -> ticksElapsed=1 -> 1 roll
+      const result = tick(10, state); // tickDurationSeconds=10 -> ticksElapsed=1 -> 1 roll
 
-    // commonYieldMult scales the total delivered deterministically (see the comment
-    // above this describe block for why this is the ONE bonus type where a "total
-    // delivered" assertion is valid under the new mechanism): extractionRatePerTick
-    // 10 * (1 + 0.1) = 11, regardless of which tier's occurrence rng fired this roll.
-    const totalDelivered =
-      result.captains[0].mission!.cargo.commonOre +
-      result.captains[0].mission!.cargo.uncommonMaterial +
-      result.captains[0].mission!.cargo.rareMaterial;
-    expect(totalDelivered).toBeCloseTo(11, 6);
+      // Math.random mocked to 0.5 forces k=0 (neither tier occurs, see the note above),
+      // making commonYieldMult scale the total deterministically: extractionRatePerTick
+      // 10 * (1 + 0.1) = 11.
+      const totalDelivered =
+        result.captains[0].mission!.cargo.commonOre +
+        result.captains[0].mission!.cargo.uncommonMaterial +
+        result.captains[0].mission!.cargo.rareMaterial;
+      expect(totalDelivered).toBeCloseTo(11, 6);
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   it("fleetLogisticsYield (Homeworld Talent, rareYieldMult) is wired through tick() without breaking the per-tick total invariant", () => {
@@ -689,23 +704,31 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
   });
 
   it("commandExtractionI (Captain Talent) and a Homeworld Talent's rareYieldMult both wire through tick() without interfering with each other", () => {
-    const state = freshState();
-    state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05 rareYieldMult (does not affect total)
-    state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.1 commonYieldMult (does affect total)
-    state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // Math.random mocked to 0.5 for the same reason as the commonYieldMult-only test
+    // above: k must be forced to 0 for the total to be provably deterministic (see the
+    // correctness note above this describe block's first commonYieldMult test).
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      const state = freshState();
+      state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05 rareYieldMult (does not affect total)
+      state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.1 commonYieldMult (does affect total)
+      state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
-    const result = tick(10, state);
+      const result = tick(10, state);
 
-    // Total delivered is governed ONLY by commonYieldMult (see this describe block's
-    // opening comment) -- rareYieldMult being simultaneously active must not change
-    // this number: extractionRatePerTick 10 * (1 + 0.1) = 11, same as the
-    // commonYieldMult-only test above, proving the two bonus types don't cross-
-    // contaminate each other when both are wired through tick() at once.
-    const totalDelivered =
-      result.captains[0].mission!.cargo.commonOre +
-      result.captains[0].mission!.cargo.uncommonMaterial +
-      result.captains[0].mission!.cargo.rareMaterial;
-    expect(totalDelivered).toBeCloseTo(11, 6);
+      // Total delivered is governed ONLY by commonYieldMult (see this describe block's
+      // opening comment) -- rareYieldMult being simultaneously active must not change
+      // this number: extractionRatePerTick 10 * (1 + 0.1) = 11, same as the
+      // commonYieldMult-only test above, proving the two bonus types don't cross-
+      // contaminate each other when both are wired through tick() at once.
+      const totalDelivered =
+        result.captains[0].mission!.cargo.commonOre +
+        result.captains[0].mission!.cargo.uncommonMaterial +
+        result.captains[0].mission!.cargo.rareMaterial;
+      expect(totalDelivered).toBeCloseTo(11, 6);
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   it("passiveTrickle (Homeworld Talent economyTrickle) adds material even with every captain idle", () => {
