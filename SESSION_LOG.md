@@ -543,3 +543,34 @@ Removed the now-stale "5 of 6 talent effects have zero gameplay effect" entry
 from KNOWN_ISSUES.md. Next: Ships & Crew system (currently just a `ShipType`
 stub with no modules/crew at all) is the agreed-on next big feature, per the
 master design doc's committed-systems list.
+
+**Session 17** — Fleet Operations Mission UI (branch feat/fleet-operations-mission-ui,
+docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md), built via
+subagent-driven-development with two-stage review per task. Replaced the flat
+one-Panel-per-mission dispatch list with: a 4-button mission-category list
+(only Resource-Gathering real, Patrol/Surveying/Long-Term Exploration locked),
+difficulty-tier SubTabs within it (Tier I real, containing both launch
+missions via a new `MissionDef.tier` field; Tiers II-V locked), and mission
+cards with a theme-aware portrait-frame placeholder. Clicking a mission now
+opens a captain-selection popup showing a LIVE drop-rate/timing preview,
+computed with the exact same talent-bonus math `tick.ts` uses for the real
+mission (extracted `applyRareLootChanceMult` into its own exported function
+specifically so the preview and the real roll can't drift apart), before
+Dispatch. Also folded in two smaller mid-plan requests: renamed the "Fleet
+Operations"/"Fleet Captain's" nav-tab labels to "Operations"/"Command"
+(display text only), and expanded Battlespace from one generic placeholder to
+4 named locked options (Fleet Skirmishes, Campaign, Fleet Exercises,
+Invasion). Two review findings surfaced and were fixed in-branch: an
+intermediate task's comment briefly overclaimed a not-yet-built popup as
+already wired (corrected once the popup actually landed), and the new popup
+shares (and slightly worsens, via missing aria-labels) the delete-save
+modal's known focus-trap/Escape gap -- logged in KNOWN_ISSUES.md rather than
+fixed here, matching that entry's own "fix both together in one pass" note.
+Several detailed future-feature ideas were logged in SUGGESTIONS.md this
+session too: selectable background styles, an actual talent-tree visual/
+tooltip pass, Battlespace's 4 real modes (Story Campaign fleshed out in
+detail -- chapters, tiered I-X difficulty, boss/capital-ship/invasion
+chapter-cappers, doubles as a gating tutorial for the other 3 modes), and a
+spotlight-style in-game tutorial system. Next: final holistic review of this
+branch, then merge and (pending explicit confirmation) push; Ships & Crew
+remains the next big feature after that.
