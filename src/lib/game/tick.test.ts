@@ -15,6 +15,7 @@ import {
   fleetRareYieldMult,
   captainBonusRollChance,
   captainBonusRollChanceMult,
+  captainSpecBonusRollChance,
 } from "./tick";
 import Decimal from "break_infinity.js";
 import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
@@ -400,6 +401,153 @@ describe("tickCaptainMission — bonus roll (Resourcefulness Lucky Strike)", () 
     expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
     expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
   });
+
+  // Task 2c (Talent Tree Visual Redesign, Captain Specialization) -- regression
+  // guard for the exact correctness trap this task's design doc calls out:
+  // captainSpecBonusRollChance's +0.01 MUST be added AFTER
+  // bonusRollChance*(1+bonusRollChanceMult) is computed, not folded into
+  // bonusRollChance beforehand. With both resourcefulnessBonusRollI/II
+  // unlocked (bonusRollChance 0.02, bonusRollChanceMult 1.0) and
+  // spec:"resourcefulness" (specBonusRollChance 0.01), the CORRECT effective
+  // bonus-trigger chance is 0.02*(1+1.0) + 0.01 = 0.05 exactly. A WRONG
+  // implementation that instead folded 0.01 into the base before scaling would
+  // compute (0.02+0.01)*(1+1.0) = 0.06 instead -- a full 0.01 higher, which
+  // these two tests below would catch by using an rng value that sits between
+  // the two candidate boundaries.
+  //
+  // Hand-traced call order (both tests below), from the live tick.ts source
+  // (tickCaptainMission's extracting-phase loop body):
+  //   call 1: rollExtractionTick's rare check      -- rng() < effectiveRareChance
+  //   call 2: rollExtractionTick's uncommon check  -- rng() < effectiveUncommonChance
+  //   call 3: bonus-roll TRIGGER check             -- rng() < effectiveBonusRollChance
+  //   (only if call 3 passes:)
+  //   call 4: rollBonusExtractionTick's rare check     -- rng() < effectiveRareChance
+  //   call 5: rollBonusExtractionTick's uncommon check -- rng() < effectiveUncommonChance
+  //   call 6: rollBonusExtractionTick's common 30% check -- rng() < BONUS_ROLL_COMMON_CHANCE (0.3)
+  //
+  // Both resourcefulnessRareChanceI/II are ALSO unlocked in this captain's
+  // setup below (uncommonChanceMult 0.25, rareChanceMult 0.5), per the design
+  // doc's own scenario -- this only affects calls 1/2/4/5's thresholds, not
+  // the trigger check at call 3, but it's included here to keep the setup
+  // identical to the design doc's stated regression scenario:
+  //   effectiveRareChance     = shortOreRun.rareChance 0.001 * (1+0.5)  = 0.0015
+  //   effectiveUncommonChance = shortOreRun.uncommonChance 0.019 * (1+0.25) = 0.02375
+  // A constant rng of 0.0499 or 0.0501 clears BOTH of those thresholds easily
+  // (both are comfortably under 0.04), so calls 1 and 2 fail identically in
+  // both tests below regardless of which side of 0.05 the constant sits on --
+  // isolating the boundary check to call 3 alone, exactly as intended.
+  it("resourcefulness spec + both Lucky Strike talents combine to exactly 0.05, not 0.06 (regression guard for the spec-bonus scaling order) -- BELOW the boundary fires the bonus", () => {
+    const base = freshCaptains(1)[0];
+    base.spec = "resourcefulness";
+    base.unlockedCaptainTalents = [
+      "resourcefulnessRareChanceI",
+      "resourcefulnessRareChanceII",
+      "resourcefulnessBonusRollI",
+      "resourcefulnessBonusRollII",
+    ];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    const bonuses = {
+      uncommonChanceMult: captainUncommonChanceMult(base), // 0.25
+      rareChanceMult: captainRareChanceMult(base), // 0.5
+      bonusRollChance: captainBonusRollChance(base), // 0.02
+      bonusRollChanceMult: captainBonusRollChanceMult(base), // 1.0
+      specBonusRollChance: captainSpecBonusRollChance(base), // 0.01 (spec:"resourcefulness")
+    };
+    // A single constant of 0.0499 for every call:
+    //   call 1 (rare, 0.0015 threshold): 0.0499 < 0.0015? no.
+    //   call 2 (uncommon, 0.02375 threshold): 0.0499 < 0.02375? no -> primary common wins, commonOre += 1.
+    //   call 3 (bonus trigger, TRUE threshold 0.02*(1+1.0)+0.01 = 0.05): 0.0499 < 0.05 -> YES, bonus fires.
+    //   call 4 (bonus rare, 0.0015): 0.0499 < 0.0015? no.
+    //   call 5 (bonus uncommon, 0.02375): 0.0499 < 0.02375? no.
+    //   call 6 (bonus common 30%): 0.0499 < 0.3 -> YES, bonus lands common too, commonOre += 1.
+    // Total: commonOre = 1 (primary) + 1 (bonus) = 2. If the WRONG (folded-in,
+    // 0.06 threshold) implementation were in place instead, call 3's check
+    // would be 0.0499 < 0.06 -- ALSO true, so this test alone can't distinguish
+    // 0.05 from 0.06; the companion "ABOVE the boundary" test right below
+    // is what actually proves the boundary sits at 0.05, not 0.06 or anything else.
+    const { captain } = tickCaptainMission(1, base, () => 0.0499, bonuses);
+    expect(captain.mission!.cargo.commonOre.equals(2)).toBe(true);
+    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+  });
+
+  it("resourcefulness spec + both Lucky Strike talents combine to exactly 0.05, not 0.06 (regression guard for the spec-bonus scaling order) -- ABOVE the boundary does NOT fire the bonus", () => {
+    const base = freshCaptains(1)[0];
+    base.spec = "resourcefulness";
+    base.unlockedCaptainTalents = [
+      "resourcefulnessRareChanceI",
+      "resourcefulnessRareChanceII",
+      "resourcefulnessBonusRollI",
+      "resourcefulnessBonusRollII",
+    ];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    const bonuses = {
+      uncommonChanceMult: captainUncommonChanceMult(base),
+      rareChanceMult: captainRareChanceMult(base),
+      bonusRollChance: captainBonusRollChance(base),
+      bonusRollChanceMult: captainBonusRollChanceMult(base),
+      specBonusRollChance: captainSpecBonusRollChance(base),
+    };
+    // Same constant-rng approach, but 0.0501 this time:
+    //   call 1 (rare, 0.0015): 0.0501 < 0.0015? no.
+    //   call 2 (uncommon, 0.02375): 0.0501 < 0.02375? no -> primary common wins, commonOre += 1.
+    //   call 3 (bonus trigger, TRUE threshold 0.05): 0.0501 < 0.05? NO -- bonus does NOT fire.
+    //   (no further rng() calls happen -- the bonus mini-sequence is only
+    //   entered if call 3 passes.)
+    // Total: commonOre = 1 (primary only). This is the test that actually
+    // proves the boundary sits at 0.05 and not 0.06 -- a WRONG (folded-in)
+    // implementation using a 0.06 threshold would have call 3 evaluate
+    // 0.0501 < 0.06 -> TRUE, firing the bonus and producing commonOre = 2
+    // instead, failing this assertion.
+    const { captain } = tickCaptainMission(1, base, () => 0.0501, bonuses);
+    expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true);
+    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+  });
+
+  // Task 2c: confirms spec:null (no Captain Specialization chosen) is
+  // BYTE-FOR-BYTE identical to this whole feature's pre-existing behavior --
+  // the same captain/talent setup as the two regression-guard tests directly
+  // above, but with spec left at its default null, so specBonusRollChance
+  // resolves to 0 (see captainSpecBonusRollChance's own "else 0" branch).
+  // effectiveBonusRollChance is then exactly 0.02*(1+1.0) + 0 = 0.04 -- the
+  // OLD (pre-Captain-Specialization) value -- not 0.05. Reusing the SAME
+  // 0.0499 constant as the "BELOW the boundary" test above (which fired the
+  // bonus at the 0.05 threshold) but here the bonus must NOT fire, since
+  // 0.0499 is ABOVE this test's 0.04 threshold -- the sharpest possible
+  // contrast between "spec chosen" and "spec: null" using one identical rng
+  // value.
+  it("spec: null leaves the effective bonus-roll chance at the pre-spec value (0.04, not 0.05)", () => {
+    const base = freshCaptains(1)[0];
+    // base.spec is already null by freshCaptains' own default -- left
+    // unset here deliberately, not explicitly reassigned, so this test also
+    // documents that null is the baseline rather than something a caller
+    // must remember to reset.
+    base.unlockedCaptainTalents = [
+      "resourcefulnessRareChanceI",
+      "resourcefulnessRareChanceII",
+      "resourcefulnessBonusRollI",
+      "resourcefulnessBonusRollII",
+    ];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    const bonuses = {
+      uncommonChanceMult: captainUncommonChanceMult(base),
+      rareChanceMult: captainRareChanceMult(base),
+      bonusRollChance: captainBonusRollChance(base), // 0.02
+      bonusRollChanceMult: captainBonusRollChanceMult(base), // 1.0
+      specBonusRollChance: captainSpecBonusRollChance(base), // 0 -- spec is null
+    };
+    // call 1 (rare, 0.0015): 0.0499 < 0.0015? no.
+    // call 2 (uncommon, 0.02375): 0.0499 < 0.02375? no -> primary common wins, commonOre += 1.
+    // call 3 (bonus trigger, TRUE threshold here 0.02*(1+1.0)+0 = 0.04): 0.0499 < 0.04?
+    //   NO -- bonus does NOT fire (0.0499 is above 0.04, even though it's below 0.05).
+    // Total: commonOre = 1 (primary only) -- proving the pre-spec ceiling is 0.04,
+    // not 0.05, for this exact same talent configuration.
+    const { captain } = tickCaptainMission(1, base, () => 0.0499, bonuses);
+    expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true);
+    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+  });
 });
 
 describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonChanceMult / captainRareChanceMult / fleetRareYieldMult", () => {
@@ -483,6 +631,38 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
     expect(captainBonusRollChanceMult(captain)).toBe(0);
     captain.unlockedCaptainTalents = ["resourcefulnessBonusRollII"];
     expect(captainBonusRollChanceMult(captain)).toBe(1.0);
+  });
+
+  // Task 2c (Talent Tree Visual Redesign, Captain Specialization): direct
+  // unit coverage for captainSpecBonusRollChance itself, independent of the
+  // talent tree -- CAPTAIN_SPEC_BONUS.resourcefulness's flat +0.01 grant only
+  // applies when captain.spec === "resourcefulness" exactly; every other spec
+  // value (including "command", which grants a DIFFERENT bonus type via
+  // captainCommonYieldMult instead) and null (no spec chosen) both yield 0
+  // here.
+  it("captainSpecBonusRollChance returns 0.01 for spec:resourcefulness, else 0", () => {
+    const captain = freshCaptains(1)[0];
+    expect(captainSpecBonusRollChance(captain)).toBe(0);
+    captain.spec = "resourcefulness";
+    expect(captainSpecBonusRollChance(captain)).toBe(0.01);
+    captain.spec = "command";
+    expect(captainSpecBonusRollChance(captain)).toBe(0);
+    captain.spec = null;
+    expect(captainSpecBonusRollChance(captain)).toBe(0);
+  });
+
+  // Task 2c: captainCommonYieldMult's CAPTAIN_SPEC_BONUS.command fold-in (see
+  // that function's own comment in tick.ts for why command's spec bonus is
+  // safe to fold directly into this helper, unlike resourcefulness's, which
+  // needs the separate captainSpecBonusRollChance helper above). Confirms the
+  // spec's flat +0.05 is ADDITIVE with, not a replacement for, whatever the
+  // talent tree itself contributes.
+  it("captainCommonYieldMult includes the command spec's +0.05, independent of talent-tree nodes", () => {
+    const captain = freshCaptains(1)[0];
+    captain.spec = "command";
+    expect(captainCommonYieldMult(captain)).toBe(0.05); // no talents unlocked yet -- spec bonus alone
+    captain.unlockedCaptainTalents = ["commandExtractionI"];
+    expect(captainCommonYieldMult(captain)).toBe(0.1 + 0.05); // talent's 0.1 + spec's 0.05
   });
 });
 
