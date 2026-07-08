@@ -8,10 +8,11 @@ import {
   buyCaptainTalent,
   buyHomeworldTalent,
   recomputeFleetAdmin,
-  captainExtractionYieldMult,
-  captainRareLootChanceMult,
-  fleetExtractionYieldMult,
-  applyRareLootChanceMult,
+  captainCommonYieldMult,
+  captainUncommonYieldMult,
+  captainUncommonChanceMult,
+  captainRareChanceMult,
+  fleetRareYieldMult,
 } from "./tick";
 import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
 
@@ -25,7 +26,20 @@ function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"
   };
 }
 
-const ALWAYS_COMMON_ORE = () => 0; // lands on the first (commonOre) bucket every time -- see rollLootTable
+// A constant (non-stateful) rng returning 0 on every call. Under the OLD
+// weighted-pick mechanism this meant "always land on the first (commonOre)
+// bucket" -- hence the old name ALWAYS_MIN_ROLL. Under the NEW independent
+// per-tier mechanism (2026-07-07 Loot Tier Rework), 0 instead passes BOTH
+// occurrence checks (0 < uncommonChance, 0 < rareChance) AND lands the
+// uncommon amount-roll on its lowest bucket (0 < 0.75 -> baseAmount 1) --
+// i.e. EVERY roll now delivers uncommon=1 and rare=1 (each subtracted from
+// extractionRatePerTick), not pure commonOre. Renamed to reflect that: this
+// is the constant that always produces the MINIMUM roll on every occurrence
+// check and amount check, not a "commonOre-only" constant anymore. Still a
+// constant (not stateful) rng, so the closed-form "one big jump equals many
+// small ticks" guarantee (which only requires an rng that behaves the SAME
+// on every call, regardless of call count) is unaffected by this rename.
+const ALWAYS_MIN_ROLL = () => 0;
 
 describe("tickCaptainMission — closed-form requirement", () => {
   it("one big jump equals many small ticks, across multiple phase transitions", () => {
@@ -33,12 +47,12 @@ describe("tickCaptainMission — closed-form requirement", () => {
     base.mission = missionCaptain("shortOreRun");
     // shortOreRun total ticks per cycle: 1 (orders) + 3 (out) + 10 (extract) + 3 (back) + 1 (unload) = 18.
     // 40 ticksElapsed crosses more than one full cycle (auto-repeat).
-    const bigJump = tickCaptainMission(40, base, ALWAYS_COMMON_ORE);
+    const bigJump = tickCaptainMission(40, base, ALWAYS_MIN_ROLL);
 
     let steppedCaptain = base;
     const steppedDelta = { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
     for (let i = 0; i < 400; i++) {
-      const result = tickCaptainMission(0.1, steppedCaptain, ALWAYS_COMMON_ORE);
+      const result = tickCaptainMission(0.1, steppedCaptain, ALWAYS_MIN_ROLL);
       steppedCaptain = result.captain;
       steppedDelta.commonOre += result.homePlanetDelta.commonOre;
       steppedDelta.uncommonMaterial += result.homePlanetDelta.uncommonMaterial;
@@ -52,14 +66,14 @@ describe("tickCaptainMission — closed-form requirement", () => {
   it("zero or negative ticksElapsed is a no-op", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain();
-    const result = tickCaptainMission(0, base, ALWAYS_COMMON_ORE);
+    const result = tickCaptainMission(0, base, ALWAYS_MIN_ROLL);
     expect(result.captain).toBe(base);
     expect(result.homePlanetDelta).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 });
   });
 
   it("a captain with no active mission is returned unchanged", () => {
     const base = freshCaptains(1)[0]; // mission: null
-    const result = tickCaptainMission(100, base, ALWAYS_COMMON_ORE);
+    const result = tickCaptainMission(100, base, ALWAYS_MIN_ROLL);
     expect(result.captain).toBe(base);
   });
 });
@@ -68,7 +82,7 @@ describe("tickCaptainMission — phase progression", () => {
   it("advances phaseProgressTicks within ordersReceived without completing it", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain();
-    const { captain } = tickCaptainMission(0.5, base, ALWAYS_COMMON_ORE);
+    const { captain } = tickCaptainMission(0.5, base, ALWAYS_MIN_ROLL);
     expect(captain.mission!.phase).toBe("ordersReceived");
     expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.5, 6);
   });
@@ -76,7 +90,7 @@ describe("tickCaptainMission — phase progression", () => {
   it("completes ordersReceived (1 tick) and moves into transitOut", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain();
-    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE);
+    const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
     expect(captain.mission!.phase).toBe("transitOut");
     expect(captain.mission!.phaseProgressTicks).toBe(0);
   });
@@ -85,7 +99,7 @@ describe("tickCaptainMission — phase progression", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain();
     // 1.5 ticks: completes the 1-tick ordersReceived phase, carries 0.5 into transitOut.
-    const { captain } = tickCaptainMission(1.5, base, ALWAYS_COMMON_ORE);
+    const { captain } = tickCaptainMission(1.5, base, ALWAYS_MIN_ROLL);
     expect(captain.mission!.phase).toBe("transitOut");
     expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.5, 6);
   });
@@ -93,7 +107,7 @@ describe("tickCaptainMission — phase progression", () => {
   it("advances all the way through extracting, transitBack, and unloading in one big call", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain(); // shortOreRun: 1+3+10+3+1 = 18 ticks for one full cycle
-    const { captain, homePlanetDelta } = tickCaptainMission(17.9, base, ALWAYS_COMMON_ORE);
+    const { captain, homePlanetDelta } = tickCaptainMission(17.9, base, ALWAYS_MIN_ROLL);
     expect(captain.mission!.phase).toBe("unloading");
     expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.9, 6);
     expect(homePlanetDelta).toEqual({ commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 }); // not unloaded yet
@@ -101,134 +115,263 @@ describe("tickCaptainMission — phase progression", () => {
 });
 
 describe("tickCaptainMission — extraction loot rolls", () => {
+  // shortOreRun: extractionRatePerTick 10, uncommonChance 0.019, rareChance 0.001.
+  // A constant rng of 0.5 fails BOTH occurrence checks every roll (hand-verify:
+  // 0.5 < 0.019? no. 0.5 < 0.001? no.) -- nothing but commonOre ever occurs.
+  const NOTHING_OCCURS = () => 0.5;
+
   it("rolls loot once per whole tick crossed during extracting, adding extractionRatePerTick units each time", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    // 3.5 ticks of extracting crosses whole boundaries 1, 2, 3 -- 3 rolls, all commonOre (rate 10 each).
-    const { captain } = tickCaptainMission(3.5, base, ALWAYS_COMMON_ORE);
+    // 3.5 ticks of extracting crosses whole boundaries 1, 2, 3 -- 3 rolls. Neither
+    // occurrence check ever passes (see NOTHING_OCCURS above), so every roll is
+    // pure commonOre: 3 * 10 = 30.
+    const { captain } = tickCaptainMission(3.5, base, NOTHING_OCCURS);
     expect(captain.mission!.cargo.commonOre).toBe(30);
+    expect(captain.mission!.cargo.uncommonMaterial).toBe(0);
+    expect(captain.mission!.cargo.rareMaterial).toBe(0);
     expect(captain.mission!.phaseProgressTicks).toBeCloseTo(3.5, 6);
   });
 
   it("a large jump resolves every extraction tick's loot roll, not just the last one", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    // Exactly 10 ticks completes extracting (cargoCapacity 100 / rate 10).
-    const { captain } = tickCaptainMission(10, base, ALWAYS_COMMON_ORE);
+    // Exactly 10 ticks completes extracting (cargoCapacity 100 / rate 10) -- 10 rolls, all
+    // commonOre under NOTHING_OCCURS: 10 * 10 = 100.
+    const { captain } = tickCaptainMission(10, base, NOTHING_OCCURS);
     expect(captain.mission!.cargo.commonOre).toBe(100);
     expect(captain.mission!.phase).toBe("transitBack"); // extracting completed, advanced
   });
 
-  it("respects the injected rng for a non-common tier", () => {
+  it("neither tier occurs: pure commonOre at the unmodified extractionRatePerTick", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    const ALWAYS_RARE = () => 0.9999; // lands in the last bucket (rareMaterial) -- see rollLootTable
-    const { captain } = tickCaptainMission(1, base, ALWAYS_RARE);
-    expect(captain.mission!.cargo.rareMaterial).toBe(10);
-    expect(captain.mission!.cargo.commonOre).toBe(0);
+    // Hand-trace (shortOreRun, 1 roll): call 1 (uncommon occurrence) 0.5 < 0.019? no.
+    // call 2 (rare occurrence) 0.5 < 0.001? no. commonAmount = max(0, 10-0-0)*(1+0) = 10.
+    const { captain } = tickCaptainMission(1, base, NOTHING_OCCURS);
+    expect(captain.mission!.cargo.commonOre).toBe(10);
+    expect(captain.mission!.cargo.uncommonMaterial).toBe(0);
+    expect(captain.mission!.cargo.rareMaterial).toBe(0);
+  });
+
+  it("both tiers occur in the same tick, at their minimum amounts", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // A constant rng of 0 passes every occurrence check AND lands the amount roll on
+    // its lowest bucket. Hand-trace (shortOreRun, 1 roll, 3 rng() calls in fixed order):
+    //   call 1 (uncommon occurrence): 0 < 0.019 -> true, uncommon occurs.
+    //   call 2 (uncommon amount roll): 0 < 0.75 -> baseAmount 1 -> uncommonAmount = 1 * (1+0) = 1.
+    //   call 3 (rare occurrence): 0 < 0.001 -> true, rare occurs -> rareAmount = 1 * (1+0) = 1.
+    //   commonAmount = max(0, 10 - 1 - 1) * (1+0) = 8.
+    // Matches the design doc's own worked example exactly (8 common, 1 uncommon, 1 rare).
+    const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
+    expect(captain.mission!.cargo.commonOre).toBe(8);
+    expect(captain.mission!.cargo.uncommonMaterial).toBe(1);
+    expect(captain.mission!.cargo.rareMaterial).toBe(1);
+  });
+
+  it("uncommon amount can land on bucket 2 or 3 of the 75/20/5 distribution", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // Occurrence chance is always small (<=8% for either mission) while the amount-roll
+    // thresholds are 0.75/0.95 -- no single CONSTANT rng value can pass the (small-value-
+    // needing) occurrence check AND land the amount roll on bucket 2 or 3 (large-value-
+    // needing), since occurrence and amount draw from the SAME rng() call sequence. This
+    // is the ONE test in this file that uses a small STATEFUL sequence rng instead of a
+    // constant one, confined here deliberately -- a stateful rng risks breaking the
+    // closed-form "one big jump equals many small ticks" guarantee if used anywhere that
+    // guarantee actually matters (e.g. multi-roll/multi-call tests elsewhere in this file),
+    // so every OTHER test keeps using a constant rng.
+    let calls = 0;
+    const rng = () => {
+      calls++;
+      return calls === 1 ? 0 : 0.8;
+    };
+    // Hand-trace (shortOreRun, 1 roll):
+    //   call 1 (uncommon occurrence): returns 0 -> 0 < 0.019 -> true, uncommon occurs.
+    //   call 2 (uncommon amount roll): returns 0.8 -> 0.8 < 0.75? no. 0.8 < 0.95? yes ->
+    //     baseAmount 2 -> uncommonAmount = 2 * (1+0) = 2.
+    //   call 3 (rare occurrence): returns 0.8 (calls is now 3, still not the first call) ->
+    //     0.8 < 0.001? no -> rare does NOT occur.
+    //   commonAmount = max(0, 10 - 2 - 0) * (1+0) = 8.
+    const { captain } = tickCaptainMission(1, base, rng);
+    expect(captain.mission!.cargo.commonOre).toBe(8);
+    expect(captain.mission!.cargo.uncommonMaterial).toBe(2);
+    expect(captain.mission!.cargo.rareMaterial).toBe(0);
   });
 
   it("omitting the bonuses arg behaves exactly as before (defaults to no bonus)", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE); // no 4th arg at all
+    const { captain } = tickCaptainMission(1, base, NOTHING_OCCURS); // no 4th arg at all
     expect(captain.mission!.cargo.commonOre).toBe(10); // unmodified extractionRatePerTick
+    expect(captain.mission!.cargo.uncommonMaterial).toBe(0);
+    expect(captain.mission!.cargo.rareMaterial).toBe(0);
   });
 
-  it("extractionYieldMult scales the per-roll amount added, not the roll count", () => {
+  it("commonYieldMult scales only the leftover commonOre amount, not occurrence", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    // 1 tick = 1 roll; rate 10 * (1 + 0.25) = 12.5 per roll.
-    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE, { extractionYieldMult: 0.25 });
+    // NOTHING_OCCURS (0.5) fails both occurrence checks regardless of commonYieldMult
+    // (that bonus doesn't touch either chance) -- commonAmount = max(0, 10-0-0) * (1+0.25) = 12.5.
+    const { captain } = tickCaptainMission(1, base, NOTHING_OCCURS, { commonYieldMult: 0.25 });
     expect(captain.mission!.cargo.commonOre).toBe(12.5);
+    expect(captain.mission!.cargo.uncommonMaterial).toBe(0);
+    expect(captain.mission!.cargo.rareMaterial).toBe(0);
   });
 
-  it("rareLootChanceMult shifts the SAME rng roll from commonOre to a non-common tier", () => {
+  it("uncommonYieldMult scales only uncommon's rolled amount, when uncommon actually occurred", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // A constant rng of 0.01 (shortOreRun, uncommonChance 0.019, rareChance 0.001):
+    //   call 1 (uncommon occurrence): 0.01 < 0.019 -> true, uncommon occurs.
+    //   call 2 (uncommon amount roll): 0.01 < 0.75 -> baseAmount 1 -> uncommonAmount = 1 * (1+0.5) = 1.5.
+    //   call 3 (rare occurrence): 0.01 < 0.001? no -> rare does NOT occur -> rareAmount = 0.
+    //   commonAmount = max(0, 10 - 1.5 - 0) * (1+0) = 8.5.
+    const rng = () => 0.01;
+    const { captain } = tickCaptainMission(1, base, rng, { uncommonYieldMult: 0.5 });
+    expect(captain.mission!.cargo.uncommonMaterial).toBe(1.5);
+    expect(captain.mission!.cargo.rareMaterial).toBe(0);
+    expect(captain.mission!.cargo.commonOre).toBe(8.5);
+  });
+
+  it("rareYieldMult scales only rare's rolled amount, when rare actually occurred", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // A constant rng of 0.0005 (shortOreRun, uncommonChance 0.019, rareChance 0.001):
+    //   call 1 (uncommon occurrence): 0.0005 < 0.019 -> true, uncommon occurs.
+    //   call 2 (uncommon amount roll): 0.0005 < 0.75 -> baseAmount 1 -> uncommonAmount = 1 * (1+0) = 1
+    //     (uncommonYieldMult defaults to 0 here -- only rareYieldMult is set on this call).
+    //   call 3 (rare occurrence): 0.0005 < 0.001 -> true, rare occurs -> rareAmount = 1 * (1+0.4) = 1.4.
+    //   commonAmount = max(0, 10 - 1 - 1.4) * (1+0) = 7.6.
+    // uncommonMaterial staying at the UNSCALED baseline of 1 (not affected by rareYieldMult)
+    // is exactly what proves rareYieldMult only scales rare's own tier.
+    const rng = () => 0.0005;
+    const { captain } = tickCaptainMission(1, base, rng, { rareYieldMult: 0.4 });
+    expect(captain.mission!.cargo.uncommonMaterial).toBe(1);
+    expect(captain.mission!.cargo.rareMaterial).toBe(1.4);
+    expect(captain.mission!.cargo.commonOre).toBe(7.6);
+  });
+
+  it("uncommonChanceMult shifts a borderline rng value across the uncommon occurrence threshold", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain("longOreRun"), phase: "extracting", phaseProgressTicks: 0 };
-    // longOreRun weights: commonOre 900, uncommonMaterial 80, rareMaterial 20 (total 1000).
-    // A fixed rng() of 0.85: with NO bonus, roll = 0.85 * 1000 = 850, which is < commonOre's
-    // cumulative weight of 900 -> commonOre. With rareLootChanceMult: 1 (+100%), only the
-    // non-common weights double (uncommon 80->160, rare 20->40; commonOre stays 900), giving a
-    // new total of 1100 -- the SAME rng() of 0.85 now rolls 0.85 * 1100 = 935, which is past
-    // commonOre's still-900 cumulative but under uncommonMaterial's new cumulative of
-    // 900+160=1060 -> uncommonMaterial. Same roll, different outcome, purely because the
-    // bonus made commonOre a smaller share of a larger total.
-    const fixedRoll = () => 0.85;
+    // longOreRun: uncommonChance 0.08, rareChance 0.02. A constant rng of 0.1 is used for
+    // EVERY call (occurrence AND amount-roll, when reached).
+    // Unboosted: call 1 (uncommon occurrence) 0.1 < 0.08? no -> uncommon does NOT occur,
+    //   so there's no amount-roll call (that call only happens conditionally, inside the
+    //   occurrence check's if-block) -- the VERY NEXT rng() call is call 2, rare
+    //   occurrence: 0.1 < 0.02? no -> rare does NOT occur either.
+    //   commonAmount = max(0, 10-0-0)*(1+0) = 10.
+    const fixedRoll = () => 0.1;
     const unboosted = tickCaptainMission(1, base, fixedRoll);
     expect(unboosted.captain.mission!.cargo.commonOre).toBe(10);
+    expect(unboosted.captain.mission!.cargo.uncommonMaterial).toBe(0);
 
-    const boosted = tickCaptainMission(1, base, fixedRoll, { rareLootChanceMult: 1 });
-    expect(boosted.captain.mission!.cargo.uncommonMaterial).toBe(10);
-    expect(boosted.captain.mission!.cargo.commonOre).toBe(0);
+    // Boosted: effectiveUncommonChance = 0.08 * (1 + 1) = 0.16. call 1: 0.1 < 0.16 -> true,
+    //   uncommon occurs. call 2 (amount roll): 0.1 < 0.75 -> baseAmount 1 -> uncommonAmount
+    //   = 1 * (1+0) = 1 (uncommonYieldMult defaults to 0). call 3 (rare occurrence):
+    //   rareChanceMult is NOT set on this call, so effectiveRareChance stays 0.02 ->
+    //   0.1 < 0.02? no -> rare does NOT occur. commonAmount = max(0, 10-1-0)*(1+0) = 9.
+    // Same rng() value throughout, different outcome, purely because uncommonChanceMult
+    // pushed the effective chance past 0.1.
+    const boosted = tickCaptainMission(1, base, fixedRoll, { uncommonChanceMult: 1 });
+    expect(boosted.captain.mission!.cargo.uncommonMaterial).toBe(1);
+    expect(boosted.captain.mission!.cargo.commonOre).toBe(9);
   });
 
-  it("rareLootChanceMult of 0 (default) leaves the loot table completely unmodified", () => {
+  it("rareChanceMult shifts a borderline rng value across the rare occurrence threshold", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain("longOreRun"), phase: "extracting", phaseProgressTicks: 0 };
-    // roll = 0.9 * 1000 (unmodified total) = 900, NOT < 900 (commonOre's cumulative) -> falls into uncommonMaterial.
-    const rollAt900of1000 = () => 0.9;
-    const { captain } = tickCaptainMission(1, base, rollAt900of1000, { rareLootChanceMult: 0 });
-    expect(captain.mission!.cargo.uncommonMaterial).toBe(10);
-    expect(captain.mission!.cargo.commonOre).toBe(0);
+    // longOreRun: uncommonChance 0.08, rareChance 0.02. A constant rng of 0.09 is used for
+    // EVERY call. 0.09 >= 0.08 fails the uncommon occurrence check in BOTH the unboosted and
+    // boosted case below (uncommonChanceMult is never set on either call), so uncommon never
+    // occurs either way -- this isolates the rare-tier effect cleanly.
+    // Unboosted: call 1 (uncommon occurrence) 0.09 < 0.08? no. call 2 (rare occurrence)
+    //   0.09 < 0.02? no -> rare does NOT occur. commonAmount = max(0, 10-0-0)*(1+0) = 10.
+    const fixedRoll = () => 0.09;
+    const unboosted = tickCaptainMission(1, base, fixedRoll);
+    expect(unboosted.captain.mission!.cargo.rareMaterial).toBe(0);
+    expect(unboosted.captain.mission!.cargo.commonOre).toBe(10);
+
+    // Boosted: effectiveRareChance = 0.02 * (1 + 4) = 0.1. call 1 (uncommon occurrence):
+    //   0.09 < 0.08? no -> uncommon does NOT occur (unaffected -- rareChanceMult doesn't
+    //   touch uncommonChance). call 2 (rare occurrence): 0.09 < 0.1 -> true, rare occurs ->
+    //   rareAmount = 1 * (1+0) = 1 (rareYieldMult defaults to 0 on this call).
+    //   commonAmount = max(0, 10-0-1)*(1+0) = 9.
+    const boosted = tickCaptainMission(1, base, fixedRoll, { rareChanceMult: 4 });
+    expect(boosted.captain.mission!.cargo.rareMaterial).toBe(1);
+    expect(boosted.captain.mission!.cargo.commonOre).toBe(9);
   });
 });
 
-describe("applyRareLootChanceMult", () => {
-  it("returns the SAME array reference when rareLootChanceMult is 0 or negative", () => {
-    const table = [{ material: "commonOre" as const, weight: 900 }];
-    expect(applyRareLootChanceMult(table, 0)).toBe(table);
-    expect(applyRareLootChanceMult(table, -1)).toBe(table);
-  });
-
-  it("leaves commonOre's weight untouched but boosts every other entry", () => {
-    const table = [
-      { material: "commonOre" as const, weight: 900 },
-      { material: "uncommonMaterial" as const, weight: 80 },
-      { material: "rareMaterial" as const, weight: 20 },
-    ];
-    const boosted = applyRareLootChanceMult(table, 1); // +100%
-    expect(boosted).toEqual([
-      { material: "commonOre", weight: 900 },
-      { material: "uncommonMaterial", weight: 160 },
-      { material: "rareMaterial", weight: 40 },
-    ]);
-  });
-});
-
-describe("captainExtractionYieldMult / captainRareLootChanceMult / fleetExtractionYieldMult", () => {
-  it("captainExtractionYieldMult is 0 for a captain with no unlocked talents", () => {
+describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonChanceMult / captainRareChanceMult / fleetRareYieldMult", () => {
+  it("captainCommonYieldMult is 0 for a captain with no unlocked talents", () => {
     const captain = freshCaptains(1)[0];
-    expect(captainExtractionYieldMult(captain)).toBe(0);
+    expect(captainCommonYieldMult(captain)).toBe(0);
   });
 
-  it("captainExtractionYieldMult stacks additively across multiple unlocked tiers", () => {
+  it("captainCommonYieldMult reads commandExtractionI's mult when unlocked (Bulk Extraction)", () => {
     const captain = freshCaptains(1)[0];
-    captain.unlockedCaptainTalents = ["commandExtractionI", "commandExtractionII"];
-    expect(captainExtractionYieldMult(captain)).toBeCloseTo(0.25, 6); // 0.10 + 0.15
+    captain.unlockedCaptainTalents = ["commandExtractionI"];
+    expect(captainCommonYieldMult(captain)).toBeCloseTo(0.1, 6);
   });
 
-  it("captainExtractionYieldMult ignores unlocked talents of the OTHER effect type", () => {
+  it("captainCommonYieldMult ignores unlocked talents of OTHER effect types", () => {
+    const captain = freshCaptains(1)[0];
+    // commandExtractionII/resourcefulnessRareChanceI/II are uncommonYieldMult,
+    // uncommonChanceMult, and rareChanceMult respectively -- none is commonYieldMult.
+    // Set directly on unlockedCaptainTalents (bypassing buyCaptainTalent's own
+    // requires-chain validation) purely to exercise this helper's effect-type filter.
+    captain.unlockedCaptainTalents = ["commandExtractionII", "resourcefulnessRareChanceI", "resourcefulnessRareChanceII"];
+    expect(captainCommonYieldMult(captain)).toBe(0);
+  });
+
+  it("captainUncommonYieldMult is 0 for a captain with no unlocked talents", () => {
+    const captain = freshCaptains(1)[0];
+    expect(captainUncommonYieldMult(captain)).toBe(0);
+  });
+
+  it("captainUncommonYieldMult reads commandExtractionII's mult when unlocked (Refined Extraction)", () => {
+    const captain = freshCaptains(1)[0];
+    // commandExtractionII requires commandExtractionI per its `requires` field, but this
+    // helper only reads unlockedCaptainTalents -- set directly rather than going through
+    // buyCaptainTalent's own prerequisite-chain validation.
+    captain.unlockedCaptainTalents = ["commandExtractionII"];
+    expect(captainUncommonYieldMult(captain)).toBeCloseTo(0.15, 6);
+  });
+
+  it("captainUncommonChanceMult is 0 for a captain with no unlocked talents", () => {
+    const captain = freshCaptains(1)[0];
+    expect(captainUncommonChanceMult(captain)).toBe(0);
+  });
+
+  it("captainUncommonChanceMult reads resourcefulnessRareChanceI's mult when unlocked (Keen Eye I)", () => {
     const captain = freshCaptains(1)[0];
     captain.unlockedCaptainTalents = ["resourcefulnessRareChanceI"];
-    expect(captainExtractionYieldMult(captain)).toBe(0);
+    expect(captainUncommonChanceMult(captain)).toBeCloseTo(0.25, 6);
   });
 
-  it("captainRareLootChanceMult stacks additively across multiple unlocked tiers", () => {
+  it("captainRareChanceMult is 0 for a captain with no unlocked talents", () => {
     const captain = freshCaptains(1)[0];
-    captain.unlockedCaptainTalents = ["resourcefulnessRareChanceI", "resourcefulnessRareChanceII"];
-    expect(captainRareLootChanceMult(captain)).toBeCloseTo(0.75, 6); // 0.25 + 0.5
+    expect(captainRareChanceMult(captain)).toBe(0);
   });
 
-  it("fleetExtractionYieldMult is 0 with no unlocked Homeworld Talents", () => {
+  it("captainRareChanceMult reads resourcefulnessRareChanceII's mult when unlocked (Keen Eye II)", () => {
+    const captain = freshCaptains(1)[0];
+    captain.unlockedCaptainTalents = ["resourcefulnessRareChanceII"];
+    expect(captainRareChanceMult(captain)).toBeCloseTo(0.5, 6);
+  });
+
+  it("fleetRareYieldMult is 0 with no unlocked Homeworld Talents", () => {
     const state = freshState();
-    expect(fleetExtractionYieldMult(state)).toBe(0);
+    expect(fleetRareYieldMult(state)).toBe(0);
   });
 
-  it("fleetExtractionYieldMult reads fleetLogisticsYield's mult when unlocked", () => {
+  it("fleetRareYieldMult reads fleetLogisticsYield's mult when unlocked (Fleet Requisitions)", () => {
     const state = freshState();
     state.unlockedHomeworldTalents = ["fleetLogisticsYield"];
-    expect(fleetExtractionYieldMult(state)).toBeCloseTo(0.05, 6);
+    expect(fleetRareYieldMult(state)).toBeCloseTo(0.05, 6);
   });
 });
 
@@ -237,7 +380,7 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
     base.mission.cargo = { commonOre: 90, uncommonMaterial: 8, rareMaterial: 2 };
-    const { captain, homePlanetDelta } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE); // 1 tick completes unloadTicks=1
+    const { captain, homePlanetDelta } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL); // 1 tick completes unloadTicks=1
 
     expect(homePlanetDelta).toEqual({ commonOre: 90, uncommonMaterial: 8, rareMaterial: 2 });
     expect(captain.mission!.phase).toBe("ordersReceived"); // auto-repeated
@@ -250,7 +393,7 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0, recalled: true };
     base.mission.cargo = { commonOre: 50, uncommonMaterial: 0, rareMaterial: 0 };
-    const { captain, homePlanetDelta } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE);
+    const { captain, homePlanetDelta } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
 
     expect(homePlanetDelta).toEqual({ commonOre: 50, uncommonMaterial: 0, rareMaterial: 0 });
     expect(captain.mission).toBe(null);
@@ -259,10 +402,15 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
   it("a big jump can complete multiple full auto-repeat cycles, accumulating homePlanetDelta across all of them", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain(); // shortOreRun, 18 ticks/cycle
-    const { captain, homePlanetDelta } = tickCaptainMission(36, base, ALWAYS_COMMON_ORE); // exactly 2 full cycles
+    const { captain, homePlanetDelta } = tickCaptainMission(36, base, ALWAYS_MIN_ROLL); // exactly 2 full cycles
 
-    // Each cycle extracts 100 commonOre (10 ticks * 10/tick, always-common rng); 2 cycles = 200.
-    expect(homePlanetDelta).toEqual({ commonOre: 200, uncommonMaterial: 0, rareMaterial: 0 });
+    // Each cycle's extracting phase is 10 whole-tick rolls (cargoCapacity 100 / rate 10).
+    // Under ALWAYS_MIN_ROLL (rng() constant 0), EVERY roll delivers commonOre 8,
+    // uncommonMaterial 1, rareMaterial 1 (see the "both tiers occur, minimum amounts"
+    // hand-trace above) -- NOT pure commonOre, unlike the old mutually-exclusive
+    // mechanism this replaced. Per cycle: 10 rolls * {8, 1, 1} = {80, 10, 10}.
+    // 2 cycles = {160, 20, 20}.
+    expect(homePlanetDelta).toEqual({ commonOre: 160, uncommonMaterial: 20, rareMaterial: 20 });
     expect(captain.mission!.phase).toBe("ordersReceived"); // mid-3rd-cycle-start, not recalled
     expect(captain.mission!.phaseProgressTicks).toBe(0);
   });
@@ -271,7 +419,7 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 5, recalled: true };
     // 3 more ticks: still mid-extraction, far from completing the cycle -- recalled flag is inert until unloading finishes.
-    const { captain } = tickCaptainMission(3, base, ALWAYS_COMMON_ORE);
+    const { captain } = tickCaptainMission(3, base, ALWAYS_MIN_ROLL);
     expect(captain.mission).not.toBe(null);
     expect(captain.mission!.phase).toBe("extracting");
     expect(captain.mission!.phaseProgressTicks).toBeCloseTo(8, 6);
@@ -282,7 +430,7 @@ describe("tickCaptainMission — awards XP on cycle completion", () => {
   it("awards no XP when no cycle completes", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain(); // mid-cycle, phaseProgressTicks 0, far from completing
-    const { captain } = tickCaptainMission(0.5, base, ALWAYS_COMMON_ORE);
+    const { captain } = tickCaptainMission(0.5, base, ALWAYS_MIN_ROLL);
     expect(captain.xp).toBe(0);
     expect(captain.level).toBe(1);
   });
@@ -290,7 +438,7 @@ describe("tickCaptainMission — awards XP on cycle completion", () => {
   it("awards XP once when exactly one cycle completes", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
-    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE); // 1 tick completes unloadTicks=1
+    const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL); // 1 tick completes unloadTicks=1
     expect(captain.xp).toBe(50);
     expect(captain.level).toBe(1); // 50 < xpForNextLevel(1)=100, no level-up yet
   });
@@ -299,7 +447,7 @@ describe("tickCaptainMission — awards XP on cycle completion", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
     base.xp = 60; // + this cycle's 50 = 110, crosses xpForNextLevel(1)=100
-    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE);
+    const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
     expect(captain.level).toBe(2);
     expect(captain.xp).toBe(10); // 110 - 100
     expect(captain.statPoints).toBe(1);
@@ -308,7 +456,7 @@ describe("tickCaptainMission — awards XP on cycle completion", () => {
   it("a big jump completing multiple cycles awards XP for EACH cycle, resolving multiple level-ups if crossed", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain(); // shortOreRun, 18 ticks/cycle
-    const { captain } = tickCaptainMission(36, base, ALWAYS_COMMON_ORE); // exactly 2 full cycles -> 2 * 50 = 100 XP
+    const { captain } = tickCaptainMission(36, base, ALWAYS_MIN_ROLL); // exactly 2 full cycles -> 2 * 50 = 100 XP
     expect(captain.xp).toBe(0); // 100 XP exactly hits xpForNextLevel(1)=100 -> levels to 2 with 0 leftover
     expect(captain.level).toBe(2);
     expect(captain.statPoints).toBe(1);
@@ -482,37 +630,82 @@ describe("tick() — idle captains do nothing, mission captains route through ti
 });
 
 describe("tick() — Homeworld/Captain Talent effects wired into extraction and passive production", () => {
-  it("fleetExtractionYieldMult (Homeworld Talent) boosts a mission captain's extraction via tick()", () => {
+  // IMPORTANT (2026-07-07 Loot Tier Rework): under the OLD mechanism, the single
+  // extractionYieldMult effect scaled the ENTIRE per-roll amount, so the total units
+  // delivered per tick genuinely changed with the bonus -- a "total delivered" assertion
+  // was a valid, deterministic way to test it even with tick()'s unmockable Math.random.
+  // Under the NEW mechanism this is NO LONGER true for uncommonYieldMult/rareYieldMult:
+  // rollExtractionTick computes commonAmount = max(0, extractionRatePerTick - uncommonAmount
+  // - rareAmount) * (1 + commonYieldMult) -- whatever gets carved out for uncommon/rare
+  // (yield-scaled or not) is SUBTRACTED from extractionRatePerTick before being added back
+  // in, so total = extractionRatePerTick * (1 + commonYieldMult) EXACTLY, independent of
+  // uncommonYieldMult/rareYieldMult (hand-verify: base rate 10, uncommon rolls amount 2
+  // scaled by +50% to 3, rare doesn't occur -> common = 10-3-0 = 7, total = 7+3+0 = 10,
+  // same as if uncommonYieldMult were 0). ONLY commonYieldMult (Captain Talent only, per
+  // Task 1 -- no Homeworld Talent produces it) changes the deterministic total. So:
+  // - The "total delivered" pattern below is used ONLY for commonYieldMult (Captain Talent).
+  // - fleetLogisticsYield/rareYieldMult (Homeworld Talent) wiring is instead verified via
+  //   the composition-invariant test further below, which holds regardless of which tier's
+  //   occurrence rng fires and is unaffected by this same total-conservation property.
+  it("commandExtractionI (Captain Talent, commonYieldMult) boosts a mission captain's extraction via tick()", () => {
     const state = freshState();
-    state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05 fleetExtractionYieldMult
+    state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.1 commonYieldMult
     state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
     const result = tick(10, state); // tickDurationSeconds=10 -> ticksElapsed=1 -> 1 roll
 
-    // extractionRatePerTick 10 * (1 + 0.05) = 10.5. Loot roll uses real Math.random
-    // (tick() doesn't accept an rng override), so assert on the material-agnostic TOTAL
-    // rather than which specific tier it landed in.
+    // commonYieldMult scales the total delivered deterministically (see the comment
+    // above this describe block for why this is the ONE bonus type where a "total
+    // delivered" assertion is valid under the new mechanism): extractionRatePerTick
+    // 10 * (1 + 0.1) = 11, regardless of which tier's occurrence rng fired this roll.
     const totalDelivered =
       result.captains[0].mission!.cargo.commonOre +
       result.captains[0].mission!.cargo.uncommonMaterial +
       result.captains[0].mission!.cargo.rareMaterial;
-    expect(totalDelivered).toBeCloseTo(10.5, 6);
+    expect(totalDelivered).toBeCloseTo(11, 6);
   });
 
-  it("captainExtractionYieldMult (Captain Talent) and fleetExtractionYieldMult (Homeworld Talent) stack additively via tick()", () => {
+  it("fleetLogisticsYield (Homeworld Talent, rareYieldMult) is wired through tick() without breaking the per-tick total invariant", () => {
     const state = freshState();
-    state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05
-    state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.10
+    state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05 rareYieldMult, fleet-wide
+    state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+
+    const result = tick(10, state); // 1 roll, real Math.random -- which tier occurs is rng-dependent
+
+    // rareYieldMult only rescales rare's OWN rolled amount (when rare actually occurs
+    // this roll) -- it does NOT change the deterministic per-tick total (see this
+    // describe block's opening comment for the algebraic proof). So the only thing
+    // provably assertable here without an rng override is that the total invariant
+    // still holds with fleetLogisticsYield unlocked and wired in -- proving tick()
+    // is correctly building the bonuses object and passing it through (a broken
+    // wiring that fed rareYieldMult into commonYieldMult BY MISTAKE, for example,
+    // would break this exact invariant, since commonYieldMult IS the one bonus that
+    // changes the total).
+    const totalDelivered =
+      result.captains[0].mission!.cargo.commonOre +
+      result.captains[0].mission!.cargo.uncommonMaterial +
+      result.captains[0].mission!.cargo.rareMaterial;
+    expect(totalDelivered).toBeCloseTo(10, 6); // extractionRatePerTick unmodified (commonYieldMult is 0 here)
+  });
+
+  it("commandExtractionI (Captain Talent) and a Homeworld Talent's rareYieldMult both wire through tick() without interfering with each other", () => {
+    const state = freshState();
+    state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05 rareYieldMult (does not affect total)
+    state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.1 commonYieldMult (does affect total)
     state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
     const result = tick(10, state);
 
-    // extractionRatePerTick 10 * (1 + 0.05 + 0.10) = 11.5
+    // Total delivered is governed ONLY by commonYieldMult (see this describe block's
+    // opening comment) -- rareYieldMult being simultaneously active must not change
+    // this number: extractionRatePerTick 10 * (1 + 0.1) = 11, same as the
+    // commonYieldMult-only test above, proving the two bonus types don't cross-
+    // contaminate each other when both are wired through tick() at once.
     const totalDelivered =
       result.captains[0].mission!.cargo.commonOre +
       result.captains[0].mission!.cargo.uncommonMaterial +
       result.captains[0].mission!.cargo.rareMaterial;
-    expect(totalDelivered).toBeCloseTo(11.5, 6);
+    expect(totalDelivered).toBeCloseTo(11, 6);
   });
 
   it("passiveTrickle (Homeworld Talent economyTrickle) adds material even with every captain idle", () => {
