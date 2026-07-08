@@ -52,8 +52,13 @@
   // SCHEMA version, bumped only when the save shape changes; this is a
   // human-readable release marker, bumped by hand whenever there's a
   // user-visible batch of changes worth calling out. Newest entry first.
-  const APP_VERSION = "0.9.0";
+  // Reset to a disciplined X.Y.Z scheme starting 2026-07-07 (Y bumps per
+  // feature release, Z bumps per minor fix) -- the pre-reset 0.6.0-0.9.0
+  // history above is left untouched (never rewrite patch-note history), so
+  // this deliberately reads as "0.2.0 newer than 0.9.0" once, only here.
+  const APP_VERSION = "0.2.0";
   const PATCH_NOTES: { version: string; summary: string }[] = [
+    { version: "0.2.0", summary: "Reworked mission loot so uncommon and rare materials can both drop in the same tick instead of one replacing the others; talent bonuses now target a specific material tier each. Added Import Save. Version numbering restarts here -- 0.2.1/0.2.2 for small fixes, 0.3.0 for the next feature." },
     { version: "0.9.0", summary: "Widened the app to use most of the screen instead of a narrow centered column; retired the diagonal-corner panel look for a flatter style; moved the app's branding into this About tab." },
     { version: "0.8.0", summary: "Reworked scrolling so only the active tab's content scrolls, not the whole page; added \"Coming Soon\" locked placeholders for future sub-tabs and captain slots." },
     { version: "0.7.0", summary: "Rebuilt navigation: a global header with Fleet Admiral level/XP and a single fleet-wide tick, a dedicated Fleet Captain's tab, and a mission-first Fleet Operations tab." },
