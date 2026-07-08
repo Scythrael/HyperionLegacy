@@ -8,6 +8,7 @@
 // gameTimeSeconds once per call (not once per captain -- gameTimeSeconds is
 // fleet bookkeeping, not tied to any single captain's production).
 
+import Decimal from "break_infinity.js";
 import {
   requiredTicksForPhase,
   xpForNextLevel,
@@ -36,8 +37,8 @@ import {
 // wrap `.indexOf()` to -1 instead of erroring.
 const MISSION_PHASE_ORDER: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
 
-function emptyLootTotals(): Record<LootMaterialKey, number> {
-  return { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
+function emptyLootTotals(): Record<LootMaterialKey, Decimal> {
+  return { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
 }
 
 // passiveTrickle's `material` field is typed HomePlanetMaterialKey (the wider
@@ -163,24 +164,25 @@ function rollExtractionTick(
     rareChanceMult: number;
   },
   rng: () => number
-): Record<LootMaterialKey, number> {
+): Record<LootMaterialKey, Decimal> {
   const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + bonuses.uncommonChanceMult));
   const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + bonuses.rareChanceMult));
 
-  let uncommonAmount = 0;
+  let uncommonAmount = new Decimal(0);
   if (rng() < effectiveUncommonChance) {
     const amountRoll = rng();
     const baseAmount = amountRoll < 0.75 ? 1 : amountRoll < 0.95 ? 2 : 3;
-    uncommonAmount = baseAmount * (1 + bonuses.uncommonYieldMult);
+    uncommonAmount = new Decimal(baseAmount).times(1 + bonuses.uncommonYieldMult);
   }
 
-  let rareAmount = 0;
+  let rareAmount = new Decimal(0);
   if (rng() < effectiveRareChance) {
-    rareAmount = 1 * (1 + bonuses.rareYieldMult);
+    rareAmount = new Decimal(1).times(1 + bonuses.rareYieldMult);
   }
 
-  const commonAmount =
-    Math.max(0, missionDef.extractionRatePerTick - uncommonAmount - rareAmount) * (1 + bonuses.commonYieldMult);
+  const commonAmount = Decimal.max(0, new Decimal(missionDef.extractionRatePerTick).minus(uncommonAmount).minus(rareAmount)).times(
+    1 + bonuses.commonYieldMult
+  );
 
   return { commonOre: commonAmount, uncommonMaterial: uncommonAmount, rareMaterial: rareAmount };
 }
@@ -215,7 +217,7 @@ export function tickCaptainMission(
     rareYieldMult?: number;
     rareChanceMult?: number;
   } = {}
-): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, number>; fleetAdminXpDelta: number } {
+): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, Decimal>; fleetAdminXpDelta: number } {
   if (!captain.mission || ticksElapsed <= 0) {
     return { captain, homePlanetDelta: emptyLootTotals(), fleetAdminXpDelta: 0 };
   }
@@ -274,9 +276,9 @@ export function tickCaptainMission(
       const rollsThisStep = toWhole - fromWhole;
       for (let i = 0; i < rollsThisStep; i++) {
         const delta = rollExtractionTick(missionDef, resolvedBonuses, rng);
-        mission.cargo.commonOre += delta.commonOre;
-        mission.cargo.uncommonMaterial += delta.uncommonMaterial;
-        mission.cargo.rareMaterial += delta.rareMaterial;
+        mission.cargo.commonOre = mission.cargo.commonOre.plus(delta.commonOre);
+        mission.cargo.uncommonMaterial = mission.cargo.uncommonMaterial.plus(delta.uncommonMaterial);
+        mission.cargo.rareMaterial = mission.cargo.rareMaterial.plus(delta.rareMaterial);
       }
     }
 
@@ -298,7 +300,7 @@ export function tickCaptainMission(
       if (nextIndex >= MISSION_PHASE_ORDER.length) {
         // Just completed "unloading" -- one full cycle is done.
         (Object.keys(mission.cargo) as LootMaterialKey[]).forEach((key) => {
-          homePlanetDelta[key] += mission.cargo[key];
+          homePlanetDelta[key] = homePlanetDelta[key].plus(mission.cargo[key]);
         });
         // XP is awarded once per cycle completed here (this branch can be
         // reached multiple times within one call's while loop -- e.g. a big
