@@ -341,3 +341,12 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   UI, alongside the theme picker) with a volume/mute control and probably an HTML5 `<audio loop>`
   element gated behind a user-initiated interaction (browsers block autoplay-with-sound until the user
   has interacted with the page at least once) -- worth checking that constraint when this gets designed.
+
+- **Themed art via inline SVG in Svelte.** User idea, 2026-07-08: character portraits, mission
+  thumbnails, and general iconography built as inline SVG rather than raster images, so the artwork can
+  use `currentColor`/`var(--accent)`-style references into the existing `app.css` theme-token system
+  (the same 6-preset custom-property scheme the chamfered-panel/corner-accent styling already reads
+  from) and re-skin automatically whenever the player switches themes. Not scoped yet -- no target list
+  of which UI elements get art first (captain portraits vs. mission-preview thumbnails vs. talent-node
+  icons), no actual vector artwork drafted. Best suited to icons/simple thematic accents rather than
+  complex illustration, given hand-authoring SVG paths takes meaningfully longer than sourcing images.
