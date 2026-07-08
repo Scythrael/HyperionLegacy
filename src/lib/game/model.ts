@@ -74,17 +74,17 @@ export interface MissionDef {
 // 2 missions at launch: a fast, safe ore run and a slower one with better
 // rare-material odds. Add a new entry here (and nowhere else -- App.svelte's
 // Missions panel iterates this object) if a 3rd mission is ever wanted.
-// Both entries' cargoCapacity divides evenly by extractionRatePerTick (100/10
-// = 10) -- keep this true for any future entry too, or update
+// Both entries' cargoCapacity divides evenly by extractionRatePerTick (900/10
+// = 90) -- keep this true for any future entry too, or update
 // requiredTicksForPhase's extracting case to handle a smaller final tick.
 export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
   shortOreRun: {
     label: "Short Ore Run",
-    transitOutTicks: 3,
-    transitBackTicks: 3,
-    unloadTicks: 1,
+    transitOutTicks: 25,
+    transitBackTicks: 25,
+    unloadTicks: 8,
     extractionRatePerTick: 10,
-    cargoCapacity: 100,
+    cargoCapacity: 900,
     uncommonChance: 0.019, // was lootTable weight 19/1000 (1.9%)
     rareChance: 0.001, // was lootTable weight 1/1000 (0.1%)
     tier: "I",
@@ -92,11 +92,11 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
   },
   longOreRun: {
     label: "Long Ore Run",
-    transitOutTicks: 8,
-    transitBackTicks: 8,
-    unloadTicks: 1,
+    transitOutTicks: 70,
+    transitBackTicks: 70,
+    unloadTicks: 8,
     extractionRatePerTick: 10,
-    cargoCapacity: 100,
+    cargoCapacity: 900,
     uncommonChance: 0.08, // was lootTable weight 80/1000 (8%)
     rareChance: 0.02, // was lootTable weight 20/1000 (2%)
     tier: "I",
@@ -401,7 +401,7 @@ export function freshCaptains(count: number): CaptainState[] {
 export function freshState(): GameState {
   return {
     captains: freshCaptains(1),
-    tickDurationSeconds: 10,
+    tickDurationSeconds: 1,
     gameTimeSeconds: 0,
     homePlanet: {
       storage: {

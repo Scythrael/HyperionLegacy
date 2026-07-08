@@ -43,6 +43,7 @@
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave, importRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
+  import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
 
   // DEV_MODE — Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
@@ -98,6 +99,7 @@
   let state: GameState = freshState();
   let createdAt = Date.now();
   let currentTheme: ThemeName = "cyan";
+  let tickBarEnabled = true;
   let deleteModalOpen = false;
   let deleteConfirmText = "";
 
@@ -219,6 +221,7 @@
 
     currentTheme = loadTheme();
     document.documentElement.dataset.theme = currentTheme;
+    tickBarEnabled = loadTickBarEnabled();
 
     const loadedSave = loadFromLocalStorage();
     if (loadedSave) {
@@ -667,6 +670,7 @@
           </div>
         </div>
       </div>
+      {#if tickBarEnabled}
       <div class="top-bar-tick-row">
         <span class="top-bar-tick-label">TICK:</span>
         <div class="tick-bar-track top-bar-tick-track">
@@ -674,6 +678,7 @@
         </div>
         <span class="top-bar-tick-readout">{globalTickRemaining.toFixed(1)}s</span>
       </div>
+      {/if}
     </div>
 
     <main class="tab-body">
@@ -1091,6 +1096,20 @@
       {#if activeSystemSubTab === "options"}
       <Panel>
         <div class="panel-title">OPTIONS</div>
+        <div class="dev-row">
+          <label style="display: inline-flex; align-items: center; gap: 6px;">
+            <input
+              type="checkbox"
+              checked={tickBarEnabled}
+              on:change={(e) => {
+                tickBarEnabled = (e.target as HTMLInputElement).checked;
+                saveTickBarEnabled(tickBarEnabled);
+              }}
+            />
+            Enable Tick Bar
+          </label>
+        </div>
+        <p class="prestige-text">When enabled, the tick bar in the header fills once per tick. When disabled, it's removed from the header entirely.</p>
         <div class="theme-row">
           {#each THEME_NAMES as name}
             <button
@@ -1256,7 +1275,7 @@
           {@const extractingTicks = requiredTicksForPhase("extracting", missionDef)}
           {@const transitBackTicks = missionDef.transitBackTicks}
           {@const unloadTicks = missionDef.unloadTicks}
-          {@const totalTicks = transitOutTicks + extractingTicks + transitBackTicks + unloadTicks}
+          {@const totalTicks = 1 + transitOutTicks + extractingTicks + transitBackTicks + unloadTicks}
 
           <div class="research-name">Captain: {selectedCaptain.label}</div>
 

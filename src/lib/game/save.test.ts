@@ -34,8 +34,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 12", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("current SAVE_VERSION is 13", () => {
+    expect(SAVE_VERSION).toBe(13);
   });
 });
 
@@ -73,8 +73,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 12", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("current SAVE_VERSION is 13", () => {
+    expect(SAVE_VERSION).toBe(13);
   });
 });
 
@@ -232,8 +232,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBeUndefined();
   });
 
-  it("current SAVE_VERSION is 12", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("current SAVE_VERSION is 13", () => {
+    expect(SAVE_VERSION).toBe(13);
   });
 });
 
@@ -329,8 +329,8 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 12", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("current SAVE_VERSION is 13", () => {
+    expect(SAVE_VERSION).toBe(13);
   });
 });
 
@@ -435,8 +435,8 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 12", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("current SAVE_VERSION is 13", () => {
+    expect(SAVE_VERSION).toBe(13);
   });
 });
 
@@ -521,8 +521,8 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 12", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("current SAVE_VERSION is 13", () => {
+    expect(SAVE_VERSION).toBe(13);
   });
 });
 
@@ -581,8 +581,8 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.captains[0].mission).toBe(null);
   });
 
-  it("current SAVE_VERSION is 12", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("current SAVE_VERSION is 13", () => {
+    expect(SAVE_VERSION).toBe(13);
   });
 });
 
@@ -638,8 +638,8 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     expect(migrated.homePlanet.storage.refinedMaterial.equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 12", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("current SAVE_VERSION is 13", () => {
+    expect(SAVE_VERSION).toBe(13);
   });
 });
 
@@ -697,8 +697,8 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     expect(migrated.tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 12", () => {
-    expect(SAVE_VERSION).toBe(12);
+  it("current SAVE_VERSION is 13", () => {
+    expect(SAVE_VERSION).toBe(13);
   });
 });
 
@@ -871,6 +871,171 @@ describe("migrate — Big-Number (Decimal) hydration (v11 -> v12)", () => {
   });
 });
 
+describe("migrate — Tick Granularity Rebalance (v12 -> v13)", () => {
+  it("leaves an idle captain (mission: null) completely untouched", () => {
+    // A genuine v12 shape: tickDurationSeconds still 10 (pre-rebalance),
+    // idle captain -- confirms the migration's `if (!c.mission) return c;`
+    // early-return branch fires and does not attempt to read
+    // c.mission.phase/missionKey/phaseProgressTicks off a null mission.
+    const legacyState: any = {
+      gameTimeSeconds: 2000,
+      tickDurationSeconds: 10,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 0,
+      fleetAdminLevel: 1,
+      adminPoints: 0,
+      homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          xp: 0,
+          level: 1,
+          statPoints: 0,
+          unlockedCaptainTalents: [],
+          mission: null,
+        },
+      ],
+    };
+
+    const save: SaveFile = { version: 12, created_at: 0, last_saved_at: 0, game_time_seconds: 2000, state: legacyState };
+    const migrated: any = migrate(save);
+
+    expect(migrated.tickDurationSeconds).toBe(1); // MIGRATIONS[12] always sets this, regardless of any captain's mission state
+    expect(migrated.captains[0].mission).toBe(null); // untouched -- still null, not {} or some hydrated-but-empty shape
+  });
+
+  it("remaps a captain 50% through longOreRun's old transitOut phase onto the new transitOut tick-count", () => {
+    // Hand-traced (see this task's Step 4, "longOreRun transitOut variant"):
+    // old transitOutTicks for longOreRun (OLD_MISSION_TICKS_V12.longOreRun)
+    // is 8 -- phaseProgressTicks: 4 is exactly 50% through. New
+    // MISSIONS.longOreRun.transitOutTicks (post-rebalance, model.ts) is 70.
+    // progressRatio = min(1, 4/8) = 0.5. Migrated phaseProgressTicks =
+    // 0.5 * 70 = 35.
+    const legacyState: any = {
+      gameTimeSeconds: 3000,
+      tickDurationSeconds: 10,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 0,
+      fleetAdminLevel: 1,
+      adminPoints: 0,
+      homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          xp: 0,
+          level: 1,
+          statPoints: 0,
+          unlockedCaptainTalents: [],
+          mission: {
+            missionKey: "longOreRun",
+            phase: "transitOut",
+            phaseProgressTicks: 4,
+            recalled: false,
+            cargo: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 },
+          },
+        },
+      ],
+    };
+
+    const save: SaveFile = { version: 12, created_at: 0, last_saved_at: 0, game_time_seconds: 3000, state: legacyState };
+    const migrated: any = migrate(save);
+
+    expect(migrated.tickDurationSeconds).toBe(1);
+    expect(migrated.captains[0].mission.phase).toBe("transitOut"); // phase itself is not remapped, only the progress within it
+    expect(migrated.captains[0].mission.phaseProgressTicks).toBe(35);
+    expect(migrated.captains[0].mission.missionKey).toBe("longOreRun"); // untouched
+    expect(migrated.captains[0].mission.recalled).toBe(false); // untouched
+    // cargo is Decimal-designated -- hydrateDecimals() runs unconditionally
+    // after MIGRATIONS[12], same as every other migration in this file.
+    expect(migrated.captains[0].mission.cargo.commonOre instanceof Decimal).toBe(true);
+  });
+
+  it("remaps a captain mid-extracting on longOreRun onto the new extracting tick-count", () => {
+    // Fresh hand-trace for this test (extracting phase, longOreRun --
+    // distinct coverage from the transitOut test above). Old extracting
+    // required ticks: OLD_MISSION_TICKS_V12.longOreRun has cargoCapacity:100,
+    // extractionRatePerTick:10 -> Math.ceil(100/10) = 10. phaseProgressTicks:
+    // 7 is 70% through (7/10 = 0.7). New extracting required ticks: live
+    // MISSIONS.longOreRun has cargoCapacity:900, extractionRatePerTick:10
+    // (unchanged) -> Math.ceil(900/10) = 90. Migrated phaseProgressTicks =
+    // 0.7 * 90 = 63.
+    const legacyState: any = {
+      gameTimeSeconds: 4000,
+      tickDurationSeconds: 10,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 0,
+      fleetAdminLevel: 1,
+      adminPoints: 0,
+      homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          xp: 0,
+          level: 1,
+          statPoints: 0,
+          unlockedCaptainTalents: [],
+          mission: {
+            missionKey: "longOreRun",
+            phase: "extracting",
+            phaseProgressTicks: 7,
+            recalled: false,
+            cargo: { commonOre: 70, uncommonMaterial: 3, rareMaterial: 0 },
+          },
+        },
+      ],
+    };
+
+    const save: SaveFile = { version: 12, created_at: 0, last_saved_at: 0, game_time_seconds: 4000, state: legacyState };
+    const migrated: any = migrate(save);
+
+    expect(migrated.tickDurationSeconds).toBe(1);
+    expect(migrated.captains[0].mission.phase).toBe("extracting");
+    expect(migrated.captains[0].mission.phaseProgressTicks).toBe(63);
+    // Pre-existing cargo progress survives the remap untouched (only
+    // phaseProgressTicks is remapped, never cargo) -- hydrated to Decimal by
+    // the same unconditional hydrateDecimals() call as every other migration.
+    expect(migrated.captains[0].mission.cargo.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.captains[0].mission.cargo.commonOre.equals(70)).toBe(true);
+    expect(migrated.captains[0].mission.cargo.uncommonMaterial.equals(3)).toBe(true);
+  });
+
+  it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), landing on tickDurationSeconds: 1 with no in-progress mission to remap", () => {
+    // freshState() (Task 1 of this feature) already sets tickDurationSeconds:
+    // 1 directly -- this test's whole point is proving the ROUND TRIP through
+    // actual serialize()/deserialize() still produces a v13-shaped state,
+    // since that's the real path loadFromLocalStorage() exercises every
+    // time. Every one of freshState()'s captains starts idle (mission: null),
+    // so this exercises MIGRATIONS[12]'s early-return branch only -- the
+    // remap math itself (progressRatio * newRequired) is only exercised by
+    // the hand-constructed mid-phase tests above, never by this round-trip,
+    // since a truly fresh save has nothing in-progress to remap.
+    const original = freshState();
+    const raw = serialize(original, Date.now());
+    const deserialized = deserialize(raw);
+    expect(deserialized).not.toBeNull();
+
+    // Confirms the save was written at the CURRENT version -- the while loop
+    // inside migrate() below genuinely runs zero iterations for this test,
+    // since there's no MIGRATIONS[13] -- MIGRATIONS[12] is never invoked on
+    // this path at all.
+    expect(deserialized!.version).toBe(SAVE_VERSION);
+
+    const migrated: any = migrate(deserialized!);
+
+    expect(migrated.tickDurationSeconds).toBe(1);
+    expect(migrated.captains).toHaveLength(original.captains.length);
+    migrated.captains.forEach((c: any) => {
+      expect(c.mission).toBe(null); // freshState()'s captains are all idle -- nothing to remap
+    });
+  });
+});
+
 // NOTE: the pre-Task-5 "migrate — chained v1 -> v9 migration" describe block
 // that used to live here was deleted, not just edited -- same deliberate,
 // authorized deviation from this task's own "keep every existing describe
@@ -892,29 +1057,44 @@ describe("migrate — Big-Number (Decimal) hydration (v11 -> v12)", () => {
 // fleet-wide tickDurationSeconds backfill.
 //
 // NOTE: this block was originally titled "migrate — chained v1 -> v11
-// migration" (pre-Task-3 of the Big-Number Migration). It is extended in
-// place here, not deleted+replaced like the NOTEs above, per Task 3's own
-// instructions -- the underlying legacyState literal and every non-Decimal
-// assertion are untouched; only the title and the Decimal-designated field
-// assertions (xp, homePlanet.storage's 5 keys, fleetAdminXp) change, since
-// MIGRATIONS[11] (v11->v12) plus migrate()'s now-unconditional
-// hydrateDecimals() call convert those fields from plain number to Decimal
-// by the time this test's `migrated` result comes back.
+// migration" (pre-Task-3 of the Big-Number Migration), then renamed in place
+// to "migrate — chained v1 -> v12 migration" (Task 3, Big-Number Migration)
+// without deleting+replacing, per that task's own instructions -- only the
+// title and the Decimal-designated field assertions changed at that time.
+// Renamed in place AGAIN here (v12 -> v13, this Task 4), same pattern: the
+// underlying legacyState literal is untouched (still the same real v1 shape),
+// and every existing assertion survives except tickDurationSeconds's expected
+// value, which changes from 10 to 1 now that MIGRATIONS[12] (v12->v13, this
+// task) runs as the chain's final step and unconditionally sets
+// tickDurationSeconds: 1. No mission-remap assertions are added here: this
+// fixture's captains array doesn't exist until MIGRATIONS[4] (v4->v5)
+// synthesizes it (captains[0] from the flat legacy fields, captains[1] via a
+// LIVE freshCaptains() call), and neither captain ever has a non-null
+// `mission` at any point in this chain -- MIGRATIONS[7] (v7->v8) backfills
+// `mission: null` for captains[0], and freshCaptains() already produces
+// `mission: null` for captains[1] -- so MIGRATIONS[12]'s captain-remap branch
+// only ever exercises its early-return (`if (!c.mission) return c;`) on this
+// path, never the progressRatio/newRequired remap math. That math is
+// exercised instead by the hand-constructed mid-phase tests in the "migrate —
+// Tick Granularity Rebalance (v12 -> v13)" describe block above, per this
+// task's own instructions (a genuine v1 legacy save with no in-progress
+// mission needs no remap trace, only confirmation that it still ends up idle
+// and at the new tickDurationSeconds).
 
-describe("migrate — chained v1 -> v12 migration", () => {
-  it("backfills every field across all eleven migration steps on a genuine v1 save missing all of them, ending with every Decimal-designated field hydrated", () => {
+describe("migrate — chained v1 -> v13 migration", () => {
+  it("backfills every field across all twelve migration steps on a genuine v1 save missing all of them, ending with every Decimal-designated field hydrated and tickDurationSeconds at the new value", () => {
     // The real v1 shape: no tickDurationSeconds, no research, no
     // synthesizer/alloys fields, no captains array, no skill tree fields, no
     // homePlanet, no mission, no xp/level/statPoints, no refinedMaterial/
     // components, no unlockedCaptainTalents/unlockedHomeworldTalents/
     // fleetAdminXp/fleetAdminLevel/adminPoints -- this exercises MIGRATIONS[1]
-    // through [11] running back-to-back on the same object (MIGRATIONS[11] is
+    // through [12] running back-to-back on the same object (MIGRATIONS[11] is
     // a no-op on the state itself -- see save.ts's comment above the
     // MIGRATIONS table -- but hydrateDecimals(), called unconditionally at
     // the end of migrate(), still converts every Decimal-designated field
     // below from plain number to a real Decimal instance). Same legacyState
-    // literal the deleted v1->v10 block used (see the NOTE above), extended
-    // two steps further (v11 and now v12).
+    // literal the deleted v1->v10 block used (see the NOTEs above), extended
+    // three steps further (v11, v12, and now v13).
     const legacyState: any = {
       resources: { ore: 10, ingots: 0, components: 0 },
       modules: { miner: 1, refinery: 0, fabricator: 0 },
@@ -936,10 +1116,12 @@ describe("migrate — chained v1 -> v12 migration", () => {
     expect(migrated.captains).toHaveLength(2); // v4->v5's fresh[1], per Step 1's fix above
     // tickDurationSeconds starts life on captains[0] (MIGRATIONS[1]) and rides
     // there all the way through until MIGRATIONS[10] (v10->v11) collapses it
-    // back to a single fleet-wide field and strips it from every captain --
-    // asserting the FINAL post-v11 shape here, not the intermediate per-captain
-    // one the pre-Task-3 (UI Redesign) version of this chained test asserted.
-    expect(migrated.tickDurationSeconds).toBe(10);
+    // back to a single fleet-wide field and strips it from every captain,
+    // then MIGRATIONS[12] (v12->v13, this task) unconditionally overwrites it
+    // to 1 (the new post-rebalance default) -- asserting the FINAL post-v13
+    // value here, not the intermediate post-v11 value (10) the pre-Task-4
+    // version of this chained test asserted.
+    expect(migrated.tickDurationSeconds).toBe(1);
     expect(migrated.captains[0].tickDurationSeconds).toBeUndefined();
     expect(migrated.captains[1].tickDurationSeconds).toBeUndefined();
     expect(migrated.captains[0].research.alloySynthesis).toEqual({
@@ -1032,6 +1214,18 @@ describe("migrate — chained v1 -> v12 migration", () => {
     // instanceof/.equals() assertion above is what actually proves
     // hydrateDecimals(), called unconditionally at the end of migrate(),
     // did its job on this chained-from-v1 save.
+    // v12->v13's Tick Granularity Rebalance (this task): MIGRATIONS[12] sets
+    // tickDurationSeconds: 1 unconditionally (asserted above, replacing the
+    // pre-Task-4 assertion of 10) and would remap phaseProgressTicks for any
+    // captain with an in-progress mission -- neither captain here has one
+    // (captains[0] gets `mission: null` from MIGRATIONS[7], captains[1] is
+    // MIGRATIONS[4]'s fresh[1], which freshCaptains() also gives
+    // `mission: null`), so the remap math itself is never exercised by this
+    // chained test, only MIGRATIONS[12]'s early-return branch -- asserted
+    // explicitly below, same reasoning as the "Tick Granularity Rebalance
+    // (v12 -> v13)" describe block's own idle-captain test above.
+    expect(migrated.captains[0].mission).toBe(null);
+    expect(migrated.captains[1].mission).toBe(null);
   });
 });
 

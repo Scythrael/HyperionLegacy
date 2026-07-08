@@ -4,9 +4,9 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
-import { type GameState, type CaptainState, freshCaptains } from "./model";
+import { type GameState, type CaptainState, type MissionKey, type MissionPhase, freshCaptains, requiredTicksForPhase, MISSIONS } from "./model";
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -198,6 +198,38 @@ function hydrateDecimals(state: any): GameState {
 // SAVE_VERSION, add a migrate_vN_to_vN+1 entry when the schema changes) has a
 // documented marker at the exact version where Decimal fields were
 // introduced, for any future reader scanning this table.
+// v12 -> v13: Tick Granularity Rebalance (docs/plans/2026-07-08-tick-granularity-
+// rebalance-plan.md). tickDurationSeconds drops from 10 to 1 real second per tick,
+// and MISSIONS' phase tick-counts are genuinely rebalanced (not just multiplied by
+// 10), so an in-progress mission's old phaseProgressTicks doesn't map onto the new
+// tick-counts via simple multiplication. Instead, this preserves the RELATIVE
+// (percentage) position within the captain's current phase, remapped onto the new
+// tick-count for that same phase. The pre-rebalance (v12-era) MISSIONS tick-counts
+// are snapshotted as literal values here -- NOT read from the live MISSIONS/
+// requiredTicksForPhase in model.ts, which already reflect the NEW post-rebalance
+// values by the time this migration runs -- so this keeps producing the correct
+// v12 ratio permanently, even after MISSIONS is rebalanced again in some future
+// update. phaseProgressTicks is already documented as continuous/fractional, so
+// the remapped result needs no rounding.
+const OLD_MISSION_TICKS_V12: Record<MissionKey, {
+  transitOutTicks: number; transitBackTicks: number; unloadTicks: number;
+  extractionRatePerTick: number; cargoCapacity: number;
+}> = {
+  shortOreRun: { transitOutTicks: 3, transitBackTicks: 3, unloadTicks: 1, extractionRatePerTick: 10, cargoCapacity: 100 },
+  longOreRun: { transitOutTicks: 8, transitBackTicks: 8, unloadTicks: 1, extractionRatePerTick: 10, cargoCapacity: 100 },
+};
+
+function oldRequiredTicksForPhase_v12(phase: MissionPhase, missionKey: MissionKey): number {
+  const def = OLD_MISSION_TICKS_V12[missionKey];
+  switch (phase) {
+    case "ordersReceived": return 1;
+    case "transitOut": return def.transitOutTicks;
+    case "extracting": return Math.ceil(def.cargoCapacity / def.extractionRatePerTick);
+    case "transitBack": return def.transitBackTicks;
+    case "unloading": return def.unloadTicks;
+  }
+}
+
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -324,6 +356,22 @@ const MIGRATIONS: Record<number, Migration> = {
     };
   },
   11: (state: any): GameState => state, // no-op -- see the comment above; hydrateDecimals() (called unconditionally in migrate(), below) does the real work for both old AND already-current-version saves.
+  12: (state: any): GameState => ({
+    ...state,
+    tickDurationSeconds: 1,
+    captains: state.captains.map((c: any) => {
+      if (!c.mission) return c;
+      const oldRequired = oldRequiredTicksForPhase_v12(c.mission.phase, c.mission.missionKey);
+      // Math.min(1, ...) guards against a ratio > 1 if phaseProgressTicks ever
+      // exceeded oldRequired before migration ran -- not reachable through any
+      // current code path (nothing lets progress overrun a phase boundary
+      // pre-migration), but defense in depth, same category as MIGRATIONS[2]/
+      // [3]/[10]'s ??/fallback comments above.
+      const progressRatio = Math.min(1, c.mission.phaseProgressTicks / oldRequired);
+      const newRequired = requiredTicksForPhase(c.mission.phase, MISSIONS[c.mission.missionKey]);
+      return { ...c, mission: { ...c.mission, phaseProgressTicks: progressRatio * newRequired } };
+    }),
+  }),
 };
 
 export function migrate(save: SaveFile): GameState {
