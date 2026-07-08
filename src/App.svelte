@@ -29,7 +29,7 @@
     dispatchCaptainOnMission,
     recallCaptain,
     craftRecipe,
-    recomputeFleetAdmin,
+    applyFleetAdminXp,
     buyCaptainTalent,
     buyHomeworldTalent,
     captainCommonYieldMult,
@@ -292,6 +292,19 @@
       // same reactivity-churn discipline as the existing anyFired guard.
       let anyLootDelivered = false;
       const homePlanetDelta: Record<LootMaterialKey, number> = { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
+      // Mirrors tick.ts's own tick() fleetAdminXpDelta accumulation (Task 2):
+      // summed locally across every captain whose mission cycle completes
+      // THIS poll, then handed once to applyFleetAdminXp at the very end of
+      // this callback -- same "accumulate locally, apply once" shape as
+      // homePlanetDelta immediately above. Declared here (BEFORE the
+      // `if (progress >= 1)` block below), not inside it, so it is always
+      // defined by the time applyFleetAdminXp is called at the end of this
+      // callback, whether or not the shared cycle actually completed this
+      // particular 100ms poll. Defaults to 0 -- the overwhelmingly common
+      // poll where progress < 1 (or no captain's mission cycle completes
+      // even when progress >= 1) leaves this at 0, which applyFleetAdminXp
+      // itself treats as a cheap no-op (see that function's own guard).
+      let fleetAdminXpDelta = 0;
 
       if (progress >= 1) {
         const gameSecondsThisCycle = barSeconds * speed;
@@ -341,13 +354,22 @@
           };
           // Math.random passed explicitly (rather than omitted) since bonuses
           // is positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
-          const { captain: updatedCaptain, homePlanetDelta: delta } = tickCaptainMission(
-            ticksElapsed,
-            captain,
-            Math.random,
-            bonuses
-          );
+          // fleetAdminXpDelta renamed to captainFleetAdminXpDelta on
+          // destructure -- this per-captain loop already runs inside a scope
+          // that has its OWN outer `fleetAdminXpDelta` accumulator (declared
+          // above, before the `if (progress >= 1)` block); an unrenamed
+          // destructure here would shadow that outer accumulator with a
+          // new per-iteration `const`, silently discarding the running total
+          // on every loop iteration instead of adding to it. Mirrors
+          // tick.ts's own tick() naming exactly (see that function's
+          // identical `fleetAdminXpDelta: captainFleetAdminXpDelta` destructure).
+          const {
+            captain: updatedCaptain,
+            homePlanetDelta: delta,
+            fleetAdminXpDelta: captainFleetAdminXpDelta,
+          } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
           captains[i] = updatedCaptain;
+          fleetAdminXpDelta += captainFleetAdminXpDelta;
           if (delta.commonOre !== 0 || delta.uncommonMaterial !== 0 || delta.rareMaterial !== 0) {
             anyLootDelivered = true;
             homePlanetDelta.commonOre += delta.commonOre;
@@ -403,16 +425,20 @@
         };
       }
 
-      // recomputeFleetAdmin (Task 3, Captain & Homeworld Talent Trees) --
-      // same "both the pure tick() path and the live-loop path need the same
-      // hook" pattern tickCaptainMission's own XP award already established
-      // in Phase 4. Runs unconditionally every poll (not gated behind
-      // anyFired/anyLootDelivered above) since it's a cheap no-op read of
-      // `state` when the aggregate captain-level sum hasn't changed --
-      // recomputeFleetAdmin itself returns the SAME state reference in that
-      // case, so this line doesn't introduce any extra reactivity churn on
-      // the overwhelmingly common poll where nobody just leveled up.
-      state = recomputeFleetAdmin(state);
+      // applyFleetAdminXp (2026-07-08 Fleet Admiral XP Rework, Task 4 --
+      // replaces the old recomputeFleetAdmin call here, same "both the pure
+      // tick() path and the live-loop path need the same hook" pattern
+      // tickCaptainMission's own XP award already established in Phase 4).
+      // Runs unconditionally every poll (not gated behind anyFired/
+      // anyLootDelivered above) since it's a cheap no-op when
+      // fleetAdminXpDelta is 0 -- applyFleetAdminXp itself returns the SAME
+      // state reference in that case (see that function's own `<= 0` guard
+      // in tick.ts), so this line doesn't introduce any extra reactivity
+      // churn on the overwhelmingly common poll where no captain's mission
+      // cycle completed this poll. fleetAdminXpDelta is guaranteed defined
+      // here regardless of whether progress >= 1 this poll -- see its
+      // declaration above, before the `if (progress >= 1)` block.
+      state = applyFleetAdminXp(state, fleetAdminXpDelta);
     }, 100);
 
     // Autosave every 30s — tech spec §6.
