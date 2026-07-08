@@ -10,6 +10,38 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   1:1 today. Starbase's whole described purpose (damaged/taken offline before a homeworld can be
   bombarded) needs Battlespace to exist first — fully deferred until then.
 
+- **Cargo capacity as a real ship stat.** User idea, 2026-07-08, from the Extraction Rework
+  brainstorming: today `cargoCapacity` is a flat `MissionDef` constant; once the Ships feature (see
+  roadmap note below) exists, it should become a per-ship stat instead, with each mission requiring a
+  *minimum* cargo capacity to undertake it (e.g. "requires 125 ft³ of space, 100 ticks guarantees ~100
+  ore and then some"). Since the new single-roll extraction mechanic (built 2026-07-08, see
+  `docs/plans/...extraction-rework...`) no longer caps uncommon/rare amounts, actual returned cargo is
+  now naturally variable (a lucky run can exceed the nominal guaranteed total) — the ship's required
+  minimum capacity needs headroom above the guaranteed baseline to avoid ever losing overflow material.
+  Not built now: `cargoCapacity` stays a mission-level constant until Ships exists; future ship bonuses
+  would layer on top the same way captain/homeworld talent bonuses already do, without touching
+  `MISSIONS` itself, so this doesn't block the retrofit.
+
+- **Third mission type: "farming efficiency" run.** User idea, 2026-07-08, same brainstorming session.
+  Unlike Short/Long Ore Run (fixed deterministic tick count, meaningful XP per run), this type has no
+  transit-out/unloading phases and runs until the ship's cargo hold is completely full (so a 300k-cargo
+  ship stays out proportionally longer) — trading much lower XP-per-run for maximum resource-per-real-
+  time efficiency. Deliberately NOT built as part of the Extraction Rework: every other mission today
+  has a *fixed, deterministic* tick count, which is exactly what lets a huge offline-catchup jump
+  resolve in one closed-form calculation instead of simulating tick-by-tick (see `tickCaptainMission`'s
+  own "MUST be closed-form" comment in `tick.ts`). A mission whose duration is an RNG-dependent stopping
+  time (stop when cargo happens to fill) breaks that guarantee for this mission type specifically and
+  needs its own dedicated design pass — not a small addition to the existing two mission types.
+
+- **Roadmap note (user's stated sequence, 2026-07-08, not a commitment to exact order/timing):** after
+  the current Extraction Rework, the next planned major features, in the user's own rough order: (1)
+  finish out the Talent tree foundations, (2) Ships (stats, per-ship cargo capacity, etc. — see the two
+  entries directly above), (3) Ship building (requires Homeworld upgrades to unlock a Shipyard,
+  material-refining chains, crafting ship components/equipment/modules, docking space and construction-
+  bay upgrades, and ship equips), (4) Combat missions. Captured here as directional context for future
+  brainstorming sessions, not a locked spec — each of these still needs its own full brainstorm/design
+  pass when its turn comes.
+
 - **Variable/configurable tick-bar fill rate.** User idea, 2026-07-08, floated during the Tick
   Granularity Rebalance brainstorming (`tickDurationSeconds` 10→1): let the header tick-bar's visual
   fill cadence be configurable (e.g. default 1 tick per fill, with an option for "10 ticks per fill"
