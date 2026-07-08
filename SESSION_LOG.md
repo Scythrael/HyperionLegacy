@@ -441,8 +441,9 @@ no-event-dispatcher convention) now also organizes the Homeworld tab
 `devPanelOpen` toggle — the dev debug panel's visibility is now just another
 sub-tab selection, dev-mode-gated the same as before.
 
-11 tasks in the original plan, 13 commits (no review-driven fixes needed
-beyond a couple of small in-flight doc/comment wording corrections). Task 11's
+11 tasks in the original plan, 14 commits (no review-driven code fixes
+needed — the 3 extra commits beyond the 11 task commits were all small
+in-flight doc/comment wording corrections). Task 11's
 final sweep confirmed two CSS rule groups in `App.svelte` are now genuinely
 orphaned — `.captain-tabs`/`.captain-tab` (superseded by the new
 `.captain-list`/`.captain-list-item`) and `.icon-btn` (its only consumer, the
