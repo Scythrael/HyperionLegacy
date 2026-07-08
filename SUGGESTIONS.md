@@ -142,6 +142,13 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   terminal" interface (the game's own framing device -- the player is playing this game AS the
   admiral's desk terminal, an in-fiction justification for the whole UI). Multiple short tutorials
   covering different systems, run before Battlespace (and specifically Campaign, see above) ever
-  unlocks. No design work started -- purely a future onboarding-polish idea, would need its own
-  brainstorm once the systems it's meant to introduce (Homeworld, missions, Battlespace/Campaign)
-  are far enough along to actually tutorialize.
+  unlocks. Specific presentation details from the user's own description:
+  - **Dialogue boxes with a background blur** behind them when they appear (same
+    `backdrop-filter: blur(...)` glass-panel language the rest of the UI already uses for Panels/
+    modals -- this would likely reuse that existing visual idiom rather than invent a new one).
+  - **Spotlight-style guided steps**: the rest of the screen darkens/dims except for a lit-up
+    highlight around whatever specific element the player needs to click next, to physically walk
+    them through performing the action being taught (not just describing it in text).
+  No design work started -- purely a future onboarding-polish idea, would need its own brainstorm
+  once the systems it's meant to introduce (Homeworld, missions, Battlespace/Campaign) are far
+  enough along to actually tutorialize.
