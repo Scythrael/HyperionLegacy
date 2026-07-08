@@ -20,6 +20,14 @@ captain XP already works, rather than deriving it from captain levels at all.
 
 - `MissionDef` (`model.ts`) gains a new field: `fleetAdminXpPerCycle: number`. `shortOreRun: 1`,
   `longOreRun: 2` — confirmed exact values from the user.
+
+  **Balance caveat (user's explicit note, 2026-07-08):** missions are only the FIRST of several
+  intended Fleet Admiral XP sources — other actions (crafting, talent purchases, etc., per the
+  "completing other actions will add exp" future scope noted above) will add their own XP later. The
+  `2500 * level^2` curve and these per-mission values are deliberately NOT calibrated to make missions
+  alone carry the full weight of Fleet Admiral progression — don't tune this curve later as if missions
+  were meant to be the sole/primary source; the curve should account for multiple future income
+  streams stacking together, not just this one.
 - `tickCaptainMission` (`tick.ts`), at the exact point it already awards captain XP on cycle completion
   (`xp += XP_PER_MISSION_CYCLE`), ALSO accumulates a local `fleetAdminXpDelta` by
   `missionDef.fleetAdminXpPerCycle` per cycle completed within the call (mirroring how `homePlanetDelta`
