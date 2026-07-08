@@ -88,3 +88,25 @@ write it down so you don't relitigate it later.
   panels.) Inert (no broken references, at worst an unused-selector warning),
   deliberately left for a dedicated stylesheet cleanup rather than expanding
   the panel-removal task into a full CSS audit.
+- UI Redesign (Task 11 final sweep) orphaned two more CSS rule groups in
+  `App.svelte`'s `<style>` block, confirmed via grep to have zero remaining
+  markup references anywhere in the file: `.captain-tabs`/`.captain-tab`
+  (Task 8 replaced the horizontal captain-pill row with the vertical
+  `.captain-list`/`.captain-list-item` layout) and `.icon-btn` (Task 10
+  removed the header's dev-only "Dev" toggle button, its only consumer, when
+  `devPanelOpen` was folded into the System tab's Debug sub-tab). Same
+  category as the Phase 4 orphans above -- inert, no broken references,
+  deliberately left for the same dedicated stylesheet cleanup rather than
+  deleting piecemeal task-by-task.
+- The new `.top-bar` (UI Redesign, Task 6) and the existing `.nav-tabs`
+  (Phase 4) are both `position: fixed`, both `z-index: 50`, pinned to
+  opposite edges (top/bottom) of the viewport, and neither reserves space
+  against the other (no `max-height`, no collision detection) -- on a
+  sufficiently short viewport (e.g. a landscape phone), they could
+  theoretically overlap and clip whatever scrollable content sits between
+  them. Not a regression introduced by this plan -- `.nav-tabs` already had
+  this exposure on its own -- but the new top-bar doubles the fixed-chrome
+  vertical footprint, narrowing the safe margin before it becomes visible in
+  practice. Worth a real-device/short-viewport check before shipping to
+  handheld landscape use; no fix attempted here since it can't be verified
+  without a renderer in this environment.

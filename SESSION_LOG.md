@@ -410,3 +410,58 @@ level several captains and confirm the Fleet Admiral bar advances and grants
 captain appears immediately, confirm both stub-branch sets (5 total) render
 as labeled-but-empty rather than missing entirely, and confirm an existing
 pre-v10 save migrates cleanly with all new fields backfilled.
+
+**Session 13** — Added the UI Redesign
+(docs/plans/2026-07-07-ui-redesign-plan.md): a mechanics change followed by a
+full navigation rebuild. First, `tickDurationSeconds` was collapsed from a
+per-captain field to one true fleet-wide cadence on `GameState` — `tick()`
+and the live poll loop in `App.svelte` now compute `ticksElapsed` ONCE per
+cycle and apply it uniformly to every captain on a mission, replacing the old
+per-captain `captainCycles` map with a single shared cycle object. Save
+schema migrated v10 -> v11, reading the value off the first captain (every
+pre-v11 save had all captains sharing the same cadence already, so this is
+lossless) and stripping the now-removed field from each captain via the same
+destructure-strip idiom MIGRATIONS[4] used. Then the UI itself: a new global
+always-on-top `.top-bar` header (fixed to the top of the viewport) now shows
+Fleet Admiral level/XP and the fleet-wide tick bar regardless of which tab is
+open, superseding the old per-captain TICK panel entirely. The bottom nav
+grew from 5 tabs to 6, splitting the old "Fleet Ops" tab into "Fleet
+Captain's" (a left-hand vertical captain list driving Overview/Talents
+sub-tabs — relocates the existing CAPTAIN LEVELING/CAPTAIN TALENTS panels
+unchanged, plus a new idle/on-mission status line) and "Fleet Operations" (a
+mission-first layout: one panel per mission type showing embarked captains
+with progress/Recall alongside eligible idle captains with Dispatch buttons,
+rather than everything scoped to a single `activeCaptain`) — this required
+widening `doDispatchCaptainOnMission`/`doRecallCaptain` to take an explicit
+captain id instead of always targeting `activeCaptain`. A new reusable
+`<SubTabs>` component (plain callback prop, matching this codebase's existing
+no-event-dispatcher convention) now also organizes the Homeworld tab
+(Resources / Refinery-Fabrication / Homeworld Talents) and the System tab
+(Options / Log / Debug), the last of which absorbed and removed the separate
+`devPanelOpen` toggle — the dev debug panel's visibility is now just another
+sub-tab selection, dev-mode-gated the same as before.
+
+11 tasks in the original plan, 13 commits (no review-driven fixes needed
+beyond a couple of small in-flight doc/comment wording corrections). Task 11's
+final sweep confirmed two CSS rule groups in `App.svelte` are now genuinely
+orphaned — `.captain-tabs`/`.captain-tab` (superseded by the new
+`.captain-list`/`.captain-list-item`) and `.icon-btn` (its only consumer, the
+header's "Dev" toggle button, was removed when `devPanelOpen` folded into the
+Debug sub-tab) — both logged in KNOWN_ISSUES.md rather than deleted, same
+"leave for a dedicated stylesheet cleanup" treatment as the Phase 4 orphans
+already there. Also logged in KNOWN_ISSUES.md: the new `.top-bar` and the
+existing `.nav-tabs` are both fixed-position with matching z-index on
+opposite viewport edges with no collision detection, a pre-existing exposure
+(not a regression) that the new top-bar narrows the safe margin on. The
+dev-only loss of being able to view the debug panel simultaneously alongside
+Options/Log (now mutually exclusive sub-tabs) was judged too trivial to log —
+`DEV_MODE_ENV`-gated, never seen by a player. A copy/UX note from code review
+(FLEET CAPTAIN'S and FLEET OPERATIONS sharing a first word at a small,
+letter-spaced font size) was logged in SUGGESTIONS.md instead, since it's a
+design tweak rather than a bug. Next: get eyes on this in an actual browser —
+confirm the top-bar doesn't overlap page content or the bottom nav at
+realistic viewport sizes, confirm the fleet-wide tick bar advances correctly
+with multiple captains on missions simultaneously, click through both new
+tabs' sub-tab switching, and confirm an existing pre-v10 save migrates
+cleanly through both the talent-tree (v9->v10) and tick-duration (v10->v11)
+backfills in sequence.
