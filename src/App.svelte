@@ -839,7 +839,17 @@
        (.tab-scroll-area, per active tab) absorbs overflow instead of the
        whole page growing underneath the header/nav bars, which is the entire
        point of this change -- see docs/plans/2026-07-07-scroll-containment-
-       locked-placeholders-design.md. */
+       locked-placeholders-design.md.
+       100vh declared FIRST as a fallback, same cascade-order idiom this
+       codebase already uses (app.css's html/body rules, and this rule's own
+       prior min-height pair) -- on a browser without dvh support, the second
+       line below is invalid CSS and gets ignored entirely, leaving 100vh in
+       effect; browsers WITH dvh support apply the second line, overriding
+       the first. Without this fallback, a dvh-unsupported browser would get
+       NO height on .root at all (an unrecognized declaration is dropped, not
+       degraded), collapsing the entire new scroll-containment shell -- a
+       real, not hypothetical, regression a code-quality review caught. */
+    height: 100vh;
     height: 100dvh;
     position: relative;
     overflow: hidden;
