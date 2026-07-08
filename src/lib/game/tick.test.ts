@@ -7,6 +7,8 @@ import {
   craftRecipe,
   buyCaptainTalent,
   buyHomeworldTalent,
+  respecCaptainTalents,
+  respecHomeworldTalents,
   applyFleetAdminXp,
   captainCommonYieldMult,
   captainUncommonYieldMult,
@@ -1358,6 +1360,115 @@ describe("buyHomeworldTalent", () => {
     const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot2"); // requires fleetLogisticsSlot1
     expect(success).toBe(false);
     expect(next).toBe(state);
+  });
+});
+
+describe("respecCaptainTalents / respecHomeworldTalents", () => {
+  // Task 8 (Talent Tree Visual Redesign) -- coverage for Task 7's
+  // respecCaptainTalents/respecHomeworldTalents, added to tick.ts in commits
+  // fc4f317/da9b7f1. Every cost below is hand-verified against the LIVE
+  // CAPTAIN_TALENTS/HOMEWORLD_TALENTS tables in model.ts (not transcribed
+  // blindly): commandExtractionI.cost=2, commandExtractionII.cost=4,
+  // fleetLogisticsSlot1.cost=3 (effect.type: "unlockCaptainSlot" --
+  // never refunded/removed), fleetLogisticsYield.cost=4 (effect.type:
+  // "rareYieldMult" -- a normal refundable node). RESPEC_COST_CREDITS is 50
+  // (tick.ts, same constant both respec functions share).
+
+  it("respecCaptainTalents refunds the exact statPoints cost sum of every unlocked talent, clears the list, and deducts flat 50 credits", () => {
+    const state = freshState();
+    state.credits = new Decimal(50); // exactly the flat RESPEC_COST_CREDITS
+    state.captains[0].unlockedCaptainTalents = ["commandExtractionI", "commandExtractionII"];
+    state.captains[0].statPoints = 0;
+    // Refund = commandExtractionI.cost 2 + commandExtractionII.cost 4 = 6.
+    const { next, success } = respecCaptainTalents(state, 1);
+    expect(success).toBe(true);
+    expect(next.captains[0].statPoints).toBe(6);
+    expect(next.captains[0].unlockedCaptainTalents).toEqual([]);
+    expect(next.credits.equals(0)).toBe(true); // 50 - 50
+  });
+
+  it("respecCaptainTalents fails (same state reference) when credits are one short of RESPEC_COST_CREDITS", () => {
+    const state = freshState();
+    state.credits = new Decimal(49); // one below the flat 50 cost
+    state.captains[0].unlockedCaptainTalents = ["commandExtractionI"];
+    const { next, success } = respecCaptainTalents(state, 1);
+    expect(success).toBe(false);
+    expect(next).toBe(state); // reference identity, not just structural equality
+  });
+
+  it("respecCaptainTalents fails (same state reference) for a captainId that doesn't exist", () => {
+    const state = freshState();
+    state.credits = new Decimal(50);
+    const { next, success } = respecCaptainTalents(state, 999);
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+
+  it("respecHomeworldTalents refunds only non-unlockCaptainSlot nodes, leaving slot nodes unlocked and un-refunded", () => {
+    const state = freshState();
+    state.credits = new Decimal(50);
+    state.adminPoints = 0;
+    // fleetLogisticsSlot1: effect.type "unlockCaptainSlot" -- must survive, must NOT be refunded.
+    // fleetLogisticsYield: effect.type "rareYieldMult" -- a normal node, must be refunded (cost 4) and removed.
+    state.unlockedHomeworldTalents = ["fleetLogisticsSlot1", "fleetLogisticsYield"];
+    const { next, success } = respecHomeworldTalents(state);
+    expect(success).toBe(true);
+    expect(next.adminPoints).toBe(4); // fleetLogisticsYield's cost only -- the slot node contributes 0
+    expect(next.unlockedHomeworldTalents).toEqual(["fleetLogisticsSlot1"]); // slot key survives, non-slot key removed
+    expect(next.credits.equals(0)).toBe(true); // 50 - 50
+  });
+
+  it("respecHomeworldTalents fails (same state reference) when credits are one short of RESPEC_COST_CREDITS", () => {
+    const state = freshState();
+    state.credits = new Decimal(49); // one below the flat 50 cost
+    state.unlockedHomeworldTalents = ["fleetLogisticsYield"];
+    const { next, success } = respecHomeworldTalents(state);
+    expect(success).toBe(false);
+    expect(next).toBe(state);
+  });
+
+  it("respecCaptainTalents with an explicit newSpec argument sets the new spec atomically with the talent wipe", () => {
+    const state = freshState();
+    state.credits = new Decimal(50);
+    state.captains[0].spec = "command";
+    state.captains[0].unlockedCaptainTalents = ["commandExtractionI", "commandExtractionII"]; // refund = 2+4 = 6
+    state.captains[0].statPoints = 0;
+    const { next, success } = respecCaptainTalents(state, 1, "resourcefulness");
+    expect(success).toBe(true);
+    expect(next.captains[0].spec).toBe("resourcefulness");
+    expect(next.captains[0].unlockedCaptainTalents).toEqual([]);
+    expect(next.captains[0].statPoints).toBe(6);
+  });
+
+  it("respecCaptainTalents with the 3rd arg omitted entirely leaves the captain's current spec UNCHANGED", () => {
+    const state = freshState();
+    state.credits = new Decimal(50);
+    state.captains[0].spec = "command";
+    state.captains[0].unlockedCaptainTalents = ["commandExtractionI", "commandExtractionII"]; // refund = 2+4 = 6
+    state.captains[0].statPoints = 0;
+    // Only 2 args -- newSpec is genuinely omitted (not passed as `undefined` explicitly), exercising the
+    // `newSpec === undefined ? captain.spec : newSpec` branch's "omitted" path, not just its "undefined" path.
+    const { next, success } = respecCaptainTalents(state, 1);
+    expect(success).toBe(true);
+    expect(next.captains[0].spec).toBe("command"); // unchanged from before the respec
+    expect(next.captains[0].unlockedCaptainTalents).toEqual([]);
+    expect(next.captains[0].statPoints).toBe(6);
+  });
+
+  it("respecCaptainTalents with an explicit null newSpec CLEARS the captain's current spec (distinct from omitting the arg)", () => {
+    const state = freshState();
+    state.credits = new Decimal(50);
+    state.captains[0].spec = "command";
+    state.captains[0].unlockedCaptainTalents = ["commandExtractionI", "commandExtractionII"]; // refund = 2+4 = 6
+    state.captains[0].statPoints = 0;
+    // Explicit `null` must be preserved, not collapsed into "keep current spec" -- this is exactly why
+    // respecCaptainTalents's implementation uses a strict `=== undefined` check rather than `newSpec ?? captain.spec`
+    // (the `??` form would also replace an explicit null with captain.spec, indistinguishable from omitting the arg).
+    const { next, success } = respecCaptainTalents(state, 1, null);
+    expect(success).toBe(true);
+    expect(next.captains[0].spec).toBe(null); // cleared, not left at "command"
+    expect(next.captains[0].unlockedCaptainTalents).toEqual([]);
+    expect(next.captains[0].statPoints).toBe(6);
   });
 });
 
