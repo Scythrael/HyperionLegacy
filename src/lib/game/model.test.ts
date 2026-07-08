@@ -108,12 +108,12 @@ describe("MISSIONS — launch set", () => {
     expect(MISSIONS.shortOreRun.transitOutTicks).toBe(25);
     expect(MISSIONS.shortOreRun.transitBackTicks).toBe(25);
     expect(MISSIONS.shortOreRun.unloadTicks).toBe(8);
-    expect(MISSIONS.shortOreRun.extractionRatePerTick).toBe(10);
-    expect(MISSIONS.shortOreRun.cargoCapacity).toBe(900);
+    expect(MISSIONS.shortOreRun.extractionRatePerTick).toBe(1);
+    expect(MISSIONS.shortOreRun.cargoCapacity).toBe(90);
 
     expect(MISSIONS.longOreRun.transitOutTicks).toBe(70);
     expect(MISSIONS.longOreRun.transitBackTicks).toBe(70);
-    expect(MISSIONS.longOreRun.cargoCapacity).toBe(900);
+    expect(MISSIONS.longOreRun.cargoCapacity).toBe(90);
 
     expect(MISSIONS.shortOreRun.fleetAdminXpPerCycle).toBe(1);
     expect(MISSIONS.longOreRun.fleetAdminXpPerCycle).toBe(2);
@@ -146,9 +146,9 @@ describe("requiredTicksForPhase", () => {
   });
 
   it("extracting is cargoCapacity / extractionRatePerTick, rounded up", () => {
-    // 900 / 10 = exactly 90 -- extractionRatePerTick deliberately stays 10 (unchanged
-    // from before the tick-granularity rebalance) so per-tick extraction-roll behavior
-    // is unaffected; only cargoCapacity grew, extending the phase to 90 ticks.
+    // 90 / 1 = exactly 90 -- both cargoCapacity and extractionRatePerTick were
+    // rescaled 10x down together (Extraction Rework regression fix), keeping the
+    // resulting phase length unchanged at 90 ticks.
     expect(requiredTicksForPhase("extracting", MISSIONS.shortOreRun)).toBe(90);
   });
 });
