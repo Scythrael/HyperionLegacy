@@ -1362,6 +1362,37 @@
      .captain-list, without giving them .captain-list's fixed 96px width. */
   .battlespace-locked-list { display: flex; flex-direction: column; gap: 2px; }
   .fleet-captains-content { flex: 1; min-width: 0; }
+  /* Fleet Operations tab layout (2026-07-07 Fleet Operations Mission UI,
+     Task 6) -- mirrors .fleet-captains-layout/.captain-list/
+     .captain-list-item directly above verbatim in spirit: flat,
+     square-cornered panel look with a thin 2px gap between stacked items
+     (2026-07-07 button-style pass), not a new visual language. Left-hand
+     .mission-category-list is a bit wider (140px vs .captain-list's 96px)
+     since "Long-Term Exploration" is a longer label than any captain name. */
+  .fleet-ops-layout { display: flex; gap: 12px; align-items: flex-start; }
+  .mission-category-list { display: flex; flex-direction: column; gap: 2px; flex: 0 0 140px; }
+  .mission-category-item {
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    padding: 10px 8px;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .mission-category-item.active {
+    background: rgba(var(--color-accent-rgb), 0.15);
+    color: var(--color-accent-bright);
+    border-color: var(--color-accent);
+  }
+  .mission-category-item.locked {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .mission-category-item.locked:hover {
+    border-color: rgba(var(--color-accent-rgb), 0.3);
+  }
+  .mission-category-content { flex: 1; min-width: 0; }
   .panel-title {
     font-size: 11px;
     letter-spacing: 1.5px;
@@ -1460,6 +1491,49 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.12);
   }
   .mission-recalled-text { margin-top: 10px; margin-bottom: 0; }
+  /* Selectable mission card (2026-07-07 Fleet Operations Mission UI, Task 6)
+     -- an actual <button>, unlike the plain .mission-card div above (that one
+     is a static in-progress readout, this one opens the captain-selection
+     popup on click), so it resets button-default text-align/font/color via
+     `text-align:left; color:inherit; font:inherit;` before laying out its own
+     flat/thin-border look. Theme-aware via --color-accent-rgb/--color-accent
+     only (no hardcoded hex) -- confirmed against app.css's 6
+     [data-theme="..."] blocks, which all redefine these same custom
+     properties, so this card (and its portrait-frame placeholder below)
+     repaint correctly on every theme switch, same as every other themed
+     element in this file. */
+  .mission-card-selectable {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    text-align: left;
+    width: 100%;
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    padding: 12px;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+  }
+  .mission-card-selectable:hover {
+    border-color: var(--color-accent);
+  }
+  /* Portrait-frame placeholder -- no ship/captain art asset exists yet (see
+     the 🖼️ emoji placeholder in the template), so this is a dashed
+     theme-tinted box rather than an <img>, sized to read clearly as "art
+     goes here" without implying a real image failed to load. */
+  .mission-portrait-frame {
+    flex: 0 0 64px;
+    height: 64px;
+    border: 1px dashed rgba(var(--color-accent-rgb), 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: var(--color-text-secondary);
+    background: rgba(var(--color-accent-rgb), 0.03);
+  }
+  .mission-card-body { flex: 1; min-width: 0; }
   /* No existing non-dev-panel "danger" button style to reuse -- .dev-btn.danger
      is scoped to the amber dev-panel look, and .prestige-btn's warning color
      is for a different semantic (fleet prestige), not "cancel an in-progress
@@ -1609,4 +1683,11 @@
     font-size: 13px;
   }
   .modal-row { display: flex; justify-content: flex-end; gap: 2px; }
+  /* Popup captain-picker list (2026-07-07 Fleet Operations Mission UI, Task 6)
+     -- stacks the idle-captain buttons inside the captain-selection popup
+     (Task 5) with the same thin 2px gap as .captain-list/.mission-category-list
+     above. Reuses .dev-btn as-is for each individual captain button (already
+     flat-cornered from the 2026-07-07 button-style pass) -- this class only
+     supplies the container's flex/gap, no new button style needed. */
+  .modal-captain-list { display: flex; flex-direction: column; gap: 2px; margin: 10px 0; }
 </style>
