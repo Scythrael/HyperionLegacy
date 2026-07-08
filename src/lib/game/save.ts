@@ -316,6 +316,26 @@ export function exportRawSave(): string | null {
   return localStorage.getItem(SAVE_KEY);
 }
 
+// Counterpart to exportRawSave -- writes a previously-exported raw save
+// string back into localStorage, after confirming it actually deserializes
+// (rejects garbage/corrupt input rather than silently corrupting the
+// current save). Writes the RAW string as-is (same LZ-compressed-base64
+// shape exportRawSave produces) rather than re-serializing through
+// migrate()/serialize() -- avoids any risk of that round-trip silently
+// changing the save's shape before the caller even gets a chance to reload
+// and let the normal load-time migration path run.
+export function importRawSave(raw: string): boolean {
+  const save = deserialize(raw);
+  if (!save) return false;
+  try {
+    localStorage.setItem(SAVE_KEY, raw);
+    localStorage.setItem(`${SAVE_KEY}_created_at`, String(save.created_at));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function clearSave(): void {
   localStorage.removeItem(SAVE_KEY);
   localStorage.removeItem(`${SAVE_KEY}_created_at`);
