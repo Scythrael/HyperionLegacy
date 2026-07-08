@@ -867,6 +867,9 @@ export function respecCaptainTalents(
     ...captain,
     statPoints: captain.statPoints + refund,
     unlockedCaptainTalents: [],
+    // NOT `newSpec ?? captain.spec` -- `??` would also replace an explicit
+    // `null` (clear spec) with captain.spec, indistinguishable from omitting
+    // the argument entirely. Must stay a strict `undefined` check.
     spec: newSpec === undefined ? captain.spec : newSpec,
   };
   return { next: { ...state, captains, credits: state.credits.minus(RESPEC_COST_CREDITS) }, success: true };
