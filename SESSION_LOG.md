@@ -783,7 +783,7 @@ caller passing a value explicitly outside this migration's scope
 (`offlineSeconds`, `talent.cost`, `xpForNextFleetAdminLevel`'s return), so the
 plain-number branch was kept byte-identical to its pre-migration body, zero
 behavior change for any existing caller. Verification rigor throughout matched
-the user's explicit ask: every commit (17 across Task 0's worktree setup
+the user's explicit ask: every commit (18 across Task 0's worktree setup
 through this docs task) was independently checked via `git show`, hand-tracing
 worked examples, and in several cases an independent Python arithmetic check,
 before dispatching the two-stage review (spec-compliance, then code-quality)
