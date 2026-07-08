@@ -1059,4 +1059,37 @@ describe("applyFleetAdminXp", () => {
     // be left over.
     expect(result.fleetAdminXp).toBeGreaterThan(0);
   });
+
+  it("a backlog left over from a capped call keeps draining on a LATER call even with a zero delta, not just a call that also brings fresh XP", () => {
+    // Found during this branch's final holistic review: an early-return keyed
+    // ONLY on `fleetAdminXpDelta <= 0` would freeze a capped backlog forever
+    // on every subsequent delta-0 poll (the overwhelmingly common case in
+    // live play) -- contradicting this function's own stated intent that
+    // leftover XP "keeps resolving on the NEXT tick() call." Reusing the same
+    // exact backlog-construction math as the cap test above (833,708,387,502,500
+    // total XP, guaranteed to require 10,001+ level-ups if uncapped) to first
+    // produce a genuinely capped, backlogged state, then confirm a SECOND
+    // call with delta=0 keeps draining it rather than returning the identical
+    // stuck state.
+    const sumOfSquaresTo = (n: number) => (n * (n + 1) * (2 * n + 1)) / 6;
+    const xpForExactly10000LevelUps = 2500 * sumOfSquaresTo(10_000);
+    const oneMoreThreshold = 2500 * 10_001 * 10_001;
+    const delta = xpForExactly10000LevelUps + oneMoreThreshold;
+
+    const afterFirstCappedCall = applyFleetAdminXp(freshState(), delta);
+    expect(afterFirstCappedCall.adminPoints).toBe(10_000); // confirms the cap was genuinely hit, not coincidentally under it
+    const backloggedXp = afterFirstCappedCall.fleetAdminXp;
+
+    const afterSecondCall = applyFleetAdminXp(afterFirstCappedCall, 0);
+    // A stale/broken guard (checking only fleetAdminXpDelta <= 0) would return
+    // the SAME reference here, leaving fleetAdminLevel/adminPoints/fleetAdminXp
+    // completely unchanged forever. The fixed guard checks for a remaining
+    // backlog too, so this second call -- despite delta being 0 -- must make
+    // real progress: MORE level-ups resolved, adminPoints increased further,
+    // and the leftover xp reduced from what it was after the first call.
+    expect(afterSecondCall).not.toBe(afterFirstCappedCall);
+    expect(afterSecondCall.adminPoints).toBeGreaterThan(10_000);
+    expect(afterSecondCall.fleetAdminLevel).toBeGreaterThan(afterFirstCappedCall.fleetAdminLevel);
+    expect(afterSecondCall.fleetAdminXp).toBeLessThan(backloggedXp);
+  });
 });

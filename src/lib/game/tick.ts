@@ -344,10 +344,30 @@ export function tickCaptainMission(
 // captain XP's own subtract-and-carry-forward loop exactly, capped at
 // MAX_LEVEL_UPS_PER_TICK to guard against a very large offline-catchup
 // delta (see that constant's own comment above).
+//
+// CORRECTNESS NOTE (found during this branch's final holistic review): the
+// no-op guard checks for an unresolved BACKLOG, not just "did this call add
+// anything." If a PRIOR call's delta was large enough to hit
+// MAX_LEVEL_UPS_PER_TICK, that call returns with fleetAdminXp still sitting
+// AT OR ABOVE the next threshold (deliberately, so no XP is lost) -- an
+// early-return keyed on `fleetAdminXpDelta <= 0` alone would then freeze that
+// backlog forever on every subsequent poll that doesn't ALSO carry a fresh
+// positive delta, contradicting this function's own intent (leftover XP
+// should keep resolving on later calls, the same way it's designed to).
+// Checking `hasBacklog` here means a delta-0 poll still drains an existing
+// backlog if one exists, while remaining the same cheap same-reference
+// no-op it always was for the overwhelmingly common case (no delta, no
+// backlog). This is only reachable at all with a delta on the order of
+// 10^14+ (see MAX_LEVEL_UPS_PER_TICK's own comment and this function's tests
+// in tick.test.ts) -- astronomically unlikely in practice, but worth being
+// actually correct about rather than leaving a comment that overstates what
+// the code did.
 export function applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): GameState {
-  if (fleetAdminXpDelta <= 0) return state; // cheap no-op on the overwhelmingly common poll where nobody's mission cycle completed
+  const startingXp = fleetAdminXpDelta > 0 ? state.fleetAdminXp + fleetAdminXpDelta : state.fleetAdminXp;
+  const hasBacklog = startingXp >= xpForNextFleetAdminLevel(state.fleetAdminLevel);
+  if (fleetAdminXpDelta <= 0 && !hasBacklog) return state; // cheap no-op: no new XP this call, and nothing left over from a prior capped call to resolve
 
-  let xp = state.fleetAdminXp + fleetAdminXpDelta;
+  let xp = startingXp;
   let level = state.fleetAdminLevel;
   let adminPoints = state.adminPoints;
   let levelUpsThisCall = 0;
