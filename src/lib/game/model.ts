@@ -33,6 +33,12 @@ export interface LootTableEntry {
 
 export type MissionPhase = "ordersReceived" | "transitOut" | "extracting" | "transitBack" | "unloading";
 
+// Named (not an inline union), matching this file's convention for every
+// other small enum (ShipType, CaptainTalentBranch, HomeworldTalentBranch) --
+// gives future consumers (e.g. a tier-badge component) something to import
+// instead of re-typing the literal union.
+export type MissionTier = "I" | "II" | "III" | "IV" | "V";
+
 export interface MissionDef {
   label: string;
   transitOutTicks: number;
@@ -43,6 +49,10 @@ export interface MissionDef {
   // for this launch's requiredTicksForPhase() to have no partial-final-tick
   // edge case -- see that function's comment below if this is ever violated.
   lootTable: LootTableEntry[];
+  // Display-only grouping -- drives which SubTabs tier a mission renders under
+  // in the Fleet Operations tab (a follow-up UI feature). Has NO effect on
+  // tick math whatsoever; purely a presentational label read by the UI layer.
+  tier: MissionTier;
 }
 
 // 2 missions at launch: a fast, safe ore run and a slower one with better
@@ -64,6 +74,7 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
       { material: "uncommonMaterial", weight: 19 },
       { material: "rareMaterial", weight: 1 },
     ],
+    tier: "I",
   },
   longOreRun: {
     label: "Long Ore Run",
@@ -77,6 +88,7 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
       { material: "uncommonMaterial", weight: 80 },
       { material: "rareMaterial", weight: 20 },
     ],
+    tier: "I",
   },
 };
 

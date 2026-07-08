@@ -35,6 +35,7 @@
     captainExtractionYieldMult,
     captainRareLootChanceMult,
     fleetExtractionYieldMult,
+    applyRareLootChanceMult, // consumed by the captain-selection popup markup (Task 5) for its live drop-rate preview
     LOOT_MATERIAL_KEYS,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
@@ -77,6 +78,14 @@
   let currentTheme: ThemeName = "cyan";
   let deleteModalOpen = false;
   let deleteConfirmText = "";
+
+  // Fleet Operations captain-selection popup (2026-07-07 Fleet Operations
+  // Mission UI) -- null missionPopupKey means the popup is closed. Selecting a
+  // mission card opens it with no captain chosen yet (missionPopupCaptainId
+  // null); picking a captain inside the popup recalculates the preview stats
+  // but does NOT dispatch -- only the Dispatch button does that.
+  let missionPopupKey: MissionKey | null = null;
+  let missionPopupCaptainId: number | null = null;
   let speed = 1;
   let logEntries: string[] = [];
   let activeCaptainIndex = 0;
@@ -121,6 +130,23 @@
   // Options since theme/save actions are the most commonly checked view.
   type SystemSubTab = "options" | "log" | "debug" | "about" | "patchNotes";
   let activeSystemSubTab: SystemSubTab = "options";
+
+  // Fleet Operations mission-category buttons (2026-07-07 Fleet Operations
+  // Mission UI). Only "resourceGathering" has real content today -- the other
+  // 3 render locked/"Coming Soon", same pattern as locked captain-list slots
+  // and locked sub-tabs. Confirmed with the user: Patrol needs combat
+  // (Battlespace is still a stub), Surveying/Long-Term Exploration have no
+  // backing mechanics yet.
+  type MissionCategoryKey = "resourceGathering" | "patrol" | "surveying" | "longTermExploration";
+  let activeMissionCategory: MissionCategoryKey = "resourceGathering";
+
+  // Difficulty tiers within Resource-Gathering, reusing the SubTabs component's
+  // existing locked-tab support. Tier I is real and contains BOTH launch
+  // missions (see model.ts's MissionDef.tier field) -- confirmed with the
+  // user neither shortOreRun nor longOreRun is meant to be a separate tier.
+  // Tiers II-V are locked placeholders for future mission content.
+  type MissionTierKey = "tierI" | "tierII" | "tierIII" | "tierIV" | "tierV";
+  let activeMissionTier: MissionTierKey = "tierI";
 
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
@@ -373,6 +399,27 @@
     state = next;
     pushLog(`[${captain.label}] Recall ordered — returning to base from: ${missionLabel}.`);
     doSave();
+  }
+
+  // Fleet Operations captain-selection popup handlers (2026-07-07 Fleet
+  // Operations Mission UI) -- open/close just manage missionPopupKey/
+  // missionPopupCaptainId (declared above near deleteModalOpen); the actual
+  // dispatch is delegated to the existing doDispatchCaptainOnMission so this
+  // popup can't drift from the flow the non-popup dispatch path already uses.
+  function openMissionPopup(missionKey: MissionKey) {
+    missionPopupKey = missionKey;
+    missionPopupCaptainId = null;
+  }
+
+  function closeMissionPopup() {
+    missionPopupKey = null;
+    missionPopupCaptainId = null;
+  }
+
+  function doDispatchFromPopup() {
+    if (missionPopupKey === null || missionPopupCaptainId === null) return;
+    doDispatchCaptainOnMission(missionPopupCaptainId, missionPopupKey); // existing function, unchanged
+    closeMissionPopup();
   }
 
   function simulateOffline(hours: number) {
@@ -736,64 +783,118 @@
 
       {#if activeTab === "fleetOperations"}
       <div class="tab-scroll-area">
-      <!-- Fleet Operations (UI Redesign, Task 9 --
-           docs/plans/2026-07-07-ui-redesign-plan.md) -- mission-first, NOT
-           captain-scoped (deliberately does not read activeCaptain anywhere
-           in this block). One Panel per MISSIONS entry, listing every
-           captain currently embarked on THAT mission (progress + Recall)
-           above a Dispatch list of every fleet-wide idle captain
-           (mission === null). `eligible` is computed fleet-wide per mission
-           iteration -- a captain already committed to mission A will show up
-           in mission A's embarked list, but NOT in mission B's eligible
-           list, since eligible only checks mission === null, not "not on
-           THIS specific mission." -->
-      {#each Object.entries(MISSIONS) as [missionKey, missionDef]}
-        {@const embarked = state.captains.filter((c) => c.mission?.missionKey === missionKey)}
-        {@const eligible = state.captains.filter((c) => c.mission === null)}
-        <Panel>
-          <div class="panel-title">{missionDef.label.toUpperCase()}</div>
-          <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
+      <!-- Fleet Operations Mission UI (2026-07-07 --
+           docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md, Task 4) --
+           replaces the old flat one-Panel-per-mission loop (UI Redesign, Task
+           9) with a category-list + tier-tabs + mission-card flow, mirroring
+           .fleet-captains-layout/.captain-list/.captain-list-item's visual
+           language directly above under the "fleetCaptains" tab. Only
+           "resourceGathering" has real content today (Patrol/Surveying/
+           Long-Term Exploration are locked placeholders -- see
+           activeMissionCategory's declaration comment above). Within
+           Resource-Gathering, only Tier I is real (both shortOreRun and
+           longOreRun -- see model.ts's MissionDef.tier field); Tiers II-V are
+           locked SubTabs entries. Dispatch no longer happens inline here --
+           clicking an available mission card calls openMissionPopup, which
+           sets missionPopupKey/missionPopupCaptainId (declared near
+           deleteModalOpen). The popup markup that consumes that state and
+           performs the dispatch through the existing
+           doDispatchCaptainOnMission lives near the DELETE SAVE modal,
+           further down this same template (Task 5). -->
+      <div class="fleet-ops-layout">
+        <div class="mission-category-list">
+          <button
+            class="mission-category-item"
+            class:active={activeMissionCategory === "resourceGathering"}
+            on:click={() => (activeMissionCategory = "resourceGathering")}
+          >
+            Resource-Gathering
+          </button>
+          <div class="mission-category-item locked" title="Coming soon — combat isn't built yet">
+            🔒 Patrol Missions
+          </div>
+          <div class="mission-category-item locked" title="Coming soon — not yet available">
+            🔒 Surveying
+          </div>
+          <div class="mission-category-item locked" title="Coming soon — not yet available">
+            🔒 Long-Term Exploration
+          </div>
+        </div>
 
-          {#each embarked as captain}
-            {@const mission = captain.mission!}
-            {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
-            {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
-            {@const remainingTicks = Math.max(0, requiredTicks - mission.phaseProgressTicks)}
-            <div class="mission-card">
-              <div class="research-name">{captain.label}</div>
-              <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
-              <div class="research-bar-track">
-                <div class="research-bar-fill" style="width:{progress * 100}%"></div>
-              </div>
-              <div class="research-readout">{remainingTicks.toFixed(1)} ticks remaining in phase</div>
-              <div class="research-cost">
-                Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
-                {formatNumber(mission.cargo.rareMaterial)} rare
-              </div>
-              {#if mission.recalled}
-                <p class="prestige-text mission-recalled-text">Recall ordered — returning to base once the current cycle's unloading completes.</p>
-              {:else}
-                <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
+        <div class="mission-category-content">
+          {#if activeMissionCategory === "resourceGathering"}
+            <SubTabs
+              tabs={[
+                { key: "tierI", label: "Tier I" },
+                { key: "tierII", label: "Tier II", locked: true },
+                { key: "tierIII", label: "Tier III", locked: true },
+                { key: "tierIV", label: "Tier IV", locked: true },
+                { key: "tierV", label: "Tier V", locked: true },
+              ]}
+              active={activeMissionTier}
+              onSelect={(key) => (activeMissionTier = key as MissionTierKey)}
+            />
+
+            {#if activeMissionTier === "tierI"}
+              <!-- tierIMissions/embarked mirror the OLD block's per-mission
+                   embarked filter above, just scoped to Tier I's mission set
+                   instead of iterating ALL of MISSIONS -- the embarked-
+                   captains display below (progress bar, phase label,
+                   cargo-so-far, Recall button) is otherwise byte-identical to
+                   what this replaced, only its position in the markup moved. -->
+              {@const tierIMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([, def]) => def.tier === "I")}
+              {@const embarked = state.captains.filter((c) => c.mission !== null && tierIMissions.some(([key]) => key === c.mission!.missionKey))}
+
+              {#if embarked.length > 0}
+                <div class="panel-title">IN PROGRESS</div>
+                {#each embarked as captain}
+                  {@const mission = captain.mission!}
+                  {@const missionDef = MISSIONS[mission.missionKey]}
+                  {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
+                  {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
+                  {@const remainingTicks = Math.max(0, requiredTicks - mission.phaseProgressTicks)}
+                  <div class="mission-card">
+                    <div class="research-name">{captain.label} — {missionDef.label}</div>
+                    <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
+                    <div class="research-bar-track">
+                      <div class="research-bar-fill" style="width:{progress * 100}%"></div>
+                    </div>
+                    <div class="research-readout">{remainingTicks.toFixed(1)} ticks remaining in phase</div>
+                    <div class="research-cost">
+                      Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
+                      {formatNumber(mission.cargo.rareMaterial)} rare
+                    </div>
+                    {#if mission.recalled}
+                      <p class="prestige-text mission-recalled-text">Recall ordered — returning to base once the current cycle's unloading completes.</p>
+                    {:else}
+                      <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
+                    {/if}
+                  </div>
+                {/each}
               {/if}
-            </div>
-          {/each}
 
-          {#if eligible.length > 0}
-            <div class="mission-list">
-              {#each eligible as captain}
-                <div class="mission-card">
-                  <div class="research-name">{captain.label}</div>
-                  <button class="buy-btn" on:click={() => doDispatchCaptainOnMission(captain.id, missionKey as MissionKey)}>
-                    Dispatch · {missionDef.label}
+              <div class="panel-title">AVAILABLE MISSIONS</div>
+              <div class="mission-list">
+                {#each tierIMissions as [missionKey, missionDef]}
+                  {@const totalWeight = missionDef.lootTable.reduce((sum, e) => sum + e.weight, 0)}
+                  <button class="mission-card mission-card-selectable" on:click={() => openMissionPopup(missionKey)}>
+                    <div class="mission-portrait-frame" aria-hidden="true">🖼️</div>
+                    <div class="mission-card-body">
+                      <div class="research-name">{missionDef.label}</div>
+                      <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
+                      {#each missionDef.lootTable as entry}
+                        <div class="research-cost">
+                          {entry.material}: {formatNumber(missionDef.extractionRatePerTick)}/tick ({((entry.weight / totalWeight) * 100).toFixed(1)}%)
+                        </div>
+                      {/each}
+                    </div>
                   </button>
-                </div>
-              {/each}
-            </div>
-          {:else if embarked.length === 0}
-            <p class="prestige-text">No eligible captains available.</p>
+                {/each}
+              </div>
+            {/if}
           {/if}
-        </Panel>
-      {/each}
+        </div>
+      </div>
       </div>
       {/if}
 
@@ -801,8 +902,26 @@
       <div class="tab-scroll-area">
       <Panel>
         <div class="panel-title">BATTLESPACE</div>
-        <p class="locked-heading">🔒 Coming Soon!</p>
         <p class="prestige-text">PvP and PvE fleet operations will live here.</p>
+        <!-- Expanded from a single generic "Coming Soon" line to 4 named
+             locked options (mid-plan extra task, 2026-07-07) -- reuses
+             .captain-list-item.locked as-is (same class/markup as the locked
+             captain slots under Fleet Captain's, above) rather than
+             introducing .mission-category-item, since that class belongs to
+             the separate, still-in-flight Fleet Operations mission-category
+             rebuild and doesn't exist in this file yet. .captain-list-item
+             has no standalone stacking/gap behavior of its own -- it normally
+             relies on its usual parent .captain-list (display:flex;
+             flex-direction:column; gap:2px) for that -- so .battlespace-
+             locked-list below reproduces just that same flex/gap pairing
+             as a tiny scoped class, without duplicating any of
+             .captain-list-item's own visual rules. -->
+        <div class="battlespace-locked-list">
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Fleet Skirmishes</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Campaign</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Fleet Exercises</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Invasion</div>
+        </div>
       </Panel>
       </div>
       {/if}
@@ -914,12 +1033,85 @@
     <div class="nav-tabs">
       <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
       <button class="nav-tab" class:active={activeTab === "sectorSpace"} on:click={() => (activeTab = "sectorSpace")}>Sector Space</button>
-      <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Fleet Captain's</button>
-      <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Fleet Operations</button>
+      <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Command</button>
+      <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
       <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
       <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
     </div>
   </div>
+
+  {#if missionPopupKey !== null}
+    <!-- Captain-selection popup (2026-07-07 Fleet Operations Mission UI,
+         Task 5) -- consumes missionPopupKey/missionPopupCaptainId (state) and
+         openMissionPopup/closeMissionPopup/doDispatchFromPopup (handlers),
+         all declared/implemented earlier in this file (Task 3). Reuses the
+         exact .modal-backdrop/Panel.modal-dialog pattern the DELETE SAVE
+         modal below already establishes, so both modals share one visual
+         language. Two-step flow: no captain selected yet shows an idle-
+         captain picker list; once missionPopupCaptainId is set, the SAME
+         popup re-renders with the live drop-rate/timing preview and swaps in
+         a Dispatch button. This preview's bonus math (extractionYieldMult/
+         rareLootChanceMult/effectiveLootTable/amountPerTick) is hand-traced
+         against tick.ts's own tick()/tickCaptainMission to use the IDENTICAL
+         shape -- see this task's own commit message / plan doc for the
+         trace -- so the numbers shown here are never misleading about what
+         the real dispatched mission will actually do. -->
+    {@const missionDef = MISSIONS[missionPopupKey]}
+    {@const selectedCaptain = missionPopupCaptainId !== null ? state.captains.find((c) => c.id === missionPopupCaptainId) ?? null : null}
+    {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">{missionDef.label.toUpperCase()}</div>
+
+        {#if selectedCaptain === null}
+          <p class="modal-instruction">Select a captain to preview mission stats.</p>
+          {#if idleCaptains.length === 0}
+            <p class="prestige-text">No eligible captains available.</p>
+          {:else}
+            <div class="modal-captain-list">
+              {#each idleCaptains as captain}
+                <button class="dev-btn" on:click={() => (missionPopupCaptainId = captain.id)}>{captain.label}</button>
+              {/each}
+            </div>
+          {/if}
+        {:else}
+          {@const extractionYieldMult = captainExtractionYieldMult(selectedCaptain) + fleetExtractionYieldMult(state)}
+          {@const rareLootChanceMult = captainRareLootChanceMult(selectedCaptain)}
+          {@const effectiveLootTable = applyRareLootChanceMult(missionDef.lootTable, rareLootChanceMult)}
+          {@const totalWeight = effectiveLootTable.reduce((sum, e) => sum + e.weight, 0)}
+          {@const amountPerTick = missionDef.extractionRatePerTick * (1 + extractionYieldMult)}
+          {@const transitOutTicks = missionDef.transitOutTicks}
+          {@const extractingTicks = requiredTicksForPhase("extracting", missionDef)}
+          {@const transitBackTicks = missionDef.transitBackTicks}
+          {@const unloadTicks = missionDef.unloadTicks}
+          {@const totalTicks = transitOutTicks + extractingTicks + transitBackTicks + unloadTicks}
+
+          <div class="research-name">Captain: {selectedCaptain.label}</div>
+
+          <div class="panel-title">DROP RATES</div>
+          {#each effectiveLootTable as entry}
+            <div class="research-cost">
+              {entry.material}: {formatNumber(amountPerTick)}/tick ({((entry.weight / totalWeight) * 100).toFixed(1)}%)
+            </div>
+          {/each}
+
+          <div class="panel-title">TIMING</div>
+          <div class="research-cost">Transit out: {transitOutTicks} ticks ({(transitOutTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
+          <div class="research-cost">Extracting: {extractingTicks} ticks ({(extractingTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
+          <div class="research-cost">Transit back: {transitBackTicks} ticks ({(transitBackTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
+          <div class="research-cost">Unloading: {unloadTicks} ticks ({(unloadTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
+          <div class="research-cost"><strong>Total: {totalTicks} ticks ({(totalTicks * state.tickDurationSeconds).toFixed(1)}s)</strong></div>
+        {/if}
+
+        <div class="modal-row">
+          <button class="dev-btn" on:click={closeMissionPopup}>Cancel</button>
+          {#if selectedCaptain !== null}
+            <button class="dev-btn" on:click={doDispatchFromPopup}>Dispatch</button>
+          {/if}
+        </div>
+      </Panel>
+    </div>
+  {/if}
 
   {#if deleteModalOpen}
     <div class="modal-backdrop">
@@ -1163,7 +1355,44 @@
   .captain-list-item.locked:hover {
     border-color: rgba(var(--color-accent-rgb), 0.3);
   }
+  /* Battlespace's 4 locked placeholders (mid-plan extra task, 2026-07-07)
+     reuse .captain-list-item.locked verbatim but sit inside a Panel, not
+     .captain-list -- this reproduces just that parent's flex/gap pairing so
+     the reused items stack with the same thin 2px seam they'd get under
+     .captain-list, without giving them .captain-list's fixed 96px width. */
+  .battlespace-locked-list { display: flex; flex-direction: column; gap: 2px; }
   .fleet-captains-content { flex: 1; min-width: 0; }
+  /* Fleet Operations tab layout (2026-07-07 Fleet Operations Mission UI,
+     Task 6) -- mirrors .fleet-captains-layout/.captain-list/
+     .captain-list-item directly above verbatim in spirit: flat,
+     square-cornered panel look with a thin 2px gap between stacked items
+     (2026-07-07 button-style pass), not a new visual language. Left-hand
+     .mission-category-list is a bit wider (140px vs .captain-list's 96px)
+     since "Long-Term Exploration" is a longer label than any captain name. */
+  .fleet-ops-layout { display: flex; gap: 12px; align-items: flex-start; }
+  .mission-category-list { display: flex; flex-direction: column; gap: 2px; flex: 0 0 140px; }
+  .mission-category-item {
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    padding: 10px 8px;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .mission-category-item.active {
+    background: rgba(var(--color-accent-rgb), 0.15);
+    color: var(--color-accent-bright);
+    border-color: var(--color-accent);
+  }
+  .mission-category-item.locked {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .mission-category-item.locked:hover {
+    border-color: rgba(var(--color-accent-rgb), 0.3);
+  }
+  .mission-category-content { flex: 1; min-width: 0; }
   .panel-title {
     font-size: 11px;
     letter-spacing: 1.5px;
@@ -1262,6 +1491,49 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.12);
   }
   .mission-recalled-text { margin-top: 10px; margin-bottom: 0; }
+  /* Selectable mission card (2026-07-07 Fleet Operations Mission UI, Task 6)
+     -- an actual <button>, unlike the plain .mission-card div above (that one
+     is a static in-progress readout, this one opens the captain-selection
+     popup on click), so it resets button-default text-align/font/color via
+     `text-align:left; color:inherit; font:inherit;` before laying out its own
+     flat/thin-border look. Theme-aware via --color-accent-rgb/--color-accent
+     only (no hardcoded hex) -- confirmed against app.css's 6
+     [data-theme="..."] blocks, which all redefine these same custom
+     properties, so this card (and its portrait-frame placeholder below)
+     repaint correctly on every theme switch, same as every other themed
+     element in this file. */
+  .mission-card-selectable {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    text-align: left;
+    width: 100%;
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    padding: 12px;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+  }
+  .mission-card-selectable:hover {
+    border-color: var(--color-accent);
+  }
+  /* Portrait-frame placeholder -- no ship/captain art asset exists yet (see
+     the 🖼️ emoji placeholder in the template), so this is a dashed
+     theme-tinted box rather than an <img>, sized to read clearly as "art
+     goes here" without implying a real image failed to load. */
+  .mission-portrait-frame {
+    flex: 0 0 64px;
+    height: 64px;
+    border: 1px dashed rgba(var(--color-accent-rgb), 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: var(--color-text-secondary);
+    background: rgba(var(--color-accent-rgb), 0.03);
+  }
+  .mission-card-body { flex: 1; min-width: 0; }
   /* No existing non-dev-panel "danger" button style to reuse -- .dev-btn.danger
      is scoped to the amber dev-panel look, and .prestige-btn's warning color
      is for a different semantic (fleet prestige), not "cancel an in-progress
@@ -1411,4 +1683,11 @@
     font-size: 13px;
   }
   .modal-row { display: flex; justify-content: flex-end; gap: 2px; }
+  /* Popup captain-picker list (2026-07-07 Fleet Operations Mission UI, Task 6)
+     -- stacks the idle-captain buttons inside the captain-selection popup
+     (Task 5) with the same thin 2px gap as .captain-list/.mission-category-list
+     above. Reuses .dev-btn as-is for each individual captain button (already
+     flat-cornered from the 2026-07-07 button-style pass) -- this class only
+     supplies the container's flex/gap, no new button style needed. */
+  .modal-captain-list { display: flex; flex-direction: column; gap: 2px; margin: 10px 0; }
 </style>

@@ -22,6 +22,7 @@ import {
   type CaptainState,
   type CaptainMissionState,
   type LootMaterialKey,
+  type LootTableEntry,
   type MissionPhase,
   type MissionKey,
   type RecipeKey,
@@ -100,6 +101,21 @@ const MISSION_TICK_EPSILON = 1e-9;
 // several cycles in one call -- see the while loop below), never once per call.
 const XP_PER_MISSION_CYCLE = 50;
 
+// Extracted so both the real roll (tickCaptainMission, below) and the UI
+// preview of the SAME math (Fleet Operations' mission cards/captain-selection
+// popup, App.svelte) share one implementation -- a hand-copied second version
+// of this reweighting logic in App.svelte could silently drift from the real
+// one if either copy were edited later without the other. Boosts every
+// NON-common tier's weight rather than hardcoding "rareMaterial"
+// specifically, so this generalizes to any future lootTable shape without
+// changes here.
+export function applyRareLootChanceMult(lootTable: LootTableEntry[], rareLootChanceMult: number): LootTableEntry[] {
+  if (rareLootChanceMult <= 0) return lootTable;
+  return lootTable.map((entry) =>
+    entry.material === "commonOre" ? entry : { ...entry, weight: entry.weight * (1 + rareLootChanceMult) }
+  );
+}
+
 // MUST be closed-form: calling this once with a large ticksElapsed must
 // produce the same result as calling it many times with a small ticksElapsed
 // summing to the same total. Generalized from "one continuous quantity
@@ -144,15 +160,8 @@ export function tickCaptainMission(
   // Computed ONCE per call, not per roll -- bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
   // small ticks" test doesn't care how many rolls happen, only that each
-  // roll uses the same effective table either way). Boosts every NON-common
-  // tier's weight rather than hardcoding "rareMaterial" specifically, so
-  // this generalizes to any future lootTable shape without changes here.
-  const effectiveLootTable =
-    rareLootChanceMult > 0
-      ? missionDef.lootTable.map((entry) =>
-          entry.material === "commonOre" ? entry : { ...entry, weight: entry.weight * (1 + rareLootChanceMult) }
-        )
-      : missionDef.lootTable;
+  // roll uses the same effective table either way).
+  const effectiveLootTable = applyRareLootChanceMult(missionDef.lootTable, rareLootChanceMult);
 
   while (remaining > 0 && mission !== null) {
     const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
