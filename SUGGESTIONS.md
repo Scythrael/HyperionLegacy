@@ -69,3 +69,11 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   instead of a single summary sentence. Not built yet — today's list is a single-sentence-per-version
   flat list, fine while there are only 4 entries, but the user explicitly flagged it "will fill up
   pretty quickly."
+
+- **Selectable background styles.** User request, 2026-07-07: an Options setting to switch the
+  ambient `Starfield` background between multiple looks -- the current gentle twinkle/drift, a
+  "moving at sub-light speed" starfield (stars streaking past as if the fleet is underway), and a
+  Star Trek-style warp effect (streaking light-speed jump). More styles (wormhole, etc.) are expected
+  to be added later, so whatever implements this should make adding a new background style easy
+  (e.g. a small registry/union type rather than hardcoded branching), not a one-off special case per
+  style. Not scoped yet -- purely a future idea, no design decisions made.
