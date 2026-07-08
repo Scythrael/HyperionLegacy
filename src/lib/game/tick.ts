@@ -30,6 +30,7 @@ import {
   type HomePlanetMaterialKey,
   type CaptainTalentKey,
   type HomeworldTalentKey,
+  type CaptainTalentBranch,
 } from "./model";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -209,6 +210,8 @@ const XP_PER_MISSION_CYCLE = 50;
 // level-up loop inside tickCaptainMission too, now that captain xp is
 // Decimal-typed -- both loops share this one cap.
 const MAX_LEVEL_UPS_PER_TICK = 10_000;
+
+const RESPEC_COST_CREDITS = 50; // launch placeholder, not balance-tested, same spirit as MISSIONS/talent costs
 
 // Sequential, mutually-exclusive per-tier roll for ONE whole tick of
 // extraction (2026-07-08 Extraction Rework -- see the design doc). Replaces
@@ -828,4 +831,72 @@ export function buyHomeworldTalent(
   }
 
   return { next: { ...state, adminPoints, unlockedHomeworldTalents }, success: true };
+}
+
+// Full-reset only (no per-node refunds) -- refunds every statPoints this
+// captain spent across their ENTIRE unlockedCaptainTalents list, then clears
+// it. Costs RESPEC_COST_CREDITS credits, fleet-wide (credits aren't
+// per-captain). Fails with the SAME state reference if the captain doesn't
+// exist or credits are insufficient -- same convention as every other
+// buy/action function in this file.
+//
+// The optional `newSpec` argument bundles a spec change into this SAME
+// reset+cost (per the design doc's Captain Specialization section) --
+// omitting it (or passing `undefined`) leaves the captain's CURRENT spec
+// untouched, so a plain "reset my talents" click doesn't force a spec
+// change. Passing an explicit spec (including `null`, to clear it) sets
+// `captain.spec` atomically with the talent wipe, same cost either way.
+// Does NOT validate that `newSpec` is a real, unlocked-for-selection branch
+// (i.e. one with a CAPTAIN_SPEC_BONUS entry) -- that's a UI-layer concern
+// (App.svelte only offers selectable specs as options in the first place),
+// same "trust the caller" boundary this codebase already draws elsewhere.
+export function respecCaptainTalents(
+  state: GameState,
+  captainId: number,
+  newSpec?: CaptainTalentBranch | null
+): { next: GameState; success: boolean } {
+  const idx = state.captains.findIndex((c) => c.id === captainId);
+  if (idx === -1) return { next: state, success: false };
+  if (state.credits.lt(RESPEC_COST_CREDITS)) return { next: state, success: false };
+
+  const captain = state.captains[idx];
+  const refund = captain.unlockedCaptainTalents.reduce((sum, key) => sum + CAPTAIN_TALENTS[key].cost, 0);
+
+  const captains = [...state.captains];
+  captains[idx] = {
+    ...captain,
+    statPoints: captain.statPoints + refund,
+    unlockedCaptainTalents: [],
+    spec: newSpec === undefined ? captain.spec : newSpec,
+  };
+  return { next: { ...state, captains, credits: state.credits.minus(RESPEC_COST_CREDITS) }, success: true };
+}
+
+// Full-reset only, same as respecCaptainTalents, but EXCLUDES unlockCaptainSlot
+// nodes entirely -- those stay permanently unlocked (no refund, not removed
+// from unlockedHomeworldTalents) since undoing one would mean deleting an
+// existing captain and everything on it (their own Captain Talents, any
+// in-progress mission, cargo). Confirmed with the user rather than silently
+// making resets destructive. Fails with the SAME state reference if credits
+// are insufficient.
+export function respecHomeworldTalents(state: GameState): { next: GameState; success: boolean } {
+  if (state.credits.lt(RESPEC_COST_CREDITS)) return { next: state, success: false };
+
+  const refundableKeys = state.unlockedHomeworldTalents.filter(
+    (key) => HOMEWORLD_TALENTS[key].effect.type !== "unlockCaptainSlot"
+  );
+  const refund = refundableKeys.reduce((sum, key) => sum + HOMEWORLD_TALENTS[key].cost, 0);
+  const survivingKeys = state.unlockedHomeworldTalents.filter(
+    (key) => HOMEWORLD_TALENTS[key].effect.type === "unlockCaptainSlot"
+  );
+
+  return {
+    next: {
+      ...state,
+      adminPoints: state.adminPoints + refund,
+      unlockedHomeworldTalents: survivingKeys,
+      credits: state.credits.minus(RESPEC_COST_CREDITS),
+    },
+    success: true,
+  };
 }
