@@ -81,3 +81,16 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   to be added later, so whatever implements this should make adding a new background style easy
   (e.g. a small registry/union type rather than hardcoded branching), not a one-off special case per
   style. Not scoped yet -- purely a future idea, no design decisions made.
+
+- **Talent trees as an actual visual tree, with tooltips.** User request, 2026-07-07: both talent
+  trees (Captain Talents and Homeworld Talents) currently render as a flat list of nodes per branch
+  (`.skill-node` rows, no visual connections between prerequisite/dependent nodes) with only a
+  label and a cost/status line -- there's no visual tree/link structure showing which node unlocks
+  which, and no tooltip explaining what a node's effect actually does in plain language (the
+  `CaptainTalentEffect`/`HomeworldTalentEffect` types and their numbers are visible only in code,
+  not in the UI). The user's own words: "right now, it's hard to tell what the talents actually
+  do." Future polish pass, not scoped yet -- would need: (1) an actual tree/link rendering (lines or
+  connectors between a node and its `requires` prerequisite, not just an unlabeled flat list), and
+  (2) a human-readable description per effect type/value shown on hover, likely requiring a new
+  "flavor text" field per talent entry in `CAPTAIN_TALENTS`/`HOMEWORLD_TALENTS` (model.ts) rather
+  than deriving text from the raw effect union at render time.
