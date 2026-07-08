@@ -54,6 +54,19 @@ export interface MissionDef {
   // in the Fleet Operations tab (a follow-up UI feature). Has NO effect on
   // tick math whatsoever; purely a presentational label read by the UI layer.
   tier: MissionTier;
+  // Flat Fleet Admiral XP awarded once per completed mission CYCLE (not per
+  // tick, unlike extractionRatePerTick above) -- mirrors how captain XP is
+  // awarded (see tick.ts's XP_PER_MISSION_CYCLE), but each mission has its
+  // OWN value rather than one shared constant, so a longer/harder mission
+  // can be worth more. This is only the FIRST of several planned Fleet
+  // Admiral XP sources (2026-07-08 user note: crafting, talent purchases,
+  // and a future talent-tree effect boosting this value are all planned
+  // later) -- the values here and xpForNextFleetAdminLevel's curve below are
+  // deliberately NOT calibrated as if missions alone must carry the full
+  // weight of Fleet Admiral progression. Don't "fix" this later assuming
+  // it's undertuned for mission-only play -- it's intentionally left room
+  // for other income streams to stack on top.
+  fleetAdminXpPerCycle: number;
 }
 
 // 2 missions at launch: a fast, safe ore run and a slower one with better
@@ -73,6 +86,7 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     uncommonChance: 0.019, // was lootTable weight 19/1000 (1.9%)
     rareChance: 0.001, // was lootTable weight 1/1000 (0.1%)
     tier: "I",
+    fleetAdminXpPerCycle: 1,
   },
   longOreRun: {
     label: "Long Ore Run",
@@ -84,6 +98,7 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     uncommonChance: 0.08, // was lootTable weight 80/1000 (8%)
     rareChance: 0.02, // was lootTable weight 20/1000 (2%)
     tier: "I",
+    fleetAdminXpPerCycle: 2,
   },
 };
 
@@ -172,23 +187,22 @@ export function xpForNextLevel(level: number): number {
 }
 
 // Deliberately much steeper than a captain's own xpForNextLevel -- the
-// intent (per design doc) is "level-50 captains might only mean a level 3-4
-// Fleet Admiral." A simple quadratic-ish curve achieves that without needing
-// per-level hand-tuning (unlike a Fleet-Logistics-style finite talent table).
+// intent (per design doc) is that Fleet Admiral levels lag well behind
+// individual captain levels. A simple quadratic-ish curve achieves that
+// without needing per-level hand-tuning (unlike a Fleet-Logistics-style
+// finite talent table).
 //
-// CAUTION (found during Task 3 hand-tracing, not corrected here without
-// approval -- see this task's session report): with today's fleet cap of 4
-// captains (1 starting + 3 Fleet Logistics slot-unlock tiers), the
-// design doc's own worked example doesn't actually hold under this formula.
-// xpForNextFleetAdminLevel(1) = 500, but 4 captains all at level 50 only sum
-// to 200 -- short of even the FIRST Fleet Admiral level-up. Reaching Admiral
-// level 3-4 (cumulative sum 2500-7000) is not reachable by any realistic
-// captain-level sum under the current 4-captain cap. The formula is
-// implemented here exactly as the plan specifies; the mismatch against the
-// design doc's own framing is a balance question for a follow-up task, not
-// something silently patched here.
+// 2026-07-08 (docs/plans/2026-07-08-fleet-admiral-xp-rework-plan.md):
+// multiplier bumped from 500 to 2500 as part of switching Fleet Admiral XP
+// from "recomputed as the sum of captain levels" (effectively frozen under
+// realistic play -- confirmed live, see this plan's design doc) to
+// "earned per completed mission cycle," mirroring captain XP. This value is
+// a launch placeholder, same convention as MISSIONS/RECIPES/talent costs
+// elsewhere in this codebase -- and per the user's own explicit note,
+// deliberately NOT calibrated assuming mission XP is the only income source
+// Fleet Admiral leveling will ever have (more sources are planned later).
 export function xpForNextFleetAdminLevel(level: number): number {
-  return 500 * level * level;
+  return 2500 * level * level;
 }
 
 // --- Captain & Homeworld Talent Trees (docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) ---

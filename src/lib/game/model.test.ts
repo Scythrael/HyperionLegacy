@@ -107,6 +107,9 @@ describe("MISSIONS — launch set", () => {
     expect(MISSIONS.longOreRun.transitOutTicks).toBe(8);
     expect(MISSIONS.longOreRun.transitBackTicks).toBe(8);
     expect(MISSIONS.longOreRun.cargoCapacity).toBe(100);
+
+    expect(MISSIONS.shortOreRun.fleetAdminXpPerCycle).toBe(1);
+    expect(MISSIONS.longOreRun.fleetAdminXpPerCycle).toBe(2);
   });
 
   it("both missions' occurrence chances are valid probabilities (0-1)", () => {
