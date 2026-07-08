@@ -466,3 +466,55 @@ with multiple captains on missions simultaneously, click through both new
 tabs' sub-tab switching, and confirm an existing pre-v10 save migrates
 cleanly through both the talent-tree (v9->v10) and tick-duration (v10->v11)
 backfills in sequence.
+
+**Session 14** — Added Scroll Containment & Locked Placeholders
+(docs/plans/2026-07-07-scroll-containment-locked-placeholders-plan.md),
+following the user's own hand-drawn mockup. Converted the app shell from
+whole-page scroll to a fixed-height flex column: `.root`/`.frame` no longer
+scroll at all (with a `100vh`-then-`100dvh` fallback pair, since a bare
+`height: 100dvh` would leave `.root` with NO height on a `dvh`-unsupported
+browser — a code-quality review caught this before merge). `.top-bar` and
+`.nav-tabs` dropped `position: fixed` entirely, becoming normal flex
+children; each tab now wraps its actual content in one `.tab-scroll-area`
+(`flex:1; min-height:0; overflow-y:auto`) — the ONLY scrollable region, for
+every tab. Added a reusable "🔒 Coming Soon!" locked-placeholder pattern:
+`SubTabs.svelte` gained a `locked?: boolean` field (native `disabled`
+button, grayed, hover tooltip, no click), 2 locked entries appended to every
+sub-tab row (Homeworld/Fleet Captain's/System), captain-list slots shown up
+to a roadmap cap of 10 (grayed beyond the current real cap of 4, per the
+user's own confirmed future-roadmap intent), and Sector Space/Battlespace
+restyled to match. Logged in KNOWN_ISSUES.md: captain slots 5-10 have no
+real unlock mechanism yet, locked sub-tabs are removed from keyboard tab
+order (native `disabled`, mouse-hover-only tooltip discovery), and the
+now-stale UI-Redesign-era `.top-bar`/`.nav-tabs` fixed-position collision
+entry was corrected to reflect that neither element is `position: fixed`
+anymore. Next: get eyes on this in an actual browser to confirm the scroll
+genuinely stays contained per tab.
+
+**Session 15** — User reported (with a mockup + a live screenshot
+side-by-side) that the shipped UI didn't match expectations: the app was
+confined to a narrow ~720px centered column even on a wide desktop monitor,
+and Scroll Containment's own Task 1 had made this WORSE by removing the one
+thing that used to span the full browser width (`.top-bar`/`.nav-tabs`'s old
+`position: fixed` behavior) without flagging how much that would matter.
+Root-caused and fixed directly (small, well-understood, no game logic) rather
+than via the full brainstorm/plan cycle: `.frame`'s `max-width` raised from
+720px to 1400px (wide but capped for readability; mobile unaffected, since
+`.frame` has no explicit `width`). `Panel.svelte`'s chamfered clip-path
+corner-accent style was retired entirely (swapped `filter: drop-shadow` for
+a plain `box-shadow`) in favor of the flat, clean rectangular look the
+header/tick-bar and bottom nav already used — this flows to every panel in
+the app automatically, since they all share one component. Per further user
+request, the standalone "FLEET ADMIRAL" title header panel was retired
+outright: the level/XP/tick bar (top) and bottom nav now ARE the header/
+footer, and the branding text moved into a new About sub-tab under System,
+which also gained a manually-bumped `APP_VERSION` constant and a short
+`PATCH_NOTES` list (distinct from `save.ts`'s `SAVE_VERSION`, which tracks
+the save schema, not user-visible changes). One real process gap surfaced
+while writing this entry: Session 14's own Task 6 never actually wrote its
+promised session-log entry (only the KNOWN_ISSUES.md notes landed) and the
+review pass for that task didn't catch the omission either — backfilled
+above as Session 14, and worth remembering to explicitly verify a docs task
+touched EVERY file its own step list named, not just the ones a report
+happens to describe. Next: user to confirm the widened layout, flat panel
+style, and About tab all look right live; no further code changes pending.
