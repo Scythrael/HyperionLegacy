@@ -69,6 +69,11 @@ export interface MissionDef {
   // it's undertuned for mission-only play -- it's intentionally left room
   // for other income streams to stack on top.
   fleetAdminXpPerCycle: number;
+  // Flat credits awarded once per completed mission CYCLE (not per tick),
+  // same convention as fleetAdminXpPerCycle above -- each mission has its OWN
+  // value rather than one shared constant. This is a launch placeholder,
+  // not balance-tested, same spirit as this file's other tunable constants.
+  creditsPerCycle: number;
 }
 
 // 2 missions at launch: a fast, safe ore run and a slower one with better
@@ -89,6 +94,7 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     rareChance: 0.001, // was lootTable weight 1/1000 (0.1%)
     tier: "I",
     fleetAdminXpPerCycle: 1,
+    creditsPerCycle: 10,
   },
   longOreRun: {
     label: "Long Ore Run",
@@ -101,6 +107,7 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     rareChance: 0.02, // was lootTable weight 20/1000 (2%)
     tier: "I",
     fleetAdminXpPerCycle: 2,
+    creditsPerCycle: 20,
   },
 };
 
@@ -145,6 +152,7 @@ export interface CaptainState {
   level: number; // starts at 1
   statPoints: number; // unspent, earned on level-up -- spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
   unlockedCaptainTalents: CaptainTalentKey[]; // this captain's own purchased Captain Talent keys -- see buyCaptainTalent (tick.ts)
+  spec: CaptainTalentBranch | null; // this captain's chosen Captain Specialization, if any -- null means no CAPTAIN_SPEC_BONUS entry applies yet (see that table below)
 }
 
 export interface GameState {
@@ -156,6 +164,7 @@ export interface GameState {
   fleetAdminXp: Decimal; // Fleet Admiral leveling -- see applyFleetAdminXp (tick.ts)
   fleetAdminLevel: number; // starts at 1
   adminPoints: number; // unspent, spent via buyHomeworldTalent (tick.ts)
+  credits: Decimal;
 }
 
 export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
@@ -245,6 +254,7 @@ export interface CaptainTalentDef {
   label: string;
   cost: number; // statPoints
   requires: CaptainTalentKey | null; // same-branch prerequisite, same convention as the old Skill Tree
+  flavor: string; // short narrative blurb -- surfaced in the Talent Tree Visual Redesign's tooltips (see that plan's design doc)
 }
 
 export interface HomeworldTalentDef {
@@ -252,6 +262,7 @@ export interface HomeworldTalentDef {
   label: string;
   cost: number; // adminPoints
   requires: HomeworldTalentKey | null;
+  flavor: string; // short narrative blurb -- surfaced in the Talent Tree Visual Redesign's tooltips (see that plan's design doc)
 }
 
 // NOTE: effect lives on the *Def directly below via a second field, not nested
@@ -284,6 +295,8 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
     cost: 2,
     requires: null,
     effect: { type: "commonYieldMult", mult: 0.1 }, // was extractionYieldMult
+    flavor:
+      "Standard doctrine trades finesse for throughput -- pull more common ore per cycle, no questions asked.",
   },
   commandExtractionII: {
     branch: "command",
@@ -291,6 +304,8 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
     cost: 4,
     requires: "commandExtractionI",
     effect: { type: "uncommonYieldMult", mult: 0.15 }, // was extractionYieldMult
+    flavor:
+      "Field engineers recalibrate the intake manifolds to favor uncommon deposits over raw volume.",
   },
   resourcefulnessRareChanceI: {
     branch: "resourcefulness",
@@ -298,6 +313,8 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
     cost: 2,
     requires: null,
     effect: { type: "uncommonChanceMult", mult: 0.25 }, // was rareLootChanceMult
+    flavor:
+      "A trained eye catches what the sensors miss -- subtle mineral banding invisible to standard scans.",
   },
   resourcefulnessRareChanceII: {
     branch: "resourcefulness",
@@ -305,6 +322,7 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
     cost: 4,
     requires: "resourcefulnessRareChanceI",
     effect: { type: "rareChanceMult", mult: 0.5 }, // was rareLootChanceMult
+    flavor: "Years of fieldwork sharpen instinct into something the manuals can't teach.",
   },
   resourcefulnessBonusRollI: {
     branch: "resourcefulness",
@@ -312,6 +330,8 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
     cost: 6,
     requires: "resourcefulnessRareChanceII",
     effect: { type: "bonusRollChance", chance: 0.02 },
+    flavor:
+      "Some captains just have a feel for where the good ore sits. Call it luck; call it experience.",
   },
   resourcefulnessBonusRollII: {
     branch: "resourcefulness",
@@ -319,7 +339,23 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
     cost: 8,
     requires: "resourcefulnessBonusRollI",
     effect: { type: "bonusRollChanceMult", mult: 1.0 },
+    flavor: "When the feeling's right twice in a row, it stops being coincidence.",
   },
+};
+
+// Innate bonus granted once a captain has this branch chosen as their spec
+// (CaptainState.spec) -- separate from, and additive with, whatever they've
+// bought in the talent tree itself. Deliberately Partial<...>: a branch with
+// NO entry here is not yet selectable as a spec at all (tactical/science/
+// diplomacy today -- their underlying systems, Combat/a redefined Science
+// mechanic, don't exist yet, so there's nothing meaningful to grant a bonus
+// FOR). Revives the Phase 1 "Captain Prestige panel + specialization picker"
+// mechanic (retired during the Phase 4 Navigation/Progression Overhaul along
+// with the old Generator Stack economy it was built on), now expressed
+// against this newer Captain Talent tree instead.
+export const CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTalentEffect>> = {
+  resourcefulness: { type: "bonusRollChance", chance: 0.01 },
+  command: { type: "commonYieldMult", mult: 0.05 }, // placeholder -- refine once Command's role is better defined
 };
 
 // Fleet Logistics' 3 slot-unlock tiers below fully replace the old
@@ -343,6 +379,7 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     cost: 3,
     requires: null,
     effect: { type: "unlockCaptainSlot" },
+    flavor: "Fleet Command approves a second commission -- the roster grows.",
   },
   fleetLogisticsSlot2: {
     branch: "fleetLogistics",
@@ -350,6 +387,7 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     cost: 5,
     requires: "fleetLogisticsSlot1",
     effect: { type: "unlockCaptainSlot" },
+    flavor: "A third captain's chair, funded and ready. The fleet expands.",
   },
   fleetLogisticsSlot3: {
     branch: "fleetLogistics",
@@ -357,6 +395,7 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     cost: 8,
     requires: "fleetLogisticsSlot2",
     effect: { type: "unlockCaptainSlot" },
+    flavor: "Four commands under one banner -- logistics finally caught up with ambition.",
   },
   fleetLogisticsYield: {
     branch: "fleetLogistics",
@@ -364,6 +403,8 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     cost: 4,
     requires: null,
     effect: { type: "rareYieldMult", mult: 0.05 }, // was fleetExtractionYieldMult
+    flavor:
+      "Standing orders redirect a share of every rare find straight back to the fleet's reserves.",
   },
   industryBonusOutput: {
     branch: "industry",
@@ -371,6 +412,7 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     cost: 4,
     requires: null,
     effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
+    flavor: "New jigs and fixtures on the fabrication line mean every batch stretches a little further.",
   },
   economyTrickle: {
     branch: "economy",
@@ -378,6 +420,8 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     cost: 3,
     requires: null,
     effect: { type: "passiveTrickle", material: "commonOre", perTick: 1 },
+    flavor:
+      "A quiet arrangement with independent traders keeps a slow, steady trickle of ore flowing home.",
   },
 };
 
@@ -386,7 +430,7 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
 // a slot that has never been played.
 export function freshCaptainStack(): Pick<
   CaptainState,
-  "mission" | "xp" | "level" | "statPoints" | "unlockedCaptainTalents"
+  "mission" | "xp" | "level" | "statPoints" | "unlockedCaptainTalents" | "spec"
 > {
   return {
     mission: null,
@@ -394,6 +438,7 @@ export function freshCaptainStack(): Pick<
     level: 1,
     statPoints: 0,
     unlockedCaptainTalents: [],
+    spec: null,
   };
 }
 
@@ -434,5 +479,6 @@ export function freshState(): GameState {
     fleetAdminXp: new Decimal(0),
     fleetAdminLevel: 1,
     adminPoints: 0,
+    credits: new Decimal(0),
   };
 }
