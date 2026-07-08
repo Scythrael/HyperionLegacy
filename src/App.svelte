@@ -40,7 +40,7 @@
     LOOT_MATERIAL_KEYS,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
-  import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave } from "./lib/game/save";
+  import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave, importRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
 
   // DEV_MODE — Vercel §9.5.3: true on Preview, false on Production. Locally,
@@ -79,6 +79,19 @@
   let currentTheme: ThemeName = "cyan";
   let deleteModalOpen = false;
   let deleteConfirmText = "";
+
+  // Import Save modal (Task 7, Loot Tier Rework -- see
+  // docs/plans/2026-07-07-loot-tier-rework-plan.md) -- same
+  // "state near deleteModalOpen, markup near the delete modal" pattern as
+  // that existing flow. pendingImportRaw holds the SELECTED file's raw text
+  // (already read off disk by the time the modal opens) so confirmImport has
+  // no async work left to do -- only the file input's on:change handler
+  // touches the filesystem/File API. importError surfaces a rejected
+  // (corrupt/non-save) file inline in the modal without closing it, so the
+  // user can immediately try a different file.
+  let importModalOpen = false;
+  let pendingImportRaw: string | null = null;
+  let importError: string | null = null;
 
   // Fleet Operations captain-selection popup (2026-07-07 Fleet Operations
   // Mission UI) -- null missionPopupKey means the popup is closed. Selecting a
@@ -504,6 +517,49 @@
   function cancelDelete() {
     deleteModalOpen = false;
     deleteConfirmText = "";
+  }
+
+  // Import Save handlers (Task 7, Loot Tier Rework) -- mirror the
+  // cancelDelete/confirmDelete pair above in shape, but there's no
+  // typed-confirmation-word gate here: picking a file from the OS file
+  // picker is already a deliberate action, so Cancel/Import buttons alone
+  // are enough friction (confirmed against the plan doc -- Import
+  // deliberately does NOT need a "type DELETE"-style gate).
+  function onImportFileSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    // `file` is captured into this local const BEFORE input.value is reset
+    // below, so the reset (which only clears the <input> element's OWN
+    // value) cannot affect the File object or the .text() promise already
+    // in flight against it -- they're independent references.
+    file.text().then((text) => {
+      pendingImportRaw = text;
+      importError = null;
+      importModalOpen = true;
+    });
+    input.value = ""; // allow re-selecting the same file later -- browsers don't fire `change` on an unchanged value otherwise
+  }
+
+  function cancelImport() {
+    importModalOpen = false;
+    pendingImportRaw = null;
+    importError = null;
+  }
+
+  function confirmImport() {
+    if (pendingImportRaw === null) return;
+    const success = importRawSave(pendingImportRaw);
+    if (!success) {
+      importError = "That file isn't a valid Fleet Admiral save.";
+      return; // modal stays open -- importError renders inline, user can pick a different file
+    }
+    // Simplest way to get every derived/init-time value (in-memory state,
+    // createdAt, tick-loop timers) to reset cleanly from the just-imported
+    // save -- matches the existing "load happens once, at mount" pattern
+    // (see onMount above) rather than adding a second "hot-swap state
+    // mid-session" code path.
+    window.location.reload();
   }
 
   function setTheme(name: ThemeName) {
@@ -969,6 +1025,16 @@
         </div>
         <div class="dev-row">
           <button class="dev-btn" on:click={doExportSave}>Export Save</button>
+          <!-- Label-wrapping-hidden-input is the standard way to skin a file
+               input as a regular button (native file inputs can't be styled
+               directly) -- clicking the visible "Import Save" text triggers
+               the hidden input beneath it. Reuses .dev-btn as-is (no new CSS
+               needed -- a <label> displays/cursors sensibly here the same as
+               the <button> siblings either side of it). -->
+          <label class="dev-btn">
+            Import Save
+            <input type="file" accept="application/json,.json" style="display:none" on:change={onImportFileSelected} />
+          </label>
           <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
         </div>
       </Panel>
@@ -1147,6 +1213,34 @@
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelDelete}>Cancel</button>
           <button class="dev-btn danger" disabled={deleteConfirmText !== "DELETE"} on:click={confirmDelete}>Delete</button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
+  {#if importModalOpen}
+    <!-- Import Save confirmation modal (Task 7, Loot Tier Rework) -- reuses
+         the SAME .modal-backdrop/Panel.modal-dialog/.modal-warning/.modal-row
+         structure as the DELETE SAVE modal directly above (and the
+         mission-selection popup further up this file), so all 3 of this
+         app's modals share one visual language. Deliberately has NO typed-
+         confirmation-word input like Delete Save's .modal-input above --
+         confirmed against the plan doc: selecting a file via the OS picker is
+         already a deliberate action, so a plain Cancel/Import button pair is
+         enough friction here. importError (set by confirmImport on a
+         rejected file) renders as a second .modal-warning line WITHOUT
+         closing the modal, so the user can immediately pick a different
+         file from the same still-open dialog. -->
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">IMPORT SAVE</div>
+        <p class="modal-warning">This will REPLACE your current save. This can't be undone.</p>
+        {#if importError}
+          <p class="modal-warning">{importError}</p>
+        {/if}
+        <div class="modal-row">
+          <button class="dev-btn" on:click={cancelImport}>Cancel</button>
+          <button class="dev-btn danger" on:click={confirmImport}>Import</button>
         </div>
       </Panel>
     </div>
