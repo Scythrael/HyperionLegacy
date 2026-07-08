@@ -158,3 +158,19 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   No design work started -- purely a future onboarding-polish idea, would need its own brainstorm
   once the systems it's meant to introduce (Homeworld, missions, Battlespace/Campaign) are far
   enough along to actually tutorialize.
+
+- **Redemption codes.** User idea, 2026-07-07: an admin-entered code system for giveaways --
+  anniversary events, promo goodies, etc. The player enters a code in-game and receives whatever
+  reward that code grants. Not scoped yet -- would need at minimum: a code -> reward-grant mapping
+  (probably a small data table, similar in spirit to `RECIPES`/`MISSIONS`), a way to prevent the SAME
+  code being redeemed twice by the same save (a `redeemedCodes: string[]` on `GameState`, most
+  likely, needing its own save migration), and a decision on whether codes expire/are single-use
+  globally (impossible to enforce client-side-only without a backend) or are just per-save
+  single-use (achievable with the current no-backend architecture).
+
+- **In-game dev/admin panel tied to a user account (multiplayer-era).** User idea, 2026-07-07: once
+  real user accounts and multiplayer exist, there should be an in-game admin panel (gated to the
+  developer's own account) for handling things live -- moderation, granting the redemption-code
+  rewards above, etc. Explicitly "an idea for far later" -- depends entirely on the multiplayer/
+  backend/account-system work landing first (none of which exists yet; see the master design doc's
+  section 7.2, real-time multiplayer explicitly rejected for v1).
