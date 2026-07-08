@@ -849,3 +849,58 @@ corrected, not just the MISSIONS-dependent assertions. Next: final holistic
 review of this branch, then merge — push to `main` still needs separate,
 explicit confirmation from the user, since it triggers a live Vercel
 production redeploy.
+
+**Session 22** — Extraction Rework (branch feat/extraction-rework,
+docs/plans/2026-07-08-extraction-rework-plan.md), built via
+subagent-driven-development. Root motivation: the just-shipped Tick
+Granularity Rebalance changed `tickDurationSeconds` 10→1 but left
+`extractionRatePerTick` unchanged at 10, silently ~10x-ing real-time
+common-ore income (ticks now fire 10x more often per second than before) —
+the user caught this live and asked for it fixed, then separately proposed
+redesigning the loot-tier mechanic itself while the fix was in flight.
+`extractionRatePerTick`/`cargoCapacity` were rescaled 10x down together
+(10→1, 900→90), keeping the 90-tick extraction phase length exactly
+unchanged. `rollExtractionTick` was rewritten from the prior Loot Tier
+Rework's independent-and-subtractive mechanic (uncommon and rare each rolled
+independently, both could occur in the same tick, whatever hit was
+subtracted from a shared pool, common absorbed the leftover; uncommon capped
+at 1-3 units, rare capped at a flat 1 unit) to a sequential, mutually
+exclusive roll: rare is checked first, then uncommon if rare missed, then
+common as a guaranteed fallback if both missed — whichever tier wins now
+receives the FULL `extractionRatePerTick` base amount (scaled by its own
+yieldMult), removing the old per-tier amount caps entirely. A real
+behavior-change worth flagging for future work: under the old mechanic only
+`commonYieldMult` could meaningfully move the deterministic per-tick total
+(uncommon/rare were capped small); under the new mechanic `uncommonYieldMult`
+and `rareYieldMult` now also change the deterministic total whenever that
+tier wins, since the winner gets the full base amount. This broke one
+existing test's whole "total invariant survives unmocked RNG" premise
+(the `fleetLogisticsYield` wiring test) — it was genuinely redesigned, not
+value-patched, to mock `Math.random` low enough to force rare to win
+deterministically and assert the exact resulting amount instead. `tick.test.ts`
+needed a comprehensive rewrite (17 individual tests touched across the whole
+file, not just the "extraction loot rolls" describe block, since
+`ALWAYS_MIN_ROLL` — a constant rng returning 0 — changes meaning completely
+under the new mechanic: it used to mean "uncommon=1 AND rare=1 every roll,"
+now it means "rare wins outright on the very first check, every single
+time," affecting the multi-cycle and multi-captain aggregation tests too).
+Two tests were deleted outright rather than adapted, since their premises no
+longer exist under mutual exclusivity: "both tiers occur in the same tick"
+(replaced with a new test proving `ALWAYS_MIN_ROLL`'s new always-rare
+behavior) and "uncommon amount can land on bucket 2 or 3" (no replacement —
+the amount-bucket concept is gone entirely). Deliberately sequenced out of
+scope per the user's explicit request ("finish drops first, then talents"):
+the Resourcefulness-branch bonus-roll captain talent (a second independent
+roll with the same odds but only a 30% chance of common, so it can whiff
+unlike the guaranteed primary roll) is fully designed but deferred to a
+follow-up branch, not built here; cargo capacity becoming a real per-ship
+stat and a third RNG-dependent "farming efficiency" mission type remain
+logged to SUGGESTIONS.md, unbuilt. No save migration needed — `MISSIONS`'
+config values aren't persisted. Every commit (5 across this branch) was
+independently verified via `git show` and hand-tracing, with the Task 4
+tick.test.ts rewrite specifically re-deriving every changed value against
+the live `model.ts`/`tick.ts` rather than trusting the plan's own
+pre-verified reference numbers, before dispatching two-stage review. Next:
+final holistic review of this branch, then merge — push to `main` still
+needs separate, explicit confirmation from the user, since it triggers a
+live Vercel production redeploy.
