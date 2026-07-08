@@ -50,12 +50,10 @@ describe("formatNumber", () => {
       // in App.svelte historically could pass null/undefined at runtime (JS is
       // not strictly enforced past the type checker) -- pre-migration guard
       // preserved verbatim.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(formatNumber(null as any)).toBe("0");
     });
 
     it("returns \"0\" for undefined", () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(formatNumber(undefined as any)).toBe("0");
     });
 
@@ -124,10 +122,7 @@ describe("formatNumber", () => {
       // would overflow. mantissa 1, exponent 500. exponent < 3 false,
       // exponent >= 30 true -> d.toExponential(2), which operates on the
       // Decimal's own internal representation, not a plain double.
-      // As with the 1e30 case above, the precise toExponential(2) string
-      // format is an assumption (not independently verified against library
-      // source in this environment) -- the not-Infinity/not-throw assertions
-      // are the load-bearing checks this test exists to make.
+      // Same unverified-exact-string caveat as the 1e30 test above.
       const huge = new Decimal("1e500");
       const result = formatNumber(huge);
       expect(result).not.toBe("Infinity");

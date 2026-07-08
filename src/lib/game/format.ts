@@ -5,10 +5,10 @@
 //
 // Accepts EITHER a plain number (time/tick/percentage/cost displays -- these
 // never migrated to Decimal, see docs/plans/2026-07-08-big-number-migration-
-// plan.md's field-split table) OR a Decimal (resource/currency displays).
-// The plain-number branch below is BYTE-IDENTICAL to this function's
-// pre-migration body -- zero behavior change for any caller passing a plain
-// number, only NEW behavior added for the Decimal branch.
+// plan.md's field-split table) OR a Decimal (resource/currency displays),
+// delegating to formatDecimal below for the latter. The plain-number branch
+// is BYTE-IDENTICAL to this function's pre-migration body -- zero behavior
+// change for any existing caller.
 
 import Decimal from "break_infinity.js";
 
@@ -30,15 +30,15 @@ export function formatNumber(n: number | Decimal): string {
   return `${scaled.toFixed(decimals)}${TIERS[tier]}`;
 }
 
-// Decimal-aware branch -- mirrors the plain-number logic above exactly (same
-// tier table, same <1000/<10 thresholds, same decimals-by-magnitude rule),
-// but reads magnitude from the Decimal's OWN mantissa/exponent instead of
-// Math.log10 on a raw number, since a Decimal can hold values far beyond what
-// Math.log10 could even represent as a finite double (that's the entire
-// reason this type exists). break_infinity.js's Decimal has no isNaN()/
-// isFinite() method (verified against the library's own .d.ts at plan-writing
-// time) -- Number.isNaN(d.mantissa) is the equivalent check, since an invalid
-// Decimal would surface as NaN in its own mantissa field.
+// Mirrors formatNumber's plain-number logic exactly (same tier table, same
+// <1000/<10 thresholds, same decimals-by-magnitude rule), but reads magnitude
+// from the Decimal's OWN mantissa/exponent instead of Math.log10 on a raw
+// number, since a Decimal can hold values far beyond what Math.log10 could
+// even represent as a finite double (that's the entire reason this type
+// exists). break_infinity.js's Decimal has no isNaN()/isFinite() method
+// (verified against the library's own .d.ts at plan-writing time) --
+// Number.isNaN(d.mantissa) is the equivalent check, since an invalid Decimal
+// would surface as NaN in its own mantissa field.
 function formatDecimal(d: Decimal): string {
   if (Number.isNaN(d.mantissa)) return "0";
   if (d.exponent < 3) return formatNumber(d.toNumber()); // small enough to safely round-trip through a plain double -- reuse the exact plain-number branch above, not a duplicate implementation
