@@ -647,7 +647,7 @@
   // readout percentage below (unclamped, .toFixed(1)) -- avoids the same
   // division appearing twice and drifting if the formula ever changes,
   // matching the globalTickProgress/globalTickRemaining pattern above.
-  $: fleetAdminXpRatio = state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel);
+  $: fleetAdminXpRatio = state.fleetAdminXp.dividedBy(xpForNextFleetAdminLevel(state.fleetAdminLevel)).toNumber();
 </script>
 
 <div class="root">
@@ -720,7 +720,7 @@
            object's own header comment) picks up a panel automatically. -->
       {#each Object.entries(RECIPES) as [recipeKey, recipe]}
         {@const inputEntries = Object.entries(recipe.inputs) as [HomePlanetMaterialKey, Decimal][]}
-        {@const affordable = inputEntries.every(([key, amount]) => state.homePlanet.storage[key] >= amount)}
+        {@const affordable = inputEntries.every(([key, amount]) => state.homePlanet.storage[key].gte(amount))}
         <Panel>
           <div class="panel-title">{recipeKey === "refineUnobtainium" ? "REFINERY" : "FABRICATION"}</div>
           <div class="research-name">{recipe.label}</div>
@@ -861,8 +861,9 @@
             <Panel>
               <div class="panel-title">CAPTAIN LEVELING</div>
               <div class="research-name">Level {activeCaptain.level}</div>
+              {@const activeCaptainXpRatio = activeCaptain.xp.dividedBy(xpForNextLevel(activeCaptain.level)).toNumber()}
               <div class="research-bar-track">
-                <div class="research-bar-fill" style="width:{Math.min(100, (activeCaptain.xp / xpForNextLevel(activeCaptain.level)) * 100)}%"></div>
+                <div class="research-bar-fill" style="width:{Math.min(100, activeCaptainXpRatio * 100)}%"></div>
               </div>
               <div class="research-readout">{formatNumber(activeCaptain.xp)} / {formatNumber(xpForNextLevel(activeCaptain.level))} XP</div>
               <div class="research-cost">Stat Points: {formatNumber(activeCaptain.statPoints)}</div>
