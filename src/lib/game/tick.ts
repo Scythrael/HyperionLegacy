@@ -351,9 +351,14 @@ export function tickCaptainMission(
     // matters here).
     specBonusRollChance?: number;
   } = {}
-): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, Decimal>; fleetAdminXpDelta: number } {
+): {
+  captain: CaptainState;
+  homePlanetDelta: Record<LootMaterialKey, Decimal>;
+  fleetAdminXpDelta: number;
+  creditsDelta: number;
+} {
   if (!captain.mission || ticksElapsed <= 0) {
-    return { captain, homePlanetDelta: emptyLootTotals(), fleetAdminXpDelta: 0 };
+    return { captain, homePlanetDelta: emptyLootTotals(), fleetAdminXpDelta: 0, creditsDelta: 0 };
   }
 
   const missionDef = MISSIONS[captain.mission.missionKey];
@@ -371,6 +376,12 @@ export function tickCaptainMission(
   // apply once" shape as homePlanetDelta above. tick() sums this across
   // every captain fleet-wide before handing the total to applyFleetAdminXp.
   let fleetAdminXpDelta = 0;
+  // Accumulates this captain's credits contribution across every mission
+  // cycle completed within this call -- same "accumulate locally, apply
+  // once" shape as fleetAdminXpDelta immediately above. tick() sums this
+  // across every captain fleet-wide, then applies it to state.credits with a
+  // flat .plus() (credits has no leveling curve, unlike fleetAdminXpDelta).
+  let creditsDelta = 0;
 
   // Computed ONCE per call, not per roll -- bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
@@ -473,6 +484,7 @@ export function tickCaptainMission(
         // carry-forward behavior applyFleetAdminXp uses below.
         xp = xp.plus(XP_PER_MISSION_CYCLE);
         fleetAdminXpDelta += missionDef.fleetAdminXpPerCycle;
+        creditsDelta += missionDef.creditsPerCycle;
         let levelUpsThisCall = 0;
         while (xp.gte(xpForNextLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
           xp = xp.minus(xpForNextLevel(level));
@@ -498,7 +510,7 @@ export function tickCaptainMission(
     }
   }
 
-  return { captain: { ...captain, mission, xp, level, statPoints }, homePlanetDelta, fleetAdminXpDelta };
+  return { captain: { ...captain, mission, xp, level, statPoints }, homePlanetDelta, fleetAdminXpDelta, creditsDelta };
 }
 
 // Replaces the old recomputeFleetAdmin (which recomputed fleetAdminXp fresh
@@ -567,6 +579,12 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   // homePlanetDelta immediately above. Consumed once, at the end of this
   // function, by applyFleetAdminXp.
   let fleetAdminXpDelta = 0;
+  // Accumulates fleet-wide credits across every captain's completed mission
+  // cycles this call -- same accumulate-locally-apply-once shape as
+  // fleetAdminXpDelta immediately above. Consumed once, at the end of this
+  // function, via a flat state.credits.plus() -- credits has no leveling
+  // curve to resolve, unlike fleetAdminXpDelta's applyFleetAdminXp call.
+  let creditsDelta = 0;
   // Computed ONCE for the whole fleet (same value for every captain), not
   // per captain inside the .map() below -- Homeworld Talents are fleet-wide,
   // not per-captain.
@@ -589,11 +607,13 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       captain: updated,
       homePlanetDelta: delta,
       fleetAdminXpDelta: captainFleetAdminXpDelta,
+      creditsDelta: captainCreditsDelta,
     } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
     (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
       homePlanetDelta[key] = homePlanetDelta[key].plus(delta[key]);
     });
     fleetAdminXpDelta += captainFleetAdminXpDelta;
+    creditsDelta += captainCreditsDelta;
     return updated;
   });
 
@@ -623,6 +643,11 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       ...state,
       captains,
       gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
+      // Flat .plus() -- unlike fleetAdminXpDelta (which resolves through
+      // applyFleetAdminXp's level-up loop below), credits has no leveling
+      // curve to resolve, so the accumulated creditsDelta is applied directly
+      // here rather than passed through a second wrapping function.
+      credits: state.credits.plus(creditsDelta),
       homePlanet: {
         storage: {
           // Spread FIRST, then overwrite only the 3 loot tiers this function
