@@ -22,12 +22,32 @@
 </div>
 
 <style>
-  .sub-tabs { display: flex; gap: 2px; margin-bottom: 14px; flex-wrap: wrap; }
+  /* flex-wrap changed to nowrap + overflow-x: auto (2026-07-07, mobile pass)
+     -- on a narrow screen a row with several tabs plus 2 locked "Coming
+     Soon!" slots no longer wraps to a second line (which fought with
+     .tab-body's fixed-height flex column), it scrolls horizontally instead,
+     like a native mobile segmented-tab strip. Scrollbar hidden across
+     engines (still fully scrollable via touch/wheel/drag, just no visible
+     track) to match the same treatment given to .tab-scroll-area. */
+  .sub-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 14px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* old Edge/IE */
+  }
+  .sub-tabs::-webkit-scrollbar { display: none; } /* Chrome/Safari/most mobile browsers */
   /* Lighter/smaller variant of App.svelte's .captain-list-item -- same flat,
      square-cornered "panel" look (2026-07-07 button-style pass), scaled down
      since this can appear multiple times per screen (unlike the single
      top-level bottom nav). The thin 2px gap above reveals the background
-     behind, reading as a segmented banner rather than one solid strip. */
+     behind, reading as a segmented banner rather than one solid strip.
+     flex-shrink:0 + white-space:nowrap keep every tab at its natural label
+     width in the now-scrollable row above, instead of the row's flex-shrink
+     default squishing labels down to illegibility before it ever scrolls. */
   .sub-tab {
     background: rgba(var(--color-accent-rgb), 0.05);
     border: 1px solid rgba(var(--color-accent-rgb), 0.16);
@@ -35,6 +55,8 @@
     color: var(--color-text-secondary);
     font-size: 11px;
     cursor: pointer;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
   .sub-tab.active {
     background: rgba(var(--color-accent-rgb), 0.14);

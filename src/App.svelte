@@ -943,19 +943,25 @@
     display: flex;
     flex-direction: column;
     overflow: hidden; /* only .tab-scroll-area (nested inside) actually scrolls */
-    /* Horizontal 16px inset unchanged from before. Top padding now the ONLY
-       place safe-area-inset-top is handled -- .top-bar is the very first
-       element inside .frame now (the old standalone "FLEET ADMIRAL" title
-       Panel above it was retired in favor of an About sub-tab under System,
-       per the user's own request -- the level/XP/tick bar and the bottom
-       nav ARE the header/footer now), so .frame's own top edge should sit
-       flush against the real viewport edge on desktop, same as .nav-tabs
-       already does at the bottom (bottom padding is 0 for the same reason).
-       No extra flat px on top of the safe-area inset -- env() alone
-       resolves to 0px on any device without a notch/status-bar, so this is
-       flush on desktop and still clears real notches on devices that have
-       one. */
-    padding: env(safe-area-inset-top, 0px) 16px 0;
+    /* No horizontal padding here anymore (2026-07-07: moved to .tab-body,
+       below) -- .top-bar and .nav-tabs are direct flex children of .frame
+       with no horizontal padding of their own, so with .frame's own
+       horizontal inset removed they now span the full 100% width edge to
+       edge (their OWN internal padding still keeps their text/buttons off
+       the true edge). Only the middle content area (.tab-body, containing
+       the sub-tabs row and every tab's panels) keeps a small inset, so
+       header and footer read as full-bleed while the panels still render
+       fully inset from the edge. Top padding is still the ONLY place
+       safe-area-inset-top is handled -- .top-bar is the very first element
+       inside .frame now (the old standalone "FLEET ADMIRAL" title Panel
+       above it was retired in favor of an About sub-tab under System, per
+       the user's own request), so .frame's own top edge should sit flush
+       against the real viewport edge on desktop, same as .nav-tabs already
+       does at the bottom (bottom padding is 0 for the same reason). No
+       extra flat px on top of the safe-area inset -- env() alone resolves
+       to 0px on any device without a notch/status-bar, so this is flush on
+       desktop and still clears real notches on devices that have one. */
+    padding: env(safe-area-inset-top, 0px) 0 0;
   }
   .header-left { display: flex; flex-direction: column; }
   .title {
@@ -1003,15 +1009,21 @@
     /* THE scrollable region -- every tab wraps its actual panel content in
        exactly one of these. Same flex:1 + min-height:0 idiom as .tab-body
        above, but this time paired with overflow-y:auto so IT (not the page)
-       is what actually scrolls. */
+       is what actually scrolls. Scrollbar hidden across engines (2026-07-07
+       mobile pass) -- still fully scrollable via touch/wheel/drag, just no
+       visible track/thumb cluttering the view, matching the app's general
+       "no chrome you didn't ask for" feel. */
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* old Edge/IE */
     display: flex;
     flex-direction: column;
     gap: 14px; /* preserves the old .main's gap:14px spacing between stacked panels, now scoped to just the scrollable region */
     padding-bottom: 14px; /* breathing room at the very bottom of scrolled content, above .nav-tabs */
   }
+  .tab-scroll-area::-webkit-scrollbar { display: none; } /* Chrome/Safari/most mobile browsers */
   /* The very first element inside .frame now -- the old standalone "FLEET
      ADMIRAL" title Panel that used to sit above it was retired in favor of
      an About sub-tab under System (see the SystemSubTab comment above).
@@ -1120,23 +1132,34 @@
     margin-bottom: 12px;
     font-weight: 600;
   }
-  .resource-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  /* minmax(0, 1fr), not a bare 1fr (2026-07-07 mobile pass): a bare `1fr`
+     track can't shrink below its content's min-content width, so on a
+     narrow screen a long formatted number (e.g. "1.23e15") forces the whole
+     grid wider than .resource-grid's own container -- and since every
+     ancestor up to .root uses overflow:hidden for scroll containment, that
+     overflow doesn't scroll into view, it just gets silently clipped off
+     the right edge. minmax(0, 1fr) lets the track shrink to fit; the
+     overflow-wrap below on .resource-value then wraps the text onto a
+     second line inside its own card if it still doesn't fit on one, instead
+     of the whole grid overflowing the panel. */
+  .resource-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
   /* HOME PLANET has exactly 3 loot materials, not 4 -- reusing .resource-grid
      as-is would use its hardcoded repeat(4, 1fr) and leave an empty 4th
      column (uneven, oddly gapped), since that column count is a literal, not
      auto-fill/auto-fit. This modifier overrides just the column count; every
      other .resource-grid rule (gap) and all of .resource-card/-label/-value
      are reused unchanged. */
-  .resource-grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .resource-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .resource-card {
     padding: 10px 8px;
     border-radius: 10px;
     background: var(--color-panel-bg-strong);
     border: 1px solid rgba(var(--color-accent-rgb), 0.14);
     text-align: center;
+    min-width: 0; /* lets the card itself shrink to its grid track's width, same reason as the grid comment above */
   }
   .resource-label { font-size: 10px; color: var(--color-text-secondary); margin-bottom: 4px; }
-  .resource-value { font-family: var(--font-mono); font-size: 16px; }
+  .resource-value { font-family: var(--font-mono); font-size: 16px; overflow-wrap: break-word; }
   .resource-value.locked { color: var(--color-text-dim); }
   .tick-bar-track {
     height: 10px;
