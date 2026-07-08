@@ -537,6 +537,14 @@
       pendingImportRaw = text;
       importError = null;
       importModalOpen = true;
+    }).catch(() => {
+      // File.text() can reject (e.g. the file was deleted/became unreadable
+      // between selection and read) -- surface this the same way a rejected
+      // save would be, rather than silently doing nothing and leaving the
+      // user with no feedback at all.
+      pendingImportRaw = null;
+      importError = "Couldn't read that file. Please try again.";
+      importModalOpen = true;
     });
     input.value = ""; // allow re-selecting the same file later -- browsers don't fire `change` on an unchanged value otherwise
   }
