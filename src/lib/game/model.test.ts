@@ -9,6 +9,7 @@ import {
   xpForNextLevel,
   CAPTAIN_TALENTS,
   HOMEWORLD_TALENTS,
+  CAPTAIN_SPEC_BONUS,
 } from "./model";
 
 describe("freshState — captain roster shape", () => {
@@ -117,6 +118,9 @@ describe("MISSIONS — launch set", () => {
 
     expect(MISSIONS.shortOreRun.fleetAdminXpPerCycle).toBe(1);
     expect(MISSIONS.longOreRun.fleetAdminXpPerCycle).toBe(2);
+
+    expect(MISSIONS.shortOreRun.creditsPerCycle).toBe(10);
+    expect(MISSIONS.longOreRun.creditsPerCycle).toBe(20);
   });
 
   it("both missions' occurrence chances are valid probabilities (0-1)", () => {
@@ -199,6 +203,12 @@ describe("CAPTAIN_TALENTS — launch set", () => {
     expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.requires).toBe("resourcefulnessBonusRollI");
     expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.effect).toEqual({ type: "bonusRollChanceMult", mult: 1.0 });
   });
+
+  it("every CAPTAIN_TALENTS entry has non-empty flavor text", () => {
+    for (const talent of Object.values(CAPTAIN_TALENTS)) {
+      expect(talent.flavor.length).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("HOMEWORLD_TALENTS — launch set", () => {
@@ -215,6 +225,12 @@ describe("HOMEWORLD_TALENTS — launch set", () => {
     const slotNodes = Object.values(HOMEWORLD_TALENTS).filter((t) => t.effect.type === "unlockCaptainSlot");
     expect(slotNodes).toHaveLength(3);
   });
+
+  it("every HOMEWORLD_TALENTS entry has non-empty flavor text", () => {
+    for (const talent of Object.values(HOMEWORLD_TALENTS)) {
+      expect(talent.flavor.length).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("freshState / freshCaptainStack — talent and Fleet Admiral fields", () => {
@@ -228,5 +244,23 @@ describe("freshState / freshCaptainStack — talent and Fleet Admiral fields", (
     expect(state.fleetAdminLevel).toBe(1);
     expect(state.adminPoints).toBe(0);
     expect(state.unlockedHomeworldTalents).toEqual([]);
+  });
+
+  it("freshState starts credits at 0", () => {
+    expect(freshState().credits.equals(0)).toBe(true);
+  });
+});
+
+describe("Captain Specialization — CaptainState.spec and CAPTAIN_SPEC_BONUS", () => {
+  it("a fresh captain has no spec chosen", () => {
+    expect(freshCaptains(1)[0].spec).toBeNull();
+  });
+
+  it("CAPTAIN_SPEC_BONUS has entries for resourcefulness and command only", () => {
+    expect(CAPTAIN_SPEC_BONUS.resourcefulness).toEqual({ type: "bonusRollChance", chance: 0.01 });
+    expect(CAPTAIN_SPEC_BONUS.command).toEqual({ type: "commonYieldMult", mult: 0.05 });
+    expect(CAPTAIN_SPEC_BONUS.tactical).toBeUndefined();
+    expect(CAPTAIN_SPEC_BONUS.science).toBeUndefined();
+    expect(CAPTAIN_SPEC_BONUS.diplomacy).toBeUndefined();
   });
 });
