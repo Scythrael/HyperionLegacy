@@ -206,3 +206,12 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
     cards).
   Not scoped yet -- needs its own brainstorm before a design/plan, given the new data field and the
   whose-portrait question above.
+
+- **Landing Party missions.** User idea, 2026-07-07: a new mission type/category built around
+  outfitting a team for planet-side (surface) adventures, distinct from today's ship-based ore-run
+  missions. Could plausibly fit as its own new Fleet Operations mission category (alongside
+  Resource-Gathering, Patrol Missions, Surveying, Long-Term Exploration -- see
+  docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md) or as content living under one of the
+  existing locked categories (Surveying reads closest in spirit). Not scoped yet -- no design work
+  done on what "outfitting a team" actually means mechanically (crew loadout choices? equipment?
+  a new resource type?) or what rewards/risks differentiate it from ship-based mining runs.
