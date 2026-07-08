@@ -180,9 +180,15 @@ function rollExtractionTick(
     rareAmount = new Decimal(1).times(1 + bonuses.rareYieldMult);
   }
 
-  const commonAmount = Decimal.max(0, new Decimal(missionDef.extractionRatePerTick).minus(uncommonAmount).minus(rareAmount)).times(
-    1 + bonuses.commonYieldMult
+  // Split into two named steps -- carve out uncommon/rare, THEN scale by
+  // commonYieldMult -- so this central formula reads the same two-stage
+  // shape the header comment above describes, rather than one long chained
+  // expression that has to be held in your head across a line wrap.
+  const commonBeforeYield = Decimal.max(
+    0,
+    new Decimal(missionDef.extractionRatePerTick).minus(uncommonAmount).minus(rareAmount)
   );
+  const commonAmount = commonBeforeYield.times(1 + bonuses.commonYieldMult);
 
   return { commonOre: commonAmount, uncommonMaterial: uncommonAmount, rareMaterial: rareAmount };
 }
