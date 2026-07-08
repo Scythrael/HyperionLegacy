@@ -639,6 +639,64 @@ git commit -m "feat: tick.ts extraction/cargo arithmetic -- Decimal"
 
 ### Task 5: `tick.ts` — XP/leveling arithmetic + bounded level-up loop fix
 
+> **2026-07-08 AMENDMENT — read this before starting Task 5.** The
+> `feat/fleet-admiral-xp-rework` branch (`docs/plans/2026-07-08-fleet-admiral-xp-rework-plan.md`) merged
+> **before** this migration's implementation began, and it already built two of the three things Step 1
+> and Step 3 below describe from scratch. Do not be confused if you find them already present in
+> `tick.ts` — that is expected, not a merge conflict to resolve:
+>
+> - **`MAX_LEVEL_UPS_PER_TICK = 10_000` already exists in `tick.ts`.** It was added by that other plan as
+>   a plain-`number` bounded-loop safeguard for `applyFleetAdminXp` (see below), for exactly the same
+>   "large offline-catchup delta could otherwise loop unboundedly" reason Step 1 below describes for
+>   captain XP. **Reuse the existing constant — do not redefine it a second time.** Its Decimal-migration
+>   need is nothing: `levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK` is a plain-number-vs-plain-number
+>   comparison in both the captain-XP loop (Step 2) and the Fleet-Admiral loop (see below) — this constant
+>   itself never touches a `Decimal` value, so Step 1's constant-definition code block is now a no-op;
+>   just confirm the constant is present and skip re-adding it.
+> - **`recomputeFleetAdmin` no longer exists anywhere in the codebase.** It was fully replaced (not
+>   renamed alongside, not kept as a fallback) by a function with a materially different contract:
+>   `applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): GameState`. Fleet Admiral XP is no
+>   longer recomputed fresh each call from the sum of captain levels — it is earned incrementally per
+>   completed mission cycle (`MissionDef.fleetAdminXpPerCycle`) and accumulated into a delta that
+>   `applyFleetAdminXp` adds to the existing `state.fleetAdminXp`, then resolves level-ups by
+>   **subtracting** the threshold each time — the same subtract-and-carry-forward shape captain XP's own
+>   loop already uses (Step 2 below), not the old "recompute a running total, never subtract" shape Step 3
+>   below was written to describe. Step 3's rewrite of `recomputeFleetAdmin` (and its Step 4 hand-trace)
+>   is now **obsolete in its entirety** — there is no `recomputeFleetAdmin` body left to rewrite. See the
+>   replacement task below instead.
+>
+> **Revised Step 3 — make `applyFleetAdminXp` Decimal-aware.** Its bounded-loop *structure* is already
+> correct and battle-tested (mirrors the captain-XP loop exactly); this migration's job is ONLY to swap
+> its arithmetic operators to `Decimal` methods, per this plan's own rewrite-pattern table above (`a += b`
+> → `a = a.plus(b)`, `a -= b` → `a = a.minus(b)`, `a >= b` → `a.gte(b)`). Per the confirmed field-split
+> table, `fleetAdminXp` goes `Decimal`; `fleetAdminXpDelta` is a function **parameter**, not a state field,
+> and is not in that table at all — it stays a plain `number` (mirrors `XP_PER_MISSION_CYCLE` and the other
+> flat per-cycle constants that flow into `.plus()` on the Decimal side without needing to become Decimal
+> themselves). Concretely:
+>
+> | Current (`tick.ts`, plain `number`) | After this migration (`Decimal`) |
+> |---|---|
+> | `if (fleetAdminXpDelta <= 0) return state;` | unchanged — `fleetAdminXpDelta` stays plain `number`, this is a plain-number comparison |
+> | `let xp = state.fleetAdminXp + fleetAdminXpDelta;` | `let xp = state.fleetAdminXp.plus(fleetAdminXpDelta);` |
+> | `while (xp >= xpForNextFleetAdminLevel(level) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK)` | `while (xp.gte(xpForNextFleetAdminLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK)` (second clause unchanged — both sides already plain `number`) |
+> | `xp -= xpForNextFleetAdminLevel(level);` | `xp = xp.minus(xpForNextFleetAdminLevel(level));` |
+> | `level += 1; adminPoints += 1; levelUpsThisCall += 1;` | unchanged — none of these three are in the field-split table, all stay plain `number` |
+> | `return { ...state, fleetAdminXp: xp, fleetAdminLevel: level, adminPoints };` | unchanged shape — `xp` is now a `Decimal` value being assigned into the (now-`Decimal`) `fleetAdminXp` field |
+>
+> Hand-trace once converted: `state.fleetAdminXp` is `Decimal(2000)`, `fleetAdminXpDelta` is `600` (plain
+> number, e.g. summed from `MissionDef.fleetAdminXpPerCycle` across captains this call).
+> `state.fleetAdminXp.plus(600)` → `Decimal(2600)`. `xpForNextFleetAdminLevel(1) = 2500` (plain number,
+> formula of plain-`number` `level` — unchanged, confirmed in the field-split table). `Decimal(2600).gte(2500)`
+> → `true` → loop runs: `level` becomes `2`, `xp = Decimal(2600).minus(2500)` → `Decimal(100)`.
+> `xpForNextFleetAdminLevel(2) = 10000`. `Decimal(100).gte(10000)` → `false` → loop stops. Returns
+> `fleetAdminXp: Decimal(100)`, `fleetAdminLevel: 2`, `adminPoints: 1` — same result the pre-Decimal
+> version already produced for this exact scenario (see that plan's own `applyFleetAdminXp` tests in
+> `tick.test.ts`), confirming this rewrite only changed the arithmetic's type, not its behavior.
+>
+> The rest of this Task 5 (Steps 1, 2, and 4-5 below) is UNCHANGED and still applies as originally
+> written for captain XP — only Step 3 (and its Step 4 hand-trace, both about the function formerly named
+> `recomputeFleetAdmin`) is superseded by the revised version above.
+
 **Files:** Modify `src/lib/game/tick.ts` (continuing from Task 4's edits).
 
 **This is the other highest-risk task.** Read the design doc's "XP/level-up loop risk" section again

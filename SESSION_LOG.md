@@ -675,4 +675,54 @@ Extraction/Keen Eye I-II/Fleet Requisitions and confirm each scales the
 correct tier, exercise Export then Import Save end-to-end (including
 importing a deliberately corrupted file to confirm the inline-error path),
 and confirm the new header layout/labels look right at real viewport sizes.
+
+**Session 19** — Fleet Admiral XP Rework (branch feat/fleet-admiral-xp-rework,
+docs/plans/2026-07-08-fleet-admiral-xp-rework-plan.md), built via
+subagent-driven-development. Root cause, confirmed live: the user's save sat
+at "18/500 exp" no matter how much idle time passed, because Fleet Admiral XP
+was never actually earned — `recomputeFleetAdmin` recomputed it fresh every
+call as the sum of every captain's current level, compared against
+`xpForNextFleetAdminLevel(level) = 500 * level * level`. 18/500 matched a
+single level-18 captain exactly; reaching Fleet Admiral level 1 outright would
+have needed a captain (or several summed) to reach level ~500, achievable only
+after roughly a quarter-million mission cycles — effectively frozen under any
+realistic play. Replaced it with an earn-per-mission-completion model
+mirroring how captain XP already works: `MissionDef` gained
+`fleetAdminXpPerCycle` (`shortOreRun: 1`, `longOreRun: 2`), awarded on cycle
+completion inside `tickCaptainMission` and accumulated fleet-wide via a new
+`fleetAdminXpDelta` return field (same "accumulate across captains, apply
+once" shape `homePlanetDelta` already used), wired through both `tick.ts`'s
+`tick()` and `App.svelte`'s live-tick-loop mirror of it. `recomputeFleetAdmin`
+is gone entirely — replaced by `applyFleetAdminXp`, a genuinely different
+contract that ADDS the delta and resolves level-ups by subtracting the
+threshold each time (mirroring captain XP's own subtract-and-carry-forward
+loop, not the old "recompute a running total, never subtract" shape).
+`xpForNextFleetAdminLevel`'s curve multiplier was bumped from `500` to `2500`
+per the user, and a new `MAX_LEVEL_UPS_PER_TICK = 10_000` bounded-loop
+safeguard caps `applyFleetAdminXp`'s level-up resolution per call, carrying
+any leftover XP forward to the next call, to guard against a large
+offline-catchup delta completing many mission cycles at once — this constant
+is deliberately designed to be reused, not redefined, by the separate,
+not-yet-started Big-Number Migration plan, which needs the identical safeguard
+for captain XP once that field goes `Decimal`; that plan's own Task 5 was
+amended accordingly. Per the user's explicit balance caveat, mission XP is
+only the FIRST of several planned Fleet Admiral XP sources — crafting, talent
+purchases, and a future talent-tree effect boosting this value are all
+explicitly deferred — so the curve and per-mission values are deliberately NOT
+calibrated as if missions alone must carry the full weight of Fleet Admiral
+progression. Worth flagging: a real math error was caught and fixed WHILE
+WRITING THE PLAN, before any code was written — a naive "10,001 × 2500" delta
+for testing the level-up cap was 8 orders of magnitude too small under the
+quadratic curve (the true closed-form sum for 10,000 level-ups is
+833,458,337,500,000, not 25,002,500); the plan was corrected using the proper
+sum-of-squares calculation before implementation began, and this was
+independently re-verified by both the implementing subagent and two separate
+reviewing subagents via three different methods (direct computation,
+brute-force summation, and a live capped-loop simulation), all agreeing
+exactly. Next: get eyes on this in an actual browser — dispatch a captain,
+confirm Fleet Admiral XP now genuinely climbs per completed mission cycle
+instead of sitting frozen, and confirm the top bar's Fleet Admiral level/XP
+row updates live; then final holistic review of this branch before merge
+(must land before the Big-Number Migration's implementation begins, since both
+touch `tick.ts`/`model.ts`).
 Final holistic review of this branch is still pending before merge/push.
