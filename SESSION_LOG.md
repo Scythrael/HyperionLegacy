@@ -654,8 +654,12 @@ would have spuriously failed. Fixed by mocking `Math.random` to a fixed 0.5
 (fails both occurrence checks) so the assertion is genuinely deterministic,
 not merely usually-true. The same review pass also caught a stale identifier
 left over from the rename in a Task 5 comment (`abb8117`) — `fleetYieldMult`
-where the actual variable is `fleetRareYield`. Two more non-blocking
-code-quality refinements landed on Task 8c: a CSS specificity fix (`5678003`)
+where the actual variable is `fleetRareYield` — and, on Task 7, a rejected
+`File.text()` promise in the Import Save flow that was previously silently
+swallowed (`ec00d34`): if reading the selected file ever rejected, the modal
+would simply never open with no feedback at all; now a `.catch()` surfaces
+an inline error the same way an invalid save file already does. Two more
+non-blocking code-quality refinements landed on Task 8c: a CSS specificity fix (`5678003`)
 replacing a source-order-dependent override (`.top-bar-portrait` beating
 `.mission-portrait-frame` only because of where it sat in the stylesheet,
 protected by two large warning comments) with a `.top-bar-header
