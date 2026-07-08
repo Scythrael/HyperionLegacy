@@ -362,6 +362,11 @@ const MIGRATIONS: Record<number, Migration> = {
     captains: state.captains.map((c: any) => {
       if (!c.mission) return c;
       const oldRequired = oldRequiredTicksForPhase_v12(c.mission.phase, c.mission.missionKey);
+      // Math.min(1, ...) guards against a ratio > 1 if phaseProgressTicks ever
+      // exceeded oldRequired before migration ran -- not reachable through any
+      // current code path (nothing lets progress overrun a phase boundary
+      // pre-migration), but defense in depth, same category as MIGRATIONS[2]/
+      // [3]/[10]'s ??/fallback comments above.
       const progressRatio = Math.min(1, c.mission.phaseProgressTicks / oldRequired);
       const newRequired = requiredTicksForPhase(c.mission.phase, MISSIONS[c.mission.missionKey]);
       return { ...c, mission: { ...c.mission, phaseProgressTicks: progressRatio * newRequired } };
