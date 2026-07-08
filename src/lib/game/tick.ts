@@ -10,7 +10,6 @@
 
 import {
   requiredTicksForPhase,
-  rollLootTable,
   xpForNextLevel,
   xpForNextFleetAdminLevel,
   MISSIONS,
@@ -22,7 +21,7 @@ import {
   type CaptainState,
   type CaptainMissionState,
   type LootMaterialKey,
-  type LootTableEntry,
+  type MissionDef,
   type MissionPhase,
   type MissionKey,
   type RecipeKey,
@@ -50,35 +49,55 @@ function emptyLootTotals(): Record<LootMaterialKey, number> {
 // homePlanetDelta's shape (and this list) widened first, not silently work.
 export const LOOT_MATERIAL_KEYS: LootMaterialKey[] = ["commonOre", "uncommonMaterial", "rareMaterial"];
 
-// Sums every unlocked Captain Talent's extractionYieldMult contribution for
-// THIS captain -- additive stacking (Command Efficiency I + II both unlocked
-// = 0.10 + 0.15 = 0.25 total extra yield), read at usage time rather than
-// cached on CaptainState, per the "read at usage time" pattern the comment
-// above buyCaptainTalent already documents.
-export function captainExtractionYieldMult(captain: CaptainState): number {
+// Sums every unlocked Captain Talent's commonYieldMult contribution for THIS
+// captain -- additive stacking, read at usage time rather than cached on
+// CaptainState, per the "read at usage time" pattern the comment above
+// buyCaptainTalent already documents.
+export function captainCommonYieldMult(captain: CaptainState): number {
   return captain.unlockedCaptainTalents.reduce((sum, key) => {
     const effect = CAPTAIN_TALENTS[key].effect;
-    return effect.type === "extractionYieldMult" ? sum + effect.mult : sum;
+    return effect.type === "commonYieldMult" ? sum + effect.mult : sum;
   }, 0);
 }
 
 // Same additive-stacking, read-at-usage-time pattern as
-// captainExtractionYieldMult, for the OTHER Captain Talent effect type.
-export function captainRareLootChanceMult(captain: CaptainState): number {
+// captainCommonYieldMult, for the uncommon-tier yield effect type.
+export function captainUncommonYieldMult(captain: CaptainState): number {
   return captain.unlockedCaptainTalents.reduce((sum, key) => {
     const effect = CAPTAIN_TALENTS[key].effect;
-    return effect.type === "rareLootChanceMult" ? sum + effect.mult : sum;
+    return effect.type === "uncommonYieldMult" ? sum + effect.mult : sum;
   }, 0);
 }
 
-// Fleet-wide equivalent of captainExtractionYieldMult -- sourced from
-// state.unlockedHomeworldTalents (Fleet Admiral prestige, spent fleet-wide)
-// rather than one captain's own talents, so it applies identically to EVERY
-// captain's mission extraction, not just whichever captain unlocked it.
-export function fleetExtractionYieldMult(state: GameState): number {
+// Same additive-stacking, read-at-usage-time pattern as the yield helpers
+// above, for the uncommon-tier occurrence-chance effect type.
+export function captainUncommonChanceMult(captain: CaptainState): number {
+  return captain.unlockedCaptainTalents.reduce((sum, key) => {
+    const effect = CAPTAIN_TALENTS[key].effect;
+    return effect.type === "uncommonChanceMult" ? sum + effect.mult : sum;
+  }, 0);
+}
+
+// Same additive-stacking, read-at-usage-time pattern as the helpers above,
+// for the rare-tier occurrence-chance effect type.
+export function captainRareChanceMult(captain: CaptainState): number {
+  return captain.unlockedCaptainTalents.reduce((sum, key) => {
+    const effect = CAPTAIN_TALENTS[key].effect;
+    return effect.type === "rareChanceMult" ? sum + effect.mult : sum;
+  }, 0);
+}
+
+// Fleet-wide equivalent of the captain-level yield helpers above -- sourced
+// from state.unlockedHomeworldTalents (Fleet Admiral prestige, spent
+// fleet-wide) rather than one captain's own talents, so it applies
+// identically to EVERY captain's mission extraction, not just whichever
+// captain unlocked it. rareYieldMult is the ONLY Homeworld Talent effect type
+// tied to extraction (per the design doc, there is no captain-level
+// rare-yield talent).
+export function fleetRareYieldMult(state: GameState): number {
   return state.unlockedHomeworldTalents.reduce((sum, key) => {
     const effect = HOMEWORLD_TALENTS[key].effect;
-    return effect.type === "fleetExtractionYieldMult" ? sum + effect.mult : sum;
+    return effect.type === "rareYieldMult" ? sum + effect.mult : sum;
   }, 0);
 }
 
@@ -101,19 +120,57 @@ const MISSION_TICK_EPSILON = 1e-9;
 // several cycles in one call -- see the while loop below), never once per call.
 const XP_PER_MISSION_CYCLE = 50;
 
-// Extracted so both the real roll (tickCaptainMission, below) and the UI
-// preview of the SAME math (Fleet Operations' mission cards/captain-selection
-// popup, App.svelte) share one implementation -- a hand-copied second version
-// of this reweighting logic in App.svelte could silently drift from the real
-// one if either copy were edited later without the other. Boosts every
-// NON-common tier's weight rather than hardcoding "rareMaterial"
-// specifically, so this generalizes to any future lootTable shape without
-// changes here.
-export function applyRareLootChanceMult(lootTable: LootTableEntry[], rareLootChanceMult: number): LootTableEntry[] {
-  if (rareLootChanceMult <= 0) return lootTable;
-  return lootTable.map((entry) =>
-    entry.material === "commonOre" ? entry : { ...entry, weight: entry.weight * (1 + rareLootChanceMult) }
-  );
+// Independent per-tier roll for ONE whole tick of extraction (2026-07-07 Loot
+// Tier Rework -- see the design doc). Replaces the old single mutually-
+// exclusive rollLootTable pick: uncommon and rare are each rolled
+// independently here and CAN both occur in the same tick (not exclusive of
+// each other), each replacing that many units of common ore rather than
+// adding on top of it.
+//
+// Exactly 3 rng() calls happen, ALWAYS in this order, regardless of outcome:
+//   1. does uncommon occur (rng() < effective uncommon chance)
+//   2. IF uncommon occurred: its base amount (rng() again -- 75% -> 1, 20% -> 2, 5% -> 3)
+//   3. does rare occur (rng() < effective rare chance) -- rare's amount is always 1, no 4th call needed
+// This fixed call count/order matters for hand-tracing a deterministic test
+// rng, and for the closed-form guarantee tickCaptainMission depends on (use
+// a CONSTANT, non-stateful rng in tests -- see that function's own comment).
+//
+// yieldMults scale the AMOUNT actually delivered: commonYieldMult scales the
+// leftover-after-carve-out common amount (so total per-tick delivery CAN
+// exceed extractionRatePerTick -- intentional, this is what "more efficient
+// common extraction" should feel like); uncommonYieldMult/rareYieldMult each
+// scale their own tier's rolled amount, only when that tier actually
+// occurred this tick (nothing to scale if it didn't).
+function rollExtractionTick(
+  missionDef: MissionDef,
+  bonuses: {
+    commonYieldMult: number;
+    uncommonYieldMult: number;
+    uncommonChanceMult: number;
+    rareYieldMult: number;
+    rareChanceMult: number;
+  },
+  rng: () => number
+): Record<LootMaterialKey, number> {
+  const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + bonuses.uncommonChanceMult));
+  const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + bonuses.rareChanceMult));
+
+  let uncommonAmount = 0;
+  if (rng() < effectiveUncommonChance) {
+    const amountRoll = rng();
+    const baseAmount = amountRoll < 0.75 ? 1 : amountRoll < 0.95 ? 2 : 3;
+    uncommonAmount = baseAmount * (1 + bonuses.uncommonYieldMult);
+  }
+
+  let rareAmount = 0;
+  if (rng() < effectiveRareChance) {
+    rareAmount = 1 * (1 + bonuses.rareYieldMult);
+  }
+
+  const commonAmount =
+    Math.max(0, missionDef.extractionRatePerTick - uncommonAmount - rareAmount) * (1 + bonuses.commonYieldMult);
+
+  return { commonOre: commonAmount, uncommonMaterial: uncommonAmount, rareMaterial: rareAmount };
 }
 
 // MUST be closed-form: calling this once with a large ticksElapsed must
@@ -134,11 +191,18 @@ export function tickCaptainMission(
   ticksElapsed: number,
   captain: CaptainState,
   rng: () => number = Math.random,
-  // Both default to 0 (no bonus) so every existing call site/test that
-  // omits this 4th arg behaves EXACTLY as before -- the caller (tick(),
-  // below) is responsible for summing captainExtractionYieldMult +
-  // fleetExtractionYieldMult into one value before calling in.
-  bonuses: { extractionYieldMult?: number; rareLootChanceMult?: number } = {}
+  // Every field defaults to 0 (no bonus) so every existing call site/test
+  // that omits this 4th arg (or omits individual fields) behaves EXACTLY as
+  // before -- the caller (tick(), below) sums each captain-level helper +
+  // the fleet-wide one (rareYieldMult only, per the design doc) into one
+  // value per field before calling in.
+  bonuses: {
+    commonYieldMult?: number;
+    uncommonYieldMult?: number;
+    uncommonChanceMult?: number;
+    rareYieldMult?: number;
+    rareChanceMult?: number;
+  } = {}
 ): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, number> } {
   if (!captain.mission || ticksElapsed <= 0) {
     return { captain, homePlanetDelta: emptyLootTotals() };
@@ -155,13 +219,17 @@ export function tickCaptainMission(
   let level = captain.level;
   let statPoints = captain.statPoints;
 
-  const extractionYieldMult = bonuses.extractionYieldMult ?? 0;
-  const rareLootChanceMult = bonuses.rareLootChanceMult ?? 0;
   // Computed ONCE per call, not per roll -- bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
   // small ticks" test doesn't care how many rolls happen, only that each
-  // roll uses the same effective table either way).
-  const effectiveLootTable = applyRareLootChanceMult(missionDef.lootTable, rareLootChanceMult);
+  // roll uses the same resolved bonuses either way).
+  const resolvedBonuses = {
+    commonYieldMult: bonuses.commonYieldMult ?? 0,
+    uncommonYieldMult: bonuses.uncommonYieldMult ?? 0,
+    uncommonChanceMult: bonuses.uncommonChanceMult ?? 0,
+    rareYieldMult: bonuses.rareYieldMult ?? 0,
+    rareChanceMult: bonuses.rareChanceMult ?? 0,
+  };
 
   while (remaining > 0 && mission !== null) {
     const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
@@ -188,8 +256,10 @@ export function tickCaptainMission(
       const toWhole = Math.floor(mission.phaseProgressTicks + ticksToApply);
       const rollsThisStep = toWhole - fromWhole;
       for (let i = 0; i < rollsThisStep; i++) {
-        const material = rollLootTable(effectiveLootTable, rng);
-        mission.cargo[material] += missionDef.extractionRatePerTick * (1 + extractionYieldMult);
+        const delta = rollExtractionTick(missionDef, resolvedBonuses, rng);
+        mission.cargo.commonOre += delta.commonOre;
+        mission.cargo.uncommonMaterial += delta.uncommonMaterial;
+        mission.cargo.rareMaterial += delta.rareMaterial;
       }
     }
 
@@ -287,12 +357,15 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   // Computed ONCE for the whole fleet (same value for every captain), not
   // per captain inside the .map() below -- Homeworld Talents are fleet-wide,
   // not per-captain.
-  const fleetYieldMult = fleetExtractionYieldMult(state);
+  const fleetRareYield = fleetRareYieldMult(state);
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     const bonuses = {
-      extractionYieldMult: captainExtractionYieldMult(captain) + fleetYieldMult,
-      rareLootChanceMult: captainRareLootChanceMult(captain),
+      commonYieldMult: captainCommonYieldMult(captain),
+      uncommonYieldMult: captainUncommonYieldMult(captain),
+      uncommonChanceMult: captainUncommonChanceMult(captain),
+      rareYieldMult: fleetRareYield,
+      rareChanceMult: captainRareChanceMult(captain),
     };
     // Math.random passed explicitly (rather than omitted) since bonuses is
     // positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
@@ -432,10 +505,14 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
 // function in this file. Validates: talent exists, not already unlocked,
 // prerequisite (if any) already unlocked, statPoints sufficient. On success:
 // deducts cost, records the unlock. The effect itself isn't APPLIED here --
-// each effect type is read wherever that stat matters (extractionYieldMult
-// inside tickCaptainMission's extraction math, rareLootChanceMult inside the
-// loot roll) by checking unlockedCaptainTalents at read time, same pattern
-// this codebase already uses for e.g. specialization multipliers historically.
+// each effect type is read wherever that stat matters (the 5 tier-specific
+// yield/chance mults inside tickCaptainMission's rollExtractionTick call, see
+// the captainCommonYieldMult/captainUncommonYieldMult/captainUncommonChanceMult/
+// captainRareChanceMult helpers above) by checking unlockedCaptainTalents at
+// read time, same pattern this codebase already uses for e.g. specialization
+// multipliers historically. Deliberately generalized wording (not naming
+// specific effect types) so this comment doesn't go stale again next time an
+// effect type is added/renamed.
 export function buyCaptainTalent(
   state: GameState,
   captainId: number,
