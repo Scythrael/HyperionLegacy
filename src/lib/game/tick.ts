@@ -276,7 +276,10 @@ const XP_PER_MISSION_CYCLE = 50;
 // Decimal-typed -- both loops share this one cap.
 const MAX_LEVEL_UPS_PER_TICK = 10_000;
 
-const RESPEC_COST_CREDITS = 50; // launch placeholder, not balance-tested, same spirit as MISSIONS/talent costs
+// Exported so App.svelte can display/gate on this exact value (Reset button
+// affordability, modal copy) without a hand-duplicated second copy of the
+// number that could silently drift out of sync with this one.
+export const RESPEC_COST_CREDITS = 50; // launch placeholder, not balance-tested, same spirit as MISSIONS/talent costs
 
 // Sequential, mutually-exclusive per-tier roll for ONE whole tick of
 // extraction (2026-07-08 Extraction Rework -- see the design doc). Replaces

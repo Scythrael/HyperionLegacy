@@ -36,6 +36,7 @@
     buyHomeworldTalent,
     respecCaptainTalents,
     respecHomeworldTalents,
+    RESPEC_COST_CREDITS,
     captainCommonYieldMult,
     captainUncommonYieldMult,
     captainUncommonChanceMult,
@@ -133,16 +134,6 @@
   let tickBarEnabled = true;
   let deleteModalOpen = false;
   let deleteConfirmText = "";
-
-  // Talent Tree Visual Redesign (Task 13) -- mirrors tick.ts's own
-  // module-local RESPEC_COST_CREDITS constant (currently 50) exactly. Cannot
-  // import the real constant -- it is intentionally NOT exported from
-  // tick.ts (confirmed by reading the live file: every other cost table in
-  // that module, e.g. CAPTAIN_TALENTS/HOMEWORLD_TALENTS costs, IS exported,
-  // but this one deliberately isn't). If tick.ts's own value ever changes,
-  // this line must be updated by hand to match -- there is no way to keep
-  // these two in sync automatically without exporting the tick.ts constant.
-  const RESPEC_COST_CREDITS = 50;
 
   // Homeworld Talents "Reset" confirmation modal (Task 13) -- same
   // "state near deleteModalOpen, markup near the delete modal" pattern as
