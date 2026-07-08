@@ -94,6 +94,12 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   (2) a human-readable description per effect type/value shown on hover, likely requiring a new
   "flavor text" field per talent entry in `CAPTAIN_TALENTS`/`HOMEWORLD_TALENTS` (model.ts) rather
   than deriving text from the raw effect union at render time.
+  (3) **Respeccing** -- User request, 2026-07-07 (said this "will 100% need implementation... sometime
+  soon"): a way to reset a captain's Captain Talents (or the fleet's Homeworld Talents) and refund
+  the spent statPoints/adminPoints so they can be re-allocated differently. Not scoped yet -- needs
+  its own design pass covering at minimum: full reset only vs. picking individual nodes to refund,
+  whether prerequisite chains complicate partial refunds (can't refund a prerequisite while a
+  dependent node is still owned), and whether respeccing costs anything or is free.
 
 - **Battlespace's 4 real modes (multiplayer-dependent).** User request, 2026-07-07: Battlespace
   (currently a single "Coming Soon" placeholder tab) is eventually meant to hold 4 distinct game
