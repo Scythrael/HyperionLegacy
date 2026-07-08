@@ -563,12 +563,8 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
 
     const save: SaveFile = { version: 8, created_at: 0, last_saved_at: 0, game_time_seconds: 5000, state: legacyState };
     const migrated: any = migrate(save);
-    // xp and homePlanet.storage's keys are Decimal-designated (Task 3) --
-    // migrate() now ALWAYS runs hydrateDecimals() unconditionally at the end,
-    // regardless of which version a save started/ended at, so even this
-    // v8->v9 test's result has real Decimal instances here, not plain
-    // numbers. .equals(), not .toBe() (Decimal is an object, reference-
-    // compared by toBe, which would always fail here).
+    // xp and homePlanet.storage's keys are Decimal-designated -- same
+    // instanceof/.equals() treatment as the v4->v5 test above.
     expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
     expect(migrated.captains[0].xp.equals(0)).toBe(true);
     expect(migrated.captains[0].level).toBe(1);
@@ -622,11 +618,8 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     const migrated: any = migrate(save);
     expect(migrated.captains[0].unlockedCaptainTalents).toEqual([]);
     expect(migrated.unlockedHomeworldTalents).toEqual([]);
-    // fleetAdminXp is Decimal-designated (Task 3) -- migrate() now ALWAYS
-    // runs hydrateDecimals() unconditionally at the end, regardless of which
-    // version a save started/ended at, so even this v9->v10 test's result
-    // has a real Decimal here, not a plain 0. .equals(), not .toBe() (Decimal
-    // is an object, reference-compared by toBe, which would always fail here).
+    // fleetAdminXp is Decimal-designated -- same instanceof/.equals()
+    // treatment as the v4->v5 test above.
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(0)).toBe(true);
     expect(migrated.fleetAdminLevel).toBe(1);
