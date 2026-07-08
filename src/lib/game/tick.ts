@@ -541,14 +541,18 @@ export function recallCaptain(state: GameState, captainId: number): { next: Game
 // is a deliberate near-term follow-up, not built here.
 export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: GameState; success: boolean } {
   const recipe = RECIPES[recipeKey];
+  // recipe.inputs[key] is Decimal | undefined (Partial<Record<...>>), so the
+  // fallback must be a Decimal too -- `?? 0` would leave `needed` typed
+  // `Decimal | number`, and a plain number has no `.lt()`/`.minus()` methods.
   for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
-    const needed = recipe.inputs[key] ?? 0;
-    if (state.homePlanet.storage[key] < needed) return { next: state, success: false };
+    const needed = recipe.inputs[key] ?? new Decimal(0);
+    if (state.homePlanet.storage[key].lt(needed)) return { next: state, success: false };
   }
 
   const storage = { ...state.homePlanet.storage };
   for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
-    storage[key] -= recipe.inputs[key] ?? 0;
+    const needed = recipe.inputs[key] ?? new Decimal(0);
+    storage[key] = storage[key].minus(needed);
   }
 
   // recipeBonusOutput (Homeworld Talent, e.g. industryBonusOutput): a FLAT
@@ -556,12 +560,16 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
   // type's own `bonus: number` field name/shape. Reduce over every unlocked
   // talent (not just industryBonusOutput by name) so any future
   // recipeBonusOutput entry targeting a different recipeKey works without
-  // touching this function again.
+  // touching this function again. effect.bonus stays plain number (Big-Number
+  // Migration field-split table) -- this reduce is unchanged plain-number
+  // arithmetic, unrelated to the Decimal boundary below.
   const bonusOutput = state.unlockedHomeworldTalents.reduce((sum, key) => {
     const effect = HOMEWORLD_TALENTS[key].effect;
     return effect.type === "recipeBonusOutput" && effect.recipeKey === recipeKey ? sum + effect.bonus : sum;
   }, 0);
-  storage[recipe.output.key] += recipe.output.amount + bonusOutput;
+  // bonusOutput (plain number) flows directly into .plus() -- DecimalSource
+  // accepts plain numbers, no wrapping needed.
+  storage[recipe.output.key] = storage[recipe.output.key].plus(recipe.output.amount).plus(bonusOutput);
 
   return { next: { ...state, homePlanet: { storage } }, success: true };
 }
