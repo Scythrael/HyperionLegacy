@@ -7,7 +7,7 @@ import {
   craftRecipe,
   buyCaptainTalent,
   buyHomeworldTalent,
-  recomputeFleetAdmin,
+  applyFleetAdminXp,
   captainCommonYieldMult,
   captainUncommonYieldMult,
   captainUncommonChanceMult,
@@ -980,73 +980,83 @@ describe("buyHomeworldTalent", () => {
   });
 });
 
-describe("recomputeFleetAdmin", () => {
-  it("no-op when the aggregate captain-level sum hasn't changed", () => {
+describe("applyFleetAdminXp", () => {
+  it("is a no-op (same state reference) when the delta is zero or negative", () => {
     const state = freshState();
-    state.captains[0].level = 5;
-    state.fleetAdminXp = 0;
-    // First call establishes the baseline sum; calling again with no captain
-    // level change must not re-award XP for the same sum twice.
-    const once = recomputeFleetAdmin(state);
-    const twice = recomputeFleetAdmin(once);
-    expect(twice).toBe(once); // recomputeFleetAdmin's own no-op branch returns the SAME reference
-    expect(twice.fleetAdminXp).toBe(once.fleetAdminXp);
-    expect(twice.fleetAdminLevel).toBe(once.fleetAdminLevel);
+    const result = applyFleetAdminXp(state, 0);
+    expect(result).toBe(state);
+    const resultNegative = applyFleetAdminXp(state, -5);
+    expect(resultNegative).toBe(state);
   });
 
-  it("awards Fleet Admiral XP proportional to the SUM of captain levels, with a much steeper curve", () => {
-    // Hand-traced against xpForNextFleetAdminLevel(level) = 500 * level * level:
-    // captain levels 10 + 5 = targetXp 15. fleetAdminXp starts at 0 (freshState
-    // default), so 15 !== 0 -- proceeds past the no-op guard. xp=15, level=1,
-    // adminPoints=0. Loop check: 15 >= xpForNextFleetAdminLevel(1)=500? No --
-    // loop body never runs. Result: fleetAdminXp=15 (the raw sum, unconsumed),
-    // fleetAdminLevel stays 1, adminPoints stays 0.
+  it("adds the delta to fleetAdminXp when no level-up threshold is crossed", () => {
+    // xpForNextFleetAdminLevel(1) = 2500 * 1 * 1 = 2500. A delta of 100 stays
+    // well under that -- no level-up, xp just accumulates.
     const state = freshState();
-    state.captains = freshCaptains(2);
-    state.captains[0].level = 10;
-    state.captains[1].level = 5;
-    const result = recomputeFleetAdmin(state);
-    expect(result.fleetAdminXp).toBe(15);
+    const result = applyFleetAdminXp(state, 100);
+    expect(result.fleetAdminXp).toBe(100);
     expect(result.fleetAdminLevel).toBe(1);
     expect(result.adminPoints).toBe(0);
   });
 
-  it("a big jump in aggregate captain levels resolves every Fleet Admiral level-up crossed, not just one", () => {
-    // NOTE: the plan's original draft used 3 captains at level 50 (sum 150),
-    // but under this formula xpForNextFleetAdminLevel(1) = 500 -- a sum of
-    // 150 never crosses even the FIRST Fleet Admiral level-up (confirmed by
-    // hand-trace, see this task's session report for the full analysis: with
-    // today's 4-captain fleet cap, no realistic captain-level sum reaches the
-    // design doc's own "level 3-4 Admiral" framing under this formula). That
-    // assertion would have been false, not just weak, so the scenario below
-    // uses artificially high test-only levels (same convention the removed
-    // unlockCaptainSlot test used to establish via `state.captains[0].level =
-    // 999`, before that test was deleted in Task 4 of
-    // docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) purely to
-    // exercise the "resolve every level-up in one pass" branch.
-    //
-    // Hand-traced against the ACTUAL implementation -- recomputeFleetAdmin
-    // does NOT decrement `xp` per level crossed (unlike tickCaptainMission's
-    // `xp -= xpForNextLevel(level)`); it MUST keep xp as the raw target sum,
-    // since the no-op guard at the top (`targetXp === state.fleetAdminXp`)
-    // only works if fleetAdminXp always equals the freshly recomputed sum --
-    // decrementing it would make that guard misfire on the very next call
-    // with an unchanged fleet. sum = 900*3 = 2700, unchanged throughout.
-    // xpForNextFleetAdminLevel(1)=500 (2700>=500, crossed, level->2,
-    // adminPoints->1); xpForNextFleetAdminLevel(2)=2000 (2700>=2000, crossed,
-    // level->3, adminPoints->2); xpForNextFleetAdminLevel(3)=4500
-    // (2700<4500, loop stops). Final: fleetAdminLevel=3, adminPoints=2,
-    // fleetAdminXp=2700 (the unchanged raw sum).
+  it("resolves exactly one level-up and carries the remainder forward, mirroring captain XP's subtract-and-carry shape", () => {
+    // xpForNextFleetAdminLevel(1) = 2500. Starting fleetAdminXp at 2000, delta
+    // 600 -> xp = 2600. 2600 >= 2500 -> level 2, xp -= 2500 -> xp = 100.
+    // xpForNextFleetAdminLevel(2) = 2500*4 = 10000. 100 >= 10000? No -- loop stops.
     const state = freshState();
-    state.captains = freshCaptains(3);
-    state.captains[0].level = 900;
-    state.captains[1].level = 900;
-    state.captains[2].level = 900;
-    const result = recomputeFleetAdmin(state);
+    state.fleetAdminXp = 2000;
+    const result = applyFleetAdminXp(state, 600);
+    expect(result.fleetAdminLevel).toBe(2);
+    expect(result.fleetAdminXp).toBe(100);
+    expect(result.adminPoints).toBe(1);
+  });
+
+  it("a large single delta resolves every level-up crossed, not just one", () => {
+    // Hand-traced: fleetAdminXp starts 0, delta 13000.
+    // xpForNextFleetAdminLevel(1)=2500: 13000>=2500 -> level 2, xp=10500.
+    // xpForNextFleetAdminLevel(2)=10000: 10500>=10000 -> level 3, xp=500.
+    // xpForNextFleetAdminLevel(3)=22500: 500>=22500? No -- loop stops.
+    // Final: level 3, xp 500, adminPoints 2.
+    const state = freshState();
+    const result = applyFleetAdminXp(state, 13000);
     expect(result.fleetAdminLevel).toBe(3);
+    expect(result.fleetAdminXp).toBe(500);
     expect(result.adminPoints).toBe(2);
-    expect(result.fleetAdminXp).toBe(2700);
-    expect(result.fleetAdminLevel).toBeGreaterThan(1); // preserves the plan's original intent-check
-    expect(result.adminPoints).toBeGreaterThan(0);
+  });
+
+  it("caps at MAX_LEVEL_UPS_PER_TICK level-ups per call, leaving the remainder unresolved rather than looping unboundedly", () => {
+    // Can't hand-trace 10,000 individual level-up steps one by one -- instead,
+    // construct a delta PROVABLY large enough to require MORE than
+    // MAX_LEVEL_UPS_PER_TICK (10,000) level-ups to fully resolve if uncapped,
+    // using the closed-form sum of xpForNextFleetAdminLevel's quadratic
+    // thresholds: sum_{k=1}^{n} 2500*k^2 = 2500 * n*(n+1)*(2n+1)/6 is the
+    // EXACT total XP needed to go from level 1 through exactly n level-ups
+    // (level 1 -> level n+1). A naive "10,001 * 2500" delta (linear
+    // reasoning applied to a QUADRATIC curve) is nowhere near enough --
+    // verified by direct calculation before writing this test: the true sum
+    // for 10,000 level-ups is 833,458,337,500,000, not merely 25,002,500.
+    // Adding ONE MORE full threshold's worth on top of the exact
+    // 10,000-level-up sum guarantees the delta requires at least one level-up
+    // beyond what the cap allows, if the cap weren't there.
+    const sumOfSquaresTo = (n: number) => (n * (n + 1) * (2 * n + 1)) / 6;
+    const xpForExactly10000LevelUps = 2500 * sumOfSquaresTo(10_000); // 833,458,337,500,000
+    const oneMoreThreshold = 2500 * 10_001 * 10_001; // xpForNextFleetAdminLevel(10001)
+    const delta = xpForExactly10000LevelUps + oneMoreThreshold;
+
+    const result = applyFleetAdminXp(freshState(), delta);
+
+    // Uncapped, this delta would resolve AT LEAST 10,001 level-ups (level 1 ->
+    // 10,002 or beyond). WITH the cap, at most MAX_LEVEL_UPS_PER_TICK (10,000)
+    // level-ups can happen in this one call -- fleetAdminLevel started at 1,
+    // so it can reach AT MOST level 10,001, never higher, no matter how much
+    // XP the delta represents.
+    expect(result.fleetAdminLevel).toBeLessThanOrEqual(10_001);
+    expect(result.adminPoints).toBeLessThanOrEqual(10_000);
+    // The cap stopping the loop mid-resolution (not the loop naturally
+    // running out of xp to consume) means a meaningful amount of xp must
+    // remain unconsumed -- this delta was deliberately built to have MORE
+    // than the exact resolving sum, so some remainder greater than 0 must
+    // be left over.
+    expect(result.fleetAdminXp).toBeGreaterThan(0);
   });
 });
