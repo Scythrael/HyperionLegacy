@@ -435,16 +435,7 @@
       <div class="tick-bar-readout">{globalTickRemaining.toFixed(1)}s</div>
     </div>
 
-    <main class="main">
-      <div class="nav-tabs">
-        <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
-        <button class="nav-tab" class:active={activeTab === "sectorSpace"} on:click={() => (activeTab = "sectorSpace")}>Sector Space</button>
-        <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Fleet Captain's</button>
-        <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Fleet Operations</button>
-        <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
-        <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
-      </div>
-
+    <main class="tab-body">
       {#if activeTab === "homeworld"}
       <SubTabs
         tabs={[{ key: "resources", label: "Resources" }, { key: "refinery", label: "Refinery/Fabrication" }, { key: "talents", label: "Homeworld Talents" }]}
@@ -452,6 +443,7 @@
         onSelect={(key) => (activeHomeworldSubTab = key as HomeworldSubTab)}
       />
 
+      <div class="tab-scroll-area">
       {#if activeHomeworldSubTab === "resources"}
       <Panel>
         <div class="panel-title">HOME PLANET</div>
@@ -554,13 +546,16 @@
         {/each}
       </Panel>
       {/if}
+      </div>
       {/if}
 
       {#if activeTab === "sectorSpace"}
+      <div class="tab-scroll-area">
       <Panel>
         <div class="panel-title">SECTOR SPACE</div>
         <p class="prestige-text">Shipyard and Starbase are still under construction.</p>
       </Panel>
+      </div>
       {/if}
 
       {#if activeTab === "fleetCaptains"}
@@ -570,6 +565,7 @@
         onSelect={(key) => (activeFleetCaptainSubTab = key as FleetCaptainSubTab)}
       />
 
+      <div class="tab-scroll-area">
       <div class="fleet-captains-layout">
         <div class="captain-list">
           {#each state.captains as captain, i}
@@ -664,9 +660,11 @@
           {/if}
         </div>
       </div>
+      </div>
       {/if}
 
       {#if activeTab === "fleetOperations"}
+      <div class="tab-scroll-area">
       <!-- Fleet Operations (UI Redesign, Task 9 --
            docs/plans/2026-07-07-ui-redesign-plan.md) -- mission-first, NOT
            captain-scoped (deliberately does not read activeCaptain anywhere
@@ -725,13 +723,16 @@
           {/if}
         </Panel>
       {/each}
+      </div>
       {/if}
 
       {#if activeTab === "battlespace"}
+      <div class="tab-scroll-area">
       <Panel>
         <div class="panel-title">BATTLESPACE</div>
         <p class="prestige-text">PvP and PvE fleet operations will live here.</p>
       </Panel>
+      </div>
       {/if}
 
       {#if activeTab === "system"}
@@ -741,6 +742,7 @@
         onSelect={(key) => (activeSystemSubTab = key as SystemSubTab)}
       />
 
+      <div class="tab-scroll-area">
       {#if activeSystemSubTab === "options"}
       <Panel>
         <div class="panel-title">OPTIONS</div>
@@ -800,8 +802,18 @@
         </div>
       </Panel>
       {/if}
+      </div>
       {/if}
     </main>
+
+    <div class="nav-tabs">
+      <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
+      <button class="nav-tab" class:active={activeTab === "sectorSpace"} on:click={() => (activeTab = "sectorSpace")}>Sector Space</button>
+      <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Fleet Captain's</button>
+      <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Fleet Operations</button>
+      <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
+      <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
+    </div>
   </div>
 
   {#if deleteModalOpen}
@@ -822,32 +834,34 @@
 
 <style>
   .root {
-    min-height: 100vh;
-    min-height: 100dvh; /* see app.css's html/body comment -- same mobile-viewport issue */
+    /* Was min-height: 100dvh -- now a HARD height, so this flex column never
+       grows past the viewport. The ONE scrollable region below
+       (.tab-scroll-area, per active tab) absorbs overflow instead of the
+       whole page growing underneath the header/nav bars, which is the entire
+       point of this change -- see docs/plans/2026-07-07-scroll-containment-
+       locked-placeholders-design.md. */
+    height: 100dvh;
     position: relative;
     overflow: hidden;
   }
   .frame {
     position: relative;
     z-index: 1;
+    height: 100%; /* fills .root's fixed viewport height exactly */
     max-width: 720px;
     margin: 0 auto;
-    /* Bottom padding enlarged (60px -> 96px) to clear the fixed .nav-tabs bar
-       (Task 1, Phase 4) -- without this, the LOG panel (or whatever ends up
-       last in the active tab) would render partially underneath the bar.
-       Also adds env(safe-area-inset-bottom) so devices with a gesture-nav
-       home indicator (which eats into the same bottom region .nav-tabs sits
-       in) get proportionally more clearance instead of a fixed guess that
-       assumes no inset -- falls back to 0px on devices/browsers without it.
-       Top padding grows to clear the new fixed .top-bar (added in the UI
-       Redesign) -- mirrors how the bottom padding already clears the fixed
-       .nav-tabs bar below. 90px is a generous estimate of .top-bar's real
-       height (2 rows of text + 2 progress bars + padding); this is the one
-       piece of this plan that genuinely benefits from a live-device check
-       once deployed, since pixel-exact panel heights can't be verified
-       without a renderer in this environment -- flag as such in the PR/
-       session log if it's ever visibly off. */
-    padding: calc(90px + env(safe-area-inset-top, 0px)) 16px calc(96px + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* only .tab-scroll-area (nested inside) actually scrolls */
+    /* Horizontal 16px inset unchanged from before. Top padding now the ONLY
+       place safe-area-inset-top is handled (moved off .top-bar below -- since
+       .top-bar sits BELOW Panel.header now instead of being pinned flush
+       against the screen edge via position:fixed, .frame's own top edge is
+       the one flush against the real viewport edge that needs notch/status-
+       bar clearance). Bottom padding is 0 -- .nav-tabs (now the last flex
+       child, flush against .frame's own bottom edge) handles its own bottom
+       safe-area clearance directly, same as it always has. */
+    padding: calc(20px + env(safe-area-inset-top, 0px)) 16px 0;
   }
   .header-left { display: flex; flex-direction: column; }
   .title {
@@ -875,54 +889,67 @@
     color: var(--color-accent);
     cursor: pointer;
   }
-  .main { display: flex; flex-direction: column; gap: 14px; }
-  /* Fixed to the TOP of the viewport, mirroring .nav-tabs' fixed-to-bottom
-     treatment -- "always on top" per the design doc, visible regardless of
-     which tab/sub-tab is active. Sits below the (non-fixed, scrolls-away)
-     FLEET ADMIRAL title panel in document order, but visually pins above it
-     once that panel scrolls out of view. */
+  .tab-body {
+    /* Replaces the old .main rule (same class removed from the <main> tag in
+       the template -- <main> becomes <main class="tab-body">). This is the
+       ONE flexible region between the fixed top-bar and the fixed bottom nav
+       -- flex:1 + min-height:0 is the standard flexbox idiom that lets a flex
+       child actually SHRINK below its content's natural height (without
+       min-height:0, a flex child defaults to min-height:auto, which would let
+       its content push .frame taller than the viewport instead of triggering
+       the inner scrollbar -- this is the single most common way this exact
+       kind of layout silently breaks, so don't drop it). */
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-top: 14px; /* gap below .top-bar, whether the tab's first child is a <SubTabs> row or .tab-scroll-area directly */
+  }
+  .tab-scroll-area {
+    /* THE scrollable region -- every tab wraps its actual panel content in
+       exactly one of these. Same flex:1 + min-height:0 idiom as .tab-body
+       above, but this time paired with overflow-y:auto so IT (not the page)
+       is what actually scrolls. */
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px; /* preserves the old .main's gap:14px spacing between stacked panels, now scoped to just the scrollable region */
+    padding-bottom: 14px; /* breathing room at the very bottom of scrolled content, above .nav-tabs */
+  }
+  /* Sits directly below Panel.header in document order (Task 1: no longer
+     position:fixed, so it's a normal flex child now -- see .frame above). */
   .top-bar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 50;
     background: var(--color-panel-bg-strong);
     border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.3);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
     padding: 10px 16px;
-    /* Devices with a notch/status-bar inset reserve a safe area at the TOP of
-       the screen -- this bar sits flush against it (position: fixed, top: 0),
-       so its own top padding needs to grow to clear that inset, same pattern
-       as .nav-tabs' bottom padding already handles for the bottom inset. */
-    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    flex-shrink: 0; /* never compresses, even if .tab-scroll-area's content is tall */
   }
   .top-bar-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
   .top-bar-label { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
   .top-bar-value { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); }
-  /* Outer nav (Task 1, Phase 4) -- fixed to the bottom of the viewport per
-     the design doc ("tabs along the bottom of the screen"). Deliberately
-     distinct from .captain-tab below (solid panel-strength background,
-     no rounded corners, uppercase+letter-spaced labels) so it reads as the
-     OUTER shell nav rather than a second row of the same widget as the
-     INNER captain switcher. .frame's bottom padding (see above) is sized to
-     clear this bar's height so it never overlaps whatever renders last in
-     the active tab (e.g. the LOG panel under System). */
+  /* Outer nav (Task 1, Phase 4) -- now the LAST flex child inside .frame
+     (Task 1 of this plan moved it here from being the first child of the old
+     <main>), so it's the bottom-most thing in the flex column, visually
+     identical to today's "pinned to the bottom of the screen" look, just via
+     document flow instead of position:fixed. Deliberately distinct from
+     .captain-tab below (solid panel-strength background, no rounded corners,
+     uppercase+letter-spaced labels) so it reads as the OUTER shell nav rather
+     than a second row of the same widget as the INNER captain switcher. */
   .nav-tabs {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 50;
     display: flex;
     background: var(--color-panel-bg-strong);
     border-top: 1px solid rgba(var(--color-accent-rgb), 0.3);
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
     /* Devices with a gesture-nav home indicator reserve a safe area at the
-       bottom of the screen -- without this, the bar's own bottom edge (and
-       its tap targets) can sit under/behind that indicator. Matches
-       .frame's own safe-area addition above so both grow together. */
+       bottom of the screen -- still the flush-bottom element (now via
+       document flow as .frame's last flex child, not position:fixed), still
+       needs this. */
     padding-bottom: env(safe-area-inset-bottom, 0px);
+    flex-shrink: 0;
   }
   .nav-tab {
     flex: 1;
