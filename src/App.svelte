@@ -41,6 +41,8 @@
     captainBonusRollChance,
     captainBonusRollChanceMult,
     LOOT_MATERIAL_KEYS,
+    describeCaptainTalentEffect,
+    describeHomeworldTalentEffect,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave, importRawSave } from "./lib/game/save";
@@ -149,6 +151,17 @@
   // but does NOT dispatch -- only the Dispatch button does that.
   let missionPopupKey: MissionKey | null = null;
   let missionPopupCaptainId: number | null = null;
+
+  // Talent Tree Visual Redesign (Task 12) -- tracks which single talent
+  // node's tooltip is open, shared across BOTH Captain Talents and Homeworld
+  // Talents panels. Safe to share one variable: CaptainTalentKey and
+  // HomeworldTalentKey are disjoint string-literal unions (confirmed by hand
+  // against model.ts -- commandExtractionI/II, resourcefulnessRareChanceI/II,
+  // resourcefulnessBonusRollI/II vs. fleetLogisticsSlot1/2/3,
+  // fleetLogisticsYield, industryBonusOutput, economyTrickle -- no shared
+  // values), and only one of the two panels is ever visible at a time anyway
+  // (they live on different tabs/sub-tabs). null means no tooltip is open.
+  let openTooltipKey: string | null = null;
   let speed = 1;
   let logEntries: string[] = [];
   let activeCaptainIndex = 0;
@@ -868,9 +881,20 @@
                          (skipped entirely, via the columnCount>1 ternary, when
                          there's only one column, so it can never nudge a
                          single-node row's edges inward). -->
+                    <!-- Tooltip wiring (Task 12) -- hover shows on desktop
+                         (mouseenter/mouseleave), tap toggles on touch (click).
+                         The click handler lives on THIS outer container, but
+                         the buy-btn below stops its own click from
+                         propagating up to this div -- otherwise clicking
+                         "Unlock" would ALSO toggle the tooltip open/closed as
+                         a side effect of the same click, on top of correctly
+                         calling doBuyHomeworldTalent. -->
                     <div
                       class="skill-node talent-node" class:owned={owned} class:locked={locked}
                       style="top:{rowDepth * TALENT_ROW_HEIGHT}px; left:calc({(columnIndex / columnCount) * 100}%{columnCount > 1 && columnIndex > 0 ? ' + 4px' : ''}); width:calc({100 / columnCount}%{columnCount > 1 ? ' - 4px' : ''}); right:auto;"
+                      on:mouseenter={() => (openTooltipKey = key)}
+                      on:mouseleave={() => (openTooltipKey = null)}
+                      on:click={() => (openTooltipKey = openTooltipKey === key ? null : key)}
                     >
                       <div>
                         <div class="skill-node-label">{talent.label}</div>
@@ -885,9 +909,28 @@
                         </div>
                       </div>
                       {#if !owned}
-                        <button class="buy-btn" disabled={!buyable} on:click={() => doBuyHomeworldTalent(key as HomeworldTalentKey)}>
+                        <button
+                          class="buy-btn"
+                          disabled={!buyable}
+                          on:click|stopPropagation={() => doBuyHomeworldTalent(key as HomeworldTalentKey)}
+                        >
                           Unlock
                         </button>
+                      {/if}
+                      {#if openTooltipKey === key}
+                        <div class="talent-tooltip">
+                          <p class="talent-tooltip-flavor">{talent.flavor}</p>
+                          <p class="talent-tooltip-effect">{describeHomeworldTalentEffect(talent.effect)}</p>
+                          <p class="talent-tooltip-meta">
+                            {#if owned}
+                              Owned
+                            {:else if locked}
+                              Requires: {HOMEWORLD_TALENTS[talent.requires!].label}
+                            {:else}
+                              Cost: {formatNumber(talent.cost)} Admin Points
+                            {/if}
+                          </p>
+                        </div>
                       {/if}
                     </div>
                   {/each}
@@ -1037,9 +1080,20 @@
                           {@const owned = activeCaptain.unlockedCaptainTalents.includes(key as CaptainTalentKey)}
                           {@const locked = !owned && talent.requires !== null && !activeCaptain.unlockedCaptainTalents.includes(talent.requires)}
                           {@const buyable = !owned && !locked && activeCaptain.statPoints >= talent.cost}
+                          <!-- Tooltip wiring (Task 12) -- hover shows on desktop
+                               (mouseenter/mouseleave), tap toggles on touch (click).
+                               The click handler lives on THIS outer container, but
+                               the buy-btn below stops its own click from
+                               propagating up to this div -- otherwise clicking
+                               "Learn" would ALSO toggle the tooltip open/closed as
+                               a side effect of the same click, on top of correctly
+                               calling doBuyCaptainTalent. -->
                           <div
                             class="skill-node talent-node" class:owned={owned} class:locked={locked}
                             style="top:{rowDepth * TALENT_ROW_HEIGHT}px;"
+                            on:mouseenter={() => (openTooltipKey = key)}
+                            on:mouseleave={() => (openTooltipKey = null)}
+                            on:click={() => (openTooltipKey = openTooltipKey === key ? null : key)}
                           >
                             <div>
                               <div class="skill-node-label">{talent.label}</div>
@@ -1054,9 +1108,28 @@
                               </div>
                             </div>
                             {#if !owned}
-                              <button class="buy-btn" disabled={!buyable} on:click={() => doBuyCaptainTalent(key as CaptainTalentKey)}>
+                              <button
+                                class="buy-btn"
+                                disabled={!buyable}
+                                on:click|stopPropagation={() => doBuyCaptainTalent(key as CaptainTalentKey)}
+                              >
                                 Learn
                               </button>
+                            {/if}
+                            {#if openTooltipKey === key}
+                              <div class="talent-tooltip">
+                                <p class="talent-tooltip-flavor">{talent.flavor}</p>
+                                <p class="talent-tooltip-effect">{describeCaptainTalentEffect(talent.effect)}</p>
+                                <p class="talent-tooltip-meta">
+                                  {#if owned}
+                                    Owned
+                                  {:else if locked}
+                                    Requires: {CAPTAIN_TALENTS[talent.requires!].label}
+                                  {:else}
+                                    Cost: {formatNumber(talent.cost)} Stat Points
+                                  {/if}
+                                </p>
+                              </div>
                             {/if}
                           </div>
                         {/each}
@@ -2042,6 +2115,53 @@
     left: 0;
     right: 0;
     margin-bottom: 0;
+  }
+
+  /* Talent Tree Visual Redesign (Task 12) -- hover/tap tooltip popup, shared
+     shape for both Captain Talents and Homeworld Talents nodes. Positioned
+     absolute relative to .talent-node (which is itself position:absolute,
+     see above) so it floats just below the node it belongs to without
+     disturbing that node's own depth-based `top` offset. z-index 20 clears
+     both sibling .talent-node elements (implicit stacking order, no z-index
+     of their own) and the .talent-branch-connectors SVG overlay (position:
+     absolute, painted earlier in DOM order) so the tooltip never renders
+     underneath either. Background/border reuse the same
+     --color-panel-bg-strong/--color-accent-rgb tokens as .skill-node and the
+     rest of the panel chrome above, so this doesn't introduce a new visual
+     language. pointer-events left at the default (auto) -- unlike
+     .talent-branch-connectors, this popup has no reason to pass clicks
+     through to whatever's beneath it. */
+  .talent-tooltip {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    width: 220px;
+    max-width: 60vw;
+    padding: 8px 10px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    z-index: 20;
+  }
+  .talent-tooltip-flavor {
+    font-size: 11px;
+    font-style: italic;
+    color: var(--color-text-secondary);
+    margin: 0 0 6px;
+    line-height: 1.4;
+  }
+  .talent-tooltip-effect {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-success);
+    margin: 0 0 6px;
+  }
+  .talent-tooltip-meta {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    margin: 0;
   }
   .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
   .theme-swatch {
