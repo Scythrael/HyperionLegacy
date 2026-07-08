@@ -719,7 +719,7 @@
            markup twice, so a 3rd recipe added to RECIPES later (per that
            object's own header comment) picks up a panel automatically. -->
       {#each Object.entries(RECIPES) as [recipeKey, recipe]}
-        {@const inputEntries = Object.entries(recipe.inputs) as [HomePlanetMaterialKey, number][]}
+        {@const inputEntries = Object.entries(recipe.inputs) as [HomePlanetMaterialKey, Decimal][]}
         {@const affordable = inputEntries.every(([key, amount]) => state.homePlanet.storage[key] >= amount)}
         <Panel>
           <div class="panel-title">{recipeKey === "refineUnobtainium" ? "REFINERY" : "FABRICATION"}</div>
