@@ -606,6 +606,12 @@
   $: globalBarSeconds = Math.max(1, state.tickDurationSeconds / (speed || 1));
   $: globalTickProgress = Math.min(1, Math.max(0, (cycle.nowTick - cycle.barCycleStart) / 1000 / globalBarSeconds));
   $: globalTickRemaining = Math.max(0, globalBarSeconds * (1 - globalTickProgress));
+  // Header redesign (2026-07-07) -- single source for the Fleet Admiral XP
+  // ratio, consumed by both the bar-fill width (clamped to 100) and the
+  // readout percentage below (unclamped, .toFixed(1)) -- avoids the same
+  // division appearing twice and drifting if the formula ever changes,
+  // matching the globalTickProgress/globalTickRemaining pattern above.
+  $: fleetAdminXpRatio = state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel);
 </script>
 
 <div class="root">
@@ -619,9 +625,9 @@
           <div class="top-bar-xp-row">
             <span class="top-bar-xp-label">Exp:</span>
             <div class="research-bar-track top-bar-xp-track">
-              <div class="research-bar-fill" style="width:{Math.min(100, (state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel)) * 100)}%"></div>
+              <div class="research-bar-fill" style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></div>
             </div>
-            <span class="top-bar-xp-readout">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{((state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel)) * 100).toFixed(1)}%]</span>
+            <span class="top-bar-xp-readout">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{(fleetAdminXpRatio * 100).toFixed(1)}%]</span>
           </div>
         </div>
       </div>
@@ -1429,12 +1435,15 @@
      to the name+XP-bar row, then a single full-width tick-bar row below.
      .top-bar-header lays out the portrait + info column side by side. */
   .top-bar-header { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
-  /* .top-bar-portrait itself is declared further down, immediately after
-     .mission-portrait-frame's own rule -- see the comment there for why the
-     ORDER of those two rules in the stylesheet matters (source-order tiebreak
-     on equal specificity). Kept out of this block deliberately so it doesn't
-     end up ahead of .mission-portrait-frame just because this new CSS block
-     was added in one place. */
+  /* Descendant selector (specificity 0,2,0) rather than a bare .top-bar-portrait
+     class (0,1,0) -- this reliably overrides .mission-portrait-frame's own
+     flex/height/font-size regardless of where either rule sits in this
+     stylesheet, so there's no source-order dependency to accidentally break
+     by moving/reordering rules later. Only overrides what needs shrinking for
+     the header's smaller footprint; .mission-portrait-frame's border,
+     background, and flex-centering apply untouched since this rule doesn't
+     redeclare them. */
+  .top-bar-header .top-bar-portrait { flex: 0 0 40px; height: 40px; font-size: 16px; }
   .top-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .top-bar-name { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
   .top-bar-xp-row { display: flex; align-items: center; gap: 8px; }
@@ -1702,24 +1711,6 @@
     color: var(--color-text-secondary);
     background: rgba(var(--color-accent-rgb), 0.03);
   }
-  /* Header redesign (2026-07-07) -- the portrait element in the new
-     .top-bar-header uses class="mission-portrait-frame top-bar-portrait",
-     reusing this rule's border/background/flex-centering/color as-is and
-     only shrinking the box for the header's smaller footprint. Declared HERE,
-     immediately AFTER .mission-portrait-frame, on purpose: both are plain
-     single-class selectors (equal specificity), so with no !important on
-     either side, the cascade falls back to source order on any property
-     BOTH rules set -- and only the LATER rule in the compiled stylesheet
-     wins on those. This rule sets flex/height/font-size, which
-     .mission-portrait-frame also sets (flex:0 0 64px/height:64px/
-     font-size:24px) -- being later here means this rule's 40px/40px/16px
-     values are what actually apply to the portrait element. Everything
-     .mission-portrait-frame sets that this rule does NOT redeclare -- the
-     dashed border, background tint, display:flex centering, text color --
-     is untouched by this rule and still applies. If this rule is ever moved
-     ABOVE .mission-portrait-frame in the file, the override direction
-     flips and the portrait silently reverts to the 64px mission-card size. */
-  .top-bar-portrait { flex: 0 0 40px; height: 40px; font-size: 16px; }
   .mission-card-body { flex: 1; min-width: 0; }
   /* No existing non-dev-panel "danger" button style to reuse -- .dev-btn.danger
      is scoped to the amber dev-panel look, and .prestige-btn's warning color
