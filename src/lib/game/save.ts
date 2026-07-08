@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type CaptainState, type MissionKey, type MissionPhase, freshCaptains, requiredTicksForPhase, MISSIONS } from "./model";
 
-export const SAVE_VERSION = 13;
+export const SAVE_VERSION = 14;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -63,6 +63,7 @@ function hydrateDecimals(state: any): GameState {
       },
     },
     fleetAdminXp: toDecimal(state.fleetAdminXp),
+    credits: toDecimal(state.credits),
   };
 }
 
@@ -211,6 +212,26 @@ function hydrateDecimals(state: any): GameState {
 // v12 ratio permanently, even after MISSIONS is rebalanced again in some future
 // update. phaseProgressTicks is already documented as continuous/fractional, so
 // the remapped result needs no rounding.
+// v13 -> v14: Talent Tree Visual Redesign (docs/plans/2026-07-08-talent-tree-
+// visual-redesign-plan.md, Task 1). GameState gains `credits` (a fleet-wide
+// currency, Decimal-typed from the start -- see hydrateDecimals below, which
+// converts it unconditionally same as fleetAdminXp/homePlanet.storage/etc.),
+// and CaptainState gains `spec` (this captain's chosen Captain Specialization
+// branch, or null if none chosen yet -- NOT Decimal-typed, so no hydration
+// step is needed for it). Both fields are absent entirely on any pre-v14
+// save -- backfilled to 0 and null respectively, the same baseline
+// freshState()/freshCaptainStack() give a brand-new game/captain. Note this
+// backfill applies to EVERY captain in state.captains at this point in the
+// chain regardless of how that captain object was originally constructed
+// (e.g. MIGRATIONS[4]'s inline `captainOne` literal, far below, predates
+// `spec` entirely -- same as it predates `xp`/`level`/`statPoints` (backfilled
+// by MIGRATIONS[8]) and `unlockedCaptainTalents` (backfilled by MIGRATIONS[9]),
+// neither of which needed touching at MIGRATIONS[4]'s own construction site
+// either). Because MIGRATIONS runs strictly in increasing numeric order (see
+// migrate()'s while-loop below), this step always executes AFTER MIGRATIONS[4]
+// (or any other earlier step) has already run, and maps over whatever
+// state.captains looks like at THAT point -- so every captain, regardless of
+// origin, picks up `spec: null` here.
 const OLD_MISSION_TICKS_V12: Record<MissionKey, {
   transitOutTicks: number; transitBackTicks: number; unloadTicks: number;
   extractionRatePerTick: number; cargoCapacity: number;
@@ -371,6 +392,18 @@ const MIGRATIONS: Record<number, Migration> = {
       const newRequired = requiredTicksForPhase(c.mission.phase, MISSIONS[c.mission.missionKey]);
       return { ...c, mission: { ...c.mission, phaseProgressTicks: progressRatio * newRequired } };
     }),
+  }),
+  13: (state: any): GameState => ({
+    ...state,
+    // Plain number here, not `new Decimal(0)` -- hydrateDecimals() (called
+    // unconditionally in migrate(), below) converts this to a real Decimal
+    // for both old AND already-current-version saves, same pattern as
+    // MIGRATIONS[11]'s no-op step used for the prior Decimal migration.
+    credits: 0,
+    // spec needs no such hydration -- it's not Decimal-typed. Backfilled here
+    // for every captain regardless of origin; see the file-header comment
+    // above for why this covers MIGRATIONS[4]'s inline captainOne literal too.
+    captains: state.captains.map((c: any) => ({ ...c, spec: null })),
   }),
 };
 
