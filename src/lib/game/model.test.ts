@@ -28,7 +28,7 @@ describe("freshState — captain roster shape", () => {
   it("starts with xp:0, level:1, statPoints:0 per captain, and fleet-wide tickDurationSeconds 10", () => {
     const state = freshState();
     for (const c of state.captains) {
-      expect(c.xp).toBe(0);
+      expect(c.xp.equals(0)).toBe(true);
       expect(c.level).toBe(1);
       expect(c.statPoints).toBe(0);
     }
@@ -49,7 +49,7 @@ describe("freshCaptains(count) — parameterized roster generation", () => {
     expect(captains.map((c) => c.label)).toEqual(["Captain 1", "Captain 2", "Captain 3"]);
     for (const c of captains) {
       expect(c.shipType).toBe("resourcer");
-      expect(c.xp).toBe(0);
+      expect(c.xp.equals(0)).toBe(true);
       expect(c.level).toBe(1);
       expect(c.statPoints).toBe(0);
     }
@@ -67,7 +67,7 @@ describe("freshCaptainStack — shared reset baseline", () => {
   it("returns the baseline a brand-new captain slot starts with (no tickDurationSeconds -- that's fleet-wide now)", () => {
     const stack = freshCaptainStack();
     expect(stack.mission).toBe(null);
-    expect(stack.xp).toBe(0);
+    expect(stack.xp.equals(0)).toBe(true);
     expect(stack.level).toBe(1);
     expect(stack.statPoints).toBe(0);
     expect((stack as any).tickDurationSeconds).toBeUndefined();
@@ -82,13 +82,15 @@ describe("freshState / freshCaptainStack — mission and Home Planet fields", ()
 
   it("freshState's homePlanet storage starts at 0 for every material, including the crafted-good tiers", () => {
     const state = freshState();
-    expect(state.homePlanet.storage).toEqual({
-      commonOre: 0,
-      uncommonMaterial: 0,
-      rareMaterial: 0,
-      refinedMaterial: 0,
-      components: 0,
-    });
+    // Per-key .equals() checks, not .toEqual() against a plain-number literal --
+    // .toEqual does a deep structural comparison, and a Decimal instance's
+    // internal shape (mantissa/exponent) will NOT structurally match a plain
+    // number literal even when the represented value is equal.
+    expect(state.homePlanet.storage.commonOre.equals(0)).toBe(true);
+    expect(state.homePlanet.storage.uncommonMaterial.equals(0)).toBe(true);
+    expect(state.homePlanet.storage.rareMaterial.equals(0)).toBe(true);
+    expect(state.homePlanet.storage.refinedMaterial.equals(0)).toBe(true);
+    expect(state.homePlanet.storage.components.equals(0)).toBe(true);
   });
 
   it("freshCaptainStack's mission field is null (a brand-new/unlocked captain slot starts idle)", () => {
@@ -151,7 +153,10 @@ describe("RECIPES — launch set", () => {
     expect(Object.keys(RECIPES)).toHaveLength(2);
     for (const recipe of Object.values(RECIPES)) {
       expect(Object.keys(recipe.inputs).length).toBeGreaterThan(0);
-      expect(recipe.output.amount).toBeGreaterThan(0);
+      // recipe.output.amount is now a Decimal -- .toBeGreaterThan() needs a
+      // plain-number operand, so compare via .gt(0) instead (both express the
+      // same "amount is a positive quantity" check).
+      expect(recipe.output.amount.gt(0)).toBe(true);
     }
   });
 });
@@ -197,7 +202,7 @@ describe("freshState / freshCaptainStack — talent and Fleet Admiral fields", (
 
   it("freshState starts Fleet Admiral at level 1, 0 xp, 0 adminPoints, no unlocked Homeworld talents", () => {
     const state = freshState();
-    expect(state.fleetAdminXp).toBe(0);
+    expect(state.fleetAdminXp.equals(0)).toBe(true);
     expect(state.fleetAdminLevel).toBe(1);
     expect(state.adminPoints).toBe(0);
     expect(state.unlockedHomeworldTalents).toEqual([]);
