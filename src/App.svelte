@@ -431,11 +431,14 @@
       // tickCaptainMission's own XP award already established in Phase 4).
       // Runs unconditionally every poll (not gated behind anyFired/
       // anyLootDelivered above) since it's a cheap no-op when
-      // fleetAdminXpDelta is 0 -- applyFleetAdminXp itself returns the SAME
-      // state reference in that case (see that function's own `<= 0` guard
-      // in tick.ts), so this line doesn't introduce any extra reactivity
-      // churn on the overwhelmingly common poll where no captain's mission
-      // cycle completed this poll. fleetAdminXpDelta is guaranteed defined
+      // fleetAdminXpDelta is 0 AND there's no leftover backlog from a prior
+      // capped call -- applyFleetAdminXp itself returns the SAME state
+      // reference in that (overwhelmingly common) case, so this line doesn't
+      // introduce any extra reactivity churn on the vast majority of polls.
+      // On the astronomically rare poll where a prior call's delta was large
+      // enough to hit MAX_LEVEL_UPS_PER_TICK, this call keeps draining that
+      // backlog even with fleetAdminXpDelta at 0 (see applyFleetAdminXp's own
+      // guard in tick.ts). fleetAdminXpDelta is guaranteed defined
       // here regardless of whether progress >= 1 this poll -- see its
       // declaration above, before the `if (progress >= 1)` block.
       state = applyFleetAdminXp(state, fleetAdminXpDelta);
