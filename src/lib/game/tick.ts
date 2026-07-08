@@ -314,12 +314,14 @@ export function tickCaptainMission(
         // once per tickCaptainMission call. Resolve every level-up crossed by
         // this award, not just one -- a while (not if) loop, same closed-form
         // spirit as the phase-advancement logic above.
-        xp += XP_PER_MISSION_CYCLE;
+        xp = xp.plus(XP_PER_MISSION_CYCLE);
         fleetAdminXpDelta += missionDef.fleetAdminXpPerCycle;
-        while (xp >= xpForNextLevel(level)) {
-          xp -= xpForNextLevel(level);
+        let levelUpsThisCall = 0;
+        while (xp.gte(xpForNextLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
+          xp = xp.minus(xpForNextLevel(level));
           level += 1;
           statPoints += 1;
+          levelUpsThisCall += 1;
         }
         if (mission.recalled) {
           mission = null;
@@ -371,16 +373,16 @@ export function tickCaptainMission(
 // actually correct about rather than leaving a comment that overstates what
 // the code did.
 export function applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): GameState {
-  const startingXp = fleetAdminXpDelta > 0 ? state.fleetAdminXp + fleetAdminXpDelta : state.fleetAdminXp;
-  const hasBacklog = startingXp >= xpForNextFleetAdminLevel(state.fleetAdminLevel);
+  const startingXp = fleetAdminXpDelta > 0 ? state.fleetAdminXp.plus(fleetAdminXpDelta) : state.fleetAdminXp;
+  const hasBacklog = startingXp.gte(xpForNextFleetAdminLevel(state.fleetAdminLevel));
   if (fleetAdminXpDelta <= 0 && !hasBacklog) return state; // cheap no-op: no new XP this call, and nothing left over from a prior capped call to resolve
 
   let xp = startingXp;
   let level = state.fleetAdminLevel;
   let adminPoints = state.adminPoints;
   let levelUpsThisCall = 0;
-  while (xp >= xpForNextFleetAdminLevel(level) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
-    xp -= xpForNextFleetAdminLevel(level);
+  while (xp.gte(xpForNextFleetAdminLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
+    xp = xp.minus(xpForNextFleetAdminLevel(level));
     level += 1;
     adminPoints += 1;
     levelUpsThisCall += 1;
