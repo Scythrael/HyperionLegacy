@@ -35,6 +35,7 @@
     captainExtractionYieldMult,
     captainRareLootChanceMult,
     fleetExtractionYieldMult,
+    applyRareLootChanceMult,
     LOOT_MATERIAL_KEYS,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
@@ -77,6 +78,14 @@
   let currentTheme: ThemeName = "cyan";
   let deleteModalOpen = false;
   let deleteConfirmText = "";
+
+  // Fleet Operations captain-selection popup (2026-07-07 Fleet Operations
+  // Mission UI) -- null missionPopupKey means the popup is closed. Selecting a
+  // mission card opens it with no captain chosen yet (missionPopupCaptainId
+  // null); picking a captain inside the popup recalculates the preview stats
+  // but does NOT dispatch -- only the Dispatch button does that.
+  let missionPopupKey: MissionKey | null = null;
+  let missionPopupCaptainId: number | null = null;
   let speed = 1;
   let logEntries: string[] = [];
   let activeCaptainIndex = 0;
@@ -121,6 +130,23 @@
   // Options since theme/save actions are the most commonly checked view.
   type SystemSubTab = "options" | "log" | "debug" | "about" | "patchNotes";
   let activeSystemSubTab: SystemSubTab = "options";
+
+  // Fleet Operations mission-category buttons (2026-07-07 Fleet Operations
+  // Mission UI). Only "resourceGathering" has real content today -- the other
+  // 3 render locked/"Coming Soon", same pattern as locked captain-list slots
+  // and locked sub-tabs. Confirmed with the user: Patrol needs combat
+  // (Battlespace is still a stub), Surveying/Long-Term Exploration have no
+  // backing mechanics yet.
+  type MissionCategoryKey = "resourceGathering" | "patrol" | "surveying" | "longTermExploration";
+  let activeMissionCategory: MissionCategoryKey = "resourceGathering";
+
+  // Difficulty tiers within Resource-Gathering, reusing the SubTabs component's
+  // existing locked-tab support. Tier I is real and contains BOTH launch
+  // missions (see model.ts's MissionDef.tier field) -- confirmed with the
+  // user neither shortOreRun nor longOreRun is meant to be a separate tier.
+  // Tiers II-V are locked placeholders for future mission content.
+  type MissionTierKey = "tierI" | "tierII" | "tierIII" | "tierIV" | "tierV";
+  let activeMissionTier: MissionTierKey = "tierI";
 
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
@@ -373,6 +399,27 @@
     state = next;
     pushLog(`[${captain.label}] Recall ordered — returning to base from: ${missionLabel}.`);
     doSave();
+  }
+
+  // Fleet Operations captain-selection popup handlers (2026-07-07 Fleet
+  // Operations Mission UI) -- open/close just manage missionPopupKey/
+  // missionPopupCaptainId (declared above near deleteModalOpen); the actual
+  // dispatch is delegated to the existing doDispatchCaptainOnMission so this
+  // popup can't drift from the flow the non-popup dispatch path already uses.
+  function openMissionPopup(missionKey: MissionKey) {
+    missionPopupKey = missionKey;
+    missionPopupCaptainId = null;
+  }
+
+  function closeMissionPopup() {
+    missionPopupKey = null;
+    missionPopupCaptainId = null;
+  }
+
+  function doDispatchFromPopup() {
+    if (missionPopupKey === null || missionPopupCaptainId === null) return;
+    doDispatchCaptainOnMission(missionPopupCaptainId, missionPopupKey); // existing function, unchanged
+    closeMissionPopup();
   }
 
   function simulateOffline(hours: number) {
