@@ -926,21 +926,20 @@
     z-index: 1;
     height: 100%; /* fills .root's fixed viewport height exactly */
     /* Was 720px (a mobile-first cap dating back to Phase 1, long logged in
-       SUGGESTIONS.md as "full-width panels" -- a deferred idea until now).
-       width: 98% leaves a thin 1%-per-side margin (aesthetic breathing room,
-       not a functional cap) so the app reads as "wide" without ever quite
-       touching the browser's own edge. max-width: 2400px is a ceiling only
-       for very large/ultrawide monitors -- it must sit comfortably ABOVE
-       98% of any common desktop resolution (e.g. 1920px-wide 1080p ->
-       98% = 1881.6px) or it becomes the binding constraint instead of the
-       98%, which is what happened with the previous 1400px value: on a
-       1920px-wide screen the frame was stuck at 1400px (73%), nowhere near
-       98%, because the cap was tighter than the percentage. No separate
-       mobile handling needed -- 98% behaves the same at any viewport size,
-       narrow or wide. */
-    width: 98%;
+       SUGGESTIONS.md as "full-width panels" -- a deferred idea until now),
+       then 98% (a thin aesthetic margin). Now a true 100% -- the user wants
+       every pixel of width usable, partly because this is expected to run
+       inside an iOS/Android wrapper app eventually, where side margins just
+       waste screen on an already-small viewport. max-width: 2400px is a
+       ceiling only for very large/ultrawide monitors -- it must sit
+       comfortably above 100% of any common desktop resolution or it becomes
+       the binding constraint instead (see the git history of this comment:
+       a 1400px cap once did exactly that on a 1920px-wide screen). No
+       separate mobile handling needed. margin:auto dropped -- it only
+       centers when there's leftover space outside the element, and at
+       width:100% there is none. */
+    width: 100%;
     max-width: 2400px;
-    margin: 0 auto;
     display: flex;
     flex-direction: column;
     overflow: hidden; /* only .tab-scroll-area (nested inside) actually scrolls */
@@ -1037,6 +1036,7 @@
      than a second row of the same widget as the INNER captain switcher. */
   .nav-tabs {
     display: flex;
+    gap: 2px; /* thin seam between tabs, most visible on the active tab's tinted background -- part of the app-wide "flat panel, thin gap" button pass */
     background: var(--color-panel-bg-strong);
     border-top: 1px solid rgba(var(--color-accent-rgb), 0.3);
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
@@ -1084,17 +1084,16 @@
      captain list + right-hand content pane, replacing the old horizontal
      .captain-tabs row above (left in place for now; see this task's plan
      section and KNOWN_ISSUES.md re: whether it's still used anywhere once
-     Task 11 does its final sweep). .captain-list-item is the SAME visual
-     language as .captain-tab (rounded pill, accent-tinted background/
-     border) -- deliberately reused styling, just in a vertical column
-     instead of a horizontal row, since it's now sharing space with the
-     content pane beside it rather than spanning the full width. */
+     Task 11 does its final sweep). .captain-list-item now uses the flat,
+     square-cornered "panel" look (2026-07-07 button-style pass) instead of
+     the old rounded pill -- a thin 2px gap between items reveals the
+     background behind, reading as a segmented banner rather than one solid
+     strip, matching .nav-tabs/.sub-tab/etc. */
   .fleet-captains-layout { display: flex; gap: 12px; align-items: flex-start; }
-  .captain-list { display: flex; flex-direction: column; gap: 6px; flex: 0 0 96px; }
+  .captain-list { display: flex; flex-direction: column; gap: 2px; flex: 0 0 96px; }
   .captain-list-item {
     background: rgba(var(--color-accent-rgb), 0.06);
     border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    border-radius: 8px;
     padding: 10px 8px;
     color: var(--color-text-secondary);
     font-size: 12px;
@@ -1204,12 +1203,12 @@
   /* No existing non-dev-panel "danger" button style to reuse -- .dev-btn.danger
      is scoped to the amber dev-panel look, and .prestige-btn's warning color
      is for a different semantic (fleet prestige), not "cancel an in-progress
-     action." Shaped like .spec-btn (same padding/border-radius/font-size)
-     but colored with --color-danger to read as a distinct, cautionary action. */
+     action." Shaped like .spec-btn (same padding/font-size, both flat-cornered
+     since the 2026-07-07 button-style pass) but colored with --color-danger
+     to read as a distinct, cautionary action. */
   .recall-btn {
     background: rgba(248, 113, 113, 0.1);
     border: 1px solid rgba(248, 113, 113, 0.4);
-    border-radius: 8px;
     padding: 8px 12px;
     color: var(--color-danger);
     font-size: 11px;
@@ -1230,7 +1229,6 @@
   .buy-btn {
     background: rgba(var(--color-accent-rgb), 0.15);
     border: 1px solid var(--color-border-strong);
-    border-radius: 8px;
     padding: 8px 10px;
     color: var(--color-accent-bright);
     font-size: 12px;
@@ -1252,18 +1250,16 @@
     background: rgba(251, 191, 36, 0.15);
     border: 1px solid rgba(251, 191, 36, 0.5);
     color: var(--color-warning);
-    border-radius: 8px;
     padding: 10px 18px;
     font-size: 12px;
     letter-spacing: 1px;
     cursor: pointer;
   }
   .spec-current { font-size: 11px; color: var(--color-text-secondary); margin: 10px 0; }
-  .spec-picker { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .spec-picker { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 10px; }
   .spec-btn {
     background: rgba(var(--color-accent-rgb), 0.1);
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
-    border-radius: 8px;
     padding: 8px 12px;
     color: var(--color-accent-bright);
     font-size: 11px;
@@ -1314,7 +1310,6 @@
     background: rgba(251, 191, 36, 0.08);
     border: 1px solid rgba(251, 191, 36, 0.3);
     color: #fcd34d;
-    border-radius: 6px;
     padding: 6px 10px;
     font-size: 11px;
     cursor: pointer;
@@ -1353,5 +1348,5 @@
     font-family: var(--font-mono);
     font-size: 13px;
   }
-  .modal-row { display: flex; justify-content: flex-end; gap: 8px; }
+  .modal-row { display: flex; justify-content: flex-end; gap: 2px; }
 </style>

@@ -22,15 +22,15 @@
 </div>
 
 <style>
-  .sub-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
-  /* Lighter/smaller variant of App.svelte's .captain-tab -- same visual
-     language (rounded pill, accent-tinted background/border), scaled down
+  .sub-tabs { display: flex; gap: 2px; margin-bottom: 14px; flex-wrap: wrap; }
+  /* Lighter/smaller variant of App.svelte's .captain-list-item -- same flat,
+     square-cornered "panel" look (2026-07-07 button-style pass), scaled down
      since this can appear multiple times per screen (unlike the single
-     top-level bottom nav). */
+     top-level bottom nav). The thin 2px gap above reveals the background
+     behind, reading as a segmented banner rather than one solid strip. */
   .sub-tab {
     background: rgba(var(--color-accent-rgb), 0.05);
     border: 1px solid rgba(var(--color-accent-rgb), 0.16);
-    border-radius: 6px;
     padding: 6px 10px;
     color: var(--color-text-secondary);
     font-size: 11px;
