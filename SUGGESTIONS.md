@@ -350,3 +350,12 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   of which UI elements get art first (captain portraits vs. mission-preview thumbnails vs. talent-node
   icons), no actual vector artwork drafted. Best suited to icons/simple thematic accents rather than
   complex illustration, given hand-authoring SVG paths takes meaningfully longer than sourcing images.
+
+- **Homeworld Market (sell resources for credits).** User idea, 2026-07-08, surfaced during the Talent
+  Tree Visual Redesign brainstorm: a market/trading UI on the Homeworld where existing resources
+  (commonOre/uncommonMaterial/rareMaterial, and eventually refined goods) can be sold for the new
+  `credits` currency introduced by that same branch (currently only earned via `creditsPerCycle` on
+  mission completion). Not scoped yet -- no exchange-rate design, no UI location decided (likely a new
+  Homeworld sub-tab), no decision on whether prices are fixed or fluctuate. Explicitly deferred so it
+  doesn't block the talent-tree work, which only needs credits to exist as a currency, not a full
+  economy around it.
