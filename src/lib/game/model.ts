@@ -45,11 +45,11 @@ export interface MissionDef {
   cargoCapacity: number; // total units across all tiers; MUST divide evenly by extractionRatePerTick
   // for this launch's requiredTicksForPhase() to have no partial-final-tick
   // edge case -- see that function's comment below if this is ever violated.
-  // Independent per-tick occurrence chances (0-1) for uncommon/rare material,
-  // replacing the old weighted-pick lootTable (2026-07-07 Loot Tier Rework --
-  // see the design doc). Both can occur in the SAME tick (rolled
-  // independently, not mutually exclusive) -- see tick.ts's rollExtractionTick
-  // for the exact algorithm and rng() call order.
+  // Per-tick occurrence chances (0-1) checked in sequential, mutually
+  // exclusive priority order -- rare first, then uncommon, then a guaranteed
+  // common fallback (2026-07-08 Extraction Rework -- see the design doc).
+  // Exactly one tier wins per tick; see tick.ts's rollExtractionTick for the
+  // exact algorithm and rng() call order.
   uncommonChance: number;
   rareChance: number;
   // Display-only grouping -- drives which SubTabs tier a mission renders under
