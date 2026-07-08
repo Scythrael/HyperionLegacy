@@ -1275,7 +1275,7 @@
           {@const extractingTicks = requiredTicksForPhase("extracting", missionDef)}
           {@const transitBackTicks = missionDef.transitBackTicks}
           {@const unloadTicks = missionDef.unloadTicks}
-          {@const totalTicks = transitOutTicks + extractingTicks + transitBackTicks + unloadTicks}
+          {@const totalTicks = 1 + transitOutTicks + extractingTicks + transitBackTicks + unloadTicks}
 
           <div class="research-name">Captain: {selectedCaptain.label}</div>
 
