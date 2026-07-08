@@ -435,7 +435,7 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       fleetAdminXpDelta: captainFleetAdminXpDelta,
     } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
     (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
-      homePlanetDelta[key] += delta[key];
+      homePlanetDelta[key] = homePlanetDelta[key].plus(delta[key]);
     });
     fleetAdminXpDelta += captainFleetAdminXpDelta;
     return updated;
@@ -450,7 +450,9 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   for (const key of state.unlockedHomeworldTalents) {
     const effect = HOMEWORLD_TALENTS[key].effect;
     if (effect.type === "passiveTrickle" && (LOOT_MATERIAL_KEYS as string[]).includes(effect.material)) {
-      homePlanetDelta[effect.material as LootMaterialKey] += effect.perTick * ticksElapsed;
+      homePlanetDelta[effect.material as LootMaterialKey] = homePlanetDelta[effect.material as LootMaterialKey].plus(
+        effect.perTick * ticksElapsed
+      );
     }
   }
 
@@ -477,9 +479,9 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
           // dropped homePlanet" fix caught in the immediately-prior shipped
           // feature (Phase 3a). Do not remove this spread.
           ...state.homePlanet.storage,
-          commonOre: state.homePlanet.storage.commonOre + homePlanetDelta.commonOre,
-          uncommonMaterial: state.homePlanet.storage.uncommonMaterial + homePlanetDelta.uncommonMaterial,
-          rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
+          commonOre: state.homePlanet.storage.commonOre.plus(homePlanetDelta.commonOre),
+          uncommonMaterial: state.homePlanet.storage.uncommonMaterial.plus(homePlanetDelta.uncommonMaterial),
+          rareMaterial: state.homePlanet.storage.rareMaterial.plus(homePlanetDelta.rareMaterial),
         },
       },
     },
