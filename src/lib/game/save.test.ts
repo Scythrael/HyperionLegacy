@@ -1036,6 +1036,88 @@ describe("migrate — Tick Granularity Rebalance (v12 -> v13)", () => {
   });
 });
 
+describe("migrate — credits and Captain Specialization backfill (v13 -> v14)", () => {
+  it("backfills credits: 0 (fleet-wide) and spec: null (per captain) on a genuine v13 save that predates both fields", () => {
+    // A genuine v13 shape: every field through MIGRATIONS[12] already present
+    // (tickDurationSeconds collapsed fleet-wide at 1, homePlanet.storage's full
+    // 5-key set, fleetAdminXp/fleetAdminLevel/adminPoints, captains carrying
+    // xp/level/statPoints/unlockedCaptainTalents/mission) -- exactly what
+    // serialize() actually produced on this branch's parent commit (confirmed
+    // by diffing hydrateDecimals() at 7e9c8d2^, which has no `credits` key at
+    // all), but with no top-level `credits` field anywhere on GameState, and
+    // no `spec` field on either captain -- hand-written literal, same
+    // reasoning as every other legacy fixture in this file: freshState() now
+    // always includes `credits` and every captain always has `spec` (this same
+    // Task 5 commit added both), so it can no longer stand in for this
+    // pre-v14 shape. Two captains, to confirm the per-captain backfill in
+    // MIGRATIONS[13] (`state.captains.map(...)`) applies to every captain in
+    // the roster, not just the first.
+    const legacyState: any = {
+      gameTimeSeconds: 6000,
+      tickDurationSeconds: 1,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 120,
+      fleetAdminLevel: 2,
+      adminPoints: 1,
+      unlockedSkillNodes: ["commandRank1"],
+      skillPoints: 0,
+      homePlanet: { storage: { commonOre: 50, uncommonMaterial: 4, rareMaterial: 1, refinedMaterial: 2, components: 0 } },
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          xp: 300,
+          level: 3,
+          statPoints: 1,
+          unlockedCaptainTalents: [],
+          mission: null,
+          // no `spec` key at all -- the real pre-v14 shape
+        },
+        {
+          id: 2,
+          label: "Captain 2",
+          shipType: "resourcer",
+          xp: 0,
+          level: 1,
+          statPoints: 0,
+          unlockedCaptainTalents: [],
+          mission: null,
+          // no `spec` key at all -- the real pre-v14 shape
+        },
+      ],
+      // no `credits` field at all -- the real pre-v14 shape
+    };
+
+    const save: SaveFile = { version: 13, created_at: 0, last_saved_at: 0, game_time_seconds: 6000, state: legacyState };
+    const migrated: any = migrate(save);
+
+    // credits is Decimal-designated (MIGRATIONS[13] sets a plain `0`;
+    // hydrateDecimals(), called unconditionally at the end of migrate(),
+    // converts it to a real Decimal same as fleetAdminXp/homePlanet.storage
+    // above) -- .equals(), not .toBe(), since Decimal is an object
+    // (reference-compared by toBe, which would always fail here).
+    expect(migrated.credits instanceof Decimal).toBe(true);
+    expect(migrated.credits.equals(0)).toBe(true);
+
+    // Every captain gets spec: null, regardless of position in the roster.
+    expect(migrated.captains[0].spec).toBe(null);
+    expect(migrated.captains[1].spec).toBe(null);
+
+    // Unrelated pre-existing fields survive the backfill untouched.
+    expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
+    expect(migrated.captains[0].xp.equals(300)).toBe(true);
+    expect(migrated.captains[0].level).toBe(3);
+    expect(migrated.captains[0].statPoints).toBe(1);
+    expect(migrated.captains[1].id).toBe(2);
+    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.homePlanet.storage.commonOre.equals(50)).toBe(true);
+    expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
+    expect(migrated.fleetAdminXp.equals(120)).toBe(true);
+    expect(migrated.gameTimeSeconds).toBe(6000);
+  });
+});
+
 // NOTE: the pre-Task-5 "migrate — chained v1 -> v9 migration" describe block
 // that used to live here was deleted, not just edited -- same deliberate,
 // authorized deviation from this task's own "keep every existing describe
