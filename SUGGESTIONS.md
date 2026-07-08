@@ -10,6 +10,21 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   1:1 today. Starbase's whole described purpose (damaged/taken offline before a homeworld can be
   bombarded) needs Battlespace to exist first — fully deferred until then.
 
+- **Multiplayer chat: titles, selectable icons, name colors.** User idea, 2026-07-08. Once multiplayer
+  chat exists, players should be able to set a custom title (the user's own example: "Executive Officer
+  of Radishes"), a selectable chat icon sourced from unlocked achievements/donation tiers/dev-or-mod
+  status (so at a glance, a dev/mod badge, or a supporter's donation-tier icon, is visible to everyone
+  who wants to show it), and a name color option. Purely cosmetic/social, not gameplay-affecting. Not
+  scoped yet: the actual achievement/donation-tier system this would source icons from doesn't exist —
+  this depends on Multiplayer existing first (see the roadmap note below), which itself depends on
+  Combat shipping first per the user's own stated sequencing.
+
+- **Multiplayer investigation (auth, chat, cloud saving) — after Combat.** User idea, 2026-07-08: once
+  Combat missions are implemented (the 4th item in the existing roadmap note below), start investigating
+  Multiplayer, with authentication, chat, and cloud saving as the foundational first pieces (in that
+  order of foundational-ness, not necessarily build order). Not scoped at all yet — purely a "this comes
+  after Combat" placeholder for a future brainstorming session.
+
 - **Cargo capacity as a real ship stat.** User idea, 2026-07-08, from the Extraction Rework
   brainstorming: today `cargoCapacity` is a flat `MissionDef` constant; once the Ships feature (see
   roadmap note below) exists, it should become a per-ship stat instead, with each mission requiring a
