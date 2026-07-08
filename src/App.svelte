@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import Starfield from "./lib/Starfield.svelte";
   import Panel from "./lib/Panel.svelte";
+  import SubTabs from "./lib/SubTabs.svelte";
   import {
     freshState,
     MISSIONS,
@@ -72,6 +73,15 @@
   // are the core loop today.
   type TabKey = "homeworld" | "sectorSpace" | "fleetCaptains" | "fleetOperations" | "battlespace" | "system";
   let activeTab: TabKey = "fleetCaptains";
+
+  // Fleet Captain's tab sub-tabs (UI Redesign, Task 8 -- see
+  // docs/plans/2026-07-07-ui-redesign-plan.md). Overview holds the relocated
+  // CAPTAIN LEVELING content; Talents holds the relocated CAPTAIN TALENTS
+  // content. Defaults to Overview since level/XP is the more commonly
+  // checked view.
+  type FleetCaptainSubTab = "overview" | "talents";
+  let activeFleetCaptainSubTab: FleetCaptainSubTab = "overview";
+
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
   let lastPollTime = Date.now();
@@ -525,117 +535,107 @@
       </Panel>
       {/if}
 
-      {#if activeTab === "fleetOps"}
-      <div class="captain-tabs">
-        {#each state.captains as captain, i}
-          <button class="captain-tab" class:active={i === activeCaptainIndex} on:click={() => (activeCaptainIndex = i)}>
-            {captain.label}
-          </button>
-        {/each}
-      </div>
+      {#if activeTab === "fleetCaptains"}
+      <SubTabs
+        tabs={[{ key: "overview", label: "Overview" }, { key: "talents", label: "Talents" }]}
+        active={activeFleetCaptainSubTab}
+        onSelect={(key) => (activeFleetCaptainSubTab = key as FleetCaptainSubTab)}
+      />
 
-      <Panel>
-        <div class="panel-title">MISSIONS</div>
-        {#if activeCaptain.mission === null}
-          <div class="mission-list">
-            {#each Object.entries(MISSIONS) as [key, def]}
-              <div class="mission-card">
-                <div class="research-name">{def.label}</div>
-                <div class="research-cost">Cargo capacity: {formatNumber(def.cargoCapacity)}</div>
-                <button class="buy-btn" on:click={() => doDispatchCaptainOnMission(key as MissionKey)}>
-                  Dispatch · {def.label}
-                </button>
-              </div>
-            {/each}
-          </div>
-        {:else}
-          {@const mission = activeCaptain.mission!}
-          {@const missionDef = MISSIONS[mission.missionKey]}
-          {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
-          {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
-          {@const remainingTicks = Math.max(0, requiredTicks - mission.phaseProgressTicks)}
-          <div class="research-name">{missionDef.label}</div>
-          <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
-          <div class="research-bar-track">
-            <div class="research-bar-fill" style="width:{progress * 100}%"></div>
-          </div>
-          <div class="research-readout">{remainingTicks.toFixed(1)} ticks remaining in phase</div>
-          <div class="research-cost">
-            Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
-            {formatNumber(mission.cargo.rareMaterial)} rare
-          </div>
-          {#if mission.recalled}
-            <p class="prestige-text mission-recalled-text">Recall ordered — returning to base once the current cycle's unloading completes.</p>
-          {:else}
-            <button class="recall-btn" on:click={doRecallCaptain}>Recall Captain</button>
-          {/if}
-        {/if}
-      </Panel>
-
-      <!-- Captain Leveling (Task 8, Phase 4) -- per-captain-scoped, like
-           MISSIONS above (reads activeCaptain, not the whole fleet), replacing
-           the spot Captain Prestige used to occupy. The old Unlock section
-           here (spending a captain's own level/statPoints/Components to add a
-           new captain slot) was removed in Task 4 of
-           docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md --
-           captain slot growth is now purchased fleet-wide through the
-           Homeworld Talents panel's Fleet Logistics branch instead. -->
-      <Panel>
-        <div class="panel-title">CAPTAIN LEVELING</div>
-        <div class="research-name">Level {activeCaptain.level}</div>
-        <div class="research-bar-track">
-          <div class="research-bar-fill" style="width:{Math.min(100, (activeCaptain.xp / xpForNextLevel(activeCaptain.level)) * 100)}%"></div>
+      <div class="fleet-captains-layout">
+        <div class="captain-list">
+          {#each state.captains as captain, i}
+            <button class="captain-list-item" class:active={i === activeCaptainIndex} on:click={() => (activeCaptainIndex = i)}>
+              {captain.label}
+            </button>
+          {/each}
         </div>
-        <div class="research-readout">{formatNumber(activeCaptain.xp)} / {formatNumber(xpForNextLevel(activeCaptain.level))} XP</div>
-        <div class="research-cost">Stat Points: {formatNumber(activeCaptain.statPoints)}</div>
-      </Panel>
 
-      <!-- Captain Talents (Task 6, Captain & Homeworld Talent Trees) --
-           per-captain-scoped, like Captain Leveling above (reads
-           activeCaptain, not the whole fleet) -- spends THIS captain's own
-           statPoints, records the unlock on THIS captain only
-           (activeCaptain.unlockedCaptainTalents), never touches any other
-           captain's state. Iterates the FIXED 5-branch list, not
-           Object.keys(CAPTAIN_TALENTS) -- so Tactical/Science/Diplomacy
-           (currently zero entries, see model.ts) still render as labeled,
-           empty columns rather than not appearing at all. -->
-      <Panel>
-        <div class="panel-title">CAPTAIN TALENTS — {activeCaptain.label}</div>
-        {#each (["command", "tactical", "science", "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}
-          {@const nodes = Object.entries(CAPTAIN_TALENTS).filter(([, def]) => def.branch === branch)}
-          <div class="skill-branch">
-            <div class="skill-branch-title">{branch}</div>
-            {#if nodes.length === 0}
-              <p class="prestige-text">Not yet available.</p>
-            {:else}
-              {#each nodes as [key, talent]}
-                {@const owned = activeCaptain.unlockedCaptainTalents.includes(key as CaptainTalentKey)}
-                {@const locked = !owned && talent.requires !== null && !activeCaptain.unlockedCaptainTalents.includes(talent.requires)}
-                {@const buyable = !owned && !locked && activeCaptain.statPoints >= talent.cost}
-                <div class="skill-node" class:owned={owned} class:locked={locked}>
-                  <div>
-                    <div class="skill-node-label">{talent.label}</div>
-                    <div class="skill-node-status">
-                      {#if owned}
-                        Owned
-                      {:else if locked}
-                        Requires: {CAPTAIN_TALENTS[talent.requires!].label}
-                      {:else}
-                        Cost: {formatNumber(talent.cost)} Stat Points
-                      {/if}
-                    </div>
-                  </div>
-                  {#if !owned}
-                    <button class="buy-btn" disabled={!buyable} on:click={() => doBuyCaptainTalent(key as CaptainTalentKey)}>
-                      Learn
-                    </button>
+        <div class="fleet-captains-content">
+          {#if activeFleetCaptainSubTab === "overview"}
+            <!-- Captain Leveling (Task 8, Phase 4; relocated into the Fleet
+                 Captain's tab's Overview sub-tab during the UI Redesign,
+                 Task 8 -- see docs/plans/2026-07-07-ui-redesign-plan.md) --
+                 per-captain-scoped (reads activeCaptain, not the whole
+                 fleet), replacing the spot Captain Prestige used to occupy.
+                 The old Unlock section here (spending a captain's own
+                 level/statPoints/Components to add a new captain slot) was
+                 removed in Task 4 of
+                 docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md
+                 -- captain slot growth is now purchased fleet-wide through
+                 the Homeworld Talents panel's Fleet Logistics branch
+                 instead. The "Currently: Idle" / "Currently on: ..." line
+                 below is new in the UI Redesign -- the MISSIONS panel itself
+                 (dispatch/recall UI) does NOT live here; it moved to the
+                 Fleet Operations tab (Task 9) instead. -->
+            <Panel>
+              <div class="panel-title">CAPTAIN LEVELING</div>
+              <div class="research-name">Level {activeCaptain.level}</div>
+              <div class="research-bar-track">
+                <div class="research-bar-fill" style="width:{Math.min(100, (activeCaptain.xp / xpForNextLevel(activeCaptain.level)) * 100)}%"></div>
+              </div>
+              <div class="research-readout">{formatNumber(activeCaptain.xp)} / {formatNumber(xpForNextLevel(activeCaptain.level))} XP</div>
+              <div class="research-cost">Stat Points: {formatNumber(activeCaptain.statPoints)}</div>
+              <div class="research-cost">
+                {#if activeCaptain.mission === null}
+                  Currently: Idle
+                {:else}
+                  Currently on: {MISSIONS[activeCaptain.mission.missionKey].label}
+                {/if}
+              </div>
+            </Panel>
+          {:else if activeFleetCaptainSubTab === "talents"}
+            <!-- Captain Talents (Task 6, Captain & Homeworld Talent Trees;
+                 relocated into the Fleet Captain's tab's Talents sub-tab
+                 during the UI Redesign, Task 8) -- per-captain-scoped, like
+                 Captain Leveling above (reads activeCaptain, not the whole
+                 fleet) -- spends THIS captain's own statPoints, records the
+                 unlock on THIS captain only
+                 (activeCaptain.unlockedCaptainTalents), never touches any
+                 other captain's state. Iterates the FIXED 5-branch list, not
+                 Object.keys(CAPTAIN_TALENTS) -- so Tactical/Science/Diplomacy
+                 (currently zero entries, see model.ts) still render as
+                 labeled, empty columns rather than not appearing at all. -->
+            <Panel>
+              <div class="panel-title">CAPTAIN TALENTS — {activeCaptain.label}</div>
+              {#each (["command", "tactical", "science", "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}
+                {@const nodes = Object.entries(CAPTAIN_TALENTS).filter(([, def]) => def.branch === branch)}
+                <div class="skill-branch">
+                  <div class="skill-branch-title">{branch}</div>
+                  {#if nodes.length === 0}
+                    <p class="prestige-text">Not yet available.</p>
+                  {:else}
+                    {#each nodes as [key, talent]}
+                      {@const owned = activeCaptain.unlockedCaptainTalents.includes(key as CaptainTalentKey)}
+                      {@const locked = !owned && talent.requires !== null && !activeCaptain.unlockedCaptainTalents.includes(talent.requires)}
+                      {@const buyable = !owned && !locked && activeCaptain.statPoints >= talent.cost}
+                      <div class="skill-node" class:owned={owned} class:locked={locked}>
+                        <div>
+                          <div class="skill-node-label">{talent.label}</div>
+                          <div class="skill-node-status">
+                            {#if owned}
+                              Owned
+                            {:else if locked}
+                              Requires: {CAPTAIN_TALENTS[talent.requires!].label}
+                            {:else}
+                              Cost: {formatNumber(talent.cost)} Stat Points
+                            {/if}
+                          </div>
+                        </div>
+                        {#if !owned}
+                          <button class="buy-btn" disabled={!buyable} on:click={() => doBuyCaptainTalent(key as CaptainTalentKey)}>
+                            Learn
+                          </button>
+                        {/if}
+                      </div>
+                    {/each}
                   {/if}
                 </div>
               {/each}
-            {/if}
-          </div>
-        {/each}
-      </Panel>
+            </Panel>
+          {/if}
+        </div>
+      </div>
       {/if}
 
       {#if activeTab === "battlespace"}
@@ -858,6 +858,33 @@
     color: var(--color-accent-bright);
     border-color: var(--color-accent);
   }
+  /* Fleet Captain's tab layout (UI Redesign, Task 8) -- left-hand vertical
+     captain list + right-hand content pane, replacing the old horizontal
+     .captain-tabs row above (left in place for now; see this task's plan
+     section and KNOWN_ISSUES.md re: whether it's still used anywhere once
+     Task 11 does its final sweep). .captain-list-item is the SAME visual
+     language as .captain-tab (rounded pill, accent-tinted background/
+     border) -- deliberately reused styling, just in a vertical column
+     instead of a horizontal row, since it's now sharing space with the
+     content pane beside it rather than spanning the full width. */
+  .fleet-captains-layout { display: flex; gap: 12px; align-items: flex-start; }
+  .captain-list { display: flex; flex-direction: column; gap: 6px; flex: 0 0 96px; }
+  .captain-list-item {
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    border-radius: 8px;
+    padding: 10px 8px;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .captain-list-item.active {
+    background: rgba(var(--color-accent-rgb), 0.15);
+    color: var(--color-accent-bright);
+    border-color: var(--color-accent);
+  }
+  .fleet-captains-content { flex: 1; min-width: 0; }
   .panel-title {
     font-size: 11px;
     letter-spacing: 1.5px;
