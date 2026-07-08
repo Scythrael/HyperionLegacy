@@ -3,9 +3,10 @@
 // function to MIGRATIONS, and never touch old migrations again.
 
 import LZString from "lz-string";
+import Decimal from "break_infinity.js";
 import { type GameState, type CaptainState, freshCaptains } from "./model";
 
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -14,6 +15,55 @@ export interface SaveFile {
   last_saved_at: number;
   game_time_seconds: number;
   state: GameState;
+}
+
+// Converts a value that MIGHT be a plain number (an old, pre-migration save),
+// a string (a current-format save, since JSON.parse never reconstructs class
+// instances -- it just leaves whatever toJSON() produced as a plain string),
+// or already a live Decimal instance (calling this twice is harmless) into a
+// real Decimal. Safe to call unconditionally on any of the three shapes.
+function toDecimal(value: Decimal | number | string): Decimal {
+  return value instanceof Decimal ? value : new Decimal(value);
+}
+
+// Applied UNCONDITIONALLY at the end of migrate(), below -- NOT only inside
+// MIGRATIONS[11]. A save already at the current SAVE_VERSION skips the
+// migration while-loop entirely (there's no MIGRATIONS[12] to run), so if
+// hydration only happened inside a version-keyed step, saves written by the
+// CURRENT serialize()/deserialize() (whose Decimal fields round-trip through
+// JSON as plain strings, per toJSON()) would never get converted back into
+// live Decimal instances -- every .plus()/.gte() call in tick.ts would throw
+// at runtime the first time it touched one. Idempotent, so calling it on an
+// already-hydrated state (e.g. state built fresh via freshState(), never
+// serialized at all) is also safe -- toDecimal() no-ops on an existing Decimal.
+function hydrateDecimals(state: any): GameState {
+  return {
+    ...state,
+    captains: state.captains.map((c: any) => ({
+      ...c,
+      xp: toDecimal(c.xp),
+      mission: c.mission
+        ? {
+            ...c.mission,
+            cargo: {
+              commonOre: toDecimal(c.mission.cargo.commonOre),
+              uncommonMaterial: toDecimal(c.mission.cargo.uncommonMaterial),
+              rareMaterial: toDecimal(c.mission.cargo.rareMaterial),
+            },
+          }
+        : c.mission,
+    })),
+    homePlanet: {
+      storage: {
+        commonOre: toDecimal(state.homePlanet.storage.commonOre),
+        uncommonMaterial: toDecimal(state.homePlanet.storage.uncommonMaterial),
+        rareMaterial: toDecimal(state.homePlanet.storage.rareMaterial),
+        refinedMaterial: toDecimal(state.homePlanet.storage.refinedMaterial),
+        components: toDecimal(state.homePlanet.storage.components),
+      },
+    },
+    fleetAdminXp: toDecimal(state.fleetAdminXp),
+  };
 }
 
 // Migration table, keyed by the version a save is migrating FROM.
@@ -134,6 +184,20 @@ export interface SaveFile {
 // tickDurationSeconds at all -- not reachable through any current code path
 // (freshCaptainStack always set it pre-v11), but defense in depth, same
 // category as several earlier migrations' `??` comments.
+// v11 -> v12: Big-Number (Decimal) Migration (docs/plans/2026-07-08-big-
+// number-migration-plan.md). homePlanet.storage's 5 keys, each captain's
+// mission.cargo (3 keys) and xp, and fleetAdminXp switch from plain number to
+// break_infinity.js's Decimal, to support unbounded scale (up to e1,000,000+).
+// This migration step itself does no real conversion work -- on a pre-v12
+// save, every one of these fields is still a plain JS number at this point in
+// the chain (JSON.parse of an OLD save's JSON never produced anything else),
+// and migrate()'s hydrateDecimals() call (see below, applied unconditionally
+// AFTER this while loop finishes, regardless of which migrations ran) is what
+// actually converts them into live Decimal instances. This step exists purely
+// so the version-bump/migration-table convention (Ops §8.E.1: bump
+// SAVE_VERSION, add a migrate_vN_to_vN+1 entry when the schema changes) has a
+// documented marker at the exact version where Decimal fields were
+// introduced, for any future reader scanning this table.
 type Migration = (state: any) => any;
 const MIGRATIONS: Record<number, Migration> = {
   1: (state: any): GameState => ({ ...state, tickDurationSeconds: state.tickDurationSeconds ?? 10 }),
@@ -259,6 +323,7 @@ const MIGRATIONS: Record<number, Migration> = {
       }),
     };
   },
+  11: (state: any): GameState => state, // no-op -- see the comment above; hydrateDecimals() (called unconditionally in migrate(), below) does the real work for both old AND already-current-version saves.
 };
 
 export function migrate(save: SaveFile): GameState {
@@ -268,7 +333,7 @@ export function migrate(save: SaveFile): GameState {
     state = MIGRATIONS[version](state);
     version += 1;
   }
-  return state as GameState;
+  return hydrateDecimals(state);
 }
 
 export function serialize(state: GameState, createdAt: number): string {
