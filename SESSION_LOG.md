@@ -904,3 +904,56 @@ pre-verified reference numbers, before dispatching two-stage review. Next:
 final holistic review of this branch, then merge — push to `main` still
 needs separate, explicit confirmation from the user, since it triggers a
 live Vercel production redeploy.
+
+**Session 23** — Resourcefulness Bonus Roll (branch feat/resourcefulness-bonus-roll,
+docs/plans/2026-07-08-resourcefulness-bonus-roll-plan.md), built via
+subagent-driven-development. This is the follow-up branch the Extraction
+Rework deliberately deferred: a "Lucky Strike I/II" captain talent pair on
+the Resourcefulness branch (I costs 6, gives a flat 2% bonus-roll trigger
+chance; II costs 8, requires I, and applies a relative +100% multiplier on
+top of it, same `Math.min(1, base * (1 + mult))` shape every other
+chance-mult effect in this file already uses — both nodes together land at
+4%) that, when the per-tick trigger check fires, runs a SECOND independent
+loot roll on the same extraction tick. The bonus roll deliberately reuses
+the primary roll's own rare/uncommon odds outright (so existing
+`rareChanceMult`/`uncommonChanceMult` talents boost the bonus roll for
+free, no separate stacking math needed for those two tiers) but replaces
+the primary roll's guaranteed-common floor with just a 30% chance at common
+instead — meaning unlike the primary roll, which always delivers something
+every tick, the bonus roll can genuinely produce nothing at all. The new
+`rollBonusExtractionTick` function mirrors `rollExtractionTick`'s
+fixed-order, mutually-exclusive rng() call discipline (rare check, then
+uncommon check, then the 30% common check, 1-3 rng() calls total,
+hand-traceable in the same style the primary roll's tests already use) so
+Task 4's 8 new tests could be hand-traced with the same rigor as the
+existing extraction tests rather than asserting against a black box. Task 3
+— the highest-risk task, since it touches the shared extraction loop inside
+`tickCaptainMission` — specifically flagged and correctly handled a
+field-name trap the plan called out in advance: `bonusRollChance`'s effect
+field is named `chance`, not `mult`, since it's a base value rather than a
+multiplier, unlike the other 4 existing stacking helpers in `tick.ts`
+(`captainRareChanceMult`, `captainUncommonChanceMult`, etc.), which are all
+`mult`-only — an easy copy/paste slip the new `captainBonusRollChance`
+helper avoided by reading the actual field name off the discriminated union
+instead of assuming the pattern. Bundled into this same branch, per the
+user's explicit choice rather than spinning up a separate hotfix: the
+mission-preview popup's drop-rate text had gone stale the moment the
+Extraction Rework shipped, since it still described the OLD capped-bucket,
+flat-amount mechanic (found during this feature's own brainstorming, not by
+accident) — fixed in App.svelte alongside adding the new "Bonus Roll"
+display line, since both changes touch the same preview text and splitting
+them into two branches would've meant re-touching the same lines twice. No
+save migration needed — `unlockedCaptainTalents` is a plain string-key
+array, and the two new keys (`resourcefulnessBonusRollI`/
+`resourcefulnessBonusRollII`) slot into the existing `CaptainTalentKey`
+union with no schema change. No new KNOWN_ISSUES.md/SUGGESTIONS.md entries
+were needed for this branch's own scope — the design doc's explicitly-out-
+of-scope items were already logged during the Extraction Rework branch
+itself; a separate, unrelated SVG-art-idea SUGGESTIONS.md entry was
+committed directly to `main` mid-session, not part of this branch's work.
+Every commit across this branch was independently verified via `git show`
+and hand-tracing before dispatching two-stage review, the same
+independent-verification-before-review rigor applied to every other branch
+this session. Next: final holistic review of this branch, then merge —
+push to `main` still needs separate, explicit confirmation from the user,
+since it triggers a live Vercel production redeploy.
