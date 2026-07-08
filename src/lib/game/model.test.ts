@@ -28,6 +28,11 @@ describe("freshState — captain roster shape", () => {
   it("starts with xp:0, level:1, statPoints:0 per captain, and fleet-wide tickDurationSeconds 10", () => {
     const state = freshState();
     for (const c of state.captains) {
+      // Decimal isn't a primitive -- .toBe()/.toEqual() won't match a plain-number
+      // literal even when equal in value, so every Decimal-field assertion in this
+      // file compares via .equals() instead (this pattern repeats below without
+      // re-explaining it each time; see the homePlanet.storage test further down
+      // for the related .toEqual-on-a-whole-object case specifically).
       expect(c.xp.equals(0)).toBe(true);
       expect(c.level).toBe(1);
       expect(c.statPoints).toBe(0);
