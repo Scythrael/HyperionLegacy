@@ -927,19 +927,20 @@
     height: 100%; /* fills .root's fixed viewport height exactly */
     /* Was 720px (a mobile-first cap dating back to Phase 1, long logged in
        SUGGESTIONS.md as "full-width panels" -- a deferred idea until now),
-       then 98% (a thin aesthetic margin). Now a true 100% -- the user wants
-       every pixel of width usable, partly because this is expected to run
-       inside an iOS/Android wrapper app eventually, where side margins just
-       waste screen on an already-small viewport. max-width: 2400px is a
-       ceiling only for very large/ultrawide monitors -- it must sit
-       comfortably above 100% of any common desktop resolution or it becomes
-       the binding constraint instead (see the git history of this comment:
-       a 1400px cap once did exactly that on a 1920px-wide screen). No
-       separate mobile handling needed. margin:auto dropped -- it only
-       centers when there's leftover space outside the element, and at
-       width:100% there is none. */
+       then 98%, then 100% with a max-width: 2400px pixel ceiling for
+       ultrawide monitors. That pixel ceiling turned out to have the exact
+       same problem TWICE now -- a fixed px value can never scale with an
+       arbitrarily large screen, so on a real ultrawide monitor wider than
+       2400px the app sat in a bounded box with black space on either side,
+       the very thing the ceiling was trying to prevent at a smaller scale
+       (this already happened once before with an even tighter 1400px
+       value). No max-width at all now -- width: 100% already IS a
+       percentage, so it scales correctly on any monitor by definition; a
+       pixel-based ceiling on top of it can only ever fight that scaling,
+       never help it. No separate mobile handling needed. margin:auto
+       dropped -- it only centers when there's leftover space outside the
+       element, and at width:100% there is none. */
     width: 100%;
-    max-width: 2400px;
     display: flex;
     flex-direction: column;
     overflow: hidden; /* only .tab-scroll-area (nested inside) actually scrolls */
