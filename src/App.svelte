@@ -890,7 +890,16 @@
     position: relative;
     z-index: 1;
     height: 100%; /* fills .root's fixed viewport height exactly */
-    max-width: 720px;
+    /* Was 720px (a mobile-first cap dating back to Phase 1, long logged in
+       SUGGESTIONS.md as "full-width panels" -- a deferred idea until now).
+       1400px is a wide-but-capped compromise: on a normal or ultra-wide
+       desktop window the app now uses most of the available width instead
+       of sitting in a narrow centered column, but stops growing past a
+       readable line-length on very wide monitors. No separate mobile
+       handling needed -- .frame has no explicit `width`, so on a narrow
+       viewport it already just fills 100% of whatever width exists, the
+       same as it always has; only the desktop ceiling changed. */
+    max-width: 1400px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
