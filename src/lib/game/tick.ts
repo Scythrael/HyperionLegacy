@@ -123,14 +123,15 @@ const XP_PER_MISSION_CYCLE = 50;
 
 // A very large offline-catchup ticksElapsed could complete many mission
 // cycles across many captains in one tick() call, each contributing 1-2
-// Fleet Admiral XP -- summing to a potentially large delta applied in one
-// shot. Capping applyFleetAdminXp's level-up loop at a fixed max per call
-// and carrying any leftover XP forward (it keeps resolving on the NEXT
-// tick() call, which happens continuously during live play) avoids an
-// unbounded loop. This same constant is reused (not redefined) by the
-// separate, not-yet-started Big-Number Migration
-// (docs/plans/2026-07-08-big-number-migration-plan.md), which needs the
-// identical safeguard for captain XP once that field becomes Decimal-typed.
+// Fleet Admiral XP (or a large amount of captain XP) -- summing to a
+// potentially large delta applied in one shot. Capping a level-up loop at a
+// fixed max per call and carrying any leftover XP forward (it keeps
+// resolving on a LATER call) avoids an unbounded loop. Originally added for
+// applyFleetAdminXp only (Fleet Admiral XP Rework); the Big-Number Migration
+// (2026-07-08, docs/plans/2026-07-08-big-number-migration-plan.md, Task 5)
+// has since reused this SAME constant (not redefined it) for the captain XP
+// level-up loop inside tickCaptainMission too, now that captain xp is
+// Decimal-typed -- both loops share this one cap.
 const MAX_LEVEL_UPS_PER_TICK = 10_000;
 
 // Independent per-tier roll for ONE whole tick of extraction (2026-07-07 Loot
@@ -313,7 +314,10 @@ export function tickCaptainMission(
         // offline-catchup ticksElapsed spanning several full cycles), NOT
         // once per tickCaptainMission call. Resolve every level-up crossed by
         // this award, not just one -- a while (not if) loop, same closed-form
-        // spirit as the phase-advancement logic above.
+        // spirit as the phase-advancement logic above -- bounded by
+        // MAX_LEVEL_UPS_PER_TICK (see that constant's own comment), with any
+        // excess left in xp to resolve on a later call, the same
+        // carry-forward behavior applyFleetAdminXp uses below.
         xp = xp.plus(XP_PER_MISSION_CYCLE);
         fleetAdminXpDelta += missionDef.fleetAdminXpPerCycle;
         let levelUpsThisCall = 0;
