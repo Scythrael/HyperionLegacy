@@ -359,3 +359,13 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   Homeworld sub-tab), no decision on whether prices are fixed or fluctuate. Explicitly deferred so it
   doesn't block the talent-tree work, which only needs credits to exist as a currency, not a full
   economy around it.
+
+- **Broader credits economy: Auction House + Bank, credit loss on death.** User idea, 2026-07-08,
+  mentioned while discussing the respec-cost mechanic: an Auction House (presumably a player-to-player
+  or NPC trading venue, distinct from the simpler Homeworld Market above), plus a Bank that protects
+  credits from being lost -- implying some future "death"/failure-state mechanic that would otherwise
+  wipe on-hand credits, with banked credits surviving it. Also implies the 50-credit respec cost is a
+  placeholder that will need rebalancing once this broader economy exists ("that cost will eventually
+  have to change though... once the economy is balanced out"). Nothing here is scoped -- no death/failure
+  mechanic exists in the game today, no Auction House design, no Bank UI/mechanic. A significant future
+  economy pass, well beyond the current Talent Tree Visual Redesign branch.
