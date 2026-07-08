@@ -233,3 +233,14 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   field, since `gameTimeSeconds` today is a single combined counter) or whether just showing the one
   combined total satisfies the request; and whether other stats (missions completed, total ore mined,
   captains recruited, etc.) should live on the same page once it exists.
+
+- **Reputation system.** User idea, 2026-07-08: gate mission access on a fleet-wide reputation stat.
+  Bad reputation opens up its own content (piracy, contraband smuggling missions) but also has real
+  downsides -- periodic "bounty hunter" events that can trigger mission failure if the player isn't
+  equipped to deal with them. Good reputation has its own (unspecified) perks. Not scoped yet: the
+  actual reputation scale/range, how reputation is gained/lost (mission choices? specific mission
+  types? both?), what "equipped to deal with" a bounty hunter event actually means mechanically --
+  this may want to share the same equipment-slot/loadout mechanic already logged above for Landing
+  Party missions and Battlespace's Invasion mode, worth checking when that gets designed -- what the
+  good-reputation perks specifically are, and whether reputation is a single fleet-wide number or
+  something more granular (per-faction?).
