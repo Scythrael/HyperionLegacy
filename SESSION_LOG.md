@@ -941,8 +941,13 @@ mission-preview popup's drop-rate text had gone stale the moment the
 Extraction Rework shipped, since it still described the OLD capped-bucket,
 flat-amount mechanic (found during this feature's own brainstorming, not by
 accident) — fixed in App.svelte alongside adding the new "Bonus Roll"
-display line, since both changes touch the same preview text and splitting
-them into two branches would've meant re-touching the same lines twice. No
+display line. The final holistic review of this branch caught a SECOND,
+sibling copy of the same stale text in the "AVAILABLE MISSIONS" card-list
+preview (rendered before a captain/mission is selected, using the mission's
+raw `uncommonChance`/`rareChance` rather than the popup's captain-boosted
+`effectiveUncommonChance`/`effectiveRareChance`) that the original Task 5
+pass missed — corrected in the same fix-round, before merge, once flagged.
+No
 save migration needed — `unlockedCaptainTalents` is a plain string-key
 array, and the two new keys (`resourcefulnessBonusRollI`/
 `resourcefulnessBonusRollII`) slot into the existing `CaptainTalentKey`

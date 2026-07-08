@@ -1037,9 +1037,9 @@
                     <div class="mission-card-body">
                       <div class="research-name">{missionDef.label}</div>
                       <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
-                      <div class="research-cost">Common Ore: up to {formatNumber(missionDef.extractionRatePerTick)}/tick</div>
-                      <div class="research-cost">Uncommon Material: 1-3/tick ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
-                      <div class="research-cost">Rare Material: 1/tick ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">Common Ore: {formatNumber(missionDef.extractionRatePerTick)}/tick when no other tier wins ({(100 - missionDef.rareChance * 100 - missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">Uncommon Material: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">Rare Material: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
                     </div>
                   </button>
                 {/each}
