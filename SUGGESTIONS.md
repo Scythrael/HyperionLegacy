@@ -255,3 +255,13 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   not a persistent page. Not scoped yet: would need `tick()`'s offline call to return (or the caller to
   diff) a summary of what changed -- resources gained per material, XP gained, mission cycles completed
   during the catch-up -- none of which is currently tracked/returned separately from the final state.
+
+- **Ambient background audio option.** User idea, 2026-07-08: an ambient soundscape toggle/option
+  (space station hum, starship system noises, a few alternate loop choices) to play quietly in the
+  background. Explicitly NOT scoped yet: the user still needs to source a licensed-for-free-use audio
+  track (or several, if multiple ambience options are offered) before this can be built -- this is
+  purely a placeholder for the feature idea, not a licensing/sourcing task for me to do. Once a track
+  exists, likely lands as a new entry in the Options panel (`src/App.svelte`'s existing options/theme
+  UI, alongside the theme picker) with a volume/mute control and probably an HTML5 `<audio loop>`
+  element gated behind a user-initiated interaction (browsers block autoplay-with-sound until the user
+  has interacted with the page at least once) -- worth checking that constraint when this gets designed.
