@@ -35,7 +35,7 @@
     captainExtractionYieldMult,
     captainRareLootChanceMult,
     fleetExtractionYieldMult,
-    applyRareLootChanceMult,
+    applyRareLootChanceMult, // unused until the captain-selection popup markup (Task 5) consumes it for the live drop-rate preview
     LOOT_MATERIAL_KEYS,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
