@@ -13,6 +13,7 @@
     xpForNextFleetAdminLevel,
     CAPTAIN_TALENTS,
     HOMEWORLD_TALENTS,
+    CAPTAIN_SPEC_BONUS,
     type GameState,
     type MissionKey,
     type MissionPhase,
@@ -33,6 +34,8 @@
     applyFleetAdminXp,
     buyCaptainTalent,
     buyHomeworldTalent,
+    respecCaptainTalents,
+    respecHomeworldTalents,
     captainCommonYieldMult,
     captainUncommonYieldMult,
     captainUncommonChanceMult,
@@ -130,6 +133,40 @@
   let tickBarEnabled = true;
   let deleteModalOpen = false;
   let deleteConfirmText = "";
+
+  // Talent Tree Visual Redesign (Task 13) -- mirrors tick.ts's own
+  // module-local RESPEC_COST_CREDITS constant (currently 50) exactly. Cannot
+  // import the real constant -- it is intentionally NOT exported from
+  // tick.ts (confirmed by reading the live file: every other cost table in
+  // that module, e.g. CAPTAIN_TALENTS/HOMEWORLD_TALENTS costs, IS exported,
+  // but this one deliberately isn't). If tick.ts's own value ever changes,
+  // this line must be updated by hand to match -- there is no way to keep
+  // these two in sync automatically without exporting the tick.ts constant.
+  const RESPEC_COST_CREDITS = 50;
+
+  // Homeworld Talents "Reset" confirmation modal (Task 13) -- same
+  // "state near deleteModalOpen, markup near the delete modal" pattern as
+  // deleteModalOpen/deleteConfirmText above. Fleet-wide, no per-captain
+  // scoping (mirrors respecHomeworldTalents itself, which takes no
+  // captainId). No typed-confirmation-word gate here (unlike Delete
+  // Save) -- the cost + irreversibility warning text inside the modal is
+  // the friction, same level as the Import Save modal's plain Cancel/
+  // Import pair.
+  let homeworldRespecModalOpen = false;
+
+  // Captain Talents "Reset" confirmation modal (Task 13) -- per-captain,
+  // scoped to activeCaptain (mirrors respecCaptainTalents, which takes a
+  // captainId). selectedSpecInModal is initialized to activeCaptain.spec
+  // the moment this modal is OPENED (see openCaptainRespecModal below), so
+  // a plain confirm-without-touching-the-picker click passes the captain's
+  // CURRENT spec back into respecCaptainTalents rather than null/undefined
+  // -- see respecCaptainTalents's own doc comment in tick.ts: omitting the
+  // 3rd arg keeps the current spec, but since this UI always calls it with
+  // an explicit value (never omits the arg), selectedSpecInModal must be
+  // pre-seeded with the CURRENT spec rather than left null, or a
+  // no-touch confirm would incorrectly wipe the captain's spec.
+  let captainRespecModalOpen = false;
+  let selectedSpecInModal: CaptainTalentBranch | null = null;
 
   // Import Save modal (Task 7, Loot Tier Rework -- see
   // docs/plans/2026-07-07-loot-tier-rework-plan.md) -- same
@@ -586,6 +623,64 @@
     doSave();
   }
 
+  // Homeworld Talents Reset (Task 13) -- opens the confirmation modal. No
+  // captured pre-swap state needed (unlike doDispatchCaptainOnMission's
+  // captain.label capture) since the confirmation happens in the modal
+  // itself, not in this open handler.
+  function openHomeworldRespecModal() {
+    homeworldRespecModalOpen = true;
+  }
+
+  function cancelHomeworldRespec() {
+    homeworldRespecModalOpen = false;
+  }
+
+  // Wraps respecHomeworldTalents(state), same { next, success } -> reassign
+  // `state` pattern every other do* handler in this file uses (see
+  // doBuyHomeworldTalent immediately above for the closest analog). Closes
+  // the modal only on success, mirroring confirmDelete/confirmImport's own
+  // "stay open on failure" convention -- though in practice the Confirm
+  // button is already disabled below RESPEC_COST_CREDITS, so failure here
+  // should only happen if credits changed out from under the open modal.
+  function doRespecHomeworldTalents() {
+    const { next, success } = respecHomeworldTalents(state);
+    if (!success) return;
+    state = next;
+    pushLog("Homeworld talents reset.");
+    homeworldRespecModalOpen = false;
+    doSave();
+  }
+
+  // Captain Talents Reset (Task 13) -- opens the confirmation modal AND
+  // seeds selectedSpecInModal with activeCaptain's CURRENT spec (see that
+  // variable's declaration comment above for why this must happen here,
+  // every time the modal opens, rather than being left at its initial
+  // `null` default).
+  function openCaptainRespecModal() {
+    selectedSpecInModal = activeCaptain.spec;
+    captainRespecModalOpen = true;
+  }
+
+  function cancelCaptainRespec() {
+    captainRespecModalOpen = false;
+  }
+
+  // Wraps respecCaptainTalents(state, activeCaptain.id, newSpec), same
+  // { next, success } -> reassign `state` pattern as doBuyCaptainTalent
+  // above. Takes newSpec as an explicit parameter (rather than reading
+  // selectedSpecInModal directly) so the modal's Confirm button can pass
+  // selectedSpecInModal by value at the call site, same as every other
+  // do* handler in this file taking its target key as a parameter.
+  function doRespecCaptainTalents(newSpec: CaptainTalentBranch | null) {
+    const captain = activeCaptain;
+    const { next, success } = respecCaptainTalents(state, captain.id, newSpec);
+    if (!success) return;
+    state = next;
+    pushLog(`[${captain.label}] Talents reset.`);
+    captainRespecModalOpen = false;
+    doSave();
+  }
+
   function doExportSave() {
     const raw = exportRawSave();
     if (!raw) return;
@@ -824,6 +919,21 @@
       <Panel>
         <div class="panel-title">HOMEWORLD TALENTS</div>
         <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
+        <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
+        <!-- Reset (Task 13, Talent Tree Visual Redesign) -- fleet-wide, wraps
+             respecHomeworldTalents via doRespecHomeworldTalents/the
+             confirmation modal near DELETE SAVE further down this file.
+             Disabled up-front (not just inside the modal) so affordability
+             is visible before the player even opens the confirmation flow. -->
+        <div class="dev-row">
+          <button
+            class="dev-btn danger"
+            disabled={state.credits.lt(RESPEC_COST_CREDITS)}
+            on:click={openHomeworldRespecModal}
+          >
+            Reset
+          </button>
+        </div>
         {#each (["fleetLogistics", "homelandDefense", "citizenry", "economy", "industry"] as HomeworldTalentBranch[]) as branch}
           {@const nodes = Object.entries(HOMEWORLD_TALENTS).filter(([, def]) => def.branch === branch)}
           <div class="skill-branch">
@@ -1037,6 +1147,22 @@
                  labeled, empty columns rather than not appearing at all. -->
             <Panel>
               <div class="panel-title">CAPTAIN TALENTS — {activeCaptain.label}</div>
+              <div class="research-cost">Spec: {activeCaptain.spec ?? "None chosen"}</div>
+              <!-- Reset (Task 13, Talent Tree Visual Redesign) -- per-captain,
+                   scoped to activeCaptain, wraps respecCaptainTalents via
+                   doRespecCaptainTalents/the confirmation modal near DELETE
+                   SAVE further down this file. Disabled up-front, same
+                   affordability-visible-before-opening-the-modal reasoning as
+                   the Homeworld Talents panel's own Reset button above. -->
+              <div class="dev-row">
+                <button
+                  class="dev-btn danger"
+                  disabled={state.credits.lt(RESPEC_COST_CREDITS)}
+                  on:click={openCaptainRespecModal}
+                >
+                  Reset
+                </button>
+              </div>
               {#each (["command", "tactical", "science", "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}
                 {@const nodes = Object.entries(CAPTAIN_TALENTS).filter(([, def]) => def.branch === branch)}
                 <div class="skill-branch">
@@ -1528,6 +1654,92 @@
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelDelete}>Cancel</button>
           <button class="dev-btn danger" disabled={deleteConfirmText !== "DELETE"} on:click={confirmDelete}>Delete</button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
+  {#if homeworldRespecModalOpen}
+    <!-- Homeworld Talents Reset confirmation modal (Task 13, Talent Tree
+         Visual Redesign) -- reuses the SAME .modal-backdrop/Panel.modal-
+         dialog/.modal-warning/.modal-row structure as the DELETE SAVE modal
+         above (and the Import Save modal below), so all of this app's
+         modals keep one visual language. No typed-confirmation-word input,
+         same reasoning as Import Save's modal: the Reset button itself
+         (disabled below RESPEC_COST_CREDITS) is already a deliberate,
+         gated action, so a plain Cancel/Confirm pair is enough friction
+         here, on top of the cost + irreversibility warning text below. -->
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">RESET HOMEWORLD TALENTS</div>
+        <p class="modal-warning">
+          This will refund every Homeworld Talent's Admin Points (except unlocked captain slots, which stay
+          permanently unlocked) and cost {RESPEC_COST_CREDITS} Credits. This can't be undone.
+        </p>
+        <div class="modal-row">
+          <button class="dev-btn" on:click={cancelHomeworldRespec}>Cancel</button>
+          <button
+            class="dev-btn danger"
+            disabled={state.credits.lt(RESPEC_COST_CREDITS)}
+            on:click={doRespecHomeworldTalents}
+          >
+            Confirm
+          </button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
+  {#if captainRespecModalOpen}
+    <!-- Captain Talents Reset confirmation modal (Task 13, Talent Tree
+         Visual Redesign) -- same .modal-backdrop/Panel.modal-dialog/
+         .modal-warning/.modal-row structure as the modals above. The
+         genuinely new piece here (not just mirroring DELETE SAVE) is the
+         spec picker below: only "command" and "resourcefulness" are
+         selectable (the only 2 branches with a CAPTAIN_SPEC_BONUS entry --
+         confirmed by reading the live model.ts table, not assumed), the
+         other 3 render as disabled buttons in the same "Not yet available"
+         spirit the talent columns themselves already use for those
+         branches. selectedSpecInModal was seeded with activeCaptain's
+         CURRENT spec by openCaptainRespecModal when this modal was opened
+         (not left at its `null` initial default), so a plain Confirm click
+         without touching this picker passes the captain's existing spec
+         straight through to doRespecCaptainTalents, leaving it unchanged. -->
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">RESET CAPTAIN TALENTS — {activeCaptain.label}</div>
+        <p class="modal-warning">
+          This will refund every Captain Talent's Stat Points this captain spent and cost {RESPEC_COST_CREDITS} Credits.
+          This can't be undone.
+        </p>
+        <p class="modal-instruction">Choose a Specialization (optional -- leave as-is to keep the current one):</p>
+        <div class="modal-captain-list">
+          {#each (["command", "tactical", "science", "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}
+            {@const selectable = branch in CAPTAIN_SPEC_BONUS}
+            {#if selectable}
+              <button
+                class="dev-btn"
+                class:active={selectedSpecInModal === branch}
+                on:click={() => (selectedSpecInModal = branch)}
+              >
+                {CAPTAIN_TALENT_BRANCH_LABEL[branch]}
+              </button>
+            {:else}
+              <button class="dev-btn" disabled title="Not yet available">
+                🔒 {CAPTAIN_TALENT_BRANCH_LABEL[branch]}
+              </button>
+            {/if}
+          {/each}
+        </div>
+        <div class="modal-row">
+          <button class="dev-btn" on:click={cancelCaptainRespec}>Cancel</button>
+          <button
+            class="dev-btn danger"
+            disabled={state.credits.lt(RESPEC_COST_CREDITS)}
+            on:click={() => doRespecCaptainTalents(selectedSpecInModal)}
+          >
+            Confirm
+          </button>
         </div>
       </Panel>
     </div>
