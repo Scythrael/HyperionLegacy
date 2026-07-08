@@ -1003,7 +1003,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    padding-top: 14px; /* gap below .top-bar, whether the tab's first child is a <SubTabs> row or .tab-scroll-area directly */
+    padding: 14px 16px 0; /* top: gap below .top-bar, whether the tab's first child is a <SubTabs> row or .tab-scroll-area directly. left/right: the 16px horizontal inset moved here from .frame (2026-07-07) -- .top-bar/.nav-tabs are flush edge-to-edge now, only the middle content column (sub-tabs + panels) stays inset, so header/footer read as full-bleed while the panels still render fully inside their own margin. */
   }
   .tab-scroll-area {
     /* THE scrollable region -- every tab wraps its actual panel content in
