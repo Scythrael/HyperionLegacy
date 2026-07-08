@@ -79,6 +79,21 @@
     unloading: "Unloading",
   };
 
+  // Display label for each Captain Talent branch -- "tactical" shows as
+  // "Tactician" and "science" shows as "Explorer", both per the user's own
+  // requests (2026-07-07); every other branch's label is just its own raw key
+  // (still uppercased by .skill-branch-title's CSS, same as before). The
+  // branch KEYS themselves ("tactical"/"science") are unchanged --
+  // CAPTAIN_TALENTS entries still key off them, this map only affects what's
+  // rendered.
+  const CAPTAIN_TALENT_BRANCH_LABEL: Record<CaptainTalentBranch, string> = {
+    command: "command",
+    tactical: "Tactician",
+    science: "Explorer",
+    resourcefulness: "resourcefulness",
+    diplomacy: "diplomacy",
+  };
+
   let state: GameState = freshState();
   let createdAt = Date.now();
   let currentTheme: ThemeName = "cyan";
@@ -825,7 +840,7 @@
               {#each (["command", "tactical", "science", "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}
                 {@const nodes = Object.entries(CAPTAIN_TALENTS).filter(([, def]) => def.branch === branch)}
                 <div class="skill-branch">
-                  <div class="skill-branch-title">{branch}</div>
+                  <div class="skill-branch-title">{CAPTAIN_TALENT_BRANCH_LABEL[branch]}</div>
                   {#if nodes.length === 0}
                     <p class="prestige-text">Not yet available.</p>
                   {:else}
