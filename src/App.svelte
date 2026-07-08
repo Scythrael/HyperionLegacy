@@ -1004,7 +1004,7 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    padding: 14px 16px 0; /* top: gap below .top-bar, whether the tab's first child is a <SubTabs> row or .tab-scroll-area directly. left/right: the 16px horizontal inset moved here from .frame (2026-07-07) -- .top-bar/.nav-tabs are flush edge-to-edge now, only the middle content column (sub-tabs + panels) stays inset, so header/footer read as full-bleed while the panels still render fully inside their own margin. */
+    padding: 10px 11px 0; /* was 14px/16px, cut ~30% per the user's request for a slightly tighter inset. top: gap below .top-bar, whether the tab's first child is a <SubTabs> row or .tab-scroll-area directly. left/right: the horizontal inset moved here from .frame (2026-07-07) -- .top-bar/.nav-tabs are flush edge-to-edge now, only the middle content column (sub-tabs + panels) stays inset, so header/footer read as full-bleed while the panels still render fully inside their own margin. */
   }
   .tab-scroll-area {
     /* THE scrollable region -- every tab wraps its actual panel content in
@@ -1022,7 +1022,7 @@
     display: flex;
     flex-direction: column;
     gap: 14px; /* preserves the old .main's gap:14px spacing between stacked panels, now scoped to just the scrollable region */
-    padding-bottom: 14px; /* breathing room at the very bottom of scrolled content, above .nav-tabs */
+    padding-bottom: 10px; /* was 14px, cut ~30% to match .tab-body's tightened inset -- breathing room at the very bottom of scrolled content, above .nav-tabs */
   }
   .tab-scroll-area::-webkit-scrollbar { display: none; } /* Chrome/Safari/most mobile browsers */
   /* The very first element inside .frame now -- the old standalone "FLEET
