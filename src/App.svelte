@@ -325,7 +325,7 @@
 
         // passiveTrickle (Homeworld Talent economyTrickle): same fleet-wide,
         // mission-independent material generation tick.ts's tick() applies --
-        // mirrored here for the same reason as fleetYieldMult above. Applies
+        // mirrored here for the same reason as fleetRareYield above. Applies
         // even with zero captains dispatched, so it's checked unconditionally
         // this cycle, not just inside the captains loop.
         for (const key of state.unlockedHomeworldTalents) {
