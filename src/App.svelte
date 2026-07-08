@@ -115,7 +115,7 @@
   // this out-of-the-way spot, per the user's own request, since the level/
   // XP/tick bar and the bottom nav ARE the header/footer now. Defaults to
   // Options since theme/save actions are the most commonly checked view.
-  type SystemSubTab = "options" | "log" | "debug" | "about";
+  type SystemSubTab = "options" | "log" | "debug" | "about" | "patchNotes";
   let activeSystemSubTab: SystemSubTab = "options";
 
   let tickHandle: ReturnType<typeof setInterval>;
@@ -776,6 +776,7 @@
           { key: "log", label: "Log" },
           ...(DEV_MODE_ENV ? [{ key: "debug", label: "Debug" }] : []),
           { key: "about", label: "About" },
+          { key: "patchNotes", label: "Patch Notes" },
           { key: "systemLocked1", label: "Coming Soon!", locked: true },
           { key: "systemLocked2", label: "Coming Soon!", locked: true },
         ]}
@@ -854,7 +855,9 @@
         <div class="research-cost">Version {APP_VERSION}</div>
         <p class="prestige-text">Contact info coming soon.</p>
       </Panel>
+      {/if}
 
+      {#if activeSystemSubTab === "patchNotes"}
       <Panel>
         <div class="panel-title">PATCH NOTES</div>
         <div class="log-list">
@@ -924,13 +927,14 @@
     height: 100%; /* fills .root's fixed viewport height exactly */
     /* Was 720px (a mobile-first cap dating back to Phase 1, long logged in
        SUGGESTIONS.md as "full-width panels" -- a deferred idea until now).
-       1400px is a wide-but-capped compromise: on a normal or ultra-wide
-       desktop window the app now uses most of the available width instead
-       of sitting in a narrow centered column, but stops growing past a
-       readable line-length on very wide monitors. No separate mobile
-       handling needed -- .frame has no explicit `width`, so on a narrow
-       viewport it already just fills 100% of whatever width exists, the
-       same as it always has; only the desktop ceiling changed. */
+       width: 98% leaves a thin 1%-per-side margin (aesthetic breathing room,
+       not a functional cap) so the app reads as "wide" without ever quite
+       touching the browser's own edge; max-width: 1400px is the real ceiling
+       that stops it growing past a readable line-length on very wide/ultrawide
+       monitors, where 98% of the viewport would otherwise be too wide to
+       read comfortably. No separate mobile handling needed -- 98% behaves
+       the same at any viewport size, narrow or wide. */
+    width: 98%;
     max-width: 1400px;
     margin: 0 auto;
     display: flex;
