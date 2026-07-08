@@ -811,6 +811,63 @@ git commit -m "docs: reset APP_VERSION to 0.2.0, new versioning scheme going for
 
 ---
 
+### Task 8b: App.svelte — rename the "tactical" Captain Talent branch's display label to "Tactician"
+
+**Files:** Modify `src/App.svelte`.
+
+Mid-plan addition, unrelated to the loot/talent rework above — the user separately asked for this
+while reviewing. The Captain Talents panel currently renders each branch's raw string key directly
+(`{branch}`), uppercased by `.skill-branch-title`'s own `text-transform: uppercase` CSS — so
+`"tactical"` shows as "TACTICAL" today. Same "only change what's user-facing, not the internal key"
+precedent as the earlier nav-tab rename and the Command Efficiency → Bulk/Refined Extraction rename:
+the `CaptainTalentBranch` union member `"tactical"` stays exactly as-is (it's an internal key
+`CAPTAIN_TALENTS` entries key off of via their `branch` field, not shown to the player directly) —
+only the DISPLAYED text changes.
+
+**Step 1:** Read the Captain Talents panel block (`{#each (["command", "tactical", "science",
+"resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}` — search for this exact line
+to find it; do NOT confuse it with the separate Homeworld Talents panel a few hundred lines earlier,
+which iterates a DIFFERENT type (`HomeworldTalentBranch`) and must NOT be touched by this task).
+
+**Step 2:** Add a small display-label map near the top of the script section (alongside other
+display-only label constants like `MISSION_PHASE_LABEL`):
+
+```ts
+// Display label for each Captain Talent branch -- "tactical" shows as
+// "Tactician" per the user's own request (2026-07-07); every other branch's
+// label is just its own raw key (still uppercased by .skill-branch-title's
+// CSS, same as before). The branch KEY itself ("tactical") is unchanged --
+// CAPTAIN_TALENTS entries still key off "tactical", this map only affects
+// what's rendered.
+const CAPTAIN_TALENT_BRANCH_LABEL: Record<CaptainTalentBranch, string> = {
+  command: "command",
+  tactical: "Tactician",
+  science: "science",
+  resourcefulness: "resourcefulness",
+  diplomacy: "diplomacy",
+};
+```
+
+**Step 3:** In the Captain Talents panel block ONLY, change `<div class="skill-branch-title">
+{branch}</div>` to `<div class="skill-branch-title">{CAPTAIN_TALENT_BRANCH_LABEL[branch]}</div>`.
+Do NOT change the Homeworld Talents panel's own `<div class="skill-branch-title">{branch}</div>` —
+that one has no corresponding rename request and must render exactly as it does today.
+
+**Step 4: Verify.** Grep the file for `skill-branch-title` to confirm there are exactly 2 call
+sites (Homeworld Talents, Captain Talents) and only the Captain Talents one was changed. Confirm
+`CAPTAIN_TALENT_BRANCH_LABEL` is a `Record<CaptainTalentBranch, string>` with all 5 keys present
+(TypeScript would structurally require this even without a compiler running, but hand-verify by
+eye that none are missing/misspelled, since there's no `tsc` in this environment to catch it).
+
+**Step 5: Commit.**
+
+```bash
+git add src/App.svelte
+git commit -m "style: rename the Captain Talents 'tactical' branch's display label to Tactician"
+```
+
+---
+
 ### Task 9: Docs — session log + KNOWN_ISSUES.md
 
 **Files:** Modify `SESSION_LOG.md`. Modify `KNOWN_ISSUES.md` only if something genuinely warrants a
@@ -818,8 +875,10 @@ new entry (read 2 existing entries for wording/style match first).
 
 **Step 1:** Append a SESSION_LOG.md entry (match the established "Session N — ..." format/tone
 exactly) summarizing: the independent per-tier extraction rework (with the exact worked example),
-the 5-way talent effect split and which existing nodes got re-targeted to which tier, Import Save,
-and the versioning reset (flagging the intentional 0.2.0-after-0.9.0 oddity).
+the 5-way talent effect split and which existing nodes got re-targeted to which tier (including the
+Command Efficiency I/II → Bulk/Refined Extraction rename), Import Save, the versioning reset
+(flagging the intentional 0.2.0-after-0.9.0 oddity), and the "tactical" branch's display label
+becoming "Tactician" (Task 8b).
 
 **Step 2: Commit.**
 
