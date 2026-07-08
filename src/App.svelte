@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import Decimal from "break_infinity.js";
   import Starfield from "./lib/Starfield.svelte";
   import Panel from "./lib/Panel.svelte";
   import SubTabs from "./lib/SubTabs.svelte";
@@ -291,7 +292,11 @@
       // be skipped entirely on the (overwhelmingly common) no-op poll --
       // same reactivity-churn discipline as the existing anyFired guard.
       let anyLootDelivered = false;
-      const homePlanetDelta: Record<LootMaterialKey, number> = { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
+      const homePlanetDelta: Record<LootMaterialKey, Decimal> = {
+        commonOre: new Decimal(0),
+        uncommonMaterial: new Decimal(0),
+        rareMaterial: new Decimal(0),
+      };
       // Mirrors tick.ts's own tick() fleetAdminXpDelta accumulation (Task 2):
       // summed locally across every captain whose mission cycle completes
       // THIS poll, then handed once to applyFleetAdminXp at the very end of
@@ -370,11 +375,11 @@
           } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
           captains[i] = updatedCaptain;
           fleetAdminXpDelta += captainFleetAdminXpDelta;
-          if (delta.commonOre !== 0 || delta.uncommonMaterial !== 0 || delta.rareMaterial !== 0) {
+          if (!delta.commonOre.equals(0) || !delta.uncommonMaterial.equals(0) || !delta.rareMaterial.equals(0)) {
             anyLootDelivered = true;
-            homePlanetDelta.commonOre += delta.commonOre;
-            homePlanetDelta.uncommonMaterial += delta.uncommonMaterial;
-            homePlanetDelta.rareMaterial += delta.rareMaterial;
+            homePlanetDelta.commonOre = homePlanetDelta.commonOre.plus(delta.commonOre);
+            homePlanetDelta.uncommonMaterial = homePlanetDelta.uncommonMaterial.plus(delta.uncommonMaterial);
+            homePlanetDelta.rareMaterial = homePlanetDelta.rareMaterial.plus(delta.rareMaterial);
           }
         }
 
@@ -387,7 +392,9 @@
           const effect = HOMEWORLD_TALENTS[key].effect;
           if (effect.type === "passiveTrickle" && (LOOT_MATERIAL_KEYS as string[]).includes(effect.material)) {
             anyLootDelivered = true;
-            homePlanetDelta[effect.material as LootMaterialKey] += effect.perTick * ticksElapsed;
+            homePlanetDelta[effect.material as LootMaterialKey] = homePlanetDelta[effect.material as LootMaterialKey].plus(
+              effect.perTick * ticksElapsed
+            );
           }
         }
 
@@ -417,9 +424,9 @@
           homePlanet: {
             storage: {
               ...state.homePlanet.storage,
-              commonOre: state.homePlanet.storage.commonOre + homePlanetDelta.commonOre,
-              uncommonMaterial: state.homePlanet.storage.uncommonMaterial + homePlanetDelta.uncommonMaterial,
-              rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
+              commonOre: state.homePlanet.storage.commonOre.plus(homePlanetDelta.commonOre),
+              uncommonMaterial: state.homePlanet.storage.uncommonMaterial.plus(homePlanetDelta.uncommonMaterial),
+              rareMaterial: state.homePlanet.storage.rareMaterial.plus(homePlanetDelta.rareMaterial),
             },
           },
         };
