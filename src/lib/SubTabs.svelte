@@ -23,6 +23,10 @@
 
 <style>
   .sub-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  /* Lighter/smaller variant of App.svelte's .captain-tab -- same visual
+     language (rounded pill, accent-tinted background/border), scaled down
+     since this can appear multiple times per screen (unlike the single
+     top-level bottom nav). */
   .sub-tab {
     background: rgba(var(--color-accent-rgb), 0.05);
     border: 1px solid rgba(var(--color-accent-rgb), 0.16);
