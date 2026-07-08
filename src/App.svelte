@@ -98,6 +98,30 @@
     diplomacy: "diplomacy",
   };
 
+  // Talent Tree Visual Redesign (Task 10) -- Captain Talents panel layout.
+  // Every CAPTAIN_TALENTS entry's `requires` field points at its same-branch
+  // prerequisite (or null for a root node) -- talentDepth walks that chain
+  // back to the root and returns how many hops it took, so "depth" doubles
+  // as the node's row index within its branch's column (root = row 0).
+  // Component-local (not moved to tick.ts) because it's pure presentation
+  // math, not game logic -- nothing in the save/tick pipeline needs it.
+  function talentDepth(key: string, table: Record<string, { requires: string | null }>): number {
+    let depth = 0;
+    let current = table[key].requires;
+    while (current !== null) {
+      depth += 1;
+      current = table[current].requires;
+    }
+    return depth;
+  }
+
+  // Pixel height reserved per depth row in a Captain Talents branch column.
+  // .skill-node (see CSS below) runs roughly 8px padding + ~34px of label/
+  // status text + 6px margin-bottom ≈ 48px tall -- 56px leaves a visible gap
+  // between stacked nodes so the connector line reads clearly against the
+  // node borders on either end.
+  const TALENT_ROW_HEIGHT = 56;
+
   let state: GameState = freshState();
   let createdAt = Date.now();
   let currentTheme: ThemeName = "cyan";
@@ -903,30 +927,67 @@
                   {#if nodes.length === 0}
                     <p class="prestige-text">Not yet available.</p>
                   {:else}
-                    {#each nodes as [key, talent]}
-                      {@const owned = activeCaptain.unlockedCaptainTalents.includes(key as CaptainTalentKey)}
-                      {@const locked = !owned && talent.requires !== null && !activeCaptain.unlockedCaptainTalents.includes(talent.requires)}
-                      {@const buyable = !owned && !locked && activeCaptain.statPoints >= talent.cost}
-                      <div class="skill-node" class:owned={owned} class:locked={locked}>
-                        <div>
-                          <div class="skill-node-label">{talent.label}</div>
-                          <div class="skill-node-status">
-                            {#if owned}
-                              Owned
-                            {:else if locked}
-                              Requires: {CAPTAIN_TALENTS[talent.requires!].label}
-                            {:else}
-                              Cost: {formatNumber(talent.cost)} Stat Points
+                    {@const depths = nodes.map(([key]) => talentDepth(key, CAPTAIN_TALENTS))}
+                    {@const maxDepth = Math.max(...depths)}
+                    {@const treeHeight = (maxDepth + 1) * TALENT_ROW_HEIGHT}
+                    {@const depthRows = Array.from({ length: maxDepth + 1 }, (_, rowDepth) =>
+                      nodes.filter(([key]) => talentDepth(key, CAPTAIN_TALENTS) === rowDepth)
+                    )}
+                    <!-- depthRows groups nodes by depth (row), not one-node-per-depth --
+                         every branch today is a single linear chain so each row holds
+                         exactly one node, but grouping this way means a future branch
+                         with same-depth siblings renders them stacked in the SAME row
+                         (see the {#each row as ...} below) instead of silently
+                         overlapping at the same `top` offset. -->
+                    <div class="talent-branch-tree" style="height:{treeHeight}px;">
+                      <svg class="talent-branch-connectors" viewBox="0 0 100 {treeHeight}" preserveAspectRatio="none">
+                        {#each nodes as [key, talent]}
+                          {#if talent.requires !== null}
+                            {@const owned = activeCaptain.unlockedCaptainTalents.includes(key as CaptainTalentKey)}
+                            {@const thisDepth = talentDepth(key, CAPTAIN_TALENTS)}
+                            {@const prereqDepth = talentDepth(talent.requires!, CAPTAIN_TALENTS)}
+                            <line
+                              x1="50"
+                              y1={prereqDepth * TALENT_ROW_HEIGHT + TALENT_ROW_HEIGHT / 2}
+                              x2="50"
+                              y2={thisDepth * TALENT_ROW_HEIGHT + TALENT_ROW_HEIGHT / 2}
+                              stroke={owned ? "var(--color-success)" : "rgba(var(--color-accent-rgb), 0.2)"}
+                              stroke-width="2"
+                              vector-effect="non-scaling-stroke"
+                            />
+                          {/if}
+                        {/each}
+                      </svg>
+                      {#each depthRows as row, rowDepth}
+                        {#each row as [key, talent]}
+                          {@const owned = activeCaptain.unlockedCaptainTalents.includes(key as CaptainTalentKey)}
+                          {@const locked = !owned && talent.requires !== null && !activeCaptain.unlockedCaptainTalents.includes(talent.requires)}
+                          {@const buyable = !owned && !locked && activeCaptain.statPoints >= talent.cost}
+                          <div
+                            class="skill-node talent-node" class:owned={owned} class:locked={locked}
+                            style="top:{rowDepth * TALENT_ROW_HEIGHT}px;"
+                          >
+                            <div>
+                              <div class="skill-node-label">{talent.label}</div>
+                              <div class="skill-node-status">
+                                {#if owned}
+                                  Owned
+                                {:else if locked}
+                                  Requires: {CAPTAIN_TALENTS[talent.requires!].label}
+                                {:else}
+                                  Cost: {formatNumber(talent.cost)} Stat Points
+                                {/if}
+                              </div>
+                            </div>
+                            {#if !owned}
+                              <button class="buy-btn" disabled={!buyable} on:click={() => doBuyCaptainTalent(key as CaptainTalentKey)}>
+                                Learn
+                              </button>
                             {/if}
                           </div>
-                        </div>
-                        {#if !owned}
-                          <button class="buy-btn" disabled={!buyable} on:click={() => doBuyCaptainTalent(key as CaptainTalentKey)}>
-                            Learn
-                          </button>
-                        {/if}
-                      </div>
-                    {/each}
+                        {/each}
+                      {/each}
+                    </div>
                   {/if}
                 </div>
               {/each}
@@ -1867,6 +1928,32 @@
   .skill-node.locked { opacity: 0.5; }
   .skill-node-label { font-size: 12px; font-weight: 600; }
   .skill-node-status { font-size: 11px; color: var(--color-text-secondary); }
+
+  /* Talent Tree Visual Redesign (Task 10) -- Captain Talents depth-based
+     layout. .talent-branch-tree is the positioning context for one branch's
+     column: height is set inline per-branch (JS-computed from that branch's
+     deepest chain), and it holds both the connector <svg> (Step 3) and the
+     absolutely-positioned .talent-node elements (Step 2) stacked on top of
+     it. .talent-node overrides .skill-node's normal document-flow margin
+     with absolute positioning driven by each node's depth * TALENT_ROW_HEIGHT
+     (set inline via `top`, see markup above) -- its owned/locked border
+     styling is untouched, still governed by the existing
+     .skill-node.owned/.skill-node.locked rules above. */
+  .talent-branch-tree { position: relative; }
+  .talent-branch-connectors {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  .talent-node {
+    position: absolute;
+    left: 0;
+    right: 0;
+    margin-bottom: 0;
+  }
   .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
   .theme-swatch {
     width: 28px;
