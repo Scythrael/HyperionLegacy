@@ -42,6 +42,11 @@ write it down so you don't relitigate it later.
   either way), but a keyboard user can currently Tab past the backdrop
   into page content behind it. Worth fixing once this modal pattern gets
   reused for anything else, so the fix lands once instead of per-modal.
+  That reuse has now happened (Fleet Operations' captain-selection popup,
+  2026-07-07) — the new modal has the SAME focus-trap/Escape gap, plus it has
+  ZERO `aria-label`s anywhere (the delete modal at least labels its text
+  input), so it's actually a step behind, not just a repeat. Worth fixing
+  both modals together in one pass rather than patching them separately.
 - Theme switching only affects the "primary"/accent color tokens — it does
   not recolor `.log-entry` text (`#9fc4cc`, hardcoded, predates the theme
   feature) or the Starfield's dots (`#bfe9f5`, same). Intentional scope
