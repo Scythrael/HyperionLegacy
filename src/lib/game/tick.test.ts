@@ -46,16 +46,16 @@ describe("tickCaptainMission — closed-form requirement", () => {
   it("one big jump equals many small ticks, across multiple phase transitions", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain("shortOreRun");
-    // shortOreRun total ticks per cycle: 1 (orders) + 3 (out) + 10 (extract) + 3 (back) + 1 (unload) = 18.
-    // 40 ticksElapsed crosses more than one full cycle (auto-repeat).
-    const bigJump = tickCaptainMission(40, base, ALWAYS_MIN_ROLL);
+    // shortOreRun total ticks per cycle: 1 (orders) + 25 (out) + 90 (extract) + 25 (back) + 8 (unload) = 149.
+    // 320 ticksElapsed crosses more than one full cycle (auto-repeat, 320 > 2*149=298).
+    const bigJump = tickCaptainMission(320, base, ALWAYS_MIN_ROLL);
 
     let steppedCaptain = base;
     // Decimal, not a plain-number literal accumulator -- mirrors homePlanetDelta's own
     // Decimal shape so the .plus() accumulation below stays in Decimal-land throughout,
     // same "accumulate locally, apply once" pattern tick.ts itself uses.
     let steppedDelta = { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < 3200; i++) {
       const result = tickCaptainMission(0.1, steppedCaptain, ALWAYS_MIN_ROLL);
       steppedCaptain = result.captain;
       steppedDelta = {
@@ -130,8 +130,8 @@ describe("tickCaptainMission — phase progression", () => {
 
   it("advances all the way through extracting, transitBack, and unloading in one big call", () => {
     const base = freshCaptains(1)[0];
-    base.mission = missionCaptain(); // shortOreRun: 1+3+10+3+1 = 18 ticks for one full cycle
-    const { captain, homePlanetDelta } = tickCaptainMission(17.9, base, ALWAYS_MIN_ROLL);
+    base.mission = missionCaptain(); // shortOreRun: 1+25+90+25+8 = 149 ticks for one full cycle
+    const { captain, homePlanetDelta } = tickCaptainMission(141.9, base, ALWAYS_MIN_ROLL);
     expect(captain.mission!.phase).toBe("unloading");
     expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.9, 6);
     // not unloaded yet -- per-key .equals(), not .toEqual() against a plain-number literal.
@@ -163,10 +163,10 @@ describe("tickCaptainMission — extraction loot rolls", () => {
   it("a large jump resolves every extraction tick's loot roll, not just the last one", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    // Exactly 10 ticks completes extracting (cargoCapacity 100 / rate 10) -- 10 rolls, all
-    // commonOre under NOTHING_OCCURS: 10 * 10 = 100.
-    const { captain } = tickCaptainMission(10, base, NOTHING_OCCURS);
-    expect(captain.mission!.cargo.commonOre.equals(100)).toBe(true);
+    // Exactly 90 ticks completes extracting (cargoCapacity 900 / rate 10) -- 90 rolls, all
+    // commonOre under NOTHING_OCCURS: 90 * 10 = 900.
+    const { captain } = tickCaptainMission(90, base, NOTHING_OCCURS);
+    expect(captain.mission!.cargo.commonOre.equals(900)).toBe(true);
     expect(captain.mission!.phase).toBe("transitBack"); // extracting completed, advanced
   });
 
@@ -411,7 +411,7 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
       uncommonMaterial: new Decimal(8),
       rareMaterial: new Decimal(2),
     };
-    const { captain, homePlanetDelta } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL); // 1 tick completes unloadTicks=1
+    const { captain, homePlanetDelta } = tickCaptainMission(8, base, ALWAYS_MIN_ROLL); // 8 ticks completes unloadTicks=8
 
     expect(homePlanetDelta.commonOre.equals(90)).toBe(true);
     expect(homePlanetDelta.uncommonMaterial.equals(8)).toBe(true);
@@ -429,7 +429,7 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0, recalled: true };
     base.mission.cargo = { commonOre: new Decimal(50), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
-    const { captain, homePlanetDelta } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
+    const { captain, homePlanetDelta } = tickCaptainMission(8, base, ALWAYS_MIN_ROLL); // 8 ticks completes unloadTicks=8
 
     expect(homePlanetDelta.commonOre.equals(50)).toBe(true);
     expect(homePlanetDelta.uncommonMaterial.equals(0)).toBe(true);
@@ -439,18 +439,18 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
 
   it("a big jump can complete multiple full auto-repeat cycles, accumulating homePlanetDelta across all of them", () => {
     const base = freshCaptains(1)[0];
-    base.mission = missionCaptain(); // shortOreRun, 18 ticks/cycle
-    const { captain, homePlanetDelta } = tickCaptainMission(36, base, ALWAYS_MIN_ROLL); // exactly 2 full cycles
+    base.mission = missionCaptain(); // shortOreRun, 149 ticks/cycle
+    const { captain, homePlanetDelta } = tickCaptainMission(298, base, ALWAYS_MIN_ROLL); // exactly 2 full cycles (2*149)
 
-    // Each cycle's extracting phase is 10 whole-tick rolls (cargoCapacity 100 / rate 10).
+    // Each cycle's extracting phase is 90 whole-tick rolls (cargoCapacity 900 / rate 10).
     // Under ALWAYS_MIN_ROLL (rng() constant 0), EVERY roll delivers commonOre 8,
     // uncommonMaterial 1, rareMaterial 1 (see the "both tiers occur, minimum amounts"
     // hand-trace above) -- NOT pure commonOre, unlike the old mutually-exclusive
-    // mechanism this replaced. Per cycle: 10 rolls * {8, 1, 1} = {80, 10, 10}.
-    // 2 cycles = {160, 20, 20}.
-    expect(homePlanetDelta.commonOre.equals(160)).toBe(true);
-    expect(homePlanetDelta.uncommonMaterial.equals(20)).toBe(true);
-    expect(homePlanetDelta.rareMaterial.equals(20)).toBe(true);
+    // mechanism this replaced. Per cycle: 90 rolls * {8, 1, 1} = {720, 90, 90}.
+    // 2 cycles = {1440, 180, 180}.
+    expect(homePlanetDelta.commonOre.equals(1440)).toBe(true);
+    expect(homePlanetDelta.uncommonMaterial.equals(180)).toBe(true);
+    expect(homePlanetDelta.rareMaterial.equals(180)).toBe(true);
     expect(captain.mission!.phase).toBe("ordersReceived"); // mid-3rd-cycle-start, not recalled
     expect(captain.mission!.phaseProgressTicks).toBe(0);
   });
@@ -478,7 +478,7 @@ describe("tickCaptainMission — awards XP on cycle completion", () => {
   it("awards XP once when exactly one cycle completes", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
-    const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL); // 1 tick completes unloadTicks=1
+    const { captain } = tickCaptainMission(8, base, ALWAYS_MIN_ROLL); // 8 ticks completes unloadTicks=8
     expect(captain.xp.equals(50)).toBe(true);
     expect(captain.level).toBe(1); // 50 < xpForNextLevel(1)=100, no level-up yet
   });
@@ -487,7 +487,7 @@ describe("tickCaptainMission — awards XP on cycle completion", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
     base.xp = new Decimal(60); // + this cycle's 50 = 110, crosses xpForNextLevel(1)=100
-    const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
+    const { captain } = tickCaptainMission(8, base, ALWAYS_MIN_ROLL); // 8 ticks completes unloadTicks=8
     expect(captain.level).toBe(2);
     expect(captain.xp.equals(10)).toBe(true); // 110 - 100
     expect(captain.statPoints).toBe(1);
@@ -495,8 +495,8 @@ describe("tickCaptainMission — awards XP on cycle completion", () => {
 
   it("a big jump completing multiple cycles awards XP for EACH cycle, resolving multiple level-ups if crossed", () => {
     const base = freshCaptains(1)[0];
-    base.mission = missionCaptain(); // shortOreRun, 18 ticks/cycle
-    const { captain } = tickCaptainMission(36, base, ALWAYS_MIN_ROLL); // exactly 2 full cycles -> 2 * 50 = 100 XP
+    base.mission = missionCaptain(); // shortOreRun, 149 ticks/cycle
+    const { captain } = tickCaptainMission(298, base, ALWAYS_MIN_ROLL); // exactly 2 full cycles (2*149) -> 2 * 50 = 100 XP
     expect(captain.xp.equals(0)).toBe(true); // 100 XP exactly hits xpForNextLevel(1)=100 -> levels to 2 with 0 leftover
     expect(captain.level).toBe(2);
     expect(captain.statPoints).toBe(1);
@@ -557,24 +557,25 @@ describe("tick() — idle captains do nothing, mission captains route through ti
   it("mission loot aggregates across all captains on missions into state.homePlanet.storage in one tick() call", () => {
     // Hand-traced against tickCaptainMission's CURRENT implementation (tick.ts):
     //
-    // Captain 0: phase "extracting", phaseProgressTicks: 0. state.tickDurationSeconds=10, deltaSeconds=10
-    // -> ticksElapsed = 1. requiredTicks for "extracting" (shortOreRun) = ceil(100/10) = 10.
-    // ticksLeftInPhase = 10 - 0 = 10; ticksToApply = min(1, 10) = 1. Epsilon-snap check:
-    // |0 + 1 - 10| = 9, not < 1e-9, so ticksToApply stays 1. fromWhole = floor(0) = 0,
-    // toWhole = floor(0+1) = 1 -> 1 loot roll, cargo gains 10 units (some tier, rng-dependent).
-    // phaseProgressTicks becomes 1, remaining becomes 0. 1 < 10, so phase does NOT complete this
-    // tick -- captain 0 stays in "extracting", nothing delivered to homePlanetDelta.
+    // Captain 0: phase "extracting", phaseProgressTicks: 0. state.tickDurationSeconds=1 (fresh
+    // default, post-rebalance), deltaSeconds=1 -> ticksElapsed = 1. requiredTicks for "extracting"
+    // (shortOreRun) = ceil(900/10) = 90. ticksLeftInPhase = 90 - 0 = 90; ticksToApply = min(1, 90) = 1.
+    // Epsilon-snap check: |0 + 1 - 90| = 89, not < 1e-9, so ticksToApply stays 1. fromWhole =
+    // floor(0) = 0, toWhole = floor(0+1) = 1 -> 1 loot roll, cargo gains 10 units (some tier,
+    // rng-dependent). phaseProgressTicks becomes 1, remaining becomes 0. 1 < 90, so phase does NOT
+    // complete this tick -- captain 0 stays in "extracting", nothing delivered to homePlanetDelta.
     //
-    // Captain 1: phase "extracting", phaseProgressTicks: 9, cargo.commonOre: 90 (pre-seeded, as if
-    // 9 prior whole-tick rolls all landed commonOre). Same ticksElapsed = 1. ticksLeftInPhase =
-    // 10 - 9 = 1; ticksToApply = min(1, 1) = 1. Epsilon-snap check: |9 + 1 - 10| = 0 < 1e-9 -- true,
-    // so ticksToApply recomputed as 10 - 9 = 1 (unchanged, no drift here since these are whole
-    // numbers). fromWhole = floor(9) = 9, toWhole = floor(9+1) = 10 -> 1 loot roll, cargo.commonOre
-    // becomes 100. phaseProgressTicks becomes 10, which equals requiredTicks (10) -- extracting
-    // phase COMPLETES. MISSION_PHASE_ORDER.indexOf("extracting") = 2, nextIndex = 3 ->
-    // "transitBack" (not the last phase, "unloading"), so captain 1 advances to "transitBack" with
-    // phaseProgressTicks reset to 0. Still no delivery to homePlanetDelta -- that only happens when
-    // "unloading" itself completes, which neither captain reaches this tick.
+    // Captain 1: phase "extracting", phaseProgressTicks: 89, cargo.commonOre: 890 (pre-seeded, as if
+    // 89 prior whole-tick rolls all landed commonOre) -- exactly 1 tick away from completing the new
+    // 90-tick "extracting" phase. Same ticksElapsed = 1. ticksLeftInPhase = 90 - 89 = 1; ticksToApply
+    // = min(1, 1) = 1. Epsilon-snap check: |89 + 1 - 90| = 0 < 1e-9 -- true, so ticksToApply
+    // recomputed as 90 - 89 = 1 (unchanged, no drift here since these are whole numbers). fromWhole =
+    // floor(89) = 89, toWhole = floor(89+1) = 90 -> 1 loot roll, cargo.commonOre becomes 900.
+    // phaseProgressTicks becomes 90, which equals requiredTicks (90) -- extracting phase COMPLETES.
+    // MISSION_PHASE_ORDER.indexOf("extracting") = 2, nextIndex = 3 -> "transitBack" (not the last
+    // phase, "unloading"), so captain 1 advances to "transitBack" with phaseProgressTicks reset to 0.
+    // Still no delivery to homePlanetDelta -- that only happens when "unloading" itself completes,
+    // which neither captain reaches this tick.
     //
     // So: state.homePlanet.storage must be UNCHANGED (still all zero) after this single tick() call,
     // even though both captains' onboard cargo grew. This is the "in transit, not yet delivered"
@@ -591,12 +592,12 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     state.captains[1].mission = {
       missionKey: "shortOreRun",
       phase: "extracting",
-      phaseProgressTicks: 9,
-      cargo: { commonOre: new Decimal(90), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
+      phaseProgressTicks: 89,
+      cargo: { commonOre: new Decimal(890), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
       recalled: false,
     };
 
-    const result = tick(10, state);
+    const result = tick(1, state);
 
     // Captain 0 gained exactly 1 roll's worth (10 units, tier rng-dependent) of onboard cargo.
     // .plus() chain (not +) since these are Decimal fields -- .equals() (not toBe) on the
@@ -607,13 +608,13 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     expect(cap0CargoTotal.equals(10)).toBe(true);
     expect(result.captains[0].mission!.phase).toBe("extracting");
 
-    // Captain 1 completed extracting (10/10 ticks), advanced to transitBack, final cargo 100 --
+    // Captain 1 completed extracting (90/90 ticks), advanced to transitBack, final cargo 900 --
     // asserted as a tier-agnostic total since the final roll's tier is rng-dependent (unmocked
     // Math.random here, same reasoning as captain 0's total check above).
     const cap1CargoTotal = result.captains[1].mission!.cargo.commonOre
       .plus(result.captains[1].mission!.cargo.uncommonMaterial)
       .plus(result.captains[1].mission!.cargo.rareMaterial);
-    expect(cap1CargoTotal.equals(100)).toBe(true);
+    expect(cap1CargoTotal.equals(900)).toBe(true);
     expect(result.captains[1].mission!.phase).toBe("transitBack");
     expect(result.captains[1].mission!.phaseProgressTicks).toBe(0);
 
@@ -629,14 +630,14 @@ describe("tick() — idle captains do nothing, mission captains route through ti
   });
 
   it("delivers cargo to state.homePlanet.storage, added to existing totals, when a mission's cycle completes this tick", () => {
-    // Hand-traced: phase "unloading" with unloadTicks=1 (shortOreRun), phaseProgressTicks: 0.
-    // deltaSeconds=10, state.tickDurationSeconds=10 -> ticksElapsed=1. requiredTicks("unloading")=1.
-    // ticksLeftInPhase = 1 - 0 = 1; ticksToApply = min(1,1) = 1. Not "extracting", so no loot roll
-    // in this step. phaseProgressTicks becomes 1, remaining becomes 0. 1 >= requiredTicks(1) ->
-    // phase completes. MISSION_PHASE_ORDER.indexOf("unloading") = 4 (last), nextIndex = 5 >=
-    // length(5) -- cycle complete: cargo {commonOre:70, uncommonMaterial:20, rareMaterial:10} is
-    // added to homePlanetDelta, then (recalled: false) mission auto-repeats to "ordersReceived"
-    // with phaseProgressTicks 0 and fresh empty cargo.
+    // Hand-traced: phase "unloading" with unloadTicks=8 (shortOreRun), phaseProgressTicks: 0.
+    // deltaSeconds=8, state.tickDurationSeconds=1 (fresh default, post-rebalance) -> ticksElapsed=8.
+    // requiredTicks("unloading")=8. ticksLeftInPhase = 8 - 0 = 8; ticksToApply = min(8,8) = 8. Not
+    // "extracting", so no loot roll in this step. phaseProgressTicks becomes 8, remaining becomes 0.
+    // 8 >= requiredTicks(8) -> phase completes. MISSION_PHASE_ORDER.indexOf("unloading") = 4 (last),
+    // nextIndex = 5 >= length(5) -- cycle complete: cargo {commonOre:70, uncommonMaterial:20,
+    // rareMaterial:10} is added to homePlanetDelta, then (recalled: false) mission auto-repeats to
+    // "ordersReceived" with phaseProgressTicks 0 and fresh empty cargo.
     //
     // state.homePlanet.storage starts pre-seeded at {commonOre:5, uncommonMaterial:1, rareMaterial:0}
     // (simulating a PRIOR delivery already sitting in storage) to prove this tick's delta is ADDED
@@ -657,7 +658,7 @@ describe("tick() — idle captains do nothing, mission captains route through ti
       recalled: false,
     };
 
-    const result = tick(10, state);
+    const result = tick(8, state);
 
     // Per-key .equals(), not .toEqual() against a plain-number-literal object -- homePlanet.storage
     // values are real Decimal instances.
@@ -710,7 +711,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
       state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.1 commonYieldMult
       state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
-      const result = tick(10, state); // tickDurationSeconds=10 -> ticksElapsed=1 -> 1 roll
+      const result = tick(1, state); // tickDurationSeconds=1 (fresh default) -> ticksElapsed=1 for deltaSeconds=1 -> 1 roll
 
       // Math.random mocked to 0.5 forces k=0 (neither tier occurs, see the note above),
       // making commonYieldMult scale the total deterministically: extractionRatePerTick
@@ -734,7 +735,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
     state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05 rareYieldMult, fleet-wide
     state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
-    const result = tick(10, state); // 1 roll, real Math.random -- which tier occurs is rng-dependent
+    const result = tick(1, state); // 1 roll, real Math.random -- which tier occurs is rng-dependent
 
     // rareYieldMult only rescales rare's OWN rolled amount (when rare actually occurs
     // this roll) -- it does NOT change the deterministic per-tick total (see this
@@ -762,7 +763,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
       state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.1 commonYieldMult (does affect total)
       state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
-      const result = tick(10, state);
+      const result = tick(1, state);
 
       // Total delivered is governed ONLY by commonYieldMult (see this describe block's
       // opening comment) -- rareYieldMult being simultaneously active must not change
@@ -784,7 +785,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
     // freshState's single captain is idle (mission: null) by default -- no mission math
     // should run at all, isolating this test to the passive-trickle path.
 
-    const result = tick(10, state); // ticksElapsed = 10/10 = 1 -> 1 * perTick(1) = 1
+    const result = tick(1, state); // ticksElapsed = 1/1 = 1 -> 1 * perTick(1) = 1
 
     expect(result.homePlanet.storage.commonOre.equals(1)).toBe(true);
   });
@@ -793,7 +794,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
     const state = freshState();
     state.unlockedHomeworldTalents = ["economyTrickle"];
 
-    const result = tick(35, state); // ticksElapsed = 35/10 = 3.5 -> 3.5 * 1 = 3.5
+    const result = tick(3.5, state); // ticksElapsed = 3.5/1 = 3.5
 
     expect(result.homePlanet.storage.commonOre.toNumber()).toBeCloseTo(3.5, 6);
   });
@@ -802,7 +803,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
     const state = freshState();
     state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
-    const result = tick(10, state);
+    const result = tick(1, state);
 
     const totalDelivered = result.captains[0].mission!.cargo.commonOre
       .plus(result.captains[0].mission!.cargo.uncommonMaterial)
