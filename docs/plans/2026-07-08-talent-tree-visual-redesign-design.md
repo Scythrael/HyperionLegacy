@@ -5,13 +5,16 @@
 Both talent trees (Captain Talents and Homeworld Talents) currently render as a flat list of
 `.skill-node` rows per branch — no visual connectors showing which node unlocks which, and no
 explanation of what a node's effect actually does beyond its raw name (per the user's own prior
-feedback: "it's hard to tell what the talents actually do"). This design covers three bundled pieces,
+feedback: "it's hard to tell what the talents actually do"). This design covers four bundled pieces,
 per the user's explicit choice to build them together rather than across separate branches:
 
 1. A real branching-tree visual (SVG connector lines between positioned nodes).
 2. Tooltips showing each node's numeric effect and flavor text.
 3. Respeccing (full reset + refund), which in turn requires introducing a new `credits` currency as
    its cost.
+4. Captain Specialization — reviving the retired Phase 1 specialization mechanic: each captain picks one
+   Captain Talent branch as their spec, earning an innate bonus for it, changeable via the same respec
+   flow/cost (see its own section below).
 
 ## Credits currency
 
@@ -96,15 +99,49 @@ and for `respecCaptainTalents`/`respecHomeworldTalents` (refund math, the insuff
 path, and confirming the 3 `unlockCaptainSlot` nodes survive a Homeworld reset untouched). `save.test.ts`
 gets a new migration test for the version bump below.
 
+## Captain Specialization (reviving the retired mechanic)
+
+This game had a "Captain Prestige panel + specialization picker" system once (Phase 1), retired during
+the Phase 4 Navigation/Progression Overhaul along with the old Generator Stack economy. This design
+revives the concept in a new form, built on the Captain Talent tree rather than the old system.
+
+`CaptainState` gains `spec: CaptainTalentBranch | null` (starts `null` for a fresh captain). A new
+`CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTalentEffect>>` table grants an innate
+bonus once a captain has that spec chosen — deliberately `Partial`, since only branches with a real entry
+are selectable at all:
+
+- `resourcefulness: { type: "bonusRollChance", chance: 0.01 }` — an innate 1% baseline that additively
+  stacks with the Lucky Strike I/II talent chain: `0.02` base (node I) doubled to `0.04` by node II's
+  `bonusRollChanceMult`, plus this `0.01` spec bonus, lands at exactly `0.05` (5%) when a Resourcefulness
+  captain is fully specced AND fully talented.
+- `command: { type: "commonYieldMult", mult: 0.05 }` — a "+5%" placeholder bonus, deliberately reusing an
+  existing effect type so it's wireable now without inventing new mechanics; refine the actual value/type
+  later once Command's role is better defined.
+- `tactical`/`science`/`diplomacy` — **no entry**. These specs render locked in the spec picker (same
+  "Not yet available" treatment their talent columns already get today), becoming selectable only once
+  their real systems (Combat, a redefined Science mechanic) actually exist. Avoids inventing a meaningless
+  bonus for a system that isn't built yet.
+
+Choosing or changing a captain's spec is bundled into the SAME `respecCaptainTalents` flow (same 50-credit
+cost, since credits already fund "at will" changes to a captain's build) — that function's signature
+grows an optional new-spec parameter, applied atomically with the talent-tree wipe. A plain reset that
+doesn't touch spec selection keeps the current one. The relevant stacking helper sums BOTH sources
+additively — e.g. `captainBonusRollChance` sums `resourcefulnessBonusRollI`'s `chance` from the talent
+tree AND (if this captain's `spec === "resourcefulness"`) `CAPTAIN_SPEC_BONUS.resourcefulness.chance`.
+
 ## Save/schema impact
 
-Real migration needed — `credits` is a new persisted `GameState` field. `SAVE_VERSION` bumps (currently
-13) with a backfill defaulting existing saves to `credits: new Decimal(0)`.
+Real migration needed — `credits` is a new persisted `GameState` field, and `spec` is a new persisted
+per-captain field. `SAVE_VERSION` bumps (currently 13) with a backfill defaulting existing saves to
+`credits: new Decimal(0)` and every existing captain's `spec: null`.
 
 ## Explicitly out of scope for THIS design
 
 - The Homeworld Market (sell resources for credits) — a real future feature, logged to `SUGGESTIONS.md`.
+- The broader credits economy (Auction House, a Bank protecting credits from a future death/failure
+  mechanic) — logged to `SUGGESTIONS.md`, well beyond this branch.
 - Per-node partial refunds for respec — full-reset-only for this pass; individual-node refunding (and its
   prerequisite-chain complications) is a possible future refinement, not built here.
+- Real spec bonuses for Tactical/Science/Diplomacy — those specs stay locked until Combat/Science exist.
 - Ships, ship-stat cargo capacity, the third "farming efficiency" mission type — unchanged, still
   deferred from earlier branches.
