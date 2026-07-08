@@ -41,6 +41,19 @@
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
   const DEV_MODE_ENV = import.meta.env.VITE_DEV_MODE === "true";
 
+  // Player-facing app version + patch notes, shown on the About sub-tab
+  // (System tab). Distinct from SAVE_VERSION (save.ts) -- that's the save
+  // SCHEMA version, bumped only when the save shape changes; this is a
+  // human-readable release marker, bumped by hand whenever there's a
+  // user-visible batch of changes worth calling out. Newest entry first.
+  const APP_VERSION = "0.9.0";
+  const PATCH_NOTES: { version: string; summary: string }[] = [
+    { version: "0.9.0", summary: "Widened the app to use most of the screen instead of a narrow centered column; retired the diagonal-corner panel look for a flatter style; moved the app's branding into this About tab." },
+    { version: "0.8.0", summary: "Reworked scrolling so only the active tab's content scrolls, not the whole page; added \"Coming Soon\" locked placeholders for future sub-tabs and captain slots." },
+    { version: "0.7.0", summary: "Rebuilt navigation: a global header with Fleet Admiral level/XP and a single fleet-wide tick, a dedicated Fleet Captain's tab, and a mission-first Fleet Operations tab." },
+    { version: "0.6.0", summary: "Added Captain Talents and Homeworld Talents -- two talent trees plus Fleet Admiral leveling." },
+  ];
+
   // Display-only phase labels for the MISSIONS panel's phase readout. Purely
   // a UI concern -- nothing outside this file needs to map a MissionPhase to
   // display text, so it lives here rather than in model.ts. Must stay in
@@ -838,7 +851,19 @@
           <span class="title">FLEET ADMIRAL</span>
           <span class="subtitle">prototype build · multi-captain · single sector</span>
         </div>
+        <div class="research-cost">Version {APP_VERSION}</div>
         <p class="prestige-text">Contact info coming soon.</p>
+      </Panel>
+
+      <Panel>
+        <div class="panel-title">PATCH NOTES</div>
+        <div class="log-list">
+          {#each PATCH_NOTES as note}
+            <div class="log-entry">
+              <strong>{note.version}</strong> — {note.summary}
+            </div>
+          {/each}
+        </div>
       </Panel>
       {/if}
       </div>
