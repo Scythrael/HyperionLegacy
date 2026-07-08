@@ -282,19 +282,19 @@
     clearInterval(saveHandle);
   });
 
-  function doDispatchCaptainOnMission(missionKey: MissionKey) {
-    const captain = activeCaptain;
-    const { next, success } = dispatchCaptainOnMission(state, captain.id, missionKey);
+  function doDispatchCaptainOnMission(captainId: number, missionKey: MissionKey) {
+    const captain = state.captains.find((c) => c.id === captainId)!;
+    const { next, success } = dispatchCaptainOnMission(state, captainId, missionKey);
     if (!success) return;
     state = next;
     pushLog(`[${captain.label}] Dispatched on mission: ${MISSIONS[missionKey].label}.`);
     doSave();
   }
 
-  function doRecallCaptain() {
-    const captain = activeCaptain;
+  function doRecallCaptain(captainId: number) {
+    const captain = state.captains.find((c) => c.id === captainId)!;
     const missionLabel = MISSIONS[captain.mission!.missionKey].label; // captured before the state swap below, same pre-swap-capture idiom as doDispatchCaptainOnMission's `captain.label` above
-    const { next, success } = recallCaptain(state, captain.id);
+    const { next, success } = recallCaptain(state, captainId);
     if (!success) return;
     state = next;
     pushLog(`[${captain.label}] Recall ordered — returning to base from: ${missionLabel}.`);
@@ -636,6 +636,67 @@
           {/if}
         </div>
       </div>
+      {/if}
+
+      {#if activeTab === "fleetOperations"}
+      <!-- Fleet Operations (UI Redesign, Task 9 --
+           docs/plans/2026-07-07-ui-redesign-plan.md) -- mission-first, NOT
+           captain-scoped (deliberately does not read activeCaptain anywhere
+           in this block). One Panel per MISSIONS entry, listing every
+           captain currently embarked on THAT mission (progress + Recall)
+           above a Dispatch list of every fleet-wide idle captain
+           (mission === null). `eligible` is computed fleet-wide per mission
+           iteration -- a captain already committed to mission A will show up
+           in mission A's embarked list, but NOT in mission B's eligible
+           list, since eligible only checks mission === null, not "not on
+           THIS specific mission." -->
+      {#each Object.entries(MISSIONS) as [missionKey, missionDef]}
+        {@const embarked = state.captains.filter((c) => c.mission?.missionKey === missionKey)}
+        {@const eligible = state.captains.filter((c) => c.mission === null)}
+        <Panel>
+          <div class="panel-title">{missionDef.label.toUpperCase()}</div>
+          <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
+
+          {#each embarked as captain}
+            {@const mission = captain.mission!}
+            {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
+            {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
+            {@const remainingTicks = Math.max(0, requiredTicks - mission.phaseProgressTicks)}
+            <div class="mission-card">
+              <div class="research-name">{captain.label}</div>
+              <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
+              <div class="research-bar-track">
+                <div class="research-bar-fill" style="width:{progress * 100}%"></div>
+              </div>
+              <div class="research-readout">{remainingTicks.toFixed(1)} ticks remaining in phase</div>
+              <div class="research-cost">
+                Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
+                {formatNumber(mission.cargo.rareMaterial)} rare
+              </div>
+              {#if mission.recalled}
+                <p class="prestige-text mission-recalled-text">Recall ordered — returning to base once the current cycle's unloading completes.</p>
+              {:else}
+                <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
+              {/if}
+            </div>
+          {/each}
+
+          {#if eligible.length > 0}
+            <div class="mission-list">
+              {#each eligible as captain}
+                <div class="mission-card">
+                  <div class="research-name">{captain.label}</div>
+                  <button class="buy-btn" on:click={() => doDispatchCaptainOnMission(captain.id, missionKey as MissionKey)}>
+                    Dispatch · {missionDef.label}
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {:else if embarked.length === 0}
+            <p class="prestige-text">No eligible captains available.</p>
+          {/if}
+        </Panel>
+      {/each}
       {/if}
 
       {#if activeTab === "battlespace"}
