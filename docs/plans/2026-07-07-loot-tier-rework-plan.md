@@ -811,18 +811,19 @@ git commit -m "docs: reset APP_VERSION to 0.2.0, new versioning scheme going for
 
 ---
 
-### Task 8b: App.svelte — rename the "tactical" Captain Talent branch's display label to "Tactician"
+### Task 8b: App.svelte — rename the "tactical"/"science" Captain Talent branches' display labels to "Tactician"/"Explorer"
 
 **Files:** Modify `src/App.svelte`.
 
-Mid-plan addition, unrelated to the loot/talent rework above — the user separately asked for this
-while reviewing. The Captain Talents panel currently renders each branch's raw string key directly
+Mid-plan addition, unrelated to the loot/talent rework above — the user separately asked for both
+of these while reviewing (first "tactical" → "Tactician", then a follow-up message adding "science"
+→ "Explorer"). The Captain Talents panel currently renders each branch's raw string key directly
 (`{branch}`), uppercased by `.skill-branch-title`'s own `text-transform: uppercase` CSS — so
-`"tactical"` shows as "TACTICAL" today. Same "only change what's user-facing, not the internal key"
-precedent as the earlier nav-tab rename and the Command Efficiency → Bulk/Refined Extraction rename:
-the `CaptainTalentBranch` union member `"tactical"` stays exactly as-is (it's an internal key
-`CAPTAIN_TALENTS` entries key off of via their `branch` field, not shown to the player directly) —
-only the DISPLAYED text changes.
+`"tactical"`/`"science"` show as "TACTICAL"/"SCIENCE" today. Same "only change what's user-facing,
+not the internal key" precedent as the earlier nav-tab rename and the Command Efficiency →
+Bulk/Refined Extraction rename: the `CaptainTalentBranch` union members `"tactical"`/`"science"`
+stay exactly as-is (internal keys `CAPTAIN_TALENTS` entries key off of via their `branch` field, not
+shown to the player directly) — only the DISPLAYED text changes.
 
 **Step 1:** Read the Captain Talents panel block (`{#each (["command", "tactical", "science",
 "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}` — search for this exact line
@@ -834,15 +835,16 @@ display-only label constants like `MISSION_PHASE_LABEL`):
 
 ```ts
 // Display label for each Captain Talent branch -- "tactical" shows as
-// "Tactician" per the user's own request (2026-07-07); every other branch's
-// label is just its own raw key (still uppercased by .skill-branch-title's
-// CSS, same as before). The branch KEY itself ("tactical") is unchanged --
-// CAPTAIN_TALENTS entries still key off "tactical", this map only affects
-// what's rendered.
+// "Tactician" and "science" shows as "Explorer", both per the user's own
+// requests (2026-07-07); every other branch's label is just its own raw key
+// (still uppercased by .skill-branch-title's CSS, same as before). The
+// branch KEYS themselves ("tactical"/"science") are unchanged --
+// CAPTAIN_TALENTS entries still key off them, this map only affects what's
+// rendered.
 const CAPTAIN_TALENT_BRANCH_LABEL: Record<CaptainTalentBranch, string> = {
   command: "command",
   tactical: "Tactician",
-  science: "science",
+  science: "Explorer",
   resourcefulness: "resourcefulness",
   diplomacy: "diplomacy",
 };
@@ -863,7 +865,7 @@ eye that none are missing/misspelled, since there's no `tsc` in this environment
 
 ```bash
 git add src/App.svelte
-git commit -m "style: rename the Captain Talents 'tactical' branch's display label to Tactician"
+git commit -m "style: rename the Captain Talents 'tactical'/'science' branch display labels to Tactician/Explorer"
 ```
 
 ---
@@ -877,8 +879,8 @@ new entry (read 2 existing entries for wording/style match first).
 exactly) summarizing: the independent per-tier extraction rework (with the exact worked example),
 the 5-way talent effect split and which existing nodes got re-targeted to which tier (including the
 Command Efficiency I/II → Bulk/Refined Extraction rename), Import Save, the versioning reset
-(flagging the intentional 0.2.0-after-0.9.0 oddity), and the "tactical" branch's display label
-becoming "Tactician" (Task 8b).
+(flagging the intentional 0.2.0-after-0.9.0 oddity), and the "tactical"/"science" branches' display
+labels becoming "Tactician"/"Explorer" (Task 8b).
 
 **Step 2: Commit.**
 
