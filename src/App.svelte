@@ -57,7 +57,6 @@
 
   let state: GameState = freshState();
   let createdAt = Date.now();
-  let devPanelOpen = false;
   let currentTheme: ThemeName = "cyan";
   let deleteModalOpen = false;
   let deleteConfirmText = "";
@@ -81,6 +80,26 @@
   // checked view.
   type FleetCaptainSubTab = "overview" | "talents";
   let activeFleetCaptainSubTab: FleetCaptainSubTab = "overview";
+
+  // Homeworld tab sub-tabs (UI Redesign, Task 10 -- see
+  // docs/plans/2026-07-07-ui-redesign-plan.md). Resources holds the
+  // relocated HOME PLANET content; Refinery holds the relocated
+  // Refinery/Fabrication RECIPES content; Talents holds the relocated
+  // HOMEWORLD TALENTS content. Defaults to Resources as the most commonly
+  // checked view.
+  type HomeworldSubTab = "resources" | "refinery" | "talents";
+  let activeHomeworldSubTab: HomeworldSubTab = "resources";
+
+  // System tab sub-tabs (UI Redesign, Task 10). Options holds the relocated
+  // theme picker + Export/Delete Save content; Log holds the relocated LOG
+  // panel; Debug holds the relocated dev debug panel (only reachable when
+  // DEV_MODE_ENV is true -- see the <SubTabs> usage under the System tab
+  // below, which omits the "debug" entry from its tabs array entirely when
+  // DEV_MODE_ENV is false, so non-dev-mode players never see a Debug button
+  // at all). Defaults to Options since theme/save actions are the most
+  // commonly checked view.
+  type SystemSubTab = "options" | "log" | "debug";
+  let activeSystemSubTab: SystemSubTab = "options";
 
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
@@ -399,9 +418,6 @@
         <span class="subtitle">prototype build · multi-captain · single sector</span>
       </div>
       <div class="header-right">
-        {#if DEV_MODE_ENV}
-          <button class="icon-btn" on:click={() => (devPanelOpen = !devPanelOpen)} title="Toggle debug panel">Dev</button>
-        {/if}
       </div>
     </Panel>
 
@@ -430,6 +446,13 @@
       </div>
 
       {#if activeTab === "homeworld"}
+      <SubTabs
+        tabs={[{ key: "resources", label: "Resources" }, { key: "refinery", label: "Refinery/Fabrication" }, { key: "talents", label: "Homeworld Talents" }]}
+        active={activeHomeworldSubTab}
+        onSelect={(key) => (activeHomeworldSubTab = key as HomeworldSubTab)}
+      />
+
+      {#if activeHomeworldSubTab === "resources"}
       <Panel>
         <div class="panel-title">HOME PLANET</div>
         <div class="resource-grid resource-grid-3">
@@ -447,7 +470,9 @@
           </div>
         </div>
       </Panel>
+      {/if}
 
+      {#if activeHomeworldSubTab === "refinery"}
       <!-- Refinery/Fabrication (Task 8, Phase 4) -- one panel per RECIPES
            entry, fleet-wide (not per-captain -- Homeworld structures belong
            to the whole fleet, unlike the per-captain MISSIONS panel under
@@ -473,7 +498,9 @@
           </button>
         </Panel>
       {/each}
+      {/if}
 
+      {#if activeHomeworldSubTab === "talents"}
       <!-- Homeworld Talents (Task 6, Captain & Homeworld Talent Trees) --
            fleet-wide (not per-captain -- reads state.adminPoints /
            state.unlockedHomeworldTalents directly, never activeCaptain),
@@ -526,6 +553,7 @@
           </div>
         {/each}
       </Panel>
+      {/if}
       {/if}
 
       {#if activeTab === "sectorSpace"}
@@ -707,6 +735,13 @@
       {/if}
 
       {#if activeTab === "system"}
+      <SubTabs
+        tabs={[{ key: "options", label: "Options" }, { key: "log", label: "Log" }, ...(DEV_MODE_ENV ? [{ key: "debug", label: "Debug" }] : [])]}
+        active={activeSystemSubTab}
+        onSelect={(key) => (activeSystemSubTab = key as SystemSubTab)}
+      />
+
+      {#if activeSystemSubTab === "options"}
       <Panel>
         <div class="panel-title">OPTIONS</div>
         <div class="theme-row">
@@ -726,8 +761,9 @@
           <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
         </div>
       </Panel>
+      {/if}
 
-      {#if DEV_MODE_ENV && devPanelOpen}
+      {#if DEV_MODE_ENV && activeSystemSubTab === "debug"}
         <Panel class="dev-panel">
           <div class="panel-title dev-title">DEBUG PANEL (dev-only)</div>
           <div class="dev-row">
@@ -751,6 +787,7 @@
         </Panel>
       {/if}
 
+      {#if activeSystemSubTab === "log"}
       <Panel>
         <div class="panel-title">LOG</div>
         <div class="log-list">
@@ -762,6 +799,7 @@
           {/each}
         </div>
       </Panel>
+      {/if}
       {/if}
     </main>
   </div>
