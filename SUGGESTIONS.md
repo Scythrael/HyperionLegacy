@@ -244,3 +244,14 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   Party missions and Battlespace's Invasion mode, worth checking when that gets designed -- what the
   good-reputation perks specifically are, and whether reputation is a single fleet-wide number or
   something more granular (per-faction?).
+
+- **Offline-gains "welcome back" summary screen.** User idea, 2026-07-08: a proper popup/screen on
+  load showing what happened while away -- time elapsed, XP gained, resources collected, missions
+  completed, and (future) ships destroyed once combat exists. Today's offline handling
+  (`src/App.svelte`, the one-time `tick(offlineSeconds, loadedSave.state)` call at load) only produces
+  a single log line ("Welcome back. Advanced Ns offline.") -- no resource/XP/mission-count deltas are
+  captured or surfaced anywhere. Related to the already-logged "stats page" idea above (both want
+  before/after deltas across the offline catch-up), but distinct: this is a one-time on-load modal,
+  not a persistent page. Not scoped yet: would need `tick()`'s offline call to return (or the caller to
+  diff) a summary of what changed -- resources gained per material, XP gained, mission cycles completed
+  during the catch-up -- none of which is currently tracked/returned separately from the final state.
