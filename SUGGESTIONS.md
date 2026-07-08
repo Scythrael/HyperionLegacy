@@ -174,3 +174,35 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   rewards above, etc. Explicitly "an idea for far later" -- depends entirely on the multiplayer/
   backend/account-system work landing first (none of which exists yet; see the master design doc's
   section 7.2, real-time multiplayer explicitly rejected for v1).
+
+- **Header redesign: portrait + inline XP bar + one-line tick bar.** User idea, 2026-07-07, with an
+  exact ASCII mockup:
+  ```
+  [                    }  PlayerName - Level 1
+  [                    }  Exp: [      ]-----------------]  10/100 [10.00%]
+  [                    }
+
+  TICK: [                                                                                       ] 2.1s
+  ```
+  A portrait placeholder on the far left (reusing the `.mission-portrait-frame` theme-aware
+  placeholder pattern from the Fleet Operations Mission UI, once that ships), with two lines to its
+  right: "{name} - Level {N}" and an inline "Exp: [bar] {current}/{max} [{percent}%]" (today's XP bar
+  is stacked UNDER the "Fleet Admiral · Level N" line, not inline next to a label like this). Below
+  that, a full-width "TICK: [bar] {seconds}s" row -- bar and elapsed time on the SAME line (today
+  the tick bar's seconds readout sits on its own line below the bar).
+
+  **Real open design work, not a quick add-on** (flagged rather than silently assumed, since the
+  user suggested folding this into "the final task" of the in-flight Loot Tier Rework -- this is
+  bigger than that plan's actual final task, which is docs-only):
+  - There is no "Fleet Admiral Name" field anywhere in `GameState` today -- only `fleetAdminLevel`/
+    `fleetAdminXp`/`adminPoints` (numeric progression, no name string). "PlayerName" in the mockup
+    needs a new field (plus, presumably, somewhere for the player to actually SET that name --
+    an input, likely in Options) and its own save migration.
+  - Whose portrait is it? The mockup says "a portrait for your captain," but the Fleet Admiral
+    level/XP bar is fleet-wide, not scoped to any one captain -- worth clarifying whether this is
+    the currently-active captain (Fleet Captain's tab selection), a dedicated "admiral" persona
+    portrait unrelated to any specific captain, or something else. No portrait ART exists anywhere
+    in the game yet either way (same "placeholder now, real art later" situation as the mission
+    cards).
+  Not scoped yet -- needs its own brainstorm before a design/plan, given the new data field and the
+  whose-portrait question above.
