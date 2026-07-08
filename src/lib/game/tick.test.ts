@@ -768,6 +768,43 @@ describe("tickCaptainMission — awards XP on cycle completion", () => {
   });
 });
 
+describe("tickCaptainMission — awards credits on cycle completion", () => {
+  it("awards creditsDelta 0 when no cycle completes (partial ticksElapsed)", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain(); // mid-cycle, phaseProgressTicks 0, far from completing
+    const { creditsDelta } = tickCaptainMission(0.5, base, ALWAYS_MIN_ROLL);
+    expect(creditsDelta).toBe(0);
+  });
+
+  it("awards creditsDelta 0 when the captain has no mission at all", () => {
+    const base = freshCaptains(1)[0]; // freshCaptainStack's baseline -- mission is null (idle)
+    const { creditsDelta } = tickCaptainMission(50, base, ALWAYS_MIN_ROLL);
+    expect(creditsDelta).toBe(0);
+  });
+
+  it("awards creditsDelta 10 (MISSIONS.shortOreRun.creditsPerCycle) for exactly one completed shortOreRun cycle", () => {
+    // Hand-traced against the LIVE MISSIONS.shortOreRun values (model.ts) via requiredTicksForPhase:
+    // ordersReceived=1, transitOut=25, extracting=ceil(cargoCapacity 90 / extractionRatePerTick 1)=90,
+    // transitBack=25, unloading=8. Total ticks for exactly 1 full cycle = 1+25+90+25+8 = 149 --
+    // matches missionCaptain()'s own "149 ticks/cycle" comment used elsewhere in this file (e.g. the
+    // "a big jump can complete multiple full auto-repeat cycles" test above).
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain(); // shortOreRun, starts at ordersReceived, phaseProgressTicks 0
+    const { creditsDelta } = tickCaptainMission(149, base, ALWAYS_MIN_ROLL);
+    expect(creditsDelta).toBe(MISSIONS.shortOreRun.creditsPerCycle); // 10
+  });
+
+  it("awards creditsDelta 20 (MISSIONS.longOreRun.creditsPerCycle) for exactly one completed longOreRun cycle", () => {
+    // Hand-traced against the LIVE MISSIONS.longOreRun values (model.ts) via requiredTicksForPhase:
+    // ordersReceived=1, transitOut=70, extracting=ceil(cargoCapacity 90 / extractionRatePerTick 1)=90,
+    // transitBack=70, unloading=8. Total ticks for exactly 1 full cycle = 1+70+90+70+8 = 239.
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain("longOreRun"); // starts at ordersReceived, phaseProgressTicks 0
+    const { creditsDelta } = tickCaptainMission(239, base, ALWAYS_MIN_ROLL);
+    expect(creditsDelta).toBe(MISSIONS.longOreRun.creditsPerCycle); // 20
+  });
+});
+
 describe("tick() — idle captains do nothing, mission captains route through tickCaptainMission", () => {
   it("an idle captain (mission: null) is returned completely unchanged", () => {
     const state = freshState(); // captains[0].mission is null (idle) -- freshCaptainStack's baseline
@@ -939,6 +976,31 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     expect(result.captains[0].mission!.cargo.commonOre.equals(0)).toBe(true);
     expect(result.captains[0].mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
     expect(result.captains[0].mission!.cargo.rareMaterial.equals(0)).toBe(true);
+  });
+
+  it("adds MISSIONS.shortOreRun.creditsPerCycle to state.credits when a mission's cycle completes this tick", () => {
+    // Same hand-trace as the "delivers cargo to state.homePlanet.storage..." test immediately above --
+    // phase "unloading" with unloadTicks=8 (shortOreRun), phaseProgressTicks: 0. deltaSeconds=8,
+    // state.tickDurationSeconds=1 (fresh default) -> ticksElapsed=8 -> exactly completes the
+    // unloading phase (8 >= requiredTicks(8)) -- cycle completes, creditsDelta accumulates
+    // missionDef.creditsPerCycle (10 for shortOreRun) exactly once.
+    //
+    // state.credits starts pre-seeded at 5 (freshState()'s own default is Decimal(0); seeded to a
+    // non-zero value here) to prove this tick's creditsDelta is ADDED via .plus(), not overwriting
+    // existing credits: expected result = 5 + 10 = 15.
+    const state = freshState();
+    state.credits = new Decimal(5);
+    state.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "unloading",
+      phaseProgressTicks: 0,
+      cargo: { commonOre: new Decimal(70), uncommonMaterial: new Decimal(20), rareMaterial: new Decimal(10) },
+      recalled: false,
+    };
+
+    const result = tick(8, state);
+
+    expect(result.credits.equals(15)).toBe(true); // 5 pre-seeded + 10 creditsPerCycle
   });
 });
 
