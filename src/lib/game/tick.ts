@@ -88,6 +88,32 @@ export function captainRareChanceMult(captain: CaptainState): number {
   }, 0);
 }
 
+// Same additive-stacking, read-at-usage-time pattern as the helpers above,
+// for the bonus-roll TRIGGER chance (the base value from resourcefulnessBonusRollI --
+// NOT a multiplier on an existing mission-defined chance, since there is no
+// mission-level "bonus roll chance" to scale; this creates the chance from
+// nothing, so summing raw values is the only mechanically coherent stacking
+// rule, same as every other additive helper in this file). Note this effect's
+// field is named `chance`, not `mult` -- unlike every OTHER effect type in
+// this file, since bonusRollChance is a base value, not itself a multiplier.
+export function captainBonusRollChance(captain: CaptainState): number {
+  return captain.unlockedCaptainTalents.reduce((sum, key) => {
+    const effect = CAPTAIN_TALENTS[key].effect;
+    return effect.type === "bonusRollChance" ? sum + effect.chance : sum;
+  }, 0);
+}
+
+// Relative multiplier applied ON TOP of captainBonusRollChance's base value
+// (resourcefulnessBonusRollII) -- same Math.min(1, base * (1 + mult)) shape
+// every other chance-mult effect in this file already uses (see
+// effectiveUncommonChance/effectiveRareChance in rollExtractionTick below).
+export function captainBonusRollChanceMult(captain: CaptainState): number {
+  return captain.unlockedCaptainTalents.reduce((sum, key) => {
+    const effect = CAPTAIN_TALENTS[key].effect;
+    return effect.type === "bonusRollChanceMult" ? sum + effect.mult : sum;
+  }, 0);
+}
+
 // Fleet-wide equivalent of the captain-level yield helpers above -- sourced
 // from state.unlockedHomeworldTalents (Fleet Admiral prestige, spent
 // fleet-wide) rather than one captain's own talents, so it applies
@@ -191,6 +217,51 @@ function rollExtractionTick(
   return { commonOre: baseAmount.times(1 + bonuses.commonYieldMult), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
 }
 
+// The bonus roll (Resourcefulness's Lucky Strike I/II) reuses the PRIMARY
+// roll's own effectiveRareChance/effectiveUncommonChance formulas (so
+// rareChanceMult/uncommonChanceMult talents boost the bonus roll too), but
+// replaces the primary roll's guaranteed-common floor with a 30% CHANCE at
+// common -- unlike rollExtractionTick, this roll can produce NOTHING. Called
+// only when the separate bonus-roll TRIGGER check (captainBonusRollChance/
+// captainBonusRollChanceMult, checked by the caller BEFORE this function is
+// invoked) has already succeeded -- this function itself has no trigger
+// check of its own, it IS the mini-sequence that runs once triggered.
+//
+// Up to 3 rng() calls (rare, then uncommon, then the 30% common check), same
+// early-return-per-branch shape as rollExtractionTick, so the two functions'
+// combined call count per whole tick stays easy to hand-trace: 1 (bonus
+// trigger check, made by the caller) + up to 3 (this function) on top of
+// rollExtractionTick's own 1-2, for a range of 3-6 total rng() calls per
+// tick depending on outcomes.
+const BONUS_ROLL_COMMON_CHANCE = 0.3;
+
+function rollBonusExtractionTick(
+  missionDef: MissionDef,
+  bonuses: {
+    commonYieldMult: number;
+    uncommonYieldMult: number;
+    uncommonChanceMult: number;
+    rareYieldMult: number;
+    rareChanceMult: number;
+  },
+  rng: () => number
+): Record<LootMaterialKey, Decimal> {
+  const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + bonuses.uncommonChanceMult));
+  const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + bonuses.rareChanceMult));
+  const baseAmount = new Decimal(missionDef.extractionRatePerTick);
+
+  if (rng() < effectiveRareChance) {
+    return { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: baseAmount.times(1 + bonuses.rareYieldMult) };
+  }
+  if (rng() < effectiveUncommonChance) {
+    return { commonOre: new Decimal(0), uncommonMaterial: baseAmount.times(1 + bonuses.uncommonYieldMult), rareMaterial: new Decimal(0) };
+  }
+  if (rng() < BONUS_ROLL_COMMON_CHANCE) {
+    return { commonOre: baseAmount.times(1 + bonuses.commonYieldMult), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
+  }
+  return emptyLootTotals(); // all three missed -- the bonus roll produces nothing this tick
+}
+
 // MUST be closed-form: calling this once with a large ticksElapsed must
 // produce the same result as calling it many times with a small ticksElapsed
 // summing to the same total. Generalized from "one continuous quantity
@@ -220,6 +291,8 @@ export function tickCaptainMission(
     uncommonChanceMult?: number;
     rareYieldMult?: number;
     rareChanceMult?: number;
+    bonusRollChance?: number;
+    bonusRollChanceMult?: number;
   } = {}
 ): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, Decimal>; fleetAdminXpDelta: number } {
   if (!captain.mission || ticksElapsed <= 0) {
@@ -252,6 +325,8 @@ export function tickCaptainMission(
     uncommonChanceMult: bonuses.uncommonChanceMult ?? 0,
     rareYieldMult: bonuses.rareYieldMult ?? 0,
     rareChanceMult: bonuses.rareChanceMult ?? 0,
+    bonusRollChance: bonuses.bonusRollChance ?? 0,
+    bonusRollChanceMult: bonuses.bonusRollChanceMult ?? 0,
   };
 
   while (remaining > 0 && mission !== null) {
@@ -283,6 +358,21 @@ export function tickCaptainMission(
         mission.cargo.commonOre = mission.cargo.commonOre.plus(delta.commonOre);
         mission.cargo.uncommonMaterial = mission.cargo.uncommonMaterial.plus(delta.uncommonMaterial);
         mission.cargo.rareMaterial = mission.cargo.rareMaterial.plus(delta.rareMaterial);
+
+        // Bonus-roll trigger check runs every whole tick, independent of what
+        // the primary roll above produced (see rollBonusExtractionTick's own
+        // comment for why). 1 rng() call for the trigger itself; if it
+        // fires, rollBonusExtractionTick makes up to 3 more.
+        const effectiveBonusRollChance = Math.min(
+          1,
+          resolvedBonuses.bonusRollChance * (1 + resolvedBonuses.bonusRollChanceMult)
+        );
+        if (rng() < effectiveBonusRollChance) {
+          const bonusDelta = rollBonusExtractionTick(missionDef, resolvedBonuses, rng);
+          mission.cargo.commonOre = mission.cargo.commonOre.plus(bonusDelta.commonOre);
+          mission.cargo.uncommonMaterial = mission.cargo.uncommonMaterial.plus(bonusDelta.uncommonMaterial);
+          mission.cargo.rareMaterial = mission.cargo.rareMaterial.plus(bonusDelta.rareMaterial);
+        }
       }
     }
 
@@ -423,6 +513,8 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       uncommonChanceMult: captainUncommonChanceMult(captain),
       rareYieldMult: fleetRareYield,
       rareChanceMult: captainRareChanceMult(captain),
+      bonusRollChance: captainBonusRollChance(captain),
+      bonusRollChanceMult: captainBonusRollChanceMult(captain),
     };
     // Math.random passed explicitly (rather than omitted) since bonuses is
     // positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.

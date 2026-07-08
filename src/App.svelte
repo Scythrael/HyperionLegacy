@@ -38,6 +38,8 @@
     captainUncommonChanceMult,
     captainRareChanceMult,
     fleetRareYieldMult, // consumed by both the live tick loop below and the captain-selection popup markup (Task 5) for its live drop-rate preview
+    captainBonusRollChance,
+    captainBonusRollChanceMult,
     LOOT_MATERIAL_KEYS,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
@@ -1035,9 +1037,9 @@
                     <div class="mission-card-body">
                       <div class="research-name">{missionDef.label}</div>
                       <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
-                      <div class="research-cost">Common Ore: up to {formatNumber(missionDef.extractionRatePerTick)}/tick</div>
-                      <div class="research-cost">Uncommon Material: 1-3/tick ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
-                      <div class="research-cost">Rare Material: 1/tick ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">Common Ore: {formatNumber(missionDef.extractionRatePerTick)}/tick when no other tier wins ({(100 - missionDef.rareChance * 100 - missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">Uncommon Material: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">Rare Material: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
                     </div>
                   </button>
                 {/each}
@@ -1276,13 +1278,19 @@
           {@const transitBackTicks = missionDef.transitBackTicks}
           {@const unloadTicks = missionDef.unloadTicks}
           {@const totalTicks = 1 + transitOutTicks + extractingTicks + transitBackTicks + unloadTicks}
+          {@const bonusRollChance = captainBonusRollChance(selectedCaptain)}
+          {@const bonusRollChanceMult = captainBonusRollChanceMult(selectedCaptain)}
+          {@const effectiveBonusRollChance = Math.min(1, bonusRollChance * (1 + bonusRollChanceMult))}
 
           <div class="research-name">Captain: {selectedCaptain.label}</div>
 
           <div class="panel-title">DROP RATES</div>
-          <div class="research-cost">Common Ore: up to {formatNumber(missionDef.extractionRatePerTick * (1 + commonYieldMult))}/tick</div>
-          <div class="research-cost">Uncommon Material: 1-3/tick, scaled by {(uncommonYieldMult * 100).toFixed(0)}% ({(effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
-          <div class="research-cost">Rare Material: 1/tick, scaled by {(rareYieldMult * 100).toFixed(0)}% ({(effectiveRareChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">Common Ore: {formatNumber(missionDef.extractionRatePerTick * (1 + commonYieldMult))}/tick when no other tier wins ({(100 - effectiveRareChance * 100 - effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">Uncommon Material: {formatNumber(missionDef.extractionRatePerTick * (1 + uncommonYieldMult))}/tick when it wins ({(effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">Rare Material: {formatNumber(missionDef.extractionRatePerTick * (1 + rareYieldMult))}/tick when it wins ({(effectiveRareChance * 100).toFixed(1)}% chance/tick)</div>
+          {#if effectiveBonusRollChance > 0}
+            <div class="research-cost">Bonus Roll: {(effectiveBonusRollChance * 100).toFixed(1)}% chance/tick for a second independent roll (Lucky Strike)</div>
+          {/if}
 
           <div class="panel-title">TIMING</div>
           <div class="research-cost">Transit out: {transitOutTicks} ticks ({(transitOutTicks * state.tickDurationSeconds).toFixed(1)}s)</div>

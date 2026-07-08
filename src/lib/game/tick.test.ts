@@ -13,6 +13,8 @@ import {
   captainUncommonChanceMult,
   captainRareChanceMult,
   fleetRareYieldMult,
+  captainBonusRollChance,
+  captainBonusRollChanceMult,
 } from "./tick";
 import Decimal from "break_infinity.js";
 import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
@@ -313,6 +315,93 @@ describe("tickCaptainMission — extraction loot rolls", () => {
   });
 });
 
+describe("tickCaptainMission — bonus roll (Resourcefulness Lucky Strike)", () => {
+  it("bonus trigger check fails: only the primary roll's delta is added, no extra rng() calls consumed", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // shortOreRun, rng constant 0.5: primary rare/uncommon both fail (0.5 < 0.001? no, 0.5 < 0.019? no)
+    // -> common wins, amount 1. Bonus trigger: effectiveBonusRollChance = 0.02*(1+0) = 0.02, 0.5 < 0.02?
+    // no -> bonus never fires. Total: commonOre 1, uncommon/rare both 0.
+    const { captain } = tickCaptainMission(1, base, () => 0.5, { bonusRollChance: 0.02 });
+    expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true);
+    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+  });
+
+  it("bonus trigger fires and its own mini-sequence lands on rare", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // A constant rng of 0.0005 (shortOreRun rareChance 0.001): primary roll call 1 (rare) -- 0.0005 <
+    // 0.001 -> true, primary rare wins, amount 1, only 1 rng() call for the primary. Bonus trigger check
+    // (call 2): effectiveBonusRollChance = 0.02*(1+0) = 0.02, 0.0005 < 0.02 -> true, bonus fires. Bonus
+    // mini-sequence call 3 (rare): 0.0005 < 0.001 -> true, bonus ALSO lands rare, amount 1. Total:
+    // rareMaterial = 1 (primary) + 1 (bonus) = 2, commonOre/uncommonMaterial both 0.
+    const { captain } = tickCaptainMission(1, base, () => 0.0005, { bonusRollChance: 0.02 });
+    expect(captain.mission!.cargo.rareMaterial.equals(2)).toBe(true);
+    expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
+    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+  });
+
+  it("bonus trigger fires and its own mini-sequence lands on uncommon", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // A constant rng of 0.01 (shortOreRun rareChance 0.001, uncommonChance 0.019): primary roll -- rare
+    // 0.01 < 0.001? no. uncommon 0.01 < 0.019? yes -> primary uncommon wins, amount 1 (2 rng() calls).
+    // Bonus trigger (call 3): 0.01 < 0.02 -> true, fires. Bonus mini-sequence -- rare (call 4) 0.01 <
+    // 0.001? no. uncommon (call 5) 0.01 < 0.019? yes -> bonus ALSO lands uncommon, amount 1. Total:
+    // uncommonMaterial = 1 (primary) + 1 (bonus) = 2, commonOre/rareMaterial both 0.
+    const { captain } = tickCaptainMission(1, base, () => 0.01, { bonusRollChance: 0.02 });
+    expect(captain.mission!.cargo.uncommonMaterial.equals(2)).toBe(true);
+    expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
+    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+  });
+
+  it("bonus trigger fires, its rare/uncommon checks both miss, and its 30% common check HITS", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // A stateful rng sequence: primary roll (calls 1-2) both fail shortOreRun's rare (0.001) and uncommon
+    // (0.019) checks using 0.5 -> primary common wins, amount 1. Bonus trigger (call 3) uses 0.02 (a
+    // value comfortably below the 0.05 chance passed in) -> fires. Bonus mini-sequence: rare (call 4)
+    // 0.5 fails, uncommon (call 5) 0.5 fails, common-30% check (call 6) uses 0.2 -> 0.2 < 0.3 -> true,
+    // bonus lands common too. Total: commonOre = 1 (primary) + 1 (bonus) = 2.
+    const values = [0.5, 0.5, 0.02, 0.5, 0.5, 0.2];
+    let i = 0;
+    const rng = () => values[i++];
+    const { captain } = tickCaptainMission(1, base, rng, { bonusRollChance: 0.05 });
+    expect(captain.mission!.cargo.commonOre.equals(2)).toBe(true);
+    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+  });
+
+  it("bonus trigger fires but all 3 of its own checks miss: bonus delta is zero, only the primary's amount is delivered", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // Same 6-call shape as the previous test, but the final common-30% check uses 0.9 (fails: 0.9 < 0.3?
+    // no) -- all 3 of the bonus's own checks miss, so the bonus roll contributes NOTHING this tick.
+    const values = [0.5, 0.5, 0.02, 0.5, 0.5, 0.9];
+    let i = 0;
+    const rng = () => values[i++];
+    const { captain } = tickCaptainMission(1, base, rng, { bonusRollChance: 0.05 });
+    expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true); // primary only, bonus delivered 0
+    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+  });
+
+  it("no bonus-roll talents unlocked: bonusRollChance/bonusRollChanceMult default to 0, bonus check never fires regardless of rng", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // rng constant 0 -- would trigger EVERY check if any chance were nonzero (0 < any positive chance is
+    // always true). With no bonuses arg at all, bonusRollChance/bonusRollChanceMult both resolve to 0 via
+    // the ?? 0 fallback, so effectiveBonusRollChance is exactly 0, and 0 < 0 is false -- bonus never
+    // fires even under the most favorable possible rng. Primary roll (rare checked first) DOES fire:
+    // rare wins on rng()=0 (matches the existing ALWAYS_MIN_ROLL test in the primary describe block).
+    const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
+    expect(captain.mission!.cargo.rareMaterial.equals(1)).toBe(true); // primary only
+    expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
+    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+  });
+});
+
 describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonChanceMult / captainRareChanceMult / fleetRareYieldMult", () => {
   it("captainCommonYieldMult is 0 for a captain with no unlocked talents", () => {
     const captain = freshCaptains(1)[0];
@@ -380,6 +469,20 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
     const state = freshState();
     state.unlockedHomeworldTalents = ["fleetLogisticsYield"];
     expect(fleetRareYieldMult(state)).toBeCloseTo(0.05, 6);
+  });
+
+  it("captainBonusRollChance sums bonusRollChance across unlocked talents", () => {
+    const captain = freshCaptains(1)[0];
+    expect(captainBonusRollChance(captain)).toBe(0);
+    captain.unlockedCaptainTalents = ["resourcefulnessBonusRollI"];
+    expect(captainBonusRollChance(captain)).toBe(0.02);
+  });
+
+  it("captainBonusRollChanceMult sums bonusRollChanceMult across unlocked talents", () => {
+    const captain = freshCaptains(1)[0];
+    expect(captainBonusRollChanceMult(captain)).toBe(0);
+    captain.unlockedCaptainTalents = ["resourcefulnessBonusRollII"];
+    expect(captainBonusRollChanceMult(captain)).toBe(1.0);
   });
 });
 

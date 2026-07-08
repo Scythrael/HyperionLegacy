@@ -182,6 +182,23 @@ describe("CAPTAIN_TALENTS — launch set", () => {
     expect(branches.filter((b) => b === "science").length).toBe(0);
     expect(branches.filter((b) => b === "diplomacy").length).toBe(0);
   });
+
+  it("Resourcefulness has exactly 1 bonusRollChance node and 1 bonusRollChanceMult node", () => {
+    const bonusRollChanceNodes = Object.values(CAPTAIN_TALENTS).filter((t) => t.effect.type === "bonusRollChance");
+    const bonusRollChanceMultNodes = Object.values(CAPTAIN_TALENTS).filter((t) => t.effect.type === "bonusRollChanceMult");
+    expect(bonusRollChanceNodes).toHaveLength(1);
+    expect(bonusRollChanceMultNodes).toHaveLength(1);
+  });
+
+  it("resourcefulnessBonusRollI/II have the expected cost, prerequisite chain, and effect values", () => {
+    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollI.cost).toBe(6);
+    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollI.requires).toBe("resourcefulnessRareChanceII");
+    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollI.effect).toEqual({ type: "bonusRollChance", chance: 0.02 });
+
+    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.cost).toBe(8);
+    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.requires).toBe("resourcefulnessBonusRollI");
+    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.effect).toEqual({ type: "bonusRollChanceMult", mult: 1.0 });
+  });
 });
 
 describe("HOMEWORLD_TALENTS — launch set", () => {

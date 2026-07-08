@@ -221,7 +221,9 @@ export type CaptainTalentEffect =
   | { type: "commonYieldMult"; mult: number }
   | { type: "uncommonYieldMult"; mult: number }
   | { type: "uncommonChanceMult"; mult: number }
-  | { type: "rareChanceMult"; mult: number };
+  | { type: "rareChanceMult"; mult: number }
+  | { type: "bonusRollChance"; chance: number }
+  | { type: "bonusRollChanceMult"; mult: number };
 
 // unlockCaptainSlot carries no gate beyond the node's own `cost` (adminPoints)
 // -- Homeworld Talents are fleet-wide Fleet Admiral prestige, spent purely
@@ -271,7 +273,9 @@ export type CaptainTalentKey =
   | "commandExtractionI"
   | "commandExtractionII"
   | "resourcefulnessRareChanceI"
-  | "resourcefulnessRareChanceII";
+  | "resourcefulnessRareChanceII"
+  | "resourcefulnessBonusRollI"
+  | "resourcefulnessBonusRollII";
 
 export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effect: CaptainTalentEffect }> = {
   commandExtractionI: {
@@ -301,6 +305,20 @@ export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effe
     cost: 4,
     requires: "resourcefulnessRareChanceI",
     effect: { type: "rareChanceMult", mult: 0.5 }, // was rareLootChanceMult
+  },
+  resourcefulnessBonusRollI: {
+    branch: "resourcefulness",
+    label: "Lucky Strike I",
+    cost: 6,
+    requires: "resourcefulnessRareChanceII",
+    effect: { type: "bonusRollChance", chance: 0.02 },
+  },
+  resourcefulnessBonusRollII: {
+    branch: "resourcefulness",
+    label: "Lucky Strike II",
+    cost: 8,
+    requires: "resourcefulnessBonusRollI",
+    effect: { type: "bonusRollChanceMult", mult: 1.0 },
   },
 };
 
