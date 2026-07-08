@@ -54,6 +54,10 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   "destroyer"), a way for a captain to switch which ship they pilot, and new mission categories
   (e.g. "Patrol") gated on the piloting captain's current ship type — Fleet Operations' mission-first
   layout was deliberately built so this only needs a filter/category change later, not a UI rework.
+  Confirmed again during the 2026-07-07 Fleet Operations Mission UI design: the captain-selection
+  popup (docs/plans/2026-07-07-fleet-operations-mission-ui-design.md) is the exact spot ship
+  selection will plug into once this lands — Ships & Crew is the agreed-on next big feature after
+  this mission-UI pass.
 
 - **"Fleet Captain's" / "Fleet Operations" nav-tab label distinction.** Code review flagged during the
   2026-07-07 UI Redesign: both bottom-nav labels render as 10px, uppercase, letter-spaced text and
