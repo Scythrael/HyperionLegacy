@@ -32,6 +32,10 @@
     recomputeFleetAdmin,
     buyCaptainTalent,
     buyHomeworldTalent,
+    captainExtractionYieldMult,
+    captainRareLootChanceMult,
+    fleetExtractionYieldMult,
+    LOOT_MATERIAL_KEYS,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave } from "./lib/game/save";
@@ -238,6 +242,16 @@
         // path's, which is the whole point of this task.
         const ticksElapsed = gameSecondsThisCycle / state.tickDurationSeconds;
 
+        // Fleet-wide Homeworld Talent bonus (same value for every captain
+        // this poll) -- computed once here, mirroring tick.ts's tick(),
+        // which this live loop otherwise duplicates rather than calls
+        // directly (see the comment block above this setInterval). Without
+        // this mirroring, talent points spent on extraction/loot-chance
+        // Homeworld Talents would only ever take effect during the one-time
+        // offline-catchup tick() call at load, never during live play --
+        // exactly the bug this wiring pass exists to close.
+        const fleetYieldMult = fleetExtractionYieldMult(state);
+
         for (let i = 0; i < captains.length; i++) {
           const captain = captains[i];
           // Idle captains (mission === null) have no passive economy anymore
@@ -249,13 +263,37 @@
             captains = [...captains]; // copy on first write this poll
             anyFired = true;
           }
-          const { captain: updatedCaptain, homePlanetDelta: delta } = tickCaptainMission(ticksElapsed, captain);
+          const bonuses = {
+            extractionYieldMult: captainExtractionYieldMult(captain) + fleetYieldMult,
+            rareLootChanceMult: captainRareLootChanceMult(captain),
+          };
+          // Math.random passed explicitly (rather than omitted) since bonuses
+          // is positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
+          const { captain: updatedCaptain, homePlanetDelta: delta } = tickCaptainMission(
+            ticksElapsed,
+            captain,
+            Math.random,
+            bonuses
+          );
           captains[i] = updatedCaptain;
           if (delta.commonOre !== 0 || delta.uncommonMaterial !== 0 || delta.rareMaterial !== 0) {
             anyLootDelivered = true;
             homePlanetDelta.commonOre += delta.commonOre;
             homePlanetDelta.uncommonMaterial += delta.uncommonMaterial;
             homePlanetDelta.rareMaterial += delta.rareMaterial;
+          }
+        }
+
+        // passiveTrickle (Homeworld Talent economyTrickle): same fleet-wide,
+        // mission-independent material generation tick.ts's tick() applies --
+        // mirrored here for the same reason as fleetYieldMult above. Applies
+        // even with zero captains dispatched, so it's checked unconditionally
+        // this cycle, not just inside the captains loop.
+        for (const key of state.unlockedHomeworldTalents) {
+          const effect = HOMEWORLD_TALENTS[key].effect;
+          if (effect.type === "passiveTrickle" && (LOOT_MATERIAL_KEYS as string[]).includes(effect.material)) {
+            anyLootDelivered = true;
+            homePlanetDelta[effect.material as LootMaterialKey] += effect.perTick * ticksElapsed;
           }
         }
 

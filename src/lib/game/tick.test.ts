@@ -8,6 +8,9 @@ import {
   buyCaptainTalent,
   buyHomeworldTalent,
   recomputeFleetAdmin,
+  captainExtractionYieldMult,
+  captainRareLootChanceMult,
+  fleetExtractionYieldMult,
 } from "./tick";
 import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
 
@@ -122,6 +125,87 @@ describe("tickCaptainMission — extraction loot rolls", () => {
     const { captain } = tickCaptainMission(1, base, ALWAYS_RARE);
     expect(captain.mission!.cargo.rareMaterial).toBe(10);
     expect(captain.mission!.cargo.commonOre).toBe(0);
+  });
+
+  it("omitting the bonuses arg behaves exactly as before (defaults to no bonus)", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE); // no 4th arg at all
+    expect(captain.mission!.cargo.commonOre).toBe(10); // unmodified extractionRatePerTick
+  });
+
+  it("extractionYieldMult scales the per-roll amount added, not the roll count", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+    // 1 tick = 1 roll; rate 10 * (1 + 0.25) = 12.5 per roll.
+    const { captain } = tickCaptainMission(1, base, ALWAYS_COMMON_ORE, { extractionYieldMult: 0.25 });
+    expect(captain.mission!.cargo.commonOre).toBe(12.5);
+  });
+
+  it("rareLootChanceMult shifts the SAME rng roll from commonOre to a non-common tier", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain("longOreRun"), phase: "extracting", phaseProgressTicks: 0 };
+    // longOreRun weights: commonOre 900, uncommonMaterial 80, rareMaterial 20 (total 1000).
+    // A fixed rng() of 0.85: with NO bonus, roll = 0.85 * 1000 = 850, which is < commonOre's
+    // cumulative weight of 900 -> commonOre. With rareLootChanceMult: 1 (+100%), only the
+    // non-common weights double (uncommon 80->160, rare 20->40; commonOre stays 900), giving a
+    // new total of 1100 -- the SAME rng() of 0.85 now rolls 0.85 * 1100 = 935, which is past
+    // commonOre's still-900 cumulative but under uncommonMaterial's new cumulative of
+    // 900+160=1060 -> uncommonMaterial. Same roll, different outcome, purely because the
+    // bonus made commonOre a smaller share of a larger total.
+    const fixedRoll = () => 0.85;
+    const unboosted = tickCaptainMission(1, base, fixedRoll);
+    expect(unboosted.captain.mission!.cargo.commonOre).toBe(10);
+
+    const boosted = tickCaptainMission(1, base, fixedRoll, { rareLootChanceMult: 1 });
+    expect(boosted.captain.mission!.cargo.uncommonMaterial).toBe(10);
+    expect(boosted.captain.mission!.cargo.commonOre).toBe(0);
+  });
+
+  it("rareLootChanceMult of 0 (default) leaves the loot table completely unmodified", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = { ...missionCaptain("longOreRun"), phase: "extracting", phaseProgressTicks: 0 };
+    // roll = 0.9 * 1000 (unmodified total) = 900, NOT < 900 (commonOre's cumulative) -> falls into uncommonMaterial.
+    const rollAt900of1000 = () => 0.9;
+    const { captain } = tickCaptainMission(1, base, rollAt900of1000, { rareLootChanceMult: 0 });
+    expect(captain.mission!.cargo.uncommonMaterial).toBe(10);
+    expect(captain.mission!.cargo.commonOre).toBe(0);
+  });
+});
+
+describe("captainExtractionYieldMult / captainRareLootChanceMult / fleetExtractionYieldMult", () => {
+  it("captainExtractionYieldMult is 0 for a captain with no unlocked talents", () => {
+    const captain = freshCaptains(1)[0];
+    expect(captainExtractionYieldMult(captain)).toBe(0);
+  });
+
+  it("captainExtractionYieldMult stacks additively across multiple unlocked tiers", () => {
+    const captain = freshCaptains(1)[0];
+    captain.unlockedCaptainTalents = ["commandExtractionI", "commandExtractionII"];
+    expect(captainExtractionYieldMult(captain)).toBeCloseTo(0.25, 6); // 0.10 + 0.15
+  });
+
+  it("captainExtractionYieldMult ignores unlocked talents of the OTHER effect type", () => {
+    const captain = freshCaptains(1)[0];
+    captain.unlockedCaptainTalents = ["resourcefulnessRareChanceI"];
+    expect(captainExtractionYieldMult(captain)).toBe(0);
+  });
+
+  it("captainRareLootChanceMult stacks additively across multiple unlocked tiers", () => {
+    const captain = freshCaptains(1)[0];
+    captain.unlockedCaptainTalents = ["resourcefulnessRareChanceI", "resourcefulnessRareChanceII"];
+    expect(captainRareLootChanceMult(captain)).toBeCloseTo(0.75, 6); // 0.25 + 0.5
+  });
+
+  it("fleetExtractionYieldMult is 0 with no unlocked Homeworld Talents", () => {
+    const state = freshState();
+    expect(fleetExtractionYieldMult(state)).toBe(0);
+  });
+
+  it("fleetExtractionYieldMult reads fleetLogisticsYield's mult when unlocked", () => {
+    const state = freshState();
+    state.unlockedHomeworldTalents = ["fleetLogisticsYield"];
+    expect(fleetExtractionYieldMult(state)).toBeCloseTo(0.05, 6);
   });
 });
 
@@ -374,6 +458,75 @@ describe("tick() — idle captains do nothing, mission captains route through ti
   });
 });
 
+describe("tick() — Homeworld/Captain Talent effects wired into extraction and passive production", () => {
+  it("fleetExtractionYieldMult (Homeworld Talent) boosts a mission captain's extraction via tick()", () => {
+    const state = freshState();
+    state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05 fleetExtractionYieldMult
+    state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+
+    const result = tick(10, state); // tickDurationSeconds=10 -> ticksElapsed=1 -> 1 roll
+
+    // extractionRatePerTick 10 * (1 + 0.05) = 10.5. Loot roll uses real Math.random
+    // (tick() doesn't accept an rng override), so assert on the material-agnostic TOTAL
+    // rather than which specific tier it landed in.
+    const totalDelivered =
+      result.captains[0].mission!.cargo.commonOre +
+      result.captains[0].mission!.cargo.uncommonMaterial +
+      result.captains[0].mission!.cargo.rareMaterial;
+    expect(totalDelivered).toBeCloseTo(10.5, 6);
+  });
+
+  it("captainExtractionYieldMult (Captain Talent) and fleetExtractionYieldMult (Homeworld Talent) stack additively via tick()", () => {
+    const state = freshState();
+    state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05
+    state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.10
+    state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+
+    const result = tick(10, state);
+
+    // extractionRatePerTick 10 * (1 + 0.05 + 0.10) = 11.5
+    const totalDelivered =
+      result.captains[0].mission!.cargo.commonOre +
+      result.captains[0].mission!.cargo.uncommonMaterial +
+      result.captains[0].mission!.cargo.rareMaterial;
+    expect(totalDelivered).toBeCloseTo(11.5, 6);
+  });
+
+  it("passiveTrickle (Homeworld Talent economyTrickle) adds material even with every captain idle", () => {
+    const state = freshState();
+    state.unlockedHomeworldTalents = ["economyTrickle"]; // commonOre, perTick: 1
+    // freshState's single captain is idle (mission: null) by default -- no mission math
+    // should run at all, isolating this test to the passive-trickle path.
+
+    const result = tick(10, state); // ticksElapsed = 10/10 = 1 -> 1 * perTick(1) = 1
+
+    expect(result.homePlanet.storage.commonOre).toBe(1);
+  });
+
+  it("passiveTrickle scales linearly with ticksElapsed (closed-form, not a per-tick loop)", () => {
+    const state = freshState();
+    state.unlockedHomeworldTalents = ["economyTrickle"];
+
+    const result = tick(35, state); // ticksElapsed = 35/10 = 3.5 -> 3.5 * 1 = 3.5
+
+    expect(result.homePlanet.storage.commonOre).toBeCloseTo(3.5, 6);
+  });
+
+  it("with no unlocked Homeworld Talents, extraction and passive production are unaffected (regression guard)", () => {
+    const state = freshState();
+    state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
+
+    const result = tick(10, state);
+
+    const totalDelivered =
+      result.captains[0].mission!.cargo.commonOre +
+      result.captains[0].mission!.cargo.uncommonMaterial +
+      result.captains[0].mission!.cargo.rareMaterial;
+    expect(totalDelivered).toBe(10); // unmodified extractionRatePerTick, exactly one roll
+    expect(result.homePlanet.storage.commonOre).toBe(0); // no passive trickle
+  });
+});
+
 describe("dispatchCaptainOnMission", () => {
   it("dispatches an idle captain, setting their initial mission state exactly", () => {
     const state = freshState(); // captains[0].mission is null (idle)
@@ -486,6 +639,24 @@ describe("craftRecipe", () => {
     expect(success).toBe(true);
     expect(next.homePlanet.storage.refinedMaterial).toBe(7);
     expect(next.homePlanet.storage.components).toBe(1);
+  });
+
+  it("recipeBonusOutput (Homeworld Talent) adds a FLAT bonus to the matching recipe's output, not a multiplier", () => {
+    const state = freshState();
+    state.unlockedHomeworldTalents = ["industryBonusOutput"]; // recipeKey: fabricateComponents, bonus: 1
+    state.homePlanet.storage.refinedMaterial = 5;
+    const { next, success } = craftRecipe(state, "fabricateComponents");
+    expect(success).toBe(true);
+    expect(next.homePlanet.storage.components).toBe(2); // base output 1 + flat bonus 1
+  });
+
+  it("recipeBonusOutput does NOT apply to a different recipe than the one it names", () => {
+    const state = freshState();
+    state.unlockedHomeworldTalents = ["industryBonusOutput"]; // targets fabricateComponents only
+    state.homePlanet.storage.commonOre = 10;
+    const { next, success } = craftRecipe(state, "refineUnobtainium");
+    expect(success).toBe(true);
+    expect(next.homePlanet.storage.refinedMaterial).toBe(1); // unmodified base output
   });
 });
 

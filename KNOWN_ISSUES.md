@@ -25,18 +25,6 @@ write it down so you don't relitigate it later.
   own construction, so no bug today, but a future field added to that shape
   would need updating in both places. Worth consolidating next time either
   function is touched.
-- 5 of the 6 "real" launch Captain/Homeworld Talent nodes (Captain &amp;
-  Homeworld Talent Trees) — every effect type except `unlockCaptainSlot` —
-  are purchasable, recorded, and shown as "Owned" in the UI, but have zero
-  gameplay effect: `extractionYieldMult`/`rareLootChanceMult`
-  (`tickCaptainMission`'s extraction/loot math), `fleetExtractionYieldMult`
-  (same), `recipeBonusOutput` (`craftRecipe`), and `passiveTrickle` (no
-  passive-income tick exists yet) are none of them actually read anywhere
-  outside `CAPTAIN_TALENTS`/`HOMEWORLD_TALENTS`'s own table definitions.
-  Deliberate for this pass (the tables/buy-functions/UI were the scope; wiring
-  each effect into its consuming system is follow-up work) but worth writing
-  down since a player can spend real statPoints/adminPoints and see nothing
-  change.
 - No captains, crew, ships, sectors, or bosses. This is the §10.5 minimal
   prototype scope on purpose.
 - Corrupt-save handling doesn't yet surface a raw-export option to the

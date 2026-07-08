@@ -518,3 +518,28 @@ above as Session 14, and worth remembering to explicitly verify a docs task
 touched EVERY file its own step list named, not just the ones a report
 happens to describe. Next: user to confirm the widened layout, flat panel
 style, and About tab all look right live; no further code changes pending.
+
+**Session 16** — Several more direct CSS/layout follow-ups from live feedback
+on the widened UI (all pushed individually, one commit each): raised
+`.frame`'s width-cap from a too-tight 1400px to 2400px, then removed the
+pixel-based `max-width` entirely once a user's ultrawide monitor showed the
+same "cap becomes the binding constraint" problem happening a second time
+at a larger scale (a fixed-pixel ceiling can never scale with an arbitrarily
+wide screen, so `width: 100%` alone is the correct fix); made header/footer
+span edge-to-edge by moving the frame's horizontal inset onto `.tab-body`
+alone; tightened that inset ~30% and added a "Patch Notes" sub-tab separate
+from "About." Then wired up the 5 previously-inert Homeworld/Captain Talent
+effects (extractionYieldMult, rareLootChanceMult, fleetExtractionYieldMult,
+recipeBonusOutput, passiveTrickle) that were purchasable but did nothing --
+new helper functions (`captainExtractionYieldMult`, `captainRareLootChanceMult`,
+`fleetExtractionYieldMult`) in tick.ts, a `bonuses` parameter added to
+`tickCaptainMission`, `craftRecipe` reading `recipeBonusOutput` off
+`state.unlockedHomeworldTalents`, and a new passive-trickle accumulation loop
+in `tick()`. First review caught that App.svelte's own duplicated live-poll
+tick loop (used during actual play, distinct from `tick()` which only runs
+for offline catch-up) hadn't been updated to match -- fixed by mirroring the
+same bonus/trickle logic there too, confirmed correct by a follow-up review.
+Removed the now-stale "5 of 6 talent effects have zero gameplay effect" entry
+from KNOWN_ISSUES.md. Next: Ships & Crew system (currently just a `ShipType`
+stub with no modules/crew at all) is the agreed-on next big feature, per the
+master design doc's committed-systems list.

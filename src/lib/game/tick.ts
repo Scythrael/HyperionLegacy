@@ -40,6 +40,47 @@ function emptyLootTotals(): Record<LootMaterialKey, number> {
   return { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0 };
 }
 
+// passiveTrickle's `material` field is typed HomePlanetMaterialKey (the wider
+// superset, since a future trickle could in principle target a crafted good),
+// but homePlanetDelta is keyed on the narrower LootMaterialKey -- this list
+// narrows one to the other at runtime. Today's only passiveTrickle entry
+// (economyTrickle) targets "commonOre", which is in this list; a future
+// trickle entry targeting "refinedMaterial"/"components" would need
+// homePlanetDelta's shape (and this list) widened first, not silently work.
+export const LOOT_MATERIAL_KEYS: LootMaterialKey[] = ["commonOre", "uncommonMaterial", "rareMaterial"];
+
+// Sums every unlocked Captain Talent's extractionYieldMult contribution for
+// THIS captain -- additive stacking (Command Efficiency I + II both unlocked
+// = 0.10 + 0.15 = 0.25 total extra yield), read at usage time rather than
+// cached on CaptainState, per the "read at usage time" pattern the comment
+// above buyCaptainTalent already documents.
+export function captainExtractionYieldMult(captain: CaptainState): number {
+  return captain.unlockedCaptainTalents.reduce((sum, key) => {
+    const effect = CAPTAIN_TALENTS[key].effect;
+    return effect.type === "extractionYieldMult" ? sum + effect.mult : sum;
+  }, 0);
+}
+
+// Same additive-stacking, read-at-usage-time pattern as
+// captainExtractionYieldMult, for the OTHER Captain Talent effect type.
+export function captainRareLootChanceMult(captain: CaptainState): number {
+  return captain.unlockedCaptainTalents.reduce((sum, key) => {
+    const effect = CAPTAIN_TALENTS[key].effect;
+    return effect.type === "rareLootChanceMult" ? sum + effect.mult : sum;
+  }, 0);
+}
+
+// Fleet-wide equivalent of captainExtractionYieldMult -- sourced from
+// state.unlockedHomeworldTalents (Fleet Admiral prestige, spent fleet-wide)
+// rather than one captain's own talents, so it applies identically to EVERY
+// captain's mission extraction, not just whichever captain unlocked it.
+export function fleetExtractionYieldMult(state: GameState): number {
+  return state.unlockedHomeworldTalents.reduce((sum, key) => {
+    const effect = HOMEWORLD_TALENTS[key].effect;
+    return effect.type === "fleetExtractionYieldMult" ? sum + effect.mult : sum;
+  }, 0);
+}
+
 // requiredTicksForPhase always returns a whole number, but phaseProgressTicks
 // accumulates via repeated float addition across many small tickCaptainMission
 // calls (e.g. offline catch-up feeding one big ticksElapsed vs. the live loop
@@ -76,7 +117,12 @@ const XP_PER_MISSION_CYCLE = 50;
 export function tickCaptainMission(
   ticksElapsed: number,
   captain: CaptainState,
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  // Both default to 0 (no bonus) so every existing call site/test that
+  // omits this 4th arg behaves EXACTLY as before -- the caller (tick(),
+  // below) is responsible for summing captainExtractionYieldMult +
+  // fleetExtractionYieldMult into one value before calling in.
+  bonuses: { extractionYieldMult?: number; rareLootChanceMult?: number } = {}
 ): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, number> } {
   if (!captain.mission || ticksElapsed <= 0) {
     return { captain, homePlanetDelta: emptyLootTotals() };
@@ -92,6 +138,21 @@ export function tickCaptainMission(
   let xp = captain.xp;
   let level = captain.level;
   let statPoints = captain.statPoints;
+
+  const extractionYieldMult = bonuses.extractionYieldMult ?? 0;
+  const rareLootChanceMult = bonuses.rareLootChanceMult ?? 0;
+  // Computed ONCE per call, not per roll -- bonuses are constant for the
+  // whole call, so this stays closed-form (the "one big jump equals many
+  // small ticks" test doesn't care how many rolls happen, only that each
+  // roll uses the same effective table either way). Boosts every NON-common
+  // tier's weight rather than hardcoding "rareMaterial" specifically, so
+  // this generalizes to any future lootTable shape without changes here.
+  const effectiveLootTable =
+    rareLootChanceMult > 0
+      ? missionDef.lootTable.map((entry) =>
+          entry.material === "commonOre" ? entry : { ...entry, weight: entry.weight * (1 + rareLootChanceMult) }
+        )
+      : missionDef.lootTable;
 
   while (remaining > 0 && mission !== null) {
     const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
@@ -118,8 +179,8 @@ export function tickCaptainMission(
       const toWhole = Math.floor(mission.phaseProgressTicks + ticksToApply);
       const rollsThisStep = toWhole - fromWhole;
       for (let i = 0; i < rollsThisStep; i++) {
-        const material = rollLootTable(missionDef.lootTable, rng);
-        mission.cargo[material] += missionDef.extractionRatePerTick;
+        const material = rollLootTable(effectiveLootTable, rng);
+        mission.cargo[material] += missionDef.extractionRatePerTick * (1 + extractionYieldMult);
       }
     }
 
@@ -214,14 +275,37 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   // own field.
   const ticksElapsed = deltaSeconds / state.tickDurationSeconds;
   const homePlanetDelta = emptyLootTotals();
+  // Computed ONCE for the whole fleet (same value for every captain), not
+  // per captain inside the .map() below -- Homeworld Talents are fleet-wide,
+  // not per-captain.
+  const fleetYieldMult = fleetExtractionYieldMult(state);
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
-    const { captain: updated, homePlanetDelta: delta } = tickCaptainMission(ticksElapsed, captain);
+    const bonuses = {
+      extractionYieldMult: captainExtractionYieldMult(captain) + fleetYieldMult,
+      rareLootChanceMult: captainRareLootChanceMult(captain),
+    };
+    // Math.random passed explicitly (rather than omitted) since bonuses is
+    // positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
+    const { captain: updated, homePlanetDelta: delta } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
     (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
       homePlanetDelta[key] += delta[key];
     });
     return updated;
   });
+
+  // passiveTrickle (Homeworld Talent economyTrickle): flat fleet-wide
+  // material generation, independent of missions -- applies even with zero
+  // captains dispatched. Scales by ticksElapsed (not deltaSeconds) to stay on
+  // the same fleet-wide cadence as everything else, and multiplying by
+  // ticksElapsed (rather than looping per tick) keeps this closed-form, same
+  // requirement tickCaptainMission's own header comment explains.
+  for (const key of state.unlockedHomeworldTalents) {
+    const effect = HOMEWORLD_TALENTS[key].effect;
+    if (effect.type === "passiveTrickle" && (LOOT_MATERIAL_KEYS as string[]).includes(effect.material)) {
+      homePlanetDelta[effect.material as LootMaterialKey] += effect.perTick * ticksElapsed;
+    }
+  }
 
   // recomputeFleetAdmin (Task 3, Captain & Homeworld Talent Trees) wraps the
   // final state object -- it must run AFTER captains is built above, since
@@ -319,7 +403,18 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
   for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
     storage[key] -= recipe.inputs[key] ?? 0;
   }
-  storage[recipe.output.key] += recipe.output.amount;
+
+  // recipeBonusOutput (Homeworld Talent, e.g. industryBonusOutput): a FLAT
+  // extra amount added per craft, not a multiplier -- matches the effect
+  // type's own `bonus: number` field name/shape. Reduce over every unlocked
+  // talent (not just industryBonusOutput by name) so any future
+  // recipeBonusOutput entry targeting a different recipeKey works without
+  // touching this function again.
+  const bonusOutput = state.unlockedHomeworldTalents.reduce((sum, key) => {
+    const effect = HOMEWORLD_TALENTS[key].effect;
+    return effect.type === "recipeBonusOutput" && effect.recipeKey === recipeKey ? sum + effect.bonus : sum;
+  }, 0);
+  storage[recipe.output.key] += recipe.output.amount + bonusOutput;
 
   return { next: { ...state, homePlanet: { storage } }, success: true };
 }
