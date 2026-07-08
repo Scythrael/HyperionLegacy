@@ -795,10 +795,14 @@
            Resource-Gathering, only Tier I is real (both shortOreRun and
            longOreRun -- see model.ts's MissionDef.tier field); Tiers II-V are
            locked SubTabs entries. Dispatch no longer happens inline here --
-           clicking an available mission card opens the captain-selection
-           popup (Task 5, rendered at the end of the template near
-           deleteModalOpen) via openMissionPopup, which owns the actual
-           dispatch through the existing doDispatchCaptainOnMission. -->
+           clicking an available mission card calls openMissionPopup, which
+           sets missionPopupKey/missionPopupCaptainId (declared near
+           deleteModalOpen). The actual popup markup that CONSUMES that state
+           and performs the dispatch through the existing
+           doDispatchCaptainOnMission does NOT exist yet -- it is Task 5, a
+           separate not-yet-implemented commit. Until Task 5 lands, clicking a
+           mission card sets state with nothing rendering it (expected,
+           intermediate state of a multi-task build, not a bug in THIS task). -->
       <div class="fleet-ops-layout">
         <div class="mission-category-list">
           <button
