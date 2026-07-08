@@ -3,18 +3,23 @@
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Turn both flat talent-list panels (Captain Talents, Homeworld Talents) into real branching
-trees with SVG connectors and hover/tap tooltips, and add a `credits` currency + full-reset respec
-mechanism funded by it.
+trees with SVG connectors and hover/tap tooltips, add a `credits` currency + full-reset respec mechanism
+funded by it, and revive the retired Captain Specialization mechanic on top of the new talent tree.
 
 **Architecture:** A new `credits` `Decimal` field on `GameState`, earned via a new `creditsPerCycle`
 field on `MissionDef` (mirrors `fleetAdminXpPerCycle`'s existing accumulate-then-apply shape in
 `tickCaptainMission`/`tick()`). Two new full-reset functions (`respecCaptainTalents`,
 `respecHomeworldTalents`) in `tick.ts`, both costing 50 credits, both excluding `unlockCaptainSlot` nodes
-from Homeworld's refund. A new `flavor` field on both talent-def interfaces plus two
-`describe*Effect` helpers turn raw effect values into readable text. `App.svelte`'s two talent panels are
-rewritten to position nodes by depth-in-chain and draw SVG connector lines between them, with
-hover/tap tooltips and Reset buttons behind a confirmation modal (reusing the existing DELETE SAVE
-modal's `.modal-backdrop`/`Panel.modal-dialog` pattern).
+from Homeworld's refund; `respecCaptainTalents` also optionally sets a captain's `spec`
+(`CaptainTalentBranch | null`), bundling spec changes into the same flow/cost. A new
+`CAPTAIN_SPEC_BONUS` table grants an innate per-spec bonus (only `resourcefulness`/`command` populated
+today; the other 3 branches stay locked until their real systems exist), added on top of talent-tree
+contributions in the relevant stacking helper -- carefully AFTER any multiplier scaling, not folded into
+the base value, so the math lands exactly on target (see Task 2b). A new `flavor` field on both
+talent-def interfaces plus two `describe*Effect` helpers turn raw effect values into readable text.
+`App.svelte`'s two talent panels are rewritten to position nodes by depth-in-chain and draw SVG connector
+lines between them, with hover/tap tooltips, a spec picker, and Reset buttons behind a confirmation modal
+(reusing the existing DELETE SAVE modal's `.modal-backdrop`/`Panel.modal-dialog` pattern).
 
 **Tech Stack:** Vite + Svelte + TypeScript, Vitest (present but not executable in this environment -- no
 Node/npm/tsc available; every task is verified by manual hand-trace, same as every prior feature this
@@ -73,15 +78,42 @@ economyTrickle.flavor = "A quiet arrangement with independent traders keeps a sl
 Add each as a new `flavor: "..."` field on its existing object literal in `CAPTAIN_TALENTS`/
 `HOMEWORLD_TALENTS` -- do not change any other field on these entries.
 
-**Step 6 -- verify by hand-trace:** Confirm `GameState`'s new `credits` field doesn't collide with
-anything, confirm `freshState().credits.equals(0)` would pass, confirm both `MISSIONS` entries compile
-with the new required field, confirm all 12 talent entries now have `flavor` (no entry missed).
+**Step 6 (Captain Specialization -- reviving the retired Phase 1 mechanic):** Add `spec:
+CaptainTalentBranch | null;` to `CaptainState`, and add `spec: null` to `freshCaptainStack()`'s returned
+object (read that function's current shape first -- it's what every new/reset captain slot starts with).
 
-**Step 7:** Commit.
+**Step 7:** Add a new `CAPTAIN_SPEC_BONUS` table, deliberately `Partial` since only branches with a real
+entry are selectable at all:
+
+```ts
+// Innate bonus granted once a captain has this branch chosen as their spec
+// (CaptainState.spec) -- separate from, and additive with, whatever they've
+// bought in the talent tree itself. Deliberately Partial<...>: a branch with
+// NO entry here is not yet selectable as a spec at all (tactical/science/
+// diplomacy today -- their underlying systems, Combat/a redefined Science
+// mechanic, don't exist yet, so there's nothing meaningful to grant a bonus
+// FOR). Revives the Phase 1 "Captain Prestige panel + specialization picker"
+// mechanic (retired during the Phase 4 Navigation/Progression Overhaul along
+// with the old Generator Stack economy it was built on), now expressed
+// against this newer Captain Talent tree instead.
+export const CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTalentEffect>> = {
+  resourcefulness: { type: "bonusRollChance", chance: 0.01 },
+  command: { type: "commonYieldMult", mult: 0.05 }, // placeholder -- refine once Command's role is better defined
+};
+```
+
+**Step 8 -- verify by hand-trace:** Confirm a fresh captain's `spec` defaults to `null` (no bonus applies
+until one is chosen). Confirm `CAPTAIN_SPEC_BONUS.resourcefulness.chance` (0.01) plus a fully-talented
+Resourcefulness captain's talent-tree contribution (`0.02` base doubled to `0.04` by node II) sums to
+exactly `0.05` -- matches the design doc's stated target. Confirm `tactical`/`science`/`diplomacy` have NO
+entry in `CAPTAIN_SPEC_BONUS` (this absence is what makes them locked in the UI later, not a separate
+"locked" flag).
+
+**Step 9:** Commit.
 
 ```bash
 git add src/lib/game/model.ts
-git commit -m "feat: add credits currency and flavor text fields to model.ts"
+git commit -m "feat: add credits currency, flavor text, and Captain Specialization fields to model.ts"
 ```
 
 ---
@@ -114,11 +146,146 @@ it("every HOMEWORLD_TALENTS entry has non-empty flavor text", () => {
 });
 ```
 
-**Step 4:** Commit.
+**Step 4 (Captain Specialization):** Add a test confirming a fresh captain's `spec` is `null`:
+
+```ts
+it("a fresh captain has no spec chosen", () => {
+  expect(freshCaptains(1)[0].spec).toBeNull();
+});
+```
+
+Add a test confirming `CAPTAIN_SPEC_BONUS`'s exact shape:
+
+```ts
+it("CAPTAIN_SPEC_BONUS has entries for resourcefulness and command only", () => {
+  expect(CAPTAIN_SPEC_BONUS.resourcefulness).toEqual({ type: "bonusRollChance", chance: 0.01 });
+  expect(CAPTAIN_SPEC_BONUS.command).toEqual({ type: "commonYieldMult", mult: 0.05 });
+  expect(CAPTAIN_SPEC_BONUS.tactical).toBeUndefined();
+  expect(CAPTAIN_SPEC_BONUS.science).toBeUndefined();
+  expect(CAPTAIN_SPEC_BONUS.diplomacy).toBeUndefined();
+});
+```
+
+**Step 5:** Commit.
 
 ```bash
 git add src/lib/game/model.test.ts
-git commit -m "test: add model.test.ts coverage for credits/creditsPerCycle/flavor fields"
+git commit -m "test: add model.test.ts coverage for credits/creditsPerCycle/flavor/spec fields"
+```
+
+---
+
+### Task 2b: `tick.ts` — wire Captain Specialization bonus into stacking helpers
+
+**Files:** Modify `src/lib/game/tick.ts` (read `captainBonusRollChance`/`captainCommonYieldMult` fully
+first -- these are the two existing stacking helpers this task extends).
+
+**Step 1:** Extend `captainCommonYieldMult(captain)` to ALSO add `CAPTAIN_SPEC_BONUS.command.mult` when
+`captain.spec === "command"`:
+
+```ts
+export function captainCommonYieldMult(captain: CaptainState): number {
+  const talentSum = captain.unlockedCaptainTalents.reduce((sum, key) => {
+    const effect = CAPTAIN_TALENTS[key].effect;
+    return effect.type === "commonYieldMult" ? sum + effect.mult : sum;
+  }, 0);
+  const specBonus = captain.spec === "command" ? CAPTAIN_SPEC_BONUS.command!.mult : 0;
+  return talentSum + specBonus;
+}
+```
+
+(Only safe to non-null-assert `CAPTAIN_SPEC_BONUS.command!` inside the `captain.spec === "command"`
+branch, since that's exactly the condition under which the entry is guaranteed to exist -- confirm this
+against the live `CAPTAIN_SPEC_BONUS` table before committing, don't assume.)
+
+**Step 2:** Extend `captainBonusRollChance(captain)` the same way, adding
+`CAPTAIN_SPEC_BONUS.resourcefulness.chance` when `captain.spec === "resourcefulness"`:
+
+```ts
+export function captainBonusRollChance(captain: CaptainState): number {
+  const talentSum = captain.unlockedCaptainTalents.reduce((sum, key) => {
+    const effect = CAPTAIN_TALENTS[key].effect;
+    return effect.type === "bonusRollChance" ? sum + effect.chance : sum;
+  }, 0);
+  const specBonus = captain.spec === "resourcefulness" ? CAPTAIN_SPEC_BONUS.resourcefulness!.chance : 0;
+  return talentSum + specBonus;
+}
+```
+
+**Step 3 -- verify by hand-trace before committing:** Confirm a captain with `spec: "resourcefulness"`
+and BOTH `resourcefulnessBonusRollI`/`II` unlocked produces `captainBonusRollChance = 0.02` (talent I's
+own base) and, combined with `captainBonusRollChanceMult = 1.0` (unaffected by this task, since the spec
+bonus only adds to the BASE chance, not the multiplier) via the EXISTING
+`effectiveBonusRollChance = base * (1 + mult)` formula already in `tickCaptainMission`'s extraction loop
+(NOT modified by this task) -- confirm the actual final math: does the spec's `0.01` get added to the
+BASE (making effective `= (0.02 + 0.01) * (1 + 1.0) = 0.06`, NOT the target `0.05`) or should it be added
+AFTER the multiplier is applied (`= 0.02 * (1+1.0) + 0.01 = 0.05`, matching the design doc's stated
+target)? **The design doc's target math requires the LATTER** -- the spec bonus must be added to the
+FINAL effective chance, not folded into `captainBonusRollChance`'s own return value before the `(1 +
+mult)` scaling happens. Re-read this task's Step 2 code above: adding the spec bonus INSIDE
+`captainBonusRollChance` (as drafted) would incorrectly let it get scaled by `bonusRollChanceMult` too,
+overshooting the target. **Correct the approach**: keep `captainBonusRollChance` returning ONLY the
+talent-tree sum (no spec bonus folded in), and instead add a NEW small helper,
+`captainSpecBonusRollChance(captain): number` (returns `0.01` if spec is resourcefulness, else `0`), and
+apply it additively to the ALREADY-scaled `effectiveBonusRollChance` inside `tickCaptainMission`'s
+extraction loop: `effectiveBonusRollChance = Math.min(1, resolvedBonuses.bonusRollChance * (1 +
+resolvedBonuses.bonusRollChanceMult) + resolvedBonuses.specBonusRollChance)`. Apply the equivalent
+"don't scale by the mult" treatment for `captainCommonYieldMult`/command's spec bonus too, IF
+`commonYieldMult` is ever scaled by some future multiplier the same way (it currently isn't -- `rare
+YieldMult`/`commonYieldMult` are applied directly as `(1 + mult)` against `baseAmount` in
+`rollExtractionTick`, with no further multiplier layer on top, so folding command's spec bonus directly
+into `captainCommonYieldMult`'s own return value, as originally drafted in Step 1, is actually fine for
+THAT specific case -- only `bonusRollChance`/`bonusRollChanceMult`'s two-stage scaling needs the separate
+treatment). Confirm this distinction yourself by re-reading both formulas live before implementing --
+this is a genuine correctness trap worth getting right the first time, not glossed over.
+
+**Step 4:** Based on the correction above: add `captainSpecBonusRollChance(captain: CaptainState):
+number` returning `CAPTAIN_SPEC_BONUS.resourcefulness!.chance` if `captain.spec === "resourcefulness"`,
+else `0`. Wire it into `tick()`'s per-captain `bonuses` object as a NEW field, e.g.
+`specBonusRollChance: captainSpecBonusRollChance(captain)`, and into `tickCaptainMission`'s `bonuses`
+parameter type / `resolvedBonuses` (same `?? 0` pattern as every other field there). Update the
+`effectiveBonusRollChance` computation inside the extraction loop to ADD this value AFTER the existing
+`base * (1 + mult)` scaling, clamped by the same `Math.min(1, ...)`. Leave `captainCommonYieldMult`'s
+direct spec-bonus fold-in from Step 1 as-is (confirmed safe per the reasoning above).
+
+**Step 5 -- re-verify by hand-trace:** With this correction, confirm a fully-specced, fully-talented
+Resourcefulness captain: `resolvedBonuses.bonusRollChance = 0.02`, `resolvedBonuses.bonusRollChanceMult =
+1.0`, `resolvedBonuses.specBonusRollChance = 0.01` → `effectiveBonusRollChance = Math.min(1, 0.02 * (1 +
+1.0) + 0.01) = Math.min(1, 0.05) = 0.05` -- exactly matching the design doc's target.
+
+**Step 6:** Commit.
+
+```bash
+git add src/lib/game/tick.ts
+git commit -m "feat: wire Captain Specialization bonus into stacking helpers and extraction loop"
+```
+
+---
+
+### Task 2c: `tick.test.ts` — spec bonus wiring tests
+
+**Files:** Modify `src/lib/game/tick.test.ts`.
+
+**Step 1:** Add a test confirming `captainSpecBonusRollChance` returns `0.01` for a captain with
+`spec: "resourcefulness"` and `0` for `spec: null` or any other spec.
+
+**Step 2:** Add a `tickCaptainMission`-level test confirming the full math from Task 2b Step 5 above --
+a captain with `spec: "resourcefulness"` and both Lucky Strike nodes unlocked, using a constant rng
+that lands exactly at the `0.05` boundary (e.g. `rng() = 0.049` should trigger the bonus roll, `rng() =
+0.05` should NOT, confirming the effective chance is exactly `0.05` and not `0.06` or some other value)
+-- this test is the actual regression guard for the correctness trap flagged in Task 2b.
+
+**Step 3:** Add a test confirming `captainCommonYieldMult` includes `+0.05` for a captain with
+`spec: "command"` (independent of any talent-tree nodes).
+
+**Step 4 -- verify by hand-trace:** Re-derive the boundary rng values in Step 2 against the live code
+yourself before committing.
+
+**Step 5:** Commit.
+
+```bash
+git add src/lib/game/tick.test.ts
+git commit -m "test: add tick.test.ts coverage for Captain Specialization bonus wiring"
 ```
 
 ---
@@ -210,26 +377,31 @@ and `SAVE_VERSION` yourself first -- current `SAVE_VERSION` is `13`).
 
 **Step 1:** Bump `SAVE_VERSION` from `13` to `14`.
 
-**Step 2:** Add a new `MIGRATIONS[13]` entry backfilling `credits` for saves from before this branch:
+**Step 2:** Add a new `MIGRATIONS[13]` entry backfilling `credits` AND every existing captain's `spec`
+for saves from before this branch:
 
 ```ts
 13: (state: any): GameState => ({
   ...state,
   credits: 0,
+  captains: state.captains.map((c: any) => ({ ...c, spec: null })),
 }),
 ```
 
 (Matches the existing style of simple additive migrations like `MIGRATIONS[1]` for `tickDurationSeconds`
--- a plain number here, since `hydrateDecimals` below converts it to a real `Decimal` unconditionally.)
+-- `credits` stays a plain number here, since `hydrateDecimals` below converts it to a real `Decimal`
+unconditionally; `spec: null` needs no such hydration, since it's not Decimal-typed.)
 
 **Step 3:** Add `credits: toDecimal(state.credits)` to `hydrateDecimals`'s returned object (alongside the
 existing `fleetAdminXp: toDecimal(state.fleetAdminXp)` line) -- this runs unconditionally for both
 migrated AND already-current-version saves, per that function's own header comment.
 
 **Step 4 -- verify by hand-trace:** Confirm a save at version 13 (or earlier, walking the whole chain)
-ends up with `credits` as a live `Decimal` instance equal to `0` after `migrate()` runs. Confirm a
-freshly-serialized v14 save (where `credits` round-trips through `JSON.stringify`/`toJSON()` as a plain
-string) also correctly hydrates back into a `Decimal` via the unconditional `hydrateDecimals` call.
+ends up with `credits` as a live `Decimal` instance equal to `0` after `migrate()` runs, AND every
+existing captain has `spec: null`. Confirm a freshly-serialized v14 save (where `credits` round-trips
+through `JSON.stringify`/`toJSON()` as a plain string, and `spec` round-trips as a plain string or `null`)
+also correctly hydrates back via the unconditional `hydrateDecimals` call (no changes needed there for
+`spec` specifically, since it isn't Decimal-typed and needs no conversion).
 
 **Step 5:** Commit.
 
@@ -245,8 +417,9 @@ git commit -m "feat: save.ts v13->v14 migration backfilling credits"
 **Files:** Modify `src/lib/game/save.test.ts` (read the existing migration test for the prior version
 bump -- e.g. the v12->v13 test from the Tick Granularity Rebalance branch -- to match its exact style).
 
-**Step 1:** Add a test constructing a v13-shaped save object (no `credits` field), running it through
-`migrate()`, and asserting the result has `credits` as a `Decimal` equal to `0`.
+**Step 1:** Add a test constructing a v13-shaped save object (no `credits` field, captains with no
+`spec` field), running it through `migrate()`, and asserting the result has `credits` as a `Decimal`
+equal to `0` AND every captain has `spec: null`.
 
 **Step 2 -- verify by hand-trace:** Confirm the test's input shape is a realistic v13 save (matching
 what `serialize()` would have produced before this branch), not an invented shape.
@@ -272,7 +445,9 @@ return-shape convention and "same state reference on failure" style).
 const RESPEC_COST_CREDITS = 50; // launch placeholder, not balance-tested, same spirit as MISSIONS/talent costs
 ```
 
-**Step 2:** Add `respecCaptainTalents`:
+**Step 2:** Add `respecCaptainTalents`, with an optional 3rd argument bundling in a spec change (per the
+design doc's Captain Specialization section -- choosing/changing a captain's spec is bundled into this
+SAME flow/cost, not a separate action):
 
 ```ts
 // Full-reset only (no per-node refunds) -- refunds every statPoints this
@@ -281,7 +456,22 @@ const RESPEC_COST_CREDITS = 50; // launch placeholder, not balance-tested, same 
 // per-captain). Fails with the SAME state reference if the captain doesn't
 // exist or credits are insufficient -- same convention as every other
 // buy/action function in this file.
-export function respecCaptainTalents(state: GameState, captainId: number): { next: GameState; success: boolean } {
+//
+// The optional `newSpec` argument bundles a spec change into this SAME
+// reset+cost (per the design doc's Captain Specialization section) --
+// omitting it (or passing `undefined`) leaves the captain's CURRENT spec
+// untouched, so a plain "reset my talents" click doesn't force a spec
+// change. Passing an explicit spec (including `null`, to clear it) sets
+// `captain.spec` atomically with the talent wipe, same cost either way.
+// Does NOT validate that `newSpec` is a real, unlocked-for-selection branch
+// (i.e. one with a CAPTAIN_SPEC_BONUS entry) -- that's a UI-layer concern
+// (App.svelte only offers selectable specs as options in the first place),
+// same "trust the caller" boundary this codebase already draws elsewhere.
+export function respecCaptainTalents(
+  state: GameState,
+  captainId: number,
+  newSpec?: CaptainTalentBranch | null
+): { next: GameState; success: boolean } {
   const idx = state.captains.findIndex((c) => c.id === captainId);
   if (idx === -1) return { next: state, success: false };
   if (state.credits.lt(RESPEC_COST_CREDITS)) return { next: state, success: false };
@@ -294,6 +484,7 @@ export function respecCaptainTalents(state: GameState, captainId: number): { nex
     ...captain,
     statPoints: captain.statPoints + refund,
     unlockedCaptainTalents: [],
+    spec: newSpec === undefined ? captain.spec : newSpec,
   };
   return { next: { ...state, captains, credits: state.credits.minus(RESPEC_COST_CREDITS) }, success: true };
 }
@@ -346,6 +537,13 @@ export function respecHomeworldTalents(state: GameState): { next: GameState; suc
    (d) Confirm neither function ever touches `captains` array length/identity beyond the one captain
    being respecced (for `respecCaptainTalents`) or not at all (for `respecHomeworldTalents` -- no
    captain is added or removed).
+   (e) A captain with `spec: "command"` respecced via `respecCaptainTalents(state, id, "resourcefulness")`:
+   confirm the resulting captain has `spec: "resourcefulness"` (changed), talents cleared, statPoints
+   refunded, same as any other respec.
+   (f) The SAME captain respecced via `respecCaptainTalents(state, id)` (3rd arg OMITTED entirely, not
+   passed as `undefined` explicitly but simply left out): confirm `spec` is UNCHANGED from whatever it
+   was before the call -- this is the "plain reset, keep my spec" path and must not accidentally null it
+   out or require an explicit pass-through of the current value at every call site.
 
 **Step 5:** Commit.
 
@@ -362,12 +560,13 @@ git commit -m "feat: add respecCaptainTalents/respecHomeworldTalents full-reset 
 tested for the existing describe-block style to mirror).
 
 **Step 1:** Add a new describe block `"respecCaptainTalents / respecHomeworldTalents"` with tests
-covering exactly the 4 hand-traced scenarios from Task 7 Step 4 above: successful captain respec with
+covering exactly the 6 hand-traced scenarios from Task 7 Step 4 above: successful captain respec with
 correct refund math, insufficient-credits failure (same state reference), successful Homeworld respec
-correctly excluding `unlockCaptainSlot` nodes from both the refund AND the removal, and a
-Homeworld-respec insufficient-credits failure case.
+correctly excluding `unlockCaptainSlot` nodes from both the refund AND the removal, a
+Homeworld-respec insufficient-credits failure case, a captain respec that ALSO changes spec (3rd arg
+passed), and a captain respec that OMITS the 3rd arg entirely and confirms spec is left unchanged.
 
-**Step 2 -- verify by hand-trace:** Re-derive every expected refund/credits value against the live
+**Step 2 -- verify by hand-trace:** Re-derive every expected refund/credits/spec value against the live
 `tick.ts` code and the live `CAPTAIN_TALENTS`/`HOMEWORLD_TALENTS` cost values yourself before committing.
 
 **Step 3:** Commit.
@@ -570,24 +769,39 @@ panel (`<div class="research-cost">Admin Points: ...`) -- add a sibling line
 Talents panel (per-captain, scoped to `activeCaptain`). Each opens a confirmation modal (new
 `.modal-backdrop`/`Panel.modal-dialog` instance, mirroring DELETE SAVE's structure) stating the cost (50
 credits) and that it's irreversible, with Cancel/Confirm buttons -- Confirm calls
-`doRespecCaptainTalents(activeCaptain.id)` / `doRespecHomeworldTalents()` (new script-side handler
-functions wrapping `respecCaptainTalents`/`respecHomeworldTalents`, same `next`/`success` handling
-pattern every other `do*` handler in this file already uses).
+`doRespecHomeworldTalents()` (new script-side handler wrapping `respecHomeworldTalents`, same
+`next`/`success` handling pattern every other `do*` handler in this file already uses) for the Homeworld
+modal.
 
-**Step 3:** Disable the Reset button (or show it but disable Confirm in the modal) when
+**Step 3 (Captain Specialization -- spec picker in the Captain Talents Reset modal):** The Captain
+Talents panel's Reset modal ALSO needs a spec picker, since choosing/changing spec is bundled into this
+same flow. Show the captain's CURRENT spec (or "None chosen" if `null`) somewhere visible on the Captain
+Talents panel itself (not just inside the modal), e.g. near the panel title. Inside the confirmation
+modal, offer a selectable list of specs: only branches present in `CAPTAIN_SPEC_BONUS`
+(`resourcefulness`, `command` today) are pickable; `tactical`/`science`/`diplomacy` render locked/greyed
+(same "Not yet available" treatment their talent columns already get), consistent with the design doc.
+Include a "Keep current spec" option (or make the current spec pre-selected by default) so confirming
+without touching the picker doesn't force a change. Confirm calls
+`doRespecCaptainTalents(activeCaptain.id, selectedSpec)` -- a new script-side handler wrapping
+`respecCaptainTalents`, passing through whatever the modal's spec picker resolved to (the captain's
+current spec if untouched, a new one if the player picked a different selectable option).
+
+**Step 4:** Disable the Reset button (or show it but disable Confirm in the modal) when
 `state.credits.lt(50)`, so the affordability is visible before the player commits to opening the
 confirmation flow.
 
-**Step 4 -- verify by hand-trace:** Confirm the confirmation modal's Confirm button actually calls the
+**Step 5 -- verify by hand-trace:** Confirm the confirmation modal's Confirm button actually calls the
 right handler for the right scope (captain-specific vs fleet-wide) -- these are easy to accidentally
 swap if both modals share too much boilerplate carelessly. Confirm the modal closes after a
 successful respec (same pattern the DELETE SAVE modal uses to close itself after `confirmDelete()`).
+Confirm the spec picker genuinely prevents selecting a locked branch (no way to set
+`captain.spec = "tactical"` through this UI today, since that branch has no `CAPTAIN_SPEC_BONUS` entry).
 
-**Step 5:** Commit.
+**Step 6:** Commit.
 
 ```bash
 git add src/App.svelte
-git commit -m "feat: add Reset buttons, confirmation modal, and credits display to talent panels"
+git commit -m "feat: add Reset buttons, spec picker, confirmation modal, and credits display"
 ```
 
 ---
@@ -595,19 +809,26 @@ git commit -m "feat: add Reset buttons, confirmation modal, and credits display 
 ### Task 14: Docs + session log
 
 **Files:** Modify `SESSION_LOG.md`. No new `KNOWN_ISSUES.md`/`SUGGESTIONS.md` entries needed -- the
-Homeworld Market idea (the one thing explicitly deferred from this design) was already logged separately
-in commit `58acf50`.
+Homeworld Market idea and the broader credits-economy idea (Auction House/Bank/death-loss), the two
+things explicitly deferred from this design, were already logged separately in commits `58acf50` and
+`0aac0b9`.
 
 **Step 1:** Read the 2-3 most recent `SESSION_LOG.md` entries (Session 22, Session 23) to match format.
 This would be Session 24.
 
 **Step 2:** Append a new entry summarizing: the new `credits` currency (earned per completed mission
 cycle, 10/20 for short/long runs), the full-reset respec mechanism (50 credits, excludes
-`unlockCaptainSlot` nodes from Homeworld's refund to avoid ever deleting an existing captain), the visual
-tree redesign (depth-based layout, SVG connectors re-themed via existing color tokens, generalized to
-handle future forks/multiple-roots-per-branch even though today's data is all linear chains or single
-roots), the new `flavor` field + `describe*Effect` helpers powering hover/tap tooltips, and the
-`SAVE_VERSION` 13→14 migration. Note the deferred Homeworld Market (already logged separately).
+`unlockCaptainSlot` nodes from Homeworld's refund to avoid ever deleting an existing captain), Captain
+Specialization (reviving the Phase 1 specialization mechanic retired during the Phase 4 overhaul --
+`CaptainState.spec`, the `CAPTAIN_SPEC_BONUS` table with entries only for `resourcefulness`/`command`
+today so the other 3 branches stay locked until their real systems exist, bundled into the same
+respec flow/cost, and the correctness trap around WHERE the spec bonus gets added -- after the
+`base * (1 + mult)` scaling, not folded into it, so a fully-specced-and-talented Resourcefulness
+captain lands at exactly 5% not 6%), the visual tree redesign (depth-based layout, SVG connectors
+re-themed via existing color tokens, generalized to handle future forks/multiple-roots-per-branch even
+though today's data is all linear chains or single roots), the new `flavor` field + `describe*Effect`
+helpers powering hover/tap tooltips, and the `SAVE_VERSION` 13→14 migration. Note the two deferred
+economy ideas (already logged separately).
 
 **Step 3:** Commit.
 
@@ -623,9 +844,9 @@ before any push.
 
 ## After all tasks: final holistic review
 
-Once all 14 tasks (plus Task 0's worktree setup) are committed and individually reviewed, dispatch one
-final holistic review of the WHOLE branch before presenting merge options -- same pattern as every prior
-feature this session. Specifically re-verify:
+Once all 17 tasks (Task 0 through Task 14, including the inserted Task 2b/2c) are committed and
+individually reviewed, dispatch one final holistic review of the WHOLE branch before presenting merge
+options -- same pattern as every prior feature this session. Specifically re-verify:
 
 1. Grep the ENTIRE `src/` directory for any remaining hardcoded reference to old talent-node display
    patterns (flat-list-only markup) that might have been missed in one of the two panel rewrites.
@@ -633,8 +854,10 @@ feature this session. Specifically re-verify:
    `unlockedHomeworldTalents` under any input, and never refunds its cost -- re-read the function and
    confirm the filter logic is airtight, since this is the single most important regression-safety
    property of this whole branch (an accidental captain deletion via a talent reset would be severe).
-3. Confirm `credits` hydration/migration is correct in BOTH directions -- a pre-v14 save backfills to
-   `Decimal(0)`, and a fresh v14 save's `credits` round-trips through serialize/deserialize correctly.
+3. Confirm `credits`/`spec` hydration/migration is correct in BOTH directions -- a pre-v14 save backfills
+   `credits` to `Decimal(0)` and every existing captain's `spec` to `null`; a fresh v14 save's `credits`
+   round-trips through serialize/deserialize correctly (no hydration needed for `spec`, since it isn't
+   Decimal-typed).
 4. Confirm the SVG connector rendering doesn't break for any EMPTY branch (tactical/science/diplomacy for
    Captain Talents; homelandDefense/citizenry for Homeworld) -- these must still render as labeled empty
    columns, not error out on `talentDepth` being called against an empty node list.
@@ -645,4 +868,15 @@ feature this session. Specifically re-verify:
    match it (or note any deliberate edits made during implementation, if the user requested changes along
    the way).
 7. Confirm nothing from prior branches' "out of scope" lists was accidentally built (no Homeworld Market,
-   no per-node partial refunds, no ship-stat cargo, no third mission type).
+   no Auction House/Bank, no per-node partial refunds, no ship-stat cargo, no third mission type, no real
+   spec bonus for tactical/science/diplomacy).
+8. **Re-verify the Captain Specialization math trap from Task 2b specifically** -- confirm the spec bonus
+   for `bonusRollChance` is added AFTER the `base * (1 + mult)` scaling (via the separate
+   `specBonusRollChance` field), NOT folded into `captainBonusRollChance`'s own talent-sum return value.
+   Hand-trace a fully-specced, fully-talented Resourcefulness captain one more time and confirm the
+   effective chance is exactly `0.05`, not `0.06` or any other value -- this is the single most
+   error-prone piece of arithmetic in this whole branch and deserves independent re-derivation, not a
+   restatement of what Task 2b's own commit message claims.
+9. Confirm the spec picker UI genuinely cannot select `tactical`/`science`/`diplomacy` (no `respecCaptainTalents`
+   call site in `App.svelte` can pass one of those three as `newSpec`), and confirm a captain's spec
+   survives an ordinary "reset talents, don't touch spec" respec unchanged.
