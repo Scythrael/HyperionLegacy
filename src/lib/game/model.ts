@@ -26,11 +26,6 @@ export type LootMaterialKey = "commonOre" | "uncommonMaterial" | "rareMaterial";
 // SAME storage object, just different subsets of its keys.
 export type HomePlanetMaterialKey = LootMaterialKey | "refinedMaterial" | "components";
 
-export interface LootTableEntry {
-  material: LootMaterialKey;
-  weight: number; // out of the table's total weight
-}
-
 export type MissionPhase = "ordersReceived" | "transitOut" | "extracting" | "transitBack" | "unloading";
 
 // Named (not an inline union), matching this file's convention for every
@@ -48,7 +43,13 @@ export interface MissionDef {
   cargoCapacity: number; // total units across all tiers; MUST divide evenly by extractionRatePerTick
   // for this launch's requiredTicksForPhase() to have no partial-final-tick
   // edge case -- see that function's comment below if this is ever violated.
-  lootTable: LootTableEntry[];
+  // Independent per-tick occurrence chances (0-1) for uncommon/rare material,
+  // replacing the old weighted-pick lootTable (2026-07-07 Loot Tier Rework --
+  // see the design doc). Both can occur in the SAME tick (rolled
+  // independently, not mutually exclusive) -- see tick.ts's rollExtractionTick
+  // for the exact algorithm and rng() call order.
+  uncommonChance: number;
+  rareChance: number;
   // Display-only grouping -- drives which SubTabs tier a mission renders under
   // in the Fleet Operations tab (a follow-up UI feature). Has NO effect on
   // tick math whatsoever; purely a presentational label read by the UI layer.
@@ -69,11 +70,8 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     unloadTicks: 1,
     extractionRatePerTick: 10,
     cargoCapacity: 100,
-    lootTable: [
-      { material: "commonOre", weight: 980 },
-      { material: "uncommonMaterial", weight: 19 },
-      { material: "rareMaterial", weight: 1 },
-    ],
+    uncommonChance: 0.019, // was lootTable weight 19/1000 (1.9%)
+    rareChance: 0.001, // was lootTable weight 1/1000 (0.1%)
     tier: "I",
   },
   longOreRun: {
@@ -83,11 +81,8 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     unloadTicks: 1,
     extractionRatePerTick: 10,
     cargoCapacity: 100,
-    lootTable: [
-      { material: "commonOre", weight: 900 },
-      { material: "uncommonMaterial", weight: 80 },
-      { material: "rareMaterial", weight: 20 },
-    ],
+    uncommonChance: 0.08, // was lootTable weight 80/1000 (8%)
+    rareChance: 0.02, // was lootTable weight 20/1000 (2%)
     tier: "I",
   },
 };
@@ -122,32 +117,6 @@ export function requiredTicksForPhase(phase: MissionPhase, missionDef: MissionDe
     case "unloading":
       return missionDef.unloadTicks;
   }
-}
-
-// Weighted random pick from a loot table. `rng` defaults to Math.random for
-// real gameplay; tests inject a fixed value to hit a specific tier
-// deterministically (see model.test.ts's "rollLootTable" tests for the exact
-// boundary behavior this produces). Walks entries in the table's own order,
-// accumulating weight, and picks the first entry whose cumulative weight
-// STRICTLY EXCEEDS `rng() * totalWeight` -- this (not `>=`) is what keeps
-// each entry's actual probability mass equal to its stated weight; a
-// non-strict comparison would silently shift one unit of probability mass
-// from each entry to the next one in the table.
-//
-// Assumes `lootTable` is non-empty with positive weights -- true of every
-// MISSIONS entry today. An empty table (or one summing to 0) would fall
-// through the loop and crash on `lootTable[-1].material` below, rather than
-// silently misbehaving -- not reachable through any current code path, but
-// worth knowing if a future mission is ever defined with a malformed table.
-export function rollLootTable(lootTable: LootTableEntry[], rng: () => number = Math.random): LootMaterialKey {
-  const totalWeight = lootTable.reduce((sum, entry) => sum + entry.weight, 0);
-  const roll = rng() * totalWeight;
-  let cumulative = 0;
-  for (const entry of lootTable) {
-    cumulative += entry.weight;
-    if (roll < cumulative) return entry.material;
-  }
-  return lootTable[lootTable.length - 1].material; // floating-point fallback, should be unreachable
 }
 
 export interface CaptainState {
@@ -233,8 +202,10 @@ export type CaptainTalentBranch = "command" | "tactical" | "science" | "resource
 export type HomeworldTalentBranch = "fleetLogistics" | "homelandDefense" | "citizenry" | "economy" | "industry";
 
 export type CaptainTalentEffect =
-  | { type: "extractionYieldMult"; mult: number }
-  | { type: "rareLootChanceMult"; mult: number };
+  | { type: "commonYieldMult"; mult: number }
+  | { type: "uncommonYieldMult"; mult: number }
+  | { type: "uncommonChanceMult"; mult: number }
+  | { type: "rareChanceMult"; mult: number };
 
 // unlockCaptainSlot carries no gate beyond the node's own `cost` (adminPoints)
 // -- Homeworld Talents are fleet-wide Fleet Admiral prestige, spent purely
@@ -247,7 +218,7 @@ export type CaptainTalentEffect =
 // left as unenforced vestigial fields.
 export type HomeworldTalentEffect =
   | { type: "unlockCaptainSlot" }
-  | { type: "fleetExtractionYieldMult"; mult: number }
+  | { type: "rareYieldMult"; mult: number }
   | { type: "recipeBonusOutput"; recipeKey: RecipeKey; bonus: number }
   | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number };
 
@@ -289,31 +260,31 @@ export type CaptainTalentKey =
 export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effect: CaptainTalentEffect }> = {
   commandExtractionI: {
     branch: "command",
-    label: "Command Efficiency I",
+    label: "Bulk Extraction",
     cost: 2,
     requires: null,
-    effect: { type: "extractionYieldMult", mult: 0.1 },
+    effect: { type: "commonYieldMult", mult: 0.1 }, // was extractionYieldMult
   },
   commandExtractionII: {
     branch: "command",
-    label: "Command Efficiency II",
+    label: "Refined Extraction",
     cost: 4,
     requires: "commandExtractionI",
-    effect: { type: "extractionYieldMult", mult: 0.15 },
+    effect: { type: "uncommonYieldMult", mult: 0.15 }, // was extractionYieldMult
   },
   resourcefulnessRareChanceI: {
     branch: "resourcefulness",
     label: "Keen Eye I",
     cost: 2,
     requires: null,
-    effect: { type: "rareLootChanceMult", mult: 0.25 },
+    effect: { type: "uncommonChanceMult", mult: 0.25 }, // was rareLootChanceMult
   },
   resourcefulnessRareChanceII: {
     branch: "resourcefulness",
     label: "Keen Eye II",
     cost: 4,
     requires: "resourcefulnessRareChanceI",
-    effect: { type: "rareLootChanceMult", mult: 0.5 },
+    effect: { type: "rareChanceMult", mult: 0.5 }, // was rareLootChanceMult
   },
 };
 
@@ -358,7 +329,7 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     label: "Fleet Requisitions",
     cost: 4,
     requires: null,
-    effect: { type: "fleetExtractionYieldMult", mult: 0.05 },
+    effect: { type: "rareYieldMult", mult: 0.05 }, // was fleetExtractionYieldMult
   },
   industryBonusOutput: {
     branch: "industry",
