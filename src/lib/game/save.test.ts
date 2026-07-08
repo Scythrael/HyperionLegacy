@@ -34,8 +34,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 13", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("current SAVE_VERSION is 14", () => {
+    expect(SAVE_VERSION).toBe(14);
   });
 });
 
@@ -73,8 +73,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 13", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("current SAVE_VERSION is 14", () => {
+    expect(SAVE_VERSION).toBe(14);
   });
 });
 
@@ -232,8 +232,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBeUndefined();
   });
 
-  it("current SAVE_VERSION is 13", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("current SAVE_VERSION is 14", () => {
+    expect(SAVE_VERSION).toBe(14);
   });
 });
 
@@ -329,8 +329,8 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 13", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("current SAVE_VERSION is 14", () => {
+    expect(SAVE_VERSION).toBe(14);
   });
 });
 
@@ -435,8 +435,8 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 13", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("current SAVE_VERSION is 14", () => {
+    expect(SAVE_VERSION).toBe(14);
   });
 });
 
@@ -521,8 +521,8 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 13", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("current SAVE_VERSION is 14", () => {
+    expect(SAVE_VERSION).toBe(14);
   });
 });
 
@@ -581,8 +581,8 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.captains[0].mission).toBe(null);
   });
 
-  it("current SAVE_VERSION is 13", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("current SAVE_VERSION is 14", () => {
+    expect(SAVE_VERSION).toBe(14);
   });
 });
 
@@ -638,8 +638,8 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     expect(migrated.homePlanet.storage.refinedMaterial.equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 13", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("current SAVE_VERSION is 14", () => {
+    expect(SAVE_VERSION).toBe(14);
   });
 });
 
@@ -697,8 +697,8 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     expect(migrated.tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 13", () => {
-    expect(SAVE_VERSION).toBe(13);
+  it("current SAVE_VERSION is 14", () => {
+    expect(SAVE_VERSION).toBe(14);
   });
 });
 
