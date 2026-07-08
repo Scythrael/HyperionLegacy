@@ -212,6 +212,12 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   missions. Could plausibly fit as its own new Fleet Operations mission category (alongside
   Resource-Gathering, Patrol Missions, Surveying, Long-Term Exploration -- see
   docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md) or as content living under one of the
-  existing locked categories (Surveying reads closest in spirit). Not scoped yet -- no design work
-  done on what "outfitting a team" actually means mechanically (crew loadout choices? equipment?
-  a new resource type?) or what rewards/risks differentiate it from ship-based mining runs.
+  existing locked categories (Surveying reads closest in spirit). "Outfitting a team" specifically
+  means **item/equipment slots for the boarding party** -- a loadout system, not just picking which
+  captain/crew go. The user explicitly flagged this same equipment-slot mechanic will ALSO be needed
+  for Battlespace's Invasion mode (see the "Battlespace's 4 real modes" entry above -- "sector-space
+  defense followed by planetary bombardment and ground troops"), i.e. troops landing during PvP would
+  reuse the same item-slot system as PvE Landing Party missions -- worth designing this as one shared
+  mechanic rather than two separate ones when the time comes. Not scoped yet -- no design work done
+  on the actual slot count, equipment types/tiers, where equipment comes from (crafting? loot drops?),
+  or how it interacts with a captain's existing Captain Talents.
