@@ -221,3 +221,15 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   mechanic rather than two separate ones when the time comes. Not scoped yet -- no design work done
   on the actual slot count, equipment types/tiers, where equipment comes from (crafting? loot drops?),
   or how it interacts with a captain's existing Captain Talents.
+
+- **Stats page / total played time (online + offline).** User idea, 2026-07-08: "I would also like to
+  make sure that the stats page shows the total played time both online and offline... I love the
+  stats and numbers." There is no dedicated "Stats" tab/panel anywhere in the game today. The
+  underlying data mostly already exists -- `GameState.gameTimeSeconds` already accumulates across
+  BOTH the live 100ms poll loop (`App.svelte`'s `setInterval`) and offline catch-up (the one-time
+  `tick()` call at load) -- but nothing currently displays it anywhere. Not scoped yet: whether this
+  becomes its own new tab, a section added to the existing Options/System sub-tab, or something else;
+  whether "online vs. offline" needs to be tracked as two SEPARATE running totals (would need a new
+  field, since `gameTimeSeconds` today is a single combined counter) or whether just showing the one
+  combined total satisfies the request; and whether other stats (missions completed, total ore mined,
+  captains recruited, etc.) should live on the same page once it exists.
