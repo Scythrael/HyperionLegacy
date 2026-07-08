@@ -10,6 +10,25 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   1:1 today. Starbase's whole described purpose (damaged/taken offline before a homeworld can be
   bombarded) needs Battlespace to exist first — fully deferred until then.
 
+- **Variable/configurable tick-bar fill rate.** User idea, 2026-07-08, floated during the Tick
+  Granularity Rebalance brainstorming (`tickDurationSeconds` 10→1): let the header tick-bar's visual
+  fill cadence be configurable (e.g. default 1 tick per fill, with an option for "10 ticks per fill"
+  or removing it entirely), decoupling the bar's visual pace from the underlying tick math. Deferred
+  in favor of a simple on/off "Enable Tick Bar" toggle (shipped) — a bar representing N>1 ticks per
+  fill risks visually disagreeing with each mission's own "N ticks remaining" readout, and there was
+  no need to design a more elaborate control before observing how the plain 1-second-cycling bar
+  actually reads in practice. Revisit only if the on/off toggle turns out not to be enough.
+
+- **Future online-only tick-speed buff (global buff/purchase, 25%/50% cut).** User idea, 2026-07-08:
+  a planned future global buff (given out or purchasable) that temporarily reduces effective tick
+  duration by 25% or 50%, deliberately affecting ONLY active/online play, never offline catch-up
+  (the user explicitly wants to avoid the balance complexity of an offline-affecting speed buff).
+  Confirmed already architecturally compatible with no code changes needed: the existing `speed`
+  multiplier in `src/App.svelte` is runtime-only (never persisted to the save, never touches
+  `state.tickDurationSeconds`), and offline catch-up always computes from real elapsed wall-clock time
+  regardless of what `speed` was set to while away — a future buff hooks into that exact same
+  runtime-only lever. Not built; just confirmed compatible during the Tick Granularity Rebalance design.
+
 - **Ship loss / escape pods as a combat consequence.** User idea, 2026-07-08: when Battlespace/combat
   exists, the user is on the fence about whether ship destruction should be a real possibility, and
   explicitly does NOT want captain death as a mechanic. If ships can be destroyed, the crew should
