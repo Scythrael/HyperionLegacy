@@ -120,6 +120,18 @@ const MISSION_TICK_EPSILON = 1e-9;
 // several cycles in one call -- see the while loop below), never once per call.
 const XP_PER_MISSION_CYCLE = 50;
 
+// A very large offline-catchup ticksElapsed could complete many mission
+// cycles across many captains in one tick() call, each contributing 1-2
+// Fleet Admiral XP -- summing to a potentially large delta applied in one
+// shot. Capping applyFleetAdminXp's level-up loop at a fixed max per call
+// and carrying any leftover XP forward (it keeps resolving on the NEXT
+// tick() call, which happens continuously during live play) avoids an
+// unbounded loop. This same constant is reused (not redefined) by the
+// separate, not-yet-started Big-Number Migration
+// (docs/plans/2026-07-08-big-number-migration-plan.md), which needs the
+// identical safeguard for captain XP once that field becomes Decimal-typed.
+const MAX_LEVEL_UPS_PER_TICK = 10_000;
+
 // Independent per-tier roll for ONE whole tick of extraction (2026-07-07 Loot
 // Tier Rework -- see the design doc). Replaces the old single mutually-
 // exclusive rollLootTable pick: uncommon and rare are each rolled
@@ -203,9 +215,9 @@ export function tickCaptainMission(
     rareYieldMult?: number;
     rareChanceMult?: number;
   } = {}
-): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, number> } {
+): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, number>; fleetAdminXpDelta: number } {
   if (!captain.mission || ticksElapsed <= 0) {
-    return { captain, homePlanetDelta: emptyLootTotals() };
+    return { captain, homePlanetDelta: emptyLootTotals(), fleetAdminXpDelta: 0 };
   }
 
   const missionDef = MISSIONS[captain.mission.missionKey];
@@ -218,6 +230,11 @@ export function tickCaptainMission(
   let xp = captain.xp;
   let level = captain.level;
   let statPoints = captain.statPoints;
+  // Accumulates this captain's Fleet Admiral XP contribution across every
+  // mission cycle completed within this call -- same "accumulate locally,
+  // apply once" shape as homePlanetDelta above. tick() sums this across
+  // every captain fleet-wide before handing the total to applyFleetAdminXp.
+  let fleetAdminXpDelta = 0;
 
   // Computed ONCE per call, not per roll -- bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
@@ -290,6 +307,7 @@ export function tickCaptainMission(
         // this award, not just one -- a while (not if) loop, same closed-form
         // spirit as the phase-advancement logic above.
         xp += XP_PER_MISSION_CYCLE;
+        fleetAdminXpDelta += missionDef.fleetAdminXpPerCycle;
         while (xp >= xpForNextLevel(level)) {
           xp -= xpForNextLevel(level);
           level += 1;
@@ -313,28 +331,31 @@ export function tickCaptainMission(
     }
   }
 
-  return { captain: { ...captain, mission, xp, level, statPoints }, homePlanetDelta };
+  return { captain: { ...captain, mission, xp, level, statPoints }, homePlanetDelta, fleetAdminXpDelta };
 }
 
-// Fleet Admiral XP is NOT accumulated incrementally like captain XP (there's
-// no single "cycle completion" event for the fleet as a whole) -- it's
-// recomputed fresh each call from the sum of every captain's CURRENT level.
-// This makes it naturally idempotent (calling it twice with no captain-level
-// change is a genuine no-op) and naturally closed-form (a big jump in
-// several captains' levels between calls is just a bigger sum on the next
-// call -- there's no "many small calls vs one big call" distinction to get
-// wrong here, unlike tickCaptainMission's own XP hook, since this doesn't
-// process a delta, it recomputes an absolute value every time).
-export function recomputeFleetAdmin(state: GameState): GameState {
-  const targetXp = state.captains.reduce((sum, c) => sum + c.level, 0);
-  if (targetXp === state.fleetAdminXp) return state; // no captain leveled since last check -- same reference
+// Replaces the old recomputeFleetAdmin (which recomputed fleetAdminXp fresh
+// each call as the sum of every captain's level -- effectively frozen under
+// realistic play, see this plan's design doc for the live-tested root
+// cause). This function instead ADDS an already-computed delta (summed
+// across every captain's completed mission cycles this call, fleet-wide,
+// same "accumulate locally, apply once" shape as homePlanetDelta) and
+// resolves level-ups by SUBTRACTING the threshold each time -- mirroring
+// captain XP's own subtract-and-carry-forward loop exactly, capped at
+// MAX_LEVEL_UPS_PER_TICK to guard against a very large offline-catchup
+// delta (see that constant's own comment above).
+export function applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): GameState {
+  if (fleetAdminXpDelta <= 0) return state; // cheap no-op on the overwhelmingly common poll where nobody's mission cycle completed
 
-  let xp = targetXp;
+  let xp = state.fleetAdminXp + fleetAdminXpDelta;
   let level = state.fleetAdminLevel;
   let adminPoints = state.adminPoints;
-  while (xp >= xpForNextFleetAdminLevel(level)) {
+  let levelUpsThisCall = 0;
+  while (xp >= xpForNextFleetAdminLevel(level) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
+    xp -= xpForNextFleetAdminLevel(level);
     level += 1;
     adminPoints += 1;
+    levelUpsThisCall += 1;
   }
 
   return { ...state, fleetAdminXp: xp, fleetAdminLevel: level, adminPoints };
@@ -354,6 +375,11 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   // own field.
   const ticksElapsed = deltaSeconds / state.tickDurationSeconds;
   const homePlanetDelta = emptyLootTotals();
+  // Accumulates fleet-wide Fleet Admiral XP across every captain's completed
+  // mission cycles this call -- same accumulate-locally-apply-once shape as
+  // homePlanetDelta immediately above. Consumed once, at the end of this
+  // function, by applyFleetAdminXp.
+  let fleetAdminXpDelta = 0;
   // Computed ONCE for the whole fleet (same value for every captain), not
   // per captain inside the .map() below -- Homeworld Talents are fleet-wide,
   // not per-captain.
@@ -369,10 +395,15 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     };
     // Math.random passed explicitly (rather than omitted) since bonuses is
     // positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
-    const { captain: updated, homePlanetDelta: delta } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
+    const {
+      captain: updated,
+      homePlanetDelta: delta,
+      fleetAdminXpDelta: captainFleetAdminXpDelta,
+    } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
     (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
       homePlanetDelta[key] += delta[key];
     });
+    fleetAdminXpDelta += captainFleetAdminXpDelta;
     return updated;
   });
 
@@ -389,37 +420,37 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     }
   }
 
-  // recomputeFleetAdmin (Task 3, Captain & Homeworld Talent Trees) wraps the
-  // final state object -- it must run AFTER captains is built above, since
-  // Fleet Admiral XP derives from each captain's POST-tick level (a captain
-  // who just leveled up this exact call must be counted at their new level,
-  // not their pre-tick one). It reads state.captains off the object below,
-  // so it naturally sees the updated array. Does not touch homePlanet at
-  // all -- the spread-then-overwrite pattern immediately below (guarding
-  // against the "prestige silently dropped homePlanet" bug class) is
-  // untouched by this wrapping.
-  return recomputeFleetAdmin({
-    ...state,
-    captains,
-    gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
-    homePlanet: {
-      storage: {
-        // Spread FIRST, then overwrite only the 3 loot tiers this function
-        // actually touches -- preserves any OTHER field a later task (the
-        // Homeworld crafting system) adds to homePlanet.storage
-        // (e.g. refinedMaterial, components) that this function doesn't
-        // itself produce. Without this spread, tick() would silently zero
-        // out any such field on every call, since it wouldn't exist on this
-        // object literal -- the exact class of bug a "prestige silently
-        // dropped homePlanet" fix caught in the immediately-prior shipped
-        // feature (Phase 3a). Do not remove this spread.
-        ...state.homePlanet.storage,
-        commonOre: state.homePlanet.storage.commonOre + homePlanetDelta.commonOre,
-        uncommonMaterial: state.homePlanet.storage.uncommonMaterial + homePlanetDelta.uncommonMaterial,
-        rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
+  // applyFleetAdminXp wraps the final state object -- it must run AFTER
+  // captains is built above, since fleetAdminXpDelta was accumulated from
+  // each captain's mission-cycle completions during THIS call's .map()
+  // above. Does not touch homePlanet at all -- the spread-then-overwrite
+  // pattern immediately below (guarding against the "prestige silently
+  // dropped homePlanet" bug class) is untouched by this wrapping.
+  return applyFleetAdminXp(
+    {
+      ...state,
+      captains,
+      gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
+      homePlanet: {
+        storage: {
+          // Spread FIRST, then overwrite only the 3 loot tiers this function
+          // actually touches -- preserves any OTHER field a later task (the
+          // Homeworld crafting system) adds to homePlanet.storage
+          // (e.g. refinedMaterial, components) that this function doesn't
+          // itself produce. Without this spread, tick() would silently zero
+          // out any such field on every call, since it wouldn't exist on this
+          // object literal -- the exact class of bug a "prestige silently
+          // dropped homePlanet" fix caught in the immediately-prior shipped
+          // feature (Phase 3a). Do not remove this spread.
+          ...state.homePlanet.storage,
+          commonOre: state.homePlanet.storage.commonOre + homePlanetDelta.commonOre,
+          uncommonMaterial: state.homePlanet.storage.uncommonMaterial + homePlanetDelta.uncommonMaterial,
+          rareMaterial: state.homePlanet.storage.rareMaterial + homePlanetDelta.rareMaterial,
+        },
       },
     },
-  });
+    fleetAdminXpDelta
+  );
 }
 
 // Dispatches an idle captain (mission === null) on a mission. Finds the

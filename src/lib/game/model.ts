@@ -151,7 +151,7 @@ export interface GameState {
   gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
   homePlanet: { storage: Record<HomePlanetMaterialKey, number> }; // fleet-wide mission loot + crafted goods, separate from any captain's own state
   unlockedHomeworldTalents: HomeworldTalentKey[]; // fleet-wide purchased Homeworld Talent keys -- see buyHomeworldTalent (tick.ts)
-  fleetAdminXp: number; // Fleet Admiral leveling -- see recomputeFleetAdmin (tick.ts)
+  fleetAdminXp: number; // Fleet Admiral leveling -- see applyFleetAdminXp (tick.ts)
   fleetAdminLevel: number; // starts at 1
   adminPoints: number; // unspent, spent via buyHomeworldTalent (tick.ts)
 }
