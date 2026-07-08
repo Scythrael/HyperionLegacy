@@ -16,6 +16,7 @@ import {
   MISSIONS,
   RECIPES,
   CAPTAIN_TALENTS,
+  CAPTAIN_SPEC_BONUS,
   HOMEWORLD_TALENTS,
   freshCaptainStack,
   type GameState,
@@ -54,11 +55,34 @@ export const LOOT_MATERIAL_KEYS: LootMaterialKey[] = ["commonOre", "uncommonMate
 // captain -- additive stacking, read at usage time rather than cached on
 // CaptainState, per the "read at usage time" pattern the comment above
 // buyCaptainTalent already documents.
+//
+// Also folds in CAPTAIN_SPEC_BONUS.command's flat +0.05 commonYieldMult when
+// captain.spec === "command" -- safe to fold directly into THIS function's
+// own return value (unlike captainBonusRollChance's spec bonus, which needs a
+// separate helper -- see captainSpecBonusRollChance below for why) because
+// commonYieldMult has no second-stage multiplier applied downstream: confirmed
+// by reading rollExtractionTick, which applies commonYieldMult as a single
+// `baseAmount.times(1 + bonuses.commonYieldMult)` with nothing else scaling
+// the result afterward. So there's no risk of the spec bonus being
+// double-scaled by a later multiplier stage, the way bonusRollChance's would
+// be if folded into captainBonusRollChance the same way.
 export function captainCommonYieldMult(captain: CaptainState): number {
-  return captain.unlockedCaptainTalents.reduce((sum, key) => {
+  const talentSum = captain.unlockedCaptainTalents.reduce((sum, key) => {
     const effect = CAPTAIN_TALENTS[key].effect;
     return effect.type === "commonYieldMult" ? sum + effect.mult : sum;
   }, 0);
+  // CAPTAIN_SPEC_BONUS.command is typed CaptainTalentEffect (the full union),
+  // not narrowed to the commonYieldMult variant specifically, since
+  // CAPTAIN_SPEC_BONUS's declared type is Partial<Record<CaptainTalentBranch,
+  // CaptainTalentEffect>> -- TypeScript doesn't narrow a widely-typed
+  // property from the literal value assigned to it. So this reads `.mult`
+  // only after confirming effect.type === "commonYieldMult" via the same
+  // discriminant-check pattern as every effect.type check elsewhere in this
+  // file (see the .reduce() just above), rather than a non-null assertion
+  // that TypeScript would reject (mult doesn't exist on every union member).
+  const specEffect = CAPTAIN_SPEC_BONUS.command;
+  const specBonus = captain.spec === "command" && specEffect?.type === "commonYieldMult" ? specEffect.mult : 0;
+  return talentSum + specBonus;
 }
 
 // Same additive-stacking, read-at-usage-time pattern as
@@ -112,6 +136,32 @@ export function captainBonusRollChanceMult(captain: CaptainState): number {
     const effect = CAPTAIN_TALENTS[key].effect;
     return effect.type === "bonusRollChanceMult" ? sum + effect.mult : sum;
   }, 0);
+}
+
+// CAPTAIN_SPEC_BONUS.resourcefulness's flat +0.01 bonus-roll TRIGGER chance,
+// granted once captain.spec === "resourcefulness" (independent of whether any
+// resourcefulnessBonusRoll talent is actually unlocked -- the spec bonus is a
+// standalone grant, not a scaling of the talent tree's own contribution).
+//
+// Deliberately kept SEPARATE from captainBonusRollChance (not folded into
+// that function's own return value) because bonusRollChance has a
+// second-stage multiplier layer downstream (captainBonusRollChanceMult, see
+// tickCaptainMission's effectiveBonusRollChance computation:
+// `bonusRollChance * (1 + bonusRollChanceMult)`) that commonYieldMult does
+// NOT have. Folding this spec bonus into captainBonusRollChance's own sum
+// would let bonusRollChanceMult incorrectly re-scale the spec bonus too --
+// e.g. with both resourcefulnessBonusRollI/II unlocked (bonusRollChance 0.02,
+// bonusRollChanceMult 1.0), folding 0.01 in would give
+// (0.02 + 0.01) * (1 + 1.0) = 0.06, overshooting the design doc's 0.05 target.
+// Keeping it separate and adding it AFTER the base*(1+mult) scaling (see
+// tickCaptainMission) gives the correct 0.02*(1+1.0) + 0.01 = 0.05 instead.
+export function captainSpecBonusRollChance(captain: CaptainState): number {
+  // Same discriminant-narrowing reasoning as captainCommonYieldMult's own
+  // specBonus line above: CAPTAIN_SPEC_BONUS.resourcefulness is typed as the
+  // full CaptainTalentEffect union, so `.chance` is only accessed after
+  // confirming effect.type === "bonusRollChance" specifically.
+  const specEffect = CAPTAIN_SPEC_BONUS.resourcefulness;
+  return captain.spec === "resourcefulness" && specEffect?.type === "bonusRollChance" ? specEffect.chance : 0;
 }
 
 // Fleet-wide equivalent of the captain-level yield helpers above -- sourced
@@ -293,6 +343,13 @@ export function tickCaptainMission(
     rareChanceMult?: number;
     bonusRollChance?: number;
     bonusRollChanceMult?: number;
+    // Captain Specialization's flat addition to the bonus-roll TRIGGER chance
+    // (CAPTAIN_SPEC_BONUS.resourcefulness) -- kept as its own field, NOT
+    // merged into bonusRollChance, so the extraction loop below can add it
+    // AFTER bonusRollChance*(1+bonusRollChanceMult) is computed rather than
+    // before (see captainSpecBonusRollChance's own comment for why order
+    // matters here).
+    specBonusRollChance?: number;
   } = {}
 ): { captain: CaptainState; homePlanetDelta: Record<LootMaterialKey, Decimal>; fleetAdminXpDelta: number } {
   if (!captain.mission || ticksElapsed <= 0) {
@@ -327,6 +384,7 @@ export function tickCaptainMission(
     rareChanceMult: bonuses.rareChanceMult ?? 0,
     bonusRollChance: bonuses.bonusRollChance ?? 0,
     bonusRollChanceMult: bonuses.bonusRollChanceMult ?? 0,
+    specBonusRollChance: bonuses.specBonusRollChance ?? 0,
   };
 
   while (remaining > 0 && mission !== null) {
@@ -363,9 +421,17 @@ export function tickCaptainMission(
         // the primary roll above produced (see rollBonusExtractionTick's own
         // comment for why). 1 rng() call for the trigger itself; if it
         // fires, rollBonusExtractionTick makes up to 3 more.
+        //
+        // specBonusRollChance is added AFTER the base*(1+mult) scaling, NOT
+        // folded into resolvedBonuses.bonusRollChance beforehand -- see
+        // captainSpecBonusRollChance's own comment for the exact overshoot
+        // this ordering avoids (0.06 instead of the design doc's 0.05 target
+        // for a resourcefulness-specced captain with both Lucky Strike
+        // talents unlocked).
         const effectiveBonusRollChance = Math.min(
           1,
-          resolvedBonuses.bonusRollChance * (1 + resolvedBonuses.bonusRollChanceMult)
+          resolvedBonuses.bonusRollChance * (1 + resolvedBonuses.bonusRollChanceMult) +
+            resolvedBonuses.specBonusRollChance
         );
         if (rng() < effectiveBonusRollChance) {
           const bonusDelta = rollBonusExtractionTick(missionDef, resolvedBonuses, rng);
@@ -515,6 +581,7 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       rareChanceMult: captainRareChanceMult(captain),
       bonusRollChance: captainBonusRollChance(captain),
       bonusRollChanceMult: captainBonusRollChanceMult(captain),
+      specBonusRollChance: captainSpecBonusRollChance(captain),
     };
     // Math.random passed explicitly (rather than omitted) since bonuses is
     // positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
