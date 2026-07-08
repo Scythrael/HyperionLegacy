@@ -929,13 +929,17 @@
        SUGGESTIONS.md as "full-width panels" -- a deferred idea until now).
        width: 98% leaves a thin 1%-per-side margin (aesthetic breathing room,
        not a functional cap) so the app reads as "wide" without ever quite
-       touching the browser's own edge; max-width: 1400px is the real ceiling
-       that stops it growing past a readable line-length on very wide/ultrawide
-       monitors, where 98% of the viewport would otherwise be too wide to
-       read comfortably. No separate mobile handling needed -- 98% behaves
-       the same at any viewport size, narrow or wide. */
+       touching the browser's own edge. max-width: 2400px is a ceiling only
+       for very large/ultrawide monitors -- it must sit comfortably ABOVE
+       98% of any common desktop resolution (e.g. 1920px-wide 1080p ->
+       98% = 1881.6px) or it becomes the binding constraint instead of the
+       98%, which is what happened with the previous 1400px value: on a
+       1920px-wide screen the frame was stuck at 1400px (73%), nowhere near
+       98%, because the cap was tighter than the percentage. No separate
+       mobile handling needed -- 98% behaves the same at any viewport size,
+       narrow or wide. */
     width: 98%;
-    max-width: 1400px;
+    max-width: 2400px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
@@ -945,12 +949,14 @@
        element inside .frame now (the old standalone "FLEET ADMIRAL" title
        Panel above it was retired in favor of an About sub-tab under System,
        per the user's own request -- the level/XP/tick bar and the bottom
-       nav ARE the header/footer now), so .frame's own top edge is flush
-       against the real viewport edge and needs the notch/status-bar
-       clearance. Bottom padding is 0 -- .nav-tabs (the last flex child,
-       flush against .frame's own bottom edge) handles its own bottom
-       safe-area clearance directly, same as it always has. */
-    padding: calc(20px + env(safe-area-inset-top, 0px)) 16px 0;
+       nav ARE the header/footer now), so .frame's own top edge should sit
+       flush against the real viewport edge on desktop, same as .nav-tabs
+       already does at the bottom (bottom padding is 0 for the same reason).
+       No extra flat px on top of the safe-area inset -- env() alone
+       resolves to 0px on any device without a notch/status-bar, so this is
+       flush on desktop and still clears real notches on devices that have
+       one. */
+    padding: env(safe-area-inset-top, 0px) 16px 0;
   }
   .header-left { display: flex; flex-direction: column; }
   .title {

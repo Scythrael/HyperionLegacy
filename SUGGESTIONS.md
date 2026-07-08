@@ -61,3 +61,11 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   especially on a small screen. Not a bug — a copy/visual-design tweak — worth a pass (e.g. distinct
   leading words, an icon per tab, or a stronger visual differentiator) once there's real usage/feedback
   to design against, rather than guessing at a fix now.
+
+- **Accordion-style Patch Notes.** User request, 2026-07-07, right after the Patch Notes sub-tab
+  shipped as a flat list: eventually convert PATCH_NOTES from a flat list into an accordion, one
+  entry per version, collapsed by default except the current/newest version (expanded), each entry
+  showing bullet points broken out by category (features / balance changes / additions / etc.)
+  instead of a single summary sentence. Not built yet — today's list is a single-sentence-per-version
+  flat list, fine while there are only 4 entries, but the user explicitly flagged it "will fill up
+  pretty quickly."
