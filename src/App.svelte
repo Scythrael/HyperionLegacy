@@ -612,17 +612,26 @@
   <Starfield />
   <div class="frame">
     <div class="top-bar">
-      <div class="top-bar-row">
-        <span class="top-bar-label">Fleet Admiral · Level {state.fleetAdminLevel}</span>
-        <span class="top-bar-value">{formatNumber(state.fleetAdminXp)} / {formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} XP</span>
+      <div class="top-bar-header">
+        <div class="mission-portrait-frame top-bar-portrait" aria-hidden="true">🖼️</div>
+        <div class="top-bar-info">
+          <div class="top-bar-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
+          <div class="top-bar-xp-row">
+            <span class="top-bar-xp-label">Exp:</span>
+            <div class="research-bar-track top-bar-xp-track">
+              <div class="research-bar-fill" style="width:{Math.min(100, (state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel)) * 100)}%"></div>
+            </div>
+            <span class="top-bar-xp-readout">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{((state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel)) * 100).toFixed(1)}%]</span>
+          </div>
+        </div>
       </div>
-      <div class="research-bar-track">
-        <div class="research-bar-fill" style="width:{Math.min(100, (state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel)) * 100)}%"></div>
+      <div class="top-bar-tick-row">
+        <span class="top-bar-tick-label">TICK:</span>
+        <div class="tick-bar-track top-bar-tick-track">
+          <div class="tick-bar-fill" style="width:{globalTickProgress * 100}%"></div>
+        </div>
+        <span class="top-bar-tick-readout">{globalTickRemaining.toFixed(1)}s</span>
       </div>
-      <div class="tick-bar-track">
-        <div class="tick-bar-fill" style="width:{globalTickProgress * 100}%"></div>
-      </div>
-      <div class="tick-bar-readout">{globalTickRemaining.toFixed(1)}s</div>
     </div>
 
     <main class="tab-body">
@@ -1412,9 +1421,30 @@
     padding: 10px 16px;
     flex-shrink: 0; /* never compresses, even if .tab-scroll-area's content is tall */
   }
-  .top-bar-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
-  .top-bar-label { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
-  .top-bar-value { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); }
+  /* Header redesign (2026-07-07, mid-plan addition unrelated to the loot/
+     talent rework -- portrait placeholder + inline XP bar + one-line tick
+     bar, per the user's own ASCII mockup). Replaces the old stacked
+     .top-bar-row/.research-bar-track/.tick-bar-track/.tick-bar-readout
+     layout (each on its own full-width line) with: a left-hand portrait next
+     to the name+XP-bar row, then a single full-width tick-bar row below.
+     .top-bar-header lays out the portrait + info column side by side. */
+  .top-bar-header { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+  /* .top-bar-portrait itself is declared further down, immediately after
+     .mission-portrait-frame's own rule -- see the comment there for why the
+     ORDER of those two rules in the stylesheet matters (source-order tiebreak
+     on equal specificity). Kept out of this block deliberately so it doesn't
+     end up ahead of .mission-portrait-frame just because this new CSS block
+     was added in one place. */
+  .top-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .top-bar-name { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
+  .top-bar-xp-row { display: flex; align-items: center; gap: 8px; }
+  .top-bar-xp-label { font-size: 10px; color: var(--color-text-secondary); flex-shrink: 0; }
+  .top-bar-xp-track { flex: 1; margin-bottom: 0; } /* overrides .research-bar-track's own margin-bottom:6px -- this copy sits inline, not stacked above other content */
+  .top-bar-xp-readout { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+  .top-bar-tick-row { display: flex; align-items: center; gap: 8px; }
+  .top-bar-tick-label { font-size: 10px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
+  .top-bar-tick-track { flex: 1; }
+  .top-bar-tick-readout { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
   /* Outer nav (Task 1, Phase 4) -- now the LAST flex child inside .frame
      (Task 1 of this plan moved it here from being the first child of the old
      <main>), so it's the bottom-most thing in the flex column, visually
@@ -1596,13 +1626,6 @@
     background: var(--color-accent);
     transition: width 0.1s linear;
   }
-  .tick-bar-readout {
-    margin-top: 6px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--color-text-secondary);
-    text-align: right;
-  }
   .research-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
   .research-cost { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 10px; }
   .research-status { font-size: 13px; color: var(--color-success); margin: 0; }
@@ -1679,6 +1702,24 @@
     color: var(--color-text-secondary);
     background: rgba(var(--color-accent-rgb), 0.03);
   }
+  /* Header redesign (2026-07-07) -- the portrait element in the new
+     .top-bar-header uses class="mission-portrait-frame top-bar-portrait",
+     reusing this rule's border/background/flex-centering/color as-is and
+     only shrinking the box for the header's smaller footprint. Declared HERE,
+     immediately AFTER .mission-portrait-frame, on purpose: both are plain
+     single-class selectors (equal specificity), so with no !important on
+     either side, the cascade falls back to source order on any property
+     BOTH rules set -- and only the LATER rule in the compiled stylesheet
+     wins on those. This rule sets flex/height/font-size, which
+     .mission-portrait-frame also sets (flex:0 0 64px/height:64px/
+     font-size:24px) -- being later here means this rule's 40px/40px/16px
+     values are what actually apply to the portrait element. Everything
+     .mission-portrait-frame sets that this rule does NOT redeclare -- the
+     dashed border, background tint, display:flex centering, text color --
+     is untouched by this rule and still applies. If this rule is ever moved
+     ABOVE .mission-portrait-frame in the file, the override direction
+     flips and the portrait silently reverts to the 64px mission-card size. */
+  .top-bar-portrait { flex: 0 0 40px; height: 40px; font-size: 16px; }
   .mission-card-body { flex: 1; min-width: 0; }
   /* No existing non-dev-panel "danger" button style to reuse -- .dev-btn.danger
      is scoped to the amber dev-panel look, and .prestige-btn's warning color
