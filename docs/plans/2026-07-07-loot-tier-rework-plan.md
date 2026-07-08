@@ -114,20 +114,27 @@ export type HomeworldTalentEffect =
   | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number };
 ```
 
-**Step 4: Re-target the 5 already-shipped talent nodes' `effect` fields** (same cost/requires/label —
-ONLY the `effect` value changes):
+**Step 4: Re-target the 5 already-shipped talent nodes' `effect` fields** (same cost/requires —
+the `effect` value changes for all 5, and `commandExtractionI`/`commandExtractionII` ALSO get new
+`label` strings, per the user's own follow-up request: "Command Efficiency I/II" read as a single
+generic progression even though they now target two DIFFERENT tiers, not a simple stronger-version
+upgrade like Keen Eye I/II. Renamed to "Bulk Extraction" (I, common ore) / "Refined Extraction" (II,
+uncommon material) -- distinct names under a shared theme rather than a numbered pair. The
+`CaptainTalentKey` identifiers themselves (`commandExtractionI`/`commandExtractionII`) are NOT
+renamed -- they're internal keys, never shown to the player, same "only change what's actually
+user-facing" precedent as the earlier Fleet Operations/Fleet Captain's nav-tab label rename):
 
 ```ts
   commandExtractionI: {
     branch: "command",
-    label: "Command Efficiency I",
+    label: "Bulk Extraction",
     cost: 2,
     requires: null,
     effect: { type: "commonYieldMult", mult: 0.1 }, // was extractionYieldMult
   },
   commandExtractionII: {
     branch: "command",
-    label: "Command Efficiency II",
+    label: "Refined Extraction",
     cost: 4,
     requires: "commandExtractionI",
     effect: { type: "uncommonYieldMult", mult: 0.15 }, // was extractionYieldMult

@@ -79,12 +79,20 @@ export type HomeworldTalentEffect =
 
 **Existing node re-mapping** (confirmed with the user — these are the SAME 3 already-shipped nodes,
 retargeted, not new nodes):
-- **Command Efficiency I** (`commandExtractionI`): `extractionYieldMult 0.10` → `commonYieldMult 0.10`.
-- **Command Efficiency II** (`commandExtractionII`): `extractionYieldMult 0.15` → `uncommonYieldMult 0.15`.
+- **Bulk Extraction** (`commandExtractionI`, was labeled "Command Efficiency I"):
+  `extractionYieldMult 0.10` → `commonYieldMult 0.10`. Renamed per the user's follow-up request —
+  "Command Efficiency I/II" read as a single generic progression even though the two nodes now
+  target different tiers, not a simple stronger-version upgrade like Keen Eye I/II.
+- **Refined Extraction** (`commandExtractionII`, was labeled "Command Efficiency II"):
+  `extractionYieldMult 0.15` → `uncommonYieldMult 0.15`. Same renaming rationale as above.
 - **Keen Eye I** (`resourcefulnessRareChanceI`): `rareLootChanceMult 0.25` → `uncommonChanceMult 0.25`.
 - **Keen Eye II** (`resourcefulnessRareChanceII`): `rareLootChanceMult 0.5` → `rareChanceMult 0.5`.
 - **Fleet Requisitions** (`fleetLogisticsYield`, Homeworld): `fleetExtractionYieldMult 0.05` →
   `rareYieldMult 0.05`.
+
+Only the two `label` strings change — the `CaptainTalentKey` identifiers (`commandExtractionI`/
+`commandExtractionII`) stay as-is, since they're internal keys never shown to the player (same
+"only change what's user-facing" precedent as the earlier nav-tab label rename).
 
 No new talent nodes are added — same tree shape, same costs, same prerequisites, just different
 `effect.type`/target. Every existing `unlockedCaptainTalents`/`unlockedHomeworldTalents` save data is
