@@ -438,7 +438,13 @@
     <main class="tab-body">
       {#if activeTab === "homeworld"}
       <SubTabs
-        tabs={[{ key: "resources", label: "Resources" }, { key: "refinery", label: "Refinery/Fabrication" }, { key: "talents", label: "Homeworld Talents" }]}
+        tabs={[
+          { key: "resources", label: "Resources" },
+          { key: "refinery", label: "Refinery/Fabrication" },
+          { key: "talents", label: "Homeworld Talents" },
+          { key: "homeworldLocked1", label: "Coming Soon!", locked: true },
+          { key: "homeworldLocked2", label: "Coming Soon!", locked: true },
+        ]}
         active={activeHomeworldSubTab}
         onSelect={(key) => (activeHomeworldSubTab = key as HomeworldSubTab)}
       />
@@ -560,7 +566,12 @@
 
       {#if activeTab === "fleetCaptains"}
       <SubTabs
-        tabs={[{ key: "overview", label: "Overview" }, { key: "talents", label: "Talents" }]}
+        tabs={[
+          { key: "overview", label: "Overview" },
+          { key: "talents", label: "Talents" },
+          { key: "fleetCaptainLocked1", label: "Coming Soon!", locked: true },
+          { key: "fleetCaptainLocked2", label: "Coming Soon!", locked: true },
+        ]}
         active={activeFleetCaptainSubTab}
         onSelect={(key) => (activeFleetCaptainSubTab = key as FleetCaptainSubTab)}
       />
@@ -737,7 +748,13 @@
 
       {#if activeTab === "system"}
       <SubTabs
-        tabs={[{ key: "options", label: "Options" }, { key: "log", label: "Log" }, ...(DEV_MODE_ENV ? [{ key: "debug", label: "Debug" }] : [])]}
+        tabs={[
+          { key: "options", label: "Options" },
+          { key: "log", label: "Log" },
+          ...(DEV_MODE_ENV ? [{ key: "debug", label: "Debug" }] : []),
+          { key: "systemLocked1", label: "Coming Soon!", locked: true },
+          { key: "systemLocked2", label: "Coming Soon!", locked: true },
+        ]}
         active={activeSystemSubTab}
         onSelect={(key) => (activeSystemSubTab = key as SystemSubTab)}
       />
