@@ -800,3 +800,52 @@ from the plan text) was used instead. Next: final holistic review of this
 branch, then merge — push to `main` still needs separate, explicit
 confirmation from the user first, since it triggers a live Vercel production
 redeploy.
+
+**Session 21** — Tick Granularity Rebalance (branch feat/tick-granularity-rebalance,
+docs/plans/2026-07-08-tick-granularity-rebalance-plan.md), built via
+subagent-driven-development. Root motivation: `tickDurationSeconds` defaulted
+to 10 real seconds/tick, forcing every mission phase duration into 10-second
+increments — the user wanted sub-10-second precision for tuning mission
+durations (e.g. a transit taking exactly 37s, not rounded to 40), explicitly
+NOT a "make the whole game run faster" change (that's the existing `speed`
+multiplier's job, untouched here). `tickDurationSeconds` dropped to 1, and
+`MISSIONS` was genuinely rebalanced (not mechanically ×10) per the user's
+explicit "revalance them all!": shortOreRun now 25/90/25/8 ticks
+(transitOut/extracting/transitBack/unloading), longOreRun 70/90/70/8 — both
+missions' `cargoCapacity` grew to 900 while `extractionRatePerTick` deliberately
+stayed at 10, preserving the existing per-tick extraction-roll balance (a
+smaller per-tick rate would have let the fixed 1-3-unit uncommon/rare tier
+yields swallow most or all of a tick's budget). The v12→v13 save migration
+percentage-remaps any in-progress mission's `phaseProgressTicks` onto the new
+tick-counts (not a flat reset) — the user's own explicit reasoning for the
+added complexity over a simpler reset: "more freedom allows for more creative
+systems... flexibility and dynamicism involves complexity." A new "Enable Tick
+Bar" options toggle (mirroring `theme.ts`'s localStorage-preference pattern,
+default on) lets the now-10x-faster-cycling header bar be hidden entirely —
+deliberately shipped as a plain on/off switch rather than the "variable N
+ticks per fill" idea the user floated, since a bar decoupled from real tick
+counts risked visually disagreeing with each mission's own "N ticks remaining"
+readout; that idea (and the future online-only tick-speed-buff compatibility,
+already confirmed compatible via the existing runtime-only `speed` lever) are
+logged to SUGGESTIONS.md rather than built. Also fixed, as an adjacent bundled
+bugfix: the mission-preview panel's "Total: X ticks" readout had always
+undercounted by omitting the fixed 1-tick `ordersReceived` phase from its sum.
+One real regression report resolved along the way (not part of this branch's
+own work, but the trigger for it): what looked like "an extra ~0.1-0.3 ticks
+required" on in-progress missions after this deploy was traced to the
+pre-existing offline-catchup system producing genuine fractional leftover
+progress whenever real elapsed time isn't a clean multiple of
+`tickDurationSeconds` (any page reload counts) — not a bug, just a raw value
+that read poorly; the mission-panel's "ticks remaining" readout was changed to
+`Math.ceil` up to a whole tick count instead of showing the fractional value.
+Every commit (8 across this branch) was independently verified via `git show`
+and hand-tracing before dispatching two-stage review, per the same rigor this
+whole session applies to save-compatibility-critical work — Task 3
+(tick.test.ts) in particular required tracing a second, undocumented
+cascading effect: since `tickDurationSeconds` changing from 10 to 1 also
+changes what `ticksElapsed` a given `deltaSeconds` argument produces inside
+`tick()`, every existing `tick(10, state)`-style test call needed its argument
+corrected, not just the MISSIONS-dependent assertions. Next: final holistic
+review of this branch, then merge — push to `main` still needs separate,
+explicit confirmation from the user, since it triggers a live Vercel
+production redeploy.
