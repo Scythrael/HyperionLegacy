@@ -47,6 +47,12 @@ write it down so you don't relitigate it later.
   ZERO `aria-label`s anywhere (the delete modal at least labels its text
   input), so it's actually a step behind, not just a repeat. Worth fixing
   both modals together in one pass rather than patching them separately.
+  The Import Save confirmation modal (2026-07-07, Loot Tier Rework) is now a
+  THIRD instance of the same gap — same `.modal-backdrop`/`Panel.modal-dialog`
+  reuse, no Escape handling, no focus trap. Three instances now sharing one
+  unfixed pattern; this is the point where fixing it once (rather than a
+  fourth bespoke patch next time) stops being optional cleanup and starts
+  being the cheaper option.
 - Theme switching only affects the "primary"/accent color tokens — it does
   not recolor `.log-entry` text (`#9fc4cc`, hardcoded, predates the theme
   feature) or the Starfield's dots (`#bfe9f5`, same). Intentional scope

@@ -811,18 +811,19 @@ git commit -m "docs: reset APP_VERSION to 0.2.0, new versioning scheme going for
 
 ---
 
-### Task 8b: App.svelte — rename the "tactical" Captain Talent branch's display label to "Tactician"
+### Task 8b: App.svelte — rename the "tactical"/"science" Captain Talent branches' display labels to "Tactician"/"Explorer"
 
 **Files:** Modify `src/App.svelte`.
 
-Mid-plan addition, unrelated to the loot/talent rework above — the user separately asked for this
-while reviewing. The Captain Talents panel currently renders each branch's raw string key directly
+Mid-plan addition, unrelated to the loot/talent rework above — the user separately asked for both
+of these while reviewing (first "tactical" → "Tactician", then a follow-up message adding "science"
+→ "Explorer"). The Captain Talents panel currently renders each branch's raw string key directly
 (`{branch}`), uppercased by `.skill-branch-title`'s own `text-transform: uppercase` CSS — so
-`"tactical"` shows as "TACTICAL" today. Same "only change what's user-facing, not the internal key"
-precedent as the earlier nav-tab rename and the Command Efficiency → Bulk/Refined Extraction rename:
-the `CaptainTalentBranch` union member `"tactical"` stays exactly as-is (it's an internal key
-`CAPTAIN_TALENTS` entries key off of via their `branch` field, not shown to the player directly) —
-only the DISPLAYED text changes.
+`"tactical"`/`"science"` show as "TACTICAL"/"SCIENCE" today. Same "only change what's user-facing,
+not the internal key" precedent as the earlier nav-tab rename and the Command Efficiency →
+Bulk/Refined Extraction rename: the `CaptainTalentBranch` union members `"tactical"`/`"science"`
+stay exactly as-is (internal keys `CAPTAIN_TALENTS` entries key off of via their `branch` field, not
+shown to the player directly) — only the DISPLAYED text changes.
 
 **Step 1:** Read the Captain Talents panel block (`{#each (["command", "tactical", "science",
 "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}` — search for this exact line
@@ -834,15 +835,16 @@ display-only label constants like `MISSION_PHASE_LABEL`):
 
 ```ts
 // Display label for each Captain Talent branch -- "tactical" shows as
-// "Tactician" per the user's own request (2026-07-07); every other branch's
-// label is just its own raw key (still uppercased by .skill-branch-title's
-// CSS, same as before). The branch KEY itself ("tactical") is unchanged --
-// CAPTAIN_TALENTS entries still key off "tactical", this map only affects
-// what's rendered.
+// "Tactician" and "science" shows as "Explorer", both per the user's own
+// requests (2026-07-07); every other branch's label is just its own raw key
+// (still uppercased by .skill-branch-title's CSS, same as before). The
+// branch KEYS themselves ("tactical"/"science") are unchanged --
+// CAPTAIN_TALENTS entries still key off them, this map only affects what's
+// rendered.
 const CAPTAIN_TALENT_BRANCH_LABEL: Record<CaptainTalentBranch, string> = {
   command: "command",
   tactical: "Tactician",
-  science: "science",
+  science: "Explorer",
   resourcefulness: "resourcefulness",
   diplomacy: "diplomacy",
 };
@@ -863,7 +865,107 @@ eye that none are missing/misspelled, since there's no `tsc` in this environment
 
 ```bash
 git add src/App.svelte
-git commit -m "style: rename the Captain Talents 'tactical' branch's display label to Tactician"
+git commit -m "style: rename the Captain Talents 'tactical'/'science' branch display labels to Tactician/Explorer"
+```
+
+---
+
+### Task 8c: App.svelte — header redesign (portrait + inline XP bar + one-line tick bar)
+
+**Files:** Modify `src/App.svelte`.
+
+Another mid-plan addition, unrelated to the loot/talent rework — the user sketched an exact ASCII
+mockup while reviewing:
+
+```
+[                    }  PlayerName - Level 1
+[                    }  Exp: [      ]-----------------]  10/100 [10.00%]
+[                    }
+
+TICK: [                                                                                       ] 2.1s
+```
+
+Confirmed scope with the user: portrait is a PLACEHOLDER (reuse the existing
+`.mission-portrait-frame` pattern, no real art), and "PlayerName" stays literal placeholder text
+("Fleet Admiral") — no new data field, no name-entry UI. This is purely a layout/markup change to
+`.top-bar`, reusing existing bar components (`.research-bar-track`/`.research-bar-fill` for XP,
+`.tick-bar-track`/`.tick-bar-fill` for the tick bar) in a new arrangement.
+
+**Step 1:** Read the CURRENT `.top-bar` markup (search for `<div class="top-bar">`) and its CSS
+block (`.top-bar`, `.top-bar-row`, `.top-bar-label`, `.top-bar-value`, `.tick-bar-readout`) in full
+before touching anything.
+
+**Step 2:** Replace the `.top-bar`'s markup with:
+
+```svelte
+<div class="top-bar">
+  <div class="top-bar-header">
+    <div class="mission-portrait-frame top-bar-portrait" aria-hidden="true">🖼️</div>
+    <div class="top-bar-info">
+      <div class="top-bar-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
+      <div class="top-bar-xp-row">
+        <span class="top-bar-xp-label">Exp:</span>
+        <div class="research-bar-track top-bar-xp-track">
+          <div class="research-bar-fill" style="width:{Math.min(100, (state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel)) * 100)}%"></div>
+        </div>
+        <span class="top-bar-xp-readout">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{((state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel)) * 100).toFixed(1)}%]</span>
+      </div>
+    </div>
+  </div>
+  <div class="top-bar-tick-row">
+    <span class="top-bar-tick-label">TICK:</span>
+    <div class="tick-bar-track top-bar-tick-track">
+      <div class="tick-bar-fill" style="width:{globalTickProgress * 100}%"></div>
+    </div>
+    <span class="top-bar-tick-readout">{globalTickRemaining.toFixed(1)}s</span>
+  </div>
+</div>
+```
+
+Reuses `.mission-portrait-frame` (the theme-aware dashed placeholder box already built for the Fleet
+Operations mission cards — confirm this class exists in the CURRENT file before relying on it; it
+should, from the already-merged Fleet Operations Mission UI feature) with a size override via the
+second `top-bar-portrait` class. Reuses `.research-bar-track`/`.research-bar-fill` and
+`.tick-bar-track`/`.tick-bar-fill` UNCHANGED (same clip-path chamfer, same fill-color/transition) —
+only their CONTAINER layout changes (inline next to a label now, not stacked full-width).
+
+**Step 3:** Add new CSS (remove the 4 now-orphaned rules first — see Step 4):
+
+```css
+.top-bar-header { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+.top-bar-portrait { flex: 0 0 40px; height: 40px; font-size: 16px; }
+.top-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.top-bar-name { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
+.top-bar-xp-row { display: flex; align-items: center; gap: 8px; }
+.top-bar-xp-label { font-size: 10px; color: var(--color-text-secondary); flex-shrink: 0; }
+.top-bar-xp-track { flex: 1; margin-bottom: 0; } /* overrides .research-bar-track's own margin-bottom:6px -- this copy sits inline, not stacked above other content */
+.top-bar-xp-readout { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+.top-bar-tick-row { display: flex; align-items: center; gap: 8px; }
+.top-bar-tick-label { font-size: 10px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
+.top-bar-tick-track { flex: 1; }
+.top-bar-tick-readout { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+```
+
+**Step 4:** Delete the now-orphaned rules `.top-bar-row`, `.top-bar-label`, `.top-bar-value`, and
+`.tick-bar-readout` (the OLD one, replaced by `.top-bar-tick-readout` above) — grep the whole file
+first to confirm each has exactly one usage (the old markup you just replaced) before deleting, per
+this codebase's "don't leave dead CSS behind" discipline.
+
+**Step 5: Verify.** Confirm `.mission-portrait-frame`'s own existing CSS rule (border, background,
+flex centering, font-size for the emoji) still applies correctly with `.top-bar-portrait`'s override
+layered on top (later class in the same element's `class` list wins on the properties it redeclares
+-- `flex`/`height`/`font-size` here -- while everything `.mission-portrait-frame` sets that
+`.top-bar-portrait` doesn't touch, like the dashed border and background tint, still applies). Confirm
+the XP percentage math (`fleetAdminXp / xpForNextFleetAdminLevel(...) * 100`) is unchanged from the
+old markup, just reformatted for the new inline readout string. Confirm nothing else in the file
+referenced `.top-bar-row`/`.top-bar-label`/`.top-bar-value`/the old `.tick-bar-readout` before you
+deleted them (Step 4's grep should already have confirmed this).
+
+**Step 6: Commit.**
+
+```bash
+git add src/App.svelte
+git commit -m "style: header redesign -- portrait placeholder, inline XP bar, one-line tick bar"
 ```
 
 ---
@@ -877,8 +979,9 @@ new entry (read 2 existing entries for wording/style match first).
 exactly) summarizing: the independent per-tier extraction rework (with the exact worked example),
 the 5-way talent effect split and which existing nodes got re-targeted to which tier (including the
 Command Efficiency I/II → Bulk/Refined Extraction rename), Import Save, the versioning reset
-(flagging the intentional 0.2.0-after-0.9.0 oddity), and the "tactical" branch's display label
-becoming "Tactician" (Task 8b).
+(flagging the intentional 0.2.0-after-0.9.0 oddity), the "tactical"/"science" branches' display
+labels becoming "Tactician"/"Explorer" (Task 8b), and the header redesign -- portrait placeholder,
+inline XP bar, one-line tick bar (Task 8c).
 
 **Step 2: Commit.**
 

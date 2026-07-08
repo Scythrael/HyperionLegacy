@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { migrate, SAVE_VERSION, type SaveFile } from "./save";
+import { migrate, serialize, importRawSave, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
+import { freshState } from "./model";
 
 describe("migrate — tickDurationSeconds backfill", () => {
   it("defaults tickDurationSeconds to 10 on a v1 save that predates the field", () => {
@@ -775,5 +776,45 @@ describe("migrate — chained v1 -> v11 migration", () => {
     // intermediate captains[0].tickDurationSeconds check for the same reason
     // the other version-step comments in this chain call out where a field
     // enters and leaves.
+  });
+});
+
+describe("importRawSave", () => {
+  // No test in this file has touched localStorage before this block -- every
+  // other describe block above operates purely on in-memory SaveFile literals
+  // passed straight to migrate(), so there's no existing beforeEach/afterEach
+  // localStorage-clearing convention anywhere in this file to match. Rather
+  // than inventing a new global setup/teardown hook this file has never used,
+  // each test below cleans up only the exact keys it itself wrote (the same
+  // two keys importRawSave/clearSave touch: SAVE_KEY and `${SAVE_KEY}_created_at`),
+  // so no state leaks into any test that runs after it in the same file/process.
+  it("rejects garbage input, leaving existing localStorage untouched", () => {
+    localStorage.setItem(SAVE_KEY, "some-existing-valid-save-string-placeholder");
+    try {
+      const success = importRawSave("not a valid save at all");
+      expect(success).toBe(false);
+      // The existing content must survive completely untouched -- importRawSave
+      // must return false BEFORE ever calling localStorage.setItem, since
+      // deserialize() fails first and short-circuits the function.
+      expect(localStorage.getItem(SAVE_KEY)).toBe("some-existing-valid-save-string-placeholder");
+    } finally {
+      localStorage.removeItem(SAVE_KEY);
+    }
+  });
+
+  it("accepts a valid raw save string, writing it byte-identical (not re-serialized) under SAVE_KEY", () => {
+    const state = freshState();
+    const raw = serialize(state, Date.now());
+    try {
+      const success = importRawSave(raw);
+      expect(success).toBe(true);
+      // Byte-identical to the input string -- importRawSave writes the RAW
+      // string as-is, not a re-serialized/mutated copy produced by running it
+      // back through migrate()/serialize().
+      expect(localStorage.getItem(SAVE_KEY)).toBe(raw);
+    } finally {
+      localStorage.removeItem(SAVE_KEY);
+      localStorage.removeItem(`${SAVE_KEY}_created_at`);
+    }
   });
 });

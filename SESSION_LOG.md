@@ -574,3 +574,105 @@ chapter-cappers, doubles as a gating tutorial for the other 3 modes), and a
 spotlight-style in-game tutorial system. Next: final holistic review of this
 branch, then merge and (pending explicit confirmation) push; Ships & Crew
 remains the next big feature after that.
+
+**Session 18** — Loot Tier Rework, Talent Split, Import Save (branch
+feat/loot-tier-rework, docs/plans/2026-07-07-loot-tier-rework-plan.md).
+Reworked mission extraction (`tickCaptainMission` in `tick.ts`) from a single
+weighted `MissionDef.lootTable` pick (one tier per tick, mutually exclusive)
+to independent per-tier rolls: uncommon and rare material can now BOTH occur
+in the same tick, each replacing that many units of common ore rather than
+adding on top of it. Worked example from the design doc: base rate 10/tick,
+uncommon rolls 2 + rare rolls 1 -> 7 common + 2 uncommon + 1 rare (still 10
+total). The new `rollExtractionTick` makes exactly 3 `rng()` calls per tick
+in a fixed, documented order (uncommon-occurrence, uncommon-amount-if-
+occurred, rare-occurrence) so the closed-form "one big jump equals many small
+ticks" guarantee and hand-traced deterministic tests both still hold. Both
+launch missions' old lootTable weights converted losslessly to the new
+`uncommonChance`/`rareChance` fields (`shortOreRun` 1.9%/0.1%, `longOreRun`
+8%/2%, same tuning as before, just expressed independently instead of as
+pick-weights).
+
+This forced a split of the 2 existing talent bonus effect types
+(`extractionYieldMult`, `rareLootChanceMult`) into 5 tier-specific ones on
+Captain Talents (`commonYieldMult`, `uncommonYieldMult`, `uncommonChanceMult`,
+`rareChanceMult`) and Homeworld Talents (`rareYieldMult`) — yield mults scale
+the amount actually delivered for their own tier (only when that tier occurs
+this tick), chance mults scale the occurrence roll itself, both clamped so a
+chance can never exceed 100%. All 5 already-shipped nodes were retargeted, not
+replaced: Keen Eye I/II (`resourcefulnessRareChanceI/II`) now drive
+`uncommonChanceMult`/`rareChanceMult`, and Fleet Requisitions
+(`fleetLogisticsYield`) now drives the fleet-wide `rareYieldMult`. The other
+two, `commandExtractionI`/`commandExtractionII`, were also renamed from
+"Command Efficiency I/II" to "Bulk Extraction"/"Refined Extraction" per a
+mid-plan user request — the old pair read as one generic upgrade line even
+though they now target two different tiers (common vs. uncommon), unlike Keen
+Eye's genuine tier-I/tier-II progression. Only the display `label` changed;
+the `CaptainTalentKey` identifiers themselves are untouched internal keys,
+same "only rename what's user-facing" precedent as the earlier nav-tab
+rename. No new nodes, no cost/prerequisite changes, and every existing
+player's `unlockedCaptainTalents`/`unlockedHomeworldTalents` save data carries
+forward unaffected (those arrays store keys, not effect shapes).
+
+Also added Import Save, the write-side counterpart to the existing Export
+Save: a new `importRawSave()` in `save.ts` validates the file actually
+deserializes before writing anything (rejects garbage/corrupt input, leaves
+the existing save untouched on failure), writing the raw LZ-compressed-base64
+string as-is rather than re-serializing it. The UI is a file input styled as a
+button next to Export Save; selecting a file opens a confirmation modal
+(reusing the existing `.modal-backdrop`/`Panel.modal-dialog` pattern, plain
+Cancel/Import, no typed-safety-word gate since this is a deliberate file pick,
+not an irreversible in-place delete) showing an inline error on failure rather
+than closing. On confirmed success the page does a full `window.location.reload()`
+rather than hot-swapping in-memory state, matching the existing "load happens
+once, at mount" pattern.
+
+`APP_VERSION` was reset to `"0.2.0"` to start a disciplined versioning scheme
+going forward (Z bumps per fix, Y bumps per feature) — the existing
+`0.6.0`-`0.9.0` `PATCH_NOTES` history is left untouched (never rewrite
+patch-note history), which deliberately produces a one-time visual oddity
+where `0.2.0` (newest) sits above `0.9.0` (older) in the newest-first list.
+Flagged to and accepted by the user as an intentional reset marker, not a bug.
+
+Two smaller mid-plan requests were folded in: the Captain Talents panel's
+"tactical"/"science" branch headers now display as "Tactician"/"Explorer"
+(display label only, via a new `CAPTAIN_TALENT_BRANCH_LABEL` map — the
+`CaptainTalentBranch` union keys themselves are unchanged, same precedent as
+the extraction-talent rename above); and the top bar was redesigned per the
+user's own ASCII mockup, replacing the old stacked full-width layout with a
+portrait placeholder (reusing the existing `.mission-portrait-frame` pattern
+from the mission cards, no real art yet) beside an inline Fleet Admiral
+level/XP row, with a single one-line tick-bar row underneath.
+
+10 tasks in the original plan, 16 commits once review-driven fixes are
+counted. This branch's verification was unusually rigorous even by this
+project's standard: an independent controller review caught and fixed a
+genuine test-flakiness bug in Task 4 (`d2391ed`) — two `tick()`-wiring tests
+asserted a deterministic total delivered of 11 using REAL `Math.random()`,
+but that total is only exact when neither uncommon nor rare occurs that roll;
+with `shortOreRun`'s nonzero `uncommonChance`/`rareChance`, roughly 2% of runs
+would have spuriously failed. Fixed by mocking `Math.random` to a fixed 0.5
+(fails both occurrence checks) so the assertion is genuinely deterministic,
+not merely usually-true. The same review pass also caught a stale identifier
+left over from the rename in a Task 5 comment (`abb8117`) — `fleetYieldMult`
+where the actual variable is `fleetRareYield` — and, on Task 7, a rejected
+`File.text()` promise in the Import Save flow that was previously silently
+swallowed (`ec00d34`): if reading the selected file ever rejected, the modal
+would simply never open with no feedback at all; now a `.catch()` surfaces
+an inline error the same way an invalid save file already does. Two more
+non-blocking code-quality refinements landed on Task 8c: a CSS specificity fix (`5678003`)
+replacing a source-order-dependent override (`.top-bar-portrait` beating
+`.mission-portrait-frame` only because of where it sat in the stylesheet,
+protected by two large warning comments) with a `.top-bar-header
+.top-bar-portrait` descendant selector that wins on specificity regardless of
+ordering; and a deduplicated `$: fleetAdminXpRatio` reactive variable
+replacing the same XP-ratio division computed inline twice (bar width,
+readout percentage), matching the existing `globalTickProgress`/
+`globalTickRemaining` pattern. All fixed and committed as part of this
+branch's normal review cycle, not left as follow-up debt. Next: get eyes on
+this in an actual browser — dispatch a captain and confirm uncommon/rare can
+now both land in the same tick's cargo delta, unlock Bulk Extraction/Refined
+Extraction/Keen Eye I-II/Fleet Requisitions and confirm each scales the
+correct tier, exercise Export then Import Save end-to-end (including
+importing a deliberately corrupted file to confirm the inline-error path),
+and confirm the new header layout/labels look right at real viewport sizes.
+Final holistic review of this branch is still pending before merge/push.

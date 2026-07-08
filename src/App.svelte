@@ -32,14 +32,15 @@
     recomputeFleetAdmin,
     buyCaptainTalent,
     buyHomeworldTalent,
-    captainExtractionYieldMult,
-    captainRareLootChanceMult,
-    fleetExtractionYieldMult,
-    applyRareLootChanceMult, // consumed by the captain-selection popup markup (Task 5) for its live drop-rate preview
+    captainCommonYieldMult,
+    captainUncommonYieldMult,
+    captainUncommonChanceMult,
+    captainRareChanceMult,
+    fleetRareYieldMult, // consumed by both the live tick loop below and the captain-selection popup markup (Task 5) for its live drop-rate preview
     LOOT_MATERIAL_KEYS,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
-  import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave } from "./lib/game/save";
+  import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave, importRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
 
   // DEV_MODE — Vercel §9.5.3: true on Preview, false on Production. Locally,
@@ -51,8 +52,13 @@
   // SCHEMA version, bumped only when the save shape changes; this is a
   // human-readable release marker, bumped by hand whenever there's a
   // user-visible batch of changes worth calling out. Newest entry first.
-  const APP_VERSION = "0.9.0";
+  // Reset to a disciplined X.Y.Z scheme starting 2026-07-07 (Y bumps per
+  // feature release, Z bumps per minor fix) -- the pre-reset 0.6.0-0.9.0
+  // history above is left untouched (never rewrite patch-note history), so
+  // this deliberately reads as "0.2.0 newer than 0.9.0" once, only here.
+  const APP_VERSION = "0.2.0";
   const PATCH_NOTES: { version: string; summary: string }[] = [
+    { version: "0.2.0", summary: "Reworked mission loot so uncommon and rare materials can both drop in the same tick instead of one replacing the others; talent bonuses now target a specific material tier each. Added Import Save. Version numbering restarts here -- 0.2.1/0.2.2 for small fixes, 0.3.0 for the next feature." },
     { version: "0.9.0", summary: "Widened the app to use most of the screen instead of a narrow centered column; retired the diagonal-corner panel look for a flatter style; moved the app's branding into this About tab." },
     { version: "0.8.0", summary: "Reworked scrolling so only the active tab's content scrolls, not the whole page; added \"Coming Soon\" locked placeholders for future sub-tabs and captain slots." },
     { version: "0.7.0", summary: "Rebuilt navigation: a global header with Fleet Admiral level/XP and a single fleet-wide tick, a dedicated Fleet Captain's tab, and a mission-first Fleet Operations tab." },
@@ -73,11 +79,39 @@
     unloading: "Unloading",
   };
 
+  // Display label for each Captain Talent branch -- "tactical" shows as
+  // "Tactician" and "science" shows as "Explorer", both per the user's own
+  // requests (2026-07-07); every other branch's label is just its own raw key
+  // (still uppercased by .skill-branch-title's CSS, same as before). The
+  // branch KEYS themselves ("tactical"/"science") are unchanged --
+  // CAPTAIN_TALENTS entries still key off them, this map only affects what's
+  // rendered.
+  const CAPTAIN_TALENT_BRANCH_LABEL: Record<CaptainTalentBranch, string> = {
+    command: "command",
+    tactical: "Tactician",
+    science: "Explorer",
+    resourcefulness: "resourcefulness",
+    diplomacy: "diplomacy",
+  };
+
   let state: GameState = freshState();
   let createdAt = Date.now();
   let currentTheme: ThemeName = "cyan";
   let deleteModalOpen = false;
   let deleteConfirmText = "";
+
+  // Import Save modal (Task 7, Loot Tier Rework -- see
+  // docs/plans/2026-07-07-loot-tier-rework-plan.md) -- same
+  // "state near deleteModalOpen, markup near the delete modal" pattern as
+  // that existing flow. pendingImportRaw holds the SELECTED file's raw text
+  // (already read off disk by the time the modal opens) so confirmImport has
+  // no async work left to do -- only the file input's on:change handler
+  // touches the filesystem/File API. importError surfaces a rejected
+  // (corrupt/non-save) file inline in the modal without closing it, so the
+  // user can immediately try a different file.
+  let importModalOpen = false;
+  let pendingImportRaw: string | null = null;
+  let importError: string | null = null;
 
   // Fleet Operations captain-selection popup (2026-07-07 Fleet Operations
   // Mission UI) -- null missionPopupKey means the popup is closed. Selecting a
@@ -275,8 +309,11 @@
         // this mirroring, talent points spent on extraction/loot-chance
         // Homeworld Talents would only ever take effect during the one-time
         // offline-catchup tick() call at load, never during live play --
-        // exactly the bug this wiring pass exists to close.
-        const fleetYieldMult = fleetExtractionYieldMult(state);
+        // exactly the bug this wiring pass exists to close. rareYieldMult is
+        // the ONLY Homeworld Talent effect type tied to extraction (per
+        // model.ts -- there is no captain-level rare-yield talent), same as
+        // tick.ts's own tick().
+        const fleetRareYield = fleetRareYieldMult(state);
 
         for (let i = 0; i < captains.length; i++) {
           const captain = captains[i];
@@ -289,9 +326,18 @@
             captains = [...captains]; // copy on first write this poll
             anyFired = true;
           }
+          // 5-field bonuses object (2026-07-07 Loot Tier Rework) -- mirrors
+          // tick.ts's own tick() exactly: 4 captain-level helpers (read at
+          // usage time off THIS captain's unlockedCaptainTalents) plus the
+          // one fleet-wide helper (rareYieldMult only, computed once above,
+          // outside this per-captain loop, since Homeworld Talents are
+          // fleet-wide, not per-captain).
           const bonuses = {
-            extractionYieldMult: captainExtractionYieldMult(captain) + fleetYieldMult,
-            rareLootChanceMult: captainRareLootChanceMult(captain),
+            commonYieldMult: captainCommonYieldMult(captain),
+            uncommonYieldMult: captainUncommonYieldMult(captain),
+            uncommonChanceMult: captainUncommonChanceMult(captain),
+            rareYieldMult: fleetRareYield,
+            rareChanceMult: captainRareChanceMult(captain),
           };
           // Math.random passed explicitly (rather than omitted) since bonuses
           // is positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
@@ -312,7 +358,7 @@
 
         // passiveTrickle (Homeworld Talent economyTrickle): same fleet-wide,
         // mission-independent material generation tick.ts's tick() applies --
-        // mirrored here for the same reason as fleetYieldMult above. Applies
+        // mirrored here for the same reason as fleetRareYield above. Applies
         // even with zero captains dispatched, so it's checked unconditionally
         // this cycle, not just inside the captains loop.
         for (const key of state.unlockedHomeworldTalents) {
@@ -493,6 +539,57 @@
     deleteConfirmText = "";
   }
 
+  // Import Save handlers (Task 7, Loot Tier Rework) -- mirror the
+  // cancelDelete/confirmDelete pair above in shape, but there's no
+  // typed-confirmation-word gate here: picking a file from the OS file
+  // picker is already a deliberate action, so Cancel/Import buttons alone
+  // are enough friction (confirmed against the plan doc -- Import
+  // deliberately does NOT need a "type DELETE"-style gate).
+  function onImportFileSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    // `file` is captured into this local const BEFORE input.value is reset
+    // below, so the reset (which only clears the <input> element's OWN
+    // value) cannot affect the File object or the .text() promise already
+    // in flight against it -- they're independent references.
+    file.text().then((text) => {
+      pendingImportRaw = text;
+      importError = null;
+      importModalOpen = true;
+    }).catch(() => {
+      // File.text() can reject (e.g. the file was deleted/became unreadable
+      // between selection and read) -- surface this the same way a rejected
+      // save would be, rather than silently doing nothing and leaving the
+      // user with no feedback at all.
+      pendingImportRaw = null;
+      importError = "Couldn't read that file. Please try again.";
+      importModalOpen = true;
+    });
+    input.value = ""; // allow re-selecting the same file later -- browsers don't fire `change` on an unchanged value otherwise
+  }
+
+  function cancelImport() {
+    importModalOpen = false;
+    pendingImportRaw = null;
+    importError = null;
+  }
+
+  function confirmImport() {
+    if (pendingImportRaw === null) return;
+    const success = importRawSave(pendingImportRaw);
+    if (!success) {
+      importError = "That file isn't a valid Fleet Admiral save.";
+      return; // modal stays open -- importError renders inline, user can pick a different file
+    }
+    // Simplest way to get every derived/init-time value (in-memory state,
+    // createdAt, tick-loop timers) to reset cleanly from the just-imported
+    // save -- matches the existing "load happens once, at mount" pattern
+    // (see onMount above) rather than adding a second "hot-swap state
+    // mid-session" code path.
+    window.location.reload();
+  }
+
   function setTheme(name: ThemeName) {
     currentTheme = name;
     document.documentElement.dataset.theme = name;
@@ -509,23 +606,38 @@
   $: globalBarSeconds = Math.max(1, state.tickDurationSeconds / (speed || 1));
   $: globalTickProgress = Math.min(1, Math.max(0, (cycle.nowTick - cycle.barCycleStart) / 1000 / globalBarSeconds));
   $: globalTickRemaining = Math.max(0, globalBarSeconds * (1 - globalTickProgress));
+  // Header redesign (2026-07-07) -- single source for the Fleet Admiral XP
+  // ratio, consumed by both the bar-fill width (clamped to 100) and the
+  // readout percentage below (unclamped, .toFixed(1)) -- avoids the same
+  // division appearing twice and drifting if the formula ever changes,
+  // matching the globalTickProgress/globalTickRemaining pattern above.
+  $: fleetAdminXpRatio = state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel);
 </script>
 
 <div class="root">
   <Starfield />
   <div class="frame">
     <div class="top-bar">
-      <div class="top-bar-row">
-        <span class="top-bar-label">Fleet Admiral · Level {state.fleetAdminLevel}</span>
-        <span class="top-bar-value">{formatNumber(state.fleetAdminXp)} / {formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} XP</span>
+      <div class="top-bar-header">
+        <div class="mission-portrait-frame top-bar-portrait" aria-hidden="true">🖼️</div>
+        <div class="top-bar-info">
+          <div class="top-bar-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
+          <div class="top-bar-xp-row">
+            <span class="top-bar-xp-label">Exp:</span>
+            <div class="research-bar-track top-bar-xp-track">
+              <div class="research-bar-fill" style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></div>
+            </div>
+            <span class="top-bar-xp-readout">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{(fleetAdminXpRatio * 100).toFixed(1)}%]</span>
+          </div>
+        </div>
       </div>
-      <div class="research-bar-track">
-        <div class="research-bar-fill" style="width:{Math.min(100, (state.fleetAdminXp / xpForNextFleetAdminLevel(state.fleetAdminLevel)) * 100)}%"></div>
+      <div class="top-bar-tick-row">
+        <span class="top-bar-tick-label">TICK:</span>
+        <div class="tick-bar-track top-bar-tick-track">
+          <div class="tick-bar-fill" style="width:{globalTickProgress * 100}%"></div>
+        </div>
+        <span class="top-bar-tick-readout">{globalTickRemaining.toFixed(1)}s</span>
       </div>
-      <div class="tick-bar-track">
-        <div class="tick-bar-fill" style="width:{globalTickProgress * 100}%"></div>
-      </div>
-      <div class="tick-bar-readout">{globalTickRemaining.toFixed(1)}s</div>
     </div>
 
     <main class="tab-body">
@@ -743,7 +855,7 @@
               {#each (["command", "tactical", "science", "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}
                 {@const nodes = Object.entries(CAPTAIN_TALENTS).filter(([, def]) => def.branch === branch)}
                 <div class="skill-branch">
-                  <div class="skill-branch-title">{branch}</div>
+                  <div class="skill-branch-title">{CAPTAIN_TALENT_BRANCH_LABEL[branch]}</div>
                   {#if nodes.length === 0}
                     <p class="prestige-text">Not yet available.</p>
                   {:else}
@@ -876,17 +988,14 @@
               <div class="panel-title">AVAILABLE MISSIONS</div>
               <div class="mission-list">
                 {#each tierIMissions as [missionKey, missionDef]}
-                  {@const totalWeight = missionDef.lootTable.reduce((sum, e) => sum + e.weight, 0)}
                   <button class="mission-card mission-card-selectable" on:click={() => openMissionPopup(missionKey)}>
                     <div class="mission-portrait-frame" aria-hidden="true">🖼️</div>
                     <div class="mission-card-body">
                       <div class="research-name">{missionDef.label}</div>
                       <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
-                      {#each missionDef.lootTable as entry}
-                        <div class="research-cost">
-                          {entry.material}: {formatNumber(missionDef.extractionRatePerTick)}/tick ({((entry.weight / totalWeight) * 100).toFixed(1)}%)
-                        </div>
-                      {/each}
+                      <div class="research-cost">Common Ore: up to {formatNumber(missionDef.extractionRatePerTick)}/tick</div>
+                      <div class="research-cost">Uncommon Material: 1-3/tick ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">Rare Material: 1/tick ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
                     </div>
                   </button>
                 {/each}
@@ -959,6 +1068,16 @@
         </div>
         <div class="dev-row">
           <button class="dev-btn" on:click={doExportSave}>Export Save</button>
+          <!-- Label-wrapping-hidden-input is the standard way to skin a file
+               input as a regular button (native file inputs can't be styled
+               directly) -- clicking the visible "Import Save" text triggers
+               the hidden input beneath it. Reuses .dev-btn as-is (no new CSS
+               needed -- a <label> displays/cursors sensibly here the same as
+               the <button> siblings either side of it). -->
+          <label class="dev-btn">
+            Import Save
+            <input type="file" accept="application/json,.json" style="display:none" on:change={onImportFileSelected} />
+          </label>
           <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
         </div>
       </Panel>
@@ -1050,12 +1169,15 @@
          language. Two-step flow: no captain selected yet shows an idle-
          captain picker list; once missionPopupCaptainId is set, the SAME
          popup re-renders with the live drop-rate/timing preview and swaps in
-         a Dispatch button. This preview's bonus math (extractionYieldMult/
-         rareLootChanceMult/effectiveLootTable/amountPerTick) is hand-traced
-         against tick.ts's own tick()/tickCaptainMission to use the IDENTICAL
-         shape -- see this task's own commit message / plan doc for the
-         trace -- so the numbers shown here are never misleading about what
-         the real dispatched mission will actually do. -->
+         a Dispatch button. This preview's bonus math (2026-07-07 Loot Tier
+         Rework: uncommonChanceMult/rareChanceMult/effectiveUncommonChance/
+         effectiveRareChance/commonYieldMult/uncommonYieldMult/rareYieldMult,
+         replacing the old single-mult/weighted-lootTable shape) is
+         hand-traced against tick.ts's own rollExtractionTick to use the
+         IDENTICAL formula shape (same Math.min(1, missionDef.X * (1 + mult))
+         clamp, same which-mult-affects-which-tier mapping) -- so the numbers
+         shown here are never misleading about what the real dispatched
+         mission will actually do. -->
     {@const missionDef = MISSIONS[missionPopupKey]}
     {@const selectedCaptain = missionPopupCaptainId !== null ? state.captains.find((c) => c.id === missionPopupCaptainId) ?? null : null}
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
@@ -1075,11 +1197,24 @@
             </div>
           {/if}
         {:else}
-          {@const extractionYieldMult = captainExtractionYieldMult(selectedCaptain) + fleetExtractionYieldMult(state)}
-          {@const rareLootChanceMult = captainRareLootChanceMult(selectedCaptain)}
-          {@const effectiveLootTable = applyRareLootChanceMult(missionDef.lootTable, rareLootChanceMult)}
-          {@const totalWeight = effectiveLootTable.reduce((sum, e) => sum + e.weight, 0)}
-          {@const amountPerTick = missionDef.extractionRatePerTick * (1 + extractionYieldMult)}
+          <!-- Per-tier bonus math (2026-07-07 Loot Tier Rework) -- mirrors
+               tick.ts's rollExtractionTick EXACTLY: same Math.min(1, ...)
+               clamp on each tier's occurrence chance, same (1 + mult) yield
+               scaling, same which-mult-affects-which-tier mapping.
+               rareYieldMult is FLEET-WIDE ONLY (fleetLogisticsYield/Fleet
+               Requisitions, a Homeworld Talent, is the ONLY source of
+               rareYieldMult in the whole talent tree -- there is no
+               captain-level rare-yield talent), so it reads
+               fleetRareYieldMult(state) directly with NO captain-level
+               contribution added, unlike commonYieldMult/uncommonYieldMult
+               below which each sum ONLY this captain's own Captain Talents. -->
+          {@const uncommonChanceMult = captainUncommonChanceMult(selectedCaptain)}
+          {@const rareChanceMult = captainRareChanceMult(selectedCaptain)}
+          {@const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + uncommonChanceMult))}
+          {@const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + rareChanceMult))}
+          {@const commonYieldMult = captainCommonYieldMult(selectedCaptain)}
+          {@const uncommonYieldMult = captainUncommonYieldMult(selectedCaptain)}
+          {@const rareYieldMult = fleetRareYieldMult(state)}
           {@const transitOutTicks = missionDef.transitOutTicks}
           {@const extractingTicks = requiredTicksForPhase("extracting", missionDef)}
           {@const transitBackTicks = missionDef.transitBackTicks}
@@ -1089,11 +1224,9 @@
           <div class="research-name">Captain: {selectedCaptain.label}</div>
 
           <div class="panel-title">DROP RATES</div>
-          {#each effectiveLootTable as entry}
-            <div class="research-cost">
-              {entry.material}: {formatNumber(amountPerTick)}/tick ({((entry.weight / totalWeight) * 100).toFixed(1)}%)
-            </div>
-          {/each}
+          <div class="research-cost">Common Ore: up to {formatNumber(missionDef.extractionRatePerTick * (1 + commonYieldMult))}/tick</div>
+          <div class="research-cost">Uncommon Material: 1-3/tick, scaled by {(uncommonYieldMult * 100).toFixed(0)}% ({(effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">Rare Material: 1/tick, scaled by {(rareYieldMult * 100).toFixed(0)}% ({(effectiveRareChance * 100).toFixed(1)}% chance/tick)</div>
 
           <div class="panel-title">TIMING</div>
           <div class="research-cost">Transit out: {transitOutTicks} ticks ({(transitOutTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
@@ -1123,6 +1256,34 @@
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelDelete}>Cancel</button>
           <button class="dev-btn danger" disabled={deleteConfirmText !== "DELETE"} on:click={confirmDelete}>Delete</button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
+  {#if importModalOpen}
+    <!-- Import Save confirmation modal (Task 7, Loot Tier Rework) -- reuses
+         the SAME .modal-backdrop/Panel.modal-dialog/.modal-warning/.modal-row
+         structure as the DELETE SAVE modal directly above (and the
+         mission-selection popup further up this file), so all 3 of this
+         app's modals share one visual language. Deliberately has NO typed-
+         confirmation-word input like Delete Save's .modal-input above --
+         confirmed against the plan doc: selecting a file via the OS picker is
+         already a deliberate action, so a plain Cancel/Import button pair is
+         enough friction here. importError (set by confirmImport on a
+         rejected file) renders as a second .modal-warning line WITHOUT
+         closing the modal, so the user can immediately pick a different
+         file from the same still-open dialog. -->
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">IMPORT SAVE</div>
+        <p class="modal-warning">This will REPLACE your current save. This can't be undone.</p>
+        {#if importError}
+          <p class="modal-warning">{importError}</p>
+        {/if}
+        <div class="modal-row">
+          <button class="dev-btn" on:click={cancelImport}>Cancel</button>
+          <button class="dev-btn danger" on:click={confirmImport}>Import</button>
         </div>
       </Panel>
     </div>
@@ -1266,9 +1427,33 @@
     padding: 10px 16px;
     flex-shrink: 0; /* never compresses, even if .tab-scroll-area's content is tall */
   }
-  .top-bar-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
-  .top-bar-label { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
-  .top-bar-value { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); }
+  /* Header redesign (2026-07-07, mid-plan addition unrelated to the loot/
+     talent rework -- portrait placeholder + inline XP bar + one-line tick
+     bar, per the user's own ASCII mockup). Replaces the old stacked
+     .top-bar-row/.research-bar-track/.tick-bar-track/.tick-bar-readout
+     layout (each on its own full-width line) with: a left-hand portrait next
+     to the name+XP-bar row, then a single full-width tick-bar row below.
+     .top-bar-header lays out the portrait + info column side by side. */
+  .top-bar-header { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+  /* Descendant selector (specificity 0,2,0) rather than a bare .top-bar-portrait
+     class (0,1,0) -- this reliably overrides .mission-portrait-frame's own
+     flex/height/font-size regardless of where either rule sits in this
+     stylesheet, so there's no source-order dependency to accidentally break
+     by moving/reordering rules later. Only overrides what needs shrinking for
+     the header's smaller footprint; .mission-portrait-frame's border,
+     background, and flex-centering apply untouched since this rule doesn't
+     redeclare them. */
+  .top-bar-header .top-bar-portrait { flex: 0 0 40px; height: 40px; font-size: 16px; }
+  .top-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .top-bar-name { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
+  .top-bar-xp-row { display: flex; align-items: center; gap: 8px; }
+  .top-bar-xp-label { font-size: 10px; color: var(--color-text-secondary); flex-shrink: 0; }
+  .top-bar-xp-track { flex: 1; margin-bottom: 0; } /* overrides .research-bar-track's own margin-bottom:6px -- this copy sits inline, not stacked above other content */
+  .top-bar-xp-readout { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+  .top-bar-tick-row { display: flex; align-items: center; gap: 8px; }
+  .top-bar-tick-label { font-size: 10px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
+  .top-bar-tick-track { flex: 1; }
+  .top-bar-tick-readout { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
   /* Outer nav (Task 1, Phase 4) -- now the LAST flex child inside .frame
      (Task 1 of this plan moved it here from being the first child of the old
      <main>), so it's the bottom-most thing in the flex column, visually
@@ -1449,13 +1634,6 @@
     height: 100%;
     background: var(--color-accent);
     transition: width 0.1s linear;
-  }
-  .tick-bar-readout {
-    margin-top: 6px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--color-text-secondary);
-    text-align: right;
   }
   .research-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
   .research-cost { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 10px; }
