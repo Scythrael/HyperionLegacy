@@ -584,6 +584,19 @@
               {captain.label}
             </button>
           {/each}
+          <!-- Locked slots up to a roadmap max of 10 captains -- a genuine future
+               signal (more Fleet Logistics unlock tiers planned later), not a
+               promise with nothing behind it. Today's ACTUAL mechanic only supports
+               growing to 4 captains (see model.ts's HOMEWORLD_TALENTS
+               fleetLogisticsSlot1/2/3) -- slots 5-10 have no unlock path yet; see
+               KNOWN_ISSUES.md (Task 6 of this plan). Array.from({length: N}) is
+               used (not a bare {length: N} object) since Svelte's {#each} needs a
+               real iterable/array, not just an array-like object. -->
+          {#each Array.from({ length: Math.max(0, 10 - state.captains.length) }) as _, j}
+            <div class="captain-list-item locked" title="Coming soon — not yet unlockable">
+              🔒 Coming Soon!
+            </div>
+          {/each}
         </div>
 
         <div class="fleet-captains-content">
@@ -1036,6 +1049,13 @@
     background: rgba(var(--color-accent-rgb), 0.15);
     color: var(--color-accent-bright);
     border-color: var(--color-accent);
+  }
+  .captain-list-item.locked {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .captain-list-item.locked:hover {
+    border-color: rgba(var(--color-accent-rgb), 0.3);
   }
   .fleet-captains-content { flex: 1; min-width: 0; }
   .panel-title {
