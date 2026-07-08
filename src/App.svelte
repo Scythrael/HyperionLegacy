@@ -783,64 +783,116 @@
 
       {#if activeTab === "fleetOperations"}
       <div class="tab-scroll-area">
-      <!-- Fleet Operations (UI Redesign, Task 9 --
-           docs/plans/2026-07-07-ui-redesign-plan.md) -- mission-first, NOT
-           captain-scoped (deliberately does not read activeCaptain anywhere
-           in this block). One Panel per MISSIONS entry, listing every
-           captain currently embarked on THAT mission (progress + Recall)
-           above a Dispatch list of every fleet-wide idle captain
-           (mission === null). `eligible` is computed fleet-wide per mission
-           iteration -- a captain already committed to mission A will show up
-           in mission A's embarked list, but NOT in mission B's eligible
-           list, since eligible only checks mission === null, not "not on
-           THIS specific mission." -->
-      {#each Object.entries(MISSIONS) as [missionKey, missionDef]}
-        {@const embarked = state.captains.filter((c) => c.mission?.missionKey === missionKey)}
-        {@const eligible = state.captains.filter((c) => c.mission === null)}
-        <Panel>
-          <div class="panel-title">{missionDef.label.toUpperCase()}</div>
-          <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
+      <!-- Fleet Operations Mission UI (2026-07-07 --
+           docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md, Task 4) --
+           replaces the old flat one-Panel-per-mission loop (UI Redesign, Task
+           9) with a category-list + tier-tabs + mission-card flow, mirroring
+           .fleet-captains-layout/.captain-list/.captain-list-item's visual
+           language directly above under the "fleetCaptains" tab. Only
+           "resourceGathering" has real content today (Patrol/Surveying/
+           Long-Term Exploration are locked placeholders -- see
+           activeMissionCategory's declaration comment above). Within
+           Resource-Gathering, only Tier I is real (both shortOreRun and
+           longOreRun -- see model.ts's MissionDef.tier field); Tiers II-V are
+           locked SubTabs entries. Dispatch no longer happens inline here --
+           clicking an available mission card opens the captain-selection
+           popup (Task 5, rendered at the end of the template near
+           deleteModalOpen) via openMissionPopup, which owns the actual
+           dispatch through the existing doDispatchCaptainOnMission. -->
+      <div class="fleet-ops-layout">
+        <div class="mission-category-list">
+          <button
+            class="mission-category-item"
+            class:active={activeMissionCategory === "resourceGathering"}
+            on:click={() => (activeMissionCategory = "resourceGathering")}
+          >
+            Resource-Gathering
+          </button>
+          <div class="mission-category-item locked" title="Coming soon — combat isn't built yet">
+            🔒 Patrol Missions
+          </div>
+          <div class="mission-category-item locked" title="Coming soon — not yet available">
+            🔒 Surveying
+          </div>
+          <div class="mission-category-item locked" title="Coming soon — not yet available">
+            🔒 Long-Term Exploration
+          </div>
+        </div>
 
-          {#each embarked as captain}
-            {@const mission = captain.mission!}
-            {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
-            {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
-            {@const remainingTicks = Math.max(0, requiredTicks - mission.phaseProgressTicks)}
-            <div class="mission-card">
-              <div class="research-name">{captain.label}</div>
-              <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
-              <div class="research-bar-track">
-                <div class="research-bar-fill" style="width:{progress * 100}%"></div>
-              </div>
-              <div class="research-readout">{remainingTicks.toFixed(1)} ticks remaining in phase</div>
-              <div class="research-cost">
-                Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
-                {formatNumber(mission.cargo.rareMaterial)} rare
-              </div>
-              {#if mission.recalled}
-                <p class="prestige-text mission-recalled-text">Recall ordered — returning to base once the current cycle's unloading completes.</p>
-              {:else}
-                <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
+        <div class="mission-category-content">
+          {#if activeMissionCategory === "resourceGathering"}
+            <SubTabs
+              tabs={[
+                { key: "tierI", label: "Tier I" },
+                { key: "tierII", label: "Tier II", locked: true },
+                { key: "tierIII", label: "Tier III", locked: true },
+                { key: "tierIV", label: "Tier IV", locked: true },
+                { key: "tierV", label: "Tier V", locked: true },
+              ]}
+              active={activeMissionTier}
+              onSelect={(key) => (activeMissionTier = key as MissionTierKey)}
+            />
+
+            {#if activeMissionTier === "tierI"}
+              <!-- tierIMissions/embarked mirror the OLD block's per-mission
+                   embarked filter above, just scoped to Tier I's mission set
+                   instead of iterating ALL of MISSIONS -- the embarked-
+                   captains display below (progress bar, phase label,
+                   cargo-so-far, Recall button) is otherwise byte-identical to
+                   what this replaced, only its position in the markup moved. -->
+              {@const tierIMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([, def]) => def.tier === "I")}
+              {@const embarked = state.captains.filter((c) => c.mission !== null && tierIMissions.some(([key]) => key === c.mission!.missionKey))}
+
+              {#if embarked.length > 0}
+                <div class="panel-title">IN PROGRESS</div>
+                {#each embarked as captain}
+                  {@const mission = captain.mission!}
+                  {@const missionDef = MISSIONS[mission.missionKey]}
+                  {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
+                  {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
+                  {@const remainingTicks = Math.max(0, requiredTicks - mission.phaseProgressTicks)}
+                  <div class="mission-card">
+                    <div class="research-name">{captain.label} — {missionDef.label}</div>
+                    <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
+                    <div class="research-bar-track">
+                      <div class="research-bar-fill" style="width:{progress * 100}%"></div>
+                    </div>
+                    <div class="research-readout">{remainingTicks.toFixed(1)} ticks remaining in phase</div>
+                    <div class="research-cost">
+                      Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
+                      {formatNumber(mission.cargo.rareMaterial)} rare
+                    </div>
+                    {#if mission.recalled}
+                      <p class="prestige-text mission-recalled-text">Recall ordered — returning to base once the current cycle's unloading completes.</p>
+                    {:else}
+                      <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
+                    {/if}
+                  </div>
+                {/each}
               {/if}
-            </div>
-          {/each}
 
-          {#if eligible.length > 0}
-            <div class="mission-list">
-              {#each eligible as captain}
-                <div class="mission-card">
-                  <div class="research-name">{captain.label}</div>
-                  <button class="buy-btn" on:click={() => doDispatchCaptainOnMission(captain.id, missionKey as MissionKey)}>
-                    Dispatch · {missionDef.label}
+              <div class="panel-title">AVAILABLE MISSIONS</div>
+              <div class="mission-list">
+                {#each tierIMissions as [missionKey, missionDef]}
+                  {@const totalWeight = missionDef.lootTable.reduce((sum, e) => sum + e.weight, 0)}
+                  <button class="mission-card mission-card-selectable" on:click={() => openMissionPopup(missionKey)}>
+                    <div class="mission-portrait-frame" aria-hidden="true">🖼️</div>
+                    <div class="mission-card-body">
+                      <div class="research-name">{missionDef.label}</div>
+                      <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
+                      {#each missionDef.lootTable as entry}
+                        <div class="research-cost">
+                          {entry.material}: {formatNumber(missionDef.extractionRatePerTick)}/tick ({((entry.weight / totalWeight) * 100).toFixed(1)}%)
+                        </div>
+                      {/each}
+                    </div>
                   </button>
-                </div>
-              {/each}
-            </div>
-          {:else if embarked.length === 0}
-            <p class="prestige-text">No eligible captains available.</p>
+                {/each}
+              </div>
+            {/if}
           {/if}
-        </Panel>
-      {/each}
+        </div>
+      </div>
       </div>
       {/if}
 
