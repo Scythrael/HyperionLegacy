@@ -16,14 +16,6 @@
     border: 1px solid var(--color-border);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   }
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 16px;
-  }
   .dev-panel {
     border-color: rgba(251, 191, 36, 0.5);
   }
