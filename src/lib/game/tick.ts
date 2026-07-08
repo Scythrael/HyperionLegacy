@@ -101,13 +101,14 @@ const MISSION_TICK_EPSILON = 1e-9;
 // several cycles in one call -- see the while loop below), never once per call.
 const XP_PER_MISSION_CYCLE = 50;
 
-// Extracted so both the real roll (tickCaptainMission, below) and any UI
-// preview of the SAME math (a follow-up Fleet Operations feature) share one
-// implementation -- a hand-copied second version of this reweighting logic
-// elsewhere could silently drift from the real one if either copy were
-// edited later without the other. Boosts every NON-common tier's weight
-// rather than hardcoding "rareMaterial" specifically, so this generalizes to
-// any future lootTable shape without changes here.
+// Extracted so both the real roll (tickCaptainMission, below) and the UI
+// preview of the SAME math (Fleet Operations' mission cards/captain-selection
+// popup, App.svelte) share one implementation -- a hand-copied second version
+// of this reweighting logic in App.svelte could silently drift from the real
+// one if either copy were edited later without the other. Boosts every
+// NON-common tier's weight rather than hardcoding "rareMaterial"
+// specifically, so this generalizes to any future lootTable shape without
+// changes here.
 export function applyRareLootChanceMult(lootTable: LootTableEntry[], rareLootChanceMult: number): LootTableEntry[] {
   if (rareLootChanceMult <= 0) return lootTable;
   return lootTable.map((entry) =>
