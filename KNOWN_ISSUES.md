@@ -110,3 +110,16 @@ write it down so you don't relitigate it later.
   practice. Worth a real-device/short-viewport check before shipping to
   handheld landscape use; no fix attempted here since it can't be verified
   without a renderer in this environment.
+- Captain-list slots 5-10 (shown locked/"Coming Soon!") have no unlock mechanism behind them yet --
+  `HOMEWORLD_TALENTS`' Fleet Logistics branch only defines 3 slot-unlock tiers
+  (`fleetLogisticsSlot1/2/3`), capping the real fleet at 4 captains. Slots 5-10 are a deliberate
+  future-roadmap signal (more Fleet Logistics tiers planned later), not a bug -- but there's
+  currently no in-game path to ever reach them. Add more `unlockCaptainSlot`-effect entries to
+  `HOMEWORLD_TALENTS` when that's ready.
+- Scroll Containment & Locked Placeholders' Task 2 code-quality review flagged that locked sub-tabs
+  (`SubTabs.svelte`) use a native `disabled` button, which removes them from the keyboard tab order
+  entirely -- a keyboard-only user has no way to discover the "Coming soon" `title` tooltip at all,
+  unlike a mouse user, who can hover. Not a regression (locked tabs didn't exist before this feature,
+  so there's no prior keyboard-actionable state to compare against), but a real accessibility gap in
+  the new locked-tab pattern specifically. Worth revisiting (e.g. `aria-disabled` plus a focusable,
+  non-disabled button) once this locked-tab pattern is reused enough to justify the change.
