@@ -35,7 +35,7 @@
     captainExtractionYieldMult,
     captainRareLootChanceMult,
     fleetExtractionYieldMult,
-    applyRareLootChanceMult, // unused until the captain-selection popup markup (Task 5) consumes it for the live drop-rate preview
+    applyRareLootChanceMult, // consumed by the captain-selection popup markup (Task 5) for its live drop-rate preview
     LOOT_MATERIAL_KEYS,
   } from "./lib/game/tick";
   import { formatNumber } from "./lib/game/format";
@@ -797,12 +797,10 @@
            locked SubTabs entries. Dispatch no longer happens inline here --
            clicking an available mission card calls openMissionPopup, which
            sets missionPopupKey/missionPopupCaptainId (declared near
-           deleteModalOpen). The actual popup markup that CONSUMES that state
-           and performs the dispatch through the existing
-           doDispatchCaptainOnMission does NOT exist yet -- it is Task 5, a
-           separate not-yet-implemented commit. Until Task 5 lands, clicking a
-           mission card sets state with nothing rendering it (expected,
-           intermediate state of a multi-task build, not a bug in THIS task). -->
+           deleteModalOpen). The popup markup that consumes that state and
+           performs the dispatch through the existing
+           doDispatchCaptainOnMission lives near the DELETE SAVE modal,
+           further down this same template (Task 5). -->
       <div class="fleet-ops-layout">
         <div class="mission-category-list">
           <button
@@ -1041,6 +1039,79 @@
       <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
     </div>
   </div>
+
+  {#if missionPopupKey !== null}
+    <!-- Captain-selection popup (2026-07-07 Fleet Operations Mission UI,
+         Task 5) -- consumes missionPopupKey/missionPopupCaptainId (state) and
+         openMissionPopup/closeMissionPopup/doDispatchFromPopup (handlers),
+         all declared/implemented earlier in this file (Task 3). Reuses the
+         exact .modal-backdrop/Panel.modal-dialog pattern the DELETE SAVE
+         modal below already establishes, so both modals share one visual
+         language. Two-step flow: no captain selected yet shows an idle-
+         captain picker list; once missionPopupCaptainId is set, the SAME
+         popup re-renders with the live drop-rate/timing preview and swaps in
+         a Dispatch button. This preview's bonus math (extractionYieldMult/
+         rareLootChanceMult/effectiveLootTable/amountPerTick) is hand-traced
+         against tick.ts's own tick()/tickCaptainMission to use the IDENTICAL
+         shape -- see this task's own commit message / plan doc for the
+         trace -- so the numbers shown here are never misleading about what
+         the real dispatched mission will actually do. -->
+    {@const missionDef = MISSIONS[missionPopupKey]}
+    {@const selectedCaptain = missionPopupCaptainId !== null ? state.captains.find((c) => c.id === missionPopupCaptainId) ?? null : null}
+    {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">{missionDef.label.toUpperCase()}</div>
+
+        {#if selectedCaptain === null}
+          <p class="modal-instruction">Select a captain to preview mission stats.</p>
+          {#if idleCaptains.length === 0}
+            <p class="prestige-text">No eligible captains available.</p>
+          {:else}
+            <div class="modal-captain-list">
+              {#each idleCaptains as captain}
+                <button class="dev-btn" on:click={() => (missionPopupCaptainId = captain.id)}>{captain.label}</button>
+              {/each}
+            </div>
+          {/if}
+        {:else}
+          {@const extractionYieldMult = captainExtractionYieldMult(selectedCaptain) + fleetExtractionYieldMult(state)}
+          {@const rareLootChanceMult = captainRareLootChanceMult(selectedCaptain)}
+          {@const effectiveLootTable = applyRareLootChanceMult(missionDef.lootTable, rareLootChanceMult)}
+          {@const totalWeight = effectiveLootTable.reduce((sum, e) => sum + e.weight, 0)}
+          {@const amountPerTick = missionDef.extractionRatePerTick * (1 + extractionYieldMult)}
+          {@const transitOutTicks = missionDef.transitOutTicks}
+          {@const extractingTicks = requiredTicksForPhase("extracting", missionDef)}
+          {@const transitBackTicks = missionDef.transitBackTicks}
+          {@const unloadTicks = missionDef.unloadTicks}
+          {@const totalTicks = transitOutTicks + extractingTicks + transitBackTicks + unloadTicks}
+
+          <div class="research-name">Captain: {selectedCaptain.label}</div>
+
+          <div class="panel-title">DROP RATES</div>
+          {#each effectiveLootTable as entry}
+            <div class="research-cost">
+              {entry.material}: {formatNumber(amountPerTick)}/tick ({((entry.weight / totalWeight) * 100).toFixed(1)}%)
+            </div>
+          {/each}
+
+          <div class="panel-title">TIMING</div>
+          <div class="research-cost">Transit out: {transitOutTicks} ticks ({(transitOutTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
+          <div class="research-cost">Extracting: {extractingTicks} ticks ({(extractingTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
+          <div class="research-cost">Transit back: {transitBackTicks} ticks ({(transitBackTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
+          <div class="research-cost">Unloading: {unloadTicks} ticks ({(unloadTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
+          <div class="research-cost"><strong>Total: {totalTicks} ticks ({(totalTicks * state.tickDurationSeconds).toFixed(1)}s)</strong></div>
+        {/if}
+
+        <div class="modal-row">
+          <button class="dev-btn" on:click={closeMissionPopup}>Cancel</button>
+          {#if selectedCaptain !== null}
+            <button class="dev-btn" on:click={doDispatchFromPopup}>Dispatch</button>
+          {/if}
+        </div>
+      </Panel>
+    </div>
+  {/if}
 
   {#if deleteModalOpen}
     <div class="modal-backdrop">
