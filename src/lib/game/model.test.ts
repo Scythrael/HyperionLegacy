@@ -25,7 +25,7 @@ describe("freshState — captain roster shape", () => {
     expect(c1.shipType).toBe("resourcer");
   });
 
-  it("starts with xp:0, level:1, statPoints:0 per captain, and fleet-wide tickDurationSeconds 10", () => {
+  it("starts with xp:0, level:1, statPoints:0 per captain, and fleet-wide tickDurationSeconds 1", () => {
     const state = freshState();
     for (const c of state.captains) {
       // Decimal isn't a primitive -- .toBe()/.toEqual() won't match a plain-number
@@ -37,7 +37,7 @@ describe("freshState — captain roster shape", () => {
       expect(c.level).toBe(1);
       expect(c.statPoints).toBe(0);
     }
-    expect(state.tickDurationSeconds).toBe(10);
+    expect(state.tickDurationSeconds).toBe(1);
   });
 
   it("fleet-wide fields default to 0", () => {
@@ -105,15 +105,15 @@ describe("freshState / freshCaptainStack — mission and Home Planet fields", ()
 
 describe("MISSIONS — launch set", () => {
   it("has exactly 2 missions with the specified tick counts and cargo/extraction values", () => {
-    expect(MISSIONS.shortOreRun.transitOutTicks).toBe(3);
-    expect(MISSIONS.shortOreRun.transitBackTicks).toBe(3);
-    expect(MISSIONS.shortOreRun.unloadTicks).toBe(1);
+    expect(MISSIONS.shortOreRun.transitOutTicks).toBe(25);
+    expect(MISSIONS.shortOreRun.transitBackTicks).toBe(25);
+    expect(MISSIONS.shortOreRun.unloadTicks).toBe(8);
     expect(MISSIONS.shortOreRun.extractionRatePerTick).toBe(10);
-    expect(MISSIONS.shortOreRun.cargoCapacity).toBe(100);
+    expect(MISSIONS.shortOreRun.cargoCapacity).toBe(900);
 
-    expect(MISSIONS.longOreRun.transitOutTicks).toBe(8);
-    expect(MISSIONS.longOreRun.transitBackTicks).toBe(8);
-    expect(MISSIONS.longOreRun.cargoCapacity).toBe(100);
+    expect(MISSIONS.longOreRun.transitOutTicks).toBe(70);
+    expect(MISSIONS.longOreRun.transitBackTicks).toBe(70);
+    expect(MISSIONS.longOreRun.cargoCapacity).toBe(900);
 
     expect(MISSIONS.shortOreRun.fleetAdminXpPerCycle).toBe(1);
     expect(MISSIONS.longOreRun.fleetAdminXpPerCycle).toBe(2);
@@ -140,16 +140,16 @@ describe("requiredTicksForPhase", () => {
   });
 
   it("transitOut/transitBack/unloading match the mission definition directly", () => {
-    expect(requiredTicksForPhase("transitOut", MISSIONS.shortOreRun)).toBe(3);
-    expect(requiredTicksForPhase("transitBack", MISSIONS.shortOreRun)).toBe(3);
-    expect(requiredTicksForPhase("unloading", MISSIONS.shortOreRun)).toBe(1);
+    expect(requiredTicksForPhase("transitOut", MISSIONS.shortOreRun)).toBe(25);
+    expect(requiredTicksForPhase("transitBack", MISSIONS.shortOreRun)).toBe(25);
+    expect(requiredTicksForPhase("unloading", MISSIONS.shortOreRun)).toBe(8);
   });
 
   it("extracting is cargoCapacity / extractionRatePerTick, rounded up", () => {
-    // 100 / 10 = exactly 10 -- this plan's launch content is deliberately
-    // chosen to divide evenly, sidestepping a partial-final-tick edge case
-    // (see this task's Step 3 comment on requiredTicksForPhase for why).
-    expect(requiredTicksForPhase("extracting", MISSIONS.shortOreRun)).toBe(10);
+    // 900 / 10 = exactly 90 -- extractionRatePerTick deliberately stays 10 (unchanged
+    // from before the tick-granularity rebalance) so per-tick extraction-roll behavior
+    // is unaffected; only cargoCapacity grew, extending the phase to 90 ticks.
+    expect(requiredTicksForPhase("extracting", MISSIONS.shortOreRun)).toBe(90);
   });
 });
 
