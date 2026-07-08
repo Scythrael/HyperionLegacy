@@ -1097,7 +1097,7 @@
       <Panel>
         <div class="panel-title">OPTIONS</div>
         <div class="dev-row">
-          <label>
+          <label style="display: inline-flex; align-items: center; gap: 6px;">
             <input
               type="checkbox"
               checked={tickBarEnabled}
