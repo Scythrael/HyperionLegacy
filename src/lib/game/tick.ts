@@ -216,6 +216,13 @@ export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string
       return `+${(effect.chance * 100).toFixed(1)}% chance/tick for a bonus roll`;
     case "bonusRollChanceMult":
       return `+${(effect.mult * 100).toFixed(1)}% to bonus roll chance`;
+    // Radial Skill Web (Task 2): the gateway-hub effect. Tactician/Explorer
+    // hubs carry `{ type: "none" }` because their branches' real mechanics
+    // (combat / science) don't exist yet. Rendered honestly as "no bonus yet"
+    // rather than a misleading "+0.0%" line -- this is the whole reason the
+    // `none` member exists instead of a `mult: 0.0` placeholder.
+    case "none":
+      return "No bonus yet — unlocks this branch";
   }
 }
 

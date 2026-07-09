@@ -240,7 +240,18 @@ export type CaptainTalentEffect =
   | { type: "uncommonChanceMult"; mult: number }
   | { type: "rareChanceMult"; mult: number }
   | { type: "bonusRollChance"; chance: number }
-  | { type: "bonusRollChanceMult"; mult: number };
+  | { type: "bonusRollChanceMult"; mult: number }
+  // Radial Skill Web (Task 2): a genuinely-null gateway effect. Used by the
+  // Tactician/Explorer hubs, which are "learn me first" seeds for branches
+  // whose real mechanics (combat / a redefined science system) don't exist
+  // yet. Chosen over a `commonYieldMult`/`mult: 0.0` placeholder because that
+  // would render through describeCaptainTalentEffect as a misleading
+  // "+0.0% Common Ore yield" line on a combat/science node -- a `none` member
+  // renders honestly as "no bonus yet" instead. Carries no payload; the tick
+  // economy (tick.ts) simply has nothing to apply for it. When those systems
+  // land, the hub's effect changes to a real member and this stays available
+  // for any future pure-gateway node.
+  | { type: "none" };
 
 // unlockCaptainSlot carries no gate beyond the node's own `cost` (adminPoints)
 // -- Homeworld Talents are fleet-wide Fleet Admiral prestige, spent purely
@@ -293,91 +304,166 @@ export interface HomeworldTalentDef {
 // without generics that would over-complicate a launch table this small, so
 // each entry below is typed with an explicit inline `& { effect: ... }`.
 
-// Only Command and Resourcefulness get real launch content. Tactical, Science,
-// and Diplomacy are deliberately EMPTY (zero entries with that branch) --
-// each depends on a system that doesn't exist yet (combat, a redefined
-// Science mechanic). The UI iterates the fixed 5-branch list, not this
-// table's keys, so an empty branch still renders as a labeled column with
-// nothing in it. Add entries here (and nowhere else -- App.svelte's Captain
-// Talents panel iterates this object) when a branch's system is ready.
-// Costs below are launch placeholders, not balance-tested, same spirit as
-// MISSIONS'/RECIPES' own tunable constants.
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 2):
+// this table is now a radial GRAPH, not a set of linear prerequisite chains.
+// Each entry carries hand-authored web-space coordinates (x/y, hub at 0,0) and
+// a bidirectional `neighbors[]` adjacency list that drives BOTH the rendered
+// connectors and the fog-of-war/buy-gating rule (a node is learnable once it
+// neighbors an owned node; each branch is seeded by its single `isHub` node).
+//
+// Content this build ships (design §6.1-6.2 -- lean and honest):
+//   - resourcefulness ("Prospector") is the ONE rich tree. Its hub plus the
+//     re-homed ex-`command` extraction talents (Bulk -> Refined Extraction,
+//     commonYieldMult/uncommonYieldMult -- extraction yield fits the salvage
+//     theme) and the existing Keen Eye I/II + Lucky Strike I/II.
+//   - tactical ("Tactician") and science ("Explorer") are a single gateway
+//     hub each -- "learn me first" seeds for branches whose real mechanics
+//     (combat / a redefined science system) don't exist yet. Their hubs carry
+//     a `{ type: "none" }` effect (an honest "no bonus yet", NOT a misleading
+//     0.0 yield placeholder) so they render correctly but grant nothing until
+//     their systems land. No inert filler nodes are authored for them.
+//
+// `command`/`diplomacy` are GONE (removed with the old five-column model in
+// Task 1); their content is either dropped (diplomacy) or re-homed onto
+// resourcefulness (command's extraction talents). Coordinates below are the
+// hand-authored placement -- tunable at the Task 12 device checkpoint, same
+// launch-placeholder spirit as MISSIONS'/RECIPES' constants. Add entries here
+// (and nowhere else -- App.svelte's Captain Talents panel iterates this object)
+// when a branch's system is ready.
 export type CaptainTalentKey =
-  | "commandExtractionI"
-  | "commandExtractionII"
-  | "resourcefulnessRareChanceI"
-  | "resourcefulnessRareChanceII"
-  | "resourcefulnessBonusRollI"
-  | "resourcefulnessBonusRollII";
+  // resourcefulness ("Prospector") -- the rich tree
+  | "prospectorHub"
+  | "prospectorBulkExtraction" // ex-commandExtractionI
+  | "prospectorRefinedExtraction" // ex-commandExtractionII
+  | "prospectorKeenEyeI"
+  | "prospectorKeenEyeII"
+  | "prospectorLuckyStrikeI"
+  | "prospectorLuckyStrikeII"
+  // tactical ("Tactician") -- lean gateway stub until combat exists
+  | "tacticianHub"
+  // science ("Explorer") -- lean gateway stub until a science mechanic exists
+  | "explorerHub";
 
 export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effect: CaptainTalentEffect }> = {
-  commandExtractionI: {
-    branch: "command",
+  // --- resourcefulness ("Prospector") -----------------------------------
+  prospectorHub: {
+    branch: "resourcefulness",
+    label: "Prospector's Instinct",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: ["prospectorBulkExtraction", "prospectorKeenEyeI"],
+    effect: { type: "commonYieldMult", mult: 0.05 },
+    flavor: "The nose for value that separates a prospector from a tourist.",
+  },
+  prospectorBulkExtraction: {
+    branch: "resourcefulness",
     label: "Bulk Extraction",
     cost: 2,
-    requires: null,
-    effect: { type: "commonYieldMult", mult: 0.1 }, // was extractionYieldMult
+    x: -180,
+    y: -120,
+    neighbors: ["prospectorHub", "prospectorRefinedExtraction"],
+    effect: { type: "commonYieldMult", mult: 0.1 }, // was extractionYieldMult, ex-command
     flavor:
       "Standard doctrine trades finesse for throughput -- pull more common ore per cycle, no questions asked.",
   },
-  commandExtractionII: {
-    branch: "command",
+  prospectorRefinedExtraction: {
+    branch: "resourcefulness",
     label: "Refined Extraction",
     cost: 4,
-    requires: "commandExtractionI",
-    effect: { type: "uncommonYieldMult", mult: 0.15 }, // was extractionYieldMult
+    x: -320,
+    y: -200,
+    neighbors: ["prospectorBulkExtraction"],
+    effect: { type: "uncommonYieldMult", mult: 0.15 }, // was extractionYieldMult, ex-command
     flavor:
       "Field engineers recalibrate the intake manifolds to favor uncommon deposits over raw volume.",
   },
-  resourcefulnessRareChanceI: {
+  prospectorKeenEyeI: {
     branch: "resourcefulness",
     label: "Keen Eye I",
     cost: 2,
-    requires: null,
+    x: 180,
+    y: -120,
+    neighbors: ["prospectorHub", "prospectorKeenEyeII"],
     effect: { type: "uncommonChanceMult", mult: 0.25 }, // was rareLootChanceMult
     flavor:
       "A trained eye catches what the sensors miss -- subtle mineral banding invisible to standard scans.",
   },
-  resourcefulnessRareChanceII: {
+  prospectorKeenEyeII: {
     branch: "resourcefulness",
     label: "Keen Eye II",
     cost: 4,
-    requires: "resourcefulnessRareChanceI",
+    x: 320,
+    y: -200,
+    neighbors: ["prospectorKeenEyeI", "prospectorLuckyStrikeI"],
     effect: { type: "rareChanceMult", mult: 0.5 }, // was rareLootChanceMult
     flavor: "Years of fieldwork sharpen instinct into something the manuals can't teach.",
   },
-  resourcefulnessBonusRollI: {
+  prospectorLuckyStrikeI: {
     branch: "resourcefulness",
     label: "Lucky Strike I",
     cost: 6,
-    requires: "resourcefulnessRareChanceII",
+    x: 300,
+    y: 40,
+    neighbors: ["prospectorKeenEyeII", "prospectorLuckyStrikeII"],
     effect: { type: "bonusRollChance", chance: 0.02 },
     flavor:
       "Some captains just have a feel for where the good ore sits. Call it luck; call it experience.",
   },
-  resourcefulnessBonusRollII: {
+  prospectorLuckyStrikeII: {
     branch: "resourcefulness",
     label: "Lucky Strike II",
     cost: 8,
-    requires: "resourcefulnessBonusRollI",
+    x: 420,
+    y: 120,
+    neighbors: ["prospectorLuckyStrikeI"],
     effect: { type: "bonusRollChanceMult", mult: 1.0 },
     flavor: "When the feeling's right twice in a row, it stops being coincidence.",
+  },
+  // --- tactical ("Tactician") -- gateway hub only -----------------------
+  tacticianHub: {
+    branch: "tactical",
+    label: "Combat Readiness",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: [], // no content nodes yet -- grows when combat lands (design §6.2)
+    effect: { type: "none" }, // pure gateway; no combat system to hang a real effect on yet
+    flavor: "Discipline first. The rest of the doctrine comes when there's a war to fight.",
+  },
+  // --- science ("Explorer") -- gateway hub only -------------------------
+  explorerHub: {
+    branch: "science",
+    label: "Survey Doctrine",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: [], // no content nodes yet -- grows when a science mechanic lands
+    effect: { type: "none" }, // pure gateway; no science system to hang a real effect on yet
+    flavor: "Every uncharted system is a question. Answering it starts here.",
   },
 };
 
 // Innate bonus granted once a captain has this branch chosen as their spec
 // (CaptainState.spec) -- separate from, and additive with, whatever they've
 // bought in the talent tree itself. Deliberately Partial<...>: a branch with
-// NO entry here is not yet selectable as a spec at all (tactical/science/
-// diplomacy today -- their underlying systems, Combat/a redefined Science
-// mechanic, don't exist yet, so there's nothing meaningful to grant a bonus
-// FOR). Revives the Phase 1 "Captain Prestige panel + specialization picker"
+// NO entry here is not yet selectable as a spec at all (tactical/science
+// today -- their underlying systems, Combat/a redefined Science mechanic,
+// don't exist yet, so there's nothing meaningful to grant a bonus FOR).
+// Revives the Phase 1 "Captain Prestige panel + specialization picker"
 // mechanic (retired during the Phase 4 Navigation/Progression Overhaul along
 // with the old Generator Stack economy it was built on), now expressed
 // against this newer Captain Talent tree instead.
+//
+// Radial Skill Web (Task 2): the `command` entry was dropped along with the
+// command branch itself. resourcefulness ("Prospector") is the only branch
+// with a real spec bonus at launch -- the sole selectable spec until tactical
+// or science earns its own system (and thus its own spec bonus).
 export const CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTalentEffect>> = {
   resourcefulness: { type: "bonusRollChance", chance: 0.01 },
-  command: { type: "commonYieldMult", mult: 0.05 }, // placeholder -- refine once Command's role is better defined
 };
 
 // Fleet Logistics' 3 slot-unlock tiers below fully replace the old

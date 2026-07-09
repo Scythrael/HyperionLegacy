@@ -11,6 +11,7 @@ import {
   HOMEWORLD_TALENTS,
   CAPTAIN_SPEC_BONUS,
 } from "./model";
+import type { CaptainTalentKey } from "./model";
 
 describe("freshState — captain roster shape", () => {
   it("starts with exactly 1 captain (Command branch is how the roster grows now)", () => {
@@ -178,13 +179,28 @@ describe("xpForNextLevel", () => {
 });
 
 describe("CAPTAIN_TALENTS — launch set", () => {
-  it("Command and Resourcefulness have real nodes; Tactical/Science/Diplomacy are empty", () => {
+  // Radial Skill Web (Task 2) rewrote this table: the old five-column
+  // (command/tactical/science/resourcefulness/diplomacy) linear model is gone.
+  // Only the three radial branches remain -- resourcefulness ("Prospector") is
+  // the rich tree; tactical ("Tactician") and science ("Explorer") ship as a
+  // single gateway hub each until their combat/science systems exist. The old
+  // ex-command extraction talents were re-homed under resourcefulness.
+  it("Resourcefulness is the rich branch; Tactical/Science are hub-only stubs", () => {
     const branches = Object.values(CAPTAIN_TALENTS).map((t) => t.branch);
-    expect(branches.filter((b) => b === "command").length).toBeGreaterThan(0);
-    expect(branches.filter((b) => b === "resourcefulness").length).toBeGreaterThan(0);
-    expect(branches.filter((b) => b === "tactical").length).toBe(0);
-    expect(branches.filter((b) => b === "science").length).toBe(0);
-    expect(branches.filter((b) => b === "diplomacy").length).toBe(0);
+    // resourcefulness carries the hub + 6 content nodes = 7 total.
+    expect(branches.filter((b) => b === "resourcefulness").length).toBe(7);
+    // tactical/science are just their hub (1 each) -- lean stub, not empty.
+    expect(branches.filter((b) => b === "tactical").length).toBe(1);
+    expect(branches.filter((b) => b === "science").length).toBe(1);
+  });
+
+  it("re-homed ex-command extraction talents now live under resourcefulness", () => {
+    // Bulk Extraction -> Refined Extraction moved off the deleted `command`
+    // branch onto resourcefulness (extraction yield fits the Prospector theme).
+    expect(CAPTAIN_TALENTS.prospectorBulkExtraction.branch).toBe("resourcefulness");
+    expect(CAPTAIN_TALENTS.prospectorBulkExtraction.effect).toEqual({ type: "commonYieldMult", mult: 0.1 });
+    expect(CAPTAIN_TALENTS.prospectorRefinedExtraction.branch).toBe("resourcefulness");
+    expect(CAPTAIN_TALENTS.prospectorRefinedExtraction.effect).toEqual({ type: "uncommonYieldMult", mult: 0.15 });
   });
 
   it("Resourcefulness has exactly 1 bonusRollChance node and 1 bonusRollChanceMult node", () => {
@@ -194,14 +210,16 @@ describe("CAPTAIN_TALENTS — launch set", () => {
     expect(bonusRollChanceMultNodes).toHaveLength(1);
   });
 
-  it("resourcefulnessBonusRollI/II have the expected cost, prerequisite chain, and effect values", () => {
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollI.cost).toBe(6);
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollI.requires).toBe("resourcefulnessRareChanceII");
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollI.effect).toEqual({ type: "bonusRollChance", chance: 0.02 });
+  it("Lucky Strike I/II have the expected cost, adjacency chain, and effect values", () => {
+    // Prerequisite chains are gone -- ordering is now expressed via `neighbors`
+    // adjacency (the fog-of-war/buy-gate walks this instead of a `requires` link).
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeI.cost).toBe(6);
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeI.neighbors).toContain("prospectorKeenEyeII");
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeI.effect).toEqual({ type: "bonusRollChance", chance: 0.02 });
 
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.cost).toBe(8);
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.requires).toBe("resourcefulnessBonusRollI");
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.effect).toEqual({ type: "bonusRollChanceMult", mult: 1.0 });
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeII.cost).toBe(8);
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeII.neighbors).toContain("prospectorLuckyStrikeI");
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeII.effect).toEqual({ type: "bonusRollChanceMult", mult: 1.0 });
   });
 
   it("every CAPTAIN_TALENTS entry has non-empty flavor text", () => {
@@ -256,6 +274,37 @@ describe("Radial Skill Web — talent def graph shape", () => {
   });
 });
 
+// Radial Skill Web (Task 2): graph-integrity invariants for the CAPTAIN_TALENTS
+// table specifically. These are the three structural rules the fog-of-war
+// reveal (Task 4) and adjacency buy-gating (Task 5) depend on being true:
+//   1. Exactly ONE hub per branch -- the always-visible seed each branch's
+//      reveal starts from (a branch with zero hubs would render blank; two
+//      would give an ambiguous seed).
+//   2. Every `neighbors` entry RESOLVES to a real key (no dangling adjacency).
+//   3. Adjacency is SAME-BRANCH (the web never draws a connector across
+//      branches -- each spec is its own isolated graph).
+//   4. Adjacency is SYMMETRIC (if A lists B, B lists A) -- connectors are
+//      undirected and the reveal walks both directions, so a one-way link
+//      would render/behave inconsistently.
+// This is the durable spec for the Task 2 data rewrite.
+describe("Radial Skill Web — CAPTAIN_TALENTS graph integrity", () => {
+  it("exactly one hub per branch, symmetric adjacency, all neighbors resolve same-branch", () => {
+    const keys = Object.keys(CAPTAIN_TALENTS) as CaptainTalentKey[];
+    const branches = new Set(Object.values(CAPTAIN_TALENTS).map((d) => d.branch));
+    for (const branch of branches) {
+      const hubs = keys.filter((k) => CAPTAIN_TALENTS[k].branch === branch && CAPTAIN_TALENTS[k].isHub);
+      expect(hubs.length).toBe(1); // one seed per branch
+    }
+    for (const k of keys) {
+      for (const n of CAPTAIN_TALENTS[k].neighbors) {
+        expect(CAPTAIN_TALENTS[n]).toBeDefined(); // resolves
+        expect(CAPTAIN_TALENTS[n].branch).toBe(CAPTAIN_TALENTS[k].branch); // same branch
+        expect(CAPTAIN_TALENTS[n].neighbors).toContain(k); // symmetric
+      }
+    }
+  });
+});
+
 describe("freshState / freshCaptainStack — talent and Fleet Admiral fields", () => {
   it("a fresh captain has no unlocked talents", () => {
     expect(freshCaptains(1)[0].unlockedCaptainTalents).toEqual([]);
@@ -279,11 +328,13 @@ describe("Captain Specialization — CaptainState.spec and CAPTAIN_SPEC_BONUS", 
     expect(freshCaptains(1)[0].spec).toBeNull();
   });
 
-  it("CAPTAIN_SPEC_BONUS has entries for resourcefulness and command only", () => {
+  it("CAPTAIN_SPEC_BONUS has an entry for resourcefulness only", () => {
+    // Radial Skill Web (Task 2) dropped the `command` spec bonus along with the
+    // command branch itself. resourcefulness ("Prospector") is the only branch
+    // with a real spec bonus at launch; tactical/science remain absent until
+    // their systems exist (same "not yet a real spec" convention as before).
     expect(CAPTAIN_SPEC_BONUS.resourcefulness).toEqual({ type: "bonusRollChance", chance: 0.01 });
-    expect(CAPTAIN_SPEC_BONUS.command).toEqual({ type: "commonYieldMult", mult: 0.05 });
     expect(CAPTAIN_SPEC_BONUS.tactical).toBeUndefined();
     expect(CAPTAIN_SPEC_BONUS.science).toBeUndefined();
-    expect(CAPTAIN_SPEC_BONUS.diplomacy).toBeUndefined();
   });
 });
