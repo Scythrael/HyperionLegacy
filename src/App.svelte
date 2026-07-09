@@ -982,19 +982,28 @@
                          (skipped entirely, via the columnCount>1 ternary, when
                          there's only one column, so it can never nudge a
                          single-node row's edges inward). -->
-                    <!-- Tooltip wiring (Task 12) -- hover shows on desktop
-                         (mouseenter/mouseleave), tap toggles on touch (click).
-                         The click handler lives on THIS outer container, but
-                         the buy-btn below stops its own click from
-                         propagating up to this div -- otherwise clicking
-                         "Unlock" would ALSO toggle the tooltip open/closed as
-                         a side effect of the same click, on top of correctly
-                         calling doBuyHomeworldTalent. -->
+                    <!-- Tooltip wiring (Task 12, restyled by the
+                         tooltip-stacking fix) -- hover OR tap opens it
+                         (mouseenter/click on this outer container). No
+                         mouseleave-based auto-close anymore: now that the
+                         tooltip renders as a full-screen .tooltip-backdrop
+                         overlay (see CSS), that backdrop visually covers
+                         this very node the instant it opens, so relying on
+                         this element's mouseleave to close it caused an
+                         open/close flicker loop on the very next mousemove
+                         (the browser's hit-test at the cursor's position
+                         resolves to the backdrop, not this node, firing a
+                         spurious mouseleave here). Closing is instead an
+                         explicit click/tap on the backdrop itself (see
+                         on:click|self below) -- same dismiss gesture on
+                         desktop and touch. The buy-btn below still stops
+                         its own click from propagating up to this div, so
+                         clicking "Unlock" doesn't ALSO toggle the tooltip
+                         as a side effect. -->
                     <div
                       class="skill-node talent-node" class:owned={owned} class:locked={locked}
                       style="top:{rowDepth * TALENT_ROW_HEIGHT}px; left:calc({(columnIndex / columnCount) * 100}%{columnCount > 1 && columnIndex > 0 ? ' + 4px' : ''}); width:calc({100 / columnCount}%{columnCount > 1 ? ' - 4px' : ''}); right:auto;"
                       on:mouseenter={() => (openTooltipKey = key)}
-                      on:mouseleave={() => (openTooltipKey = null)}
                       on:click={() => (openTooltipKey = openTooltipKey === key ? null : key)}
                     >
                       <div>
@@ -1019,18 +1028,20 @@
                         </button>
                       {/if}
                       {#if openTooltipKey === key}
-                        <div class="talent-tooltip">
-                          <p class="talent-tooltip-flavor">{talent.flavor}</p>
-                          <p class="talent-tooltip-effect">{describeHomeworldTalentEffect(talent.effect)}</p>
-                          <p class="talent-tooltip-meta">
-                            {#if owned}
-                              Owned
-                            {:else if locked}
-                              Requires: {HOMEWORLD_TALENTS[talent.requires!].label}
-                            {:else}
-                              Cost: {formatNumber(talent.cost)} Admin Points
-                            {/if}
-                          </p>
+                        <div class="tooltip-backdrop" on:click|self={() => (openTooltipKey = null)}>
+                          <div class="talent-tooltip">
+                            <p class="talent-tooltip-flavor">{talent.flavor}</p>
+                            <p class="talent-tooltip-effect">{describeHomeworldTalentEffect(talent.effect)}</p>
+                            <p class="talent-tooltip-meta">
+                              {#if owned}
+                                Owned
+                              {:else if locked}
+                                Requires: {HOMEWORLD_TALENTS[talent.requires!].label}
+                              {:else}
+                                Cost: {formatNumber(talent.cost)} Admin Points
+                              {/if}
+                            </p>
+                          </div>
                         </div>
                       {/if}
                     </div>
@@ -1197,19 +1208,24 @@
                           {@const owned = activeCaptain.unlockedCaptainTalents.includes(key as CaptainTalentKey)}
                           {@const locked = !owned && talent.requires !== null && !activeCaptain.unlockedCaptainTalents.includes(talent.requires)}
                           {@const buyable = !owned && !locked && activeCaptain.statPoints >= talent.cost}
-                          <!-- Tooltip wiring (Task 12) -- hover shows on desktop
-                               (mouseenter/mouseleave), tap toggles on touch (click).
-                               The click handler lives on THIS outer container, but
-                               the buy-btn below stops its own click from
-                               propagating up to this div -- otherwise clicking
-                               "Learn" would ALSO toggle the tooltip open/closed as
-                               a side effect of the same click, on top of correctly
-                               calling doBuyCaptainTalent. -->
+                          <!-- Tooltip wiring (Task 12, restyled by the
+                               tooltip-stacking fix) -- hover OR tap opens it
+                               (mouseenter/click on this outer container). No
+                               mouseleave-based auto-close anymore: see the
+                               matching comment in the Homeworld Talents panel
+                               above for why (the full-screen
+                               .tooltip-backdrop overlay covers this very node
+                               the instant it opens, so mouseleave fired a
+                               spurious close on the next mousemove). Closing
+                               is instead an explicit click/tap on the
+                               backdrop itself (on:click|self below). The
+                               buy-btn below still stops its own click from
+                               propagating up to this div, so clicking
+                               "Learn" doesn't ALSO toggle the tooltip. -->
                           <div
                             class="skill-node talent-node" class:owned={owned} class:locked={locked}
                             style="top:{rowDepth * TALENT_ROW_HEIGHT}px;"
                             on:mouseenter={() => (openTooltipKey = key)}
-                            on:mouseleave={() => (openTooltipKey = null)}
                             on:click={() => (openTooltipKey = openTooltipKey === key ? null : key)}
                           >
                             <div>
@@ -1234,18 +1250,20 @@
                               </button>
                             {/if}
                             {#if openTooltipKey === key}
-                              <div class="talent-tooltip">
-                                <p class="talent-tooltip-flavor">{talent.flavor}</p>
-                                <p class="talent-tooltip-effect">{describeCaptainTalentEffect(talent.effect)}</p>
-                                <p class="talent-tooltip-meta">
-                                  {#if owned}
-                                    Owned
-                                  {:else if locked}
-                                    Requires: {CAPTAIN_TALENTS[talent.requires!].label}
-                                  {:else}
-                                    Cost: {formatNumber(talent.cost)} Stat Points
-                                  {/if}
-                                </p>
+                              <div class="tooltip-backdrop" on:click|self={() => (openTooltipKey = null)}>
+                                <div class="talent-tooltip">
+                                  <p class="talent-tooltip-flavor">{talent.flavor}</p>
+                                  <p class="talent-tooltip-effect">{describeCaptainTalentEffect(talent.effect)}</p>
+                                  <p class="talent-tooltip-meta">
+                                    {#if owned}
+                                      Owned
+                                    {:else if locked}
+                                      Requires: {CAPTAIN_TALENTS[talent.requires!].label}
+                                    {:else}
+                                      Cost: {formatNumber(talent.cost)} Stat Points
+                                    {/if}
+                                  </p>
+                                </div>
                               </div>
                             {/if}
                           </div>
@@ -2320,33 +2338,40 @@
     margin-bottom: 0;
   }
 
-  /* Talent Tree Visual Redesign (Task 12) -- hover/tap tooltip popup, shared
-     shape for both Captain Talents and Homeworld Talents nodes. Positioned
-     absolute relative to .talent-node (which is itself position:absolute,
-     see above) so it floats just below the node it belongs to without
-     disturbing that node's own depth-based `top` offset. z-index 20 clears
-     both sibling .talent-node elements (implicit stacking order, no z-index
-     of their own) and the .talent-branch-connectors SVG overlay (position:
-     absolute, painted earlier in DOM order) so the tooltip never renders
-     underneath either. Background/border reuse the same
-     --color-panel-bg-strong/--color-accent-rgb tokens as .skill-node and the
-     rest of the panel chrome above, so this doesn't introduce a new visual
-     language. pointer-events left at the default (auto) -- unlike
-     .talent-branch-connectors, this popup has no reason to pass clicks
-     through to whatever's beneath it. */
+  /* Talent Tree Visual Redesign (Task 12), restyled as a fixed full-screen
+     overlay (tooltip-stacking fix) -- the original version positioned
+     .talent-tooltip absolute relative to its own .talent-node. That broke
+     down the moment the tooltip's content (flavor text + numbers line) was
+     taller than one TALENT_ROW_HEIGHT row: it visually spilled into the
+     next node's row and, since both share the same
+     --color-panel-bg-strong background, the two became an unreadable
+     overlapping mess (reported on mobile). Fix: .tooltip-backdrop reuses
+     the EXACT same fixed/inset/blur/z-index recipe as .modal-backdrop
+     below, so the tooltip now renders above everything (including sibling
+     nodes and the SVG connector overlay) with the rest of the tree dimmed
+     and blurred behind it, centered regardless of which node triggered it.
+     .talent-tooltip itself is now just the centered content box (no more
+     position/top/left/z-index of its own -- the backdrop's flex centering
+     handles placement). */
+  .tooltip-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 20px;
+  }
   .talent-tooltip {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    margin-top: 4px;
-    width: 220px;
-    max-width: 60vw;
-    padding: 8px 10px;
+    width: 280px;
+    max-width: 85vw;
+    padding: 12px 14px;
     background: var(--color-panel-bg-strong);
     border: 1px solid rgba(var(--color-accent-rgb), 0.35);
     border-radius: 8px;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-    z-index: 20;
   }
   .talent-tooltip-flavor {
     font-size: 11px;
