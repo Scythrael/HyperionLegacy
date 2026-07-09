@@ -116,9 +116,9 @@
 <!-- The whole selector. .tree-selector stacks the card row above the live
      description panel. -->
 <div class="tree-selector">
-  <!-- Card row. flex-wrap:wrap + overflow-x:auto (see <style>) means on a narrow
-       screen the cards wrap to more rows / scroll rather than sprawling off the
-       edge (design §5.1). Each card is a real <button> so it's keyboard- and
+  <!-- Card row. A full-width flex row whose cards each flex:1 1 0 (see <style>),
+       so N cards split the width into equal 1/N shares and line up with the
+       description panel below (design §5.1). Each card is a real <button> so it's keyboard- and
        screen-reader-reachable; class:focused highlights the active one.
        on:click is authoritative focus; on:mouseenter adds desktop hover-focus
        (harmless/ignored on touch, and never commits). aria-pressed exposes which
@@ -174,34 +174,32 @@
   }
 
   /* --- Card row ---------------------------------------------------------
-     flex-wrap:wrap so cards flow onto additional rows on narrow screens
-     rather than sprawling horizontally; overflow-x:auto is a belt-and-
-     suspenders fallback so a card that still can't fit scrolls instead of
-     overflowing the panel (mirrors SubTabs' scrollable-strip treatment). The
-     hidden scrollbar matches SubTabs / the app's scroll-area convention. */
+     Equal-share row (design intent, Checkpoint A→B): the row fills 100% width
+     and each card flexes to an equal 1/N slice (flex:1 1 0 on .selector-card),
+     so 3 captain-spec cards each take ~33% and the row lines up flush with the
+     full-width description panel below it. No wrap/scroll: the cards divide the
+     available width rather than sitting at a fixed size, which is why the old
+     flex-wrap/overflow-x treatment is gone. The hidden-scrollbar rules are kept
+     off since there's no scroll strip to hide now. */
   .card-row {
     display: flex;
-    flex-wrap: wrap;
     gap: 10px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* old Edge/IE */
+    width: 100%;
   }
-  .card-row::-webkit-scrollbar { display: none; } /* Chrome/Safari/most mobile */
 
   /* --- Card -------------------------------------------------------------
      Square-cornered "panel" look matching the app's chamfer idiom (same flat
-     accent-tinted style as RadialWeb's nodes / SubTabs' tabs). flex-shrink:0
-     keeps each card at its natural width in the scrollable/wrapping row rather
-     than squishing to illegibility. Colors are all theme vars. */
+     accent-tinted style as RadialWeb's nodes / SubTabs' tabs). flex:1 1 0 gives
+     every card an EQUAL basis that grows to fill the row, so N cards each take
+     ~1/N of the width (3 spec cards → 33% each) and align to the description
+     panel below. Colors are all theme vars. */
   .selector-card {
-    flex: 0 0 auto;
+    flex: 1 1 0; /* TUNABLE: equal 1/N share — verify fill/alignment on phone at Checkpoint B */
+    min-width: 0; /* allow the equal slices to shrink below content width on narrow screens */
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
-    width: 120px; /* TUNABLE: card width — verify on phone at Checkpoint B */
     padding: 10px;
     background: rgba(var(--color-accent-rgb), 0.05);
     border: 1px solid rgba(var(--color-accent-rgb), 0.16);
