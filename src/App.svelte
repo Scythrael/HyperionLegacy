@@ -1140,10 +1140,12 @@
                     Reset
                   </button>
                 </div>
-                <!-- spec is non-null here (this is the {:else} of `spec === null`); the `!` is
-                     for svelte-check/tsc, which doesn't narrow a member expression across the
-                     {#if}. RadialWeb's `branch` prop is `string`; CaptainTalentBranch|null would
-                     otherwise be rejected. -->
+                <!-- spec is non-null in this else-branch (the spec-is-null case is handled by the
+                     selector above); the non-null assertion satisfies svelte-check/tsc, which does
+                     not narrow a member expression across the conditional. RadialWeb's branch prop
+                     is a string, so a nullable spec would otherwise be rejected. NOTE: keep Svelte
+                     block tokens (hash-if / colon-else / slash-if) OUT of this comment -- they break
+                     the parser even inside an HTML comment. -->
                 <RadialWeb
                   table={CAPTAIN_TALENTS}
                   branch={activeCaptain.spec!}
