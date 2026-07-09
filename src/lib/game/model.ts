@@ -659,6 +659,136 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
   },
 };
 
+// --- Selector card data (Radial Skill Web, Task 13) -----------------------
+// docs/plans/2026-07-08-radial-skill-web-plan.md, Task 13 + design §5.
+//
+// Two small static description tables feeding the TreeSelector card component
+// (src/lib/TreeSelector.svelte -- the "mockup A" card-selector screen). Each
+// entry is one card: a title + flavor blurb + a few bullet points, shown in
+// the selector's live description panel when that card is focused.
+//
+// The `key` field is LOAD-BEARING: it must EXACTLY match the real branch /
+// category key so Tasks 14/15 can map a focused card straight onto a
+// CaptainTalentBranch / HomeworldTalentBranch (e.g. focus the "Prospector"
+// card -> commit key "resourcefulness" -> render that branch's web). A typo
+// here would silently break that card->branch mapping, so the wiring tasks
+// index these tables by the same literal keys the talent tables use.
+//
+// PLACEHOLDER COPY: the flavor/bullets below are launch-placeholder narrative
+// (same convention as MISSIONS/RECIPES/talent flavor -- frontier/belter
+// sci-fi tone, editable as text, not balance- or lore-locked). The tactical
+// ("Tactician") and science ("Explorer") specs, and the hub-only homeworld
+// categories, honestly note that their real systems are still coming.
+export interface SelectorCard {
+  key: string; // MUST match a real branch/category key (see note above)
+  title: string;
+  flavor: string;
+  bullets: string[];
+}
+
+// specCards -- the 3 captain-specialization cards. Keys are exactly the three
+// CaptainTalentBranch literals ("resourcefulness"/"tactical"/"science"), so the
+// captain Talents panel (Task 14) maps a chosen card straight onto a spec.
+export const specCards: SelectorCard[] = [
+  {
+    key: "resourcefulness", // -> CaptainTalentBranch "resourcefulness"; title per plan
+    title: "Prospector",
+    flavor:
+      "The belt rewards the ones who can read it. Prospectors turn a rock field into a payday.",
+    bullets: [
+      "Focused on salvage, mining, and extraction yield.",
+      "Boosts common and uncommon ore pulled per run.",
+      "Sharper eyes for rare finds and lucky bonus strikes.",
+      "The one fully-built spec at launch -- a real web of talents.",
+    ],
+  },
+  {
+    key: "tactical", // -> CaptainTalentBranch "tactical"; title per plan
+    title: "Tactician",
+    flavor:
+      "Out past the shipping lanes, someone eventually shoots first. The Tactician plans for that day.",
+    bullets: [
+      "Combat-focused discipline for when the shooting starts.",
+      "Full talent web arrives when the combat system lands.",
+      "For now: a single gateway node -- a promise, not yet a fight.",
+    ],
+  },
+  {
+    key: "science", // -> CaptainTalentBranch "science"; title per plan
+    title: "Explorer",
+    flavor:
+      "Every uncharted system is a question with a paycheck attached. Explorers go find the answer.",
+    bullets: [
+      "Survey- and science-focused deep-space doctrine.",
+      "Full talent web arrives when the science system lands.",
+      "For now: a single gateway node -- charted course, empty map.",
+    ],
+  },
+];
+
+// categoryCards -- the 5 homeworld-category cards. Keys are exactly the five
+// HomeworldTalentBranch literals, so the Fleet Admiral (Homeworld) Talents
+// panel (Task 15) maps a focused card straight onto a category's web. Unlike
+// the captain flow these do NOT lock in -- they're pure navigation into a
+// category tree, freely reversible (design §5.3).
+export const categoryCards: SelectorCard[] = [
+  {
+    key: "fleetLogistics", // -> HomeworldTalentBranch "fleetLogistics"
+    title: "Fleet Logistics",
+    flavor:
+      "Ships without supply lines are just expensive debris. Logistics is what turns hulls into a fleet.",
+    bullets: [
+      "Grows the fleet: unlocks additional captain slots.",
+      "Redirects a share of every rare find into fleet reserves.",
+      "The richest homeworld category at launch.",
+    ],
+  },
+  {
+    key: "homelandDefense", // -> HomeworldTalentBranch "homelandDefense"
+    title: "Homeland Defense",
+    flavor:
+      "The homeworld is the one asset you can never re-mine. Someone has to stand watch over it.",
+    bullets: [
+      "The homeworld's standing guard against future threats.",
+      "Its real defenses arrive with the battlespace system.",
+      "For now: a single gateway node -- a promise more than a wall.",
+    ],
+  },
+  {
+    key: "citizenry", // -> HomeworldTalentBranch "citizenry"
+    title: "Citizenry",
+    flavor:
+      "A frontier world is only as strong as the people who choose to stay and build on it.",
+    bullets: [
+      "The homeworld's population and the civic life it supports.",
+      "Real effects arrive with the population system.",
+      "For now: a single gateway node -- a people finding their footing.",
+    ],
+  },
+  {
+    key: "economy", // -> HomeworldTalentBranch "economy"
+    title: "Economy",
+    flavor:
+      "License the ledgers, court the traders, and the wealth starts finding its own way home.",
+    bullets: [
+      "Trade authority and passive resource income.",
+      "Keeps a steady trickle of ore flowing back to the homeworld.",
+      "One content node beyond the hub at launch, grown later.",
+    ],
+  },
+  {
+    key: "industry", // -> HomeworldTalentBranch "industry"
+    title: "Industry",
+    flavor:
+      "Nationalize the foundries and the whole homeworld starts to hum with output.",
+    bullets: [
+      "Fabrication and manufacturing throughput.",
+      "Stretches every crafting batch a little further.",
+      "One content node beyond the hub at launch, grown later.",
+    ],
+  },
+];
+
 // What a brand-new (or newly-unlocked) captain slot starts with. There is no
 // more prestige to reset a captain THROUGH -- this is purely the baseline for
 // a slot that has never been played.

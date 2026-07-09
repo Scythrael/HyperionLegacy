@@ -10,6 +10,8 @@ import {
   CAPTAIN_TALENTS,
   HOMEWORLD_TALENTS,
   CAPTAIN_SPEC_BONUS,
+  specCards,
+  categoryCards,
 } from "./model";
 import type { CaptainTalentKey, HomeworldTalentKey } from "./model";
 
@@ -390,5 +392,50 @@ describe("Captain Specialization — CaptainState.spec and CAPTAIN_SPEC_BONUS", 
     expect(CAPTAIN_SPEC_BONUS.resourcefulness).toEqual({ type: "bonusRollChance", chance: 0.01 });
     expect(CAPTAIN_SPEC_BONUS.tactical).toBeUndefined();
     expect(CAPTAIN_SPEC_BONUS.science).toBeUndefined();
+  });
+});
+
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 13):
+// the selector card tables feeding TreeSelector.svelte. The CRITICAL invariant
+// is that each card's `key` EXACTLY matches a real branch/category key, because
+// Tasks 14/15 map a focused card straight onto a CaptainTalentBranch /
+// HomeworldTalentBranch. A drifted/typo'd key would silently break that
+// card->branch mapping, so these tests derive the expected key SETS from the
+// real talent tables (not hard-coded literals) -- if a branch/category is ever
+// added or renamed, this test forces the card tables to keep pace.
+describe("Selector cards — specCards / categoryCards (Task 13)", () => {
+  it("specCards has exactly 3 entries keyed to the 3 captain branches", () => {
+    expect(specCards).toHaveLength(3);
+    // The real captain branches, derived from the talent table itself.
+    const captainBranches = new Set(Object.values(CAPTAIN_TALENTS).map((t) => t.branch));
+    expect(captainBranches).toEqual(new Set(["resourcefulness", "tactical", "science"]));
+    // Every card key is one of those branches, and the set of card keys matches
+    // the set of branches exactly (no missing, no extra, no duplicates).
+    const cardKeys = specCards.map((c) => c.key);
+    expect(new Set(cardKeys)).toEqual(captainBranches);
+    expect(cardKeys).toHaveLength(new Set(cardKeys).size); // keys are unique
+  });
+
+  it("categoryCards has exactly 5 entries keyed to the 5 homeworld categories", () => {
+    expect(categoryCards).toHaveLength(5);
+    // The real homeworld categories, derived from the talent table itself.
+    const homeworldCategories = new Set(Object.values(HOMEWORLD_TALENTS).map((t) => t.branch));
+    expect(homeworldCategories).toEqual(
+      new Set(["fleetLogistics", "homelandDefense", "citizenry", "economy", "industry"]),
+    );
+    const cardKeys = categoryCards.map((c) => c.key);
+    expect(new Set(cardKeys)).toEqual(homeworldCategories);
+    expect(cardKeys).toHaveLength(new Set(cardKeys).size); // keys are unique
+  });
+
+  it("every selector card carries a non-empty title, flavor, and at least one bullet", () => {
+    for (const card of [...specCards, ...categoryCards]) {
+      expect(card.title.length).toBeGreaterThan(0);
+      expect(card.flavor.length).toBeGreaterThan(0);
+      expect(card.bullets.length).toBeGreaterThan(0);
+      for (const bullet of card.bullets) {
+        expect(bullet.length).toBeGreaterThan(0);
+      }
+    }
   });
 });
