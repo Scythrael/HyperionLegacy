@@ -408,7 +408,7 @@ describe("tickCaptainMission — bonus roll (Resourcefulness Lucky Strike)", () 
   // guard for the exact correctness trap this task's design doc calls out:
   // captainSpecBonusRollChance's +0.01 MUST be added AFTER
   // bonusRollChance*(1+bonusRollChanceMult) is computed, not folded into
-  // bonusRollChance beforehand. With both resourcefulnessBonusRollI/II
+  // bonusRollChance beforehand. With both prospectorLuckyStrikeI/II
   // unlocked (bonusRollChance 0.02, bonusRollChanceMult 1.0) and
   // spec:"resourcefulness" (specBonusRollChance 0.01), the CORRECT effective
   // bonus-trigger chance is 0.02*(1+1.0) + 0.01 = 0.05 exactly. A WRONG
@@ -427,7 +427,7 @@ describe("tickCaptainMission — bonus roll (Resourcefulness Lucky Strike)", () 
   //   call 5: rollBonusExtractionTick's uncommon check -- rng() < effectiveUncommonChance
   //   call 6: rollBonusExtractionTick's common 30% check -- rng() < BONUS_ROLL_COMMON_CHANCE (0.3)
   //
-  // Both resourcefulnessRareChanceI/II are ALSO unlocked in this captain's
+  // Both prospectorKeenEyeI/II are ALSO unlocked in this captain's
   // setup below (uncommonChanceMult 0.25, rareChanceMult 0.5), per the design
   // doc's own scenario -- this only affects calls 1/2/4/5's thresholds, not
   // the trigger check at call 3, but it's included here to keep the setup
@@ -442,10 +442,10 @@ describe("tickCaptainMission — bonus roll (Resourcefulness Lucky Strike)", () 
     const base = freshCaptains(1)[0];
     base.spec = "resourcefulness";
     base.unlockedCaptainTalents = [
-      "resourcefulnessRareChanceI",
-      "resourcefulnessRareChanceII",
-      "resourcefulnessBonusRollI",
-      "resourcefulnessBonusRollII",
+      "prospectorKeenEyeI",
+      "prospectorKeenEyeII",
+      "prospectorLuckyStrikeI",
+      "prospectorLuckyStrikeII",
     ];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
     const bonuses = {
@@ -477,10 +477,10 @@ describe("tickCaptainMission — bonus roll (Resourcefulness Lucky Strike)", () 
     const base = freshCaptains(1)[0];
     base.spec = "resourcefulness";
     base.unlockedCaptainTalents = [
-      "resourcefulnessRareChanceI",
-      "resourcefulnessRareChanceII",
-      "resourcefulnessBonusRollI",
-      "resourcefulnessBonusRollII",
+      "prospectorKeenEyeI",
+      "prospectorKeenEyeII",
+      "prospectorLuckyStrikeI",
+      "prospectorLuckyStrikeII",
     ];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
     const bonuses = {
@@ -526,10 +526,10 @@ describe("tickCaptainMission — bonus roll (Resourcefulness Lucky Strike)", () 
     // documents that null is the baseline rather than something a caller
     // must remember to reset.
     base.unlockedCaptainTalents = [
-      "resourcefulnessRareChanceI",
-      "resourcefulnessRareChanceII",
-      "resourcefulnessBonusRollI",
-      "resourcefulnessBonusRollII",
+      "prospectorKeenEyeI",
+      "prospectorKeenEyeII",
+      "prospectorLuckyStrikeI",
+      "prospectorLuckyStrikeII",
     ];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
     const bonuses = {
@@ -558,19 +558,19 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
     expect(captainCommonYieldMult(captain)).toBe(0);
   });
 
-  it("captainCommonYieldMult reads commandExtractionI's mult when unlocked (Bulk Extraction)", () => {
+  it("captainCommonYieldMult reads prospectorBulkExtraction's mult when unlocked (Bulk Extraction)", () => {
     const captain = freshCaptains(1)[0];
-    captain.unlockedCaptainTalents = ["commandExtractionI"];
+    captain.unlockedCaptainTalents = ["prospectorBulkExtraction"];
     expect(captainCommonYieldMult(captain)).toBeCloseTo(0.1, 6);
   });
 
   it("captainCommonYieldMult ignores unlocked talents of OTHER effect types", () => {
     const captain = freshCaptains(1)[0];
-    // commandExtractionII/resourcefulnessRareChanceI/II are uncommonYieldMult,
+    // prospectorRefinedExtraction/prospectorKeenEyeI/II are uncommonYieldMult,
     // uncommonChanceMult, and rareChanceMult respectively -- none is commonYieldMult.
     // Set directly on unlockedCaptainTalents (bypassing buyCaptainTalent's own
-    // requires-chain validation) purely to exercise this helper's effect-type filter.
-    captain.unlockedCaptainTalents = ["commandExtractionII", "resourcefulnessRareChanceI", "resourcefulnessRareChanceII"];
+    // adjacency validation) purely to exercise this helper's effect-type filter.
+    captain.unlockedCaptainTalents = ["prospectorRefinedExtraction", "prospectorKeenEyeI", "prospectorKeenEyeII"];
     expect(captainCommonYieldMult(captain)).toBe(0);
   });
 
@@ -579,12 +579,12 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
     expect(captainUncommonYieldMult(captain)).toBe(0);
   });
 
-  it("captainUncommonYieldMult reads commandExtractionII's mult when unlocked (Refined Extraction)", () => {
+  it("captainUncommonYieldMult reads prospectorRefinedExtraction's mult when unlocked (Refined Extraction)", () => {
     const captain = freshCaptains(1)[0];
-    // commandExtractionII requires commandExtractionI per its `requires` field, but this
-    // helper only reads unlockedCaptainTalents -- set directly rather than going through
-    // buyCaptainTalent's own prerequisite-chain validation.
-    captain.unlockedCaptainTalents = ["commandExtractionII"];
+    // prospectorRefinedExtraction neighbors prospectorBulkExtraction in the radial
+    // web, but this helper only reads unlockedCaptainTalents -- set directly rather
+    // than going through buyCaptainTalent's own adjacency validation.
+    captain.unlockedCaptainTalents = ["prospectorRefinedExtraction"];
     expect(captainUncommonYieldMult(captain)).toBeCloseTo(0.15, 6);
   });
 
@@ -593,9 +593,9 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
     expect(captainUncommonChanceMult(captain)).toBe(0);
   });
 
-  it("captainUncommonChanceMult reads resourcefulnessRareChanceI's mult when unlocked (Keen Eye I)", () => {
+  it("captainUncommonChanceMult reads prospectorKeenEyeI's mult when unlocked (Keen Eye I)", () => {
     const captain = freshCaptains(1)[0];
-    captain.unlockedCaptainTalents = ["resourcefulnessRareChanceI"];
+    captain.unlockedCaptainTalents = ["prospectorKeenEyeI"];
     expect(captainUncommonChanceMult(captain)).toBeCloseTo(0.25, 6);
   });
 
@@ -604,9 +604,9 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
     expect(captainRareChanceMult(captain)).toBe(0);
   });
 
-  it("captainRareChanceMult reads resourcefulnessRareChanceII's mult when unlocked (Keen Eye II)", () => {
+  it("captainRareChanceMult reads prospectorKeenEyeII's mult when unlocked (Keen Eye II)", () => {
     const captain = freshCaptains(1)[0];
-    captain.unlockedCaptainTalents = ["resourcefulnessRareChanceII"];
+    captain.unlockedCaptainTalents = ["prospectorKeenEyeII"];
     expect(captainRareChanceMult(captain)).toBeCloseTo(0.5, 6);
   });
 
@@ -624,14 +624,14 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
   it("captainBonusRollChance sums bonusRollChance across unlocked talents", () => {
     const captain = freshCaptains(1)[0];
     expect(captainBonusRollChance(captain)).toBe(0);
-    captain.unlockedCaptainTalents = ["resourcefulnessBonusRollI"];
+    captain.unlockedCaptainTalents = ["prospectorLuckyStrikeI"];
     expect(captainBonusRollChance(captain)).toBe(0.02);
   });
 
   it("captainBonusRollChanceMult sums bonusRollChanceMult across unlocked talents", () => {
     const captain = freshCaptains(1)[0];
     expect(captainBonusRollChanceMult(captain)).toBe(0);
-    captain.unlockedCaptainTalents = ["resourcefulnessBonusRollII"];
+    captain.unlockedCaptainTalents = ["prospectorLuckyStrikeII"];
     expect(captainBonusRollChanceMult(captain)).toBe(1.0);
   });
 
@@ -639,33 +639,28 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
   // unit coverage for captainSpecBonusRollChance itself, independent of the
   // talent tree -- CAPTAIN_SPEC_BONUS.resourcefulness's flat +0.01 grant only
   // applies when captain.spec === "resourcefulness" exactly; every other spec
-  // value (including "command", which grants a DIFFERENT bonus type via
-  // captainCommonYieldMult instead) and null (no spec chosen) both yield 0
-  // here.
+  // value (tactical/science, which have no CAPTAIN_SPEC_BONUS entry at all yet)
+  // and null (no spec chosen) both yield 0 here.
   it("captainSpecBonusRollChance returns 0.01 for spec:resourcefulness, else 0", () => {
     const captain = freshCaptains(1)[0];
     expect(captainSpecBonusRollChance(captain)).toBe(0);
     captain.spec = "resourcefulness";
     expect(captainSpecBonusRollChance(captain)).toBe(0.01);
-    captain.spec = "command";
+    captain.spec = "tactical";
     expect(captainSpecBonusRollChance(captain)).toBe(0);
     captain.spec = null;
     expect(captainSpecBonusRollChance(captain)).toBe(0);
   });
 
-  // Task 2c: captainCommonYieldMult's CAPTAIN_SPEC_BONUS.command fold-in (see
-  // that function's own comment in tick.ts for why command's spec bonus is
-  // safe to fold directly into this helper, unlike resourcefulness's, which
-  // needs the separate captainSpecBonusRollChance helper above). Confirms the
-  // spec's flat +0.05 is ADDITIVE with, not a replacement for, whatever the
-  // talent tree itself contributes.
-  it("captainCommonYieldMult includes the command spec's +0.05, independent of talent-tree nodes", () => {
-    const captain = freshCaptains(1)[0];
-    captain.spec = "command";
-    expect(captainCommonYieldMult(captain)).toBe(0.05); // no talents unlocked yet -- spec bonus alone
-    captain.unlockedCaptainTalents = ["commandExtractionI"];
-    expect(captainCommonYieldMult(captain)).toBe(0.1 + 0.05); // talent's 0.1 + spec's 0.05
-  });
+  // Radial Skill Web (Task 7): the test that used to sit here --
+  // "captainCommonYieldMult includes the command spec's +0.05, independent of
+  // talent-tree nodes" -- was REMOVED, not re-pointed. Its whole purpose was
+  // the CAPTAIN_SPEC_BONUS.command fold-in inside captainCommonYieldMult, and
+  // both the `command` branch/spec and that fold-in were deleted in Task 2/7.
+  // There is no equivalent commonYieldMult spec bonus to re-point it at (the
+  // surviving `resourcefulness` spec bonus is a bonusRollChance grant, already
+  // covered by captainSpecBonusRollChance's own test above), so re-pointing
+  // would have invented coverage for behavior that no longer exists.
 });
 
 describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () => {
@@ -1031,11 +1026,11 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
   //   extractionRatePerTick * (1 + rareYieldMult) -- a more precise test than the old
   //   composition-invariant version, which could no longer prove anything meaningful
   //   once the invariant it relied on stopped holding universally.
-  it("commandExtractionI (Captain Talent, commonYieldMult) boosts a mission captain's extraction via tick()", () => {
+  it("prospectorBulkExtraction (Captain Talent, commonYieldMult) boosts a mission captain's extraction via tick()", () => {
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
     try {
       const state = freshState();
-      state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.1 commonYieldMult
+      state.captains[0].unlockedCaptainTalents = ["prospectorBulkExtraction"]; // +0.1 commonYieldMult
       state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
       const result = tick(1, state); // tickDurationSeconds=1 (fresh default) -> ticksElapsed=1 for deltaSeconds=1 -> 1 roll
@@ -1081,7 +1076,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
     }
   });
 
-  it("commandExtractionI (Captain Talent) and a Homeworld Talent's rareYieldMult both wire through tick() without interfering with each other", () => {
+  it("prospectorBulkExtraction (Captain Talent) and a Homeworld Talent's rareYieldMult both wire through tick() without interfering with each other", () => {
     // Math.random mocked to 0.5 for the same reason as the commonYieldMult-only test
     // above: this forces common to win outright (both occurrence checks fail), so
     // fleetLogisticsYield's rareYieldMult never even gets a chance to apply this roll --
@@ -1090,7 +1085,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
     try {
       const state = freshState();
       state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05 rareYieldMult (inert this roll -- rare never occurs)
-      state.captains[0].unlockedCaptainTalents = ["commandExtractionI"]; // +0.1 commonYieldMult (does affect the total)
+      state.captains[0].unlockedCaptainTalents = ["prospectorBulkExtraction"]; // +0.1 commonYieldMult (does affect the total)
       state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
       const result = tick(1, state);
@@ -1414,7 +1409,7 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
   // respecCaptainTalents/respecHomeworldTalents, added to tick.ts in commits
   // fc4f317/da9b7f1. Every cost below is hand-verified against the LIVE
   // CAPTAIN_TALENTS/HOMEWORLD_TALENTS tables in model.ts (not transcribed
-  // blindly): commandExtractionI.cost=2, commandExtractionII.cost=4,
+  // blindly): prospectorBulkExtraction.cost=2, prospectorRefinedExtraction.cost=4,
   // fleetLogisticsSlot1.cost=3 (effect.type: "unlockCaptainSlot" --
   // never refunded/removed), fleetLogisticsYield.cost=4 (effect.type:
   // "rareYieldMult" -- a normal refundable node). RESPEC_COST_CREDITS is 50
@@ -1423,9 +1418,9 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
   it("respecCaptainTalents refunds the exact statPoints cost sum of every unlocked talent, clears the list, and deducts flat 50 credits", () => {
     const state = freshState();
     state.credits = new Decimal(50); // exactly the flat RESPEC_COST_CREDITS
-    state.captains[0].unlockedCaptainTalents = ["commandExtractionI", "commandExtractionII"];
+    state.captains[0].unlockedCaptainTalents = ["prospectorBulkExtraction", "prospectorRefinedExtraction"];
     state.captains[0].statPoints = 0;
-    // Refund = commandExtractionI.cost 2 + commandExtractionII.cost 4 = 6.
+    // Refund = prospectorBulkExtraction.cost 2 + prospectorRefinedExtraction.cost 4 = 6.
     const { next, success } = respecCaptainTalents(state, 1);
     expect(success).toBe(true);
     expect(next.captains[0].statPoints).toBe(6);
@@ -1436,7 +1431,7 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
   it("respecCaptainTalents fails (same state reference) when credits are one short of RESPEC_COST_CREDITS", () => {
     const state = freshState();
     state.credits = new Decimal(49); // one below the flat 50 cost
-    state.captains[0].unlockedCaptainTalents = ["commandExtractionI"];
+    state.captains[0].unlockedCaptainTalents = ["prospectorBulkExtraction"];
     const { next, success } = respecCaptainTalents(state, 1);
     expect(success).toBe(false);
     expect(next).toBe(state); // reference identity, not just structural equality
@@ -1476,8 +1471,8 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
   it("respecCaptainTalents with an explicit newSpec argument sets the new spec atomically with the talent wipe", () => {
     const state = freshState();
     state.credits = new Decimal(50);
-    state.captains[0].spec = "command";
-    state.captains[0].unlockedCaptainTalents = ["commandExtractionI", "commandExtractionII"]; // refund = 2+4 = 6
+    state.captains[0].spec = "tactical";
+    state.captains[0].unlockedCaptainTalents = ["prospectorBulkExtraction", "prospectorRefinedExtraction"]; // refund = 2+4 = 6
     state.captains[0].statPoints = 0;
     const { next, success } = respecCaptainTalents(state, 1, "resourcefulness");
     expect(success).toBe(true);
@@ -1489,14 +1484,14 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
   it("respecCaptainTalents with the 3rd arg omitted entirely leaves the captain's current spec UNCHANGED", () => {
     const state = freshState();
     state.credits = new Decimal(50);
-    state.captains[0].spec = "command";
-    state.captains[0].unlockedCaptainTalents = ["commandExtractionI", "commandExtractionII"]; // refund = 2+4 = 6
+    state.captains[0].spec = "resourcefulness";
+    state.captains[0].unlockedCaptainTalents = ["prospectorBulkExtraction", "prospectorRefinedExtraction"]; // refund = 2+4 = 6
     state.captains[0].statPoints = 0;
     // Only 2 args -- newSpec is genuinely omitted (not passed as `undefined` explicitly), exercising the
     // `newSpec === undefined ? captain.spec : newSpec` branch's "omitted" path, not just its "undefined" path.
     const { next, success } = respecCaptainTalents(state, 1);
     expect(success).toBe(true);
-    expect(next.captains[0].spec).toBe("command"); // unchanged from before the respec
+    expect(next.captains[0].spec).toBe("resourcefulness"); // unchanged from before the respec
     expect(next.captains[0].unlockedCaptainTalents).toEqual([]);
     expect(next.captains[0].statPoints).toBe(6);
   });
@@ -1504,15 +1499,15 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
   it("respecCaptainTalents with an explicit null newSpec CLEARS the captain's current spec (distinct from omitting the arg)", () => {
     const state = freshState();
     state.credits = new Decimal(50);
-    state.captains[0].spec = "command";
-    state.captains[0].unlockedCaptainTalents = ["commandExtractionI", "commandExtractionII"]; // refund = 2+4 = 6
+    state.captains[0].spec = "resourcefulness";
+    state.captains[0].unlockedCaptainTalents = ["prospectorBulkExtraction", "prospectorRefinedExtraction"]; // refund = 2+4 = 6
     state.captains[0].statPoints = 0;
     // Explicit `null` must be preserved, not collapsed into "keep current spec" -- this is exactly why
     // respecCaptainTalents's implementation uses a strict `=== undefined` check rather than `newSpec ?? captain.spec`
     // (the `??` form would also replace an explicit null with captain.spec, indistinguishable from omitting the arg).
     const { next, success } = respecCaptainTalents(state, 1, null);
     expect(success).toBe(true);
-    expect(next.captains[0].spec).toBe(null); // cleared, not left at "command"
+    expect(next.captains[0].spec).toBe(null); // cleared, not left at "resourcefulness"
     expect(next.captains[0].unlockedCaptainTalents).toEqual([]);
     expect(next.captains[0].statPoints).toBe(6);
   });

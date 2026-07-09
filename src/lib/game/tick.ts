@@ -59,33 +59,18 @@ export const LOOT_MATERIAL_KEYS: LootMaterialKey[] = ["commonOre", "uncommonMate
 // CaptainState, per the "read at usage time" pattern the comment above
 // buyCaptainTalent already documents.
 //
-// Also folds in CAPTAIN_SPEC_BONUS.command's flat +0.05 commonYieldMult when
-// captain.spec === "command" -- safe to fold directly into THIS function's
-// own return value (unlike captainBonusRollChance's spec bonus, which needs a
-// separate helper -- see captainSpecBonusRollChance below for why) because
-// commonYieldMult has no second-stage multiplier applied downstream: confirmed
-// by reading rollExtractionTick, which applies commonYieldMult as a single
-// `baseAmount.times(1 + bonuses.commonYieldMult)` with nothing else scaling
-// the result afterward. So there's no risk of the spec bonus being
-// double-scaled by a later multiplier stage, the way bonusRollChance's would
-// be if folded into captainBonusRollChance the same way.
+// Radial Skill Web (Task 7): the old CAPTAIN_SPEC_BONUS.command fold-in
+// (a flat commonYieldMult granted when captain.spec === "command") was removed
+// here, because the `command` branch/spec and its CAPTAIN_SPEC_BONUS.command
+// entry were both deleted in Task 2. This function now returns ONLY the talent
+// sum. The still-valid `resourcefulness` spec bonus is handled separately in
+// captainSpecBonusRollChance below (kept separate for the downstream-scaling
+// reason documented there) -- it is unaffected by this removal.
 export function captainCommonYieldMult(captain: CaptainState): number {
-  const talentSum = captain.unlockedCaptainTalents.reduce((sum, key) => {
+  return captain.unlockedCaptainTalents.reduce((sum, key) => {
     const effect = CAPTAIN_TALENTS[key].effect;
     return effect.type === "commonYieldMult" ? sum + effect.mult : sum;
   }, 0);
-  // CAPTAIN_SPEC_BONUS.command is typed CaptainTalentEffect (the full union),
-  // not narrowed to the commonYieldMult variant specifically, since
-  // CAPTAIN_SPEC_BONUS's declared type is Partial<Record<CaptainTalentBranch,
-  // CaptainTalentEffect>> -- TypeScript doesn't narrow a widely-typed
-  // property from the literal value assigned to it. So this reads `.mult`
-  // only after confirming effect.type === "commonYieldMult" via the same
-  // discriminant-check pattern as every effect.type check elsewhere in this
-  // file (see the .reduce() just above), rather than a non-null assertion
-  // that TypeScript would reject (mult doesn't exist on every union member).
-  const specEffect = CAPTAIN_SPEC_BONUS.command;
-  const specBonus = captain.spec === "command" && specEffect?.type === "commonYieldMult" ? specEffect.mult : 0;
-  return talentSum + specBonus;
 }
 
 // Same additive-stacking, read-at-usage-time pattern as
@@ -116,7 +101,7 @@ export function captainRareChanceMult(captain: CaptainState): number {
 }
 
 // Same additive-stacking, read-at-usage-time pattern as the helpers above,
-// for the bonus-roll TRIGGER chance (the base value from resourcefulnessBonusRollI --
+// for the bonus-roll TRIGGER chance (the base value from prospectorLuckyStrikeI --
 // NOT a multiplier on an existing mission-defined chance, since there is no
 // mission-level "bonus roll chance" to scale; this creates the chance from
 // nothing, so summing raw values is the only mechanically coherent stacking
@@ -131,7 +116,7 @@ export function captainBonusRollChance(captain: CaptainState): number {
 }
 
 // Relative multiplier applied ON TOP of captainBonusRollChance's base value
-// (resourcefulnessBonusRollII) -- same Math.min(1, base * (1 + mult)) shape
+// (prospectorLuckyStrikeII) -- same Math.min(1, base * (1 + mult)) shape
 // every other chance-mult effect in this file already uses (see
 // effectiveUncommonChance/effectiveRareChance in rollExtractionTick below).
 export function captainBonusRollChanceMult(captain: CaptainState): number {
@@ -143,7 +128,7 @@ export function captainBonusRollChanceMult(captain: CaptainState): number {
 
 // CAPTAIN_SPEC_BONUS.resourcefulness's flat +0.01 bonus-roll TRIGGER chance,
 // granted once captain.spec === "resourcefulness" (independent of whether any
-// resourcefulnessBonusRoll talent is actually unlocked -- the spec bonus is a
+// prospectorLuckyStrike talent is actually unlocked -- the spec bonus is a
 // standalone grant, not a scaling of the talent tree's own contribution).
 //
 // Deliberately kept SEPARATE from captainBonusRollChance (not folded into
@@ -153,16 +138,19 @@ export function captainBonusRollChanceMult(captain: CaptainState): number {
 // `bonusRollChance * (1 + bonusRollChanceMult)`) that commonYieldMult does
 // NOT have. Folding this spec bonus into captainBonusRollChance's own sum
 // would let bonusRollChanceMult incorrectly re-scale the spec bonus too --
-// e.g. with both resourcefulnessBonusRollI/II unlocked (bonusRollChance 0.02,
+// e.g. with both prospectorLuckyStrikeI/II unlocked (bonusRollChance 0.02,
 // bonusRollChanceMult 1.0), folding 0.01 in would give
 // (0.02 + 0.01) * (1 + 1.0) = 0.06, overshooting the design doc's 0.05 target.
 // Keeping it separate and adding it AFTER the base*(1+mult) scaling (see
 // tickCaptainMission) gives the correct 0.02*(1+1.0) + 0.01 = 0.05 instead.
 export function captainSpecBonusRollChance(captain: CaptainState): number {
-  // Same discriminant-narrowing reasoning as captainCommonYieldMult's own
-  // specBonus line above: CAPTAIN_SPEC_BONUS.resourcefulness is typed as the
-  // full CaptainTalentEffect union, so `.chance` is only accessed after
-  // confirming effect.type === "bonusRollChance" specifically.
+  // CAPTAIN_SPEC_BONUS.resourcefulness is typed as the full CaptainTalentEffect
+  // union (CAPTAIN_SPEC_BONUS's declared type is Partial<Record<
+  // CaptainTalentBranch, CaptainTalentEffect>>, which TypeScript does not
+  // narrow from the literal value assigned), so `.chance` is only accessed
+  // after confirming effect.type === "bonusRollChance" specifically -- the same
+  // discriminant-check pattern as the effect.type checks in the reduce helpers
+  // above, rather than a non-null assertion TypeScript would reject.
   const specEffect = CAPTAIN_SPEC_BONUS.resourcefulness;
   return captain.spec === "resourcefulness" && specEffect?.type === "bonusRollChance" ? specEffect.chance : 0;
 }
