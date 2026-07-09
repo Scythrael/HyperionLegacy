@@ -18,6 +18,10 @@
   //   the orthogonal `.hub` flag, and (optionally) fires onNodeTap on click.
   //   No layout/feel tuning is attempted here — that is deferred to the Task 12
   //   device checkpoint (Checkpoint A). Tunables are marked TUNABLE below.
+  //
+  //   Task 9 (this addition): an SVG elbow-connector layer is drawn INSIDE
+  //   .web-world, BEHIND the nodes. See the `visibleEdges` derivation and the
+  //   `.web-connectors` <svg> in the markup for the coordinate-alignment design.
 
   import { computeVisibleTalents } from "./game/talentWeb";
 
@@ -95,6 +99,67 @@
     .map((key) => ({ key, def: table[key] }))
     .filter((n) => n.def && n.def.branch === branch);
 
+  // --- Derived: the visible edge list (Task 9 connector layer) ---------------
+  // One orthogonal "elbow" connector is drawn per UNDIRECTED edge whose BOTH
+  // endpoints are visible. Derivation rules (design §3.3, Task 9):
+  //
+  //   * Both-endpoints-visible: an edge is emitted ONLY when a AND b are both in
+  //     `visible`. A line into a hidden node would leak fog-of-war info, so those
+  //     are skipped entirely (never drawn).
+  //   * Dedupe: `neighbors` is bidirectional by convention (A lists B and B lists
+  //     A — see plan line 87), so every undirected edge shows up twice. We emit it
+  //     exactly once by only taking the direction where `key < neighborKey`
+  //     (lexicographic string compare). That single inequality both dedupes AND
+  //     drops self-loops (key === key fails `<`), with no auxiliary Set needed.
+  //   * Owned-vs-not styling: `bothOwned` is precomputed here (both endpoints in
+  //     ownedSet) so the markup can pick the brighter stroke for fully-owned
+  //     edges vs the dimmer stroke for edges touching a not-yet-owned node.
+  //
+  // Coordinates carried through are the RAW web-space (x, y) of each endpoint —
+  // the same values the nodes render at — so the SVG (whose origin coincides with
+  // .web-world's origin) draws endpoints exactly on node centers. See the
+  // `.web-connectors` <svg> comment in the markup for why that alignment holds,
+  // including for negative coordinates.
+  //
+  // Reactive on visibleNodes (which already tracks visible/owned/branch/table),
+  // so learning a node re-reveals neighbors and re-derives edges on the next tick.
+  $: visibleEdges = (() => {
+    // A fast membership set of visible keys so the neighbor scan is O(1) per
+    // lookup instead of re-scanning visibleNodes. Built from visibleNodes (not
+    // the raw `visible` set) so it already respects the branch filter applied
+    // there — an edge is only drawn when both ends survive that same filter.
+    const visibleKeys = new Set(visibleNodes.map((n) => n.key));
+
+    const edges: {
+      ax: number;
+      ay: number;
+      bx: number;
+      by: number;
+      bothOwned: boolean;
+    }[] = [];
+
+    for (const { key, def } of visibleNodes) {
+      for (const neighborKey of def.neighbors) {
+        // Skip edges into hidden nodes (fog-of-war) and, via the `<` test below,
+        // the duplicate reverse direction + any self-loop.
+        if (!visibleKeys.has(neighborKey)) continue;
+        if (!(key < neighborKey)) continue; // emit each undirected pair once
+
+        const neighborDef = table[neighborKey];
+        if (!neighborDef) continue; // defensive: dangling neighbor ref
+
+        edges.push({
+          ax: def.x,
+          ay: def.y,
+          bx: neighborDef.x,
+          by: neighborDef.y,
+          bothOwned: ownedSet.has(key) && ownedSet.has(neighborKey),
+        });
+      }
+    }
+    return edges;
+  })();
+
   // --- Per-node state classification ----------------------------------------
   // Exactly ONE of owned / learnable / locked applies to any visible node;
   // `.hub` is an ORTHOGONAL flag layered on top (a hub can itself be owned,
@@ -127,6 +192,34 @@
        (see .web-node). The translate(panX,panY) here is the Task 10 pan hook;
        at panX=panY=0 the world sits exactly centered. -->
   <div class="web-world" style="transform: translate({panX}px, {panY}px);">
+    <!-- Connector layer (Task 9). Placed FIRST inside .web-world so it paints
+         BEHIND every .web-node that follows in DOM order (no z-index needed —
+         later siblings stack on top). pointer-events:none (set in <style>) so it
+         never intercepts a node tap or a Task-10 pan drag.
+
+         COORDINATE ALIGNMENT — the one part that must be exactly right:
+         The <svg> sits at .web-world's origin (left:0; top:0; width:0; height:0)
+         and has NO viewBox, so its user-coordinate system is 1:1 CSS pixels with
+         its (0,0) exactly on .web-world's (0,0) — the same origin every .web-node
+         measures from. A path point like `M -320 -200` therefore lands on the
+         identical pixel as a node rendered at left:-320px; top:-200px (whose own
+         center is pinned there by translate(-50%,-50%)). overflow:visible lets
+         strokes at negative or large coordinates paint OUTSIDE the nominal 0×0
+         SVG box, so the full web renders even though the SVG has zero size.
+
+         Each edge is one single-elbow path: `M ax ay H bx V by` — move to A, draw
+         horizontally to B's x, then vertically to B. Consistent H-then-V for every
+         edge gives the tidy circuit-trace routing (routing cleanliness itself is a
+         Checkpoint A visual item). No fill; stroke only; no arrowheads. -->
+    <svg class="web-connectors" aria-hidden="true">
+      {#each visibleEdges as e}
+        <path
+          class="web-edge"
+          class:both-owned={e.bothOwned}
+          d="M {e.ax} {e.ay} H {e.bx} V {e.by}"
+        />
+      {/each}
+    </svg>
     {#each visibleNodes as { key, def } (key)}
       {@const st = nodeState(key, def)}
       <!-- Locked (unaffordable) nodes stay tappable ON PURPOSE: Task 11's tooltip uses
@@ -187,6 +280,38 @@
     width: 0;
     height: 0;
     /* transform set inline (translate(panX,panY)); Task 10 animates it. */
+  }
+
+  /* --- Connector layer (Task 9) -----------------------------------------
+     Zero-size SVG pinned to .web-world's origin so its (0,0) coincides with
+     web-space (0,0). NO viewBox -> user units == CSS px, 1:1, un-scaled, so
+     path coordinates equal node coordinates (endpoints land on node centers).
+     overflow:visible is LOAD-BEARING: the box is 0×0, so without it every
+     stroke (all of which live outside a 0×0 box) would be clipped away. It
+     also lets negative-coordinate edges paint. pointer-events:none so taps and
+     Task-10 pan drags pass straight through to the nodes / world beneath. */
+  .web-connectors {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0;
+    height: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+  /* Base edge: dimmer accent — an edge touching a not-yet-owned node. fill:none
+     because a path with a vertical segment would otherwise get area-filled. */
+  .web-edge {
+    fill: none;
+    stroke: rgba(var(--color-accent-rgb), 0.3); /* TUNABLE: dim-edge opacity — Checkpoint A */
+    stroke-width: 2; /* TUNABLE: connector thickness — Checkpoint A */
+    stroke-linejoin: miter; /* crisp right-angle corner at the elbow */
+  }
+  /* Fully-owned edge (both endpoints owned): brighter so earned links read as
+     "live". Uses the theme's accent-bright, matching owned-node coloring. */
+  .web-edge.both-owned {
+    stroke: var(--color-accent-bright);
+    stroke-width: 2.5; /* TUNABLE: owned edges slightly heavier — Checkpoint A */
   }
 
   /* --- Node -------------------------------------------------------------
