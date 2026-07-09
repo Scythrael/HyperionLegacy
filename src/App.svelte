@@ -592,6 +592,19 @@
     doSave();
   }
 
+  // TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE (grep "TEMP-DEV-GRANT").
+  // The Vercel preview starts from a fresh 0-point save, so the Learn/fog-of-war
+  // reveal flow can't be exercised without grinding levels. This grants points on
+  // demand so the radial web can be tested end-to-end. NOT a shipping feature.
+  function devGrantPoints() {
+    const captains = state.captains.map((c) =>
+      c.id === activeCaptain.id ? { ...c, statPoints: c.statPoints + 25 } : c
+    );
+    state = { ...state, captains, adminPoints: state.adminPoints + 25 };
+    pushLog("[DEV] +25 stat points (active captain) and +25 admin points granted.");
+    doSave();
+  }
+
   // Homeworld Talents Reset (Task 13) -- opens the confirmation modal. No
   // captured pre-swap state needed (unlike doDispatchCaptainOnMission's
   // captain.label capture) since the confirmation happens in the modal
@@ -915,6 +928,8 @@
              so learning still works exactly as before. describeEffect passes
              the homeworld effect describer through so RadialWeb's internal
              tooltip renders the right effect line without importing it. -->
+        <!-- TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE -->
+        <button type="button" on:click={devGrantPoints} style="margin-bottom:8px; padding:4px 10px; font-size:12px;">🔧 DEV: +25 stat / +25 admin pts</button>
         <RadialWeb
           table={HOMEWORLD_TALENTS}
           branch={"fleetLogistics"}
@@ -1053,6 +1068,8 @@
                    save), so learning still works exactly as before. describeEffect
                    passes the captain effect describer through for the internal
                    tooltip. -->
+              <!-- TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE -->
+              <button type="button" on:click={devGrantPoints} style="margin-bottom:8px; padding:4px 10px; font-size:12px;">🔧 DEV: +25 stat / +25 admin pts</button>
               <RadialWeb
                 table={CAPTAIN_TALENTS}
                 branch={"resourcefulness"}
