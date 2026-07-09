@@ -2205,72 +2205,6 @@
     cursor: pointer;
   }
   .spec-btn:disabled { cursor: not-allowed; }
-  .skill-branch { margin-bottom: 14px; }
-  .skill-branch:last-child { margin-bottom: 0; }
-  .skill-branch-title {
-    font-size: 10px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--color-text-secondary);
-    margin-bottom: 8px;
-  }
-  .skill-node {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 10px;
-    border-radius: 8px;
-    background: var(--color-panel-bg-strong);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
-    margin-bottom: 6px;
-    gap: 8px;
-  }
-  .skill-node:last-child { margin-bottom: 0; }
-  .skill-node.owned { border-color: var(--color-success); }
-  .skill-node.locked { opacity: 0.5; }
-  .skill-node-label { font-size: 12px; font-weight: 600; }
-  .skill-node-status { font-size: 11px; color: var(--color-text-secondary); }
-
-  /* Talent Tree Visual Redesign (Task 10) -- Captain Talents depth-based
-     layout. .talent-branch-tree is the positioning context for one branch's
-     column: height is set inline per-branch (JS-computed from that branch's
-     deepest chain), and it holds both the connector <svg> (Step 3) and the
-     absolutely-positioned .talent-node elements (Step 2) stacked on top of
-     it. .talent-node overrides .skill-node's normal document-flow margin
-     with absolute positioning driven by each node's depth * TALENT_ROW_HEIGHT
-     (set inline via `top`, see markup above) -- its owned/locked border
-     styling is untouched, still governed by the existing
-     .skill-node.owned/.skill-node.locked rules above.
-
-     .talent-node's left:0/right:0 below is a FULL-WIDTH default -- correct
-     for every branch where depthRows never holds more than one node per row
-     (true of every Captain Talents branch, and every Homeworld Talents
-     branch except fleetLogistics). Task 11 (Homeworld Talents) hit the first
-     real same-row-siblings case: fleetLogistics' depth-0 row holds BOTH
-     fleetLogisticsSlot1 and fleetLogisticsYield. Rather than editing this
-     shared rule (which would have to special-case a column count it has no
-     way to know at the CSS level), that template computes each node's own
-     left/width/right inline (splitting the row evenly across however many
-     siblings share it) and overrides right:auto explicitly -- inline style
-     always wins over this class rule's left:0/right:0, so single-node rows
-     (columnCount 1) resolve to the exact same left:0%/width:100% this rule
-     already provides, and multi-node rows split cleanly instead of
-     overlapping. See the Homeworld Talents panel markup for that math. */
-  .talent-branch-tree { position: relative; }
-  .talent-branch-connectors {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-  }
-  .talent-node {
-    position: absolute;
-    left: 0;
-    right: 0;
-    margin-bottom: 0;
-  }
 
   /* Talent Tree Visual Redesign (Task 12), restyled as a fixed full-screen
      overlay (tooltip-stacking fix) -- the original version positioned
@@ -2305,33 +2239,6 @@
     justify-content: center;
     z-index: 100;
     padding: 20px;
-  }
-  .talent-tooltip {
-    width: 280px;
-    max-width: 85vw;
-    padding: 12px 14px;
-    background: var(--color-panel-bg-strong);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
-    border-radius: 8px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-  }
-  .talent-tooltip-flavor {
-    font-size: 11px;
-    font-style: italic;
-    color: var(--color-text-secondary);
-    margin: 0 0 6px;
-    line-height: 1.4;
-  }
-  .talent-tooltip-effect {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--color-success);
-    margin: 0 0 6px;
-  }
-  .talent-tooltip-meta {
-    font-size: 11px;
-    color: var(--color-text-secondary);
-    margin: 0;
   }
   .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
   .theme-swatch {
