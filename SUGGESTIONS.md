@@ -423,3 +423,23 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   belongs in the dedicated UI-aesthetic pass, NOT built piecemeal mid-feature. Pairs naturally with
   the glow/pulse motifs already introduced by the Radial Skill Web. Floated as a "maybe" — capture,
   revisit in the UI-refinement flow.
+
+- **"Library" / "Archive" tab -- account-wide stats / achievements / completion home.** User idea,
+  2026-07-09: a dedicated top-level tab (working name "Library" or "Archive") that HOUSES the
+  account-wide, cross-run meta content -- the achievements + "% game completion" tracker (see the
+  "Player Stats / Achievements / Completion panel" and "Stats page / total played time" entries above)
+  plus other whole-account stat-based things. It's the container/home those already-logged
+  stat/achievement/medal ideas would live in, not a separate mechanic -- when that system is built, give
+  it this tab. Not scoped: which specific stats/sections, the exact label ("Library" vs "Archive"), tab
+  placement.
+
+- **Ground combat + a multi-stage Battlespace assault flow.** User idea, 2026-07-09: a future
+  ground-combat layer with a NEW set of characters (distinct from ship captains) who have their OWN spec
+  system -- offense / defense / debuff-oriented specs, etc. -- organized into garrisons / platoons for
+  ground assaults. Ties into the planned multi-stage battle sequence: Sector Space (with the Starbase)
+  -> planetary defenses -> landing on the planet for ground combat. Would share systems with the
+  already-logged "Battlespace's 4 real modes" (esp. Invasion: "sector-space defense followed by
+  planetary bombardment and ground troops"), the "Landing Party missions" equipment-slot/loadout idea,
+  and the "Crew system" (races/roles) entries above -- design the ground-troop + loadout pieces as shared
+  mechanics when the time comes. Deep future: depends on Combat/Battlespace, Ships, and the Starbase all
+  existing first. Not scoped -- pure direction.

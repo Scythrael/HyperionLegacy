@@ -983,14 +983,26 @@
         <div class="panel-title">HOMEWORLD TALENTS</div>
         <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
         <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
-        <!-- Reset (Task 13, Talent Tree Visual Redesign) -- fleet-wide, wraps
-             respecHomeworldTalents via doRespecHomeworldTalents/the
-             confirmation modal near DELETE SAVE further down this file.
-             Disabled up-front (not just inside the modal) so affordability
-             is visible before the player even opens the confirmation flow. -->
+        <!-- Shared button row: the "← Categories" back button (left, shown ONLY
+             while viewing a category) and the fleet-wide Reset (right, always
+             available) sit on ONE row, so it reads clean and parallels the captain
+             panel's single button row. Reset wraps respecHomeworldTalents via the
+             confirmation modal near DELETE SAVE; disabled up-front so affordability
+             shows before opening the flow. margin-left:auto pins Reset to the right
+             whether or not the back button is present. -->
         <div class="dev-row">
+          {#if selectedCategory !== null}
+            <button
+              type="button"
+              class="dev-btn"
+              on:click={() => (selectedCategory = null)}
+            >
+              ← Categories
+            </button>
+          {/if}
           <button
             class="dev-btn danger"
+            style="margin-left: auto;"
             disabled={state.credits.lt(RESPEC_COST_CREDITS)}
             on:click={openHomeworldRespecModal}
           >
@@ -1024,21 +1036,12 @@
             onCommit={(key) => viewCategory(key)}
           />
         {:else}
-          <!-- Category selected: back button returns to the picker (pure
-               navigation -- clears selectedCategory, no save write), then THAT
-               category's RadialWeb. selectedCategory is a plain local that TS
-               narrows to non-null across the conditional, but the trailing !
+          <!-- Category selected: THAT category's RadialWeb. The "← Categories" back
+               button (pure navigation -- clears selectedCategory, no save write) now
+               lives in the shared button row above. selectedCategory is a plain local
+               that TS narrows to non-null across the conditional, but the trailing !
                is kept for consistency with the captain mount's activeCaptain.spec!
-               (and it is genuinely non-null in this branch). -->
-          <div class="dev-row">
-            <button
-              type="button"
-              class="dev-btn"
-              on:click={() => (selectedCategory = null)}
-            >
-              ← Categories
-            </button>
-          </div>
+               (and it is genuinely non-null here). -->
           <RadialWeb
             table={HOMEWORLD_TALENTS}
             branch={selectedCategory!}
