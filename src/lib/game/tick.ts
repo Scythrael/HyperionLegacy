@@ -957,6 +957,40 @@ export function respecCaptainTalents(
   return { next: { ...state, captains, credits: state.credits.minus(RESPEC_COST_CREDITS) }, success: true };
 }
 
+// FREE first-pick spec setter (Radial Skill Web, Task 14). Sets a captain's
+// spec ONLY when it is currently null -- the free, one-time "choose your
+// specialization" pick a captain makes before their talent web appears. It is
+// deliberately NOT the way to CHANGE an already-chosen spec: once
+// captain.spec !== null, this function refuses (returns the same state
+// reference, success: false), and the ONLY path to a different spec is
+// respecCaptainTalents(state, captainId, null) -- clearing the spec back to
+// null (refunding points, charging RESPEC_COST_CREDITS) so this free pick
+// becomes available again. That split (first pick free here; changing an
+// established spec costs exactly one respec) is a confirmed design decision:
+// choosing from null undoes nothing, so it's free; changing an existing spec
+// means abandoning a built talent web, which is what the respec charge exists
+// to gate. Unlike respecCaptainTalents this touches NO cost and NO points --
+// it only sets captain.spec. Same "same state reference on failure"
+// convention and immutable "map captains, spread the one" idiom as every
+// other captain-mutating function in this file.
+export function chooseCaptainSpec(
+  state: GameState,
+  captainId: number,
+  branch: CaptainTalentBranch
+): { next: GameState; success: boolean } {
+  const idx = state.captains.findIndex((c) => c.id === captainId);
+  if (idx === -1) return { next: state, success: false };
+  // Only the FREE first pick is allowed here. A captain that already has a
+  // spec must go through respecCaptainTalents(..., null) to clear it first --
+  // see this function's header comment for why changing an established spec is
+  // deliberately not free.
+  if (state.captains[idx].spec !== null) return { next: state, success: false };
+
+  const captains = [...state.captains];
+  captains[idx] = { ...captains[idx], spec: branch };
+  return { next: { ...state, captains }, success: true };
+}
+
 // Full-reset only, same as respecCaptainTalents, but EXCLUDES unlockCaptainSlot
 // nodes entirely -- those stay permanently unlocked (no refund, not removed
 // from unlockedHomeworldTalents) since undoing one would mean deleting an

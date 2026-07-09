@@ -9,6 +9,7 @@ import {
   buyHomeworldTalent,
   respecCaptainTalents,
   respecHomeworldTalents,
+  chooseCaptainSpec,
   applyFleetAdminXp,
   captainCommonYieldMult,
   captainUncommonYieldMult,
@@ -1510,6 +1511,43 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
     expect(next.captains[0].spec).toBe(null); // cleared, not left at "resourcefulness"
     expect(next.captains[0].unlockedCaptainTalents).toEqual([]);
     expect(next.captains[0].statPoints).toBe(6);
+  });
+});
+
+describe("chooseCaptainSpec", () => {
+  // Task 14 (Radial Skill Web) -- coverage for the FREE first-pick spec setter
+  // added to tick.ts. The rule under test: it succeeds ONLY from spec === null
+  // (free, no cost/point change); a captain that already has a spec must go
+  // through respecCaptainTalents(..., null) instead, so chooseCaptainSpec
+  // itself refuses. freshState()'s single captain starts at spec: null,
+  // statPoints: 0 (freshCaptainStack baseline), credits: Decimal(0).
+
+  it("sets the spec (and succeeds) when the captain's spec is currently null, for FREE (no credit or statPoint change)", () => {
+    const state = freshState();
+    state.credits = new Decimal(50); // deliberately affordable-for-a-respec, to prove NONE of it is spent here
+    state.captains[0].statPoints = 7; // arbitrary non-baseline value, to prove it's untouched
+    expect(state.captains[0].spec).toBe(null); // precondition: the free-pick path
+    const { next, success } = chooseCaptainSpec(state, 1, "resourcefulness");
+    expect(success).toBe(true);
+    expect(next.captains[0].spec).toBe("resourcefulness");
+    expect(next.captains[0].statPoints).toBe(7); // unchanged -- free pick, no point cost
+    expect(next.credits.equals(50)).toBe(true); // unchanged -- free pick, no credit cost
+  });
+
+  it("fails (same state reference) when the captain already has a spec set -- changing an established spec must go through respec, not this", () => {
+    const state = freshState();
+    state.captains[0].spec = "tactical"; // already chosen -- the free pick is no longer available
+    const { next, success } = chooseCaptainSpec(state, 1, "resourcefulness");
+    expect(success).toBe(false);
+    expect(next).toBe(state); // reference identity, not just structural equality
+    expect(state.captains[0].spec).toBe("tactical"); // untouched -- the change was refused, not applied
+  });
+
+  it("fails (same state reference) for a captainId that doesn't exist", () => {
+    const state = freshState();
+    const { next, success } = chooseCaptainSpec(state, 999, "resourcefulness");
+    expect(success).toBe(false);
+    expect(next).toBe(state);
   });
 });
 

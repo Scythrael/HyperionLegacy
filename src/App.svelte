@@ -13,8 +13,15 @@
   // Prospector, homeworld -> "fleetLogistics"); Tasks 14/15 layer the spec/
   // category selection UX in front of this.
   import RadialWeb from "./lib/RadialWeb.svelte";
+  // Radial Skill Web (Task 14) -- the card spec-picker shown in the Captain
+  // Talents panel when a captain has NOT yet chosen a spec (activeCaptain.spec
+  // === null). Picking a card commits that spec for free (chooseCaptainSpec);
+  // once chosen, the panel renders that spec's RadialWeb instead (see the
+  // captain Talents sub-tab markup below).
+  import TreeSelector from "./lib/TreeSelector.svelte";
   import {
     freshState,
+    specCards,
     MISSIONS,
     requiredTicksForPhase,
     RECIPES,
@@ -47,6 +54,7 @@
     buyHomeworldTalent,
     respecCaptainTalents,
     respecHomeworldTalents,
+    chooseCaptainSpec,
     RESPEC_COST_CREDITS,
     captainCommonYieldMult,
     captainUncommonYieldMult,
@@ -126,17 +134,13 @@
 
   // Captain Talents "Reset" confirmation modal (Task 13) -- per-captain,
   // scoped to activeCaptain (mirrors respecCaptainTalents, which takes a
-  // captainId). selectedSpecInModal is initialized to activeCaptain.spec
-  // the moment this modal is OPENED (see openCaptainRespecModal below), so
-  // a plain confirm-without-touching-the-picker click passes the captain's
-  // CURRENT spec back into respecCaptainTalents rather than null/undefined
-  // -- see respecCaptainTalents's own doc comment in tick.ts: omitting the
-  // 3rd arg keeps the current spec, but since this UI always calls it with
-  // an explicit value (never omits the arg), selectedSpecInModal must be
-  // pre-seeded with the CURRENT spec rather than left null, or a
-  // no-touch confirm would incorrectly wipe the captain's spec.
+  // captainId). Task 14 (Radial Skill Web) removed the old selectedSpecInModal
+  // "keep the current spec" state entirely: Reset now always CLEARS the spec to
+  // null (Confirm passes an explicit `null` to respecCaptainTalents), so the
+  // TreeSelector reappears afterward for a free re-pick. There is no in-modal
+  // spec chooser to hold a pending selection anymore, so no such variable is
+  // needed.
   let captainRespecModalOpen = false;
-  let selectedSpecInModal: CaptainTalentBranch | null = null;
 
   // Import Save modal (Task 7, Loot Tier Rework -- see
   // docs/plans/2026-07-07-loot-tier-rework-plan.md) -- same
@@ -579,6 +583,48 @@
     doSave();
   }
 
+  // The three real CaptainTalentBranch literals, listed explicitly so
+  // chooseSpec below can defensively validate the incoming key. specCards'
+  // keys ARE these same branch strings (model.ts guarantees this), so this is
+  // a belt-and-suspenders guard against an unexpected value reaching
+  // chooseCaptainSpec, NOT a translation layer -- a matched key passes
+  // straight through unchanged. If CaptainTalentBranch ever grows a 4th
+  // literal, this list (and specCards) must grow with it; there is no compiler
+  // in this environment to catch a stale entry, so it's kept as a small,
+  // obvious, hand-maintained list rather than derived indirectly.
+  const CAPTAIN_SPEC_BRANCHES: CaptainTalentBranch[] = ["resourcefulness", "tactical", "science"];
+
+  // Maps a chosen spec branch to its player-facing display name
+  // (Prospector/Tactician/Explorer), derived straight from specCards' own
+  // titles by key so the panel readout can never drift from the card titles
+  // the player picked from. Built once (specCards is a static import), not per
+  // render. A branch with no matching card falls back to the raw key at the
+  // call site below (defensive -- every real branch has a card today).
+  const SPEC_DISPLAY_NAME: Record<string, string> = Object.fromEntries(
+    specCards.map((card) => [card.key, card.title])
+  );
+
+  // Radial Skill Web (Task 14) -- the FREE first-pick spec commit, fired by
+  // the TreeSelector's "Choose this spec" button in the Captain Talents panel
+  // when activeCaptain.spec is still null. Same { next, success } -> reassign
+  // `state` + pushLog + doSave idiom as doBuyCaptainTalent above. `key` comes
+  // from a specCards card key (typed `string`), so it is defensively narrowed
+  // to a real CaptainTalentBranch before use -- an unexpected value simply
+  // does nothing (no throw, no state change) rather than being forced through.
+  // chooseCaptainSpec itself only succeeds from spec === null (the free pick);
+  // CHANGING an established spec goes through the Reset flow (respec to null),
+  // never here.
+  function chooseSpec(key: string) {
+    if (!(CAPTAIN_SPEC_BRANCHES as string[]).includes(key)) return;
+    const branch = key as CaptainTalentBranch;
+    const captain = activeCaptain;
+    const { next, success } = chooseCaptainSpec(state, captain.id, branch);
+    if (!success) return;
+    state = next;
+    pushLog(`[${captain.label}] Specialization chosen: ${branch}.`);
+    doSave();
+  }
+
   // Homeworld Talents (Task 6) -- fleet-wide, spends the shared adminPoints
   // pool. Unlike doBuyCaptainTalent above, this never touches state.captains
   // directly here (buyHomeworldTalent itself appends a new captain internally
@@ -633,13 +679,11 @@
     doSave();
   }
 
-  // Captain Talents Reset (Task 13) -- opens the confirmation modal AND
-  // seeds selectedSpecInModal with activeCaptain's CURRENT spec (see that
-  // variable's declaration comment above for why this must happen here,
-  // every time the modal opens, rather than being left at its initial
-  // `null` default).
+  // Captain Talents Reset (Task 13) -- opens the confirmation modal. Task 14
+  // removed the selectedSpecInModal seeding that used to live here: Reset now
+  // unconditionally clears the spec to null (Confirm passes `null` directly),
+  // so there is no per-open pending-spec state left to seed.
   function openCaptainRespecModal() {
-    selectedSpecInModal = activeCaptain.spec;
     captainRespecModalOpen = true;
   }
 
@@ -649,10 +693,11 @@
 
   // Wraps respecCaptainTalents(state, activeCaptain.id, newSpec), same
   // { next, success } -> reassign `state` pattern as doBuyCaptainTalent
-  // above. Takes newSpec as an explicit parameter (rather than reading
-  // selectedSpecInModal directly) so the modal's Confirm button can pass
-  // selectedSpecInModal by value at the call site, same as every other
-  // do* handler in this file taking its target key as a parameter.
+  // above. Takes newSpec as an explicit parameter, kept as a parameter (rather
+  // than hardcoding null inside) so the signature stays honest about what
+  // respecCaptainTalents can do; Task 14's only caller (the Reset modal's
+  // Confirm) passes `null` to CLEAR the captain's spec, which makes the
+  // TreeSelector reappear for a free re-pick.
   function doRespecCaptainTalents(newSpec: CaptainTalentBranch | null) {
     const captain = activeCaptain;
     const { next, success } = respecCaptainTalents(state, captain.id, newSpec);
@@ -1037,30 +1082,32 @@
                  labeled, empty columns rather than not appearing at all. -->
             <Panel>
               <div class="panel-title">CAPTAIN TALENTS — {activeCaptain.label}</div>
-              <div class="research-cost">Spec: {activeCaptain.spec ?? "None chosen"}</div>
-              <!-- Reset (Task 13, Talent Tree Visual Redesign) -- per-captain,
-                   scoped to activeCaptain, wraps respecCaptainTalents via
-                   doRespecCaptainTalents/the confirmation modal near DELETE
-                   SAVE further down this file. Disabled up-front, same
-                   affordability-visible-before-opening-the-modal reasoning as
-                   the Homeworld Talents panel's own Reset button above. -->
-              <div class="dev-row">
-                <button
-                  class="dev-btn danger"
-                  disabled={state.credits.lt(RESPEC_COST_CREDITS)}
-                  on:click={openCaptainRespecModal}
-                >
-                  Reset
-                </button>
+              <div class="research-cost">
+                Spec: {activeCaptain.spec === null
+                  ? "None chosen"
+                  : (SPEC_DISPLAY_NAME[activeCaptain.spec] ?? activeCaptain.spec)}
               </div>
-              <!-- Radial Skill Web (Task 11b, minimal buildable integration) --
-                   REPLACES the old fixed-5-branch depth-row captain tree (branch
-                   {#each} over command/tactical/science/resourcefulness/diplomacy
-                   + talentDepth/TALENT_ROW_HEIGHT layout + per-node .skill-node
-                   markup + shared tooltip). `branch` is HARDCODED to
-                   "resourcefulness" (Prospector) for now -- Task 14 makes this
-                   the captain's chosen spec (rendering a TreeSelector when
-                   activeCaptain.spec is null, else this captain's spec web).
+              <!-- TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE.
+                   Kept OUTSIDE the spec-null/spec-chosen conditional below so it
+                   is always reachable for Checkpoint B device testing,
+                   regardless of which branch renders. -->
+              <button type="button" on:click={devGrantPoints} style="margin-bottom:8px; padding:4px 10px; font-size:12px;">🔧 DEV: +25 stat / +25 admin pts</button>
+              <!-- Radial Skill Web (Task 14) -- spec-gated captain Talents view.
+                   FIRST PICK IS FREE, CHANGING IT COSTS A RESPEC (confirmed
+                   design decision):
+                   - spec === null: the captain has not chosen a specialization
+                     yet. Show the TreeSelector card-picker; committing a card
+                     calls chooseSpec(key), which sets the spec for FREE (no
+                     cost, no point change -- chooseCaptainSpec only succeeds
+                     from null). There is no Reset here: there's nothing to
+                     reset until a spec exists.
+                   - spec !== null: show THAT spec's RadialWeb (branch =
+                     activeCaptain.spec, no longer hardcoded to
+                     "resourcefulness"). To CHANGE the spec, the player uses
+                     Reset, which respecs to null (refund points, charge 50
+                     credits) -- clearing the spec so the TreeSelector reappears
+                     and a new spec can be picked free. So "changing spec" costs
+                     exactly one respec, never chooseCaptainSpec.
                    `owned`/`points` are THIS captain's own unlockedCaptainTalents
                    and statPoints (per-captain scoping preserved). onLearn routes
                    the tooltip's Learn button into the EXISTING doBuyCaptainTalent
@@ -1068,17 +1115,41 @@
                    save), so learning still works exactly as before. describeEffect
                    passes the captain effect describer through for the internal
                    tooltip. -->
-              <!-- TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE -->
-              <button type="button" on:click={devGrantPoints} style="margin-bottom:8px; padding:4px 10px; font-size:12px;">🔧 DEV: +25 stat / +25 admin pts</button>
-              <RadialWeb
-                table={CAPTAIN_TALENTS}
-                branch={"resourcefulness"}
-                owned={activeCaptain.unlockedCaptainTalents}
-                points={activeCaptain.statPoints}
-                pointsLabel={"Stat Points"}
-                describeEffect={describeCaptainTalentEffect}
-                onLearn={(key) => doBuyCaptainTalent(key as CaptainTalentKey)}
-              />
+              {#if activeCaptain.spec === null}
+                <TreeSelector
+                  cards={specCards}
+                  commitLabel={"Choose this spec"}
+                  onCommit={(key) => chooseSpec(key)}
+                />
+              {:else}
+                <!-- Reset (Task 13, Talent Tree Visual Redesign; Task 14 repurposed
+                     it to CLEAR the spec) -- per-captain, scoped to activeCaptain,
+                     wraps respecCaptainTalents(..., null) via
+                     doRespecCaptainTalents/the confirmation modal near DELETE
+                     SAVE further down this file. Only shown once a spec is
+                     chosen (there's nothing to reset before that). Disabled
+                     up-front below the credit cost, same
+                     affordability-visible-before-opening-the-modal reasoning as
+                     the Homeworld Talents panel's own Reset button above. -->
+                <div class="dev-row">
+                  <button
+                    class="dev-btn danger"
+                    disabled={state.credits.lt(RESPEC_COST_CREDITS)}
+                    on:click={openCaptainRespecModal}
+                  >
+                    Reset
+                  </button>
+                </div>
+                <RadialWeb
+                  table={CAPTAIN_TALENTS}
+                  branch={activeCaptain.spec}
+                  owned={activeCaptain.unlockedCaptainTalents}
+                  points={activeCaptain.statPoints}
+                  pointsLabel={"Stat Points"}
+                  describeEffect={describeCaptainTalentEffect}
+                  onLearn={(key) => doBuyCaptainTalent(key as CaptainTalentKey)}
+                />
+              {/if}
             </Panel>
           {/if}
         </div>
@@ -1517,38 +1588,33 @@
   {#if captainRespecModalOpen}
     <!-- Captain Talents Reset confirmation modal -- same .modal-backdrop/
          Panel.modal-dialog/.modal-warning/.modal-row structure as the modals
-         above. The refund-confirm flow is UNCHANGED (doRespecCaptainTalents
-         still refunds this captain's spent Stat Points and charges
-         RESPEC_COST_CREDITS).
+         above. Refunds this captain's spent Stat Points and charges
+         RESPEC_COST_CREDITS.
 
-         Task 11b (minimal buildable integration) TEMPORARILY STUBBED OUT the
-         in-modal spec picker: the old {#each} iterated
-         ["command","tactical","science","resourcefulness","diplomacy"] cast to
-         CaptainTalentBranch[] and labeled each via CAPTAIN_TALENT_BRANCH_LABEL
-         -- both the command/diplomacy literals and that label map were removed
-         when the branch union shrank to resourcefulness|tactical|science, so
-         the picker no longer compiles. It is dropped here rather than
-         partially rewritten because Task 14 rebuilds captain spec SELECTION
-         properly via the TreeSelector (first pick free from null; changing an
-         existing spec routes through this respec). Until then, Reset keeps the
-         captain's CURRENT spec: openCaptainRespecModal seeds selectedSpecInModal
-         with activeCaptain.spec, and Confirm passes that unchanged value
-         straight through, so this is purely a talent-point refund with no spec
-         change. TASK 14: restore an in-flow spec chooser here (or fold reset
-         into the TreeSelector). -->
+         Task 14 (Radial Skill Web) wired the spec model into this flow. This
+         modal is now only reachable when the captain HAS a spec (its Reset
+         button only renders in the spec-chosen branch of the Captain Talents
+         panel above). Confirm passes an explicit `null` as newSpec, so
+         respecCaptainTalents CLEARS the spec back to null (not "keep current"
+         -- the Task 11b stub kept it; changing that to clear is exactly what
+         makes the TreeSelector reappear afterward, letting the player pick a
+         new spec for free). So one Reset = one 50-credit respec that both
+         refunds talent points AND frees up a new free spec pick -- the
+         confirmed "changing an established spec costs exactly one respec"
+         design. -->
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
         <div class="panel-title">RESET CAPTAIN TALENTS — {activeCaptain.label}</div>
         <p class="modal-warning">
-          This will refund every Captain Talent's Stat Points this captain spent and cost {RESPEC_COST_CREDITS} Credits.
-          This can't be undone.
+          This will clear this captain's specialization and refund every Captain Talent's Stat Points they spent,
+          and cost {RESPEC_COST_CREDITS} Credits. You'll choose a new specialization afterward. This can't be undone.
         </p>
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelCaptainRespec}>Cancel</button>
           <button
             class="dev-btn danger"
             disabled={state.credits.lt(RESPEC_COST_CREDITS)}
-            on:click={() => doRespecCaptainTalents(selectedSpecInModal)}
+            on:click={() => doRespecCaptainTalents(null)}
           >
             Confirm
           </button>
