@@ -15,6 +15,7 @@
     HOMEWORLD_TALENTS,
     CAPTAIN_SPEC_BONUS,
     type GameState,
+    type CaptainState,
     type MissionKey,
     type MissionPhase,
     type LootMaterialKey,
@@ -190,6 +191,44 @@
   // values), and only one of the two panels is ever visible at a time anyway
   // (they live on different tabs/sub-tabs). null means no tooltip is open.
   let openTooltipKey: string | null = null;
+
+  // Tooltip content lookup (tooltip-stacking fix) -- the tooltip itself is
+  // now rendered ONCE, as a top-level overlay near the other modals (see
+  // near DELETE SAVE below), not duplicated inline inside each of the two
+  // talent panels. That means it needs one shared way to resolve
+  // openTooltipKey into display content regardless of which panel it came
+  // from, since it no longer has direct access to either loop's local
+  // `talent`/`owned`/`locked` bindings. Reuses the same disjoint-key-spaces
+  // fact noted above to decide which table a given key belongs to.
+  type TalentTooltipInfo = { flavor: string; effectLine: string; statusLine: string };
+  function talentTooltipInfo(key: string, state: GameState, captain: CaptainState): TalentTooltipInfo | null {
+    if (key in CAPTAIN_TALENTS) {
+      const talentKey = key as CaptainTalentKey;
+      const talent = CAPTAIN_TALENTS[talentKey];
+      const owned = captain.unlockedCaptainTalents.includes(talentKey);
+      const locked = !owned && talent.requires !== null && !captain.unlockedCaptainTalents.includes(talent.requires);
+      const statusLine = owned
+        ? "Owned"
+        : locked
+        ? `Requires: ${CAPTAIN_TALENTS[talent.requires!].label}`
+        : `Cost: ${formatNumber(talent.cost)} Stat Points`;
+      return { flavor: talent.flavor, effectLine: describeCaptainTalentEffect(talent.effect), statusLine };
+    }
+    if (key in HOMEWORLD_TALENTS) {
+      const talentKey = key as HomeworldTalentKey;
+      const talent = HOMEWORLD_TALENTS[talentKey];
+      const owned = state.unlockedHomeworldTalents.includes(talentKey);
+      const locked = !owned && talent.requires !== null && !state.unlockedHomeworldTalents.includes(talent.requires);
+      const statusLine = owned
+        ? "Owned"
+        : locked
+        ? `Requires: ${HOMEWORLD_TALENTS[talent.requires!].label}`
+        : `Cost: ${formatNumber(talent.cost)} Admin Points`;
+      return { flavor: talent.flavor, effectLine: describeHomeworldTalentEffect(talent.effect), statusLine };
+    }
+    return null;
+  }
+  $: activeTooltipInfo = openTooltipKey !== null ? talentTooltipInfo(openTooltipKey, state, activeCaptain) : null;
   let speed = 1;
   let logEntries: string[] = [];
   let activeCaptainIndex = 0;
@@ -984,20 +1023,25 @@
                          single-node row's edges inward). -->
                     <!-- Tooltip wiring (Task 12, restyled by the
                          tooltip-stacking fix) -- hover OR tap opens it
-                         (mouseenter/click on this outer container). No
-                         mouseleave-based auto-close anymore: now that the
-                         tooltip renders as a full-screen .tooltip-backdrop
-                         overlay (see CSS), that backdrop visually covers
-                         this very node the instant it opens, so relying on
-                         this element's mouseleave to close it caused an
-                         open/close flicker loop on the very next mousemove
-                         (the browser's hit-test at the cursor's position
-                         resolves to the backdrop, not this node, firing a
-                         spurious mouseleave here). Closing is instead an
-                         explicit click/tap on the backdrop itself (see
-                         on:click|self below) -- same dismiss gesture on
-                         desktop and touch. The buy-btn below still stops
-                         its own click from propagating up to this div, so
+                         (mouseenter/click on this outer container). The
+                         tooltip itself no longer renders HERE -- it's a
+                         single shared top-level overlay near the other
+                         modals (see near DELETE SAVE below and
+                         `activeTooltipInfo` in <script>), since nesting it
+                         inside this Panel broke true full-viewport
+                         coverage (Panel.svelte's own backdrop-filter makes
+                         it a containing block for position:fixed
+                         descendants). No mouseleave-based auto-close
+                         either: that overlay, once open, visually covers
+                         this very node, so relying on this element's
+                         mouseleave to close it caused an open/close
+                         flicker loop on the very next mousemove (the
+                         browser's hit-test at the cursor's position
+                         resolves to the overlay, not this node, firing a
+                         spurious mouseleave here) -- closing instead
+                         happens via an explicit click/tap on the overlay's
+                         own backdrop. The buy-btn below still stops its
+                         own click from propagating up to this div, so
                          clicking "Unlock" doesn't ALSO toggle the tooltip
                          as a side effect. -->
                     <div
@@ -1026,23 +1070,6 @@
                         >
                           Unlock
                         </button>
-                      {/if}
-                      {#if openTooltipKey === key}
-                        <div class="tooltip-backdrop" on:click|self={() => (openTooltipKey = null)}>
-                          <div class="talent-tooltip">
-                            <p class="talent-tooltip-flavor">{talent.flavor}</p>
-                            <p class="talent-tooltip-effect">{describeHomeworldTalentEffect(talent.effect)}</p>
-                            <p class="talent-tooltip-meta">
-                              {#if owned}
-                                Owned
-                              {:else if locked}
-                                Requires: {HOMEWORLD_TALENTS[talent.requires!].label}
-                              {:else}
-                                Cost: {formatNumber(talent.cost)} Admin Points
-                              {/if}
-                            </p>
-                          </div>
-                        </div>
                       {/if}
                     </div>
                   {/each}
@@ -1210,18 +1237,15 @@
                           {@const buyable = !owned && !locked && activeCaptain.statPoints >= talent.cost}
                           <!-- Tooltip wiring (Task 12, restyled by the
                                tooltip-stacking fix) -- hover OR tap opens it
-                               (mouseenter/click on this outer container). No
-                               mouseleave-based auto-close anymore: see the
-                               matching comment in the Homeworld Talents panel
-                               above for why (the full-screen
-                               .tooltip-backdrop overlay covers this very node
-                               the instant it opens, so mouseleave fired a
-                               spurious close on the next mousemove). Closing
-                               is instead an explicit click/tap on the
-                               backdrop itself (on:click|self below). The
-                               buy-btn below still stops its own click from
-                               propagating up to this div, so clicking
-                               "Learn" doesn't ALSO toggle the tooltip. -->
+                               (mouseenter/click on this outer container). The
+                               tooltip itself no longer renders HERE -- see
+                               the matching comment in the Homeworld Talents
+                               panel above for the full reasoning (single
+                               shared top-level overlay, no mouseleave
+                               auto-close). The buy-btn below still stops its
+                               own click from propagating up to this div, so
+                               clicking "Learn" doesn't ALSO toggle the
+                               tooltip. -->
                           <div
                             class="skill-node talent-node" class:owned={owned} class:locked={locked}
                             style="top:{rowDepth * TALENT_ROW_HEIGHT}px;"
@@ -1248,23 +1272,6 @@
                               >
                                 Learn
                               </button>
-                            {/if}
-                            {#if openTooltipKey === key}
-                              <div class="tooltip-backdrop" on:click|self={() => (openTooltipKey = null)}>
-                                <div class="talent-tooltip">
-                                  <p class="talent-tooltip-flavor">{talent.flavor}</p>
-                                  <p class="talent-tooltip-effect">{describeCaptainTalentEffect(talent.effect)}</p>
-                                  <p class="talent-tooltip-meta">
-                                    {#if owned}
-                                      Owned
-                                    {:else if locked}
-                                      Requires: {CAPTAIN_TALENTS[talent.requires!].label}
-                                    {:else}
-                                      Cost: {formatNumber(talent.cost)} Stat Points
-                                    {/if}
-                                  </p>
-                                </div>
-                              </div>
                             {/if}
                           </div>
                         {/each}
@@ -1650,6 +1657,26 @@
           {/if}
         </div>
       </Panel>
+    </div>
+  {/if}
+
+  {#if activeTooltipInfo}
+    <!-- Talent tooltip (Task 12, restyled by the tooltip-stacking fix) --
+         single shared render for BOTH the Homeworld Talents and Captain
+         Talents panels (see `activeTooltipInfo`/`talentTooltipInfo` in
+         <script>), placed as a top-level sibling here rather than nested
+         inside either panel's <Panel> -- Panel.svelte's own backdrop-filter
+         makes its .panel a containing block for position:fixed descendants,
+         which broke full-viewport coverage when the tooltip was still
+         rendered inline inside a talent node. Every .modal-backdrop below
+         is a top-level sibling for this exact reason; .tooltip-backdrop
+         follows the same rule. -->
+    <div class="tooltip-backdrop" on:click|self={() => (openTooltipKey = null)}>
+      <div class="talent-tooltip">
+        <p class="talent-tooltip-flavor">{activeTooltipInfo.flavor}</p>
+        <p class="talent-tooltip-effect">{activeTooltipInfo.effectLine}</p>
+        <p class="talent-tooltip-meta">{activeTooltipInfo.statusLine}</p>
+      </div>
     </div>
   {/if}
 
@@ -2347,10 +2374,18 @@
      --color-panel-bg-strong background, the two became an unreadable
      overlapping mess (reported on mobile). Fix: .tooltip-backdrop reuses
      the EXACT same fixed/inset/blur/z-index recipe as .modal-backdrop
-     below, so the tooltip now renders above everything (including sibling
-     nodes and the SVG connector overlay) with the rest of the tree dimmed
-     and blurred behind it, centered regardless of which node triggered it.
-     .talent-tooltip itself is now just the centered content box (no more
+     below. First attempt at this fix rendered .tooltip-backdrop nested
+     inside each talent node (inside the Homeworld/Captain Talents <Panel>)
+     -- that compiled and looked identical in isolation, but Panel.svelte's
+     own `.panel { backdrop-filter: ... }` makes .panel a containing block
+     for position:fixed descendants (per spec, backdrop-filter is on the
+     same list as transform/filter/perspective for this purpose), so the
+     "full-screen" backdrop was actually only ever covering that one
+     Panel's box, not the real viewport. Fixed by rendering the tooltip
+     ONCE, as a genuine top-level sibling (see near DELETE SAVE below,
+     `activeTooltipInfo` in <script>) -- same reason every .modal-backdrop
+     below is ALSO a top-level sibling rather than nested in a Panel.
+     .talent-tooltip itself is just the centered content box (no
      position/top/left/z-index of its own -- the backdrop's flex centering
      handles placement). */
   .tooltip-backdrop {
