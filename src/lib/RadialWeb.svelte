@@ -318,15 +318,40 @@
   function handlePointerUp(e: PointerEvent) {
     dragging = false;
 
-    // A near-stationary gesture is a TAP. Resolve the tapped node from the EVENT
-    // TARGET (no capture happened on a tap, so e.target is the real node/child
-    // under the finger, bubbled up here by event delegation). .closest walks up
-    // to the owning node button and yields its data-node-key. Tapping empty space
-    // finds no [data-node-key] ancestor → opens nothing, which is correct. A pan
-    // (movedDistance >= threshold) skips this branch entirely.
+    // A near-stationary gesture is a TAP. Resolve the tapped node in TWO steps:
+    //
+    //   1. Fast path — the EVENT TARGET. No capture happens on a tap (capture is
+    //      taken only when a drag crosses the threshold), so e.target is normally
+    //      the real node/child under the finger, bubbled here by event delegation.
+    //      .closest walks up to the owning node button and yields its data-node-key.
+    //
+    //   2. Fallback — elementsFromPoint STACK-SEARCH. On mobile a transparent
+    //      element with pointer-events:auto can sit OVER the nodes in the bottom
+    //      band of the panel: pointer events still reach the viewport (so drag/pan
+    //      works), but the tap's e.target is that overlay, whose .closest finds no
+    //      node → the tooltip never opens. document.elementsFromPoint returns ALL
+    //      elements at the tap point top-to-bottom (skipping pointer-events:none
+    //      ones), so we scan that stack for the first that resolves to a node,
+    //      seeing PAST the overlay. This is reliable precisely because a tap never
+    //      captured the pointer — the client coords map straight to the real
+    //      hit-stack (the earlier capture-time elementFromPoint approach was flaky
+    //      for exactly the opposite reason: capture distorts the resolve).
+    //
+    // Tapping empty space resolves to no [data-node-key] in either step → opens
+    // nothing, which is correct. A pan (movedDistance >= threshold) skips this
+    // branch entirely.
     if (movedDistance < TAP_THRESHOLD_PX) {
-      const t = e.target;
-      const nodeEl = t instanceof Element ? t.closest("[data-node-key]") : null;
+      let nodeEl: Element | null =
+        e.target instanceof Element ? e.target.closest("[data-node-key]") : null;
+      if (!nodeEl && typeof document !== "undefined" && document.elementsFromPoint) {
+        for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+          const hit = el.closest("[data-node-key]");
+          if (hit) {
+            nodeEl = hit;
+            break;
+          }
+        }
+      }
       if (nodeEl) {
         const key = nodeEl.getAttribute("data-node-key");
         if (key !== null) {
