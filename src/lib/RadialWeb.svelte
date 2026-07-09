@@ -26,10 +26,16 @@
   //
   //   Task 10 (this addition): Pointer-Events pan + tap/drag disambiguation.
   //   A pointer drag on .web-viewport translates the world via (panX, panY); a
-  //   near-stationary press is a tap that (on a node) fires onNodeTap. The two
-  //   are told apart by movedDistance vs TAP_THRESHOLD_PX, reconciled with the
-  //   node buttons' native click via the `suppressClick` gate. See the "Pan +
-  //   tap/drag disambiguation" block for the full gesture-state lifecycle.
+  //   near-stationary press is a TAP that (on a node) opens that node's tooltip.
+  //   The two are told apart by movedDistance vs TAP_THRESHOLD_PX. Tap resolution
+  //   happens in the viewport's OWN pointerup via a document.elementFromPoint
+  //   hit-test — NOT via the node button's native `click`. (Checkpoint-A device
+  //   fix: setPointerCapture on the viewport retargets the compatibility `click`
+  //   to the VIEWPORT, so a clean tap's click never reached the node button and
+  //   the tooltip never opened. The hit-test reads the real node under the
+  //   release point regardless of capture.) Keyboard Enter/Space on a focused
+  //   node is a separate, capture-free path handled by the button's on:keydown.
+  //   See the "Pan + tap/drag disambiguation" block for the gesture lifecycle.
   //
   //   Task 11 (this addition): node tooltip overlay + Learn action. A node tap
   //   now opens an INTERNAL tooltip (RadialWeb owns it — one component serves
@@ -155,10 +161,18 @@
   // --- Pan + tap/drag disambiguation (Task 10) ------------------------------
   // Unified mouse+touch+stylus via the Pointer Events API. One .web-viewport
   // pointer gesture is EITHER a pan (world drags under the finger) OR a tap
-  // (which, when it lands on a node <button>, selects that node). We tell them
-  // apart by how far the pointer moved during the gesture (movedDistance vs
-  // TAP_THRESHOLD_PX), and we reconcile that with the node buttons' own native
-  // `click` event via the `suppressClick` gate (see handleNodeClick below).
+  // (which, when it lands on a node <button>, opens that node's tooltip). We tell
+  // them apart by how far the pointer moved during the gesture (movedDistance vs
+  // TAP_THRESHOLD_PX). A tap is resolved in handlePointerUp by hit-testing the
+  // release point with document.elementFromPoint — deliberately NOT via the node
+  // button's native `click`. Why: pointerdown calls setPointerCapture on the
+  // viewport (needed so an off-viewport drag keeps tracking), and pointer capture
+  // retargets the compatibility `click` to the VIEWPORT, not the node button — so
+  // a clean tap's click never reached the button (the Checkpoint-A tooltip bug).
+  // The hit-test is capture-independent, so it finds the real node under the
+  // release point every time. Keyboard activation is a separate path (each node
+  // button's on:keydown handles Enter/Space) — no pointer capture is involved
+  // there, so it reliably opens the tooltip for accessibility.
 
   // TAP_THRESHOLD_PX — a gesture whose total pointer travel stays under this many
   // CSS px is treated as a TAP; at or beyond it, it's a PAN (and any trailing
@@ -179,37 +193,16 @@
   let panY0 = 0;
   let movedDistance = 0;
 
-  // suppressClick — the bridge between the viewport-level pan gesture and a node
-  // <button>'s own `click`. A drag that STARTS on a node would, without this,
-  // still fire that button's click on release and wrongly select the node. So
-  // once a gesture crosses the pan threshold we set this true; the node's click
-  // handler (handleNodeClick) then swallows exactly one click and clears it.
-  //
-  // CRITICAL lifecycle (hand-verify the ordering — see the trace in the task
-  // report): it is RESET to false at the START of every pointerdown, and only
-  // SET true mid-move once movedDistance >= TAP_THRESHOLD_PX. The reset is the
-  // load-bearing safety: a touch/mouse drag that begins on a node but ends off
-  // it may emit NO `click` at all (pointer capture retargets the gesture to the
-  // viewport, so the button never sees a click to consume). That would leave
-  // suppressClick stuck `true` and cause it to wrongly swallow the NEXT genuine
-  // tap. Resetting on every fresh pointerdown guarantees a stuck flag can never
-  // survive into the following gesture — the flag's lifetime is at most one
-  // gesture. (We deliberately do NOT clear it on pointerup: a real click, when
-  // it fires, arrives AFTER pointerup, so clearing there would defeat the
-  // swallow. Clearing happens either in handleNodeClick, when the swallowed
-  // click actually arrives, or at the next pointerdown otherwise.)
-  let suppressClick = false;
-
   // --- Gesture handlers -----------------------------------------------------
 
   /**
    * pointerdown — begin a gesture. Snapshots the start point and current pan,
-   * arms `dragging`, zeroes the movement accumulator, and clears any stale
-   * suppressClick (see the lifecycle note above — this reset is what prevents a
-   * previously-stuck flag from eating this gesture's tap). setPointerCapture
+   * arms `dragging`, and zeroes the movement accumulator. setPointerCapture
    * routes all subsequent move/up events for THIS pointer to the viewport even
    * if the pointer leaves the viewport mid-drag, so a pan that wanders off the
-   * element still tracks smoothly.
+   * element still tracks smoothly. (That same capture retargets the trailing
+   * `click` away from the node button — which is why tap resolution lives in
+   * handlePointerUp's hit-test, not in a button click handler.)
    */
   function handlePointerDown(e: PointerEvent) {
     dragging = true;
@@ -218,9 +211,6 @@
     panX0 = panX;
     panY0 = panY;
     movedDistance = 0;
-    // Fresh gesture: a new tap is now possible, so a prior gesture must not leave
-    // the click gate armed. MUST happen every pointerdown (see lifecycle note).
-    suppressClick = false;
     // Capture so an off-viewport drag keeps delivering move/up to us. Guarded:
     // setPointerCapture can throw if the pointer is already gone (rare); a failed
     // capture only degrades off-element tracking, so it must not break the pan.
@@ -239,9 +229,10 @@
   /**
    * pointermove — while a gesture is active, translate the world by the pointer
    * delta from the start point (absolute-from-start via panX0/panY0, so it never
-   * accumulates rounding drift) and update movedDistance. Once travel reaches the
-   * tap threshold, arm suppressClick so a node click at the end of THIS drag is
-   * swallowed. Ignored entirely when not dragging (no button/finger held).
+   * accumulates rounding drift) and update movedDistance. movedDistance is the
+   * sole tap-vs-pan discriminator, read once at pointerup: a release with
+   * movedDistance < TAP_THRESHOLD_PX is a TAP (hit-test resolves the node), at or
+   * beyond it is a PAN (no node opens). Ignored when not dragging (nothing held).
    */
   function handlePointerMove(e: PointerEvent) {
     if (!dragging) return;
@@ -250,24 +241,30 @@
     panX = panX0 + dx;
     panY = panY0 + dy;
     movedDistance = Math.hypot(dx, dy);
-    // Past the threshold this gesture is a PAN, not a tap: pre-arm the gate so the
-    // trailing node click (if the browser emits one) is treated as drag tail and
-    // dropped. Only ever SET true here — never reset here (reset lives in down).
-    if (movedDistance >= TAP_THRESHOLD_PX) {
-      suppressClick = true;
-    }
   }
 
   /**
-   * pointerup / pointercancel — end the gesture. Clears `dragging` and releases
-   * pointer capture. We do NOT decide tap-vs-selection here: the node button's
-   * own `click` (which fires just AFTER pointerup for a real tap) drives node
-   * selection through handleNodeClick, gated by suppressClick. For a pan, either
-   * suppressClick is already true (so that click is swallowed) or, if the drag
-   * ended off any node, no click comes at all — either way no node is selected.
-   * A cancel (e.g. the OS stealing the pointer) is treated identically to an up:
-   * just end the gesture cleanly; suppressClick is left as-is for the next
-   * pointerdown to reset.
+   * pointerup / pointercancel — end the gesture. Clears `dragging`, releases
+   * pointer capture, and — for a TAP — resolves which node was tapped and opens
+   * its tooltip.
+   *
+   * Tap resolution is done HERE via a document.elementFromPoint hit-test at the
+   * release coordinates, deliberately NOT via the node button's native `click`.
+   * The reason is the Checkpoint-A device bug: pointerdown captured this pointer
+   * to the viewport (setPointerCapture, needed for off-viewport drag tracking),
+   * and pointer capture retargets the compatibility `click` to the VIEWPORT — so
+   * a clean tap's click fires on the viewport, never on the node button, and the
+   * button's handler never ran. elementFromPoint does a fresh hit-test at those
+   * viewport coords that is independent of pointer capture, so it returns the
+   * actual node button (or a child) under the finger even while captured.
+   *
+   * A pan (movedDistance >= TAP_THRESHOLD_PX) skips the hit-test entirely, so no
+   * node opens at the end of a drag. A tap on empty space hit-tests to something
+   * with no [data-node-key] ancestor, so nothing opens. A pointercancel is
+   * treated like an up: end cleanly (with touch-action:none the browser won't
+   * steal the gesture for scroll, so cancels are rare; if one does arrive after a
+   * near-stationary press it simply resolves the node under the last point, which
+   * is harmless).
    */
   function handlePointerUp(e: PointerEvent) {
     dragging = false;
@@ -283,35 +280,28 @@
         // Non-fatal: releasing an already-released/absent capture is harmless.
       }
     }
-  }
 
-  /**
-   * handleNodeClick — the node <button>'s click handler, gating onNodeTap
-   * through suppressClick so pan drags don't select nodes.
-   *
-   *   - If suppressClick is true, THIS click is the tail of a pan drag that
-   *     started on (or passed over) the node: consume it — clear the flag and
-   *     return WITHOUT selecting. (Clearing here is the normal path; the
-   *     pointerdown reset is the backstop for when no click ever arrives.)
-   *   - Otherwise it's a genuine selection: a real tap (movement stayed under
-   *     the threshold, so suppressClick was never armed) OR a keyboard Enter/
-   *     Space on a focused node (keyboard activation synthesizes a `click`
-   *     WITHOUT any pointer gesture, so suppressClick is false) — open the
-   *     internal tooltip for this node (and fire the optional onNodeTap
-   *     passthrough). This is how accessibility is preserved: keyboard users
-   *     always reach the tooltip because no drag ever arms the gate for them.
-   */
-  function handleNodeClick(key: string) {
-    if (suppressClick) {
-      // Swallow exactly one click — the trailing click of a pan — then re-open
-      // the gate for the next gesture. No node selected.
-      suppressClick = false;
-      return;
+    // A near-stationary gesture is a TAP. Resolve which node (if any) is under
+    // the release point via a hit-test — NOT via the button's click, which
+    // pointer capture retargets to the viewport (that was the Checkpoint-A
+    // tooltip bug). elementFromPoint is capture-independent, so it returns the
+    // real node button/child at those coords; .closest("[data-node-key]") walks
+    // up to the owning node button and yields its key. Tapping empty space finds
+    // no [data-node-key] ancestor → opens nothing, which is correct. A pan
+    // (movedDistance >= threshold) skips this branch entirely.
+    if (movedDistance < TAP_THRESHOLD_PX && typeof document !== "undefined") {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const nodeEl = el && (el as Element).closest("[data-node-key]");
+      if (nodeEl) {
+        const key = nodeEl.getAttribute("data-node-key");
+        if (key !== null) {
+          // Genuine tap: open THIS node's internal tooltip (Task 11) and fire the
+          // optional onNodeTap passthrough notification.
+          openTooltipKey = key;
+          onNodeTap(key);
+        }
+      }
     }
-    // Genuine tap/keyboard activation: open THIS node's internal tooltip
-    // (Task 11). onNodeTap remains an optional passthrough notification.
-    openTooltipKey = key;
-    onNodeTap(key);
   }
 
   // --- Tooltip (Task 11) ----------------------------------------------------
@@ -555,10 +545,19 @@
     </svg>
     {#each visibleNodes as { key, def } (key)}
       {@const st = nodeState(key, def)}
-      <!-- Locked (unaffordable) nodes stay tappable ON PURPOSE: Task 11's tooltip uses
-           onNodeTap to show the node's cost/effect so the player learns WHY it's locked.
-           Only the Learn action (Task 11) is affordability-gated -- do NOT add `disabled`
-           here, which would swallow the tap and hide that tooltip. -->
+      <!-- Locked (unaffordable) nodes stay tappable ON PURPOSE: Task 11's tooltip
+           shows the node's cost/effect so the player learns WHY it's locked. Only
+           the Learn action (Task 11) is affordability-gated -- do NOT add
+           `disabled` here, which would swallow the tap and hide that tooltip.
+
+           data-node-key is the hit-test anchor: handlePointerUp resolves a tap by
+           document.elementFromPoint(...).closest("[data-node-key]") and reads this
+           attribute to know which node was tapped. That pointerup path (not a
+           click handler) opens the tooltip, because pointer capture on the
+           viewport retargets the compatibility `click` away from this button (the
+           Checkpoint-A bug). on:keydown is the SEPARATE keyboard path (Enter/Space
+           on a focused node) — no pointer capture is involved there, so it opens
+           the tooltip reliably, preserving accessibility. -->
       <button
         type="button"
         class="web-node"
@@ -567,7 +566,14 @@
         class:locked={st.locked}
         class:hub={st.hub}
         style="left: {def.x}px; top: {def.y}px;"
-        on:click={() => handleNodeClick(key)}
+        data-node-key={key}
+        on:keydown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openTooltipKey = key;
+            onNodeTap(key);
+          }
+        }}
         title={def.label}
       >
         <span class="web-node-label">{def.label}</span>
