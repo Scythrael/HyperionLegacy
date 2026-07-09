@@ -1140,9 +1140,13 @@
                     Reset
                   </button>
                 </div>
+                <!-- spec is non-null here (this is the {:else} of `spec === null`); the `!` is
+                     for svelte-check/tsc, which doesn't narrow a member expression across the
+                     {#if}. RadialWeb's `branch` prop is `string`; CaptainTalentBranch|null would
+                     otherwise be rejected. -->
                 <RadialWeb
                   table={CAPTAIN_TALENTS}
-                  branch={activeCaptain.spec}
+                  branch={activeCaptain.spec!}
                   owned={activeCaptain.unlockedCaptainTalents}
                   points={activeCaptain.statPoints}
                   pointsLabel={"Stat Points"}
