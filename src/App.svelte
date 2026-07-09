@@ -4,6 +4,15 @@
   import Starfield from "./lib/Starfield.svelte";
   import Panel from "./lib/Panel.svelte";
   import SubTabs from "./lib/SubTabs.svelte";
+  // Radial Skill Web (Task 11b, minimal buildable integration) -- the pannable
+  // fog-of-war talent web that REPLACES the old depth-row talent panels in
+  // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
+  // own tooltip + Learn button internally (see RadialWeb.svelte), so App.svelte
+  // no longer renders any per-node talent markup or the shared talent tooltip
+  // overlay. Branches are HARDCODED here for now (captain -> "resourcefulness"/
+  // Prospector, homeworld -> "fleetLogistics"); Tasks 14/15 layer the spec/
+  // category selection UX in front of this.
+  import RadialWeb from "./lib/RadialWeb.svelte";
   import {
     freshState,
     MISSIONS,
@@ -13,16 +22,17 @@
     xpForNextFleetAdminLevel,
     CAPTAIN_TALENTS,
     HOMEWORLD_TALENTS,
-    CAPTAIN_SPEC_BONUS,
+    // CAPTAIN_SPEC_BONUS / CaptainState / HomeworldTalentBranch import removed
+    // in Task 11b: their only App.svelte uses were the deleted spec-picker
+    // (CAPTAIN_SPEC_BONUS), the removed talentTooltipInfo lookup (CaptainState),
+    // and the removed homeworld branch {#each} cast (HomeworldTalentBranch).
     type GameState,
-    type CaptainState,
     type MissionKey,
     type MissionPhase,
     type LootMaterialKey,
     type RecipeKey,
     type HomePlanetMaterialKey,
     type CaptainTalentBranch,
-    type HomeworldTalentBranch,
     type CaptainTalentKey,
     type HomeworldTalentKey,
   } from "./lib/game/model";
@@ -90,44 +100,12 @@
     unloading: "Unloading",
   };
 
-  // Display label for each Captain Talent branch -- "tactical" shows as
-  // "Tactician" and "science" shows as "Explorer", both per the user's own
-  // requests (2026-07-07); every other branch's label is just its own raw key
-  // (still uppercased by .skill-branch-title's CSS, same as before). The
-  // branch KEYS themselves ("tactical"/"science") are unchanged --
-  // CAPTAIN_TALENTS entries still key off them, this map only affects what's
-  // rendered.
-  const CAPTAIN_TALENT_BRANCH_LABEL: Record<CaptainTalentBranch, string> = {
-    command: "command",
-    tactical: "Tactician",
-    science: "Explorer",
-    resourcefulness: "resourcefulness",
-    diplomacy: "diplomacy",
-  };
-
-  // Talent Tree Visual Redesign (Task 10) -- Captain Talents panel layout.
-  // Every CAPTAIN_TALENTS entry's `requires` field points at its same-branch
-  // prerequisite (or null for a root node) -- talentDepth walks that chain
-  // back to the root and returns how many hops it took, so "depth" doubles
-  // as the node's row index within its branch's column (root = row 0).
-  // Component-local (not moved to tick.ts) because it's pure presentation
-  // math, not game logic -- nothing in the save/tick pipeline needs it.
-  function talentDepth(key: string, table: Record<string, { requires: string | null }>): number {
-    let depth = 0;
-    let current = table[key].requires;
-    while (current !== null) {
-      depth += 1;
-      current = table[current].requires;
-    }
-    return depth;
-  }
-
-  // Pixel height reserved per depth row in a Captain Talents branch column.
-  // .skill-node (see CSS below) runs roughly 8px padding + ~34px of label/
-  // status text + 6px margin-bottom ≈ 48px tall -- 56px leaves a visible gap
-  // between stacked nodes so the connector line reads clearly against the
-  // node borders on either end.
-  const TALENT_ROW_HEIGHT = 56;
+  // Radial Skill Web (Task 11b) removed the depth-row talent rendering that
+  // lived here: the CAPTAIN_TALENT_BRANCH_LABEL map (keyed on the removed
+  // command/diplomacy branches), the talentDepth helper (walked the removed
+  // `.requires` chains), and the TALENT_ROW_HEIGHT layout constant are all
+  // gone. RadialWeb.svelte now owns talent layout/labels/positioning; nothing
+  // in App.svelte needs branch-depth math anymore.
 
   let state: GameState = freshState();
   let createdAt = Date.now();
@@ -181,54 +159,15 @@
   let missionPopupKey: MissionKey | null = null;
   let missionPopupCaptainId: number | null = null;
 
-  // Talent Tree Visual Redesign (Task 12) -- tracks which single talent
-  // node's tooltip is open, shared across BOTH Captain Talents and Homeworld
-  // Talents panels. Safe to share one variable: CaptainTalentKey and
-  // HomeworldTalentKey are disjoint string-literal unions (confirmed by hand
-  // against model.ts -- commandExtractionI/II, resourcefulnessRareChanceI/II,
-  // resourcefulnessBonusRollI/II vs. fleetLogisticsSlot1/2/3,
-  // fleetLogisticsYield, industryBonusOutput, economyTrickle -- no shared
-  // values), and only one of the two panels is ever visible at a time anyway
-  // (they live on different tabs/sub-tabs). null means no tooltip is open.
-  let openTooltipKey: string | null = null;
-
-  // Tooltip content lookup (tooltip-stacking fix) -- the tooltip itself is
-  // now rendered ONCE, as a top-level overlay near the other modals (see
-  // near DELETE SAVE below), not duplicated inline inside each of the two
-  // talent panels. That means it needs one shared way to resolve
-  // openTooltipKey into display content regardless of which panel it came
-  // from, since it no longer has direct access to either loop's local
-  // `talent`/`owned`/`locked` bindings. Reuses the same disjoint-key-spaces
-  // fact noted above to decide which table a given key belongs to.
-  type TalentTooltipInfo = { flavor: string; effectLine: string; statusLine: string };
-  function talentTooltipInfo(key: string, state: GameState, captain: CaptainState): TalentTooltipInfo | null {
-    if (key in CAPTAIN_TALENTS) {
-      const talentKey = key as CaptainTalentKey;
-      const talent = CAPTAIN_TALENTS[talentKey];
-      const owned = captain.unlockedCaptainTalents.includes(talentKey);
-      const locked = !owned && talent.requires !== null && !captain.unlockedCaptainTalents.includes(talent.requires);
-      const statusLine = owned
-        ? "Owned"
-        : locked
-        ? `Requires: ${CAPTAIN_TALENTS[talent.requires!].label}`
-        : `Cost: ${formatNumber(talent.cost)} Stat Points`;
-      return { flavor: talent.flavor, effectLine: describeCaptainTalentEffect(talent.effect), statusLine };
-    }
-    if (key in HOMEWORLD_TALENTS) {
-      const talentKey = key as HomeworldTalentKey;
-      const talent = HOMEWORLD_TALENTS[talentKey];
-      const owned = state.unlockedHomeworldTalents.includes(talentKey);
-      const locked = !owned && talent.requires !== null && !state.unlockedHomeworldTalents.includes(talent.requires);
-      const statusLine = owned
-        ? "Owned"
-        : locked
-        ? `Requires: ${HOMEWORLD_TALENTS[talent.requires!].label}`
-        : `Cost: ${formatNumber(talent.cost)} Admin Points`;
-      return { flavor: talent.flavor, effectLine: describeHomeworldTalentEffect(talent.effect), statusLine };
-    }
-    return null;
-  }
-  $: activeTooltipInfo = openTooltipKey !== null ? talentTooltipInfo(openTooltipKey, state, activeCaptain) : null;
+  // Radial Skill Web (Task 11b) -- the old shared talent-tooltip mechanism
+  // (openTooltipKey + the talentTooltipInfo lookup + the activeTooltipInfo
+  // reactive) was removed here. It resolved a talent key into tooltip content
+  // by reading each def's now-removed `.requires` field, so it no longer
+  // compiles. RadialWeb.svelte now owns the talent tooltip (and its Learn
+  // button) internally, so App.svelte no longer tracks an open talent node or
+  // renders a talent tooltip overlay at all. (The DELETE SAVE / respec / Import
+  // modals still use .modal-backdrop and are untouched; .tooltip-backdrop CSS
+  // is left in place for now -- CSS cleanup is Task 17.)
   let speed = 1;
   let logEntries: string[] = [];
   let activeCaptainIndex = 0;
@@ -964,120 +903,27 @@
             Reset
           </button>
         </div>
-        {#each (["fleetLogistics", "homelandDefense", "citizenry", "economy", "industry"] as HomeworldTalentBranch[]) as branch}
-          {@const nodes = Object.entries(HOMEWORLD_TALENTS).filter(([, def]) => def.branch === branch)}
-          <div class="skill-branch">
-            <div class="skill-branch-title">{branch}</div>
-            {#if nodes.length === 0}
-              <p class="prestige-text">Not yet available.</p>
-            {:else}
-              {@const depths = nodes.map(([key]) => talentDepth(key, HOMEWORLD_TALENTS))}
-              {@const maxDepth = Math.max(...depths)}
-              {@const treeHeight = (maxDepth + 1) * TALENT_ROW_HEIGHT}
-              {@const depthRows = Array.from({ length: maxDepth + 1 }, (_, rowDepth) =>
-                nodes.filter(([key]) => talentDepth(key, HOMEWORLD_TALENTS) === rowDepth)
-              )}
-              <!-- Same depthRows grouping as Task 10 (Captain Talents) -- every
-                   branch except fleetLogistics still resolves to one node per
-                   row, same as before. fleetLogistics' depthRows[0] is the
-                   first branch, in EITHER talent tree, to actually hold 2
-                   entries ([fleetLogisticsSlot1, fleetLogisticsYield]) -- see
-                   the {#each row as ..., columnIndex} below, which is the
-                   part of this template Captain Talents never needed. -->
-              <div class="talent-branch-tree" style="height:{treeHeight}px;">
-                <svg class="talent-branch-connectors" viewBox="0 0 100 {treeHeight}" preserveAspectRatio="none">
-                  {#each nodes as [key, talent]}
-                    {#if talent.requires !== null}
-                      {@const owned = state.unlockedHomeworldTalents.includes(key as HomeworldTalentKey)}
-                      {@const thisDepth = talentDepth(key, HOMEWORLD_TALENTS)}
-                      {@const prereqDepth = talentDepth(talent.requires!, HOMEWORLD_TALENTS)}
-                      <line
-                        x1="50"
-                        y1={prereqDepth * TALENT_ROW_HEIGHT + TALENT_ROW_HEIGHT / 2}
-                        x2="50"
-                        y2={thisDepth * TALENT_ROW_HEIGHT + TALENT_ROW_HEIGHT / 2}
-                        stroke={owned ? "var(--color-success)" : "rgba(var(--color-accent-rgb), 0.2)"}
-                        stroke-width="2"
-                        vector-effect="non-scaling-stroke"
-                      />
-                    {/if}
-                  {/each}
-                </svg>
-                {#each depthRows as row, rowDepth}
-                  {#each row as [key, talent], columnIndex}
-                    {@const owned = state.unlockedHomeworldTalents.includes(key as HomeworldTalentKey)}
-                    {@const locked = !owned && talent.requires !== null && !state.unlockedHomeworldTalents.includes(talent.requires)}
-                    {@const buyable = !owned && !locked && state.adminPoints >= talent.cost}
-                    {@const columnCount = row.length}
-                    <!-- columnCount === 1 (every row except fleetLogistics'
-                         depth-0 row) renders left:0%/width:100%/no gap-inset --
-                         byte-identical to Task 10's plain full-width .talent-node,
-                         so single-node rows are visually unchanged. columnCount
-                         === 2 (only fleetLogisticsSlot1 + fleetLogisticsYield's
-                         shared row) splits the row into two side-by-side halves
-                         instead of letting them stack at the same `top` and
-                         overlap -- the calc(...+4px)/calc(...-4px) inset carves
-                         a small visible gap between adjacent siblings' borders
-                         (skipped entirely, via the columnCount>1 ternary, when
-                         there's only one column, so it can never nudge a
-                         single-node row's edges inward). -->
-                    <!-- Tooltip wiring (Task 12, restyled by the
-                         tooltip-stacking fix) -- hover OR tap opens it
-                         (mouseenter/click on this outer container). The
-                         tooltip itself no longer renders HERE -- it's a
-                         single shared top-level overlay near the other
-                         modals (see near DELETE SAVE below and
-                         `activeTooltipInfo` in <script>), since nesting it
-                         inside this Panel broke true full-viewport
-                         coverage (Panel.svelte's own backdrop-filter makes
-                         it a containing block for position:fixed
-                         descendants). No mouseleave-based auto-close
-                         either: that overlay, once open, visually covers
-                         this very node, so relying on this element's
-                         mouseleave to close it caused an open/close
-                         flicker loop on the very next mousemove (the
-                         browser's hit-test at the cursor's position
-                         resolves to the overlay, not this node, firing a
-                         spurious mouseleave here) -- closing instead
-                         happens via an explicit click/tap on the overlay's
-                         own backdrop. The buy-btn below still stops its
-                         own click from propagating up to this div, so
-                         clicking "Unlock" doesn't ALSO toggle the tooltip
-                         as a side effect. -->
-                    <div
-                      class="skill-node talent-node" class:owned={owned} class:locked={locked}
-                      style="top:{rowDepth * TALENT_ROW_HEIGHT}px; left:calc({(columnIndex / columnCount) * 100}%{columnCount > 1 && columnIndex > 0 ? ' + 4px' : ''}); width:calc({100 / columnCount}%{columnCount > 1 ? ' - 4px' : ''}); right:auto;"
-                      on:mouseenter={() => (openTooltipKey = key)}
-                      on:click={() => (openTooltipKey = openTooltipKey === key ? null : key)}
-                    >
-                      <div>
-                        <div class="skill-node-label">{talent.label}</div>
-                        <div class="skill-node-status">
-                          {#if owned}
-                            Owned
-                          {:else if locked}
-                            Requires: {HOMEWORLD_TALENTS[talent.requires!].label}
-                          {:else}
-                            Cost: {formatNumber(talent.cost)} Admin Points
-                          {/if}
-                        </div>
-                      </div>
-                      {#if !owned}
-                        <button
-                          class="buy-btn"
-                          disabled={!buyable}
-                          on:click|stopPropagation={() => doBuyHomeworldTalent(key as HomeworldTalentKey)}
-                        >
-                          Unlock
-                        </button>
-                      {/if}
-                    </div>
-                  {/each}
-                {/each}
-              </div>
-            {/if}
-          </div>
-        {/each}
+        <!-- Radial Skill Web (Task 11b, minimal buildable integration) --
+             REPLACES the old fixed-5-branch depth-row tree (branch {#each} +
+             talentDepth/TALENT_ROW_HEIGHT layout + per-node .skill-node markup
+             + shared tooltip). `branch` is HARDCODED to "fleetLogistics" for
+             now; Task 15 adds the 5-category selector in front of this and
+             drives `branch` from the chosen category. `owned` is the fleet-wide
+             state.unlockedHomeworldTalents, `points` the shared adminPoints
+             pool. onLearn routes the tooltip's Learn button into the EXISTING
+             doBuyHomeworldTalent wrapper (buyHomeworldTalent + pushLog + save),
+             so learning still works exactly as before. describeEffect passes
+             the homeworld effect describer through so RadialWeb's internal
+             tooltip renders the right effect line without importing it. -->
+        <RadialWeb
+          table={HOMEWORLD_TALENTS}
+          branch={"fleetLogistics"}
+          owned={state.unlockedHomeworldTalents}
+          points={state.adminPoints}
+          pointsLabel={"Admin Points"}
+          describeEffect={describeHomeworldTalentEffect}
+          onLearn={(key) => doBuyHomeworldTalent(key as HomeworldTalentKey)}
+        />
       </Panel>
       {/if}
       </div>
@@ -1192,94 +1038,30 @@
                   Reset
                 </button>
               </div>
-              {#each (["command", "tactical", "science", "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}
-                {@const nodes = Object.entries(CAPTAIN_TALENTS).filter(([, def]) => def.branch === branch)}
-                <div class="skill-branch">
-                  <div class="skill-branch-title">{CAPTAIN_TALENT_BRANCH_LABEL[branch]}</div>
-                  {#if nodes.length === 0}
-                    <p class="prestige-text">Not yet available.</p>
-                  {:else}
-                    {@const depths = nodes.map(([key]) => talentDepth(key, CAPTAIN_TALENTS))}
-                    {@const maxDepth = Math.max(...depths)}
-                    {@const treeHeight = (maxDepth + 1) * TALENT_ROW_HEIGHT}
-                    {@const depthRows = Array.from({ length: maxDepth + 1 }, (_, rowDepth) =>
-                      nodes.filter(([key]) => talentDepth(key, CAPTAIN_TALENTS) === rowDepth)
-                    )}
-                    <!-- depthRows groups nodes by depth (row), not one-node-per-depth --
-                         every branch today is a single linear chain so each row holds
-                         exactly one node, but grouping this way means a future branch
-                         with same-depth siblings renders them stacked in the SAME row
-                         (see the {#each row as ...} below) instead of silently
-                         overlapping at the same `top` offset. -->
-                    <div class="talent-branch-tree" style="height:{treeHeight}px;">
-                      <svg class="talent-branch-connectors" viewBox="0 0 100 {treeHeight}" preserveAspectRatio="none">
-                        {#each nodes as [key, talent]}
-                          {#if talent.requires !== null}
-                            {@const owned = activeCaptain.unlockedCaptainTalents.includes(key as CaptainTalentKey)}
-                            {@const thisDepth = talentDepth(key, CAPTAIN_TALENTS)}
-                            {@const prereqDepth = talentDepth(talent.requires!, CAPTAIN_TALENTS)}
-                            <line
-                              x1="50"
-                              y1={prereqDepth * TALENT_ROW_HEIGHT + TALENT_ROW_HEIGHT / 2}
-                              x2="50"
-                              y2={thisDepth * TALENT_ROW_HEIGHT + TALENT_ROW_HEIGHT / 2}
-                              stroke={owned ? "var(--color-success)" : "rgba(var(--color-accent-rgb), 0.2)"}
-                              stroke-width="2"
-                              vector-effect="non-scaling-stroke"
-                            />
-                          {/if}
-                        {/each}
-                      </svg>
-                      {#each depthRows as row, rowDepth}
-                        {#each row as [key, talent]}
-                          {@const owned = activeCaptain.unlockedCaptainTalents.includes(key as CaptainTalentKey)}
-                          {@const locked = !owned && talent.requires !== null && !activeCaptain.unlockedCaptainTalents.includes(talent.requires)}
-                          {@const buyable = !owned && !locked && activeCaptain.statPoints >= talent.cost}
-                          <!-- Tooltip wiring (Task 12, restyled by the
-                               tooltip-stacking fix) -- hover OR tap opens it
-                               (mouseenter/click on this outer container). The
-                               tooltip itself no longer renders HERE -- see
-                               the matching comment in the Homeworld Talents
-                               panel above for the full reasoning (single
-                               shared top-level overlay, no mouseleave
-                               auto-close). The buy-btn below still stops its
-                               own click from propagating up to this div, so
-                               clicking "Learn" doesn't ALSO toggle the
-                               tooltip. -->
-                          <div
-                            class="skill-node talent-node" class:owned={owned} class:locked={locked}
-                            style="top:{rowDepth * TALENT_ROW_HEIGHT}px;"
-                            on:mouseenter={() => (openTooltipKey = key)}
-                            on:click={() => (openTooltipKey = openTooltipKey === key ? null : key)}
-                          >
-                            <div>
-                              <div class="skill-node-label">{talent.label}</div>
-                              <div class="skill-node-status">
-                                {#if owned}
-                                  Owned
-                                {:else if locked}
-                                  Requires: {CAPTAIN_TALENTS[talent.requires!].label}
-                                {:else}
-                                  Cost: {formatNumber(talent.cost)} Stat Points
-                                {/if}
-                              </div>
-                            </div>
-                            {#if !owned}
-                              <button
-                                class="buy-btn"
-                                disabled={!buyable}
-                                on:click|stopPropagation={() => doBuyCaptainTalent(key as CaptainTalentKey)}
-                              >
-                                Learn
-                              </button>
-                            {/if}
-                          </div>
-                        {/each}
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
-              {/each}
+              <!-- Radial Skill Web (Task 11b, minimal buildable integration) --
+                   REPLACES the old fixed-5-branch depth-row captain tree (branch
+                   {#each} over command/tactical/science/resourcefulness/diplomacy
+                   + talentDepth/TALENT_ROW_HEIGHT layout + per-node .skill-node
+                   markup + shared tooltip). `branch` is HARDCODED to
+                   "resourcefulness" (Prospector) for now -- Task 14 makes this
+                   the captain's chosen spec (rendering a TreeSelector when
+                   activeCaptain.spec is null, else this captain's spec web).
+                   `owned`/`points` are THIS captain's own unlockedCaptainTalents
+                   and statPoints (per-captain scoping preserved). onLearn routes
+                   the tooltip's Learn button into the EXISTING doBuyCaptainTalent
+                   wrapper (buyCaptainTalent for activeCaptain.id + pushLog +
+                   save), so learning still works exactly as before. describeEffect
+                   passes the captain effect describer through for the internal
+                   tooltip. -->
+              <RadialWeb
+                table={CAPTAIN_TALENTS}
+                branch={"resourcefulness"}
+                owned={activeCaptain.unlockedCaptainTalents}
+                points={activeCaptain.statPoints}
+                pointsLabel={"Stat Points"}
+                describeEffect={describeCaptainTalentEffect}
+                onLearn={(key) => doBuyCaptainTalent(key as CaptainTalentKey)}
+              />
             </Panel>
           {/if}
         </div>
@@ -1660,25 +1442,14 @@
     </div>
   {/if}
 
-  {#if activeTooltipInfo}
-    <!-- Talent tooltip (Task 12, restyled by the tooltip-stacking fix) --
-         single shared render for BOTH the Homeworld Talents and Captain
-         Talents panels (see `activeTooltipInfo`/`talentTooltipInfo` in
-         <script>), placed as a top-level sibling here rather than nested
-         inside either panel's <Panel> -- Panel.svelte's own backdrop-filter
-         makes its .panel a containing block for position:fixed descendants,
-         which broke full-viewport coverage when the tooltip was still
-         rendered inline inside a talent node. Every .modal-backdrop below
-         is a top-level sibling for this exact reason; .tooltip-backdrop
-         follows the same rule. -->
-    <div class="tooltip-backdrop" on:click|self={() => (openTooltipKey = null)}>
-      <div class="talent-tooltip">
-        <p class="talent-tooltip-flavor">{activeTooltipInfo.flavor}</p>
-        <p class="talent-tooltip-effect">{activeTooltipInfo.effectLine}</p>
-        <p class="talent-tooltip-meta">{activeTooltipInfo.statusLine}</p>
-      </div>
-    </div>
-  {/if}
+  <!-- Radial Skill Web (Task 11b) -- the shared talent-tooltip overlay that
+       lived here (the `{#if activeTooltipInfo}` .tooltip-backdrop/.talent-tooltip
+       block, driven by the now-removed openTooltipKey/talentTooltipInfo) was
+       deleted. RadialWeb.svelte renders its OWN tooltip + Learn button
+       internally on node tap, so App.svelte no longer needs a top-level talent
+       tooltip. The .tooltip-backdrop/.talent-tooltip CSS is intentionally left
+       in the <style> block for now (orphaned-CSS sweep is Task 17); the DELETE
+       SAVE / respec / Import modals below are untouched. -->
 
   {#if deleteModalOpen}
     <div class="modal-backdrop">
@@ -1727,20 +1498,27 @@
   {/if}
 
   {#if captainRespecModalOpen}
-    <!-- Captain Talents Reset confirmation modal (Task 13, Talent Tree
-         Visual Redesign) -- same .modal-backdrop/Panel.modal-dialog/
-         .modal-warning/.modal-row structure as the modals above. The
-         genuinely new piece here (not just mirroring DELETE SAVE) is the
-         spec picker below: only "command" and "resourcefulness" are
-         selectable (the only 2 branches with a CAPTAIN_SPEC_BONUS entry --
-         confirmed by reading the live model.ts table, not assumed), the
-         other 3 render as disabled buttons in the same "Not yet available"
-         spirit the talent columns themselves already use for those
-         branches. selectedSpecInModal was seeded with activeCaptain's
-         CURRENT spec by openCaptainRespecModal when this modal was opened
-         (not left at its `null` initial default), so a plain Confirm click
-         without touching this picker passes the captain's existing spec
-         straight through to doRespecCaptainTalents, leaving it unchanged. -->
+    <!-- Captain Talents Reset confirmation modal -- same .modal-backdrop/
+         Panel.modal-dialog/.modal-warning/.modal-row structure as the modals
+         above. The refund-confirm flow is UNCHANGED (doRespecCaptainTalents
+         still refunds this captain's spent Stat Points and charges
+         RESPEC_COST_CREDITS).
+
+         Task 11b (minimal buildable integration) TEMPORARILY STUBBED OUT the
+         in-modal spec picker: the old {#each} iterated
+         ["command","tactical","science","resourcefulness","diplomacy"] cast to
+         CaptainTalentBranch[] and labeled each via CAPTAIN_TALENT_BRANCH_LABEL
+         -- both the command/diplomacy literals and that label map were removed
+         when the branch union shrank to resourcefulness|tactical|science, so
+         the picker no longer compiles. It is dropped here rather than
+         partially rewritten because Task 14 rebuilds captain spec SELECTION
+         properly via the TreeSelector (first pick free from null; changing an
+         existing spec routes through this respec). Until then, Reset keeps the
+         captain's CURRENT spec: openCaptainRespecModal seeds selectedSpecInModal
+         with activeCaptain.spec, and Confirm passes that unchanged value
+         straight through, so this is purely a talent-point refund with no spec
+         change. TASK 14: restore an in-flow spec chooser here (or fold reset
+         into the TreeSelector). -->
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
         <div class="panel-title">RESET CAPTAIN TALENTS — {activeCaptain.label}</div>
@@ -1748,25 +1526,6 @@
           This will refund every Captain Talent's Stat Points this captain spent and cost {RESPEC_COST_CREDITS} Credits.
           This can't be undone.
         </p>
-        <p class="modal-instruction">Choose a Specialization (optional -- leave as-is to keep the current one):</p>
-        <div class="modal-captain-list">
-          {#each (["command", "tactical", "science", "resourcefulness", "diplomacy"] as CaptainTalentBranch[]) as branch}
-            {@const selectable = branch in CAPTAIN_SPEC_BONUS}
-            {#if selectable}
-              <button
-                class="dev-btn"
-                class:active={selectedSpecInModal === branch}
-                on:click={() => (selectedSpecInModal = branch)}
-              >
-                {CAPTAIN_TALENT_BRANCH_LABEL[branch]}
-              </button>
-            {:else}
-              <button class="dev-btn" disabled title="Not yet available">
-                🔒 {CAPTAIN_TALENT_BRANCH_LABEL[branch]}
-              </button>
-            {/if}
-          {/each}
-        </div>
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelCaptainRespec}>Cancel</button>
           <button
