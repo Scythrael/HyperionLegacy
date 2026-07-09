@@ -11,7 +11,7 @@ import {
   HOMEWORLD_TALENTS,
   CAPTAIN_SPEC_BONUS,
 } from "./model";
-import type { CaptainTalentKey } from "./model";
+import type { CaptainTalentKey, HomeworldTalentKey } from "./model";
 
 describe("freshState — captain roster shape", () => {
   it("starts with exactly 1 captain (Command branch is how the roster grows now)", () => {
@@ -230,13 +230,22 @@ describe("CAPTAIN_TALENTS — launch set", () => {
 });
 
 describe("HOMEWORLD_TALENTS — launch set", () => {
-  it("Fleet Logistics, Industry, Economy have real nodes; Homeland Defense/Citizenry are empty", () => {
+  // Radial Skill Web (Task 3) rewrote this table into a radial graph: every
+  // category now has at least its hub, so no category is literally empty
+  // anymore. Homeland Defense / Citizenry are HUB-ONLY (a "learn me first"
+  // gateway, not zero entries) until their defense/population systems exist;
+  // Fleet Logistics is the rich category (hub + slot chain + yield); Economy
+  // and Industry carry hub + one content node each.
+  it("Fleet Logistics is the rich category; Homeland Defense/Citizenry are hub-only stubs", () => {
     const branches = Object.values(HOMEWORLD_TALENTS).map((t) => t.branch);
-    expect(branches.filter((b) => b === "fleetLogistics").length).toBeGreaterThan(0);
-    expect(branches.filter((b) => b === "industry").length).toBeGreaterThan(0);
-    expect(branches.filter((b) => b === "economy").length).toBeGreaterThan(0);
-    expect(branches.filter((b) => b === "homelandDefense").length).toBe(0);
-    expect(branches.filter((b) => b === "citizenry").length).toBe(0);
+    // fleetLogistics: hub + Slot1/2/3 + Yield = 5 total.
+    expect(branches.filter((b) => b === "fleetLogistics").length).toBe(5);
+    // economy/industry: hub + 1 content node each = 2 total.
+    expect(branches.filter((b) => b === "economy").length).toBe(2);
+    expect(branches.filter((b) => b === "industry").length).toBe(2);
+    // homelandDefense/citizenry: just their hub (1 each) -- lean stub, not empty.
+    expect(branches.filter((b) => b === "homelandDefense").length).toBe(1);
+    expect(branches.filter((b) => b === "citizenry").length).toBe(1);
   });
 
   it("Fleet Logistics has exactly 3 unlockCaptainSlot nodes, matching the original 3-tier slot-unlock design", () => {
@@ -300,6 +309,51 @@ describe("Radial Skill Web — CAPTAIN_TALENTS graph integrity", () => {
         expect(CAPTAIN_TALENTS[n]).toBeDefined(); // resolves
         expect(CAPTAIN_TALENTS[n].branch).toBe(CAPTAIN_TALENTS[k].branch); // same branch
         expect(CAPTAIN_TALENTS[n].neighbors).toContain(k); // symmetric
+      }
+    }
+  });
+});
+
+// Radial Skill Web (Task 3): the same graph-integrity invariants as the captain
+// test above, now for HOMEWORLD_TALENTS -- PLUS the Task 3 preservation rule.
+// The four structural rules (one hub per category, neighbors resolve, same
+// category, symmetric) are what the fog-of-war reveal (Task 4) and adjacency
+// buy-gating (Task 5) depend on. The extra assertion here guards the CRITICAL
+// constraint that every pre-existing (v14) homeworld key string survives the
+// rewrite UNCHANGED -- existing saves' unlockedHomeworldTalents reference these
+// strings and Task 6's migration deliberately does NOT refund homeworld talents
+// because they survive by key, so a rename here would silently break real saves.
+describe("Radial Skill Web — HOMEWORLD_TALENTS graph integrity", () => {
+  it("all v14 keys preserved + one hub per category, symmetric adjacency, all neighbors resolve same-category", () => {
+    // 1. Every pre-existing key string still defined (the preservation rule).
+    for (const k of [
+      "fleetLogisticsSlot1",
+      "fleetLogisticsSlot2",
+      "fleetLogisticsSlot3",
+      "fleetLogisticsYield",
+      "industryBonusOutput",
+      "economyTrickle",
+    ]) {
+      expect((HOMEWORLD_TALENTS as any)[k]).toBeDefined();
+    }
+
+    const keys = Object.keys(HOMEWORLD_TALENTS) as HomeworldTalentKey[];
+
+    // 2. Exactly one hub per category (5 categories -> 5 hubs total).
+    const cats = ["fleetLogistics", "homelandDefense", "citizenry", "economy", "industry"];
+    for (const cat of cats) {
+      const hubs = keys.filter((k) => HOMEWORLD_TALENTS[k].branch === cat && HOMEWORLD_TALENTS[k].isHub);
+      expect(hubs.length).toBe(1); // one seed per category
+    }
+    const totalHubs = keys.filter((k) => HOMEWORLD_TALENTS[k].isHub).length;
+    expect(totalHubs).toBe(5);
+
+    // 3-4. Every neighbor resolves, is same-category, and adjacency is symmetric.
+    for (const k of keys) {
+      for (const n of HOMEWORLD_TALENTS[k].neighbors) {
+        expect(HOMEWORLD_TALENTS[n]).toBeDefined(); // resolves
+        expect(HOMEWORLD_TALENTS[n].branch).toBe(HOMEWORLD_TALENTS[k].branch); // same category
+        expect(HOMEWORLD_TALENTS[n].neighbors).toContain(k); // symmetric
       }
     }
   });

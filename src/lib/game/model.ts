@@ -266,7 +266,19 @@ export type HomeworldTalentEffect =
   | { type: "unlockCaptainSlot" }
   | { type: "rareYieldMult"; mult: number }
   | { type: "recipeBonusOutput"; recipeKey: RecipeKey; bonus: number }
-  | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number };
+  | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number }
+  // Radial Skill Web (Task 3): a genuinely-null gateway effect, added to mirror
+  // CaptainTalentEffect's own `none` member (Task 2) exactly. Used by the
+  // Homeland Defense and Citizenry hubs, which are "learn me first" seeds for
+  // categories whose real mechanics (a Battlespace/defense system, a population
+  // system) don't exist yet. Chosen over a `rareYieldMult`/`mult: 0.0`
+  // placeholder because that would render through describeHomeworldTalentEffect
+  // as a misleading "+0.0% Rare Material yield" line on a defense/citizenry
+  // hub -- a `none` member renders honestly as "no bonus yet" instead. Carries
+  // no payload; the tick economy (tick.ts) simply has nothing to apply for it.
+  // When those systems land, the hub's effect changes to a real member and this
+  // stays available for any future pure-gateway node.
+  | { type: "none" };
 
 // Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 1):
 // the def shape moved from a linear `requires` prerequisite to a graph. The
@@ -466,26 +478,78 @@ export const CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTale
   resourcefulness: { type: "bonusRollChance", chance: 0.01 },
 };
 
-// Fleet Logistics' 3 slot-unlock tiers below fully replace the old
-// CAPTAIN_SLOT_UNLOCKS table/unlockCaptainSlot() mechanism, removed in Task 4.
-// Homeland Defense and Citizenry are deliberately EMPTY, same reasoning as
-// Tactical/Science/Diplomacy above (need Battlespace / a population system,
-// neither exists yet). Costs below are launch placeholders, same as
-// CAPTAIN_TALENTS' own -- not balance-tested.
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 3):
+// this table is now a radial GRAPH, one hub per HomeworldTalentBranch (exactly
+// 5 hubs, each `isHub: true` at x:0,y:0 within its category), not a set of
+// linear `requires` chains. The former `requires` field is REMOVED; adjacency
+// now lives in `neighbors[]` (bidirectional by convention), which drives BOTH
+// the rendered connectors and the fog-of-war/buy-gating rule (a node is
+// learnable once it neighbors an owned node; each category is seeded by its
+// single hub). Buy-gating switches from `requires` to this adjacency in Task 5.
+//
+// CRITICAL: every pre-existing key string is preserved UNCHANGED
+// (fleetLogisticsSlot1/2/3, fleetLogisticsYield, industryBonusOutput,
+// economyTrickle) so existing saves' unlockedHomeworldTalents stay valid --
+// Task 6's migration deliberately does NOT refund Homeworld talents because
+// they survive by key. Only the 5 new hub keys + the graph fields are ADDED.
+//
+// Content this build ships (design §6.3 -- lean and honest):
+//   - Fleet Logistics is the ONE rich category: hub -> Slot1 -> Slot2 -> Slot3
+//     (the existing slot-unlock chain, now via neighbors) with fleetLogisticsYield
+//     hanging directly off the hub. Fully replaces the old CAPTAIN_SLOT_UNLOCKS
+//     table/unlockCaptainSlot() mechanism (removed in an earlier task).
+//   - Economy hub -> economyTrickle; Industry hub -> industryBonusOutput (one
+//     existing content node each).
+//   - Homeland Defense and Citizenry are HUB-ONLY (neighbors: []). Their real
+//     mechanics (a Battlespace/defense system, a population system) don't exist
+//     yet, so their hubs carry a `{ type: "none" }` effect (an honest "no bonus
+//     yet", NOT a misleading 0.0 yield placeholder) and grow later. No inert
+//     filler nodes are authored for them -- same reasoning as the captain
+//     Tactician/Explorer hubs.
+// Costs/coordinates below are launch placeholders, same as CAPTAIN_TALENTS' own
+// -- not balance-tested; coordinates tunable at the Task 12 device checkpoint.
 export type HomeworldTalentKey =
+  // fleetLogistics -- the rich category
+  | "fleetLogisticsHub"
   | "fleetLogisticsSlot1"
   | "fleetLogisticsSlot2"
   | "fleetLogisticsSlot3"
   | "fleetLogisticsYield"
-  | "industryBonusOutput"
-  | "economyTrickle";
+  // homelandDefense -- hub-only gateway stub until a defense system exists
+  | "homelandDefenseHub"
+  // citizenry -- hub-only gateway stub until a population system exists
+  | "citizenryHub"
+  // economy -- hub + one existing content node
+  | "economyHub"
+  | "economyTrickle"
+  // industry -- hub + one existing content node
+  | "industryHub"
+  | "industryBonusOutput";
 
 export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & { effect: HomeworldTalentEffect }> = {
+  // --- fleetLogistics -- the rich category ------------------------------
+  // hub -> Slot1 -> Slot2 -> Slot3 (the slot-unlock chain), plus Yield off hub.
+  fleetLogisticsHub: {
+    branch: "fleetLogistics",
+    label: "Fleet Command",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: ["fleetLogisticsSlot1", "fleetLogisticsYield"],
+    // A modest real starter effect (mirrors the captain prospectorHub, which
+    // carries a real commonYieldMult on the one rich tree) -- rareYieldMult is
+    // thematically apt for a logistics/requisitions category.
+    effect: { type: "rareYieldMult", mult: 0.02 },
+    flavor: "The standing authority that turns a scattering of ships into a fleet.",
+  },
   fleetLogisticsSlot1: {
     branch: "fleetLogistics",
     label: "Recruit Captain (2nd slot)",
     cost: 3,
-    requires: null,
+    x: -180,
+    y: -120,
+    neighbors: ["fleetLogisticsHub", "fleetLogisticsSlot2"],
     effect: { type: "unlockCaptainSlot" },
     flavor: "Fleet Command approves a second commission -- the roster grows.",
   },
@@ -493,7 +557,9 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     branch: "fleetLogistics",
     label: "Recruit Captain (3rd slot)",
     cost: 5,
-    requires: "fleetLogisticsSlot1",
+    x: -320,
+    y: -200,
+    neighbors: ["fleetLogisticsSlot1", "fleetLogisticsSlot3"],
     effect: { type: "unlockCaptainSlot" },
     flavor: "A third captain's chair, funded and ready. The fleet expands.",
   },
@@ -501,7 +567,9 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     branch: "fleetLogistics",
     label: "Recruit Captain (4th slot)",
     cost: 8,
-    requires: "fleetLogisticsSlot2",
+    x: -440,
+    y: -280,
+    neighbors: ["fleetLogisticsSlot2"],
     effect: { type: "unlockCaptainSlot" },
     flavor: "Four commands under one banner -- logistics finally caught up with ambition.",
   },
@@ -509,27 +577,85 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     branch: "fleetLogistics",
     label: "Fleet Requisitions",
     cost: 4,
-    requires: null,
+    x: 180,
+    y: -120,
+    neighbors: ["fleetLogisticsHub"],
     effect: { type: "rareYieldMult", mult: 0.05 }, // was fleetExtractionYieldMult
     flavor:
       "Standing orders redirect a share of every rare find straight back to the fleet's reserves.",
   },
-  industryBonusOutput: {
-    branch: "industry",
-    label: "Tooling Upgrade",
-    cost: 4,
-    requires: null,
-    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
-    flavor: "New jigs and fixtures on the fabrication line mean every batch stretches a little further.",
+  // --- homelandDefense -- hub-only gateway stub -------------------------
+  homelandDefenseHub: {
+    branch: "homelandDefense",
+    label: "Home Guard",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: [], // no content nodes yet -- grows when a defense system lands (design §6.3)
+    effect: { type: "none" }, // pure gateway; no defense system to hang a real effect on yet
+    flavor: "The homeworld's first and last line -- for now, a promise more than a wall.",
+  },
+  // --- citizenry -- hub-only gateway stub -------------------------------
+  citizenryHub: {
+    branch: "citizenry",
+    label: "Civic Charter",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: [], // no content nodes yet -- grows when a population system lands (design §6.3)
+    effect: { type: "none" }, // pure gateway; no population system to hang a real effect on yet
+    flavor: "Every world needs a people worth defending. Their story starts here.",
+  },
+  // --- economy -- hub + one existing content node -----------------------
+  economyHub: {
+    branch: "economy",
+    label: "Trade Authority",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: ["economyTrickle"],
+    // Modest real starter effect (mirrors the fleetLogistics hub's rationale) --
+    // a small passive trickle is thematically apt for an economy category.
+    effect: { type: "passiveTrickle", material: "commonOre", perTick: 1 },
+    flavor: "License the ledgers and the markets, and the wealth follows.",
   },
   economyTrickle: {
     branch: "economy",
     label: "Trade Contacts",
     cost: 3,
-    requires: null,
+    x: -180,
+    y: -120,
+    neighbors: ["economyHub"],
     effect: { type: "passiveTrickle", material: "commonOre", perTick: 1 },
     flavor:
       "A quiet arrangement with independent traders keeps a slow, steady trickle of ore flowing home.",
+  },
+  // --- industry -- hub + one existing content node ----------------------
+  industryHub: {
+    branch: "industry",
+    label: "Works Directorate",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: ["industryBonusOutput"],
+    // Modest real starter effect (mirrors the fleetLogistics hub's rationale) --
+    // a small fabrication bonus is thematically apt for an industry category.
+    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
+    flavor: "Nationalize the foundries and the whole homeworld starts to hum.",
+  },
+  industryBonusOutput: {
+    branch: "industry",
+    label: "Tooling Upgrade",
+    cost: 4,
+    x: -180,
+    y: -120,
+    neighbors: ["industryHub"],
+    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
+    flavor: "New jigs and fixtures on the fabrication line mean every batch stretches a little further.",
   },
 };
 

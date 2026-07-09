@@ -248,6 +248,14 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
       return `+${effect.bonus} bonus output per craft (${RECIPES[effect.recipeKey].label})`;
     case "passiveTrickle":
       return `+${effect.perTick}/tick passive ${effect.material}`;
+    // Radial Skill Web (Task 3): the gateway-hub effect, mirroring the captain
+    // side's `none` case above. Homeland Defense / Citizenry hubs carry
+    // `{ type: "none" }` because their categories' real mechanics (a defense /
+    // population system) don't exist yet. Rendered honestly as "no bonus yet"
+    // rather than a misleading "+0.0%" line -- the whole reason the `none`
+    // member exists instead of a `mult: 0.0` placeholder.
+    case "none":
+      return "No bonus yet — unlocks this branch";
   }
 }
 
