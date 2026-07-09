@@ -227,11 +227,6 @@
   // handlePointerUp releases capture only when this is set, then resets it.
   let captured = false;
 
-  // TEMP-DEBUG (edge/bottom tap dead-zone diagnosis) -- REMOVE. Holds a one-line
-  // readout of the last gesture's classification + coordinate/viewport state,
-  // rendered by the portaled .web-debug overlay in the markup below.
-  let dbg = "";
-
   // --- Gesture handlers -----------------------------------------------------
 
   /**
@@ -322,32 +317,6 @@
    */
   function handlePointerUp(e: PointerEvent) {
     dragging = false;
-
-    // TEMP-DEBUG (edge/bottom tap dead-zone diagnosis) -- REMOVE. Records, for
-    // EVERY gesture (tap or pan), the movement classification and the raw
-    // coordinate/visual-viewport state, plus what elementsFromPoint actually hits
-    // at the release point. This distinguishes: a mis-classified pan (md high), a
-    // pinch-zoom (vv scale != 1), a toolbar/visual-viewport offset (vv offset != 0),
-    // or a paint!=hit (top element is not a node). See the .web-debug overlay below.
-    try {
-      const vv = (window as any).visualViewport;
-      const els =
-        typeof document !== "undefined" && document.elementsFromPoint
-          ? document.elementsFromPoint(e.clientX, e.clientY)
-          : [];
-      const top0 =
-        els[0] instanceof Element
-          ? `${els[0].tagName}.${String((els[0] as Element).className || "").replace(/\s+/g, ".").slice(0, 18)}`
-          : "none";
-      const nodeFound = els.some((el) => (el as Element).closest?.("[data-node-key]"));
-      dbg =
-        `${movedDistance < TAP_THRESHOLD_PX ? "TAP" : "PAN"} md=${movedDistance.toFixed(1)} ` +
-        `xy=${e.clientX | 0},${e.clientY | 0} win=${window.innerWidth}x${window.innerHeight} ` +
-        `vv=${vv ? `off ${Math.round(vv.offsetLeft)},${Math.round(vv.offsetTop)} sz ${Math.round(vv.width)}x${Math.round(vv.height)} scale ${vv.scale.toFixed(3)}` : "n/a"} ` +
-        `top=${top0} node=${nodeFound}`;
-    } catch (err) {
-      dbg = "debug-err: " + (err instanceof Error ? err.message : String(err));
-    }
 
     // A near-stationary gesture is a TAP. Resolve the tapped node in TWO steps:
     //
@@ -751,17 +720,6 @@
      swaps the cursor to "grabbing" while a drag is live (desktop nicety;
      harmless on touch). The pointercancel handler mirrors pointerup so an
      OS-stolen pointer still ends the gesture cleanly. -->
-<!-- TEMP-DEBUG overlay (edge/bottom tap dead-zone diagnosis) -- REMOVE. Portaled to
-     <body> (so no transform ancestor traps it) with INLINE styles (Svelte scoped
-     CSS would not follow a portaled node). Shows the last gesture's readout. -->
-{#if dbg}
-  <div
-    use:portal
-    style="position:fixed; top:0; left:0; right:0; z-index:99999; background:rgba(0,0,0,0.85); color:#39ff14; font:10px/1.3 ui-monospace,monospace; padding:3px 5px; pointer-events:none; white-space:pre-wrap; word-break:break-all;"
-  >
-    {dbg}
-  </div>
-{/if}
 <div
   class="web-viewport"
   class:grabbing={dragging}
