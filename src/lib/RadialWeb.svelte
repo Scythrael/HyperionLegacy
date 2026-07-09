@@ -129,6 +129,10 @@
   <div class="web-world" style="transform: translate({panX}px, {panY}px);">
     {#each visibleNodes as { key, def } (key)}
       {@const st = nodeState(key, def)}
+      <!-- Locked (unaffordable) nodes stay tappable ON PURPOSE: Task 11's tooltip uses
+           onNodeTap to show the node's cost/effect so the player learns WHY it's locked.
+           Only the Learn action (Task 11) is affordability-gated -- do NOT add `disabled`
+           here, which would swallow the tap and hide that tooltip. -->
       <button
         type="button"
         class="web-node"
@@ -215,7 +219,8 @@
     font-size: 11px; /* TUNABLE: label size — Checkpoint A */
     font-weight: 600;
     line-height: 1.15;
-    /* clamp long labels to two lines so a node stays square-ish */
+    /* Long labels are simply clipped for now so a node stays square-ish; a real
+       two-line clamp (-webkit-line-clamp) is a Checkpoint A tuning item. */
     overflow: hidden;
   }
   .web-node-cost {
