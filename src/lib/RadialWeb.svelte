@@ -619,17 +619,28 @@
          canvas). The node layer is UNCHANGED; only these internal SVG coords carry
          the +HALF offset.
 
-         Each edge is a single STRAIGHT <line> (a direct "laser link" from node A's
-         center to node B's center) — replacing the old H-then-V elbow path. The
-         per-edge `ownership` class drives the directional glow (see CSS):
-           .learnable — subtle base line + an animated pulse travelling from
-                        (x1,y1)=OWNED end toward (x2,y2)=not-owned/learnable end
-                        (points are ordered owned-first in visibleEdges).
-           .owned     — steady brighter glow, no pulse (both endpoints owned).
-           (default)  — dim idle line, no pulse (neither endpoint owned).
-         No fill; stroke only; no arrowheads. -->
+         Each edge is a STRAIGHT "laser link" from node A's center to node B's
+         center (replacing the old H-then-V elbow path). The per-edge `ownership`
+         class drives the look (see CSS):
+           .learnable — TWO stacked <line>s: (1) a dim steady base RAIL, then
+                        (2) a bright glowing OVERLAY segment that travels along it
+                        from (x1,y1)=OWNED end toward (x2,y2)=not-owned/learnable
+                        end (points owned-first in visibleEdges). The base keeps the
+                        link visible between pulses; the overlay is the flowing
+                        "energy travelling to the next node" the feedback asked for.
+           .owned     — single base line, steady brighter glow, no pulse (both
+                        endpoints owned). NO overlay emitted.
+           (default)  — single dim idle line, no pulse (neither endpoint owned).
+                        NO overlay emitted.
+         Only learnable edges get the second (overlay) line, so idle/owned edges are
+         never doubled. No fill; stroke only; no arrowheads. -->
     <svg class="web-connectors" aria-hidden="true">
       {#each visibleEdges as e}
+        <!-- Base line for EVERY edge. Its `ownership` class sets the resting look:
+             .owned = steady bright glow; .learnable = dim lit rail the pulse rides
+             on; (default/idle) = faint static line. Endpoints get +HALF (see the
+             HALF const) so they land on node centers; owned-first order is baked
+             into ax,ay/bx,by by visibleEdges. -->
         <line
           class="web-edge"
           class:owned={e.ownership === "owned"}
@@ -639,6 +650,19 @@
           x2={e.bx + HALF}
           y2={e.by + HALF}
         />
+        <!-- Overlay line: ONLY for learnable edges. Same endpoints + owned-first
+             order as the base, drawn ON TOP as a glowing travelling segment that
+             flows (x1,y1)=owned → (x2,y2)=learnable via animated stroke-dashoffset.
+             Emitted only for learnable so idle/owned edges are never doubled. -->
+        {#if e.ownership === "learnable"}
+          <line
+            class="web-edge-pulse-overlay"
+            x1={e.ax + HALF}
+            y1={e.ay + HALF}
+            x2={e.bx + HALF}
+            y2={e.by + HALF}
+          />
+        {/if}
       {/each}
     </svg>
     {#each visibleNodes as { key, def } (key)}
@@ -824,12 +848,14 @@
     pointer-events: none;
     overflow: visible; /* harmless belt-and-suspenders; canvas already spans the web */
   }
-  /* Base edge (idle: neither endpoint owned): dim accent line. fill:none because
-     an SVG <line> takes no fill, but set explicitly for clarity/safety. */
+  /* Base edge (idle: neither endpoint owned): dim accent line. This is also the
+     BASE RAIL under a learnable edge's travelling overlay (see .web-edge.learnable
+     and .web-edge-pulse-overlay). fill:none because an SVG <line> takes no fill,
+     but set explicitly for clarity/safety. */
   .web-edge {
     fill: none;
     stroke: rgba(var(--color-accent-rgb), 0.22); /* TUNABLE: idle-edge opacity — Checkpoint B */
-    stroke-width: 2; /* TUNABLE: connector thickness — Checkpoint B */
+    stroke-width: 3; /* TUNABLE: base connector thickness (thinned from 5→3 at Checkpoint A) — Checkpoint B */
     stroke-linecap: round;
   }
 
@@ -838,53 +864,71 @@
      steady glow. */
   .web-edge.owned {
     stroke: var(--color-accent-bright);
-    stroke-width: 2.5; /* TUNABLE: owned edges slightly heavier — Checkpoint B */
+    stroke-width: 3; /* TUNABLE: owned edge thickness — Checkpoint B */
     filter: drop-shadow(0 0 3px rgba(var(--color-accent-rgb), 0.55)); /* TUNABLE: owned glow strength — Checkpoint B */
   }
 
-  /* Learnable pathway (exactly one endpoint owned): a subtle base line PLUS a
-     bright short dash that TRAVELS from (x1,y1)=owned end toward (x2,y2)=learnable
-     end, drawing the eye to "learn next". Technique: a dashed stroke whose
-     stroke-dashoffset is animated so the lit dash marches along the line. Point
-     order (owned-first) is set in visibleEdges, so a negative dashoffset ramp
-     moves the dash in the point1→point2 (owned→learnable) direction. The glow is
-     a drop-shadow. Base visibility comes from the dim .web-edge stroke underneath
-     the moving dash pattern (the same stroke is dashed, so between lit dashes the
-     line reads as faint accent — subtle/ambient, not seizure-y). */
+  /* Learnable pathway BASE RAIL (exactly one endpoint owned): a dim, steady lit
+     line that keeps the link visible AT ALL TIMES — so between pulses the pathway
+     still reads as a connected, "live" rail rather than an empty gap. The bright
+     flowing energy is a SEPARATE overlay line (.web-edge-pulse-overlay) drawn on
+     top; this base never animates. Solid stroke (no dashes) so it's a continuous
+     rail. Kept dimmer than the overlay so the travelling segment clearly "pops"
+     above the resting rail (base vs pulse opacity/width contrast). */
   .web-edge.learnable {
-    stroke: var(--color-accent-bright);
-    stroke-width: 2.5; /* TUNABLE: learnable edge thickness — Checkpoint B */
-    /* Short bright dash + long gap = one travelling pulse, mostly-empty line.
-       TUNABLE: dash size / gap (pulse length + spacing) — Checkpoint B. */
-    stroke-dasharray: 14 120;
-    filter: drop-shadow(0 0 4px rgba(var(--color-accent-rgb), 0.7)); /* TUNABLE: pulse glow strength — Checkpoint B */
-    /* Animate the offset so the dash marches point1→point2 (owned→learnable).
-       The offset ramps by one full dash+gap period (14+120=134) per cycle so the
-       motion is seamless (the pattern repeats identically each period).
+    stroke: rgba(var(--color-accent-rgb), 0.35); /* TUNABLE: learnable base-rail opacity (dimmer than the overlay) — Checkpoint B */
+    stroke-width: 3; /* TUNABLE: learnable base-rail thickness — Checkpoint B */
+  }
+
+  /* Learnable pathway TRAVELLING OVERLAY (learnable edges only): the bright,
+     glowing "energy" segment that flows FROM (x1,y1)=owned TOWARD (x2,y2)=learnable
+     — the "power travelling to the next node" the feedback asked for. Technique: a
+     dashed stroke (one short bright dash + a long gap = a single lit segment on an
+     otherwise-empty line) whose stroke-dashoffset is animated so that lit segment
+     marches point1→point2. Point order (owned-first) is baked into ax,ay/bx,by in
+     visibleEdges, so a NEGATIVE dashoffset ramp moves the segment owned→learnable.
+     A drop-shadow gives the glow that makes the motion pop above the dim base rail.
+     Kept ambient (single travelling segment, long gap, ~2.4s loop) — bright but not
+     seizure-y. This overlay sits on top of the .web-edge.learnable base rail at the
+     same endpoints, so it reads as "a lit rail with a pulse flowing along it". */
+  .web-edge-pulse-overlay {
+    fill: none;
+    stroke: var(--color-accent-bright); /* TUNABLE: pulse color — Checkpoint B */
+    stroke-width: 4; /* TUNABLE: pulse thickness (slightly heavier than the base rail so it pops) — Checkpoint B */
+    stroke-linecap: round;
+    /* Short bright dash + long gap = one travelling lit segment on a mostly-empty
+       overlay. TUNABLE: dash size / gap (pulse length + spacing) — Checkpoint B. */
+    stroke-dasharray: 18 130;
+    filter: drop-shadow(0 0 5px rgba(var(--color-accent-rgb), 0.85)); /* TUNABLE: pulse glow strength — Checkpoint B */
+    /* Ramp the offset by one full dash+gap period (18+130=148) per cycle so the
+       motion is seamless (pattern repeats identically each period). A negative ramp
+       moves the segment point1→point2 (owned→learnable).
        TUNABLE: pulse speed (cycle duration) — Checkpoint B. */
     animation: web-edge-pulse 2.4s linear infinite;
   }
 
-  /* One pulse period: shift the dash pattern by a full period (134px) in the
-     negative direction, which visually moves the lit dash from the start point
-     (x1,y1 = owned) toward the end point (x2,y2 = learnable). */
+  /* One pulse period: shift the dash pattern by a full period (148px) in the
+     negative direction, which visually moves the lit segment from the start point
+     (x1,y1 = owned) toward the end point (x2,y2 = learnable). Keep -148 in sync
+     with the overlay's stroke-dasharray (18 + 130). */
   @keyframes web-edge-pulse {
     from {
       stroke-dashoffset: 0;
     }
     to {
-      stroke-dashoffset: -134; /* = -(dash 14 + gap 120); keep in sync with stroke-dasharray */
+      stroke-dashoffset: -148; /* = -(dash 18 + gap 130); keep in sync with stroke-dasharray */
     }
   }
 
-  /* Accessibility: users who ask for reduced motion get NO travelling pulse.
-     Fall back to a static glow — the learnable edge still reads as "live" (bright
-     stroke + drop-shadow) but nothing moves. */
+  /* Accessibility: users who ask for reduced motion get NO travelling pulse. The
+     overlay stops animating and becomes a STATIC solid glowing segment along the
+     whole link (dashes dropped) so the learnable pathway still reads as "live"
+     (bright stroke + drop-shadow over the dim base rail) but nothing moves. */
   @media (prefers-reduced-motion: reduce) {
-    .web-edge.learnable {
+    .web-edge-pulse-overlay {
       animation: none;
-      /* Solid bright line (drop the dash gaps) so, without motion, the pathway
-         still stands out as a steady glowing link rather than a dotted line. */
+      /* Solid bright overlay (drop the dash gaps) → a steady glowing link, not a
+         dotted one, when motion is disabled. */
       stroke-dasharray: none;
     }
   }
@@ -931,13 +975,43 @@
   /* --- State classes (design §2.1 / §3.4) -------------------------------
      Exactly one of owned/learnable/locked per node; .hub is orthogonal.
      Same theme-var conventions App.svelte's .skill-node already uses:
-       owned     -> success-tinted border (matches .skill-node.owned).
-       learnable -> accent border (affordable, invites the click).
-       locked    -> dimmed (matches .skill-node.locked's opacity:0.5).
-       hub       -> larger + double border to read as the seed/center node. */
+       owned     -> success-tinted + the prominent "powered" border/glow (see the
+                    shared .web-node.owned, .web-node.hub rule below) so every
+                    LEARNED node — not just the hub — reads as energized.
+       learnable -> accent border (affordable, invites the click). NO big border.
+       locked    -> dimmed (matches .skill-node.locked's opacity:0.5). NO big border.
+       hub       -> the shared prominent border PLUS extra size, so it still reads
+                    as the distinct seed/center node on top of the owned look. */
+
+  /* Shared PROMINENT BORDER treatment for LEARNED (owned) nodes AND the hub.
+     Factored here so a learned node gets the same thick border + double-ring the
+     hub already had, WITHOUT duplicating the declarations. The box-shadow ring
+     gives the "double border" read without changing the node's box size, so a
+     node's center stays exactly on its (x,y). Learnable/locked nodes are excluded
+     on purpose — they are NOT learned yet, so they keep the plain 1px border. */
+  .web-node.owned,
+  .web-node.hub {
+    border-width: 2px; /* TUNABLE: prominent border thickness for learned/hub nodes — Checkpoint B */
+    /* Inner panel-bg ring + outer accent ring = the "double border" read. */
+    box-shadow: 0 0 0 3px var(--color-panel-bg-strong), 0 0 0 4px rgba(var(--color-accent-rgb), 0.45);
+  }
+
+  /* Owned (learned) node: success-tinted, and — layered on the shared prominent
+     border above — an accent GLOW so it looks "powered", complementing the link
+     pulse (node glow + link glow together read as power flowing node→node). The
+     glow is a second, outer drop of the box-shadow ring; note box-shadow here
+     REPLACES the shared rule's shadow for .owned (more specific match by cascade
+     order — this rule comes AFTER the shared one), so it re-declares the same
+     double-ring and APPENDS the outer accent bloom. */
   .web-node.owned {
     border-color: var(--color-success);
     color: var(--color-success);
+    /* Double-ring (as shared) + an outer accent bloom = the powered glow.
+       TUNABLE: owned-node glow strength/spread — Checkpoint B. */
+    box-shadow:
+      0 0 0 3px var(--color-panel-bg-strong),
+      0 0 0 4px rgba(var(--color-accent-rgb), 0.45),
+      0 0 12px 2px rgba(var(--color-accent-rgb), 0.55);
   }
   .web-node.learnable {
     border-color: var(--color-accent);
@@ -948,14 +1022,21 @@
     cursor: not-allowed;
     border-color: rgba(var(--color-accent-rgb), 0.2);
   }
-  /* Hub: visually distinct center node (design §3.4 — "double-border / larger").
-     A ring via box-shadow gives the double-border read without changing the
-     node's box size (so its center stays exactly on (0,0)). */
+  /* Hub: the shared prominent border (above) PLUS extra SIZE so the seed/center
+     node still stands out even among learned nodes now sharing that border. */
   .web-node.hub {
     width: 92px; /* TUNABLE: hub is larger than a normal node — Checkpoint A */
     height: 92px;
-    border-width: 2px;
-    box-shadow: 0 0 0 3px var(--color-panel-bg-strong), 0 0 0 4px rgba(var(--color-accent-rgb), 0.45);
+  }
+  /* An OWNED HUB is both learned and the center: give it the owned success tint +
+     powered glow AND the hub's extra size. This re-declares the owned glow ring so
+     an owned hub keeps its bloom (the plain .web-node.hub above would otherwise, by
+     source order, override .web-node.owned's box-shadow and drop the bloom). */
+  .web-node.owned.hub {
+    box-shadow:
+      0 0 0 3px var(--color-panel-bg-strong),
+      0 0 0 4px rgba(var(--color-accent-rgb), 0.45),
+      0 0 12px 2px rgba(var(--color-accent-rgb), 0.55);
   }
 
   /* --- Corner currency readout -----------------------------------------
