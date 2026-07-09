@@ -867,6 +867,23 @@
           </div>
         </div>
       </div>
+
+      <!-- Currency strip (2026-07-09) -- fleet-wide resource readout in the top
+           bar, sitting between the Fleet Admiral identity block above and the
+           tick timer below. Built as an extensible row of .currency-chip
+           siblings: credits is the first/only chip today, but future
+           currencies (admin points, etc.) are added by copying one chip -- no
+           layout restructuring needed. The ◈ glyph is an accent-colored
+           placeholder mark for credits (re-themeable later); the value reuses
+           formatNumber (same Decimal-aware formatter used everywhere else) and
+           the .top-bar-*-readout mono styling for visual consistency. -->
+      <div class="top-bar-currencies">
+        <div class="currency-chip" aria-label="Credits">
+          <span class="currency-chip-glyph" aria-hidden="true">◈</span>
+          <span class="currency-chip-value">{formatNumber(state.credits)}</span>
+        </div>
+      </div>
+
       {#if tickBarEnabled}
       <div class="top-bar-tick-row">
         <span class="top-bar-tick-label">TICK:</span>
@@ -1884,6 +1901,22 @@
   .top-bar-tick-label { font-size: 10px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
   .top-bar-tick-track { flex: 1; }
   .top-bar-tick-readout { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+  /* Currency strip (2026-07-09). A flex row of resource chips; wraps on narrow
+     screens so additional currencies never overflow the top bar. margin-bottom
+     matches the header block's own 8px so the tick row stays evenly spaced
+     whether or not this strip is present. */
+  .top-bar-currencies { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+  /* One resource readout: accent glyph + mono value, boxed in a faint accent-
+     tinted pill so it reads as a distinct HUD element, not body text. */
+  .currency-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    border-radius: 4px;
+    background: rgba(var(--color-accent-rgb), 0.08);
+  }
+  .currency-chip-glyph { font-size: 11px; color: var(--color-accent); line-height: 1; }
+  .currency-chip-value { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-primary); white-space: nowrap; }
   /* Outer nav (Task 1, Phase 4) -- now the LAST flex child inside .frame
      (Task 1 of this plan moved it here from being the first child of the old
      <main>), so it's the bottom-most thing in the flex column, visually
