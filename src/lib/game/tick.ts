@@ -59,33 +59,18 @@ export const LOOT_MATERIAL_KEYS: LootMaterialKey[] = ["commonOre", "uncommonMate
 // CaptainState, per the "read at usage time" pattern the comment above
 // buyCaptainTalent already documents.
 //
-// Also folds in CAPTAIN_SPEC_BONUS.command's flat +0.05 commonYieldMult when
-// captain.spec === "command" -- safe to fold directly into THIS function's
-// own return value (unlike captainBonusRollChance's spec bonus, which needs a
-// separate helper -- see captainSpecBonusRollChance below for why) because
-// commonYieldMult has no second-stage multiplier applied downstream: confirmed
-// by reading rollExtractionTick, which applies commonYieldMult as a single
-// `baseAmount.times(1 + bonuses.commonYieldMult)` with nothing else scaling
-// the result afterward. So there's no risk of the spec bonus being
-// double-scaled by a later multiplier stage, the way bonusRollChance's would
-// be if folded into captainBonusRollChance the same way.
+// Radial Skill Web (Task 7): the old CAPTAIN_SPEC_BONUS.command fold-in
+// (a flat commonYieldMult granted when captain.spec === "command") was removed
+// here, because the `command` branch/spec and its CAPTAIN_SPEC_BONUS.command
+// entry were both deleted in Task 2. This function now returns ONLY the talent
+// sum. The still-valid `resourcefulness` spec bonus is handled separately in
+// captainSpecBonusRollChance below (kept separate for the downstream-scaling
+// reason documented there) -- it is unaffected by this removal.
 export function captainCommonYieldMult(captain: CaptainState): number {
-  const talentSum = captain.unlockedCaptainTalents.reduce((sum, key) => {
+  return captain.unlockedCaptainTalents.reduce((sum, key) => {
     const effect = CAPTAIN_TALENTS[key].effect;
     return effect.type === "commonYieldMult" ? sum + effect.mult : sum;
   }, 0);
-  // CAPTAIN_SPEC_BONUS.command is typed CaptainTalentEffect (the full union),
-  // not narrowed to the commonYieldMult variant specifically, since
-  // CAPTAIN_SPEC_BONUS's declared type is Partial<Record<CaptainTalentBranch,
-  // CaptainTalentEffect>> -- TypeScript doesn't narrow a widely-typed
-  // property from the literal value assigned to it. So this reads `.mult`
-  // only after confirming effect.type === "commonYieldMult" via the same
-  // discriminant-check pattern as every effect.type check elsewhere in this
-  // file (see the .reduce() just above), rather than a non-null assertion
-  // that TypeScript would reject (mult doesn't exist on every union member).
-  const specEffect = CAPTAIN_SPEC_BONUS.command;
-  const specBonus = captain.spec === "command" && specEffect?.type === "commonYieldMult" ? specEffect.mult : 0;
-  return talentSum + specBonus;
 }
 
 // Same additive-stacking, read-at-usage-time pattern as
@@ -116,7 +101,7 @@ export function captainRareChanceMult(captain: CaptainState): number {
 }
 
 // Same additive-stacking, read-at-usage-time pattern as the helpers above,
-// for the bonus-roll TRIGGER chance (the base value from resourcefulnessBonusRollI --
+// for the bonus-roll TRIGGER chance (the base value from prospectorLuckyStrikeI --
 // NOT a multiplier on an existing mission-defined chance, since there is no
 // mission-level "bonus roll chance" to scale; this creates the chance from
 // nothing, so summing raw values is the only mechanically coherent stacking
@@ -131,7 +116,7 @@ export function captainBonusRollChance(captain: CaptainState): number {
 }
 
 // Relative multiplier applied ON TOP of captainBonusRollChance's base value
-// (resourcefulnessBonusRollII) -- same Math.min(1, base * (1 + mult)) shape
+// (prospectorLuckyStrikeII) -- same Math.min(1, base * (1 + mult)) shape
 // every other chance-mult effect in this file already uses (see
 // effectiveUncommonChance/effectiveRareChance in rollExtractionTick below).
 export function captainBonusRollChanceMult(captain: CaptainState): number {
@@ -143,7 +128,7 @@ export function captainBonusRollChanceMult(captain: CaptainState): number {
 
 // CAPTAIN_SPEC_BONUS.resourcefulness's flat +0.01 bonus-roll TRIGGER chance,
 // granted once captain.spec === "resourcefulness" (independent of whether any
-// resourcefulnessBonusRoll talent is actually unlocked -- the spec bonus is a
+// prospectorLuckyStrike talent is actually unlocked -- the spec bonus is a
 // standalone grant, not a scaling of the talent tree's own contribution).
 //
 // Deliberately kept SEPARATE from captainBonusRollChance (not folded into
@@ -153,16 +138,19 @@ export function captainBonusRollChanceMult(captain: CaptainState): number {
 // `bonusRollChance * (1 + bonusRollChanceMult)`) that commonYieldMult does
 // NOT have. Folding this spec bonus into captainBonusRollChance's own sum
 // would let bonusRollChanceMult incorrectly re-scale the spec bonus too --
-// e.g. with both resourcefulnessBonusRollI/II unlocked (bonusRollChance 0.02,
+// e.g. with both prospectorLuckyStrikeI/II unlocked (bonusRollChance 0.02,
 // bonusRollChanceMult 1.0), folding 0.01 in would give
 // (0.02 + 0.01) * (1 + 1.0) = 0.06, overshooting the design doc's 0.05 target.
 // Keeping it separate and adding it AFTER the base*(1+mult) scaling (see
 // tickCaptainMission) gives the correct 0.02*(1+1.0) + 0.01 = 0.05 instead.
 export function captainSpecBonusRollChance(captain: CaptainState): number {
-  // Same discriminant-narrowing reasoning as captainCommonYieldMult's own
-  // specBonus line above: CAPTAIN_SPEC_BONUS.resourcefulness is typed as the
-  // full CaptainTalentEffect union, so `.chance` is only accessed after
-  // confirming effect.type === "bonusRollChance" specifically.
+  // CAPTAIN_SPEC_BONUS.resourcefulness is typed as the full CaptainTalentEffect
+  // union (CAPTAIN_SPEC_BONUS's declared type is Partial<Record<
+  // CaptainTalentBranch, CaptainTalentEffect>>, which TypeScript does not
+  // narrow from the literal value assigned), so `.chance` is only accessed
+  // after confirming effect.type === "bonusRollChance" specifically -- the same
+  // discriminant-check pattern as the effect.type checks in the reduce helpers
+  // above, rather than a non-null assertion TypeScript would reject.
   const specEffect = CAPTAIN_SPEC_BONUS.resourcefulness;
   return captain.spec === "resourcefulness" && specEffect?.type === "bonusRollChance" ? specEffect.chance : 0;
 }
@@ -216,6 +204,13 @@ export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string
       return `+${(effect.chance * 100).toFixed(1)}% chance/tick for a bonus roll`;
     case "bonusRollChanceMult":
       return `+${(effect.mult * 100).toFixed(1)}% to bonus roll chance`;
+    // Radial Skill Web (Task 2): the gateway-hub effect. Tactician/Explorer
+    // hubs carry `{ type: "none" }` because their branches' real mechanics
+    // (combat / science) don't exist yet. Rendered honestly as "no bonus yet"
+    // rather than a misleading "+0.0%" line -- this is the whole reason the
+    // `none` member exists instead of a `mult: 0.0` placeholder.
+    case "none":
+      return "No bonus yet — unlocks this branch";
   }
 }
 
@@ -241,6 +236,14 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
       return `+${effect.bonus} bonus output per craft (${RECIPES[effect.recipeKey].label})`;
     case "passiveTrickle":
       return `+${effect.perTick}/tick passive ${effect.material}`;
+    // Radial Skill Web (Task 3): the gateway-hub effect, mirroring the captain
+    // side's `none` case above. Homeland Defense / Citizenry hubs carry
+    // `{ type: "none" }` because their categories' real mechanics (a defense /
+    // population system) don't exist yet. Rendered honestly as "no bonus yet"
+    // rather than a misleading "+0.0%" line -- the whole reason the `none`
+    // member exists instead of a `mult: 0.0` placeholder.
+    case "none":
+      return "No bonus yet — unlocks this branch";
   }
 }
 
@@ -830,7 +833,11 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
 
 // Same "same state reference on failure" convention as every other buy/action
 // function in this file. Validates: talent exists, not already unlocked,
-// prerequisite (if any) already unlocked, statPoints sufficient. On success:
+// learnable by graph adjacency (a hub, or adjacent to an already-unlocked node
+// in this branch -- the Radial Skill Web replaced the old single-parent
+// `requires` chain with this rule; it mirrors computeVisibleTalents' learnable
+// condition so what the UI shows as learnable is exactly what buy allows),
+// statPoints sufficient. On success:
 // deducts cost, records the unlock. The effect itself isn't APPLIED here --
 // each effect type is read wherever that stat matters (the 5 tier-specific
 // yield/chance mults inside tickCaptainMission's rollExtractionTick call, see
@@ -851,9 +858,12 @@ export function buyCaptainTalent(
   const talent = CAPTAIN_TALENTS[talentKey];
 
   if (captain.unlockedCaptainTalents.includes(talentKey)) return { next: state, success: false };
-  if (talent.requires && !captain.unlockedCaptainTalents.includes(talent.requires)) {
-    return { next: state, success: false };
-  }
+  // Adjacency gate (Radial Skill Web, Task 5): a node is learnable iff it is a
+  // hub OR at least one of its neighbors is already owned. Same rule as
+  // computeVisibleTalents (talentWeb.ts) -- buy and visibility stay consistent.
+  const isLearnable =
+    talent.isHub || talent.neighbors.some((n) => captain.unlockedCaptainTalents.includes(n));
+  if (!isLearnable) return { next: state, success: false };
   if (captain.statPoints < talent.cost) return { next: state, success: false };
 
   const captains = [...state.captains];
@@ -865,9 +875,11 @@ export function buyCaptainTalent(
   return { next: { ...state, captains }, success: true };
 }
 
-// Same shape as buyCaptainTalent, fleet-wide. unlockCaptainSlot is the one
-// effect type with an additional side effect beyond "record the unlock" --
-// appending a new captain via freshCaptainStack(), same baseline every other
+// Same shape as buyCaptainTalent, fleet-wide -- including the same graph
+// adjacency gate: learnable iff a hub, or adjacent to an already-unlocked node
+// in this branch (against state.unlockedHomeworldTalents). unlockCaptainSlot is
+// the one effect type with an additional side effect beyond "record the unlock"
+// -- appending a new captain via freshCaptainStack(), same baseline every other
 // captain-creation path in this codebase uses.
 export function buyHomeworldTalent(
   state: GameState,
@@ -876,9 +888,11 @@ export function buyHomeworldTalent(
   const talent = HOMEWORLD_TALENTS[talentKey];
 
   if (state.unlockedHomeworldTalents.includes(talentKey)) return { next: state, success: false };
-  if (talent.requires && !state.unlockedHomeworldTalents.includes(talent.requires)) {
-    return { next: state, success: false };
-  }
+  // Adjacency gate (Radial Skill Web, Task 5): learnable iff a hub OR at least
+  // one neighbor is already owned. Same rule as computeVisibleTalents.
+  const isLearnable =
+    talent.isHub || talent.neighbors.some((n) => state.unlockedHomeworldTalents.includes(n));
+  if (!isLearnable) return { next: state, success: false };
   if (state.adminPoints < talent.cost) return { next: state, success: false };
 
   const unlockedHomeworldTalents = [...state.unlockedHomeworldTalents, talentKey];
@@ -941,6 +955,40 @@ export function respecCaptainTalents(
     spec: newSpec === undefined ? captain.spec : newSpec,
   };
   return { next: { ...state, captains, credits: state.credits.minus(RESPEC_COST_CREDITS) }, success: true };
+}
+
+// FREE first-pick spec setter (Radial Skill Web, Task 14). Sets a captain's
+// spec ONLY when it is currently null -- the free, one-time "choose your
+// specialization" pick a captain makes before their talent web appears. It is
+// deliberately NOT the way to CHANGE an already-chosen spec: once
+// captain.spec !== null, this function refuses (returns the same state
+// reference, success: false), and the ONLY path to a different spec is
+// respecCaptainTalents(state, captainId, null) -- clearing the spec back to
+// null (refunding points, charging RESPEC_COST_CREDITS) so this free pick
+// becomes available again. That split (first pick free here; changing an
+// established spec costs exactly one respec) is a confirmed design decision:
+// choosing from null undoes nothing, so it's free; changing an existing spec
+// means abandoning a built talent web, which is what the respec charge exists
+// to gate. Unlike respecCaptainTalents this touches NO cost and NO points --
+// it only sets captain.spec. Same "same state reference on failure"
+// convention and immutable "map captains, spread the one" idiom as every
+// other captain-mutating function in this file.
+export function chooseCaptainSpec(
+  state: GameState,
+  captainId: number,
+  branch: CaptainTalentBranch
+): { next: GameState; success: boolean } {
+  const idx = state.captains.findIndex((c) => c.id === captainId);
+  if (idx === -1) return { next: state, success: false };
+  // Only the FREE first pick is allowed here. A captain that already has a
+  // spec must go through respecCaptainTalents(..., null) to clear it first --
+  // see this function's header comment for why changing an established spec is
+  // deliberately not free.
+  if (state.captains[idx].spec !== null) return { next: state, success: false };
+
+  const captains = [...state.captains];
+  captains[idx] = { ...captains[idx], spec: branch };
+  return { next: { ...state, captains }, success: true };
 }
 
 // Full-reset only, same as respecCaptainTalents, but EXCLUDES unlockCaptainSlot

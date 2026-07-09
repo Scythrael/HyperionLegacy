@@ -1048,3 +1048,60 @@ rendered in a live browser; this must be disclosed plainly before merge, not
 just implied. Next: final holistic review of this branch, then merge — push
 to `main` still needs separate, explicit confirmation from the user, since it
 triggers a live Vercel production redeploy.
+
+**Session 25** — Radial Skill Web (branch feat/radial-skill-web,
+docs/plans/2026-07-08-radial-skill-web-plan.md), built via
+subagent-driven-development with TWO on-device checkpoints on the user's own
+Android phone + desktop (A: pan/reveal/connectors in isolation; B: the full
+learn/respec/navigate flow) — the first time this project has had live
+in-browser verification mid-branch, since the untestable-here constraint
+(no Node/npm/renderer on this machine, see Session 24) is exactly what makes a
+gesture/spatial UI risky to ship blind. This replaced the depth-row talent-tree
+rendering from the Talent Tree Visual Redesign (Session 24) with a pannable,
+hub-seeded RADIAL "skill web": both talent contexts now render through one new
+`RadialWeb.svelte`. The data model shifted from linear `requires` chains to a
+graph — nodes carry `x`/`y`/`neighbors[]`/`isHub` instead of a single-parent
+prerequisite — and the `command` and `diplomacy` branches were removed outright
+(command's extraction talents re-homed onto Prospector). Fog-of-war reveal keeps
+the web legible: only owned nodes plus their immediate neighbors render, seeded
+by the always-visible hub node the player learns first.
+
+The two talent contexts deliberately use DIFFERENT selector styles, matching
+what each one actually commits: Captain Talents present 3 spec cards
+(Prospector[=resourcefulness] / Tactician[=tactical] / Explorer[=science]) via a
+COMMITTING selector — the FIRST spec pick is FREE (`chooseCaptainSpec`), but
+CHANGING a spec is the existing 50-credit respec, which clears the spec back to
+the selector; Prospector is the fully-built tree, Tactician/Explorer are hub-only
+gateway stubs until combat/Battlespace and a science mechanic exist. Fleet
+Admiral (Homeworld) Talents present 5 category cards (Fleet Logistics / Homeland
+Defense / Citizenry / Economy / Industry) via a NON-committing "View Tree"
+navigation selector — `selectedCategory` is view-only, no lock-in, no cost;
+Fleet Logistics is the rich category, the others lean/hub-led.
+
+Rendering specifics: elbow (L-shaped) SVG connectors that light up ("powered"
+glow plus a hub-outward travelling pulse) ONLY between two LEARNED nodes, dim/
+dormant otherwise; learned nodes get a thick border + accent bloom. Pan is
+Pointer-Events based (capture-only-on-drag so a tap isn't stolen), a
+self-contained tooltip is portaled to `body` with a Learn button. The two
+device checkpoints each caught a real mobile-only bug invisible to static
+reading: Checkpoint A surfaced taps landing under an active pointer capture (a
+drag that barely moved still swallowed the tap — fixed by resolving the tapped
+node via `e.target` with an `elementsFromPoint` fallback rather than trusting the
+capture target), and Checkpoint B surfaced the tooltip self-closing on edge taps
+(a tap near the web's edge dismissed the tooltip it had just opened). Both were
+fixed in-branch before the checkpoint was signed off, exactly the kind of thing
+no amount of code review on this machine could have found.
+
+`SAVE_VERSION` bumped 14 → 15: the migration refunds and resets ALL captain
+talents against a FROZEN v14 cost snapshot (so a later cost rebalance can't
+retroactively change how much a pre-v15 save gets refunded) and clears the now-
+removed specs (`command`/`diplomacy`) back to `null`. The `credits`-costed
+respec from Session 24 is unchanged. The deferred v1 refinements (zoom, pan
+momentum, smart obstacle-avoiding connector routing, auto-recenter, the full
+~40-node density expansion + inert-effect wiring) and the tooltip focus-trap/
+restore a11y gap were logged to SUGGESTIONS.md and KNOWN_ISSUES.md during the
+design/review rather than built, keeping this v1 an intentionally pan-only,
+hand-authored, single-elbow, lean-content build. Next: with both device
+checkpoints already signed off live, final holistic review of this branch, then
+merge — push to `main` still needs separate, explicit confirmation from the
+user, since it triggers a live Vercel production redeploy.

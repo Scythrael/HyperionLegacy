@@ -392,3 +392,34 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
     each underlying system ships (combat/Battlespace → Tactician, a redefined Science mechanic →
     Explorer, etc.). The v1 framework supports adding nodes without touching rendering, so this is
     pure content/wiring work later, not a re-architecture.
+
+- **Radial Skill Web tooltip — focus trap / restore (a11y).** Logged 2026-07-08 (Task 11 code review).
+  The RadialWeb node tooltip is a portaled `role="dialog" aria-modal="true"` overlay, but it does NOT
+  move keyboard focus into the dialog on open, restore focus to the originating node on close, or trap
+  Tab within the dialog — so the `aria-modal` claim currently overstates the DOM behavior, and a
+  keyboard user can Tab into the obscured content behind the backdrop. Escape-to-close works. Deferred
+  from v1 (deliberately, alongside the other Checkpoint-A interaction polish); worth a focused a11y
+  pass that adds focus-move-on-open, focus-restore-on-close, and a real focus trap to back the
+  `aria-modal` attribute. Low risk (Escape already dismisses), but easy to forget once the visual pass
+  "looks done."
+
+- **North-star UI aesthetic: "futuristic console/touch display."** User's stated overall aesthetic goal
+  (2026-07-08): the whole game should feel like you're operating a futuristic sci-fi console/touch
+  display, with the UI's motifs reinforcing that diegetically. The Radial Skill Web's glowing nodes +
+  directional energy-pulse links are a first expression of it. Concrete near-term wants folded under
+  this: **panel fade in/out transitions on navigation** (a shared, reusable transition applied to every
+  tab/panel change, not one-off per screen), and glow/pulse motifs reused elsewhere. Explicitly a
+  FUTURE dedicated UI-refinement pass, NOT to be built piecemeal now — the user wants to finish
+  foundational (gameplay-system) features first and then run a deliberate UI-polish flow that pulls the
+  UI-tweak entries out of THIS file (this entry, the tooltip focus-trap a11y entry above, and others)
+  and addresses them together, with input from Claude on additional "sell the console aesthetic" ideas
+  at that time. Capture UI/aesthetic ideas here as they come up rather than chasing them mid-foundation.
+
+- **Emissive edge-glow on panels/buttons (UI-wide).** User brainstorm, 2026-07-08, under the
+  "futuristic console" north-star above: give panels, buttons, and similar UI surfaces a slight glow
+  that extends the element's accent/border colour outward from its edge AND melds inward with the
+  element's own fill colouring — so each surface reads as emissive "lit hardware" rather than a flat
+  card. A global surface treatment (touches the shared Panel/button styling, not one screen), so it
+  belongs in the dedicated UI-aesthetic pass, NOT built piecemeal mid-feature. Pairs naturally with
+  the glow/pulse motifs already introduced by the Radial Skill Web. Floated as a "maybe" — capture,
+  revisit in the UI-refinement flow.

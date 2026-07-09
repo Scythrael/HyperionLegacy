@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type CaptainState, type MissionKey, type MissionPhase, freshCaptains, requiredTicksForPhase, MISSIONS } from "./model";
 
-export const SAVE_VERSION = 14;
+export const SAVE_VERSION = 15;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -405,6 +405,43 @@ const MIGRATIONS: Record<number, Migration> = {
     // above for why this covers MIGRATIONS[4]'s inline captainOne literal too.
     captains: state.captains.map((c: any) => ({ ...c, spec: null })),
   }),
+  // v14 -> v15: Radial Skill Web. Captain talent tree fully restructured
+  // (linear `requires` chains -> radial graph; command/diplomacy specs removed;
+  // command's extraction talents re-homed to resourcefulness). Old captain
+  // talent KEYS no longer exist in CAPTAIN_TALENTS, so we refund from a FROZEN
+  // snapshot of the v14 costs (never reference the live table for removed keys)
+  // and clear every captain's unlockedCaptainTalents. Both removed specs
+  // (command AND diplomacy) are nulled defensively: command was the only other
+  // selectable spec besides resourcefulness, and diplomacy was never selectable
+  // so no legitimate save should carry it -- but nulling it too costs one token
+  // and neutralizes any orphaned/hand-edited `diplomacy` value rather than
+  // letting it survive into v15 as an invalid spec with no CAPTAIN_SPEC_BONUS
+  // entry (same defense-in-depth posture as the ??-guards throughout this file).
+  // resourcefulness (and the new tactical/science) are valid v15 specs, so they
+  // pass through. Homeworld keys are all preserved (Task 3 kept every v14 key),
+  // so unlockedHomeworldTalents is left untouched here.
+  14: (state: any): GameState => {
+    const V14_CAPTAIN_TALENT_COSTS: Record<string, number> = {
+      commandExtractionI: 2, commandExtractionII: 4,
+      resourcefulnessRareChanceI: 2, resourcefulnessRareChanceII: 4,
+      resourcefulnessBonusRollI: 6, resourcefulnessBonusRollII: 8,
+    };
+    return {
+      ...state,
+      captains: state.captains.map((c: any) => {
+        const refund = (c.unlockedCaptainTalents ?? []).reduce(
+          (sum: number, key: string) => sum + (V14_CAPTAIN_TALENT_COSTS[key] ?? 0),
+          0
+        );
+        return {
+          ...c,
+          statPoints: (c.statPoints ?? 0) + refund,
+          unlockedCaptainTalents: [],
+          spec: c.spec === "command" || c.spec === "diplomacy" ? null : c.spec, // clear BOTH removed specs; resourcefulness/tactical/science kept
+        };
+      }),
+    };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {

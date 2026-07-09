@@ -2,6 +2,8 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
+> **⚠️ PLAN REVISION (2026-07-08, mid-execution) — read "## Plan revision" at the bottom before Phase 2.** Device testing is via **Vercel preview deployments of the pushed branch** (no local Node), so the branch MUST fully compile before any checkpoint. Phase 2/3 sequencing is amended: a **minimal buildable integration** (remove the old App.svelte panels, mount RadialWeb directly, no selector) precedes **Checkpoint A**; the TreeSelector + full spec/category wiring then layers on top before **Checkpoint B**. Task 7 also fixes real production code in `tick.ts` (`captainCommonYieldMult`'s removed-`command` spec-bonus fold-in), not just test references.
+
 **Goal:** Replace the depth-based-row talent-tree rendering with a pannable, hub-seeded radial "skill web" (fog-of-war reveal, hand-authored node positions, orthogonal elbow connectors), for both the Captain (3 committing spec cards) and Fleet Admiral (5 non-committing category cards) contexts.
 
 **Architecture:** Talent data shifts from linear `requires` chains to a graph (`x`/`y` + `neighbors[]` + `isHub`). A reusable `RadialWeb.svelte` renders the visible subgraph (owned ∪ neighbors-of-owned ∪ hub) inside a pan-transformed world container, with a reusable `TreeSelector.svelte` fronting it (cards + live description panel). Buy-gating, respec, and a save migration adapt to the new shape. Content ships lean (Prospector rich; Tactician/Explorer/most-Homeworld = hub-led stubs).
@@ -577,3 +579,24 @@ Per project workflow: dispatch **one final holistic review** of the whole branch
 - Save migration v14→v15 refunds cleanly (hand-verified independently), no dangling keys, testers keep their points.
 - Device Checkpoints A + B passed on desktop + phone.
 - Deferred items in SUGGESTIONS.md; KNOWN_ISSUES/SESSION_LOG/PATCH_NOTES updated.
+
+---
+
+## Plan revision (2026-07-08, mid-execution, after Task 5)
+
+Discovered while executing: **device testing is via Vercel *preview* deployments of the pushed feature branch** (the dev machine has no Node, so there is no local dev server). A preview only exists if the branch **compiles end-to-end**. The original Phase 2/3 ordering put Checkpoint A *before* the App.svelte rewiring (Tasks 14/15), but App.svelte's old depth-row panels reference the now-removed talent shape (`.requires` walks in `talentDepth`, a `Record<CaptainTalentBranch,…>` label map with `command`/`diplomacy` keys, hardcoded branch arrays) and therefore will not compile until those panels are replaced. So Checkpoint A as originally sequenced could not produce a buildable preview.
+
+**User decisions (2026-07-08):** (1) testing = Vercel preview from the branch (separate URL, does NOT touch production `main`/hyperion-legacy.vercel.app); (2) keep TWO checkpoints, minimal-integration first.
+
+**Amended sequencing (supersedes the Phase 2/3 task ordering above where they conflict):**
+
+- **Task 7 (revised scope):** the purge also fixes **real production code**: `captainCommonYieldMult` in `tick.ts` (~lines 62–89) folds in `CAPTAIN_SPEC_BONUS.command` / `captain.spec === "command"`, both removed in Task 2 — this must be reverted to just the talent sum (the `resourcefulness` spec bonus via `captainSpecBonusRollChance` stays). Task 7 fixes `tick.ts` production + `tick.test.ts` (~48 stale refs). Task 7 does **NOT** touch App.svelte's talent panels (they're removed in the integration task below).
+- **Tasks 8–11 (unchanged):** build `RadialWeb.svelte` as a standalone component (compiles on its own).
+- **NEW Task 11b — Minimal buildable integration (Checkpoint A prep):** In `App.svelte`, DELETE the old depth-row talent-panel rendering + the `talentDepth` helper + the `CAPTAIN_TALENT_BRANCH_LABEL` map + the branch-array `{#each}` blocks + all `.requires` template references. Mount `<RadialWeb>` directly in BOTH talent panels with a **hardcoded** branch (captain → `"resourcefulness"` / Prospector, defaulting when `spec` is null; homeworld → `"fleetLogistics"`), NO TreeSelector yet. Goal: the branch COMPILES and builds on Vercel. This is the first buildable milestone.
+- **Task 12 — DEVICE CHECKPOINT A:** push the branch → open the Vercel **preview** URL on desktop + phone → verify pan feel, elbow connectors, fog-of-war reveal, node/tooltip sizing. (Ask the user before pushing; it's a preview, not production, but confirm anyway.)
+- **Task 13 (unchanged):** `TreeSelector.svelte` + `specCards`/`categoryCards` data.
+- **Tasks 14–15 (reframed):** LAYER the TreeSelector selection UX *in front of* the already-mounted RadialWeb. Captain: `spec === null` → selector (first pick free — CONFIRM with user, see Task 14 note), else the captain's spec web. Fleet Admiral: 5 category cards → "View Tree" → that category's web + "← Categories". Replaces the hardcoded branches from Task 11b.
+- **Task 16 — DEVICE CHECKPOINT B:** full flow on the Vercel preview.
+- **Tasks 17–19 (unchanged):** cleanup, docs, holistic review + merge.
+
+The end product is identical to the original plan; only the intermediate build/checkpoint ordering changed to respect the compile-before-preview constraint.

@@ -10,7 +10,10 @@ import {
   CAPTAIN_TALENTS,
   HOMEWORLD_TALENTS,
   CAPTAIN_SPEC_BONUS,
+  specCards,
+  categoryCards,
 } from "./model";
+import type { CaptainTalentKey, HomeworldTalentKey } from "./model";
 
 describe("freshState — captain roster shape", () => {
   it("starts with exactly 1 captain (Command branch is how the roster grows now)", () => {
@@ -178,13 +181,28 @@ describe("xpForNextLevel", () => {
 });
 
 describe("CAPTAIN_TALENTS — launch set", () => {
-  it("Command and Resourcefulness have real nodes; Tactical/Science/Diplomacy are empty", () => {
+  // Radial Skill Web (Task 2) rewrote this table: the old five-column
+  // (command/tactical/science/resourcefulness/diplomacy) linear model is gone.
+  // Only the three radial branches remain -- resourcefulness ("Prospector") is
+  // the rich tree; tactical ("Tactician") and science ("Explorer") ship as a
+  // single gateway hub each until their combat/science systems exist. The old
+  // ex-command extraction talents were re-homed under resourcefulness.
+  it("Resourcefulness is the rich branch; Tactical/Science are hub-only stubs", () => {
     const branches = Object.values(CAPTAIN_TALENTS).map((t) => t.branch);
-    expect(branches.filter((b) => b === "command").length).toBeGreaterThan(0);
-    expect(branches.filter((b) => b === "resourcefulness").length).toBeGreaterThan(0);
-    expect(branches.filter((b) => b === "tactical").length).toBe(0);
-    expect(branches.filter((b) => b === "science").length).toBe(0);
-    expect(branches.filter((b) => b === "diplomacy").length).toBe(0);
+    // resourcefulness carries the hub + 6 content nodes = 7 total.
+    expect(branches.filter((b) => b === "resourcefulness").length).toBe(7);
+    // tactical/science are just their hub (1 each) -- lean stub, not empty.
+    expect(branches.filter((b) => b === "tactical").length).toBe(1);
+    expect(branches.filter((b) => b === "science").length).toBe(1);
+  });
+
+  it("re-homed ex-command extraction talents now live under resourcefulness", () => {
+    // Bulk Extraction -> Refined Extraction moved off the deleted `command`
+    // branch onto resourcefulness (extraction yield fits the Prospector theme).
+    expect(CAPTAIN_TALENTS.prospectorBulkExtraction.branch).toBe("resourcefulness");
+    expect(CAPTAIN_TALENTS.prospectorBulkExtraction.effect).toEqual({ type: "commonYieldMult", mult: 0.1 });
+    expect(CAPTAIN_TALENTS.prospectorRefinedExtraction.branch).toBe("resourcefulness");
+    expect(CAPTAIN_TALENTS.prospectorRefinedExtraction.effect).toEqual({ type: "uncommonYieldMult", mult: 0.15 });
   });
 
   it("Resourcefulness has exactly 1 bonusRollChance node and 1 bonusRollChanceMult node", () => {
@@ -194,14 +212,16 @@ describe("CAPTAIN_TALENTS — launch set", () => {
     expect(bonusRollChanceMultNodes).toHaveLength(1);
   });
 
-  it("resourcefulnessBonusRollI/II have the expected cost, prerequisite chain, and effect values", () => {
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollI.cost).toBe(6);
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollI.requires).toBe("resourcefulnessRareChanceII");
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollI.effect).toEqual({ type: "bonusRollChance", chance: 0.02 });
+  it("Lucky Strike I/II have the expected cost, adjacency chain, and effect values", () => {
+    // Prerequisite chains are gone -- ordering is now expressed via `neighbors`
+    // adjacency (the fog-of-war/buy-gate walks this instead of a `requires` link).
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeI.cost).toBe(6);
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeI.neighbors).toContain("prospectorKeenEyeII");
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeI.effect).toEqual({ type: "bonusRollChance", chance: 0.02 });
 
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.cost).toBe(8);
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.requires).toBe("resourcefulnessBonusRollI");
-    expect(CAPTAIN_TALENTS.resourcefulnessBonusRollII.effect).toEqual({ type: "bonusRollChanceMult", mult: 1.0 });
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeII.cost).toBe(8);
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeII.neighbors).toContain("prospectorLuckyStrikeI");
+    expect(CAPTAIN_TALENTS.prospectorLuckyStrikeII.effect).toEqual({ type: "bonusRollChanceMult", mult: 1.0 });
   });
 
   it("every CAPTAIN_TALENTS entry has non-empty flavor text", () => {
@@ -212,13 +232,22 @@ describe("CAPTAIN_TALENTS — launch set", () => {
 });
 
 describe("HOMEWORLD_TALENTS — launch set", () => {
-  it("Fleet Logistics, Industry, Economy have real nodes; Homeland Defense/Citizenry are empty", () => {
+  // Radial Skill Web (Task 3) rewrote this table into a radial graph: every
+  // category now has at least its hub, so no category is literally empty
+  // anymore. Homeland Defense / Citizenry are HUB-ONLY (a "learn me first"
+  // gateway, not zero entries) until their defense/population systems exist;
+  // Fleet Logistics is the rich category (hub + slot chain + yield); Economy
+  // and Industry carry hub + one content node each.
+  it("Fleet Logistics is the rich category; Homeland Defense/Citizenry are hub-only stubs", () => {
     const branches = Object.values(HOMEWORLD_TALENTS).map((t) => t.branch);
-    expect(branches.filter((b) => b === "fleetLogistics").length).toBeGreaterThan(0);
-    expect(branches.filter((b) => b === "industry").length).toBeGreaterThan(0);
-    expect(branches.filter((b) => b === "economy").length).toBeGreaterThan(0);
-    expect(branches.filter((b) => b === "homelandDefense").length).toBe(0);
-    expect(branches.filter((b) => b === "citizenry").length).toBe(0);
+    // fleetLogistics: hub + Slot1/2/3 + Yield = 5 total.
+    expect(branches.filter((b) => b === "fleetLogistics").length).toBe(5);
+    // economy/industry: hub + 1 content node each = 2 total.
+    expect(branches.filter((b) => b === "economy").length).toBe(2);
+    expect(branches.filter((b) => b === "industry").length).toBe(2);
+    // homelandDefense/citizenry: just their hub (1 each) -- lean stub, not empty.
+    expect(branches.filter((b) => b === "homelandDefense").length).toBe(1);
+    expect(branches.filter((b) => b === "citizenry").length).toBe(1);
   });
 
   it("Fleet Logistics has exactly 3 unlockCaptainSlot nodes, matching the original 3-tier slot-unlock design", () => {
@@ -229,6 +258,105 @@ describe("HOMEWORLD_TALENTS — launch set", () => {
   it("every HOMEWORLD_TALENTS entry has non-empty flavor text", () => {
     for (const talent of Object.values(HOMEWORLD_TALENTS)) {
       expect(talent.flavor.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 1):
+// the talent def shape moves from a linear `requires` chain to a graph -- each
+// def now carries web-space coordinates (x/y) and an adjacency list
+// (neighbors), and the old `requires` field is gone. This structural test is
+// the durable spec for that shape change; the data tables that satisfy it are
+// rewritten in Tasks 2-3, so this test is intentionally red until then.
+describe("Radial Skill Web — talent def graph shape", () => {
+  it("every talent def carries graph fields (x, y, neighbors) and no requires", () => {
+    for (const def of Object.values(CAPTAIN_TALENTS)) {
+      expect(typeof def.x).toBe("number");
+      expect(typeof def.y).toBe("number");
+      expect(Array.isArray(def.neighbors)).toBe(true);
+      expect("requires" in def).toBe(false);
+    }
+    for (const def of Object.values(HOMEWORLD_TALENTS)) {
+      expect(typeof def.x).toBe("number");
+      expect(typeof def.y).toBe("number");
+      expect(Array.isArray(def.neighbors)).toBe(true);
+      expect("requires" in def).toBe(false);
+    }
+  });
+});
+
+// Radial Skill Web (Task 2): graph-integrity invariants for the CAPTAIN_TALENTS
+// table specifically. These are the four structural rules the fog-of-war
+// reveal (Task 4) and adjacency buy-gating (Task 5) depend on being true:
+//   1. Exactly ONE hub per branch -- the always-visible seed each branch's
+//      reveal starts from (a branch with zero hubs would render blank; two
+//      would give an ambiguous seed).
+//   2. Every `neighbors` entry RESOLVES to a real key (no dangling adjacency).
+//   3. Adjacency is SAME-BRANCH (the web never draws a connector across
+//      branches -- each spec is its own isolated graph).
+//   4. Adjacency is SYMMETRIC (if A lists B, B lists A) -- connectors are
+//      undirected and the reveal walks both directions, so a one-way link
+//      would render/behave inconsistently.
+// This is the durable spec for the Task 2 data rewrite.
+describe("Radial Skill Web — CAPTAIN_TALENTS graph integrity", () => {
+  it("exactly one hub per branch, symmetric adjacency, all neighbors resolve same-branch", () => {
+    const keys = Object.keys(CAPTAIN_TALENTS) as CaptainTalentKey[];
+    const branches = new Set(Object.values(CAPTAIN_TALENTS).map((d) => d.branch));
+    for (const branch of branches) {
+      const hubs = keys.filter((k) => CAPTAIN_TALENTS[k].branch === branch && CAPTAIN_TALENTS[k].isHub);
+      expect(hubs.length).toBe(1); // one seed per branch
+    }
+    for (const k of keys) {
+      for (const n of CAPTAIN_TALENTS[k].neighbors) {
+        expect(CAPTAIN_TALENTS[n]).toBeDefined(); // resolves
+        expect(CAPTAIN_TALENTS[n].branch).toBe(CAPTAIN_TALENTS[k].branch); // same branch
+        expect(CAPTAIN_TALENTS[n].neighbors).toContain(k); // symmetric
+      }
+    }
+  });
+});
+
+// Radial Skill Web (Task 3): the same graph-integrity invariants as the captain
+// test above, now for HOMEWORLD_TALENTS -- PLUS the Task 3 preservation rule.
+// The four structural rules (one hub per category, neighbors resolve, same
+// category, symmetric) are what the fog-of-war reveal (Task 4) and adjacency
+// buy-gating (Task 5) depend on. The extra assertion here guards the CRITICAL
+// constraint that every pre-existing (v14) homeworld key string survives the
+// rewrite UNCHANGED -- existing saves' unlockedHomeworldTalents reference these
+// strings and Task 6's migration deliberately does NOT refund homeworld talents
+// because they survive by key, so a rename here would silently break real saves.
+describe("Radial Skill Web — HOMEWORLD_TALENTS graph integrity", () => {
+  it("all v14 keys preserved + one hub per category, symmetric adjacency, all neighbors resolve same-category", () => {
+    // 1. Every pre-existing key string still defined (the preservation rule).
+    for (const k of [
+      "fleetLogisticsSlot1",
+      "fleetLogisticsSlot2",
+      "fleetLogisticsSlot3",
+      "fleetLogisticsYield",
+      "industryBonusOutput",
+      "economyTrickle",
+    ]) {
+      expect((HOMEWORLD_TALENTS as any)[k]).toBeDefined();
+    }
+
+    const keys = Object.keys(HOMEWORLD_TALENTS) as HomeworldTalentKey[];
+
+    // 2. Exactly one hub per category (5 categories -> 5 hubs total).
+    const cats = ["fleetLogistics", "homelandDefense", "citizenry", "economy", "industry"];
+    for (const cat of cats) {
+      const hubs = keys.filter((k) => HOMEWORLD_TALENTS[k].branch === cat && HOMEWORLD_TALENTS[k].isHub);
+      expect(hubs.length).toBe(1); // one seed per category
+    }
+    const totalHubs = keys.filter((k) => HOMEWORLD_TALENTS[k].isHub).length;
+    expect(totalHubs).toBe(5);
+
+    // 3-4. Every neighbor resolves, is same-category, and adjacency is symmetric.
+    for (const k of keys) {
+      for (const n of HOMEWORLD_TALENTS[k].neighbors) {
+        expect(HOMEWORLD_TALENTS[n]).toBeDefined(); // resolves
+        expect(HOMEWORLD_TALENTS[n].branch).toBe(HOMEWORLD_TALENTS[k].branch); // same category
+        expect(HOMEWORLD_TALENTS[n].neighbors).toContain(k); // symmetric
+      }
     }
   });
 });
@@ -256,11 +384,58 @@ describe("Captain Specialization — CaptainState.spec and CAPTAIN_SPEC_BONUS", 
     expect(freshCaptains(1)[0].spec).toBeNull();
   });
 
-  it("CAPTAIN_SPEC_BONUS has entries for resourcefulness and command only", () => {
+  it("CAPTAIN_SPEC_BONUS has an entry for resourcefulness only", () => {
+    // Radial Skill Web (Task 2) dropped the `command` spec bonus along with the
+    // command branch itself. resourcefulness ("Prospector") is the only branch
+    // with a real spec bonus at launch; tactical/science remain absent until
+    // their systems exist (same "not yet a real spec" convention as before).
     expect(CAPTAIN_SPEC_BONUS.resourcefulness).toEqual({ type: "bonusRollChance", chance: 0.01 });
-    expect(CAPTAIN_SPEC_BONUS.command).toEqual({ type: "commonYieldMult", mult: 0.05 });
     expect(CAPTAIN_SPEC_BONUS.tactical).toBeUndefined();
     expect(CAPTAIN_SPEC_BONUS.science).toBeUndefined();
-    expect(CAPTAIN_SPEC_BONUS.diplomacy).toBeUndefined();
+  });
+});
+
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 13):
+// the selector card tables feeding TreeSelector.svelte. The CRITICAL invariant
+// is that each card's `key` EXACTLY matches a real branch/category key, because
+// Tasks 14/15 map a focused card straight onto a CaptainTalentBranch /
+// HomeworldTalentBranch. A drifted/typo'd key would silently break that
+// card->branch mapping, so these tests derive the expected key SETS from the
+// real talent tables (not hard-coded literals) -- if a branch/category is ever
+// added or renamed, this test forces the card tables to keep pace.
+describe("Selector cards — specCards / categoryCards (Task 13)", () => {
+  it("specCards has exactly 3 entries keyed to the 3 captain branches", () => {
+    expect(specCards).toHaveLength(3);
+    // The real captain branches, derived from the talent table itself.
+    const captainBranches = new Set(Object.values(CAPTAIN_TALENTS).map((t) => t.branch));
+    expect(captainBranches).toEqual(new Set(["resourcefulness", "tactical", "science"]));
+    // Every card key is one of those branches, and the set of card keys matches
+    // the set of branches exactly (no missing, no extra, no duplicates).
+    const cardKeys = specCards.map((c) => c.key);
+    expect(new Set(cardKeys)).toEqual(captainBranches);
+    expect(cardKeys).toHaveLength(new Set(cardKeys).size); // keys are unique
+  });
+
+  it("categoryCards has exactly 5 entries keyed to the 5 homeworld categories", () => {
+    expect(categoryCards).toHaveLength(5);
+    // The real homeworld categories, derived from the talent table itself.
+    const homeworldCategories = new Set(Object.values(HOMEWORLD_TALENTS).map((t) => t.branch));
+    expect(homeworldCategories).toEqual(
+      new Set(["fleetLogistics", "homelandDefense", "citizenry", "economy", "industry"]),
+    );
+    const cardKeys = categoryCards.map((c) => c.key);
+    expect(new Set(cardKeys)).toEqual(homeworldCategories);
+    expect(cardKeys).toHaveLength(new Set(cardKeys).size); // keys are unique
+  });
+
+  it("every selector card carries a non-empty title, flavor, and at least one bullet", () => {
+    for (const card of [...specCards, ...categoryCards]) {
+      expect(card.title.length).toBeGreaterThan(0);
+      expect(card.flavor.length).toBeGreaterThan(0);
+      expect(card.bullets.length).toBeGreaterThan(0);
+      for (const bullet of card.bullets) {
+        expect(bullet.length).toBeGreaterThan(0);
+      }
+    }
   });
 });

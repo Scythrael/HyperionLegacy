@@ -34,8 +34,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 14", () => {
-    expect(SAVE_VERSION).toBe(14);
+  it("current SAVE_VERSION is 15", () => {
+    expect(SAVE_VERSION).toBe(15);
   });
 });
 
@@ -73,8 +73,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 14", () => {
-    expect(SAVE_VERSION).toBe(14);
+  it("current SAVE_VERSION is 15", () => {
+    expect(SAVE_VERSION).toBe(15);
   });
 });
 
@@ -232,8 +232,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBeUndefined();
   });
 
-  it("current SAVE_VERSION is 14", () => {
-    expect(SAVE_VERSION).toBe(14);
+  it("current SAVE_VERSION is 15", () => {
+    expect(SAVE_VERSION).toBe(15);
   });
 });
 
@@ -329,8 +329,8 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 14", () => {
-    expect(SAVE_VERSION).toBe(14);
+  it("current SAVE_VERSION is 15", () => {
+    expect(SAVE_VERSION).toBe(15);
   });
 });
 
@@ -435,8 +435,8 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 14", () => {
-    expect(SAVE_VERSION).toBe(14);
+  it("current SAVE_VERSION is 15", () => {
+    expect(SAVE_VERSION).toBe(15);
   });
 });
 
@@ -521,8 +521,8 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 14", () => {
-    expect(SAVE_VERSION).toBe(14);
+  it("current SAVE_VERSION is 15", () => {
+    expect(SAVE_VERSION).toBe(15);
   });
 });
 
@@ -581,8 +581,8 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.captains[0].mission).toBe(null);
   });
 
-  it("current SAVE_VERSION is 14", () => {
-    expect(SAVE_VERSION).toBe(14);
+  it("current SAVE_VERSION is 15", () => {
+    expect(SAVE_VERSION).toBe(15);
   });
 });
 
@@ -638,8 +638,8 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     expect(migrated.homePlanet.storage.refinedMaterial.equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 14", () => {
-    expect(SAVE_VERSION).toBe(14);
+  it("current SAVE_VERSION is 15", () => {
+    expect(SAVE_VERSION).toBe(15);
   });
 });
 
@@ -697,8 +697,8 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     expect(migrated.tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 14", () => {
-    expect(SAVE_VERSION).toBe(14);
+  it("current SAVE_VERSION is 15", () => {
+    expect(SAVE_VERSION).toBe(15);
   });
 });
 
@@ -1115,6 +1115,182 @@ describe("migrate — credits and Captain Specialization backfill (v13 -> v14)",
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(120)).toBe(true);
     expect(migrated.gameTimeSeconds).toBe(6000);
+  });
+});
+
+describe("migrate — Radial Skill Web talent restructure (v14 -> v15)", () => {
+  it("refunds each captain's old captain-talent costs from a FROZEN v14 snapshot, clears the talent list, and nulls only the command spec", () => {
+    // A genuine v14 shape: every field through MIGRATIONS[13] already present
+    // (credits fleet-wide, per-captain spec, xp/level/statPoints/
+    // unlockedCaptainTalents/mission) -- exactly what serialize() produced on
+    // this branch's parent commit. The captains here still carry the OLD v14
+    // captain-talent KEYS (commandExtractionI/II, resourcefulnessRareChanceI/II,
+    // resourcefulnessBonusRollI/II) and the OLD selectable specs
+    // ("command"/"resourcefulness"). Hand-written literal, same reasoning as
+    // every other legacy fixture in this file: post-Task-2, CAPTAIN_TALENTS no
+    // longer holds any of these keys, and freshState()/freshCaptainStack() no
+    // longer produce "command" as a spec, so neither can stand in for this
+    // pre-v15 shape.
+    //
+    // Three captains exercise every branch of the refund/clear/spec logic:
+    //   - Captain 1: spec "command", owns [commandExtractionI (2),
+    //     commandExtractionII (4)], statPoints 3 -> refund 2+4=6 ->
+    //     statPoints 9; spec "command" -> null; talents -> [].
+    //   - Captain 2: spec "resourcefulness", owns [resourcefulnessRareChanceI
+    //     (2), resourcefulnessBonusRollII (8)], statPoints 0 -> refund 2+8=10
+    //     -> statPoints 10; spec "resourcefulness" KEPT; talents -> [].
+    //   - Captain 3: spec null, owns ["prospectorHub"] (a NEW-era key absent
+    //     from the frozen v14 cost snapshot -> contributes 0 via `?? 0`),
+    //     statPoints 5 -> refund 0 -> statPoints 5; spec stays null; talents
+    //     -> []. Confirms the `?? 0` guard and the "null spec stays null" path.
+    const legacyState: any = {
+      gameTimeSeconds: 7000,
+      tickDurationSeconds: 1,
+      credits: 0,
+      unlockedHomeworldTalents: ["fleetLogisticsSlot1", "industryBonusOutput"], // preserved v14 homeworld keys -- must pass through untouched
+      fleetAdminXp: 200,
+      fleetAdminLevel: 2,
+      adminPoints: 3,
+      unlockedSkillNodes: ["commandRank1"],
+      skillPoints: 0,
+      homePlanet: { storage: { commonOre: 80, uncommonMaterial: 6, rareMaterial: 2, refinedMaterial: 1, components: 0 } },
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          xp: 400,
+          level: 4,
+          statPoints: 3,
+          spec: "command",
+          unlockedCaptainTalents: ["commandExtractionI", "commandExtractionII"],
+          mission: null,
+        },
+        {
+          id: 2,
+          label: "Captain 2",
+          shipType: "resourcer",
+          xp: 0,
+          level: 1,
+          statPoints: 0,
+          spec: "resourcefulness",
+          unlockedCaptainTalents: ["resourcefulnessRareChanceI", "resourcefulnessBonusRollII"],
+          mission: null,
+        },
+        {
+          id: 3,
+          label: "Captain 3",
+          shipType: "resourcer",
+          xp: 0,
+          level: 1,
+          statPoints: 5,
+          spec: null,
+          unlockedCaptainTalents: ["prospectorHub"], // new-era key not in the frozen snapshot -> refunds 0
+          mission: null,
+        },
+        {
+          id: 4,
+          label: "Captain 4",
+          shipType: "resourcer",
+          xp: 0,
+          level: 1,
+          statPoints: 2,
+          spec: "diplomacy", // removed spec, never selectable -- nulled defensively (defense in depth)
+          unlockedCaptainTalents: [],
+          mission: null,
+        },
+      ],
+    };
+
+    const save: SaveFile = { version: 14, created_at: 0, last_saved_at: 0, game_time_seconds: 7000, state: legacyState };
+    const migrated: any = migrate(save);
+
+    // Captain 1: command spec cleared, talents cleared, refund 2+4=6 added to statPoints (3 -> 9).
+    expect(migrated.captains[0].spec).toBe(null);
+    expect(migrated.captains[0].unlockedCaptainTalents).toEqual([]);
+    expect(migrated.captains[0].statPoints).toBe(9);
+
+    // Captain 2: resourcefulness spec KEPT, talents cleared, refund 2+8=10 added to statPoints (0 -> 10).
+    expect(migrated.captains[1].spec).toBe("resourcefulness");
+    expect(migrated.captains[1].unlockedCaptainTalents).toEqual([]);
+    expect(migrated.captains[1].statPoints).toBe(10);
+
+    // Captain 3: null spec stays null, talents cleared, unknown key refunds 0 (statPoints 5 -> 5).
+    expect(migrated.captains[2].spec).toBe(null);
+    expect(migrated.captains[2].unlockedCaptainTalents).toEqual([]);
+    expect(migrated.captains[2].statPoints).toBe(5);
+
+    // Captain 4: diplomacy spec (removed, never selectable) is nulled defensively;
+    // empty talents stay empty, statPoints unchanged (no refund) at 2.
+    expect(migrated.captains[3].spec).toBe(null);
+    expect(migrated.captains[3].unlockedCaptainTalents).toEqual([]);
+    expect(migrated.captains[3].statPoints).toBe(2);
+
+    // Homeworld talents pass through the migration completely untouched -- Task 3
+    // preserved every v14 homeworld key, so there is no homeworld refund here.
+    expect(migrated.unlockedHomeworldTalents).toEqual(["fleetLogisticsSlot1", "industryBonusOutput"]);
+
+    // Unrelated pre-existing fields survive the migration untouched. xp,
+    // credits, fleetAdminXp, and homePlanet.storage's keys are Decimal-
+    // designated -- hydrateDecimals() runs unconditionally at the end of
+    // migrate(), so they arrive as real Decimal instances (instanceof +
+    // .equals(), never .toBe(), since Decimal is an object).
+    expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
+    expect(migrated.captains[0].xp.equals(400)).toBe(true);
+    expect(migrated.captains[0].level).toBe(4);
+    expect(migrated.captains[0].mission).toBe(null);
+    expect(migrated.credits instanceof Decimal).toBe(true);
+    expect(migrated.credits.equals(0)).toBe(true);
+    expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
+    expect(migrated.fleetAdminXp.equals(200)).toBe(true);
+    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.homePlanet.storage.commonOre.equals(80)).toBe(true);
+    expect(migrated.gameTimeSeconds).toBe(7000);
+  });
+
+  it("uses the FROZEN v14 cost snapshot, not the live CAPTAIN_TALENTS table (whose old keys no longer exist post-Task-2)", () => {
+    // Guards the migration's self-containment: a captain owning ALL SIX old v14
+    // keys must refund exactly 2+4+2+4+6+8 = 26, derived from the hardcoded
+    // snapshot inside MIGRATIONS[14] -- NOT from CAPTAIN_TALENTS, which after
+    // Task 2 holds none of these keys (a live-table lookup would yield 0 for
+    // every one and silently under-refund). statPoints 0 -> 26.
+    const legacyState: any = {
+      gameTimeSeconds: 0,
+      tickDurationSeconds: 1,
+      credits: 0,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 0,
+      fleetAdminLevel: 1,
+      adminPoints: 0,
+      homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer",
+          xp: 0,
+          level: 1,
+          statPoints: 0,
+          spec: "resourcefulness",
+          unlockedCaptainTalents: [
+            "commandExtractionI",
+            "commandExtractionII",
+            "resourcefulnessRareChanceI",
+            "resourcefulnessRareChanceII",
+            "resourcefulnessBonusRollI",
+            "resourcefulnessBonusRollII",
+          ],
+          mission: null,
+        },
+      ],
+    };
+
+    const save: SaveFile = { version: 14, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
+    const migrated: any = migrate(save);
+
+    expect(migrated.captains[0].statPoints).toBe(26); // 2+4+2+4+6+8, from the frozen snapshot
+    expect(migrated.captains[0].unlockedCaptainTalents).toEqual([]);
+    expect(migrated.captains[0].spec).toBe("resourcefulness"); // not command -> kept
   });
 });
 

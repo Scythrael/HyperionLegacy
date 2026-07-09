@@ -223,7 +223,15 @@ export function xpForNextFleetAdminLevel(level: number): number {
 // table and its unlockCaptainSlot() function (tick.ts) have been removed --
 // Fleet Logistics below (via buyHomeworldTalent's unlockCaptainSlot effect)
 // fully absorbed that mechanism's job as of Task 4.
-export type CaptainTalentBranch = "command" | "tactical" | "science" | "resourcefulness" | "diplomacy";
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 1)
+// shrank this union from the old five-column linear model
+// ("command"/"tactical"/"science"/"resourcefulness"/"diplomacy") to the three
+// captain branches the radial web ships with. "command"/"diplomacy" are gone
+// -- their old content is either dropped or re-homed onto the surviving
+// branches by the Task 2 data rewrite. Anything still referencing the removed
+// members (CAPTAIN_SPEC_BONUS, CAPTAIN_TALENTS entries, tick.ts) is expected to
+// dangle until Tasks 2/5/7 clean it up; that intermediate breakage is by design.
+export type CaptainTalentBranch = "resourcefulness" | "tactical" | "science";
 export type HomeworldTalentBranch = "fleetLogistics" | "homelandDefense" | "citizenry" | "economy" | "industry";
 
 export type CaptainTalentEffect =
@@ -232,7 +240,18 @@ export type CaptainTalentEffect =
   | { type: "uncommonChanceMult"; mult: number }
   | { type: "rareChanceMult"; mult: number }
   | { type: "bonusRollChance"; chance: number }
-  | { type: "bonusRollChanceMult"; mult: number };
+  | { type: "bonusRollChanceMult"; mult: number }
+  // Radial Skill Web (Task 2): a genuinely-null gateway effect. Used by the
+  // Tactician/Explorer hubs, which are "learn me first" seeds for branches
+  // whose real mechanics (combat / a redefined science system) don't exist
+  // yet. Chosen over a `commonYieldMult`/`mult: 0.0` placeholder because that
+  // would render through describeCaptainTalentEffect as a misleading
+  // "+0.0% Common Ore yield" line on a combat/science node -- a `none` member
+  // renders honestly as "no bonus yet" instead. Carries no payload; the tick
+  // economy (tick.ts) simply has nothing to apply for it. When those systems
+  // land, the hub's effect changes to a real member and this stays available
+  // for any future pure-gateway node.
+  | { type: "none" };
 
 // unlockCaptainSlot carries no gate beyond the node's own `cost` (adminPoints)
 // -- Homeworld Talents are fleet-wide Fleet Admiral prestige, spent purely
@@ -247,22 +266,48 @@ export type HomeworldTalentEffect =
   | { type: "unlockCaptainSlot" }
   | { type: "rareYieldMult"; mult: number }
   | { type: "recipeBonusOutput"; recipeKey: RecipeKey; bonus: number }
-  | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number };
+  | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number }
+  // Radial Skill Web (Task 3): a genuinely-null gateway effect, added to mirror
+  // CaptainTalentEffect's own `none` member (Task 2) exactly. Used by the
+  // Homeland Defense and Citizenry hubs, which are "learn me first" seeds for
+  // categories whose real mechanics (a Battlespace/defense system, a population
+  // system) don't exist yet. Chosen over a `rareYieldMult`/`mult: 0.0`
+  // placeholder because that would render through describeHomeworldTalentEffect
+  // as a misleading "+0.0% Rare Material yield" line on a defense/citizenry
+  // hub -- a `none` member renders honestly as "no bonus yet" instead. Carries
+  // no payload; the tick economy (tick.ts) simply has nothing to apply for it.
+  // When those systems land, the hub's effect changes to a real member and this
+  // stays available for any future pure-gateway node.
+  | { type: "none" };
 
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 1):
+// the def shape moved from a linear `requires` prerequisite to a graph. The
+// former `requires: <key> | null` field is REMOVED; adjacency now lives in
+// `neighbors[]`, which is bidirectional by convention and drives BOTH the
+// rendered connectors and the fog-of-war learnable rule (a node is learnable
+// when it neighbors an owned node, seeded from the branch's `isHub`). `x`/`y`
+// are web-space coordinates (branch hub at 0,0). Buy-gating switches from the
+// old prerequisite check to this adjacency in Task 5.
 export interface CaptainTalentDef {
   branch: CaptainTalentBranch;
   label: string;
   cost: number; // statPoints
-  requires: CaptainTalentKey | null; // same-branch prerequisite, same convention as the old Skill Tree
-  flavor: string; // short narrative blurb -- surfaced in the Talent Tree Visual Redesign's tooltips (see that plan's design doc)
+  x: number;    // web-space coordinate; hub at (0,0)
+  y: number;
+  neighbors: CaptainTalentKey[]; // bidirectional by convention; drives BOTH connectors and fog-of-war
+  isHub?: boolean;               // exactly one per branch; the fog-of-war seed (always visible, learn first)
+  flavor: string;                // short narrative blurb -- surfaced in the talent-tree tooltips
 }
 
 export interface HomeworldTalentDef {
   branch: HomeworldTalentBranch;
   label: string;
   cost: number; // adminPoints
-  requires: HomeworldTalentKey | null;
-  flavor: string; // short narrative blurb -- surfaced in the Talent Tree Visual Redesign's tooltips (see that plan's design doc)
+  x: number;
+  y: number;
+  neighbors: HomeworldTalentKey[];
+  isHub?: boolean;
+  flavor: string; // short narrative blurb -- surfaced in the talent-tree tooltips
 }
 
 // NOTE: effect lives on the *Def directly below via a second field, not nested
@@ -271,113 +316,240 @@ export interface HomeworldTalentDef {
 // without generics that would over-complicate a launch table this small, so
 // each entry below is typed with an explicit inline `& { effect: ... }`.
 
-// Only Command and Resourcefulness get real launch content. Tactical, Science,
-// and Diplomacy are deliberately EMPTY (zero entries with that branch) --
-// each depends on a system that doesn't exist yet (combat, a redefined
-// Science mechanic). The UI iterates the fixed 5-branch list, not this
-// table's keys, so an empty branch still renders as a labeled column with
-// nothing in it. Add entries here (and nowhere else -- App.svelte's Captain
-// Talents panel iterates this object) when a branch's system is ready.
-// Costs below are launch placeholders, not balance-tested, same spirit as
-// MISSIONS'/RECIPES' own tunable constants.
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 2):
+// this table is now a radial GRAPH, not a set of linear prerequisite chains.
+// Each entry carries hand-authored web-space coordinates (x/y, hub at 0,0) and
+// a bidirectional `neighbors[]` adjacency list that drives BOTH the rendered
+// connectors and the fog-of-war/buy-gating rule (a node is learnable once it
+// neighbors an owned node; each branch is seeded by its single `isHub` node).
+//
+// Content this build ships (design §6.1-6.2 -- lean and honest):
+//   - resourcefulness ("Prospector") is the ONE rich tree. Its hub plus the
+//     re-homed ex-`command` extraction talents (Bulk -> Refined Extraction,
+//     commonYieldMult/uncommonYieldMult -- extraction yield fits the salvage
+//     theme) and the existing Keen Eye I/II + Lucky Strike I/II.
+//   - tactical ("Tactician") and science ("Explorer") are a single gateway
+//     hub each -- "learn me first" seeds for branches whose real mechanics
+//     (combat / a redefined science system) don't exist yet. Their hubs carry
+//     a `{ type: "none" }` effect (an honest "no bonus yet", NOT a misleading
+//     0.0 yield placeholder) so they render correctly but grant nothing until
+//     their systems land. No inert filler nodes are authored for them.
+//
+// `command`/`diplomacy` are GONE (removed with the old five-column model in
+// Task 1); their content is either dropped (diplomacy) or re-homed onto
+// resourcefulness (command's extraction talents). Coordinates below are the
+// hand-authored placement -- tunable at the Task 12 device checkpoint, same
+// launch-placeholder spirit as MISSIONS'/RECIPES' constants. Add entries here
+// (and nowhere else -- App.svelte's Captain Talents panel iterates this object)
+// when a branch's system is ready.
 export type CaptainTalentKey =
-  | "commandExtractionI"
-  | "commandExtractionII"
-  | "resourcefulnessRareChanceI"
-  | "resourcefulnessRareChanceII"
-  | "resourcefulnessBonusRollI"
-  | "resourcefulnessBonusRollII";
+  // resourcefulness ("Prospector") -- the rich tree
+  | "prospectorHub"
+  | "prospectorBulkExtraction" // ex-commandExtractionI
+  | "prospectorRefinedExtraction" // ex-commandExtractionII
+  | "prospectorKeenEyeI"
+  | "prospectorKeenEyeII"
+  | "prospectorLuckyStrikeI"
+  | "prospectorLuckyStrikeII"
+  // tactical ("Tactician") -- lean gateway stub until combat exists
+  | "tacticianHub"
+  // science ("Explorer") -- lean gateway stub until a science mechanic exists
+  | "explorerHub";
 
 export const CAPTAIN_TALENTS: Record<CaptainTalentKey, CaptainTalentDef & { effect: CaptainTalentEffect }> = {
-  commandExtractionI: {
-    branch: "command",
+  // --- resourcefulness ("Prospector") -----------------------------------
+  prospectorHub: {
+    branch: "resourcefulness",
+    label: "Prospector's Instinct",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: ["prospectorBulkExtraction", "prospectorKeenEyeI"],
+    effect: { type: "commonYieldMult", mult: 0.05 },
+    flavor: "The nose for value that separates a prospector from a tourist.",
+  },
+  prospectorBulkExtraction: {
+    branch: "resourcefulness",
     label: "Bulk Extraction",
     cost: 2,
-    requires: null,
-    effect: { type: "commonYieldMult", mult: 0.1 }, // was extractionYieldMult
+    x: -180,
+    y: -120,
+    neighbors: ["prospectorHub", "prospectorRefinedExtraction"],
+    effect: { type: "commonYieldMult", mult: 0.1 }, // was extractionYieldMult, ex-command
     flavor:
       "Standard doctrine trades finesse for throughput -- pull more common ore per cycle, no questions asked.",
   },
-  commandExtractionII: {
-    branch: "command",
+  prospectorRefinedExtraction: {
+    branch: "resourcefulness",
     label: "Refined Extraction",
     cost: 4,
-    requires: "commandExtractionI",
-    effect: { type: "uncommonYieldMult", mult: 0.15 }, // was extractionYieldMult
+    x: -320,
+    y: -200,
+    neighbors: ["prospectorBulkExtraction"],
+    effect: { type: "uncommonYieldMult", mult: 0.15 }, // was extractionYieldMult, ex-command
     flavor:
       "Field engineers recalibrate the intake manifolds to favor uncommon deposits over raw volume.",
   },
-  resourcefulnessRareChanceI: {
+  prospectorKeenEyeI: {
     branch: "resourcefulness",
     label: "Keen Eye I",
     cost: 2,
-    requires: null,
+    x: 180,
+    y: -120,
+    neighbors: ["prospectorHub", "prospectorKeenEyeII"],
     effect: { type: "uncommonChanceMult", mult: 0.25 }, // was rareLootChanceMult
     flavor:
       "A trained eye catches what the sensors miss -- subtle mineral banding invisible to standard scans.",
   },
-  resourcefulnessRareChanceII: {
+  prospectorKeenEyeII: {
     branch: "resourcefulness",
     label: "Keen Eye II",
     cost: 4,
-    requires: "resourcefulnessRareChanceI",
+    x: 320,
+    y: -200,
+    neighbors: ["prospectorKeenEyeI", "prospectorLuckyStrikeI"],
     effect: { type: "rareChanceMult", mult: 0.5 }, // was rareLootChanceMult
     flavor: "Years of fieldwork sharpen instinct into something the manuals can't teach.",
   },
-  resourcefulnessBonusRollI: {
+  prospectorLuckyStrikeI: {
     branch: "resourcefulness",
     label: "Lucky Strike I",
     cost: 6,
-    requires: "resourcefulnessRareChanceII",
+    x: 300,
+    y: 40,
+    neighbors: ["prospectorKeenEyeII", "prospectorLuckyStrikeII"],
     effect: { type: "bonusRollChance", chance: 0.02 },
     flavor:
       "Some captains just have a feel for where the good ore sits. Call it luck; call it experience.",
   },
-  resourcefulnessBonusRollII: {
+  prospectorLuckyStrikeII: {
     branch: "resourcefulness",
     label: "Lucky Strike II",
     cost: 8,
-    requires: "resourcefulnessBonusRollI",
+    x: 420,
+    y: 120,
+    neighbors: ["prospectorLuckyStrikeI"],
     effect: { type: "bonusRollChanceMult", mult: 1.0 },
     flavor: "When the feeling's right twice in a row, it stops being coincidence.",
+  },
+  // --- tactical ("Tactician") -- gateway hub only -----------------------
+  tacticianHub: {
+    branch: "tactical",
+    label: "Combat Readiness",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: [], // no content nodes yet -- grows when combat lands (design §6.2)
+    effect: { type: "none" }, // pure gateway; no combat system to hang a real effect on yet
+    flavor: "Discipline first. The rest of the doctrine comes when there's a war to fight.",
+  },
+  // --- science ("Explorer") -- gateway hub only -------------------------
+  explorerHub: {
+    branch: "science",
+    label: "Survey Doctrine",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: [], // no content nodes yet -- grows when a science mechanic lands
+    effect: { type: "none" }, // pure gateway; no science system to hang a real effect on yet
+    flavor: "Every uncharted system is a question. Answering it starts here.",
   },
 };
 
 // Innate bonus granted once a captain has this branch chosen as their spec
 // (CaptainState.spec) -- separate from, and additive with, whatever they've
 // bought in the talent tree itself. Deliberately Partial<...>: a branch with
-// NO entry here is not yet selectable as a spec at all (tactical/science/
-// diplomacy today -- their underlying systems, Combat/a redefined Science
-// mechanic, don't exist yet, so there's nothing meaningful to grant a bonus
-// FOR). Revives the Phase 1 "Captain Prestige panel + specialization picker"
+// NO entry here is not yet selectable as a spec at all (tactical/science
+// today -- their underlying systems, Combat/a redefined Science mechanic,
+// don't exist yet, so there's nothing meaningful to grant a bonus FOR).
+// Revives the Phase 1 "Captain Prestige panel + specialization picker"
 // mechanic (retired during the Phase 4 Navigation/Progression Overhaul along
 // with the old Generator Stack economy it was built on), now expressed
 // against this newer Captain Talent tree instead.
+//
+// Radial Skill Web (Task 2): the `command` entry was dropped along with the
+// command branch itself. resourcefulness ("Prospector") is the only branch
+// with a real spec bonus at launch -- the sole selectable spec until tactical
+// or science earns its own system (and thus its own spec bonus).
 export const CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTalentEffect>> = {
   resourcefulness: { type: "bonusRollChance", chance: 0.01 },
-  command: { type: "commonYieldMult", mult: 0.05 }, // placeholder -- refine once Command's role is better defined
 };
 
-// Fleet Logistics' 3 slot-unlock tiers below fully replace the old
-// CAPTAIN_SLOT_UNLOCKS table/unlockCaptainSlot() mechanism, removed in Task 4.
-// Homeland Defense and Citizenry are deliberately EMPTY, same reasoning as
-// Tactical/Science/Diplomacy above (need Battlespace / a population system,
-// neither exists yet). Costs below are launch placeholders, same as
-// CAPTAIN_TALENTS' own -- not balance-tested.
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 3):
+// this table is now a radial GRAPH, one hub per HomeworldTalentBranch (exactly
+// 5 hubs, each `isHub: true` at x:0,y:0 within its category), not a set of
+// linear `requires` chains. The former `requires` field is REMOVED; adjacency
+// now lives in `neighbors[]` (bidirectional by convention), which drives BOTH
+// the rendered connectors and the fog-of-war/buy-gating rule (a node is
+// learnable once it neighbors an owned node; each category is seeded by its
+// single hub). Buy-gating switches from `requires` to this adjacency in Task 5.
+//
+// CRITICAL: every pre-existing key string is preserved UNCHANGED
+// (fleetLogisticsSlot1/2/3, fleetLogisticsYield, industryBonusOutput,
+// economyTrickle) so existing saves' unlockedHomeworldTalents stay valid --
+// Task 6's migration deliberately does NOT refund Homeworld talents because
+// they survive by key. Only the 5 new hub keys + the graph fields are ADDED.
+//
+// Content this build ships (design §6.3 -- lean and honest):
+//   - Fleet Logistics is the ONE rich category: hub -> Slot1 -> Slot2 -> Slot3
+//     (the existing slot-unlock chain, now via neighbors) with fleetLogisticsYield
+//     hanging directly off the hub. Fully replaces the old CAPTAIN_SLOT_UNLOCKS
+//     table/unlockCaptainSlot() mechanism (removed in an earlier task).
+//   - Economy hub -> economyTrickle; Industry hub -> industryBonusOutput (one
+//     existing content node each).
+//   - Homeland Defense and Citizenry are HUB-ONLY (neighbors: []). Their real
+//     mechanics (a Battlespace/defense system, a population system) don't exist
+//     yet, so their hubs carry a `{ type: "none" }` effect (an honest "no bonus
+//     yet", NOT a misleading 0.0 yield placeholder) and grow later. No inert
+//     filler nodes are authored for them -- same reasoning as the captain
+//     Tactician/Explorer hubs.
+// Costs/coordinates below are launch placeholders, same as CAPTAIN_TALENTS' own
+// -- not balance-tested; coordinates tunable at the Task 12 device checkpoint.
 export type HomeworldTalentKey =
+  // fleetLogistics -- the rich category
+  | "fleetLogisticsHub"
   | "fleetLogisticsSlot1"
   | "fleetLogisticsSlot2"
   | "fleetLogisticsSlot3"
   | "fleetLogisticsYield"
-  | "industryBonusOutput"
-  | "economyTrickle";
+  // homelandDefense -- hub-only gateway stub until a defense system exists
+  | "homelandDefenseHub"
+  // citizenry -- hub-only gateway stub until a population system exists
+  | "citizenryHub"
+  // economy -- hub + one existing content node
+  | "economyHub"
+  | "economyTrickle"
+  // industry -- hub + one existing content node
+  | "industryHub"
+  | "industryBonusOutput";
 
 export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & { effect: HomeworldTalentEffect }> = {
+  // --- fleetLogistics -- the rich category ------------------------------
+  // hub -> Slot1 -> Slot2 -> Slot3 (the slot-unlock chain), plus Yield off hub.
+  fleetLogisticsHub: {
+    branch: "fleetLogistics",
+    label: "Fleet Command",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: ["fleetLogisticsSlot1", "fleetLogisticsYield"],
+    // A modest real starter effect (mirrors the captain prospectorHub, which
+    // carries a real commonYieldMult on the one rich tree) -- rareYieldMult is
+    // thematically apt for a logistics/requisitions category.
+    effect: { type: "rareYieldMult", mult: 0.02 },
+    flavor: "The standing authority that turns a scattering of ships into a fleet.",
+  },
   fleetLogisticsSlot1: {
     branch: "fleetLogistics",
     label: "Recruit Captain (2nd slot)",
     cost: 3,
-    requires: null,
+    x: -180,
+    y: -120,
+    neighbors: ["fleetLogisticsHub", "fleetLogisticsSlot2"],
     effect: { type: "unlockCaptainSlot" },
     flavor: "Fleet Command approves a second commission -- the roster grows.",
   },
@@ -385,7 +557,9 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     branch: "fleetLogistics",
     label: "Recruit Captain (3rd slot)",
     cost: 5,
-    requires: "fleetLogisticsSlot1",
+    x: -320,
+    y: -200,
+    neighbors: ["fleetLogisticsSlot1", "fleetLogisticsSlot3"],
     effect: { type: "unlockCaptainSlot" },
     flavor: "A third captain's chair, funded and ready. The fleet expands.",
   },
@@ -393,7 +567,9 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     branch: "fleetLogistics",
     label: "Recruit Captain (4th slot)",
     cost: 8,
-    requires: "fleetLogisticsSlot2",
+    x: -440,
+    y: -280,
+    neighbors: ["fleetLogisticsSlot2"],
     effect: { type: "unlockCaptainSlot" },
     flavor: "Four commands under one banner -- logistics finally caught up with ambition.",
   },
@@ -401,29 +577,217 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     branch: "fleetLogistics",
     label: "Fleet Requisitions",
     cost: 4,
-    requires: null,
+    x: 180,
+    y: -120,
+    neighbors: ["fleetLogisticsHub"],
     effect: { type: "rareYieldMult", mult: 0.05 }, // was fleetExtractionYieldMult
     flavor:
       "Standing orders redirect a share of every rare find straight back to the fleet's reserves.",
   },
-  industryBonusOutput: {
-    branch: "industry",
-    label: "Tooling Upgrade",
-    cost: 4,
-    requires: null,
-    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
-    flavor: "New jigs and fixtures on the fabrication line mean every batch stretches a little further.",
+  // --- homelandDefense -- hub-only gateway stub -------------------------
+  homelandDefenseHub: {
+    branch: "homelandDefense",
+    label: "Home Guard",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: [], // no content nodes yet -- grows when a defense system lands (design §6.3)
+    effect: { type: "none" }, // pure gateway; no defense system to hang a real effect on yet
+    flavor: "The homeworld's first and last line -- for now, a promise more than a wall.",
+  },
+  // --- citizenry -- hub-only gateway stub -------------------------------
+  citizenryHub: {
+    branch: "citizenry",
+    label: "Civic Charter",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: [], // no content nodes yet -- grows when a population system lands (design §6.3)
+    effect: { type: "none" }, // pure gateway; no population system to hang a real effect on yet
+    flavor: "Every world needs a people worth defending. Their story starts here.",
+  },
+  // --- economy -- hub + one existing content node -----------------------
+  economyHub: {
+    branch: "economy",
+    label: "Trade Authority",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: ["economyTrickle"],
+    // Modest real starter effect (mirrors the fleetLogistics hub's rationale) --
+    // a small passive trickle is thematically apt for an economy category.
+    effect: { type: "passiveTrickle", material: "commonOre", perTick: 1 },
+    flavor: "License the ledgers and the markets, and the wealth follows.",
   },
   economyTrickle: {
     branch: "economy",
     label: "Trade Contacts",
     cost: 3,
-    requires: null,
+    x: -180,
+    y: -120,
+    neighbors: ["economyHub"],
     effect: { type: "passiveTrickle", material: "commonOre", perTick: 1 },
     flavor:
       "A quiet arrangement with independent traders keeps a slow, steady trickle of ore flowing home.",
   },
+  // --- industry -- hub + one existing content node ----------------------
+  industryHub: {
+    branch: "industry",
+    label: "Works Directorate",
+    cost: 1,
+    x: 0,
+    y: 0,
+    isHub: true,
+    neighbors: ["industryBonusOutput"],
+    // Modest real starter effect (mirrors the fleetLogistics hub's rationale) --
+    // a small fabrication bonus is thematically apt for an industry category.
+    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
+    flavor: "Nationalize the foundries and the whole homeworld starts to hum.",
+  },
+  industryBonusOutput: {
+    branch: "industry",
+    label: "Tooling Upgrade",
+    cost: 4,
+    x: -180,
+    y: -120,
+    neighbors: ["industryHub"],
+    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
+    flavor: "New jigs and fixtures on the fabrication line mean every batch stretches a little further.",
+  },
 };
+
+// --- Selector card data (Radial Skill Web, Task 13) -----------------------
+// docs/plans/2026-07-08-radial-skill-web-plan.md, Task 13 + design §5.
+//
+// Two small static description tables feeding the TreeSelector card component
+// (src/lib/TreeSelector.svelte -- the "mockup A" card-selector screen). Each
+// entry is one card: a title + flavor blurb + a few bullet points, shown in
+// the selector's live description panel when that card is focused.
+//
+// The `key` field is LOAD-BEARING: it must EXACTLY match the real branch /
+// category key so Tasks 14/15 can map a focused card straight onto a
+// CaptainTalentBranch / HomeworldTalentBranch (e.g. focus the "Prospector"
+// card -> commit key "resourcefulness" -> render that branch's web). A typo
+// here would silently break that card->branch mapping, so the wiring tasks
+// index these tables by the same literal keys the talent tables use.
+//
+// PLACEHOLDER COPY: the flavor/bullets below are launch-placeholder narrative
+// (same convention as MISSIONS/RECIPES/talent flavor -- frontier/belter
+// sci-fi tone, editable as text, not balance- or lore-locked). The tactical
+// ("Tactician") and science ("Explorer") specs, and the hub-only homeworld
+// categories, honestly note that their real systems are still coming.
+export interface SelectorCard {
+  key: string; // MUST match a real branch/category key (see note above)
+  title: string;
+  flavor: string;
+  bullets: string[];
+}
+
+// specCards -- the 3 captain-specialization cards. Keys are exactly the three
+// CaptainTalentBranch literals ("resourcefulness"/"tactical"/"science"), so the
+// captain Talents panel (Task 14) maps a chosen card straight onto a spec.
+export const specCards: SelectorCard[] = [
+  {
+    key: "resourcefulness", // -> CaptainTalentBranch "resourcefulness"; title per plan
+    title: "Prospector",
+    flavor:
+      "The belt rewards the ones who can read it. Prospectors turn a rock field into a payday.",
+    bullets: [
+      "Focused on salvage, mining, and extraction yield.",
+      "Boosts common and uncommon ore pulled per run.",
+      "Sharper eyes for rare finds and lucky bonus strikes.",
+      "The one fully-built spec at launch -- a real web of talents.",
+    ],
+  },
+  {
+    key: "tactical", // -> CaptainTalentBranch "tactical"; title per plan
+    title: "Tactician",
+    flavor:
+      "Out past the shipping lanes, someone eventually shoots first. The Tactician plans for that day.",
+    bullets: [
+      "Combat-focused discipline for when the shooting starts.",
+      "Full talent web arrives when the combat system lands.",
+      "For now: a single gateway node -- a promise, not yet a fight.",
+    ],
+  },
+  {
+    key: "science", // -> CaptainTalentBranch "science"; title per plan
+    title: "Explorer",
+    flavor:
+      "Every uncharted system is a question with a paycheck attached. Explorers go find the answer.",
+    bullets: [
+      "Survey- and science-focused deep-space doctrine.",
+      "Full talent web arrives when the science system lands.",
+      "For now: a single gateway node -- charted course, empty map.",
+    ],
+  },
+];
+
+// categoryCards -- the 5 homeworld-category cards. Keys are exactly the five
+// HomeworldTalentBranch literals, so the Fleet Admiral (Homeworld) Talents
+// panel (Task 15) maps a focused card straight onto a category's web. Unlike
+// the captain flow these do NOT lock in -- they're pure navigation into a
+// category tree, freely reversible (design §5.3).
+export const categoryCards: SelectorCard[] = [
+  {
+    key: "fleetLogistics", // -> HomeworldTalentBranch "fleetLogistics"
+    title: "Fleet Logistics",
+    flavor:
+      "Ships without supply lines are just expensive debris. Logistics is what turns hulls into a fleet.",
+    bullets: [
+      "Grows the fleet: unlocks additional captain slots.",
+      "Redirects a share of every rare find into fleet reserves.",
+      "The richest homeworld category at launch.",
+    ],
+  },
+  {
+    key: "homelandDefense", // -> HomeworldTalentBranch "homelandDefense"
+    title: "Homeland Defense",
+    flavor:
+      "The homeworld is the one asset you can never re-mine. Someone has to stand watch over it.",
+    bullets: [
+      "The homeworld's standing guard against future threats.",
+      "Its real defenses arrive with the battlespace system.",
+      "For now: a single gateway node -- a promise more than a wall.",
+    ],
+  },
+  {
+    key: "citizenry", // -> HomeworldTalentBranch "citizenry"
+    title: "Citizenry",
+    flavor:
+      "A frontier world is only as strong as the people who choose to stay and build on it.",
+    bullets: [
+      "The homeworld's population and the civic life it supports.",
+      "Real effects arrive with the population system.",
+      "For now: a single gateway node -- a people finding their footing.",
+    ],
+  },
+  {
+    key: "economy", // -> HomeworldTalentBranch "economy"
+    title: "Economy",
+    flavor:
+      "License the ledgers, court the traders, and the wealth starts finding its own way home.",
+    bullets: [
+      "Trade authority and passive resource income.",
+      "Keeps a steady trickle of ore flowing back to the homeworld.",
+      "One content node beyond the hub at launch, grown later.",
+    ],
+  },
+  {
+    key: "industry", // -> HomeworldTalentBranch "industry"
+    title: "Industry",
+    flavor:
+      "Nationalize the foundries and the whole homeworld starts to hum with output.",
+    bullets: [
+      "Fabrication and manufacturing throughput.",
+      "Stretches every crafting batch a little further.",
+      "One content node beyond the hub at launch, grown later.",
+    ],
+  },
+];
 
 // What a brand-new (or newly-unlocked) captain slot starts with. There is no
 // more prestige to reset a captain THROUGH -- this is purely the baseline for
