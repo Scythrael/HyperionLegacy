@@ -686,19 +686,6 @@
     selectedCategory = key as HomeworldTalentBranch;
   }
 
-  // TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE (grep "TEMP-DEV-GRANT").
-  // The Vercel preview starts from a fresh 0-point save, so the Learn/fog-of-war
-  // reveal flow can't be exercised without grinding levels. This grants points on
-  // demand so the radial web can be tested end-to-end. NOT a shipping feature.
-  function devGrantPoints() {
-    const captains = state.captains.map((c) =>
-      c.id === activeCaptain.id ? { ...c, statPoints: c.statPoints + 25 } : c
-    );
-    state = { ...state, captains, adminPoints: state.adminPoints + 25 };
-    pushLog("[DEV] +25 stat points (active captain) and +25 admin points granted.");
-    doSave();
-  }
-
   // Homeworld Talents Reset (Task 13) -- opens the confirmation modal. No
   // captured pre-swap state needed (unlike doDispatchCaptainOnMission's
   // captain.label capture) since the confirmation happens in the modal
@@ -1009,12 +996,6 @@
             Reset
           </button>
         </div>
-        <!-- TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE.
-             Kept OUTSIDE the category-picker/category-selected conditional
-             below so it is always reachable for Checkpoint B device testing,
-             regardless of which branch renders. Same placement rationale as the
-             Captain Talents panel's DEV button. -->
-        <button type="button" on:click={devGrantPoints} style="margin-bottom:8px; padding:4px 10px; font-size:12px;">🔧 DEV: +25 stat / +25 admin pts</button>
         <!-- Radial Skill Web (Task 15) -- the 5-category selector now sits in
              FRONT of the RadialWeb (Task 11b previously hardcoded branch to
              "fleetLogistics"). selectedCategory is component-local, view-only
@@ -1170,11 +1151,6 @@
                   ? "None chosen"
                   : (SPEC_DISPLAY_NAME[activeCaptain.spec] ?? activeCaptain.spec)}
               </div>
-              <!-- TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE.
-                   Kept OUTSIDE the spec-null/spec-chosen conditional below so it
-                   is always reachable for Checkpoint B device testing,
-                   regardless of which branch renders. -->
-              <button type="button" on:click={devGrantPoints} style="margin-bottom:8px; padding:4px 10px; font-size:12px;">🔧 DEV: +25 stat / +25 admin pts</button>
               <!-- Radial Skill Web (Task 14) -- spec-gated captain Talents view.
                    FIRST PICK IS FREE, CHANGING IT COSTS A RESPEC (confirmed
                    design decision):
