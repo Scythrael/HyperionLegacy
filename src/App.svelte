@@ -2194,17 +2194,6 @@
     letter-spacing: 1px;
     cursor: pointer;
   }
-  .spec-current { font-size: 11px; color: var(--color-text-secondary); margin: 10px 0; }
-  .spec-picker { display: flex; gap: 2px; flex-wrap: wrap; margin-top: 10px; }
-  .spec-btn {
-    background: rgba(var(--color-accent-rgb), 0.1);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
-    padding: 8px 12px;
-    color: var(--color-accent-bright);
-    font-size: 11px;
-    cursor: pointer;
-  }
-  .spec-btn:disabled { cursor: not-allowed; }
 
   .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
   .theme-swatch {
