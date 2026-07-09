@@ -41,14 +41,17 @@
   //   A pointer drag on .web-viewport translates the world via (panX, panY); a
   //   near-stationary press is a TAP that (on a node) opens that node's tooltip.
   //   The two are told apart by movedDistance vs TAP_THRESHOLD_PX. Tap resolution
-  //   happens in the viewport's OWN pointerup via a document.elementFromPoint
-  //   hit-test — NOT via the node button's native `click`. (Checkpoint-A device
-  //   fix: setPointerCapture on the viewport retargets the compatibility `click`
-  //   to the VIEWPORT, so a clean tap's click never reached the node button and
-  //   the tooltip never opened. The hit-test reads the real node under the
-  //   release point regardless of capture.) Keyboard Enter/Space on a focused
-  //   node is a separate, capture-free path handled by the button's on:keydown.
-  //   See the "Pan + tap/drag disambiguation" block for the gesture lifecycle.
+  //   happens in the viewport's OWN pointerup by reading the EVENT TARGET
+  //   (`e.target.closest("[data-node-key]")`) — the node/child actually under the
+  //   finger, bubbled up to the viewport handler by event delegation. (Checkpoint-A
+  //   device fix: capture is now taken ONLY once a drag crosses the threshold, so a
+  //   clean TAP never captures — `e.target` stays the real node, no coordinate math.
+  //   The earlier build captured on every pointerdown and hit-tested the release
+  //   point with document.elementFromPoint, which was unreliable on mobile under
+  //   capture + the transform-panned world — it only resolved near the viewport
+  //   center, so off-center taps silently failed to open.) Keyboard Enter/Space on
+  //   a focused node is a separate, capture-free path handled by the button's
+  //   on:keydown. See the "Pan + tap/drag disambiguation" block for the lifecycle.
   //
   //   Task 11 (this addition): node tooltip overlay + Learn action. A node tap
   //   now opens an INTERNAL tooltip (RadialWeb owns it — one component serves
@@ -176,16 +179,29 @@
   // pointer gesture is EITHER a pan (world drags under the finger) OR a tap
   // (which, when it lands on a node <button>, opens that node's tooltip). We tell
   // them apart by how far the pointer moved during the gesture (movedDistance vs
-  // TAP_THRESHOLD_PX). A tap is resolved in handlePointerUp by hit-testing the
-  // release point with document.elementFromPoint — deliberately NOT via the node
-  // button's native `click`. Why: pointerdown calls setPointerCapture on the
-  // viewport (needed so an off-viewport drag keeps tracking), and pointer capture
-  // retargets the compatibility `click` to the VIEWPORT, not the node button — so
-  // a clean tap's click never reached the button (the Checkpoint-A tooltip bug).
-  // The hit-test is capture-independent, so it finds the real node under the
-  // release point every time. Keyboard activation is a separate path (each node
-  // button's on:keydown handles Enter/Space) — no pointer capture is involved
-  // there, so it reliably opens the tooltip for accessibility.
+  // TAP_THRESHOLD_PX).
+  //
+  // CAPTURE-ONLY-ON-DRAG (Checkpoint-A device fix — the crux of this component):
+  // setPointerCapture is NOT called on pointerdown. It is taken lazily in
+  // handlePointerMove the moment movedDistance first crosses TAP_THRESHOLD_PX —
+  // i.e. only once the gesture has become a real DRAG. Consequences:
+  //   * A TAP never captures. So `e.target` on the pointerup stays the ACTUAL node
+  //     (or a child span) under the finger, and handlePointerUp resolves the tapped
+  //     node via `e.target.closest("[data-node-key]")` (event delegation bubbles
+  //     the node's event up to this viewport handler). No coordinate math, works
+  //     off-center. This FIXES the Checkpoint-A mobile bug where the old build
+  //     captured on every pointerdown and hit-tested the release point with
+  //     document.elementFromPoint — unreliable on mobile under capture + the
+  //     transform-panned world (only resolved near the viewport center, so
+  //     off-center taps silently failed).
+  //   * A DRAG captures as soon as it crosses the threshold, so panning keeps
+  //     tracking even when the finger leaves the viewport (capture routes the
+  //     remaining move/up events back to us). There is no tracking gap: below the
+  //     threshold the finger is within ~8px of its start, still over the viewport,
+  //     so its events fire normally; at/after the threshold capture is engaged.
+  // Keyboard activation is a separate path (each node button's on:keydown handles
+  // Enter/Space) — no pointer capture is involved there, so it reliably opens the
+  // tooltip for accessibility.
 
   // TAP_THRESHOLD_PX — a gesture whose total pointer travel stays under this many
   // CSS px is treated as a TAP; at or beyond it, it's a PAN (and any trailing
@@ -205,17 +221,24 @@
   let panX0 = 0;
   let panY0 = 0;
   let movedDistance = 0;
+  // `captured` — true once this gesture has crossed TAP_THRESHOLD_PX and taken
+  // pointer capture (see handlePointerMove). It stays false for a pure TAP, which
+  // is exactly why a tap's `e.target` remains the real node (no capture retarget).
+  // handlePointerUp releases capture only when this is set, then resets it.
+  let captured = false;
 
   // --- Gesture handlers -----------------------------------------------------
 
   /**
    * pointerdown — begin a gesture. Snapshots the start point and current pan,
-   * arms `dragging`, and zeroes the movement accumulator. setPointerCapture
-   * routes all subsequent move/up events for THIS pointer to the viewport even
-   * if the pointer leaves the viewport mid-drag, so a pan that wanders off the
-   * element still tracks smoothly. (That same capture retargets the trailing
-   * `click` away from the node button — which is why tap resolution lives in
-   * handlePointerUp's hit-test, not in a button click handler.)
+   * arms `dragging`, zeroes the movement accumulator, and clears `captured`.
+   *
+   * NB: pointer capture is deliberately NOT taken here. Capturing on every
+   * pointerdown retargets a clean tap's `e.target` (and the compatibility click)
+   * to the viewport, which broke off-center taps on mobile (the Checkpoint-A bug).
+   * Instead capture is taken lazily in handlePointerMove only once the gesture
+   * crosses TAP_THRESHOLD_PX (i.e. becomes a real drag) — so a TAP never captures
+   * and its `e.target` stays the actual node under the finger.
    */
   function handlePointerDown(e: PointerEvent) {
     dragging = true;
@@ -224,19 +247,7 @@
     panX0 = panX;
     panY0 = panY;
     movedDistance = 0;
-    // Capture so an off-viewport drag keeps delivering move/up to us. Guarded:
-    // setPointerCapture can throw if the pointer is already gone (rare); a failed
-    // capture only degrades off-element tracking, so it must not break the pan.
-    const target = e.currentTarget;
-    if (target instanceof Element) {
-      try {
-        target.setPointerCapture(e.pointerId);
-      } catch {
-        // Non-fatal: capture unavailable → in-viewport drag still works. Handled
-        // here (not swallowed silently elsewhere) per Omega 14 — the degraded
-        // path is explicit and commented rather than an invisible failure.
-      }
-    }
+    captured = false; // no capture yet; taken in handlePointerMove iff a drag starts
   }
 
   /**
@@ -244,8 +255,15 @@
    * delta from the start point (absolute-from-start via panX0/panY0, so it never
    * accumulates rounding drift) and update movedDistance. movedDistance is the
    * sole tap-vs-pan discriminator, read once at pointerup: a release with
-   * movedDistance < TAP_THRESHOLD_PX is a TAP (hit-test resolves the node), at or
+   * movedDistance < TAP_THRESHOLD_PX is a TAP (resolved from e.target), at or
    * beyond it is a PAN (no node opens). Ignored when not dragging (nothing held).
+   *
+   * CAPTURE-ON-DRAG: the first move that pushes movedDistance to/over
+   * TAP_THRESHOLD_PX takes pointer capture (once — guarded by `captured`). That
+   * makes this gesture a real drag: capture routes subsequent move/up back to the
+   * viewport even after the finger leaves it, so an off-viewport pan keeps
+   * tracking. A gesture that never crosses the threshold (a TAP) never captures,
+   * so its pointerup `e.target` stays the actual node under the finger.
    */
   function handlePointerMove(e: PointerEvent) {
     if (!dragging) return;
@@ -254,57 +272,61 @@
     panX = panX0 + dx;
     panY = panY0 + dy;
     movedDistance = Math.hypot(dx, dy);
+
+    // Cross the tap/pan threshold → this is a drag → capture the pointer so pan
+    // keeps tracking off-viewport. Done once (`!captured`). Guarded: capture is
+    // best-effort — a failed capture only degrades off-element tracking, so it
+    // must never break the pan (handled explicitly per Omega 14, not swallowed
+    // invisibly). A TAP (below threshold) reaches neither branch, so it stays
+    // capture-free and its e.target remains the tapped node.
+    if (!captured && movedDistance >= TAP_THRESHOLD_PX) {
+      const target = e.currentTarget;
+      if (target instanceof Element) {
+        try {
+          target.setPointerCapture(e.pointerId);
+          captured = true;
+        } catch {
+          // Non-fatal: capture unavailable → in-viewport drag still works. Leave
+          // `captured` false so pointerup skips the release (nothing to release).
+        }
+      }
+    }
   }
 
   /**
    * pointerup / pointercancel — end the gesture. Clears `dragging`, releases
-   * pointer capture, and — for a TAP — resolves which node was tapped and opens
-   * its tooltip.
+   * pointer capture (only if this gesture actually took it), and — for a TAP —
+   * resolves which node was tapped and opens its tooltip.
    *
-   * Tap resolution is done HERE via a document.elementFromPoint hit-test at the
-   * release coordinates, deliberately NOT via the node button's native `click`.
-   * The reason is the Checkpoint-A device bug: pointerdown captured this pointer
-   * to the viewport (setPointerCapture, needed for off-viewport drag tracking),
-   * and pointer capture retargets the compatibility `click` to the VIEWPORT — so
-   * a clean tap's click fires on the viewport, never on the node button, and the
-   * button's handler never ran. elementFromPoint does a fresh hit-test at those
-   * viewport coords that is independent of pointer capture, so it returns the
-   * actual node button (or a child) under the finger even while captured.
+   * Tap resolution reads the EVENT TARGET: `e.target.closest("[data-node-key]")`.
+   * Because a tap never captured the pointer (capture is taken only once a drag
+   * crosses the threshold — see handlePointerMove), `e.target` is the ACTUAL node
+   * button (or a child span) under the finger, delivered here by event delegation
+   * (the node's pointerup bubbles up to this viewport handler). So `.closest`
+   * walks up to the owning node and yields its key with NO coordinate math — which
+   * is what makes off-center taps work reliably on mobile AND desktop. This
+   * replaced the old document.elementFromPoint hit-test, which was unreliable on
+   * mobile under pointer capture + the transform-panned world (it only resolved
+   * correctly near the viewport center — the Checkpoint-A bug).
    *
-   * A pan (movedDistance >= TAP_THRESHOLD_PX) skips the hit-test entirely, so no
-   * node opens at the end of a drag. A tap on empty space hit-tests to something
-   * with no [data-node-key] ancestor, so nothing opens. A pointercancel is
-   * treated like an up: end cleanly (with touch-action:none the browser won't
-   * steal the gesture for scroll, so cancels are rare; if one does arrive after a
-   * near-stationary press it simply resolves the node under the last point, which
-   * is harmless).
+   * A pan (movedDistance >= TAP_THRESHOLD_PX) skips the resolution entirely, so no
+   * node opens at the end of a drag. A tap on empty space has an e.target with no
+   * [data-node-key] ancestor, so nothing opens. A pointercancel is treated like an
+   * up: end cleanly (with touch-action:none the browser won't steal the gesture
+   * for scroll, so cancels are rare).
    */
   function handlePointerUp(e: PointerEvent) {
     dragging = false;
-    // Release the capture taken in pointerdown. Only release what we actually
-    // hold (hasPointerCapture guard) so a cancel that already dropped capture is
-    // a no-op. Wrapped in try/catch defensively — releasing is best-effort and
-    // must never break gesture teardown.
-    const target = e.currentTarget;
-    if (target instanceof Element && target.hasPointerCapture(e.pointerId)) {
-      try {
-        target.releasePointerCapture(e.pointerId);
-      } catch {
-        // Non-fatal: releasing an already-released/absent capture is harmless.
-      }
-    }
 
-    // A near-stationary gesture is a TAP. Resolve which node (if any) is under
-    // the release point via a hit-test — NOT via the button's click, which
-    // pointer capture retargets to the viewport (that was the Checkpoint-A
-    // tooltip bug). elementFromPoint is capture-independent, so it returns the
-    // real node button/child at those coords; .closest("[data-node-key]") walks
-    // up to the owning node button and yields its key. Tapping empty space finds
-    // no [data-node-key] ancestor → opens nothing, which is correct. A pan
+    // A near-stationary gesture is a TAP. Resolve the tapped node from the EVENT
+    // TARGET (no capture happened on a tap, so e.target is the real node/child
+    // under the finger, bubbled up here by event delegation). .closest walks up
+    // to the owning node button and yields its data-node-key. Tapping empty space
+    // finds no [data-node-key] ancestor → opens nothing, which is correct. A pan
     // (movedDistance >= threshold) skips this branch entirely.
-    if (movedDistance < TAP_THRESHOLD_PX && typeof document !== "undefined") {
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const nodeEl = el && (el as Element).closest("[data-node-key]");
+    if (movedDistance < TAP_THRESHOLD_PX) {
+      const t = e.target;
+      const nodeEl = t instanceof Element ? t.closest("[data-node-key]") : null;
       if (nodeEl) {
         const key = nodeEl.getAttribute("data-node-key");
         if (key !== null) {
@@ -315,6 +337,23 @@
         }
       }
     }
+
+    // Release capture ONLY if this gesture took it (a drag that crossed the
+    // threshold). A tap never captured, so there's nothing to release. Guarded by
+    // hasPointerCapture too, and wrapped in try/catch — releasing is best-effort
+    // and must never break gesture teardown. Reset `captured` for the next
+    // gesture.
+    if (captured) {
+      const target = e.currentTarget;
+      if (target instanceof Element && target.hasPointerCapture(e.pointerId)) {
+        try {
+          target.releasePointerCapture(e.pointerId);
+        } catch {
+          // Non-fatal: releasing an already-released/absent capture is harmless.
+        }
+      }
+    }
+    captured = false;
   }
 
   // --- Tooltip (Task 11) ----------------------------------------------------
@@ -746,14 +785,16 @@
            the Learn action (Task 11) is affordability-gated -- do NOT add
            `disabled` here, which would swallow the tap and hide that tooltip.
 
-           data-node-key is the hit-test anchor: handlePointerUp resolves a tap by
-           document.elementFromPoint(...).closest("[data-node-key]") and reads this
-           attribute to know which node was tapped. That pointerup path (not a
-           click handler) opens the tooltip, because pointer capture on the
-           viewport retargets the compatibility `click` away from this button (the
-           Checkpoint-A bug). on:keydown is the SEPARATE keyboard path (Enter/Space
-           on a focused node) — no pointer capture is involved there, so it opens
-           the tooltip reliably, preserving accessibility. -->
+           data-node-key is the tap-resolution anchor: handlePointerUp resolves a
+           tap by e.target.closest("[data-node-key]") and reads this attribute to
+           know which node was tapped. That works because a tap never captures the
+           pointer (capture is taken only once a drag starts — see
+           handlePointerMove), so e.target is the real node/child under the finger,
+           bubbled to the viewport handler by event delegation. That pointerup path
+           (not a click handler) opens the tooltip. on:keydown is the SEPARATE
+           keyboard path (Enter/Space on a focused node) — no pointer capture is
+           involved there either, so it opens the tooltip reliably, preserving
+           accessibility. -->
       <button
         type="button"
         class="web-node"
