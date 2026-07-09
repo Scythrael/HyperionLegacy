@@ -22,6 +22,11 @@
   import {
     freshState,
     specCards,
+    // Radial Skill Web (Task 15) -- the 5 homeworld-category cards shown by the
+    // Homeworld Talents TreeSelector (keys ARE the HomeworldTalentBranch
+    // literals). Unlike specCards these do NOT lock in; picking one is pure
+    // navigation into that category's web (see selectedCategory/viewCategory).
+    categoryCards,
     MISSIONS,
     requiredTicksForPhase,
     RECIPES,
@@ -29,10 +34,12 @@
     xpForNextFleetAdminLevel,
     CAPTAIN_TALENTS,
     HOMEWORLD_TALENTS,
-    // CAPTAIN_SPEC_BONUS / CaptainState / HomeworldTalentBranch import removed
-    // in Task 11b: their only App.svelte uses were the deleted spec-picker
-    // (CAPTAIN_SPEC_BONUS), the removed talentTooltipInfo lookup (CaptainState),
-    // and the removed homeworld branch {#each} cast (HomeworldTalentBranch).
+    // CAPTAIN_SPEC_BONUS / CaptainState import removed in Task 11b: their only
+    // App.svelte uses were the deleted spec-picker (CAPTAIN_SPEC_BONUS) and the
+    // removed talentTooltipInfo lookup (CaptainState). HomeworldTalentBranch was
+    // also dropped then (the old homeworld branch each-block cast), but Task 15
+    // re-introduces it below to type the Homeworld category selector's local
+    // selectedCategory navigation state (see type import below).
     type GameState,
     type MissionKey,
     type MissionPhase,
@@ -42,6 +49,7 @@
     type CaptainTalentBranch,
     type CaptainTalentKey,
     type HomeworldTalentKey,
+    type HomeworldTalentBranch,
   } from "./lib/game/model";
   import {
     tick,
@@ -638,6 +646,46 @@
     doSave();
   }
 
+  // Radial Skill Web (Task 15) -- the currently-viewed Homeworld talent
+  // category, or null when the category card-picker (TreeSelector) is showing.
+  // This is COMPONENT-LOCAL, VIEW-ONLY navigation state -- it is deliberately
+  // NOT part of GameState and is NEVER persisted (no doSave on change). Unlike
+  // the captain spec (a committed, costed lock-in stored on CaptainState.spec),
+  // choosing a homeworld category is free and freely reversible: picking a card
+  // just points the RadialWeb at that branch, and the "Categories" back button
+  // returns to the picker. Defaults to null so the panel opens on the picker.
+  let selectedCategory: HomeworldTalentBranch | null = null;
+
+  // The five real HomeworldTalentBranch literals, listed explicitly so
+  // viewCategory below can defensively validate the incoming card key --
+  // exact mirror of CAPTAIN_SPEC_BRANCHES above. categoryCards' keys ARE these
+  // same branch strings (model.ts guarantees this), so this is a
+  // belt-and-suspenders guard against an unexpected value, NOT a translation
+  // layer -- a matched key passes straight through unchanged. If
+  // HomeworldTalentBranch ever grows/shrinks, this list (and categoryCards)
+  // must change with it; there is no compiler in this environment to catch a
+  // stale entry, so it is kept as a small, obvious, hand-maintained list.
+  const HOMEWORLD_CATEGORY_BRANCHES: HomeworldTalentBranch[] = [
+    "fleetLogistics",
+    "homelandDefense",
+    "citizenry",
+    "economy",
+    "industry",
+  ];
+
+  // Radial Skill Web (Task 15) -- navigate INTO a homeworld category's web,
+  // fired by the TreeSelector's "View Tree" button. Purely view-only: it
+  // validates the key is a real branch then points selectedCategory at it.
+  // There is NO cost and NO save write -- this is navigation, not a commit
+  // (contrast chooseSpec above, which commits a captain spec and calls doSave).
+  // `key` comes from a categoryCards card key (typed `string`), so it is
+  // defensively narrowed to a real HomeworldTalentBranch before use -- an
+  // unexpected value simply does nothing rather than being forced through.
+  function viewCategory(key: string) {
+    if (!(HOMEWORLD_CATEGORY_BRANCHES as string[]).includes(key)) return;
+    selectedCategory = key as HomeworldTalentBranch;
+  }
+
   // TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE (grep "TEMP-DEV-GRANT").
   // The Vercel preview starts from a fresh 0-point save, so the Learn/fog-of-war
   // reveal flow can't be exercised without grinding levels. This grants points on
@@ -961,29 +1009,64 @@
             Reset
           </button>
         </div>
-        <!-- Radial Skill Web (Task 11b, minimal buildable integration) --
-             REPLACES the old fixed-5-branch depth-row tree (branch {#each} +
-             talentDepth/TALENT_ROW_HEIGHT layout + per-node .skill-node markup
-             + shared tooltip). `branch` is HARDCODED to "fleetLogistics" for
-             now; Task 15 adds the 5-category selector in front of this and
-             drives `branch` from the chosen category. `owned` is the fleet-wide
-             state.unlockedHomeworldTalents, `points` the shared adminPoints
-             pool. onLearn routes the tooltip's Learn button into the EXISTING
-             doBuyHomeworldTalent wrapper (buyHomeworldTalent + pushLog + save),
-             so learning still works exactly as before. describeEffect passes
-             the homeworld effect describer through so RadialWeb's internal
-             tooltip renders the right effect line without importing it. -->
-        <!-- TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE -->
+        <!-- TEMP-DEV-GRANT (Checkpoint A testing) -- REMOVE BEFORE MERGE.
+             Kept OUTSIDE the category-picker/category-selected conditional
+             below so it is always reachable for Checkpoint B device testing,
+             regardless of which branch renders. Same placement rationale as the
+             Captain Talents panel's DEV button. -->
         <button type="button" on:click={devGrantPoints} style="margin-bottom:8px; padding:4px 10px; font-size:12px;">🔧 DEV: +25 stat / +25 admin pts</button>
-        <RadialWeb
-          table={HOMEWORLD_TALENTS}
-          branch={"fleetLogistics"}
-          owned={state.unlockedHomeworldTalents}
-          points={state.adminPoints}
-          pointsLabel={"Admin Points"}
-          describeEffect={describeHomeworldTalentEffect}
-          onLearn={(key) => doBuyHomeworldTalent(key as HomeworldTalentKey)}
-        />
+        <!-- Radial Skill Web (Task 15) -- the 5-category selector now sits in
+             FRONT of the RadialWeb (Task 11b previously hardcoded branch to
+             "fleetLogistics"). selectedCategory is component-local, view-only
+             NAVIGATION state (never persisted -- see its declaration above):
+             null shows the TreeSelector category card-picker; a chosen category
+             shows THAT category's RadialWeb plus a back button to the picker.
+             This is deliberately UNLIKE the captain spec flow: there is no
+             lock-in, no cost, and no save write -- committing a card just
+             navigates (viewCategory), and the back button just returns to the
+             picker, both freely reversible. The Reset button above
+             (respecHomeworldTalents) is orthogonal and unchanged. `owned` is
+             the fleet-wide state.unlockedHomeworldTalents, `points` the shared
+             adminPoints pool; onLearn routes the tooltip's Learn button into
+             the EXISTING doBuyHomeworldTalent wrapper (buyHomeworldTalent +
+             pushLog + save), so learning still works exactly as before.
+             describeEffect passes the homeworld effect describer through so
+             RadialWeb's internal tooltip renders the right effect line without
+             importing it. NOTE: keep Svelte block tokens (hash-if / colon-else
+             / slash-if) OUT of this comment -- they can trip the parser even
+             inside an HTML comment. -->
+        {#if selectedCategory === null}
+          <TreeSelector
+            cards={categoryCards}
+            commitLabel={"View Tree"}
+            onCommit={(key) => viewCategory(key)}
+          />
+        {:else}
+          <!-- Category selected: back button returns to the picker (pure
+               navigation -- clears selectedCategory, no save write), then THAT
+               category's RadialWeb. selectedCategory is a plain local that TS
+               narrows to non-null across the conditional, but the trailing !
+               is kept for consistency with the captain mount's activeCaptain.spec!
+               (and it is genuinely non-null in this branch). -->
+          <div class="dev-row">
+            <button
+              type="button"
+              class="dev-btn"
+              on:click={() => (selectedCategory = null)}
+            >
+              ← Categories
+            </button>
+          </div>
+          <RadialWeb
+            table={HOMEWORLD_TALENTS}
+            branch={selectedCategory!}
+            owned={state.unlockedHomeworldTalents}
+            points={state.adminPoints}
+            pointsLabel={"Admin Points"}
+            describeEffect={describeHomeworldTalentEffect}
+            onLearn={(key) => doBuyHomeworldTalent(key as HomeworldTalentKey)}
+          />
+        {/if}
       </Panel>
       {/if}
       </div>
