@@ -402,3 +402,15 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   pass that adds focus-move-on-open, focus-restore-on-close, and a real focus trap to back the
   `aria-modal` attribute. Low risk (Escape already dismisses), but easy to forget once the visual pass
   "looks done."
+
+- **North-star UI aesthetic: "futuristic console/touch display."** User's stated overall aesthetic goal
+  (2026-07-08): the whole game should feel like you're operating a futuristic sci-fi console/touch
+  display, with the UI's motifs reinforcing that diegetically. The Radial Skill Web's glowing nodes +
+  directional energy-pulse links are a first expression of it. Concrete near-term wants folded under
+  this: **panel fade in/out transitions on navigation** (a shared, reusable transition applied to every
+  tab/panel change, not one-off per screen), and glow/pulse motifs reused elsewhere. Explicitly a
+  FUTURE dedicated UI-refinement pass, NOT to be built piecemeal now — the user wants to finish
+  foundational (gameplay-system) features first and then run a deliberate UI-polish flow that pulls the
+  UI-tweak entries out of THIS file (this entry, the tooltip focus-trap a11y entry above, and others)
+  and addresses them together, with input from Claude on additional "sell the console aesthetic" ideas
+  at that time. Capture UI/aesthetic ideas here as they come up rather than chasing them mid-foundation.
