@@ -845,7 +845,11 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
 
 // Same "same state reference on failure" convention as every other buy/action
 // function in this file. Validates: talent exists, not already unlocked,
-// prerequisite (if any) already unlocked, statPoints sufficient. On success:
+// learnable by graph adjacency (a hub, or adjacent to an already-unlocked node
+// in this branch -- the Radial Skill Web replaced the old single-parent
+// `requires` chain with this rule; it mirrors computeVisibleTalents' learnable
+// condition so what the UI shows as learnable is exactly what buy allows),
+// statPoints sufficient. On success:
 // deducts cost, records the unlock. The effect itself isn't APPLIED here --
 // each effect type is read wherever that stat matters (the 5 tier-specific
 // yield/chance mults inside tickCaptainMission's rollExtractionTick call, see
@@ -866,9 +870,12 @@ export function buyCaptainTalent(
   const talent = CAPTAIN_TALENTS[talentKey];
 
   if (captain.unlockedCaptainTalents.includes(talentKey)) return { next: state, success: false };
-  if (talent.requires && !captain.unlockedCaptainTalents.includes(talent.requires)) {
-    return { next: state, success: false };
-  }
+  // Adjacency gate (Radial Skill Web, Task 5): a node is learnable iff it is a
+  // hub OR at least one of its neighbors is already owned. Same rule as
+  // computeVisibleTalents (talentWeb.ts) -- buy and visibility stay consistent.
+  const isLearnable =
+    talent.isHub || talent.neighbors.some((n) => captain.unlockedCaptainTalents.includes(n));
+  if (!isLearnable) return { next: state, success: false };
   if (captain.statPoints < talent.cost) return { next: state, success: false };
 
   const captains = [...state.captains];
@@ -880,9 +887,11 @@ export function buyCaptainTalent(
   return { next: { ...state, captains }, success: true };
 }
 
-// Same shape as buyCaptainTalent, fleet-wide. unlockCaptainSlot is the one
-// effect type with an additional side effect beyond "record the unlock" --
-// appending a new captain via freshCaptainStack(), same baseline every other
+// Same shape as buyCaptainTalent, fleet-wide -- including the same graph
+// adjacency gate: learnable iff a hub, or adjacent to an already-unlocked node
+// in this branch (against state.unlockedHomeworldTalents). unlockCaptainSlot is
+// the one effect type with an additional side effect beyond "record the unlock"
+// -- appending a new captain via freshCaptainStack(), same baseline every other
 // captain-creation path in this codebase uses.
 export function buyHomeworldTalent(
   state: GameState,
@@ -891,9 +900,11 @@ export function buyHomeworldTalent(
   const talent = HOMEWORLD_TALENTS[talentKey];
 
   if (state.unlockedHomeworldTalents.includes(talentKey)) return { next: state, success: false };
-  if (talent.requires && !state.unlockedHomeworldTalents.includes(talent.requires)) {
-    return { next: state, success: false };
-  }
+  // Adjacency gate (Radial Skill Web, Task 5): learnable iff a hub OR at least
+  // one neighbor is already owned. Same rule as computeVisibleTalents.
+  const isLearnable =
+    talent.isHub || talent.neighbors.some((n) => state.unlockedHomeworldTalents.includes(n));
+  if (!isLearnable) return { next: state, success: false };
   if (state.adminPoints < talent.cost) return { next: state, success: false };
 
   const unlockedHomeworldTalents = [...state.unlockedHomeworldTalents, talentKey];

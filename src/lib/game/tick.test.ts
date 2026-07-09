@@ -1282,65 +1282,119 @@ describe("craftRecipe", () => {
   });
 });
 
+// Radial Skill Web (Task 5): buy-gating moved from the old single-parent
+// `requires` chain to graph adjacency. A node is learnable iff it is a hub OR
+// at least one of its neighbors is already owned -- the exact rule
+// computeVisibleTalents (talentWeb.ts) uses for fog-of-war, so what the UI
+// shows as learnable is exactly what buy allows. Keys/costs below are the LIVE
+// radial CAPTAIN_TALENTS/HOMEWORLD_TALENTS tables (model.ts), not the old
+// command/resourcefulnessRareChance keys these tests used pre-rewrite:
+//   prospectorHub          isHub, cost 1, neighbors incl. prospectorBulkExtraction
+//   prospectorBulkExtraction  cost 2, neighbors incl. prospectorHub (NOT a hub)
+//   fleetLogisticsHub      isHub, cost 1, neighbors incl. fleetLogisticsSlot1
+//   fleetLogisticsSlot1    cost 3, unlockCaptainSlot, neighbors incl. fleetLogisticsHub
 describe("buyCaptainTalent", () => {
-  it("succeeds when affordable and prerequisite met, deducts statPoints, records the unlock", () => {
+  it("gates on adjacency, not requires: hub buyable from empty; non-adjacent fails; adjacent-to-owned then succeeds", () => {
+    let state = freshState();
+    state.captains[0].statPoints = 10; // ample -- isolate the adjacency gate from the cost gate
+
+    // prospectorBulkExtraction is NOT a hub and no neighbor is owned yet -> fail.
+    const nonAdjacent = buyCaptainTalent(state, 1, "prospectorBulkExtraction");
+    expect(nonAdjacent.success).toBe(false);
+    expect(nonAdjacent.next).toBe(state); // same state reference on failure
+
+    // prospectorHub is a hub -> always buyable from an empty unlocked set.
+    const hub = buyCaptainTalent(state, 1, "prospectorHub");
+    expect(hub.success).toBe(true);
+    expect(hub.next.captains[0].unlockedCaptainTalents).toEqual(["prospectorHub"]);
+    state = hub.next;
+
+    // Now prospectorHub (a neighbor of prospectorBulkExtraction) is owned -> buyable.
+    const adjacent = buyCaptainTalent(state, 1, "prospectorBulkExtraction");
+    expect(adjacent.success).toBe(true);
+    expect(adjacent.next.captains[0].unlockedCaptainTalents).toEqual([
+      "prospectorHub",
+      "prospectorBulkExtraction",
+    ]);
+  });
+
+  it("succeeds on a hub when affordable, deducts statPoints, records the unlock", () => {
     const state = freshState();
-    state.captains[0].statPoints = 2;
-    const { next, success } = buyCaptainTalent(state, 1, "commandExtractionI");
+    state.captains[0].statPoints = 1; // prospectorHub costs exactly 1
+    const { next, success } = buyCaptainTalent(state, 1, "prospectorHub");
     expect(success).toBe(true);
     expect(next.captains[0].statPoints).toBe(0);
-    expect(next.captains[0].unlockedCaptainTalents).toEqual(["commandExtractionI"]);
+    expect(next.captains[0].unlockedCaptainTalents).toEqual(["prospectorHub"]);
   });
 
   it("fails (same state reference) if already unlocked", () => {
     const state = freshState();
     state.captains[0].statPoints = 10;
-    const { next: dispatched } = buyCaptainTalent(state, 1, "commandExtractionI");
-    const { next, success } = buyCaptainTalent(dispatched, 1, "commandExtractionI");
+    const { next: dispatched } = buyCaptainTalent(state, 1, "prospectorHub");
+    const { next, success } = buyCaptainTalent(dispatched, 1, "prospectorHub");
     expect(success).toBe(false);
     expect(next).toBe(dispatched);
   });
 
-  it("fails if the prerequisite isn't unlocked yet", () => {
+  it("fails if statPoints are insufficient (even for a learnable node)", () => {
     const state = freshState();
-    state.captains[0].statPoints = 10;
-    const { next, success } = buyCaptainTalent(state, 1, "commandExtractionII");
-    expect(success).toBe(false);
-    expect(next).toBe(state);
-  });
-
-  it("fails if statPoints are insufficient", () => {
-    const state = freshState();
-    state.captains[0].statPoints = 1; // costs 2
-    const { next, success } = buyCaptainTalent(state, 1, "commandExtractionI");
+    state.captains[0].statPoints = 0; // prospectorHub costs 1; adjacency gate passes (hub), cost gate fails
+    const { next, success } = buyCaptainTalent(state, 1, "prospectorHub");
     expect(success).toBe(false);
     expect(next).toBe(state);
   });
 });
 
 describe("buyHomeworldTalent", () => {
-  it("succeeds for a non-slot node: deducts adminPoints, records the unlock", () => {
-    const state = freshState();
-    state.adminPoints = 4;
-    const { next, success } = buyHomeworldTalent(state, "industryBonusOutput");
-    expect(success).toBe(true);
-    expect(next.adminPoints).toBe(0);
-    expect(next.unlockedHomeworldTalents).toEqual(["industryBonusOutput"]);
+  it("gates on adjacency, not requires: hub buyable from empty; non-adjacent fails; adjacent-to-owned then succeeds", () => {
+    let state = freshState();
+    state.adminPoints = 10; // ample -- isolate the adjacency gate from the cost gate
+
+    // fleetLogisticsSlot1 is NOT a hub and no neighbor is owned yet -> fail.
+    const nonAdjacent = buyHomeworldTalent(state, "fleetLogisticsSlot1");
+    expect(nonAdjacent.success).toBe(false);
+    expect(nonAdjacent.next).toBe(state); // same state reference on failure
+
+    // fleetLogisticsHub is a hub -> always buyable from an empty unlocked set.
+    const hub = buyHomeworldTalent(state, "fleetLogisticsHub");
+    expect(hub.success).toBe(true);
+    expect(hub.next.unlockedHomeworldTalents).toEqual(["fleetLogisticsHub"]);
+    state = hub.next;
+
+    // Now fleetLogisticsHub (a neighbor of fleetLogisticsSlot1) is owned -> buyable.
+    const adjacent = buyHomeworldTalent(state, "fleetLogisticsSlot1");
+    expect(adjacent.success).toBe(true);
+    expect(adjacent.next.unlockedHomeworldTalents).toEqual([
+      "fleetLogisticsHub",
+      "fleetLogisticsSlot1",
+    ]);
   });
 
-  it("succeeds for an unlockCaptainSlot node: also appends a new captain", () => {
+  it("succeeds for a non-slot node when adjacent+affordable: deducts adminPoints, records the unlock", () => {
     const state = freshState();
-    state.adminPoints = 3;
-    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot1");
+    state.adminPoints = 10;
+    // fleetLogisticsYield is a neighbor of fleetLogisticsHub; own the hub first.
+    const withHub = buyHomeworldTalent(state, "fleetLogisticsHub").next; // hub cost 1
+    const { next, success } = buyHomeworldTalent(withHub, "fleetLogisticsYield"); // cost 4
+    expect(success).toBe(true);
+    expect(next.adminPoints).toBe(10 - 1 - 4);
+    expect(next.unlockedHomeworldTalents).toEqual(["fleetLogisticsHub", "fleetLogisticsYield"]);
+  });
+
+  it("succeeds for an unlockCaptainSlot node: also appends a new captain (side-effect intact)", () => {
+    const state = freshState();
+    state.adminPoints = 10;
+    const withHub = buyHomeworldTalent(state, "fleetLogisticsHub").next; // hub cost 1, makes slot1 learnable
+    const { next, success } = buyHomeworldTalent(withHub, "fleetLogisticsSlot1"); // cost 3, unlockCaptainSlot
     expect(success).toBe(true);
     expect(next.captains).toHaveLength(2);
     expect(next.captains[1].id).toBe(2);
   });
 
-  it("fails if adminPoints are insufficient", () => {
+  it("fails if adminPoints are insufficient (even for a learnable node)", () => {
     const state = freshState();
-    state.adminPoints = 2; // costs 3
-    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot1");
+    state.adminPoints = 0; // fleetLogisticsHub costs 1; adjacency gate passes (hub), cost gate fails
+    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsHub");
     expect(success).toBe(false);
     expect(next).toBe(state);
   });
@@ -1348,18 +1402,10 @@ describe("buyHomeworldTalent", () => {
   it("fails (same state reference) if already unlocked", () => {
     const state = freshState();
     state.adminPoints = 10;
-    const { next: dispatched } = buyHomeworldTalent(state, "industryBonusOutput");
-    const { next, success } = buyHomeworldTalent(dispatched, "industryBonusOutput");
+    const { next: dispatched } = buyHomeworldTalent(state, "fleetLogisticsHub");
+    const { next, success } = buyHomeworldTalent(dispatched, "fleetLogisticsHub");
     expect(success).toBe(false);
     expect(next).toBe(dispatched);
-  });
-
-  it("fails if the prerequisite isn't unlocked yet", () => {
-    const state = freshState();
-    state.adminPoints = 10;
-    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsSlot2"); // requires fleetLogisticsSlot1
-    expect(success).toBe(false);
-    expect(next).toBe(state);
   });
 });
 
