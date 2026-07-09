@@ -962,3 +962,89 @@ independent-verification-before-review rigor applied to every other branch
 this session. Next: final holistic review of this branch, then merge —
 push to `main` still needs separate, explicit confirmation from the user,
 since it triggers a live Vercel production redeploy.
+
+**Session 24** — Talent Tree Visual Redesign (branch
+feat/talent-tree-visual-redesign,
+docs/plans/2026-07-08-talent-tree-visual-redesign-plan.md), built via
+subagent-driven-development, the largest plan this session (17 tasks). Four
+bundled pieces, per the user's explicit choice to build them together: a new
+`credits` currency, full-reset respec, a revived Captain Specialization
+mechanic, and a real branching-tree visual with tooltips. `GameState` gained
+a `Decimal`-typed `credits` field, earned once per completed mission cycle
+(`MissionDef.creditsPerCycle`: 10 for `shortOreRun`, 20 for `longOreRun`),
+accumulated in `tickCaptainMission` the same "collect locally, apply once"
+way `fleetAdminXpDelta` already works and summed fleet-wide in `tick()` — a
+flat accumulator with no leveling curve, unlike Fleet Admiral XP. Two new
+full-reset-only respec functions, `respecCaptainTalents`/
+`respecHomeworldTalents`, both costing a flat 50 credits (placeholder, not
+balance-tested) and following the "same state reference on failure"
+convention every other buy/action function in `tick.ts` uses;
+`respecHomeworldTalents` deliberately excludes `unlockCaptainSlot` nodes from
+any refund/removal, since undoing one would delete an existing captain and
+everything on it. Mid-brainstorm, before any execution began, the user
+significantly expanded scope with an unprompted addition reviving the OLD,
+retired Phase 1 "Captain Prestige panel + specialization picker" mechanic
+(confirmed explicitly: "Yes, intentionally reviving it in a new form") —
+`CaptainState` gained `spec: CaptainTalentBranch | null` and a new
+`CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTalentEffect>>`
+table grants an innate bonus once chosen, with entries only for
+`resourcefulness` (+1% baseline `bonusRollChance`) and `command` (+5%
+`commonYieldMult` placeholder) — `tactical`/`science`/`diplomacy` stay locked
+(no table entry at all) until their underlying systems (Combat, a redefined
+Science mechanic) actually exist, the user's explicit choice. Choosing or
+changing spec is bundled into the same respec flow/cost, not a separate
+action. This surfaced a genuine correctness trap the plan flagged in
+advance and Task 2b navigated successfully: the `resourcefulness` spec bonus
+had to be added to the effective bonus-roll chance AFTER the existing
+`base * (1 + mult)` multiplier scaling, via a new, separate
+`captainSpecBonusRollChance` function kept out of `captainBonusRollChance`'s
+own return value — folding it in would have produced `(0.02+0.01)*(1+1.0) =
+0.06` instead of the correct `0.02*(1+1.0)+0.01 = 0.05` for a
+fully-specced-and-talented Resourcefulness captain; two boundary-value
+regression-guard tests (rng constants 0.0499 vs 0.0501) lock in the exact
+5% threshold. `command`'s spec bonus, by contrast, was safe to fold directly
+into `captainCommonYieldMult`'s own return value, since `commonYieldMult` has
+no downstream second-stage multiplier in `rollExtractionTick`. `SAVE_VERSION`
+bumped 13→14, backfilling `credits: 0` and every captain's `spec: null`,
+verified to correctly reach captains built by the oldest inline migration
+literals (same precedent as `xp`/`unlockedCaptainTalents` being backfilled
+the same way in earlier migrations). Both talent-tree panels were rebuilt
+around a real branching-tree visual: a `talentDepth` helper walks each node's
+`requires` chain back to its root for row placement, and one overlay SVG per
+branch draws connector lines between prerequisite/dependent node centers
+using a `viewBox`/`preserveAspectRatio="none"`/`vector-effect:
+non-scaling-stroke` technique so fixed-x connector lines stay centered
+regardless of container width — deliberately generalized to handle multiple
+nodes sharing a depth-row even though every branch today is a single linear
+chain, which paid off immediately: Task 11 found the Homeworld `fleetLogistics`
+branch has two independent depth-0 roots sharing one row, the first real case
+of this in either tree, fixed via a `columnIndex`/`columnCount` split. A new
+`flavor: string` field on both talent-def tables plus
+`describeCaptainTalentEffect`/`describeHomeworldTalentEffect` helpers (pure
+functions converting an effect union member into a human-readable numbers
+line) power hover(desktop)/tap(touch) tooltips. Reset buttons, a
+Specialization picker (only `command`/`resourcefulness` clickable, the other
+3 rendering as disabled "🔒 Not yet available" buttons with no click handler
+at all), and two new confirmation modals were added last, reusing the
+existing DELETE SAVE modal's exact visual structure. Two review-stage
+findings were fixed directly rather than bundled into later tasks: Task 5's
+`SAVE_VERSION` bump had left 9 pre-existing `save.test.ts` assertions
+hardcoded to the old value 13 (an exact recurrence of a regression class this
+project had already hit and fixed once before), fixed via a single
+`replace_all` edit; and Task 13's implementer had hand-duplicated the
+`RESPEC_COST_CREDITS` literal into App.svelte because `tick.ts`'s copy wasn't
+exported — fixed at the root by adding the missing `export` keyword and
+deleting the duplicate, rather than documenting the drift risk and moving
+on. No new KNOWN_ISSUES.md/SUGGESTIONS.md entries needed — the two ideas
+explicitly deferred from this design (a Homeworld "Market" to sell resources
+for credits, and the broader Auction House/Bank/credit-loss-on-death economy
+vision) were already logged separately in commits `58acf50`/`0aac0b9`. Every
+commit across this branch was independently verified via `git show` and
+hand-tracing before dispatching two-stage review, same rigor as every prior
+branch this session. Node.js/npm/npx remain completely absent from this
+environment — all of this branch's UI work (the tree layout, connectors,
+tooltips, and this task's modals) was verified by static reading only, never
+rendered in a live browser; this must be disclosed plainly before merge, not
+just implied. Next: final holistic review of this branch, then merge — push
+to `main` still needs separate, explicit confirmation from the user, since it
+triggers a live Vercel production redeploy.
