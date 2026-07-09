@@ -251,6 +251,7 @@ describe("Radial Skill Web — talent def graph shape", () => {
       expect(typeof def.x).toBe("number");
       expect(typeof def.y).toBe("number");
       expect(Array.isArray(def.neighbors)).toBe(true);
+      expect("requires" in def).toBe(false);
     }
   });
 });
