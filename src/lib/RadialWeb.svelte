@@ -901,12 +901,21 @@
      position of its own.
 
      Dismiss paths:
-       - Backdrop: on:click|self closes ONLY when the click lands on the backdrop
-         itself (not bubbled up from the card). Because this overlay is a separate
-         body-level element sitting over the whole viewport, a backdrop click is
-         intercepted here and CANNOT leak through to a node underneath (the node
-         is in a different subtree, behind the backdrop) — so backdrop-click never
-         doubles as a node tap.
+       - Backdrop: on:POINTERUP|self closes ONLY when the release lands on the
+         backdrop itself (not bubbled up from the card). It is deliberately
+         pointerup, NOT click: a node tap opens the tooltip on its OWN pointerup,
+         and the tap's trailing compatibility `click` then lands on the just-
+         appeared backdrop. With on:click that trailing click closed the tooltip
+         instantly — but ONLY for taps toward the edges, where the click missed the
+         centered card and hit the backdrop (a center tap's click hit the card and
+         survived). That was the mobile "edge/bottom taps don't register" bug: the
+         tooltip opened and immediately self-closed. pointerup fixes it because the
+         opening tap's pointerup fired on the NODE (before this backdrop existed),
+         and the trailing compat `click` is not a pointerup — so it can't dismiss.
+         A genuine dismiss tap (a fresh pointer press+release on the backdrop) still
+         closes normally. This overlay is a body-level element over the whole
+         viewport, so a backdrop release is intercepted here and can't leak to a
+         node underneath.
        - × button: explicit close.
        - Escape: handled by the <svelte:window> keydown above.
 
@@ -916,7 +925,7 @@
   <div
     class="web-tooltip-backdrop"
     use:portal
-    on:click|self={closeTooltip}
+    on:pointerup|self={closeTooltip}
   >
     <div class="web-tooltip" role="dialog" aria-modal="true" aria-label={tooltip.label}>
       <!-- Header row: node label + explicit close (×). -->
