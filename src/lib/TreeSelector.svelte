@@ -120,9 +120,10 @@
        so N cards split the width into equal 1/N shares and line up with the
        description panel below (design §5.1). Each card is a real <button> so it's keyboard- and
        screen-reader-reachable; class:focused highlights the active one.
-       on:click is authoritative focus; on:mouseenter adds desktop hover-focus
-       (harmless/ignored on touch, and never commits). aria-pressed exposes which
-       card is currently focused to assistive tech. -->
+       on:click/tap is what SELECTS (focuses) a card; hover only LIGHTS IT UP via
+       CSS :hover (no focus change), so drifting the mouse across the row can never
+       re-select a card you didn't intend (user request, 2026-07-09). aria-pressed
+       exposes which card is currently focused to assistive tech. -->
   <div class="card-row" role="group" aria-label="Selection cards">
     {#each cards as card (card.key)}
       <button
@@ -131,7 +132,6 @@
         class:focused={card.key === focusedKey}
         aria-pressed={card.key === focusedKey}
         on:click={() => focusCard(card.key)}
-        on:mouseenter={() => focusCard(card.key)}
       >
         <!-- Wireframe-art placeholder box (mockup A): a simple bordered box with
              muted "art placeholder" text, standing in for real card art. -->
@@ -209,10 +209,15 @@
     text-align: center;
     border-radius: 0; /* square, matching the node/panel/tab chamfer idiom */
   }
-  /* Hover: subtle border brighten (desktop affordance; hover ALSO focuses via
-     on:mouseenter, but the visual cue here is just "interactive"). */
+  /* Hover: "light up" the card (brighter border + a soft accent glow) as a desktop
+     affordance. PURELY visual — hover no longer focuses/selects (that's on:click
+     only), so drifting across the row can't change the preview. Kept distinct from
+     .focused below (no background fill) so a hovered card doesn't read as selected.
+     Touch ignores :hover. TUNABLE (glow strength) — Checkpoint B. */
   .selector-card:hover {
-    border-color: rgba(var(--color-accent-rgb), 0.3);
+    border-color: rgba(var(--color-accent-rgb), 0.55);
+    box-shadow: 0 0 8px 0 rgba(var(--color-accent-rgb), 0.35);
+    color: var(--color-text-primary);
   }
   /* Focused card: the active highlight (accent border + bright text), matching
      SubTabs' .sub-tab.active idiom so the two selectors read consistently. */
