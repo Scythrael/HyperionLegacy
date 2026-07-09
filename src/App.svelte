@@ -179,8 +179,8 @@
   // compiles. RadialWeb.svelte now owns the talent tooltip (and its Learn
   // button) internally, so App.svelte no longer tracks an open talent node or
   // renders a talent tooltip overlay at all. (The DELETE SAVE / respec / Import
-  // modals still use .modal-backdrop and are untouched; .tooltip-backdrop CSS
-  // is left in place for now -- CSS cleanup is Task 17.)
+  // modals still use .modal-backdrop and are untouched; the orphaned
+  // .tooltip-backdrop / .talent-tooltip CSS was removed in Task 17.)
   let speed = 1;
   let logEntries: string[] = [];
   let activeCaptainIndex = 0;
@@ -1597,13 +1597,12 @@
   {/if}
 
   <!-- Radial Skill Web (Task 11b) -- the shared talent-tooltip overlay that
-       lived here (the `{#if activeTooltipInfo}` .tooltip-backdrop/.talent-tooltip
+       lived here (the old activeTooltipInfo / .tooltip-backdrop / .talent-tooltip
        block, driven by the now-removed openTooltipKey/talentTooltipInfo) was
-       deleted. RadialWeb.svelte renders its OWN tooltip + Learn button
-       internally on node tap, so App.svelte no longer needs a top-level talent
-       tooltip. The .tooltip-backdrop/.talent-tooltip CSS is intentionally left
-       in the <style> block for now (orphaned-CSS sweep is Task 17); the DELETE
-       SAVE / respec / Import modals below are untouched. -->
+       deleted. RadialWeb.svelte renders its OWN tooltip + Learn button internally
+       on node tap, so App.svelte no longer needs a top-level talent tooltip. Its
+       orphaned .tooltip-backdrop / .talent-tooltip CSS was removed in Task 17; the
+       DELETE SAVE / respec / Import modals below are untouched. -->
 
   {#if deleteModalOpen}
     <div class="modal-backdrop">
