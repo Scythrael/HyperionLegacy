@@ -223,7 +223,15 @@ export function xpForNextFleetAdminLevel(level: number): number {
 // table and its unlockCaptainSlot() function (tick.ts) have been removed --
 // Fleet Logistics below (via buyHomeworldTalent's unlockCaptainSlot effect)
 // fully absorbed that mechanism's job as of Task 4.
-export type CaptainTalentBranch = "command" | "tactical" | "science" | "resourcefulness" | "diplomacy";
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 1)
+// shrank this union from the old five-column linear model
+// ("command"/"tactical"/"science"/"resourcefulness"/"diplomacy") to the three
+// captain branches the radial web ships with. "command"/"diplomacy" are gone
+// -- their old content is either dropped or re-homed onto the surviving
+// branches by the Task 2 data rewrite. Anything still referencing the removed
+// members (CAPTAIN_SPEC_BONUS, CAPTAIN_TALENTS entries, tick.ts) is expected to
+// dangle until Tasks 2/5/7 clean it up; that intermediate breakage is by design.
+export type CaptainTalentBranch = "resourcefulness" | "tactical" | "science";
 export type HomeworldTalentBranch = "fleetLogistics" | "homelandDefense" | "citizenry" | "economy" | "industry";
 
 export type CaptainTalentEffect =
@@ -249,20 +257,34 @@ export type HomeworldTalentEffect =
   | { type: "recipeBonusOutput"; recipeKey: RecipeKey; bonus: number }
   | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number };
 
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 1):
+// the def shape moved from a linear `requires` prerequisite to a graph. The
+// former `requires: <key> | null` field is REMOVED; adjacency now lives in
+// `neighbors[]`, which is bidirectional by convention and drives BOTH the
+// rendered connectors and the fog-of-war learnable rule (a node is learnable
+// when it neighbors an owned node, seeded from the branch's `isHub`). `x`/`y`
+// are web-space coordinates (branch hub at 0,0). Buy-gating switches from the
+// old prerequisite check to this adjacency in Task 5.
 export interface CaptainTalentDef {
   branch: CaptainTalentBranch;
   label: string;
   cost: number; // statPoints
-  requires: CaptainTalentKey | null; // same-branch prerequisite, same convention as the old Skill Tree
-  flavor: string; // short narrative blurb -- surfaced in the Talent Tree Visual Redesign's tooltips (see that plan's design doc)
+  x: number;    // web-space coordinate; hub at (0,0)
+  y: number;
+  neighbors: CaptainTalentKey[]; // bidirectional by convention; drives BOTH connectors and fog-of-war
+  isHub?: boolean;               // exactly one per branch; the fog-of-war seed (always visible, learn first)
+  flavor: string;                // short narrative blurb -- surfaced in the talent-tree tooltips
 }
 
 export interface HomeworldTalentDef {
   branch: HomeworldTalentBranch;
   label: string;
   cost: number; // adminPoints
-  requires: HomeworldTalentKey | null;
-  flavor: string; // short narrative blurb -- surfaced in the Talent Tree Visual Redesign's tooltips (see that plan's design doc)
+  x: number;
+  y: number;
+  neighbors: HomeworldTalentKey[];
+  isHub?: boolean;
+  flavor: string; // short narrative blurb -- surfaced in the talent-tree tooltips
 }
 
 // NOTE: effect lives on the *Def directly below via a second field, not nested

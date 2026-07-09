@@ -233,6 +233,28 @@ describe("HOMEWORLD_TALENTS — launch set", () => {
   });
 });
 
+// Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 1):
+// the talent def shape moves from a linear `requires` chain to a graph -- each
+// def now carries web-space coordinates (x/y) and an adjacency list
+// (neighbors), and the old `requires` field is gone. This structural test is
+// the durable spec for that shape change; the data tables that satisfy it are
+// rewritten in Tasks 2-3, so this test is intentionally red until then.
+describe("Radial Skill Web — talent def graph shape", () => {
+  it("every talent def carries graph fields (x, y, neighbors) and no requires", () => {
+    for (const def of Object.values(CAPTAIN_TALENTS)) {
+      expect(typeof def.x).toBe("number");
+      expect(typeof def.y).toBe("number");
+      expect(Array.isArray(def.neighbors)).toBe(true);
+      expect("requires" in def).toBe(false);
+    }
+    for (const def of Object.values(HOMEWORLD_TALENTS)) {
+      expect(typeof def.x).toBe("number");
+      expect(typeof def.y).toBe("number");
+      expect(Array.isArray(def.neighbors)).toBe(true);
+    }
+  });
+});
+
 describe("freshState / freshCaptainStack — talent and Fleet Admiral fields", () => {
   it("a fresh captain has no unlocked talents", () => {
     expect(freshCaptains(1)[0].unlockedCaptainTalents).toEqual([]);
