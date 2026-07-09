@@ -8,7 +8,8 @@
   //   per computeVisibleTalents / design §2) for a single branch/category as a
   //   set of absolutely-positioned square nodes inside a pannable world
   //   container. This task is the STATIC render only:
-  //     - Task 9 adds the SVG elbow connectors behind the nodes.
+  //     - Task 9 adds the SVG connectors behind the nodes (reworked to straight
+  //       glowing links at Device Checkpoint A — see the Task 9 note below).
   //     - Task 10 adds Pointer-Events pan + tap/drag disambiguation (the
   //       `.web-viewport`'s `touch-action: none` and the `.web-world` translate
   //       placeholder below exist now so that task is a pure addition).
@@ -20,9 +21,15 @@
   //   to the Task 12 device checkpoint (Checkpoint A). Tunables are marked
   //   TUNABLE below.
   //
-  //   Task 9: an SVG elbow-connector layer is drawn INSIDE .web-world, BEHIND
-  //   the nodes. See the `visibleEdges` derivation and the `.web-connectors`
-  //   <svg> in the markup for the coordinate-alignment design.
+  //   Task 9 (reworked at Device Checkpoint A): an SVG connector layer is drawn
+  //   INSIDE .web-world, BEHIND the nodes. It uses a REAL, non-zero SVG canvas
+  //   centered on the world origin (the old 0×0 + overflow-visible SVG didn't
+  //   paint on device — root-cause fixed via the HALF offset const) and draws a
+  //   STRAIGHT line per edge (not an elbow). Each edge is classified by endpoint
+  //   ownership: owned↔not-owned edges get a directional glowing pulse travelling
+  //   toward the learnable node; owned↔owned get a steady glow; the rest are idle.
+  //   See the `HALF` const, the `visibleEdges` derivation, and the
+  //   `.web-connectors` <svg> in the markup.
   //
   //   Task 10 (this addition): Pointer-Events pan + tap/drag disambiguation.
   //   A pointer drag on .web-viewport translates the world via (panX, panY); a
@@ -405,9 +412,43 @@
     .map((key) => ({ key, def: table[key] }))
     .filter((n) => n.def && n.def.branch === branch);
 
-  // --- Derived: the visible edge list (Task 9 connector layer) ---------------
-  // One orthogonal "elbow" connector is drawn per UNDIRECTED edge whose BOTH
-  // endpoints are visible. Derivation rules (design §3.3, Task 9):
+  // --- Connector SVG canvas offset (Device Checkpoint A rework) --------------
+  // HALF sizes the real, non-zero SVG painting surface for the connector layer
+  // and is the single offset that keeps that surface aligned to the node origin.
+  //
+  // WHY a named const (root-cause fix): the previous connector SVG was 0×0 with
+  // overflow:visible and relied on strokes painting OUTSIDE a zero-size viewport.
+  // That "overflow-visible on a 0×0 SVG" trick is unreliable — several real
+  // browsers (confirmed on device at Checkpoint A) simply do NOT paint anything
+  // outside a zero-area SVG viewport, so the connectors vanished. The robust fix
+  // is a genuine, large, non-zero SVG canvas centered on .web-world's origin (see
+  // the `.web-connectors` <svg> comment + CSS), with every drawn coordinate
+  // shifted by +HALF to compensate for the SVG element itself being shifted by
+  // −HALF. No overflow trick remains.
+  //
+  // ALIGNMENT ARITHMETIC (must be exactly right — this is what makes the lines
+  // both appear AND land on node centers):
+  //   * The SVG element is positioned at left:−HALF; top:−HALF relative to
+  //     .web-world's origin, and is 2*HALF wide/tall — so its internal (0,0) sits
+  //     at world-origin + (−HALF, −HALF), and its internal (2*HALF, 2*HALF) sits
+  //     at world-origin + (+HALF, +HALF). The origin is dead-center of the canvas.
+  //   * A node at web-coord (x, y) has its CENTER at world-origin + (x, y)
+  //     (left:{x}; top:{y} + translate(-50%,-50%) — node layer is UNCHANGED).
+  //   * We draw that endpoint at SVG-internal point (x+HALF, y+HALF). Its absolute
+  //     position is:  world-origin + (−HALF, −HALF) + (x+HALF, y+HALF)
+  //                 = world-origin + (x, y)  ✓  — exactly the node center.
+  //   Negative web-coords land inside the canvas too, e.g. x=−320 → internal
+  //   −320+5000 = 4680, comfortably within [0, 2*HALF]. No overflow needed.
+  //
+  // TUNABLE: 5000 gives a 10000×10000 px surface — ±5000 px from center each way,
+  // generous for the current webs. If a future web authors nodes beyond ±5000 px
+  // from the hub, their connectors would clip; bump HALF then (Checkpoint B).
+  const HALF = 5000;
+
+  // --- Derived: the visible edge list (connector layer) ----------------------
+  // One STRAIGHT "laser link" line is drawn per UNDIRECTED edge whose BOTH
+  // endpoints are visible — a direct segment from node A's center to node B's
+  // center (replacing the old H-then-V elbow path). Derivation rules:
   //
   //   * Both-endpoints-visible: an edge is emitted ONLY when a AND b are both in
   //     `visible`. A line into a hidden node would leak fog-of-war info, so those
@@ -417,20 +458,30 @@
   //     exactly once by only taking the direction where `key < neighborKey`
   //     (lexicographic string compare). That single inequality both dedupes AND
   //     drops self-loops (key === key fails `<`), with no auxiliary Set needed.
-  //   * Owned-vs-not styling: `bothOwned` is precomputed here (both endpoints in
-  //     ownedSet) so the markup can pick the brighter stroke for fully-owned
-  //     edges vs the dimmer stroke for edges touching a not-yet-owned node.
+  //
+  //   * Per-edge OWNERSHIP CLASS (drives the directional pulse — see the markup /
+  //     CSS). Each edge is classified by how many of its two endpoints are owned:
+  //       - "learnable" (exactly ONE endpoint owned): an owned→not-owned pathway.
+  //         Renders a subtle base line PLUS an animated glowing pulse travelling
+  //         FROM the owned end TOWARD the not-owned (learnable) end, to draw the
+  //         eye to "learn next". Direction matters, so we ORDER THE POINTS
+  //         OWNED-FIRST: (ax,ay) = the owned endpoint, (bx,by) = the not-owned
+  //         one. The pulse animation runs from point1 → point2 = owned → learnable.
+  //       - "owned" (BOTH endpoints owned): a steady glow, NO pulse — both are
+  //         learned, nothing to point toward. Point order is irrelevant here.
+  //       - "idle" (NEITHER endpoint owned): a dim/idle base line, no pulse. This
+  //         happens when two learnable nodes are mutual neighbours of a common
+  //         owned node. Point order irrelevant.
   //
   // Coordinates carried through are the RAW web-space (x, y) of each endpoint —
-  // the same values the nodes render at — so the SVG (whose origin coincides with
-  // .web-world's origin) draws endpoints exactly on node centers. See the
-  // `.web-connectors` <svg> comment in the markup for why that alignment holds,
-  // including for negative coordinates.
+  // the same values the nodes render at. The markup adds +HALF to each when
+  // drawing (see HALF above) so, with the SVG shifted −HALF, endpoints land
+  // exactly on node centers (works for negative coords too).
   //
   // Reactive on visibleNodes AND ownedSet (both are read directly in the block,
   // so Svelte tracks both): visibleNodes covers visible/branch/table changes, and
-  // ownedSet drives the bothOwned styling flag. Learning a node thus both
-  // re-reveals neighbors and re-brightens now-fully-owned edges on the next tick.
+  // ownedSet drives the ownership class + owned-first ordering. Learning a node
+  // thus both re-reveals neighbours and re-classifies its edges on the next tick.
   $: visibleEdges = (() => {
     // A fast membership set of visible keys so the neighbor scan is O(1) per
     // lookup instead of re-scanning visibleNodes. Built from visibleNodes (not
@@ -443,7 +494,9 @@
       ay: number;
       bx: number;
       by: number;
-      bothOwned: boolean;
+      // Exactly one of: "owned" (both owned), "learnable" (exactly one owned,
+      // pulse travels ax,ay→bx,by = owned→not-owned), "idle" (neither owned).
+      ownership: "owned" | "learnable" | "idle";
     }[] = [];
 
     for (const { key, def } of visibleNodes) {
@@ -456,13 +509,44 @@
         const neighborDef = table[neighborKey];
         if (!neighborDef) continue; // defensive: dangling neighbor ref
 
-        edges.push({
-          ax: def.x,
-          ay: def.y,
-          bx: neighborDef.x,
-          by: neighborDef.y,
-          bothOwned: ownedSet.has(key) && ownedSet.has(neighborKey),
-        });
+        const keyOwned = ownedSet.has(key);
+        const neighborOwned = ownedSet.has(neighborKey);
+
+        // Classify by owned-endpoint count and, for the one-owned case, ORDER
+        // THE POINTS OWNED-FIRST so the pulse (point1→point2) heads toward the
+        // learnable (not-owned) node.
+        if (keyOwned && neighborOwned) {
+          // Both owned → steady glow, no pulse; point order irrelevant.
+          edges.push({
+            ax: def.x,
+            ay: def.y,
+            bx: neighborDef.x,
+            by: neighborDef.y,
+            ownership: "owned",
+          });
+        } else if (keyOwned || neighborOwned) {
+          // Exactly one owned → learnable pathway. Put the OWNED endpoint first
+          // (ax,ay) and the not-owned one second (bx,by) so the pulse travels
+          // owned → not-owned = toward "learn next".
+          const owned = keyOwned ? def : neighborDef;
+          const other = keyOwned ? neighborDef : def;
+          edges.push({
+            ax: owned.x,
+            ay: owned.y,
+            bx: other.x,
+            by: other.y,
+            ownership: "learnable",
+          });
+        } else {
+          // Neither owned → dim idle line, no pulse; point order irrelevant.
+          edges.push({
+            ax: def.x,
+            ay: def.y,
+            bx: neighborDef.x,
+            by: neighborDef.y,
+            ownership: "idle",
+          });
+        }
       }
     }
     return edges;
@@ -515,31 +599,45 @@
        (see .web-node). The translate(panX,panY) here is the Task 10 pan hook;
        at panX=panY=0 the world sits exactly centered. -->
   <div class="web-world" style="transform: translate({panX}px, {panY}px);">
-    <!-- Connector layer (Task 9). Placed FIRST inside .web-world so it paints
-         BEHIND every .web-node that follows in DOM order (no z-index needed —
-         later siblings stack on top). pointer-events:none (set in <style>) so it
-         never intercepts a node tap or a Task-10 pan drag.
+    <!-- Connector layer. Placed FIRST inside .web-world so it paints BEHIND every
+         .web-node that follows in DOM order (no z-index needed — later siblings
+         stack on top). pointer-events:none (set in <style>) so it never intercepts
+         a node tap or a pan drag.
 
-         COORDINATE ALIGNMENT — the one part that must be exactly right:
-         The <svg> sits at .web-world's origin (left:0; top:0; width:0; height:0)
-         and has NO viewBox, so its user-coordinate system is 1:1 CSS pixels with
-         its (0,0) exactly on .web-world's (0,0) — the same origin every .web-node
-         measures from. A path point like `M -320 -200` therefore lands on the
-         identical pixel as a node rendered at left:-320px; top:-200px (whose own
-         center is pinned there by translate(-50%,-50%)). overflow:visible lets
-         strokes at negative or large coordinates paint OUTSIDE the nominal 0×0
-         SVG box, so the full web renders even though the SVG has zero size.
+         COORDINATE ALIGNMENT — the one part that must be exactly right (Device
+         Checkpoint A rework; see the HALF const in <script> for the full rationale
+         and the .web-connectors CSS for the box geometry):
+         The <svg> is a REAL, non-zero 2*HALF × 2*HALF canvas positioned at
+         left:−HALF; top:−HALF relative to .web-world's origin (NOT the old 0×0 +
+         overflow-visible trick, which real browsers refused to paint). Because the
+         element is shifted −HALF, we draw every endpoint at SVG-internal coord
+         (x+HALF, y+HALF). The net position is:
+             world-origin + (−HALF,−HALF) + (x+HALF, y+HALF) = world-origin + (x,y)
+         which is exactly where a node with left:{x}; top:{y} (+translate(-50%,-50%))
+         centers itself. So a line endpoint at (x,y) lands dead-on that node's
+         center — for negative coords too (e.g. x=−320 → internal 4680, inside the
+         canvas). The node layer is UNCHANGED; only these internal SVG coords carry
+         the +HALF offset.
 
-         Each edge is one single-elbow path: `M ax ay H bx V by` — move to A, draw
-         horizontally to B's x, then vertically to B. Consistent H-then-V for every
-         edge gives the tidy circuit-trace routing (routing cleanliness itself is a
-         Checkpoint A visual item). No fill; stroke only; no arrowheads. -->
+         Each edge is a single STRAIGHT <line> (a direct "laser link" from node A's
+         center to node B's center) — replacing the old H-then-V elbow path. The
+         per-edge `ownership` class drives the directional glow (see CSS):
+           .learnable — subtle base line + an animated pulse travelling from
+                        (x1,y1)=OWNED end toward (x2,y2)=not-owned/learnable end
+                        (points are ordered owned-first in visibleEdges).
+           .owned     — steady brighter glow, no pulse (both endpoints owned).
+           (default)  — dim idle line, no pulse (neither endpoint owned).
+         No fill; stroke only; no arrowheads. -->
     <svg class="web-connectors" aria-hidden="true">
       {#each visibleEdges as e}
-        <path
+        <line
           class="web-edge"
-          class:both-owned={e.bothOwned}
-          d="M {e.ax} {e.ay} H {e.bx} V {e.by}"
+          class:owned={e.ownership === "owned"}
+          class:learnable={e.ownership === "learnable"}
+          x1={e.ax + HALF}
+          y1={e.ay + HALF}
+          x2={e.bx + HALF}
+          y2={e.by + HALF}
         />
       {/each}
     </svg>
@@ -704,36 +802,91 @@
     /* transform set inline (translate(panX,panY)); Task 10 animates it. */
   }
 
-  /* --- Connector layer (Task 9) -----------------------------------------
-     Zero-size SVG pinned to .web-world's origin so its (0,0) coincides with
-     web-space (0,0). NO viewBox -> user units == CSS px, 1:1, un-scaled, so
-     path coordinates equal node coordinates (endpoints land on node centers).
-     overflow:visible is LOAD-BEARING: the box is 0×0, so without it every
-     stroke (all of which live outside a 0×0 box) would be clipped away. It
-     also lets negative-coordinate edges paint. pointer-events:none so taps and
-     Task-10 pan drags pass straight through to the nodes / world beneath. */
+  /* --- Connector layer (Device Checkpoint A rework) ---------------------
+     A REAL, non-zero SVG canvas centered on .web-world's origin — NOT the old
+     0×0 + overflow:visible trick, which real browsers refused to paint (that
+     was the root cause of the connectors not rendering on device). The box is
+     2*HALF × 2*HALF px, offset by −HALF on each axis, so its INTERNAL origin
+     (0,0) sits at world-origin + (−HALF,−HALF) and its center (HALF,HALF) sits
+     exactly on world-origin. Endpoints are drawn at (x+HALF, y+HALF) in the
+     markup, which — combined with this −HALF element shift — lands them on the
+     node centers (see the HALF const in <script> for the arithmetic). NO
+     viewBox → user units == CSS px, 1:1, un-scaled. pointer-events:none so taps
+     and pan drags pass straight through to the nodes / world beneath.
+     NOTE: HALF (5000) is mirrored here as 5000 / −5000 / 10000 because CSS can't
+     read the JS const; keep these in sync with HALF if it is ever retuned. */
   .web-connectors {
     position: absolute;
-    left: 0;
-    top: 0;
-    width: 0;
-    height: 0;
-    overflow: visible;
+    left: -5000px; /* = −HALF (keep in sync with the HALF const in <script>) */
+    top: -5000px; /* = −HALF */
+    width: 10000px; /* = 2*HALF */
+    height: 10000px; /* = 2*HALF */
     pointer-events: none;
+    overflow: visible; /* harmless belt-and-suspenders; canvas already spans the web */
   }
-  /* Base edge: dimmer accent — an edge touching a not-yet-owned node. fill:none
-     because a path with a vertical segment would otherwise get area-filled. */
+  /* Base edge (idle: neither endpoint owned): dim accent line. fill:none because
+     an SVG <line> takes no fill, but set explicitly for clarity/safety. */
   .web-edge {
     fill: none;
-    stroke: rgba(var(--color-accent-rgb), 0.3); /* TUNABLE: dim-edge opacity — Checkpoint A */
-    stroke-width: 2; /* TUNABLE: connector thickness — Checkpoint A */
-    stroke-linejoin: miter; /* crisp right-angle corner at the elbow */
+    stroke: rgba(var(--color-accent-rgb), 0.22); /* TUNABLE: idle-edge opacity — Checkpoint B */
+    stroke-width: 2; /* TUNABLE: connector thickness — Checkpoint B */
+    stroke-linecap: round;
   }
-  /* Fully-owned edge (both endpoints owned): brighter so earned links read as
-     "live". Uses the theme's accent-bright, matching owned-node coloring. */
-  .web-edge.both-owned {
+
+  /* Fully-owned edge (both endpoints owned): a steady brighter "live" glow, no
+     pulse. accent-bright matches owned-node coloring; the drop-shadow is the
+     steady glow. */
+  .web-edge.owned {
     stroke: var(--color-accent-bright);
-    stroke-width: 2.5; /* TUNABLE: owned edges slightly heavier — Checkpoint A */
+    stroke-width: 2.5; /* TUNABLE: owned edges slightly heavier — Checkpoint B */
+    filter: drop-shadow(0 0 3px rgba(var(--color-accent-rgb), 0.55)); /* TUNABLE: owned glow strength — Checkpoint B */
+  }
+
+  /* Learnable pathway (exactly one endpoint owned): a subtle base line PLUS a
+     bright short dash that TRAVELS from (x1,y1)=owned end toward (x2,y2)=learnable
+     end, drawing the eye to "learn next". Technique: a dashed stroke whose
+     stroke-dashoffset is animated so the lit dash marches along the line. Point
+     order (owned-first) is set in visibleEdges, so a negative dashoffset ramp
+     moves the dash in the point1→point2 (owned→learnable) direction. The glow is
+     a drop-shadow. Base visibility comes from the dim .web-edge stroke underneath
+     the moving dash pattern (the same stroke is dashed, so between lit dashes the
+     line reads as faint accent — subtle/ambient, not seizure-y). */
+  .web-edge.learnable {
+    stroke: var(--color-accent-bright);
+    stroke-width: 2.5; /* TUNABLE: learnable edge thickness — Checkpoint B */
+    /* Short bright dash + long gap = one travelling pulse, mostly-empty line.
+       TUNABLE: dash size / gap (pulse length + spacing) — Checkpoint B. */
+    stroke-dasharray: 14 120;
+    filter: drop-shadow(0 0 4px rgba(var(--color-accent-rgb), 0.7)); /* TUNABLE: pulse glow strength — Checkpoint B */
+    /* Animate the offset so the dash marches point1→point2 (owned→learnable).
+       The offset ramps by one full dash+gap period (14+120=134) per cycle so the
+       motion is seamless (the pattern repeats identically each period).
+       TUNABLE: pulse speed (cycle duration) — Checkpoint B. */
+    animation: web-edge-pulse 2.4s linear infinite;
+  }
+
+  /* One pulse period: shift the dash pattern by a full period (134px) in the
+     negative direction, which visually moves the lit dash from the start point
+     (x1,y1 = owned) toward the end point (x2,y2 = learnable). */
+  @keyframes web-edge-pulse {
+    from {
+      stroke-dashoffset: 0;
+    }
+    to {
+      stroke-dashoffset: -134; /* = -(dash 14 + gap 120); keep in sync with stroke-dasharray */
+    }
+  }
+
+  /* Accessibility: users who ask for reduced motion get NO travelling pulse.
+     Fall back to a static glow — the learnable edge still reads as "live" (bright
+     stroke + drop-shadow) but nothing moves. */
+  @media (prefers-reduced-motion: reduce) {
+    .web-edge.learnable {
+      animation: none;
+      /* Solid bright line (drop the dash gaps) so, without motion, the pathway
+         still stands out as a steady glowing link rather than a dotted line. */
+      stroke-dasharray: none;
+    }
   }
 
   /* --- Node -------------------------------------------------------------
