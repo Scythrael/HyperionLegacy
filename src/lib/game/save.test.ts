@@ -1188,6 +1188,17 @@ describe("migrate — Radial Skill Web talent restructure (v14 -> v15)", () => {
           unlockedCaptainTalents: ["prospectorHub"], // new-era key not in the frozen snapshot -> refunds 0
           mission: null,
         },
+        {
+          id: 4,
+          label: "Captain 4",
+          shipType: "resourcer",
+          xp: 0,
+          level: 1,
+          statPoints: 2,
+          spec: "diplomacy", // removed spec, never selectable -- nulled defensively (defense in depth)
+          unlockedCaptainTalents: [],
+          mission: null,
+        },
       ],
     };
 
@@ -1208,6 +1219,12 @@ describe("migrate — Radial Skill Web talent restructure (v14 -> v15)", () => {
     expect(migrated.captains[2].spec).toBe(null);
     expect(migrated.captains[2].unlockedCaptainTalents).toEqual([]);
     expect(migrated.captains[2].statPoints).toBe(5);
+
+    // Captain 4: diplomacy spec (removed, never selectable) is nulled defensively;
+    // empty talents stay empty, statPoints unchanged (no refund) at 2.
+    expect(migrated.captains[3].spec).toBe(null);
+    expect(migrated.captains[3].unlockedCaptainTalents).toEqual([]);
+    expect(migrated.captains[3].statPoints).toBe(2);
 
     // Homeworld talents pass through the migration completely untouched -- Task 3
     // preserved every v14 homeworld key, so there is no homeworld refund here.
