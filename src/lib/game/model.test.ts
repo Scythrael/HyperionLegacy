@@ -275,7 +275,7 @@ describe("Radial Skill Web — talent def graph shape", () => {
 });
 
 // Radial Skill Web (Task 2): graph-integrity invariants for the CAPTAIN_TALENTS
-// table specifically. These are the three structural rules the fog-of-war
+// table specifically. These are the four structural rules the fog-of-war
 // reveal (Task 4) and adjacency buy-gating (Task 5) depend on being true:
 //   1. Exactly ONE hub per branch -- the always-visible seed each branch's
 //      reveal starts from (a branch with zero hubs would render blank; two
