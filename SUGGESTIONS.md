@@ -414,3 +414,12 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   UI-tweak entries out of THIS file (this entry, the tooltip focus-trap a11y entry above, and others)
   and addresses them together, with input from Claude on additional "sell the console aesthetic" ideas
   at that time. Capture UI/aesthetic ideas here as they come up rather than chasing them mid-foundation.
+
+- **Emissive edge-glow on panels/buttons (UI-wide).** User brainstorm, 2026-07-08, under the
+  "futuristic console" north-star above: give panels, buttons, and similar UI surfaces a slight glow
+  that extends the element's accent/border colour outward from its edge AND melds inward with the
+  element's own fill colouring — so each surface reads as emissive "lit hardware" rather than a flat
+  card. A global surface treatment (touches the shared Panel/button styling, not one screen), so it
+  belongs in the dedicated UI-aesthetic pass, NOT built piecemeal mid-feature. Pairs naturally with
+  the glow/pulse motifs already introduced by the Radial Skill Web. Floated as a "maybe" — capture,
+  revisit in the UI-refinement flow.
