@@ -121,8 +121,10 @@
   // `.web-connectors` <svg> comment in the markup for why that alignment holds,
   // including for negative coordinates.
   //
-  // Reactive on visibleNodes (which already tracks visible/owned/branch/table),
-  // so learning a node re-reveals neighbors and re-derives edges on the next tick.
+  // Reactive on visibleNodes AND ownedSet (both are read directly in the block,
+  // so Svelte tracks both): visibleNodes covers visible/branch/table changes, and
+  // ownedSet drives the bothOwned styling flag. Learning a node thus both
+  // re-reveals neighbors and re-brightens now-fully-owned edges on the next tick.
   $: visibleEdges = (() => {
     // A fast membership set of visible keys so the neighbor scan is O(1) per
     // lookup instead of re-scanning visibleNodes. Built from visibleNodes (not
