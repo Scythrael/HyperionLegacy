@@ -946,8 +946,15 @@
   .web-viewport {
     position: relative;
     width: 100%;
-    height: 100%;
-    min-height: 320px; /* TUNABLE: fallback height so the web has room even if the parent doesn't size it; revisit at Checkpoint A */
+    /* TUNABLE (Checkpoint B): a BOUNDED, self-contained height so the pannable web
+       is a fixed-size WINDOW that never overflows its panel. Was `height: 100%`,
+       but the parent panel isn't a definite-height box, so 100% ballooned and the
+       web spilled past the panel's bottom border on mobile (Checkpoint-B report).
+       A clamped vh fits within the panel on phone and desktop; anything beyond the
+       window is a pan away. Dial the exact vh/clamps on-device. */
+    height: 46vh;
+    min-height: 260px;
+    max-height: 560px;
     overflow: hidden;
     touch-action: none;
     background: var(--color-panel-bg-strong);
