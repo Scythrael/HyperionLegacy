@@ -392,3 +392,13 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
     each underlying system ships (combat/Battlespace → Tactician, a redefined Science mechanic →
     Explorer, etc.). The v1 framework supports adding nodes without touching rendering, so this is
     pure content/wiring work later, not a re-architecture.
+
+- **Radial Skill Web tooltip — focus trap / restore (a11y).** Logged 2026-07-08 (Task 11 code review).
+  The RadialWeb node tooltip is a portaled `role="dialog" aria-modal="true"` overlay, but it does NOT
+  move keyboard focus into the dialog on open, restore focus to the originating node on close, or trap
+  Tab within the dialog — so the `aria-modal` claim currently overstates the DOM behavior, and a
+  keyboard user can Tab into the obscured content behind the backdrop. Escape-to-close works. Deferred
+  from v1 (deliberately, alongside the other Checkpoint-A interaction polish); worth a focused a11y
+  pass that adds focus-move-on-open, focus-restore-on-close, and a real focus trap to back the
+  `aria-modal` attribute. Low risk (Escape already dismisses), but easy to forget once the visual pass
+  "looks done."
