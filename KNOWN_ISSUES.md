@@ -135,3 +135,23 @@ write it down so you don't relitigate it later.
   level-up formula, especially since the underlying XP curve itself might change. Not a bug -- but worth
   a real playtest with a deliberately huge offline gap to confirm the lag is only ever a few ticks in
   practice, not something that compounds or never fully drains.
+- Several talent contexts are hub-led gateway STUBS -- a hub node plus minimal/no real content -- pending
+  the underlying systems they represent (Radial Skill Web, Session 25). On Captain Talents, the Tactician
+  (`tactical`) and Explorer (`science`) specs are hub-only until combat/Battlespace and a redefined science
+  mechanic exist; only Prospector (`resourcefulness`) is a fully-built tree. On Fleet Admiral (Homeworld)
+  Talents, Homeland Defense and Citizenry (and the lean Economy/Industry categories) are similarly hub-led
+  until their population/defense/economy systems exist; only Fleet Logistics is rich. Independently of the
+  stubs, several talent effects across the built trees remain purchasable-but-unwired (same standing gap the
+  earlier talent work already carried) -- they'll be wired as each underlying system ships, per the density-
+  expansion note in SUGGESTIONS.md. Deliberate scope shape, not a bug: the radial framework renders a
+  hub-only branch correctly and takes new nodes without a rendering change.
+- The Radial Skill Web's Checkpoint-B visual TUNABLEs are deliberately first-pass values pending a later
+  tuning pass, not final: the `.web-viewport` height (`46vh` with its clamps), pulse-travel speed, powered/
+  dormant glow strengths, connector and dormant stroke widths, tooltip sizing, and spec/category card sizing.
+  All were eyeballed on the two device checkpoints (Session 25) and marked `TUNABLE` in `RadialWeb.svelte`;
+  known, deliberately deferred to a focused tuning pass rather than tweaked blind here. Not a bug.
+- The Radial Skill Web node tooltip does not move keyboard focus into the dialog on open, restore focus to
+  the originating node on close, or trap Tab within the dialog, so its `aria-modal="true"` overstates the
+  actual DOM behavior (Escape-to-close does work). Known, deliberately deferred a11y gap -- already logged
+  in SUGGESTIONS.md ("Radial Skill Web tooltip -- focus trap / restore (a11y)") alongside the other Radial
+  Skill Web v1 refinements; noted here so it isn't rediscovered as a surprise once the visual pass looks done.
