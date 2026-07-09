@@ -2206,40 +2206,6 @@
   }
   .spec-btn:disabled { cursor: not-allowed; }
 
-  /* Talent Tree Visual Redesign (Task 12), restyled as a fixed full-screen
-     overlay (tooltip-stacking fix) -- the original version positioned
-     .talent-tooltip absolute relative to its own .talent-node. That broke
-     down the moment the tooltip's content (flavor text + numbers line) was
-     taller than one TALENT_ROW_HEIGHT row: it visually spilled into the
-     next node's row and, since both share the same
-     --color-panel-bg-strong background, the two became an unreadable
-     overlapping mess (reported on mobile). Fix: .tooltip-backdrop reuses
-     the EXACT same fixed/inset/blur/z-index recipe as .modal-backdrop
-     below. First attempt at this fix rendered .tooltip-backdrop nested
-     inside each talent node (inside the Homeworld/Captain Talents <Panel>)
-     -- that compiled and looked identical in isolation, but Panel.svelte's
-     own `.panel { backdrop-filter: ... }` makes .panel a containing block
-     for position:fixed descendants (per spec, backdrop-filter is on the
-     same list as transform/filter/perspective for this purpose), so the
-     "full-screen" backdrop was actually only ever covering that one
-     Panel's box, not the real viewport. Fixed by rendering the tooltip
-     ONCE, as a genuine top-level sibling (see near DELETE SAVE below,
-     `activeTooltipInfo` in <script>) -- same reason every .modal-backdrop
-     below is ALSO a top-level sibling rather than nested in a Panel.
-     .talent-tooltip itself is just the centered content box (no
-     position/top/left/z-index of its own -- the backdrop's flex centering
-     handles placement). */
-  .tooltip-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(6px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-    padding: 20px;
-  }
   .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
   .theme-swatch {
     width: 28px;
