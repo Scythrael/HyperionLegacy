@@ -15,13 +15,21 @@
   //     - Task 11 adds the node tooltip + Learn overlay.
   //   So here every node is drawn at its hand-authored (x, y) web-space
   //   coordinate, tagged with exactly one of owned / learnable / locked, plus
-  //   the orthogonal `.hub` flag, and (optionally) fires onNodeTap on click.
-  //   No layout/feel tuning is attempted here — that is deferred to the Task 12
-  //   device checkpoint (Checkpoint A). Tunables are marked TUNABLE below.
+  //   the orthogonal `.hub` flag, and fires a node-tap on click (gated — see
+  //   Task 10 below). No layout/feel tuning is attempted here — that is deferred
+  //   to the Task 12 device checkpoint (Checkpoint A). Tunables are marked
+  //   TUNABLE below.
   //
-  //   Task 9 (this addition): an SVG elbow-connector layer is drawn INSIDE
-  //   .web-world, BEHIND the nodes. See the `visibleEdges` derivation and the
-  //   `.web-connectors` <svg> in the markup for the coordinate-alignment design.
+  //   Task 9: an SVG elbow-connector layer is drawn INSIDE .web-world, BEHIND
+  //   the nodes. See the `visibleEdges` derivation and the `.web-connectors`
+  //   <svg> in the markup for the coordinate-alignment design.
+  //
+  //   Task 10 (this addition): Pointer-Events pan + tap/drag disambiguation.
+  //   A pointer drag on .web-viewport translates the world via (panX, panY); a
+  //   near-stationary press is a tap that (on a node) fires onNodeTap. The two
+  //   are told apart by movedDistance vs TAP_THRESHOLD_PX, reconciled with the
+  //   node buttons' native click via the `suppressClick` gate. See the "Pan +
+  //   tap/drag disambiguation" block for the full gesture-state lifecycle.
 
   import { computeVisibleTalents } from "./game/talentWeb";
 
@@ -73,12 +81,170 @@
   // so TS `noUnusedParameters`/lint doesn't flag the prop we must keep declared.
   void onLearn;
 
-  // --- Pan offset (Task 10 placeholder) -------------------------------------
-  // The world is translated by (panX, panY). Task 10 will drive these from
-  // Pointer-Events drag; for the static render they stay at 0. Centering the
-  // hub does NOT rely on these — see the `.web-world` centering note in <style>.
+  // --- Pan offset (Task 10) -------------------------------------------------
+  // The world is translated by (panX, panY). Task 10 drives these from a
+  // Pointer-Events drag on .web-viewport. They start at 0 (hub centered — see
+  // the `.web-world` centering note in <style>) and accumulate pointer deltas.
   let panX = 0;
   let panY = 0;
+
+  // --- Pan + tap/drag disambiguation (Task 10) ------------------------------
+  // Unified mouse+touch+stylus via the Pointer Events API. One .web-viewport
+  // pointer gesture is EITHER a pan (world drags under the finger) OR a tap
+  // (which, when it lands on a node <button>, selects that node). We tell them
+  // apart by how far the pointer moved during the gesture (movedDistance vs
+  // TAP_THRESHOLD_PX), and we reconcile that with the node buttons' own native
+  // `click` event via the `suppressClick` gate (see handleNodeClick below).
+
+  // TAP_THRESHOLD_PX — a gesture whose total pointer travel stays under this many
+  // CSS px is treated as a TAP; at or beyond it, it's a PAN (and any trailing
+  // node `click` is swallowed). TUNABLE: feel-tune constant; verify on device
+  // (Checkpoint A) — too small = drags misfire as taps, too large = deliberate
+  // short drags get eaten / taps feel mushy.
+  const TAP_THRESHOLD_PX = 8;
+
+  // Live gesture state. `dragging` gates pointermove work to an active gesture.
+  // startX/startY are the pointerdown origin; panX0/panY0 snapshot the pan offset
+  // at gesture start so move deltas are absolute-from-start (not incremental),
+  // which avoids drift. movedDistance is the running straight-line distance from
+  // the start point — the tap-vs-pan discriminator.
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let panX0 = 0;
+  let panY0 = 0;
+  let movedDistance = 0;
+
+  // suppressClick — the bridge between the viewport-level pan gesture and a node
+  // <button>'s own `click`. A drag that STARTS on a node would, without this,
+  // still fire that button's click on release and wrongly select the node. So
+  // once a gesture crosses the pan threshold we set this true; the node's click
+  // handler (handleNodeClick) then swallows exactly one click and clears it.
+  //
+  // CRITICAL lifecycle (hand-verify the ordering — see the trace in the task
+  // report): it is RESET to false at the START of every pointerdown, and only
+  // SET true mid-move once movedDistance >= TAP_THRESHOLD_PX. The reset is the
+  // load-bearing safety: a touch/mouse drag that begins on a node but ends off
+  // it may emit NO `click` at all (pointer capture retargets the gesture to the
+  // viewport, so the button never sees a click to consume). That would leave
+  // suppressClick stuck `true` and cause it to wrongly swallow the NEXT genuine
+  // tap. Resetting on every fresh pointerdown guarantees a stuck flag can never
+  // survive into the following gesture — the flag's lifetime is at most one
+  // gesture. (We deliberately do NOT clear it on pointerup: a real click, when
+  // it fires, arrives AFTER pointerup, so clearing there would defeat the
+  // swallow. Clearing happens either in handleNodeClick, when the swallowed
+  // click actually arrives, or at the next pointerdown otherwise.)
+  let suppressClick = false;
+
+  // --- Gesture handlers -----------------------------------------------------
+
+  /**
+   * pointerdown — begin a gesture. Snapshots the start point and current pan,
+   * arms `dragging`, zeroes the movement accumulator, and clears any stale
+   * suppressClick (see the lifecycle note above — this reset is what prevents a
+   * previously-stuck flag from eating this gesture's tap). setPointerCapture
+   * routes all subsequent move/up events for THIS pointer to the viewport even
+   * if the pointer leaves the viewport mid-drag, so a pan that wanders off the
+   * element still tracks smoothly.
+   */
+  function handlePointerDown(e: PointerEvent) {
+    dragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    panX0 = panX;
+    panY0 = panY;
+    movedDistance = 0;
+    // Fresh gesture: a new tap is now possible, so a prior gesture must not leave
+    // the click gate armed. MUST happen every pointerdown (see lifecycle note).
+    suppressClick = false;
+    // Capture so an off-viewport drag keeps delivering move/up to us. Guarded:
+    // setPointerCapture can throw if the pointer is already gone (rare); a failed
+    // capture only degrades off-element tracking, so it must not break the pan.
+    const target = e.currentTarget;
+    if (target instanceof Element) {
+      try {
+        target.setPointerCapture(e.pointerId);
+      } catch {
+        // Non-fatal: capture unavailable → in-viewport drag still works. Handled
+        // here (not swallowed silently elsewhere) per Omega 14 — the degraded
+        // path is explicit and commented rather than an invisible failure.
+      }
+    }
+  }
+
+  /**
+   * pointermove — while a gesture is active, translate the world by the pointer
+   * delta from the start point (absolute-from-start via panX0/panY0, so it never
+   * accumulates rounding drift) and update movedDistance. Once travel reaches the
+   * tap threshold, arm suppressClick so a node click at the end of THIS drag is
+   * swallowed. Ignored entirely when not dragging (no button/finger held).
+   */
+  function handlePointerMove(e: PointerEvent) {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    panX = panX0 + dx;
+    panY = panY0 + dy;
+    movedDistance = Math.hypot(dx, dy);
+    // Past the threshold this gesture is a PAN, not a tap: pre-arm the gate so the
+    // trailing node click (if the browser emits one) is treated as drag tail and
+    // dropped. Only ever SET true here — never reset here (reset lives in down).
+    if (movedDistance >= TAP_THRESHOLD_PX) {
+      suppressClick = true;
+    }
+  }
+
+  /**
+   * pointerup / pointercancel — end the gesture. Clears `dragging` and releases
+   * pointer capture. We do NOT decide tap-vs-selection here: the node button's
+   * own `click` (which fires just AFTER pointerup for a real tap) drives node
+   * selection through handleNodeClick, gated by suppressClick. For a pan, either
+   * suppressClick is already true (so that click is swallowed) or, if the drag
+   * ended off any node, no click comes at all — either way no node is selected.
+   * A cancel (e.g. the OS stealing the pointer) is treated identically to an up:
+   * just end the gesture cleanly; suppressClick is left as-is for the next
+   * pointerdown to reset.
+   */
+  function handlePointerUp(e: PointerEvent) {
+    dragging = false;
+    // Release the capture taken in pointerdown. Only release what we actually
+    // hold (hasPointerCapture guard) so a cancel that already dropped capture is
+    // a no-op. Wrapped in try/catch defensively — releasing is best-effort and
+    // must never break gesture teardown.
+    const target = e.currentTarget;
+    if (target instanceof Element && target.hasPointerCapture(e.pointerId)) {
+      try {
+        target.releasePointerCapture(e.pointerId);
+      } catch {
+        // Non-fatal: releasing an already-released/absent capture is harmless.
+      }
+    }
+  }
+
+  /**
+   * handleNodeClick — the node <button>'s click handler, gating onNodeTap
+   * through suppressClick so pan drags don't select nodes.
+   *
+   *   - If suppressClick is true, THIS click is the tail of a pan drag that
+   *     started on (or passed over) the node: consume it — clear the flag and
+   *     return WITHOUT selecting. (Clearing here is the normal path; the
+   *     pointerdown reset is the backstop for when no click ever arrives.)
+   *   - Otherwise it's a genuine selection: a real tap (movement stayed under
+   *     the threshold, so suppressClick was never armed) OR a keyboard Enter/
+   *     Space on a focused node (keyboard activation synthesizes a `click`
+   *     WITHOUT any pointer gesture, so suppressClick is false) — call onNodeTap.
+   *     This is how accessibility is preserved: keyboard users always reach
+   *     onNodeTap because no drag ever arms the gate for them.
+   */
+  function handleNodeClick(key: string) {
+    if (suppressClick) {
+      // Swallow exactly one click — the trailing click of a pan — then re-open
+      // the gate for the next gesture. No node selected.
+      suppressClick = false;
+      return;
+    }
+    onNodeTap(key);
+  }
 
   // --- Derived: the visible subgraph ----------------------------------------
   // Reactive so the render follows ownership/branch/table changes (learning a
@@ -185,9 +351,20 @@
 </script>
 
 <!-- Viewport: the clipped window onto the world. Fills its parent. Task 10's
-     pan gestures attach here; touch-action:none is set now (harmless while
-     static) so the browser won't hijack touch-drags as scroll then. -->
-<div class="web-viewport">
+     pan gestures attach here via Pointer Events (unified mouse+touch+stylus).
+     touch-action:none (in <style>) stops the browser hijacking touch-drags as
+     page scroll so our pointermove pan is the sole consumer. class:grabbing
+     swaps the cursor to "grabbing" while a drag is live (desktop nicety;
+     harmless on touch). The pointercancel handler mirrors pointerup so an
+     OS-stolen pointer still ends the gesture cleanly. -->
+<div
+  class="web-viewport"
+  class:grabbing={dragging}
+  on:pointerdown={handlePointerDown}
+  on:pointermove={handlePointerMove}
+  on:pointerup={handlePointerUp}
+  on:pointercancel={handlePointerUp}
+>
   <!-- World: the pan-transformed coordinate space. Anchored at the viewport's
        CENTER (left/top 50%), so web-space (0,0) — the hub — lands mid-viewport.
        Each node then re-centers ITSELF on its own (x,y) via translate(-50%,-50%)
@@ -236,7 +413,7 @@
         class:locked={st.locked}
         class:hub={st.hub}
         style="left: {def.x}px; top: {def.y}px;"
-        on:click={() => onNodeTap(key)}
+        on:click={() => handleNodeClick(key)}
         title={def.label}
       >
         <span class="web-node-label">{def.label}</span>
@@ -267,6 +444,12 @@
     touch-action: none;
     background: var(--color-panel-bg-strong);
     border: 1px solid var(--color-border);
+    cursor: grab; /* Task 10: desktop affordance — the viewport is draggable. */
+  }
+  /* While a pan drag is live (class:grabbing bound to `dragging`), show the
+     closed-hand cursor. Touch/stylus ignore cursor, so this is desktop-only. */
+  .web-viewport.grabbing {
+    cursor: grabbing;
   }
 
   /* --- World ------------------------------------------------------------
