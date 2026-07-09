@@ -369,3 +369,26 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   have to change though... once the economy is balanced out"). Nothing here is scoped -- no death/failure
   mechanic exists in the game today, no Auction House design, no Bank UI/mechanic. A significant future
   economy pass, well beyond the current Talent Tree Visual Redesign branch.
+
+- **Radial Skill Web — deferred v1 refinements.** Logged 2026-07-08 during the Radial Skill Web design
+  (`docs/plans/2026-07-08-radial-skill-web-design.md`). The v1 build is deliberately pan-only,
+  hand-authored, single-elbow, lean-content; these were explicitly scoped out to keep an untestable
+  (no browser on this machine) gesture/spatial build tractable:
+  - **Zoom** — pinch-to-zoom on mobile, scroll-wheel / ± buttons on desktop. Deferred because
+    fog-of-war keeps little on screen at once (zoom rarely needed), and a scale-transform layer would
+    have to make elbow connectors + node hitboxes behave at every zoom level — all unverifiable here.
+    Its own feature if it turns out to be missed.
+  - **Pan momentum / inertia** — flick-to-glide after a drag release. Adds a physics/animation loop
+    that can't be feel-tested on this machine.
+  - **Smart obstacle-avoiding connector routing** — v1 uses simple single-elbow L-paths and relies on
+    hand-placed coordinates routing cleanly; a real orthogonal graph router (A\*/channel routing that
+    avoids crossing other nodes) is a genuinely hard diagramming problem, only worth it if manual
+    placement stops scaling.
+  - **Auto-recenter on newly-learned node** — v1 does nothing when a freshly-revealed node appears off
+    the current pan viewport (it's adjacent to the just-clicked node, so it's nearby). Gently panning
+    the camera to it is a feel-check better decided on a real device.
+  - **The "lots of talents" density expansion + effect wiring** — the mockup's ~40-node density per
+    tree, plus wiring the currently-inert talent effects (see `KNOWN_ISSUES.md`), grown per spec as
+    each underlying system ships (combat/Battlespace → Tactician, a redefined Science mechanic →
+    Explorer, etc.). The v1 framework supports adding nodes without touching rendering, so this is
+    pure content/wiring work later, not a re-architecture.
