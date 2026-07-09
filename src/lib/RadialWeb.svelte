@@ -30,8 +30,57 @@
   //   are told apart by movedDistance vs TAP_THRESHOLD_PX, reconciled with the
   //   node buttons' native click via the `suppressClick` gate. See the "Pan +
   //   tap/drag disambiguation" block for the full gesture-state lifecycle.
+  //
+  //   Task 11 (this addition): node tooltip overlay + Learn action. A node tap
+  //   now opens an INTERNAL tooltip (RadialWeb owns it — one component serves
+  //   both the captain and homeworld panels, so owning the tooltip once here
+  //   avoids duplicating it in the parent). The tooltip shows the node's label,
+  //   a human-readable effect line (via the `describeEffect` PROP — see below),
+  //   cost + affordability, and flavor, with a Learn button that calls
+  //   `onLearn(key)` only when the node is learnable AND affordable. The overlay
+  //   is PORTALED to <body> to escape a future Panel's backdrop-filter containing
+  //   block (the known trap — see the `portal` action's comment). See the
+  //   "Tooltip (Task 11)" state/handler block and the tooltip markup at the end.
 
   import { computeVisibleTalents } from "./game/talentWeb";
+
+  // --- portal action (Task 11) ---------------------------------------------
+  // Moves `node` to be a direct child of <body> on mount and removes it on
+  // destroy. Used via `use:portal` on the tooltip overlay so the overlay is a
+  // genuine top-level child of <body>, NOT a descendant of this component's
+  // DOM subtree.
+  //
+  // WHY this exists (the known trap — do NOT remove without understanding it):
+  //   In a later task RadialWeb is mounted INSIDE a <Panel> whose `.panel` sets
+  //   `backdrop-filter`. Per the CSS spec, an element with `backdrop-filter`
+  //   (like transform/filter/perspective) becomes the CONTAINING BLOCK for any
+  //   `position: fixed` descendant — so a `position: fixed; inset: 0` "full
+  //   screen" backdrop rendered inside that Panel would only ever cover the
+  //   Panel's box, not the real viewport. This project already hit this exact
+  //   bug once: App.svelte's `.tooltip-backdrop` was first nested inside the
+  //   talent <Panel>, looked correct in isolation, but only dimmed that one
+  //   Panel on mobile (see App.svelte's `.tooltip-backdrop` comment near line
+  //   ~2375 and the talent-tree-visual-redesign notes). Rendering the overlay
+  //   as a true <body> child sidesteps the trap entirely: <body> has no
+  //   backdrop-filter/transform ancestor, so `position: fixed` is viewport-fixed
+  //   again. SSR/teardown are guarded: we only touch the DOM if `document` and
+  //   `document.body` exist, and destroy() only removes the node if it is still
+  //   attached (so a double-teardown or an SSR no-mount is a harmless no-op).
+  function portal(node: HTMLElement) {
+    // SSR guard: no document at build/prerender time — do nothing, no crash.
+    if (typeof document !== "undefined" && document.body) {
+      document.body.appendChild(node);
+    }
+    return {
+      destroy() {
+        // Only remove what we actually attached; guard against a node already
+        // detached by an earlier teardown (double-destroy is a no-op).
+        if (node.parentNode) {
+          node.parentNode.removeChild(node);
+        }
+      },
+    };
+  }
 
   // --- Types ----------------------------------------------------------------
   // Minimal structural shape this component reads off each talent def. Both
@@ -40,9 +89,15 @@
   // structurally satisfy `Record<string, RadialNode>`, so a single `table` prop
   // serves BOTH tables without importing either concrete key/def type. It reads
   // only what it renders (branch/label/cost/x/y) plus the two fields
-  // computeVisibleTalents needs (neighbors/isHub) — nothing effect-specific, so
-  // it stays table-agnostic. `effect` is intentionally NOT read here (that is
-  // Task 11's tooltip concern).
+  // computeVisibleTalents needs (neighbors/isHub).
+  //
+  // Task 11 additions: the tooltip also reads `effect` and `flavor`. `effect`
+  // is typed `unknown` ON PURPOSE — RadialWeb must stay generic over BOTH the
+  // captain and homeworld tables (whose effect unions differ), so it never
+  // interprets `effect` itself. Instead the PARENT supplies a `describeEffect`
+  // prop (the correct describe*TalentEffect for its table), and RadialWeb just
+  // passes `def.effect` through to it. This keeps the component table-agnostic
+  // (no captain/homeworld-specific import here).
   type RadialNode = {
     branch: string;
     label: string;
@@ -51,6 +106,8 @@
     y: number;
     neighbors: string[];
     isHub?: boolean;
+    effect: unknown;
+    flavor: string;
   };
 
   // --- Props ----------------------------------------------------------------
@@ -64,11 +121,21 @@
   //            statPoints, or the fleet's adminPoints).
   // `pointsLabel` — human label for that currency ("Stat Points"/"Admin Points"),
   //            shown in the corner readout.
-  // `onLearn`   — parent-supplied buy callback. DECLARED now, wired to the Learn
-  //            button in Task 11; unused in this static render (see the
-  //            reference-suppression line below so lint/tsc stay quiet).
-  // `onNodeTap` — parent-supplied node-tap callback. Hooked to a bare node
-  //            click here; the real tooltip it opens is Task 11.
+  // `onLearn`   — parent-supplied buy callback. Wired (Task 11) to the tooltip's
+  //            Learn button: the parent points it at buyCaptainTalent /
+  //            buyHomeworldTalent. Called with the node key on a committed learn.
+  // `onNodeTap` — OPTIONAL parent-supplied node-tap passthrough. The tooltip is
+  //            now INTERNAL (Task 11 opens it locally on tap), so this is no
+  //            longer required for the tooltip to work; it's kept as an optional
+  //            notification hook (defaults to a no-op) in case a parent wants to
+  //            observe taps. Node taps open the internal tooltip regardless.
+  // `describeEffect` — parent-supplied effect describer (Task 11). The parent
+  //            passes describeCaptainTalentEffect (captain) or
+  //            describeHomeworldTalentEffect (homeworld) from tick.ts, so
+  //            RadialWeb renders the right human-readable effect line WITHOUT
+  //            importing either concrete function — keeping it generic over both
+  //            tables. Defaulted to a safe stub so an un-wired parent doesn't
+  //            crash the tooltip (it just shows no effect line).
   export let table: Record<string, RadialNode>;
   export let branch: string;
   export let owned: string[] = [];
@@ -76,10 +143,7 @@
   export let pointsLabel: string = "";
   export let onLearn: (key: string) => void = () => {};
   export let onNodeTap: (key: string) => void = () => {};
-
-  // onLearn is declared-but-unused until Task 11 wires the Learn button. Void it
-  // so TS `noUnusedParameters`/lint doesn't flag the prop we must keep declared.
-  void onLearn;
+  export let describeEffect: (effect: any) => string = () => "";
 
   // --- Pan offset (Task 10) -------------------------------------------------
   // The world is translated by (panX, panY). Task 10 drives these from a
@@ -232,9 +296,10 @@
    *   - Otherwise it's a genuine selection: a real tap (movement stayed under
    *     the threshold, so suppressClick was never armed) OR a keyboard Enter/
    *     Space on a focused node (keyboard activation synthesizes a `click`
-   *     WITHOUT any pointer gesture, so suppressClick is false) — call onNodeTap.
-   *     This is how accessibility is preserved: keyboard users always reach
-   *     onNodeTap because no drag ever arms the gate for them.
+   *     WITHOUT any pointer gesture, so suppressClick is false) — open the
+   *     internal tooltip for this node (and fire the optional onNodeTap
+   *     passthrough). This is how accessibility is preserved: keyboard users
+   *     always reach the tooltip because no drag ever arms the gate for them.
    */
   function handleNodeClick(key: string) {
     if (suppressClick) {
@@ -243,7 +308,92 @@
       suppressClick = false;
       return;
     }
+    // Genuine tap/keyboard activation: open THIS node's internal tooltip
+    // (Task 11). onNodeTap remains an optional passthrough notification.
+    openTooltipKey = key;
     onNodeTap(key);
+  }
+
+  // --- Tooltip (Task 11) ----------------------------------------------------
+  // `openTooltipKey` is the single piece of tooltip state: the key of the node
+  // whose tooltip is open, or null for "no tooltip". Kept as the KEY (not a
+  // resolved snapshot) so the tooltip's contents stay reactive — if `points` or
+  // `owned` change while it's open (e.g. the player learns the node), the Learn
+  // gate and affordability line update live off the same nodeState logic the
+  // nodes use, rather than showing a stale snapshot.
+  let openTooltipKey: string | null = null;
+
+  // Resolved tooltip view-model, derived reactively from the open key. Null when
+  // nothing is open OR the key somehow doesn't resolve to a def (defensive — a
+  // dangling key just closes the tooltip by rendering nothing).
+  //
+  // Reactivity note (deliberate): Svelte builds a reactive statement's
+  // dependency list from the top-level variables it DIRECTLY references — it does
+  // NOT trace into called functions. nodeState() reads `ownedSet` and `points`
+  // internally, so to make this block re-run when EITHER changes we reference
+  // both directly below (`points` in the shortfall math; `ownedSet` via the
+  // explicit `void ownedSet;` touch). Without the ownedSet touch, learning/owning
+  // a node while its tooltip is open would not refresh the Owned/Learn state.
+  // `table`, `describeEffect`, and `openTooltipKey` are referenced directly too.
+  $: tooltip =
+    openTooltipKey !== null && table[openTooltipKey]
+      ? (() => {
+          const key = openTooltipKey as string;
+          const def = table[key];
+          // Explicit dependency touch so Svelte tracks ownedSet for this block
+          // (nodeState reads it, but Svelte can't see inside the call). No-op at
+          // runtime beyond registering the reactive dependency.
+          void ownedSet;
+          const st = nodeState(key, def);
+          // shortfall — how many more points are needed when unaffordable (>0
+          // only for a not-owned, not-affordable node). Drives the "need N more"
+          // hint on the disabled Learn button / cost line.
+          const shortfall = st.owned ? 0 : Math.max(0, def.cost - points);
+          return {
+            key,
+            label: def.label,
+            // describeEffect is the parent's table-correct describer; def.effect
+            // is passed through untouched (RadialWeb never interprets it).
+            effectLine: describeEffect(def.effect),
+            flavor: def.flavor,
+            cost: def.cost,
+            owned: st.owned,
+            // Learn is enabled ONLY when learnable (visible && !owned &&
+            // affordable). nodeState.learnable already encodes exactly that
+            // (visibility is implicit — only visible nodes are tappable).
+            canLearn: st.learnable,
+            shortfall,
+          };
+        })()
+      : null;
+
+  /** Close the tooltip (backdrop click, × button, Escape, or after a learn). */
+  function closeTooltip() {
+    openTooltipKey = null;
+  }
+
+  /**
+   * Commit the Learn purchase for the open tooltip's node, then close.
+   * Belt-and-suspenders: only fires onLearn when the derived view-model says the
+   * node canLearn (learnable && affordable). The button is already `disabled` in
+   * that state, but re-checking here means a stale/synthesized click can never
+   * commit an un-learnable or unaffordable buy.
+   */
+  function learnFromTooltip() {
+    if (tooltip && tooltip.canLearn) {
+      onLearn(tooltip.key);
+    }
+    closeTooltip();
+  }
+
+  /**
+   * Escape-to-close. Bound on <svelte:window>. Only acts when a tooltip is open,
+   * so it never swallows Escape for anything else on the page.
+   */
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape" && openTooltipKey !== null) {
+      closeTooltip();
+    }
   }
 
   // --- Derived: the visible subgraph ----------------------------------------
@@ -350,6 +500,10 @@
   }
 </script>
 
+<!-- Escape-to-close for the Task 11 tooltip. handleKeydown is a no-op unless a
+     tooltip is open, so this window listener never interferes with other keys. -->
+<svelte:window on:keydown={handleKeydown} />
+
 <!-- Viewport: the clipped window onto the world. Fills its parent. Task 10's
      pan gestures attach here via Pointer Events (unified mouse+touch+stylus).
      touch-action:none (in <style>) stops the browser hijacking touch-drags as
@@ -428,6 +582,83 @@
     <div class="web-points">{pointsLabel}: {points}</div>
   {/if}
 </div>
+
+<!-- Node tooltip overlay (Task 11). PORTALED to <body> via use:portal so it is a
+     genuine top-level, viewport-fixed overlay even when RadialWeb is later
+     mounted inside a <Panel> whose backdrop-filter would otherwise contain a
+     position:fixed descendant (the known trap — see the `portal` action comment
+     in <script>). The backdrop's flex centering places the card; the card has no
+     position of its own.
+
+     Dismiss paths:
+       - Backdrop: on:click|self closes ONLY when the click lands on the backdrop
+         itself (not bubbled up from the card). Because this overlay is a separate
+         body-level element sitting over the whole viewport, a backdrop click is
+         intercepted here and CANNOT leak through to a node underneath (the node
+         is in a different subtree, behind the backdrop) — so backdrop-click never
+         doubles as a node tap.
+       - × button: explicit close.
+       - Escape: handled by the <svelte:window> keydown above.
+
+     Colors are theme vars throughout; the only literal is the neutral black scrim
+     opacity, matching App.svelte's .tooltip-backdrop / .modal-backdrop idiom. -->
+{#if tooltip}
+  <div
+    class="web-tooltip-backdrop"
+    use:portal
+    on:click|self={closeTooltip}
+  >
+    <div class="web-tooltip" role="dialog" aria-modal="true" aria-label={tooltip.label}>
+      <!-- Header row: node label + explicit close (×). -->
+      <div class="web-tooltip-header">
+        <h3 class="web-tooltip-title">{tooltip.label}</h3>
+        <button
+          type="button"
+          class="web-tooltip-close"
+          aria-label="Close"
+          on:click={closeTooltip}
+        >×</button>
+      </div>
+
+      <!-- Human-readable effect line (from the describeEffect prop). Only shown
+           when non-empty (an un-wired parent's stub returns "" → line hidden). -->
+      {#if tooltip.effectLine}
+        <p class="web-tooltip-effect">{tooltip.effectLine}</p>
+      {/if}
+
+      <!-- Cost + affordability. Owned nodes show no cost (nothing left to buy);
+           unaffordable nodes append the shortfall so the player sees WHY Learn is
+           disabled. `points` drives the comparison via the derived view-model. -->
+      {#if !tooltip.owned}
+        <p class="web-tooltip-cost">
+          Cost: {tooltip.cost} {pointsLabel}{#if tooltip.shortfall > 0} (need {tooltip.shortfall} more){/if}
+        </p>
+      {/if}
+
+      <!-- Flavor text. -->
+      {#if tooltip.flavor}
+        <p class="web-tooltip-flavor">{tooltip.flavor}</p>
+      {/if}
+
+      <!-- Action row. Owned → a static "Owned" state (nothing to buy). Otherwise
+           a Learn button enabled ONLY when canLearn (learnable && affordable);
+           disabled otherwise so an unaffordable/locked node shows the cost hint
+           above but can't be bought. -->
+      <div class="web-tooltip-action">
+        {#if tooltip.owned}
+          <span class="web-tooltip-owned">Owned</span>
+        {:else}
+          <button
+            type="button"
+            class="web-tooltip-learn"
+            disabled={!tooltip.canLearn}
+            on:click={learnFromTooltip}
+          >Learn</button>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   /* --- Viewport ---------------------------------------------------------
@@ -581,5 +812,117 @@
     padding: 2px 8px;
     border: 1px solid var(--color-border);
     pointer-events: none; /* purely informational; never intercept pan/tap */
+  }
+
+  /* --- Tooltip overlay (Task 11) ----------------------------------------
+     Full-screen dim+blur backdrop, matching App.svelte's .tooltip-backdrop /
+     .modal-backdrop idiom (same fixed/inset/blur/flex-center/z-index recipe).
+     Rendered as a <body> child via use:portal (see the `portal` action) so this
+     position:fixed backdrop is truly viewport-fixed even inside a future Panel's
+     backdrop-filter — the known trap this whole overlay is portaled to avoid.
+     The scrim's rgba(0,0,0,...) is a deliberate neutral black, the ONE literal
+     colour here (matching the existing backdrops); everything else is theme
+     vars so the 6 themes reskin the card. */
+  .web-tooltip-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 20px;
+  }
+  /* The centered content card. Modestly larger than the prior placeholder
+     (280px/85vw) per design §4.4 — the mockup-1 feedback asked for a bump.
+     TUNABLE: final size is a Checkpoint A item. */
+  .web-tooltip {
+    width: 340px; /* TUNABLE: tooltip width — was 280px placeholder; verify on phone at Checkpoint A */
+    max-width: 88vw; /* TUNABLE: cap on narrow screens — Checkpoint A */
+    padding: 16px 18px; /* TUNABLE: tooltip padding — Checkpoint A */
+    background: var(--color-panel-bg-strong);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  .web-tooltip-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .web-tooltip-title {
+    font-family: var(--font-body);
+    font-size: 15px; /* TUNABLE: title size — Checkpoint A */
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0;
+    line-height: 1.2;
+  }
+  /* × close button: minimal, theme-tinted, hit-area-friendly. */
+  .web-tooltip-close {
+    flex: 0 0 auto;
+    background: transparent;
+    border: none;
+    color: var(--color-text-secondary);
+    font-size: 18px;
+    line-height: 1;
+    padding: 2px 6px;
+    cursor: pointer;
+  }
+  .web-tooltip-close:hover {
+    color: var(--color-text-primary);
+  }
+  .web-tooltip-effect {
+    font-size: 13px; /* TUNABLE: effect line size — Checkpoint A */
+    font-weight: 600;
+    color: var(--color-success);
+    margin: 0 0 8px;
+    line-height: 1.35;
+  }
+  .web-tooltip-cost {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin: 0 0 8px;
+  }
+  .web-tooltip-flavor {
+    font-size: 12px;
+    font-style: italic;
+    color: var(--color-text-secondary);
+    margin: 0 0 12px;
+    line-height: 1.4;
+  }
+  .web-tooltip-action {
+    display: flex;
+    justify-content: flex-end;
+  }
+  /* Learn button: accent-bordered primary action (matches the learnable-node
+     accent look). Disabled → dimmed + not-allowed (unaffordable/locked). */
+  .web-tooltip-learn {
+    padding: 8px 16px; /* TUNABLE: Learn button size — Checkpoint A */
+    background: rgba(var(--color-accent-rgb), 0.12);
+    border: 1px solid var(--color-accent);
+    color: var(--color-accent-bright);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 0; /* square, matching the node/panel chamfer idiom */
+  }
+  .web-tooltip-learn:hover:not(:disabled) {
+    background: rgba(var(--color-accent-rgb), 0.22);
+  }
+  .web-tooltip-learn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  /* Owned state: a static success-tinted label instead of a Learn button. */
+  .web-tooltip-owned {
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-success);
   }
 </style>
