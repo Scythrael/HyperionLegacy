@@ -24,12 +24,18 @@
   //   Task 9 (reworked at Device Checkpoint A): an SVG connector layer is drawn
   //   INSIDE .web-world, BEHIND the nodes. It uses a REAL, non-zero SVG canvas
   //   centered on the world origin (the old 0×0 + overflow-visible SVG didn't
-  //   paint on device — root-cause fixed via the HALF offset const) and draws a
-  //   STRAIGHT line per edge (not an elbow). Each edge is classified by endpoint
-  //   ownership: owned↔not-owned edges get a directional glowing pulse travelling
-  //   toward the learnable node; owned↔owned get a steady glow; the rest are idle.
-  //   See the `HALF` const, the `visibleEdges` derivation, and the
-  //   `.web-connectors` <svg> in the markup.
+  //   paint on device — root-cause fixed via the HALF offset const). Each edge is
+  //   an L-SHAPED ORTHOGONAL ELBOW <path> (a horizontal run then a vertical run
+  //   meeting at a 90° corner — NOT a diagonal line), per the Checkpoint-A
+  //   feedback correction. Lighting is classified by BOTH endpoints' ownership:
+  //   an edge with BOTH endpoints owned is "powered" (a steady outer glow on the
+  //   whole L PLUS a travelling pulse flowing hub-outward); every other edge is
+  //   "dormant" (a dim dark line — topology only, no glow, no pulse). Pulse
+  //   direction is hub-outward: a per-node BFS depth from the branch hub
+  //   (`depthFromHub`) orders each edge shallow→deep so the elbow starts hub-side
+  //   and the pulse flows away from the hub. See the `HALF` const, the
+  //   `depthFromHub` BFS, the `visibleEdges` derivation, and the `.web-connectors`
+  //   <svg> in the markup.
   //
   //   Task 10 (this addition): Pointer-Events pan + tap/drag disambiguation.
   //   A pointer drag on .web-viewport translates the world via (panX, panY); a
@@ -412,6 +418,67 @@
     .map((key) => ({ key, def: table[key] }))
     .filter((n) => n.def && n.def.branch === branch);
 
+  // --- Derived: graph depth from the hub (pulse direction source) ------------
+  // depthFromHub maps each node key in THIS branch to its BFS distance from the
+  // branch's hub node (the def with isHub === true): hub = 0, the hub's direct
+  // neighbours = 1, their neighbours = 2, and so on. It is the single source of
+  // truth for "which end of an edge is closer to the hub", which the edge
+  // derivation uses to orient every elbow shallow→deep so any pulse flows
+  // OUTWARD from the hub (hub-side start → far end).
+  //
+  // WHY it depends only on table/branch (NOT ownership): the graph topology and
+  // the hub don't change when the player learns a node, so depth is stable across
+  // ownership changes. Svelte re-runs this block only when `table` or `branch`
+  // change (the two vars it references directly), so the BFS is not recomputed on
+  // every learn — just when the rendered branch/table actually changes.
+  //
+  // Scope: the BFS walks the WHOLE branch subgraph (every def with branch ===
+  // branch), not just the currently-visible subset, so depths are correct even
+  // for edges whose hub-side path runs through not-yet-visible nodes. Nodes
+  // unreachable from the hub (or a branch with no hub) get no entry; the edge
+  // derivation treats a missing depth as +Infinity so such edges still orient
+  // deterministically (see the tie-break note there).
+  $: depthFromHub = (() => {
+    const depth = new Map<string, number>();
+
+    // Find this branch's hub (the BFS root). A well-formed branch has exactly
+    // one; if none exists, the map stays empty and edges fall back to the
+    // key-string tie-break for a stable (if hub-agnostic) orientation.
+    let hubKey: string | null = null;
+    for (const key of Object.keys(table)) {
+      const def = table[key];
+      if (def && def.branch === branch && def.isHub === true) {
+        hubKey = key;
+        break;
+      }
+    }
+    if (hubKey === null) return depth;
+
+    // Standard breadth-first traversal over the bidirectional `neighbors` graph,
+    // restricted to this branch. A FIFO queue + the depth map itself as the
+    // visited set (a key is enqueued exactly once, when first assigned a depth)
+    // guarantees each node gets its SHORTEST distance and the loop terminates.
+    depth.set(hubKey, 0);
+    const queue: string[] = [hubKey];
+    let head = 0; // index-based dequeue (avoids O(n) Array.shift per step)
+    while (head < queue.length) {
+      const cur = queue[head++];
+      const curDepth = depth.get(cur) as number;
+      const curDef = table[cur];
+      if (!curDef) continue; // defensive: dangling key
+      for (const nb of curDef.neighbors) {
+        const nbDef = table[nb];
+        // Stay within this branch and skip already-visited nodes (those already
+        // in `depth`), so each node is assigned its first/shortest depth once.
+        if (!nbDef || nbDef.branch !== branch) continue;
+        if (depth.has(nb)) continue;
+        depth.set(nb, curDepth + 1);
+        queue.push(nb);
+      }
+    }
+    return depth;
+  })();
+
   // --- Connector SVG canvas offset (Device Checkpoint A rework) --------------
   // HALF sizes the real, non-zero SVG painting surface for the connector layer
   // and is the single offset that keeps that surface aligned to the node origin.
@@ -446,42 +513,52 @@
   const HALF = 5000;
 
   // --- Derived: the visible edge list (connector layer) ----------------------
-  // One STRAIGHT "laser link" line is drawn per UNDIRECTED edge whose BOTH
-  // endpoints are visible — a direct segment from node A's center to node B's
-  // center (replacing the old H-then-V elbow path). Derivation rules:
+  // One L-SHAPED ORTHOGONAL ELBOW is drawn per UNDIRECTED edge whose BOTH
+  // endpoints are visible — a horizontal run from the shallow (hub-side) endpoint
+  // then a vertical run up to the deep endpoint, meeting at a 90° corner (NOT a
+  // diagonal). Derivation rules:
   //
   //   * Both-endpoints-visible: an edge is emitted ONLY when a AND b are both in
-  //     `visible`. A line into a hidden node would leak fog-of-war info, so those
-  //     are skipped entirely (never drawn).
+  //     `visible`. An elbow into a hidden node would leak fog-of-war info, so
+  //     those are skipped entirely (never drawn).
   //   * Dedupe: `neighbors` is bidirectional by convention (A lists B and B lists
   //     A — see plan line 87), so every undirected edge shows up twice. We emit it
   //     exactly once by only taking the direction where `key < neighborKey`
   //     (lexicographic string compare). That single inequality both dedupes AND
   //     drops self-loops (key === key fails `<`), with no auxiliary Set needed.
   //
-  //   * Per-edge OWNERSHIP CLASS (drives the directional pulse — see the markup /
-  //     CSS). Each edge is classified by how many of its two endpoints are owned:
-  //       - "learnable" (exactly ONE endpoint owned): an owned→not-owned pathway.
-  //         Renders a subtle base line PLUS an animated glowing pulse travelling
-  //         FROM the owned end TOWARD the not-owned (learnable) end, to draw the
-  //         eye to "learn next". Direction matters, so we ORDER THE POINTS
-  //         OWNED-FIRST: (ax,ay) = the owned endpoint, (bx,by) = the not-owned
-  //         one. The pulse animation runs from point1 → point2 = owned → learnable.
-  //       - "owned" (BOTH endpoints owned): a steady glow, NO pulse — both are
-  //         learned, nothing to point toward. Point order is irrelevant here.
-  //       - "idle" (NEITHER endpoint owned): a dim/idle base line, no pulse. This
-  //         happens when two learnable nodes are mutual neighbours of a common
-  //         owned node. Point order irrelevant.
+  //   * SHALLOW→DEEP ORIENTATION (drives hub-outward pulse direction). Each edge's
+  //     two endpoints are ordered by their `depthFromHub` BFS depth: the SHALLOWER
+  //     (smaller depth, hub-side) endpoint becomes the START (ax,ay), the DEEPER
+  //     endpoint becomes the END (bx,by). The elbow path (H-then-V, corner at
+  //     (bx,ay)) is drawn start→end, so a powered edge's travelling pulse (an
+  //     animated stroke-dashoffset marching start→end) flows shallow→deep =
+  //     OUTWARD from the hub. Ties (equal depth, or both missing from the BFS —
+  //     e.g. a hub-less branch) are broken DETERMINISTICALLY by key string so the
+  //     orientation is stable across renders (the smaller key starts).
+  //
+  //   * POWERED vs DORMANT LIGHTING (drives the look — see the markup / CSS).
+  //     Classified purely by whether BOTH endpoints are owned:
+  //       - "powered" (BOTH endpoints owned): the whole L is "engaged" — a soft
+  //         STEADY outer glow on a base rail PLUS a bright travelling pulse
+  //         flowing start→end (shallow→deep = hub-outward). This is the ONLY
+  //         lit/animated state.
+  //       - "dormant" (NOT both owned — one or both endpoints unlearned): a DIM,
+  //         DARK line — low opacity, no glow, no pulse — just enough to show the
+  //         connection topology.
+  //     (This INVERTS the earlier owned↔learnable pulse behaviour: only a
+  //     fully-learned link now lights up.)
   //
   // Coordinates carried through are the RAW web-space (x, y) of each endpoint —
   // the same values the nodes render at. The markup adds +HALF to each when
   // drawing (see HALF above) so, with the SVG shifted −HALF, endpoints land
   // exactly on node centers (works for negative coords too).
   //
-  // Reactive on visibleNodes AND ownedSet (both are read directly in the block,
-  // so Svelte tracks both): visibleNodes covers visible/branch/table changes, and
-  // ownedSet drives the ownership class + owned-first ordering. Learning a node
-  // thus both re-reveals neighbours and re-classifies its edges on the next tick.
+  // Reactive on visibleNodes, ownedSet AND depthFromHub (all read directly, so
+  // Svelte tracks each): visibleNodes covers visible/branch/table changes,
+  // ownedSet drives the powered/dormant class, and depthFromHub drives the
+  // shallow→deep ordering. Learning a node thus both re-reveals neighbours and
+  // re-classifies its edges (dormant→powered) on the next tick.
   $: visibleEdges = (() => {
     // A fast membership set of visible keys so the neighbor scan is O(1) per
     // lookup instead of re-scanning visibleNodes. Built from visibleNodes (not
@@ -489,14 +566,20 @@
     // there — an edge is only drawn when both ends survive that same filter.
     const visibleKeys = new Set(visibleNodes.map((n) => n.key));
 
+    // Depth lookup: a node absent from the BFS (unreachable / hub-less branch)
+    // is treated as +Infinity so it always sorts as the DEEPER end, leaving the
+    // key-string tie-break to decide orientation deterministically.
+    const depthOf = (k: string) =>
+      depthFromHub.has(k) ? (depthFromHub.get(k) as number) : Infinity;
+
     const edges: {
-      ax: number;
+      ax: number; // START = shallower (hub-side) endpoint
       ay: number;
-      bx: number;
+      bx: number; // END = deeper endpoint
       by: number;
-      // Exactly one of: "owned" (both owned), "learnable" (exactly one owned,
-      // pulse travels ax,ay→bx,by = owned→not-owned), "idle" (neither owned).
-      ownership: "owned" | "learnable" | "idle";
+      // "powered" (both endpoints owned → glow + hub-outward pulse) or "dormant"
+      // (not both owned → dim dark line, no glow/pulse).
+      lighting: "powered" | "dormant";
     }[] = [];
 
     for (const { key, def } of visibleNodes) {
@@ -509,44 +592,32 @@
         const neighborDef = table[neighborKey];
         if (!neighborDef) continue; // defensive: dangling neighbor ref
 
-        const keyOwned = ownedSet.has(key);
-        const neighborOwned = ownedSet.has(neighborKey);
+        // Lighting: powered ONLY when BOTH endpoints are owned; dormant otherwise.
+        const bothOwned = ownedSet.has(key) && ownedSet.has(neighborKey);
 
-        // Classify by owned-endpoint count and, for the one-owned case, ORDER
-        // THE POINTS OWNED-FIRST so the pulse (point1→point2) heads toward the
-        // learnable (not-owned) node.
-        if (keyOwned && neighborOwned) {
-          // Both owned → steady glow, no pulse; point order irrelevant.
-          edges.push({
-            ax: def.x,
-            ay: def.y,
-            bx: neighborDef.x,
-            by: neighborDef.y,
-            ownership: "owned",
-          });
-        } else if (keyOwned || neighborOwned) {
-          // Exactly one owned → learnable pathway. Put the OWNED endpoint first
-          // (ax,ay) and the not-owned one second (bx,by) so the pulse travels
-          // owned → not-owned = toward "learn next".
-          const owned = keyOwned ? def : neighborDef;
-          const other = keyOwned ? neighborDef : def;
-          edges.push({
-            ax: owned.x,
-            ay: owned.y,
-            bx: other.x,
-            by: other.y,
-            ownership: "learnable",
-          });
-        } else {
-          // Neither owned → dim idle line, no pulse; point order irrelevant.
-          edges.push({
-            ax: def.x,
-            ay: def.y,
-            bx: neighborDef.x,
-            by: neighborDef.y,
-            ownership: "idle",
-          });
+        // Orient shallow→deep so the pulse flows hub-outward. Compare BFS depth;
+        // on a tie (equal depth or both +Infinity), the smaller key string starts
+        // — a deterministic, render-stable tie-break.
+        const keyDepth = depthOf(key);
+        const neighborDepth = depthOf(neighborKey);
+        let start = def;
+        let end = neighborDef;
+        if (
+          neighborDepth < keyDepth ||
+          (neighborDepth === keyDepth && neighborKey < key)
+        ) {
+          // Neighbor is the shallower (hub-side) end → it starts the elbow.
+          start = neighborDef;
+          end = def;
         }
+
+        edges.push({
+          ax: start.x,
+          ay: start.y,
+          bx: end.x,
+          by: end.y,
+          lighting: bothOwned ? "powered" : "dormant",
+        });
       }
     }
     return edges;
@@ -600,9 +671,11 @@
        at panX=panY=0 the world sits exactly centered. -->
   <div class="web-world" style="transform: translate({panX}px, {panY}px);">
     <!-- Connector layer. Placed FIRST inside .web-world so it paints BEHIND every
-         .web-node that follows in DOM order (no z-index needed — later siblings
-         stack on top). pointer-events:none (set in <style>) so it never intercepts
-         a node tap or a pan drag.
+         .web-node that follows. DOM order already stacks later siblings on top;
+         an explicit z-index (SVG z-index:0, .web-node z-index:1 — see <style>)
+         makes that reliable so each opaque node covers its elbow's inner portion.
+         pointer-events:none (set in <style>) so it never intercepts a node tap or
+         a pan drag.
 
          COORDINATE ALIGNMENT — the one part that must be exactly right (Device
          Checkpoint A rework; see the HALF const in <script> for the full rationale
@@ -619,48 +692,49 @@
          canvas). The node layer is UNCHANGED; only these internal SVG coords carry
          the +HALF offset.
 
-         Each edge is a STRAIGHT "laser link" from node A's center to node B's
-         center (replacing the old H-then-V elbow path). The per-edge `ownership`
-         class drives the look (see CSS):
-           .learnable — TWO stacked <line>s: (1) a dim steady base RAIL, then
-                        (2) a bright glowing OVERLAY segment that travels along it
-                        from (x1,y1)=OWNED end toward (x2,y2)=not-owned/learnable
-                        end (points owned-first in visibleEdges). The base keeps the
-                        link visible between pulses; the overlay is the flowing
-                        "energy travelling to the next node" the feedback asked for.
-           .owned     — single base line, steady brighter glow, no pulse (both
-                        endpoints owned). NO overlay emitted.
-           (default)  — single dim idle line, no pulse (neither endpoint owned).
-                        NO overlay emitted.
-         Only learnable edges get the second (overlay) line, so idle/owned edges are
-         never doubled. No fill; stroke only; no arrowheads. -->
+         Each edge is an L-SHAPED ORTHOGONAL ELBOW <path> (a horizontal run then a
+         vertical run meeting at a 90° corner — NOT a diagonal). The path is
+         "M {startX} {startY} H {cornerX} V {endY}": it starts at the SHALLOW
+         (hub-side) endpoint (ax,ay), runs horizontally to the corner at
+         (endX, startY) = (bx, ay), then runs vertically up to the DEEP endpoint
+         (bx,by). start→end is shallow→deep, so a powered edge's travelling pulse
+         (animated stroke-dashoffset) flows OUTWARD from the hub. Endpoints get
+         +HALF (see the HALF const) so they land on node centers.
+
+         The per-edge `lighting` class drives the look (see CSS):
+           .powered  — TWO stacked <path>s (both owned): (1) a base RAIL with a
+                       soft STEADY outer glow so the whole L reads as "engaged",
+                       then (2) a bright glowing OVERLAY that travels along it
+                       start→end (shallow→deep = hub-outward). This is the ONLY
+                       lit/animated state.
+           (default) — DORMANT (not both owned): a single dim, DARK path — no glow,
+                       no pulse — just enough to show the connection topology. NO
+                       overlay emitted.
+         Only powered edges get the second (overlay) path, so dormant edges are
+         never doubled. No fill; stroke only; no arrowheads. The node layer that
+         follows paints OPAQUELY on top of these paths, hiding each elbow's inner
+         portion so a link visually connects at a node's EDGE, not its center. -->
     <svg class="web-connectors" aria-hidden="true">
       {#each visibleEdges as e}
-        <!-- Base line for EVERY edge. Its `ownership` class sets the resting look:
-             .owned = steady bright glow; .learnable = dim lit rail the pulse rides
-             on; (default/idle) = faint static line. Endpoints get +HALF (see the
-             HALF const) so they land on node centers; owned-first order is baked
-             into ax,ay/bx,by by visibleEdges. -->
-        <line
+        <!-- Base elbow path for EVERY edge. Its `lighting` class sets the look:
+             .powered = steady glow rail the pulse rides on; (default) = dim dark
+             dormant line. H-then-V: start (ax,ay) → corner (bx,ay) → end (bx,by),
+             each coord +HALF so it lands on node centers; shallow→deep order is
+             baked into ax,ay/bx,by by visibleEdges. -->
+        <path
           class="web-edge"
-          class:owned={e.ownership === "owned"}
-          class:learnable={e.ownership === "learnable"}
-          x1={e.ax + HALF}
-          y1={e.ay + HALF}
-          x2={e.bx + HALF}
-          y2={e.by + HALF}
+          class:powered={e.lighting === "powered"}
+          d="M {e.ax + HALF} {e.ay + HALF} H {e.bx + HALF} V {e.by + HALF}"
         />
-        <!-- Overlay line: ONLY for learnable edges. Same endpoints + owned-first
-             order as the base, drawn ON TOP as a glowing travelling segment that
-             flows (x1,y1)=owned → (x2,y2)=learnable via animated stroke-dashoffset.
-             Emitted only for learnable so idle/owned edges are never doubled. -->
-        {#if e.ownership === "learnable"}
-          <line
+        <!-- Overlay path: ONLY for powered edges. Same elbow + shallow→deep order
+             as the base, drawn ON TOP as a glowing travelling segment that flows
+             start (ax,ay) → end (bx,by) = hub-outward via animated
+             stroke-dashoffset. Emitted only for powered so dormant edges aren't
+             doubled. -->
+        {#if e.lighting === "powered"}
+          <path
             class="web-edge-pulse-overlay"
-            x1={e.ax + HALF}
-            y1={e.ay + HALF}
-            x2={e.bx + HALF}
-            y2={e.by + HALF}
+            d="M {e.ax + HALF} {e.ay + HALF} H {e.bx + HALF} V {e.by + HALF}"
           />
         {/if}
       {/each}
@@ -845,72 +919,73 @@
     top: -5000px; /* = −HALF */
     width: 10000px; /* = 2*HALF */
     height: 10000px; /* = 2*HALF */
+    z-index: 0; /* below .web-node (z-index:1) so opaque nodes cover each elbow's inner portion */
     pointer-events: none;
     overflow: visible; /* harmless belt-and-suspenders; canvas already spans the web */
   }
-  /* Base edge (idle: neither endpoint owned): dim accent line. This is also the
-     BASE RAIL under a learnable edge's travelling overlay (see .web-edge.learnable
-     and .web-edge-pulse-overlay). fill:none because an SVG <line> takes no fill,
-     but set explicitly for clarity/safety. */
+  /* Base elbow (DORMANT: not both endpoints owned): a dim, DARK line — visible
+     just enough to show the connection topology, with NO glow and NO pulse. This
+     is the resting look for every not-fully-learned link. It is ALSO the base
+     RAIL under a powered edge's steady glow + travelling overlay (see
+     .web-edge.powered and .web-edge-pulse-overlay). fill:none because an SVG
+     <path> connector is stroke-only (the elbow must not fill its L-shaped
+     interior). */
   .web-edge {
     fill: none;
-    stroke: rgba(var(--color-accent-rgb), 0.22); /* TUNABLE: idle-edge opacity — Checkpoint B */
-    stroke-width: 3; /* TUNABLE: base connector thickness (thinned from 5→3 at Checkpoint A) — Checkpoint B */
+    stroke: rgba(var(--color-accent-rgb), 0.14); /* TUNABLE: dormant-edge opacity (dim + dark) — Checkpoint B */
+    stroke-width: 2; /* TUNABLE: dormant connector thickness (thin — topology only) — Checkpoint B */
     stroke-linecap: round;
+    stroke-linejoin: round; /* soften the 90° elbow corner */
   }
 
-  /* Fully-owned edge (both endpoints owned): a steady brighter "live" glow, no
-     pulse. accent-bright matches owned-node coloring; the drop-shadow is the
-     steady glow. */
-  .web-edge.owned {
-    stroke: var(--color-accent-bright);
-    stroke-width: 3; /* TUNABLE: owned edge thickness — Checkpoint B */
-    filter: drop-shadow(0 0 3px rgba(var(--color-accent-rgb), 0.55)); /* TUNABLE: owned glow strength — Checkpoint B */
+  /* Powered edge BASE RAIL (BOTH endpoints owned): the "engaged" resting rail —
+     a brighter accent stroke with a soft STEADY outer glow (drop-shadow) so the
+     WHOLE L reads as live at all times, even between pulses. The bright travelling
+     energy is a SEPARATE overlay path (.web-edge-pulse-overlay) drawn on top; this
+     base never animates. Solid stroke (no dashes) so it's a continuous rail. Kept
+     dimmer than the overlay so the travelling segment clearly "pops" above the
+     resting rail (base vs pulse contrast). */
+  .web-edge.powered {
+    stroke: rgba(var(--color-accent-rgb), 0.4); /* TUNABLE: powered base-rail opacity (dimmer than the overlay) — Checkpoint B */
+    stroke-width: 3; /* TUNABLE: powered base-rail thickness — Checkpoint B */
+    filter: drop-shadow(0 0 3px rgba(var(--color-accent-rgb), 0.5)); /* TUNABLE: powered steady-glow strength — Checkpoint B */
   }
 
-  /* Learnable pathway BASE RAIL (exactly one endpoint owned): a dim, steady lit
-     line that keeps the link visible AT ALL TIMES — so between pulses the pathway
-     still reads as a connected, "live" rail rather than an empty gap. The bright
-     flowing energy is a SEPARATE overlay line (.web-edge-pulse-overlay) drawn on
-     top; this base never animates. Solid stroke (no dashes) so it's a continuous
-     rail. Kept dimmer than the overlay so the travelling segment clearly "pops"
-     above the resting rail (base vs pulse opacity/width contrast). */
-  .web-edge.learnable {
-    stroke: rgba(var(--color-accent-rgb), 0.35); /* TUNABLE: learnable base-rail opacity (dimmer than the overlay) — Checkpoint B */
-    stroke-width: 3; /* TUNABLE: learnable base-rail thickness — Checkpoint B */
-  }
-
-  /* Learnable pathway TRAVELLING OVERLAY (learnable edges only): the bright,
-     glowing "energy" segment that flows FROM (x1,y1)=owned TOWARD (x2,y2)=learnable
-     — the "power travelling to the next node" the feedback asked for. Technique: a
-     dashed stroke (one short bright dash + a long gap = a single lit segment on an
-     otherwise-empty line) whose stroke-dashoffset is animated so that lit segment
-     marches point1→point2. Point order (owned-first) is baked into ax,ay/bx,by in
-     visibleEdges, so a NEGATIVE dashoffset ramp moves the segment owned→learnable.
-     A drop-shadow gives the glow that makes the motion pop above the dim base rail.
-     Kept ambient (single travelling segment, long gap, ~2.4s loop) — bright but not
-     seizure-y. This overlay sits on top of the .web-edge.learnable base rail at the
-     same endpoints, so it reads as "a lit rail with a pulse flowing along it". */
+  /* Powered pathway TRAVELLING OVERLAY (powered edges only): the bright, glowing
+     "energy" segment that flows FROM (ax,ay)=SHALLOW/hub-side end TOWARD
+     (bx,by)=DEEP end — i.e. OUTWARD from the hub. Technique: a dashed stroke (one
+     short bright dash + a long gap = a single lit segment on an otherwise-empty
+     path) whose stroke-dashoffset is animated so that lit segment marches
+     start→end along the elbow. Shallow→deep order is baked into ax,ay/bx,by in
+     visibleEdges, so a NEGATIVE dashoffset ramp moves the segment hub-outward.
+     A drop-shadow gives the glow that makes the motion pop above the base rail.
+     Kept ambient (single travelling segment, long gap, ~2.4s loop) — bright but
+     not seizure-y. Sits on top of the .web-edge.powered base rail at the same
+     elbow, so it reads as "a lit rail with a pulse flowing along it". */
   .web-edge-pulse-overlay {
     fill: none;
     stroke: var(--color-accent-bright); /* TUNABLE: pulse color — Checkpoint B */
     stroke-width: 4; /* TUNABLE: pulse thickness (slightly heavier than the base rail so it pops) — Checkpoint B */
     stroke-linecap: round;
+    stroke-linejoin: round; /* keep the pulse continuous around the 90° corner */
     /* Short bright dash + long gap = one travelling lit segment on a mostly-empty
-       overlay. TUNABLE: dash size / gap (pulse length + spacing) — Checkpoint B. */
+       overlay. Measured along the ELBOW path length (H run + V run), so it works
+       identically on the L as on a straight line. TUNABLE: dash size / gap (pulse
+       length + spacing) — Checkpoint B. */
     stroke-dasharray: 18 130;
     filter: drop-shadow(0 0 5px rgba(var(--color-accent-rgb), 0.85)); /* TUNABLE: pulse glow strength — Checkpoint B */
     /* Ramp the offset by one full dash+gap period (18+130=148) per cycle so the
        motion is seamless (pattern repeats identically each period). A negative ramp
-       moves the segment point1→point2 (owned→learnable).
+       moves the segment start→end (ax,ay → bx,by = shallow→deep = hub-outward).
        TUNABLE: pulse speed (cycle duration) — Checkpoint B. */
     animation: web-edge-pulse 2.4s linear infinite;
   }
 
   /* One pulse period: shift the dash pattern by a full period (148px) in the
      negative direction, which visually moves the lit segment from the start point
-     (x1,y1 = owned) toward the end point (x2,y2 = learnable). Keep -148 in sync
-     with the overlay's stroke-dasharray (18 + 130). */
+     (ax,ay = shallow/hub-side) toward the end point (bx,by = deep) along the elbow
+     — hub-outward. Keep -148 in sync with the overlay's stroke-dasharray
+     (18 + 130). */
   @keyframes web-edge-pulse {
     from {
       stroke-dashoffset: 0;
@@ -922,8 +997,8 @@
 
   /* Accessibility: users who ask for reduced motion get NO travelling pulse. The
      overlay stops animating and becomes a STATIC solid glowing segment along the
-     whole link (dashes dropped) so the learnable pathway still reads as "live"
-     (bright stroke + drop-shadow over the dim base rail) but nothing moves. */
+     whole elbow (dashes dropped) so a powered pathway still reads as "live"
+     (bright stroke + drop-shadow over the steady base rail) but nothing moves. */
   @media (prefers-reduced-motion: reduce) {
     .web-edge-pulse-overlay {
       animation: none;
@@ -940,6 +1015,16 @@
      it. Default (learnable-ish) look; state classes below override. */
   .web-node {
     position: absolute;
+    /* Nodes paint ABOVE the .web-connectors SVG so each elbow's inner portion —
+       from the node's edge to its center, where the path endpoint sits — is
+       HIDDEN behind the OPAQUE node body. That makes a link visually connect at
+       the node's EDGE, not pierce into its center. Two things make this reliable:
+       (1) an explicit z-index above the connectors (which get z-index:0), belt-
+       and-suspenders on top of the DOM order (nodes already follow the SVG), and
+       (2) an OPAQUE background — --color-bg-deep is a solid theme colour, NOT the
+       translucent --color-panel-bg-strong (6% alpha) used before, which would let
+       the link bleed through the node body. */
+    z-index: 1;
     transform: translate(-50%, -50%); /* node's own center lands on (x,y) */
     width: 76px; /* TUNABLE: node size — verify legibility on phone at Checkpoint A */
     height: 76px;
@@ -950,7 +1035,7 @@
     gap: 4px;
     padding: 6px;
     box-sizing: border-box;
-    background: var(--color-panel-bg-strong);
+    background: var(--color-bg-deep); /* opaque so the link is hidden under the node body (not the translucent panel-bg) */
     border: 1px solid rgba(var(--color-accent-rgb), 0.35);
     color: var(--color-text-primary);
     font-family: var(--font-body);
