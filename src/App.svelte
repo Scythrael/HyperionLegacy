@@ -102,6 +102,7 @@
     captainBonusRollChanceMult,
     captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does -- enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
     foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
+    addToInventory, // Phase 1 Task 5: the shared inventory add seam, called by BOTH tick() and this live loop so live loot delivery writes inventory/discovered byte-identically to offline catch-up (drift-proof)
     LOOT_MATERIAL_KEYS,
     describeCaptainTalentEffect,
     describeHomeworldTalentEffect,
@@ -518,11 +519,11 @@
 
       // Mirrors tick()'s own homePlanetDelta accumulation in tick.ts: summed
       // locally across every captain whose mission advances THIS poll, then
-      // merged into state.homePlanet.storage once below -- same "accumulate
-      // locally, apply once" shape as gameTimeSeconds and captains itself.
-      // Starts all-zero and stays that way (anyLootDelivered stays false) on
-      // a poll where the shared cycle doesn't complete, or no captain on a
-      // mission delivers loot this cycle, so the homePlanet merge below can
+      // folded into state.inventory (via addToInventory) once below -- same
+      // "accumulate locally, apply once" shape as gameTimeSeconds and captains
+      // itself. Starts all-zero and stays that way (anyLootDelivered stays
+      // false) on a poll where the shared cycle doesn't complete, or no captain
+      // on a mission delivers loot this cycle, so the inventory fold below can
       // be skipped entirely on the (overwhelmingly common) no-op poll --
       // same reactivity-churn discipline as the existing anyFired guard.
       let anyLootDelivered = false;
@@ -715,29 +716,41 @@
         state = { ...state, captains, lifetimeStats };
       }
       if (anyLootDelivered) {
-        // Field-by-field, matching tick.ts's own homePlanet merge exactly --
-        // added ONTO existing totals, never replacing them. The
-        // `...state.homePlanet.storage` spread MUST come first, before the 3
-        // named-field overwrites below -- otherwise this object literal would
-        // silently drop any OTHER field on homePlanet.storage that this loop
-        // doesn't itself touch (refinedMaterial, components, added by the
-        // Homeworld crafting system) on every poll that delivers loot. This is
-        // the exact class of bug tick.ts's own tick() function already
-        // guards against (see its comment referencing the "prestige silently
-        // dropped homePlanet" production incident) -- this live-loop poll path
-        // is a second, independent place doing the same merge, and needed the
-        // same fix. Do not remove this spread.
-        state = {
-          ...state,
-          homePlanet: {
-            storage: {
-              ...state.homePlanet.storage,
-              commonOre: state.homePlanet.storage.commonOre.plus(homePlanetDelta.commonOre),
-              uncommonMaterial: state.homePlanet.storage.uncommonMaterial.plus(homePlanetDelta.uncommonMaterial),
-              rareMaterial: state.homePlanet.storage.rareMaterial.plus(homePlanetDelta.rareMaterial),
-            },
-          },
-        };
+        // Ship Production Economy (Phase 1, Task 5): fold this poll's accumulated
+        // loot delta into the keyed `inventory` + `discovered` pair via the SAME
+        // addToInventory helper tick() uses (tick.ts). This REPLACES the old
+        // direct state.homePlanet.storage merge that used to live here. Routing
+        // BOTH the live-poll path (here) and the offline catch-up path (tick())
+        // through the ONE shared add seam is exactly what makes them
+        // byte-identical: given the same homePlanetDelta this loop produces the
+        // same inventory VALUES and the same `discovered` set tick() would (see
+        // tick.ts's identical `for (const key of LOOT_MATERIAL_KEYS)` fold), so
+        // live play and offline catch-up cannot diverge on inventory. Threaded
+        // through all 3 LOOT_MATERIAL_KEYS in turn (each call returns fresh
+        // objects), seeded from the current state.inventory/state.discovered.
+        //
+        // The old "spread ...state.homePlanet.storage FIRST so untouched fields
+        // (refinedMaterial/components/any future key) aren't silently dropped"
+        // guard now lives INSIDE addToInventory -- it spreads the whole inventory
+        // on every add, so those keys ride through unchanged. Same "don't
+        // silently drop a field" protection as the old field-by-field merge, and
+        // the same guard tick.ts documents against its prestige-dropped-homePlanet
+        // production incident.
+        //
+        // Still gated behind anyLootDelivered: an all-zero delta poll skips this
+        // whole block, leaving state.inventory/state.discovered references
+        // untouched. That is a VALUE-identical no-op vs. running the loop (each
+        // key would .plus(0) to the same value and 0 never marks discovered) --
+        // the gate only avoids reactivity churn on the common no-op poll, exactly
+        // the existing anyFired/anyLootDelivered discipline.
+        let inventory = state.inventory;
+        let discovered = state.discovered;
+        for (const key of LOOT_MATERIAL_KEYS) {
+          const added = addToInventory(inventory, discovered, key, homePlanetDelta[key]);
+          inventory = added.inventory;
+          discovered = added.discovered;
+        }
+        state = { ...state, inventory, discovered };
       }
 
       // applyFleetAdminXp (2026-07-08 Fleet Admiral XP Rework, Task 4 --
@@ -1331,15 +1344,15 @@
         <div class="resource-grid resource-grid-3">
           <div class="resource-card">
             <div class="resource-label">Common Ore</div>
-            <div class="resource-value">{formatNumber(state.homePlanet.storage.commonOre)}</div>
+            <div class="resource-value">{formatNumber(state.inventory.commonOre)}</div>
           </div>
           <div class="resource-card">
             <div class="resource-label">Uncommon Material</div>
-            <div class="resource-value">{formatNumber(state.homePlanet.storage.uncommonMaterial)}</div>
+            <div class="resource-value">{formatNumber(state.inventory.uncommonMaterial)}</div>
           </div>
           <div class="resource-card">
             <div class="resource-label">Rare Material</div>
-            <div class="resource-value">{formatNumber(state.homePlanet.storage.rareMaterial)}</div>
+            <div class="resource-value">{formatNumber(state.inventory.rareMaterial)}</div>
           </div>
         </div>
       </Panel>
@@ -1354,7 +1367,7 @@
            object's own header comment) picks up a panel automatically. -->
       {#each Object.entries(RECIPES) as [recipeKey, recipe]}
         {@const inputEntries = Object.entries(recipe.inputs) as [HomePlanetMaterialKey, Decimal][]}
-        {@const affordable = inputEntries.every(([key, amount]) => state.homePlanet.storage[key].gte(amount))}
+        {@const affordable = inputEntries.every(([key, amount]) => state.inventory[key].gte(amount))}
         <Panel>
           <div class="panel-title">{recipeKey === "refineUnobtainium" ? "REFINERY" : "FABRICATION"}</div>
           <div class="research-name">{recipe.label}</div>
@@ -1362,7 +1375,7 @@
             Requires:
             {#each inputEntries as [key, amount], i}
               {formatNumber(amount)} {key}{i < inputEntries.length - 1 ? ", " : ""}
-              (have {formatNumber(state.homePlanet.storage[key])})
+              (have {formatNumber(state.inventory[key])})
             {/each}
           </div>
           <div class="research-cost">Produces: {formatNumber(recipe.output.amount)} {recipe.output.key}</div>

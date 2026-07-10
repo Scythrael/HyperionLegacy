@@ -1002,7 +1002,13 @@ export function applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): 
 // delivered a positive amount this call should flip to discovered. Deducts
 // (craftRecipe inputs) do NOT come through here at all -- they are a plain
 // .minus() on the inventory clone, never a discovery event.
-function addToInventory(
+// Exported (Phase 1, Task 5) so App.svelte's live-poll loot-delivery path can
+// route through this SAME add seam tick()'s offline catch-up uses -- one shared
+// helper is what makes the live and offline inventory writes byte-identical
+// (drift-proof). Task 4 declared this helper for tick()'s own use but left it
+// module-private; Task 5 consuming it from App.svelte is the reason it is now
+// exported. Behaviour is unchanged -- this is a visibility-only change.
+export function addToInventory(
   inventory: Record<string, Decimal>,
   discovered: string[],
   itemId: string,
