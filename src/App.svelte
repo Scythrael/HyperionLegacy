@@ -202,6 +202,79 @@
   type FleetCaptainSubTab = "overview" | "talents";
   let activeFleetCaptainSubTab: FleetCaptainSubTab = "overview";
 
+  // ---- Currency HUD (2026-07-09) ------------------------------------------
+  // Drives the .top-bar-currencies strip in the template. Every currency shown
+  // in the top bar is described ONCE here, so adding a future currency (admin
+  // points, etc.) means adding one CURRENCY_META entry -- glyph + name + its
+  // info-tooltip text all in the same object -- not editing markup. This is the
+  // "each currency needs a tooltip with what it is + flavor text" requirement
+  // baked into the data model rather than bolted on per chip.
+  type CurrencyDescriptor = {
+    key: string; // stable id; also the tooltip open/close token
+    glyph: string; // short accent-colored mark shown in the chip
+    label: string; // human name, shown as the info-tooltip header
+    description: string; // what it is + flavor; shown in the tooltip body
+  };
+  const CURRENCY_META: CurrencyDescriptor[] = [
+    {
+      key: "credits",
+      glyph: "◈",
+      label: "Credits",
+      // FLAVOR DRAFT (2026-07-09): credits are the game's BASE currency -- the
+      // intended sink for most transactions (buying/selling commodities, etc.),
+      // per the user. Wired in code TODAY: earned from captain mission cycles
+      // (creditsPerCycle, tick.ts), spent on talent respecs (RESPEC_COST_
+      // CREDITS); commodity trading is planned, not yet implemented. The lore
+      // half is a placeholder for the user to wordsmith to taste.
+      description:
+        "The Admiralty's base currency — earned from captain mission payouts and spent on nearly everything: trading commodities, retraining talents, and the day-to-day business of running a fleet. Every credit is a favor called in, a cargo sold, a risk that paid off.",
+    },
+  ];
+  // Live formatted values, keyed by currency id. Kept separate from the static
+  // CURRENCY_META so this reactive block only recomputes the numbers each tick.
+  // Adding a currency: add its key here alongside its CURRENCY_META entry.
+  $: currencyValues = { credits: formatNumber(state.credits) } as Record<string, string>;
+  // Key of the currency whose info tooltip is showing, or null. This behaves
+  // like a standard tooltip, NOT a click-to-toggle: it SHOWS on mouse hover
+  // (desktop), tap (touch), or keyboard focus, and HIDES when the mouse leaves,
+  // focus leaves, the user taps elsewhere, or Escape is pressed. Open and close
+  // are driven by SEPARATE activate/deactivate events (not one toggle) so that
+  // hover, tap, and focus never fight each other -- important on touch, where a
+  // single tap also fires synthetic pointerenter + focus events.
+  let openCurrencyKey: string | null = null;
+  function showCurrency(key: string) {
+    openCurrencyKey = key;
+  }
+  // Guarded so leaving/blurring chip A can't clear a tooltip that (once there
+  // are multiple currencies) has already switched to chip B.
+  function hideCurrency(key: string) {
+    if (openCurrencyKey === key) openCurrencyKey = null;
+  }
+  // Hover is MOUSE-ONLY. pointerenter/leave also fire for touch (pointerType
+  // "touch") during a tap, which would instantly re-hide what the tap just
+  // showed; gating to "mouse" leaves touch driven solely by tap (on:click) +
+  // tap-outside (handleCurrencyOutsidePointer).
+  function hoverEnterCurrency(e: PointerEvent, key: string) {
+    if (e.pointerType === "mouse") showCurrency(key);
+  }
+  function hoverLeaveCurrency(e: PointerEvent, key: string) {
+    if (e.pointerType === "mouse") hideCurrency(key);
+  }
+  // Touch/click dismissal: hide on any pointer-down that isn't on a currency
+  // chip or its tooltip. pointerdown fires for mouse AND touch per the RadialWeb
+  // mobile lesson; .closest(".currency-chip-wrap") keeps a tap on the chip
+  // itself from self-dismissing (that tap's on:click does the showing).
+  function handleCurrencyOutsidePointer(e: PointerEvent) {
+    if (openCurrencyKey === null) return;
+    const target = e.target as Element | null;
+    if (target && target.closest(".currency-chip-wrap")) return;
+    openCurrencyKey = null;
+  }
+  function handleCurrencyKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape" && openCurrencyKey !== null) openCurrencyKey = null;
+  }
+  // -------------------------------------------------------------------------
+
   // Homeworld tab sub-tabs (UI Redesign, Task 10 -- see
   // docs/plans/2026-07-07-ui-redesign-plan.md). Resources holds the
   // relocated HOME PLANET content; Refinery holds the relocated
@@ -850,6 +923,11 @@
   $: fleetAdminXpRatio = state.fleetAdminXp.dividedBy(xpForNextFleetAdminLevel(state.fleetAdminLevel)).toNumber();
 </script>
 
+<!-- Currency info-tooltip dismissal (2026-07-09): close an open chip tooltip on
+     Escape or on any pointer-down outside a currency chip. See
+     handleCurrencyOutsidePointer / handleCurrencyKeydown in the script block. -->
+<svelte:window on:pointerdown={handleCurrencyOutsidePointer} on:keydown={handleCurrencyKeydown} />
+
 <div class="root">
   <Starfield />
   <div class="frame">
@@ -867,6 +945,51 @@
           </div>
         </div>
       </div>
+
+      <!-- Currency strip (2026-07-09) -- fleet-wide resource readout in the top
+           bar, sitting between the Fleet Admiral identity block above and the
+           tick timer below. Data-driven: it renders one tappable chip per
+           CURRENCY_META entry (see the script block), so adding a future
+           currency (admin points, etc.) is a data edit, not markup surgery.
+           Each chip shows an info tooltip (that currency's name + flavor text)
+           on hover/focus/tap. Values come from currencyValues (reactive, Decimal-aware
+           formatNumber) so the readout tracks state every tick. -->
+      <div class="top-bar-currencies">
+        {#each CURRENCY_META as c (c.key)}
+          <div class="currency-chip-wrap">
+            <button
+              type="button"
+              class="currency-chip"
+              class:open={openCurrencyKey === c.key}
+              aria-label={`${c.label}: ${currencyValues[c.key] ?? ""}`}
+              aria-describedby={openCurrencyKey === c.key ? `currency-tooltip-${c.key}` : undefined}
+              on:pointerenter={(e) => hoverEnterCurrency(e, c.key)}
+              on:pointerleave={(e) => hoverLeaveCurrency(e, c.key)}
+              on:focus={() => showCurrency(c.key)}
+              on:blur={() => hideCurrency(c.key)}
+              on:click={() => showCurrency(c.key)}
+            >
+              <span class="currency-chip-glyph" aria-hidden="true">{c.glyph}</span>
+              <span class="currency-chip-value">{currencyValues[c.key] ?? ""}</span>
+            </button>
+            {#if openCurrencyKey === c.key}
+              <!--
+                Info tooltip: absolutely positioned below its own chip. No portal
+                needed (unlike RadialWeb's node tooltip) because the top bar is
+                not inside a backdrop-filter/transform containing block, so a
+                normal absolute popover isn't clipped or mis-anchored. role=
+                "tooltip" + a matching id (the chip's aria-describedby points
+                here while open) tie chip + tooltip together for a11y.
+              -->
+              <div class="currency-tooltip" id={`currency-tooltip-${c.key}`} role="tooltip">
+                <div class="currency-tooltip-title">{c.label}</div>
+                <div class="currency-tooltip-body">{c.description}</div>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      </div>
+
       {#if tickBarEnabled}
       <div class="top-bar-tick-row">
         <span class="top-bar-tick-label">TICK:</span>
@@ -1856,6 +1979,13 @@
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
     padding: 10px 16px;
     flex-shrink: 0; /* never compresses, even if .tab-scroll-area's content is tall */
+    /* Own stacking layer (2026-07-09) so a currency info-tooltip, which drops
+       below the bar and overlaps the tab body, always paints above that
+       content. z-index:20 sits inside .frame's own z-index:1 context and stays
+       well under .modal-backdrop (z-index:100), so modals still cover the
+       header. */
+    position: relative;
+    z-index: 20;
   }
   /* Header redesign (2026-07-07, mid-plan addition unrelated to the loot/
      talent rework -- portrait placeholder + inline XP bar + one-line tick
@@ -1884,6 +2014,64 @@
   .top-bar-tick-label { font-size: 10px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
   .top-bar-tick-track { flex: 1; }
   .top-bar-tick-readout { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+  /* Currency strip (2026-07-09). A flex row of resource chips; wraps on narrow
+     screens so additional currencies never overflow the top bar. margin-bottom
+     matches the header block's own 8px so the tick row stays evenly spaced
+     whether or not this strip is present. */
+  .top-bar-currencies { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+  /* Positioning context for the absolutely-placed info tooltip below. */
+  .currency-chip-wrap { position: relative; display: inline-flex; }
+  /* One resource readout: accent glyph + mono value, boxed in a faint accent-
+     tinted pill so it reads as a distinct HUD element, not body text. It's a
+     real <button> (tap opens its info tooltip), so the rule also resets the UA
+     button look back to the pill styling. */
+  .currency-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    border-radius: 4px;
+    background: rgba(var(--color-accent-rgb), 0.08);
+    font: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent; /* suppress the grey Android tap flash */
+  }
+  /* Hover (desktop) and open (any input) share the brighter accent treatment so
+     the chip visibly responds whether or not its tooltip is currently showing. */
+  .currency-chip:hover,
+  .currency-chip.open {
+    border-color: rgba(var(--color-accent-rgb), 0.6);
+    background: rgba(var(--color-accent-rgb), 0.14);
+  }
+  .currency-chip-glyph { font-size: 11px; color: var(--color-accent); line-height: 1; }
+  .currency-chip-value { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-primary); white-space: nowrap; }
+  /* Info tooltip: drops just below its chip, left-aligned to it. width:max-content
+     keeps short labels tight while max-width wraps the flavor line. z-index sits
+     above the tab body; the .top-bar itself is lifted into its own stacking layer
+     (see .top-bar's position/z-index) so this popover always overlays content. */
+  .currency-tooltip {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 5;
+    width: max-content;
+    max-width: 240px;
+    padding: 8px 10px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    border-radius: 6px;
+    /* OPAQUE background (2026-07-09 fix). The panels' --color-panel-bg-strong is
+       only 6% alpha -- it reads as solid ONLY because panels add
+       backdrop-filter: blur(). This tooltip has no blur, so that variable let
+       the busy tab content behind bleed straight through and made the text
+       unreadable. Layer a faint themed accent wash over an OPAQUE dark base so
+       it fully occludes content yet still matches the console tint. */
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  }
+  .currency-tooltip-title {
+    font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase;
+    color: var(--color-accent); margin-bottom: 4px;
+  }
+  .currency-tooltip-body { font-size: 11px; line-height: 1.4; color: var(--color-text-secondary); }
   /* Outer nav (Task 1, Phase 4) -- now the LAST flex child inside .frame
      (Task 1 of this plan moved it here from being the first child of the old
      <main>), so it's the bottom-most thing in the flex column, visually
