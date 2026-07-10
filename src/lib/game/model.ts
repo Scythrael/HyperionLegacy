@@ -20,13 +20,13 @@ import Decimal from "break_infinity.js";
 export type ShipType = "resourcer";
 
 // --- Ships — Stats Foundation (docs/plans/2026-07-09-ships-stats-foundation-*) ---
-// A ship is a HULL with a stat profile, distinct from the captain flying it.
-// This first pass only ADDS the type vocabulary and the SHIP_TYPES table below;
-// nothing consumes them yet (GameState wiring, the mission math that reads
-// cargoCapacity/transitSpeedMult/extractionYieldMult, and the UI all land in
-// later tasks). The old `ShipType` alias above is deliberately left in place --
-// removing the fused CaptainState.shipType FIELD is a later task's job, not this
-// one, so both coexist for now.
+// A ship is a HULL with a stat profile, distinct from the captain flying it. The
+// type vocabulary + SHIP_TYPES table are below; the fleet's live hulls live on
+// GameState.ships, and a captain no longer carries a shipType -- a ShipInstance
+// knows its captain via assignedCaptainId (the single source of truth). The old
+// `ShipType = "resourcer"` alias above is now unused by the live type model;
+// it's left in place as harmless legacy (removing it is optional cleanup, out of
+// this feature's scope).
 
 // The design's "spec" families -- a ship's role identity, mirroring the captain
 // spec vocabulary (Prospector/Tactician/Explorer) so a hull and its intended
