@@ -4,6 +4,8 @@ import {
   tickCaptainMission,
   dispatchCaptainOnMission,
   recallCaptain,
+  assignShipToCaptain,
+  buyShip,
   craftRecipe,
   buyCaptainTalent,
   buyHomeworldTalent,
@@ -21,7 +23,7 @@ import {
   captainSpecBonusRollChance,
 } from "./tick";
 import Decimal from "break_infinity.js";
-import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
+import { freshState, freshCaptains, MISSIONS, RECIPES, shipDerivedStats, type CaptainMissionState } from "./model";
 
 function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
   return {
@@ -820,7 +822,6 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     // swaps the early return for a shallow copy, this still passes while the toBe above would catch it).
     expect(result.captains[0].id).toBe(before.id);
     expect(result.captains[0].label).toBe(before.label);
-    expect(result.captains[0].shipType).toBe(before.shipType);
     expect(result.captains[0].mission).toBe(before.mission);
     expect(result.captains[0].xp).toBe(before.xp);
     expect(result.captains[0].level).toBe(before.level);
@@ -1387,6 +1388,35 @@ describe("buyHomeworldTalent", () => {
     expect(next.captains[1].id).toBe(2);
   });
 
+  it("unlockCaptainSlot also grants + assigns a Freighter to the new captain (always-has-a-ship invariant), bumps nextShipId, and the captain carries no shipType", () => {
+    const state = freshState();
+    state.adminPoints = 10;
+    const originalNextShipId = state.nextShipId; // freshState() -> 2 ("ship-1" already taken)
+    const withHub = buyHomeworldTalent(state, "fleetLogisticsHub").next; // hub cost 1, makes slot1 learnable
+    const { next, success } = buyHomeworldTalent(withHub, "fleetLogisticsSlot1"); // cost 3, unlockCaptainSlot -> captain id 2
+    expect(success).toBe(true);
+
+    // A ship was appended, assigned to the newly-unlocked captain (id 2), typed
+    // generalFreighter, with the id minted from the PRE-bump nextShipId.
+    const newShip = next.ships.find((s) => s.assignedCaptainId === 2);
+    expect(newShip).toBeDefined();
+    expect(newShip!.typeKey).toBe("generalFreighter");
+    expect(newShip!.id).toBe(`ship-${originalNextShipId}`);
+
+    // nextShipId advanced by exactly 1 (2 -> 3), monotonic id source consumed.
+    expect(next.nextShipId).toBe(originalNextShipId + 1);
+
+    // The new captain no longer owns a hull -- shipType was removed entirely
+    // (captain/ship separation). Not "resourcer", not any value: absent.
+    expect("shipType" in next.captains[1]).toBe(false);
+
+    // Invariant: every captain has exactly one assigned ship in next.ships.
+    for (const captain of next.captains) {
+      const assigned = next.ships.filter((s) => s.assignedCaptainId === captain.id);
+      expect(assigned).toHaveLength(1);
+    }
+  });
+
   it("fails if adminPoints are insufficient (even for a learnable node)", () => {
     const state = freshState();
     state.adminPoints = 0; // fleetLogisticsHub costs 1; adjacency gate passes (hub), cost gate fails
@@ -1665,5 +1695,427 @@ describe("applyFleetAdminXp", () => {
     // .toNumber() on both sides -- toBeLessThan needs plain-number operands, and
     // backloggedXp is a captured Decimal reference from afterFirstCappedCall above.
     expect(afterSecondCall.fleetAdminXp.toNumber()).toBeLessThan(backloggedXp.toNumber());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ships — Stats Foundation, Task 6: the assigned ship's three derived stats
+// (cargoCapacity, transitSpeedMult, extractionYieldMult) threaded into
+// tickCaptainMission via its optional 5th param `shipStats`. Two invariants
+// under test:
+//   1. Passing shipStats = null (or omitting the 5th arg entirely) reproduces
+//      today's exact behavior -- the ship path is strictly additive, never a
+//      silent change to no-ship callers.
+//   2. The CLOSED-FORM guarantee (one big ticksElapsed == many small ones
+//      summing to the same total) survives the ship modifier. This holds for
+//      the SAME structural reason the existing `bonuses` constant does: the
+//      ship's effect is baked into `missionDef` (via effectiveMissionDef) and
+//      into `resolvedBonuses` ONCE, before the while loop, so it's constant
+//      across the whole call regardless of how the call was chunked.
+// A helper mirrors shipDerivedStats' real input shape (a ShipInstance) so these
+// tests exercise the production projection, not a hand-built stub.
+// ---------------------------------------------------------------------------
+describe("tickCaptainMission — assigned ship stats (Task 6)", () => {
+  // Builds a ShipDerivedStats the same way production will: from a real
+  // ShipInstance run through shipDerivedStats. assignedCaptainId is irrelevant
+  // to tickCaptainMission (it never reads assignment -- Task 3 removed that);
+  // null is fine and matches a parked-but-projected hull.
+  const shipStatsFor = (typeKey: "prospectorHauler" | "prospectorRunner" | "prospectorMiner") =>
+    shipDerivedStats({ id: "h", typeKey, assignedCaptainId: null });
+
+  it("passing shipStats = null behaves EXACTLY as omitting the 5th arg (backward-compat)", () => {
+    // Two captains seeded identically, mid-mission on shortOreRun, so the call
+    // actually exercises phase progression + an extraction stretch (not just a
+    // no-op). ALWAYS_MIN_ROLL keeps rng constant so both paths roll identically.
+    const baseA = freshCaptains(1)[0];
+    baseA.mission = { ...missionCaptain("shortOreRun"), phase: "extracting", phaseProgressTicks: 0 };
+    const baseB = freshCaptains(1)[0];
+    baseB.mission = { ...missionCaptain("shortOreRun"), phase: "extracting", phaseProgressTicks: 0 };
+
+    // Path 1: no 5th arg at all (the pre-Task-6 call shape every existing site uses).
+    const noArg = tickCaptainMission(50, baseA, ALWAYS_MIN_ROLL, {});
+    // Path 2: explicit null 5th arg (the new default, spelled out).
+    const nullArg = tickCaptainMission(50, baseB, ALWAYS_MIN_ROLL, {}, null);
+
+    // toEqual across the whole returned mission is safe here: with ALWAYS_MIN_ROLL
+    // (rare wins every roll), commonOre/uncommonMaterial are exactly Decimal(0) on
+    // both paths, and the only non-zero cargo (rareMaterial) is built by the SAME
+    // sequence of .plus() ops on both -- structurally identical Decimals, not just
+    // numerically equal, so toEqual holds. If this ever gets brittle, drop to the
+    // per-key .equals() shape used elsewhere in this file.
+    expect(nullArg.captain.mission).toEqual(noArg.captain.mission);
+    expect(nullArg.captain.xp.equals(noArg.captain.xp)).toBe(true);
+    expect(nullArg.captain.level).toBe(noArg.captain.level);
+    expect(nullArg.captain.statPoints).toBe(noArg.captain.statPoints);
+    expect(nullArg.fleetAdminXpDelta).toBe(noArg.fleetAdminXpDelta);
+    expect(nullArg.creditsDelta).toBe(noArg.creditsDelta);
+    expect(nullArg.homePlanetDelta.commonOre.equals(noArg.homePlanetDelta.commonOre)).toBe(true);
+    expect(nullArg.homePlanetDelta.uncommonMaterial.equals(noArg.homePlanetDelta.uncommonMaterial)).toBe(true);
+    expect(nullArg.homePlanetDelta.rareMaterial.equals(noArg.homePlanetDelta.rareMaterial)).toBe(true);
+  });
+
+  // The CRITICAL test. Mirrors the primary "one big jump equals many small
+  // ticks" closed-form test, but passes a real ship's stats on BOTH the big
+  // call and every small step. Run for two hulls with DIFFERENT transit/cargo
+  // so the assertion exercises the ship-modified phase geometry, not just the
+  // base one:
+  //   - HAULER: cargo 180 (extract phase 180 ticks, not 90), transit 0.8
+  //     (transitOut/Back ceil(25/0.8)=32 ticks, not 25) -> full cycle
+  //     1+32+180+32+8 = 253 ticks.
+  //   - RUNNER: cargo 60 (extract 60), transit 1.5 (ceil(25/1.5)=17) -> full
+  //     cycle 1+17+60+17+8 = 103 ticks.
+  // Because effectiveMissionDef is computed ONCE per call (constant across the
+  // whole while loop), the big call and the small-step chain see the SAME
+  // requiredTicksForPhase values for every phase -- exactly the property that
+  // makes the base closed-form test pass, now with ship-scaled thresholds.
+  const closedFormForShip = (
+    typeKey: "prospectorHauler" | "prospectorRunner",
+    bigTicks: number,
+    steps: number
+  ) => {
+    const ship = shipStatsFor(typeKey);
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain("shortOreRun");
+
+    const bigJump = tickCaptainMission(bigTicks, base, ALWAYS_MIN_ROLL, {}, ship);
+
+    let steppedCaptain = base;
+    let steppedDelta = { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
+    const stepSize = bigTicks / steps;
+    for (let i = 0; i < steps; i++) {
+      const result = tickCaptainMission(stepSize, steppedCaptain, ALWAYS_MIN_ROLL, {}, ship);
+      steppedCaptain = result.captain;
+      steppedDelta = {
+        commonOre: steppedDelta.commonOre.plus(result.homePlanetDelta.commonOre),
+        uncommonMaterial: steppedDelta.uncommonMaterial.plus(result.homePlanetDelta.uncommonMaterial),
+        rareMaterial: steppedDelta.rareMaterial.plus(result.homePlanetDelta.rareMaterial),
+      };
+    }
+
+    // Same per-key .equals()/toBeCloseTo shape as the base closed-form test.
+    expect(bigJump.captain.mission!.phase).toBe(steppedCaptain.mission!.phase);
+    expect(bigJump.captain.mission!.phaseProgressTicks).toBeCloseTo(steppedCaptain.mission!.phaseProgressTicks, 6);
+    expect(bigJump.captain.mission!.recalled).toBe(steppedCaptain.mission!.recalled);
+    expect(bigJump.captain.mission!.missionKey).toBe(steppedCaptain.mission!.missionKey);
+    expect(bigJump.captain.mission!.cargo.commonOre.equals(steppedCaptain.mission!.cargo.commonOre)).toBe(true);
+    expect(bigJump.captain.mission!.cargo.uncommonMaterial.equals(steppedCaptain.mission!.cargo.uncommonMaterial)).toBe(
+      true
+    );
+    expect(bigJump.captain.mission!.cargo.rareMaterial.equals(steppedCaptain.mission!.cargo.rareMaterial)).toBe(true);
+    // xp / level carried by the captain must agree across chunking too.
+    expect(bigJump.captain.xp.equals(steppedCaptain.xp)).toBe(true);
+    expect(bigJump.captain.level).toBe(steppedCaptain.level);
+    expect(bigJump.homePlanetDelta.commonOre.equals(steppedDelta.commonOre)).toBe(true);
+    expect(bigJump.homePlanetDelta.uncommonMaterial.equals(steppedDelta.uncommonMaterial)).toBe(true);
+    expect(bigJump.homePlanetDelta.rareMaterial.equals(steppedDelta.rareMaterial)).toBe(true);
+  };
+
+  it("CLOSED-FORM holds with a HAULER (cargo 180 / transit 0.8) as shipStats", () => {
+    // 560 ticks crosses more than 2 full hauler cycles (2*253=506). 5600 steps
+    // of 0.1 each sum to the same 560 -- same step granularity as the base test.
+    closedFormForShip("prospectorHauler", 560, 5600);
+  });
+
+  it("CLOSED-FORM holds with a RUNNER (cargo 60 / transit 1.5) as shipStats", () => {
+    // 230 ticks crosses more than 2 full runner cycles (2*103=206). 2300 steps
+    // of 0.1 each sum to the same 230.
+    closedFormForShip("prospectorRunner", 230, 2300);
+  });
+
+  it("MINER's extractionYieldMult (1.35) scales one extracting tick's common yield to 1.35x the null baseline", () => {
+    // rng constant 0.5: for shortOreRun (rareChance 0.001, uncommonChance 0.019)
+    // both occurrence checks fail (0.5 < 0.001? no; 0.5 < 0.019? no), so common
+    // wins by default every roll. That isolates extractionYieldMult's effect on
+    // the common tier's amount: null path yields baseAmount*(1+0)=1 per extracting
+    // tick; miner path folds yieldMult-1 = 0.35 into commonYieldMult, so
+    // baseAmount*(1+0.35)=1.35 per tick. Ratio is exactly 1.35.
+    const COMMON_WINS = () => 0.5;
+
+    const baseNull = freshCaptains(1)[0];
+    baseNull.mission = { ...missionCaptain("shortOreRun"), phase: "extracting", phaseProgressTicks: 0 };
+    const nullResult = tickCaptainMission(1, baseNull, COMMON_WINS, {}, null);
+
+    const baseMiner = freshCaptains(1)[0];
+    baseMiner.mission = { ...missionCaptain("shortOreRun"), phase: "extracting", phaseProgressTicks: 0 };
+    const minerResult = tickCaptainMission(1, baseMiner, COMMON_WINS, {}, shipStatsFor("prospectorMiner"));
+
+    // Absolute values first (proves the exact amounts, not just the ratio):
+    expect(nullResult.captain.mission!.cargo.commonOre.equals(1)).toBe(true);
+    expect(minerResult.captain.mission!.cargo.commonOre.equals(1.35)).toBe(true);
+    // Then the 1.35x relationship the task calls out explicitly:
+    const nullCommon = nullResult.captain.mission!.cargo.commonOre;
+    const minerCommon = minerResult.captain.mission!.cargo.commonOre;
+    expect(minerCommon.equals(nullCommon.times(1.35))).toBe(true);
+    // Miner leaves cargoCapacity 90 / transit 1.0 unchanged, so nothing but the
+    // common AMOUNT should differ -- uncommon/rare stay at 0 on both paths.
+    expect(minerResult.captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect(minerResult.captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 7: tick() resolves each captain's assigned ship and passes its stats
+// into tickCaptainMission. This is the INTEGRATION point -- Task 6 taught
+// tickCaptainMission to ACCEPT a 5th shipStats arg, but only tick() knows which
+// hull a captain flies (via GameState.ships[].assignedCaptainId). These tests
+// prove the fleet loop looks the ship up and threads its stats through, so a
+// captain's assigned hull actually changes their mission math end-to-end.
+//
+// NOTE ON RNG: unlike the Task 6 tickCaptainMission tests, tick() calls
+// tickCaptainMission with Math.random internally (not an injectable rng), so
+// these assertions are deliberately built on rng-INDEPENDENT quantities:
+//   - which PHASE a captain is in after N ticks (pure function of transit/cargo
+//     geometry, no rng), and
+//   - the TOTAL units delivered to homePlanet.storage on cycle completion. Each
+//     whole extracting tick adds exactly 1 unit total across tiers (the tier is
+//     rng-chosen, but the count is not -- see rollExtractionTick's mutual-
+//     exclusivity comment), so a completed cycle delivers exactly cargoCapacity
+//     units regardless of how Math.random split them across tiers.
+// ---------------------------------------------------------------------------
+describe("tick() — applies each captain's assigned-ship stats to their mission", () => {
+  // Sum of the three loot tiers in homePlanet.storage -- the rng-independent
+  // "total units delivered" quantity the traces below rely on.
+  const totalHomeLoot = (state: ReturnType<typeof freshState>) => {
+    const s = state.homePlanet.storage;
+    return s.commonOre.plus(s.uncommonMaterial).plus(s.rareMaterial);
+  };
+
+  // Put freshState()'s single captain (id 1) on a fresh shortOreRun, at the very
+  // start of the cycle (ordersReceived / 0). freshState seeds exactly one hull
+  // (ship-1, generalFreighter, assignedCaptainId: 1) -- so out of the box this
+  // captain flies the Freighter, which is the pre-ship-wiring implicit baseline
+  // (transit 1.0 / cargo 90 / yield 1.0 == effectiveMissionDef no-op).
+  const stateOnShortOreRun = () => {
+    const state = freshState();
+    state.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "ordersReceived",
+      phaseProgressTicks: 0,
+      cargo: { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
+      recalled: false,
+    };
+    return state;
+  };
+
+  it("a RUNNER-assigned captain is FURTHER ALONG than a FREIGHTER-assigned captain for the same elapsed time", () => {
+    // tickDurationSeconds = 1 (fresh default), so deltaSeconds == ticksElapsed.
+    // Run both for 103 ticks -- chosen because that is EXACTLY one full RUNNER
+    // cycle, so the runner's lead is unmissable (it completes and delivers,
+    // while the freighter has not even finished its first extraction).
+    //
+    // Cycle geometry (shortOreRun base: orders 1, transitOut/Back 25 each,
+    // extract = ceil(cargoCapacity/1) ticks, unload 8):
+    //   FREIGHTER (transit 1.0, cargo 90): 1 + 25 + 90 + 25 + 8 = 149 ticks/cycle.
+    //     Cumulative boundaries: orders done @1, transitOut done @26, extracting
+    //     done @116. At 103 ticks the freighter is STILL in "extracting", at
+    //     progress 103 - 26 = 77 of 90 -> ZERO cycles completed -> ZERO loot
+    //     delivered to homePlanet (loot only lands on unload completion).
+    //   RUNNER (transit 1.5, cargo 60): transitOut/Back = ceil(25/1.5) = 17 each,
+    //     extract = 60. 1 + 17 + 60 + 17 + 8 = 103 ticks/cycle. At 103 ticks the
+    //     runner completes EXACTLY one cycle and auto-repeats -> back at
+    //     "ordersReceived", having delivered a full 60-unit haul to homePlanet.
+    const DELTA = 103;
+
+    // Case A: baseline -- the seeded Freighter stays assigned to captain 1.
+    const stateA = stateOnShortOreRun();
+    const resultA = tick(DELTA, stateA);
+
+    // Case B: swap captain 1's hull to a Runner by mutating the seeded ship's
+    // typeKey (cleaner than adding a second ship + re-parking -- assignment is
+    // unchanged, only the hull type differs, isolating the stat effect).
+    const stateB = stateOnShortOreRun();
+    stateB.ships[0].typeKey = "prospectorRunner";
+    const resultB = tick(DELTA, stateB);
+
+    // Runner completed a cycle and is back at the start; freighter is mid-extract.
+    expect(resultA.captains[0].mission!.phase).toBe("extracting");
+    expect(resultA.captains[0].mission!.phaseProgressTicks).toBeCloseTo(77, 6);
+    expect(resultB.captains[0].mission!.phase).toBe("ordersReceived");
+
+    // The decisive rng-independent proof: the runner delivered a full haul; the
+    // freighter delivered nothing. Freighter delivered EXACTLY 0 (no cycle done);
+    // runner delivered EXACTLY 60 (one completed cycle == its cargoCapacity).
+    expect(totalHomeLoot(resultA).equals(0)).toBe(true);
+    expect(totalHomeLoot(resultB).equals(60)).toBe(true);
+    // ...and, stated as the task frames it, runner strictly further along.
+    expect(totalHomeLoot(resultB).greaterThan(totalHomeLoot(resultA))).toBe(true);
+
+    // Cycle completion also awards fleet XP + credits (shortOreRun: 1 XP, 10 cr
+    // per cycle) -- another independent confirmation the runner completed and
+    // the freighter did not.
+    expect(resultB.fleetAdminXp.greaterThan(resultA.fleetAdminXp)).toBe(true);
+    expect(resultB.credits.equals(10)).toBe(true);
+    expect(resultA.credits.equals(0)).toBe(true);
+  });
+
+  it("with the seeded FREIGHTER (transit 1.0 / cargo 90 / yield 1.0), tick() matches the pre-ship-wiring baseline", () => {
+    // The Freighter's stats are all identity (effectiveMissionDef is a no-op for
+    // transit 1.0 / cargo 90 == shortOreRun's own base cargo). So passing its
+    // shipStats must produce the SAME phase geometry as passing null (the old
+    // implicit "no ship" behavior). We verify by checking the exact phase the
+    // Freighter captain lands in after a 103-tick run -- computed purely from the
+    // 149-tick base cycle, no ship modifier involved.
+    //
+    // At 103 ticks: orders done @1, transitOut done @26, so extracting progress
+    // = 103 - 26 = 77 of 90 -> phase "extracting", phaseProgressTicks 77. This is
+    // identical to what tick() produced BEFORE ship stats were wired in (the
+    // Freighter == today's implicit ship), which is the whole point of seeding it
+    // as the universal grandfathered hull.
+    const state = stateOnShortOreRun();
+    const result = tick(103, state);
+
+    expect(result.captains[0].mission!.phase).toBe("extracting");
+    expect(result.captains[0].mission!.phaseProgressTicks).toBeCloseTo(77, 6);
+    // No cycle completed within 103 < 149 ticks -> no loot, no XP, no credits.
+    expect(totalHomeLoot(result).equals(0)).toBe(true);
+    expect(result.fleetAdminXp.equals(0)).toBe(true);
+    expect(result.credits.equals(0)).toBe(true);
+  });
+});
+
+describe("assignShipToCaptain", () => {
+  // Build a 2-captain / 2-ship fleet directly on top of freshState(), the same
+  // "start from freshState(), then overwrite the fields this test cares about"
+  // idiom every other action-function test in this file uses (see
+  // dispatchCaptainOnMission / recallCaptain above). freshState() already seeds
+  // captain 1 flying "ship-1"; each test below layers a second captain and a
+  // second parked ship on top so the swap/lock/in-use cases have something to
+  // act on. captain 1's mission stays null (idle) unless a test explicitly sets
+  // it, matching freshCaptainStack's baseline.
+  function twoShipFleet() {
+    const state = freshState();
+    state.captains = freshCaptains(2); // captains 1 and 2, both idle (mission: null)
+    // Explicit, hand-built 2-ship layout: captain 1 flies ship-1, ship-2 parked.
+    state.ships = [
+      { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 },
+      { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null },
+    ];
+    return state;
+  }
+
+  it("swaps: assigns the target ship and auto-parks the captain's previous (different) hull", () => {
+    // captain 1 flies ship-1; ship-2 is parked. Assigning ship-2 to captain 1
+    // moves them onto ship-2 and parks ship-1 (assignedCaptainId -> null).
+    const state = twoShipFleet();
+    const { next, success } = assignShipToCaptain(state, 1, "ship-2");
+
+    expect(success).toBe(true);
+    const ship1 = next.ships.find((s) => s.id === "ship-1")!;
+    const ship2 = next.ships.find((s) => s.id === "ship-2")!;
+    expect(ship2.assignedCaptainId).toBe(1); // target now flown by captain 1
+    expect(ship1.assignedCaptainId).toBe(null); // previous hull auto-parked
+  });
+
+  it("self-reassign is a harmless no-op: the captain keeps the ship they already fly (NOT parked)", () => {
+    // ORDERING GUARD TEST. captain 1 flies ship-1. Re-assigning ship-1 to
+    // captain 1 must leave ship-1 STILL assigned to captain 1 -- it must NOT be
+    // nulled. This is the case the .map() ordering exists to protect: the target
+    // branch (s.id === shipId) runs first and wins, so the "park the old hull"
+    // branch never sees ship-1 as a *different* old hull to park.
+    const state = twoShipFleet();
+    const { next, success } = assignShipToCaptain(state, 1, "ship-1");
+
+    expect(success).toBe(true);
+    const ship1 = next.ships.find((s) => s.id === "ship-1")!;
+    expect(ship1.assignedCaptainId).toBe(1); // STILL captain 1's -- not parked
+  });
+
+  it("fails (same state reference) if the captain is on a mission -- hull can't change mid-cycle", () => {
+    // The on-mission lock is load-bearing for the closed-form guarantee: a hull
+    // that changed mid-mission would invalidate effectiveMissionDef's per-cycle
+    // stability. captain 1 has a live mission -> assignment must refuse.
+    const state = twoShipFleet();
+    state.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "extracting",
+      phaseProgressTicks: 4,
+      cargo: { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
+      recalled: false,
+    };
+
+    const { next, success } = assignShipToCaptain(state, 1, "ship-2");
+    expect(success).toBe(false);
+    expect(next).toBe(state); // same reference, unchanged
+  });
+
+  it("fails (same state reference) if the target ship is assigned to a DIFFERENT captain", () => {
+    // ship-2 is flown by captain 2. captain 1 cannot poach it -- assignment
+    // refuses rather than stealing another captain's hull.
+    const state = twoShipFleet();
+    state.ships[1] = { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: 2 };
+
+    const { next, success } = assignShipToCaptain(state, 1, "ship-2");
+    expect(success).toBe(false);
+    expect(next).toBe(state); // same reference, unchanged
+  });
+
+  it("fails (same state reference) if the captain or the ship does not exist", () => {
+    const state = twoShipFleet();
+
+    const missingCaptain = assignShipToCaptain(state, 999, "ship-2");
+    expect(missingCaptain.success).toBe(false);
+    expect(missingCaptain.next).toBe(state); // same reference
+
+    const missingShip = assignShipToCaptain(state, 1, "ship-999");
+    expect(missingShip.success).toBe(false);
+    expect(missingShip.next).toBe(state); // same reference
+  });
+});
+
+describe("buyShip", () => {
+  // Same "start from freshState(), then overwrite only the fields this test
+  // cares about" idiom every other action-function test in this file uses.
+  // freshState() seeds credits Decimal(0), one ship ("ship-1"),
+  // shipStorageCapacity 8, nextShipId 2 -- each test below overrides the
+  // subset it depends on. The `!def.cost` (not-purchasable) guard inside
+  // buyShip is NOT tested here: all 4 current SHIP_TYPES hulls have a non-null
+  // cost, so that branch is unreachable with any real ShipTypeKey. It is
+  // forward-defensive for future Research-gated non-purchasable hulls and
+  // cannot be exercised without hacking a fake null-cost type into the model,
+  // which the task explicitly forbids -- so it is left untested by design.
+  it("buys a hull when affordable and under storage cap: appends a PARKED ship, deducts credits, bumps nextShipId", () => {
+    // credits 500 seeded (freshState default is 0); prospectorHauler costs 150.
+    // freshState has 1 ship, cap 8 (under cap), nextShipId 2 -- so the new ship
+    // takes id "ship-2" and nextShipId advances to 3. New ship is parked
+    // (assignedCaptainId null); credits land at 500 - 150 = 350.
+    const state = freshState();
+    state.credits = new Decimal(500);
+
+    const { next, success } = buyShip(state, "prospectorHauler");
+
+    expect(success).toBe(true);
+    expect(next.ships.length).toBe(state.ships.length + 1); // one more hull than before
+    const bought = next.ships[next.ships.length - 1];
+    expect(bought).toEqual({ id: "ship-2", typeKey: "prospectorHauler", assignedCaptainId: null });
+    expect(next.credits.equals(350)).toBe(true); // 500 - 150, via Decimal .minus
+    expect(next.nextShipId).toBe(3); // 2 -> 3, monotonic id source bumped
+  });
+
+  it("fails (same state reference) when storage is at capacity", () => {
+    // Fill ships up to shipStorageCapacity so the cap guard fires BEFORE the
+    // affordability check -- credits are set high enough that only the cap can
+    // be the cause of failure.
+    const state = freshState();
+    state.credits = new Decimal(500);
+    state.shipStorageCapacity = 2;
+    state.ships = [
+      { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 },
+      { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null },
+    ]; // length 2 === shipStorageCapacity 2 -> full
+
+    const { next, success } = buyShip(state, "prospectorHauler");
+    expect(success).toBe(false);
+    expect(next).toBe(state); // same reference, unchanged
+  });
+
+  it("fails (same state reference) when credits are insufficient", () => {
+    // credits 10 < prospectorHauler cost 150; under cap, so the affordability
+    // guard is the sole cause of failure.
+    const state = freshState();
+    state.credits = new Decimal(10);
+
+    const { next, success } = buyShip(state, "prospectorHauler");
+    expect(success).toBe(false);
+    expect(next).toBe(state); // same reference, unchanged
   });
 });

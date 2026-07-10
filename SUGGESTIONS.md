@@ -443,3 +443,147 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   and the "Crew system" (races/roles) entries above -- design the ground-troop + loadout pieces as shared
   mechanics when the time comes. Deep future: depends on Combat/Battlespace, Ships, and the Starbase all
   existing first. Not scoped -- pure direction.
+
+- **Crew leveling, augmentation/cybernetics, and ship crew capacity.** User idea, 2026-07-09, raised
+  during the Ships: Stats Foundation build -- extends the "Crew system" entry above, now with the ship
+  system explicitly in mind:
+  - **Crew leveling + rank-up:** crew members gain levels (roughly 1-10) and can rank up; the buff their
+    role/seat provides IMPROVES with level/rank -- a leveled crew member is worth more than a fresh one
+    (same "level your bench" incentive the Crew-station and Holocore ideas share). Needs a per-crew
+    level/rank field + a curve, whenever the Crew system is actually built.
+  - **Augmentation / cybernetics:** a NEW crafted item class, unlocked via Research (see the Research
+    engine designed alongside the ships-stats-foundation feature, `docs/plans/2026-07-09-ships-stats-
+    foundation-design.md`) and crafted, then installed on INDIVIDUAL crew members via their OWN per-crew
+    equip slots (distinct from ship modules/equipment). Each augment gives a SMALL bonus to the SHIP the
+    crew member is posted on -- so crew augmentation is a third bonus layer stacking on top of captain
+    talents + ship modules/equipment. Reuses the Research + crafting chains rather than inventing a new
+    unlock path.
+  - **Ship crew capacity + maximum capacity:** ships gain a crew-capacity stat (how many crew can be
+    posted, feeding the augment/role bonuses) AND a maximum-capacity stat (total bodies carried). Some
+    FUTURE mission types would gate on capacity -- evacuation / transport / colony-settling missions
+    selected by a captain would require a minimum crew and/or max capacity (e.g. "settling a colony
+    needs N colonists of transport capacity"). Ties into the deferred "Landing Party missions" loadout
+    idea and the Medical-transport Explorer hull bucket (crew-landing) documented in the ships-stats-
+    foundation design. When the Crew system is built, add `crewCapacity`/`maxCapacity` as forward
+    `ShipTypeDef` buckets, the same way `moduleSlots`/`equipmentSlots` were carried forward in that
+    feature.
+  - All deep-future: depends on the Crew system, Research, crafting, and the ship module/equipment
+    framework all existing first. Not scoped -- captured so it isn't relitigated.
+
+- **Ship salvage / sell.** Raised during the Ships: Stats Foundation build (2026-07-09): a way to salvage a
+  hull for a PARTIAL return of its crafting materials (roughly ~60%, deliberately not 100% so building and
+  scrapping isn't a wash), or sell it outright for `credits` -- both a way to free up ship-storage-capacity
+  slots and to recover some value from a hull you no longer want. Depends on the crafting/Research economy
+  (the going-forward acquisition method is a resource-cost build action, deferred). Logged in the design
+  doc's deferred list (`docs/plans/2026-07-09-ships-stats-foundation-design.md`). Not scoped -- no salvage-
+  rate, sell-price, or UI decisions made.
+
+- **Ship storage-capacity growth.** Ships: Stats Foundation (2026-07-09): `shipStorageCapacity` starts at 8
+  and is a FIXED cap this pass -- there's no in-game way to raise it yet. A future Sector Space / Starbase
+  upgrade should grow it (the user's stated forward target is roughly ~50-100 eventually). Documented forward
+  in the design doc; the cap field already exists, so this is a growth-mechanic add later, not a data-model
+  change.
+
+- **`minCargoRequired` mission gate.** Ships: Stats Foundation (2026-07-09): a forward `MissionDef` field
+  letting a mission require a captain's hull to have at least a minimum cargo capacity to undertake it (the
+  same "requires N ft^3 of hold" idea already logged in the older "Cargo capacity as a real ship stat" entry
+  above, now with ships actually existing). Cheap to add -- a single optional field plus one eligibility
+  check -- and unused until some mission actually sets it. Noted in the design doc's deferred list.
+
+- **The 6 deferred hull buckets + ship modules/equipment/reactor + Research.** Pointer entry: this pass ships
+  4 real hulls (General Freighter + 3 Prospector: Hauler/Runner/Prospector). The full 10-hull roster adds 6
+  more documented-but-unbuilt buckets -- Tactician: Destroyer (glass cannon) / Battleship (tank) / Carrier;
+  Explorer: Cruiser (long-haul + diplomacy) / Survey vessel / Medical transport (crew-landing) -- with
+  Explorer/science hulls deliberately carrying MORE module slots as their identity. Alongside them: the ship
+  **modules / equipment / reactor-core** framework (buckets already baked inert into `ShipTypeDef`/`Ship`),
+  and the **Research** unlock engine that gates better ships/modules/tiers. All documented in the forward-
+  compat section of `docs/plans/2026-07-09-ships-stats-foundation-design.md`. Research is the intended NEXT
+  feature -- it's the ship-upgrade engine. (History note in that doc: this Research is NOT a revert of the
+  Phase-4-cut generator-stack Research; see the doc's "History note" section.)
+
+- **Captain-id scheme is length-derived (pre-existing, flagged during Ships Task 10 review).**
+  `buyHomeworldTalent`'s `unlockCaptainSlot` effect computes a new captain's id as
+  `nextId = state.captains.length + 1`. This is safe ONLY while the `captains` array is strictly append-only
+  (which it is today -- there's no captain-removal or reorder mechanic anywhere). If a captain-REMOVAL or
+  reorder feature is ever added, this will silently collide ids (delete captain 2 of 3, unlock a slot, and
+  the "new" captain reuses an existing id). Fix BEFORE adding any such feature: switch captains to a
+  monotonic id counter, exactly like the ships feature already did with `nextShipId`. Not a bug today --
+  a latent trap gated on a feature that doesn't exist yet.
+
+- **Unify the two mission-tick code paths (root-cause refactor).** Flagged by the Ships: Stats Foundation
+  holistic review (2026-07-09). There are currently TWO copies of the per-captain mission-advancement math:
+  the canonical `tick()` in `tick.ts` (used for offline catch-up + the dev simulate button), and a
+  hand-maintained DUPLICATE inside `App.svelte`'s live `setInterval` poll (which drives the animated
+  progress bars during normal play). Every change to `tickCaptainMission`'s inputs must be mirrored into
+  BOTH, and the live copy keeps drifting: it already dropped the resourcefulness bonus-roll fields (5-field
+  vs 8-field `bonuses` -- see KNOWN_ISSUES.md), and the ships feature initially dropped ship stats there too
+  (fixed in `9fc67a6`). This is the SECOND stat category to fall through the same crack, so per Omega-10
+  (Root Cause Protocol) the durable fix is to have the live loop CALL `tick()` (or a shared per-captain
+  helper) rather than re-derive the math -- then the live path and offline path can never diverge again.
+  Non-trivial: the live loop also handles per-poll animated progress, `anyFired`/copy-on-write semantics,
+  and log emission, so it needs a careful pass to extract the shared math without losing the live-progress
+  behavior. Its own focused refactor + device-check, not a mid-feature change -- but it's the real fix for a
+  recurring class of "live loop drifted from `tick()`" bugs.
+
+- **Save-file integrity / anti-tamper (with an important security caveat).** User idea, 2026-07-09: encrypt
+  or sign the localStorage save (today it's just `LZString`-compressed base64 JSON -- trivially editable in
+  devtools) to stop malicious actors tampering, since the game is eventually meant to be multiplayer. WORTH
+  DOING for what it can actually do -- but the caveat matters and was flagged at capture time so it isn't
+  built with false expectations:
+  - **Client-side encryption/signing is tamper-RESISTANCE, not tamper-PROOFING.** Whatever key + algorithm
+    encrypts the save ships INSIDE the client bundle, so a determined attacker extracts the key, decrypts,
+    edits, and re-encrypts/re-signs. Obfuscation deters CASUAL cheating (devtools save-editing) and can
+    detect corruption, but it cannot stop a motivated attacker -- the client fundamentally can't keep a
+    secret from the machine running it.
+  - **The real multiplayer-fairness answer is SERVER-AUTHORITATIVE state**: the server runs or bounds-checks
+    the economy so a tampered client can't inject impossible values into anything that affects OTHER players
+    (leaderboards, PvP, shared economy). HMAC-signing saves with a key held ONLY on the server is the middle
+    ground, but that -- by definition -- requires the backend to do the signing/validating. So the anti-cheat-
+    for-multiplayer goal is DOWNSTREAM of the backend/auth/cloud-save work already logged in the "Clerk-based
+    auth (Vercel) + multiplayer" entry above; it is not solvable client-side alone.
+  - Practical split: (a) local encryption/signature + corruption detection is a fine SINGLE-PLAYER integrity /
+    casual-deterrent measure buildable anytime (relates to the corrupt-save-handling gap in KNOWN_ISSUES);
+    (b) actual multiplayer anti-cheat waits for the server-authoritative backend. Don't conflate the two, and
+    don't let (a) create a false sense of (b). Not scoped -- no crypto scheme, key-management, or
+    server-validation design chosen.
+
+- **Daily reward campaigns (daily-login rewards).** User idea, 2026-07-09: a daily-reward / login-streak
+  system granting escalating rewards for consecutive days played -- credits (the user's example: 50 credits),
+  materials, and eventually cosmetics/other goodies. Standard idle-game retention mechanic. Caveat (same
+  family as the save-anti-tamper and redemption-codes notes above): a purely CLIENT-SIDE daily reset -- one
+  that checks the local `Date` -- is trivially gamed by advancing the system clock, so a robust version needs
+  a TRUSTED SERVER TIME SOURCE, downstream of the backend/auth work (see the "Clerk-based auth + multiplayer"
+  entry). A client-only version is a fine casual first pass IF you accept the clock-cheese and don't let it
+  grant anything multiplayer-competitive. Not scoped: the reward tier table, streak-based vs plain-calendar-
+  day, missed-day/catch-up rules, and where it surfaces (likely a modal on load, sharing the same on-load-
+  modal slot as the offline "welcome back" summary idea). Ties into: the credits economy, redemption codes,
+  the offline welcome-back modal, and the future account/backend system.
+
+- **Cargo & progression redesign (dedicated brainstorm — cargo-as-true-cap + mission cargo requirements).**
+  Surfaced during the Ships: Stats Foundation playtest (2026-07-09): a Freighter (cargo 90) returned 94 total.
+  Root cause (not a code bug -- the shipped design): `cargoCapacity` drives the extraction-phase LENGTH
+  (`ceil(cargoCapacity / extractionRatePerTick)`), it is NOT a hard cap on returned cargo. So per-tick yield
+  talents + the (now-live, post-bonus-roll-fix) resourcefulness bonus-roll push totals above nominal cargo.
+  The user wants (a) cargo to be a REAL hold cap, and (b) missions to REQUIRE a minimum cargo/progress level
+  to undertake (a real progression gate), BOTH "designed thoughtfully so it's not gimmicky." These are one
+  mechanic -- brainstorm them TOGETHER, not piecemeal. This entry supersedes/absorbs the older terse
+  "`minCargoRequired` mission gate" and the "Cargo capacity as a real ship stat" (headroom-above-baseline)
+  entries above.
+  - **Cargo as a true hold cap (the 94>90 fix).** Recommended direction, closed-form-SAFE: DECOUPLE the
+    mission's guaranteed haul (which drives extraction length) from the ship's `cargoCapacity` (a hold cap
+    with HEADROOM above the mission's base haul), then CLAMP total returned cargo at the ship cap. Then
+    bonus-roll/lucky overflow lands up to the cap -- a Hauler (180) keeps big lucky hauls, a Runner (60) can
+    OVERFLOW its small hold and lose the excess (a real, intuitive tradeoff), and a hull can never return
+    more than its hold. This also turns cargo from the current "throughput-neutral" weak stat into a
+    meaningful one, and changes the Hauler's identity from "longer runs" to "bigger hold" (arguably more
+    intuitive). AVOID: (i) plain clamp at today's cargo=extraction-target -- base already fills the hold, so
+    it just DELETES all bonus-roll loot (neuters Lucky Strike); (ii) the literal "stop extracting + return
+    home early when the hold fills" -- that's an RNG-dependent stopping time that BREAKS the closed-form
+    offline-catchup guarantee (it's the separately-deferred "farming efficiency run" mission type).
+  - **Mission cargo requirements / progression gating** (the old `minCargoRequired` idea, now with a
+    progression-gating purpose): missions require a minimum hull cargo -- or a broader progress level -- to
+    undertake, gating advancement to harder content so the player has to build up first. Design the gate to
+    feel like earned progression, not an arbitrary number wall.
+  - Deliberately DEFERRED to its own brainstorm/design pass (user: "brainstorm later so it's not gimmicky").
+    The current ships-foundation branch ships with cargo-as-extraction-length AS-IS (the 94>90 behavior
+    stays until this redesign); this is the immediate fast-follow, not a blocker for the foundation.

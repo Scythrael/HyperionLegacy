@@ -34,6 +34,15 @@
     xpForNextFleetAdminLevel,
     CAPTAIN_TALENTS,
     HOMEWORLD_TALENTS,
+    // Ships — Stats Foundation (Task 11 UI) -- the shared, immutable hull-stat
+    // table (SHIP_TYPES) plus the per-instance stat projection
+    // (shipDerivedStats) drive the Sector Space > Starbase > Docks/Requisition
+    // panels below. SHIP_TYPES is iterated for the Requisition buy list AND read
+    // per-ship in Docks for labels/stats/moduleSlots; shipDerivedStats projects
+    // one ShipInstance's 3 mission-relevant stats (cargoCapacity/
+    // transitSpeedMult/extractionYieldMult) for the Docks ship rows.
+    SHIP_TYPES,
+    shipDerivedStats,
     // CAPTAIN_SPEC_BONUS / CaptainState import removed in Task 11b: their only
     // App.svelte uses were the deleted spec-picker (CAPTAIN_SPEC_BONUS) and the
     // removed talentTooltipInfo lookup (CaptainState). HomeworldTalentBranch was
@@ -50,6 +59,11 @@
     type CaptainTalentKey,
     type HomeworldTalentKey,
     type HomeworldTalentBranch,
+    // Ships — Stats Foundation (Task 11 UI) -- ShipTypeKey types the Requisition
+    // buy handler's arg (buyShip's typeKey param) and the doBuyShip cast. The
+    // Docks ship-row loop var and parked-ship picker list are all inferred from
+    // state.ships (ShipInstance[]), so ShipInstance itself isn't imported.
+    type ShipTypeKey,
   } from "./lib/game/model";
   import {
     tick,
@@ -58,6 +72,15 @@
     recallCaptain,
     craftRecipe,
     applyFleetAdminXp,
+    // Ships — Stats Foundation (Task 11 UI) -- the two pure ship actions wired
+    // into the Sector Space > Starbase panels below. buyShip(state, typeKey)
+    // backs the Requisition buy buttons; assignShipToCaptain(state, captainId,
+    // shipId) backs BOTH Docks pickers (assign-parked-to-captain AND
+    // swap-captain-to-parked-ship both resolve to this one call -- see
+    // doAssignShip's header). Both return { next, success }, wired exactly like
+    // every other do* handler in this file.
+    buyShip,
+    assignShipToCaptain,
     buyCaptainTalent,
     buyHomeworldTalent,
     respecCaptainTalents,
@@ -71,6 +94,7 @@
     fleetRareYieldMult, // consumed by both the live tick loop below and the captain-selection popup markup (Task 5) for its live drop-rate preview
     captainBonusRollChance,
     captainBonusRollChanceMult,
+    captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does -- enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
     LOOT_MATERIAL_KEYS,
     describeCaptainTalentEffect,
     describeHomeworldTalentEffect,
@@ -93,8 +117,9 @@
   // feature release, Z bumps per minor fix) -- the pre-reset 0.6.0-0.9.0
   // history above is left untouched (never rewrite patch-note history), so
   // this deliberately reads as "0.2.0 newer than 0.9.0" once, only here.
-  const APP_VERSION = "0.3.0";
+  const APP_VERSION = "0.4.0";
   const PATCH_NOTES: { version: string; summary: string }[] = [
+    { version: "0.4.0", summary: "Ships are now real, swappable hulls with distinct stats -- cargo capacity, transit speed, and extraction yield all change how a captain's missions play out. New Sector Space > Starbase area to manage your fleet, assign hulls to captains, and buy new hulls with credits. Existing saves auto-upgrade, giving every captain a starter Freighter." },
     { version: "0.3.0", summary: "Talent trees are now an explorable radial \"skill web\" you pan around, revealing new nodes as you learn. Captains pick a specialization -- Prospector, Tactician, or Explorer -- and Fleet Admiral talents are organized into 5 navigable categories. Learned nodes power up glowing links between them. Existing saves are migrated automatically." },
     { version: "0.2.0", summary: "Reworked mission loot so uncommon and rare materials can both drop in the same tick instead of one replacing the others; talent bonuses now target a specific material tier each. Added Import Save. Version numbering restarts here -- 0.2.1/0.2.2 for small fixes, 0.3.0 for the next feature." },
     { version: "0.9.0", summary: "Widened the app to use most of the screen instead of a narrow centered column; retired the diagonal-corner panel look for a flatter style; moved the app's branding into this About tab." },
@@ -201,6 +226,50 @@
   // checked view.
   type FleetCaptainSubTab = "overview" | "talents";
   let activeFleetCaptainSubTab: FleetCaptainSubTab = "overview";
+
+  // ---- Sector Space tab (Ships — Stats Foundation, Task 11 UI) -------------
+  // Mirrors the Fleet Captain's tab exactly: a LEFT rail of "structures"
+  // (like the Captain 1-10 list) + a right content pane driven by SubTabs for
+  // the selected structure. Only "starbase" is real this pass -- Shipyard/
+  // Refinery/Warehouse/Bank render as locked "Coming Soon" rail items (same
+  // .captain-list-item.locked idiom the Fleet Captain's locked slots use), with
+  // no content behind them. Kept as a typed literal union (not a free string)
+  // so a future real structure is added deliberately, matching TabKey/
+  // FleetCaptainSubTab above. Only the active structure's key needs tracking;
+  // the locked ones are never selectable (their rail items aren't buttons).
+  type SectorStructureKey = "starbase";
+  let activeSectorStructure: SectorStructureKey = "starbase";
+
+  // Starbase's two sub-tabs: Docks (ship management -- capacity + per-ship
+  // rows + assign/swap) and Requisition (buy hulls). No "Overview" this pass
+  // (per the approved layout). Defaults to Docks since managing existing hulls
+  // is the more common view than buying new ones.
+  type StarbaseSubTab = "docks" | "requisition";
+  let activeStarbaseSubTab: StarbaseSubTab = "docks";
+
+  // Ship assign/swap picker modals (Ships — Stats Foundation, Task 11 UI) --
+  // mirrors the Fleet Operations mission popup's missionPopupKey/
+  // missionPopupCaptainId state pair: a null id means the modal is closed. Both
+  // pickers ultimately call assignShipToCaptain(state, captainId, parkedShipId)
+  // (see doAssignShip), but they open from DIFFERENT row actions and list
+  // DIFFERENT things, so they're two independent bits of modal state:
+  //
+  //   assignPickerShipId (Assign ▾ on a PARKED ship): holds THAT parked ship's
+  //   id while the player picks which IDLE CAPTAIN to assign it to. The picked
+  //   captain's OWN old hull auto-parks (assignShipToCaptain's park branch).
+  //
+  //   swapPickerCaptainId (Swap ▾ on an ASSIGNED ship whose captain is IDLE):
+  //   holds THAT ship's assigned captainId while the player picks a PARKED SHIP
+  //   to give that captain instead. The current hull parks; the picked parked
+  //   ship becomes assigned. We track the CAPTAIN id (not the ship id) because
+  //   that's assignShipToCaptain's first arg, and the current hull auto-parks
+  //   purely as a side effect of assigning the captain a different hull -- we
+  //   never need the current ship's id for the call itself.
+  //
+  // Both are plain component-local UI state (never persisted) -- the same
+  // treatment as missionPopupKey.
+  let assignPickerShipId: string | null = null;
+  let swapPickerCaptainId: number | null = null;
 
   // ---- Currency HUD (2026-07-09) ------------------------------------------
   // Drives the .top-bar-currencies strip in the template. Every currency shown
@@ -444,6 +513,17 @@
       // even when progress >= 1) leaves this at 0, which applyFleetAdminXp
       // itself treats as a cheap no-op (see that function's own guard).
       let fleetAdminXpDelta = 0;
+      // Accumulates fleet-wide credits across every captain's completed mission
+      // cycles this poll -- same "accumulate locally, apply once" shape as
+      // fleetAdminXpDelta immediately above, and mirrors tick.ts's own tick()
+      // `creditsDelta` accumulator exactly. Declared here (BEFORE the
+      // `if (progress >= 1)` block below), not inside it, so it is always
+      // defined when the guarded application runs at the end of this callback,
+      // whether or not the shared cycle actually completed this poll. Defaults
+      // to 0 -- the overwhelmingly common poll where progress < 1 (or no
+      // captain's mission cycle completes) leaves this at 0, which the
+      // `creditsDelta > 0` guard below treats as a cheap no-op.
+      let creditsDelta = 0;
 
       if (progress >= 1) {
         const gameSecondsThisCycle = barSeconds * speed;
@@ -474,22 +554,43 @@
           // tick.ts's tick(), which returns idle captains completely
           // unchanged).
           if (captain.mission === null) continue;
+          // Resolve the hull this captain flies and project it to the 3 mission
+          // stats (transit/cargo/yield) -- mirrors tick.ts's tick() (Task 7).
+          // CRITICAL: this live-play poll is a SEPARATE copy of the tick math
+          // from tick.ts's tick() (which only runs on offline catch-up + the dev
+          // button). Without this lookup, ship stats applied ONLY offline, never
+          // during live play -- the feature's core hook was dead on the primary
+          // path. state.ships isn't mutated by the tick loop, so reading it here
+          // is safe; assignedCaptainId is the single source of truth for who
+          // flies what. null (a hypothetical ship-less captain) == freighter
+          // baseline, same defensive fallback tick() uses.
+          const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
+          const shipStats = ship ? shipDerivedStats(ship) : null;
           if (!anyFired) {
             captains = [...captains]; // copy on first write this poll
             anyFired = true;
           }
-          // 5-field bonuses object (2026-07-07 Loot Tier Rework) -- mirrors
-          // tick.ts's own tick() exactly: 4 captain-level helpers (read at
-          // usage time off THIS captain's unlockedCaptainTalents) plus the
-          // one fleet-wide helper (rareYieldMult only, computed once above,
-          // outside this per-captain loop, since Homeworld Talents are
-          // fleet-wide, not per-captain).
+          // 8-field bonuses object -- mirrors tick.ts's own tick() exactly:
+          // 7 captain-level helpers (read at usage time off THIS captain's
+          // unlockedCaptainTalents) plus the one fleet-wide helper
+          // (rareYieldMult only, computed once above, outside this per-captain
+          // loop, since Homeworld Talents are fleet-wide, not per-captain).
+          // The last 3 (bonusRollChance/bonusRollChanceMult/specBonusRollChance)
+          // drive the resourcefulness bonus-roll (Lucky Strike I/II + the spec
+          // bonus-roll). They were MISSING from this live-loop copy until now,
+          // so that bonus-roll fired ONLY during offline catch-up (tick()),
+          // never live play -- a pre-existing live-loop/tick() divergence the
+          // ships-feature holistic review surfaced. Kept field-for-field
+          // identical to tick()'s object so the two paths can't silently drift.
           const bonuses = {
             commonYieldMult: captainCommonYieldMult(captain),
             uncommonYieldMult: captainUncommonYieldMult(captain),
             uncommonChanceMult: captainUncommonChanceMult(captain),
             rareYieldMult: fleetRareYield,
             rareChanceMult: captainRareChanceMult(captain),
+            bonusRollChance: captainBonusRollChance(captain),
+            bonusRollChanceMult: captainBonusRollChanceMult(captain),
+            specBonusRollChance: captainSpecBonusRollChance(captain),
           };
           // Math.random passed explicitly (rather than omitted) since bonuses
           // is positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
@@ -506,9 +607,16 @@
             captain: updatedCaptain,
             homePlanetDelta: delta,
             fleetAdminXpDelta: captainFleetAdminXpDelta,
-          } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
+            // Renamed to a per-captain local for the same shadowing reason as
+            // fleetAdminXpDelta above -- an unrenamed `creditsDelta` destructure
+            // here would shadow the outer accumulator declared before the
+            // `if (progress >= 1)` block, silently discarding the running total
+            // each iteration. Mirrors tick.ts's own tick() naming exactly.
+            creditsDelta: captainCreditsDelta,
+          } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses, shipStats);
           captains[i] = updatedCaptain;
           fleetAdminXpDelta += captainFleetAdminXpDelta;
+          creditsDelta += captainCreditsDelta;
           if (!delta.commonOre.equals(0) || !delta.uncommonMaterial.equals(0) || !delta.rareMaterial.equals(0)) {
             anyLootDelivered = true;
             homePlanetDelta.commonOre = homePlanetDelta.commonOre.plus(delta.commonOre);
@@ -583,6 +691,16 @@
       // here regardless of whether progress >= 1 this poll -- see its
       // declaration above, before the `if (progress >= 1)` block.
       state = applyFleetAdminXp(state, fleetAdminXpDelta);
+
+      // Award mission-cycle credits accumulated above -- mirrors tick()'s
+      // `credits: state.credits.plus(creditsDelta)` (tick.ts). Gated on > 0 so a
+      // poll with no cycle completion stays a cheap no-op (no Decimal churn /
+      // reactivity), consistent with the anyFired/anyLootDelivered guards above.
+      // WITHOUT this, mission credits were awarded ONLY during offline catch-up
+      // (tick()), never live play -- a pre-existing live-loop/tick() divergence.
+      if (creditsDelta > 0) {
+        state = { ...state, credits: state.credits.plus(creditsDelta) };
+      }
     }, 100);
 
     // Autosave every 30s — tech spec §6.
@@ -718,6 +836,75 @@
     state = next;
     pushLog(`Homeworld talent unlocked: ${HOMEWORLD_TALENTS[talentKey].label}.`);
     doSave();
+  }
+
+  // ---- Ship actions (Ships — Stats Foundation, Task 11 UI) ----------------
+  // Both wrap a pure { next, success } action and apply the SAME
+  // reassign-state + pushLog + doSave pattern every other do* handler in this
+  // file uses (see doBuyHomeworldTalent immediately above, or the mission
+  // handlers near the top). No validation is duplicated here -- the pure
+  // functions own every fail-guard; the UI just checks `success` and bails.
+
+  // Requisition buy button -> buyShip(state, typeKey). buyShip's own guards
+  // (not-purchasable / at storage capacity / can't afford) return the same
+  // state reference on failure, so a click that somehow slipped past the
+  // disabled button (e.g. credits changed out from under it mid-tick) is a
+  // harmless no-op here.
+  function doBuyShip(typeKey: ShipTypeKey) {
+    const { next, success } = buyShip(state, typeKey);
+    if (!success) return;
+    state = next;
+    pushLog(`Requisitioned a new hull: ${SHIP_TYPES[typeKey].label}.`);
+    doSave();
+  }
+
+  // Both Docks pickers funnel through this ONE handler, because the pure
+  // assignShipToCaptain(state, captainId, shipId) is the only valid path and
+  // its in-use guard rejects moving a hull directly between two captains
+  // (ship.assignedCaptainId !== null && !== captainId -> fail). So EVERY valid
+  // assignment is "give a captain a PARKED ship," and both row actions reduce
+  // to that:
+  //   - Assign ▾ (parked ship): captainId = the chosen IDLE captain, shipId =
+  //     this parked ship. The chosen captain's own old hull auto-parks.
+  //   - Swap ▾ (assigned ship, idle captain): captainId = this ship's OWN
+  //     assigned captain, shipId = the chosen PARKED ship. This ship parks;
+  //     the captain flies the chosen parked hull instead.
+  // captured labels are read BEFORE the state swap (same pre-swap-capture idiom
+  // as doDispatchCaptainOnMission/doRecallCaptain), since `next` replaces the
+  // arrays the labels come from.
+  function doAssignShip(captainId: number, shipId: string) {
+    const captain = state.captains.find((c) => c.id === captainId);
+    const ship = state.ships.find((s) => s.id === shipId);
+    const { next, success } = assignShipToCaptain(state, captainId, shipId);
+    if (!success) return;
+    state = next;
+    if (captain && ship) {
+      pushLog(`[${captain.label}] Now flying: ${SHIP_TYPES[ship.typeKey].label}.`);
+    }
+    // Close BOTH pickers unconditionally -- whichever one drove this call is
+    // now done, and the other is already null. Cheap and keeps this handler
+    // from needing to know which picker opened it.
+    assignPickerShipId = null;
+    swapPickerCaptainId = null;
+    doSave();
+  }
+
+  // Picker open/close helpers -- pure UI state toggles, mirroring
+  // openMissionPopup/closeMissionPopup above. The Assign picker keys off the
+  // parked ship's id; the Swap picker keys off the assigned ship's captain id
+  // (see the state declarations near activeSectorStructure for why captain, not
+  // ship). closeShipPickers clears both so no stale modal can linger.
+  function openAssignPicker(shipId: string) {
+    assignPickerShipId = shipId;
+    swapPickerCaptainId = null;
+  }
+  function openSwapPicker(captainId: number) {
+    swapPickerCaptainId = captainId;
+    assignPickerShipId = null;
+  }
+  function closeShipPickers() {
+    assignPickerShipId = null;
+    swapPickerCaptainId = null;
   }
 
   // Radial Skill Web (Task 15) -- the currently-viewed Homeworld talent
@@ -1181,12 +1368,209 @@
       {/if}
 
       {#if activeTab === "sectorSpace"}
+      <!-- Sector Space (Ships — Stats Foundation, Task 11 UI) -- deliberately
+           MIRRORS the Fleet Captain's tab layout directly below: a LEFT rail of
+           "structures" (.captain-list / .captain-list-item, reused verbatim, NOT
+           a new class) + a right content pane driven by SubTabs for the selected
+           structure. Only Starbase is real this pass; Shipyard/Refinery/
+           Warehouse/Bank are locked "Coming Soon" rail items using the exact
+           .captain-list-item.locked idiom the Fleet Captain's locked captain
+           slots use. Starbase has two sub-tabs -- Docks (ship management) and
+           Requisition (buy hulls). The two assign/swap picker MODALS that the
+           Docks row actions open live near the mission-selection popup further
+           down this template (Task 5's popup is the pattern they clone). -->
       <div class="tab-scroll-area">
-      <Panel>
-        <div class="panel-title">SECTOR SPACE</div>
-        <p class="locked-heading">🔒 Coming Soon!</p>
-        <p class="prestige-text">Shipyard and Starbase are still under construction.</p>
-      </Panel>
+      <div class="fleet-captains-layout">
+        <div class="captain-list">
+          <button
+            class="captain-list-item"
+            class:active={activeSectorStructure === "starbase"}
+            on:click={() => (activeSectorStructure = "starbase")}
+          >
+            Starbase
+          </button>
+          <!-- Locked structures -- no content behind them yet (same honest
+               "future signal" role as the Fleet Captain's slots 5-10 and the
+               Battlespace/Fleet Ops locked lists). Plain non-button divs, so
+               they're inert; the title attr is the "Coming soon" affordance. -->
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Shipyard</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Refinery</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Warehouse</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Bank</div>
+        </div>
+
+        <div class="fleet-captains-content">
+          {#if activeSectorStructure === "starbase"}
+            <SubTabs
+              tabs={[
+                { key: "docks", label: "Docks" },
+                { key: "requisition", label: "Requisition" },
+              ]}
+              active={activeStarbaseSubTab}
+              onSelect={(key) => (activeStarbaseSubTab = key as StarbaseSubTab)}
+            />
+
+            {#if activeStarbaseSubTab === "docks"}
+              <!-- DOCKS -- one row per hull in state.ships. Capacity readout
+                   uses the same "label: value" line style as the Homeworld
+                   panels' "Admin Points: X" / "Credits: X" lines. Each ship row
+                   shows: type label, the 3 mission stats (via shipDerivedStats),
+                   inert module-slot pips (count = SHIP_TYPES[typeKey].moduleSlots
+                   -- display-only, no module system exists yet), an assignment
+                   badge (the flying captain's label, or "Parked"), and ONE
+                   assign/swap control whose kind + disabled-state depends on the
+                   ship's assignment + that captain's mission status (see the
+                   per-row @const block). -->
+              <Panel>
+                <!-- Panel-wide derived sets, declared first (before any markup)
+                     so they're valid {@const} children of <Panel> and available
+                     to every row below. parkedShips gates each ASSIGNED ship's
+                     Swap button (nothing to swap in if empty); idleCaptains gates
+                     each PARKED ship's Assign button (no valid target if empty).
+                     Both recompute reactively as ships/captains change. -->
+                {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
+                {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
+                <div class="panel-title">DOCKS</div>
+                <div class="research-cost">Berths: {state.ships.length} / {state.shipStorageCapacity}</div>
+                <div class="ship-list">
+                  {#each state.ships as ship (ship.id)}
+                    {@const def = SHIP_TYPES[ship.typeKey]}
+                    {@const stats = shipDerivedStats(ship)}
+                    <!-- assignedCaptain: the captain flying THIS hull, or null if
+                         parked. assignedCaptainId is the SINGLE SOURCE OF TRUTH
+                         (model.ts) -- we look the captain up by it rather than
+                         trusting any duplicate field. onMission gates the Swap
+                         control: you can't pull a hull out from under an active
+                         mission, matching assignShipToCaptain's own block on the
+                         target captain's mission. -->
+                    {@const assignedCaptain = ship.assignedCaptainId === null
+                      ? null
+                      : state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null}
+                    {@const onMission = assignedCaptain !== null && assignedCaptain.mission !== null}
+                    <div class="ship-card">
+                      <div class="ship-card-head">
+                        <div class="research-name">{def.label}</div>
+                        <!-- Assignment badge: the flying captain's label, or
+                             "Parked". .ship-badge.parked dims it to read as the
+                             quieter, available state. -->
+                        <span class="ship-badge" class:parked={assignedCaptain === null}>
+                          {assignedCaptain === null ? "Parked" : assignedCaptain.label}
+                        </span>
+                      </div>
+
+                      <div class="ship-stats">
+                        <span class="ship-stat">Cargo: {formatNumber(stats.cargoCapacity)}</span>
+                        <span class="ship-stat">Speed: {stats.transitSpeedMult.toFixed(1)}×</span>
+                        <span class="ship-stat">Yield: {stats.extractionYieldMult.toFixed(2)}×</span>
+                      </div>
+
+                      <!-- Module slots: inert pips, one per moduleSlots. Purely
+                           decorative this pass (no module system) -- the quiet
+                           "unlock with Research" note sets the expectation
+                           without implying they do anything yet. Array.from is
+                           used (not a bare {length} object) since {#each} needs a
+                           real iterable, same as the locked-captain-slots loop. -->
+                      <div class="ship-modules">
+                        <span class="ship-modules-label">Modules:</span>
+                        {#each Array.from({ length: def.moduleSlots }) as _, mi}
+                          <span class="ship-module-pip" title="Module slot — unlocks with Research"></span>
+                        {/each}
+                        <span class="ship-modules-note">unlock with Research</span>
+                      </div>
+
+                      <!-- ONE control per row, three cases (see the coordinator's
+                           corrected design):
+                           1. PARKED -> "Assign ▾": pick an IDLE captain. Disabled
+                              (no picker) when there are no idle captains, since
+                              assignShipToCaptain would fail on an on-mission
+                              target anyway.
+                           2. ASSIGNED + captain IDLE -> "Swap ▾": pick a PARKED
+                              ship to give that captain. Disabled when there are
+                              no parked ships to swap in.
+                           3. ASSIGNED + captain ON-MISSION -> disabled "Swap ▾"
+                              with the recall-first reason. -->
+                      {#if assignedCaptain === null}
+                        <button
+                          class="dev-btn ship-assign-btn"
+                          disabled={idleCaptains.length === 0}
+                          title={idleCaptains.length === 0 ? "No idle captain — recall one first" : undefined}
+                          on:click={() => openAssignPicker(ship.id)}
+                        >
+                          Assign ▾
+                        </button>
+                      {:else if onMission}
+                        <button class="dev-btn ship-assign-btn" disabled title="On a mission — recall first">
+                          Swap ▾
+                        </button>
+                      {:else}
+                        <button
+                          class="dev-btn ship-assign-btn"
+                          disabled={parkedShips.length === 0}
+                          title={parkedShips.length === 0 ? "No spare ship — buy or free one" : undefined}
+                          on:click={() => openSwapPicker(assignedCaptain.id)}
+                        >
+                          Swap ▾
+                        </button>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              </Panel>
+            {/if}
+
+            {#if activeStarbaseSubTab === "requisition"}
+              <!-- REQUISITION -- one card per PURCHASABLE hull (every SHIP_TYPES
+                   entry whose cost !== null; all 4 today). Credits balance shown
+                   at top (same "Credits: X" line style as the talent panels).
+                   Buy button disabled + reasoned when the fleet is at storage
+                   capacity OR credits < cost, matching buyShip's own two spend-
+                   side guards (the third guard, !def.cost, can't fire here since
+                   we only render cost-bearing hulls). Iterates SHIP_TYPES so a
+                   future hull added to that table picks up a card automatically,
+                   same data-driven spirit as the Requisition/RECIPES loops. -->
+              <Panel>
+                <!-- atCapacity declared first (valid {@const} child of <Panel>)
+                     -- mirrors buyShip's own storage-cap guard so every hull's
+                     Buy button disables together the moment the fleet fills up. -->
+                {@const atCapacity = state.ships.length >= state.shipStorageCapacity}
+                <div class="panel-title">REQUISITION</div>
+                <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
+                <div class="ship-list">
+                  {#each Object.entries(SHIP_TYPES) as [typeKey, def] (typeKey)}
+                    {#if def.cost !== null}
+                      {@const canAfford = state.credits.gte(def.cost.credits)}
+                      <div class="ship-card">
+                        <div class="ship-card-head">
+                          <div class="research-name">{def.label}</div>
+                          <span class="ship-badge">◈ {formatNumber(def.cost.credits)}</span>
+                        </div>
+                        <div class="ship-stats">
+                          <span class="ship-stat">Cargo: {formatNumber(def.cargoCapacity)}</span>
+                          <span class="ship-stat">Speed: {def.transitSpeedMult.toFixed(1)}×</span>
+                          <span class="ship-stat">Yield: {def.extractionYieldMult.toFixed(2)}×</span>
+                        </div>
+                        <p class="prestige-text ship-desc">{def.description}</p>
+                        <button
+                          class="buy-btn"
+                          disabled={atCapacity || !canAfford}
+                          title={atCapacity
+                            ? "All berths occupied"
+                            : !canAfford
+                              ? "Not enough credits"
+                              : undefined}
+                          on:click={() => doBuyShip(typeKey as ShipTypeKey)}
+                        >
+                          Buy · ◈ {formatNumber(def.cost.credits)}
+                        </button>
+                      </div>
+                    {/if}
+                  {/each}
+                </div>
+              </Panel>
+            {/if}
+          {/if}
+        </div>
+      </div>
       </div>
       {/if}
 
@@ -1717,6 +2101,80 @@
           {#if selectedCaptain !== null}
             <button class="dev-btn" on:click={doDispatchFromPopup}>Dispatch</button>
           {/if}
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
+  {#if assignPickerShipId !== null}
+    <!-- ASSIGN picker (Ships — Stats Foundation, Task 11 UI) -- opened by a
+         PARKED ship's "Assign ▾". Lists IDLE captains (mission === null);
+         picking one calls doAssignShip(captainId, thisParkedShipId), which
+         assigns this hull to that captain (their old hull auto-parks). Reuses
+         the mission popup's .modal-backdrop / Panel.modal-dialog /
+         .modal-captain-list idiom verbatim so both share one visual language.
+         The row's Assign button is already disabled when idleCaptains is empty,
+         so the empty-list branch here is belt-and-suspenders (the ship could
+         only reach this modal with at least one idle captain), but it's kept in
+         case a captain got dispatched between opening and rendering. -->
+    {@const pickerShip = state.ships.find((s) => s.id === assignPickerShipId) ?? null}
+    {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">ASSIGN HULL{pickerShip ? ` — ${SHIP_TYPES[pickerShip.typeKey].label.toUpperCase()}` : ""}</div>
+        <p class="modal-instruction">Assign this hull to a captain. Their current ship parks.</p>
+        {#if idleCaptains.length === 0}
+          <p class="prestige-text">No idle captains available — recall one first.</p>
+        {:else}
+          <div class="modal-captain-list">
+            {#each idleCaptains as captain (captain.id)}
+              <!-- assignPickerShipId is non-null in this whole block (the outer
+                   {#if assignPickerShipId !== null} guard), but svelte-check/tsc
+                   won't narrow a module-scoped `let` inside this nested {#each}
+                   closure, so the trailing ! matches the same idiom the rest of
+                   this file uses (activeCaptain.spec!, captain.mission!). -->
+              <button class="dev-btn" on:click={() => doAssignShip(captain.id, assignPickerShipId!)}>{captain.label}</button>
+            {/each}
+          </div>
+        {/if}
+        <div class="modal-row">
+          <button class="dev-btn" on:click={closeShipPickers}>Cancel</button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
+  {#if swapPickerCaptainId !== null}
+    <!-- SWAP picker (Ships — Stats Foundation, Task 11 UI) -- opened by an
+         ASSIGNED ship's "Swap ▾" when that ship's captain is IDLE. Because
+         assignShipToCaptain can NEVER move a hull directly between two captains
+         (its in-use guard rejects a target ship that's already assigned
+         elsewhere), the only valid "change this captain's hull" is to give them
+         a PARKED ship -- so this picker lists PARKED SHIPS, not captains.
+         Picking parked ship P calls doAssignShip(thisCaptainId, P.id): the
+         captain's current hull parks and P becomes assigned. Same modal idiom as
+         the Assign picker above, just listing ships. -->
+    {@const swapCaptain = state.captains.find((c) => c.id === swapPickerCaptainId) ?? null}
+    {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">SWAP HULL{swapCaptain ? ` — ${swapCaptain.label.toUpperCase()}` : ""}</div>
+        <p class="modal-instruction">Choose a parked ship for this captain. Their current hull parks.</p>
+        {#if parkedShips.length === 0}
+          <p class="prestige-text">No parked ships available — buy or free one first.</p>
+        {:else}
+          <div class="modal-captain-list">
+            {#each parkedShips as ship (ship.id)}
+              <!-- swapPickerCaptainId is non-null in this whole block (the outer
+                   {#if swapPickerCaptainId !== null} guard); trailing ! for the
+                   same non-narrowing-in-nested-closure reason as the Assign
+                   picker above. -->
+              <button class="dev-btn" on:click={() => doAssignShip(swapPickerCaptainId!, ship.id)}>{SHIP_TYPES[ship.typeKey].label}</button>
+            {/each}
+          </div>
+        {/if}
+        <div class="modal-row">
+          <button class="dev-btn" on:click={closeShipPickers}>Cancel</button>
         </div>
       </Panel>
     </div>
@@ -2451,4 +2909,52 @@
      flat-cornered from the 2026-07-07 button-style pass) -- this class only
      supplies the container's flex/gap, no new button style needed. */
   .modal-captain-list { display: flex; flex-direction: column; gap: 2px; margin: 10px 0; }
+  /* Ships — Stats Foundation (Task 11 UI) -- Docks/Requisition ship rows.
+     .ship-list/.ship-card mirror .module-list/.mission-card's flat, thin-
+     border, panel-strong look verbatim in spirit (NOT a new visual language) --
+     same padding/radius/background/border tokens, just a distinct class so ship
+     rows can carry their own head/stats/modules sub-layout. All colors come
+     from theme tokens (--color-accent-rgb / --color-accent / --color-text-*),
+     so these repaint on every theme switch like every other element here. */
+  .ship-list { display: flex; flex-direction: column; gap: 10px; }
+  .ship-card {
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
+  }
+  .ship-card-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  /* Assignment badge -- the flying captain's label (or "Parked"), and reused in
+     Requisition for the price chip. .parked dims it to read as the quieter,
+     available state, same opacity convention as other .locked/dim elements. */
+  .ship-badge {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--color-accent-bright);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    padding: 2px 8px;
+    white-space: nowrap;
+  }
+  .ship-badge.parked { color: var(--color-text-secondary); opacity: 0.7; }
+  .ship-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 8px; }
+  .ship-stat { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
+  /* Inert module-slot pips -- display-only (no module system this pass). Small
+     accent-tinted squares, one per moduleSlots; the quiet note sets the
+     "unlocks later" expectation without implying they're interactive. */
+  .ship-modules { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .ship-modules-label { font-size: 11px; color: var(--color-text-secondary); }
+  .ship-module-pip {
+    width: 10px;
+    height: 10px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    background: rgba(var(--color-accent-rgb), 0.1);
+  }
+  .ship-modules-note { font-size: 10px; color: var(--color-text-dim); font-style: italic; margin-left: 4px; }
+  /* Assign/Swap control -- reuses .dev-btn's flat look as-is (same as the
+     mission popup's captain picker buttons); this modifier only nudges the top
+     margin so it sits clear of the modules row above. */
+  .ship-assign-btn { margin-top: 2px; }
+  /* Requisition hull blurb -- tightens .prestige-text's default bottom margin
+     so the description sits snug above the Buy button within the card. */
+  .ship-desc { margin-bottom: 10px; }
 </style>

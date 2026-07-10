@@ -155,3 +155,42 @@ write it down so you don't relitigate it later.
   actual DOM behavior (Escape-to-close does work). Known, deliberately deferred a11y gap -- already logged
   in SUGGESTIONS.md ("Radial Skill Web tooltip -- focus trap / restore (a11y)") alongside the other Radial
   Skill Web v1 refinements; noted here so it isn't rediscovered as a surprise once the visual pass looks done.
+- Ship module/equipment slots are inert (Ships: Stats Foundation, Session 26). `SHIP_TYPES` carries
+  `moduleSlots`/`equipmentSlots` and the Docks UI renders module pips, but there is NO module/equipment/
+  reactor-core system behind them yet -- they are displayed-but-non-functional this pass. Deliberate: the
+  buckets were baked into the data model now so the Research system can wire them later without a data-model
+  rewrite, per the forward-compat section of `docs/plans/2026-07-09-ships-stats-foundation-design.md`.
+  Research is the intended next feature. Not a bug -- a deliberately-inert forward hook.
+- Transit speed is quantized by `ceil()` (Ships: Stats Foundation). `effectiveMissionDef` rescales a
+  mission's transit ticks via `Math.ceil(base / transitSpeedMult)`, so a hull's *effective* transit speed
+  slightly under-delivers its raw `transitSpeedMult` and varies with the mission's base transit length
+  (e.g. a 0.8x hull on a 25-tick transit -> `ceil(25/0.8)` = 32 ticks = ~0.78x effective; on a 70-tick
+  transit -> 88 = ~0.795x). Intentional -- integer tick thresholds are load-bearing for the closed-form
+  "one big jump equals many small ticks" guarantee -- so this is a balance-tuning fact to account for when
+  tuning hull speeds, not a bug.
+- Partial-final-extraction-tick risk for FUTURE non-rate-1 missions (Ships: Stats Foundation). The
+  extract-phase length is `ceil(cargoCapacity / extractionRatePerTick)`. Today every hull cargo (60/90/180)
+  is an integer and every mission's `extractionRatePerTick` is 1, so this always divides evenly and every
+  extraction tick delivers a full base amount. A FUTURE mission with `extractionRatePerTick > 1` combined
+  with a hull whose cargo isn't a clean multiple of it would introduce a partial final extraction tick --
+  revisit `effectiveMissionDef`/`requiredTicksForPhase` (both already carry an in-code comment flagging
+  this) when such content is added. Not reachable today; documented so it isn't rediscovered as a surprise.
+- FIXED (this branch) -- live-loop `bonuses` + credits divergence from `tick()` (originally surfaced by
+  the Ships: Stats Foundation holistic review, Session 26). `App.svelte`'s live `setInterval` poll is a
+  SEPARATE copy of the mission-tick math from `tick.ts`'s canonical `tick()` (which only runs on offline
+  catch-up + the dev button). Two fields' worth of drift were closed here:
+  (1) BONUS-ROLL: the live-loop copy built a 5-field `bonuses` object (common/uncommon yield, uncommon/rare
+      chance, rareYield) where `tick()` passes 8 -- it now also includes `bonusRollChance`,
+      `bonusRollChanceMult`, and `specBonusRollChance`, so the resourcefulness bonus-roll (Lucky Strike I/II
+      + the spec bonus-roll) fires during LIVE play, not only offline catch-up.
+  (2) CREDITS: the live-loop copy neither destructured `creditsDelta` from `tickCaptainMission` nor applied
+      it -- so mission-cycle credits were awarded ONLY during offline catch-up (`tick()`), never live play.
+      The live loop now accumulates `creditsDelta` per captain and applies it once via
+      `state.credits.plus(creditsDelta)` (guarded on `> 0`), mirroring `tick()` exactly.
+  Both were confirmed pre-existing at the branch base (`38da5ee`), NOT introduced by the ships feature --
+  same "live loop drifted from `tick()`" class of bug as the ship-stats gap the ships-feature holistic
+  review already fixed (`9fc67a6`, adding the 5th `shipStats` arg to the live loop). What REMAINS open is
+  the broader tick-path UNIFICATION refactor (still logged in SUGGESTIONS.md): having the live loop CALL
+  `tick()` rather than duplicate its math, so the two paths structurally cannot drift again. Until that
+  lands, any new field added to `tick()`'s per-captain handling must be hand-mirrored into this live loop
+  -- these two fixes patch the current drift, they do not prevent the next one.

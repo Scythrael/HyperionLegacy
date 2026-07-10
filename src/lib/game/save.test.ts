@@ -34,8 +34,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 15", () => {
-    expect(SAVE_VERSION).toBe(15);
+  it("current SAVE_VERSION is 16", () => {
+    expect(SAVE_VERSION).toBe(16);
   });
 });
 
@@ -73,8 +73,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 15", () => {
-    expect(SAVE_VERSION).toBe(15);
+  it("current SAVE_VERSION is 16", () => {
+    expect(SAVE_VERSION).toBe(16);
   });
 });
 
@@ -192,7 +192,16 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     // save looks like right now).
     expect(migrated.captains[0].id).toBe(1);
     expect(migrated.captains[0].label).toBe("Captain 1");
-    expect(migrated.captains[0].shipType).toBe("resourcer");
+    // shipType USED to be asserted as "resourcer" here (MIGRATIONS[4] set it on
+    // captainOne). This save enters at v4 but migrate()'s while loop chains all
+    // the way through MIGRATIONS[15] (v15->v16, Ships stats foundation), which
+    // drops shipType from every captain as part of the captain/ship separation
+    // -- so the field is gone from the final migrated shape. Asserting its
+    // absence instead, and confirming captain 1 picked up a grandfathered
+    // generalFreighter ship in its place (ships[0] -> captain 1).
+    expect(migrated.captains[0].shipType).toBeUndefined();
+    expect(migrated.ships[0].typeKey).toBe("generalFreighter");
+    expect(migrated.ships[0].assignedCaptainId).toBe(1);
     expect(migrated.captains[0].resources).toEqual({ ore: 500, ingots: 200, components: 50, alloys: 12 });
     expect(migrated.captains[0].modules).toEqual({ miner: 19, refinery: 5, fabricator: 2, synthesizer: 1 });
     expect(migrated.captains[0].research.alloySynthesis.completed).toBe(true);
@@ -232,8 +241,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBeUndefined();
   });
 
-  it("current SAVE_VERSION is 15", () => {
-    expect(SAVE_VERSION).toBe(15);
+  it("current SAVE_VERSION is 16", () => {
+    expect(SAVE_VERSION).toBe(16);
   });
 });
 
@@ -329,8 +338,8 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 15", () => {
-    expect(SAVE_VERSION).toBe(15);
+  it("current SAVE_VERSION is 16", () => {
+    expect(SAVE_VERSION).toBe(16);
   });
 });
 
@@ -435,8 +444,8 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 15", () => {
-    expect(SAVE_VERSION).toBe(15);
+  it("current SAVE_VERSION is 16", () => {
+    expect(SAVE_VERSION).toBe(16);
   });
 });
 
@@ -521,8 +530,8 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 15", () => {
-    expect(SAVE_VERSION).toBe(15);
+  it("current SAVE_VERSION is 16", () => {
+    expect(SAVE_VERSION).toBe(16);
   });
 });
 
@@ -581,8 +590,8 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.captains[0].mission).toBe(null);
   });
 
-  it("current SAVE_VERSION is 15", () => {
-    expect(SAVE_VERSION).toBe(15);
+  it("current SAVE_VERSION is 16", () => {
+    expect(SAVE_VERSION).toBe(16);
   });
 });
 
@@ -638,8 +647,8 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     expect(migrated.homePlanet.storage.refinedMaterial.equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 15", () => {
-    expect(SAVE_VERSION).toBe(15);
+  it("current SAVE_VERSION is 16", () => {
+    expect(SAVE_VERSION).toBe(16);
   });
 });
 
@@ -697,8 +706,8 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     expect(migrated.tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 15", () => {
-    expect(SAVE_VERSION).toBe(15);
+  it("current SAVE_VERSION is 16", () => {
+    expect(SAVE_VERSION).toBe(16);
   });
 });
 
@@ -1291,6 +1300,177 @@ describe("migrate — Radial Skill Web talent restructure (v14 -> v15)", () => {
     expect(migrated.captains[0].statPoints).toBe(26); // 2+4+2+4+6+8, from the frozen snapshot
     expect(migrated.captains[0].unlockedCaptainTalents).toEqual([]);
     expect(migrated.captains[0].spec).toBe("resourcefulness"); // not command -> kept
+  });
+});
+
+describe("migrate — Ships stats foundation: grandfather a Freighter per captain (v15 -> v16)", () => {
+  it("gives every captain a generalFreighter ship, drops shipType, adds ships/shipStorageCapacity/nextShipId, and leaves an in-flight mission intact", () => {
+    // A genuine v15 shape: every field through MIGRATIONS[14] already present
+    // (credits fleet-wide, per-captain spec, xp/level/statPoints/
+    // unlockedCaptainTalents/mission) -- exactly what serialize() produced on
+    // this branch's parent commit, still carrying the now-removed per-captain
+    // `shipType` field. Hand-written literal, same reasoning as every other
+    // legacy fixture in this file: post-Task-3, CaptainState no longer declares
+    // `shipType` and GameState now requires ships/shipStorageCapacity/
+    // nextShipId, so freshState() can no longer stand in for this pre-v16 shape.
+    //
+    // Two captains exercise the two branches this migration must get right:
+    //   - Captain 1 (id 1): idle (mission: null) -- gets ship-1, loses shipType.
+    //   - Captain 2 (id 2): mid-mission with a live cargo object -- gets ship-2,
+    //     loses shipType, and its `mission` object MUST survive the grandfather
+    //     untouched (the seeded Freighter equals today's implicit ship, so an
+    //     in-flight mission must behave identically after migration).
+    const legacyState: any = {
+      gameTimeSeconds: 6000,
+      tickDurationSeconds: 1,
+      credits: 0,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 0,
+      fleetAdminLevel: 1,
+      adminPoints: 0,
+      unlockedSkillNodes: ["commandRank1"],
+      skillPoints: 0,
+      homePlanet: { storage: { commonOre: 50, uncommonMaterial: 4, rareMaterial: 1, refinedMaterial: 2, components: 0 } },
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          shipType: "resourcer", // pre-v16 field -- MIGRATIONS[15] must strip it
+          xp: 300,
+          level: 3,
+          statPoints: 1,
+          spec: null,
+          unlockedCaptainTalents: [],
+          mission: null, // idle captain
+        },
+        {
+          id: 2,
+          label: "Captain 2",
+          shipType: "resourcer", // pre-v16 field -- MIGRATIONS[15] must strip it
+          xp: 0,
+          level: 1,
+          statPoints: 0,
+          spec: null,
+          unlockedCaptainTalents: [],
+          mission: {
+            missionKey: "shortOreRun",
+            phase: "extracting",
+            phaseProgressTicks: 2,
+            recalled: false,
+            cargo: { commonOre: 6, uncommonMaterial: 1, rareMaterial: 0 }, // in-flight loot -- must survive untouched
+          },
+        },
+      ],
+    };
+
+    const save: SaveFile = { version: 15, created_at: 0, last_saved_at: 0, game_time_seconds: 6000, state: legacyState };
+    const migrated: any = migrate(save);
+
+    // One ship per captain, each a generalFreighter, assigned to the right captain.
+    expect(migrated.ships).toHaveLength(2);
+    expect(migrated.ships[0].typeKey).toBe("generalFreighter");
+    expect(migrated.ships[1].typeKey).toBe("generalFreighter");
+    // assignedCaptainId covers both captain ids (order follows the captains
+    // array, so ship[0] -> captain 1, ship[1] -> captain 2).
+    expect(migrated.ships.map((s: any) => s.assignedCaptainId)).toEqual([1, 2]);
+
+    // Fleet-wide ship bookkeeping backfilled to the v16 baseline.
+    expect(migrated.shipStorageCapacity).toBe(8);
+    expect(migrated.nextShipId).toBe(3); // two ships consumed ids 1 and 2 -> next free id is 3
+
+    // shipType is dropped from every captain (the captain/ship separation).
+    expect(migrated.captains[0].shipType).toBeUndefined();
+    expect(migrated.captains[1].shipType).toBeUndefined();
+
+    // The in-flight captain's mission survives the grandfather completely
+    // intact -- the seeded Freighter equals today's implicit ship, so a
+    // running mission must be unaffected. cargo is Decimal-designated, so it
+    // arrives hydrated (instanceof + .equals(), never .toBe()), same as every
+    // other Decimal field in this file.
+    expect(migrated.captains[1].mission).not.toBe(null);
+    expect(migrated.captains[1].mission.missionKey).toBe("shortOreRun");
+    expect(migrated.captains[1].mission.phase).toBe("extracting");
+    expect(migrated.captains[1].mission.phaseProgressTicks).toBe(2);
+    expect(migrated.captains[1].mission.recalled).toBe(false);
+    expect(migrated.captains[1].mission.cargo.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.captains[1].mission.cargo.commonOre.equals(6)).toBe(true);
+    expect(migrated.captains[1].mission.cargo.uncommonMaterial.equals(1)).toBe(true);
+    expect(migrated.captains[1].mission.cargo.rareMaterial.equals(0)).toBe(true);
+
+    // Unrelated pre-existing fields survive untouched. The idle captain stays
+    // idle; xp/credits/homePlanet.storage are Decimal-designated (hydrated).
+    expect(migrated.captains[0].mission).toBe(null);
+    expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
+    expect(migrated.captains[0].xp.equals(300)).toBe(true);
+    expect(migrated.captains[0].level).toBe(3);
+    expect(migrated.captains[0].statPoints).toBe(1);
+    expect(migrated.captains[1].id).toBe(2);
+    expect(migrated.credits instanceof Decimal).toBe(true);
+    expect(migrated.credits.equals(0)).toBe(true);
+    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.homePlanet.storage.commonOre.equals(50)).toBe(true);
+    expect(migrated.gameTimeSeconds).toBe(6000);
+  });
+
+  it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), preserving ships/shipStorageCapacity/nextShipId intact (proves the new v16 fields survive a NORMAL save/load, not just an OLD-save migration)", () => {
+    // The three new v16 fields -- ships (ShipInstance[]), shipStorageCapacity
+    // (number), nextShipId (number) -- contain NO Decimal anywhere (every
+    // ShipInstance is {id: string, typeKey: string, assignedCaptainId: number},
+    // and the two scalars are plain numbers), so they are plain-JSON-safe and
+    // need zero hydration. This test proves they survive the REAL save/load
+    // path loadFromLocalStorage() runs every time: serialize() (which
+    // JSON.stringify's the WHOLE state object wholesale, never a hand-picked
+    // field list -- see serialize() in save.ts) -> deserialize() (a straight
+    // JSON.parse pass-through, no field-by-field reconstruction) -> migrate()
+    // (whose hydrateDecimals() spreads `...state`, carrying every non-Decimal
+    // field -- including these three -- through untouched). Because a
+    // freshState() save is already at the CURRENT SAVE_VERSION, migrate()'s
+    // while loop runs ZERO iterations (there's no MIGRATIONS[16]); the fields
+    // land intact purely via the serialize->parse->spread pass-through, NOT via
+    // any migration step. Same round-trip pattern as the v11->v12 and v12->v13
+    // freshState() round-trip tests above.
+    //
+    // FAIL-BEFORE / PASS-AFTER trace: if serialize() had instead reconstructed
+    // its SaveFile by hand-picking known GameState fields (or if deserialize()/
+    // hydrateDecimals() rebuilt GameState field-by-field), these three fields --
+    // unknown to that pre-v16 field list -- would be DROPPED, and every
+    // assertion below would fail (ships undefined, shipStorageCapacity/
+    // nextShipId undefined). They pass because all three paths are generic
+    // pass-through, which this test now locks against any future regression to
+    // an explicit field-picking shape.
+    const original = freshState();
+    const raw = serialize(original, Date.now());
+    const deserialized = deserialize(raw);
+    expect(deserialized).not.toBeNull();
+
+    // Confirms the save was written at the CURRENT version -- migrate()'s while
+    // loop below genuinely runs zero iterations (no MIGRATIONS[16]), so these
+    // fields survive entirely via serialize->parse->spread, not via migration.
+    expect(deserialized!.version).toBe(SAVE_VERSION);
+
+    const migrated: any = migrate(deserialized!);
+
+    // freshState() seeds exactly one hull (the universal General Freighter),
+    // shipStorageCapacity 8, nextShipId 2 -- all three must survive the round
+    // trip byte-for-byte (plain-JSON scalars/objects, so .toEqual()/.toBe(),
+    // never the Decimal instanceof/.equals() treatment used elsewhere).
+    expect(migrated.ships).toHaveLength(original.ships.length);
+    expect(migrated.ships).toHaveLength(1);
+    expect(migrated.ships[0].id).toBe("ship-1"); // stable id preserved verbatim
+    expect(migrated.ships[0].typeKey).toBe("generalFreighter"); // ship type preserved
+    expect(migrated.ships[0].assignedCaptainId).toBe(1); // assignment (single source of truth) preserved
+    // Full structural equality against the original -- catches any dropped or
+    // mutated key on the ShipInstance, not just the three spot-checked above.
+    expect(migrated.ships).toEqual(original.ships);
+
+    expect(migrated.shipStorageCapacity).toBe(8);
+    expect(migrated.shipStorageCapacity).toBe(original.shipStorageCapacity);
+    expect(migrated.nextShipId).toBe(2);
+    expect(migrated.nextShipId).toBe(original.nextShipId);
+  });
+
+  it("current SAVE_VERSION is 16", () => {
+    expect(SAVE_VERSION).toBe(16);
   });
 });
 

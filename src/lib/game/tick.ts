@@ -11,19 +11,25 @@
 import Decimal from "break_infinity.js";
 import {
   requiredTicksForPhase,
+  effectiveMissionDef,
   xpForNextLevel,
   xpForNextFleetAdminLevel,
   MISSIONS,
   RECIPES,
+  SHIP_TYPES,
   CAPTAIN_TALENTS,
   CAPTAIN_SPEC_BONUS,
   HOMEWORLD_TALENTS,
   freshCaptainStack,
+  shipDerivedStats,
   type GameState,
+  type ShipTypeKey,
+  type ShipInstance,
   type CaptainState,
   type CaptainMissionState,
   type LootMaterialKey,
   type MissionDef,
+  type ShipDerivedStats,
   type MissionPhase,
   type MissionKey,
   type RecipeKey,
@@ -424,7 +430,20 @@ export function tickCaptainMission(
     // before (see captainSpecBonusRollChance's own comment for why order
     // matters here).
     specBonusRollChance?: number;
-  } = {}
+  } = {},
+  // The assigned ship's three derived stats (cargoCapacity, transitSpeedMult,
+  // extractionYieldMult), or null for "no ship modifier" -- the default, which
+  // reproduces this function's pre-Task-6 behavior EXACTLY, so every existing
+  // call site/test that omits this 5th arg is unaffected. Applied by modifying
+  // the INPUTS to the existing closed-form machinery, NOT by changing the while
+  // loop: transit/cargo fold into missionDef (once, before the loop) via
+  // effectiveMissionDef, and extractionYieldMult folds into resolvedBonuses'
+  // per-tier yield mults (also once, before the loop). Both stay constant for
+  // the whole call, so the "one big jump == many small ticks" guarantee holds
+  // for the exact same reason the `bonuses` constant above does. tick() resolves
+  // the assigned hull to these stats and passes them in (Task 7); this function
+  // no longer reads captain.shipType at all (removed in Task 3).
+  shipStats: ShipDerivedStats | null = null
 ): {
   captain: CaptainState;
   homePlanetDelta: Record<LootMaterialKey, Decimal>;
@@ -435,7 +454,19 @@ export function tickCaptainMission(
     return { captain, homePlanetDelta: emptyLootTotals(), fleetAdminXpDelta: 0, creditsDelta: 0 };
   }
 
-  const missionDef = MISSIONS[captain.mission.missionKey];
+  // Resolve the mission's transit + cargo geometry ONCE, before the while loop
+  // below -- exactly like resolvedBonuses further down. effectiveMissionDef
+  // rescales transitOut/BackTicks by the ship's transitSpeedMult (ceil, so they
+  // stay integer) and swaps in the ship's cargoCapacity (which drives the
+  // extracting phase's length via requiredTicksForPhase). Because this is
+  // computed once and stays CONSTANT across every loop iteration, every phase's
+  // requiredTicksForPhase value is identical whether the call was made as one
+  // big ticksElapsed or as many small ones -- so the closed-form guarantee is
+  // preserved. Do NOT move this inside the loop: a per-iteration recompute would
+  // still yield the same numbers (effectiveMissionDef is pure), but computing it
+  // once is both cheaper and the clearest signal that it's a call-constant.
+  const rawMissionDef = MISSIONS[captain.mission.missionKey];
+  const missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : rawMissionDef;
   let mission: CaptainMissionState | null = { ...captain.mission, cargo: { ...captain.mission.cargo } };
   let remaining = ticksElapsed;
   const homePlanetDelta = emptyLootTotals();
@@ -457,15 +488,30 @@ export function tickCaptainMission(
   // flat .plus() (credits has no leveling curve, unlike fleetAdminXpDelta).
   let creditsDelta = 0;
 
+  // The ship's extractionYieldMult is a MULTIPLIER (1.0 = no change, 1.35 =
+  // +35%), but resolvedBonuses' tier yield mults are stored as ADDITIVE deltas
+  // on top of a 1.0 base (rollExtractionTick does baseAmount*(1+mult)). So a
+  // ship yield of 1.35x contributes +0.35, added on top of whatever talent
+  // yield bonuses the caller already summed into `bonuses`. null ship -> 0
+  // (no change). This folds ALL THREE tiers equally: the hull scales how much
+  // ore/material each extracting tick produces, regardless of which tier won.
+  const shipYieldBonus = shipStats ? shipStats.extractionYieldMult - 1 : 0;
+
   // Computed ONCE per call, not per roll -- bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
   // small ticks" test doesn't care how many rolls happen, only that each
-  // roll uses the same resolved bonuses either way).
+  // roll uses the same resolved bonuses either way). shipYieldBonus, added
+  // to the three tier yield mults below, is likewise a call-constant -- it's
+  // derived from shipStats (fixed for the whole call), so it does not disturb
+  // the closed-form property. It touches ONLY the three *YieldMult fields
+  // (extraction AMOUNTS); the chance/bonus-roll fields are left untouched --
+  // a hull's cargo/yield stats change how much a tick yields, not the odds of
+  // hitting a tier or triggering a bonus roll.
   const resolvedBonuses = {
-    commonYieldMult: bonuses.commonYieldMult ?? 0,
-    uncommonYieldMult: bonuses.uncommonYieldMult ?? 0,
+    commonYieldMult: (bonuses.commonYieldMult ?? 0) + shipYieldBonus,
+    uncommonYieldMult: (bonuses.uncommonYieldMult ?? 0) + shipYieldBonus,
     uncommonChanceMult: bonuses.uncommonChanceMult ?? 0,
-    rareYieldMult: bonuses.rareYieldMult ?? 0,
+    rareYieldMult: (bonuses.rareYieldMult ?? 0) + shipYieldBonus,
     rareChanceMult: bonuses.rareChanceMult ?? 0,
     bonusRollChance: bonuses.bonusRollChance ?? 0,
     bonusRollChanceMult: bonuses.bonusRollChanceMult ?? 0,
@@ -665,6 +711,18 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   const fleetRareYield = fleetRareYieldMult(state);
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
+    // Resolve the hull this captain flies and project it to the three mission
+    // stats tickCaptainMission consumes (transit/cargo/yield). GameState.ships[]
+    // .assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies what -- so
+    // we find THIS captain's ship by it. The invariant (every captain always
+    // has exactly one assigned hull) holds post-migration (Task 4), at new-game
+    // (Task 3), and at new-captain-unlock (Task 10) -- so .find() will locate a
+    // hull in practice. The `ship ? ... : null` guard is belt-and-suspenders: a
+    // hypothetical ship-less captain falls back to null == "no ship modifier",
+    // which reproduces this loop's exact pre-ship-wiring behavior (the Freighter
+    // baseline) rather than throwing on shipDerivedStats(undefined).
+    const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
+    const shipStats = ship ? shipDerivedStats(ship) : null;
     const bonuses = {
       commonYieldMult: captainCommonYieldMult(captain),
       uncommonYieldMult: captainUncommonYieldMult(captain),
@@ -682,7 +740,7 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       homePlanetDelta: delta,
       fleetAdminXpDelta: captainFleetAdminXpDelta,
       creditsDelta: captainCreditsDelta,
-    } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
+    } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses, shipStats);
     (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
       homePlanetDelta[key] = homePlanetDelta[key].plus(delta[key]);
     });
@@ -791,6 +849,110 @@ export function recallCaptain(state: GameState, captainId: number): { next: Game
   return { next: { ...state, captains }, success: true };
 }
 
+// Assigns a ship to a captain under the "captains always have a hull; swapping
+// is an ATOMIC REPLACE" model (Ships — Stats Foundation, Task 8). ShipInstance
+// .assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies what -- this
+// function is the only supported way to move it, and it keeps the invariant
+// "no ship is assigned to two captains at once" intact by parking the captain's
+// PREVIOUS hull whenever they take a different one. Pure: returns a new state,
+// mutates nothing. The Sector Space UI (Task 11) is the caller.
+//
+// Same "same state reference on failure" convention as every other action
+// function in this file (dispatchCaptainOnMission / recallCaptain above). Fails
+// (returns the SAME state reference, success: false) if:
+//   - the captain or the ship doesn't exist (find returns undefined), OR
+//   - the captain is on a mission (mission !== null) -- a hull can't change
+//     mid-mission. This lock is LOAD-BEARING for the closed-form guarantee:
+//     tickCaptainMission resolves effectiveMissionDef from the assigned hull
+//     ONCE per call and holds it constant across the whole cycle; letting the
+//     hull change mid-cycle would break the "one big jump == many small ticks"
+//     property that guarantee depends on, OR
+//   - the target ship is already flown by a DIFFERENT captain (assignedCaptainId
+//     is non-null and not this captain) -- you can't poach another captain's
+//     hull; it must be parked first.
+//
+// ORDERING IS SUBTLE -- read before touching the .map() below. We assign the
+// TARGET ship first (its branch wins), THEN park any *different* hull the
+// captain used to fly. The order matters ONLY for the self-reassign case
+// (assigning the captain the exact ship they already fly): if we parked "the
+// captain's current ship" FIRST, that would null ship-X, and then the target
+// branch would re-assign the same ship-X -- a wash, but fragile. By running the
+// target branch first and gating the park branch on "assignedCaptainId ===
+// captainId" for a DIFFERENT id, the self-reassign lands entirely in the target
+// branch (s.id === shipId), so the park branch never fires on it. Net effect:
+// self-reassign is a harmless no-op (the captain keeps their ship), and a true
+// swap parks exactly the one old hull. See the "self-reassign" test in
+// tick.test.ts, which exists specifically to lock this ordering in.
+export function assignShipToCaptain(
+  state: GameState,
+  captainId: number,
+  shipId: string
+): { next: GameState; success: boolean } {
+  const captain = state.captains.find((c) => c.id === captainId);
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!captain || !ship) return { next: state, success: false };
+  if (captain.mission !== null) return { next: state, success: false };
+  if (ship.assignedCaptainId !== null && ship.assignedCaptainId !== captainId) {
+    return { next: state, success: false };
+  }
+
+  // ORDER MATTERS (see header comment): the target-assign branch is listed
+  // FIRST so it wins for the self-reassign case; the park branch only fires on a
+  // DIFFERENT old hull the captain was flying.
+  const ships = state.ships.map((s) => {
+    if (s.id === shipId) return { ...s, assignedCaptainId: captainId }; // assign target (wins)
+    if (s.assignedCaptainId === captainId) return { ...s, assignedCaptainId: null }; // park the (different) old hull
+    return s;
+  });
+  return { next: { ...state, ships }, success: true };
+}
+
+// Purchases a new hull for the fleet at the Sector Space construct (Ships —
+// Stats Foundation, Task 9). Pure: returns a new state, mutates nothing. Same
+// "same state reference on failure" convention as every other buy/action
+// function in this file (assignShipToCaptain above, craftRecipe/respec* below).
+// The Sector Space buy panel (Task 11 UI) is the caller.
+//
+// Three guards, checked in order (all return the SAME state reference,
+// success: false):
+//   1. !def.cost -- the hull is not purchasable. ShipTypeDef.cost is typed
+//      `{ credits: number } | null`; a null cost means "not for sale" (e.g. a
+//      future Research-gated hull). FORWARD-DEFENSIVE: all 4 current SHIP_TYPES
+//      hulls have a non-null cost, so this branch is unreachable with today's
+//      table -- but the guard both honors the type's own contract and protects
+//      the `def.cost.credits` deref below from a null. Kept intentionally.
+//   2. storage cap -- the fleet can hold at most shipStorageCapacity hulls
+//      (parked + assigned combined). At capacity, no purchase.
+//   3. affordability -- credits is a break_infinity.js Decimal, so the compare
+//      is `.lt(number)` (NOT `<`) and the deduction is `.minus(number)` (NOT
+//      `-`), matching respecCaptainTalents/craftRecipe's Decimal usage above.
+//
+// On success the new hull arrives PARKED (assignedCaptainId: null) -- the
+// player assigns it via assignShipToCaptain afterward. Its id is minted from
+// state.nextShipId as "ship-N" (the same "ship-N" scheme freshState seeds and
+// ShipInstance.id documents), and nextShipId is then bumped by 1 so the id
+// source stays monotonic and never reused.
+export function buyShip(
+  state: GameState,
+  typeKey: ShipTypeKey
+): { next: GameState; success: boolean } {
+  const def = SHIP_TYPES[typeKey];
+  if (!def.cost) return { next: state, success: false }; // not purchasable (forward-defensive; see header)
+  if (state.ships.length >= state.shipStorageCapacity) return { next: state, success: false }; // storage at capacity
+  if (state.credits.lt(def.cost.credits)) return { next: state, success: false }; // can't afford
+
+  const ship: ShipInstance = { id: `ship-${state.nextShipId}`, typeKey, assignedCaptainId: null };
+  return {
+    next: {
+      ...state,
+      credits: state.credits.minus(def.cost.credits),
+      ships: [...state.ships, ship],
+      nextShipId: state.nextShipId + 1,
+    },
+    success: true,
+  };
+}
+
 // Validates every input in the recipe is affordable, deducts them all, adds
 // the output -- same "same state reference on failure" convention as every
 // other buy/action function in this file (dispatchCaptainOnMission,
@@ -878,9 +1040,12 @@ export function buyCaptainTalent(
 // Same shape as buyCaptainTalent, fleet-wide -- including the same graph
 // adjacency gate: learnable iff a hub, or adjacent to an already-unlocked node
 // in this branch (against state.unlockedHomeworldTalents). unlockCaptainSlot is
-// the one effect type with an additional side effect beyond "record the unlock"
-// -- appending a new captain via freshCaptainStack(), same baseline every other
-// captain-creation path in this codebase uses.
+// the one effect type with additional side effects beyond "record the unlock"
+// -- appending a new captain via freshCaptainStack() (same baseline every other
+// captain-creation path in this codebase uses) AND granting that captain an
+// assigned General Freighter, so the "every captain always has exactly one
+// assigned ship" invariant holds here too (its third enforcement site, after
+// new-game and save migration).
 export function buyHomeworldTalent(
   state: GameState,
   talentKey: HomeworldTalentKey
@@ -907,9 +1072,21 @@ export function buyHomeworldTalent(
     const nextId = state.captains.length + 1;
     const captains = [
       ...state.captains,
-      { id: nextId, label: `Captain ${nextId}`, shipType: "resourcer" as const, ...freshCaptainStack() },
+      { id: nextId, label: `Captain ${nextId}`, ...freshCaptainStack() }, // shipType removed (captain no longer owns a hull)
     ];
-    return { next: { ...state, captains, adminPoints, unlockedHomeworldTalents }, success: true };
+    // Every captain always has exactly one assigned ship (invariant enforced at
+    // new-game, migration, and HERE). A newly-unlocked captain is granted a
+    // General Freighter, assigned to them, REGARDLESS of shipStorageCapacity --
+    // a captain must have a hull to be dispatchable (cap is 8 > the current 4-
+    // captain ceiling, so this never conflicts today).
+    const ships = [
+      ...state.ships,
+      { id: `ship-${state.nextShipId}`, typeKey: "generalFreighter" as const, assignedCaptainId: nextId },
+    ];
+    return {
+      next: { ...state, captains, ships, nextShipId: state.nextShipId + 1, adminPoints, unlockedHomeworldTalents },
+      success: true,
+    };
   }
 
   return { next: { ...state, adminPoints, unlockedHomeworldTalents }, success: true };

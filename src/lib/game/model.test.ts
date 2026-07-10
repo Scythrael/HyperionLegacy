@@ -12,6 +12,9 @@ import {
   CAPTAIN_SPEC_BONUS,
   specCards,
   categoryCards,
+  SHIP_TYPES,
+  shipDerivedStats,
+  effectiveMissionDef,
 } from "./model";
 import type { CaptainTalentKey, HomeworldTalentKey } from "./model";
 
@@ -21,12 +24,11 @@ describe("freshState — captain roster shape", () => {
     expect(state.captains).toHaveLength(1);
   });
 
-  it("Captain 1 has id 1, label 'Captain 1', shipType resourcer", () => {
+  it("Captain 1 has id 1, label 'Captain 1'", () => {
     const state = freshState();
     const c1 = state.captains[0];
     expect(c1.id).toBe(1);
     expect(c1.label).toBe("Captain 1");
-    expect(c1.shipType).toBe("resourcer");
   });
 
   it("starts with xp:0, level:1, statPoints:0 per captain, and fleet-wide tickDurationSeconds 1", () => {
@@ -50,6 +52,20 @@ describe("freshState — captain roster shape", () => {
   });
 });
 
+describe("freshState ships seeding", () => {
+  it("seeds one General Freighter assigned to the starting captain, capacity 8", () => {
+    const s = freshState();
+    expect(s.shipStorageCapacity).toBe(8);
+    expect(s.nextShipId).toBe(2); // "ship-1" is taken by the seeded freighter, so the next id is 2
+    expect(s.ships).toHaveLength(1);
+    expect(s.ships[0].typeKey).toBe("generalFreighter");
+    expect(s.ships[0].assignedCaptainId).toBe(s.captains[0].id);
+    for (const c of s.captains) {
+      expect(s.ships.filter((sh) => sh.assignedCaptainId === c.id)).toHaveLength(1);
+    }
+  });
+});
+
 describe("freshCaptains(count) — parameterized roster generation", () => {
   it("generates exactly `count` captains with sequential ids/labels, all sharing the fresh baseline", () => {
     const captains = freshCaptains(3);
@@ -57,7 +73,6 @@ describe("freshCaptains(count) — parameterized roster generation", () => {
     expect(captains.map((c) => c.id)).toEqual([1, 2, 3]);
     expect(captains.map((c) => c.label)).toEqual(["Captain 1", "Captain 2", "Captain 3"]);
     for (const c of captains) {
-      expect(c.shipType).toBe("resourcer");
       expect(c.xp.equals(0)).toBe(true);
       expect(c.level).toBe(1);
       expect(c.statPoints).toBe(0);
@@ -437,5 +452,52 @@ describe("Selector cards — specCards / categoryCards (Task 13)", () => {
         expect(bullet.length).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+// Ships — Stats Foundation (Task 1): the SHIP_TYPES table is the durable spec
+// for the 4 real hulls this feature introduces. It only ADDS declarations this
+// pass -- nothing consumes SHIP_TYPES yet (GameState wiring, mission math, and
+// UI land in later tasks), so this test guards the stat profiles in isolation.
+// The three forward buckets (tactician/explorer hull families) are deliberately
+// NOT built yet and therefore intentionally NOT asserted here.
+describe("SHIP_TYPES", () => {
+  it("has the 4 real hulls with the designed stat profiles", () => {
+    expect(SHIP_TYPES.generalFreighter.cargoCapacity).toBe(90);
+    expect(SHIP_TYPES.generalFreighter.transitSpeedMult).toBe(1.0);
+    expect(SHIP_TYPES.generalFreighter.extractionYieldMult).toBe(1.0);
+    expect(SHIP_TYPES.generalFreighter.moduleSlots).toBe(1);
+    expect(SHIP_TYPES.prospectorHauler.cargoCapacity).toBe(180);
+    expect(SHIP_TYPES.prospectorRunner.transitSpeedMult).toBe(1.5);
+    expect(SHIP_TYPES.prospectorMiner.extractionYieldMult).toBe(1.35);
+    for (const key of Object.keys(SHIP_TYPES) as (keyof typeof SHIP_TYPES)[]) {
+      expect(SHIP_TYPES[key].tier).toBe(1);
+      expect(SHIP_TYPES[key].cost?.credits).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("effectiveMissionDef", () => {
+  const short = MISSIONS.shortOreRun; // transitOut/Back 25, cargo 90, rate 1
+
+  it("freighter (baseline) leaves the mission unchanged", () => {
+    const eff = effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "generalFreighter", assignedCaptainId: null }));
+    expect(eff.transitOutTicks).toBe(25);
+    expect(eff.transitBackTicks).toBe(25);
+    expect(eff.cargoCapacity).toBe(90);
+  });
+
+  it("runner (1.5x) shortens transit via ceil, hauler (0.8x) lengthens it", () => {
+    const runner = effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorRunner", assignedCaptainId: null }));
+    expect(runner.transitOutTicks).toBe(Math.ceil(25 / 1.5)); // 17
+    expect(runner.cargoCapacity).toBe(60);
+    const hauler = effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorHauler", assignedCaptainId: null }));
+    expect(hauler.transitOutTicks).toBe(Math.ceil(25 / 0.8)); // 32
+    expect(hauler.cargoCapacity).toBe(180);
+  });
+
+  it("does not mutate the base mission", () => {
+    effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorHauler", assignedCaptainId: null }));
+    expect(MISSIONS.shortOreRun.cargoCapacity).toBe(90);
   });
 });
