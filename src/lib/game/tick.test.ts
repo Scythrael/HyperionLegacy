@@ -1821,3 +1821,123 @@ describe("tickCaptainMission — assigned ship stats (Task 6)", () => {
     expect(minerResult.captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 7: tick() resolves each captain's assigned ship and passes its stats
+// into tickCaptainMission. This is the INTEGRATION point -- Task 6 taught
+// tickCaptainMission to ACCEPT a 5th shipStats arg, but only tick() knows which
+// hull a captain flies (via GameState.ships[].assignedCaptainId). These tests
+// prove the fleet loop looks the ship up and threads its stats through, so a
+// captain's assigned hull actually changes their mission math end-to-end.
+//
+// NOTE ON RNG: unlike the Task 6 tickCaptainMission tests, tick() calls
+// tickCaptainMission with Math.random internally (not an injectable rng), so
+// these assertions are deliberately built on rng-INDEPENDENT quantities:
+//   - which PHASE a captain is in after N ticks (pure function of transit/cargo
+//     geometry, no rng), and
+//   - the TOTAL units delivered to homePlanet.storage on cycle completion. Each
+//     whole extracting tick adds exactly 1 unit total across tiers (the tier is
+//     rng-chosen, but the count is not -- see rollExtractionTick's mutual-
+//     exclusivity comment), so a completed cycle delivers exactly cargoCapacity
+//     units regardless of how Math.random split them across tiers.
+// ---------------------------------------------------------------------------
+describe("tick() — applies each captain's assigned-ship stats to their mission", () => {
+  // Sum of the three loot tiers in homePlanet.storage -- the rng-independent
+  // "total units delivered" quantity the traces below rely on.
+  const totalHomeLoot = (state: ReturnType<typeof freshState>) => {
+    const s = state.homePlanet.storage;
+    return s.commonOre.plus(s.uncommonMaterial).plus(s.rareMaterial);
+  };
+
+  // Put freshState()'s single captain (id 1) on a fresh shortOreRun, at the very
+  // start of the cycle (ordersReceived / 0). freshState seeds exactly one hull
+  // (ship-1, generalFreighter, assignedCaptainId: 1) -- so out of the box this
+  // captain flies the Freighter, which is the pre-ship-wiring implicit baseline
+  // (transit 1.0 / cargo 90 / yield 1.0 == effectiveMissionDef no-op).
+  const stateOnShortOreRun = () => {
+    const state = freshState();
+    state.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "ordersReceived",
+      phaseProgressTicks: 0,
+      cargo: { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
+      recalled: false,
+    };
+    return state;
+  };
+
+  it("a RUNNER-assigned captain is FURTHER ALONG than a FREIGHTER-assigned captain for the same elapsed time", () => {
+    // tickDurationSeconds = 1 (fresh default), so deltaSeconds == ticksElapsed.
+    // Run both for 103 ticks -- chosen because that is EXACTLY one full RUNNER
+    // cycle, so the runner's lead is unmissable (it completes and delivers,
+    // while the freighter has not even finished its first extraction).
+    //
+    // Cycle geometry (shortOreRun base: orders 1, transitOut/Back 25 each,
+    // extract = ceil(cargoCapacity/1) ticks, unload 8):
+    //   FREIGHTER (transit 1.0, cargo 90): 1 + 25 + 90 + 25 + 8 = 149 ticks/cycle.
+    //     Cumulative boundaries: orders done @1, transitOut done @26, extracting
+    //     done @116. At 103 ticks the freighter is STILL in "extracting", at
+    //     progress 103 - 26 = 77 of 90 -> ZERO cycles completed -> ZERO loot
+    //     delivered to homePlanet (loot only lands on unload completion).
+    //   RUNNER (transit 1.5, cargo 60): transitOut/Back = ceil(25/1.5) = 17 each,
+    //     extract = 60. 1 + 17 + 60 + 17 + 8 = 103 ticks/cycle. At 103 ticks the
+    //     runner completes EXACTLY one cycle and auto-repeats -> back at
+    //     "ordersReceived", having delivered a full 60-unit haul to homePlanet.
+    const DELTA = 103;
+
+    // Case A: baseline -- the seeded Freighter stays assigned to captain 1.
+    const stateA = stateOnShortOreRun();
+    const resultA = tick(DELTA, stateA);
+
+    // Case B: swap captain 1's hull to a Runner by mutating the seeded ship's
+    // typeKey (cleaner than adding a second ship + re-parking -- assignment is
+    // unchanged, only the hull type differs, isolating the stat effect).
+    const stateB = stateOnShortOreRun();
+    stateB.ships[0].typeKey = "prospectorRunner";
+    const resultB = tick(DELTA, stateB);
+
+    // Runner completed a cycle and is back at the start; freighter is mid-extract.
+    expect(resultA.captains[0].mission!.phase).toBe("extracting");
+    expect(resultA.captains[0].mission!.phaseProgressTicks).toBeCloseTo(77, 6);
+    expect(resultB.captains[0].mission!.phase).toBe("ordersReceived");
+
+    // The decisive rng-independent proof: the runner delivered a full haul; the
+    // freighter delivered nothing. Freighter delivered EXACTLY 0 (no cycle done);
+    // runner delivered EXACTLY 60 (one completed cycle == its cargoCapacity).
+    expect(totalHomeLoot(resultA).equals(0)).toBe(true);
+    expect(totalHomeLoot(resultB).equals(60)).toBe(true);
+    // ...and, stated as the task frames it, runner strictly further along.
+    expect(totalHomeLoot(resultB).greaterThan(totalHomeLoot(resultA))).toBe(true);
+
+    // Cycle completion also awards fleet XP + credits (shortOreRun: 1 XP, 10 cr
+    // per cycle) -- another independent confirmation the runner completed and
+    // the freighter did not.
+    expect(resultB.fleetAdminXp.greaterThan(resultA.fleetAdminXp)).toBe(true);
+    expect(resultB.credits.equals(10)).toBe(true);
+    expect(resultA.credits.equals(0)).toBe(true);
+  });
+
+  it("with the seeded FREIGHTER (transit 1.0 / cargo 90 / yield 1.0), tick() matches the pre-ship-wiring baseline", () => {
+    // The Freighter's stats are all identity (effectiveMissionDef is a no-op for
+    // transit 1.0 / cargo 90 == shortOreRun's own base cargo). So passing its
+    // shipStats must produce the SAME phase geometry as passing null (the old
+    // implicit "no ship" behavior). We verify by checking the exact phase the
+    // Freighter captain lands in after a 103-tick run -- computed purely from the
+    // 149-tick base cycle, no ship modifier involved.
+    //
+    // At 103 ticks: orders done @1, transitOut done @26, so extracting progress
+    // = 103 - 26 = 77 of 90 -> phase "extracting", phaseProgressTicks 77. This is
+    // identical to what tick() produced BEFORE ship stats were wired in (the
+    // Freighter == today's implicit ship), which is the whole point of seeding it
+    // as the universal grandfathered hull.
+    const state = stateOnShortOreRun();
+    const result = tick(103, state);
+
+    expect(result.captains[0].mission!.phase).toBe("extracting");
+    expect(result.captains[0].mission!.phaseProgressTicks).toBeCloseTo(77, 6);
+    // No cycle completed within 103 < 149 ticks -> no loot, no XP, no credits.
+    expect(totalHomeLoot(result).equals(0)).toBe(true);
+    expect(result.fleetAdminXp.equals(0)).toBe(true);
+    expect(result.credits.equals(0)).toBe(true);
+  });
+});

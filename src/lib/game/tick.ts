@@ -20,6 +20,7 @@ import {
   CAPTAIN_SPEC_BONUS,
   HOMEWORLD_TALENTS,
   freshCaptainStack,
+  shipDerivedStats,
   type GameState,
   type CaptainState,
   type CaptainMissionState,
@@ -707,6 +708,18 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   const fleetRareYield = fleetRareYieldMult(state);
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
+    // Resolve the hull this captain flies and project it to the three mission
+    // stats tickCaptainMission consumes (transit/cargo/yield). GameState.ships[]
+    // .assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies what -- so
+    // we find THIS captain's ship by it. The invariant (every captain always
+    // has exactly one assigned hull) holds post-migration (Task 4), at new-game
+    // (Task 3), and at new-captain-unlock (Task 10) -- so .find() will locate a
+    // hull in practice. The `ship ? ... : null` guard is belt-and-suspenders: a
+    // hypothetical ship-less captain falls back to null == "no ship modifier",
+    // which reproduces this loop's exact pre-ship-wiring behavior (the Freighter
+    // baseline) rather than throwing on shipDerivedStats(undefined).
+    const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
+    const shipStats = ship ? shipDerivedStats(ship) : null;
     const bonuses = {
       commonYieldMult: captainCommonYieldMult(captain),
       uncommonYieldMult: captainUncommonYieldMult(captain),
@@ -724,7 +737,7 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       homePlanetDelta: delta,
       fleetAdminXpDelta: captainFleetAdminXpDelta,
       creditsDelta: captainCreditsDelta,
-    } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
+    } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses, shipStats);
     (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
       homePlanetDelta[key] = homePlanetDelta[key].plus(delta[key]);
     });
