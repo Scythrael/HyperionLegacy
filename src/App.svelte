@@ -1660,7 +1660,7 @@
             <div
               class="captain-list-item locked"
               title={isUnlockable
-                ? "Locked — recruit via Homeworld Talents → Fleet Logistics (requires reaching the slot's Fleet-Admiral level)"
+                ? "Locked — recruit via Homeworld Talents → Fleet Logistics"
                 : "Coming soon — not yet unlockable"}
             >
               {#if isUnlockable}🔒 Locked{:else}🔒 Coming Soon!{/if}
