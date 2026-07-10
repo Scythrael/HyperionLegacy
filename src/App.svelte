@@ -438,7 +438,16 @@
     logEntries = [msg, ...logEntries].slice(0, 8);
   }
 
+  // Set true right before an import-triggered window.location.reload() so the
+  // beforeunload/onDestroy teardown autosaves (which call doSave with the CURRENT
+  // in-memory state) do NOT overwrite the freshly-imported save in localStorage.
+  // That clobber was the Import Save bug: the imported save was written, then the
+  // old state re-saved over it during the reload, so the original loaded back.
+  // Resets to false naturally on the reload (fresh module instance).
+  let suppressSave = false;
+
   function doSave() {
+    if (suppressSave) return;
     saveToLocalStorage(state, createdAt);
   }
 
@@ -1207,6 +1216,10 @@
     // save -- matches the existing "load happens once, at mount" pattern
     // (see onMount above) rather than adding a second "hot-swap state
     // mid-session" code path.
+    // MUST suppress teardown autosaves first: window.location.reload() fires
+    // beforeunload + onDestroy, both of which doSave() the OLD in-memory state
+    // -- without this, that write clobbers the just-imported save (the import bug).
+    suppressSave = true;
     window.location.reload();
   }
 
