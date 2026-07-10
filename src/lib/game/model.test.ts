@@ -154,6 +154,26 @@ describe("Phase 1 — keyed inventory + discovered (additive)", () => {
   });
 });
 
+// Ship Production Economy (Phase 1, Task 3): the facility/timed-process
+// reservation fields are ADDED to GameState this pass (DEFINITIONS + state only;
+// the engine that reads/writes them is Task 8). freshState must seed the one
+// facility Phase 1 ships (refinery) at level 0 = not built, no active processes,
+// and the next process id at 1 -- the SAME clean-slate baseline the v17->v18 save
+// migration (save.ts, MIGRATIONS[17]) backfills onto old saves. This test guards
+// only that additive freshState seed.
+describe("Phase 1 — facility/process reservation fields (additive)", () => {
+  it("freshState().facilities seeds exactly the refinery at level 0 (not built)", () => {
+    const state = freshState();
+    expect(state.facilities).toEqual({ refinery: { level: 0 } });
+  });
+
+  it("freshState().activeProcesses starts empty and nextProcessId starts at 1", () => {
+    const state = freshState();
+    expect(state.activeProcesses).toEqual([]);
+    expect(state.nextProcessId).toBe(1);
+  });
+});
+
 describe("MISSIONS — launch set", () => {
   it("has exactly 2 missions with the specified tick counts and cargo/extraction values", () => {
     expect(MISSIONS.shortOreRun.transitOutTicks).toBe(25);

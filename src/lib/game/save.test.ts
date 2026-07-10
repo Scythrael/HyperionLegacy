@@ -34,8 +34,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 
@@ -73,8 +73,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 
@@ -241,8 +241,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBeUndefined();
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 
@@ -338,8 +338,8 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 
@@ -444,8 +444,8 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 
@@ -530,8 +530,8 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 
@@ -590,8 +590,8 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.captains[0].mission).toBe(null);
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 
@@ -647,8 +647,8 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     expect(migrated.homePlanet.storage.refinedMaterial.equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 
@@ -706,8 +706,8 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     expect(migrated.tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 
@@ -1469,8 +1469,8 @@ describe("migrate — Ships stats foundation: grandfather a Freighter per captai
     expect(migrated.nextShipId).toBe(original.nextShipId);
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 
@@ -1676,8 +1676,226 @@ describe("migrate — lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.missionsCompleted.longOreRun.equals(3)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 17", () => {
-    expect(SAVE_VERSION).toBe(17);
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
+  });
+});
+
+describe("migrate — Ship Production Economy Phase 1: inventory/discovered/facilities/processes backfill (v17 -> v18)", () => {
+  it("builds inventory 1:1 from homePlanet.storage, discovers only >0 items, seeds facilities/activeProcesses/nextProcessId, and leaves lifetimeStats + storage intact", () => {
+    // A genuine v17 shape: every field through MIGRATIONS[16] already present --
+    // notably lifetimeStats (which SHIPPED live in v17, so a real returning
+    // player's save already carries accrued totals here) -- but with NO
+    // `inventory`, `discovered`, `facilities`, `activeProcesses`, or `nextProcessId`
+    // key anywhere on GameState. Hand-written literal, same reasoning as every
+    // other legacy fixture in this file: freshState() now always seeds all five
+    // Phase 1 fields (Task 2 added inventory/discovered; Task 3 -- this task --
+    // added facilities/activeProcesses/nextProcessId), so it can no longer stand
+    // in for this pre-v18 shape.
+    //
+    // homePlanet.storage carries a MIX of >0 and zero balances so both the
+    // inventory copy (all 5 keys) AND the discovery gate (only the >0 keys) are
+    // exercised: commonOre 500, uncommonMaterial 0, rareMaterial 12,
+    // refinedMaterial 0, components 3 -> the three non-zero keys (commonOre,
+    // rareMaterial, components) become discovered; the two zero keys do NOT.
+    // lifetimeStats carries non-empty, non-zero values to prove MIGRATIONS[17]
+    // does NOT touch it (a re-seed here would clobber a returning player's totals).
+    const legacyState: any = {
+      gameTimeSeconds: 6000,
+      tickDurationSeconds: 1,
+      credits: 75,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 40,
+      fleetAdminLevel: 2,
+      adminPoints: 1,
+      unlockedSkillNodes: ["commandRank1"],
+      skillPoints: 0,
+      homePlanet: {
+        storage: {
+          commonOre: 500, // >0 -> discovered
+          uncommonMaterial: 0, // zero -> NOT discovered
+          rareMaterial: 12, // >0 -> discovered
+          refinedMaterial: 0, // zero -> NOT discovered
+          components: 3, // >0 -> discovered
+        },
+      },
+      ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+      shipStorageCapacity: 8,
+      nextShipId: 2,
+      // lifetimeStats ALREADY LIVE at v17 -- carries real accrued history that
+      // MIGRATIONS[17] must leave completely untouched.
+      lifetimeStats: {
+        itemsGathered: { commonOre: 1000, rareMaterial: 12 },
+        itemsRefined: {},
+        itemsCrafted: {},
+        missionsCompleted: { shortOreRun: 5 },
+        creditsEarned: 250,
+        captainXpAwarded: 800,
+        fleetAdminXpAwarded: 40,
+      },
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          xp: 300,
+          level: 3,
+          statPoints: 1,
+          spec: null,
+          unlockedCaptainTalents: [],
+          mission: null,
+        },
+      ],
+      // no inventory/discovered/facilities/activeProcesses/nextProcessId -- the real pre-v18 shape
+    };
+
+    const save: SaveFile = { version: 17, created_at: 0, last_saved_at: 0, game_time_seconds: 6000, state: legacyState };
+    const migrated: any = migrate(save);
+
+    // inventory is built 1:1 from storage -- SAME 5 keys, each value copied across
+    // as a real Decimal (hydrateDecimals()'s hydrateDecimalMap re-confirms the
+    // Decimals MIGRATIONS[17] already produced). instanceof + .equals(), never
+    // .toBe() (Decimal is an object).
+    expect(Object.keys(migrated.inventory).sort()).toEqual(
+      ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"]
+    );
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(500)).toBe(true);
+    expect(migrated.inventory.uncommonMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.uncommonMaterial.equals(0)).toBe(true);
+    expect(migrated.inventory.rareMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.rareMaterial.equals(12)).toBe(true);
+    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.refinedMaterial.equals(0)).toBe(true);
+    expect(migrated.inventory.components instanceof Decimal).toBe(true);
+    expect(migrated.inventory.components.equals(3)).toBe(true);
+
+    // discovered contains EXACTLY the >0 items -- no zero-balance key leaks in.
+    expect(migrated.discovered.sort()).toEqual(["commonOre", "components", "rareMaterial"]);
+    expect(migrated.discovered).not.toContain("uncommonMaterial");
+    expect(migrated.discovered).not.toContain("refinedMaterial");
+
+    // Facility/process reservation fields get the clean-slate baseline.
+    expect(migrated.facilities).toEqual({ refinery: { level: 0 } });
+    expect(migrated.activeProcesses).toEqual([]);
+    expect(migrated.nextProcessId).toBe(1);
+
+    // homePlanet.storage is NOT dropped by this migration (Task 7 removes it
+    // later; MIGRATIONS[17] only READS it) -- it rides through untouched and
+    // hydrated, still holding its original balances alongside the new inventory.
+    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.homePlanet.storage.commonOre.equals(500)).toBe(true);
+    expect(migrated.homePlanet.storage.rareMaterial.equals(12)).toBe(true);
+    expect(migrated.homePlanet.storage.components.equals(3)).toBe(true);
+
+    // lifetimeStats survives completely untouched -- its accrued history is NOT
+    // re-seeded. Maps keep their entries (per-value Decimals hydrated); scalars
+    // keep their sums (Decimal-designated, hydrated).
+    expect(migrated.lifetimeStats.itemsGathered.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.itemsGathered.commonOre.equals(1000)).toBe(true);
+    expect(migrated.lifetimeStats.itemsGathered.rareMaterial.equals(12)).toBe(true);
+    expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(5)).toBe(true);
+    expect(migrated.lifetimeStats.creditsEarned instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.creditsEarned.equals(250)).toBe(true);
+    expect(migrated.lifetimeStats.captainXpAwarded.equals(800)).toBe(true);
+    expect(migrated.lifetimeStats.fleetAdminXpAwarded.equals(40)).toBe(true);
+
+    // Every other pre-existing field survives the backfill untouched (Decimal
+    // ones hydrated via the same unconditional hydrateDecimals() pass).
+    expect(migrated.credits instanceof Decimal).toBe(true);
+    expect(migrated.credits.equals(75)).toBe(true);
+    expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
+    expect(migrated.fleetAdminXp.equals(40)).toBe(true);
+    expect(migrated.ships).toHaveLength(1);
+    expect(migrated.ships[0].typeKey).toBe("generalFreighter");
+    expect(migrated.shipStorageCapacity).toBe(8);
+    expect(migrated.nextShipId).toBe(2);
+    expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
+    expect(migrated.captains[0].xp.equals(300)).toBe(true);
+    expect(migrated.captains[0].level).toBe(3);
+    expect(migrated.captains[0].mission).toBe(null);
+    expect(migrated.gameTimeSeconds).toBe(6000);
+  });
+
+  it("seeds an EMPTY inventory + NO discoveries when every storage balance is zero (a fresh-ish v17 save)", () => {
+    // All-zero storage -> inventory has all 5 keys at Decimal(0), and discovered
+    // is empty (nothing owned == nothing discovered, exactly like freshState).
+    const legacyState: any = {
+      gameTimeSeconds: 0,
+      tickDurationSeconds: 1,
+      credits: 0,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 0,
+      fleetAdminLevel: 1,
+      adminPoints: 0,
+      homePlanet: { storage: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 } },
+      ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+      shipStorageCapacity: 8,
+      nextShipId: 2,
+      lifetimeStats: {
+        itemsGathered: {},
+        itemsRefined: {},
+        itemsCrafted: {},
+        missionsCompleted: {},
+        creditsEarned: 0,
+        captainXpAwarded: 0,
+        fleetAdminXpAwarded: 0,
+      },
+      captains: [{ id: 1, label: "Captain 1", xp: 0, level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
+    };
+
+    const save: SaveFile = { version: 17, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
+    const migrated: any = migrate(save);
+
+    expect(Object.keys(migrated.inventory).sort()).toEqual(
+      ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"]
+    );
+    expect(migrated.inventory.commonOre.equals(0)).toBe(true);
+    expect(migrated.discovered).toEqual([]); // no owned items -> no discoveries
+    expect(migrated.facilities).toEqual({ refinery: { level: 0 } });
+    expect(migrated.activeProcesses).toEqual([]);
+    expect(migrated.nextProcessId).toBe(1);
+  });
+
+  it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), preserving the Phase 1 facility/process fields (proves they survive a NORMAL save/load, not just an OLD-save migration)", () => {
+    // facilities/activeProcesses/nextProcessId contain NO Decimal (level/id are
+    // plain numbers, activeProcesses is empty), so they are plain-JSON-safe and
+    // need zero hydration -- they survive purely via serialize (JSON.stringify the
+    // whole state) -> deserialize (JSON.parse pass-through) -> migrate (the
+    // `...state` spread in hydrateDecimals carries them through). inventory's
+    // per-value Decimals DO round-trip through strings, so this also confirms the
+    // new hydrateDecimalMap(inventory) branch revives them. Because a freshState()
+    // save is already at the CURRENT SAVE_VERSION, migrate()'s while loop runs ZERO
+    // iterations (no MIGRATIONS[18]); everything below lands via the pass-through +
+    // unconditional hydrateDecimals(), NOT via any migration step -- same round-trip
+    // property the v15->v16 / v16->v17 freshState() round-trip tests lock in.
+    const original = freshState();
+    const raw = serialize(original, Date.now());
+    const deserialized = deserialize(raw);
+    expect(deserialized).not.toBeNull();
+    expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
+
+    const migrated: any = migrate(deserialized!);
+
+    // The three plain-JSON facility/process fields survive byte-for-byte.
+    expect(migrated.facilities).toEqual({ refinery: { level: 0 } });
+    expect(migrated.facilities).toEqual(original.facilities);
+    expect(migrated.activeProcesses).toEqual([]);
+    expect(migrated.nextProcessId).toBe(1);
+    expect(migrated.nextProcessId).toBe(original.nextProcessId);
+
+    // inventory's per-value Decimals come back as real Decimal instances equal to
+    // freshState()'s (all zeros) -- .equals()/instanceof, since hydrateDecimals()
+    // rebuilds them fresh (never the same object reference as original's).
+    expect(Object.keys(migrated.inventory).sort()).toEqual(Object.keys(original.inventory).sort());
+    for (const key of Object.keys(original.inventory)) {
+      expect(migrated.inventory[key] instanceof Decimal).toBe(true);
+      expect(migrated.inventory[key].equals(original.inventory[key])).toBe(true);
+    }
+    expect(migrated.discovered).toEqual([]);
+  });
+
+  it("current SAVE_VERSION is 18", () => {
+    expect(SAVE_VERSION).toBe(18);
   });
 });
 

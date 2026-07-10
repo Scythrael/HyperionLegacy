@@ -320,6 +320,53 @@ export interface CaptainState {
   spec: CaptainTalentBranch | null; // this captain's chosen Captain Specialization, if any -- null means no CAPTAIN_SPEC_BONUS entry applies yet (see that table below)
 }
 
+// --- Ship Production Economy (Phase 1, Task 3 -- docs/plans/2026-07-11-facility-
+// framework-refinery-design.md §3/§5) --------------------------------------------
+// DEFINITIONS ONLY this task. The ENGINE that creates/advances/resolves these
+// (startProcess/resolveCompletedProcesses, the deduct-at-start + closed-form
+// completion logic) lands in Task 8 -- nothing reads or writes any of the state
+// fields below yet. Kept deliberately MINIMAL (Omega YAGNI): Task 8/10/11 extend
+// them for batch/continuous refine orders + slot counts as those mechanics land;
+// this forward shape is only what the save schema needs to reserve NOW so old
+// saves don't have to re-migrate later.
+
+// The two timed shapes Phase 1 ships. Both are the same deterministic,
+// fixed-duration process (design §3); the union keeps them distinguishable at the
+// resolver. Extensible -- missions could fold onto this engine later (design §2),
+// so a new literal slots in without touching existing call sites (same convention
+// as ShipType/MissionTier above).
+export type TimedProcessKind = "refineJob" | "facilityUpgrade";
+
+// What a process's COMPLETION applies (inputs were already deducted at START --
+// design §4's atomic-consume fix). `addItem` grants a refine job's output;
+// `facilityLevelUp` bumps a facility's level. `facility` is a plain string (not a
+// FacilityKey union) so a later facility needs no type change here -- forward-loose
+// on purpose, same reasoning as inventory's `Record<string, Decimal>` key type.
+export type ProcessEffect =
+  | { type: "addItem"; itemId: string; amount: Decimal }
+  | { type: "facilityLevelUp"; facility: string };
+
+// One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
+// GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
+// `startTick` + `durationTicks` are FIXED at creation, which is what makes offline
+// catch-up closed-form (design §3): completion is a pure "has nowTick - startTick
+// reached durationTicks?" check, no tick-by-tick simulation.
+export interface TimedProcess {
+  id: string;
+  kind: TimedProcessKind;
+  startTick: number;      // the game-tick index the process began
+  durationTicks: number;  // FIXED at creation -- deterministic, so offline is closed-form
+  effect: ProcessEffect;  // what completion does (add item / level up a facility)
+}
+
+// A built facility's live state. `level` 0 = not built; unlock is the level 0->1
+// upgrade (design §5, "no separate unlock system"). Minimal for Phase 1 -- Task
+// 10/11 may extend this (e.g. per-facility refine-order/slot bookkeeping) as the
+// refinery UI + batch orders land.
+export interface FacilityState {
+  level: number; // 0 = not built
+}
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence -- every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
@@ -375,6 +422,15 @@ export interface GameState {
     captainXpAwarded: Decimal;                 // lifetime captain XP granted across all captains
     fleetAdminXpAwarded: Decimal;              // lifetime Fleet Admiral XP granted
   };
+  // --- Ship Production Economy (Phase 1, Task 3 -- facility/process state) ---
+  // Reserved schema for the facility framework + timed-process engine (types
+  // above). NOTHING reads/writes these yet -- the engine that does is Task 8; the
+  // Refinery panel is later. freshState seeds `{ refinery: { level: 0 } }` (the one
+  // facility Phase 1 ships, not yet built) / `[]` / `1`, and the v17->v18 migration
+  // (save.ts, MIGRATIONS[17]) backfills the same baseline onto old saves.
+  facilities: Record<string, FacilityState>; // facilityKey -> { level }; level 0 = not built
+  activeProcesses: TimedProcess[];            // in-flight refine jobs + facility upgrades (empty until Task 8 starts one)
+  nextProcessId: number;                      // monotonic id source for new TimedProcess.id ("proc-N"); never reused
 }
 
 export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
@@ -1254,5 +1310,12 @@ export function freshState(): GameState {
     // v16->v17 save migration that backfills the same field (save.ts,
     // MIGRATIONS[16]) can never drift out of sync.
     lifetimeStats: freshLifetimeStats(),
+    // Phase 1, Task 3 (additive facility/process state). The one facility Phase 1
+    // ships (refinery) starts at level 0 = not built; no processes are running and
+    // the next proc id is 1. The v17->v18 migration (save.ts, MIGRATIONS[17])
+    // backfills this exact baseline onto old saves. Nothing reads these yet (Task 8).
+    facilities: { refinery: { level: 0 } },
+    activeProcesses: [],
+    nextProcessId: 1,
   };
 }

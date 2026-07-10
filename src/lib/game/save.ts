@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionKey, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS } from "./model";
 
-export const SAVE_VERSION = 17;
+export const SAVE_VERSION = 18;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -80,6 +80,25 @@ function hydrateDecimals(state: any): GameState {
     },
     fleetAdminXp: toDecimal(state.fleetAdminXp),
     credits: toDecimal(state.credits),
+    // Phase 1 (Ship Production Economy) keyed inventory: revive every per-VALUE
+    // Decimal, mirroring homePlanet.storage's per-value hydration above but over
+    // this map's DYNAMIC keys (inventory can hold any ITEMS-registry id, not a
+    // fixed union) -- the exact hydrateDecimalMap treatment lifetimeStats' tally
+    // maps already get. Reached unconditionally for the same reason every field
+    // here is: any save arriving at hydrateDecimals() has `inventory` guaranteed
+    // present -- it was written at v18+ (freshState seeds it) or MIGRATIONS[17]
+    // built it from homePlanet.storage before this runs -- so the unguarded read
+    // is safe, same posture as the homePlanet.storage/lifetimeStats reads.
+    //
+    // NOTE (Task 8/11): activeProcesses is [] immediately after the v17->v18
+    // migration, so NO process carries a Decimal `effect.amount` to hydrate yet --
+    // that's why there's no activeProcesses branch here. Once refine jobs/upgrades
+    // are actually PERSISTED (Task 8 starts them; Task 11 batch orders), this
+    // function MUST also revive each activeProcesses[i].effect.amount for `addItem`
+    // effects -- the identical per-value toDecimal() treatment, guarded on the
+    // effect type. facilities/nextProcessId carry no Decimals (level/id are plain
+    // numbers), so they need no hydration and ride through via the `...state` spread.
+    inventory: hydrateDecimalMap(state.inventory),
     // lifetimeStats' 3 scalar sums are Decimal-typed (Progression Pacing
     // Rework), so -- exactly like credits/fleetAdminXp above -- they round-trip
     // through JSON as plain strings (Decimal.toJSON()) and MUST be converted
@@ -525,6 +544,53 @@ const MIGRATIONS: Record<number, Migration> = {
   // ({}), so there are no per-key values to backfill or hydrate yet.
   // Frozen once shipped (never edit this body).
   16: (state: any): any => ({ ...state, lifetimeStats: freshLifetimeStats() }),
+  // v17 -> v18: Ship Production Economy, Phase 1 (docs/plans/2026-07-11-facility-
+  // framework-refinery-design.md §8, reconciled §0 to v17->v18). GameState gains
+  // the keyed `inventory` (replacing homePlanet.storage's fixed union GOING
+  // FORWARD -- but storage is NOT dropped here; Task 7 removes it later, and THIS
+  // migration still reads it to build inventory), the `discovered` set, and the
+  // facility/timed-process reservation fields (facilities/activeProcesses/
+  // nextProcessId). Absent entirely on any genuine pre-v18 (shipped-v17) save.
+  //
+  // - inventory is built 1:1 from homePlanet.storage: every storage key copies
+  //   across, value-for-value. toDecimal() each value here so (a) the >0 discovery
+  //   test below has a real Decimal to call .gt() on even when the source is a
+  //   plain JSON number/string, and (b) inventory already carries live Decimals
+  //   (the unconditional hydrateDecimals() at the end of migrate() re-confirms them
+  //   via hydrateDecimalMap -- idempotent, same pattern MIGRATIONS[16] relies on).
+  // - discovered is seeded with every itemId whose storage balance is > 0
+  //   (already-owned == already-discovered, so existing saves show no false ❓ on
+  //   items they already hold). Empty-balance keys are NOT added -- they stay masked
+  //   until first acquired, exactly like a brand-new save (freshState: discovered []).
+  // - facilities/activeProcesses/nextProcessId get the SAME clean-slate baseline
+  //   freshState seeds (refinery not built, no processes, next id 1).
+  // - lifetimeStats is NOT touched -- it already shipped live in v17 (MIGRATIONS[16]
+  //   / freshLifetimeStats), so re-seeding it here would clobber a returning
+  //   player's accrued totals. The `...state` spread carries it through untouched.
+  // homePlanet.storage rides along untouched in the spread too (Task 7's removal
+  // job, not this one's). `state.homePlanet?.storage ?? {}` guards the wholesale-
+  // absent case defensively (not reachable on a real save -- every save since v8
+  // has homePlanet.storage -- same defense-in-depth posture as this file's other
+  // ?? guards); an empty source simply yields an empty inventory + no discoveries.
+  // Frozen once shipped (never edit this body).
+  17: (state: any): any => {
+    const oldStorage = state.homePlanet?.storage ?? {};
+    const inventory: Record<string, Decimal> = {};
+    const discovered: string[] = [];
+    for (const key of Object.keys(oldStorage)) {
+      const value = toDecimal(oldStorage[key]); // handles plain number/string (old save) OR live Decimal (chained/fresh)
+      inventory[key] = value;
+      if (value.gt(0)) discovered.push(key); // already-owned == already-discovered; zero-balance keys stay masked
+    }
+    return {
+      ...state,
+      inventory,
+      discovered,
+      facilities: { refinery: { level: 0 } },
+      activeProcesses: [],
+      nextProcessId: 1,
+    };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {
