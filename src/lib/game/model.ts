@@ -385,6 +385,77 @@ export const RECIPES: Record<RecipeKey, RecipeDef> = {
   },
 };
 
+// Item taxonomy (Ship Production Economy epic -- 2026-07-11 facility-framework
+// design §7). The category ladder is the forward-compat spine the whole epic
+// climbs: raw loot -> refined -> minor/major components -> ship modules/systems.
+// Only "raw" and "refined" are populated at Phase 1 launch; the later buckets
+// exist in the union so the item table can grow WITHOUT a type change later.
+export type ItemCategory =
+  | "raw" | "refined" | "minorComponent" | "majorComponent" | "shipModule" | "shipSystem";
+
+// Rarity is forward room for the UI's rarity-color reveal (design §7). Every
+// tier of the union is valid today; Phase 1's seeds only reach "rare".
+export type ItemRarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
+
+export interface ItemDef {
+  label: string;        // display name (UI wraps it as [Bracketed Name] per convention)
+  category: ItemCategory;
+  tier: number;
+  rarity: ItemRarity;
+  flavor: string;
+  // FORWARD (not populated this pass): only shipModule/shipSystem items ever
+  // carry equip stats; every Phase 1 seed leaves this undefined.
+  equipStats?: Record<string, number>;
+}
+
+// Launch item registry -- REAL entries only, same "no placeholders" discipline as
+// MISSIONS/RECIPES above. Phase 1 seeds ONLY the items that exist today: the 5
+// HomePlanetMaterialKey storage keys (the 3 mission-loot tiers + the 2 crafted
+// goods RECIPES produces). Later phases of the Ship Production Economy epic add
+// the minor/major-component, ship-module, and ship-system tiers HERE (and grow
+// the storage/inventory keys alongside) -- do NOT seed those forward items until
+// their phase. The model.test.ts drift guard asserts every live storage key has
+// an entry here, so this table cannot silently fall out of sync with storage.
+export const ITEMS: Record<string, ItemDef> = {
+  // --- Raw loot (mission extraction output; keyed as LootMaterialKey) ---
+  commonOre: {
+    label: "Common Ore",
+    category: "raw",
+    tier: 1,
+    rarity: "common",
+    flavor: "Unremarkable rock hauled up by the ton -- the backbone of every refinery run.",
+  },
+  uncommonMaterial: {
+    label: "Uncommon Material",
+    category: "raw",
+    tier: 1,
+    rarity: "uncommon",
+    flavor: "A richer seam worth flagging on the survey map. Turns up often enough to plan around.",
+  },
+  rareMaterial: {
+    label: "Rare Material",
+    category: "raw",
+    tier: 1,
+    rarity: "rare",
+    flavor: "Scarce, dense, and prized -- the payoff that makes the long ore runs worth the fuel.",
+  },
+  // --- Refined / crafted goods (Homeworld crafting output; RECIPES targets) ---
+  refinedMaterial: {
+    label: "Refined Material",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    flavor: "Common ore cooked down to a workable ingot. The first rung of the production ladder.",
+  },
+  components: {
+    label: "Components",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    flavor: "Fabricated parts stamped from refined stock -- the building blocks fleet production runs on.",
+  },
+};
+
 // Open-ended (levels can climb indefinitely) -- a formula, not a finite table
 // like HOMEWORLD_TALENTS' Fleet Logistics branch below (hand-tuned per entry).
 // Progression Pacing Rework (Task 4): steepened from 100*level to 300*level.

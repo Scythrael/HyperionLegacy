@@ -17,6 +17,7 @@ import {
   SHIP_TYPES,
   shipDerivedStats,
   effectiveMissionDef,
+  ITEMS,
 } from "./model";
 import type { CaptainTalentKey, HomeworldTalentKey } from "./model";
 
@@ -611,5 +612,53 @@ describe("effectiveMissionDef", () => {
   it("does not mutate the base mission", () => {
     effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorHauler", assignedCaptainId: null }));
     expect(MISSIONS.shortOreRun.cargoCapacity).toBe(90);
+  });
+});
+
+// Ship Production Economy (Phase 1, Task 1): ITEMS is the forward-compat item
+// registry the whole epic reads. Phase 1 seeds ONLY the 5 items that exist today
+// (the HomePlanetMaterialKey storage keys) -- 3 raw loot tiers + 2 crafted goods.
+// Nothing consumes ITEMS yet (inventory migration and discovery land in later
+// tasks), so this test guards the seed table in isolation. Later phases grow the
+// table with the minor/major-component/module/system tiers -- do NOT add those
+// forward entries here until their phase (no placeholders).
+describe("ITEMS — Phase 1 seed registry", () => {
+  it("has exactly the 5 seed entries: 3 raw, 2 refined", () => {
+    const keys = Object.keys(ITEMS);
+    expect(keys).toHaveLength(5);
+    // Category split: the 3 mission-loot tiers are "raw", the 2 crafted goods
+    // (refinedMaterial, components) are "refined".
+    const raw = Object.values(ITEMS).filter((i) => i.category === "raw");
+    const refined = Object.values(ITEMS).filter((i) => i.category === "refined");
+    expect(raw).toHaveLength(3);
+    expect(refined).toHaveLength(2);
+
+    // Pin each seed's category directly so a mis-categorized entry is caught.
+    expect(ITEMS.commonOre.category).toBe("raw");
+    expect(ITEMS.uncommonMaterial.category).toBe("raw");
+    expect(ITEMS.rareMaterial.category).toBe("raw");
+    expect(ITEMS.refinedMaterial.category).toBe("refined");
+    expect(ITEMS.components.category).toBe("refined");
+  });
+
+  // DRIFT GUARD: every live storage key MUST have a matching ITEMS entry, so the
+  // registry can't silently fall out of sync with the keys it's meant to
+  // describe. We derive the key list from the REAL storage object
+  // (freshState().homePlanet.storage) rather than hard-coding it -- that object
+  // is keyed on HomePlanetMaterialKey, so if a later task adds a storage key
+  // without a corresponding ITEMS entry, this test fails.
+  it("every current HomePlanetMaterialKey (storage key) has an ITEMS entry", () => {
+    const storageKeys = Object.keys(freshState().homePlanet.storage);
+    for (const key of storageKeys) {
+      expect(ITEMS[key]).toBeDefined();
+    }
+  });
+
+  it("every ITEMS entry has a non-empty label and flavor, and tier 1 at launch", () => {
+    for (const item of Object.values(ITEMS)) {
+      expect(item.label.length).toBeGreaterThan(0);
+      expect(item.flavor.length).toBeGreaterThan(0);
+      expect(item.tier).toBe(1); // all launch items are tier 1
+    }
   });
 });
