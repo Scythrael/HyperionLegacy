@@ -234,13 +234,36 @@
   // CURRENCY_META so this reactive block only recomputes the numbers each tick.
   // Adding a currency: add its key here alongside its CURRENCY_META entry.
   $: currencyValues = { credits: formatNumber(state.credits) } as Record<string, string>;
-  // Key of the currency whose info tooltip is open, or null. Tap/click a chip
-  // to toggle; tap elsewhere or press Escape to dismiss (handlers below).
+  // Key of the currency whose info tooltip is showing, or null. This behaves
+  // like a standard tooltip, NOT a click-to-toggle: it SHOWS on mouse hover
+  // (desktop), tap (touch), or keyboard focus, and HIDES when the mouse leaves,
+  // focus leaves, the user taps elsewhere, or Escape is pressed. Open and close
+  // are driven by SEPARATE activate/deactivate events (not one toggle) so that
+  // hover, tap, and focus never fight each other -- important on touch, where a
+  // single tap also fires synthetic pointerenter + focus events.
   let openCurrencyKey: string | null = null;
-  // Dismiss on any pointer-down that isn't on a currency chip/tooltip. Uses
-  // pointerdown (fires for mouse AND touch) per the RadialWeb mobile lesson --
-  // and .closest(".currency-chip-wrap") so tapping the chip or inside its own
-  // tooltip never self-dismisses; the chip's on:click still handles toggling.
+  function showCurrency(key: string) {
+    openCurrencyKey = key;
+  }
+  // Guarded so leaving/blurring chip A can't clear a tooltip that (once there
+  // are multiple currencies) has already switched to chip B.
+  function hideCurrency(key: string) {
+    if (openCurrencyKey === key) openCurrencyKey = null;
+  }
+  // Hover is MOUSE-ONLY. pointerenter/leave also fire for touch (pointerType
+  // "touch") during a tap, which would instantly re-hide what the tap just
+  // showed; gating to "mouse" leaves touch driven solely by tap (on:click) +
+  // tap-outside (handleCurrencyOutsidePointer).
+  function hoverEnterCurrency(e: PointerEvent, key: string) {
+    if (e.pointerType === "mouse") showCurrency(key);
+  }
+  function hoverLeaveCurrency(e: PointerEvent, key: string) {
+    if (e.pointerType === "mouse") hideCurrency(key);
+  }
+  // Touch/click dismissal: hide on any pointer-down that isn't on a currency
+  // chip or its tooltip. pointerdown fires for mouse AND touch per the RadialWeb
+  // mobile lesson; .closest(".currency-chip-wrap") keeps a tap on the chip
+  // itself from self-dismissing (that tap's on:click does the showing).
   function handleCurrencyOutsidePointer(e: PointerEvent) {
     if (openCurrencyKey === null) return;
     const target = e.target as Element | null;
@@ -928,8 +951,8 @@
            tick timer below. Data-driven: it renders one tappable chip per
            CURRENCY_META entry (see the script block), so adding a future
            currency (admin points, etc.) is a data edit, not markup surgery.
-           Each chip toggles an info tooltip carrying that currency's name +
-           flavor text. Values come from currencyValues (reactive, Decimal-aware
+           Each chip shows an info tooltip (that currency's name + flavor text)
+           on hover/focus/tap. Values come from currencyValues (reactive, Decimal-aware
            formatNumber) so the readout tracks state every tick. -->
       <div class="top-bar-currencies">
         {#each CURRENCY_META as c (c.key)}
@@ -938,9 +961,13 @@
               type="button"
               class="currency-chip"
               class:open={openCurrencyKey === c.key}
-              aria-label={`${c.label} — tap for details`}
-              aria-expanded={openCurrencyKey === c.key}
-              on:click={() => (openCurrencyKey = openCurrencyKey === c.key ? null : c.key)}
+              aria-label={`${c.label}: ${currencyValues[c.key] ?? ""}`}
+              aria-describedby={openCurrencyKey === c.key ? `currency-tooltip-${c.key}` : undefined}
+              on:pointerenter={(e) => hoverEnterCurrency(e, c.key)}
+              on:pointerleave={(e) => hoverLeaveCurrency(e, c.key)}
+              on:focus={() => showCurrency(c.key)}
+              on:blur={() => hideCurrency(c.key)}
+              on:click={() => showCurrency(c.key)}
             >
               <span class="currency-chip-glyph" aria-hidden="true">{c.glyph}</span>
               <span class="currency-chip-value">{currencyValues[c.key] ?? ""}</span>
@@ -950,10 +977,11 @@
                 Info tooltip: absolutely positioned below its own chip. No portal
                 needed (unlike RadialWeb's node tooltip) because the top bar is
                 not inside a backdrop-filter/transform containing block, so a
-                normal absolute popover isn't clipped or mis-anchored. role and
-                the chip's aria-expanded tie chip + tooltip together for a11y.
+                normal absolute popover isn't clipped or mis-anchored. role=
+                "tooltip" + a matching id (the chip's aria-describedby points
+                here while open) tie chip + tooltip together for a11y.
               -->
-              <div class="currency-tooltip" role="tooltip">
+              <div class="currency-tooltip" id={`currency-tooltip-${c.key}`} role="tooltip">
                 <div class="currency-tooltip-title">{c.label}</div>
                 <div class="currency-tooltip-body">{c.description}</div>
               </div>
