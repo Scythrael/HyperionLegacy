@@ -371,16 +371,13 @@ export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence -- every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
   gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
-  homePlanet: { storage: Record<HomePlanetMaterialKey, Decimal> }; // fleet-wide mission loot + crafted goods, separate from any captain's own state
   // --- Ship Production Economy (Phase 1, Task 2 -- docs/plans/2026-07-11-facility-framework-refinery-design.md §7) ---
-  // The keyed replacement for homePlanet.storage's fixed-union shape: a plain
-  // itemId -> quantity map that can grow to hold ANY ITEMS-registry key (raw
-  // loot, refined goods, and the later component/module/system tiers) WITHOUT a
-  // type change. ADDED ALONGSIDE homePlanet.storage this pass -- the two coexist
-  // deliberately: NOTHING reads or writes `inventory` yet (Tasks 4-6 convert each
-  // consumer over, Task 7 removes homePlanet.storage). freshState seeds it with
-  // the SAME zero entries storage uses so the eventual swap is a no-op on those
-  // keys.
+  // The keyed material balance: a plain itemId -> quantity map that can hold ANY
+  // ITEMS-registry key (raw loot, refined goods, and the later component/module/
+  // system tiers) WITHOUT a type change. This is the SOLE fleet-wide material
+  // store as of Phase 1, Task 7 -- it fully REPLACED the old fixed-union
+  // `homePlanet.storage` field, which has been removed (its keys migrate into
+  // this map via MIGRATIONS[17]; freshState seeds the same 5 zero entries).
   inventory: Record<string, Decimal>;
   // itemIds the player has held at least once -- the persistent "seen" set that
   // drives the future ❓ -> reveal UI (an undiscovered item renders masked until
@@ -1272,21 +1269,12 @@ export function freshState(): GameState {
     captains: freshCaptains(1),
     tickDurationSeconds: 1,
     gameTimeSeconds: 0,
-    homePlanet: {
-      storage: {
-        commonOre: new Decimal(0),
-        uncommonMaterial: new Decimal(0),
-        rareMaterial: new Decimal(0),
-        refinedMaterial: new Decimal(0),
-        components: new Decimal(0),
-      },
-    },
-    // Phase 1, Task 2 (additive): seed `inventory` with the SAME zero entries as
-    // homePlanet.storage above -- keys MUST stay in lockstep with that init while
-    // both coexist (Task 7 removes storage). LIVE as of Tasks 4-5: tick.ts and
-    // App.svelte now read/write this (via the shared addToInventory helper) as the
-    // canonical material balance; homePlanet.storage above is the legacy mirror
-    // kept only until Task 7 drops it.
+    // Phase 1: seed `inventory` with the 5 baseline material keys at zero. This is
+    // the canonical, sole fleet-wide material balance -- tick.ts and App.svelte
+    // read/write it via the shared addToInventory helper. It replaced the old
+    // homePlanet.storage field entirely as of Task 7 (storage removed; its keys now
+    // live here). The 5 keys below are the historical storage set -- new itemIds
+    // (refined/component tiers) are added dynamically on first acquire, no reseed.
     inventory: {
       commonOre: new Decimal(0),
       uncommonMaterial: new Decimal(0),

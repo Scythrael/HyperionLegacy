@@ -501,26 +501,25 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     };
 
     const migrated: any = migrate(save);
-    // NOTE: this save enters at v7, but migrate()'s while loop doesn't stop
-    // at v8 -- it chains all the way through MIGRATIONS[8..11] to v12 (there
-    // being no test-specific early exit), so by the time hydrateDecimals()
-    // runs, homePlanet.storage already has all 5 keys (refinedMaterial/
-    // components backfilled by MIGRATIONS[8], v8->v9), not just the 3 this
-    // v7->v8 step itself adds -- and every one of those 5 keys is now a real
-    // Decimal instance, not a plain number, so the original single toEqual()
-    // against a 3-key plain-number literal no longer matches (both because
-    // of the extra keys AND because Decimal objects don't structurally equal
-    // plain numbers). Replaced with per-key instanceof + .equals() checks.
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.uncommonMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.uncommonMaterial.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.rareMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.rareMaterial.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.refinedMaterial.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.components instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.components.equals(0)).toBe(true);
+    // NOTE: this save enters at v7, but migrate()'s while loop doesn't stop at v8 --
+    // it chains all the way to v18. MIGRATIONS[8] (v8->v9) backfills the storage
+    // object to all 5 keys, then MIGRATIONS[17] (v17->v18) builds `inventory` 1:1
+    // from that storage AND STRIPS the homePlanet field (Task 7). So the migrated
+    // v18 shape has NO homePlanet -- the 5 material balances live in `inventory`,
+    // each a real Decimal (hydrateDecimalMap), all zero here since this pre-v8 save
+    // never held loot. Per-key instanceof + .equals() checks (Decimal is an object,
+    // never structurally equals a plain number).
+    expect(migrated.homePlanet).toBeUndefined();
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(0)).toBe(true);
+    expect(migrated.inventory.uncommonMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.uncommonMaterial.equals(0)).toBe(true);
+    expect(migrated.inventory.rareMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.rareMaterial.equals(0)).toBe(true);
+    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.refinedMaterial.equals(0)).toBe(true);
+    expect(migrated.inventory.components instanceof Decimal).toBe(true);
+    expect(migrated.inventory.components.equals(0)).toBe(true);
     expect(migrated.captains[0].mission).toBe(null);
 
     // Unrelated pre-existing fields on the captain survive the backfill untouched.
@@ -572,18 +571,21 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
 
     const save: SaveFile = { version: 8, created_at: 0, last_saved_at: 0, game_time_seconds: 5000, state: legacyState };
     const migrated: any = migrate(save);
-    // xp and homePlanet.storage's keys are Decimal-designated -- same
-    // instanceof/.equals() treatment as the v4->v5 test above.
+    // xp is Decimal-designated -- same instanceof/.equals() treatment as the
+    // v4->v5 test above. The material balances migrate through to `inventory`
+    // (built 1:1 from storage by MIGRATIONS[17], which then strips homePlanet --
+    // Task 7); refinedMaterial/components were backfilled to 0 by this v8->v9 step.
     expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
     expect(migrated.captains[0].xp.equals(0)).toBe(true);
     expect(migrated.captains[0].level).toBe(1);
     expect(migrated.captains[0].statPoints).toBe(0);
-    expect(migrated.homePlanet.storage.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.refinedMaterial.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.components instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.components.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(200)).toBe(true); // untouched fields survive
+    expect(migrated.homePlanet).toBeUndefined();
+    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.refinedMaterial.equals(0)).toBe(true);
+    expect(migrated.inventory.components instanceof Decimal).toBe(true);
+    expect(migrated.inventory.components.equals(0)).toBe(true);
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(200)).toBe(true); // untouched fields survive
 
     // Unrelated pre-existing fields survive the backfill untouched.
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
@@ -634,17 +636,19 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     expect(migrated.fleetAdminLevel).toBe(1);
     expect(migrated.adminPoints).toBe(0);
 
-    // Unrelated pre-existing fields survive the backfill untouched. xp and
-    // homePlanet.storage's keys are also Decimal-designated -- same
-    // instanceof/.equals() treatment as above.
+    // Unrelated pre-existing fields survive the backfill untouched. xp is
+    // Decimal-designated -- same instanceof/.equals() treatment as above. The
+    // material balances migrate through to `inventory` (MIGRATIONS[17] builds it
+    // 1:1 from storage, then strips homePlanet -- Task 7).
     expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
     expect(migrated.captains[0].xp.equals(500)).toBe(true);
     expect(migrated.captains[0].level).toBe(3);
     expect(migrated.captains[0].statPoints).toBe(2);
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(300)).toBe(true);
-    expect(migrated.homePlanet.storage.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.refinedMaterial.equals(6)).toBe(true);
+    expect(migrated.homePlanet).toBeUndefined();
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(300)).toBe(true);
+    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.refinedMaterial.equals(6)).toBe(true);
   });
 
   it("current SAVE_VERSION is 18", () => {
@@ -681,14 +685,15 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     // Unrelated pre-existing fields survive the backfill untouched.
     expect(migrated.captains[0].id).toBe(1);
     expect(migrated.gameTimeSeconds).toBe(500);
-    // homePlanet.storage's keys are Decimal-designated (Task 3) -- migrate()
-    // now ALWAYS runs hydrateDecimals() unconditionally at the end,
-    // regardless of which version a save started/ended at, so even this
-    // v10->v11 test's result has a real Decimal here, not a plain 10.
-    // .equals(), not .toBe() (Decimal is an object, reference-compared by
-    // toBe, which would always fail here).
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(10)).toBe(true);
+    // The material balance ends up in `inventory` (MIGRATIONS[17] builds it 1:1
+    // from storage, then strips homePlanet -- Task 7). Its values are Decimal-
+    // designated -- migrate() ALWAYS runs hydrateDecimals() unconditionally at the
+    // end, so even this v10->v11 test's result has a real Decimal here, not a plain
+    // 10. .equals(), not .toBe() (Decimal is an object, reference-compared by toBe,
+    // which would always fail here).
+    expect(migrated.homePlanet).toBeUndefined();
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(10)).toBe(true);
   });
 
   it("defaults to 10 if the first captain has no tickDurationSeconds at all (defense in depth, not reachable today)", () => {
@@ -774,17 +779,19 @@ describe("migrate — Big-Number (Decimal) hydration (v11 -> v12)", () => {
     const save: SaveFile = { version: 11, created_at: 0, last_saved_at: 0, game_time_seconds: 12000, state: legacyState };
     const migrated: any = migrate(save);
 
-    // homePlanet.storage's 5 keys.
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(120)).toBe(true);
-    expect(migrated.homePlanet.storage.uncommonMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.uncommonMaterial.equals(8)).toBe(true);
-    expect(migrated.homePlanet.storage.rareMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.rareMaterial.equals(3)).toBe(true);
-    expect(migrated.homePlanet.storage.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.refinedMaterial.equals(15)).toBe(true);
-    expect(migrated.homePlanet.storage.components instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.components.equals(4)).toBe(true);
+    // The 5 material balances end up in `inventory` (MIGRATIONS[17] builds it 1:1
+    // from storage, then strips homePlanet -- Task 7).
+    expect(migrated.homePlanet).toBeUndefined();
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(120)).toBe(true);
+    expect(migrated.inventory.uncommonMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.uncommonMaterial.equals(8)).toBe(true);
+    expect(migrated.inventory.rareMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.rareMaterial.equals(3)).toBe(true);
+    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.refinedMaterial.equals(15)).toBe(true);
+    expect(migrated.inventory.components instanceof Decimal).toBe(true);
+    expect(migrated.inventory.components.equals(4)).toBe(true);
 
     // fleetAdminXp.
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
@@ -1124,8 +1131,9 @@ describe("migrate — credits and Captain Specialization backfill (v13 -> v14)",
     expect(migrated.captains[0].level).toBe(3);
     expect(migrated.captains[0].statPoints).toBe(1);
     expect(migrated.captains[1].id).toBe(2);
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(50)).toBe(true);
+    expect(migrated.homePlanet).toBeUndefined();
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(50)).toBe(true);
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(120)).toBe(true);
     expect(migrated.gameTimeSeconds).toBe(6000);
@@ -1257,8 +1265,9 @@ describe("migrate — Radial Skill Web talent restructure (v14 -> v15)", () => {
     expect(migrated.credits.equals(0)).toBe(true);
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(200)).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(80)).toBe(true);
+    expect(migrated.homePlanet).toBeUndefined();
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(80)).toBe(true);
     expect(migrated.gameTimeSeconds).toBe(7000);
   });
 
@@ -1412,8 +1421,9 @@ describe("migrate — Ships stats foundation: grandfather a Freighter per captai
     expect(migrated.captains[1].id).toBe(2);
     expect(migrated.credits instanceof Decimal).toBe(true);
     expect(migrated.credits.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(50)).toBe(true);
+    expect(migrated.homePlanet).toBeUndefined();
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(50)).toBe(true);
     expect(migrated.gameTimeSeconds).toBe(6000);
   });
 
@@ -1561,14 +1571,15 @@ describe("migrate — lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.fleetAdminXpAwarded.equals(0)).toBe(true);
 
     // Every pre-existing field survives the backfill completely untouched.
-    // Decimal-designated fields (credits, xp, homePlanet.storage, mission.cargo)
+    // Decimal-designated fields (credits, xp, inventory, mission.cargo)
     // arrive hydrated via the same unconditional hydrateDecimals() pass.
     expect(migrated.credits instanceof Decimal).toBe(true);
     expect(migrated.credits.equals(0)).toBe(true);
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(50)).toBe(true);
+    expect(migrated.homePlanet).toBeUndefined();
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(50)).toBe(true);
     expect(migrated.ships).toHaveLength(2);
     expect(migrated.ships[0].typeKey).toBe("generalFreighter");
     expect(migrated.shipStorageCapacity).toBe(8);
@@ -1687,7 +1698,7 @@ describe("migrate — lifetimeStats reservation backfill (v16 -> v17)", () => {
 });
 
 describe("migrate — Ship Production Economy Phase 1: inventory/discovered/facilities/processes backfill (v17 -> v18)", () => {
-  it("builds inventory 1:1 from homePlanet.storage, discovers only >0 items, seeds facilities/activeProcesses/nextProcessId, and leaves lifetimeStats + storage intact", () => {
+  it("builds inventory 1:1 from homePlanet.storage, discovers only >0 items, seeds facilities/activeProcesses/nextProcessId, DROPS the old homePlanet field, and leaves lifetimeStats intact", () => {
     // A genuine v17 shape: every field through MIGRATIONS[16] already present --
     // notably lifetimeStats (which SHIPPED live in v17, so a real returning
     // player's save already carries accrued totals here) -- but with NO
@@ -1784,13 +1795,15 @@ describe("migrate — Ship Production Economy Phase 1: inventory/discovered/faci
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(1);
 
-    // homePlanet.storage is NOT dropped by this migration (Task 7 removes it
-    // later; MIGRATIONS[17] only READS it) -- it rides through untouched and
-    // hydrated, still holding its original balances alongside the new inventory.
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(500)).toBe(true);
-    expect(migrated.homePlanet.storage.rareMaterial.equals(12)).toBe(true);
-    expect(migrated.homePlanet.storage.components.equals(3)).toBe(true);
+    // homePlanet is DROPPED by this migration (Task 7): MIGRATIONS[17] reads the old
+    // save's homePlanet.storage to build inventory, then strips the field entirely.
+    // A migrated v18 save has NO homePlanet -- its balances live ONLY in `inventory`
+    // (asserted above). This is the load-bearing round-trip guarantee: hydrateDecimals
+    // no longer hydrates homePlanet, so a lingering field would go un-hydrated (or, if
+    // hydration still tried to read it, throw) -- confirming the field is gone proves
+    // the removal is complete end-to-end.
+    expect("homePlanet" in migrated).toBe(false);
+    expect(migrated.homePlanet).toBeUndefined();
 
     // lifetimeStats survives completely untouched -- its accrued history is NOT
     // re-seeded. Maps keep their entries (per-value Decimals hydrated); scalars
@@ -2014,17 +2027,19 @@ describe("migrate — chained v1 -> v13 migration", () => {
     expect(migrated.unlockedSkillNodes).toEqual(["commandRank1"]); // 2 captains -> grandfathered
     expect(migrated.skillPoints).toBe(0);
     expect(migrated.gameTimeSeconds).toBe(100); // fleet-wide field survives the whole chain
-    // homePlanet.storage's 5 keys are Decimal-designated (Task 3) -- hydrated
-    // by hydrateDecimals() at the end of migrate(), regardless of which
-    // MIGRATIONS steps ran. Asserted via instanceof + .equals(), never
-    // .toBe(), since Decimal is an object (reference-compared by toBe, which
-    // would always fail here even though the VALUE is correct).
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.uncommonMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.uncommonMaterial.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.rareMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.rareMaterial.equals(0)).toBe(true);
+    // The 5 material balances end up in `inventory` (MIGRATIONS[17] builds it 1:1
+    // from storage, then strips homePlanet -- Task 7). Their values are Decimal-
+    // designated -- hydrated by hydrateDecimals() (hydrateDecimalMap) at the end of
+    // migrate(), regardless of which MIGRATIONS steps ran. Asserted via instanceof +
+    // .equals(), never .toBe(), since Decimal is an object (reference-compared by
+    // toBe, which would always fail here even though the VALUE is correct).
+    expect(migrated.homePlanet).toBeUndefined();
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(0)).toBe(true);
+    expect(migrated.inventory.uncommonMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.uncommonMaterial.equals(0)).toBe(true);
+    expect(migrated.inventory.rareMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.rareMaterial.equals(0)).toBe(true);
     expect(migrated.captains[0].mission).toBe(null);
     expect(migrated.captains[1].mission).toBe(null);
     // v8->v9's fields. captains[0] gets them from MIGRATIONS[8]'s ??
@@ -2034,12 +2049,11 @@ describe("migrate — chained v1 -> v13 migration", () => {
     // already returns captains with xp/level/statPoints baked in (today's
     // freshCaptainStack() sets them); MIGRATIONS[8]'s ?? is then a no-op for
     // captains[1], same value either way. xp itself is Decimal-designated
-    // (Task 3) -- hydrated the same way as homePlanet.storage above,
-    // regardless of whether it arrived as a plain 0 (MIGRATIONS[8]'s ??
-    // backfill) or as a live Decimal(0) (freshCaptainStack(), Task 2) --
-    // toDecimal()'s instanceof check makes both paths converge on the same
-    // real Decimal instance, which is exactly the idempotency this task's
-    // hand-trace (Step 7c) is about.
+    // (Task 3) -- hydrated the same way as inventory above, regardless of whether
+    // it arrived as a plain 0 (MIGRATIONS[8]'s ?? backfill) or as a live Decimal(0)
+    // (freshCaptainStack(), Task 2) -- toDecimal()'s instanceof check makes both
+    // paths converge on the same real Decimal instance, which is exactly the
+    // idempotency this task's hand-trace (Step 7c) is about.
     expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
     expect(migrated.captains[0].xp.equals(0)).toBe(true);
     expect(migrated.captains[0].level).toBe(1);
@@ -2048,10 +2062,10 @@ describe("migrate — chained v1 -> v13 migration", () => {
     expect(migrated.captains[1].xp.equals(0)).toBe(true);
     expect(migrated.captains[1].level).toBe(1);
     expect(migrated.captains[1].statPoints).toBe(0);
-    expect(migrated.homePlanet.storage.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.refinedMaterial.equals(0)).toBe(true);
-    expect(migrated.homePlanet.storage.components instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.components.equals(0)).toBe(true);
+    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.refinedMaterial.equals(0)).toBe(true);
+    expect(migrated.inventory.components instanceof Decimal).toBe(true);
+    expect(migrated.inventory.components.equals(0)).toBe(true);
     // v9->v10's new fields. captains[0] and captains[1] both get
     // unlockedCaptainTalents from MIGRATIONS[9]'s ?? backfill -- captains[1]
     // is MIGRATIONS[4]'s fresh[1] (a LIVE freshCaptains() call), which by

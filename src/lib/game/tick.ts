@@ -1168,11 +1168,11 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       // curve to resolve, so the accumulated creditsDelta is applied directly
       // here rather than passed through a second wrapping function.
       credits: state.credits.plus(creditsDelta),
-      // Loot now lands in the keyed `inventory` (+ its `discovered` reveal set),
-      // NOT homePlanet.storage. `...state` above carries the now-frozen
-      // homePlanet through untouched (production code no longer writes it; a
-      // later task removes it). See the loot-fold comment just above for why the
-      // values are identical to the prior storage write.
+      // Loot now lands in the keyed `inventory` (+ its `discovered` reveal set).
+      // The old homePlanet.storage field is GONE (removed in Task 7 -- fully
+      // replaced by `inventory`), so there is nothing for `...state` to carry
+      // through for it. See the loot-fold comment just above for why the values
+      // are identical to the prior storage write.
       inventory,
       discovered,
       // Task 7: the fleet-wide lifetimeStats accumulated ONE captain at a time

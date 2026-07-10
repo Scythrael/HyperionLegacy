@@ -69,26 +69,19 @@ function hydrateDecimals(state: any): GameState {
           }
         : c.mission,
     })),
-    homePlanet: {
-      storage: {
-        commonOre: toDecimal(state.homePlanet.storage.commonOre),
-        uncommonMaterial: toDecimal(state.homePlanet.storage.uncommonMaterial),
-        rareMaterial: toDecimal(state.homePlanet.storage.rareMaterial),
-        refinedMaterial: toDecimal(state.homePlanet.storage.refinedMaterial),
-        components: toDecimal(state.homePlanet.storage.components),
-      },
-    },
     fleetAdminXp: toDecimal(state.fleetAdminXp),
     credits: toDecimal(state.credits),
     // Phase 1 (Ship Production Economy) keyed inventory: revive every per-VALUE
-    // Decimal, mirroring homePlanet.storage's per-value hydration above but over
-    // this map's DYNAMIC keys (inventory can hold any ITEMS-registry id, not a
-    // fixed union) -- the exact hydrateDecimalMap treatment lifetimeStats' tally
-    // maps already get. Reached unconditionally for the same reason every field
-    // here is: any save arriving at hydrateDecimals() has `inventory` guaranteed
-    // present -- it was written at v18+ (freshState seeds it) or MIGRATIONS[17]
-    // built it from homePlanet.storage before this runs -- so the unguarded read
-    // is safe, same posture as the homePlanet.storage/lifetimeStats reads.
+    // Decimal over this map's DYNAMIC keys (inventory can hold any ITEMS-registry
+    // id, not a fixed union) -- the exact hydrateDecimalMap treatment lifetimeStats'
+    // tally maps already get. This REPLACED the old homePlanet.storage per-value
+    // hydration (storage removed in Task 7 -- a v18 save has NO homePlanet field, so
+    // hydrating it here would throw on the unguarded read). Reached unconditionally
+    // for the same reason every field here is: any save arriving at hydrateDecimals()
+    // has `inventory` guaranteed present -- it was written at v18+ (freshState seeds
+    // it) or MIGRATIONS[17] built it from the old save's homePlanet.storage before
+    // this runs -- so the unguarded read is safe, same posture as the lifetimeStats
+    // reads.
     //
     // NOTE (Task 8/11): activeProcesses is [] immediately after the v17->v18
     // migration, so NO process carries a Decimal `effect.amount` to hydrate yet --
@@ -108,7 +101,7 @@ function hydrateDecimals(state: any): GameState {
     // present -- either it was written at v17+ (freshState seeds it) or the
     // migration chain's MIGRATIONS[16] backfilled it before this runs -- so the
     // unguarded `state.lifetimeStats.*` reads are safe, same posture as the
-    // unguarded homePlanet.storage/credits reads above.
+    // unguarded credits/inventory reads above.
     //
     // The 4 tally maps (itemsGathered/itemsRefined/itemsCrafted/
     // missionsCompleted) now get per-VALUE hydration too (Progression Pacing
@@ -546,9 +539,9 @@ const MIGRATIONS: Record<number, Migration> = {
   16: (state: any): any => ({ ...state, lifetimeStats: freshLifetimeStats() }),
   // v17 -> v18: Ship Production Economy, Phase 1 (docs/plans/2026-07-11-facility-
   // framework-refinery-design.md §8, reconciled §0 to v17->v18). GameState gains
-  // the keyed `inventory` (replacing homePlanet.storage's fixed union GOING
-  // FORWARD -- but storage is NOT dropped here; Task 7 removes it later, and THIS
-  // migration still reads it to build inventory), the `discovered` set, and the
+  // the keyed `inventory` (replacing homePlanet.storage's fixed union -- Task 7
+  // DROPS the old homePlanet field in this same migration, after reading its
+  // storage to build inventory), the `discovered` set, and the
   // facility/timed-process reservation fields (facilities/activeProcesses/
   // nextProcessId). Absent entirely on any genuine pre-v18 (shipped-v17) save.
   //
@@ -567,12 +560,16 @@ const MIGRATIONS: Record<number, Migration> = {
   // - lifetimeStats is NOT touched -- it already shipped live in v17 (MIGRATIONS[16]
   //   / freshLifetimeStats), so re-seeding it here would clobber a returning
   //   player's accrued totals. The `...state` spread carries it through untouched.
-  // homePlanet.storage rides along untouched in the spread too (Task 7's removal
-  // job, not this one's). `state.homePlanet?.storage ?? {}` guards the wholesale-
-  // absent case defensively (not reachable on a real save -- every save since v8
-  // has homePlanet.storage -- same defense-in-depth posture as this file's other
-  // ?? guards); an empty source simply yields an empty inventory + no discoveries.
-  // Frozen once shipped (never edit this body).
+  // homePlanet is DROPPED by this migration (Task 7): it's destructured out of the
+  // returned state below so migrated v18 saves carry NO homePlanet field, only the
+  // keyed `inventory` built from it. `state.homePlanet?.storage ?? {}` reads the old
+  // save's storage to build inventory, guarding the wholesale-absent case defensively
+  // (not reachable on a real save -- every save since v8 has homePlanet.storage --
+  // same defense-in-depth posture as this file's other ?? guards); an empty source
+  // simply yields an empty inventory + no discoveries.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to
+  // production, so it is still editable (the frozen-once-shipped rule applies only to
+  // production-released migrations).
   17: (state: any): any => {
     const oldStorage = state.homePlanet?.storage ?? {};
     const inventory: Record<string, Decimal> = {};
@@ -582,8 +579,12 @@ const MIGRATIONS: Record<number, Migration> = {
       inventory[key] = value;
       if (value.gt(0)) discovered.push(key); // already-owned == already-discovered; zero-balance keys stay masked
     }
+    // Destructure `homePlanet` OUT of the spread so it is stripped from the migrated
+    // shape (fully replaced by `inventory`); everything else in `state` rides through
+    // `rest` untouched (lifetimeStats, captains, credits, etc.).
+    const { homePlanet: _removedHomePlanet, ...rest } = state;
     return {
-      ...state,
+      ...rest,
       inventory,
       discovered,
       facilities: { refinery: { level: 0 } },
