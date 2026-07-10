@@ -115,32 +115,17 @@
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
   const DEV_MODE_ENV = import.meta.env.VITE_DEV_MODE === "true";
 
-  // TEST AFFORDANCE (device-testing the Progression Pacing Rework): allow the
-  // Debug tab to be revealed on a deployed PRODUCTION preview by appending a
-  // `?dev` query param to the URL (e.g. .../?dev), WITHOUT it being visible by
-  // default. This is separate from DEV_MODE_ENV so a production build (where
-  // VITE_DEV_MODE is unset/false) can still be poked at on a real device.
+  // The Debug tab + [DEV] grant controls gate on build-time DEV_MODE only
+  // (true on Vercel Preview, false on Production per the note above -- so they
+  // show on preview/local dev builds but never on production).
   //
-  // Read `window.location` defensively ONCE at init: this is a Svelte SPA so
-  // `window` exists at runtime, but wrap it in typeof/try so a bundle/SSR
-  // context that lacks `window` can't throw here. `DEV_MODE` is what every
-  // Debug gate below keys off from now on -- true when EITHER the env flag is
-  // set OR the `?dev` param is present.
-  //
-  // ⚠️ BEFORE MERGING TO main: decide whether to keep this `?dev` bypass. It is
-  // harmless for a single-player idle game (the Debug panel only mutates the
-  // player's OWN local save -- no server, no other players to grief), so it can
-  // reasonably stay as a permanent self-serve test hatch; but if you'd rather
-  // lock it back down, delete the URL-param clause and gate on DEV_MODE_ENV only.
-  const DEV_MODE_URL_PARAM = (() => {
-    try {
-      if (typeof window === "undefined" || !window.location) return false;
-      return new URLSearchParams(window.location.search).has("dev");
-    } catch {
-      return false;
-    }
-  })();
-  const DEV_MODE = DEV_MODE_ENV || DEV_MODE_URL_PARAM;
+  // A `?dev` URL bypass was added during Progression-Pacing-Rework device
+  // testing, then REMOVED before merging to main (2026-07-11, user decision) so
+  // production ships with NO self-serve cheat surface -- the dev grants (free FA
+  // levels / admin points / stat points) must not be reachable by real players,
+  // which matters especially once leaderboards/multiplayer exist. Dev tools stay
+  // available wherever VITE_DEV_MODE is true (preview + local .env.local).
+  const DEV_MODE = DEV_MODE_ENV;
 
   // Player-facing app version + patch notes, shown on the About sub-tab
   // (System tab). Distinct from SAVE_VERSION (save.ts) -- that's the save
