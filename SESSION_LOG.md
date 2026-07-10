@@ -1155,3 +1155,32 @@ pre-v16 save migrates cleanly with a Freighter grandfathered onto every captain;
 then final holistic review of this branch, then merge — push to `main` still needs
 separate, explicit confirmation from the user, since it triggers a live Vercel
 production redeploy.
+
+**Session 26 coda (post-build finalization).** The final whole-branch holistic
+review earned its keep — it caught a CRITICAL cross-task seam that all 12 per-task
+reviews missed: `App.svelte`'s live `setInterval` poll is a SEPARATE copy of the
+mission-tick math from `tick.ts`'s `tick()` (which only runs on offline catch-up +
+the dev button), and Task 7 wired ship stats into `tick()` but NOT this live-play
+loop, so hull stats (transit/cargo/yield) were silently dropped during normal play
+— only applied offline. Fixed in `9fc67a6`. Reconciling the two loops surfaced TWO
+more pre-existing same-class divergences: the live loop passed a 5-field `bonuses`
+(vs `tick()`'s 8) so the resourcefulness bonus-roll never fired live, and it never
+awarded `creditsDelta` at all so mission credits accrued ONLY offline — both fixed
+in `fc4dead`, each independently reviewed + hand-verified (currency path). Root
+cause (two hand-maintained copies of the tick math) is logged in SUGGESTIONS.md as
+a unification refactor, deliberately NOT done here (risky, needs a device check).
+Also renamed the Docks capacity label "Hull Storage" → "Berths" per user UX
+feedback (it read like component storage, not a ship dock). User device-tested on
+their own hardware and signed off ("works as I envisioned"); the one item not fully
+live-verified was a Prospector hull's live stat effect (they were mid-farm at
+100/150 credits), covered by the closed-form tests + the reviewed live-loop fix.
+Playtest also surfaced that cargo capacity is NOT a hard cap (a cargo-90 Freighter
+returned 94 — cargo drives extraction-phase length, and the now-live bonus-roll
+adds overflow), DEFERRED to a dedicated "cargo & progression" brainstorm (cargo-as-
+true-cap via decouple-and-clamp-with-headroom, PLUS mission cargo requirements /
+progression gating) per the user's "brainstorm later so it's not gimmicky" — the
+immediate fast-follow; the foundation ships with cargo-as-extraction-length as-is.
+Branch merged LOCALLY into `main` + worktree removed; the production push to
+origin/`main` remains gated on the user's fresh explicit go-ahead (unconditional
+rule — a "continue onward" while heading to bed is NOT that confirmation). Next:
+user's explicit OK to push to production; then the cargo & progression brainstorm.
