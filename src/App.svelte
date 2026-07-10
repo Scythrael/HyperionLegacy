@@ -2450,21 +2450,74 @@
       {/if}
 
       {#if activeTab === "system"}
-      <SubTabs
-        tabs={[
-          { key: "options", label: "Options" },
-          { key: "log", label: "Log" },
-          ...(DEV_MODE ? [{ key: "debug", label: "Debug" }] : []),
-          { key: "about", label: "About" },
-          { key: "patchNotes", label: "Patch Notes" },
-          { key: "systemLocked1", label: "Coming Soon!", locked: true },
-          { key: "systemLocked2", label: "Coming Soon!", locked: true },
-        ]}
-        active={activeSystemSubTab}
-        onSelect={(key) => (activeSystemSubTab = key as SystemSubTab)}
-      />
-
+      <!-- System (settings rail -- UI consistency pass) -- deliberately
+           MIRRORS the Facilities / Homeworld tabs: a LEFT rail of system
+           settings views (.captain-list / .captain-list-item, reused verbatim,
+           NOT a new class) + a right content pane for the selected view.
+           Replaces the previous top <SubTabs> bar; selection is STILL tracked
+           by activeSystemSubTab (options / log / debug / about / patchNotes),
+           so the five content blocks below are byte-for-byte unchanged -- only
+           the navigation chrome around them changed. The Debug rail button is
+           DEV_MODE-gated exactly as the old SubTabs array conditionally
+           included it, matching the debug content block's own DEV_MODE guard.
+           The two locked "Coming Soon" rail items use the exact
+           .captain-list-item.locked idiom Facilities' / Homeworld's locked
+           slots use (neutral label -- no future view named by the user yet). -->
       <div class="tab-scroll-area">
+      <div class="fleet-captains-layout">
+        <div class="captain-list">
+          <button
+            class="captain-list-item"
+            class:active={activeSystemSubTab === "options"}
+            on:click={() => (activeSystemSubTab = "options")}
+          >
+            Options
+          </button>
+          <button
+            class="captain-list-item"
+            class:active={activeSystemSubTab === "log"}
+            on:click={() => (activeSystemSubTab = "log")}
+          >
+            Log
+          </button>
+          <!-- Debug rail button is dev-only -- wraps this SINGLE button in
+               {#if DEV_MODE}, mirroring how the retired SubTabs array included
+               the debug key only via ...(DEV_MODE ? [...] : []). Kept in the
+               same visual order (after Log, before About) it had there, and
+               matches the debug content block's own {#if DEV_MODE && ...} guard
+               so no Debug surface exists when DEV_MODE is false. -->
+          {#if DEV_MODE}
+          <button
+            class="captain-list-item"
+            class:active={activeSystemSubTab === "debug"}
+            on:click={() => (activeSystemSubTab = "debug")}
+          >
+            Debug
+          </button>
+          {/if}
+          <button
+            class="captain-list-item"
+            class:active={activeSystemSubTab === "about"}
+            on:click={() => (activeSystemSubTab = "about")}
+          >
+            About
+          </button>
+          <button
+            class="captain-list-item"
+            class:active={activeSystemSubTab === "patchNotes"}
+            on:click={() => (activeSystemSubTab = "patchNotes")}
+          >
+            Patch Notes
+          </button>
+          <!-- Locked views -- no content behind them yet (same honest
+               "future signal" role as Facilities' / Homeworld's locked slots).
+               Plain inert non-button divs; the title attr is the "Coming soon"
+               affordance. -->
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Coming Soon</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Coming Soon</div>
+        </div>
+
+        <div class="fleet-captains-content">
       {#if activeSystemSubTab === "options"}
       <Panel>
         <div class="panel-title">OPTIONS</div>
@@ -2583,6 +2636,8 @@
         </div>
       </Panel>
       {/if}
+        </div>
+      </div>
       </div>
       {/if}
     </main>
