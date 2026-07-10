@@ -10,6 +10,23 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   1:1 today. Starbase's whole described purpose (damaged/taken offline before a homeworld can be
   bombarded) needs Battlespace to exist first — fully deferred until then.
 
+- **HOUSE UI PATTERN — all facilities use the left-rail + per-facility SubTabs layout (LOCKED, user
+  2026-07-11).** The Phase 1 Refinery panel's layout (a left rail of facilities mirroring the captain
+  list + top SubTabs: Overview / Upgrades / …, itself mirroring the Fleet Captain's tab) is the
+  standard for EVERY facility in BOTH domains. Structure decision (user chose, don't re-litigate):
+  KEEP the standalone **Facilities** tab (homeworld facilities: Refinery now; Warehouse / Fabricator /
+  Research later) AND give the **Sector Space** tab the SAME layout for ITS facilities (Shipyard /
+  Starbase, with today's ship-construct UI folded in as a facility). Stays at 7 bottom-nav tabs (user
+  accepted the crowding rather than collapse Facilities into Homeworld/Sector Space). NOT built now,
+  and deliberately so: (1) Sector Space's real facilities (Shipyard/Starbase) are Phase 5 — building an
+  empty facility rail now = placeholder tiers, which the user has consistently ruled out; (2)
+  retrofitting the SHIPPED, device-signed-off ship-construct UI into a facility rail is an
+  Anti-Regression touch on working code and is MOCKUP-GATED (how ship-construct maps onto a facility's
+  Overview/sub-tabs is a real layout decision, not a restyle); (3) it must not be bolted onto the
+  frozen, merge-gated Phase 1 branch. PLAN: Phase 5 (Starbase/Shipyard) builds Sector Space into this
+  layout natively with real facilities; the "fold existing ship-construct into the rail" retrofit rides
+  that phase (or a dedicated mockup-gated UI-consistency pass), whichever the user picks then.
+
 - **Multiplayer chat: titles, selectable icons, name colors.** User idea, 2026-07-08. Once multiplayer
   chat exists, players should be able to set a custom title (the user's own example: "Executive Officer
   of Radishes"), a selectable chat icon sourced from unlocked achievements/donation tiers/dev-or-mod
