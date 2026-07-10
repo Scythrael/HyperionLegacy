@@ -253,7 +253,7 @@ describe("freshState ships seeding", () => {
   ```
   (freshCaptains(1) makes captain id 1, so the seeded freighter binds to id 1.)
 
-**Step 4 — Hand-verify pass:** freshState now returns ships length 1, capacity 8, assigned to id 1 ✓. Confirm no other file references `captain.shipType` for reads (grep in Task 3 verification — `tick()` and the unlock literal are handled in Tasks 5/6; the MIGRATIONS[4] literal is `any`-typed and untouched).
+**Step 4 — Hand-verify pass:** freshState now returns ships length 1, capacity 8, assigned to id 1 ✓. Confirm no other file references `captain.shipType` for reads (grep in Task 3 verification — `tick()` and the unlock literal are handled in Tasks 6/7/10; the MIGRATIONS[4] literal is `: CaptainState`-annotated but already non-conformant and the build doesn't type-check, so it's runtime/deploy-safe — Task 4 Step 3b relaxes its annotation to clear the diagnostic).
 
 **Step 5 — Commit:**
 ```bash
@@ -317,7 +317,18 @@ describe("v15 -> v16 ships migration", () => {
   },
 ```
 
-**Step 4 — Hand-verify pass:** 2 captains → 2 freighters (ids ship-1/ship-2, assigned 1/2), nextShipId ends at 3, capacity 8, `shipType` destructured out ✓. `MIGRATIONS[4]`'s historical `shipType` literal is untouched and still compiles (Migration is `any`, and it already carries non-CaptainState fields) ✓.
+**Step 3b — Relax the `MIGRATIONS[4]` annotation (type-only, behavior-identical):** its inner
+`const captainOne: CaptainState = {…}` (save.ts ~285) is annotated `: CaptainState` but has ALREADY
+diverged from that interface (it carries pre-Phase-4 fields `resources`/`modules`/`research`/
+`specialization`/etc. and omits current required ones) — so it does not type-check against
+`CaptainState` today, independent of our change. Removing `shipType` from `CaptainState` just adds one
+more orphan property there. Change the annotation to `const captainOne: any = {…}` — leave the object
+body 100% unchanged (TS types are erased at build; runtime behavior is identical, so this respects the
+frozen-migration rule, which protects behavior, not annotations). Add a one-line comment: `// historical
+shape — predates the current CaptainState; typed loose so this frozen body isn't coupled to the live
+interface.`
+
+**Step 4 — Hand-verify pass:** 2 captains → 2 freighters (ids ship-1/ship-2, assigned 1/2), nextShipId ends at 3, capacity 8, `shipType` destructured out ✓. `MIGRATIONS[4]`'s body is unchanged; only its annotation is relaxed to `any` (Step 3b), so `npm run check` no longer flags the orphan `shipType` (nor the pre-existing divergences) on that literal ✓. NOTE (corrects an earlier premise): the *inner* literal is `: CaptainState`-annotated, NOT `any` — only the outer `Migration` type is `(state:any)=>any`. Removal is still deploy-safe because the production build is `vite build` (esbuild, no type-check) with no CI; the `check` script is separate.
 
 **Step 5 — Commit:**
 ```bash
@@ -657,7 +668,7 @@ Dispatch a whole-branch holistic review (cross-task integration, closed-form int
 ## Execution notes / open items carried from design
 - Exact `tickCaptainMission` wiring is specified above (5th param, null-safe).
 - Ship-id scheme: monotonic `GameState.nextShipId` → `ship-${n}` (robust to future ship deletion; length-based ids are not).
-- The migration minefield (removing `shipType`) is confirmed safe: `type Migration = (state:any)=>any`, MIGRATIONS[4] already carries non-CaptainState fields, and Vite/esbuild transpiles without type-blocking (no `tsc` here).
+- The migration "minefield" (removing `shipType`) is deploy-safe, but the earlier premise was imprecise: the outer `type Migration = (state:any)=>any`, but `MIGRATIONS[4]`'s *inner* `captainOne` literal is `: CaptainState`-annotated. That literal ALREADY diverges from `CaptainState` (pre-Phase-4 fields present, current ones missing), so it doesn't type-check today regardless — and the production build is `vite build` (esbuild, no type-check) with no CI, so runtime/deploy are unaffected. Task 4 Step 3b relaxes that one annotation to `any` (type-only, body unchanged) to clear the `npm run check` diagnostic. Found by the Task-3 code-quality review.
 - All `TUNABLE` numbers (stat profiles, prices, capacity 8) are first-pass; balance is a device-check concern.
 - Task 5 may be a no-op if save (de)serialization is generic JSON pass-through — confirm by reading, don't assume.
 ```

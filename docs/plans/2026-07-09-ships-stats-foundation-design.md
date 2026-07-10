@@ -299,12 +299,19 @@ numbered entry is added (`save.ts:255`, run by the `while (MIGRATIONS[version])`
    `model.ts:821` and `model.ts:910`) — create + assign a Freighter to the new captain. Granted
    regardless of cap (a captain must have a hull; cap 8 > 4 captains, so no conflict today).
 
-> ⚠️ **Minefield (design-first flag):** `MIGRATIONS[4]` contains an inline `shipType: "resourcer"`
-> literal (`save.ts:288`). Removing `shipType` from the live `CaptainState` interface must **not**
-> break that *historical* migration. The plan must confirm migrations are typed against
-> intermediate/loose state shapes (the "delete via destructure" idiom in the surrounding comments
-> suggests they are) rather than the live interface — and v15→v16 is the single place `shipType` is
-> mapped→Freighter and dropped. Verify this compiles before proceeding past the migration task.
+> ⚠️ **Minefield (design-first flag) — RESOLVED, premise corrected during the Task-3 review:**
+> `MIGRATIONS[4]` contains an inline `const captainOne: CaptainState = { … shipType: "resourcer", … }`
+> (`save.ts:285-302`). The original worry was that removing `shipType` from `CaptainState` would break
+> this historical migration. Reality: (1) that literal is `: CaptainState`-annotated (NOT `any` — only
+> the outer `type Migration = (state:any)=>any` is), but it has ALREADY diverged from `CaptainState`
+> (it carries pre-Phase-4 `resources`/`modules`/`research`/`specialization`/… and omits current
+> required fields), so it does not type-check against `CaptainState` today regardless of this feature;
+> (2) the production build is `vite build` (esbuild, no type-check) with no `vercel.json`/CI, so runtime
+> and deploy are unaffected — the `check` script (`svelte-check && tsc`) is separate and not in the
+> build path. So removal is deploy-safe. v15→v16 (`MIGRATIONS[15]`) is the single place `shipType` is
+> mapped→Freighter and dropped. To clear the type-check-only diagnostic, Task 4 relaxes `captainOne`'s
+> annotation to `any` (type-only, migration body unchanged — the frozen-migration rule protects
+> behavior, not annotations).
 
 ---
 
