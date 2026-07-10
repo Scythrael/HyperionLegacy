@@ -56,6 +56,7 @@ describe("freshState ships seeding", () => {
   it("seeds one General Freighter assigned to the starting captain, capacity 8", () => {
     const s = freshState();
     expect(s.shipStorageCapacity).toBe(8);
+    expect(s.nextShipId).toBe(2); // "ship-1" is taken by the seeded freighter, so the next id is 2
     expect(s.ships).toHaveLength(1);
     expect(s.ships[0].typeKey).toBe("generalFreighter");
     expect(s.ships[0].assignedCaptainId).toBe(s.captains[0].id);

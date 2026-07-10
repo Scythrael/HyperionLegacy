@@ -199,7 +199,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
 // duplicated onto CaptainState, so the two never disagree. Consumed by later
 // tasks (fleet state, assignment UI); nothing reads it yet.
 export interface ShipInstance {
-  id: string;                       // stable unique id (from GameState.nextShipId, added in a later task)
+  id: string;                       // stable unique id, allocated from GameState.nextShipId ("ship-N")
   typeKey: ShipTypeKey;
   assignedCaptainId: number | null; // SINGLE SOURCE OF TRUTH for assignment; null = parked/available
   name?: string;                    // player naming deferred
