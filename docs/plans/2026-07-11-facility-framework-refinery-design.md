@@ -123,6 +123,7 @@ interface FacilityUpgradeDef {                 // one entry per target level; tr
   requiresHomeworldTalents?: HomeworldTalentKey[]; // missing -> shown red "missing"
   requiresResearch?: string[];                     // research topic ids; EMPTY now (none exist)
   requiresFacilityLevels?: Partial<Record<FacilityKey, number>>; // dependency chain
+  requiresFleetAdminLevel?: number;                // FA-level gate (user 2026-07-11); missing -> red
   durationTicks: number;
   effect: FacilityUpgradeEffect;                   // e.g. { addRefineSlots: 1 } | { refineSpeedMult: n }
 }
@@ -155,6 +156,14 @@ Rules:
 - **Starting a job** = pick a recipe → if a slot is free and inputs available → a `refineJob`
   TimedProcess (inputs deducted at start). On completion, output added + `itemId` marked discovered.
 - v1: **manual start** per job (auto-repeat is a deferred nicety, §9).
+- **Refine durations (user, 2026-07-11 — tunable placeholders):** common 10 ticks, uncommon 25,
+  rare 60. Component/fabricator durations (Phase 4) start ~60 ticks and climb into hours for
+  high-tier/high-rarity items.
+- **XP model:** each timed process awards **Fleet Admiral XP = its `durationTicks`** on completion
+  (the "1 XP per tick" model — self-budgeting, closed-form). ⚠️ COUPLED to the separate XP-per-tick
+  progression rework (missions + captain + FA curve recalibration — its own pass): if Phase 1 ships
+  before that rework, process-XP would grind FA levels against an un-retuned curve. Whether this hook
+  is active in Phase 1 depends on the rework's sequencing (open decision — see §9 / SUGGESTIONS).
 
 ---
 
