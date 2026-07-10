@@ -325,6 +325,22 @@ export interface GameState {
   tickDurationSeconds: number; // fleet-wide tick cadence -- every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
   gameTimeSeconds: number; // accumulated in-game seconds, fleet-wide, per tech spec §1
   homePlanet: { storage: Record<HomePlanetMaterialKey, Decimal> }; // fleet-wide mission loot + crafted goods, separate from any captain's own state
+  // --- Ship Production Economy (Phase 1, Task 2 -- docs/plans/2026-07-11-facility-framework-refinery-design.md §7) ---
+  // The keyed replacement for homePlanet.storage's fixed-union shape: a plain
+  // itemId -> quantity map that can grow to hold ANY ITEMS-registry key (raw
+  // loot, refined goods, and the later component/module/system tiers) WITHOUT a
+  // type change. ADDED ALONGSIDE homePlanet.storage this pass -- the two coexist
+  // deliberately: NOTHING reads or writes `inventory` yet (Tasks 4-6 convert each
+  // consumer over, Task 7 removes homePlanet.storage). freshState seeds it with
+  // the SAME zero entries storage uses so the eventual swap is a no-op on those
+  // keys.
+  inventory: Record<string, Decimal>;
+  // itemIds the player has held at least once -- the persistent "seen" set that
+  // drives the future ❓ -> reveal UI (an undiscovered item renders masked until
+  // its id lands here). Starts empty on a fresh save; NOTHING appends to it yet
+  // (the discovery-on-first-acquire wiring is a later task). A string[] (not a
+  // Set) so it serializes cleanly through the JSON save format.
+  discovered: string[];
   unlockedHomeworldTalents: HomeworldTalentKey[]; // fleet-wide purchased Homeworld Talent keys -- see buyHomeworldTalent (tick.ts)
   fleetAdminXp: Decimal; // Fleet Admiral leveling -- see applyFleetAdminXp (tick.ts)
   fleetAdminLevel: number; // starts at 1
@@ -1209,6 +1225,19 @@ export function freshState(): GameState {
         components: new Decimal(0),
       },
     },
+    // Phase 1, Task 2 (additive): seed `inventory` with the SAME zero entries as
+    // homePlanet.storage above -- keys MUST stay in lockstep with that init while
+    // both coexist (Task 7 removes storage). NOTHING reads/writes this yet.
+    inventory: {
+      commonOre: new Decimal(0),
+      uncommonMaterial: new Decimal(0),
+      rareMaterial: new Decimal(0),
+      refinedMaterial: new Decimal(0),
+      components: new Decimal(0),
+    },
+    // No itemId has been seen on a brand-new save -- the ❓ -> reveal set starts
+    // empty (discovery wiring lands in a later task).
+    discovered: [],
     unlockedHomeworldTalents: [],
     fleetAdminXp: new Decimal(0),
     fleetAdminLevel: 1,

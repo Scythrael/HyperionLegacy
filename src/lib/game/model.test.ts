@@ -125,6 +125,35 @@ describe("freshState / freshCaptainStack — mission and Home Planet fields", ()
   });
 });
 
+// Ship Production Economy (Phase 1, Task 2): the keyed `inventory` +
+// `discovered` fields are ADDED ALONGSIDE the existing homePlanet.storage this
+// pass (nothing reads/writes them yet -- Tasks 4-6 convert consumers, Task 7
+// removes storage). freshState must seed `inventory` with the SAME zero entries
+// the existing homePlanet.storage init uses (so the eventual swap is a no-op on
+// the seed keys) and `discovered` as an empty array (no itemId has been seen on
+// a brand-new save). This test guards ONLY that additive freshState seed.
+describe("Phase 1 — keyed inventory + discovered (additive)", () => {
+  it("freshState().inventory has the SAME keys as homePlanet.storage, all Decimal(0)", () => {
+    const state = freshState();
+    const storageKeys = Object.keys(state.homePlanet.storage);
+    const inventoryKeys = Object.keys(state.inventory);
+    // Same key SET -- inventory mirrors storage's seed keys exactly (no missing,
+    // no extra). Sorted so order differences don't cause a false failure.
+    expect(inventoryKeys.sort()).toEqual(storageKeys.sort());
+    // Every seeded inventory entry starts at Decimal(0) -- compared via .equals()
+    // (not .toEqual against a plain number), same Decimal convention as every
+    // other Decimal-field assertion in this file (see the homePlanet storage
+    // test above for the full rationale).
+    for (const key of inventoryKeys) {
+      expect(state.inventory[key].equals(0)).toBe(true);
+    }
+  });
+
+  it("freshState().discovered starts as an empty array (nothing seen yet)", () => {
+    expect(freshState().discovered).toEqual([]);
+  });
+});
+
 describe("MISSIONS — launch set", () => {
   it("has exactly 2 missions with the specified tick counts and cargo/extraction values", () => {
     expect(MISSIONS.shortOreRun.transitOutTicks).toBe(25);
