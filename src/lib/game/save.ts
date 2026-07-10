@@ -4,9 +4,9 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
-import { type GameState, type CaptainState, type MissionKey, type MissionPhase, freshCaptains, requiredTicksForPhase, MISSIONS } from "./model";
+import { type GameState, type MissionKey, type MissionPhase, freshCaptains, requiredTicksForPhase, MISSIONS } from "./model";
 
-export const SAVE_VERSION = 15;
+export const SAVE_VERSION = 16;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -282,7 +282,8 @@ const MIGRATIONS: Record<number, Migration> = {
     // second captain) is used, byte-for-byte identical to what a brand-new
     // save's Captain 2 looks like, since it's the same function call.
     const fresh = freshCaptains(2); // a v4 save is, by construction, always exactly the 2-captain Phase-1 shape
-    const captainOne: CaptainState = {
+    // historical shape — predates the current CaptainState; typed loose so this frozen body isn't coupled to the live interface.
+    const captainOne: any = {
       id: 1,
       label: "Captain 1",
       shipType: "resourcer",
@@ -441,6 +442,21 @@ const MIGRATIONS: Record<number, Migration> = {
         };
       }),
     };
+  },
+  // v15 -> v16: Ships stats foundation. Captain/ship separation — every existing
+  // captain is grandfathered a General Freighter (== today's implicit ship:
+  // cargo 90 / 1.0x / 1.0x, so in-flight missions are unaffected). shipType is
+  // dropped from captains; ships/shipStorageCapacity/nextShipId are added.
+  // Frozen once shipped (never edit this body).
+  15: (state: any): any => {
+    let nextShipId = 1;
+    const ships = (state.captains ?? []).map((c: any) => ({
+      id: `ship-${nextShipId++}`,
+      typeKey: "generalFreighter",
+      assignedCaptainId: c.id,
+    }));
+    const captains = (state.captains ?? []).map(({ shipType, ...rest }: any) => rest);
+    return { ...state, captains, ships, shipStorageCapacity: 8, nextShipId };
   },
 };
 
