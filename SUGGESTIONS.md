@@ -524,3 +524,25 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   and log emission, so it needs a careful pass to extract the shared math without losing the live-progress
   behavior. Its own focused refactor + device-check, not a mid-feature change -- but it's the real fix for a
   recurring class of "live loop drifted from `tick()`" bugs.
+
+- **Save-file integrity / anti-tamper (with an important security caveat).** User idea, 2026-07-09: encrypt
+  or sign the localStorage save (today it's just `LZString`-compressed base64 JSON -- trivially editable in
+  devtools) to stop malicious actors tampering, since the game is eventually meant to be multiplayer. WORTH
+  DOING for what it can actually do -- but the caveat matters and was flagged at capture time so it isn't
+  built with false expectations:
+  - **Client-side encryption/signing is tamper-RESISTANCE, not tamper-PROOFING.** Whatever key + algorithm
+    encrypts the save ships INSIDE the client bundle, so a determined attacker extracts the key, decrypts,
+    edits, and re-encrypts/re-signs. Obfuscation deters CASUAL cheating (devtools save-editing) and can
+    detect corruption, but it cannot stop a motivated attacker -- the client fundamentally can't keep a
+    secret from the machine running it.
+  - **The real multiplayer-fairness answer is SERVER-AUTHORITATIVE state**: the server runs or bounds-checks
+    the economy so a tampered client can't inject impossible values into anything that affects OTHER players
+    (leaderboards, PvP, shared economy). HMAC-signing saves with a key held ONLY on the server is the middle
+    ground, but that -- by definition -- requires the backend to do the signing/validating. So the anti-cheat-
+    for-multiplayer goal is DOWNSTREAM of the backend/auth/cloud-save work already logged in the "Clerk-based
+    auth (Vercel) + multiplayer" entry above; it is not solvable client-side alone.
+  - Practical split: (a) local encryption/signature + corruption detection is a fine SINGLE-PLAYER integrity /
+    casual-deterrent measure buildable anytime (relates to the corrupt-save-handling gap in KNOWN_ISSUES);
+    (b) actual multiplayer anti-cheat waits for the server-authoritative backend. Don't conflate the two, and
+    don't let (a) create a false sense of (b). Not scoped -- no crypto scheme, key-management, or
+    server-validation design chosen.
