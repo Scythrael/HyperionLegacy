@@ -174,8 +174,13 @@ concurrent actions (the stacking); (5) slot walls gate correctly (level AND tale
 
 ## 11. Open items for the plan step
 
-1. Curve constants — captain **LOCKED at 296 × level** (exact short-run parity, §4); FA curve form/scale
-   still open (most playtest-sensitive, tune on device).
+1. Curve constants — captain **LOCKED at 300 × level** (short-run parity; exact is 298 for the 149-tick
+   cycle, rounded to a clean 300 — see §4, this supersedes the earlier "296" which used a 148-tick cycle);
+   FA curve form/scale still open (most playtest-sensitive, tune on device).
+   - Note (holistic review M2): `lifetimeStats.itemsGathered` mirrors mission-cycle loot only — it does
+     NOT include `passiveTrickle` (economyTrickle) ore, which is applied in `tick()`/the live loop outside
+     `tickCaptainMission`. A future Completions/Achievements "total gathered" consumer expecting ALL
+     materials that entered storage must account for this (or the trickle must be folded in then).
 2. `BASE_XP_PER_TICK` values per mission + per facility-process type (start all at 1).
 3. Whether captain XP gets its own talent-mult pipeline NOW or just reserves the seam (no captain XP
    talents exist yet — likely reserve, matching "no placeholders").
