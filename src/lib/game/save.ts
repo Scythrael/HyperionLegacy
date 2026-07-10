@@ -26,6 +26,22 @@ function toDecimal(value: Decimal | number | string): Decimal {
   return value instanceof Decimal ? value : new Decimal(value);
 }
 
+// Revives every per-key value of a lifetimeStats tally map (material/mission key
+// -> Decimal) back into a real Decimal, returning a NEW map. Progression Pacing
+// Rework (Task 6): once these maps carry values (mission loot / completed cycles),
+// their per-value Decimals round-trip through JSON as plain strings exactly like
+// the scalar sums do -- so each must be toDecimal()'d on load, the same per-key
+// treatment homePlanet.storage's fixed keys already get, just iterated over the
+// map's dynamic keys. Idempotent (toDecimal no-ops on an existing Decimal), and a
+// no-op on an empty map (a fresh/never-populated tally). Mutates nothing.
+function hydrateDecimalMap(map: Record<string, Decimal | number | string>): Record<string, Decimal> {
+  const hydrated: Record<string, Decimal> = {};
+  for (const key of Object.keys(map)) {
+    hydrated[key] = toDecimal(map[key]);
+  }
+  return hydrated;
+}
+
 // Applied UNCONDITIONALLY at the end of migrate(), below -- NOT only inside
 // MIGRATIONS[11]. A save already at the current SAVE_VERSION skips the
 // migration while-loop entirely (there's no MIGRATIONS[12] to run), so if
@@ -76,14 +92,24 @@ function hydrateDecimals(state: any): GameState {
     // unguarded homePlanet.storage/credits reads above.
     //
     // The 4 tally maps (itemsGathered/itemsRefined/itemsCrafted/
-    // missionsCompleted) are spread through AS-IS: they are empty ({}) at both
-    // freshState() and MIGRATIONS[16] today, so there are no per-key Decimal
-    // values to hydrate yet. WHEN the later increment-wiring task starts
-    // populating them with Decimal values, THAT task must add per-value
-    // toDecimal() hydration here (their string-vs-Decimal round-trip has the
-    // identical hazard as the scalars) -- flagged now so it isn't missed then.
+    // missionsCompleted) now get per-VALUE hydration too (Progression Pacing
+    // Rework, Task 6 -- the task the earlier "flagged now so it isn't missed"
+    // note pointed to). tickCaptainMission started populating itemsGathered/
+    // missionsCompleted with real Decimal values (and the crafting path will feed
+    // itemsRefined/itemsCrafted later), so each map's per-key Decimals round-trip
+    // through JSON as plain strings with the identical hazard the scalars have --
+    // hydrateDecimalMap() iterates each map's keys and toDecimal()s every value.
+    // All four are covered (not just the two missions feed) so the round-trip is
+    // complete regardless of which map a value lands in; empty maps stay empty
+    // (hydrateDecimalMap no-ops over zero keys). Reached unconditionally for the
+    // same reason as every field above -- lifetimeStats is guaranteed present by
+    // freshState()/MIGRATIONS[16] before this runs.
     lifetimeStats: {
       ...state.lifetimeStats,
+      itemsGathered: hydrateDecimalMap(state.lifetimeStats.itemsGathered),
+      itemsRefined: hydrateDecimalMap(state.lifetimeStats.itemsRefined),
+      itemsCrafted: hydrateDecimalMap(state.lifetimeStats.itemsCrafted),
+      missionsCompleted: hydrateDecimalMap(state.lifetimeStats.missionsCompleted),
       creditsEarned: toDecimal(state.lifetimeStats.creditsEarned),
       captainXpAwarded: toDecimal(state.lifetimeStats.captainXpAwarded),
       fleetAdminXpAwarded: toDecimal(state.lifetimeStats.fleetAdminXpAwarded),

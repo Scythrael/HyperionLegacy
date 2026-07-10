@@ -52,6 +52,54 @@ function emptyLootTotals(): Record<LootMaterialKey, Decimal> {
   return { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
 }
 
+// Progression Pacing Rework (Task 6): the mission-relevant subset of
+// GameState.lifetimeStats that tickCaptainMission accrues and returns per call,
+// for tick() to fold into the fleet-wide lifetimeStats. Deliberately a SUBSET --
+// itemsRefined/itemsCrafted are NOT here because missions produce no
+// refined/crafted goods (no refinery/fabricator runs in this function); those
+// two maps stay untouched by the mission economy (they'll be fed by the crafting
+// path in its own later task). itemsGathered/missionsCompleted mirror the model's
+// sparse-map shape (a key absent until its first recorded event); the three
+// scalars are per-call Decimal sums. All Decimal, matching lifetimeStats' own types.
+export interface MissionLifetimeStatsDelta {
+  itemsGathered: Record<string, Decimal>;    // raw loot DELIVERED this call, keyed by material -- mirrors homePlanetDelta exactly
+  missionsCompleted: Record<string, Decimal>; // +1 per completed cycle this call, keyed by MissionKey (sparse: absent when 0)
+  creditsEarned: Decimal;                     // mirrors creditsDelta (credits earned this call)
+  captainXpAwarded: Decimal;                  // GROSS captain XP granted this call (before level-up subtraction), NOT the captain's leftover xp
+  fleetAdminXpAwarded: Decimal;               // Fleet Admiral XP granted this call
+}
+
+// The zeroed delta -- returned on the early-out paths (no mission / non-positive
+// ticksElapsed) so every caller always gets a fully-shaped delta to fold, never
+// undefined. Empty maps (nothing gathered / no cycle completed) + Decimal(0) scalars.
+function emptyMissionLifetimeStatsDelta(): MissionLifetimeStatsDelta {
+  return {
+    itemsGathered: {},
+    missionsCompleted: {},
+    creditsEarned: new Decimal(0),
+    captainXpAwarded: new Decimal(0),
+    fleetAdminXpAwarded: new Decimal(0),
+  };
+}
+
+// Folds a per-call tally-map delta (material/mission key -> Decimal) into an
+// existing lifetimeStats map, returning a NEW map (base is not mutated). Same
+// "start from the existing object, add each key" shape tick() uses for
+// homePlanet.storage, generalized to dynamic keys: a key absent in `base` starts
+// from Decimal(0), preserving the maps' sparse-by-design contract. Used by tick()
+// to merge itemsGathered/missionsCompleted; not needed for the scalar sums, which
+// fold with a plain .plus().
+function mergeLifetimeStatMap(
+  base: Record<string, Decimal>,
+  delta: Record<string, Decimal>
+): Record<string, Decimal> {
+  const merged: Record<string, Decimal> = { ...base };
+  for (const key of Object.keys(delta)) {
+    merged[key] = (merged[key] ?? new Decimal(0)).plus(delta[key]);
+  }
+  return merged;
+}
+
 // passiveTrickle's `material` field is typed HomePlanetMaterialKey (the wider
 // superset, since a future trickle could in principle target a crafted good),
 // but homePlanetDelta is keyed on the narrower LootMaterialKey -- this list
@@ -494,9 +542,18 @@ export function tickCaptainMission(
   homePlanetDelta: Record<LootMaterialKey, Decimal>;
   fleetAdminXpDelta: number;
   creditsDelta: number;
+  // Task 6: lifetime-stat accrual for this call, folded into state.lifetimeStats
+  // by tick(). Always present (zeroed on the early-outs), never undefined.
+  lifetimeStatsDelta: MissionLifetimeStatsDelta;
 } {
   if (!captain.mission || ticksElapsed <= 0) {
-    return { captain, homePlanetDelta: emptyLootTotals(), fleetAdminXpDelta: 0, creditsDelta: 0 };
+    return {
+      captain,
+      homePlanetDelta: emptyLootTotals(),
+      fleetAdminXpDelta: 0,
+      creditsDelta: 0,
+      lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
+    };
   }
 
   // Resolve the mission's transit + cargo geometry ONCE, before the while loop
@@ -544,6 +601,11 @@ export function tickCaptainMission(
   // than the local `mission`, which can become null on a recall before we use
   // this after the loop.
   const xpRate = xpPerTick(captain.mission.missionKey, captain);
+  // The mission key this call runs, captured ONCE (call-constant: auto-repeat
+  // reuses the same key). Used only to key the lifetimeStatsDelta.missionsCompleted
+  // tally below. Read off captain.mission (guaranteed non-null past the early
+  // return) rather than the local `mission`, which can go null on a recall.
+  const missionKey = captain.mission.missionKey;
   // The per-tick Fleet Admiral XP RATE for this mission, resolved ONCE
   // (call-constant), mirroring xpRate directly above. Read off missionDef -- the
   // ship-adjusted def -- which is safe because effectiveMissionDef preserves
@@ -569,6 +631,13 @@ export function tickCaptainMission(
   // across every captain fleet-wide, then applies it to state.credits with a
   // flat .plus() (credits has no leveling curve, unlike fleetAdminXpDelta).
   let creditsDelta = 0;
+  // Task 6: counts the mission cycles COMPLETED within this call (the same
+  // cycle-completion branch that awards credits below can fire many times in one
+  // big offline-catchup call). Closed-form for the same reason creditsDelta is --
+  // it increments in lockstep with that branch, so one big call and many small
+  // ones summing to the same span count the identical number of completions.
+  // Rolled into lifetimeStatsDelta.missionsCompleted[missionKey] after the loop.
+  let cyclesCompleted = 0;
 
   // The ship's extractionYieldMult is a MULTIPLIER (1.0 = no change, 1.35 =
   // +35%), but resolvedBonuses' tier yield mults are stored as ADDITIVE deltas
@@ -695,6 +764,10 @@ export function tickCaptainMission(
         // now accrue per WHOLE tick, awarded once after the loop (see below), so
         // this branch touches only the credit total now.
         creditsDelta += missionDef.creditsPerCycle;
+        // Task 6: one more completed cycle -- counted in the SAME branch as the
+        // credit award and the loot delivery above, so all three (loot,
+        // credits, completion count) stay perfectly in sync per cycle.
+        cyclesCompleted += 1;
         if (mission.recalled) {
           mission = null;
         } else {
@@ -741,7 +814,12 @@ export function tickCaptainMission(
   // any fractional rate you MUST (a) re-derive this accrual to stay drift-free
   // at that rate, and (b) add a closed-form parity test AT the real fractional
   // rate -- that test, not the Decimal call, is the actual safeguard.
-  xp = xp.plus(new Decimal(xpRate).times(wholeTicksElapsed));
+  // Captured as its own const (identical value to the previous inline expression --
+  // behavior-preserving) so Task 6 can report the GROSS XP awarded this call in
+  // lifetimeStatsDelta.captainXpAwarded below, distinct from the captain's own `xp`
+  // (which the level-up loop then drains by subtracting thresholds).
+  const captainXpAwardedThisCall = new Decimal(xpRate).times(wholeTicksElapsed);
+  xp = xp.plus(captainXpAwardedThisCall);
   let levelUpsThisCall = 0;
   while (xp.gte(xpForNextLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
     xp = xp.minus(xpForNextLevel(level));
@@ -775,7 +853,36 @@ export function tickCaptainMission(
   // proof of parity.
   fleetAdminXpDelta += fleetAdminXpRate * wholeTicksElapsed;
 
-  return { captain: { ...captain, mission, xp, level, statPoints }, homePlanetDelta, fleetAdminXpDelta, creditsDelta };
+  // Task 6: assemble the lifetime-stat delta for this call.
+  // - itemsGathered mirrors homePlanetDelta EXACTLY: inside this function
+  //   homePlanetDelta is populated ONLY by the cycle-completion loot delivery
+  //   above (passiveTrickle lives in tick(), not here), so it already IS the total
+  //   raw loot delivered this call. A shallow clone (new object, same immutable
+  //   Decimal refs) keeps it independent of the returned homePlanetDelta the caller
+  //   also folds. All 3 loot keys are always present (emptyLootTotals seed), so a
+  //   tier that delivered nothing records a 0 -- deliberately mirroring, not
+  //   filtering, what went to homePlanetDelta.
+  // - missionsCompleted is sparse: only the one running missionKey, only when at
+  //   least one cycle finished (kept absent at 0 per the maps' sparse-by-design
+  //   contract), so a call that completes no cycle contributes an empty map.
+  // - creditsEarned mirrors creditsDelta; captainXpAwarded is the GROSS award
+  //   captured pre-level-up; fleetAdminXpAwarded is the same product folded into
+  //   fleetAdminXpDelta (recomputed here as a Decimal for the lifetime sum).
+  const lifetimeStatsDelta: MissionLifetimeStatsDelta = {
+    itemsGathered: { ...homePlanetDelta },
+    missionsCompleted: cyclesCompleted > 0 ? { [missionKey]: new Decimal(cyclesCompleted) } : {},
+    creditsEarned: new Decimal(creditsDelta),
+    captainXpAwarded: captainXpAwardedThisCall,
+    fleetAdminXpAwarded: new Decimal(fleetAdminXpRate * wholeTicksElapsed),
+  };
+
+  return {
+    captain: { ...captain, mission, xp, level, statPoints },
+    homePlanetDelta,
+    fleetAdminXpDelta,
+    creditsDelta,
+    lifetimeStatsDelta,
+  };
 }
 
 // Replaces the old recomputeFleetAdmin (which recomputed fleetAdminXp fresh
@@ -850,6 +957,18 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   // function, via a flat state.credits.plus() -- credits has no leveling
   // curve to resolve, unlike fleetAdminXpDelta's applyFleetAdminXp call.
   let creditsDelta = 0;
+  // Task 6: fleet-wide lifetime-stat accumulators -- same accumulate-locally-
+  // apply-once shape as homePlanetDelta/fleetAdminXpDelta/creditsDelta above, one
+  // per lifetimeStats field the mission economy feeds. Each captain's
+  // lifetimeStatsDelta (from tickCaptainMission) is merged in below; the totals
+  // fold into state.lifetimeStats once, in the final return object. itemsRefined/
+  // itemsCrafted are intentionally NOT accumulated here -- missions don't produce
+  // them (that's the crafting path's job, a later task).
+  const lifetimeItemsGatheredDelta: Record<string, Decimal> = {};
+  const lifetimeMissionsCompletedDelta: Record<string, Decimal> = {};
+  let lifetimeCreditsEarnedDelta = new Decimal(0);
+  let lifetimeCaptainXpAwardedDelta = new Decimal(0);
+  let lifetimeFleetAdminXpAwardedDelta = new Decimal(0);
   // Computed ONCE for the whole fleet (same value for every captain), not
   // per captain inside the .map() below -- Homeworld Talents are fleet-wide,
   // not per-captain.
@@ -885,12 +1004,31 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       homePlanetDelta: delta,
       fleetAdminXpDelta: captainFleetAdminXpDelta,
       creditsDelta: captainCreditsDelta,
+      lifetimeStatsDelta: captainLifetimeStatsDelta,
     } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses, shipStats);
     (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
       homePlanetDelta[key] = homePlanetDelta[key].plus(delta[key]);
     });
     fleetAdminXpDelta += captainFleetAdminXpDelta;
     creditsDelta += captainCreditsDelta;
+    // Task 6: merge THIS captain's lifetime-stat delta into the fleet-wide
+    // accumulators. Maps merge per-key (a key absent so far starts from 0);
+    // scalars .plus() -- the same per-key / per-scalar split the final fold uses.
+    for (const key of Object.keys(captainLifetimeStatsDelta.itemsGathered)) {
+      lifetimeItemsGatheredDelta[key] = (lifetimeItemsGatheredDelta[key] ?? new Decimal(0)).plus(
+        captainLifetimeStatsDelta.itemsGathered[key]
+      );
+    }
+    for (const key of Object.keys(captainLifetimeStatsDelta.missionsCompleted)) {
+      lifetimeMissionsCompletedDelta[key] = (lifetimeMissionsCompletedDelta[key] ?? new Decimal(0)).plus(
+        captainLifetimeStatsDelta.missionsCompleted[key]
+      );
+    }
+    lifetimeCreditsEarnedDelta = lifetimeCreditsEarnedDelta.plus(captainLifetimeStatsDelta.creditsEarned);
+    lifetimeCaptainXpAwardedDelta = lifetimeCaptainXpAwardedDelta.plus(captainLifetimeStatsDelta.captainXpAwarded);
+    lifetimeFleetAdminXpAwardedDelta = lifetimeFleetAdminXpAwardedDelta.plus(
+      captainLifetimeStatsDelta.fleetAdminXpAwarded
+    );
     return updated;
   });
 
@@ -941,6 +1079,19 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
           uncommonMaterial: state.homePlanet.storage.uncommonMaterial.plus(homePlanetDelta.uncommonMaterial),
           rareMaterial: state.homePlanet.storage.rareMaterial.plus(homePlanetDelta.rareMaterial),
         },
+      },
+      // Task 6: fold the fleet-wide lifetime-stat deltas into state.lifetimeStats.
+      // Spread FIRST (same guard as homePlanet.storage above) so the two maps this
+      // function doesn't feed -- itemsRefined/itemsCrafted -- and any future field
+      // ride through untouched rather than being silently dropped. The 2 fed maps
+      // merge per-key (mergeLifetimeStatMap), the 3 scalars .plus() their deltas.
+      lifetimeStats: {
+        ...state.lifetimeStats,
+        itemsGathered: mergeLifetimeStatMap(state.lifetimeStats.itemsGathered, lifetimeItemsGatheredDelta),
+        missionsCompleted: mergeLifetimeStatMap(state.lifetimeStats.missionsCompleted, lifetimeMissionsCompletedDelta),
+        creditsEarned: state.lifetimeStats.creditsEarned.plus(lifetimeCreditsEarnedDelta),
+        captainXpAwarded: state.lifetimeStats.captainXpAwarded.plus(lifetimeCaptainXpAwardedDelta),
+        fleetAdminXpAwarded: state.lifetimeStats.fleetAdminXpAwarded.plus(lifetimeFleetAdminXpAwardedDelta),
       },
     },
     fleetAdminXpDelta

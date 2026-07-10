@@ -1634,6 +1634,48 @@ describe("migrate — lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.missionsCompleted).toEqual({});
   });
 
+  it("round-trips NON-EMPTY lifetimeStats tally maps, restoring each per-VALUE Decimal (Task 6 -- proves the maps hydrate, not just the scalars)", () => {
+    // Task 6 starts POPULATING the lifetimeStats tally maps with Decimal values.
+    // Those per-value Decimals have the identical string-vs-Decimal round-trip
+    // hazard the 3 scalars have: JSON.stringify (via Decimal.toJSON()) turns each
+    // map VALUE into a plain string, and deserialize()/JSON.parse leaves it a
+    // string -- only hydrateDecimals()'s NEW per-map per-value toDecimal() pass
+    // converts them back. Before Task 6, hydrateDecimals() spread the maps AS-IS
+    // (no per-value hydration), so on this round trip itemsGathered.commonOre would
+    // come back as the plain string "1234" (never a Decimal) and the instanceof
+    // assertions below would fail. This test locks the new map hydration in.
+    const original = freshState();
+    // Populate ALL FOUR maps (including itemsRefined/itemsCrafted, which missions
+    // never write but hydrateDecimals must still revive for completeness) with real
+    // Decimal values, so the round trip has something non-empty to hydrate.
+    original.lifetimeStats.itemsGathered = { commonOre: new Decimal(1234), rareMaterial: new Decimal(56) };
+    original.lifetimeStats.itemsRefined = { refinedMaterial: new Decimal(78) };
+    original.lifetimeStats.itemsCrafted = { components: new Decimal(9) };
+    original.lifetimeStats.missionsCompleted = { shortOreRun: new Decimal(7), longOreRun: new Decimal(3) };
+
+    const raw = serialize(original, Date.now());
+    const deserialized = deserialize(raw);
+    expect(deserialized).not.toBeNull();
+    expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps; hydration alone does the work
+
+    const migrated: any = migrate(deserialized!);
+
+    // Every map value comes back as a real Decimal instance equal to the original --
+    // .equals()/instanceof, not .toBe(), since hydrateDecimals() rebuilds them fresh.
+    expect(migrated.lifetimeStats.itemsGathered.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.itemsGathered.commonOre.equals(1234)).toBe(true);
+    expect(migrated.lifetimeStats.itemsGathered.rareMaterial instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.itemsGathered.rareMaterial.equals(56)).toBe(true);
+    expect(migrated.lifetimeStats.itemsRefined.refinedMaterial instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.itemsRefined.refinedMaterial.equals(78)).toBe(true);
+    expect(migrated.lifetimeStats.itemsCrafted.components instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.itemsCrafted.components.equals(9)).toBe(true);
+    expect(migrated.lifetimeStats.missionsCompleted.shortOreRun instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(7)).toBe(true);
+    expect(migrated.lifetimeStats.missionsCompleted.longOreRun instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.missionsCompleted.longOreRun.equals(3)).toBe(true);
+  });
+
   it("current SAVE_VERSION is 17", () => {
     expect(SAVE_VERSION).toBe(17);
   });

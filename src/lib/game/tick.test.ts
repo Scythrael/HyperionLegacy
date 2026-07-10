@@ -926,6 +926,123 @@ describe("tickCaptainMission — accrues Fleet Admiral XP per active tick (Task 
   });
 });
 
+describe("tickCaptainMission / tick() — accrues mission-side lifetime stats (Task 6)", () => {
+  // Task 6 (Progression Pacing Rework): tickCaptainMission now returns a
+  // lifetimeStatsDelta (itemsGathered + missionsCompleted maps, plus 3 Decimal
+  // scalars), and tick() folds it into state.lifetimeStats. This ADDS tracking
+  // alongside the existing XP/loot/credit accrual -- it must not change any of
+  // those existing values (asserted implicitly here: the same 149-tick cycle
+  // still delivers the same loot/credits/XP it always did). itemsGathered mirrors
+  // the loot delivered into homePlanetDelta; missionsCompleted counts completed
+  // cycles; creditsEarned/captainXpAwarded/fleetAdminXpAwarded mirror creditsDelta
+  // / the GROSS captain XP awarded this call / the FA XP awarded this call.
+
+  it("one full shortOreRun cycle via tick(): missionsCompleted +1, itemsGathered mirrors delivered loot, credits/XP scalars pinned", () => {
+    // Force every extraction roll onto rare (rng()=0 => rare wins outright -- see
+    // ALWAYS_MIN_ROLL's comment above) so the delivered loot is deterministic: 90
+    // extracting ticks * 1 unit = 90 rareMaterial, 0 common, 0 uncommon, and NO
+    // bonus rolls (bonusRollChance is 0 with no talents). tick() calls Math.random
+    // directly (it does NOT take a passed-in rng), so it is mocked here rather than
+    // threaded in the way tickCaptainMission's own tests pass ALWAYS_MIN_ROLL.
+    const rngSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const state = freshState(); // 1 captain + a generalFreighter (cargo 90 / 1.0x / 1.0x == the base mission geometry, so the cycle is 149 ticks)
+      state.captains[0].mission = missionCaptain("shortOreRun");
+      // shortOreRun cycle = 1 + 25 + 90 + 25 + 8 = 149 ticks; tickDurationSeconds is
+      // 1 by fresh default, so 149 seconds advances EXACTLY one full cycle (unloading
+      // completes and auto-repeats to ordersReceived/0). 149 whole ticks => 149 gross
+      // captain XP + 149 FA XP at rate 1.
+      const result = tick(149, state);
+
+      // missionsCompleted: exactly one shortOreRun cycle finished this call.
+      expect(result.lifetimeStats.missionsCompleted.shortOreRun.equals(1)).toBe(true);
+
+      // itemsGathered MIRRORS the loot delivered into homePlanet.storage. freshState
+      // starts storage all-zero and has no passiveTrickle, so the storage delta IS
+      // the delivered mission loot -- itemsGathered must equal it key-for-key.
+      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(90)).toBe(true);
+      expect(result.lifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
+      expect(result.lifetimeStats.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
+      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(result.homePlanet.storage.rareMaterial)).toBe(true);
+      expect(result.lifetimeStats.itemsGathered.commonOre.equals(result.homePlanet.storage.commonOre)).toBe(true);
+      expect(
+        result.lifetimeStats.itemsGathered.uncommonMaterial.equals(result.homePlanet.storage.uncommonMaterial)
+      ).toBe(true);
+
+      // creditsEarned mirrors creditsDelta: one completed cycle == creditsPerCycle (10).
+      expect(result.lifetimeStats.creditsEarned.equals(MISSIONS.shortOreRun.creditsPerCycle)).toBe(true); // 10
+
+      // captainXpAwarded / fleetAdminXpAwarded == GROSS awarded this call = rate 1 * 149 whole ticks.
+      expect(result.lifetimeStats.captainXpAwarded.equals(149)).toBe(true);
+      expect(result.lifetimeStats.fleetAdminXpAwarded.equals(149)).toBe(true);
+
+      // YAGNI: missions do NOT populate itemsRefined/itemsCrafted (no refinery/
+      // fabricator produces here) -- they stay empty.
+      expect(result.lifetimeStats.itemsRefined).toEqual({});
+      expect(result.lifetimeStats.itemsCrafted).toEqual({});
+    } finally {
+      rngSpy.mockRestore();
+    }
+  });
+
+  it("closed-form parity: one big call's lifetimeStatsDelta equals the sum of many single-tick calls", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain("shortOreRun");
+    // 320 ticks: 2 full cycles (298) + 22 into the 3rd (orders + partial transitOut
+    // only -- no 3rd extraction). Under ALWAYS_MIN_ROLL every extraction roll is
+    // rare, so 2 completed cycles deliver 2 * 90 = 180 rareMaterial, 0 common/uncommon.
+    const bigJump = tickCaptainMission(320, base, ALWAYS_MIN_ROLL);
+
+    let steppedCaptain = base;
+    let steppedRare = new Decimal(0);
+    let steppedCommon = new Decimal(0);
+    let steppedUncommon = new Decimal(0);
+    let steppedMissions = new Decimal(0);
+    let steppedCredits = new Decimal(0);
+    let steppedCapXp = new Decimal(0);
+    let steppedFaXp = new Decimal(0);
+    for (let i = 0; i < 320; i++) {
+      const r = tickCaptainMission(1, steppedCaptain, ALWAYS_MIN_ROLL);
+      steppedCaptain = r.captain;
+      const d = r.lifetimeStatsDelta;
+      // itemsGathered always carries all 3 loot keys (mirrors homePlanetDelta); the
+      // ?? on missionsCompleted guards the sparse map (absent on non-completion ticks).
+      steppedRare = steppedRare.plus(d.itemsGathered.rareMaterial);
+      steppedCommon = steppedCommon.plus(d.itemsGathered.commonOre);
+      steppedUncommon = steppedUncommon.plus(d.itemsGathered.uncommonMaterial);
+      steppedMissions = steppedMissions.plus(d.missionsCompleted.shortOreRun ?? new Decimal(0));
+      steppedCredits = steppedCredits.plus(d.creditsEarned);
+      steppedCapXp = steppedCapXp.plus(d.captainXpAwarded);
+      steppedFaXp = steppedFaXp.plus(d.fleetAdminXpAwarded);
+    }
+
+    // Big call agrees with the stepped sum, per field -- the closed-form guarantee.
+    expect(bigJump.lifetimeStatsDelta.itemsGathered.rareMaterial.equals(steppedRare)).toBe(true);
+    expect(bigJump.lifetimeStatsDelta.itemsGathered.commonOre.equals(steppedCommon)).toBe(true);
+    expect(bigJump.lifetimeStatsDelta.itemsGathered.uncommonMaterial.equals(steppedUncommon)).toBe(true);
+    expect(bigJump.lifetimeStatsDelta.missionsCompleted.shortOreRun.equals(steppedMissions)).toBe(true);
+    expect(bigJump.lifetimeStatsDelta.creditsEarned.equals(steppedCredits)).toBe(true);
+    expect(bigJump.lifetimeStatsDelta.captainXpAwarded.equals(steppedCapXp)).toBe(true);
+    expect(bigJump.lifetimeStatsDelta.fleetAdminXpAwarded.equals(steppedFaXp)).toBe(true);
+
+    // And pin the exact expected absolute numbers, not just internal consistency.
+    expect(bigJump.lifetimeStatsDelta.itemsGathered.rareMaterial.equals(180)).toBe(true); // 2 cycles * 90
+    expect(bigJump.lifetimeStatsDelta.itemsGathered.commonOre.equals(0)).toBe(true);
+    expect(bigJump.lifetimeStatsDelta.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
+    expect(bigJump.lifetimeStatsDelta.missionsCompleted.shortOreRun.equals(2)).toBe(true);
+    expect(bigJump.lifetimeStatsDelta.creditsEarned.equals(20)).toBe(true); // 2 * creditsPerCycle 10
+    expect(bigJump.lifetimeStatsDelta.captainXpAwarded.equals(320)).toBe(true); // GROSS: rate 1 * 320 whole ticks
+    expect(bigJump.lifetimeStatsDelta.fleetAdminXpAwarded.equals(320)).toBe(true);
+
+    // captainXpAwarded is the GROSS award, NOT the captain's post-level-up xp: 320
+    // XP crosses xpForNextLevel(1)=300, so the captain's own xp lands at 20 (level 2)
+    // while captainXpAwarded stays the full 320 granted -- proving it's the lifetime
+    // "XP awarded" figure, not the leftover current xp.
+    expect(bigJump.captain.xp.equals(20)).toBe(true);
+    expect(bigJump.captain.level).toBe(2);
+  });
+});
+
 describe("tick() — Fleet Admiral XP stacks across active captains (Task 5)", () => {
   // Stacking falls out for free: tick() already sums every captain's returned
   // fleetAdminXpDelta fleet-wide before handing the total to applyFleetAdminXp.
