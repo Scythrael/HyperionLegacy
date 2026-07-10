@@ -13,6 +13,8 @@ import {
   specCards,
   categoryCards,
   SHIP_TYPES,
+  shipDerivedStats,
+  effectiveMissionDef,
 } from "./model";
 import type { CaptainTalentKey, HomeworldTalentKey } from "./model";
 
@@ -460,5 +462,30 @@ describe("SHIP_TYPES", () => {
       expect(SHIP_TYPES[key].tier).toBe(1);
       expect(SHIP_TYPES[key].cost?.credits).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("effectiveMissionDef", () => {
+  const short = MISSIONS.shortOreRun; // transitOut/Back 25, cargo 90, rate 1
+
+  it("freighter (baseline) leaves the mission unchanged", () => {
+    const eff = effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "generalFreighter", assignedCaptainId: null }));
+    expect(eff.transitOutTicks).toBe(25);
+    expect(eff.transitBackTicks).toBe(25);
+    expect(eff.cargoCapacity).toBe(90);
+  });
+
+  it("runner (1.5x) shortens transit via ceil, hauler (0.8x) lengthens it", () => {
+    const runner = effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorRunner", assignedCaptainId: null }));
+    expect(runner.transitOutTicks).toBe(Math.ceil(25 / 1.5)); // 17
+    expect(runner.cargoCapacity).toBe(60);
+    const hauler = effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorHauler", assignedCaptainId: null }));
+    expect(hauler.transitOutTicks).toBe(Math.ceil(25 / 0.8)); // 32
+    expect(hauler.cargoCapacity).toBe(180);
+  });
+
+  it("does not mutate the base mission", () => {
+    effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorHauler", assignedCaptainId: null }));
+    expect(MISSIONS.shortOreRun.cargoCapacity).toBe(90);
   });
 });

@@ -236,6 +236,41 @@ export function requiredTicksForPhase(phase: MissionPhase, missionDef: MissionDe
   }
 }
 
+// The three mission-relevant stats a hull contributes, lifted out of the shared
+// SHIP_TYPES template for a specific ShipInstance. A thin projection -- it exists
+// so callers (effectiveMissionDef below, plus later assignment/UI tasks) depend
+// on a small, explicit shape rather than reaching into the full ShipTypeDef and
+// its inert forward fields (moduleSlots/equipmentSlots/cost/etc.). PURE: reads
+// the immutable table, returns a fresh object, mutates nothing.
+export interface ShipDerivedStats {
+  cargoCapacity: number;
+  transitSpeedMult: number;
+  extractionYieldMult: number;
+}
+
+export function shipDerivedStats(ship: ShipInstance): ShipDerivedStats {
+  const def = SHIP_TYPES[ship.typeKey];
+  return {
+    cargoCapacity: def.cargoCapacity,
+    transitSpeedMult: def.transitSpeedMult,
+    extractionYieldMult: def.extractionYieldMult,
+  };
+}
+
+// Returns a MODIFIED COPY of the base mission with the ship's stats applied.
+// transit rescaled by ceil (stays integer + closed-form); cargo drives the
+// extraction-phase length (requiredTicksForPhase reads cargoCapacity). Because
+// extractionRatePerTick is 1 for today's missions, any integer ship cargo still
+// divides evenly -- no partial-final-tick path is introduced.
+export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): MissionDef {
+  return {
+    ...base,
+    transitOutTicks: Math.ceil(base.transitOutTicks / ship.transitSpeedMult),
+    transitBackTicks: Math.ceil(base.transitBackTicks / ship.transitSpeedMult),
+    cargoCapacity: ship.cargoCapacity,
+  };
+}
+
 export interface CaptainState {
   id: number;
   label: string; // placeholder, e.g. "Captain 1" -- naming UI deferred per master doc §10.7
