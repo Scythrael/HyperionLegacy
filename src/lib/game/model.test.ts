@@ -12,6 +12,7 @@ import {
   CAPTAIN_SPEC_BONUS,
   specCards,
   categoryCards,
+  SHIP_TYPES,
 } from "./model";
 import type { CaptainTalentKey, HomeworldTalentKey } from "./model";
 
@@ -436,6 +437,28 @@ describe("Selector cards — specCards / categoryCards (Task 13)", () => {
       for (const bullet of card.bullets) {
         expect(bullet.length).toBeGreaterThan(0);
       }
+    }
+  });
+});
+
+// Ships — Stats Foundation (Task 1): the SHIP_TYPES table is the durable spec
+// for the 4 real hulls this feature introduces. It only ADDS declarations this
+// pass -- nothing consumes SHIP_TYPES yet (GameState wiring, mission math, and
+// UI land in later tasks), so this test guards the stat profiles in isolation.
+// The three forward buckets (tactician/explorer hull families) are deliberately
+// NOT built yet and therefore intentionally NOT asserted here.
+describe("SHIP_TYPES", () => {
+  it("has the 4 real hulls with the designed stat profiles", () => {
+    expect(SHIP_TYPES.generalFreighter.cargoCapacity).toBe(90);
+    expect(SHIP_TYPES.generalFreighter.transitSpeedMult).toBe(1.0);
+    expect(SHIP_TYPES.generalFreighter.extractionYieldMult).toBe(1.0);
+    expect(SHIP_TYPES.generalFreighter.moduleSlots).toBe(1);
+    expect(SHIP_TYPES.prospectorHauler.cargoCapacity).toBe(180);
+    expect(SHIP_TYPES.prospectorRunner.transitSpeedMult).toBe(1.5);
+    expect(SHIP_TYPES.prospectorMiner.extractionYieldMult).toBe(1.35);
+    for (const key of Object.keys(SHIP_TYPES) as (keyof typeof SHIP_TYPES)[]) {
+      expect(SHIP_TYPES[key].tier).toBe(1);
+      expect(SHIP_TYPES[key].cost?.credits).toBeGreaterThan(0);
     }
   });
 });

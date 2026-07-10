@@ -19,6 +19,50 @@ import Decimal from "break_infinity.js";
 // every existing call site that pattern-matches on this field.
 export type ShipType = "resourcer";
 
+// --- Ships — Stats Foundation (docs/plans/2026-07-09-ships-stats-foundation-*) ---
+// A ship is a HULL with a stat profile, distinct from the captain flying it.
+// This first pass only ADDS the type vocabulary and the SHIP_TYPES table below;
+// nothing consumes them yet (GameState wiring, the mission math that reads
+// cargoCapacity/transitSpeedMult/extractionYieldMult, and the UI all land in
+// later tasks). The old `ShipType` alias above is deliberately left in place --
+// removing the fused CaptainState.shipType FIELD is a later task's job, not this
+// one, so both coexist for now.
+
+// The design's "spec" families -- a ship's role identity, mirroring the captain
+// spec vocabulary (Prospector/Tactician/Explorer) so a hull and its intended
+// pilot spec read the same. Modeled as a named union (not a bare string), same
+// convention as ShipType/MissionTier above: a future family slots in as a new
+// literal without touching every call site that pattern-matches on this field.
+// "general" is its own family (the universal starter hull, spec-agnostic).
+export type ShipSpec = "general" | "prospector" | "tactician" | "explorer";
+
+// The keys of the SHIP_TYPES table -- one per REAL hull built this pass. Kept as
+// an explicit union (rather than `keyof typeof SHIP_TYPES`) so it can be
+// referenced by ShipInstance below BEFORE the table literal is declared, and so
+// the forward buckets are documented in the type itself.
+export type ShipTypeKey =
+  | "generalFreighter"
+  | "prospectorHauler"
+  | "prospectorRunner"
+  | "prospectorMiner";
+// FORWARD BUCKETS (documented in the design doc, NOT built this pass): tactician —
+// destroyer/battleship/carrier; explorer — cruiser/surveyor/medical (explorer hulls
+// get MORE module slots). Add keys here only when actually built.
+
+export interface ShipTypeDef {
+  label: string;
+  spec: ShipSpec;
+  tier: number;                     // all real hulls = 1 this pass; Research raises later
+  cargoCapacity: number;            // drives extraction-phase length (a later task)
+  transitSpeedMult: number;         // divides transit ticks; >1 faster, <1 slower
+  extractionYieldMult: number;      // scales per-extraction-tick loot
+  moduleSlots: number;              // POPULATED but INERT this pass (no module system yet)
+  equipmentSlots: number;           // forward bucket; counts finalized with equipment/reactor design
+  cost: { credits: number } | null; // null = not purchasable
+  description: string;
+  // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
+}
+
 export type LootMaterialKey = "commonOre" | "uncommonMaterial" | "rareMaterial";
 
 // Superset of LootMaterialKey: the 3 mission-loot tiers plus the 2 new
@@ -112,6 +156,55 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
 };
 
 export type MissionKey = keyof typeof MISSIONS;
+
+// The 4 real hulls this feature ships (design doc, Task 1). TUNABLE -- first-pass
+// balance; real tuning happens at the device-check stage, same launch-placeholder
+// spirit as MISSIONS'/RECIPES' constants above. `moduleSlots`/`equipmentSlots`
+// are POPULATED but INERT this pass (no module/equipment system exists yet) --
+// carried now so the table shape is stable when those systems land, rather than
+// bolted on later. Add an entry here (and grow ShipTypeKey above) only when a
+// hull is actually built -- the tactician/explorer families are forward buckets,
+// deliberately absent until their systems exist.
+export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
+  generalFreighter: {
+    label: "General Freighter", spec: "general", tier: 1,
+    cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.0,
+    moduleSlots: 1, equipmentSlots: 0, cost: { credits: 25 },
+    description: "A no-frills hauler. Every captain's starter and emergency fallback.",
+  },
+  prospectorHauler: {
+    label: "Hauler", spec: "prospector", tier: 1,
+    cargoCapacity: 180, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
+    moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
+    description: "Doubles cargo at the cost of speed — big hauls, longer runs.",
+  },
+  prospectorRunner: {
+    label: "Runner", spec: "prospector", tier: 1,
+    cargoCapacity: 60, transitSpeedMult: 1.5, extractionYieldMult: 1.0,
+    moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
+    description: "Fast transit, small hold — rapid short cycles.",
+  },
+  prospectorMiner: {
+    label: "Prospector", spec: "prospector", tier: 1,
+    cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.35,
+    moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
+    description: "Specialized extraction rig — more materials per tick.",
+  },
+};
+
+// A concrete ship in the fleet -- an instance of one SHIP_TYPES hull. Distinct
+// from ShipTypeDef (the shared, immutable stat template): a ShipInstance is the
+// mutable, per-ship record. Its `assignedCaptainId` is the SINGLE SOURCE OF
+// TRUTH for who flies this hull (null = parked/available) -- deliberately not
+// duplicated onto CaptainState, so the two never disagree. Consumed by later
+// tasks (fleet state, assignment UI); nothing reads it yet.
+export interface ShipInstance {
+  id: string;                       // stable unique id (from GameState.nextShipId, added in a later task)
+  typeKey: ShipTypeKey;
+  assignedCaptainId: number | null; // SINGLE SOURCE OF TRUTH for assignment; null = parked/available
+  name?: string;                    // player naming deferred
+  // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
+}
 
 export interface CaptainMissionState {
   missionKey: MissionKey;
