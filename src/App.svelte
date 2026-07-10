@@ -1431,7 +1431,7 @@
                 {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
                 {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
                 <div class="panel-title">DOCKS</div>
-                <div class="research-cost">Hull Storage: {state.ships.length} / {state.shipStorageCapacity}</div>
+                <div class="research-cost">Berths: {state.ships.length} / {state.shipStorageCapacity}</div>
                 <div class="ship-list">
                   {#each state.ships as ship (ship.id)}
                     {@const def = SHIP_TYPES[ship.typeKey]}
@@ -1554,7 +1554,7 @@
                           class="buy-btn"
                           disabled={atCapacity || !canAfford}
                           title={atCapacity
-                            ? "Hull storage is full"
+                            ? "All berths occupied"
                             : !canAfford
                               ? "Not enough credits"
                               : undefined}
