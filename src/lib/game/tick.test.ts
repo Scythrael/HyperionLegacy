@@ -1883,6 +1883,57 @@ describe("buyHomeworldTalent", () => {
     expect(success).toBe(false);
     expect(next).toBe(dispatched);
   });
+
+  // --- Task 9: Captain-slot Fleet-Admiral-level walls -----------------------
+  // The three slot talents carry requiresFleetAdminLevel (slot1=1, slot2=5,
+  // slot3=25). This is LAYERED on top of the pre-existing adminPoints-cost and
+  // graph-adjacency gates -- captains are "wall breakers" that require BOTH the
+  // adminPoint cost AND a Fleet-Admiral level to learn. These tests isolate the
+  // new FA-level gate by satisfying the other two gates up front.
+  it("blocks an unlockCaptainSlot node below its requiresFleetAdminLevel, allows it at that level (layered on adminPoints+adjacency)", () => {
+    // Satisfy the OTHER two gates so the FA-level gate is the ONLY variable:
+    //   adjacency: fleetLogisticsSlot2's neighbor fleetLogisticsSlot1 is pre-owned
+    //   cost:      fleetLogisticsSlot2.cost = 5 adminPoints; give 10 (ample)
+    // fleetLogisticsSlot2 requires Fleet-Admiral level 5.
+    const base = freshState();
+    base.adminPoints = 10;
+    base.unlockedHomeworldTalents = ["fleetLogisticsHub", "fleetLogisticsSlot1"];
+
+    // Below the wall (level 4 < 5): blocked, SAME state reference, no mutation.
+    const belowState = { ...base, fleetAdminLevel: 4 };
+    const blocked = buyHomeworldTalent(belowState, "fleetLogisticsSlot2");
+    expect(blocked.success).toBe(false);
+    expect(blocked.next).toBe(belowState);
+
+    // At the wall (level 5 >= 5): succeeds -- talent unlocked AND a captain added
+    // (the unlockCaptainSlot side-effect still fires once the gate passes).
+    const atState = { ...base, fleetAdminLevel: 5 };
+    const allowed = buyHomeworldTalent(atState, "fleetLogisticsSlot2");
+    expect(allowed.success).toBe(true);
+    expect(allowed.next.unlockedHomeworldTalents).toContain("fleetLogisticsSlot2");
+    expect(allowed.next.captains).toHaveLength(2);
+    expect(allowed.next.captains[1].id).toBe(2);
+  });
+
+  it("does not gate a talent that has no requiresFleetAdminLevel (gate is opt-in): fleetLogisticsHub still buyable at level 1", () => {
+    const state = freshState(); // fleetAdminLevel starts at 1
+    state.adminPoints = 10;
+    // fleetLogisticsHub carries no requiresFleetAdminLevel -> the FA-level gate
+    // must not touch it.
+    const { next, success } = buyHomeworldTalent(state, "fleetLogisticsHub");
+    expect(success).toBe(true);
+    expect(next.unlockedHomeworldTalents).toEqual(["fleetLogisticsHub"]);
+  });
+
+  it("still enforces the adminPoints cost gate even far above the FA-level wall (layered, not replaced)", () => {
+    const base = freshState();
+    base.adminPoints = 0; // fleetLogisticsSlot2 costs 5 -> the cost gate must still fail
+    base.unlockedHomeworldTalents = ["fleetLogisticsHub", "fleetLogisticsSlot1"]; // adjacency satisfied
+    const highLevel = { ...base, fleetAdminLevel: 100 }; // well above slot2's L5 wall
+    const { next, success } = buyHomeworldTalent(highLevel, "fleetLogisticsSlot2");
+    expect(success).toBe(false);
+    expect(next).toBe(highLevel);
+  });
 });
 
 describe("respecCaptainTalents / respecHomeworldTalents", () => {

@@ -534,6 +534,15 @@ export interface HomeworldTalentDef {
   neighbors: HomeworldTalentKey[];
   isHub?: boolean;
   flavor: string; // short narrative blurb -- surfaced in the talent-tree tooltips
+  // Progression Pacing Rework (Task 9): an OPTIONAL additional Fleet-Admiral-level
+  // wall LAYERED on top of this node's adminPoint `cost` + graph adjacency -- both
+  // still apply. Only the captain-slot unlock nodes set it today: a captain is a
+  // "wall breaker" you may only recruit once your Fleet Admiral has reached the
+  // required level AND you can pay the adminPoint cost AND the node is adjacency-
+  // reachable (confirmed with the user 2026-07-11). Absent (undefined) => no level
+  // wall, so every other Homeworld Talent is unaffected (the gate is opt-in).
+  // Enforced in buyHomeworldTalent (tick.ts); the UI surfacing lands in Task 10.
+  requiresFleetAdminLevel?: number;
 }
 
 // NOTE: effect lives on the *Def directly below via a second field, not nested
@@ -769,6 +778,16 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     effect: { type: "rareYieldMult", mult: 0.02 },
     flavor: "The standing authority that turns a scattering of ships into a fleet.",
   },
+  // Progression Pacing Rework (Task 9): the three slot-unlock nodes below carry
+  // an additional requiresFleetAdminLevel wall (enforced in buyHomeworldTalent),
+  // LAYERED on top of each node's adminPoint `cost` + adjacency -- all three must
+  // be satisfied to recruit. The intended ladder is a ~x5 climb per captain:
+  //   2nd slot (Slot1) -> FA L1,  3rd slot (Slot2) -> FA L5,  4th slot (Slot3) -> FA L25,
+  //   5th slot (Slot4) -> FA L125.
+  // Only Slot1/2/3 exist today, so only L1/L5/L25 ship -- the L125 rung lands
+  // automatically when a fleetLogisticsSlot4 node is created (no placeholder node
+  // is added here: "no placeholders" / YAGNI). All three numbers are tunable
+  // starting values (device-playtest will move them first, same as the XP curve).
   fleetLogisticsSlot1: {
     branch: "fleetLogistics",
     label: "Recruit Captain (2nd slot)",
@@ -777,6 +796,7 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     y: -120,
     neighbors: ["fleetLogisticsHub", "fleetLogisticsSlot2"],
     effect: { type: "unlockCaptainSlot" },
+    requiresFleetAdminLevel: 1,
     flavor: "Fleet Command approves a second commission -- the roster grows.",
   },
   fleetLogisticsSlot2: {
@@ -787,6 +807,7 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     y: -200,
     neighbors: ["fleetLogisticsSlot1", "fleetLogisticsSlot3"],
     effect: { type: "unlockCaptainSlot" },
+    requiresFleetAdminLevel: 5,
     flavor: "A third captain's chair, funded and ready. The fleet expands.",
   },
   fleetLogisticsSlot3: {
@@ -797,6 +818,7 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     y: -280,
     neighbors: ["fleetLogisticsSlot2"],
     effect: { type: "unlockCaptainSlot" },
+    requiresFleetAdminLevel: 25,
     flavor: "Four commands under one banner -- logistics finally caught up with ambition.",
   },
   fleetLogisticsYield: {

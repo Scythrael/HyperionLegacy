@@ -1379,6 +1379,18 @@ export function buyHomeworldTalent(
   const isLearnable =
     talent.isHub || talent.neighbors.some((n) => state.unlockedHomeworldTalents.includes(n));
   if (!isLearnable) return { next: state, success: false };
+  // Fleet-Admiral-level wall (Progression Pacing Rework, Task 9): an OPTIONAL
+  // gate LAYERED on top of -- not replacing -- the adjacency check above and the
+  // adminPoint cost check below. Only nodes that declare requiresFleetAdminLevel
+  // (today: the three captain-slot unlocks, L1/L5/L25) are gated; nodes without
+  // it (undefined) skip this entirely, so the gate is opt-in and every other
+  // talent is unaffected. Captains are "wall breakers": recruiting one needs the
+  // FA level AND the adminPoint cost AND adjacency, all three (confirmed with the
+  // user 2026-07-11). Same "same state reference on failure" convention as every
+  // other precondition here -- purchase blocked, state returned unchanged.
+  if (talent.requiresFleetAdminLevel !== undefined && state.fleetAdminLevel < talent.requiresFleetAdminLevel) {
+    return { next: state, success: false };
+  }
   if (state.adminPoints < talent.cost) return { next: state, success: false };
 
   const unlockedHomeworldTalents = [...state.unlockedHomeworldTalents, talentKey];
