@@ -49,6 +49,17 @@
     // transitSpeedMult/extractionYieldMult) for the Docks ship rows.
     SHIP_TYPES,
     shipDerivedStats,
+    // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the static data
+    // tables the Facilities tab reads. FACILITIES drives the Refinery's upgrade
+    // track (next-rung materials/prereqs); REFINE_RECIPES drives the Overview
+    // sub-tab's Start Refine Job action + its recipe/material readout; ITEMS
+    // supplies the [Bracketed Item] display labels for both. All three are the
+    // SAME tables the tick.ts backend fns below (startRefineJob /
+    // canBuildFacilityUpgrade / startFacilityUpgrade) read, so the UI can never
+    // show a recipe/upgrade the backend would reject on a data mismatch.
+    FACILITIES,
+    REFINE_RECIPES,
+    ITEMS,
     // CAPTAIN_SPEC_BONUS / CaptainState import removed in Task 11b: their only
     // App.svelte uses were the deleted spec-picker (CAPTAIN_SPEC_BONUS) and the
     // removed talentTooltipInfo lookup (CaptainState). HomeworldTalentBranch was
@@ -87,6 +98,20 @@
     // every other do* handler in this file.
     buyShip,
     assignShipToCaptain,
+    // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the four pure
+    // backend fns wired into the Facilities tab below. refineSlotCount(state) =>
+    // how many parallel refine jobs the refinery can run right now (derived from
+    // its upgrade level); startRefineJob(state, recipeKey) starts one job (slot +
+    // affordability gated); canBuildFacilityUpgrade(state, facilityKey) is the
+    // PURE readiness predicate ({ ok, reason? }) the Upgrades sub-tab reads for
+    // its Build-button gate + red "missing" reason; startFacilityUpgrade(state,
+    // facilityKey) starts the next upgrade. The two start* fns return
+    // { next, started } (NOT { next, success } like the other actions) -- see
+    // doStartRefineJob / doStartFacilityUpgrade below, which destructure `started`.
+    refineSlotCount,
+    startRefineJob,
+    canBuildFacilityUpgrade,
+    startFacilityUpgrade,
     buyCaptainTalent,
     buyHomeworldTalent,
     respecCaptainTalents,
@@ -238,7 +263,14 @@
   // router library (see design doc: single-page idle game, no deep-linking/
   // history need). Default lands on Fleet Captain's since captains/missions
   // are the core loop today.
-  type TabKey = "homeworld" | "sectorSpace" | "fleetCaptains" | "fleetOperations" | "battlespace" | "system";
+  // "facilities" added (Phase 1, Facility Framework + Refinery -- Task 12 UI):
+  // a NEW top-level bottom-nav tab that MIRRORS the Sector Space (starbase) tab's
+  // structure exactly -- a LEFT rail of homeworld facilities + a right content
+  // pane driven by SubTabs for the selected facility. Placed alongside the other
+  // homeworld-adjacent tabs (see the .nav-tabs row below). Only the Refinery is
+  // real this pass; Warehouse/Fabricator/Shipyard are locked "Coming Soon" rail
+  // items, same idiom Sector Space's locked structures use.
+  type TabKey = "homeworld" | "sectorSpace" | "facilities" | "fleetCaptains" | "fleetOperations" | "battlespace" | "system";
   let activeTab: TabKey = "fleetCaptains";
 
   // Fleet Captain's tab sub-tabs (UI Redesign, Task 8 -- see
@@ -268,6 +300,25 @@
   // is the more common view than buying new ones.
   type StarbaseSubTab = "docks" | "requisition";
   let activeStarbaseSubTab: StarbaseSubTab = "docks";
+
+  // ---- Facilities tab (Phase 1, Facility Framework + Refinery -- Task 12 UI) --
+  // DIRECTLY mirrors the Sector Space (starbase) tab above: a LEFT rail of
+  // facilities (like the Starbase/Shipyard/Warehouse rail) + a right content pane
+  // driven by SubTabs. Only "refinery" is real this pass -- Warehouse/Fabricator/
+  // Shipyard render as locked "Coming Soon" rail items (the exact
+  // .captain-list-item.locked idiom Sector Space's locked structures use). Kept as
+  // a typed literal union (not a free string) so a future real facility is added
+  // deliberately, matching SectorStructureKey/TabKey above.
+  type FacilityKey = "refinery";
+  let activeFacility: FacilityKey = "refinery";
+
+  // The Refinery's two sub-tabs: Overview (level + refine slots + active jobs +
+  // Start Refine Job) and Upgrades (the next upgrade rung's material/prereq
+  // readiness + Build). Defaults to Overview since running refine jobs is the
+  // more common day-to-day action than buying the occasional upgrade -- the same
+  // "default to the commonly-checked view" reasoning the other sub-tab groups use.
+  type RefinerySubTab = "overview" | "upgrades";
+  let activeRefinerySubTab: RefinerySubTab = "overview";
 
   // Ship assign/swap picker modals (Ships — Stats Foundation, Task 11 UI) --
   // mirrors the Fleet Operations mission popup's missionPopupKey/
@@ -933,6 +984,41 @@
     doSave();
   }
 
+  // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the two Facilities-tab
+  // action wrappers. Both follow the SAME reassign-`state` + pushLog + doSave
+  // idiom every other do* handler uses, with ONE difference: startRefineJob /
+  // startFacilityUpgrade return { next, started } (not { next, success }), so we
+  // destructure `started` and bail on a same-reference no-op exactly as the
+  // backend's reject convention intends -- no duplicate gate logic in the UI
+  // layer (the button's `disabled` already mirrors the backend gate for the
+  // common case; this bail covers the race/edge where state changed since render).
+
+  // Start ONE refine job for `recipeKey`. Backend gates on a free slot AND
+  // affordable inputs; on any miss it is a no-op and we return without touching
+  // state/log. The log line names the recipe OUTPUT item (bracketed, per the
+  // [Item] convention) since a refine recipe is identified by what it produces.
+  function doStartRefineJob(recipeKey: string) {
+    const { next, started } = startRefineJob(state, recipeKey);
+    if (!started) return;
+    state = next;
+    const outputId = REFINE_RECIPES[recipeKey].output.itemId;
+    const outputLabel = ITEMS[outputId]?.label ?? outputId;
+    pushLog(`Refine job started → [${outputLabel}].`);
+    doSave();
+  }
+
+  // Start the NEXT upgrade rung for `facilityKey`. Backend gates on
+  // canBuildFacilityUpgrade (materials + FA level + talents + no in-flight
+  // upgrade for this facility); on any miss it is a no-op.
+  function doStartFacilityUpgrade(facilityKey: string) {
+    const { next, started } = startFacilityUpgrade(state, facilityKey);
+    if (!started) return;
+    state = next;
+    const facilityLabel = FACILITIES[facilityKey]?.label ?? facilityKey;
+    pushLog(`${facilityLabel} upgrade started.`);
+    doSave();
+  }
+
   // Captain Talents (Task 6) -- per-captain-scoped, like doDispatchCaptainOnMission
   // above (reads activeCaptain.id, spends THIS captain's own statPoints).
   // Same "same state reference on failure" convention as buyCaptainTalent
@@ -1276,6 +1362,62 @@
   // division appearing twice and drifting if the formula ever changes,
   // matching the globalTickProgress/globalTickRemaining pattern above.
   $: fleetAdminXpRatio = state.fleetAdminXp.dividedBy(xpForNextFleetAdminLevel(state.fleetAdminLevel)).toNumber();
+
+  // ---- Facilities tab reactive derivations (Phase 1, Task 12 UI) ------------
+  // All recompute whenever `state` changes (inventory gathered, refinery levelled,
+  // a process started/completed), so the panel's slot counts, affordability, and
+  // upgrade readiness update LIVE as the game ticks -- the "$: derivations for
+  // readiness so the UI updates as inventory/level change" the task calls for.
+  // These read the SAME backend fns/tables the actions call, so the displayed
+  // gates can never drift from what startRefineJob/startFacilityUpgrade enforce.
+
+  // Refinery level (0 = not built) and its parallel-job slot count (derived from
+  // the levels reached). refineSlotCount reads state directly, so it's reactive here.
+  $: refineryLevel = state.facilities.refinery?.level ?? 0;
+  $: refinerySlots = refineSlotCount(state);
+  // The refine jobs currently in flight for the refinery (kind "refineJob").
+  // Their count vs refinerySlots is the free-slot gate; each also renders a
+  // progress row in the Overview sub-tab.
+  $: activeRefineJobs = state.activeProcesses.filter((p) => p.kind === "refineJob");
+  // The single launch recipe (commonOre -> refinedMaterial). Kept as a derived
+  // constant so the Overview markup reads it by one name; if a 2nd recipe lands,
+  // this becomes a loop over REFINE_RECIPES (same shape as the RECIPES loop).
+  $: refineRecipe = REFINE_RECIPES.refineCommonOre;
+  // Start-Refine-Job gate, split so the button can show WHICH gate failed:
+  //  - a free slot exists (active jobs < slots; also false at 0 slots / unbuilt), and
+  //  - every recipe input is affordable against live inventory.
+  // Mirrors startRefineJob's own two gates (slot, then startProcess affordability).
+  $: refineHasFreeSlot = activeRefineJobs.length < refinerySlots;
+  $: refineAffordable = Object.keys(refineRecipe.input).every((itemId) =>
+    (state.inventory[itemId] ?? new Decimal(0)).gte(refineRecipe.input[itemId])
+  );
+  $: refineCanStart = refineHasFreeSlot && refineAffordable;
+
+  // Next Refinery UPGRADE rung. upgrades[level] is the rung that takes the
+  // facility from `level` to `level+1` (so a level-0 refinery's next rung is
+  // upgrades[0], the build). `refineryMaxed` is an EXPLICIT length check rather
+  // than a `nextRefineryUpgrade === undefined` template comparison: without
+  // noUncheckedIndexedAccess, `upgrades[level]` is typed as a non-undefined
+  // FacilityUpgradeDef, so an `=== undefined` check would trip svelte-check's
+  // TS2367 ("no overlap"). Gating the template on refineryMaxed instead keeps
+  // nextRefineryUpgrade's non-undefined type in the {:else} branch (real at
+  // runtime there -- level < upgrades.length guarantees a defined rung).
+  $: refineryMaxed = refineryLevel >= FACILITIES.refinery.upgrades.length;
+  $: nextRefineryUpgrade = FACILITIES.refinery.upgrades[refineryLevel];
+  // The PURE build-readiness predicate ({ ok, reason? }) -- drives both the Build
+  // button's disabled state AND (via .reason) its "why not" title. Same fn
+  // startFacilityUpgrade calls internally, so the button and the action agree.
+  $: refineryUpgradeCheck = canBuildFacilityUpgrade(state, "refinery");
+  // The in-flight refinery upgrade process, if any (at most ONE -- upgrades are
+  // sequential-per-facility). Narrowed on effect.type + effect.facility so a
+  // future OTHER-facility upgrade wouldn't be mistaken for the refinery's.
+  // Drives the Upgrades sub-tab's "Currently upgrading" progress row.
+  $: refineryUpgradeInFlight = state.activeProcesses.find(
+    (p) =>
+      p.kind === "facilityUpgrade" &&
+      p.effect.type === "facilityLevelUp" &&
+      p.effect.facility === "refinery"
+  );
 </script>
 
 <!-- Currency info-tooltip dismissal (2026-07-09): close an open chip tooltip on
@@ -1743,6 +1885,219 @@
       </div>
       {/if}
 
+      {#if activeTab === "facilities"}
+      <!-- Facilities (Phase 1, Facility Framework + Refinery -- Task 12 UI) --
+           deliberately MIRRORS the Sector Space (starbase) tab above, which
+           itself mirrors the Fleet Captain's tab: a LEFT rail of facilities
+           (.captain-list / .captain-list-item, reused verbatim, NOT a new class)
+           + a right content pane driven by SubTabs for the selected facility.
+           Only the Refinery is real this pass; Fabricator/Warehouse/Shipyard are
+           locked "Coming Soon" rail items using the exact .captain-list-item.locked
+           idiom Sector Space's locked structures use. The Refinery has two
+           sub-tabs -- Overview (level + slots + active jobs + Start Refine Job)
+           and Upgrades (the next rung's material/prereq readiness + Build). All
+           actions/readiness read the tick.ts backend fns (startRefineJob /
+           canBuildFacilityUpgrade / startFacilityUpgrade / refineSlotCount) and
+           the model.ts data tables (FACILITIES / REFINE_RECIPES / ITEMS). -->
+      <div class="tab-scroll-area">
+      <div class="fleet-captains-layout">
+        <div class="captain-list">
+          <button
+            class="captain-list-item"
+            class:active={activeFacility === "refinery"}
+            on:click={() => (activeFacility = "refinery")}
+          >
+            Refinery
+          </button>
+          <!-- Locked facilities -- no content behind them yet (same honest
+               "future signal" role as Sector Space's locked structures and the
+               Fleet Captain's locked slots). Plain non-button divs, so they're
+               inert; the title attr is the "Coming soon" affordance. -->
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Fabricator</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Warehouse</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Shipyard</div>
+        </div>
+
+        <div class="fleet-captains-content">
+          {#if activeFacility === "refinery"}
+            <SubTabs
+              tabs={[
+                { key: "overview", label: "Overview" },
+                { key: "upgrades", label: "Upgrades" },
+                { key: "refineryLocked1", label: "Coming Soon!", locked: true },
+                { key: "refineryLocked2", label: "Coming Soon!", locked: true },
+              ]}
+              active={activeRefinerySubTab}
+              onSelect={(key) => (activeRefinerySubTab = key as RefinerySubTab)}
+            />
+
+            {#if activeRefinerySubTab === "overview"}
+              <!-- OVERVIEW -- refinery level, slot usage, the recipe + its
+                   material balances (bracketed [Item] labels), any in-flight
+                   refine jobs (progress bar + ticks remaining), and the Start
+                   Refine Job action. The Start button's disabled state mirrors
+                   startRefineJob's own gates (free slot AND affordable inputs);
+                   its title names whichever gate is unmet. -->
+              <Panel>
+                <!-- The recipe's involved item ids (input keys + output), for the
+                     [Item]: balance material readout. {@const} lives directly in
+                     the <Panel> slot (valid), same as Sector Space's Docks panel. -->
+                {@const recipeItemIds = [...Object.keys(refineRecipe.input), refineRecipe.output.itemId]}
+                <div class="panel-title">REFINERY</div>
+                <div class="research-cost">Level: {refineryLevel}</div>
+                <div class="research-cost">Refine slots: {activeRefineJobs.length} / {refinerySlots} in use</div>
+
+                <!-- Recipe line + material balances (bracketed-label convention). -->
+                <div class="research-name">
+                  Refine [{ITEMS[Object.keys(refineRecipe.input)[0]]?.label ?? "?"}] → [{ITEMS[refineRecipe.output.itemId]?.label ?? refineRecipe.output.itemId}]
+                </div>
+                <div class="research-cost">
+                  Cost: {formatNumber(refineRecipe.input[Object.keys(refineRecipe.input)[0]])} [{ITEMS[Object.keys(refineRecipe.input)[0]]?.label ?? "?"}]
+                  · Output: {formatNumber(refineRecipe.output.amount)} [{ITEMS[refineRecipe.output.itemId]?.label ?? refineRecipe.output.itemId}]
+                  · {refineRecipe.durationTicks} ticks
+                </div>
+                <div class="research-cost">
+                  Materials:
+                  {#each recipeItemIds as itemId, i}
+                    [{ITEMS[itemId]?.label ?? itemId}] {formatNumber(state.inventory[itemId] ?? new Decimal(0))}{i < recipeItemIds.length - 1 ? " · " : ""}
+                  {/each}
+                </div>
+
+                <!-- Active refine jobs -- one progress card each. remainingTicks /
+                     durationTicks are read straight off the TimedProcess; progress
+                     is how much of the duration has elapsed. Reuses the same
+                     research-bar-track/fill/readout the mission + captain-XP bars
+                     use (NOT a new bar style). -->
+                {#if activeRefineJobs.length > 0}
+                  <div class="research-cost" style="margin-top: 10px;">Active jobs:</div>
+                  {#each activeRefineJobs as job (job.id)}
+                    {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
+                    {@const remaining = Math.max(0, Math.ceil(job.remainingTicks))}
+                    <div class="mission-card">
+                      <div class="research-name">
+                        {#if job.effect.type === "addItem"}Refining → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else}Refine job{/if}
+                      </div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                      </div>
+                      <div class="research-readout">{remaining} / {job.durationTicks} ticks remaining</div>
+                    </div>
+                  {/each}
+                {/if}
+
+                <!-- Start Refine Job -- disabled unless a slot is free AND inputs
+                     are affordable (mirrors startRefineJob's gates). At 0 slots
+                     (unbuilt refinery) refineHasFreeSlot is false, so the button
+                     stays disabled with the "build the refinery first" reason. -->
+                <button
+                  class="buy-btn"
+                  disabled={!refineCanStart}
+                  title={!refineHasFreeSlot
+                    ? (refinerySlots === 0
+                        ? "Build the Refinery first (see Upgrades)"
+                        : "All refine slots are busy")
+                    : !refineAffordable
+                      ? "Not enough materials"
+                      : undefined}
+                  on:click={() => doStartRefineJob("refineCommonOre")}
+                >
+                  Start Refine Job
+                </button>
+              </Panel>
+            {/if}
+
+            {#if activeRefinerySubTab === "upgrades"}
+              <!-- UPGRADES -- the NEXT rung of the Refinery's finite upgrade track
+                   (FACILITIES.refinery.upgrades[level]; undefined = maxed). Shows
+                   each required material as [Item]: have / need with a ✅/❌
+                   readiness mark, the FA-level + Homeworld-talent prereqs (❌ when
+                   unmet), and a Build button gated on canBuildFacilityUpgrade. If
+                   an upgrade is already in flight, a "Currently upgrading" progress
+                   row shows (and the backend's own gate makes Build unavailable,
+                   surfaced via the button title). Readiness colors use the
+                   existing --color-success / --color-danger tokens inline (no new
+                   class), per the task's "reuse the readiness-color tokens" note. -->
+              <Panel>
+                <div class="panel-title">REFINERY UPGRADES</div>
+                <div class="research-cost">Level: {refineryLevel}</div>
+
+                {#if refineryMaxed}
+                  <!-- Finite track maxed -- no rung past the current level. -->
+                  <p class="research-status">Fully upgraded.</p>
+                {:else}
+                  {@const eff = nextRefineryUpgrade.effect}
+                  <div class="research-name">Next: Level {refineryLevel} → {refineryLevel + 1}</div>
+                  <div class="research-cost">
+                    Grants: {#if "addRefineSlots" in eff}+{eff.addRefineSlots} refine slot{eff.addRefineSlots === 1 ? "" : "s"}{:else}{eff.refineSpeedMult}× refine speed{/if}
+                    · Duration: {nextRefineryUpgrade.durationTicks} ticks
+                  </div>
+
+                  <!-- Material readiness: [Item]: have / need, ✅ (have≥need) or ❌. -->
+                  {#each Object.keys(nextRefineryUpgrade.materials) as itemId}
+                    {@const need = nextRefineryUpgrade.materials[itemId]}
+                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const met = have.gte(need)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                    </div>
+                  {/each}
+
+                  <!-- Fleet Admiral level prereq (absent field => no wall). -->
+                  {#if nextRefineryUpgrade.requiresFleetAdminLevel !== undefined}
+                    {@const met = state.fleetAdminLevel >= nextRefineryUpgrade.requiresFleetAdminLevel}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextRefineryUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                    </div>
+                  {/if}
+
+                  <!-- Homeworld-talent prereqs -- each listed talent must be
+                       unlocked fleet-wide. Named by HOMEWORLD_TALENTS[key].label
+                       (the same label the talent tree shows), not the raw key. -->
+                  {#if nextRefineryUpgrade.requiresHomeworldTalents}
+                    {#each nextRefineryUpgrade.requiresHomeworldTalents as talentKey}
+                      {@const met = state.unlockedHomeworldTalents.includes(talentKey)}
+                      <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                        {met ? "✅" : "❌"} Requires Homeworld Talent: {HOMEWORLD_TALENTS[talentKey].label}
+                      </div>
+                    {/each}
+                  {/if}
+
+                  <!-- Build -- gated on the backend predicate; its .reason is the
+                       "why not" title when the button is disabled (covers the
+                       "Upgrade already in progress" case below, plus any unmet
+                       material/prereq the readiness rows above already show). -->
+                  <button
+                    class="buy-btn"
+                    disabled={!refineryUpgradeCheck.ok}
+                    title={refineryUpgradeCheck.ok ? undefined : refineryUpgradeCheck.reason}
+                    on:click={() => doStartFacilityUpgrade("refinery")}
+                  >
+                    Build · Level {refineryLevel} → {refineryLevel + 1}
+                  </button>
+                {/if}
+
+                <!-- In-flight upgrade progress (independent of the maxed check --
+                     while a rung builds, level hasn't bumped yet, so
+                     nextRefineryUpgrade still points at the in-flight rung). -->
+                {#if refineryUpgradeInFlight}
+                  {@const progress = refineryUpgradeInFlight.durationTicks > 0
+                    ? (refineryUpgradeInFlight.durationTicks - refineryUpgradeInFlight.remainingTicks) / refineryUpgradeInFlight.durationTicks
+                    : 1}
+                  {@const remaining = Math.max(0, Math.ceil(refineryUpgradeInFlight.remainingTicks))}
+                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remaining} / {refineryUpgradeInFlight.durationTicks} ticks remaining</div>
+                {/if}
+              </Panel>
+            {/if}
+          {/if}
+        </div>
+      </div>
+      </div>
+      {/if}
+
       {#if activeTab === "fleetCaptains"}
       <SubTabs
         tabs={[
@@ -2200,6 +2555,7 @@
     <div class="nav-tabs">
       <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
       <button class="nav-tab" class:active={activeTab === "sectorSpace"} on:click={() => (activeTab = "sectorSpace")}>Sector Space</button>
+      <button class="nav-tab" class:active={activeTab === "facilities"} on:click={() => (activeTab = "facilities")}>Facilities</button>
       <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Command</button>
       <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
       <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
