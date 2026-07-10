@@ -11,6 +11,7 @@
 import Decimal from "break_infinity.js";
 import {
   requiredTicksForPhase,
+  effectiveMissionDef,
   xpForNextLevel,
   xpForNextFleetAdminLevel,
   MISSIONS,
@@ -24,6 +25,7 @@ import {
   type CaptainMissionState,
   type LootMaterialKey,
   type MissionDef,
+  type ShipDerivedStats,
   type MissionPhase,
   type MissionKey,
   type RecipeKey,
@@ -424,7 +426,20 @@ export function tickCaptainMission(
     // before (see captainSpecBonusRollChance's own comment for why order
     // matters here).
     specBonusRollChance?: number;
-  } = {}
+  } = {},
+  // The assigned ship's three derived stats (cargoCapacity, transitSpeedMult,
+  // extractionYieldMult), or null for "no ship modifier" -- the default, which
+  // reproduces this function's pre-Task-6 behavior EXACTLY, so every existing
+  // call site/test that omits this 5th arg is unaffected. Applied by modifying
+  // the INPUTS to the existing closed-form machinery, NOT by changing the while
+  // loop: transit/cargo fold into missionDef (once, before the loop) via
+  // effectiveMissionDef, and extractionYieldMult folds into resolvedBonuses'
+  // per-tier yield mults (also once, before the loop). Both stay constant for
+  // the whole call, so the "one big jump == many small ticks" guarantee holds
+  // for the exact same reason the `bonuses` constant above does. tick() resolves
+  // the assigned hull to these stats and passes them in (Task 7); this function
+  // no longer reads captain.shipType at all (removed in Task 3).
+  shipStats: ShipDerivedStats | null = null
 ): {
   captain: CaptainState;
   homePlanetDelta: Record<LootMaterialKey, Decimal>;
@@ -435,7 +450,19 @@ export function tickCaptainMission(
     return { captain, homePlanetDelta: emptyLootTotals(), fleetAdminXpDelta: 0, creditsDelta: 0 };
   }
 
-  const missionDef = MISSIONS[captain.mission.missionKey];
+  // Resolve the mission's transit + cargo geometry ONCE, before the while loop
+  // below -- exactly like resolvedBonuses further down. effectiveMissionDef
+  // rescales transitOut/BackTicks by the ship's transitSpeedMult (ceil, so they
+  // stay integer) and swaps in the ship's cargoCapacity (which drives the
+  // extracting phase's length via requiredTicksForPhase). Because this is
+  // computed once and stays CONSTANT across every loop iteration, every phase's
+  // requiredTicksForPhase value is identical whether the call was made as one
+  // big ticksElapsed or as many small ones -- so the closed-form guarantee is
+  // preserved. Do NOT move this inside the loop: a per-iteration recompute would
+  // still yield the same numbers (effectiveMissionDef is pure), but computing it
+  // once is both cheaper and the clearest signal that it's a call-constant.
+  const rawMissionDef = MISSIONS[captain.mission.missionKey];
+  const missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : rawMissionDef;
   let mission: CaptainMissionState | null = { ...captain.mission, cargo: { ...captain.mission.cargo } };
   let remaining = ticksElapsed;
   const homePlanetDelta = emptyLootTotals();
@@ -457,15 +484,30 @@ export function tickCaptainMission(
   // flat .plus() (credits has no leveling curve, unlike fleetAdminXpDelta).
   let creditsDelta = 0;
 
+  // The ship's extractionYieldMult is a MULTIPLIER (1.0 = no change, 1.35 =
+  // +35%), but resolvedBonuses' tier yield mults are stored as ADDITIVE deltas
+  // on top of a 1.0 base (rollExtractionTick does baseAmount*(1+mult)). So a
+  // ship yield of 1.35x contributes +0.35, added on top of whatever talent
+  // yield bonuses the caller already summed into `bonuses`. null ship -> 0
+  // (no change). This folds ALL THREE tiers equally: the hull scales how much
+  // ore/material each extracting tick produces, regardless of which tier won.
+  const shipYieldBonus = shipStats ? shipStats.extractionYieldMult - 1 : 0;
+
   // Computed ONCE per call, not per roll -- bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
   // small ticks" test doesn't care how many rolls happen, only that each
-  // roll uses the same resolved bonuses either way).
+  // roll uses the same resolved bonuses either way). shipYieldBonus, added
+  // to the three tier yield mults below, is likewise a call-constant -- it's
+  // derived from shipStats (fixed for the whole call), so it does not disturb
+  // the closed-form property. It touches ONLY the three *YieldMult fields
+  // (extraction AMOUNTS); the chance/bonus-roll fields are left untouched --
+  // a hull's cargo/yield stats change how much a tick yields, not the odds of
+  // hitting a tier or triggering a bonus roll.
   const resolvedBonuses = {
-    commonYieldMult: bonuses.commonYieldMult ?? 0,
-    uncommonYieldMult: bonuses.uncommonYieldMult ?? 0,
+    commonYieldMult: (bonuses.commonYieldMult ?? 0) + shipYieldBonus,
+    uncommonYieldMult: (bonuses.uncommonYieldMult ?? 0) + shipYieldBonus,
     uncommonChanceMult: bonuses.uncommonChanceMult ?? 0,
-    rareYieldMult: bonuses.rareYieldMult ?? 0,
+    rareYieldMult: (bonuses.rareYieldMult ?? 0) + shipYieldBonus,
     rareChanceMult: bonuses.rareChanceMult ?? 0,
     bonusRollChance: bonuses.bonusRollChance ?? 0,
     bonusRollChanceMult: bonuses.bonusRollChanceMult ?? 0,

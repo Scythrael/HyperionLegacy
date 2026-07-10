@@ -21,7 +21,7 @@ import {
   captainSpecBonusRollChance,
 } from "./tick";
 import Decimal from "break_infinity.js";
-import { freshState, freshCaptains, MISSIONS, RECIPES, type CaptainMissionState } from "./model";
+import { freshState, freshCaptains, MISSIONS, RECIPES, shipDerivedStats, type CaptainMissionState } from "./model";
 
 function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
   return {
@@ -1664,5 +1664,160 @@ describe("applyFleetAdminXp", () => {
     // .toNumber() on both sides -- toBeLessThan needs plain-number operands, and
     // backloggedXp is a captured Decimal reference from afterFirstCappedCall above.
     expect(afterSecondCall.fleetAdminXp.toNumber()).toBeLessThan(backloggedXp.toNumber());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ships — Stats Foundation, Task 6: the assigned ship's three derived stats
+// (cargoCapacity, transitSpeedMult, extractionYieldMult) threaded into
+// tickCaptainMission via its optional 5th param `shipStats`. Two invariants
+// under test:
+//   1. Passing shipStats = null (or omitting the 5th arg entirely) reproduces
+//      today's exact behavior -- the ship path is strictly additive, never a
+//      silent change to no-ship callers.
+//   2. The CLOSED-FORM guarantee (one big ticksElapsed == many small ones
+//      summing to the same total) survives the ship modifier. This holds for
+//      the SAME structural reason the existing `bonuses` constant does: the
+//      ship's effect is baked into `missionDef` (via effectiveMissionDef) and
+//      into `resolvedBonuses` ONCE, before the while loop, so it's constant
+//      across the whole call regardless of how the call was chunked.
+// A helper mirrors shipDerivedStats' real input shape (a ShipInstance) so these
+// tests exercise the production projection, not a hand-built stub.
+// ---------------------------------------------------------------------------
+describe("tickCaptainMission — assigned ship stats (Task 6)", () => {
+  // Builds a ShipDerivedStats the same way production will: from a real
+  // ShipInstance run through shipDerivedStats. assignedCaptainId is irrelevant
+  // to tickCaptainMission (it never reads assignment -- Task 3 removed that);
+  // null is fine and matches a parked-but-projected hull.
+  const shipStatsFor = (typeKey: "prospectorHauler" | "prospectorRunner" | "prospectorMiner") =>
+    shipDerivedStats({ id: "h", typeKey, assignedCaptainId: null });
+
+  it("passing shipStats = null behaves EXACTLY as omitting the 5th arg (backward-compat)", () => {
+    // Two captains seeded identically, mid-mission on shortOreRun, so the call
+    // actually exercises phase progression + an extraction stretch (not just a
+    // no-op). ALWAYS_MIN_ROLL keeps rng constant so both paths roll identically.
+    const baseA = freshCaptains(1)[0];
+    baseA.mission = { ...missionCaptain("shortOreRun"), phase: "extracting", phaseProgressTicks: 0 };
+    const baseB = freshCaptains(1)[0];
+    baseB.mission = { ...missionCaptain("shortOreRun"), phase: "extracting", phaseProgressTicks: 0 };
+
+    // Path 1: no 5th arg at all (the pre-Task-6 call shape every existing site uses).
+    const noArg = tickCaptainMission(50, baseA, ALWAYS_MIN_ROLL, {});
+    // Path 2: explicit null 5th arg (the new default, spelled out).
+    const nullArg = tickCaptainMission(50, baseB, ALWAYS_MIN_ROLL, {}, null);
+
+    // toEqual across the whole returned mission is safe here: with ALWAYS_MIN_ROLL
+    // (rare wins every roll), commonOre/uncommonMaterial are exactly Decimal(0) on
+    // both paths, and the only non-zero cargo (rareMaterial) is built by the SAME
+    // sequence of .plus() ops on both -- structurally identical Decimals, not just
+    // numerically equal, so toEqual holds. If this ever gets brittle, drop to the
+    // per-key .equals() shape used elsewhere in this file.
+    expect(nullArg.captain.mission).toEqual(noArg.captain.mission);
+    expect(nullArg.captain.xp.equals(noArg.captain.xp)).toBe(true);
+    expect(nullArg.captain.level).toBe(noArg.captain.level);
+    expect(nullArg.captain.statPoints).toBe(noArg.captain.statPoints);
+    expect(nullArg.fleetAdminXpDelta).toBe(noArg.fleetAdminXpDelta);
+    expect(nullArg.creditsDelta).toBe(noArg.creditsDelta);
+    expect(nullArg.homePlanetDelta.commonOre.equals(noArg.homePlanetDelta.commonOre)).toBe(true);
+    expect(nullArg.homePlanetDelta.uncommonMaterial.equals(noArg.homePlanetDelta.uncommonMaterial)).toBe(true);
+    expect(nullArg.homePlanetDelta.rareMaterial.equals(noArg.homePlanetDelta.rareMaterial)).toBe(true);
+  });
+
+  // The CRITICAL test. Mirrors the primary "one big jump equals many small
+  // ticks" closed-form test, but passes a real ship's stats on BOTH the big
+  // call and every small step. Run for two hulls with DIFFERENT transit/cargo
+  // so the assertion exercises the ship-modified phase geometry, not just the
+  // base one:
+  //   - HAULER: cargo 180 (extract phase 180 ticks, not 90), transit 0.8
+  //     (transitOut/Back ceil(25/0.8)=32 ticks, not 25) -> full cycle
+  //     1+32+180+32+8 = 253 ticks.
+  //   - RUNNER: cargo 60 (extract 60), transit 1.5 (ceil(25/1.5)=17) -> full
+  //     cycle 1+17+60+17+8 = 103 ticks.
+  // Because effectiveMissionDef is computed ONCE per call (constant across the
+  // whole while loop), the big call and the small-step chain see the SAME
+  // requiredTicksForPhase values for every phase -- exactly the property that
+  // makes the base closed-form test pass, now with ship-scaled thresholds.
+  const closedFormForShip = (
+    typeKey: "prospectorHauler" | "prospectorRunner",
+    bigTicks: number,
+    steps: number
+  ) => {
+    const ship = shipStatsFor(typeKey);
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain("shortOreRun");
+
+    const bigJump = tickCaptainMission(bigTicks, base, ALWAYS_MIN_ROLL, {}, ship);
+
+    let steppedCaptain = base;
+    let steppedDelta = { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
+    const stepSize = bigTicks / steps;
+    for (let i = 0; i < steps; i++) {
+      const result = tickCaptainMission(stepSize, steppedCaptain, ALWAYS_MIN_ROLL, {}, ship);
+      steppedCaptain = result.captain;
+      steppedDelta = {
+        commonOre: steppedDelta.commonOre.plus(result.homePlanetDelta.commonOre),
+        uncommonMaterial: steppedDelta.uncommonMaterial.plus(result.homePlanetDelta.uncommonMaterial),
+        rareMaterial: steppedDelta.rareMaterial.plus(result.homePlanetDelta.rareMaterial),
+      };
+    }
+
+    // Same per-key .equals()/toBeCloseTo shape as the base closed-form test.
+    expect(bigJump.captain.mission!.phase).toBe(steppedCaptain.mission!.phase);
+    expect(bigJump.captain.mission!.phaseProgressTicks).toBeCloseTo(steppedCaptain.mission!.phaseProgressTicks, 6);
+    expect(bigJump.captain.mission!.recalled).toBe(steppedCaptain.mission!.recalled);
+    expect(bigJump.captain.mission!.missionKey).toBe(steppedCaptain.mission!.missionKey);
+    expect(bigJump.captain.mission!.cargo.commonOre.equals(steppedCaptain.mission!.cargo.commonOre)).toBe(true);
+    expect(bigJump.captain.mission!.cargo.uncommonMaterial.equals(steppedCaptain.mission!.cargo.uncommonMaterial)).toBe(
+      true
+    );
+    expect(bigJump.captain.mission!.cargo.rareMaterial.equals(steppedCaptain.mission!.cargo.rareMaterial)).toBe(true);
+    // xp / level carried by the captain must agree across chunking too.
+    expect(bigJump.captain.xp.equals(steppedCaptain.xp)).toBe(true);
+    expect(bigJump.captain.level).toBe(steppedCaptain.level);
+    expect(bigJump.homePlanetDelta.commonOre.equals(steppedDelta.commonOre)).toBe(true);
+    expect(bigJump.homePlanetDelta.uncommonMaterial.equals(steppedDelta.uncommonMaterial)).toBe(true);
+    expect(bigJump.homePlanetDelta.rareMaterial.equals(steppedDelta.rareMaterial)).toBe(true);
+  };
+
+  it("CLOSED-FORM holds with a HAULER (cargo 180 / transit 0.8) as shipStats", () => {
+    // 560 ticks crosses more than 2 full hauler cycles (2*253=506). 5600 steps
+    // of 0.1 each sum to the same 560 -- same step granularity as the base test.
+    closedFormForShip("prospectorHauler", 560, 5600);
+  });
+
+  it("CLOSED-FORM holds with a RUNNER (cargo 60 / transit 1.5) as shipStats", () => {
+    // 230 ticks crosses more than 2 full runner cycles (2*103=206). 2300 steps
+    // of 0.1 each sum to the same 230.
+    closedFormForShip("prospectorRunner", 230, 2300);
+  });
+
+  it("MINER's extractionYieldMult (1.35) scales one extracting tick's common yield to 1.35x the null baseline", () => {
+    // rng constant 0.5: for shortOreRun (rareChance 0.001, uncommonChance 0.019)
+    // both occurrence checks fail (0.5 < 0.001? no; 0.5 < 0.019? no), so common
+    // wins by default every roll. That isolates extractionYieldMult's effect on
+    // the common tier's amount: null path yields baseAmount*(1+0)=1 per extracting
+    // tick; miner path folds yieldMult-1 = 0.35 into commonYieldMult, so
+    // baseAmount*(1+0.35)=1.35 per tick. Ratio is exactly 1.35.
+    const COMMON_WINS = () => 0.5;
+
+    const baseNull = freshCaptains(1)[0];
+    baseNull.mission = { ...missionCaptain("shortOreRun"), phase: "extracting", phaseProgressTicks: 0 };
+    const nullResult = tickCaptainMission(1, baseNull, COMMON_WINS, {}, null);
+
+    const baseMiner = freshCaptains(1)[0];
+    baseMiner.mission = { ...missionCaptain("shortOreRun"), phase: "extracting", phaseProgressTicks: 0 };
+    const minerResult = tickCaptainMission(1, baseMiner, COMMON_WINS, {}, shipStatsFor("prospectorMiner"));
+
+    // Absolute values first (proves the exact amounts, not just the ratio):
+    expect(nullResult.captain.mission!.cargo.commonOre.equals(1)).toBe(true);
+    expect(minerResult.captain.mission!.cargo.commonOre.equals(1.35)).toBe(true);
+    // Then the 1.35x relationship the task calls out explicitly:
+    const nullCommon = nullResult.captain.mission!.cargo.commonOre;
+    const minerCommon = minerResult.captain.mission!.cargo.commonOre;
+    expect(minerCommon.equals(nullCommon.times(1.35))).toBe(true);
+    // Miner leaves cargoCapacity 90 / transit 1.0 unchanged, so nothing but the
+    // common AMOUNT should differ -- uncommon/rare stay at 0 on both paths.
+    expect(minerResult.captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect(minerResult.captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
   });
 });
