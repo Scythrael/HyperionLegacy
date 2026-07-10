@@ -152,6 +152,11 @@ Rules:
   data: `commonOre ×10 → refinedMaterial ×1` (today's `RECIPES.refineUnobtainium`), now with a
   `durationTicks`. (The instant `craftRecipe()`/`RECIPES` path is left intact for now; the timed
   refinery is the going-forward mechanic — see §9 for whether/when to retire the instant path.)
+- **Refine ratio (user, 2026-07-11):** rebalance toward **100–1000 ore : 1 refined unit** (up from
+  today's 10:1) — part of the "shrink drop quantities + increase scarcity, balanced against craft cost"
+  economy pass (epic §4 Phase 1b: "one balance surface, tuned together + playtested"). Starting value,
+  not final. Naming: a 1000-ore refined unit is bigger than an "ingot" implies — the refined-unit
+  name/flavor is open (settle when materials are named).
 - **Slots** = max parallel refine jobs. Refinery level grants slots (`addRefineSlots` upgrade effect).
 - **Starting a job** = pick a recipe → if a slot is free and inputs available → a `refineJob`
   TimedProcess (inputs deducted at start). On completion, output added + `itemId` marked discovered.

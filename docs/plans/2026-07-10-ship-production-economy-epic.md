@@ -199,10 +199,20 @@ Fleet Admiral XP curve that Phase 1's facility processes award into. Scope:
   SECOND material set (longer transit distance, same ~50 cargo requirement). Possibly a 3rd mission
   for more materials. Note: mission cargo *requirements* don't exist yet — the "50 cargo req" rides
   with the cargo-as-true-cap redesign (§3.6). This rework is part of the one co-designed loot pass.
-- **Quality axis (recommended, NOT yet locked):** reuse the EXISTING common/uncommon/rare rarity roll
-  as the quality grade — the current single-roll extraction *becomes* the quality roll, applied to
-  named materials. Closed-form-safe. Alternative (a second orthogonal grade on top of rarity) is
-  harder and must be deliberately designed — confirm before building.
+- **Quality axis (LOCKED 2026-07-11):** reuse the EXISTING common/uncommon/rare rarity roll as the
+  quality grade — the current single-roll (sequential mutually-exclusive per-tick) extraction *becomes*
+  the quality roll, applied to named materials. Closed-form-safe. (User: "existing rarity roll system
+  is perfect.")
+- **Drop-rate targets (user, 2026-07-11 — STARTING values for the balance pass, not final):** both
+  missions → common **98.5%** / uncommon **1.4%** / rare **0.1%**. This is a HARD NERF of the Long Ore
+  Run (currently uncommon 8% / rare 2% — a rare fountain) down to ~Short-Run scarcity (currently 1.9% /
+  0.1%); Short barely moves. Rebalances shipped `MISSIONS` data (closed-form-neutral). The material-
+  SELECTION weighting among each mission's 3 named materials is still open (this only sets the quality
+  axis). Also "**shrink the pop**" — reduce per-drop quantities.
+- **⚠️ One balance surface, tuned together + playtested:** drop rate × drop quantity × refine ratio ×
+  craft cost multiply into effective time-to-craft. Do NOT set independently. And **match material
+  rarity to item tier** — early recipes use common (abundant); rare mats (0.1% × bulk refine = astronomically
+  costly) gate late-game only, or early items become unreachable.
 - **This is the biggest of the three closed-form reworks — see principle §3.6 (co-design as one pass)
   and §3.7 (keyed inventory).**
 - Feeds the Refinery (Phase 1) and is stored by the Warehouse (Phase 2). Its exact slot in the build
@@ -292,8 +302,8 @@ Fleet Admiral XP curve that Phase 1's facility processes award into. Scope:
    granularity) — decided in Phase 6's design, guided by §3.2's stats-vs-behavior line.
 4. Where the ship status page lives (captain stats page vs dedicated) — mockup-gated, Phase 6.
 5. How facility upgrade levels are modeled/persisted (save-migration shape) — Phase 1.
-6. Quality axis for named materials: reuse the existing common/uncommon/rare rarity roll
-   (recommended, closed-form-safe) vs. a new orthogonal grade on top? — Materials phase.
+6. ~~Quality axis~~ RESOLVED (2026-07-11): reuse the existing common/uncommon/rare rarity roll. Drop
+   rates → 98.5/1.4/0.1 on both missions (Long nerfed to Short's level), tuned in the balance pass.
 7. Materials-phase ordering: lead phase, or bundled with the Refinery? And the combined design with
    the loot-rarity-range + cargo-as-true-cap reworks (§3.6) — one "mission loot & materials" pass.
 8. Recipe sufficiency: are 6 named materials (× quality) actually enough to compose the first few
