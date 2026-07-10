@@ -550,7 +550,15 @@ export function serialize(state: GameState, createdAt: number): string {
 
 export function deserialize(raw: string): SaveFile | null {
   try {
-    const json = LZString.decompressFromBase64(raw);
+    // Trim BEFORE decoding: a save exported to a .json file and re-imported
+    // often picks up a trailing newline (editors / downloads append one), and
+    // LZString.decompressFromBase64 returns null on that stray whitespace ->
+    // import silently rejected. Base64 has no meaningful leading/trailing
+    // whitespace, so trimming can never corrupt a VALID save; it only rescues
+    // an otherwise-valid one. Scheme (LZString base64 + JSON.parse) unchanged.
+    const trimmed = raw?.trim();
+    if (!trimmed) return null; // null/empty/whitespace-only input -> not a save
+    const json = LZString.decompressFromBase64(trimmed);
     if (!json) return null;
     return JSON.parse(json) as SaveFile;
   } catch {

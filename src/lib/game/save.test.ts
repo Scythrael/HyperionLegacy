@@ -1913,3 +1913,45 @@ describe("importRawSave", () => {
     }
   });
 });
+
+describe("deserialize — whitespace tolerance (import robustness hardening)", () => {
+  // Regression guard for the real-world import failure this hardening fixes:
+  // a save exported to a .json file and re-imported often picks up a trailing
+  // newline (editors / downloads append one). Before the .trim() inside
+  // deserialize(), LZString.decompressFromBase64 returned null on that stray
+  // whitespace and the import was silently rejected. These prove the trim
+  // rescues the whitespace-padded case WITHOUT changing the decoded payload.
+  it("round-trips a save that has a trailing newline appended (the exact import bug)", () => {
+    const original = freshState();
+    const raw = serialize(original, 1234);
+    const withNewline = raw + "\n";
+
+    const clean = deserialize(raw);
+    const padded = deserialize(withNewline);
+
+    // The padded decode must succeed (not null) and must produce the SAME
+    // payload the clean decode does -- the trim only strips outer whitespace,
+    // it never alters the save's actual content.
+    expect(padded).not.toBeNull();
+    expect(clean).not.toBeNull();
+    expect(padded!.version).toBe(clean!.version);
+    expect(padded!.created_at).toBe(clean!.created_at);
+    expect(padded!.created_at).toBe(1234);
+  });
+
+  it("also tolerates leading whitespace and surrounding blank lines / spaces", () => {
+    const raw = serialize(freshState(), 5678);
+    const padded = deserialize(`  \n\t${raw}\r\n  `);
+    expect(padded).not.toBeNull();
+    expect(padded!.created_at).toBe(5678);
+  });
+
+  it("still returns null for empty / whitespace-only / null input (no false-positive saves)", () => {
+    expect(deserialize("")).toBeNull();
+    expect(deserialize("   \n\t ")).toBeNull();
+    // Defensive: a null slipping in (typed as string in callers, but guarded)
+    // must not throw -- the `raw?.trim()` optional chain returns undefined,
+    // which the `if (!trimmed)` guard rejects as null.
+    expect(deserialize(null as unknown as string)).toBeNull();
+  });
+});
