@@ -851,7 +851,13 @@ export function tickCaptainMission(
   // closed-form parity test AT that fractional rate -- the current rate-1 parity
   // test will NOT catch the regression, and the `number` type is not itself a
   // proof of parity.
-  fleetAdminXpDelta += fleetAdminXpRate * wholeTicksElapsed;
+  //
+  // Captured as its own const (single source for the product), used at BOTH the
+  // fleetAdminXpDelta accrual just below and the lifetimeStatsDelta.fleetAdminXpAwarded
+  // field -- mirroring captainXpAwardedThisCall's single-source treatment above.
+  // Value-identical to the previous two-site computation; no behavior change.
+  const fleetAdminXpAwardedThisCall = fleetAdminXpRate * wholeTicksElapsed;
+  fleetAdminXpDelta += fleetAdminXpAwardedThisCall;
 
   // Task 6: assemble the lifetime-stat delta for this call.
   // - itemsGathered mirrors homePlanetDelta EXACTLY: inside this function
@@ -866,14 +872,14 @@ export function tickCaptainMission(
   //   least one cycle finished (kept absent at 0 per the maps' sparse-by-design
   //   contract), so a call that completes no cycle contributes an empty map.
   // - creditsEarned mirrors creditsDelta; captainXpAwarded is the GROSS award
-  //   captured pre-level-up; fleetAdminXpAwarded is the same product folded into
-  //   fleetAdminXpDelta (recomputed here as a Decimal for the lifetime sum).
+  //   captured pre-level-up; fleetAdminXpAwarded wraps the same fleetAdminXpAwardedThisCall
+  //   const folded into fleetAdminXpDelta above, as a Decimal for the lifetime sum.
   const lifetimeStatsDelta: MissionLifetimeStatsDelta = {
     itemsGathered: { ...homePlanetDelta },
     missionsCompleted: cyclesCompleted > 0 ? { [missionKey]: new Decimal(cyclesCompleted) } : {},
     creditsEarned: new Decimal(creditsDelta),
     captainXpAwarded: captainXpAwardedThisCall,
-    fleetAdminXpAwarded: new Decimal(fleetAdminXpRate * wholeTicksElapsed),
+    fleetAdminXpAwarded: new Decimal(fleetAdminXpAwardedThisCall),
   };
 
   return {
@@ -964,8 +970,12 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   // fold into state.lifetimeStats once, in the final return object. itemsRefined/
   // itemsCrafted are intentionally NOT accumulated here -- missions don't produce
   // them (that's the crafting path's job, a later task).
-  const lifetimeItemsGatheredDelta: Record<string, Decimal> = {};
-  const lifetimeMissionsCompletedDelta: Record<string, Decimal> = {};
+  // `let` (not const): the two maps are REPLACED each captain by mergeLifetimeStatMap
+  // (which returns a fresh merged map), the single definition of the per-key merge
+  // idiom -- rather than mutated in place. The extra per-captain allocation is
+  // negligible next to the .map()'s own per-iteration allocation.
+  let lifetimeItemsGatheredDelta: Record<string, Decimal> = {};
+  let lifetimeMissionsCompletedDelta: Record<string, Decimal> = {};
   let lifetimeCreditsEarnedDelta = new Decimal(0);
   let lifetimeCaptainXpAwardedDelta = new Decimal(0);
   let lifetimeFleetAdminXpAwardedDelta = new Decimal(0);
@@ -1012,18 +1022,17 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     fleetAdminXpDelta += captainFleetAdminXpDelta;
     creditsDelta += captainCreditsDelta;
     // Task 6: merge THIS captain's lifetime-stat delta into the fleet-wide
-    // accumulators. Maps merge per-key (a key absent so far starts from 0);
-    // scalars .plus() -- the same per-key / per-scalar split the final fold uses.
-    for (const key of Object.keys(captainLifetimeStatsDelta.itemsGathered)) {
-      lifetimeItemsGatheredDelta[key] = (lifetimeItemsGatheredDelta[key] ?? new Decimal(0)).plus(
-        captainLifetimeStatsDelta.itemsGathered[key]
-      );
-    }
-    for (const key of Object.keys(captainLifetimeStatsDelta.missionsCompleted)) {
-      lifetimeMissionsCompletedDelta[key] = (lifetimeMissionsCompletedDelta[key] ?? new Decimal(0)).plus(
-        captainLifetimeStatsDelta.missionsCompleted[key]
-      );
-    }
+    // accumulators. Maps merge per-key via the shared mergeLifetimeStatMap helper
+    // (the SINGLE definition of the per-key merge idiom, also used by the final
+    // state.lifetimeStats fold); scalars .plus() directly.
+    lifetimeItemsGatheredDelta = mergeLifetimeStatMap(
+      lifetimeItemsGatheredDelta,
+      captainLifetimeStatsDelta.itemsGathered
+    );
+    lifetimeMissionsCompletedDelta = mergeLifetimeStatMap(
+      lifetimeMissionsCompletedDelta,
+      captainLifetimeStatsDelta.missionsCompleted
+    );
     lifetimeCreditsEarnedDelta = lifetimeCreditsEarnedDelta.plus(captainLifetimeStatsDelta.creditsEarned);
     lifetimeCaptainXpAwardedDelta = lifetimeCaptainXpAwardedDelta.plus(captainLifetimeStatsDelta.captainXpAwarded);
     lifetimeFleetAdminXpAwardedDelta = lifetimeFleetAdminXpAwardedDelta.plus(

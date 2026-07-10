@@ -1041,6 +1041,39 @@ describe("tickCaptainMission / tick() — accrues mission-side lifetime stats (T
     expect(bigJump.captain.xp.equals(20)).toBe(true);
     expect(bigJump.captain.level).toBe(2);
   });
+
+  it("tick() SUMS lifetime stats across multiple captains into one fleet-wide total (exercises the second-hit map merge)", () => {
+    // Both existing Task 6 tests run a single captain, so the merge's second-hit
+    // branch (two captains folding into the SAME missionsCompleted[key] /
+    // itemsGathered[key]) is never asserted at the tick() level. Two captains, both
+    // on shortOreRun, each completing exactly one 149-tick cycle in the same call,
+    // must SUM: 2 completed cycles, 180 rareMaterial (2 * 90), etc. -- proving the
+    // fleet-wide accumulators combine per-captain deltas rather than overwrite.
+    const rngSpy = vi.spyOn(Math, "random").mockReturnValue(0); // rare wins every roll => deterministic 90 rare/cycle
+    try {
+      const state = freshState();
+      state.captains = freshCaptains(2); // mirror the FA-stacking test's setup; captain 2 has no ship -> freighter baseline, same 149-tick geometry
+      state.captains[0].mission = missionCaptain("shortOreRun");
+      state.captains[1].mission = missionCaptain("shortOreRun");
+      // 149 seconds (tickDurationSeconds 1) => each captain advances 149 whole ticks
+      // = exactly one full cycle each (both auto-repeat to ordersReceived/0 after).
+      const result = tick(149, state);
+
+      // Summed across BOTH captains -- this is the second-hit merge under test.
+      expect(result.lifetimeStats.missionsCompleted.shortOreRun.equals(2)).toBe(true); // 1 + 1
+      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(180)).toBe(true); // 90 + 90
+      expect(result.lifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
+      expect(result.lifetimeStats.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
+      // itemsGathered still mirrors the fleet-wide loot delivered into storage.
+      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(result.homePlanet.storage.rareMaterial)).toBe(true);
+      // Scalars sum too: 2 cycles * 10 credits; 2 captains * 149 gross XP each.
+      expect(result.lifetimeStats.creditsEarned.equals(20)).toBe(true);
+      expect(result.lifetimeStats.captainXpAwarded.equals(298)).toBe(true); // 2 * 149
+      expect(result.lifetimeStats.fleetAdminXpAwarded.equals(298)).toBe(true); // 2 * 149
+    } finally {
+      rngSpy.mockRestore();
+    }
+  });
 });
 
 describe("tick() — Fleet Admiral XP stacks across active captains (Task 5)", () => {
