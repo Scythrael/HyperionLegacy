@@ -820,7 +820,6 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     // swaps the early return for a shallow copy, this still passes while the toBe above would catch it).
     expect(result.captains[0].id).toBe(before.id);
     expect(result.captains[0].label).toBe(before.label);
-    expect(result.captains[0].shipType).toBe(before.shipType);
     expect(result.captains[0].mission).toBe(before.mission);
     expect(result.captains[0].xp).toBe(before.xp);
     expect(result.captains[0].level).toBe(before.level);

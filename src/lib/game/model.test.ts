@@ -24,12 +24,11 @@ describe("freshState — captain roster shape", () => {
     expect(state.captains).toHaveLength(1);
   });
 
-  it("Captain 1 has id 1, label 'Captain 1', shipType resourcer", () => {
+  it("Captain 1 has id 1, label 'Captain 1'", () => {
     const state = freshState();
     const c1 = state.captains[0];
     expect(c1.id).toBe(1);
     expect(c1.label).toBe("Captain 1");
-    expect(c1.shipType).toBe("resourcer");
   });
 
   it("starts with xp:0, level:1, statPoints:0 per captain, and fleet-wide tickDurationSeconds 1", () => {
@@ -53,6 +52,19 @@ describe("freshState — captain roster shape", () => {
   });
 });
 
+describe("freshState ships seeding", () => {
+  it("seeds one General Freighter assigned to the starting captain, capacity 8", () => {
+    const s = freshState();
+    expect(s.shipStorageCapacity).toBe(8);
+    expect(s.ships).toHaveLength(1);
+    expect(s.ships[0].typeKey).toBe("generalFreighter");
+    expect(s.ships[0].assignedCaptainId).toBe(s.captains[0].id);
+    for (const c of s.captains) {
+      expect(s.ships.filter((sh) => sh.assignedCaptainId === c.id)).toHaveLength(1);
+    }
+  });
+});
+
 describe("freshCaptains(count) — parameterized roster generation", () => {
   it("generates exactly `count` captains with sequential ids/labels, all sharing the fresh baseline", () => {
     const captains = freshCaptains(3);
@@ -60,7 +72,6 @@ describe("freshCaptains(count) — parameterized roster generation", () => {
     expect(captains.map((c) => c.id)).toEqual([1, 2, 3]);
     expect(captains.map((c) => c.label)).toEqual(["Captain 1", "Captain 2", "Captain 3"]);
     for (const c of captains) {
-      expect(c.shipType).toBe("resourcer");
       expect(c.xp.equals(0)).toBe(true);
       expect(c.level).toBe(1);
       expect(c.statPoints).toBe(0);

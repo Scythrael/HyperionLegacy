@@ -274,7 +274,6 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
 export interface CaptainState {
   id: number;
   label: string; // placeholder, e.g. "Captain 1" -- naming UI deferred per master doc §10.7
-  shipType: ShipType;
   mission: CaptainMissionState | null; // null when idle (idle captains have no passive economy -- see tick.ts)
   xp: Decimal; // accumulated toward the NEXT level -- see xpForNextLevel() below; awarded in tick.ts's tickCaptainMission on cycle completion
   level: number; // starts at 1
@@ -293,6 +292,15 @@ export interface GameState {
   fleetAdminLevel: number; // starts at 1
   adminPoints: number; // unspent, spent via buyHomeworldTalent (tick.ts)
   credits: Decimal;
+  // --- Ships — Stats Foundation ---
+  // The fleet's hulls, distinct from the captains flying them. A ShipInstance's
+  // assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies it -- the
+  // invariant "every captain always has exactly one assigned ship" is enforced
+  // at new-game here (freshState), by migration (save.ts), and at slot unlock
+  // (tick.ts) in their own later tasks.
+  ships: ShipInstance[];
+  shipStorageCapacity: number; // max hulls the fleet can hold (parked + assigned); starter cap
+  nextShipId: number; // monotonic id source for new ShipInstance.id ("ship-N"); never reused
 }
 
 export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
@@ -946,7 +954,6 @@ export function freshCaptains(count: number): CaptainState[] {
     captains.push({
       id: i,
       label: `Captain ${i}`,
-      shipType: "resourcer",
       ...freshCaptainStack(),
     });
   }
@@ -972,5 +979,11 @@ export function freshState(): GameState {
     fleetAdminLevel: 1,
     adminPoints: 0,
     credits: new Decimal(0),
+    // Seed the invariant: the one starting captain (freshCaptains(1) -> id 1) gets
+    // exactly one hull, the universal General Freighter. nextShipId starts at 2
+    // because "ship-1" is already taken by this seeded hull.
+    ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+    shipStorageCapacity: 8,
+    nextShipId: 2,
   };
 }
