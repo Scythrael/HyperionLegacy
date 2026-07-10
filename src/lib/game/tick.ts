@@ -302,12 +302,6 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
 // breaking the exact guarantee this function exists to provide.
 const MISSION_TICK_EPSILON = 1e-9;
 
-// Flat XP award per completed mission cycle -- a launch placeholder balance
-// value, same spirit as MISSIONS' own hand-tuned tick counts. Awarded once
-// PER CYCLE completed within a call (a big offline-catchup jump can complete
-// several cycles in one call -- see the while loop below), never once per call.
-const XP_PER_MISSION_CYCLE = 50;
-
 // A very large offline-catchup ticksElapsed could complete many mission
 // cycles across many captains in one tick() call, each contributing 1-2
 // Fleet Admiral XP (or a large amount of captain XP) -- summing to a
@@ -506,12 +500,35 @@ export function tickCaptainMission(
   let mission: CaptainMissionState | null = { ...captain.mission, cargo: { ...captain.mission.cargo } };
   let remaining = ticksElapsed;
   const homePlanetDelta = emptyLootTotals();
-  // Seeded from the captain's CURRENT xp/level/statPoints -- mutated only
-  // inside the cycle-completion branch below, once per cycle actually
-  // completed within this call (mirrors homePlanetDelta's own accumulation).
+  // Seeded from the captain's CURRENT xp/level/statPoints. Task 4 (Progression
+  // Pacing Rework) changed WHEN these mutate: captain XP is no longer a lump
+  // awarded inside the cycle-completion branch, it accrues per WHOLE tick the
+  // mission advances (see wholeTicksElapsed below). So the XP award + the
+  // level-up loop now run exactly ONCE, AFTER the while loop, off the total
+  // whole ticks counted -- not once per completed cycle.
   let xp = captain.xp;
   let level = captain.level;
   let statPoints = captain.statPoints;
+  // Total WHOLE ticks the mission actually advances this call, summed across
+  // every phase (orders/transit/extract/unload alike). Captain XP is awarded
+  // as xpRate * this count after the loop. Counted on whole-tick boundaries --
+  // the SAME closed-form device the extraction loot rolls use below -- so the
+  // accrual is chunk-invariant: one big ticksElapsed and many small ones
+  // summing to it credit the identical integer tick count (a sub-whole partial
+  // tick credits nothing until a later call completes it), and because the
+  // count only ever grows by integers, the Decimal XP sum carries no
+  // fractional drift across chunking. A mission that terminates partway (e.g.
+  // recall) simply stops contributing once the loop exits -- ticks never
+  // advanced are never counted, matching a tick-by-tick stepping exactly.
+  let wholeTicksElapsed = 0;
+  // The per-tick XP RATE for this mission, resolved ONCE (call-constant): the
+  // missionKey is fixed for the whole call (auto-repeat reuses the same key),
+  // and xpPerTick ignores level/state today, so pulling it out of the loop is
+  // both cheaper and a clear signal it does not vary per tick. Read off
+  // captain.mission (guaranteed non-null past the early return above) rather
+  // than the local `mission`, which can become null on a recall before we use
+  // this after the loop.
+  const xpRate = xpPerTick(captain.mission.missionKey, captain);
   // Accumulates this captain's Fleet Admiral XP contribution across every
   // mission cycle completed within this call -- same "accumulate locally,
   // apply once" shape as homePlanetDelta above. tick() sums this across
@@ -567,6 +584,18 @@ export function tickCaptainMission(
     if (Math.abs(mission.phaseProgressTicks + ticksToApply - requiredTicks) < MISSION_TICK_EPSILON) {
       ticksToApply = requiredTicks - mission.phaseProgressTicks;
     }
+
+    // Task 4: count the WHOLE ticks this step crosses, for captain-XP accrual.
+    // Same floor-boundary device as the extracting loot rolls below, but applied
+    // in EVERY phase (XP accrues whenever the mission is in progress, not only
+    // while extracting). Computed BEFORE phaseProgressTicks is advanced (needs
+    // the pre-step value). Kept as its own two Math.floor lines rather than
+    // sharing the extracting block's identical computation: that block is
+    // delicate closed-form loot code under a strict do-not-touch, and the two
+    // extra floors per iteration are negligible -- readability/isolation over a
+    // micro-consolidation (flagged for SUGGESTIONS.md rather than done inline).
+    wholeTicksElapsed +=
+      Math.floor(mission.phaseProgressTicks + ticksToApply) - Math.floor(mission.phaseProgressTicks);
 
     if (mission.phase === "extracting") {
       // Roll loot once per WHOLE tick boundary crossed during this step --
@@ -629,25 +658,14 @@ export function tickCaptainMission(
         (Object.keys(mission.cargo) as LootMaterialKey[]).forEach((key) => {
           homePlanetDelta[key] = homePlanetDelta[key].plus(mission.cargo[key]);
         });
-        // XP is awarded once per cycle completed here (this branch can be
-        // reached multiple times within one call's while loop -- e.g. a big
-        // offline-catchup ticksElapsed spanning several full cycles), NOT
-        // once per tickCaptainMission call. Resolve every level-up crossed by
-        // this award, not just one -- a while (not if) loop, same closed-form
-        // spirit as the phase-advancement logic above -- bounded by
-        // MAX_LEVEL_UPS_PER_TICK (see that constant's own comment), with any
-        // excess left in xp to resolve on a later call, the same
-        // carry-forward behavior applyFleetAdminXp uses below.
-        xp = xp.plus(XP_PER_MISSION_CYCLE);
+        // Fleet Admiral XP and credits are still awarded once PER completed
+        // cycle (this branch can be reached multiple times within one call's
+        // while loop -- e.g. a big offline-catchup ticksElapsed spanning several
+        // full cycles). Captain XP is NO LONGER awarded here: Task 4 moved it to
+        // a single per-whole-tick accrual after the loop (see below), so this
+        // branch touches only the fleet-wide/credit totals now.
         fleetAdminXpDelta += missionDef.fleetAdminXpPerCycle;
         creditsDelta += missionDef.creditsPerCycle;
-        let levelUpsThisCall = 0;
-        while (xp.gte(xpForNextLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
-          xp = xp.minus(xpForNextLevel(level));
-          level += 1;
-          statPoints += 1;
-          levelUpsThisCall += 1;
-        }
         if (mission.recalled) {
           mission = null;
         } else {
@@ -664,6 +682,27 @@ export function tickCaptainMission(
         mission.phaseProgressTicks = 0;
       }
     }
+  }
+
+  // Task 4: award captain XP ONCE per call, for the total whole ticks the
+  // mission advanced above (xpRate is a call-constant). xpRate * an INTEGER
+  // count is itself an exact integer, so xp.plus(...) introduces no fractional
+  // drift and one big call matches many small ones exactly. Then resolve every
+  // level-up crossed by that award -- the SAME subtract-threshold loop as
+  // before (unchanged semantics), just relocated out of the per-cycle branch
+  // and run a single time: a while (not if) loop so a large offline-catchup
+  // accrual can climb multiple levels, bounded by MAX_LEVEL_UPS_PER_TICK with
+  // any excess left in xp to carry forward to a later call (mirrors
+  // applyFleetAdminXp's own carry-forward). Because this loop fully drains all
+  // crossable thresholds each call, awarding the total as one lump lands the
+  // identical level/statPoints/leftover-xp as accruing it tick-by-tick.
+  xp = xp.plus(xpRate * wholeTicksElapsed);
+  let levelUpsThisCall = 0;
+  while (xp.gte(xpForNextLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
+    xp = xp.minus(xpForNextLevel(level));
+    level += 1;
+    statPoints += 1;
+    levelUpsThisCall += 1;
   }
 
   return { captain: { ...captain, mission, xp, level, statPoints }, homePlanetDelta, fleetAdminXpDelta, creditsDelta };

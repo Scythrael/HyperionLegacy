@@ -24,7 +24,7 @@ import {
   xpPerTick,
 } from "./tick";
 import Decimal from "break_infinity.js";
-import { freshState, freshCaptains, MISSIONS, RECIPES, shipDerivedStats, type CaptainMissionState } from "./model";
+import { freshState, freshCaptains, MISSIONS, RECIPES, shipDerivedStats, xpForNextLevel, type CaptainMissionState } from "./model";
 
 function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
   return {
@@ -99,6 +99,38 @@ describe("tickCaptainMission — closed-form requirement", () => {
     expect(bigJump.homePlanetDelta.commonOre.equals(steppedDelta.commonOre)).toBe(true);
     expect(bigJump.homePlanetDelta.uncommonMaterial.equals(steppedDelta.uncommonMaterial)).toBe(true);
     expect(bigJump.homePlanetDelta.rareMaterial.equals(steppedDelta.rareMaterial)).toBe(true);
+  });
+
+  // Task 4 (captain XP -> per-tick accrual) CRITICAL parity test. Captain XP is
+  // now earned per WHOLE tick the mission advances (not a lump per completed
+  // cycle), so xp/level/statPoints must survive chunking exactly like cargo does
+  // above. Stepped in SINGLE (1-tick) increments -- integer step size, so each
+  // step advances exactly one whole tick and the closed-form whole-tick counter
+  // increments by clean integers on both paths (no fractional-XP drift). The
+  // subtract-threshold level-up loop is path-independent when the per-call cap
+  // isn't hit, so resolving level-ups incrementally (320 small calls) must land
+  // the SAME final level/statPoints/leftover-xp as one lump award (the big call).
+  it("captain xp / level / statPoints: one big jump equals many single ticks (per-tick accrual)", () => {
+    const base = freshCaptains(1)[0]; // xp 0, level 1, statPoints 0
+    base.mission = missionCaptain("shortOreRun");
+    // 320 whole ticks of rate-1 XP = 320 XP. xpForNextLevel(1)=300 (Task 4 curve),
+    // so exactly one level-up: level 1->2, statPoints 0->1, xp 320-300 = 20 left.
+    const bigJump = tickCaptainMission(320, base, ALWAYS_MIN_ROLL);
+
+    let steppedCaptain = base;
+    for (let i = 0; i < 320; i++) {
+      steppedCaptain = tickCaptainMission(1, steppedCaptain, ALWAYS_MIN_ROLL).captain;
+    }
+
+    // The three XP-derived fields must agree across chunking (the whole point).
+    expect(bigJump.captain.xp.equals(steppedCaptain.xp)).toBe(true);
+    expect(bigJump.captain.level).toBe(steppedCaptain.level);
+    expect(bigJump.captain.statPoints).toBe(steppedCaptain.statPoints);
+    // Absolute values too, so the test also pins the exact expected numbers, not
+    // just internal consistency between the two paths.
+    expect(bigJump.captain.xp.equals(20)).toBe(true);
+    expect(bigJump.captain.level).toBe(2);
+    expect(bigJump.captain.statPoints).toBe(1);
   });
 
   it("zero or negative ticksElapsed is a no-op", () => {
@@ -753,40 +785,61 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
   });
 });
 
-describe("tickCaptainMission — awards XP on cycle completion", () => {
-  it("awards no XP when no cycle completes", () => {
-    const base = freshCaptains(1)[0];
-    base.mission = missionCaptain(); // mid-cycle, phaseProgressTicks 0, far from completing
-    const { captain } = tickCaptainMission(0.5, base, ALWAYS_MIN_ROLL);
-    expect(captain.xp.equals(0)).toBe(true);
-    expect(captain.level).toBe(1);
+describe("xpForNextLevel — 300xlevel curve (Task 4)", () => {
+  it("returns 900 at level 3 (300 * 3)", () => {
+    expect(xpForNextLevel(3)).toBe(900);
   });
+});
 
-  it("awards XP once when exactly one cycle completes", () => {
-    const base = freshCaptains(1)[0];
-    base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
-    const { captain } = tickCaptainMission(8, base, ALWAYS_MIN_ROLL); // 8 ticks completes unloadTicks=8
+describe("tickCaptainMission — accrues captain XP per active tick", () => {
+  // Task 4 replaced the old lump-per-completed-cycle award (xp += 50 on each
+  // cycle) with PER-WHOLE-TICK accrual: the captain earns xpPerTick(missionKey)
+  // (= BASE_XP_PER_TICK.shortOreRun = 1) for every whole tick the mission
+  // advances this call, in ANY phase. Awarded on whole-tick boundaries (like the
+  // loot rolls) so the accrual is closed-form/chunk-invariant.
+  it("accrues XP per whole tick advanced even when NO cycle completes (proves tick-based, not lump-per-cycle)", () => {
+    const base = freshCaptains(1)[0]; // xp 0, level 1, statPoints 0
+    base.mission = missionCaptain(); // shortOreRun, 149 ticks/cycle -- 50 ticks completes NO cycle
+    const { captain } = tickCaptainMission(50, base, ALWAYS_MIN_ROLL);
+    // 50 whole ticks advanced (orders 1 + transitOut 25 + 24 into extracting) at
+    // rate 1 = 50 XP. Under the OLD lump mechanic this would be 0 (no cycle done).
     expect(captain.xp.equals(50)).toBe(true);
-    expect(captain.level).toBe(1); // 50 < xpForNextLevel(1)=100, no level-up yet
+    expect(captain.level).toBe(1); // 50 < xpForNextLevel(1)=300, no level-up yet
+    expect(captain.statPoints).toBe(0); // unchanged -- no level-up occurred
   });
 
-  it("levels up and grants a stat point when accumulated XP crosses the threshold", () => {
+  it("accrues NO XP for a sub-whole (partial) tick until it completes a whole tick", () => {
     const base = freshCaptains(1)[0];
-    base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
-    base.xp = new Decimal(60); // + this cycle's 50 = 110, crosses xpForNextLevel(1)=100
-    const { captain } = tickCaptainMission(8, base, ALWAYS_MIN_ROLL); // 8 ticks completes unloadTicks=8
-    expect(captain.level).toBe(2);
-    expect(captain.xp.equals(10)).toBe(true); // 110 - 100
-    expect(captain.statPoints).toBe(1);
+    base.mission = missionCaptain();
+    const { captain } = tickCaptainMission(0.5, base, ALWAYS_MIN_ROLL); // 0.5 < 1 whole tick
+    expect(captain.xp.equals(0)).toBe(true); // floor(0.5) - floor(0) = 0 whole ticks crossed
+    expect(captain.level).toBe(1);
+    expect(captain.statPoints).toBe(0);
   });
 
-  it("a big jump completing multiple cycles awards XP for EACH cycle, resolving multiple level-ups if crossed", () => {
+  it("levels up and grants a stat point when accrued XP crosses the 300xlevel threshold", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain(); // shortOreRun, 149 ticks/cycle
-    const { captain } = tickCaptainMission(298, base, ALWAYS_MIN_ROLL); // exactly 2 full cycles (2*149) -> 2 * 50 = 100 XP
-    expect(captain.xp.equals(0)).toBe(true); // 100 XP exactly hits xpForNextLevel(1)=100 -> levels to 2 with 0 leftover
+    // 300 whole ticks (2 full cycles = 298 + 2 more) at rate 1 = 300 XP, which
+    // exactly hits xpForNextLevel(1)=300 -> level 1->2 with 0 XP left over.
+    const { captain } = tickCaptainMission(300, base, ALWAYS_MIN_ROLL);
     expect(captain.level).toBe(2);
+    expect(captain.xp.equals(0)).toBe(true); // 300 - 300 = 0 leftover
     expect(captain.statPoints).toBe(1);
+  });
+
+  it("resolves multiple level-ups from one call's accrual (subtract-threshold carry-forward)", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain(); // shortOreRun, 149 ticks/cycle
+    // 900 whole ticks (6 full cycles = 894 + 6 more) = 900 XP. Level-up loop:
+    //   900 >= 300 (thr level 1) -> xp 600, level 2
+    //   600 >= 600 (thr level 2) -> xp 0,   level 3
+    //   0   <  900 (thr level 3) -> stop
+    // Final: level 3, xp 0, statPoints 2.
+    const { captain } = tickCaptainMission(900, base, ALWAYS_MIN_ROLL);
+    expect(captain.level).toBe(3);
+    expect(captain.xp.equals(0)).toBe(true);
+    expect(captain.statPoints).toBe(2);
   });
 });
 

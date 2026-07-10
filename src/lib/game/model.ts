@@ -101,10 +101,11 @@ export interface MissionDef {
   // tick math whatsoever; purely a presentational label read by the UI layer.
   tier: MissionTier;
   // Flat Fleet Admiral XP awarded once per completed mission CYCLE (not per
-  // tick, unlike extractionRatePerTick above) -- mirrors how captain XP is
-  // awarded (see tick.ts's XP_PER_MISSION_CYCLE), but each mission has its
-  // OWN value rather than one shared constant, so a longer/harder mission
-  // can be worth more. This is only the FIRST of several planned Fleet
+  // tick, unlike extractionRatePerTick above). Unlike captain XP -- which since
+  // the Progression Pacing Rework (Task 4) accrues per active tick -- Fleet
+  // Admiral XP still lands as a per-cycle lump, and each mission has its OWN
+  // value rather than one shared constant, so a longer/harder mission can be
+  // worth more. This is only the FIRST of several planned Fleet
   // Admiral XP sources (2026-07-08 user note: crafting, talent purchases,
   // and a future talent-tree effect boosting this value are all planned
   // later) -- the values here and xpForNextFleetAdminLevel's curve below are
@@ -294,7 +295,7 @@ export interface CaptainState {
   id: number;
   label: string; // placeholder, e.g. "Captain 1" -- naming UI deferred per master doc §10.7
   mission: CaptainMissionState | null; // null when idle (idle captains have no passive economy -- see tick.ts)
-  xp: Decimal; // accumulated toward the NEXT level -- see xpForNextLevel() below; awarded in tick.ts's tickCaptainMission on cycle completion
+  xp: Decimal; // accumulated toward the NEXT level -- see xpForNextLevel() below; accrued per active tick in tick.ts's tickCaptainMission (Task 4)
   level: number; // starts at 1
   statPoints: number; // unspent, earned on level-up -- spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
   unlockedCaptainTalents: CaptainTalentKey[]; // this captain's own purchased Captain Talent keys -- see buyCaptainTalent (tick.ts)
@@ -368,8 +369,12 @@ export const RECIPES: Record<RecipeKey, RecipeDef> = {
 
 // Open-ended (levels can climb indefinitely) -- a formula, not a finite table
 // like HOMEWORLD_TALENTS' Fleet Logistics branch below (hand-tuned per entry).
+// Progression Pacing Rework (Task 4): steepened from 100*level to 300*level.
+// Captain XP now accrues PER ACTIVE TICK (see tickCaptainMission's per-whole-tick
+// award) instead of as a lump per completed cycle, so the per-level cost was
+// raised to keep early leveling from racing ahead under the faster drip.
 export function xpForNextLevel(level: number): number {
-  return 100 * level;
+  return 300 * level;
 }
 
 // Deliberately much steeper than a captain's own xpForNextLevel -- the

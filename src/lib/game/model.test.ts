@@ -189,9 +189,13 @@ describe("RECIPES — launch set", () => {
 });
 
 describe("xpForNextLevel", () => {
-  it("grows with level (100 at level 1, 200 at level 2)", () => {
-    expect(xpForNextLevel(1)).toBe(100);
-    expect(xpForNextLevel(2)).toBe(200);
+  // Task 4 (Progression Pacing Rework) steepened the captain curve from
+  // 100*level to 300*level to slow early-game leveling now that XP accrues
+  // per active tick rather than as a lump per completed mission cycle.
+  it("grows linearly at 300 per level (300 at level 1, 600 at level 2, 900 at level 3)", () => {
+    expect(xpForNextLevel(1)).toBe(300);
+    expect(xpForNextLevel(2)).toBe(600);
+    expect(xpForNextLevel(3)).toBe(900);
   });
 });
 
