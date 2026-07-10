@@ -119,6 +119,25 @@ Homeworld upgrades ─▶ unlock facilities
 Each phase is a placeholder for its own future brainstorm. Scope lines below are directional, NOT
 final designs.
 
+**⚠️ PREREQUISITE (decided 2026-07-11) — a Progression Pacing Rework lands BEFORE Phase 1.** Its own
+feature (own brainstorm/design/plan), NOT part of this epic, but sequenced first because it defines the
+Fleet Admiral XP curve that Phase 1's facility processes award into. Scope:
+- **Per-tick XP:** all timed actions (missions today; refine/upgrade processes in Phase 1) award 1 XP
+  per tick — a process's tick-duration IS its XP reward. Applies to BOTH captain and Fleet Admiral XP.
+- **Curve recalibration:** raise XP to account for the per-tick model so **captain leveling FEELS the
+  same** as today; Fleet Admiral ramps **faster early, then slower over time** (FA power is high → its
+  levels should come in more slowly later). Values tunable ("hard to tell what's too fast/slow").
+- **Captain slots become level walls (LAYERED, not a reversal):** the shipped Fleet Logistics
+  `unlockCaptainSlot` talents gain an ADDITIONAL Fleet-Admiral-level requirement on top of their
+  existing adminPoint cost — you need the level AND the talent. Ladder (×5, tunable): slot 2 → L1,
+  3 → L5, 4 → L25, 5 → L125, grow for 6+. Rationale: **captains are "wall breakers"** — deliberate
+  progression walls that unlocking a new captain helps break through.
+- **"Coming Soon" → "Locked" relabel:** content that EXISTS but isn't yet unlocked (e.g. unlockable
+  captain slots) shows "Locked" (with its requirement), not "Coming Soon" (reserved for content that
+  doesn't exist yet). Small cross-cutting UI change; may ride with this rework.
+- ⚠️ **Edits WORKING, closed-form mission XP code** → Anti-Regression + closed-form care, its own
+  device check. The delicate one — trickier than Phase 1's greenfield facility work.
+
 ### Phase 1 — Facility framework + Refinery  ← NEXT TO BRAINSTORM
 - The **Homeworld facility unlock/upgrade meta-system**: the reusable bedrock that every later
   facility (Warehouse, Fabricator, Research, Starbase/Shipyard) hangs on — how a facility is

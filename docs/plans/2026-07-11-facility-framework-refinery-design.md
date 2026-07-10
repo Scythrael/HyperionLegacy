@@ -160,10 +160,11 @@ Rules:
   rare 60. Component/fabricator durations (Phase 4) start ~60 ticks and climb into hours for
   high-tier/high-rarity items.
 - **XP model:** each timed process awards **Fleet Admiral XP = its `durationTicks`** on completion
-  (the "1 XP per tick" model — self-budgeting, closed-form). ⚠️ COUPLED to the separate XP-per-tick
-  progression rework (missions + captain + FA curve recalibration — its own pass): if Phase 1 ships
-  before that rework, process-XP would grind FA levels against an un-retuned curve. Whether this hook
-  is active in Phase 1 depends on the rework's sequencing (open decision — see §9 / SUGGESTIONS).
+  (the "1 XP per tick" model — self-budgeting, closed-form). **Sequencing (decided 2026-07-11): the
+  Progression Pacing Rework lands BEFORE Phase 1** (see epic §4 PREREQUISITE), so the FA curve is
+  already recalibrated — this hook is **ACTIVE in Phase 1 from day one**, awarding FA XP = durationTicks
+  against the tuned curve. (FA-level values used by `requiresFleetAdminLevel` upgrade gates also assume
+  the recalibrated curve, so those gates get real numbers only after the rework sets the curve.)
 
 ---
 
