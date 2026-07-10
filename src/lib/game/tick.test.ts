@@ -968,16 +968,16 @@ describe("tickCaptainMission / tick() — accrues mission-side lifetime stats (T
       // missionsCompleted: exactly one shortOreRun cycle finished this call.
       expect(result.lifetimeStats.missionsCompleted.shortOreRun.equals(1)).toBe(true);
 
-      // itemsGathered MIRRORS the loot delivered into homePlanet.storage. freshState
-      // starts storage all-zero and has no passiveTrickle, so the storage delta IS
+      // itemsGathered MIRRORS the loot delivered into inventory. freshState
+      // starts inventory all-zero and has no passiveTrickle, so the inventory delta IS
       // the delivered mission loot -- itemsGathered must equal it key-for-key.
       expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(90)).toBe(true);
       expect(result.lifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
       expect(result.lifetimeStats.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
-      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(result.homePlanet.storage.rareMaterial)).toBe(true);
-      expect(result.lifetimeStats.itemsGathered.commonOre.equals(result.homePlanet.storage.commonOre)).toBe(true);
+      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(result.inventory.rareMaterial)).toBe(true);
+      expect(result.lifetimeStats.itemsGathered.commonOre.equals(result.inventory.commonOre)).toBe(true);
       expect(
-        result.lifetimeStats.itemsGathered.uncommonMaterial.equals(result.homePlanet.storage.uncommonMaterial)
+        result.lifetimeStats.itemsGathered.uncommonMaterial.equals(result.inventory.uncommonMaterial)
       ).toBe(true);
 
       // creditsEarned mirrors creditsDelta: one completed cycle == creditsPerCycle (10).
@@ -1075,8 +1075,8 @@ describe("tickCaptainMission / tick() — accrues mission-side lifetime stats (T
       expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(180)).toBe(true); // 90 + 90
       expect(result.lifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
       expect(result.lifetimeStats.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
-      // itemsGathered still mirrors the fleet-wide loot delivered into storage.
-      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(result.homePlanet.storage.rareMaterial)).toBe(true);
+      // itemsGathered still mirrors the fleet-wide loot delivered into inventory.
+      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(result.inventory.rareMaterial)).toBe(true);
       // Scalars sum too: 2 cycles * 10 credits; 2 captains * 149 gross XP each.
       expect(result.lifetimeStats.creditsEarned.equals(20)).toBe(true);
       expect(result.lifetimeStats.captainXpAwarded.equals(298)).toBe(true); // 2 * 149
@@ -1306,7 +1306,7 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     expect(result.gameTimeSeconds).toBe(10);
   });
 
-  it("mission loot aggregates across all captains on missions into state.homePlanet.storage in one tick() call", () => {
+  it("mission loot aggregates across all captains on missions into state.inventory in one tick() call", () => {
     // Hand-traced against tickCaptainMission's CURRENT implementation (tick.ts):
     //
     // Captain 0: phase "extracting", phaseProgressTicks: 0. state.tickDurationSeconds=1 (fresh
@@ -1331,9 +1331,9 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     // phaseProgressTicks reset to 0. Still no delivery to homePlanetDelta -- that only happens when
     // "unloading" itself completes, which neither captain reaches this tick.
     //
-    // So: state.homePlanet.storage must be UNCHANGED (still all zero) after this single tick() call,
+    // So: state.inventory must be UNCHANGED (still all zero) after this single tick() call,
     // even though both captains' onboard cargo grew. This is the "in transit, not yet delivered"
-    // distinction the design doc draws between a captain's own mission.cargo and homePlanet.storage.
+    // distinction the design doc draws between a captain's own mission.cargo and the home inventory.
     const state = freshState();
     state.captains = freshCaptains(2);
     state.captains[0].mission = {
@@ -1373,17 +1373,20 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     expect(result.captains[1].mission!.phaseProgressTicks).toBe(0);
 
     // Neither captain reached "unloading" this tick -- nothing delivered home yet.
-    // Full 5-key shape (Task 5 widened homePlanet.storage to include the crafted-good
-    // tiers) -- per-key .equals() (not .toEqual against a plain-number-literal object),
-    // since homePlanet.storage's values are real Decimal instances.
-    expect(result.homePlanet.storage.commonOre.equals(0)).toBe(true);
-    expect(result.homePlanet.storage.uncommonMaterial.equals(0)).toBe(true);
-    expect(result.homePlanet.storage.rareMaterial.equals(0)).toBe(true);
-    expect(result.homePlanet.storage.refinedMaterial.equals(0)).toBe(true);
-    expect(result.homePlanet.storage.components.equals(0)).toBe(true);
+    // Full 5-key shape (freshState seeds inventory with the same crafted-good tiers)
+    // -- per-key .equals() (not .toEqual against a plain-number-literal object),
+    // since inventory's values are real Decimal instances.
+    expect(result.inventory.commonOre.equals(0)).toBe(true);
+    expect(result.inventory.uncommonMaterial.equals(0)).toBe(true);
+    expect(result.inventory.rareMaterial.equals(0)).toBe(true);
+    expect(result.inventory.refinedMaterial.equals(0)).toBe(true);
+    expect(result.inventory.components.equals(0)).toBe(true);
+    // Nothing delivered this tick -> no item flips to discovered (a 0-delta add
+    // must NOT reveal anything). freshState starts discovered empty.
+    expect(result.discovered).toEqual([]);
   });
 
-  it("delivers cargo to state.homePlanet.storage, added to existing totals, when a mission's cycle completes this tick", () => {
+  it("delivers cargo to state.inventory, added to existing totals, when a mission's cycle completes this tick", () => {
     // Hand-traced: phase "unloading" with unloadTicks=8 (shortOreRun), phaseProgressTicks: 0.
     // deltaSeconds=8, state.tickDurationSeconds=1 (fresh default, post-rebalance) -> ticksElapsed=8.
     // requiredTicks("unloading")=8. ticksLeftInPhase = 8 - 0 = 8; ticksToApply = min(8,8) = 8. Not
@@ -1393,11 +1396,11 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     // rareMaterial:10} is added to homePlanetDelta, then (recalled: false) mission auto-repeats to
     // "ordersReceived" with phaseProgressTicks 0 and fresh empty cargo.
     //
-    // state.homePlanet.storage starts pre-seeded at {commonOre:5, uncommonMaterial:1, rareMaterial:0}
-    // (simulating a PRIOR delivery already sitting in storage) to prove this tick's delta is ADDED
+    // state.inventory starts pre-seeded at {commonOre:5, uncommonMaterial:1, rareMaterial:0}
+    // (simulating a PRIOR delivery already sitting in inventory) to prove this tick's delta is ADDED
     // to existing totals, not overwriting them: expected result = {75, 21, 10}.
     const state = freshState();
-    state.homePlanet.storage = {
+    state.inventory = {
       commonOre: new Decimal(5),
       uncommonMaterial: new Decimal(1),
       rareMaterial: new Decimal(0),
@@ -1414,13 +1417,22 @@ describe("tick() — idle captains do nothing, mission captains route through ti
 
     const result = tick(8, state);
 
-    // Per-key .equals(), not .toEqual() against a plain-number-literal object -- homePlanet.storage
+    // Per-key .equals(), not .toEqual() against a plain-number-literal object -- inventory
     // values are real Decimal instances.
-    expect(result.homePlanet.storage.commonOre.equals(75)).toBe(true);
-    expect(result.homePlanet.storage.uncommonMaterial.equals(21)).toBe(true);
-    expect(result.homePlanet.storage.rareMaterial.equals(10)).toBe(true);
-    expect(result.homePlanet.storage.refinedMaterial.equals(0)).toBe(true);
-    expect(result.homePlanet.storage.components.equals(0)).toBe(true);
+    expect(result.inventory.commonOre.equals(75)).toBe(true);
+    expect(result.inventory.uncommonMaterial.equals(21)).toBe(true);
+    expect(result.inventory.rareMaterial.equals(10)).toBe(true);
+    expect(result.inventory.refinedMaterial.equals(0)).toBe(true);
+    expect(result.inventory.components.equals(0)).toBe(true);
+    // Discovery spot-check: all three loot tiers delivered a POSITIVE amount this
+    // cycle (cargo {70,20,10}), so each flips to discovered (was empty on freshState).
+    // refinedMaterial/components saw no delta and stay masked -- proving the add seam
+    // only reveals tiers that actually arrived.
+    expect(result.discovered).toContain("commonOre");
+    expect(result.discovered).toContain("uncommonMaterial");
+    expect(result.discovered).toContain("rareMaterial");
+    expect(result.discovered).not.toContain("refinedMaterial");
+    expect(result.discovered).not.toContain("components");
     expect(result.captains[0].mission!.phase).toBe("ordersReceived"); // auto-repeated
     expect(result.captains[0].mission!.phaseProgressTicks).toBe(0);
     expect(result.captains[0].mission!.cargo.commonOre.equals(0)).toBe(true);
@@ -1429,7 +1441,7 @@ describe("tick() — idle captains do nothing, mission captains route through ti
   });
 
   it("adds MISSIONS.shortOreRun.creditsPerCycle to state.credits when a mission's cycle completes this tick", () => {
-    // Same hand-trace as the "delivers cargo to state.homePlanet.storage..." test immediately above --
+    // Same hand-trace as the "delivers cargo to state.inventory..." test immediately above --
     // phase "unloading" with unloadTicks=8 (shortOreRun), phaseProgressTicks: 0. deltaSeconds=8,
     // state.tickDurationSeconds=1 (fresh default) -> ticksElapsed=8 -> exactly completes the
     // unloading phase (8 >= requiredTicks(8)) -- cycle completes, creditsDelta accumulates
@@ -1564,7 +1576,10 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
 
     const result = tick(1, state); // ticksElapsed = 1/1 = 1 -> 1 * perTick(1) = 1
 
-    expect(result.homePlanet.storage.commonOre.equals(1)).toBe(true);
+    expect(result.inventory.commonOre.equals(1)).toBe(true);
+    // Discovery spot-check: passiveTrickle routes through the same add seam, so a
+    // POSITIVE trickle (+1 commonOre) reveals commonOre even with every captain idle.
+    expect(result.discovered).toContain("commonOre");
   });
 
   it("passiveTrickle scales linearly with ticksElapsed (closed-form, not a per-tick loop)", () => {
@@ -1573,7 +1588,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
 
     const result = tick(3.5, state); // ticksElapsed = 3.5/1 = 3.5
 
-    expect(result.homePlanet.storage.commonOre.toNumber()).toBeCloseTo(3.5, 6);
+    expect(result.inventory.commonOre.toNumber()).toBeCloseTo(3.5, 6);
   });
 
   it("with no unlocked Homeworld Talents, extraction and passive production are unaffected (regression guard)", () => {
@@ -1590,7 +1605,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
     // extractionRatePerTick (1), unscaled. The "total = rate * (1 + winning tier's own
     // yieldMult)" identity holds regardless of which tier wins when every mult is 0.
     expect(totalDelivered.equals(1)).toBe(true); // unmodified extractionRatePerTick, exactly one roll
-    expect(result.homePlanet.storage.commonOre.equals(0)).toBe(true); // no passive trickle
+    expect(result.inventory.commonOre.equals(0)).toBe(true); // no passive trickle
   });
 });
 
@@ -1620,13 +1635,13 @@ describe("dispatchCaptainOnMission", () => {
     state.captains[0].level = 4;
     state.captains[0].xp = new Decimal(250); // xp is Decimal -- new Decimal(...), not a plain-number assignment
     state.captains[0].statPoints = 3;
-    state.homePlanet.storage.commonOre = new Decimal(42); // storage is Decimal too
+    state.inventory.commonOre = new Decimal(42); // inventory values are Decimal too
 
     const { next } = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(next.captains[0].level).toBe(4);
     expect(next.captains[0].xp.equals(250)).toBe(true);
     expect(next.captains[0].statPoints).toBe(3);
-    expect(next.homePlanet.storage.commonOre.equals(42)).toBe(true);
+    expect(next.inventory.commonOre.equals(42)).toBe(true);
   });
 
   it("fails if the captain is already on a mission (same state reference, unchanged)", () => {
@@ -1688,11 +1703,16 @@ describe("recallCaptain", () => {
 describe("craftRecipe", () => {
   it("succeeds when inputs are sufficient: deducts inputs, adds output", () => {
     const state = freshState();
-    state.homePlanet.storage.commonOre = new Decimal(25);
+    state.inventory.commonOre = new Decimal(25);
     const { next, success } = craftRecipe(state, "refineUnobtainium");
     expect(success).toBe(true);
-    expect(next.homePlanet.storage.commonOre.equals(15)).toBe(true);
-    expect(next.homePlanet.storage.refinedMaterial.equals(1)).toBe(true);
+    expect(next.inventory.commonOre.equals(15)).toBe(true);
+    expect(next.inventory.refinedMaterial.equals(1)).toBe(true);
+    // Discovery spot-check: the crafted OUTPUT (refinedMaterial) is marked
+    // discovered; the DEDUCTED input (commonOre) is NOT -- consuming an item you
+    // already had reveals nothing new (deducts bypass the add seam entirely).
+    expect(next.discovered).toContain("refinedMaterial");
+    expect(next.discovered).not.toContain("commonOre");
   });
 
   it("fails (same state reference) when inputs are insufficient", () => {
@@ -1704,29 +1724,29 @@ describe("craftRecipe", () => {
 
   it("supports multi-input recipes, deducting every input listed", () => {
     const state = freshState();
-    state.homePlanet.storage.refinedMaterial = new Decimal(12);
+    state.inventory.refinedMaterial = new Decimal(12);
     const { next, success } = craftRecipe(state, "fabricateComponents");
     expect(success).toBe(true);
-    expect(next.homePlanet.storage.refinedMaterial.equals(7)).toBe(true);
-    expect(next.homePlanet.storage.components.equals(1)).toBe(true);
+    expect(next.inventory.refinedMaterial.equals(7)).toBe(true);
+    expect(next.inventory.components.equals(1)).toBe(true);
   });
 
   it("recipeBonusOutput (Homeworld Talent) adds a FLAT bonus to the matching recipe's output, not a multiplier", () => {
     const state = freshState();
     state.unlockedHomeworldTalents = ["industryBonusOutput"]; // recipeKey: fabricateComponents, bonus: 1
-    state.homePlanet.storage.refinedMaterial = new Decimal(5);
+    state.inventory.refinedMaterial = new Decimal(5);
     const { next, success } = craftRecipe(state, "fabricateComponents");
     expect(success).toBe(true);
-    expect(next.homePlanet.storage.components.equals(2)).toBe(true); // base output 1 + flat bonus 1
+    expect(next.inventory.components.equals(2)).toBe(true); // base output 1 + flat bonus 1
   });
 
   it("recipeBonusOutput does NOT apply to a different recipe than the one it names", () => {
     const state = freshState();
     state.unlockedHomeworldTalents = ["industryBonusOutput"]; // targets fabricateComponents only
-    state.homePlanet.storage.commonOre = new Decimal(10);
+    state.inventory.commonOre = new Decimal(10);
     const { next, success } = craftRecipe(state, "refineUnobtainium");
     expect(success).toBe(true);
-    expect(next.homePlanet.storage.refinedMaterial.equals(1)).toBe(true); // unmodified base output
+    expect(next.inventory.refinedMaterial.equals(1)).toBe(true); // unmodified base output
   });
 });
 
@@ -2388,17 +2408,17 @@ describe("tickCaptainMission — assigned ship stats (Task 6)", () => {
 // these assertions are deliberately built on rng-INDEPENDENT quantities:
 //   - which PHASE a captain is in after N ticks (pure function of transit/cargo
 //     geometry, no rng), and
-//   - the TOTAL units delivered to homePlanet.storage on cycle completion. Each
+//   - the TOTAL units delivered to inventory on cycle completion. Each
 //     whole extracting tick adds exactly 1 unit total across tiers (the tier is
 //     rng-chosen, but the count is not -- see rollExtractionTick's mutual-
 //     exclusivity comment), so a completed cycle delivers exactly cargoCapacity
 //     units regardless of how Math.random split them across tiers.
 // ---------------------------------------------------------------------------
 describe("tick() — applies each captain's assigned-ship stats to their mission", () => {
-  // Sum of the three loot tiers in homePlanet.storage -- the rng-independent
+  // Sum of the three loot tiers in inventory -- the rng-independent
   // "total units delivered" quantity the traces below rely on.
   const totalHomeLoot = (state: ReturnType<typeof freshState>) => {
-    const s = state.homePlanet.storage;
+    const s = state.inventory;
     return s.commonOre.plus(s.uncommonMaterial).plus(s.rareMaterial);
   };
 

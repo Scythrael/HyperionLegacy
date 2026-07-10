@@ -978,10 +978,47 @@ export function applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): 
   return { ...state, fleetAdminXp: xp, fleetAdminLevel: level, adminPoints };
 }
 
+// Ship Production Economy (Phase 1, Task 4): the SINGLE add-to-inventory seam.
+// Every code path that GRANTS an item -- mission loot delivery + passiveTrickle
+// (tick(), below) and craft output (craftRecipe, further below) -- routes its
+// addition through here, so the "gaining an item reveals it in the discovered
+// (❓ -> rarity-color) set" rule lives in exactly ONE place and cannot drift
+// between call sites (the same single-source discipline foldLifetimeStatsDelta
+// uses for lifetime stats).
+//
+// Returns NEW inventory + discovered objects (the inputs are never mutated),
+// matching the immutable-update style the rest of this file uses: callers thread
+// the returned pair forward rather than writing in place. An inventory[itemId]
+// that is absent starts from Decimal(0) before the add, preserving the map's
+// grow-on-demand contract (a brand-new itemId can be granted without pre-seeding
+// it) -- for today's callers the 3 loot keys / the 2 craft-output keys are all
+// pre-seeded (freshState/migration), so the `?? new Decimal(0)` never actually
+// fires and the add is value-identical to the old `storage[key].plus(amount)`.
+//
+// DISCOVERY IS GATED ON A POSITIVE amount: a 0 (or negative) add marks NOTHING
+// discovered -- you have not "seen" an item you did not actually receive. This
+// matters because tick()'s loot delivery folds all three loot tiers every call,
+// most of them a 0 delta on any given tick; only the tier that actually
+// delivered a positive amount this call should flip to discovered. Deducts
+// (craftRecipe inputs) do NOT come through here at all -- they are a plain
+// .minus() on the inventory clone, never a discovery event.
+function addToInventory(
+  inventory: Record<string, Decimal>,
+  discovered: string[],
+  itemId: string,
+  amount: Decimal
+): { inventory: Record<string, Decimal>; discovered: string[] } {
+  const nextInventory = { ...inventory };
+  nextInventory[itemId] = (nextInventory[itemId] ?? new Decimal(0)).plus(amount);
+  const nextDiscovered =
+    amount.gt(0) && !discovered.includes(itemId) ? [...discovered, itemId] : discovered;
+  return { inventory: nextInventory, discovered: nextDiscovered };
+}
+
 // Idle captains (mission === null) have no passive economy anymore --
 // missions are the only way a captain does anything. Only mission captains
 // need advancing; this is the sole reason to even call .map() below rather
-// than filtering. gameTimeSeconds and homePlanet.storage are fleet-wide
+// than filtering. gameTimeSeconds and the keyed inventory are fleet-wide
 // bookkeeping, each updated exactly once per call (not once per captain).
 export function tick(deltaSeconds: number, state: GameState): GameState {
   if (deltaSeconds <= 0) return state;
@@ -1083,12 +1120,38 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     }
   }
 
+  // Ship Production Economy (Phase 1, Task 4): fold the accumulated loot delta
+  // (mission deliveries + passiveTrickle, BOTH already merged into homePlanetDelta
+  // above) into a NEW inventory + discovered pair -- this REPLACES the old
+  // homePlanet.storage write (this task stops production code writing storage;
+  // a later task removes the field entirely). Every loot tier is routed through
+  // addToInventory, the single add seam, so any tier that actually delivered a
+  // positive amount this call is marked discovered, while a 0-delta tier neither
+  // over-reveals nor changes the counts. Threaded through the 3 loot keys in turn
+  // (each call returns fresh objects); seeded from the incoming
+  // state.inventory/state.discovered, so a call that delivers nothing lands a
+  // value-identical inventory and returns the SAME discovered reference.
+  //
+  // VALUES ARE IDENTICAL to the prior storage write: inventory[key] is seeded for
+  // all 3 loot keys (freshState/migration), so (inventory[key] ?? 0).plus(delta)
+  // equals the old storage[key].plus(delta) exactly. The old spread-then-overwrite
+  // guard that preserved untouched fields (refinedMaterial/components/any future
+  // key) now lives INSIDE addToInventory -- it spreads the whole inventory on each
+  // add, so those keys ride through unchanged, same "don't silently drop a field"
+  // protection as before.
+  let inventory = state.inventory;
+  let discovered = state.discovered;
+  for (const key of LOOT_MATERIAL_KEYS) {
+    const added = addToInventory(inventory, discovered, key, homePlanetDelta[key]);
+    inventory = added.inventory;
+    discovered = added.discovered;
+  }
+
   // applyFleetAdminXp wraps the final state object -- it must run AFTER
   // captains is built above, since fleetAdminXpDelta was accumulated from
   // each captain's mission-cycle completions during THIS call's .map()
-  // above. Does not touch homePlanet at all -- the spread-then-overwrite
-  // pattern immediately below (guarding against the "prestige silently
-  // dropped homePlanet" bug class) is untouched by this wrapping.
+  // above. Does not touch inventory at all -- the loot fold immediately
+  // above already produced the final inventory/discovered pair.
   return applyFleetAdminXp(
     {
       ...state,
@@ -1099,23 +1162,13 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       // curve to resolve, so the accumulated creditsDelta is applied directly
       // here rather than passed through a second wrapping function.
       credits: state.credits.plus(creditsDelta),
-      homePlanet: {
-        storage: {
-          // Spread FIRST, then overwrite only the 3 loot tiers this function
-          // actually touches -- preserves any OTHER field a later task (the
-          // Homeworld crafting system) adds to homePlanet.storage
-          // (e.g. refinedMaterial, components) that this function doesn't
-          // itself produce. Without this spread, tick() would silently zero
-          // out any such field on every call, since it wouldn't exist on this
-          // object literal -- the exact class of bug a "prestige silently
-          // dropped homePlanet" fix caught in the immediately-prior shipped
-          // feature (Phase 3a). Do not remove this spread.
-          ...state.homePlanet.storage,
-          commonOre: state.homePlanet.storage.commonOre.plus(homePlanetDelta.commonOre),
-          uncommonMaterial: state.homePlanet.storage.uncommonMaterial.plus(homePlanetDelta.uncommonMaterial),
-          rareMaterial: state.homePlanet.storage.rareMaterial.plus(homePlanetDelta.rareMaterial),
-        },
-      },
+      // Loot now lands in the keyed `inventory` (+ its `discovered` reveal set),
+      // NOT homePlanet.storage. `...state` above carries the now-frozen
+      // homePlanet through untouched (production code no longer writes it; a
+      // later task removes it). See the loot-fold comment just above for why the
+      // values are identical to the prior storage write.
+      inventory,
+      discovered,
       // Task 7: the fleet-wide lifetimeStats accumulated ONE captain at a time
       // above, each fold routed through the shared foldLifetimeStatsDelta helper
       // (identical to App.svelte's live loop). itemsRefined/itemsCrafted + any
@@ -1292,13 +1345,20 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
   // `Decimal | number`, and a plain number has no `.lt()`/`.minus()` methods.
   for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
     const needed = recipe.inputs[key] ?? new Decimal(0);
-    if (state.homePlanet.storage[key].lt(needed)) return { next: state, success: false };
+    // Affordability gate reads the keyed `inventory` (was homePlanet.storage).
+    // Input keys are the recipe's own HomePlanetMaterialKeys, all seeded in
+    // inventory (freshState/migration), so this is a 1:1 read swap.
+    if (state.inventory[key].lt(needed)) return { next: state, success: false };
   }
 
-  const storage = { ...state.homePlanet.storage };
+  // Deduct every input from a NEW inventory clone (immutable-update style, was a
+  // storage clone). A DEDUCT is NOT a discovery event -- it does NOT go through
+  // addToInventory; consuming an item you already had reveals nothing new. Same
+  // exact per-input .minus(needed) as before.
+  const inventory = { ...state.inventory };
   for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
     const needed = recipe.inputs[key] ?? new Decimal(0);
-    storage[key] = storage[key].minus(needed);
+    inventory[key] = inventory[key].minus(needed);
   }
 
   // recipeBonusOutput (Homeworld Talent, e.g. industryBonusOutput): a FLAT
@@ -1313,11 +1373,19 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
     const effect = HOMEWORLD_TALENTS[key].effect;
     return effect.type === "recipeBonusOutput" && effect.recipeKey === recipeKey ? sum + effect.bonus : sum;
   }, 0);
-  // bonusOutput (plain number) flows directly into .plus() -- DecimalSource
-  // accepts plain numbers, no wrapping needed.
-  storage[recipe.output.key] = storage[recipe.output.key].plus(recipe.output.amount).plus(bonusOutput);
+  // Add the crafted output through the single add seam (addToInventory) so the
+  // output item is marked discovered. The added amount is the recipe's base
+  // output PLUS the flat recipeBonusOutput, combined into ONE Decimal here so the
+  // helper's single .plus() reproduces the old
+  // `.plus(recipe.output.amount).plus(bonusOutput)` chain exactly -- both
+  // operands are integer amounts (output.amount is a Decimal, bonusOutput a plain
+  // number), so this reassociation is value-identical. A real recipe's output is
+  // always >= 1, so the discovered mark always fires here (unlike the loot fold,
+  // which can see 0 deltas).
+  const outputAmount = recipe.output.amount.plus(bonusOutput);
+  const added = addToInventory(inventory, state.discovered, recipe.output.key, outputAmount);
 
-  return { next: { ...state, homePlanet: { storage } }, success: true };
+  return { next: { ...state, inventory: added.inventory, discovered: added.discovered }, success: true };
 }
 
 // Same "same state reference on failure" convention as every other buy/action
