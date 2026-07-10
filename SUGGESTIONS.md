@@ -443,3 +443,29 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   and the "Crew system" (races/roles) entries above -- design the ground-troop + loadout pieces as shared
   mechanics when the time comes. Deep future: depends on Combat/Battlespace, Ships, and the Starbase all
   existing first. Not scoped -- pure direction.
+
+- **Crew leveling, augmentation/cybernetics, and ship crew capacity.** User idea, 2026-07-09, raised
+  during the Ships: Stats Foundation build -- extends the "Crew system" entry above, now with the ship
+  system explicitly in mind:
+  - **Crew leveling + rank-up:** crew members gain levels (roughly 1-10) and can rank up; the buff their
+    role/seat provides IMPROVES with level/rank -- a leveled crew member is worth more than a fresh one
+    (same "level your bench" incentive the Crew-station and Holocore ideas share). Needs a per-crew
+    level/rank field + a curve, whenever the Crew system is actually built.
+  - **Augmentation / cybernetics:** a NEW crafted item class, unlocked via Research (see the Research
+    engine designed alongside the ships-stats-foundation feature, `docs/plans/2026-07-09-ships-stats-
+    foundation-design.md`) and crafted, then installed on INDIVIDUAL crew members via their OWN per-crew
+    equip slots (distinct from ship modules/equipment). Each augment gives a SMALL bonus to the SHIP the
+    crew member is posted on -- so crew augmentation is a third bonus layer stacking on top of captain
+    talents + ship modules/equipment. Reuses the Research + crafting chains rather than inventing a new
+    unlock path.
+  - **Ship crew capacity + maximum capacity:** ships gain a crew-capacity stat (how many crew can be
+    posted, feeding the augment/role bonuses) AND a maximum-capacity stat (total bodies carried). Some
+    FUTURE mission types would gate on capacity -- evacuation / transport / colony-settling missions
+    selected by a captain would require a minimum crew and/or max capacity (e.g. "settling a colony
+    needs N colonists of transport capacity"). Ties into the deferred "Landing Party missions" loadout
+    idea and the Medical-transport Explorer hull bucket (crew-landing) documented in the ships-stats-
+    foundation design. When the Crew system is built, add `crewCapacity`/`maxCapacity` as forward
+    `ShipTypeDef` buckets, the same way `moduleSlots`/`equipmentSlots` were carried forward in that
+    feature.
+  - All deep-future: depends on the Crew system, Research, crafting, and the ship module/equipment
+    framework all existing first. Not scoped -- captured so it isn't relitigated.
