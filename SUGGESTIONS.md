@@ -27,6 +27,21 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   layout natively with real facilities; the "fold existing ship-construct into the rail" retrofit rides
   that phase (or a dedicated mockup-gated UI-consistency pass), whichever the user picks then.
 
+- **ALL 7 tabs adopt the rail + SubTabs layout (user 2026-07-11 — extends the house-pattern above).** User
+  chose FULL uniformity: every bottom-nav tab uses the left-rail + per-entity SubTabs structure, not only
+  facility tabs. Grounded reality in App.svelte: **5 of 7 already conform** — Command (the original),
+  Facilities, Sector Space (rail w/ locked structures), Operations (rail visual + SubTabs), and Battlespace
+  (locked-rail stub: Skirmishes/Campaign/Exercises/Invasion, fills when combat ships). The **two real gaps**:
+  **Homeworld** (SubTabs, no rail) and **System** (settings, SubTabs). KEY DISTINCTION preserved (don't lose
+  it): the rail *layout* is universal, but the *locked/unlock* gating applies ONLY where there's real
+  progression — so **System's rail = a STATIC settings-category nav (Options / Appearance / Save Data / Patch
+  Notes / Debug), NO 🔒 / earned gating** (settings aren't unlocked; OS/Discord-style left nav). Retrofitting
+  Homeworld + System is a dedicated **mockup-gated "Tab Layout Unification" pass** — its own feature, built
+  AFTER Phase 1 merges, NOT on the frozen merge-gated Phase 1 branch, and NOT started until sketches exist
+  ([[feedback_visual_ui_needs_mockup]]). ⚠️ OPEN QUESTION for the Homeworld sketch: since homeworld FACILITIES
+  now live in the standalone Facilities tab, what entities fill HOMEWORLD's rail (its non-facility
+  structures/sections/overview)? — the user must sketch this before it can be built.
+
 - **Multiplayer chat: titles, selectable icons, name colors.** User idea, 2026-07-08. Once multiplayer
   chat exists, players should be able to set a custom title (the user's own example: "Executive Officer
   of Radishes"), a selectable chat icon sourced from unlocked achievements/donation tiers/dev-or-mod
