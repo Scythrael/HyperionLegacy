@@ -100,24 +100,42 @@ export interface MissionDef {
   // in the Fleet Operations tab (a follow-up UI feature). Has NO effect on
   // tick math whatsoever; purely a presentational label read by the UI layer.
   tier: MissionTier;
-  // Flat Fleet Admiral XP awarded once per completed mission CYCLE (not per
-  // tick, unlike extractionRatePerTick above). Unlike captain XP -- which since
-  // the Progression Pacing Rework (Task 4) accrues per active tick -- Fleet
-  // Admiral XP still lands as a per-cycle lump, and each mission has its OWN
-  // value rather than one shared constant, so a longer/harder mission can be
-  // worth more. This is only the FIRST of several planned Fleet
-  // Admiral XP sources (2026-07-08 user note: crafting, talent purchases,
-  // and a future talent-tree effect boosting this value are all planned
-  // later) -- the values here and xpForNextFleetAdminLevel's curve below are
-  // deliberately NOT calibrated as if missions alone must carry the full
-  // weight of Fleet Admiral progression. Don't "fix" this later assuming
-  // it's undertuned for mission-only play -- it's intentionally left room
-  // for other income streams to stack on top.
-  fleetAdminXpPerCycle: number;
-  // Flat credits awarded once per completed mission CYCLE (not per tick),
-  // same convention as fleetAdminXpPerCycle above -- each mission has its OWN
-  // value rather than one shared constant. This is a launch placeholder,
-  // not balance-tested, same spirit as this file's other tunable constants.
+  // Flat Fleet Admiral XP awarded per WHOLE tick the mission is active (NOT per
+  // completed cycle). Progression Pacing Rework (Task 5) moved Fleet Admiral XP
+  // onto the SAME per-active-tick accrual captain XP already uses (Task 4): it is
+  // now summed as fleetAdminXpPerTick * wholeTicksElapsed once per call, right
+  // beside the captain-XP award in tickCaptainMission -- NOT a per-cycle lump
+  // anymore. Both launch missions are 1; the old per-CYCLE Short=1/Long=2 split
+  // did NOT carry over (a per-cycle value is not a per-tick value, so it was
+  // reset to 1, not copied). Each mission still keeps its OWN field rather than
+  // one shared constant, so a future mission can be tuned to a richer per-tick FA
+  // rate. This is only the FIRST of several planned Fleet Admiral XP sources
+  // (2026-07-08 user note: crafting, talent purchases, and a future talent-tree
+  // effect boosting this value are all planned later) -- the values here and
+  // xpForNextFleetAdminLevel's curve below are deliberately NOT calibrated as if
+  // missions alone must carry the full weight of Fleet Admiral progression.
+  // Don't "fix" this later assuming it's undertuned for mission-only play -- it's
+  // intentionally left room for other income streams to stack on top.
+  //
+  // ⚠️ CLOSED-FORM PARITY TRAP -- keep this an INTEGER ⚠️
+  // Like captain XP's xpPerTick rate, this per-tick FA rate is awarded as
+  // fleetAdminXpPerTick * wholeTicksElapsed in ONE product per call, and the
+  // "one big offline-catchup call == many small live calls" parity guarantee
+  // (guarded by the closed-form parity test in tick.test.ts) holds ONLY while
+  // the rate is an integer -- it is today (1). A FRACTIONAL rate would let a
+  // single big-call product diverge from the summed per-call products in floating
+  // point (0.1*3 !== 0.1+0.1+0.1), and the current rate-1 parity test would NOT
+  // catch it. fleetAdminXpDelta is kept a plain `number` (integer-exact at rate
+  // 1); before shipping any fractional FA rate you MUST add a closed-form parity
+  // test AT that fractional rate. See the matching ⚠️ block at the FA-XP award
+  // line in tickCaptainMission.
+  fleetAdminXpPerTick: number;
+  // Flat credits awarded once per completed mission CYCLE (not per tick) --
+  // unlike fleetAdminXpPerTick above, credits stayed PER-CYCLE in the Progression
+  // Pacing Rework (Task 5 relocated only Fleet Admiral XP, not credits). Each
+  // mission has its OWN value rather than one shared constant. This is a launch
+  // placeholder, not balance-tested, same spirit as this file's other tunable
+  // constants.
   creditsPerCycle: number;
 }
 
@@ -138,7 +156,7 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     uncommonChance: 0.019, // was lootTable weight 19/1000 (1.9%)
     rareChance: 0.001, // was lootTable weight 1/1000 (0.1%)
     tier: "I",
-    fleetAdminXpPerCycle: 1,
+    fleetAdminXpPerTick: 1,
     creditsPerCycle: 10,
   },
   longOreRun: {
@@ -151,7 +169,7 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     uncommonChance: 0.08, // was lootTable weight 80/1000 (8%)
     rareChance: 0.02, // was lootTable weight 20/1000 (2%)
     tier: "I",
-    fleetAdminXpPerCycle: 2,
+    fleetAdminXpPerTick: 1,
     creditsPerCycle: 20,
   },
 };

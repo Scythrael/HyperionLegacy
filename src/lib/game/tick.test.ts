@@ -874,6 +874,80 @@ describe("tickCaptainMission — awards credits on cycle completion", () => {
   });
 });
 
+describe("tickCaptainMission — accrues Fleet Admiral XP per active tick (Task 5)", () => {
+  // Task 5 replaced the old lump-per-completed-cycle FA award
+  // (fleetAdminXpDelta += missionDef.fleetAdminXpPerCycle on each finished cycle)
+  // with PER-WHOLE-TICK accrual, mirroring captain XP (Task 4): the fleet earns
+  // fleetAdminXpPerTick (= 1 for both launch missions) for every whole tick the
+  // mission advances this call, in ANY phase, awarded once after the loop off the
+  // SAME wholeTicksElapsed counter captain XP uses.
+  it("accrues fleetAdminXpDelta per whole tick advanced even when NO cycle completes (proves per-tick, not per-cycle)", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain(); // shortOreRun, 149 ticks/cycle -- 50 ticks completes NO cycle
+    const { fleetAdminXpDelta } = tickCaptainMission(50, base, ALWAYS_MIN_ROLL);
+    // 50 whole ticks advanced (orders 1 + transitOut 25 + 24 into extracting) at
+    // fleetAdminXpPerTick 1 = 50. Under the OLD per-cycle mechanic this would be 0
+    // (no cycle done in 50 of the 149 ticks a full cycle needs) -- so this asserts
+    // the accrual is per-tick AND independent of cycle completion.
+    expect(fleetAdminXpDelta).toBe(50);
+  });
+
+  it("accrues NO fleetAdminXpDelta for a sub-whole (partial) tick until it completes a whole tick", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain();
+    const { fleetAdminXpDelta } = tickCaptainMission(0.5, base, ALWAYS_MIN_ROLL); // 0.5 < 1 whole tick
+    expect(fleetAdminXpDelta).toBe(0); // floor(0.5) - floor(0) = 0 whole ticks crossed
+  });
+
+  // Closed-form parity for the FA delta, mirroring the captain-XP parity test in
+  // the "closed-form requirement" describe above: one big call must equal the sum
+  // of many single-tick calls. Stepped in SINGLE (1-tick) integer increments, so
+  // each step advances exactly one whole tick and the rate-1 integer product
+  // carries no fractional drift on either path.
+  it("closed-form parity: one big call's fleetAdminXpDelta equals the sum of many single-tick calls", () => {
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain("shortOreRun");
+    // 320 whole ticks of rate-1 FA XP = 320. (320 > 2*149=298, so this also spans
+    // multiple auto-repeat cycles -- FA XP no longer cares about cycle count, only
+    // whole ticks advanced, which is the whole behavior change under test.)
+    const bigJump = tickCaptainMission(320, base, ALWAYS_MIN_ROLL);
+
+    let steppedCaptain = base;
+    let steppedFaDelta = 0;
+    for (let i = 0; i < 320; i++) {
+      const result = tickCaptainMission(1, steppedCaptain, ALWAYS_MIN_ROLL);
+      steppedCaptain = result.captain;
+      steppedFaDelta += result.fleetAdminXpDelta;
+    }
+
+    expect(bigJump.fleetAdminXpDelta).toBe(steppedFaDelta); // paths agree (the whole point)
+    expect(bigJump.fleetAdminXpDelta).toBe(320); // and pin the exact expected number
+    expect(steppedFaDelta).toBe(320);
+  });
+});
+
+describe("tick() — Fleet Admiral XP stacks across active captains (Task 5)", () => {
+  // Stacking falls out for free: tick() already sums every captain's returned
+  // fleetAdminXpDelta fleet-wide before handing the total to applyFleetAdminXp.
+  // With FA now per-tick, N captains each on an active mission contribute N FA
+  // XP/tick combined, with no stacking-specific code. This test proves that sum.
+  it("two captains each on a mission over N ticks accrue 2*N fleet-admin XP", () => {
+    const state = freshState();
+    state.captains = freshCaptains(2); // both idle by default -- dispatch both below
+    state.captains[0].mission = missionCaptain("shortOreRun");
+    state.captains[1].mission = missionCaptain("shortOreRun");
+    // N = 100 ticks (tickDurationSeconds 1 by fresh default -> ticksElapsed = 100).
+    // Each captain advances 100 whole ticks -> 100 FA XP each -> 200 summed.
+    // xpForNextFleetAdminLevel(1) = 2500*1*1 = 2500, and 200 < 2500, so NO FA
+    // level-up occurs -- state.fleetAdminXp holds the full earned total directly
+    // (no threshold subtraction to reason around; N chosen deliberately for this).
+    const result = tick(100, state);
+    expect(result.fleetAdminXp.equals(200)).toBe(true); // 2 captains * 100 ticks * rate 1
+    expect(result.fleetAdminLevel).toBe(1); // 200 < 2500 -> no level-up
+    expect(result.adminPoints).toBe(0); // unchanged -- no level-up granted a point
+  });
+});
+
 describe("tick() — idle captains do nothing, mission captains route through tickCaptainMission", () => {
   it("an idle captain (mission: null) is returned completely unchanged", () => {
     const state = freshState(); // captains[0].mission is null (idle) -- freshCaptainStack's baseline

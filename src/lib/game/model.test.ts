@@ -134,8 +134,11 @@ describe("MISSIONS — launch set", () => {
     expect(MISSIONS.longOreRun.transitBackTicks).toBe(70);
     expect(MISSIONS.longOreRun.cargoCapacity).toBe(90);
 
-    expect(MISSIONS.shortOreRun.fleetAdminXpPerCycle).toBe(1);
-    expect(MISSIONS.longOreRun.fleetAdminXpPerCycle).toBe(2);
+    // Progression Pacing Rework (Task 5): fleetAdminXpPerCycle was renamed to the
+    // per-tick field fleetAdminXpPerTick and both missions reset to 1 (the old
+    // per-cycle Short=1/Long=2 split did not carry over to a per-tick rate).
+    expect(MISSIONS.shortOreRun.fleetAdminXpPerTick).toBe(1);
+    expect(MISSIONS.longOreRun.fleetAdminXpPerTick).toBe(1);
 
     expect(MISSIONS.shortOreRun.creditsPerCycle).toBe(10);
     expect(MISSIONS.longOreRun.creditsPerCycle).toBe(20);

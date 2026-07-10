@@ -544,10 +544,24 @@ export function tickCaptainMission(
   // than the local `mission`, which can become null on a recall before we use
   // this after the loop.
   const xpRate = xpPerTick(captain.mission.missionKey, captain);
-  // Accumulates this captain's Fleet Admiral XP contribution across every
-  // mission cycle completed within this call -- same "accumulate locally,
-  // apply once" shape as homePlanetDelta above. tick() sums this across
-  // every captain fleet-wide before handing the total to applyFleetAdminXp.
+  // The per-tick Fleet Admiral XP RATE for this mission, resolved ONCE
+  // (call-constant), mirroring xpRate directly above. Read off missionDef -- the
+  // ship-adjusted def -- which is safe because effectiveMissionDef preserves
+  // fleetAdminXpPerTick unchanged (it only rescales transit/cargo geometry); it
+  // is fixed for the whole call since auto-repeat reuses the same missionKey.
+  // Awarded after the loop as fleetAdminXpRate * wholeTicksElapsed, the SAME
+  // whole-tick count captain XP uses (Task 5).
+  const fleetAdminXpRate = missionDef.fleetAdminXpPerTick;
+  // Accumulates this captain's Fleet Admiral XP contribution for this call.
+  // Progression Pacing Rework (Task 5): FA XP is no longer a per-completed-cycle
+  // lump -- it now accrues per WHOLE tick the mission advances, awarded ONCE after
+  // the loop (fleetAdminXpRate * wholeTicksElapsed), right beside the captain-XP
+  // award, using the SAME wholeTicksElapsed counter. tick() sums this across every
+  // captain fleet-wide before handing the total to applyFleetAdminXp -- so N
+  // captains each on an active mission stack to N FA XP/tick automatically, no
+  // stacking-specific code. Kept a plain `number` (integer-exact at the rate-1
+  // today); see the ⚠️ parity trap at the award line before ever making the rate
+  // fractional.
   let fleetAdminXpDelta = 0;
   // Accumulates this captain's credits contribution across every mission
   // cycle completed within this call -- same "accumulate locally, apply
@@ -674,13 +688,12 @@ export function tickCaptainMission(
         (Object.keys(mission.cargo) as LootMaterialKey[]).forEach((key) => {
           homePlanetDelta[key] = homePlanetDelta[key].plus(mission.cargo[key]);
         });
-        // Fleet Admiral XP and credits are still awarded once PER completed
-        // cycle (this branch can be reached multiple times within one call's
-        // while loop -- e.g. a big offline-catchup ticksElapsed spanning several
-        // full cycles). Captain XP is NO LONGER awarded here: Task 4 moved it to
-        // a single per-whole-tick accrual after the loop (see below), so this
-        // branch touches only the fleet-wide/credit totals now.
-        fleetAdminXpDelta += missionDef.fleetAdminXpPerCycle;
+        // Credits are still awarded once PER completed cycle (this branch can be
+        // reached multiple times within one call's while loop -- e.g. a big
+        // offline-catchup ticksElapsed spanning several full cycles). Captain XP
+        // (Task 4) AND Fleet Admiral XP (Task 5) are NO LONGER awarded here: both
+        // now accrue per WHOLE tick, awarded once after the loop (see below), so
+        // this branch touches only the credit total now.
         creditsDelta += missionDef.creditsPerCycle;
         if (mission.recalled) {
           mission = null;
@@ -736,6 +749,31 @@ export function tickCaptainMission(
     statPoints += 1;
     levelUpsThisCall += 1;
   }
+
+  // Task 5: award Fleet Admiral XP ONCE per call, for the total whole ticks the
+  // mission advanced above -- the SAME wholeTicksElapsed counter captain XP uses
+  // just above, and the SAME per-active-tick model. Relocated OUT of the per-cycle
+  // completion branch (where it used to add missionDef.fleetAdminXpPerCycle once
+  // per finished cycle) to here, so FA XP now tracks active TIME, not cycle count.
+  // tick() sums this fleetAdminXpDelta across every captain fleet-wide, so N
+  // captains each on an active mission stack to N FA XP/tick with no extra code.
+  //
+  // ⚠️ CLOSED-FORM PARITY TRAP -- READ BEFORE MAKING fleetAdminXpRate FRACTIONAL ⚠️
+  // Mirrors the captain-XP trap just above: the exact "one big call == many small
+  // calls" guarantee (protected by the closed-form parity test in tick.test.ts)
+  // holds TODAY because fleetAdminXpRate is the integer 1. The big call adds
+  // fleetAdminXpRate * (total whole ticks) in ONE product; the stepped path adds
+  // fleetAdminXpRate * (per-call whole ticks) many times -- those two agree ONLY
+  // when each product is exact, which integer rates guarantee but a FRACTIONAL
+  // rate does NOT (0.1*3 !== 0.1+0.1+0.1 in floating point). fleetAdminXpDelta is
+  // a plain `number`, integer-exact at rate 1 (no Decimal wrap needed at this rate
+  // -- unlike captain XP, whose total is a Decimal for its own big-number reasons).
+  // The moment any mission's fleetAdminXpPerTick becomes fractional you MUST (a)
+  // re-derive this accrual to stay drift-free at that rate, and (b) add a
+  // closed-form parity test AT that fractional rate -- the current rate-1 parity
+  // test will NOT catch the regression, and the `number` type is not itself a
+  // proof of parity.
+  fleetAdminXpDelta += fleetAdminXpRate * wholeTicksElapsed;
 
   return { captain: { ...captain, mission, xp, level, statPoints }, homePlanetDelta, fleetAdminXpDelta, creditsDelta };
 }
