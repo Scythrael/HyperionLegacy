@@ -3,7 +3,32 @@
 **Date:** 2026-07-11
 **Epic:** [Ship Production Economy](2026-07-10-ship-production-economy-epic.md) — this is **Phase 1**.
 **Type:** Feature design doc. Next step after approval: `writing-plans` → implementation plan.
-**Status:** Draft for review.
+**Status:** RECONCILED + ready to plan (2026-07-11, AFTER the Progression Pacing Rework shipped to production).
+
+---
+
+## 0. Reconciliation with shipped state (2026-07-11 — authoritative; overrides stale inline references below)
+
+The Progression Pacing Rework shipped first (SAVE_VERSION is now **17**, APP_VERSION 0.5.0). Adjust this design:
+
+- **Save migration is now `v17 → v18`** (add `MIGRATIONS[17]`, bump SAVE_VERSION 18). Every inline "v16→v17"
+  / "MIGRATIONS[16]" below should read v17→v18 / MIGRATIONS[17].
+- **`lifetimeStats` is ALREADY LIVE (shipped in v17)** — do NOT re-reserve it (§8's "reserve lifetimeStats"
+  is DONE). Phase 1 only **wires the refinery's `itemsRefined` per-item increment** (that map exists, empty),
+  in the timed-process resolver. Mission-side counters (gathered/credits/XP) are already wired.
+- **Keyed inventory: user CONFIRMED building it in Phase 1** (2026-07-11) — replacing
+  `homePlanet.storage` (fixed union) with `inventory: Record<string, Decimal>`. ⚠️ This is a **163-occurrence
+  refactor across 7 files** with **NO local typecheck** (Vercel = esbuild bundle only; no Node until the user is
+  home). RISK: a missed site is a runtime bug Vercel won't catch at build. MITIGATION: rigorous per-site subagent
+  work + review. **HARD MERGE GATE: Phase 1 must NOT merge to production until the user runs `npm run check`
+  (svelte-check) at home** — this large REPLACEMENT refactor needs a real typecheck first (contrast the
+  mostly-additive rework, which merged pre-test).
+- **FA XP for facility processes = PER-TICK, matching the shipped model** (1 FA XP/tick per active refine/upgrade
+  process, STACKING with active missions + each other, "flows every second"). Closed-form offline = sum of each
+  process's active ticks. This SUPERSEDES §6's "lump = durationTicks on completion" phrasing. Facility processes
+  do NOT award captain XP (no captain pilots them) — FA only, exactly like the design intended.
+- **Follow the rework's drift-proof pattern:** the timed-process resolver is ONE exported helper called by BOTH
+  `tick()` and App.svelte's live loop (mirror the shipped `foldLifetimeStatsDelta` single-source approach).
 
 ---
 
