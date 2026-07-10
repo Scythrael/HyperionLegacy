@@ -40,6 +40,9 @@ import {
   type CaptainTalentBranch,
   type CaptainTalentEffect,
   type HomeworldTalentEffect,
+  type TimedProcess,
+  type TimedProcessKind,
+  type ProcessEffect,
 } from "./model";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -1392,6 +1395,179 @@ export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: Gam
   const added = addToInventory(inventory, state.discovered, recipe.output.key, outputAmount);
 
   return { next: { ...state, inventory: added.inventory, discovered: added.discovered }, success: true };
+}
+
+// ============================================================================
+// Timed-process engine — Phase 1, Task 8
+// (docs/plans/2026-07-11-facility-framework-refinery-design.md §3, §4).
+//
+// ONE deterministic, fixed-duration process shape backs BOTH refine jobs and
+// facility upgrades (design §3). Two functions:
+//   - startProcess    : gate on inputs, ATOMICALLY deduct them, push the process.
+//   - resolveProcesses : decrement every process's countdown, complete any that
+//                        hit zero (apply effect + lump Fleet Admiral XP), remove
+//                        it. The SINGLE completion resolver Task 9 calls from BOTH
+//                        tick() (offline catch-up) AND App.svelte's live poll --
+//                        one helper, no second hand-mirrored copy (the drift-proof
+//                        single-source pattern foldLifetimeStatsDelta established).
+//
+// Placed in tick.ts (not a separate process.ts) deliberately: resolveProcesses
+// reuses addToInventory (the shared add seam, this file), and Task 9 wires
+// resolveProcesses INTO tick() (this file) -- keeping it here avoids a circular
+// import (process.ts -> tick.ts for addToInventory, tick.ts -> process.ts for the
+// wiring) that no local typecheck could catch on this Node-less machine. It sits
+// beside every other game-action function (craftRecipe/buyShip/dispatch...).
+// ============================================================================
+
+// Starts a timed process, consuming its inputs ATOMICALLY at start (design §4).
+// Mirrors the { next, success } convention of every other action in this file,
+// but names the flag `started` (the design doc's term) instead of `success`.
+//
+// GATE then DEDUCT, both against the LIVE inventory: because every running
+// process already had its inputs removed at ITS start, the live inventory IS the
+// available-materials ledger -- no separate reservation bookkeeping. If ANY input
+// is short, nothing changes and the SAME state reference is returned (the
+// same-ref-on-failure convention dispatchCaptainOnMission/craftRecipe use).
+//
+// ATOMICITY is the whole point (design §4): deducting in the same transition that
+// creates the process closes the "checked-but-not-yet-consumed" window, so two
+// concurrent starts can NOT both see enough materials and both begin -- the first
+// start's deduct is visible to the second start's gate. A DEDUCT is not a
+// discovery event, so inputs are removed with a plain .minus() on an inventory
+// clone (NOT routed through addToInventory) -- exactly as craftRecipe deducts its
+// recipe inputs. Only the process OUTPUT (granted later, in resolveProcesses)
+// goes through the discovery-marking add seam.
+export function startProcess(
+  state: GameState,
+  kind: TimedProcessKind,
+  inputs: Record<string, Decimal>,
+  durationTicks: number,
+  effect: ProcessEffect
+): { next: GameState; started: boolean } {
+  // Gate: EVERY input must be affordable. An absent inventory key reads as 0
+  // (grow-on-demand contract, same as addToInventory) -- so requiring a
+  // never-held item is correctly rejected unless the required qty is <= 0.
+  for (const itemId of Object.keys(inputs)) {
+    const have = state.inventory[itemId] ?? new Decimal(0);
+    if (have.lt(inputs[itemId])) return { next: state, started: false };
+  }
+
+  // Deduct every input from a FRESH inventory clone (immutable-update style), in
+  // the same transition that pushes the process below -- this is the atomic
+  // consume. `?? new Decimal(0)` mirrors the gate's absent-key handling (the gate
+  // already proved qty <= 0 for any absent key, so this never goes negative).
+  const inventory = { ...state.inventory };
+  for (const itemId of Object.keys(inputs)) {
+    inventory[itemId] = (inventory[itemId] ?? new Decimal(0)).minus(inputs[itemId]);
+  }
+
+  // id minted from nextProcessId as "proc-N" (the scheme TimedProcess.id / this
+  // field's freshState seed document), then nextProcessId bumped so ids stay
+  // monotonic and are never reused -- identical to buyShip's "ship-N" handling.
+  // remainingTicks is SEEDED from durationTicks (the countdown starts full);
+  // durationTicks is retained unchanged as the fixed lump FA XP award.
+  const process: TimedProcess = {
+    id: `proc-${state.nextProcessId}`,
+    kind,
+    remainingTicks: durationTicks,
+    durationTicks,
+    effect,
+  };
+
+  return {
+    next: {
+      ...state,
+      inventory,
+      activeProcesses: [...state.activeProcesses, process],
+      nextProcessId: state.nextProcessId + 1,
+    },
+    started: true,
+  };
+}
+
+// Advances every active process by `ticksElapsed` and resolves completions. THE
+// single completion resolver (Task 9 calls it from BOTH tick() and the live loop).
+//
+// CLOSED-FORM: one resolveProcesses(state, N) must equal N resolveProcesses(_, 1)
+// -- for the final inventory/facilities/activeProcesses AND the total FA XP. It
+// holds because each process's fate is a pure function of its remainingTicks vs
+// the elapsed total: decrementing by N once lands the same countdown as
+// decrementing by 1 N times, and a process that crosses zero completes exactly
+// ONCE either way (it is removed on completion, so a later/again call cannot
+// re-complete or re-award it). See the parity test in process.test.ts.
+//
+// FRACTIONAL-TICK ROBUSTNESS: Task 9 feeds ticksElapsed = deltaSeconds /
+// tickDurationSeconds, which can be fractional -- so repeated decrements can leave
+// a sub-epsilon residue at a completion boundary (e.g. 1e-13 instead of 0), the
+// SAME float-drift hazard the mission engine's MISSION_TICK_EPSILON guards. We
+// reuse that exact constant: a process is COMPLETE once remainingTicks <=
+// MISSION_TICK_EPSILON, so a boundary reached via many small fractional steps
+// completes at the same logical point as one big jump. For the integer stepping
+// the parity test uses, epsilon is inert (integers hit 0 exactly). durationTicks
+// is expected positive; a non-positive-duration process would complete on its
+// first resolve, which is the correct reading of "zero-length process".
+//
+// FA XP is LUMPED on completion: a completed process contributes its FULL
+// durationTicks to fleetAdminXpDelta, exactly once. Task 9 folds the returned
+// delta via applyFleetAdminXp (the same path mission FA XP takes). Facility
+// processes award NO captain XP (no captain pilots them) -- this resolver only
+// ever touches Fleet Admiral XP.
+export function resolveProcesses(
+  state: GameState,
+  ticksElapsed: number
+): { next: GameState; fleetAdminXpDelta: number } {
+  // Cheap same-reference no-op: nothing in flight, or no time actually elapsed.
+  // Mirrors applyFleetAdminXp's early-out. (Every SURVIVING process always has
+  // remainingTicks > epsilon, so a <=0 ticksElapsed call can never leave a
+  // ready-to-complete process unresolved by skipping here.)
+  if (ticksElapsed <= 0 || state.activeProcesses.length === 0) {
+    return { next: state, fleetAdminXpDelta: 0 };
+  }
+
+  // Threaded immutably through completions (each addToInventory returns fresh
+  // objects); seeded from the incoming state so a call that completes nothing
+  // returns value-identical maps. `facilities` is re-cloned per level-up below.
+  let inventory = state.inventory;
+  let discovered = state.discovered;
+  let facilities = state.facilities;
+  let fleetAdminXpDelta = 0;
+  // Survivors are rebuilt in original order, so activeProcesses ordering is stable
+  // across both chunkings (the parity test compares the arrays deep-equal).
+  const stillActive: TimedProcess[] = [];
+
+  for (const process of state.activeProcesses) {
+    const remainingTicks = process.remainingTicks - ticksElapsed;
+    if (remainingTicks > MISSION_TICK_EPSILON) {
+      // Not done -- keep it with its decremented countdown. A later resolve picks
+      // up exactly here, which is why one N-tick step lands the same remaining as
+      // N one-tick steps (closed-form).
+      stillActive.push({ ...process, remainingTicks });
+      continue;
+    }
+
+    // COMPLETE. Apply the effect, award the lump FA XP, and DROP the process
+    // (never pushed to stillActive) so it resolves exactly once.
+    if (process.effect.type === "addItem") {
+      // Output granted through the shared add seam -> the item is marked
+      // discovered (its amount is always > 0 for a real refine recipe).
+      const applied = addToInventory(inventory, discovered, process.effect.itemId, process.effect.amount);
+      inventory = applied.inventory;
+      discovered = applied.discovered;
+    } else {
+      // facilityLevelUp: bump the target facility on a FRESH facilities map
+      // (immutable). An absent facility starts from level 0 (grow-on-demand, same
+      // posture as inventory), so unlock (0->1) and every later level share one path.
+      const facility = process.effect.facility;
+      const current = facilities[facility] ?? { level: 0 };
+      facilities = { ...facilities, [facility]: { ...current, level: current.level + 1 } };
+    }
+    fleetAdminXpDelta += process.durationTicks;
+  }
+
+  return {
+    next: { ...state, inventory, discovered, facilities, activeProcesses: stillActive },
+    fleetAdminXpDelta,
+  };
 }
 
 // Same "same state reference on failure" convention as every other buy/action

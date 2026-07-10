@@ -348,14 +348,21 @@ export type ProcessEffect =
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
-// `startTick` + `durationTicks` are FIXED at creation, which is what makes offline
-// catch-up closed-form (design §3): completion is a pure "has nowTick - startTick
-// reached durationTicks?" check, no tick-by-tick simulation.
+//
+// COUNTDOWN, not start-timestamp (Task 8): the engine tracks `remainingTicks`
+// (ticks left until completion), which resolveProcesses DECREMENTS by the ticks
+// elapsed each call, rather than an absolute `startTick` compared against a
+// global tick counter. This is what makes offline catch-up closed-form WITHOUT
+// needing a fleet-wide "current tick" clock: completion is simply "has
+// remainingTicks reached 0?", and one resolve of N ticks decrements identically
+// to N resolves of 1 tick (see resolveProcesses in tick.ts). `durationTicks` is
+// FIXED at creation and is BOTH the initial remainingTicks AND the Fleet Admiral
+// XP awarded on completion (the "1 FA XP per tick, lumped on completion" model).
 export interface TimedProcess {
   id: string;
   kind: TimedProcessKind;
-  startTick: number;      // the game-tick index the process began
-  durationTicks: number;  // FIXED at creation -- deterministic, so offline is closed-form
+  remainingTicks: number; // ticks left until completion; decremented by resolveProcesses -- closed-form countdown
+  durationTicks: number;  // FIXED at creation -- initial remainingTicks AND the lump FA XP awarded on completion
   effect: ProcessEffect;  // what completion does (add item / level up a facility)
 }
 

@@ -83,14 +83,24 @@ function hydrateDecimals(state: any): GameState {
     // this runs -- so the unguarded read is safe, same posture as the lifetimeStats
     // reads.
     //
-    // NOTE (Task 8/11): activeProcesses is [] immediately after the v17->v18
-    // migration, so NO process carries a Decimal `effect.amount` to hydrate yet --
-    // that's why there's no activeProcesses branch here. Once refine jobs/upgrades
-    // are actually PERSISTED (Task 8 starts them; Task 11 batch orders), this
-    // function MUST also revive each activeProcesses[i].effect.amount for `addItem`
-    // effects -- the identical per-value toDecimal() treatment, guarded on the
-    // effect type. facilities/nextProcessId carry no Decimals (level/id are plain
-    // numbers), so they need no hydration and ride through via the `...state` spread.
+    // Task 8: a persisted mid-flight timed process (startProcess pushes them into
+    // activeProcesses) can carry a Decimal on an `addItem` effect -- its `amount`,
+    // the refine-job output -- which round-trips through JSON as a plain string
+    // exactly like every other Decimal here, so it MUST be toDecimal()'d back or
+    // the resolver's addToInventory .plus() would throw on load. Guarded on the
+    // effect type: a `facilityLevelUp` effect (and the process's id/kind/
+    // remainingTicks/durationTicks scalars) carry NO Decimal, so they ride through
+    // untouched. Safe unguarded on state.activeProcesses for the same reason
+    // inventory is: any save reaching hydrateDecimals() has the field present (v18+
+    // freshState seeds [] / MIGRATIONS[17] backfills [] before this runs), and the
+    // .map() no-ops on the empty array the overwhelmingly common (no-process) save
+    // carries. facilities/nextProcessId hold no Decimals, so they ride through via
+    // the `...state` spread with no hydration.
+    activeProcesses: state.activeProcesses.map((p: any) =>
+      p.effect?.type === "addItem"
+        ? { ...p, effect: { ...p.effect, amount: toDecimal(p.effect.amount) } }
+        : p
+    ),
     inventory: hydrateDecimalMap(state.inventory),
     // lifetimeStats' 3 scalar sums are Decimal-typed (Progression Pacing
     // Rework), so -- exactly like credits/fleetAdminXp above -- they round-trip
