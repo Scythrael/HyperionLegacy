@@ -24,6 +24,10 @@ one phase at a time, each through the full workflow (brainstorm → design → p
 
 ## 2. The vision (captured from the 2026-07-10 brainstorm)
 
+The raw inputs come from **missions**, which are reworked to drop **distinct named raw materials**
+(titanium ore, polysilicate ore, …) rather than generic ore — ~3 distinct materials per mission type,
+each with a quality grade — feeding durable frames/plating, ship electronics, and the rest of the chain.
+
 Homeworld upgrades unlock a chain of production facilities, each independently upgradeable:
 
 - **Refinery** — refines raw ores and other materials into refined materials. Upgradeable
@@ -48,7 +52,8 @@ tooltip, exact placement TBD and mockup-gated).
 
 ```
 Homeworld upgrades ─▶ unlock facilities
-  ore ─▶[Refinery]▶ refined mats ─▶[Fabricator]▶ components ─▶ parts (frame, plating, …)
+  missions ─▶ named raw materials ─▶[Refinery]▶ refined mats ─▶[Fabricator]▶ components ─▶ parts (frame, plating, …)
+   (titanium ore, polysilicate ore, …; 3 distinct per mission type × quality roll)
                                         ▲                              │
                                  [Research: blueprints]          [Shipyard]▶ ship
                                                                         │
@@ -91,6 +96,22 @@ Homeworld upgrades ─▶ unlock facilities
    beside them. (Note: there's a logged gap that `refinedMaterial`/`components` don't display in the
    UI yet — `SUGGESTIONS.md` — which Phase 1/2 will naturally address.)
 
+6. **Mission loot & materials are ONE co-designed pass — do not patch the closed-form extraction three
+   times.** Three separate reworks now target the delicate closed-form `tickCaptainMission` extraction
+   logic: (a) **distinct named raw-material drops** (this epic — missions drop titanium/polysilicate/etc.
+   instead of generic ore), (b) the logged **loot-rarity-range rework** (`SUGGESTIONS.md` — roll a
+   min/max quantity within a tier instead of dumping a full tick's units), and (c) the logged
+   **cargo-as-true-cap redesign** (`SUGGESTIONS.md`). Three independent edits to the same fragile
+   function is the exact drift-trap that already produced the live-loop-vs-`tick()` regressions. Per
+   Root Cause: design them together as one "mission loot & materials" pass. And every change here must
+   ALSO be mirrored into `App.svelte`'s live poll loop (the hand-maintained copy of `tick()`), or land
+   the tick-path unification refactor (`SUGGESTIONS.md`) first.
+
+7. **Named materials require a keyed inventory, not more hardcoded fields.** 3 materials/mission ×
+   quality grades → ~18 distinct (material, quality) stacks (≈27 with a 3rd mission). This must be a
+   keyed item inventory (`itemId → qty`), not additional flat `GameState` resource fields. Ties into
+   the logged Inventory-tab idea and the `refinedMaterial`/`components` display gap.
+
 ---
 
 ## 4. Phase breakdown
@@ -107,6 +128,23 @@ final designs.
   produces something usable immediately.
 - **Why first:** establishes the pattern all other facilities reuse, and stands alone (refined mats
   are useful to surface even before downstream consumers exist).
+- **Dependency:** the Refinery needs real distinct inputs to be meaningful — see the Materials phase
+  directly below, which is upstream of it. Ordering of these two is an open question (§6).
+
+### Phase 1b (ordering TBD) — Materials & mission-loot sourcing  ← UPSTREAM BEDROCK
+- Rework mission drops from generic ore into **distinct named raw materials** (titanium ore,
+  polysilicate ore, …). ~3 distinct materials per mission type (3 short + 3 long = 6; possibly a 3rd
+  mission for more), each drop also rolling a **quality grade**.
+- **Loot shape (settled 2026-07-10):** 3 materials per mission × a quality roll per drop.
+- **Quality axis (recommended, NOT yet locked):** reuse the EXISTING common/uncommon/rare rarity roll
+  as the quality grade — the current single-roll extraction *becomes* the quality roll, applied to
+  named materials. Closed-form-safe. Alternative (a second orthogonal grade on top of rarity) is
+  harder and must be deliberately designed — confirm before building.
+- **This is the biggest of the three closed-form reworks — see principle §3.6 (co-design as one pass)
+  and §3.7 (keyed inventory).**
+- Feeds the Refinery (Phase 1) and is stored by the Warehouse (Phase 2). Its exact slot in the build
+  order is an open question (§6) — it's upstream of Refinery, so it may need to lead or land together
+  with it.
 
 ### Phase 2 — Warehouse / storage
 - Storage capacity caps for materials + components.
@@ -172,3 +210,10 @@ final designs.
    granularity) — decided in Phase 6's design, guided by §3.2's stats-vs-behavior line.
 4. Where the ship status page lives (captain stats page vs dedicated) — mockup-gated, Phase 6.
 5. How facility upgrade levels are modeled/persisted (save-migration shape) — Phase 1.
+6. Quality axis for named materials: reuse the existing common/uncommon/rare rarity roll
+   (recommended, closed-form-safe) vs. a new orthogonal grade on top? — Materials phase.
+7. Materials-phase ordering: lead phase, or bundled with the Refinery? And the combined design with
+   the loot-rarity-range + cargo-as-true-cap reworks (§3.6) — one "mission loot & materials" pass.
+8. Recipe sufficiency: are 6 named materials (× quality) actually enough to compose the first few
+   system tiers, or is a 3rd mission / more materials needed? — decided against the Fabricator recipe
+   graph (Phase 4), but the material COUNT is set earlier (Materials phase), so keep headroom.
