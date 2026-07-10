@@ -546,3 +546,15 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
     (b) actual multiplayer anti-cheat waits for the server-authoritative backend. Don't conflate the two, and
     don't let (a) create a false sense of (b). Not scoped -- no crypto scheme, key-management, or
     server-validation design chosen.
+
+- **Daily reward campaigns (daily-login rewards).** User idea, 2026-07-09: a daily-reward / login-streak
+  system granting escalating rewards for consecutive days played -- credits (the user's example: 50 credits),
+  materials, and eventually cosmetics/other goodies. Standard idle-game retention mechanic. Caveat (same
+  family as the save-anti-tamper and redemption-codes notes above): a purely CLIENT-SIDE daily reset -- one
+  that checks the local `Date` -- is trivially gamed by advancing the system clock, so a robust version needs
+  a TRUSTED SERVER TIME SOURCE, downstream of the backend/auth work (see the "Clerk-based auth + multiplayer"
+  entry). A client-only version is a fine casual first pass IF you accept the clock-cheese and don't let it
+  grant anything multiplayer-competitive. Not scoped: the reward tier table, streak-based vs plain-calendar-
+  day, missed-day/catch-up rules, and where it surfaces (likely a modal on load, sharing the same on-load-
+  modal slot as the offline "welcome back" summary idea). Ties into: the credits economy, redemption codes,
+  the offline welcome-back modal, and the future account/backend system.
