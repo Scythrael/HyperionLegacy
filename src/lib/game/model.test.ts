@@ -7,6 +7,7 @@ import {
   MISSIONS,
   RECIPES,
   xpForNextLevel,
+  xpForNextFleetAdminLevel,
   CAPTAIN_TALENTS,
   HOMEWORLD_TALENTS,
   CAPTAIN_SPEC_BONUS,
@@ -199,6 +200,64 @@ describe("xpForNextLevel", () => {
     expect(xpForNextLevel(1)).toBe(300);
     expect(xpForNextLevel(2)).toBe(600);
     expect(xpForNextLevel(3)).toBe(900);
+  });
+});
+
+describe("xpForNextFleetAdminLevel", () => {
+  // Progression Pacing Rework (Task 8): the curve was rescaled from 2500*level^2
+  // to 250000*level^2 (×100) to absorb the ~120-150× Fleet Admiral XP income
+  // increase from Task 5 (FA XP moved from a per-CYCLE lump to ~1 FA XP/tick per
+  // ACTIVE captain, stacking fleet-wide). These are DEVICE-TUNED STARTING VALUES
+  // -- the assertions below pin the chosen scale/shape, not a final balance.
+
+  // Concrete sanity values at the chosen ×100 scale (quadratic: 250000*level^2).
+  it("scales quadratically at 250000*level^2 (250k at L1, 1M at L2, 2.25M at L3)", () => {
+    expect(xpForNextFleetAdminLevel(1)).toBe(250_000);
+    expect(xpForNextFleetAdminLevel(2)).toBe(1_000_000);
+    expect(xpForNextFleetAdminLevel(3)).toBe(2_250_000);
+  });
+
+  // Strictly monotonic increasing: every level costs more than the one before.
+  it("is strictly monotonic increasing across levels 1..20", () => {
+    for (let level = 1; level < 20; level++) {
+      expect(xpForNextFleetAdminLevel(level + 1)).toBeGreaterThan(
+        xpForNextFleetAdminLevel(level),
+      );
+    }
+  });
+
+  // Fast-early-slow-later SHAPE: the per-level INCREMENT grows with level, so
+  // higher levels cost disproportionately more than lower ones (a flat/linear
+  // curve would have a constant increment; this one accelerates).
+  it("has a growing per-level increment (later levels cost disproportionately more)", () => {
+    // increment(N) = cost(N+1) - cost(N) = 250000*((N+1)^2 - N^2) = 250000*(2N+1)
+    for (let level = 1; level < 20; level++) {
+      const incrementHere =
+        xpForNextFleetAdminLevel(level + 1) - xpForNextFleetAdminLevel(level);
+      const incrementNext =
+        xpForNextFleetAdminLevel(level + 2) - xpForNextFleetAdminLevel(level + 1);
+      expect(incrementNext).toBeGreaterThan(incrementHere);
+    }
+    // Pin a couple of concrete increments at the chosen scale.
+    expect(
+      xpForNextFleetAdminLevel(2) - xpForNextFleetAdminLevel(1),
+    ).toBe(750_000); // 250000*(2*1+1)
+    expect(
+      xpForNextFleetAdminLevel(3) - xpForNextFleetAdminLevel(2),
+    ).toBe(1_250_000); // 250000*(2*2+1)
+  });
+
+  // Rough pacing sanity (ballpark, NOT exact -- kept loose to avoid brittleness):
+  // FA XP now accrues at ~1/tick per ACTIVE captain (Task 5). At a single active
+  // captain (~1 FA XP/tick) reaching level 2 must cost the L1 threshold in ticks,
+  // which should land "on the order of" hundreds of thousands of ticks -- slower
+  // than a trivial grind but reachable in a session with a few active captains
+  // (N captains ≈ divide the tick count by N). This encodes the ×100 scale intent
+  // without pinning a fragile exact wall-clock number.
+  it("takes on the order of hundreds of thousands of ticks to reach level 2 at ~1 FA XP/tick", () => {
+    const ticksToLevel2AtOnePerTick = xpForNextFleetAdminLevel(1); // 1 FA XP/tick => cost == ticks
+    expect(ticksToLevel2AtOnePerTick).toBeGreaterThan(100_000);
+    expect(ticksToLevel2AtOnePerTick).toBeLessThan(1_000_000);
   });
 });
 
