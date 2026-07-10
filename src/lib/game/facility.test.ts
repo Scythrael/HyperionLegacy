@@ -167,3 +167,74 @@ describe("startFacilityUpgrade — delegates to startProcess (atomic deduct-at-s
     expect(state.activeProcesses).toEqual([]);
   });
 });
+
+describe("canBuildFacilityUpgrade — sequential-per-facility gate (one upgrade in flight at a time)", () => {
+  it("blocks a second upgrade of the SAME facility while one is in flight, then re-opens after it completes", () => {
+    // Enough ore for TWO level-0->1 builds (100 each). Without the sequential gate,
+    // both would start (level only bumps at completion, so canBuild keeps reading
+    // rung 0) and the fleet would reach level 2 while paying only the cheap rung 0
+    // twice -- skipping rung 1's higher cost + FA-level gate. The gate must prevent
+    // the SECOND start.
+    const state = stateWith({ inventory: { commonOre: 200 } });
+
+    const first = startFacilityUpgrade(state, "refinery");
+    expect(first.started).toBe(true);
+    expect(first.next.activeProcesses).toHaveLength(1);
+    expect(first.next.inventory.commonOre.toString()).toBe("100"); // one build's cost deducted
+
+    // The refinery now has an in-flight upgrade -> canBuild is blocked even though
+    // 100 more ore is on hand and the rung is otherwise satisfiable.
+    const blocked = canBuildFacilityUpgrade(first.next, "refinery");
+    expect(blocked.ok).toBe(false);
+    expect(blocked.reason).toBe("Upgrade already in progress");
+
+    // ...and startFacilityUpgrade inherits the gate: a same-reference no-op, no
+    // second process, no second deduct.
+    const second = startFacilityUpgrade(first.next, "refinery");
+    expect(second.started).toBe(false);
+    expect(second.next).toBe(first.next);
+    expect(second.next.activeProcesses).toHaveLength(1); // still just the first
+    expect(second.next.inventory.commonOre.toString()).toBe("100"); // not double-deducted
+
+    // Complete the in-flight build -> level 0 -> 1, process removed. The NEXT rung
+    // (upgrades[1]) is now the target. It requires FA level 2, so at fresh FA level
+    // 1 canBuild reports the FA gate -- NOT "already in progress" (proving the
+    // in-flight block cleared on completion), and NOT the old rung 0.
+    const resolved = resolveProcesses(first.next, 20);
+    expect(resolved.next.facilities.refinery.level).toBe(1);
+    expect(resolved.next.activeProcesses).toHaveLength(0);
+    const afterComplete = canBuildFacilityUpgrade(resolved.next, "refinery");
+    expect(afterComplete.ok).toBe(false);
+    expect(afterComplete.reason).toMatch(/Fleet Admiral level 2/); // rung 1's gate, not "in progress"
+
+    // Raise FA level to 2 AND top up ore to rung 1's cost (750; only 100 is left
+    // after the first build's deduct) -> the next rung is buildable again,
+    // confirming the sequential gate only pauses the track, never closes it.
+    const readyForRung1 = {
+      ...resolved.next,
+      fleetAdminLevel: 2,
+      inventory: { ...resolved.next.inventory, commonOre: new Decimal(750) },
+    };
+    expect(canBuildFacilityUpgrade(readyForRung1, "refinery").ok).toBe(true);
+  });
+
+  it("does NOT block a facility when a DIFFERENT facility has an upgrade in flight (distinct-facility concurrency preserved)", () => {
+    // An in-flight upgrade whose effect targets some OTHER facility ("warehouse")
+    // must not block the refinery -- the gate keys strictly on effect.facility.
+    const base = stateWith({ inventory: { commonOre: 100 } });
+    const otherFacilityUpgrade = {
+      id: "proc-99",
+      kind: "facilityUpgrade" as const,
+      remainingTicks: 30,
+      durationTicks: 30,
+      effect: { type: "facilityLevelUp" as const, facility: "warehouse" },
+    };
+    const state = { ...base, activeProcesses: [otherFacilityUpgrade] };
+
+    // Refinery is still buildable despite the warehouse upgrade running.
+    expect(canBuildFacilityUpgrade(state, "refinery").ok).toBe(true);
+    const started = startFacilityUpgrade(state, "refinery");
+    expect(started.started).toBe(true);
+    expect(started.next.activeProcesses).toHaveLength(2); // warehouse's + the new refinery one
+  });
+});

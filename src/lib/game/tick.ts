@@ -1574,6 +1574,32 @@ export function canBuildFacilityUpgrade(
     return { ok: false, reason: `${facilityDef.label} is fully upgraded` };
   }
 
+  // SEQUENTIAL-PER-FACILITY gate: at most ONE upgrade in flight for THIS facility
+  // at a time. Checked BEFORE the prereq/material gates so the exploit it closes is
+  // structurally impossible. Because a facility's `level` only bumps at process
+  // COMPLETION, without this gate `upgrades[currentLevel]` stays the SAME rung while
+  // a build is mid-flight -- so a player could start the cheap level 0->1 build
+  // twice and land at level 2, SKIPPING the escalating cost + FA-level/talent gates
+  // on the level 1->2 rung. Requiring the in-flight rung to complete (which bumps
+  // `level`, advancing `upgrades[currentLevel]` to the NEXT rung) before the next is
+  // buildable makes each facility's track strictly sequential, forcing every rung's
+  // real cost/gates to be paid in order.
+  //
+  // CONCURRENCY IS UNAFFECTED ACROSS DISTINCT FACILITIES: this keys ONLY on
+  // effect.facility === facilityKey, so an upgrade to some OTHER facility in flight
+  // does NOT block this one, and vice versa. Refine JOBS (kind "refineJob") are a
+  // different kind entirely and are never matched here -- they parallelize by slot
+  // count, not by this gate.
+  const upgradeInFlight = state.activeProcesses.some(
+    (p) =>
+      p.kind === "facilityUpgrade" &&
+      p.effect.type === "facilityLevelUp" &&
+      p.effect.facility === facilityKey
+  );
+  if (upgradeInFlight) {
+    return { ok: false, reason: "Upgrade already in progress" };
+  }
+
   // Prerequisite gate: Fleet Admiral level. Absent field => no FA-level wall.
   if (upgrade.requiresFleetAdminLevel !== undefined && state.fleetAdminLevel < upgrade.requiresFleetAdminLevel) {
     return { ok: false, reason: `Requires Fleet Admiral level ${upgrade.requiresFleetAdminLevel}` };
@@ -1641,22 +1667,17 @@ export function canBuildFacilityUpgrade(
 // as startProcess. On any failed gate it is a same-reference no-op ({ next: state,
 // started: false }), matching startProcess's own reject convention.
 //
-// CONCURRENCY -- UNLIMITED, BY DESIGN (design §5, user 2026-07-11): this does NOT
-// check whether an upgrade for this (or any) facility is already in flight. The
-// ONLY gate is canBuildFacilityUpgrade (materials + prereqs). Multiple facilities
-// -- and multiple upgrades OF THE SAME facility -- can run at once; the material
-// deduct-at-start is the sole throttle.
-//
-// ⚠️ CONCURRENCY CAVEAT worth flagging (see SUGGESTIONS.md): because the level
-// only bumps at COMPLETION, canBuildFacilityUpgrade still reads the SAME
-// upgrades[currentLevel] rung while a build is mid-flight. So a player CAN start
-// two level-0->1 builds back-to-back (paying that rung's materials twice) and land
-// at level 2, SKIPPING level 1->2's higher cost + FA-level/talent gates. That is a
-// direct consequence of "unlimited concurrency, materials-only gate" as specified,
-// not a bug in this function -- but it is a real balance/exploit surface. Logged to
-// SUGGESTIONS.md for a design decision (e.g. gate on "no in-flight upgrade for this
-// facility", or have canBuild look past in-flight upgrades of the same facility)
-// rather than silently deciding it here.
+// CONCURRENCY (design §5, user 2026-07-11, refined 2026-07-11): UNLIMITED across
+// DISTINCT facilities (a refinery upgrade and a future warehouse upgrade run at
+// once) but STRICTLY SEQUENTIAL per facility -- at most ONE in-flight upgrade for
+// a given facility. That per-facility limit is enforced by canBuildFacilityUpgrade
+// (the "Upgrade already in progress" gate), which this function inherits by calling
+// it. The limit closes the rung-skip exploit: because a facility's level only bumps
+// at COMPLETION, allowing two concurrent upgrades of the SAME facility would let a
+// player start the cheap level 0->1 build twice and land at level 2, skipping the
+// level 1->2 rung's higher cost + FA-level/talent gates. Requiring the in-flight
+// rung to finish first makes each track pay every rung's real cost/gates in order.
+// Refine JOBS are separately capped by slot count, not by this gate.
 export function startFacilityUpgrade(
   state: GameState,
   facilityKey: string
