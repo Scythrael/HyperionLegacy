@@ -157,6 +157,25 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
 
 export type MissionKey = keyof typeof MISSIONS;
 
+// Per-mission per-tick XP RATE (Progression Pacing Rework, Task 3 --
+// docs/plans/2026-07-11-progression-pacing-rework-*). The base amount of XP a
+// mission is worth per WHOLE extraction tick, BEFORE any future captain-talent
+// or global-buff XP multipliers are applied. Kept as its own tunable table
+// (NOT a field on MissionDef) so a designer can retune XP pacing independently
+// of a mission's other stats, and so the mapping is exhaustive over MissionKey
+// (a new mission cannot be added without also giving it an XP rate). Both
+// missions start at 1 -- a launch placeholder, same spirit as MISSIONS'/RECIPES'
+// own hand-tuned constants, and deliberately balanced around the SHORT run per
+// the design's "balance around the short run" note (the long run's extra value
+// comes from its higher rare odds + per-cycle credits/Fleet-Admiral XP, not a
+// higher per-tick XP rate). Consumed ONLY via tick.ts's xpPerTick helper, by
+// Task 4 (captain XP accrual) and Task 5 (Fleet Admiral XP); NOT wired into
+// tickCaptainMission yet.
+export const BASE_XP_PER_TICK: Record<MissionKey, number> = {
+  shortOreRun: 1,
+  longOreRun: 1,
+};
+
 // The 4 real hulls this feature ships (design doc, Task 1). TUNABLE -- first-pass
 // balance; real tuning happens at the device-check stage, same launch-placeholder
 // spirit as MISSIONS'/RECIPES' constants above. `moduleSlots`/`equipmentSlots`

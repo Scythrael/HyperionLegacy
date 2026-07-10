@@ -15,6 +15,7 @@ import {
   xpForNextLevel,
   xpForNextFleetAdminLevel,
   MISSIONS,
+  BASE_XP_PER_TICK,
   RECIPES,
   SHIP_TYPES,
   CAPTAIN_TALENTS,
@@ -173,6 +174,38 @@ export function fleetRareYieldMult(state: GameState): number {
     const effect = HOMEWORLD_TALENTS[key].effect;
     return effect.type === "rareYieldMult" ? sum + effect.mult : sum;
   }, 0);
+}
+
+// Progression Pacing Rework (Task 3, docs/plans/2026-07-11-progression-pacing-
+// rework-*): the SHARED per-tick XP RATE helper. Returns how much XP one whole
+// extraction tick of `missionKey` is worth RIGHT NOW, for THIS captain (and,
+// later, this fleet `state`). Task 4 (captain XP accrual) and Task 5 (Fleet
+// Admiral XP) will BOTH call into this one function, so the two XP streams
+// always scale off the exact same rate -- it is a shared dependency built
+// first, deliberately NOT yet wired into tickCaptainMission (that is Task 4/5).
+//
+// XP RATES ARE PLAIN `number`, NOT Decimal: like every *Mult helper above, this
+// returns a small multiplier-scale rate, not an accumulated total. The Decimal
+// accounting stays downstream where these rates are summed into the captain's
+// xp / the fleet's fleetAdminXp (both Decimal) by Task 4/5.
+//
+// MULTIPLIER SEAM -- READ BEFORE EXTENDING: today this returns the mission's
+// flat BASE_XP_PER_TICK unchanged, because there are currently NO XP-boosting
+// captain talents or global buffs -- CaptainTalentEffect / HomeworldTalentEffect
+// (model.ts) have no XP-flavored member to reduce over. Per the project's
+// no-placeholder rule, we do NOT fabricate a fake "xpMult" effect type just to
+// have something to multiply by. Instead the future multiplier plugs in RIGHT
+// HERE as a one-line change: once a real XP-mult talent/buff effect exists, this
+// body becomes `return BASE_XP_PER_TICK[missionKey] * captainXpMult(captain) *
+// buffXpMult(state)`, where captainXpMult/buffXpMult are written as the SAME
+// additive-`reduce`-over-unlocked-talents shape as captainCommonYieldMult /
+// fleetRareYieldMult above (each returning 1 when nothing matches). The
+// `captain` and `state` params already sit in the signature (intentionally
+// unused today) so that extension needs no call-site changes. `state` is
+// optional because the captain-level caller (Task 4) has no reason to thread
+// fleet state through for a rate that ignores it today.
+export function xpPerTick(missionKey: MissionKey, captain: CaptainState, state?: GameState): number {
+  return BASE_XP_PER_TICK[missionKey];
 }
 
 // Talent Tree Visual Redesign (Task 9): pure string-conversion helpers for the

@@ -21,6 +21,7 @@ import {
   captainBonusRollChance,
   captainBonusRollChanceMult,
   captainSpecBonusRollChance,
+  xpPerTick,
 } from "./tick";
 import Decimal from "break_infinity.js";
 import { freshState, freshCaptains, MISSIONS, RECIPES, shipDerivedStats, type CaptainMissionState } from "./model";
@@ -664,6 +665,27 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
   // surviving `resourcefulness` spec bonus is a bonusRollChance grant, already
   // covered by captainSpecBonusRollChance's own test above), so re-pointing
   // would have invented coverage for behavior that no longer exists.
+});
+
+// Progression Pacing Rework (Task 3, docs/plans/2026-07-11-progression-pacing-
+// rework-*): xpPerTick is the SHARED per-tick XP RATE helper that Task 4
+// (captain XP accrual) and Task 5 (Fleet Admiral XP) will both consume. Today
+// it returns the mission's flat BASE_XP_PER_TICK (both missions = 1) unchanged,
+// because there are NO XP-boosting captain talents or global buffs yet -- the
+// `captain`/`state` params are the reserved multiplier-seam hooks (see
+// xpPerTick's own comment in tick.ts for exactly where a future XP-mult plugs
+// in). Mirrors the "no unlocked talents" mult-helper tests directly above:
+// a fresh captain with an empty talent set must see the unmodified base rate.
+describe("xpPerTick — per-tick XP rate", () => {
+  it("returns the base rate (1) for shortOreRun with a captain that has no talents", () => {
+    const captain = freshCaptains(1)[0]; // fresh -> unlockedCaptainTalents: [], spec: null
+    expect(xpPerTick("shortOreRun", captain)).toBe(1);
+  });
+
+  it("returns the base rate (1) for longOreRun with a captain that has no talents", () => {
+    const captain = freshCaptains(1)[0];
+    expect(xpPerTick("longOreRun", captain)).toBe(1);
+  });
 });
 
 describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () => {
