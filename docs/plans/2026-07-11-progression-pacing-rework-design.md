@@ -76,12 +76,12 @@ xpPerTick(source, captain?, state) = BASE_XP_PER_TICK[source]        // default 
 50 over 148 ticks) / 0.21 (long, 50 over 238). New rate = 1.0 XP/tick (normalized across missions).
 - **Consequence:** per-tick *normalizes* XP/tick to 1.0 — the "spam short runs to out-level" quirk goes
   away (longer mission → proportionally more XP). This is a deliberate behavioral shift.
-- **Captain curve — LOCKED to exact short-run parity** (user 2026-07-11: "keep the curve feeling the
-  same," balance around the short run): scale by (new XP/cycle ÷ old) = 148 / 50 = **2.96** →
-  **`xpForNextLevel(level) = 296 × level`** (was 100 × level). Short-run leveling is then PIXEL-IDENTICAL
-  to today (today 2L short-cycles per level; new 296L ÷ 148 = 2L — same). May round to 300×level
-  (~1.4%, negligible). Future missions tuned per-mission via `BASE_XP_PER_TICK` (§3), not the curve —
-  balance around the short run first, extend from there.
+- **Captain curve — LOCKED to short-run parity** (user 2026-07-11: "keep the curve feeling the same,"
+  balance around the short run). Short cycle = **149 ticks** (`1 orders + 25 + 90 + 25 + 8`, per
+  `tick.test.ts:64`) → new XP/cycle = 149 (at 1/tick) vs old 50. Scale by 149/50 = 2.98 →
+  **`xpForNextLevel(level) = 300 × level`** (clean; exact parity is 298, ~0.7% off — negligible). Was
+  100 × level. Short-run leveling then ~identical to today (today 2L short-cycles per level; new
+  300L ÷ 149 ≈ 2L). Future missions tuned per-mission via `BASE_XP_PER_TICK` (§3), not the curve.
 
 **Fleet Admiral** — today `xpForNextFleetAdminLevel` (≈ ×2500, quadratic-ish); today FA earns 1–2/cycle.
 New: 148–238 per cycle per mission (≈ **100–150× more**), × stacking across concurrent actions.
@@ -134,15 +134,23 @@ This is the first-shipping feature, so it carries the `lifetimeStats` schema (se
 
 ## 8. Implementation approach — the shared helper (Root Cause)
 
-The per-tick XP + stat logic must change in BOTH `tickCaptainMission` (offline `tick()`) and
-`App.svelte`'s live poll loop (the hand-mirrored copy — the drift trap that already dropped bonus-roll +
-credits). Approach: **extract ONLY the changing per-captain per-tick advance logic** (XP accrual, level-up
-resolution, lifetime-stat increments) into one shared helper both paths call.
-- Surgical — does NOT rewrite the rest of the mission tick (Anti-Regression); it's the smaller, targeted
-  cousin of the deferred full tick-path unification.
-- Kills drift for exactly this logic: one source of truth for XP/stat advancement.
-- Verification hinges on this: a test asserting the live path and offline `tick()` produce identical
-  XP/level/stat results for the same elapsed ticks.
+**Corrected understanding (grounded 2026-07-11):** `tickCaptainMission` is ALREADY the shared per-captain
+function — BOTH offline `tick()` and `App.svelte`'s live poll loop call it (App.svelte:616). So the
+per-tick XP accrual + level-up logic (which lives INSIDE `tickCaptainMission`, at the current
+`xp += XP_PER_MISSION_CYCLE` site) changes in ONE place and both paths get it automatically.
+
+The real (narrower) drift surface is the **inputs each loop computes and passes in** (`bonuses`,
+`shipStats` today) and the **outputs each loop accumulates** (`fleetAdminXpDelta`, `creditsDelta`
+today) — historical drift (dropped ship stats/credits) was here, not in the math. So:
+- Put the per-tick XP accrual + lifetime-stat increments INSIDE `tickCaptainMission`, returned as
+  deltas (extend the existing `{ captain, homePlanetDelta, fleetAdminXpDelta, creditsDelta }` return
+  with `lifetimeStatsDelta`). Both loops already destructure + accumulate that return shape.
+- Any NEW input the rate pipeline needs (XP multipliers) must be computed and passed by BOTH loops —
+  mirror exactly how `bonuses`/`shipStats` are already threaded, and add a **parity test** asserting
+  `tick()` and a simulated live-loop run produce identical XP/level/stat results for the same elapsed
+  ticks (the guard against the input/output-wiring drift).
+- Do NOT attempt the full tick-path unification (live loop → `tick()`); it's the separate deferred
+  refactor. This feature only extends the already-shared function + its delta contract.
 
 ---
 
