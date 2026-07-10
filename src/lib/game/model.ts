@@ -412,34 +412,39 @@ export function xpForNextLevel(level: number): number {
 // Fleet Admiral leveling will ever have (more sources are planned later).
 //
 // ⚠️⚠️ DEVICE-TUNED STARTING VALUES -- MOST PLAYTEST-SENSITIVE NUMBER IN THE REWORK ⚠️⚠️
-// Progression Pacing Rework (Task 8): multiplier rescaled from 2500 to 250000
-// (×100), quadratic shape KEPT. This is a STARTING point to be tuned against
-// real on-device play at the checkpoint -- do NOT treat 250000 as final.
+// Progression Pacing Rework: multiplier rescaled from 2500 to 375000, quadratic
+// shape KEPT. This value is scaled for PARITY with the OLD Fleet Admiral pace,
+// using the SAME method the captain curve used -- it is deliberately NOT made
+// faster. Still a STARTING point to be tuned against real on-device play at the
+// checkpoint -- do NOT treat 375000 as final.
 //
-// WHY ×100 -- the income math whoever tunes this needs:
-//   * Task 5 moved Fleet Admiral XP from a per-CYCLE lump to PER-TICK accrual:
-//     it now earns ~1 FA XP per tick PER ACTIVE captain, and STACKS fleet-wide
-//     (N active captains => ~N FA XP/tick, see tickCaptainMission's
-//     fleetAdminXpAwardedThisCall). Tick cadence is tickDurationSeconds = 1s.
-//   * Old per-tick FA income was tiny: ~1/149 ≈ 0.0067 (short) to 2/238 ≈ 0.0084
-//     (long) FA XP/tick. New income at ONE captain is ~1.0/tick -- roughly
-//     120-150× more per captain, times the captain count.
-//   * The OLD curve (2500*level^2) was tuned for that tiny income. Under the new
-//     income it made FA level absurdly fast, so the curve is scaled UP to absorb
-//     the increase. Pacing to level 2 (L1 threshold):
-//       - OLD:  2500 / ~0.0075 per tick  ≈ ~333k ticks  (~92h at 1s/tick).
-//       - NEW:  250000 / 1.0 per tick    =  250k ticks   (~69h) at 1 active
-//               captain -- i.e. ROUGHLY comparable but a bit FASTER than old
-//               (user wants FA to feel faster now), and proportionally faster
-//               with more captains (~83k ticks / ~23h at 3 active captains).
+// WHY 375000 -- the parity math (same method as the captain curve):
+//   * The captain curve was rescaled by (cycle ticks / old XP per cycle) so its
+//     OLD leveling pace survived the switch to per-tick accrual. FA uses the
+//     identical method: old FA income was 1 per cycle (fleetAdminXpPerTick's
+//     predecessor, fleetAdminXpPerCycle, was 1) over the 149-tick short cycle,
+//     so the scale factor is 149 / 1 = 149. 2500 * 149 = 372,500 -- exact parity
+//     -- rounded to a clean 375000. (For reference, captain's own factor was
+//     149/50 ≈ 3 -> 300*level.)
+//   * The 'boost' to FA leveling is DELIBERATELY DEFERRED to the OTHER planned FA
+//     XP sources (crafting, talent purchases, talent-tree effects), NOT baked
+//     into an under-scaled curve. The earlier Task 8 value (250000, ×100) tried
+//     to make the curve itself the boost -- too FAST; that intent is reversed
+//     here. Parity keeps the curve honest so those future sources, not an
+//     undertuned curve, provide the growth.
+//   * Income context (still accurate): Task 5 moved Fleet Admiral XP from a
+//     per-CYCLE lump to PER-TICK accrual -- it now earns ~1 FA XP per tick PER
+//     ACTIVE captain, and STACKS fleet-wide (N active captains => ~N FA XP/tick,
+//     see tickCaptainMission's fleetAdminXpAwardedThisCall). tickDurationSeconds
+//     = 1s.
 //   * Quadratic (super-linear) shape is KEPT so the curve stays fast-early /
-//     slow-later: the per-level increment is 250000*(2*level+1), which GROWS
+//     slow-later: the per-level increment is 375000*(2*level+1), which GROWS
 //     with level, so high FA levels cost disproportionately more (FA is
 //     powerful -- high levels should take real time). Not steepened past
 //     quadratic on purpose (YAGNI): the scale, not the exponent, is the lever
 //     the device playtest will move first.
 export function xpForNextFleetAdminLevel(level: number): number {
-  return 250000 * level * level;
+  return 375000 * level * level;
 }
 
 // --- Captain & Homeworld Talent Trees (docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) ---

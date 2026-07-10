@@ -205,17 +205,20 @@ describe("xpForNextLevel", () => {
 });
 
 describe("xpForNextFleetAdminLevel", () => {
-  // Progression Pacing Rework (Task 8): the curve was rescaled from 2500*level^2
-  // to 250000*level^2 (×100) to absorb the ~120-150× Fleet Admiral XP income
-  // increase from Task 5 (FA XP moved from a per-CYCLE lump to ~1 FA XP/tick per
-  // ACTIVE captain, stacking fleet-wide). These are DEVICE-TUNED STARTING VALUES
-  // -- the assertions below pin the chosen scale/shape, not a final balance.
+  // Progression Pacing Rework: the curve was rescaled from 2500*level^2 to
+  // 375000*level^2. The factor (150) is the PARITY factor -- same method the
+  // captain curve used (cycle ticks / old XP-per-cycle): old FA income was 1 per
+  // cycle over the 149-tick short cycle, so 149/1 = 149 -> 2500*149 = 372,500,
+  // rounded to a clean 375000. The curve is scaled to PRESERVE the old FA pace,
+  // NOT to absorb the new income as a boost (that boost is deferred to other
+  // planned FA XP sources). These are DEVICE-TUNED STARTING VALUES -- the
+  // assertions below pin the chosen scale/shape, not a final balance.
 
-  // Concrete sanity values at the chosen ×100 scale (quadratic: 250000*level^2).
-  it("scales quadratically at 250000*level^2 (250k at L1, 1M at L2, 2.25M at L3)", () => {
-    expect(xpForNextFleetAdminLevel(1)).toBe(250_000);
-    expect(xpForNextFleetAdminLevel(2)).toBe(1_000_000);
-    expect(xpForNextFleetAdminLevel(3)).toBe(2_250_000);
+  // Concrete sanity values at the chosen parity scale (quadratic: 375000*level^2).
+  it("scales quadratically at 375000*level^2 (375k at L1, 1.5M at L2, 3.375M at L3)", () => {
+    expect(xpForNextFleetAdminLevel(1)).toBe(375_000);
+    expect(xpForNextFleetAdminLevel(2)).toBe(1_500_000);
+    expect(xpForNextFleetAdminLevel(3)).toBe(3_375_000);
   });
 
   // Strictly monotonic increasing: every level costs more than the one before.
@@ -231,7 +234,7 @@ describe("xpForNextFleetAdminLevel", () => {
   // higher levels cost disproportionately more than lower ones (a flat/linear
   // curve would have a constant increment; this one accelerates).
   it("has a growing per-level increment (later levels cost disproportionately more)", () => {
-    // increment(N) = cost(N+1) - cost(N) = 250000*((N+1)^2 - N^2) = 250000*(2N+1)
+    // increment(N) = cost(N+1) - cost(N) = 375000*((N+1)^2 - N^2) = 375000*(2N+1)
     for (let level = 1; level < 20; level++) {
       const incrementHere =
         xpForNextFleetAdminLevel(level + 1) - xpForNextFleetAdminLevel(level);
@@ -242,10 +245,10 @@ describe("xpForNextFleetAdminLevel", () => {
     // Pin a couple of concrete increments at the chosen scale.
     expect(
       xpForNextFleetAdminLevel(2) - xpForNextFleetAdminLevel(1),
-    ).toBe(750_000); // 250000*(2*1+1)
+    ).toBe(1_125_000); // 375000*(2*1+1)
     expect(
       xpForNextFleetAdminLevel(3) - xpForNextFleetAdminLevel(2),
-    ).toBe(1_250_000); // 250000*(2*2+1)
+    ).toBe(1_875_000); // 375000*(2*2+1)
   });
 
   // Rough pacing sanity (ballpark, NOT exact -- kept loose to avoid brittleness):
@@ -253,8 +256,8 @@ describe("xpForNextFleetAdminLevel", () => {
   // captain (~1 FA XP/tick) reaching level 2 must cost the L1 threshold in ticks,
   // which should land "on the order of" hundreds of thousands of ticks -- slower
   // than a trivial grind but reachable in a session with a few active captains
-  // (N captains ≈ divide the tick count by N). This encodes the ×100 scale intent
-  // without pinning a fragile exact wall-clock number.
+  // (N captains ≈ divide the tick count by N). This encodes the parity scale
+  // intent (375k at L1) without pinning a fragile exact wall-clock number.
   it("takes on the order of hundreds of thousands of ticks to reach level 2 at ~1 FA XP/tick", () => {
     const ticksToLevel2AtOnePerTick = xpForNextFleetAdminLevel(1); // 1 FA XP/tick => cost == ticks
     expect(ticksToLevel2AtOnePerTick).toBeGreaterThan(100_000);
