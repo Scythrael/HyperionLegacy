@@ -1491,7 +1491,7 @@
                       <div class="ship-card">
                         <div class="ship-card-head">
                           <div class="research-name">{def.label}</div>
-                          <span class="ship-badge">◈ {def.cost.credits}</span>
+                          <span class="ship-badge">◈ {formatNumber(def.cost.credits)}</span>
                         </div>
                         <div class="ship-stats">
                           <span class="ship-stat">Cargo: {formatNumber(def.cargoCapacity)}</span>
@@ -1509,7 +1509,7 @@
                               : undefined}
                           on:click={() => doBuyShip(typeKey as ShipTypeKey)}
                         >
-                          Buy · ◈ {def.cost.credits}
+                          Buy · ◈ {formatNumber(def.cost.credits)}
                         </button>
                       </div>
                     {/if}
