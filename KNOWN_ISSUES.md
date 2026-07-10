@@ -226,3 +226,51 @@ write it down so you don't relitigate it later.
   boundary), not a new regression this feature introduced -- and the node's TOOLTIP (which shows the actual
   requirement text) is fully reactive, so the true state is always one hover away. Worth folding into the
   same reactivity pass whenever the affordability-square staleness is addressed.
+- ⚠️ HARD MERGE GATE (Phase 1 -- Facility Framework + Refinery): this branch MUST NOT merge to production
+  until `npm run check` (svelte-check) runs clean at home. Every prior branch this project shipped was
+  verified by static reading only (no Node/npm/tsc/vitest in this environment), and that was acceptable
+  because those were mostly ADDITIVE changes on top of stable code. Phase 1 is different in kind: it is a
+  ~163-site keyed-inventory REPLACEMENT refactor (the old `homePlanet.storage` fixed-key union swapped for
+  a keyed `inventory` map across model/tick/save/App), the largest replace-not-add change since the Phase 4
+  generator-stack removal -- exactly the class of change a real typecheck exists to catch, and exactly the
+  class this machine cannot verify. Do NOT treat "reads correctly by eye" as sufficient here. Known items
+  already flagged that svelte-check will surface (and that must be triaged, not blindly silenced, at that
+  run): (a) an unused `_removedHomePlanet` destructure in `save.ts`'s v17->v18 migration
+  (`const { homePlanet: _removedHomePlanet, ...rest } = state;`) -- intentional (it strips the old field
+  out of the spread) and underscore-prefixed so it should be lint-exempt, but confirm the project's
+  svelte-check config actually honors the underscore convention; and (b) several FROZEN pre-Phase-1
+  migrations (`save.ts` MIGRATIONS[7]/[8], the v7->v8 / v8->v9 steps) are annotated `: GameState` yet build
+  an intermediate object literal carrying a `homePlanet` field that `GameState` no longer declares -- since
+  `homePlanet` was removed from the type in Task 7, those return-type annotations are now loose/excess-property
+  mismatches. They are shipped, frozen migration bodies (must NOT be rewritten), so the correct fix is almost
+  certainly widening those specific annotations to `: any` (matching how the new v17->v18 step is already
+  annotated `17: (state: any): any =>`), NOT touching the migration logic. Decide that at the typecheck, with
+  the compiler's actual error text in hand.
+- Refinery batch/continuous refine orders are DEFERRED -- Phase 1 shipped ONLY single manual refine jobs
+  (`startRefineJob` starts exactly one `refineJob` process per call: one slot, one iteration). The count-N /
+  continuous auto-repeat order system (per-iteration atomic deduct, closed-form offline-bulk resolution) was
+  split out as the highest-complexity, no-typecheck-risk piece and is fully specced in SUGGESTIONS.md
+  ("Refinery batch/continuous refine ORDERS"). It is the biggest closed-form-math risk left in this epic and
+  the one most in need of a REAL test run -- do it next, ideally once Node is available so vitest can actually
+  exercise the offline-bulk iteration math rather than hand-tracing it.
+- All Phase 1 balance values are FIRST-PASS PLACEHOLDERS, to tune at the device checkpoint, not final
+  numbers: the refine recipe ratio (commonOre x100 -> refinedMaterial x1) and its 10-tick duration
+  (`REFINE_RECIPES`, `model.ts`); the refinery upgrade material costs and durations (commonOre
+  100/750/3000/8000 + refinedMaterial 25/75; durationTicks 20/45/90/180, `FACILITIES.refinery`, `model.ts`);
+  and the progression gates on the upgrade rungs -- the Fleet-Admiral-level walls (L2 / L5 / L8 for rungs
+  2/3/4) plus the `industryHub` Homeworld-talent gate on the top two rungs. All were picked to prove the
+  gating mechanics work end-to-end, NOT calibrated against real play -- expect to retune them together with
+  the FA XP curve during the same on-device pass (same "device-tuned starting value" posture as the FA curve
+  / slot-wall entries above).
+- Two "Refinery" surfaces now COEXIST, sharing a name: (1) the OLD Homeworld -> Refinery INSTANT-craft
+  sub-tab (`RECIPES` / `craftRecipe` in `model.ts`/`App.svelte` -- click a button, materials convert
+  immediately, no time cost), and (2) the NEW Facilities -> Refinery, a timed facility you build/upgrade and
+  that runs refine jobs over real ticks. This is DELIBERATE (both paths coexist until the planned Fabricator
+  subsumes the instant-craft path), not a bug -- but the shared "Refinery" label across two mechanically
+  different surfaces is a real player-confusion risk. Consider renaming or retiring the instant-craft one
+  once the Fabricator work makes it redundant, so the name collision doesn't outlive its reason to exist.
+- The bottom nav bar now has 7 tabs -- Facilities was inserted as a new 3rd tab, giving the full row
+  Homeworld / Sector Space / Facilities / Command / Operations / Battlespace / System (up from 6). Check for
+  crowding / label truncation / wrapping on a narrow (phone-portrait) viewport at the device test -- this can
+  only be verified in a real renderer, which this environment doesn't have. Not a known break, just an
+  unverified layout risk the added tab widens.

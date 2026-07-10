@@ -1223,3 +1223,89 @@ lifetime-stat accrual match between live and offline, and confirm a pre-v17 save
 migrates cleanly; then final holistic review, then merge — push to `main` still needs
 separate, explicit confirmation from the user, since it triggers a live Vercel
 production redeploy.
+
+**Session 28** — Phase 1: Facility Framework + Refinery (branch
+`feat/facility-framework-refinery`,
+docs/plans/2026-07-09-facility-framework-refinery-design.md +
+2026-07-09-facility-framework-refinery-plan.md), built subagent-driven across 12
+implementation tasks with per-task two-stage review. Four layers landed. (1) A
+keyed-inventory data-model REFACTOR: the old fixed-key `homePlanet.storage` union
+was fully replaced by a keyed `inventory: Record<string, Decimal>` map plus a
+`discovered` set and an `ITEMS` registry, so materials are now open-ended
+(add-a-key, not widen-a-union). This is the largest replace-not-add change since
+Phase 4's generator-stack removal — ~163 call sites — and was deliberately
+sequenced across several commits (additive inventory + registry first, then
+tick.ts, then App.svelte's live loop + display, then finally REMOVING
+`homePlanet.storage` once nothing read it) so the tree was never in a half-migrated
+state longer than a task boundary, the same discipline Phase 4's big removal used.
+`SAVE_VERSION` bumped 17 → 18: the v17→v18 migration builds `inventory` 1:1 from the
+old `homePlanet.storage`, seeds `discovered` with every already-owned key,
+clean-slates `facilities`/`activeProcesses`/`nextProcessId`, and DROPS the old
+`homePlanet` field entirely. (2) A closed-form TIMED-PROCESS engine (`startProcess`
+with atomic material-deduct-at-start, `resolveProcesses` resolving N ticks in one
+pass, a lump Fleet-Admiral-XP award of the process's full `durationTicks` on
+completion) — the same "one big jump equals many small ticks" invariant every prior
+time-based system in this project proves, threaded through BOTH `tick()` and
+App.svelte's live loop. (3) The Refinery FACILITY itself: a 4-rung upgrade track
+(`FACILITIES.refinery`) you build then upgrade, each rung adding a refine SLOT (the
+last rung a refine-speed mult instead), gated on escalating materials + Fleet
+Admiral level (L2/L5/L8 on rungs 2/3/4) + the `industryHub` Homeworld talent on the
+top two rungs; and refine JOBS (`startRefineJob`) that turn commonOre into
+refinedMaterial over a fixed 10 ticks, running in parallel up to the slot count,
+with lifetime `itemsRefined` tracking. (4) A new Facilities nav tab (inserted 3rd,
+bringing the bar to 7 tabs) with a left rail of facilities + Overview/Upgrades
+sub-tabs, mirroring the Command tab's structure.
+
+Three fix-loops during the per-task reviews earned their keep. A facility-upgrade
+GATE-SKIP EXPLOIT (fixed in `c1d6c51`): because a facility's `level` only bumps at
+process COMPLETION, an unrestricted materials-only concurrency gate let
+`canBuildFacilityUpgrade` keep reading the SAME current-level rung and queue the
+same cheap upgrade repeatedly, effectively level-stacking one facility's sequential
+rungs for the price of the lowest one — fixed with a sequential-per-facility gate
+(if any active process is a `facilityUpgrade` for that same facility, the next start
+is blocked), while still allowing concurrency ACROSS distinct facilities and across
+refine jobs (full write-up in SUGGESTIONS.md, RESOLVED entry). A live-loop
+`itemsRefined` CLOBBER and an import bug were the other two, both caught in review
+and folded into their task commits rather than shipped — same class as the recurring
+"App.svelte's live loop is a hand-maintained COPY of `tick()`'s math and silently
+drifts" hazard this project keeps re-hitting (still logged in SUGGESTIONS.md as the
+tick-path unification refactor).
+
+DEFERRED, per the design's own explicit split: batch/continuous refine ORDERS
+(count-N + continuous auto-repeat with per-iteration atomic deduct and closed-form
+offline-bulk resolution) were split out as the highest closed-form-math risk and the
+piece most in need of a REAL test run — Phase 1 shipped only SINGLE manual refine
+jobs; the order system is fully specced in SUGGESTIONS.md, to do next ideally once
+Node is available for vitest. Balance values across the whole phase (refine ratio +
+duration, upgrade costs/durations, the FA-level walls + `industryHub` gate) are
+first-pass placeholders logged for the device checkpoint, and the two "Refinery"
+surfaces now coexisting (the old Homeworld instant-craft sub-tab vs. the new timed
+Facilities one) is a deliberate-but-confusable name collision also logged in
+KNOWN_ISSUES.md.
+
+`APP_VERSION` bumped **0.5.0 → 0.6.0** (this task) with a matching PATCH_NOTES entry
+(note: the disciplined post-reset scheme has now climbed back to `0.6.0`, colliding
+in the newest-first list with the untouched PRE-reset `0.6.0` entry near the bottom —
+the same accepted "never rewrite patch-note history" oddity flagged when the reset
+to 0.2.0 happened, not a bug); `SAVE_VERSION` left untouched at 18.
+
+⚠️ HARD MERGE GATE (logged in KNOWN_ISSUES.md, restated here): this Phase 1 must NOT
+merge to production until `npm run check` (svelte-check) runs clean at home. Every
+prior branch shipped on static reading alone, which was defensible for
+mostly-additive work — but the ~163-site keyed-inventory REPLACEMENT refactor is
+exactly the class of change a real typecheck exists to catch and this Node-less
+environment cannot verify. Two items are already known to surface at that run and
+must be triaged (not blindly silenced): an intentional unused `_removedHomePlanet`
+destructure in the v17→v18 migration (underscore-prefixed, should be lint-exempt —
+confirm the config honors it), and several FROZEN pre-Phase-1 migrations
+(MIGRATIONS[7]/[8]) still annotated `: GameState` while building an intermediate
+`homePlanet` field the type no longer declares (the correct fix is widening those
+annotations to `: any`, matching the new v17→v18 step, NOT editing frozen migration
+logic). Next: run `npm run check` at home and clear/triage every svelte-check finding
+(the gate above); then get eyes on it in a real browser — build + upgrade the Refinery
+through all 4 rungs, run parallel refine jobs and confirm slots/lifetime
+`itemsRefined` behave, confirm a big offline-catchup jump resolves in-flight processes
+closed-form, check the 7-tab nav for crowding on a narrow viewport, and confirm a
+pre-v18 save migrates cleanly (inventory built from old storage, no lost materials);
+then final holistic review, then merge — push to `main` still needs separate, explicit
+confirmation from the user, since it triggers a live Vercel production redeploy.

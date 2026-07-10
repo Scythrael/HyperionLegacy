@@ -163,8 +163,9 @@
   // feature release, Z bumps per minor fix) -- the pre-reset 0.6.0-0.9.0
   // history above is left untouched (never rewrite patch-note history), so
   // this deliberately reads as "0.2.0 newer than 0.9.0" once, only here.
-  const APP_VERSION = "0.5.0";
+  const APP_VERSION = "0.6.0";
   const PATCH_NOTES: { version: string; summary: string }[] = [
+    { version: "0.6.0", summary: "New Facilities tab: you can now build and upgrade a Refinery, then run refine jobs that turn common ore into refined material over time -- each upgrade unlocks another refine slot so several jobs run at once, with the later upgrades gated behind your Fleet Admiral level and Homeworld talents. Behind the scenes, all your materials moved into a single unified inventory -- existing saves migrate automatically." },
     { version: "0.5.0", summary: "Captains and your Fleet Admiral now earn XP every tick while missions run, instead of only when a mission cycle finishes -- leveling feels steady and continuous, and the Fleet Admiral now climbs much faster the more captains you have out on missions at once. Unlocking captain slots 3 and 4 now also requires reaching a Fleet Admiral level (on top of the existing talent cost), and captain slots you can actually work toward now read \"Locked\" instead of \"Coming Soon.\"" },
     { version: "0.4.0", summary: "Ships are now real, swappable hulls with distinct stats -- cargo capacity, transit speed, and extraction yield all change how a captain's missions play out. New Sector Space > Starbase area to manage your fleet, assign hulls to captains, and buy new hulls with credits. Existing saves auto-upgrade, giving every captain a starter Freighter." },
     { version: "0.3.0", summary: "Talent trees are now an explorable radial \"skill web\" you pan around, revealing new nodes as you learn. Captains pick a specialization -- Prospector, Tactician, or Explorer -- and Fleet Admiral talents are organized into 5 navigable categories. Learned nodes power up glowing links between them. Existing saves are migrated automatically." },
