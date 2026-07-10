@@ -542,6 +542,18 @@
           // tick.ts's tick(), which returns idle captains completely
           // unchanged).
           if (captain.mission === null) continue;
+          // Resolve the hull this captain flies and project it to the 3 mission
+          // stats (transit/cargo/yield) -- mirrors tick.ts's tick() (Task 7).
+          // CRITICAL: this live-play poll is a SEPARATE copy of the tick math
+          // from tick.ts's tick() (which only runs on offline catch-up + the dev
+          // button). Without this lookup, ship stats applied ONLY offline, never
+          // during live play -- the feature's core hook was dead on the primary
+          // path. state.ships isn't mutated by the tick loop, so reading it here
+          // is safe; assignedCaptainId is the single source of truth for who
+          // flies what. null (a hypothetical ship-less captain) == freighter
+          // baseline, same defensive fallback tick() uses.
+          const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
+          const shipStats = ship ? shipDerivedStats(ship) : null;
           if (!anyFired) {
             captains = [...captains]; // copy on first write this poll
             anyFired = true;
@@ -574,7 +586,7 @@
             captain: updatedCaptain,
             homePlanetDelta: delta,
             fleetAdminXpDelta: captainFleetAdminXpDelta,
-          } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses);
+          } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses, shipStats);
           captains[i] = updatedCaptain;
           fleetAdminXpDelta += captainFleetAdminXpDelta;
           if (!delta.commonOre.equals(0) || !delta.uncommonMaterial.equals(0) || !delta.rareMaterial.equals(0)) {
