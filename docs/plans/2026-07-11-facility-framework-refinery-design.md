@@ -155,7 +155,18 @@ Rules:
 - **Slots** = max parallel refine jobs. Refinery level grants slots (`addRefineSlots` upgrade effect).
 - **Starting a job** = pick a recipe → if a slot is free and inputs available → a `refineJob`
   TimedProcess (inputs deducted at start). On completion, output added + `itemId` marked discovered.
-- v1: **manual start** per job (auto-repeat is a deferred nicety, §9).
+- **Batch / continuous orders (user, 2026-07-11):** a slot runs a job **ORDER**, not a single job —
+  enter a **count N** (loop N times, then idle) OR set it **continuous** (repeat until toggled off).
+  Each iteration deducts its inputs at ITS OWN start (per-iteration atomic, §4) and produces one output
+  before the next begins — so only the actively-running iteration is reserved, never the whole batch.
+- **Material exhaustion:** if the next iteration can't afford its inputs, the order **pauses (idle) and
+  auto-resumes when materials are available again** (recommended — a "keep crafting" order throttles to
+  supply; needs a cheap per-tick affordability recheck on idle orders). Alternative: hard-stop needing a
+  manual restart — decide in planning.
+- **Offline resolution stays closed-form:** iterations over elapsed E =
+  `min(remainingCount, floor(E / durationTicks), min over each input of floor(available / perIteration))`,
+  then bulk-apply (deduct iterations×inputs, add iterations×output, award iterations×`durationTicks` FA
+  XP). Deterministic, no per-tick simulation.
 - **Refine durations (user, 2026-07-11 — tunable placeholders):** common 10 ticks, uncommon 25,
   rare 60. Component/fabricator durations (Phase 4) start ~60 ticks and climb into hours for
   high-tier/high-rarity items.
@@ -218,7 +229,9 @@ mission-pane style). The full Warehouse browser is Phase 2. Reuse the `[Brackete
 **Open items to settle during planning (not blocking this design):**
 1. Exact Refinery recipe list, `durationTicks`, and per-level slot counts (content/balance —
    placeholder values, tuned later, same as every launch table here).
-2. Auto-repeat refine jobs? (recommend: manual v1; auto-repeat deferred.)
+2. ~~Auto-repeat?~~ RESOLVED (2026-07-11): batch (count N) + continuous (until toggled off) orders are
+   IN scope (§6). Remaining sub-choice: material-exhaustion behavior — pause/auto-resume (recommended)
+   vs hard-stop.
 3. Cancellable in-progress processes with input refund? (recommend: yes, cheap given §4.)
 4. Retire the instant `craftRecipe()`/`RECIPES` path, or leave it beside the timed refinery for now?
    (recommend: leave intact this pass — Anti-Regression; retire when the Fabricator subsumes it.)
