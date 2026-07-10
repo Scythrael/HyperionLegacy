@@ -469,3 +469,43 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
     feature.
   - All deep-future: depends on the Crew system, Research, crafting, and the ship module/equipment
     framework all existing first. Not scoped -- captured so it isn't relitigated.
+
+- **Ship salvage / sell.** Raised during the Ships: Stats Foundation build (2026-07-09): a way to salvage a
+  hull for a PARTIAL return of its crafting materials (roughly ~60%, deliberately not 100% so building and
+  scrapping isn't a wash), or sell it outright for `credits` -- both a way to free up ship-storage-capacity
+  slots and to recover some value from a hull you no longer want. Depends on the crafting/Research economy
+  (the going-forward acquisition method is a resource-cost build action, deferred). Logged in the design
+  doc's deferred list (`docs/plans/2026-07-09-ships-stats-foundation-design.md`). Not scoped -- no salvage-
+  rate, sell-price, or UI decisions made.
+
+- **Ship storage-capacity growth.** Ships: Stats Foundation (2026-07-09): `shipStorageCapacity` starts at 8
+  and is a FIXED cap this pass -- there's no in-game way to raise it yet. A future Sector Space / Starbase
+  upgrade should grow it (the user's stated forward target is roughly ~50-100 eventually). Documented forward
+  in the design doc; the cap field already exists, so this is a growth-mechanic add later, not a data-model
+  change.
+
+- **`minCargoRequired` mission gate.** Ships: Stats Foundation (2026-07-09): a forward `MissionDef` field
+  letting a mission require a captain's hull to have at least a minimum cargo capacity to undertake it (the
+  same "requires N ft^3 of hold" idea already logged in the older "Cargo capacity as a real ship stat" entry
+  above, now with ships actually existing). Cheap to add -- a single optional field plus one eligibility
+  check -- and unused until some mission actually sets it. Noted in the design doc's deferred list.
+
+- **The 6 deferred hull buckets + ship modules/equipment/reactor + Research.** Pointer entry: this pass ships
+  4 real hulls (General Freighter + 3 Prospector: Hauler/Runner/Prospector). The full 10-hull roster adds 6
+  more documented-but-unbuilt buckets -- Tactician: Destroyer (glass cannon) / Battleship (tank) / Carrier;
+  Explorer: Cruiser (long-haul + diplomacy) / Survey vessel / Medical transport (crew-landing) -- with
+  Explorer/science hulls deliberately carrying MORE module slots as their identity. Alongside them: the ship
+  **modules / equipment / reactor-core** framework (buckets already baked inert into `ShipTypeDef`/`Ship`),
+  and the **Research** unlock engine that gates better ships/modules/tiers. All documented in the forward-
+  compat section of `docs/plans/2026-07-09-ships-stats-foundation-design.md`. Research is the intended NEXT
+  feature -- it's the ship-upgrade engine. (History note in that doc: this Research is NOT a revert of the
+  Phase-4-cut generator-stack Research; see the doc's "History note" section.)
+
+- **Captain-id scheme is length-derived (pre-existing, flagged during Ships Task 10 review).**
+  `buyHomeworldTalent`'s `unlockCaptainSlot` effect computes a new captain's id as
+  `nextId = state.captains.length + 1`. This is safe ONLY while the `captains` array is strictly append-only
+  (which it is today -- there's no captain-removal or reorder mechanic anywhere). If a captain-REMOVAL or
+  reorder feature is ever added, this will silently collide ids (delete captain 2 of 3, unlock a slot, and
+  the "new" captain reuses an existing id). Fix BEFORE adding any such feature: switch captains to a
+  monotonic id counter, exactly like the ships feature already did with `nextShipId`. Not a bug today --
+  a latent trap gated on a feature that doesn't exist yet.

@@ -1105,3 +1105,53 @@ hand-authored, single-elbow, lean-content build. Next: with both device
 checkpoints already signed off live, final holistic review of this branch, then
 merge — push to `main` still needs separate, explicit confirmation from the
 user, since it triggers a live Vercel production redeploy.
+
+**Session 26** — Ships: Stats Foundation (branch feat/ships-stats-foundation,
+docs/plans/2026-07-09-ships-stats-foundation-design.md +
+2026-07-09-ships-stats-foundation-plan.md), built via subagent-driven-development
+with per-task two-stage review. The ship stopped being an implicit property of a
+captain and became a real, separate, stat-bearing entity: `GameState.ships`
+(`ShipInstance[]`) plus a `SHIP_TYPES` table, replacing the old single-valued
+`ShipType`/`shipType` stub. 4 real hulls ship this pass — the **General
+Freighter** (cargo 90 / 1.0x transit / 1.0x yield — exactly today's implicit
+ship, so nothing rebalances) plus 3 Prospector hulls: **Hauler** (cargo 180, 0.8x
+transit — big hauls, slower cycles), **Runner** (cargo 60, 1.5x transit — rapid
+short cycles), and **Prospector** (cargo 90, 1.35x extraction yield — more per
+tick). Three ship stats now feed missions: cargo drives extraction-phase length
+(`ceil(cargoCapacity / extractionRatePerTick)`), transit speed rescales transit
+ticks via a new `effectiveMissionDef(base, ship)` copy-returning helper, and
+extraction yield folds into `tickCaptainMission`'s existing per-tick bonus math —
+the closed-form "one big jump equals many small ticks" guarantee was preserved and
+its tests extended to cover ship-modified missions (Hauler 180 / Runner 60 /
+Prospector yield). A hard invariant: every captain always has exactly one assigned
+ship, enforced at new-game, migration, and captain-unlock. Save schema migrated
+**v15 → v16**, grandfathering a General Freighter per existing captain (so
+`ships.length === captains.length`), backfilling `shipStorageCapacity = 8` and a
+`nextShipId` counter, and stripping the removed per-captain `shipType`. The UI
+landed under Sector Space > Starbase as **Docks** (manage/assign/swap owned hulls,
+mirroring the Fleet Captain's tab's assignment pattern) and **Requisition** (buy a
+hull with `credits` — the only acquisition method this pass; the going-forward
+resource-cost build action is deferred to Research). Deliberately shipped inert as
+forward-compat buckets, documented in KNOWN_ISSUES.md/SUGGESTIONS.md rather than
+built: ship module/equipment/reactor-core slots (`moduleSlots`/`equipmentSlots`
+carried on the data model, Docks renders module pips, but nothing behind them yet),
+the 6 remaining Tactician/Explorer hulls, `shipStorageCapacity` growth, a
+`minCargoRequired` mission gate, and ship salvage/sell — all pointing at the design
+doc's forward-compat section. Also flagged (Task 10 review): `buyHomeworldTalent`'s
+`unlockCaptainSlot` still derives a new captain id from `captains.length + 1`,
+safe only while that array stays append-only — switch to a monotonic counter (like
+this feature's own `nextShipId`) before any captain-removal feature. Research (the
+ship-upgrade/unlock engine) is the intended NEXT feature; the design doc's history
+note stresses this Research is NOT a revert of the Phase-4-cut generator-stack
+Research. `APP_VERSION` bumped **0.3.0 → 0.4.0** with a matching PATCH_NOTES entry.
+Note: the two interim features merged to `main` since Session 25 were never logged
+here — **talent-reset-row** (Homeworld talents "← Categories" + "Reset" collapsed
+to one row; parked the Library/Archive + ground-combat ideas into SUGGESTIONS.md)
+and **header-currency-indicator** (a top-bar credits chip with a hover/tap info
+tooltip). Next: get eyes on this in an actual browser — confirm each hull's stats
+change mission timing/yield as expected, buy and assign/swap hulls in Docks/
+Requisition, confirm a captain can't be left ship-less, and confirm an existing
+pre-v16 save migrates cleanly with a Freighter grandfathered onto every captain;
+then final holistic review of this branch, then merge — push to `main` still needs
+separate, explicit confirmation from the user, since it triggers a live Vercel
+production redeploy.

@@ -155,3 +155,23 @@ write it down so you don't relitigate it later.
   actual DOM behavior (Escape-to-close does work). Known, deliberately deferred a11y gap -- already logged
   in SUGGESTIONS.md ("Radial Skill Web tooltip -- focus trap / restore (a11y)") alongside the other Radial
   Skill Web v1 refinements; noted here so it isn't rediscovered as a surprise once the visual pass looks done.
+- Ship module/equipment slots are inert (Ships: Stats Foundation, Session 26). `SHIP_TYPES` carries
+  `moduleSlots`/`equipmentSlots` and the Docks UI renders module pips, but there is NO module/equipment/
+  reactor-core system behind them yet -- they are displayed-but-non-functional this pass. Deliberate: the
+  buckets were baked into the data model now so the Research system can wire them later without a data-model
+  rewrite, per the forward-compat section of `docs/plans/2026-07-09-ships-stats-foundation-design.md`.
+  Research is the intended next feature. Not a bug -- a deliberately-inert forward hook.
+- Transit speed is quantized by `ceil()` (Ships: Stats Foundation). `effectiveMissionDef` rescales a
+  mission's transit ticks via `Math.ceil(base / transitSpeedMult)`, so a hull's *effective* transit speed
+  slightly under-delivers its raw `transitSpeedMult` and varies with the mission's base transit length
+  (e.g. a 0.8x hull on a 25-tick transit -> `ceil(25/0.8)` = 32 ticks = ~0.78x effective; on a 70-tick
+  transit -> 88 = ~0.795x). Intentional -- integer tick thresholds are load-bearing for the closed-form
+  "one big jump equals many small ticks" guarantee -- so this is a balance-tuning fact to account for when
+  tuning hull speeds, not a bug.
+- Partial-final-extraction-tick risk for FUTURE non-rate-1 missions (Ships: Stats Foundation). The
+  extract-phase length is `ceil(cargoCapacity / extractionRatePerTick)`. Today every hull cargo (60/90/180)
+  is an integer and every mission's `extractionRatePerTick` is 1, so this always divides evenly and every
+  extraction tick delivers a full base amount. A FUTURE mission with `extractionRatePerTick > 1` combined
+  with a hull whose cargo isn't a clean multiple of it would introduce a partial final extraction tick --
+  revisit `effectiveMissionDef`/`requiredTicksForPhase` (both already carry an in-code comment flagging
+  this) when such content is added. Not reachable today; documented so it isn't rediscovered as a surprise.
