@@ -558,3 +558,32 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   day, missed-day/catch-up rules, and where it surfaces (likely a modal on load, sharing the same on-load-
   modal slot as the offline "welcome back" summary idea). Ties into: the credits economy, redemption codes,
   the offline welcome-back modal, and the future account/backend system.
+
+- **Cargo & progression redesign (dedicated brainstorm — cargo-as-true-cap + mission cargo requirements).**
+  Surfaced during the Ships: Stats Foundation playtest (2026-07-09): a Freighter (cargo 90) returned 94 total.
+  Root cause (not a code bug -- the shipped design): `cargoCapacity` drives the extraction-phase LENGTH
+  (`ceil(cargoCapacity / extractionRatePerTick)`), it is NOT a hard cap on returned cargo. So per-tick yield
+  talents + the (now-live, post-bonus-roll-fix) resourcefulness bonus-roll push totals above nominal cargo.
+  The user wants (a) cargo to be a REAL hold cap, and (b) missions to REQUIRE a minimum cargo/progress level
+  to undertake (a real progression gate), BOTH "designed thoughtfully so it's not gimmicky." These are one
+  mechanic -- brainstorm them TOGETHER, not piecemeal. This entry supersedes/absorbs the older terse
+  "`minCargoRequired` mission gate" and the "Cargo capacity as a real ship stat" (headroom-above-baseline)
+  entries above.
+  - **Cargo as a true hold cap (the 94>90 fix).** Recommended direction, closed-form-SAFE: DECOUPLE the
+    mission's guaranteed haul (which drives extraction length) from the ship's `cargoCapacity` (a hold cap
+    with HEADROOM above the mission's base haul), then CLAMP total returned cargo at the ship cap. Then
+    bonus-roll/lucky overflow lands up to the cap -- a Hauler (180) keeps big lucky hauls, a Runner (60) can
+    OVERFLOW its small hold and lose the excess (a real, intuitive tradeoff), and a hull can never return
+    more than its hold. This also turns cargo from the current "throughput-neutral" weak stat into a
+    meaningful one, and changes the Hauler's identity from "longer runs" to "bigger hold" (arguably more
+    intuitive). AVOID: (i) plain clamp at today's cargo=extraction-target -- base already fills the hold, so
+    it just DELETES all bonus-roll loot (neuters Lucky Strike); (ii) the literal "stop extracting + return
+    home early when the hold fills" -- that's an RNG-dependent stopping time that BREAKS the closed-form
+    offline-catchup guarantee (it's the separately-deferred "farming efficiency run" mission type).
+  - **Mission cargo requirements / progression gating** (the old `minCargoRequired` idea, now with a
+    progression-gating purpose): missions require a minimum hull cargo -- or a broader progress level -- to
+    undertake, gating advancement to harder content so the player has to build up first. Design the gate to
+    feel like earned progression, not an arbitrary number wall.
+  - Deliberately DEFERRED to its own brainstorm/design pass (user: "brainstorm later so it's not gimmicky").
+    The current ships-foundation branch ships with cargo-as-extraction-length AS-IS (the 94>90 behavior
+    stays until this redesign); this is the immediate fast-follow, not a blocker for the foundation.
