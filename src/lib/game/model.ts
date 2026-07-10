@@ -374,6 +374,118 @@ export interface FacilityState {
   level: number; // 0 = not built
 }
 
+// --- Facility framework (Phase 1, Task 10 -- docs/plans/2026-07-11-facility-
+// framework-refinery-design.md §5/§6) ----------------------------------------
+// The reusable meta-system every later facility (Warehouse, Fabricator, Research,
+// Shipyard...) hangs on, plus its first real node (the Refinery). A facility's
+// upgrade TRACK is a FINITE, ordered list: upgrades[i] holds the requirements to
+// reach level i+1 (so upgrades[0] is the level 0->1 build/unlock -- there is NO
+// separate unlock system, design §5). Buildability + the startFacilityUpgrade
+// action live in tick.ts (they use the Task 8 startProcess engine); THIS file
+// only declares the shapes + the launch data table.
+
+// What a completed facility upgrade GRANTS. Distinct from ProcessEffect (which is
+// what the timed-PROCESS applies on completion -- a facilityUpgrade process just
+// bumps the level via { type: "facilityLevelUp" }). This effect is DESCRIPTIVE
+// metadata on the upgrade DEF: the refine-slot / refine-speed system (Task 11+)
+// derives a facility's total slots / speed by summing these across every level
+// reached, exactly the way SHIP_TYPES' moduleSlots are POPULATED-but-INERT until
+// their system lands. Extensible union (same convention as ProcessEffect /
+// TimedProcessKind): a future effect kind slots in without touching call sites.
+export type FacilityUpgradeEffect =
+  | { addRefineSlots: number }   // +N parallel refine jobs this facility can run (Task 11 derives slot totals)
+  | { refineSpeedMult: number }; // multiplies this facility's refine-job speed (Task 11 consumes it)
+
+// One rung of a facility's upgrade track = the requirements to reach the NEXT
+// level. `materials` are deducted ATOMICALLY at start by startProcess (design §4).
+// Every `requires*` field is an OPTIONAL gate (absent = that gate does not apply):
+//   - requiresHomeworldTalents: all must be in state.unlockedHomeworldTalents.
+//   - requiresResearch: research-topic ids -- reserved, EMPTY today (no research
+//     topics exist yet). "No placeholders": no upgrade sets it, but the gate is
+//     honored if a future topic ever does.
+//   - requiresFacilityLevels: other facilities that must be at >= the given level
+//     (a cross-facility dependency chain). EMPTY today -- refinery is the only
+//     Phase 1 facility, so there is no other facility to depend on. Plain-string
+//     keys (not a FacilityKey union), forward-loose like inventory/ProcessEffect.
+//   - requiresFleetAdminLevel: state.fleetAdminLevel must be >= this (design §5,
+//     user 2026-07-11). Assumes the recalibrated FA curve (Progression Pacing
+//     Rework shipped first), so these are real numbers, not stand-ins.
+export interface FacilityUpgradeDef {
+  materials: Record<string, Decimal>;
+  durationTicks: number;
+  effect: FacilityUpgradeEffect;
+  requiresHomeworldTalents?: HomeworldTalentKey[];
+  requiresResearch?: string[];                    // EMPTY today (no research topics) -- reserved, no placeholder
+  requiresFacilityLevels?: Record<string, number>;
+  requiresFleetAdminLevel?: number;
+}
+
+export interface FacilityDef {
+  label: string;
+  upgrades: FacilityUpgradeDef[]; // upgrades[i] = requirements to reach level i+1; FINITE track, extended additively
+}
+
+// Launch facility table -- REAL levels only, same "no placeholders" discipline as
+// MISSIONS/RECIPES/SHIP_TYPES. Phase 1 seeds ONLY the Refinery, with a FINITE
+// 4-level upgrade track (extend additively as higher tiers / research gates land).
+// ⚠️ ALL numeric values below (materials, durations, FA-level + talent gates) are
+// TUNABLE LAUNCH PLACEHOLDERS -- first-pass content, real balance happens at the
+// device-check stage, exactly like every other launch table's constants here.
+//
+// Track shape rationale:
+//   - Level 0->1 (Build) is INTENTIONALLY UNGATED beyond its material cost -- the
+//     first facility must be buildable from a fresh save (a fresh fleet is at FA
+//     level 1 with no talents), so gating the initial build behind FA level /
+//     talents would soft-lock the whole system. Gates appear on LATER rungs only.
+//   - Escalating commonOre (and refinedMaterial on the higher rungs, closing a
+//     loop: you must refine to upgrade the refinery) + escalating durations.
+//   - Levels 1->2, 2->3 each grant +1 refine slot (more parallel jobs); the final
+//     3->4 rung grants a refineSpeedMult instead, to exercise BOTH effect kinds.
+//   - requiresFleetAdminLevel gates (2, 5, 8) + a requiresHomeworldTalents gate
+//     ("industryHub", the Industry category hub -- thematically apt for a refinery)
+//     are REAL gates against content that exists today. requiresResearch /
+//     requiresFacilityLevels stay unused (no research topics; refinery is the only
+//     facility) -- their gate logic is implemented + reserved, not faked into data.
+export const FACILITIES: Record<string, FacilityDef> = {
+  refinery: {
+    label: "Refinery",
+    upgrades: [
+      // [0] Level 0 -> 1: BUILD / unlock. Ungated (material cost only). Grants the
+      // first refine slot -- building the refinery is what lets it run one job.
+      {
+        materials: { commonOre: new Decimal(100) },
+        durationTicks: 20,
+        effect: { addRefineSlots: 1 },
+      },
+      // [1] Level 1 -> 2: a second refine line. First FA-level gate.
+      {
+        materials: { commonOre: new Decimal(750) },
+        durationTicks: 45,
+        effect: { addRefineSlots: 1 },
+        requiresFleetAdminLevel: 2,
+      },
+      // [2] Level 2 -> 3: a third line. Costs refinedMaterial (the refinery's own
+      // output) + a higher FA gate + the Industry hub talent.
+      {
+        materials: { commonOre: new Decimal(3000), refinedMaterial: new Decimal(25) },
+        durationTicks: 90,
+        effect: { addRefineSlots: 1 },
+        requiresFleetAdminLevel: 5,
+        requiresHomeworldTalents: ["industryHub"],
+      },
+      // [3] Level 3 -> 4: automation. Grants a refine SPEED multiplier (not a slot),
+      // exercising the other FacilityUpgradeEffect kind. Track ENDS here (finite).
+      {
+        materials: { commonOre: new Decimal(8000), refinedMaterial: new Decimal(75) },
+        durationTicks: 180,
+        effect: { refineSpeedMult: 1.5 },
+        requiresFleetAdminLevel: 8,
+        requiresHomeworldTalents: ["industryHub"],
+      },
+    ],
+  },
+};
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence -- every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)

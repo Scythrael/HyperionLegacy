@@ -638,3 +638,21 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   a hand-written string that could drift if the walls are retuned (see the KNOWN_ISSUES entry noting L1/L5/L25
   are tunable starting values). Pure future UX polish, not scoped now: just a copy/derivation tweak on the
   RadialWeb tooltip, no data-model change.
+
+- **Facility-upgrade concurrency lets you skip upgrade rungs (level-stacking exploit).** Flagged during
+  Phase 1 Task 10 (facility framework, `startFacilityUpgrade`/`canBuildFacilityUpgrade` in tick.ts). Per
+  design §5 + the user's 2026-07-11 decision, facility upgrades have UNLIMITED concurrency gated ONLY by
+  materials — `startFacilityUpgrade` deliberately does NOT check for an already-in-flight upgrade of the
+  same facility. Because a facility's `level` only bumps at process COMPLETION, `canBuildFacilityUpgrade`
+  keeps reading the SAME `upgrades[currentLevel]` rung while a build is mid-flight. Consequence: a player
+  can start the level 0→1 build TWICE back-to-back (paying that cheap rung's materials both times) and land
+  at level 2, SKIPPING level 1→2's higher material cost AND its `requiresFleetAdminLevel`/`requiresHomeworldTalents`
+  gates. Same applies to any adjacent rungs. This is a faithful implementation of the spec (materials-only
+  gate, unlimited concurrency), NOT a coding bug — but it is a real balance/exploit surface that undermines
+  the FA-level + talent gates on the later rungs. Options for a design decision (not silently chosen in
+  code): (a) gate `startFacilityUpgrade` on "no in-flight upgrade for THIS facility" (simplest; still allows
+  cross-facility concurrency); (b) have `canBuildFacilityUpgrade` look PAST in-flight upgrades of the same
+  facility (count queued level-ups so the "next rung" is the real post-queue rung, and charge that rung's
+  materials/gates); (c) accept it as intended (fast-forward for players who over-mine). Recommend (a) or (b)
+  once the Refinery UI (later task) makes the exploit reachable — today nothing calls these functions from
+  the UI yet, so it is not yet player-reachable.

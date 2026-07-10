@@ -21,6 +21,8 @@ import {
   CAPTAIN_TALENTS,
   CAPTAIN_SPEC_BONUS,
   HOMEWORLD_TALENTS,
+  FACILITIES,
+  ITEMS,
   freshCaptainStack,
   shipDerivedStats,
   type GameState,
@@ -1512,6 +1514,165 @@ export function startProcess(
     },
     started: true,
   };
+}
+
+// ============================================================================
+// Facility framework — Phase 1, Task 10
+// (docs/plans/2026-07-11-facility-framework-refinery-design.md §5, §6).
+//
+// Two functions, built on the Task 8 startProcess engine above:
+//   - canBuildFacilityUpgrade : pure predicate. Is the NEXT upgrade for a facility
+//                               buildable RIGHT NOW? Returns { ok, reason? } -- the
+//                               reason names the FIRST failing gate (for the future
+//                               Refinery panel's red "missing" readouts).
+//   - startFacilityUpgrade    : the action. If buildable, hand the upgrade's
+//                               materials/duration/level-up effect to startProcess
+//                               (atomic deduct-at-start). Else a same-ref no-op.
+//
+// The NEXT upgrade for a facility at level L is FACILITIES[key].upgrades[L]
+// (upgrades[i] = requirements to reach level i+1, so a fresh level-0 facility's
+// next rung is upgrades[0], the build/unlock). An out-of-range index (level ==
+// upgrades.length) means the track is MAXED -> not buildable.
+// ============================================================================
+
+// Reads the current level of a facility, treating an absent facility key as level
+// 0 (grow-on-demand, the SAME posture resolveProcesses' facilityLevelUp uses when
+// it bumps an unseen facility). freshState seeds { refinery: { level: 0 } }, so
+// today this always finds the entry, but the fallback keeps a future not-yet-seeded
+// facility from reading `undefined.level`.
+function facilityLevel(state: GameState, facilityKey: string): number {
+  return state.facilities[facilityKey]?.level ?? 0;
+}
+
+// PURE predicate -- reads state + the static FACILITIES table, mutates nothing,
+// starts nothing. `ok: true` means startFacilityUpgrade would succeed right now;
+// `ok: false` carries a `reason` naming the FIRST failing gate. Gate order is
+// deliberate and documented inline: cheap structural gates (facility exists /
+// track not maxed) first, then the prerequisite gates (FA level, talents,
+// research, facility levels), then materials LAST -- materials are the gate most
+// likely to be transiently unmet (you gather ore over time), so a stale
+// prerequisite (wrong FA level / missing talent) surfaces ahead of "just go mine
+// more ore". This ordering only affects WHICH reason shows when multiple gates
+// fail at once; `ok` itself is unaffected by order (all gates must pass).
+export function canBuildFacilityUpgrade(
+  state: GameState,
+  facilityKey: string
+): { ok: boolean; reason?: string } {
+  const facilityDef = FACILITIES[facilityKey];
+  // Unknown facility key -- no such facility in the table. Defensive: today every
+  // caller passes "refinery", but a typo'd/removed key returns a clear reason
+  // rather than throwing on `undefined.upgrades`.
+  if (!facilityDef) {
+    return { ok: false, reason: `Unknown facility: ${facilityKey}` };
+  }
+
+  const currentLevel = facilityLevel(state, facilityKey);
+  const upgrade = facilityDef.upgrades[currentLevel]; // the NEXT rung (undefined = maxed)
+  // Track maxed -- no upgrade defined past the current level. Not buildable, and
+  // the UI can show the facility as fully upgraded.
+  if (!upgrade) {
+    return { ok: false, reason: `${facilityDef.label} is fully upgraded` };
+  }
+
+  // Prerequisite gate: Fleet Admiral level. Absent field => no FA-level wall.
+  if (upgrade.requiresFleetAdminLevel !== undefined && state.fleetAdminLevel < upgrade.requiresFleetAdminLevel) {
+    return { ok: false, reason: `Requires Fleet Admiral level ${upgrade.requiresFleetAdminLevel}` };
+  }
+
+  // Prerequisite gate: Homeworld Talents -- EVERY listed talent must be unlocked
+  // fleet-wide. Reason names the first missing talent by its display label (the
+  // SAME HOMEWORLD_TALENTS[key].label the talent tree UI shows), not the raw key.
+  if (upgrade.requiresHomeworldTalents) {
+    for (const talentKey of upgrade.requiresHomeworldTalents) {
+      if (!state.unlockedHomeworldTalents.includes(talentKey)) {
+        return { ok: false, reason: `Requires Homeworld Talent: ${HOMEWORLD_TALENTS[talentKey].label}` };
+      }
+    }
+  }
+
+  // Prerequisite gate: Research topics. EMPTY today (no research topics exist), so
+  // this loop never runs against real data -- but it is honored if a future
+  // upgrade ever lists one, per "reserve the gate, no placeholder". No label table
+  // for research topics exists yet, so the raw id is surfaced as-is.
+  if (upgrade.requiresResearch) {
+    for (const topicId of upgrade.requiresResearch) {
+      // No research-completion state exists on GameState yet, so ANY listed topic
+      // is by definition unmet. When Research lands, replace this with a real
+      // "is topic completed?" check against the then-existing state field.
+      return { ok: false, reason: `Requires research: ${topicId}` };
+    }
+  }
+
+  // Prerequisite gate: other facilities' levels (cross-facility dependency chain).
+  // EMPTY today (refinery is the only Phase 1 facility, nothing to depend on), so
+  // no real upgrade triggers this -- reserved gate, honored if ever populated.
+  if (upgrade.requiresFacilityLevels) {
+    for (const depKey of Object.keys(upgrade.requiresFacilityLevels)) {
+      const need = upgrade.requiresFacilityLevels[depKey];
+      if (facilityLevel(state, depKey) < need) {
+        const depLabel = FACILITIES[depKey]?.label ?? depKey;
+        return { ok: false, reason: `Requires ${depLabel} level ${need}` };
+      }
+    }
+  }
+
+  // Material gate (checked LAST -- see the ordering note on the function). EVERY
+  // material entry must be affordable against LIVE inventory. Because startProcess
+  // deducts every running process's inputs at ITS start, live inventory already
+  // reflects everything reserved -- no separate ledger (design §4). An absent
+  // inventory key reads as 0 (grow-on-demand), matching startProcess's own gate.
+  for (const itemId of Object.keys(upgrade.materials)) {
+    const need = upgrade.materials[itemId];
+    const have = state.inventory[itemId] ?? new Decimal(0);
+    if (have.lt(need)) {
+      const itemLabel = ITEMS[itemId]?.label ?? itemId;
+      return { ok: false, reason: `Need ${need.toString()} ${itemLabel} (have ${have.toString()})` };
+    }
+  }
+
+  return { ok: true };
+}
+
+// The ACTION. Starts the next upgrade for a facility IF canBuildFacilityUpgrade
+// approves it, by delegating to the Task 8 startProcess engine: materials are
+// deducted ATOMICALLY at start, and a "facilityUpgrade" TimedProcess is pushed
+// whose completion effect { type: "facilityLevelUp", facility } bumps the level by
+// 1 (resolveProcesses applies it). Returns { next, started } -- same shape/naming
+// as startProcess. On any failed gate it is a same-reference no-op ({ next: state,
+// started: false }), matching startProcess's own reject convention.
+//
+// CONCURRENCY -- UNLIMITED, BY DESIGN (design §5, user 2026-07-11): this does NOT
+// check whether an upgrade for this (or any) facility is already in flight. The
+// ONLY gate is canBuildFacilityUpgrade (materials + prereqs). Multiple facilities
+// -- and multiple upgrades OF THE SAME facility -- can run at once; the material
+// deduct-at-start is the sole throttle.
+//
+// ⚠️ CONCURRENCY CAVEAT worth flagging (see SUGGESTIONS.md): because the level
+// only bumps at COMPLETION, canBuildFacilityUpgrade still reads the SAME
+// upgrades[currentLevel] rung while a build is mid-flight. So a player CAN start
+// two level-0->1 builds back-to-back (paying that rung's materials twice) and land
+// at level 2, SKIPPING level 1->2's higher cost + FA-level/talent gates. That is a
+// direct consequence of "unlimited concurrency, materials-only gate" as specified,
+// not a bug in this function -- but it is a real balance/exploit surface. Logged to
+// SUGGESTIONS.md for a design decision (e.g. gate on "no in-flight upgrade for this
+// facility", or have canBuild look past in-flight upgrades of the same facility)
+// rather than silently deciding it here.
+export function startFacilityUpgrade(
+  state: GameState,
+  facilityKey: string
+): { next: GameState; started: boolean } {
+  const check = canBuildFacilityUpgrade(state, facilityKey);
+  if (!check.ok) {
+    return { next: state, started: false };
+  }
+
+  // Safe: canBuildFacilityUpgrade.ok guarantees the facility exists and the rung
+  // is in range (it would have returned a reason otherwise).
+  const upgrade = FACILITIES[facilityKey].upgrades[facilityLevel(state, facilityKey)];
+  return startProcess(state, "facilityUpgrade", upgrade.materials, upgrade.durationTicks, {
+    type: "facilityLevelUp",
+    facility: facilityKey,
+  });
 }
 
 // Advances every active process by `ticksElapsed` and resolves completions. THE
