@@ -94,6 +94,7 @@
     fleetRareYieldMult, // consumed by both the live tick loop below and the captain-selection popup markup (Task 5) for its live drop-rate preview
     captainBonusRollChance,
     captainBonusRollChanceMult,
+    captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does -- enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
     LOOT_MATERIAL_KEYS,
     describeCaptainTalentEffect,
     describeHomeworldTalentEffect,
@@ -512,6 +513,17 @@
       // even when progress >= 1) leaves this at 0, which applyFleetAdminXp
       // itself treats as a cheap no-op (see that function's own guard).
       let fleetAdminXpDelta = 0;
+      // Accumulates fleet-wide credits across every captain's completed mission
+      // cycles this poll -- same "accumulate locally, apply once" shape as
+      // fleetAdminXpDelta immediately above, and mirrors tick.ts's own tick()
+      // `creditsDelta` accumulator exactly. Declared here (BEFORE the
+      // `if (progress >= 1)` block below), not inside it, so it is always
+      // defined when the guarded application runs at the end of this callback,
+      // whether or not the shared cycle actually completed this poll. Defaults
+      // to 0 -- the overwhelmingly common poll where progress < 1 (or no
+      // captain's mission cycle completes) leaves this at 0, which the
+      // `creditsDelta > 0` guard below treats as a cheap no-op.
+      let creditsDelta = 0;
 
       if (progress >= 1) {
         const gameSecondsThisCycle = barSeconds * speed;
@@ -558,18 +570,27 @@
             captains = [...captains]; // copy on first write this poll
             anyFired = true;
           }
-          // 5-field bonuses object (2026-07-07 Loot Tier Rework) -- mirrors
-          // tick.ts's own tick() exactly: 4 captain-level helpers (read at
-          // usage time off THIS captain's unlockedCaptainTalents) plus the
-          // one fleet-wide helper (rareYieldMult only, computed once above,
-          // outside this per-captain loop, since Homeworld Talents are
-          // fleet-wide, not per-captain).
+          // 8-field bonuses object -- mirrors tick.ts's own tick() exactly:
+          // 7 captain-level helpers (read at usage time off THIS captain's
+          // unlockedCaptainTalents) plus the one fleet-wide helper
+          // (rareYieldMult only, computed once above, outside this per-captain
+          // loop, since Homeworld Talents are fleet-wide, not per-captain).
+          // The last 3 (bonusRollChance/bonusRollChanceMult/specBonusRollChance)
+          // drive the resourcefulness bonus-roll (Lucky Strike I/II + the spec
+          // bonus-roll). They were MISSING from this live-loop copy until now,
+          // so that bonus-roll fired ONLY during offline catch-up (tick()),
+          // never live play -- a pre-existing live-loop/tick() divergence the
+          // ships-feature holistic review surfaced. Kept field-for-field
+          // identical to tick()'s object so the two paths can't silently drift.
           const bonuses = {
             commonYieldMult: captainCommonYieldMult(captain),
             uncommonYieldMult: captainUncommonYieldMult(captain),
             uncommonChanceMult: captainUncommonChanceMult(captain),
             rareYieldMult: fleetRareYield,
             rareChanceMult: captainRareChanceMult(captain),
+            bonusRollChance: captainBonusRollChance(captain),
+            bonusRollChanceMult: captainBonusRollChanceMult(captain),
+            specBonusRollChance: captainSpecBonusRollChance(captain),
           };
           // Math.random passed explicitly (rather than omitted) since bonuses
           // is positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
@@ -586,9 +607,16 @@
             captain: updatedCaptain,
             homePlanetDelta: delta,
             fleetAdminXpDelta: captainFleetAdminXpDelta,
+            // Renamed to a per-captain local for the same shadowing reason as
+            // fleetAdminXpDelta above -- an unrenamed `creditsDelta` destructure
+            // here would shadow the outer accumulator declared before the
+            // `if (progress >= 1)` block, silently discarding the running total
+            // each iteration. Mirrors tick.ts's own tick() naming exactly.
+            creditsDelta: captainCreditsDelta,
           } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses, shipStats);
           captains[i] = updatedCaptain;
           fleetAdminXpDelta += captainFleetAdminXpDelta;
+          creditsDelta += captainCreditsDelta;
           if (!delta.commonOre.equals(0) || !delta.uncommonMaterial.equals(0) || !delta.rareMaterial.equals(0)) {
             anyLootDelivered = true;
             homePlanetDelta.commonOre = homePlanetDelta.commonOre.plus(delta.commonOre);
@@ -663,6 +691,16 @@
       // here regardless of whether progress >= 1 this poll -- see its
       // declaration above, before the `if (progress >= 1)` block.
       state = applyFleetAdminXp(state, fleetAdminXpDelta);
+
+      // Award mission-cycle credits accumulated above -- mirrors tick()'s
+      // `credits: state.credits.plus(creditsDelta)` (tick.ts). Gated on > 0 so a
+      // poll with no cycle completion stays a cheap no-op (no Decimal churn /
+      // reactivity), consistent with the anyFired/anyLootDelivered guards above.
+      // WITHOUT this, mission credits were awarded ONLY during offline catch-up
+      // (tick()), never live play -- a pre-existing live-loop/tick() divergence.
+      if (creditsDelta > 0) {
+        state = { ...state, credits: state.credits.plus(creditsDelta) };
+      }
     }, 100);
 
     // Autosave every 30s — tech spec §6.
