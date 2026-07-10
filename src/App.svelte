@@ -220,12 +220,14 @@
       key: "credits",
       glyph: "◈",
       label: "Credits",
-      // FLAVOR DRAFT (2026-07-09): the functional half is accurate -- credits
-      // are earned from captain mission cycles (creditsPerCycle, tick.ts) and
-      // spent on talent respecs (RESPEC_COST_CREDITS). The lore half is a
-      // placeholder for the user to wordsmith to taste.
+      // FLAVOR DRAFT (2026-07-09): credits are the game's BASE currency -- the
+      // intended sink for most transactions (buying/selling commodities, etc.),
+      // per the user. Wired in code TODAY: earned from captain mission cycles
+      // (creditsPerCycle, tick.ts), spent on talent respecs (RESPEC_COST_
+      // CREDITS); commodity trading is planned, not yet implemented. The lore
+      // half is a placeholder for the user to wordsmith to taste.
       description:
-        "The Admiralty's working capital — banked from captain mission payouts and spent to retrain talents. Every credit is a favor called in, a cargo sold, a risk that paid off.",
+        "The Admiralty's base currency — earned from captain mission payouts and spent on nearly everything: trading commodities, retraining talents, and the day-to-day business of running a fleet. Every credit is a favor called in, a cargo sold, a risk that paid off.",
     },
   ];
   // Live formatted values, keyed by currency id. Kept separate from the static
