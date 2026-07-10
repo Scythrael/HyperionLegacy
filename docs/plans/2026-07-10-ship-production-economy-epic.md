@@ -22,6 +22,33 @@ one phase at a time, each through the full workflow (brainstorm → design → p
 
 ---
 
+## 1a. Full push — master build order (at a glance)
+
+The complete program as of 2026-07-11, in implementation order. Each item is its own feature
+(brainstorm → design → plan → build → review → merge), wired into existing content as it lands.
+Details for each live in the sections below and in the linked docs.
+
+0. **Progression Pacing Rework** *(prerequisite — FIRST; §4 PREREQUISITE)* — per-tick XP (captain + FA),
+   curve recalibration, captain-slot level walls (layered), "Coming Soon"→"Locked". Also **reserves the
+   `lifetimeStats` schema + wires mission-side counters** (first & only necessary touch of the closed-form
+   mission code) and **flips lifetime-stat counting ON**. The delicate one.
+1. **Phase 1 — Facility Framework + Refinery** *([design doc](2026-07-11-facility-framework-refinery-design.md))* —
+   shared timed-process engine, facility framework, Refinery, keyed inventory + item registry + `discovered`,
+   batch/continuous orders, refine/craft lifetime counters, migration **v16→v17**.
+2. **Materials & mission-loot rework** *(§4 Phase 1b; upstream — exact slot flexible)* — distinct named
+   materials × quality, co-designed with loot-rarity-range + cargo-as-true-cap (§3.6).
+3. **Phase 2 — Warehouse** *(mockup-gated)* — the inventory browser + storage caps.
+4. **Phase 3 — Research + blueprints.**
+5. **Phase 4 — Fabricator** — components → ship parts; crafted-lifetime counters populate.
+6. **Phase 5 — Starbase → Shipyard** — build whole ships.
+7. **Phase 6 — Ship systems/modules** *(mockup-gated)* — full stat vocabulary (Prospector + combat),
+   equip UI + ship status page; reconcile the cargo redesign.
+- **Consumers (build after, back-compute from lifetime stats):** Completions, Achievements
+  (commendations), Relics, 100%-completion tracker.
+- **Deferred:** Combat behavior / Battlespace — reads the by-then-tangible ship stats.
+
+---
+
 ## 2. The vision (captured from the 2026-07-10 brainstorm)
 
 The raw inputs come from **missions**, which are reworked to drop **distinct named raw materials**
