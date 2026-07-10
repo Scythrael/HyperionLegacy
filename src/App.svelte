@@ -115,6 +115,33 @@
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
   const DEV_MODE_ENV = import.meta.env.VITE_DEV_MODE === "true";
 
+  // TEST AFFORDANCE (device-testing the Progression Pacing Rework): allow the
+  // Debug tab to be revealed on a deployed PRODUCTION preview by appending a
+  // `?dev` query param to the URL (e.g. .../?dev), WITHOUT it being visible by
+  // default. This is separate from DEV_MODE_ENV so a production build (where
+  // VITE_DEV_MODE is unset/false) can still be poked at on a real device.
+  //
+  // Read `window.location` defensively ONCE at init: this is a Svelte SPA so
+  // `window` exists at runtime, but wrap it in typeof/try so a bundle/SSR
+  // context that lacks `window` can't throw here. `DEV_MODE` is what every
+  // Debug gate below keys off from now on -- true when EITHER the env flag is
+  // set OR the `?dev` param is present.
+  //
+  // ⚠️ BEFORE MERGING TO main: decide whether to keep this `?dev` bypass. It is
+  // harmless for a single-player idle game (the Debug panel only mutates the
+  // player's OWN local save -- no server, no other players to grief), so it can
+  // reasonably stay as a permanent self-serve test hatch; but if you'd rather
+  // lock it back down, delete the URL-param clause and gate on DEV_MODE_ENV only.
+  const DEV_MODE_URL_PARAM = (() => {
+    try {
+      if (typeof window === "undefined" || !window.location) return false;
+      return new URLSearchParams(window.location.search).has("dev");
+    } catch {
+      return false;
+    }
+  })();
+  const DEV_MODE = DEV_MODE_ENV || DEV_MODE_URL_PARAM;
+
   // Player-facing app version + patch notes, shown on the About sub-tab
   // (System tab). Distinct from SAVE_VERSION (save.ts) -- that's the save
   // SCHEMA version, bumped only when the save shape changes; this is a
@@ -365,10 +392,12 @@
   // width/panel-style fix -- see SESSION_LOG.md). Options holds the relocated
   // theme picker + Export/Delete Save content; Log holds the relocated LOG
   // panel; Debug holds the relocated dev debug panel (only reachable when
-  // DEV_MODE_ENV is true -- see the <SubTabs> usage under the System tab
-  // below, which omits the "debug" entry from its tabs array entirely when
-  // DEV_MODE_ENV is false, so non-dev-mode players never see a Debug button
-  // at all); About holds the app title/branding that used to be its own
+  // DEV_MODE is true -- see the <SubTabs> usage under the System tab below,
+  // which omits the "debug" entry from its tabs array entirely when DEV_MODE
+  // is false, so ordinary players never see a Debug button at all. DEV_MODE is
+  // DEV_MODE_ENV OR a `?dev` URL param -- see the DEV_MODE declaration near the
+  // top of this script for the deployed-preview test-affordance note); About
+  // holds the app title/branding that used to be its own
   // always-visible header panel above the top bar -- retired in favor of
   // this out-of-the-way spot, per the user's own request, since the level/
   // XP/tick bar and the bottom nav ARE the header/footer now. Defaults to
@@ -802,6 +831,58 @@
   function simulateOffline(hours: number) {
     state = tick(hours * 3600, state); // fleet-wide: advances every captain, matches real offline catch-up
     pushLog(`[DEV] Simulated ${hours}h offline for the whole fleet.`);
+  }
+
+  // --- [DEV] Progression testing grants (Progression Pacing Rework) -------
+  // These three buttons let the user device-test the new progression walls
+  // (talents / captain-slot unlocks now require Fleet Admiral levels + admin
+  // points; Captain Talents cost per-captain statPoints) WITHOUT grinding.
+  // They mirror simulateOffline's shape exactly: mutate `state` immutably via
+  // { ...state, ... } and pushLog a "[DEV] ..." line. They are RAW test grants,
+  // NOT a model of real leveling -- they intentionally bypass applyFleetAdminXp
+  // / xp curves and just hand out the resources the walls check.
+
+  // +5 Fleet Admiral Levels AND +5 admin points. Raising fleetAdminLevel by 5
+  // clears the L5/L25 captain-slot-3/4 walls; granting adminPoints alongside it
+  // mirrors natural leveling (which yields admin points) so the user can also
+  // AFFORD the slot-unlock / homeworld talents, not just satisfy the level gate.
+  // fleetAdminXp is reset to 0 -- a raw test grant, so we don't bother computing
+  // the xp-toward-next-level for the new level; it simply starts the new level's
+  // bar empty. Harmless: leveling only ever ADDS from here.
+  function devGrantFleetAdminLevels() {
+    state = {
+      ...state,
+      fleetAdminLevel: state.fleetAdminLevel + 5,
+      adminPoints: state.adminPoints + 5,
+      fleetAdminXp: new Decimal(0),
+    };
+    pushLog(`[DEV] +5 Fleet Admiral levels (now L${state.fleetAdminLevel}) and +5 admin points.`);
+  }
+
+  // +100 admin points only -- lets the user afford homeworld talents / slot
+  // unlocks in bulk without touching fleetAdminLevel (i.e. test the talent
+  // PURCHASE flow independently of the level walls).
+  function devGrantAdminPoints() {
+    state = {
+      ...state,
+      adminPoints: state.adminPoints + 100,
+    };
+    pushLog(`[DEV] +100 admin points (now ${state.adminPoints}).`);
+  }
+
+  // +10 statPoints to the CURRENTLY-ACTIVE captain (state.captains[activeCaptainIndex],
+  // the same reference the Captain Talents panel spends from) -- for testing
+  // Captain Talents. Rebuilds the captains array immutably: only the active
+  // captain object is replaced, every other captain reference is preserved.
+  function devGrantStatPoints() {
+    const idx = activeCaptainIndex;
+    const captain = state.captains[idx];
+    if (!captain) return; // defensive: no active captain (should never happen)
+    const nextCaptains = state.captains.map((c, i) =>
+      i === idx ? { ...c, statPoints: c.statPoints + 10 } : c
+    );
+    state = { ...state, captains: nextCaptains };
+    pushLog(`[DEV] +10 stat points to ${captain.label} (now ${captain.statPoints + 10}).`);
   }
 
   function doCraftRecipe(recipeKey: RecipeKey) {
@@ -1939,7 +2020,7 @@
         tabs={[
           { key: "options", label: "Options" },
           { key: "log", label: "Log" },
-          ...(DEV_MODE_ENV ? [{ key: "debug", label: "Debug" }] : []),
+          ...(DEV_MODE ? [{ key: "debug", label: "Debug" }] : []),
           { key: "about", label: "About" },
           { key: "patchNotes", label: "Patch Notes" },
           { key: "systemLocked1", label: "Coming Soon!", locked: true },
@@ -1996,7 +2077,7 @@
       </Panel>
       {/if}
 
-      {#if DEV_MODE_ENV && activeSystemSubTab === "debug"}
+      {#if DEV_MODE && activeSystemSubTab === "debug"}
         <Panel class="dev-panel">
           <div class="panel-title dev-title">DEBUG PANEL (dev-only)</div>
           <div class="dev-row">
@@ -2012,6 +2093,16 @@
             <button class="dev-btn" on:click={() => simulateOffline(1)}>+1h</button>
             <button class="dev-btn" on:click={() => simulateOffline(8)}>+8h</button>
             <button class="dev-btn" on:click={() => simulateOffline(24)}>+24h</button>
+          </div>
+          <!-- [DEV] Progression testing grants (Progression Pacing Rework) --
+               raw grants to clear/afford the new FA-level + admin-point walls
+               and per-captain statPoint costs without grinding. See the
+               devGrant* handlers in the script block. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Progression</span>
+            <button class="dev-btn" on:click={devGrantFleetAdminLevels}>+5 FA Levels</button>
+            <button class="dev-btn" on:click={devGrantAdminPoints}>+100 Admin Pts</button>
+            <button class="dev-btn" on:click={devGrantStatPoints}>+10 Stat Pts (active captain)</button>
           </div>
           <div class="dev-row">
             <button class="dev-btn" on:click={doSave}>Save now</button>
