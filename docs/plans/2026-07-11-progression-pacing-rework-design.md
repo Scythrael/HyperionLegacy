@@ -36,6 +36,8 @@ Long 2) for the FA — each followed by a subtract-threshold level-up loop cappe
 New model — **every active tick awards XP** (accrual, not lump):
 - **Captain:** the piloting captain earns `xpPerTick` every tick their mission is in progress (all
   phases — transit/extract/unload). A mission's total captain XP = its duration in ticks × rate.
+  Captain XP is from **MISSIONS ONLY** (confirmed 2026-07-11) — facility processes grant NO captain XP
+  (no captain pilots them). Captains' leveling PACE stays identical to today (§4).
 - **Fleet Admiral:** earns `xpPerTick` **per active action, stacking** — every running mission AND
   every running refine/upgrade/fabrication process each contributes. 7 things running = 7 FA XP/tick
   (before buffs).
@@ -74,8 +76,12 @@ xpPerTick(source, captain?, state) = BASE_XP_PER_TICK[source]        // default 
 50 over 148 ticks) / 0.21 (long, 50 over 238). New rate = 1.0 XP/tick (normalized across missions).
 - **Consequence:** per-tick *normalizes* XP/tick to 1.0 — the "spam short runs to out-level" quirk goes
   away (longer mission → proportionally more XP). This is a deliberate behavioral shift.
-- **Starting proposal:** hold the short-run early cadence (~2 cycles per early level) → `xpForNextLevel`
-  ≈ **300 × level** (≈ 2 × 148). Tune between ~300 (short-run pace) and ~475 (long-run pace) via playtest.
+- **Captain curve — LOCKED to exact short-run parity** (user 2026-07-11: "keep the curve feeling the
+  same," balance around the short run): scale by (new XP/cycle ÷ old) = 148 / 50 = **2.96** →
+  **`xpForNextLevel(level) = 296 × level`** (was 100 × level). Short-run leveling is then PIXEL-IDENTICAL
+  to today (today 2L short-cycles per level; new 296L ÷ 148 = 2L — same). May round to 300×level
+  (~1.4%, negligible). Future missions tuned per-mission via `BASE_XP_PER_TICK` (§3), not the curve —
+  balance around the short run first, extend from there.
 
 **Fleet Admiral** — today `xpForNextFleetAdminLevel` (≈ ×2500, quadratic-ish); today FA earns 1–2/cycle.
 New: 148–238 per cycle per mission (≈ **100–150× more**), × stacking across concurrent actions.
@@ -160,7 +166,8 @@ concurrent actions (the stacking); (5) slot walls gate correctly (level AND tale
 
 ## 11. Open items for the plan step
 
-1. Final curve constants — captain (`~300–475 × level`) and the FA curve form/scale (most playtest-sensitive).
+1. Curve constants — captain **LOCKED at 296 × level** (exact short-run parity, §4); FA curve form/scale
+   still open (most playtest-sensitive, tune on device).
 2. `BASE_XP_PER_TICK` values per mission + per facility-process type (start all at 1).
 3. Whether captain XP gets its own talent-mult pipeline NOW or just reserves the seam (no captain XP
    talents exist yet — likely reserve, matching "no placeholders").
