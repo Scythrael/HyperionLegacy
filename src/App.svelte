@@ -700,22 +700,43 @@
           }
         }
 
+        // Task 7 / Task 11: fold the mission-side `captains` + `lifetimeStats`
+        // into `state` HERE -- BEFORE resolveProcesses -- mirroring tick.ts's
+        // postMissionState -> resolveProcesses order. captains AND lifetimeStats
+        // change under the identical condition (both produced by the per-captain
+        // loop above, which only runs its body -- and only sets anyFired -- for
+        // mission captains), so both fold into this ONE reassignment. `lifetimeStats`
+        // was accrued per captain via the shared foldLifetimeStatsDelta helper,
+        // identical to tick(); when anyFired is false no captain advanced, no fold
+        // ran, and lifetimeStats is still === state.lifetimeStats, so skipping the
+        // write is correct (nothing to write).
+        //
+        // ⚠️ ORDERING IS LOAD-BEARING (Task 11): this MUST precede resolveProcesses
+        // below. resolveProcesses now ALSO writes lifetimeStats (a completed refine
+        // job increments itemsRefined), seeding from state.lifetimeStats. If this
+        // mission fold ran AFTER resolveProcesses (as it did pre-Task-11), it would
+        // CLOBBER a refine job's itemsRefined whenever a mission also fired the same
+        // poll -- a live-vs-offline drift (tick() composes them in this order). By
+        // writing the mission fold first, resolveProcesses composes itemsRefined ON
+        // TOP of it, exactly as tick() does. Do NOT move this back below.
+        if (anyFired) {
+          state = { ...state, captains, lifetimeStats };
+        }
+
         // Phase 1, Task 9: resolve every in-flight timed process ONCE, fleet-wide,
         // with the SAME `ticksElapsed` the per-captain mission loop above used --
         // the EXACT same resolveProcesses call tick() makes (imported from tick.ts),
         // so live play and offline catch-up cannot diverge on process completion.
         // Runs INSIDE this `progress >= 1` block (NOT on every 100ms poll) so
         // processes advance on the SAME shared-cycle cadence missions do. Threads
-        // `state` forward: postProcessState carries any completed process's output
-        // (inventory/discovered/facilities) plus the drained activeProcesses, so the
-        // LATER mission-loot inventory fold below seeds from this process-updated
-        // inventory and both compose into one inventory (addition is commutative, so
-        // the process-then-loot order here lands the same values as tick()'s
-        // loot-then-process order). Its lump Fleet Admiral XP folds into the SAME
-        // fleetAdminXpDelta accumulator handed to applyFleetAdminXp at the end of
-        // this poll, exactly as mission FA XP does. activeProcesses is empty until
-        // Task 10/11 starts one, so resolveProcesses early-outs to a same-reference
-        // no-op today -- inert but correct + drift-proof for when it isn't.
+        // `state` forward (from the mission-fold above): postProcessState carries any
+        // completed process's output (inventory/discovered/facilities/itemsRefined)
+        // plus the drained activeProcesses, so the LATER mission-loot inventory fold
+        // below seeds from this process-updated inventory and both compose into one
+        // inventory (addition is commutative, so the process-then-loot order here
+        // lands the same values as tick()'s loot-then-process order). Its lump Fleet
+        // Admiral XP folds into the SAME fleetAdminXpDelta accumulator handed to
+        // applyFleetAdminXp at the end of this poll, exactly as mission FA XP does.
         const { next: postProcessState, fleetAdminXpDelta: processFleetAdminXpDelta } = resolveProcesses(
           state,
           ticksElapsed
@@ -726,18 +747,6 @@
         // Reset once for the whole fleet, not per-captain -- there's only
         // one shared cycle now.
         cycle.barCycleStart = now;
-      }
-
-      if (anyFired) {
-        // Task 7: captains AND lifetimeStats change under the identical condition
-        // (both are produced by the per-captain loop above, which only runs its
-        // body -- and only sets anyFired -- for mission captains), so both fold
-        // into this ONE reassignment. `lifetimeStats` was accrued per captain via
-        // the shared foldLifetimeStatsDelta helper, identical to tick(); when
-        // anyFired is false no captain advanced, no fold ran, and lifetimeStats is
-        // still === state.lifetimeStats, so leaving it out of the no-op path is
-        // correct (nothing to write).
-        state = { ...state, captains, lifetimeStats };
       }
       if (anyLootDelivered) {
         // Ship Production Economy (Phase 1, Task 5): fold this poll's accumulated

@@ -654,3 +654,21 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   `effect.facility === facilityKey`, so distinct-facility concurrency is untouched, and refine jobs (kind
   `refineJob`) are never matched. Covered by facility.test.ts (blocks a second same-facility start, re-opens
   after completion; a distinct facility is not blocked).
+
+- **Refinery batch/continuous refine ORDERS — the count-N + continuous auto-repeat with per-iteration
+  atomic deduct + closed-form offline-bulk (design §6).** Deferred from Phase 1 Task 11 (single manual
+  jobs shipped first) as the highest-complexity, no-typecheck-risk piece — do next, ideally with Node
+  for the real test run. Task 11 shipped ONLY single manual refine jobs: `startRefineJob` starts exactly
+  ONE `refineJob` process per call (one slot, one iteration). The deferred order system makes a slot run
+  an ORDER, not a single job: enter a **count N** (loop N iterations, then idle) OR set it **continuous**
+  (repeat until toggled off). Each iteration deducts its inputs at ITS OWN start (per-iteration atomic,
+  design §4) and produces one output before the next begins — so only the actively-running iteration is
+  reserved, never the whole batch. **Material exhaustion:** if the next iteration can't afford its inputs,
+  the order pauses (idle) and auto-resumes when materials are available again (recommended — needs a cheap
+  per-tick affordability recheck on idle orders); alternative is a hard-stop needing manual restart (decide
+  in design). **Offline resolution stays closed-form:** iterations over elapsed E =
+  `min(remainingCount, floor(E / durationTicks), min over each input of floor(available / perIteration))`,
+  then bulk-apply (deduct iterations×inputs, add iterations×output, award iterations×`durationTicks` FA XP,
+  and increment `lifetimeStats.itemsRefined` by iterations×output) — deterministic, no per-tick simulation.
+  This is the biggest closed-form-math risk in the epic and the one most in need of a REAL test run (Node),
+  so it was split out from the shippable single-job core rather than bundled into a no-typecheck build.

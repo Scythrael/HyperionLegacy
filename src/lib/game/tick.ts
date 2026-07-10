@@ -22,6 +22,7 @@ import {
   CAPTAIN_SPEC_BONUS,
   HOMEWORLD_TALENTS,
   FACILITIES,
+  REFINE_RECIPES,
   ITEMS,
   freshCaptainStack,
   shipDerivedStats,
@@ -1696,6 +1697,100 @@ export function startFacilityUpgrade(
   });
 }
 
+// ============================================================================
+// Refinery — single refine jobs (Phase 1, Task 11)
+// (docs/plans/2026-07-11-facility-framework-refinery-design.md §6).
+//
+// Two functions, both built on the Task 8 startProcess engine + the Task 10
+// FACILITIES table:
+//   - refineSlotCount : how many parallel refine jobs the refinery can run RIGHT
+//                       NOW, derived (not stored) by summing the `addRefineSlots`
+//                       grants across every upgrade LEVEL the facility has reached.
+//   - startRefineJob  : start ONE manual refine job if a slot is free AND the
+//                       recipe inputs are affordable; else a same-ref no-op.
+// ============================================================================
+
+// Slot count = the sum of every `addRefineSlots` grant on the upgrade rungs the
+// refinery has ALREADY reached. upgrades[i] is the rung that took the facility to
+// level i+1, so a facility at level L has "banked" the effects of upgrades[0..L-1]
+// -- hence the loop runs `i < level`. Level 0 (unbuilt) sums nothing -> 0 slots;
+// the 0->1 build (upgrades[0], addRefineSlots:1) yields the first slot; each of
+// the 1->2 / 2->3 rungs adds another; the 3->4 rung is a refineSpeedMult (NOT a
+// slot), so it contributes 0 here and level 4 still reports 3 slots.
+//
+// Derived-on-read (the SAME populated-but-inert pattern SHIP_TYPES.moduleSlots
+// uses) rather than caching a slot total on FacilityState: the upgrade track is
+// the single source of truth, so retuning an `addRefineSlots` value or appending a
+// rung changes the slot count with no extra bookkeeping and no migration.
+//
+// FacilityUpgradeEffect is a NON-discriminated union ({ addRefineSlots } |
+// { refineSpeedMult }) -- distinguished by property presence, so we narrow with
+// `"addRefineSlots" in effect` (there is no `type` tag to switch on). The `i <
+// upgrades.length` guard is belt-and-suspenders: today no facility can exceed its
+// track length, but it keeps a hypothetical over-level read from indexing past the
+// finite array.
+export function refineSlotCount(state: GameState): number {
+  const level = facilityLevel(state, "refinery");
+  const upgrades = FACILITIES.refinery.upgrades;
+  let slots = 0;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    const effect = upgrades[i].effect;
+    if ("addRefineSlots" in effect) {
+      slots += effect.addRefineSlots;
+    }
+  }
+  return slots;
+}
+
+// Starts ONE refine job for `recipeKey` IF (a) the recipe exists, (b) a refine
+// slot is free (active refineJob count < refineSlotCount), and (c) startProcess
+// can afford the recipe inputs. On any miss it is a same-reference no-op
+// ({ next: state, started: false }) -- the reject convention every action in this
+// file shares. On success it delegates to the Task 8 startProcess engine, which
+// deducts the inputs ATOMICALLY at start (design §4) and pushes a "refineJob"
+// TimedProcess whose completion effect adds the recipe output (resolveProcesses
+// grants it + marks it discovered + bumps lifetimeStats.itemsRefined).
+//
+// SINGLE MANUAL JOBS ONLY (Task 11 scope). Batch count-N + continuous auto-repeat
+// (a slot running an ORDER, not one job -- with per-iteration atomic deduct + the
+// closed-form offline-bulk formula, design §6) is a DEFERRED fast-follow: see the
+// "Refinery batch/continuous refine ORDERS" entry in SUGGESTIONS.md. Do NOT add
+// looping here -- each call starts exactly one job.
+//
+// SLOT GATE vs. FACILITY UPGRADES: refine jobs parallelize by SLOT COUNT (this
+// gate), NOT by the sequential-per-facility upgrade gate in canBuildFacilityUpgrade
+// -- the two are deliberately independent (a refinery can run N jobs while also
+// having an upgrade in flight). Only "refineJob" processes count against slots;
+// facilityUpgrade processes are ignored here (and vice versa).
+//
+// `recipeKey` is typed `string` (forward-loose, like startFacilityUpgrade's
+// facilityKey) with an explicit undefined guard, so an unknown key is a clean
+// rejection rather than a throw on `undefined.input`.
+export function startRefineJob(
+  state: GameState,
+  recipeKey: string
+): { next: GameState; started: boolean } {
+  const recipe = REFINE_RECIPES[recipeKey];
+  if (!recipe) return { next: state, started: false };
+
+  // Slot gate: count only the refine jobs already in flight (facility upgrades do
+  // not consume refine slots). A free slot exists iff that count is below the
+  // derived slot total. At 0 slots (unbuilt refinery) this is always false -> no
+  // job can start until the refinery is built.
+  const activeRefineJobs = state.activeProcesses.filter((p) => p.kind === "refineJob").length;
+  if (activeRefineJobs >= refineSlotCount(state)) return { next: state, started: false };
+
+  // A slot is free -> hand the recipe to startProcess, which applies the FINAL
+  // gate (affordability) and the atomic deduct. If the inputs are short,
+  // startProcess itself returns { next: state, started: false } (same reference),
+  // so an unaffordable job is rejected here too with no extra check needed.
+  return startProcess(state, "refineJob", recipe.input, recipe.durationTicks, {
+    type: "addItem",
+    itemId: recipe.output.itemId,
+    amount: recipe.output.amount,
+  });
+}
+
 // Advances every active process by `ticksElapsed` and resolves completions. THE
 // single completion resolver (Task 9 calls it from BOTH tick() and the live loop).
 //
@@ -1741,6 +1836,12 @@ export function resolveProcesses(
   let inventory = state.inventory;
   let discovered = state.discovered;
   let facilities = state.facilities;
+  // Task 11: threaded so a completing refineJob can also bump its per-item
+  // lifetime itemsRefined tally. Seeded from the incoming state, so a call that
+  // completes no refine job returns the SAME lifetimeStats reference (value-
+  // identical -- the empty-early-out and the no-completion path both leave it
+  // untouched). Re-cloned only when a refineJob actually completes below.
+  let lifetimeStats = state.lifetimeStats;
   let fleetAdminXpDelta = 0;
   // Survivors are rebuilt in original order, so activeProcesses ordering is stable
   // across both chunkings (the parity test compares the arrays deep-equal).
@@ -1764,6 +1865,27 @@ export function resolveProcesses(
       const applied = addToInventory(inventory, discovered, process.effect.itemId, process.effect.amount);
       inventory = applied.inventory;
       discovered = applied.discovered;
+      // Task 11: a completed REFINE JOB (and ONLY a refine job) also accrues the
+      // per-item lifetime itemsRefined total. Guarded on kind === "refineJob"
+      // because addItem is a shared effect: a facilityUpgrade never uses it, but a
+      // FUTURE fabricator "fabricateJob" will -- and that must feed itemsCrafted,
+      // not itemsRefined, so this stays scoped to refine jobs by kind. Closed-form
+      // for the SAME reason FA XP is: it fires exactly ONCE, on the same completion
+      // that drops the process (a resolved process is never revisited), so one big
+      // resolve and many small ones accrue the identical total. Immutable per-key
+      // add (fresh maps), mirroring addToInventory's own grow-on-demand shape:
+      // an item absent from itemsRefined starts at 0.
+      if (process.kind === "refineJob") {
+        const itemId = process.effect.itemId;
+        const priorRefined = lifetimeStats.itemsRefined[itemId] ?? new Decimal(0);
+        lifetimeStats = {
+          ...lifetimeStats,
+          itemsRefined: {
+            ...lifetimeStats.itemsRefined,
+            [itemId]: priorRefined.plus(process.effect.amount),
+          },
+        };
+      }
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -1776,7 +1898,7 @@ export function resolveProcesses(
   }
 
   return {
-    next: { ...state, inventory, discovered, facilities, activeProcesses: stillActive },
+    next: { ...state, inventory, discovered, facilities, lifetimeStats, activeProcesses: stillActive },
     fleetAdminXpDelta,
   };
 }

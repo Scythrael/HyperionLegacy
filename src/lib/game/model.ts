@@ -573,6 +573,47 @@ export const RECIPES: Record<RecipeKey, RecipeDef> = {
   },
 };
 
+// --- Timed refine recipes (Ship Production Economy, Phase 1, Task 11 --
+// docs/plans/2026-07-11-facility-framework-refinery-design.md §6) ----------------
+// The going-forward, TIMED refinery mechanic -- DISTINCT from the instant
+// RECIPES/craftRecipe() path above, which is deliberately left intact this pass
+// (Anti-Regression 15a; design §9 open item 4 -- retire it only when the
+// Fabricator subsumes it). A refine recipe is inputs -> ONE output over a fixed
+// duration; startRefineJob (tick.ts) hands it to the Task 8 startProcess engine
+// (atomic deduct-at-start), and resolveProcesses grants the output + increments
+// lifetimeStats.itemsRefined on completion.
+//
+// The `output` shape mirrors ProcessEffect's addItem member ({ itemId, amount })
+// rather than RECIPES' { key, amount }, because that is exactly what startRefineJob
+// forwards to startProcess as the completion effect -- one shape, no re-mapping.
+// `input`/`output.itemId` are plain-string keyed (Record<string, Decimal> / string),
+// forward-loose like inventory + ProcessEffect, so a later recipe targeting a
+// not-yet-unioned item needs no type change here.
+export interface RefineRecipeDef {
+  input: Record<string, Decimal>;      // deducted ATOMICALLY at job start (design §4)
+  output: { itemId: string; amount: Decimal }; // granted on completion (marks discovered)
+  durationTicks: number;               // FIXED job length; also the lump Fleet Admiral XP awarded
+}
+
+// Phase 1 seeds ONE real recipe -- same "no placeholders" discipline as
+// MISSIONS/RECIPES/FACILITIES. Keyed as Record<string, ...> (not a narrow union)
+// to match FACILITIES' forward-loose keying + let startRefineJob look up an
+// arbitrary recipeKey string with a runtime guard.
+//
+// ⚠️ TUNABLE LAUNCH PLACEHOLDERS ⚠️ commonOre 100 : refinedMaterial 1 is the
+// design §6 starting ratio (rebalanced up from the instant path's 10:1 toward the
+// 100-1000:1 scarcity target -- NOT final, tuned at the device-check stage), and
+// durationTicks 10 is design §6's common-tier starting duration. Add entries here
+// (and nowhere else -- the future Refinery panel iterates this object) as more
+// refine recipes land.
+export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
+  refineCommonOre: {
+    input: { commonOre: new Decimal(100) },
+    output: { itemId: "refinedMaterial", amount: new Decimal(1) },
+    durationTicks: 10,
+  },
+};
+
 // Item taxonomy (Ship Production Economy epic -- 2026-07-11 facility-framework
 // design §7). The category ladder is the forward-compat spine the whole epic
 // climbs: raw loot -> refined -> minor/major components -> ship modules/systems.
