@@ -1184,3 +1184,42 @@ Branch merged LOCALLY into `main` + worktree removed; the production push to
 origin/`main` remains gated on the user's fresh explicit go-ahead (unconditional
 rule — a "continue onward" while heading to bed is NOT that confirmation). Next:
 user's explicit OK to push to production; then the cargo & progression brainstorm.
+
+**Session 27** — Progression Pacing Rework (branch `feat/progression-pacing-rework`,
+docs/plans/2026-07-11-progression-pacing-rework-design.md +
+2026-07-11-progression-pacing-rework-plan.md), built subagent-driven across 12 tasks
+with per-task two-stage review + a whole-branch holistic pass. XP now accrues PER
+TICK instead of per mission cycle: captains earn XP every active tick (the captain
+curve was rescaled `100·level` → `300·level` to keep short-run leveling pace roughly
+identical under the finer cadence), and the Fleet Admiral earns XP per tick per
+ACTIVE mission — so FA XP now STACKS across every captain out on a run, with its
+curve rescaled `2500·level²` → `250000·level²` (x100) to offset the faster, stacking
+accrual. Captain-slot unlocks (2/3/4) now require reaching a Fleet-Admiral LEVEL
+(L1/L5/L25 — "wall breakers") ON TOP OF the existing Fleet Logistics talent cost, and
+captain slots that are actually unlockable now read "Locked" instead of "Coming
+Soon." A `lifetimeStats` schema was RESERVED (`SAVE_VERSION` 16 → 17, Task 2) and now
+accrues total gathered/refined/crafted, missions completed, and credits/captain-XP/
+FA-XP earned — forward-compat groundwork for the deferred Completions / Achievements /
+100%-tracker consumers (they back-compute from these totals on launch, so the ONLY
+now-work is the counters, which can't be back-derived once materials are spent); it is
+NOT surfaced in any UI yet. Key architectural spine: all XP/stat logic is closed-form
+(offline == live) and drift-proof — shared helpers (`xpPerTick`, `applyFleetAdminXp`,
+`foldLifetimeStatsDelta`) are used by BOTH `tick()` and App.svelte's live `setInterval`
+loop, so the two tick paths can't diverge on this math (the still-open UNIFICATION
+refactor, logged in SUGGESTIONS.md, would remove the duplication entirely). Task 12
+(this task) bumped `APP_VERSION` **0.4.0 → 0.5.0** with a matching PATCH_NOTES entry,
+swept the docs, and exported `MAX_LEVEL_UPS_PER_TICK` from `tick.ts` so the two cap
+tests import it instead of mirroring the `10_000` literal (a Task 8 review item;
+behavior-preserving). Device-tuning items left OUTSTANDING and logged to KNOWN_ISSUES:
+the `250000·level²` FA curve is a device-tuned STARTING value (the single most
+playtest-sensitive number in the rework), the L1/L5/L25 slot walls are tunable starting
+values to retune alongside it, the live-loop lifetime-stats parity test can't catch
+deletion of App.svelte's call site (no DOM harness), and the RadialWeb walled-node
+square may lag a pure FA level-up until the next node-set change (parity with the
+existing points-affordability behavior, tooltip stays reactive). Next: get eyes on it
+in an actual browser — calibrate the FA XP curve + slot walls against real multi-captain
+play (the whole rework's feel rides on that pace), confirm per-tick captain/FA XP and
+lifetime-stat accrual match between live and offline, and confirm a pre-v17 save
+migrates cleanly; then final holistic review, then merge — push to `main` still needs
+separate, explicit confirmation from the user, since it triggers a live Vercel
+production redeploy.

@@ -23,6 +23,7 @@ import {
   captainSpecBonusRollChance,
   xpPerTick,
   foldLifetimeStatsDelta,
+  MAX_LEVEL_UPS_PER_TICK,
 } from "./tick";
 import Decimal from "break_infinity.js";
 import {
@@ -2140,10 +2141,10 @@ describe("applyFleetAdminXp", () => {
   });
 
   it("caps at MAX_LEVEL_UPS_PER_TICK level-ups per call, leaving the remainder unresolved rather than looping unboundedly", () => {
-    // MAX_LEVEL_UPS_PER_TICK (a private const in tick.ts, not exported) is 10,000.
-    // Mirrored here as a literal -- this cap is a property of applyFleetAdminXp's
-    // loop, NOT of the curve, so it does not need to derive from the curve.
-    const MAX_LEVEL_UPS_PER_TICK = 10_000;
+    // MAX_LEVEL_UPS_PER_TICK (imported from tick.ts, its single canonical
+    // definition) is 10,000. This cap is a property of applyFleetAdminXp's
+    // loop, NOT of the curve, so it does not itself need to derive from the
+    // curve -- but the DELTA below still does (see the sum-of-squares note).
     // Can't hand-trace 10,000 individual level-up steps one by one -- instead,
     // construct a delta PROVABLY large enough to require MORE than the cap's worth
     // of level-ups if it were uncapped, DERIVED FROM THE CURVE so a future rescale
@@ -2189,8 +2190,8 @@ describe("applyFleetAdminXp", () => {
     // to first produce a genuinely capped, backlogged state, then confirm a SECOND
     // call with delta=0 keeps draining it rather than returning the identical
     // stuck state. Derived from xpForNextFleetAdminLevel(1) so a future curve
-    // rescale can never shrink this delta back under the cap.
-    const MAX_LEVEL_UPS_PER_TICK = 10_000; // mirrors the private const in tick.ts (cap is loop-, not curve-, scoped)
+    // rescale can never shrink this delta back under the cap. The cap itself is
+    // imported from tick.ts (its single canonical definition), not mirrored here.
     const curveScale = xpForNextFleetAdminLevel(1);
     const sumOfSquaresTo = (n: number) => (n * (n + 1) * (2 * n + 1)) / 6;
     const xpForExactlyCapLevelUps = curveScale * sumOfSquaresTo(MAX_LEVEL_UPS_PER_TICK);

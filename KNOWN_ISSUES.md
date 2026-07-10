@@ -194,3 +194,32 @@ write it down so you don't relitigate it later.
   `tick()` rather than duplicate its math, so the two paths structurally cannot drift again. Until that
   lands, any new field added to `tick()`'s per-captain handling must be hand-mirrored into this live loop
   -- these two fixes patch the current drift, they do not prevent the next one.
+- The Fleet Admiral XP curve `250000 * level^2` (`xpForNextFleetAdminLevel`, `model.ts`) is a DEVICE-TUNED
+  STARTING value, not a finished number (Progression Pacing Rework, Session 27). It was rescaled x100 from
+  the old `2500 * level^2` to offset the switch to per-tick, per-active-mission FA XP (XP now stacks across
+  every captain on a mission, every tick), but the exact factor is the single most playtest-sensitive number
+  in this whole rework -- how fast the Fleet Admiral climbs drives the entire progression feel. It MUST be
+  calibrated on-device against real multi-captain play; the closed-form tests only guarantee offline==live
+  parity at whatever value is set, they say nothing about whether the pace FEELS right. Not a bug -- a
+  deliberately-placeholder tuning value flagged so it isn't mistaken for balanced.
+- The captain-slot Fleet-Admiral-level walls -- L1 / L5 / L25 to unlock slots 2 / 3 / 4 (the "wall breaker"
+  requirement layered on top of the existing Fleet Logistics talent cost, Session 27) -- are tunable STARTING
+  values, not final gates. They were picked to space the slot unlocks across early/mid FA progression, but
+  the right levels depend entirely on how the (also-unfinalized) FA XP curve above actually paces out in
+  real play. Expect to retune these together with the curve during the same on-device calibration pass.
+- The live-loop lifetime-stats PARITY test (`tick.test.ts`) replicates App.svelte's live-loop fold rather
+  than driving the actual Svelte component (unavoidable -- there is no DOM/component harness in this
+  environment). It guards two real things: that `tick()` and the shared lifetime-stats helper agree (no
+  `tick()`-vs-shared-helper drift), and that the fold math itself is correct. It does NOT, and cannot, catch
+  DELETION of the `foldLifetimeStatsDelta` call site inside App.svelte's live loop -- if that call were
+  removed, live-play lifetime stats would silently stop accruing and this test would still pass. Same class
+  of gap as the broader two-tick-path divergence risk (see the tick-path UNIFICATION entry above / in
+  SUGGESTIONS.md); it resolves for free once the live loop CALLS `tick()` instead of duplicating its math.
+- The RadialWeb walled-node SQUARE badge (the `{@const nodeState}` computed inside the node markup,
+  `RadialWeb.svelte`) may lag a PURE Fleet-Admiral level-up until the next node-set change -- e.g. leveling
+  the FA up enough to satisfy a captain-slot node's level wall, with nothing else changing, might not re-tint
+  that node's square until the next reveal/learn re-derives the node set. This is PARITY with the existing
+  points-affordability square behavior (the "can you afford this node" tint already had this same reactive
+  boundary), not a new regression this feature introduced -- and the node's TOOLTIP (which shows the actual
+  requirement text) is fully reactive, so the true state is always one hover away. Worth folding into the
+  same reactivity pass whenever the affordability-square staleness is addressed.

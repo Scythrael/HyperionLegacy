@@ -628,3 +628,13 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   extra `Math.floor` calls per iteration are negligible. Revisit ONLY if that loot block is ever refactored
   for another reason — at that point, fold both into one shared `wholeTicksCrossed(progress, applied)` helper
   (or a single hoisted local) so the XP count and the loot-roll count can never silently drift apart.
+
+- **Per-slot Fleet-Admiral-level tooltip hint (captain-slot unlock UX).** Flagged during the Progression
+  Pacing Rework (Session 27), which added FA-level "wall breaker" requirements (L1/L5/L25) to captain slots
+  2/3/4 on top of the existing Fleet Logistics talent cost. Today the slot node's tooltip shows a GENERIC
+  Fleet-Logistics hint, not the specific FA level THAT slot needs. Better UX: derive the exact required FA
+  level from the mapped slot node at render time and show it in the tooltip (e.g. "Requires Fleet Admiral
+  Level 5") — specific and never-stale, since it reads straight from the node's own requirement rather than
+  a hand-written string that could drift if the walls are retuned (see the KNOWN_ISSUES entry noting L1/L5/L25
+  are tunable starting values). Pure future UX polish, not scoped now: just a copy/derivation tweak on the
+  RadialWeb tooltip, no data-model change.

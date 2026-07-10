@@ -410,7 +410,13 @@ const MISSION_TICK_EPSILON = 1e-9;
 // has since reused this SAME constant (not redefined it) for the captain XP
 // level-up loop inside tickCaptainMission too, now that captain xp is
 // Decimal-typed -- both loops share this one cap.
-const MAX_LEVEL_UPS_PER_TICK = 10_000;
+//
+// Exported (2026-07-11, Progression Pacing Rework Task 12) so tick.test.ts's
+// cap tests import this exact value instead of each mirroring the 10_000
+// literal locally (a Task 8 review item) -- keeps the tests from silently
+// drifting out of sync if this cap is ever retuned. Same export-to-avoid-a-
+// hand-duplicated-copy rationale as RESPEC_COST_CREDITS just below.
+export const MAX_LEVEL_UPS_PER_TICK = 10_000;
 
 // Exported so App.svelte can display/gate on this exact value (Reset button
 // affordability, modal copy) without a hand-duplicated second copy of the
