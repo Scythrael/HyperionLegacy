@@ -130,6 +130,13 @@
     isHub?: boolean;
     effect: unknown;
     flavor: string;
+    // Progression Pacing Rework (Task 10): OPTIONAL Fleet-Admiral-level wall on
+    // this node, LAYERED on top of its adminPoint `cost` + graph adjacency. Only
+    // the homeworld captain-slot unlocks set it (fleetLogisticsSlot1/2/3 = 1/5/25);
+    // captain talents never do, so the requirement UI below is opt-in and simply
+    // absent for any node that omits the field. buyHomeworldTalent (tick.ts)
+    // already ENFORCES the wall; this component only SURFACES it in the tooltip.
+    requiresFleetAdminLevel?: number;
   };
 
   // --- Props ----------------------------------------------------------------
@@ -166,6 +173,14 @@
   export let onLearn: (key: string) => void = () => {};
   export let onNodeTap: (key: string) => void = () => {};
   export let describeEffect: (effect: any) => string = () => "";
+  // `fleetAdminLevel` — the fleet's CURRENT Fleet Admiral level (Task 10). Read
+  // ONLY to surface a node's `requiresFleetAdminLevel` wall in the tooltip:
+  // met when fleetAdminLevel >= the node's required level, unmet (red) below it.
+  // Defaulted to 0 so a parent that mounts a table WITHOUT level walls (the
+  // captain talents — none carry requiresFleetAdminLevel) needn't pass it; the
+  // requirement branch never evaluates for such nodes, so the default is inert
+  // there. The homeworld mount passes state.fleetAdminLevel (see App.svelte).
+  export let fleetAdminLevel: number = 0;
 
   // --- Pan offset (Task 10) -------------------------------------------------
   // The world is translated by (panX, panY). Task 10 drives these from a
@@ -402,6 +417,9 @@
   // explicit `void ownedSet;` touch). Without the ownedSet touch, learning/owning
   // a node while its tooltip is open would not refresh the Owned/Learn state.
   // `table`, `describeEffect`, and `openTooltipKey` are referenced directly too.
+  // Task 10: `fleetAdminLevel` is ALSO referenced directly (in the levelMet math
+  // below), so leveling up the Fleet Admiral while a walled node's tooltip is open
+  // live-updates the requirement line (red→neutral) and re-enables Learn.
   $: tooltip =
     openTooltipKey !== null && table[openTooltipKey]
       ? (() => {
@@ -416,6 +434,17 @@
           // only for a not-owned, not-affordable node). Drives the "need N more"
           // hint on the disabled Learn button / cost line.
           const shortfall = st.owned ? 0 : Math.max(0, def.cost - points);
+          // Task 10 — Fleet-Admiral-level wall. `requiresLevel` is this node's
+          // required FA level, or undefined for the vast majority of nodes that
+          // carry no wall. `levelMet` is true when there is NO wall OR the fleet
+          // has reached it. This MIRRORS the buyHomeworldTalent gate in tick.ts
+          // (undefined => no wall; otherwise fleetAdminLevel >= requiresLevel),
+          // so the UI's buyability read matches what the buy action will actually
+          // allow — a walled-but-affordable node reads as un-learnable here just
+          // as an unaffordable one does.
+          const requiresLevel = def.requiresFleetAdminLevel;
+          const levelMet =
+            requiresLevel === undefined || fleetAdminLevel >= requiresLevel;
           return {
             key,
             label: def.label,
@@ -426,10 +455,17 @@
             cost: def.cost,
             owned: st.owned,
             // Learn is enabled ONLY when learnable (visible && !owned &&
-            // affordable). nodeState.learnable already encodes exactly that
-            // (visibility is implicit — only visible nodes are tappable).
-            canLearn: st.learnable,
+            // affordable) AND any FA-level wall is met. nodeState.learnable
+            // encodes the visibility/ownership/affordability part; levelMet layers
+            // the Task 10 wall on top so the button disables for a walled node
+            // exactly the way it already disables for an unaffordable one.
+            canLearn: st.learnable && levelMet,
             shortfall,
+            // Requirement-line inputs (Task 10). requiresLevel undefined => no
+            // line is rendered (see the tooltip markup); levelMet drives met
+            // (neutral) vs unmet (red) styling.
+            requiresLevel,
+            levelMet,
           };
         })()
       : null;
@@ -912,6 +948,22 @@
         </p>
       {/if}
 
+      <!-- Fleet-Admiral-level wall (Task 10). Rendered ONLY for a not-owned node
+           that actually carries a requiresFleetAdminLevel (the homeworld captain-
+           slot unlocks); every other node omits the field, so no line appears —
+           the requirement UI is strictly opt-in. Owned nodes hide it too (the
+           wall is already behind them), matching how the cost line hides once
+           owned. Styling mirrors the affordability idiom: the base line is the
+           same neutral secondary look as .web-tooltip-cost (requirement MET),
+           and `class:unmet` flips it to the app's --color-danger red when the
+           fleet is below the required level — the same "you can't buy this yet"
+           read the disabled Learn button gives. -->
+      {#if !tooltip.owned && tooltip.requiresLevel !== undefined}
+        <p class="web-tooltip-requirement" class:unmet={!tooltip.levelMet}>
+          Requires Fleet Admiral Level {tooltip.requiresLevel}
+        </p>
+      {/if}
+
       <!-- Flavor text. -->
       {#if tooltip.flavor}
         <p class="web-tooltip-flavor">{tooltip.flavor}</p>
@@ -1293,6 +1345,23 @@
     font-size: 12px;
     color: var(--color-text-secondary);
     margin: 0 0 8px;
+  }
+  /* FA-level requirement line (Task 10). Base look intentionally MATCHES
+     .web-tooltip-cost (neutral secondary) so a MET requirement reads as calm,
+     informational context — the same idiom as the cost line. The `.unmet`
+     modifier is the ONLY visual escalation: it recolors to --color-danger, the
+     app's existing cross-theme-stable red semantic token (app.css; constant
+     across all 6 themes) — NOT a new colour. Weight bumps to 600 so the red
+     "you can't buy this yet" state is unmissable, matching the emphasis the
+     effect line already uses. */
+  .web-tooltip-requirement {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin: 0 0 8px;
+  }
+  .web-tooltip-requirement.unmet {
+    color: var(--color-danger);
+    font-weight: 600;
   }
   .web-tooltip-flavor {
     font-size: 12px;

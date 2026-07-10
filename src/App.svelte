@@ -1394,6 +1394,7 @@
             owned={state.unlockedHomeworldTalents}
             points={state.adminPoints}
             pointsLabel={"Admin Points"}
+            fleetAdminLevel={state.fleetAdminLevel}
             describeEffect={describeHomeworldTalentEffect}
             onLearn={(key) => doBuyHomeworldTalent(key as HomeworldTalentKey)}
           />
