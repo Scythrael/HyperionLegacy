@@ -2028,7 +2028,13 @@
     padding: 8px 10px;
     border: 1px solid rgba(var(--color-accent-rgb), 0.4);
     border-radius: 6px;
-    background: var(--color-panel-bg-strong);
+    /* OPAQUE background (2026-07-09 fix). The panels' --color-panel-bg-strong is
+       only 6% alpha -- it reads as solid ONLY because panels add
+       backdrop-filter: blur(). This tooltip has no blur, so that variable let
+       the busy tab content behind bleed straight through and made the text
+       unreadable. Layer a faint themed accent wash over an OPAQUE dark base so
+       it fully occludes content yet still matches the console tint. */
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
   .currency-tooltip-title {
