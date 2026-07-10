@@ -394,6 +394,35 @@ describe("freshState / freshCaptainStack — talent and Fleet Admiral fields", (
   });
 });
 
+// Progression Pacing Rework (Task 1, docs/plans/2026-07-11-progression-pacing-rework-*):
+// lifetimeStats is a forward-compat schema reserved NOW so future systems
+// (Completions/Achievements) have monotonic lifetime totals to read -- these
+// totals CANNOT be back-derived from spent inventory (a player who mined 1000
+// ore and crafted it all away still shows 0 in storage), so the counters must
+// accrue from a clean-slate zero on a brand-new save. This task ONLY guards the
+// freshState zero-init of the schema; nothing increments these counters yet
+// (that wiring, and the save migration that backfills old saves, are later
+// tasks). The maps start EMPTY ({}) -- a material/mission key only appears once
+// it's first recorded -- while the scalar totals start at Decimal(0).
+describe("Progression Pacing — freshState.lifetimeStats zero-init", () => {
+  it("freshState seeds lifetimeStats with empty maps and Decimal(0) scalar totals", () => {
+    const state = freshState();
+    // The four per-key tally maps start EMPTY -- no material or mission key is
+    // present until the first time it's recorded (a later task's increment).
+    expect(state.lifetimeStats.itemsGathered).toEqual({});
+    expect(state.lifetimeStats.itemsRefined).toEqual({});
+    expect(state.lifetimeStats.itemsCrafted).toEqual({});
+    expect(state.lifetimeStats.missionsCompleted).toEqual({});
+    // The three scalar lifetime totals start at Decimal(0) -- compared via
+    // .equals() (not .toEqual against a plain number), same Decimal convention
+    // as every other Decimal-field assertion in this file (see the homePlanet
+    // storage test above for the full rationale).
+    expect(state.lifetimeStats.creditsEarned.equals(0)).toBe(true);
+    expect(state.lifetimeStats.captainXpAwarded.equals(0)).toBe(true);
+    expect(state.lifetimeStats.fleetAdminXpAwarded.equals(0)).toBe(true);
+  });
+});
+
 describe("Captain Specialization — CaptainState.spec and CAPTAIN_SPEC_BONUS", () => {
   it("a fresh captain has no spec chosen", () => {
     expect(freshCaptains(1)[0].spec).toBeNull();

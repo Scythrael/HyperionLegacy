@@ -301,6 +301,26 @@ export interface GameState {
   ships: ShipInstance[];
   shipStorageCapacity: number; // max hulls the fleet can hold (parked + assigned); starter cap
   nextShipId: number; // monotonic id source for new ShipInstance.id ("ship-N"); never reused
+  // --- Progression Pacing Rework (docs/plans/2026-07-11-progression-pacing-rework-*) ---
+  // Monotonic LIFETIME totals, reserved now for future Completions/Achievements
+  // systems to read. These are FORWARD-COMPAT schema only: freshState zero-inits
+  // them and the save migration backfills old saves (a later task), but NOTHING
+  // increments them yet -- the increment wiring lands in its own later task.
+  // WHY reserve rather than derive on demand: lifetime totals CANNOT be
+  // reconstructed from live state -- spent inventory, refined ore, and completed
+  // missions all leave no trace once consumed, so the counters must accrue from
+  // a clean-slate zero. The four maps are per-key tallies (material key /
+  // mission key -> running count), sparse by design: a key is absent until its
+  // first recorded event. The three scalars are running lifetime sums.
+  lifetimeStats: {
+    itemsGathered: Record<string, Decimal>;   // raw mission loot delivered, keyed by material
+    itemsRefined: Record<string, Decimal>;     // refine-recipe outputs produced, keyed by material
+    itemsCrafted: Record<string, Decimal>;     // fabricate-recipe outputs produced, keyed by material
+    missionsCompleted: Record<string, Decimal>; // completed mission cycles, keyed by MissionKey
+    creditsEarned: Decimal;                    // lifetime credits gained (gross, not net of spending)
+    captainXpAwarded: Decimal;                 // lifetime captain XP granted across all captains
+    fleetAdminXpAwarded: Decimal;              // lifetime Fleet Admiral XP granted
+  };
 }
 
 export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
@@ -985,5 +1005,18 @@ export function freshState(): GameState {
     ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
     shipStorageCapacity: 8,
     nextShipId: 2,
+    // Clean-slate lifetime totals -- empty per-key tally maps (no material or
+    // mission key present until its first recorded event) and Decimal(0) scalar
+    // sums. Reserved schema only: no code increments these yet (see the GameState
+    // field comment above for why they're accrued rather than derived).
+    lifetimeStats: {
+      itemsGathered: {},
+      itemsRefined: {},
+      itemsCrafted: {},
+      missionsCompleted: {},
+      creditsEarned: new Decimal(0),
+      captainXpAwarded: new Decimal(0),
+      fleetAdminXpAwarded: new Decimal(0),
+    },
   };
 }
