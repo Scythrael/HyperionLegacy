@@ -40,8 +40,8 @@ describe("freshState — captain roster shape", () => {
       // Decimal isn't a primitive -- .toBe()/.toEqual() won't match a plain-number
       // literal even when equal in value, so every Decimal-field assertion in this
       // file compares via .equals() instead (this pattern repeats below without
-      // re-explaining it each time; see the homePlanet.storage test further down
-      // for the related .toEqual-on-a-whole-object case specifically).
+      // re-explaining it each time; see the inventory zero-init test further down
+      // for the related per-key .equals() case specifically).
       expect(c.xp.equals(0)).toBe(true);
       expect(c.level).toBe(1);
       expect(c.statPoints).toBe(0);
@@ -107,17 +107,20 @@ describe("freshState / freshCaptainStack — mission and Home Planet fields", ()
     expect(captain.mission).toBe(null);
   });
 
-  it("freshState's homePlanet storage starts at 0 for every material, including the crafted-good tiers", () => {
+  it("freshState's inventory starts at 0 for every material, including the crafted-good tiers", () => {
     const state = freshState();
     // Per-key .equals() checks, not .toEqual() against a plain-number literal --
     // .toEqual does a deep structural comparison, and a Decimal instance's
     // internal shape (mantissa/exponent) will NOT structurally match a plain
     // number literal even when the represented value is equal.
-    expect(state.homePlanet.storage.commonOre.equals(0)).toBe(true);
-    expect(state.homePlanet.storage.uncommonMaterial.equals(0)).toBe(true);
-    expect(state.homePlanet.storage.rareMaterial.equals(0)).toBe(true);
-    expect(state.homePlanet.storage.refinedMaterial.equals(0)).toBe(true);
-    expect(state.homePlanet.storage.components.equals(0)).toBe(true);
+    // (Converted from homePlanet.storage to the keyed inventory -- Task 6; this is
+    // CURRENT freshState, and Task 7 removes the storage field, so it must read
+    // inventory, now the canonical material balance.)
+    expect(state.inventory.commonOre.equals(0)).toBe(true);
+    expect(state.inventory.uncommonMaterial.equals(0)).toBe(true);
+    expect(state.inventory.rareMaterial.equals(0)).toBe(true);
+    expect(state.inventory.refinedMaterial.equals(0)).toBe(true);
+    expect(state.inventory.components.equals(0)).toBe(true);
   });
 
   it("freshCaptainStack's mission field is null (a brand-new/unlocked captain slot starts idle)", () => {
@@ -125,24 +128,29 @@ describe("freshState / freshCaptainStack — mission and Home Planet fields", ()
   });
 });
 
-// Ship Production Economy (Phase 1, Task 2): the keyed `inventory` +
-// `discovered` fields are ADDED ALONGSIDE the existing homePlanet.storage this
-// pass (nothing reads/writes them yet -- Tasks 4-6 convert consumers, Task 7
-// removes storage). freshState must seed `inventory` with the SAME zero entries
-// the existing homePlanet.storage init uses (so the eventual swap is a no-op on
-// the seed keys) and `discovered` as an empty array (no itemId has been seen on
-// a brand-new save). This test guards ONLY that additive freshState seed.
+// Ship Production Economy (Phase 1): the keyed `inventory` + `discovered`
+// fields. Introduced ALONGSIDE homePlanet.storage in Task 2, they are now the
+// LIVE material model (Tasks 4-5 wired tick.ts/App.svelte onto inventory; Task 6
+// -- this pass -- converted the remaining test fixtures; Task 7 removes
+// homePlanet.storage entirely). freshState must seed `inventory` with the 5
+// launch material keys at Decimal(0), and `discovered` as an empty array (no
+// itemId has been seen on a brand-new save). This test guards ONLY that
+// freshState seed.
 describe("Phase 1 — keyed inventory + discovered (additive)", () => {
-  it("freshState().inventory has the SAME keys as homePlanet.storage, all Decimal(0)", () => {
+  it("freshState().inventory seeds exactly the 5 launch material keys, all Decimal(0)", () => {
     const state = freshState();
-    const storageKeys = Object.keys(state.homePlanet.storage);
     const inventoryKeys = Object.keys(state.inventory);
-    // Same key SET -- inventory mirrors storage's seed keys exactly (no missing,
-    // no extra). Sorted so order differences don't cause a false failure.
-    expect(inventoryKeys.sort()).toEqual(storageKeys.sort());
+    // Exact seed key SET -- freshState seeds inventory with precisely the 5 launch
+    // materials (no missing, no extra). Hardcoded against the same canonical launch
+    // set save.ts's v17->v18 migration test pins; this REPLACES the old "mirror
+    // homePlanet.storage's keys" comparison (Task 6), which becomes a tautology
+    // once storage is removed in Task 7. Sorted so order can't cause a false fail.
+    expect(inventoryKeys.sort()).toEqual(
+      ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"],
+    );
     // Every seeded inventory entry starts at Decimal(0) -- compared via .equals()
     // (not .toEqual against a plain number), same Decimal convention as every
-    // other Decimal-field assertion in this file (see the homePlanet storage
+    // other Decimal-field assertion in this file (see the inventory zero-init
     // test above for the full rationale).
     for (const key of inventoryKeys) {
       expect(state.inventory[key].equals(0)).toBe(true);
@@ -548,8 +556,8 @@ describe("Progression Pacing — freshState.lifetimeStats zero-init", () => {
     expect(state.lifetimeStats.missionsCompleted).toEqual({});
     // The three scalar lifetime totals start at Decimal(0) -- compared via
     // .equals() (not .toEqual against a plain number), same Decimal convention
-    // as every other Decimal-field assertion in this file (see the homePlanet
-    // storage test above for the full rationale).
+    // as every other Decimal-field assertion in this file (see the inventory
+    // zero-init test above for the full rationale).
     expect(state.lifetimeStats.creditsEarned.equals(0)).toBe(true);
     expect(state.lifetimeStats.captainXpAwarded.equals(0)).toBe(true);
     expect(state.lifetimeStats.fleetAdminXpAwarded.equals(0)).toBe(true);
@@ -690,15 +698,18 @@ describe("ITEMS — Phase 1 seed registry", () => {
     expect(ITEMS.components.category).toBe("refined");
   });
 
-  // DRIFT GUARD: every live storage key MUST have a matching ITEMS entry, so the
-  // registry can't silently fall out of sync with the keys it's meant to
-  // describe. We derive the key list from the REAL storage object
-  // (freshState().homePlanet.storage) rather than hard-coding it -- that object
-  // is keyed on HomePlanetMaterialKey, so if a later task adds a storage key
-  // without a corresponding ITEMS entry, this test fails.
-  it("every current HomePlanetMaterialKey (storage key) has an ITEMS entry", () => {
-    const storageKeys = Object.keys(freshState().homePlanet.storage);
-    for (const key of storageKeys) {
+  // DRIFT GUARD: every live inventory material key MUST have a matching ITEMS
+  // entry, so the registry can't silently fall out of sync with the balances it's
+  // meant to describe. We derive the key list from the REAL inventory object
+  // (freshState().inventory) rather than hard-coding it -- so if a later task adds
+  // an inventory material key without a corresponding ITEMS entry, this test fails.
+  // (Converted from freshState().homePlanet.storage -- Task 6; storage is removed
+  // in Task 7. ITEMS is a forward-compat SUPERSET of inventory's seed keys, so this
+  // stays a one-directional subset guard: every inventory key must be registered,
+  // NOT that every ITEMS key appears in inventory.)
+  it("every current inventory material key has an ITEMS entry", () => {
+    const inventoryKeys = Object.keys(freshState().inventory);
+    for (const key of inventoryKeys) {
       expect(ITEMS[key]).toBeDefined();
     }
   });

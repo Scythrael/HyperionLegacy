@@ -1283,7 +1283,10 @@ export function freshState(): GameState {
     },
     // Phase 1, Task 2 (additive): seed `inventory` with the SAME zero entries as
     // homePlanet.storage above -- keys MUST stay in lockstep with that init while
-    // both coexist (Task 7 removes storage). NOTHING reads/writes this yet.
+    // both coexist (Task 7 removes storage). LIVE as of Tasks 4-5: tick.ts and
+    // App.svelte now read/write this (via the shared addToInventory helper) as the
+    // canonical material balance; homePlanet.storage above is the legacy mirror
+    // kept only until Task 7 drops it.
     inventory: {
       commonOre: new Decimal(0),
       uncommonMaterial: new Decimal(0),

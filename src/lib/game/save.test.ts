@@ -853,16 +853,21 @@ describe("migrate — Big-Number (Decimal) hydration (v11 -> v12)", () => {
     // freshState()'s own new Decimal(0) baseline) -- .equals(), not .toBe(),
     // since these are freshly-constructed Decimal instances from
     // hydrateDecimals(), never the same object reference as `original`'s.
-    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.commonOre.equals(original.homePlanet.storage.commonOre)).toBe(true);
-    expect(migrated.homePlanet.storage.uncommonMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.uncommonMaterial.equals(original.homePlanet.storage.uncommonMaterial)).toBe(true);
-    expect(migrated.homePlanet.storage.rareMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.rareMaterial.equals(original.homePlanet.storage.rareMaterial)).toBe(true);
-    expect(migrated.homePlanet.storage.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.refinedMaterial.equals(original.homePlanet.storage.refinedMaterial)).toBe(true);
-    expect(migrated.homePlanet.storage.components instanceof Decimal).toBe(true);
-    expect(migrated.homePlanet.storage.components.equals(original.homePlanet.storage.components)).toBe(true);
+    // (Material balances assert on the keyed `inventory` -- converted from
+    // homePlanet.storage in Task 6; this is freshState/round-tripped CURRENT
+    // state, not an old-save migration input, and Task 7 removes the storage
+    // field, so these must read inventory. hydrateDecimals()'s per-value
+    // hydrateDecimalMap(inventory) branch is what revives them here.)
+    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.inventory.commonOre.equals(original.inventory.commonOre)).toBe(true);
+    expect(migrated.inventory.uncommonMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.uncommonMaterial.equals(original.inventory.uncommonMaterial)).toBe(true);
+    expect(migrated.inventory.rareMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.rareMaterial.equals(original.inventory.rareMaterial)).toBe(true);
+    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
+    expect(migrated.inventory.refinedMaterial.equals(original.inventory.refinedMaterial)).toBe(true);
+    expect(migrated.inventory.components instanceof Decimal).toBe(true);
+    expect(migrated.inventory.components.equals(original.inventory.components)).toBe(true);
 
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(original.fleetAdminXp)).toBe(true);
