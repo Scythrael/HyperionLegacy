@@ -509,3 +509,18 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   the "new" captain reuses an existing id). Fix BEFORE adding any such feature: switch captains to a
   monotonic id counter, exactly like the ships feature already did with `nextShipId`. Not a bug today --
   a latent trap gated on a feature that doesn't exist yet.
+
+- **Unify the two mission-tick code paths (root-cause refactor).** Flagged by the Ships: Stats Foundation
+  holistic review (2026-07-09). There are currently TWO copies of the per-captain mission-advancement math:
+  the canonical `tick()` in `tick.ts` (used for offline catch-up + the dev simulate button), and a
+  hand-maintained DUPLICATE inside `App.svelte`'s live `setInterval` poll (which drives the animated
+  progress bars during normal play). Every change to `tickCaptainMission`'s inputs must be mirrored into
+  BOTH, and the live copy keeps drifting: it already dropped the resourcefulness bonus-roll fields (5-field
+  vs 8-field `bonuses` -- see KNOWN_ISSUES.md), and the ships feature initially dropped ship stats there too
+  (fixed in `9fc67a6`). This is the SECOND stat category to fall through the same crack, so per Omega-10
+  (Root Cause Protocol) the durable fix is to have the live loop CALL `tick()` (or a shared per-captain
+  helper) rather than re-derive the math -- then the live path and offline path can never diverge again.
+  Non-trivial: the live loop also handles per-poll animated progress, `anyFired`/copy-on-write semantics,
+  and log emission, so it needs a careful pass to extract the shared math without losing the live-progress
+  behavior. Its own focused refactor + device-check, not a mid-feature change -- but it's the real fix for a
+  recurring class of "live loop drifted from `tick()`" bugs.

@@ -175,3 +175,15 @@ write it down so you don't relitigate it later.
   with a hull whose cargo isn't a clean multiple of it would introduce a partial final extraction tick --
   revisit `effectiveMissionDef`/`requiredTicksForPhase` (both already carry an in-code comment flagging
   this) when such content is added. Not reachable today; documented so it isn't rediscovered as a surprise.
+- PRE-EXISTING live-loop `bonuses` divergence (surfaced by the Ships: Stats Foundation holistic review,
+  Session 26). `App.svelte`'s live `setInterval` poll is a SEPARATE copy of the mission-tick math from
+  `tick.ts`'s canonical `tick()` (which only runs on offline catch-up + the dev button). That live-loop
+  copy builds a 5-field `bonuses` object (common/uncommon yield, uncommon/rare chance, rareYield) and
+  passes it to `tickCaptainMission`, but the canonical `tick()` passes 8 fields -- it ALSO includes
+  `bonusRollChance`, `bonusRollChanceMult`, and `specBonusRollChance`. So during LIVE play the
+  resourcefulness bonus-roll (Lucky Strike I/II + the spec bonus-roll) does NOT fire -- it only applies
+  during offline catch-up. Confirmed pre-existing at the branch base (`38da5ee`); NOT introduced by the
+  ships feature -- but it is the SAME "live loop drifted from `tick()`" class of bug as the ship-stats gap
+  the ships-feature holistic review found and fixed (`9fc67a6`, adding the 5th `shipStats` arg to the live
+  loop). Left unfixed here deliberately (one-fix-one-concern; it touches the talent/spec economy, not
+  ships) -- but real, and the durable fix is the tick-path unification logged in SUGGESTIONS.md.
