@@ -1501,19 +1501,51 @@
 
     <main class="tab-body">
       {#if activeTab === "homeworld"}
-      <SubTabs
-        tabs={[
-          { key: "resources", label: "Resources" },
-          { key: "refinery", label: "Refinery/Fabrication" },
-          { key: "talents", label: "Homeworld Talents" },
-          { key: "homeworldLocked1", label: "Coming Soon!", locked: true },
-          { key: "homeworldLocked2", label: "Coming Soon!", locked: true },
-        ]}
-        active={activeHomeworldSubTab}
-        onSelect={(key) => (activeHomeworldSubTab = key as HomeworldSubTab)}
-      />
-
+      <!-- Homeworld (systems rail -- UI consistency pass) -- deliberately
+           MIRRORS the Facilities / Sector Space / Fleet Captain's tabs: a LEFT
+           rail of homeworld "systems" (.captain-list / .captain-list-item,
+           reused verbatim, NOT a new class) + a right content pane for the
+           selected system. Replaces the previous top <SubTabs> bar; selection
+           is STILL tracked by activeHomeworldSubTab (resources / refinery /
+           talents), so the three content blocks below are byte-for-byte
+           unchanged -- only the navigation chrome around them changed. Resources
+           / Refinery-Fabrication / Homeworld Talents are the three real systems;
+           the two locked "Coming Soon" rail items use the exact
+           .captain-list-item.locked idiom Facilities' locked facilities use
+           (neutral label -- no future system named by the user yet). -->
       <div class="tab-scroll-area">
+      <div class="fleet-captains-layout">
+        <div class="captain-list">
+          <button
+            class="captain-list-item"
+            class:active={activeHomeworldSubTab === "resources"}
+            on:click={() => (activeHomeworldSubTab = "resources")}
+          >
+            Resources
+          </button>
+          <button
+            class="captain-list-item"
+            class:active={activeHomeworldSubTab === "refinery"}
+            on:click={() => (activeHomeworldSubTab = "refinery")}
+          >
+            Refinery/Fabrication
+          </button>
+          <button
+            class="captain-list-item"
+            class:active={activeHomeworldSubTab === "talents"}
+            on:click={() => (activeHomeworldSubTab = "talents")}
+          >
+            Homeworld Talents
+          </button>
+          <!-- Locked systems -- no content behind them yet (same honest
+               "future signal" role as Facilities' locked facilities and Sector
+               Space's locked structures). Plain non-button divs, so they're
+               inert; the title attr is the "Coming soon" affordance. -->
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Coming Soon</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Coming Soon</div>
+        </div>
+
+        <div class="fleet-captains-content">
       {#if activeHomeworldSubTab === "resources"}
       <Panel>
         <div class="panel-title">HOME PLANET</div>
@@ -1676,6 +1708,8 @@
         {/if}
       </Panel>
       {/if}
+        </div>
+      </div>
       </div>
       {/if}
 
