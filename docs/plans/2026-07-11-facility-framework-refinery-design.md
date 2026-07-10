@@ -23,10 +23,16 @@ The Progression Pacing Rework shipped first (SAVE_VERSION is now **17**, APP_VER
   work + review. **HARD MERGE GATE: Phase 1 must NOT merge to production until the user runs `npm run check`
   (svelte-check) at home** — this large REPLACEMENT refactor needs a real typecheck first (contrast the
   mostly-additive rework, which merged pre-test).
-- **FA XP for facility processes = PER-TICK, matching the shipped model** (1 FA XP/tick per active refine/upgrade
-  process, STACKING with active missions + each other, "flows every second"). Closed-form offline = sum of each
-  process's active ticks. This SUPERSEDES §6's "lump = durationTicks on completion" phrasing. Facility processes
-  do NOT award captain XP (no captain pilots them) — FA only, exactly like the design intended.
+- **FA XP for facility processes = LUMP on completion (`durationTicks` per process).** ⚠️ RECONCILED DURING
+  IMPLEMENTATION (Task 8, 2026-07-11): this REVERSES the earlier "per-tick" note that stood here. Total FA XP per
+  process is identical under either model (`durationTicks`); only delivery TIMING differs (a 180-tick upgrade
+  awards its 180 FA XP at completion, not 1/tick over the build). Rationale for lump: it is closed-form-trivial
+  (no per-process interval-overlap accounting) and the SHIPPED missions already carry the per-tick "flows every
+  second" feel — facility lumps are periodic FA XP on top of that primary flow, not the primary flow themselves.
+  KNOWN TRADE-OFF: a fleet running ONLY facility processes (no missions) sees its FA bar advance in ~job-sized
+  steps rather than every tick — acceptable given missions are the intended primary FA source. If per-tick
+  facility FA is ever wanted, it's a deferred follow-up (needs a global tick + interval-overlap math). Facility
+  processes do NOT award captain XP (no captain pilots them) — FA only.
 - **Follow the rework's drift-proof pattern:** the timed-process resolver is ONE exported helper called by BOTH
   `tick()` and App.svelte's live loop (mirror the shipped `foldLifetimeStatsDelta` single-source approach).
 
