@@ -1412,6 +1412,63 @@ describe("migrate — Ships stats foundation: grandfather a Freighter per captai
     expect(migrated.gameTimeSeconds).toBe(6000);
   });
 
+  it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), preserving ships/shipStorageCapacity/nextShipId intact (proves the new v16 fields survive a NORMAL save/load, not just an OLD-save migration)", () => {
+    // The three new v16 fields -- ships (ShipInstance[]), shipStorageCapacity
+    // (number), nextShipId (number) -- contain NO Decimal anywhere (every
+    // ShipInstance is {id: string, typeKey: string, assignedCaptainId: number},
+    // and the two scalars are plain numbers), so they are plain-JSON-safe and
+    // need zero hydration. This test proves they survive the REAL save/load
+    // path loadFromLocalStorage() runs every time: serialize() (which
+    // JSON.stringify's the WHOLE state object wholesale, never a hand-picked
+    // field list -- see serialize() in save.ts) -> deserialize() (a straight
+    // JSON.parse pass-through, no field-by-field reconstruction) -> migrate()
+    // (whose hydrateDecimals() spreads `...state`, carrying every non-Decimal
+    // field -- including these three -- through untouched). Because a
+    // freshState() save is already at the CURRENT SAVE_VERSION, migrate()'s
+    // while loop runs ZERO iterations (there's no MIGRATIONS[16]); the fields
+    // land intact purely via the serialize->parse->spread pass-through, NOT via
+    // any migration step. Same round-trip pattern as the v11->v12 and v12->v13
+    // freshState() round-trip tests above.
+    //
+    // FAIL-BEFORE / PASS-AFTER trace: if serialize() had instead reconstructed
+    // its SaveFile by hand-picking known GameState fields (or if deserialize()/
+    // hydrateDecimals() rebuilt GameState field-by-field), these three fields --
+    // unknown to that pre-v16 field list -- would be DROPPED, and every
+    // assertion below would fail (ships undefined, shipStorageCapacity/
+    // nextShipId undefined). They pass because all three paths are generic
+    // pass-through, which this test now locks against any future regression to
+    // an explicit field-picking shape.
+    const original = freshState();
+    const raw = serialize(original, Date.now());
+    const deserialized = deserialize(raw);
+    expect(deserialized).not.toBeNull();
+
+    // Confirms the save was written at the CURRENT version -- migrate()'s while
+    // loop below genuinely runs zero iterations (no MIGRATIONS[16]), so these
+    // fields survive entirely via serialize->parse->spread, not via migration.
+    expect(deserialized!.version).toBe(SAVE_VERSION);
+
+    const migrated: any = migrate(deserialized!);
+
+    // freshState() seeds exactly one hull (the universal General Freighter),
+    // shipStorageCapacity 8, nextShipId 2 -- all three must survive the round
+    // trip byte-for-byte (plain-JSON scalars/objects, so .toEqual()/.toBe(),
+    // never the Decimal instanceof/.equals() treatment used elsewhere).
+    expect(migrated.ships).toHaveLength(original.ships.length);
+    expect(migrated.ships).toHaveLength(1);
+    expect(migrated.ships[0].id).toBe("ship-1"); // stable id preserved verbatim
+    expect(migrated.ships[0].typeKey).toBe("generalFreighter"); // ship type preserved
+    expect(migrated.ships[0].assignedCaptainId).toBe(1); // assignment (single source of truth) preserved
+    // Full structural equality against the original -- catches any dropped or
+    // mutated key on the ShipInstance, not just the three spot-checked above.
+    expect(migrated.ships).toEqual(original.ships);
+
+    expect(migrated.shipStorageCapacity).toBe(8);
+    expect(migrated.shipStorageCapacity).toBe(original.shipStorageCapacity);
+    expect(migrated.nextShipId).toBe(2);
+    expect(migrated.nextShipId).toBe(original.nextShipId);
+  });
+
   it("current SAVE_VERSION is 16", () => {
     expect(SAVE_VERSION).toBe(16);
   });
