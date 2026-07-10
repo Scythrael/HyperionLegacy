@@ -135,6 +135,12 @@ Fleet Admiral XP curve that Phase 1's facility processes award into. Scope:
 - **"Coming Soon" → "Locked" relabel:** content that EXISTS but isn't yet unlocked (e.g. unlockable
   captain slots) shows "Locked" (with its requirement), not "Coming Soon" (reserved for content that
   doesn't exist yet). Small cross-cutting UI change; may ride with this rework.
+- **Also folds in the mission-side Lifetime Stats counters** (missions completed, materials gathered,
+  credits/XP earned) — because this rework is the FIRST touch of the mission tick, add the stat
+  increments here alongside per-tick XP (one careful pass through the dual-path code, not two). The
+  `lifetimeStats` schema itself is reserved in the migration; see Phase 1 design §8 + the
+  Completions/Achievements SUGGESTIONS entry for WHY these must start counting now (lifetime totals are
+  unrecoverable — can't be back-derived from spent/consumed inventory).
 - ⚠️ **Edits WORKING, closed-form mission XP code** → Anti-Regression + closed-form care, its own
   device check. The delicate one — trickier than Phase 1's greenfield facility work.
 

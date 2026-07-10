@@ -215,6 +215,29 @@ Add `MIGRATIONS[16]` (`type Migration = (state: any) => any`; free to reshape). 
 - Seed `discovered` with every itemId that currently has a non-zero balance (already-owned = already
   discovered — no false `❓` on existing saves).
 - Initialise `facilities: { refinery: { level: 0 } }` and `activeProcesses: []`, `nextProcessId: 1`.
+- **Reserve `lifetimeStats` and start counting NOW** (forward-compat for the deferred Completions +
+  Achievements + 100%-completion systems — lifetime totals are UNRECOVERABLE, can't be back-derived
+  from spent/consumed inventory; see SUGGESTIONS). All `Decimal` (1Qu+ headroom):
+  ```ts
+  lifetimeStats: {
+    itemsGathered: Record<string, Decimal>;   // per-item, from missions
+    itemsRefined:  Record<string, Decimal>;   // per-item, from the refinery
+    itemsCrafted:  Record<string, Decimal>;   // per-item, reserved for the Fabricator (Phase 4)
+    missionsCompleted: Record<string, Decimal>; // per mission type
+    creditsEarned: Decimal;
+    captainXpAwarded: Decimal;
+    fleetAdminXpAwarded: Decimal;
+  }
+  ```
+  Totals (e.g. "total refined") = summed on demand — no stored aggregates (avoids drift). Increment
+  points: refine/craft completion → in the shared timed-process resolver (single source of truth,
+  clean); mission-gathered / missions-completed / credits / XP → fold into the **Progression Pacing
+  Rework** (the first, and only necessary, touch of the closed-form mission code). Migration seeds all
+  counters at 0 for existing saves (their pre-launch history is genuinely unknown — this is the earliest
+  we can start; the point is current players accrue from HERE, not from a future launch date).
+- **Reserve the bonus-output-chance seam** in the crafting engine (Completions' "+5% free extra,
+  additive" reads it later) — must resolve in bulk for offline batches; mirrors the existing
+  `recipeBonusOutput` seam in `craftRecipe`.
 - Verify against `save.test.ts` conventions; add a v16→v17 round-trip test.
 
 ---

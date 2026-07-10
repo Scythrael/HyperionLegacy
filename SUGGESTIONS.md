@@ -587,3 +587,32 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   - Deliberately DEFERRED to its own brainstorm/design pass (user: "brainstorm later so it's not gimmicky").
     The current ships-foundation branch ships with cargo-as-extraction-length AS-IS (the 94>90 behavior
     stays until this redesign); this is the immediate fast-follow, not a blocker for the foundation.
+
+- **Completions + Achievements + Relics + 100% Completion tracker (user, 2026-07-11) — consumers of the
+  Lifetime Stats being reserved NOW.** These are DEFERRED future features; the ONLY thing being built now
+  (folded into the Progression Pacing Rework + Phase 1 migration) is the `lifetimeStats` data layer they
+  read, because lifetime totals CANNOT be back-derived (you spend/consume materials, so current inventory
+  can't reconstruct "total ever refined") — not counting from now = every current player's history lost on
+  launch. The consumers themselves back-compute from the stats on launch (a player already at 1M refined
+  gets their tiers retroactively), so they need NO now-work beyond the counters.
+  - **Completions:** per-item lifetime-total milestones (e.g. 100k / 1M / 10B / 100T / 1Qu — user wary of
+    pushing thresholds too high) award tiers (bronze/silver/…). Each item gets its OWN permanent per-item
+    completion bonus per tier hit. Example: refine 100k polysilicate → T1/bronze → +5% chance to yield a
+    second bar free (no mats); each further tier adds +5% ADDITIVE. ⚠️ That free-output-chance is a
+    bonus-output RNG hook on the crafting engine — must resolve in BULK for offline batches (same
+    closed-form concern as the resourcefulness bonus-roll); Phase 1's timed-engine reserves this seam
+    (mirrors the existing `recipeBonusOutput` seam in `craftRecipe`).
+  - **Achievements:** unlock at the same milestone points; award a tiered **commendation** currency
+    (bronze/silver/gold/platinum/diamond/…). Commendations are **tier-locked**: diamond commendations
+    spend only on diamond-tier achievement bonuses, etc. Storage (a `commendations` per-tier balance +
+    spent tracking) is added when Achievements ships — back-computed from lifetimeStats, so not needed now.
+  - **100% Completion tracker:** a % across MANY dimensions — milestones hit, all upgrades owned,
+    everything unlocked, all **relics** collected (relics = a NEW future collectible system, undesigned),
+    etc. KEY distinction: most of these are CURRENT-STATE facts (owned upgrades, unlocks, relics) that the
+    tracker just READS from the save when it ships — no now-counter, nothing lost. Only the cumulative
+    lifetime totals need reserving now. ⚠️ Edge case to decide per-system: LOSABLE things where "ever
+    owned" matters (respec-able talents already; sellable ships/relics floated) — if completion counts
+    "ever owned each" rather than "currently own all," reserve an "ever-owned" set for those. Rec:
+    "currently own" semantics unless a permanent-credit-on-first-acquire is explicitly wanted.
+  - See the older "Player Stats / Achievements / Completion panel", "Stats page / total played time", and
+    "Library/Archive tab" entries above — that tab is the eventual HOME for all of this.
