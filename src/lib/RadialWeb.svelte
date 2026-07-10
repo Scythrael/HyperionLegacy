@@ -425,26 +425,26 @@
       ? (() => {
           const key = openTooltipKey as string;
           const def = table[key];
-          // Explicit dependency touch so Svelte tracks ownedSet for this block
-          // (nodeState reads it, but Svelte can't see inside the call). No-op at
-          // runtime beyond registering the reactive dependency.
+          // Explicit dependency touches so Svelte tracks ownedSet AND
+          // fleetAdminLevel for this block: nodeState()/fleetAdminLevelMet() read
+          // them from closure, but Svelte can't see inside a call, so without
+          // these touches the tooltip would not refresh when the player learns a
+          // node (ownedSet) or the Fleet Admiral levels past a wall
+          // (fleetAdminLevel). No-op at runtime beyond registering the deps.
           void ownedSet;
+          void fleetAdminLevel;
           const st = nodeState(key, def);
           // shortfall — how many more points are needed when unaffordable (>0
           // only for a not-owned, not-affordable node). Drives the "need N more"
           // hint on the disabled Learn button / cost line.
           const shortfall = st.owned ? 0 : Math.max(0, def.cost - points);
-          // Task 10 — Fleet-Admiral-level wall. `requiresLevel` is this node's
-          // required FA level, or undefined for the vast majority of nodes that
-          // carry no wall. `levelMet` is true when there is NO wall OR the fleet
-          // has reached it. This MIRRORS the buyHomeworldTalent gate in tick.ts
-          // (undefined => no wall; otherwise fleetAdminLevel >= requiresLevel),
-          // so the UI's buyability read matches what the buy action will actually
-          // allow — a walled-but-affordable node reads as un-learnable here just
-          // as an unaffordable one does.
+          // Task 10 — Fleet-Admiral-level wall, for the requirement line below.
+          // `requiresLevel` is this node's required FA level (undefined => no
+          // wall). `levelMet` reuses the SAME fleetAdminLevelMet helper nodeState
+          // uses, so the square's .locked tint and this tooltip's red/neutral
+          // line can never disagree about the wall.
           const requiresLevel = def.requiresFleetAdminLevel;
-          const levelMet =
-            requiresLevel === undefined || fleetAdminLevel >= requiresLevel;
+          const levelMet = fleetAdminLevelMet(def);
           return {
             key,
             label: def.label,
@@ -454,12 +454,12 @@
             flavor: def.flavor,
             cost: def.cost,
             owned: st.owned,
-            // Learn is enabled ONLY when learnable (visible && !owned &&
-            // affordable) AND any FA-level wall is met. nodeState.learnable
-            // encodes the visibility/ownership/affordability part; levelMet layers
-            // the Task 10 wall on top so the button disables for a walled node
-            // exactly the way it already disables for an unaffordable one.
-            canLearn: st.learnable && levelMet,
+            // Learn is enabled ONLY when learnable. As of Task 10, nodeState's
+            // `learnable` ALREADY folds in the FA-level wall (it calls the same
+            // fleetAdminLevelMet helper), so this needs no extra levelMet term —
+            // the button disables for a walled node exactly the way it disables
+            // for an unaffordable one.
+            canLearn: st.learnable,
             shortfall,
             // Requirement-line inputs (Task 10). requiresLevel undefined => no
             // line is rendered (see the tooltip markup); levelMet drives met
@@ -723,23 +723,56 @@
     return edges;
   })();
 
+  // --- Fleet-Admiral-level wall (Task 10) — single source of truth -----------
+  // Returns whether THIS node's FA-level wall is satisfied. undefined field =>
+  // no wall => always met; otherwise the fleet must have reached the required
+  // level. This is the ONE place the wall is evaluated: BOTH the node-square
+  // classifier (nodeState, for the .locked/.learnable tint) AND the tooltip's
+  // requirement line/Learn gate call it, so the square and the tooltip can never
+  // disagree about whether a node is wall-blocked. It mirrors the gate enforced
+  // in buyHomeworldTalent (tick.ts) so the UI's buyability read matches what the
+  // buy action will actually allow.
+  //
+  // Reads the `fleetAdminLevel` prop from closure (like nodeState reads `points`/
+  // `ownedSet`). INERT for the captain table: no captain talent carries
+  // requiresFleetAdminLevel, so this always returns true there and the captain
+  // squares/tooltips reduce to their pre-Task-10 cost-only behavior regardless of
+  // the prop's default (0).
+  function fleetAdminLevelMet(def: RadialNode): boolean {
+    return (
+      def.requiresFleetAdminLevel === undefined ||
+      fleetAdminLevel >= def.requiresFleetAdminLevel
+    );
+  }
+
   // --- Per-node state classification ----------------------------------------
   // Exactly ONE of owned / learnable / locked applies to any visible node;
   // `.hub` is an ORTHOGONAL flag layered on top (a hub can itself be owned,
-  // learnable, or locked). Rules (design §2.1 / §3.4):
+  // learnable, or locked). Rules (design §2.1 / §3.4, extended by Task 10):
   //   owned     — key ∈ owned.
-  //   learnable — visible, NOT owned, and affordable (cost <= points).
-  //   locked    — visible, NOT owned, and NOT affordable (cost > points).
-  // "visible" is a given here (we only iterate visible nodes), so the split is
-  // just owned? then affordable?. Returned as a plain object so the markup can
-  // spread the boolean flags into class: directives.
+  //   learnable — visible, NOT owned, affordable (cost <= points), AND its
+  //               FA-level wall is met.
+  //   locked    — visible, NOT owned, and NOT buyable — i.e. unaffordable
+  //               (cost > points) OR wall-blocked (FA level too low).
+  // "visible" is a given here (we only iterate visible nodes). Task 10 folds the
+  // FA-level wall into this split so an affordable-but-walled slot renders
+  // `.locked` (dimmed, cursor:not-allowed) exactly like an unaffordable one,
+  // instead of the misleading bright `.learnable` accent that invited a tap the
+  // buy would silently reject. INERT for the captain table (fleetAdminLevelMet is
+  // always true there — no captain def carries the wall), so captain squares
+  // render exactly as before. Returned as a plain object so the markup can spread
+  // the boolean flags into class: directives.
   function nodeState(key: string, def: RadialNode) {
     const isOwned = ownedSet.has(key);
     const affordable = def.cost <= points; // TUNABLE: affordability is a pure cost<=points gate (no partial states)
+    // buyable — not owned, cost met, AND FA-level wall met. learnable == buyable;
+    // locked is its not-owned complement. This keeps the owned/learnable/locked
+    // trichotomy exact (one and only one holds) while layering the wall on.
+    const buyable = !isOwned && affordable && fleetAdminLevelMet(def);
     return {
       owned: isOwned,
-      learnable: !isOwned && affordable,
-      locked: !isOwned && !affordable,
+      learnable: buyable,
+      locked: !isOwned && !buyable,
       hub: def.isHub === true,
     };
   }
@@ -953,11 +986,16 @@
            slot unlocks); every other node omits the field, so no line appears —
            the requirement UI is strictly opt-in. Owned nodes hide it too (the
            wall is already behind them), matching how the cost line hides once
-           owned. Styling mirrors the affordability idiom: the base line is the
-           same neutral secondary look as .web-tooltip-cost (requirement MET),
-           and `class:unmet` flips it to the app's --color-danger red when the
-           fleet is below the required level — the same "you can't buy this yet"
-           read the disabled Learn button gives. -->
+           owned. Styling: the base line is the same neutral secondary look as
+           .web-tooltip-cost (requirement MET). `class:unmet` flips it to the
+           app's --color-danger red below the required level — a deliberately
+           HARDER-gate signal than the cost line. Note both an unaffordable cost
+           and an unmet wall disable the Learn button, but ONLY the wall turns
+           red: the cost line NEVER reddens because adminPoints simply accumulate
+           over time (a soft, self-resolving shortfall), whereas the FA-level wall
+           is a hard gate you cannot buy your way past until you have leveled up —
+           so red flags "blocked, and not by anything you can spend right now"
+           (per design: unmet wall = red is intentional). -->
       {#if !tooltip.owned && tooltip.requiresLevel !== undefined}
         <p class="web-tooltip-requirement" class:unmet={!tooltip.levelMet}>
           Requires Fleet Admiral Level {tooltip.requiresLevel}
