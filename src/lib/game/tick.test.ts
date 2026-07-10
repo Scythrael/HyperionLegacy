@@ -4,6 +4,7 @@ import {
   tickCaptainMission,
   dispatchCaptainOnMission,
   recallCaptain,
+  assignShipToCaptain,
   craftRecipe,
   buyCaptainTalent,
   buyHomeworldTalent,
@@ -1939,5 +1940,94 @@ describe("tick() — applies each captain's assigned-ship stats to their mission
     expect(totalHomeLoot(result).equals(0)).toBe(true);
     expect(result.fleetAdminXp.equals(0)).toBe(true);
     expect(result.credits.equals(0)).toBe(true);
+  });
+});
+
+describe("assignShipToCaptain", () => {
+  // Build a 2-captain / 2-ship fleet directly on top of freshState(), the same
+  // "start from freshState(), then overwrite the fields this test cares about"
+  // idiom every other action-function test in this file uses (see
+  // dispatchCaptainOnMission / recallCaptain above). freshState() already seeds
+  // captain 1 flying "ship-1"; each test below layers a second captain and a
+  // second parked ship on top so the swap/lock/in-use cases have something to
+  // act on. captain 1's mission stays null (idle) unless a test explicitly sets
+  // it, matching freshCaptainStack's baseline.
+  function twoShipFleet() {
+    const state = freshState();
+    state.captains = freshCaptains(2); // captains 1 and 2, both idle (mission: null)
+    // Explicit, hand-built 2-ship layout: captain 1 flies ship-1, ship-2 parked.
+    state.ships = [
+      { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 },
+      { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null },
+    ];
+    return state;
+  }
+
+  it("swaps: assigns the target ship and auto-parks the captain's previous (different) hull", () => {
+    // captain 1 flies ship-1; ship-2 is parked. Assigning ship-2 to captain 1
+    // moves them onto ship-2 and parks ship-1 (assignedCaptainId -> null).
+    const state = twoShipFleet();
+    const { next, success } = assignShipToCaptain(state, 1, "ship-2");
+
+    expect(success).toBe(true);
+    const ship1 = next.ships.find((s) => s.id === "ship-1")!;
+    const ship2 = next.ships.find((s) => s.id === "ship-2")!;
+    expect(ship2.assignedCaptainId).toBe(1); // target now flown by captain 1
+    expect(ship1.assignedCaptainId).toBe(null); // previous hull auto-parked
+  });
+
+  it("self-reassign is a harmless no-op: the captain keeps the ship they already fly (NOT parked)", () => {
+    // ORDERING GUARD TEST. captain 1 flies ship-1. Re-assigning ship-1 to
+    // captain 1 must leave ship-1 STILL assigned to captain 1 -- it must NOT be
+    // nulled. This is the case the .map() ordering exists to protect: the target
+    // branch (s.id === shipId) runs first and wins, so the "park the old hull"
+    // branch never sees ship-1 as a *different* old hull to park.
+    const state = twoShipFleet();
+    const { next, success } = assignShipToCaptain(state, 1, "ship-1");
+
+    expect(success).toBe(true);
+    const ship1 = next.ships.find((s) => s.id === "ship-1")!;
+    expect(ship1.assignedCaptainId).toBe(1); // STILL captain 1's -- not parked
+  });
+
+  it("fails (same state reference) if the captain is on a mission -- hull can't change mid-cycle", () => {
+    // The on-mission lock is load-bearing for the closed-form guarantee: a hull
+    // that changed mid-mission would invalidate effectiveMissionDef's per-cycle
+    // stability. captain 1 has a live mission -> assignment must refuse.
+    const state = twoShipFleet();
+    state.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "extracting",
+      phaseProgressTicks: 4,
+      cargo: { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
+      recalled: false,
+    };
+
+    const { next, success } = assignShipToCaptain(state, 1, "ship-2");
+    expect(success).toBe(false);
+    expect(next).toBe(state); // same reference, unchanged
+  });
+
+  it("fails (same state reference) if the target ship is assigned to a DIFFERENT captain", () => {
+    // ship-2 is flown by captain 2. captain 1 cannot poach it -- assignment
+    // refuses rather than stealing another captain's hull.
+    const state = twoShipFleet();
+    state.ships[1] = { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: 2 };
+
+    const { next, success } = assignShipToCaptain(state, 1, "ship-2");
+    expect(success).toBe(false);
+    expect(next).toBe(state); // same reference, unchanged
+  });
+
+  it("fails (same state reference) if the captain or the ship does not exist", () => {
+    const state = twoShipFleet();
+
+    const missingCaptain = assignShipToCaptain(state, 999, "ship-2");
+    expect(missingCaptain.success).toBe(false);
+    expect(missingCaptain.next).toBe(state); // same reference
+
+    const missingShip = assignShipToCaptain(state, 1, "ship-999");
+    expect(missingShip.success).toBe(false);
+    expect(missingShip.next).toBe(state); // same reference
   });
 });

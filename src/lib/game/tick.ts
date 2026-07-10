@@ -846,6 +846,64 @@ export function recallCaptain(state: GameState, captainId: number): { next: Game
   return { next: { ...state, captains }, success: true };
 }
 
+// Assigns a ship to a captain under the "captains always have a hull; swapping
+// is an ATOMIC REPLACE" model (Ships — Stats Foundation, Task 8). ShipInstance
+// .assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies what -- this
+// function is the only supported way to move it, and it keeps the invariant
+// "no ship is assigned to two captains at once" intact by parking the captain's
+// PREVIOUS hull whenever they take a different one. Pure: returns a new state,
+// mutates nothing. The Sector Space UI (Task 11) is the caller.
+//
+// Same "same state reference on failure" convention as every other action
+// function in this file (dispatchCaptainOnMission / recallCaptain above). Fails
+// (returns the SAME state reference, success: false) if:
+//   - the captain or the ship doesn't exist (find returns undefined), OR
+//   - the captain is on a mission (mission !== null) -- a hull can't change
+//     mid-mission. This lock is LOAD-BEARING for the closed-form guarantee:
+//     tickCaptainMission resolves effectiveMissionDef from the assigned hull
+//     ONCE per call and holds it constant across the whole cycle; letting the
+//     hull change mid-cycle would break the "one big jump == many small ticks"
+//     property that guarantee depends on, OR
+//   - the target ship is already flown by a DIFFERENT captain (assignedCaptainId
+//     is non-null and not this captain) -- you can't poach another captain's
+//     hull; it must be parked first.
+//
+// ORDERING IS SUBTLE -- read before touching the .map() below. We assign the
+// TARGET ship first (its branch wins), THEN park any *different* hull the
+// captain used to fly. The order matters ONLY for the self-reassign case
+// (assigning the captain the exact ship they already fly): if we parked "the
+// captain's current ship" FIRST, that would null ship-X, and then the target
+// branch would re-assign the same ship-X -- a wash, but fragile. By running the
+// target branch first and gating the park branch on "assignedCaptainId ===
+// captainId" for a DIFFERENT id, the self-reassign lands entirely in the target
+// branch (s.id === shipId), so the park branch never fires on it. Net effect:
+// self-reassign is a harmless no-op (the captain keeps their ship), and a true
+// swap parks exactly the one old hull. See the "self-reassign" test in
+// tick.test.ts, which exists specifically to lock this ordering in.
+export function assignShipToCaptain(
+  state: GameState,
+  captainId: number,
+  shipId: string
+): { next: GameState; success: boolean } {
+  const captain = state.captains.find((c) => c.id === captainId);
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!captain || !ship) return { next: state, success: false };
+  if (captain.mission !== null) return { next: state, success: false };
+  if (ship.assignedCaptainId !== null && ship.assignedCaptainId !== captainId) {
+    return { next: state, success: false };
+  }
+
+  // ORDER MATTERS (see header comment): the target-assign branch is listed
+  // FIRST so it wins for the self-reassign case; the park branch only fires on a
+  // DIFFERENT old hull the captain was flying.
+  const ships = state.ships.map((s) => {
+    if (s.id === shipId) return { ...s, assignedCaptainId: captainId }; // assign target (wins)
+    if (s.assignedCaptainId === captainId) return { ...s, assignedCaptainId: null }; // park the (different) old hull
+    return s;
+  });
+  return { next: { ...state, ships }, success: true };
+}
+
 // Validates every input in the recipe is affordable, deducts them all, adds
 // the output -- same "same state reference on failure" convention as every
 // other buy/action function in this file (dispatchCaptainOnMission,
