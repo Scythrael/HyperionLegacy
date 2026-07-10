@@ -1388,7 +1388,8 @@ export function buyHomeworldTalent(
   // Fleet-Admiral-level wall (Progression Pacing Rework, Task 9): an OPTIONAL
   // gate LAYERED on top of -- not replacing -- the adjacency check above and the
   // adminPoint cost check below. Only nodes that declare requiresFleetAdminLevel
-  // (today: the three captain-slot unlocks, L1/L5/L25) are gated; nodes without
+  // (today: the 3rd/4th captain-slot unlocks, L5/L25 -- the 2nd-slot unlock is
+  // intentionally UNGATED) are gated; nodes without
   // it (undefined) skip this entirely, so the gate is opt-in and every other
   // talent is unaffected. Captains are "wall breakers": recruiting one needs the
   // FA level AND the adminPoint cost AND adjacency, all three (confirmed with the

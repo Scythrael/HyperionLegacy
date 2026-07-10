@@ -783,16 +783,22 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     effect: { type: "rareYieldMult", mult: 0.02 },
     flavor: "The standing authority that turns a scattering of ships into a fleet.",
   },
-  // Progression Pacing Rework (Task 9): the three slot-unlock nodes below carry
-  // an additional requiresFleetAdminLevel wall (enforced in buyHomeworldTalent),
-  // LAYERED on top of each node's adminPoint `cost` + adjacency -- all three must
-  // be satisfied to recruit. The intended ladder is a ~x5 climb per captain:
-  //   2nd slot (Slot1) -> FA L1,  3rd slot (Slot2) -> FA L5,  4th slot (Slot3) -> FA L25,
+  // Progression Pacing Rework (Task 9): the LATER slot-unlock nodes carry an
+  // additional requiresFleetAdminLevel wall (enforced in buyHomeworldTalent),
+  // LAYERED on top of each node's adminPoint `cost` + adjacency -- both the cost
+  // AND the level must be satisfied to recruit. The intended ladder is a ~x5
+  // climb per captain, but the FIRST unlock (Slot1 = 2nd captain) is UNGATED:
+  //   2nd slot (Slot1) -> UNGATED,  3rd slot (Slot2) -> FA L5,  4th slot (Slot3) -> FA L25,
   //   5th slot (Slot4) -> FA L125.
-  // Only Slot1/2/3 exist today, so only L1/L5/L25 ship -- the L125 rung lands
-  // automatically when a fleetLogisticsSlot4 node is created (no placeholder node
-  // is added here: "no placeholders" / YAGNI). All three numbers are tunable
-  // starting values (device-playtest will move them first, same as the XP curve).
+  // Slot1's old L1 wall was a FUNCTIONAL NO-OP (players start at FA level 1, so
+  // "requires L1" was always already satisfied) and was REMOVED per user request
+  // -- the first unlock rung is intentionally free of any FA-level gate now, so
+  // fleetLogisticsSlot1 simply carries no requiresFleetAdminLevel field at all.
+  // Only Slot1/2/3 exist today, so only the L5/L25 walls ship -- the L125 rung
+  // lands automatically when a fleetLogisticsSlot4 node is created (no placeholder
+  // node is added here: "no placeholders" / YAGNI). The L5/L25 numbers are
+  // tunable starting values (device-playtest will move them first, same as the
+  // XP curve).
   fleetLogisticsSlot1: {
     branch: "fleetLogistics",
     label: "Recruit Captain (2nd slot)",
@@ -801,7 +807,8 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     y: -120,
     neighbors: ["fleetLogisticsHub", "fleetLogisticsSlot2"],
     effect: { type: "unlockCaptainSlot" },
-    requiresFleetAdminLevel: 1,
+    // No requiresFleetAdminLevel: the first captain unlock is intentionally
+    // ungated (still costs adminPoints + needs graph adjacency to the hub).
     flavor: "Fleet Command approves a second commission -- the roster grows.",
   },
   fleetLogisticsSlot2: {

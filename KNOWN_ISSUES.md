@@ -202,11 +202,14 @@ write it down so you don't relitigate it later.
   calibrated on-device against real multi-captain play; the closed-form tests only guarantee offline==live
   parity at whatever value is set, they say nothing about whether the pace FEELS right. Not a bug -- a
   deliberately-placeholder tuning value flagged so it isn't mistaken for balanced.
-- The captain-slot Fleet-Admiral-level walls -- L1 / L5 / L25 to unlock slots 2 / 3 / 4 (the "wall breaker"
+- The captain-slot Fleet-Admiral-level walls -- L5 / L25 to unlock slots 3 / 4 (the "wall breaker"
   requirement layered on top of the existing Fleet Logistics talent cost, Session 27) -- are tunable STARTING
-  values, not final gates. They were picked to space the slot unlocks across early/mid FA progression, but
-  the right levels depend entirely on how the (also-unfinalized) FA XP curve above actually paces out in
-  real play. Expect to retune these together with the curve during the same on-device calibration pass.
+  values, not final gates. Slot 2's original L1 wall was a functional no-op (players start at FA level 1, so
+  "requires L1" was always already satisfied) and has been REMOVED -- the first captain unlock is now
+  intentionally ungated (cost + adjacency only). The L5/L25 walls were picked to space the later slot
+  unlocks across early/mid FA progression, but the right levels depend entirely on how the (also-unfinalized)
+  FA XP curve above actually paces out in real play. Expect to retune these together with the curve during
+  the same on-device calibration pass.
 - The live-loop lifetime-stats PARITY test (`tick.test.ts`) replicates App.svelte's live-loop fold rather
   than driving the actual Svelte component (unavoidable -- there is no DOM/component harness in this
   environment). It guards two real things: that `tick()` and the shared lifetime-stats helper agree (no

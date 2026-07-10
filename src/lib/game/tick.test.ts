@@ -1886,11 +1886,14 @@ describe("buyHomeworldTalent", () => {
   });
 
   // --- Task 9: Captain-slot Fleet-Admiral-level walls -----------------------
-  // The three slot talents carry requiresFleetAdminLevel (slot1=1, slot2=5,
-  // slot3=25). This is LAYERED on top of the pre-existing adminPoints-cost and
-  // graph-adjacency gates -- captains are "wall breakers" that require BOTH the
-  // adminPoint cost AND a Fleet-Admiral level to learn. These tests isolate the
-  // new FA-level gate by satisfying the other two gates up front.
+  // Only the LATER slot talents carry requiresFleetAdminLevel (slot2=5,
+  // slot3=25). slot1 (the 2nd-captain unlock) is UNGATED -- its old L1 wall was
+  // a functional no-op (players start at FA level 1) and was removed, so it now
+  // has NO requiresFleetAdminLevel field. The wall on slot2/slot3 is LAYERED on
+  // top of the pre-existing adminPoints-cost and graph-adjacency gates -- those
+  // captains are "wall breakers" that require BOTH the adminPoint cost AND a
+  // Fleet-Admiral level to learn. These tests isolate the FA-level gate (using
+  // slot2, L5) by satisfying the other two gates up front.
   it("blocks an unlockCaptainSlot node below its requiresFleetAdminLevel, allows it at that level (layered on adminPoints+adjacency)", () => {
     // Satisfy the OTHER two gates so the FA-level gate is the ONLY variable:
     //   adjacency: fleetLogisticsSlot2's neighbor fleetLogisticsSlot1 is pre-owned
