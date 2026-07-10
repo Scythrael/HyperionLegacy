@@ -207,6 +207,21 @@ export function fleetRareYieldMult(state: GameState): number {
 // unused today) so that extension needs no call-site changes. `state` is
 // optional because the captain-level caller (Task 4) has no reason to thread
 // fleet state through for a rate that ignores it today.
+//
+// ⚠️ CLOSED-FORM PARITY TRAP -- the moment this returns a FRACTIONAL rate ⚠️
+// Task 4's captain-XP accrual (tickCaptainMission) awards xpRate * (whole ticks
+// advanced) and relies on that product being drift-free across chunking so one
+// big offline-catchup call equals many small live calls (the closed-form parity
+// test guards it). That equality holds ONLY while this rate is an INTEGER (it is
+// today: BASE_XP_PER_TICK is 1). A fractional rate -- exactly what the
+// `(1 + captainXpMult)*(1 + buffXpMult)` extension above produces -- breaks it:
+// a single big-call product can differ from the summed per-call products in
+// floating point (0.1*3 !== 0.1+0.1+0.1), and the current rate-1 parity test
+// will NOT catch the regression. See the matching ⚠️ block at the
+// `xp = xp.plus(new Decimal(xpRate).times(...))` award line in tickCaptainMission:
+// activating a fractional rate requires re-deriving that accrual to stay
+// drift-free AND adding a closed-form parity test AT the real fractional rate
+// (the Decimal wrapping there is defense-in-depth, not a proof of parity).
 export function xpPerTick(missionKey: MissionKey, captain: CaptainState, state?: GameState): number {
   return BASE_XP_PER_TICK[missionKey];
 }
@@ -593,7 +608,8 @@ export function tickCaptainMission(
     // sharing the extracting block's identical computation: that block is
     // delicate closed-form loot code under a strict do-not-touch, and the two
     // extra floors per iteration are negligible -- readability/isolation over a
-    // micro-consolidation (flagged for SUGGESTIONS.md rather than done inline).
+    // micro-consolidation. That deferred consolidation is logged in
+    // SUGGESTIONS.md ("Consolidate the whole-tick floor-boundary device...").
     wholeTicksElapsed +=
       Math.floor(mission.phaseProgressTicks + ticksToApply) - Math.floor(mission.phaseProgressTicks);
 
@@ -685,9 +701,7 @@ export function tickCaptainMission(
   }
 
   // Task 4: award captain XP ONCE per call, for the total whole ticks the
-  // mission advanced above (xpRate is a call-constant). xpRate * an INTEGER
-  // count is itself an exact integer, so xp.plus(...) introduces no fractional
-  // drift and one big call matches many small ones exactly. Then resolve every
+  // mission advanced above (xpRate is a call-constant). Then resolve every
   // level-up crossed by that award -- the SAME subtract-threshold loop as
   // before (unchanged semantics), just relocated out of the per-cycle branch
   // and run a single time: a while (not if) loop so a large offline-catchup
@@ -696,7 +710,25 @@ export function tickCaptainMission(
   // applyFleetAdminXp's own carry-forward). Because this loop fully drains all
   // crossable thresholds each call, awarding the total as one lump lands the
   // identical level/statPoints/leftover-xp as accruing it tick-by-tick.
-  xp = xp.plus(xpRate * wholeTicksElapsed);
+  //
+  // ⚠️ CLOSED-FORM PARITY TRAP -- READ BEFORE CHANGING xpRate TO A FRACTION ⚠️
+  // The exact "one big call == many small calls" guarantee (protected by the
+  // closed-form parity test in tick.test.ts) holds TODAY because xpRate is the
+  // integer 1 (xpPerTick returns BASE_XP_PER_TICK unchanged). The big call adds
+  // xpRate*(total whole ticks) in ONE product; the stepped path adds
+  // xpRate*(per-call whole ticks) many times. Those two agree ONLY when the
+  // per-product arithmetic is exact -- which integer rates guarantee, but a
+  // FRACTIONAL rate does NOT: 0.1*3 !== 0.1+0.1+0.1 in floating point, so the
+  // moment xpPerTick starts returning a fractional rate (see its documented
+  // XP-mult seam), a single big-call product can silently diverge from the
+  // stepped sum and break parity -- and the current rate-1 parity test will NOT
+  // catch it. Using Decimal below (new Decimal(xpRate).times(...)) is
+  // defense-in-depth, NOT a proof: Decimal reduces but does not by itself
+  // guarantee distributivity for an arbitrary fractional rate. Before shipping
+  // any fractional rate you MUST (a) re-derive this accrual to stay drift-free
+  // at that rate, and (b) add a closed-form parity test AT the real fractional
+  // rate -- that test, not the Decimal call, is the actual safeguard.
+  xp = xp.plus(new Decimal(xpRate).times(wholeTicksElapsed));
   let levelUpsThisCall = 0;
   while (xp.gte(xpForNextLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
     xp = xp.minus(xpForNextLevel(level));

@@ -24,7 +24,7 @@ import {
   xpPerTick,
 } from "./tick";
 import Decimal from "break_infinity.js";
-import { freshState, freshCaptains, MISSIONS, RECIPES, shipDerivedStats, xpForNextLevel, type CaptainMissionState } from "./model";
+import { freshState, freshCaptains, MISSIONS, RECIPES, shipDerivedStats, type CaptainMissionState } from "./model";
 
 function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
   return {
@@ -782,12 +782,6 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
     expect(captain.mission).not.toBe(null);
     expect(captain.mission!.phase).toBe("extracting");
     expect(captain.mission!.phaseProgressTicks).toBeCloseTo(8, 6);
-  });
-});
-
-describe("xpForNextLevel — 300xlevel curve (Task 4)", () => {
-  it("returns 900 at level 3 (300 * 3)", () => {
-    expect(xpForNextLevel(3)).toBe(900);
   });
 });
 

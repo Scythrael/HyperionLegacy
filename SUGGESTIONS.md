@@ -616,3 +616,15 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
     "currently own" semantics unless a permanent-credit-on-first-acquire is explicitly wanted.
   - See the older "Player Stats / Achievements / Completion panel", "Stats page / total played time", and
     "Library/Archive tab" entries above — that tab is the eventual HOME for all of this.
+
+- **Consolidate the whole-tick floor-boundary device in `tickCaptainMission` (deferred, low priority).**
+  Flagged during the Progression Pacing Rework Task 4 build/review (2026-07-11). Captain-XP accrual counts
+  whole ticks crossed with `Math.floor(progress + applied) - Math.floor(progress)`, computed just before
+  the phase-progress advance in `tick.ts`. The `extracting` loot-roll block a few lines below recomputes the
+  IDENTICAL expression (as `fromWhole`/`toWhole`/`rollsThisStep`) to decide how many extraction rolls to do.
+  Two copies of the same closed-form device now sit in the same loop. Deliberately NOT consolidated inline:
+  hoisting a single shared local up out of both would mean editing the delicate, closed-form, do-not-touch
+  loot block — out of scope for a captain-XP-only change (Anti-Regression / One-Fix-One-Concern). The two
+  extra `Math.floor` calls per iteration are negligible. Revisit ONLY if that loot block is ever refactored
+  for another reason — at that point, fold both into one shared `wholeTicksCrossed(progress, applied)` helper
+  (or a single hoisted local) so the XP count and the loot-roll count can never silently drift apart.
