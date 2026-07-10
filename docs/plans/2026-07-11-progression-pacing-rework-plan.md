@@ -91,9 +91,12 @@ talents, so it returns 1). Mirror the existing `captainCommonYieldMult` test sty
 **Step 2 — Verify fails.**
 
 **Step 3 — Implement:** `BASE_XP_PER_TICK: Record<MissionKey, number>` (both = 1). `xpPerTick(missionKey,
-captain, state?)` = base × `talentXpMult(...)` × `buffXpMult(...)`, where the mult helpers `reduce` over
-unlocked talents/buffs (return 1 today — reserve the seam, NO placeholder talents). Keep the same
-plain-number vs Decimal discipline the neighbouring helpers use.
+captain, state?)` returns `BASE_XP_PER_TICK[missionKey]` today — there are NO XP-boosting talents/buffs,
+so NO multiplier and NO placeholder effect type (honest seam). A future XP-mult would apply as
+`base × (1 + captainXpMult(captain)) × (1 + buffXpMult(state))` — ADDITIVE-bonus helpers in the same shape
+as `captainCommonYieldMult`/`fleetRareYieldMult`, which `reduce(..., 0)` and return **0** (not 1) when
+nothing matches, so they must be applied as `(1 + mult)`. (Multiplying a raw `reduce(...,0)` helper in
+would zero ALL XP.) Keep the plain-number vs Decimal discipline the neighbouring helpers use.
 
 **Step 4 — Verify passes.**
 

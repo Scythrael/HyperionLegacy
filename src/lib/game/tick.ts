@@ -196,10 +196,13 @@ export function fleetRareYieldMult(state: GameState): number {
 // no-placeholder rule, we do NOT fabricate a fake "xpMult" effect type just to
 // have something to multiply by. Instead the future multiplier plugs in RIGHT
 // HERE as a one-line change: once a real XP-mult talent/buff effect exists, this
-// body becomes `return BASE_XP_PER_TICK[missionKey] * captainXpMult(captain) *
-// buffXpMult(state)`, where captainXpMult/buffXpMult are written as the SAME
-// additive-`reduce`-over-unlocked-talents shape as captainCommonYieldMult /
-// fleetRareYieldMult above (each returning 1 when nothing matches). The
+// body becomes `return BASE_XP_PER_TICK[missionKey] * (1 + captainXpMult(captain)) *
+// (1 + buffXpMult(state))`, where captainXpMult/buffXpMult are written as the SAME
+// ADDITIVE-BONUS `reduce`-over-unlocked-talents shape as captainCommonYieldMult /
+// fleetRareYieldMult above -- they `reduce(..., 0)` and return 0 (NOT 1) when
+// nothing matches (a +50% XP talent contributes 0.5), so each is applied as
+// `(1 + mult)`. Do NOT multiply the raw helper in (`... * captainXpMult(...)`):
+// since these helpers return 0 when empty, that form would zero out ALL XP. The
 // `captain` and `state` params already sit in the signature (intentionally
 // unused today) so that extension needs no call-site changes. `state` is
 // optional because the captain-level caller (Task 4) has no reason to thread
