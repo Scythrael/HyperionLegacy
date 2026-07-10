@@ -32,6 +32,7 @@ import {
   MISSIONS,
   RECIPES,
   shipDerivedStats,
+  xpForNextFleetAdminLevel,
   type CaptainMissionState,
 } from "./model";
 
@@ -1243,12 +1244,13 @@ describe("tick() — Fleet Admiral XP stacks across active captains (Task 5)", (
     state.captains[1].mission = missionCaptain("shortOreRun");
     // N = 100 ticks (tickDurationSeconds 1 by fresh default -> ticksElapsed = 100).
     // Each captain advances 100 whole ticks -> 100 FA XP each -> 200 summed.
-    // xpForNextFleetAdminLevel(1) = 2500*1*1 = 2500, and 200 < 2500, so NO FA
-    // level-up occurs -- state.fleetAdminXp holds the full earned total directly
-    // (no threshold subtraction to reason around; N chosen deliberately for this).
+    // 200 is far below xpForNextFleetAdminLevel(1), so NO FA level-up occurs --
+    // state.fleetAdminXp holds the full earned total directly (no threshold
+    // subtraction to reason around; N chosen deliberately to stay under it).
+    expect(200).toBeLessThan(xpForNextFleetAdminLevel(1)); // guards the assumption above against a future rescale
     const result = tick(100, state);
     expect(result.fleetAdminXp.equals(200)).toBe(true); // 2 captains * 100 ticks * rate 1
-    expect(result.fleetAdminLevel).toBe(1); // 200 < 2500 -> no level-up
+    expect(result.fleetAdminLevel).toBe(1); // 200 < xpForNextFleetAdminLevel(1) -> no level-up
     expect(result.adminPoints).toBe(0); // unchanged -- no level-up granted a point
   });
 });
@@ -2039,74 +2041,89 @@ describe("applyFleetAdminXp", () => {
   });
 
   it("adds the delta to fleetAdminXp when no level-up threshold is crossed", () => {
-    // xpForNextFleetAdminLevel(1) = 2500 * 1 * 1 = 2500. A delta of 100 stays
-    // well under that -- no level-up, xp just accumulates.
+    // A delta well under xpForNextFleetAdminLevel(1) crosses no threshold -- xp
+    // just accumulates, level/adminPoints unchanged. Derive the "small" delta
+    // from the curve so a future rescale can't invalidate the premise.
+    const subThresholdDelta = xpForNextFleetAdminLevel(1) - 1; // largest delta that still crosses NO level from L1
     const state = freshState();
-    const result = applyFleetAdminXp(state, 100);
-    expect(result.fleetAdminXp.equals(100)).toBe(true);
+    const result = applyFleetAdminXp(state, subThresholdDelta);
+    expect(result.fleetAdminXp.equals(subThresholdDelta)).toBe(true);
     expect(result.fleetAdminLevel).toBe(1);
     expect(result.adminPoints).toBe(0);
   });
 
   it("resolves exactly one level-up and carries the remainder forward, mirroring captain XP's subtract-and-carry shape", () => {
-    // xpForNextFleetAdminLevel(1) = 2500. Starting fleetAdminXp at 2000, delta
-    // 600 -> xp = 2600. 2600 >= 2500 -> level 2, xp -= 2500 -> xp = 100.
-    // xpForNextFleetAdminLevel(2) = 2500*4 = 10000. 100 >= 10000? No -- loop stops.
+    // Curve-derived (no hard-coded scale): pre-load fleetAdminXp to just SHORT of
+    // the level-1 threshold, then apply a delta that carries it just PAST -- proves
+    // startingXp = existing xp + delta both count toward the crossing, that exactly
+    // ONE threshold is subtracted, and the leftover is carried forward.
+    //   startingXp = (threshold1 - remainder) + 2*remainder = threshold1 + remainder
+    //   -> crosses xpForNextFleetAdminLevel(1) once, leaving `remainder` (< threshold2).
+    const threshold1 = xpForNextFleetAdminLevel(1);
+    const remainder = 100; // small carry, safely below xpForNextFleetAdminLevel(2)
     const state = freshState();
-    state.fleetAdminXp = new Decimal(2000); // fleetAdminXp is Decimal -- new Decimal(...), not a plain-number assignment
-    const result = applyFleetAdminXp(state, 600);
+    state.fleetAdminXp = new Decimal(threshold1 - remainder); // fleetAdminXp is Decimal -- new Decimal(...), not a plain-number assignment
+    const result = applyFleetAdminXp(state, 2 * remainder);
     expect(result.fleetAdminLevel).toBe(2);
-    expect(result.fleetAdminXp.equals(100)).toBe(true);
+    expect(result.fleetAdminXp.equals(remainder)).toBe(true);
     expect(result.adminPoints).toBe(1);
   });
 
   it("a large single delta resolves every level-up crossed, not just one", () => {
-    // Hand-traced: fleetAdminXp starts 0, delta 13000.
-    // xpForNextFleetAdminLevel(1)=2500: 13000>=2500 -> level 2, xp=10500.
-    // xpForNextFleetAdminLevel(2)=10000: 10500>=10000 -> level 3, xp=500.
-    // xpForNextFleetAdminLevel(3)=22500: 500>=22500? No -- loop stops.
-    // Final: level 3, xp 500, adminPoints 2.
-    const state = freshState();
-    const result = applyFleetAdminXp(state, 13000);
-    expect(result.fleetAdminLevel).toBe(3);
-    expect(result.fleetAdminXp.equals(500)).toBe(true);
-    expect(result.adminPoints).toBe(2);
+    // Curve-derived (no hard-coded scale): feed EXACTLY the first three thresholds
+    // plus a small remainder, so one delta must resolve THREE level-ups (1->4), not
+    // just one, and carry the leftover. Deriving the thresholds from the curve keeps
+    // this asserting the LOOP logic, independent of the curve's absolute scale.
+    //   delta = f(1)+f(2)+f(3)+remainder
+    //   -> level 1->2 (subtract f(1)), 2->3 (f(2)), 3->4 (f(3)); remainder < f(4) stops the loop.
+    const remainder = 500; // safely below xpForNextFleetAdminLevel(4)
+    const delta =
+      xpForNextFleetAdminLevel(1) +
+      xpForNextFleetAdminLevel(2) +
+      xpForNextFleetAdminLevel(3) +
+      remainder;
+    const result = applyFleetAdminXp(freshState(), delta);
+    expect(result.fleetAdminLevel).toBe(4);
+    expect(result.fleetAdminXp.equals(remainder)).toBe(true);
+    expect(result.adminPoints).toBe(3);
   });
 
   it("caps at MAX_LEVEL_UPS_PER_TICK level-ups per call, leaving the remainder unresolved rather than looping unboundedly", () => {
+    // MAX_LEVEL_UPS_PER_TICK (a private const in tick.ts, not exported) is 10,000.
+    // Mirrored here as a literal -- this cap is a property of applyFleetAdminXp's
+    // loop, NOT of the curve, so it does not need to derive from the curve.
+    const MAX_LEVEL_UPS_PER_TICK = 10_000;
     // Can't hand-trace 10,000 individual level-up steps one by one -- instead,
-    // construct a delta PROVABLY large enough to require MORE than
-    // MAX_LEVEL_UPS_PER_TICK (10,000) level-ups to fully resolve if uncapped,
-    // using the closed-form sum of xpForNextFleetAdminLevel's quadratic
-    // thresholds: sum_{k=1}^{n} 2500*k^2 = 2500 * n*(n+1)*(2n+1)/6 is the
-    // EXACT total XP needed to go from level 1 through exactly n level-ups
-    // (level 1 -> level n+1). A naive "10,001 * 2500" delta (linear
-    // reasoning applied to a QUADRATIC curve) is nowhere near enough --
-    // verified by direct calculation before writing this test: the true sum
-    // for 10,000 level-ups is 833,458,337,500,000, not merely 25,002,500.
-    // Adding ONE MORE full threshold's worth on top of the exact
-    // 10,000-level-up sum guarantees the delta requires at least one level-up
-    // beyond what the cap allows, if the cap weren't there.
+    // construct a delta PROVABLY large enough to require MORE than the cap's worth
+    // of level-ups if it were uncapped, DERIVED FROM THE CURVE so a future rescale
+    // of xpForNextFleetAdminLevel can never silently drop the delta below the cap
+    // again (the exact failure this rewrite fixes: the old 2500-based literal delta
+    // stopped reaching the cap once the curve was scaled x100 to 250000).
+    //
+    // The EXACT XP to resolve n level-ups from level 1 is the closed-form sum of the
+    // curve's quadratic thresholds: sum_{k=1}^{n} xpForNextFleetAdminLevel(k)
+    //   = curveScale * sum_{k=1}^{n} k^2 = curveScale * n(n+1)(2n+1)/6,
+    // where curveScale == xpForNextFleetAdminLevel(1) (since f(1) = curveScale*1^2).
+    // We then feed 2x that exact sum: a generous margin that (a) provably needs far
+    // MORE than 10,000 level-ups to drain, and (b) stays robust to break_infinity's
+    // ~15-16 significant-digit precision at this ~10^17 magnitude (a bare "+1 more
+    // threshold" overshoot would sit inside that noise floor and is NOT safe here).
+    const curveScale = xpForNextFleetAdminLevel(1);
     const sumOfSquaresTo = (n: number) => (n * (n + 1) * (2 * n + 1)) / 6;
-    const xpForExactly10000LevelUps = 2500 * sumOfSquaresTo(10_000); // 833,458,337,500,000
-    const oneMoreThreshold = 2500 * 10_001 * 10_001; // xpForNextFleetAdminLevel(10001)
-    const delta = xpForExactly10000LevelUps + oneMoreThreshold;
+    const xpForExactlyCapLevelUps = curveScale * sumOfSquaresTo(MAX_LEVEL_UPS_PER_TICK);
+    const delta = 2 * xpForExactlyCapLevelUps; // ~1.67e17: provably > the cap's requirement, with margin
 
     const result = applyFleetAdminXp(freshState(), delta);
 
-    // Uncapped, this delta would resolve AT LEAST 10,001 level-ups (level 1 ->
-    // 10,002 or beyond). WITH the cap, at most MAX_LEVEL_UPS_PER_TICK (10,000)
-    // level-ups can happen in this one call -- fleetAdminLevel started at 1,
-    // so it can reach AT MOST level 10,001, never higher, no matter how much
-    // XP the delta represents.
-    expect(result.fleetAdminLevel).toBeLessThanOrEqual(10_001);
-    expect(result.adminPoints).toBeLessThanOrEqual(10_000);
-    // The cap stopping the loop mid-resolution (not the loop naturally
-    // running out of xp to consume) means a meaningful amount of xp must
-    // remain unconsumed -- this delta was deliberately built to have MORE
-    // than the exact resolving sum, so some remainder greater than 0 must
-    // be left over. .toNumber() first -- toBeGreaterThan needs a plain-number
-    // operand, Decimal has no meaning to that matcher directly.
+    // WITH the cap, EXACTLY MAX_LEVEL_UPS_PER_TICK level-ups happen this call --
+    // fleetAdminLevel started at 1, so it lands at exactly 1 + 10,000 = 10,001, and
+    // adminPoints (started at 0) at exactly 10,000, no matter how much larger the
+    // delta is. The 2x margin guarantees xp never runs out before the cap engages.
+    expect(result.fleetAdminLevel).toBe(1 + MAX_LEVEL_UPS_PER_TICK);
+    expect(result.adminPoints).toBe(MAX_LEVEL_UPS_PER_TICK);
+    // The cap stopped the loop mid-resolution (not the loop running out of xp): the
+    // delta was built to hold ~2x the resolving sum, so a large remainder is left
+    // over. .toNumber() first -- toBeGreaterThan needs a plain-number operand.
     expect(result.fleetAdminXp.toNumber()).toBeGreaterThan(0);
   });
 
@@ -2115,19 +2132,21 @@ describe("applyFleetAdminXp", () => {
     // ONLY on `fleetAdminXpDelta <= 0` would freeze a capped backlog forever
     // on every subsequent delta-0 poll (the overwhelmingly common case in
     // live play) -- contradicting this function's own stated intent that
-    // leftover XP "keeps resolving on the NEXT tick() call." Reusing the same
-    // exact backlog-construction math as the cap test above (833,708,387,502,500
-    // total XP, guaranteed to require 10,001+ level-ups if uncapped) to first
-    // produce a genuinely capped, backlogged state, then confirm a SECOND
+    // leftover XP "keeps resolving on the NEXT tick() call." Reuses the SAME
+    // curve-derived backlog-construction math as the cap test above (2x the exact
+    // sum for MAX_LEVEL_UPS_PER_TICK level-ups -- see that test for the derivation)
+    // to first produce a genuinely capped, backlogged state, then confirm a SECOND
     // call with delta=0 keeps draining it rather than returning the identical
-    // stuck state.
+    // stuck state. Derived from xpForNextFleetAdminLevel(1) so a future curve
+    // rescale can never shrink this delta back under the cap.
+    const MAX_LEVEL_UPS_PER_TICK = 10_000; // mirrors the private const in tick.ts (cap is loop-, not curve-, scoped)
+    const curveScale = xpForNextFleetAdminLevel(1);
     const sumOfSquaresTo = (n: number) => (n * (n + 1) * (2 * n + 1)) / 6;
-    const xpForExactly10000LevelUps = 2500 * sumOfSquaresTo(10_000);
-    const oneMoreThreshold = 2500 * 10_001 * 10_001;
-    const delta = xpForExactly10000LevelUps + oneMoreThreshold;
+    const xpForExactlyCapLevelUps = curveScale * sumOfSquaresTo(MAX_LEVEL_UPS_PER_TICK);
+    const delta = 2 * xpForExactlyCapLevelUps; // provably > the cap's requirement, with margin to spare
 
     const afterFirstCappedCall = applyFleetAdminXp(freshState(), delta);
-    expect(afterFirstCappedCall.adminPoints).toBe(10_000); // confirms the cap was genuinely hit, not coincidentally under it
+    expect(afterFirstCappedCall.adminPoints).toBe(MAX_LEVEL_UPS_PER_TICK); // confirms the cap was genuinely hit, not coincidentally under it
     const backloggedXp = afterFirstCappedCall.fleetAdminXp;
 
     const afterSecondCall = applyFleetAdminXp(afterFirstCappedCall, 0);
@@ -2138,7 +2157,7 @@ describe("applyFleetAdminXp", () => {
     // real progress: MORE level-ups resolved, adminPoints increased further,
     // and the leftover xp reduced from what it was after the first call.
     expect(afterSecondCall).not.toBe(afterFirstCappedCall);
-    expect(afterSecondCall.adminPoints).toBeGreaterThan(10_000);
+    expect(afterSecondCall.adminPoints).toBeGreaterThan(MAX_LEVEL_UPS_PER_TICK);
     expect(afterSecondCall.fleetAdminLevel).toBeGreaterThan(afterFirstCappedCall.fleetAdminLevel);
     // .toNumber() on both sides -- toBeLessThan needs plain-number operands, and
     // backloggedXp is a captured Decimal reference from afterFirstCappedCall above.
