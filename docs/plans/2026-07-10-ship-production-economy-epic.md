@@ -126,6 +126,12 @@ final designs.
 - The first production node hung on that framework: the **Refinery** — ore → refined materials, with
   refining-slot upgrades. Least greenfield node (refining primitives partially exist), most upstream,
   produces something usable immediately.
+- **PRODUCTION MODEL (LOCKED, Phase-1 brainstorm): timed jobs + slots.** A refining job occupies a
+  slot and takes a FIXED number of ticks (deterministic → offline catch-up stays closed-form:
+  `floor(elapsed / duration)` per slot). Upgrades add slots (parallel jobs) and/or cut duration. This
+  is a NEW subsystem — today's `craftRecipe()` is instant/click-driven with no time or slots; the
+  timed-slot model does NOT reuse it directly (though `RECIPES`' input→output shape is a useful start).
+  Must be mirrored into `App.svelte`'s live loop as well as `tick()` (the two-tick-path trap).
 - **Why first:** establishes the pattern all other facilities reuse, and stands alone (refined mats
   are useful to surface even before downstream consumers exist).
 - **Dependency:** the Refinery needs real distinct inputs to be meaningful — see the Materials phase
@@ -136,6 +142,11 @@ final designs.
   polysilicate ore, …). ~3 distinct materials per mission type (3 short + 3 long = 6; possibly a 3rd
   mission for more), each drop also rolling a **quality grade**.
 - **Loot shape (settled 2026-07-10):** 3 materials per mission × a quality roll per drop.
+- **T1 prospecting mission rework (user vision, 2026-07-11):** rework the existing T1 missions'
+  titles / flavor text / drop rates / XP-per-run. The **Long Run** is re-themed/re-tuned to yield the
+  SECOND material set (longer transit distance, same ~50 cargo requirement). Possibly a 3rd mission
+  for more materials. Note: mission cargo *requirements* don't exist yet — the "50 cargo req" rides
+  with the cargo-as-true-cap redesign (§3.6). This rework is part of the one co-designed loot pass.
 - **Quality axis (recommended, NOT yet locked):** reuse the EXISTING common/uncommon/rare rarity roll
   as the quality grade — the current single-roll extraction *becomes* the quality roll, applied to
   named materials. Closed-form-safe. Alternative (a second orthogonal grade on top of rarity) is
@@ -146,10 +157,29 @@ final designs.
   order is an open question (§6) — it's upstream of Refinery, so it may need to lead or land together
   with it.
 
-### Phase 2 — Warehouse / storage
+### Phase 2 — Warehouse / storage  (working name — user wants a better one)
 - Storage capacity caps for materials + components.
 - **Open:** may fold into Phase 1's framework rather than being its own phase. Decide when Phase 1 is
   designed.
+- **UI SPEC (user vision, 2026-07-11 — MOCKUP-GATED before build, §3.4):** a left-side tab under
+  Homeworld (captain-list-style left nav). Top sub-tabs within it: **Overview, Upgrades, Raw Materials,
+  Refined Materials, Minor Components** (ship modules for now; later also ground-troop equipment),
+  **Major Components** (ship materials — frame, hull plating, etc.), **Ship Modules, Ship Systems.**
+  - Each item shows as a box/icon with the **current total** in it (1, 2, 103k, 1.3m).
+  - **Undiscovered items show a `❓` placeholder** with a clue to how to get it ("hasn't been crafted
+    yet", "needs to be researched first").
+  - On FIRST discovery (looted / crafted / researched), the box takes the item's **rarity color**
+    (white common, green uncommon, blue rare, …).
+  - **Tooltip:** item name, flavor text, classification (tier, etc.), and equip stats if it's a module
+    or ship system.
+- **Data-model implications this UI forces (define forward-compat now):**
+  1. **Keyed item inventory** (`itemId → qty`), not hardcoded fields (already principle §3.7).
+  2. A persistent **`discovered` set** (itemIds seen at least once) driving the `❓`→reveal behavior —
+     a new save field + migration.
+  3. An **item taxonomy**: every item carries `category` (raw / refined / minorComponent /
+     majorComponent / shipModule / shipSystem), `tier`, `rarity`, plus flavor + (for modules/systems)
+     equip stats. This taxonomy is the inventory backbone — populate raw/refined early, the rest as
+     their phases ship.
 
 ### Phase 3 — Research + blueprints
 - The unlock engine: Research unlocks blueprints that gate what the Fabricator may build.
