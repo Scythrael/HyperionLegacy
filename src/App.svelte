@@ -34,6 +34,12 @@
     xpForNextFleetAdminLevel,
     CAPTAIN_TALENTS,
     HOMEWORLD_TALENTS,
+    // Progression Pacing Rework (Task 11) -- live ceiling of captain slots the
+    // current content can actually unlock (1 base + the 3 fleetLogisticsSlot
+    // nodes = 4 today). The captain-list below uses it to split empty slots into
+    // "Locked" (exists, gated by a Fleet Logistics talent) vs "Coming Soon" (a
+    // roadmap slot past 4 with no unlock path built yet). See model.ts.
+    MAX_UNLOCKABLE_CAPTAINS,
     // Ships — Stats Foundation (Task 11 UI) -- the shared, immutable hull-stat
     // table (SHIP_TYPES) plus the per-instance stat projection
     // (shipDerivedStats) drive the Sector Space > Starbase > Docks/Requisition
@@ -1631,17 +1637,32 @@
               {captain.label}
             </button>
           {/each}
-          <!-- Locked slots up to a roadmap max of 10 captains -- a genuine future
-               signal (more Fleet Logistics unlock tiers planned later), not a
-               promise with nothing behind it. Today's ACTUAL mechanic only supports
-               growing to 4 captains (see model.ts's HOMEWORLD_TALENTS
-               fleetLogisticsSlot1/2/3) -- slots 5-10 have no unlock path yet; see
-               KNOWN_ISSUES.md (Task 6 of this plan). Array.from({length: N}) is
-               used (not a bare {length: N} object) since Svelte's {#each} needs a
-               real iterable/array, not just an array-like object. -->
+          <!-- Empty slots up to a roadmap max of 10 captains, split two ways
+               (Progression Pacing Rework, Task 11 relabel):
+                 - "Locked"      = a captain the CURRENT content can unlock once
+                                   its Fleet Logistics talent + FA-level wall are
+                                   met. These EXIST today: captains 2/3/4, backed
+                                   by HOMEWORLD_TALENTS fleetLogisticsSlot1/2/3.
+                 - "Coming Soon" = a roadmap slot past captain 4 (slots 5-10) with
+                                   NO unlock path built yet -- only 3 slot-unlock
+                                   nodes exist; see KNOWN_ISSUES.md (Task 6).
+               The captain number a slot represents is (owned count + j + 1); it's
+               unlockable when that number is within MAX_UNLOCKABLE_CAPTAINS (the
+               live 1+3=4 ceiling derived in model.ts, so this split shifts
+               automatically the day a fleetLogisticsSlot4 node lands -- no edit
+               here needed). Array.from({length: N}) is used (not a bare
+               {length: N} object) since Svelte's {#each} needs a real iterable,
+               not just an array-like object. -->
           {#each Array.from({ length: Math.max(0, 10 - state.captains.length) }) as _, j}
-            <div class="captain-list-item locked" title="Coming soon — not yet unlockable">
-              🔒 Coming Soon!
+            {@const captainNumber = state.captains.length + j + 1}
+            {@const isUnlockable = captainNumber <= MAX_UNLOCKABLE_CAPTAINS}
+            <div
+              class="captain-list-item locked"
+              title={isUnlockable
+                ? "Locked — recruit via Homeworld Talents → Fleet Logistics (requires reaching the slot's Fleet-Admiral level)"
+                : "Coming soon — not yet unlockable"}
+            >
+              {#if isUnlockable}🔒 Locked{:else}🔒 Coming Soon!{/if}
             </div>
           {/each}
         </div>

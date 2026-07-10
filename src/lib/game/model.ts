@@ -907,6 +907,23 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
   },
 };
 
+// Progression Pacing Rework (Task 11, "Coming Soon" -> "Locked" relabel):
+// how many captain slots the game's CURRENT content can actually unlock. Every
+// captain past the 1st is recruited by an `unlockCaptainSlot` Homeworld Talent
+// (the fleetLogisticsSlot1/2/3 chain above), so the live ceiling is:
+//     1 base captain + (number of unlockCaptainSlot nodes that exist today)
+//   = 1 + 3 = 4 right now.
+// Derived, NOT hardcoded to 4, so it grows automatically the day a
+// fleetLogisticsSlot4 node is added -- mirroring the "no placeholder, it lands
+// when the node lands" note on the slot chain above (model.ts ~L787). The
+// captain-list UI (App.svelte) reads this to decide, per empty slot, whether
+// that slot is "Locked" (a captain this content CAN unlock once its Fleet
+// Logistics talent + FA-level wall are met -> it EXISTS) or "Coming Soon" (a
+// roadmap slot beyond slot 4 with no unlock path built yet).
+export const MAX_UNLOCKABLE_CAPTAINS =
+  1 +
+  Object.values(HOMEWORLD_TALENTS).filter((t) => t.effect.type === "unlockCaptainSlot").length;
+
 // --- Selector card data (Radial Skill Web, Task 13) -----------------------
 // docs/plans/2026-07-08-radial-skill-web-plan.md, Task 13 + design §5.
 //

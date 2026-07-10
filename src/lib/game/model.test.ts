@@ -10,6 +10,7 @@ import {
   xpForNextFleetAdminLevel,
   CAPTAIN_TALENTS,
   HOMEWORLD_TALENTS,
+  MAX_UNLOCKABLE_CAPTAINS,
   CAPTAIN_SPEC_BONUS,
   specCards,
   categoryCards,
@@ -334,6 +335,19 @@ describe("HOMEWORLD_TALENTS — launch set", () => {
   it("Fleet Logistics has exactly 3 unlockCaptainSlot nodes, matching the original 3-tier slot-unlock design", () => {
     const slotNodes = Object.values(HOMEWORLD_TALENTS).filter((t) => t.effect.type === "unlockCaptainSlot");
     expect(slotNodes).toHaveLength(3);
+  });
+
+  // Progression Pacing Rework (Task 11): MAX_UNLOCKABLE_CAPTAINS is the derived
+  // ceiling the captain-list UI uses to split empty slots into "Locked" (exists,
+  // gated) vs "Coming Soon" (no unlock path). It must equal 1 base captain plus
+  // the number of unlockCaptainSlot nodes -- i.e. 4 today. This pins the
+  // derivation so a stray hardcode or an accidental extra slot node is caught.
+  it("MAX_UNLOCKABLE_CAPTAINS = 1 base captain + the unlockCaptainSlot node count (4 today)", () => {
+    const slotNodeCount = Object.values(HOMEWORLD_TALENTS).filter(
+      (t) => t.effect.type === "unlockCaptainSlot",
+    ).length;
+    expect(MAX_UNLOCKABLE_CAPTAINS).toBe(1 + slotNodeCount);
+    expect(MAX_UNLOCKABLE_CAPTAINS).toBe(4);
   });
 
   it("every HOMEWORLD_TALENTS entry has non-empty flavor text", () => {
