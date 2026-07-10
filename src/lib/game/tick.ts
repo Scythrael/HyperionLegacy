@@ -1040,9 +1040,12 @@ export function buyCaptainTalent(
 // Same shape as buyCaptainTalent, fleet-wide -- including the same graph
 // adjacency gate: learnable iff a hub, or adjacent to an already-unlocked node
 // in this branch (against state.unlockedHomeworldTalents). unlockCaptainSlot is
-// the one effect type with an additional side effect beyond "record the unlock"
-// -- appending a new captain via freshCaptainStack(), same baseline every other
-// captain-creation path in this codebase uses.
+// the one effect type with additional side effects beyond "record the unlock"
+// -- appending a new captain via freshCaptainStack() (same baseline every other
+// captain-creation path in this codebase uses) AND granting that captain an
+// assigned General Freighter, so the "every captain always has exactly one
+// assigned ship" invariant holds here too (its third enforcement site, after
+// new-game and save migration).
 export function buyHomeworldTalent(
   state: GameState,
   talentKey: HomeworldTalentKey
@@ -1069,9 +1072,21 @@ export function buyHomeworldTalent(
     const nextId = state.captains.length + 1;
     const captains = [
       ...state.captains,
-      { id: nextId, label: `Captain ${nextId}`, shipType: "resourcer" as const, ...freshCaptainStack() },
+      { id: nextId, label: `Captain ${nextId}`, ...freshCaptainStack() }, // shipType removed (captain no longer owns a hull)
     ];
-    return { next: { ...state, captains, adminPoints, unlockedHomeworldTalents }, success: true };
+    // Every captain always has exactly one assigned ship (invariant enforced at
+    // new-game, migration, and HERE). A newly-unlocked captain is granted a
+    // General Freighter, assigned to them, REGARDLESS of shipStorageCapacity --
+    // a captain must have a hull to be dispatchable (cap is 8 > the current 4-
+    // captain ceiling, so this never conflicts today).
+    const ships = [
+      ...state.ships,
+      { id: `ship-${state.nextShipId}`, typeKey: "generalFreighter" as const, assignedCaptainId: nextId },
+    ];
+    return {
+      next: { ...state, captains, ships, nextShipId: state.nextShipId + 1, adminPoints, unlockedHomeworldTalents },
+      success: true,
+    };
   }
 
   return { next: { ...state, adminPoints, unlockedHomeworldTalents }, success: true };

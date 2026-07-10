@@ -1388,6 +1388,35 @@ describe("buyHomeworldTalent", () => {
     expect(next.captains[1].id).toBe(2);
   });
 
+  it("unlockCaptainSlot also grants + assigns a Freighter to the new captain (always-has-a-ship invariant), bumps nextShipId, and the captain carries no shipType", () => {
+    const state = freshState();
+    state.adminPoints = 10;
+    const originalNextShipId = state.nextShipId; // freshState() -> 2 ("ship-1" already taken)
+    const withHub = buyHomeworldTalent(state, "fleetLogisticsHub").next; // hub cost 1, makes slot1 learnable
+    const { next, success } = buyHomeworldTalent(withHub, "fleetLogisticsSlot1"); // cost 3, unlockCaptainSlot -> captain id 2
+    expect(success).toBe(true);
+
+    // A ship was appended, assigned to the newly-unlocked captain (id 2), typed
+    // generalFreighter, with the id minted from the PRE-bump nextShipId.
+    const newShip = next.ships.find((s) => s.assignedCaptainId === 2);
+    expect(newShip).toBeDefined();
+    expect(newShip!.typeKey).toBe("generalFreighter");
+    expect(newShip!.id).toBe(`ship-${originalNextShipId}`);
+
+    // nextShipId advanced by exactly 1 (2 -> 3), monotonic id source consumed.
+    expect(next.nextShipId).toBe(originalNextShipId + 1);
+
+    // The new captain no longer owns a hull -- shipType was removed entirely
+    // (captain/ship separation). Not "resourcer", not any value: absent.
+    expect("shipType" in next.captains[1]).toBe(false);
+
+    // Invariant: every captain has exactly one assigned ship in next.ships.
+    for (const captain of next.captains) {
+      const assigned = next.ships.filter((s) => s.assignedCaptainId === captain.id);
+      expect(assigned).toHaveLength(1);
+    }
+  });
+
   it("fails if adminPoints are insufficient (even for a learnable node)", () => {
     const state = freshState();
     state.adminPoints = 0; // fleetLogisticsHub costs 1; adjacency gate passes (hub), cost gate fails
