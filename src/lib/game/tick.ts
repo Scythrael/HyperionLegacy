@@ -16,12 +16,15 @@ import {
   xpForNextFleetAdminLevel,
   MISSIONS,
   RECIPES,
+  SHIP_TYPES,
   CAPTAIN_TALENTS,
   CAPTAIN_SPEC_BONUS,
   HOMEWORLD_TALENTS,
   freshCaptainStack,
   shipDerivedStats,
   type GameState,
+  type ShipTypeKey,
+  type ShipInstance,
   type CaptainState,
   type CaptainMissionState,
   type LootMaterialKey,
@@ -902,6 +905,52 @@ export function assignShipToCaptain(
     return s;
   });
   return { next: { ...state, ships }, success: true };
+}
+
+// Purchases a new hull for the fleet at the Sector Space construct (Ships —
+// Stats Foundation, Task 9). Pure: returns a new state, mutates nothing. Same
+// "same state reference on failure" convention as every other buy/action
+// function in this file (assignShipToCaptain above, craftRecipe/respec* below).
+// The Sector Space buy panel (Task 11 UI) is the caller.
+//
+// Three guards, checked in order (all return the SAME state reference,
+// success: false):
+//   1. !def.cost -- the hull is not purchasable. ShipTypeDef.cost is typed
+//      `{ credits: number } | null`; a null cost means "not for sale" (e.g. a
+//      future Research-gated hull). FORWARD-DEFENSIVE: all 4 current SHIP_TYPES
+//      hulls have a non-null cost, so this branch is unreachable with today's
+//      table -- but the guard both honors the type's own contract and protects
+//      the `def.cost.credits` deref below from a null. Kept intentionally.
+//   2. storage cap -- the fleet can hold at most shipStorageCapacity hulls
+//      (parked + assigned combined). At capacity, no purchase.
+//   3. affordability -- credits is a break_infinity.js Decimal, so the compare
+//      is `.lt(number)` (NOT `<`) and the deduction is `.minus(number)` (NOT
+//      `-`), matching respecCaptainTalents/craftRecipe's Decimal usage above.
+//
+// On success the new hull arrives PARKED (assignedCaptainId: null) -- the
+// player assigns it via assignShipToCaptain afterward. Its id is minted from
+// state.nextShipId as "ship-N" (the same "ship-N" scheme freshState seeds and
+// ShipInstance.id documents), and nextShipId is then bumped by 1 so the id
+// source stays monotonic and never reused.
+export function buyShip(
+  state: GameState,
+  typeKey: ShipTypeKey
+): { next: GameState; success: boolean } {
+  const def = SHIP_TYPES[typeKey];
+  if (!def.cost) return { next: state, success: false }; // not purchasable (forward-defensive; see header)
+  if (state.ships.length >= state.shipStorageCapacity) return { next: state, success: false }; // storage at capacity
+  if (state.credits.lt(def.cost.credits)) return { next: state, success: false }; // can't afford
+
+  const ship: ShipInstance = { id: `ship-${state.nextShipId}`, typeKey, assignedCaptainId: null };
+  return {
+    next: {
+      ...state,
+      credits: state.credits.minus(def.cost.credits),
+      ships: [...state.ships, ship],
+      nextShipId: state.nextShipId + 1,
+    },
+    success: true,
+  };
 }
 
 // Validates every input in the recipe is affordable, deducts them all, adds
