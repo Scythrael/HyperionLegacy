@@ -34,8 +34,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.captains[0].tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 16", () => {
-    expect(SAVE_VERSION).toBe(16);
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
   });
 });
 
@@ -73,8 +73,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 16", () => {
-    expect(SAVE_VERSION).toBe(16);
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
   });
 });
 
@@ -241,8 +241,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBeUndefined();
   });
 
-  it("current SAVE_VERSION is 16", () => {
-    expect(SAVE_VERSION).toBe(16);
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
   });
 });
 
@@ -338,8 +338,8 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 16", () => {
-    expect(SAVE_VERSION).toBe(16);
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
   });
 });
 
@@ -444,8 +444,8 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 16", () => {
-    expect(SAVE_VERSION).toBe(16);
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
   });
 });
 
@@ -530,8 +530,8 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 16", () => {
-    expect(SAVE_VERSION).toBe(16);
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
   });
 });
 
@@ -590,8 +590,8 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.captains[0].mission).toBe(null);
   });
 
-  it("current SAVE_VERSION is 16", () => {
-    expect(SAVE_VERSION).toBe(16);
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
   });
 });
 
@@ -647,8 +647,8 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     expect(migrated.homePlanet.storage.refinedMaterial.equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 16", () => {
-    expect(SAVE_VERSION).toBe(16);
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
   });
 });
 
@@ -706,8 +706,8 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     expect(migrated.tickDurationSeconds).toBe(10);
   });
 
-  it("current SAVE_VERSION is 16", () => {
-    expect(SAVE_VERSION).toBe(16);
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
   });
 });
 
@@ -1469,8 +1469,173 @@ describe("migrate — Ships stats foundation: grandfather a Freighter per captai
     expect(migrated.nextShipId).toBe(original.nextShipId);
   });
 
-  it("current SAVE_VERSION is 16", () => {
-    expect(SAVE_VERSION).toBe(16);
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
+  });
+});
+
+describe("migrate — lifetimeStats reservation backfill (v16 -> v17)", () => {
+  it("backfills a fully-zeroed lifetimeStats on a genuine v16 save that predates the field, leaving every existing field untouched", () => {
+    // A genuine v16 shape: every field through MIGRATIONS[15] already present
+    // (ships/shipStorageCapacity/nextShipId, per-captain spec, no shipType,
+    // credits fleet-wide, xp/level/statPoints/unlockedCaptainTalents/mission) --
+    // exactly what serialize() produced on this branch's parent commit, but with
+    // NO `lifetimeStats` key anywhere on GameState. Hand-written literal, same
+    // reasoning as every other legacy fixture in this file: freshState() now
+    // always seeds lifetimeStats (Task 1 of this same feature), so it can no
+    // longer stand in for this pre-v17 shape. Two captains, one of them
+    // mid-mission, confirm this backfill touches ONLY the new top-level field
+    // and clobbers nothing that was already there.
+    const legacyState: any = {
+      gameTimeSeconds: 6000,
+      tickDurationSeconds: 1,
+      credits: 0,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 0,
+      fleetAdminLevel: 1,
+      adminPoints: 0,
+      unlockedSkillNodes: ["commandRank1"],
+      skillPoints: 0,
+      homePlanet: { storage: { commonOre: 50, uncommonMaterial: 4, rareMaterial: 1, refinedMaterial: 2, components: 0 } },
+      ships: [
+        { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 },
+        { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: 2 },
+      ],
+      shipStorageCapacity: 8,
+      nextShipId: 3,
+      captains: [
+        {
+          id: 1,
+          label: "Captain 1",
+          xp: 300,
+          level: 3,
+          statPoints: 1,
+          spec: null,
+          unlockedCaptainTalents: [],
+          mission: null, // idle captain
+        },
+        {
+          id: 2,
+          label: "Captain 2",
+          xp: 0,
+          level: 1,
+          statPoints: 0,
+          spec: null,
+          unlockedCaptainTalents: [],
+          mission: {
+            missionKey: "shortOreRun",
+            phase: "extracting",
+            phaseProgressTicks: 2,
+            recalled: false,
+            cargo: { commonOre: 6, uncommonMaterial: 1, rareMaterial: 0 }, // in-flight loot -- must survive untouched
+          },
+        },
+      ],
+      // no `lifetimeStats` key at all -- the real pre-v17 shape
+    };
+
+    const save: SaveFile = { version: 16, created_at: 0, last_saved_at: 0, game_time_seconds: 6000, state: legacyState };
+    const migrated: any = migrate(save);
+
+    // lifetimeStats is created by MIGRATIONS[16] via the shared
+    // freshLifetimeStats() factory. The 4 tally maps start empty; the 3 scalar
+    // sums are Decimal-designated -- MIGRATIONS[16] produces live Decimal(0)s
+    // directly (freshLifetimeStats() constructs `new Decimal(0)`), and
+    // hydrateDecimals() re-confirms them (idempotent). instanceof + .equals(),
+    // never .toBe(), since Decimal is an object (reference-compared by toBe,
+    // which would always fail even when the value is correct).
+    expect(migrated.lifetimeStats.itemsGathered).toEqual({});
+    expect(migrated.lifetimeStats.itemsRefined).toEqual({});
+    expect(migrated.lifetimeStats.itemsCrafted).toEqual({});
+    expect(migrated.lifetimeStats.missionsCompleted).toEqual({});
+    expect(migrated.lifetimeStats.creditsEarned instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.creditsEarned.equals(0)).toBe(true);
+    expect(migrated.lifetimeStats.captainXpAwarded instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.captainXpAwarded.equals(0)).toBe(true);
+    expect(migrated.lifetimeStats.fleetAdminXpAwarded instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.fleetAdminXpAwarded.equals(0)).toBe(true);
+
+    // Every pre-existing field survives the backfill completely untouched.
+    // Decimal-designated fields (credits, xp, homePlanet.storage, mission.cargo)
+    // arrive hydrated via the same unconditional hydrateDecimals() pass.
+    expect(migrated.credits instanceof Decimal).toBe(true);
+    expect(migrated.credits.equals(0)).toBe(true);
+    expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
+    expect(migrated.fleetAdminXp.equals(0)).toBe(true);
+    expect(migrated.homePlanet.storage.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.homePlanet.storage.commonOre.equals(50)).toBe(true);
+    expect(migrated.ships).toHaveLength(2);
+    expect(migrated.ships[0].typeKey).toBe("generalFreighter");
+    expect(migrated.shipStorageCapacity).toBe(8);
+    expect(migrated.nextShipId).toBe(3);
+    expect(migrated.captains[0].mission).toBe(null);
+    expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
+    expect(migrated.captains[0].xp.equals(300)).toBe(true);
+    expect(migrated.captains[0].level).toBe(3);
+    expect(migrated.captains[0].statPoints).toBe(1);
+    expect(migrated.captains[1].id).toBe(2);
+    expect(migrated.captains[1].mission).not.toBe(null);
+    expect(migrated.captains[1].mission.phaseProgressTicks).toBe(2);
+    expect(migrated.captains[1].mission.cargo.commonOre instanceof Decimal).toBe(true);
+    expect(migrated.captains[1].mission.cargo.commonOre.equals(6)).toBe(true);
+    expect(migrated.gameTimeSeconds).toBe(6000);
+  });
+
+  it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), restoring lifetimeStats' Decimal scalars as real Decimal instances (proves the field survives a NORMAL save/load, not just an OLD-save migration)", () => {
+    // lifetimeStats' 3 scalar sums (creditsEarned/captainXpAwarded/
+    // fleetAdminXpAwarded) are Decimal-designated, so on the REAL save/load path
+    // loadFromLocalStorage() runs every time -- serialize() (JSON.stringify's the
+    // WHOLE state; Decimal.toJSON() turns each into a plain string) ->
+    // deserialize() (straight JSON.parse; those stay plain strings) -> migrate()
+    // -- they arrive as strings and are converted back ONLY by hydrateDecimals()
+    // (called unconditionally at the end of migrate()). Because a freshState()
+    // save is already at the CURRENT SAVE_VERSION, migrate()'s while loop runs
+    // ZERO iterations (there's no MIGRATIONS[17]); the Decimals are restored
+    // PURELY by the unconditional hydrateDecimals() call, exactly the same
+    // round-trip property the v11->v12 / v12->v13 / v15->v16 freshState()
+    // round-trip tests above lock in for their own Decimal/plain fields.
+    //
+    // FAIL-BEFORE / PASS-AFTER trace: before this feature, hydrateDecimals() had
+    // no lifetimeStats branch, so on this round trip creditsEarned would come
+    // back as the plain string "0" (never a Decimal) and the instanceof
+    // assertions below would fail. They pass because hydrateDecimals() now
+    // converts those 3 scalars -- this test locks that against any future
+    // regression that drops the lifetimeStats hydration branch.
+    const original = freshState();
+    const raw = serialize(original, Date.now());
+    const deserialized = deserialize(raw);
+    expect(deserialized).not.toBeNull();
+
+    // Confirms the save was written at the CURRENT version -- migrate()'s while
+    // loop below genuinely runs zero iterations (no MIGRATIONS[17]), so the
+    // Decimals are restored entirely via serialize->parse->hydrateDecimals, not
+    // via any migration step.
+    expect(deserialized!.version).toBe(SAVE_VERSION);
+
+    const migrated: any = migrate(deserialized!);
+
+    // The 3 Decimal scalars survive as real Decimal instances with freshState()'s
+    // original all-zero values -- .equals(), not .toBe(), since these are freshly
+    // constructed by hydrateDecimals(), never the same object reference as
+    // `original`'s.
+    expect(migrated.lifetimeStats.creditsEarned instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.creditsEarned.equals(original.lifetimeStats.creditsEarned)).toBe(true);
+    expect(migrated.lifetimeStats.captainXpAwarded instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.captainXpAwarded.equals(original.lifetimeStats.captainXpAwarded)).toBe(true);
+    expect(migrated.lifetimeStats.fleetAdminXpAwarded instanceof Decimal).toBe(true);
+    expect(migrated.lifetimeStats.fleetAdminXpAwarded.equals(original.lifetimeStats.fleetAdminXpAwarded)).toBe(true);
+
+    // The 4 tally maps survive as empty objects (plain-JSON {} both ways -- no
+    // Decimal values inside them yet, so .toEqual({}), not the instanceof
+    // treatment the scalars get).
+    expect(migrated.lifetimeStats.itemsGathered).toEqual({});
+    expect(migrated.lifetimeStats.itemsRefined).toEqual({});
+    expect(migrated.lifetimeStats.itemsCrafted).toEqual({});
+    expect(migrated.lifetimeStats.missionsCompleted).toEqual({});
+  });
+
+  it("current SAVE_VERSION is 17", () => {
+    expect(SAVE_VERSION).toBe(17);
   });
 });
 

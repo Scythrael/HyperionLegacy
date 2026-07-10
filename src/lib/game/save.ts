@@ -4,9 +4,9 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
-import { type GameState, type MissionKey, type MissionPhase, freshCaptains, requiredTicksForPhase, MISSIONS } from "./model";
+import { type GameState, type MissionKey, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS } from "./model";
 
-export const SAVE_VERSION = 16;
+export const SAVE_VERSION = 17;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -64,6 +64,30 @@ function hydrateDecimals(state: any): GameState {
     },
     fleetAdminXp: toDecimal(state.fleetAdminXp),
     credits: toDecimal(state.credits),
+    // lifetimeStats' 3 scalar sums are Decimal-typed (Progression Pacing
+    // Rework), so -- exactly like credits/fleetAdminXp above -- they round-trip
+    // through JSON as plain strings (Decimal.toJSON()) and MUST be converted
+    // back here, or the first .plus() a future Completions/Achievements reader
+    // does would throw. Reached unconditionally for the same reason every field
+    // above is: any save arriving here has already had lifetimeStats guaranteed
+    // present -- either it was written at v17+ (freshState seeds it) or the
+    // migration chain's MIGRATIONS[16] backfilled it before this runs -- so the
+    // unguarded `state.lifetimeStats.*` reads are safe, same posture as the
+    // unguarded homePlanet.storage/credits reads above.
+    //
+    // The 4 tally maps (itemsGathered/itemsRefined/itemsCrafted/
+    // missionsCompleted) are spread through AS-IS: they are empty ({}) at both
+    // freshState() and MIGRATIONS[16] today, so there are no per-key Decimal
+    // values to hydrate yet. WHEN the later increment-wiring task starts
+    // populating them with Decimal values, THAT task must add per-value
+    // toDecimal() hydration here (their string-vs-Decimal round-trip has the
+    // identical hazard as the scalars) -- flagged now so it isn't missed then.
+    lifetimeStats: {
+      ...state.lifetimeStats,
+      creditsEarned: toDecimal(state.lifetimeStats.creditsEarned),
+      captainXpAwarded: toDecimal(state.lifetimeStats.captainXpAwarded),
+      fleetAdminXpAwarded: toDecimal(state.lifetimeStats.fleetAdminXpAwarded),
+    },
   };
 }
 
@@ -458,6 +482,23 @@ const MIGRATIONS: Record<number, Migration> = {
     const captains = (state.captains ?? []).map(({ shipType, ...rest }: any) => rest);
     return { ...state, captains, ships, shipStorageCapacity: 8, nextShipId };
   },
+  // v16 -> v17: Progression Pacing Rework (docs/plans/2026-07-11-progression-
+  // pacing-rework-*). GameState gains `lifetimeStats` -- monotonic LIFETIME
+  // totals reserved now for a future Completions/Achievements system to read.
+  // Absent entirely on any pre-v17 save (freshState() only began seeding it in
+  // this same feature), so backfill the identical clean-slate zeroed shape a
+  // brand-new game gets, via the SHARED freshLifetimeStats() factory (model.ts)
+  // that freshState() also calls -- so the migrated and fresh shapes can never
+  // drift apart (Omega 4, DRY). freshLifetimeStats() returns live Decimal(0)
+  // scalars, so this migrated shape already carries real Decimals; the
+  // unconditional hydrateDecimals() at the end of migrate() re-confirms them
+  // (idempotent -- toDecimal() no-ops on an existing Decimal), the same
+  // pattern every prior Decimal field in this file relies on for its round-trip
+  // (a re-saved v17 blob serializes those Decimals to strings, and that same
+  // hydrateDecimals() call converts them back). The 4 tally maps start empty
+  // ({}), so there are no per-key values to backfill or hydrate yet.
+  // Frozen once shipped (never edit this body).
+  16: (state: any): any => ({ ...state, lifetimeStats: freshLifetimeStats() }),
 };
 
 export function migrate(save: SaveFile): GameState {

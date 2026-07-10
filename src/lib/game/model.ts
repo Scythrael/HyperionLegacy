@@ -980,6 +980,29 @@ export function freshCaptains(count: number): CaptainState[] {
   return captains;
 }
 
+// The zeroed lifetimeStats shape, extracted as a single source of truth shared
+// by BOTH freshState() (a brand-new game) and save.ts's MIGRATIONS[16]
+// (backfilling an old v16 save that predates this field). Omega 4 (DRY): the
+// two call sites MUST produce the identical shape -- a fresh game and a migrated
+// old save have to land on the same clean-slate totals -- so they are defined
+// ONCE here rather than duplicated, where they could silently drift apart.
+// Empty per-key tally maps (a material/mission key is absent until its first
+// recorded event) and live Decimal(0) scalar sums. Reserved schema only:
+// nothing increments these yet (the increment wiring is a later task) -- see
+// the GameState.lifetimeStats field comment above for why they must accrue from
+// a clean-slate zero rather than being derived from live state on demand.
+export function freshLifetimeStats(): GameState["lifetimeStats"] {
+  return {
+    itemsGathered: {},
+    itemsRefined: {},
+    itemsCrafted: {},
+    missionsCompleted: {},
+    creditsEarned: new Decimal(0),
+    captainXpAwarded: new Decimal(0),
+    fleetAdminXpAwarded: new Decimal(0),
+  };
+}
+
 export function freshState(): GameState {
   return {
     captains: freshCaptains(1),
@@ -1005,18 +1028,10 @@ export function freshState(): GameState {
     ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
     shipStorageCapacity: 8,
     nextShipId: 2,
-    // Clean-slate lifetime totals -- empty per-key tally maps (no material or
-    // mission key present until its first recorded event) and Decimal(0) scalar
-    // sums. Reserved schema only: no code increments these yet (see the GameState
-    // field comment above for why they're accrued rather than derived).
-    lifetimeStats: {
-      itemsGathered: {},
-      itemsRefined: {},
-      itemsCrafted: {},
-      missionsCompleted: {},
-      creditsEarned: new Decimal(0),
-      captainXpAwarded: new Decimal(0),
-      fleetAdminXpAwarded: new Decimal(0),
-    },
+    // Clean-slate lifetime totals -- see freshLifetimeStats() above. Extracted
+    // to that shared factory (Omega 4, DRY) so this new-game init and the
+    // v16->v17 save migration that backfills the same field (save.ts,
+    // MIGRATIONS[16]) can never drift out of sync.
+    lifetimeStats: freshLifetimeStats(),
   };
 }
