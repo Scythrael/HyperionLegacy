@@ -22,9 +22,18 @@ import {
   captainBonusRollChanceMult,
   captainSpecBonusRollChance,
   xpPerTick,
+  foldLifetimeStatsDelta,
 } from "./tick";
 import Decimal from "break_infinity.js";
-import { freshState, freshCaptains, MISSIONS, RECIPES, shipDerivedStats, type CaptainMissionState } from "./model";
+import {
+  freshState,
+  freshCaptains,
+  freshLifetimeStats,
+  MISSIONS,
+  RECIPES,
+  shipDerivedStats,
+  type CaptainMissionState,
+} from "./model";
 
 function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
   return {
@@ -1070,6 +1079,152 @@ describe("tickCaptainMission / tick() — accrues mission-side lifetime stats (T
       expect(result.lifetimeStats.creditsEarned.equals(20)).toBe(true);
       expect(result.lifetimeStats.captainXpAwarded.equals(298)).toBe(true); // 2 * 149
       expect(result.lifetimeStats.fleetAdminXpAwarded.equals(298)).toBe(true); // 2 * 149
+    } finally {
+      rngSpy.mockRestore();
+    }
+  });
+});
+
+describe("foldLifetimeStatsDelta / live-loop parity — lifetime stats accrue identically live and offline (Task 7)", () => {
+  // Task 7 (Progression Pacing Rework): App.svelte's live poll loop is a SEPARATE
+  // re-implementation of the tick math from tick(), and has historically dropped
+  // ship-stats/credits when it diverged from tick(). To make lifetime-stat accrual
+  // drift-proof, the per-captain lifetimeStats fold was extracted into ONE shared
+  // exported helper, foldLifetimeStatsDelta, called PER CAPTAIN by BOTH tick() and
+  // the live loop. These tests (a) pin the helper's own semantics and (b) prove the
+  // live-loop fold path and tick() produce IDENTICAL state.lifetimeStats for the
+  // same tick sequence -- so if tick() ever stopped folding through the helper (or
+  // the helper's math regressed), the parity test below would FAIL.
+
+  it("foldLifetimeStatsDelta: merges maps per-key, sums scalars, preserves untouched fields, does not mutate base", () => {
+    // Seed a base with a NON-mission field populated (itemsRefined) to prove the
+    // helper's spread rides untouched fields through rather than dropping them --
+    // the exact "silently dropped homePlanet" bug class the helper guards against.
+    const base = freshLifetimeStats();
+    base.itemsRefined = { alloy: new Decimal(5) };
+
+    const d1 = {
+      itemsGathered: { commonOre: new Decimal(3), rareMaterial: new Decimal(1) },
+      missionsCompleted: { shortOreRun: new Decimal(1) },
+      creditsEarned: new Decimal(10),
+      captainXpAwarded: new Decimal(7),
+      fleetAdminXpAwarded: new Decimal(7),
+    };
+    const d2 = {
+      itemsGathered: { commonOre: new Decimal(4), uncommonMaterial: new Decimal(2) },
+      missionsCompleted: { shortOreRun: new Decimal(1) },
+      creditsEarned: new Decimal(10),
+      captainXpAwarded: new Decimal(5),
+      fleetAdminXpAwarded: new Decimal(5),
+    };
+
+    // Fold two deltas in sequence (the per-captain shape both call sites use).
+    const folded = foldLifetimeStatsDelta(foldLifetimeStatsDelta(base, d1), d2);
+
+    // Maps merge per-key, including the SECOND-hit branch (commonOre / shortOreRun
+    // appear in both deltas and must SUM, not overwrite).
+    expect(folded.itemsGathered.commonOre.equals(7)).toBe(true); // 3 + 4
+    expect(folded.itemsGathered.rareMaterial.equals(1)).toBe(true); // only in d1
+    expect(folded.itemsGathered.uncommonMaterial.equals(2)).toBe(true); // only in d2
+    expect(folded.missionsCompleted.shortOreRun.equals(2)).toBe(true); // 1 + 1
+
+    // Scalars sum.
+    expect(folded.creditsEarned.equals(20)).toBe(true); // 10 + 10
+    expect(folded.captainXpAwarded.equals(12)).toBe(true); // 7 + 5
+    expect(folded.fleetAdminXpAwarded.equals(12)).toBe(true); // 7 + 5
+
+    // Untouched fields ride through: itemsRefined preserved, itemsCrafted still empty.
+    expect(folded.itemsRefined.alloy.equals(5)).toBe(true);
+    expect(folded.itemsCrafted).toEqual({});
+
+    // Base is NOT mutated (pure fold returns a fresh object).
+    expect(base.itemsGathered).toEqual({});
+    expect(base.creditsEarned.equals(0)).toBe(true);
+    expect(base.missionsCompleted).toEqual({});
+  });
+
+  it("anti-drift: the live-loop fold path (foldLifetimeStatsDelta per captain) yields IDENTICAL lifetimeStats to tick()", () => {
+    // rng pinned to 0 => rare wins every extraction roll (deterministic 90 rare per
+    // completed cycle, no bonus rolls), so BOTH paths are fully deterministic. With
+    // Math.random constant, the interleaving/count of rng calls between the two
+    // paths is irrelevant -- every call returns 0 either way.
+    const rngSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      // Shared starting state: 2 captains both on shortOreRun -- exercises the
+      // per-key SECOND-hit merge inside the fold (both captains fold into the same
+      // missionsCompleted[shortOreRun] / itemsGathered[rareMaterial]).
+      const makeState = () => {
+        const s = freshState();
+        s.captains = freshCaptains(2);
+        s.captains[0].mission = missionCaptain("shortOreRun");
+        s.captains[1].mission = missionCaptain("shortOreRun");
+        return s;
+      };
+
+      // Path A -- offline catch-up: tick() folds lifetimeStats internally, via the
+      // shared helper, per captain.
+      const viaTick = tick(149, makeState());
+
+      // Path B -- REPLICATES App.svelte's live poll loop's lifetimeStats fold
+      // EXACTLY: for each mission captain, call tickCaptainMission with the SAME
+      // ticksElapsed / rng / bonuses / shipStats tick() builds, and fold each
+      // returned lifetimeStatsDelta into a `lifetimeStats` seeded from the SAME
+      // starting state via the SAME shared foldLifetimeStatsDelta helper. This is a
+      // line-for-line mirror of the App.svelte loop's fold (the loop itself lives in
+      // a Svelte component and can't be imported into this DOM-free layer, so its
+      // fold sequence is reproduced here from the same public functions). If tick()
+      // ever stops folding through the helper (drifts), these two diverge and this
+      // test fails -- the anti-drift guard.
+      const liveState = makeState();
+      const ticksElapsed = 149 / liveState.tickDurationSeconds;
+      const fleetRareYield = fleetRareYieldMult(liveState);
+      let liveLifetimeStats = liveState.lifetimeStats;
+      for (const captain of liveState.captains) {
+        if (captain.mission === null) continue;
+        const ship = liveState.ships.find((sh) => sh.assignedCaptainId === captain.id);
+        const shipStats = ship ? shipDerivedStats(ship) : null;
+        const bonuses = {
+          commonYieldMult: captainCommonYieldMult(captain),
+          uncommonYieldMult: captainUncommonYieldMult(captain),
+          uncommonChanceMult: captainUncommonChanceMult(captain),
+          rareYieldMult: fleetRareYield,
+          rareChanceMult: captainRareChanceMult(captain),
+          bonusRollChance: captainBonusRollChance(captain),
+          bonusRollChanceMult: captainBonusRollChanceMult(captain),
+          specBonusRollChance: captainSpecBonusRollChance(captain),
+        };
+        const { lifetimeStatsDelta } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses, shipStats);
+        liveLifetimeStats = foldLifetimeStatsDelta(liveLifetimeStats, lifetimeStatsDelta);
+      }
+
+      // The two paths must agree field-for-field -- the whole point of the task.
+      expect(
+        liveLifetimeStats.missionsCompleted.shortOreRun.equals(viaTick.lifetimeStats.missionsCompleted.shortOreRun)
+      ).toBe(true);
+      expect(liveLifetimeStats.itemsGathered.rareMaterial.equals(viaTick.lifetimeStats.itemsGathered.rareMaterial)).toBe(
+        true
+      );
+      expect(liveLifetimeStats.itemsGathered.commonOre.equals(viaTick.lifetimeStats.itemsGathered.commonOre)).toBe(true);
+      expect(
+        liveLifetimeStats.itemsGathered.uncommonMaterial.equals(viaTick.lifetimeStats.itemsGathered.uncommonMaterial)
+      ).toBe(true);
+      expect(liveLifetimeStats.creditsEarned.equals(viaTick.lifetimeStats.creditsEarned)).toBe(true);
+      expect(liveLifetimeStats.captainXpAwarded.equals(viaTick.lifetimeStats.captainXpAwarded)).toBe(true);
+      expect(liveLifetimeStats.fleetAdminXpAwarded.equals(viaTick.lifetimeStats.fleetAdminXpAwarded)).toBe(true);
+      // Untouched maps ride through identically on BOTH paths (both empty).
+      expect(liveLifetimeStats.itemsRefined).toEqual(viaTick.lifetimeStats.itemsRefined);
+      expect(liveLifetimeStats.itemsCrafted).toEqual(viaTick.lifetimeStats.itemsCrafted);
+
+      // Pin the absolute expected values too (2 captains * one full 149-tick cycle
+      // each): 2 completed cycles, 180 rare (2*90), 20 credits (2*10), 298 gross XP
+      // each stream (2*149) -- not just internal agreement.
+      expect(liveLifetimeStats.missionsCompleted.shortOreRun.equals(2)).toBe(true);
+      expect(liveLifetimeStats.itemsGathered.rareMaterial.equals(180)).toBe(true);
+      expect(liveLifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
+      expect(liveLifetimeStats.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
+      expect(liveLifetimeStats.creditsEarned.equals(20)).toBe(true);
+      expect(liveLifetimeStats.captainXpAwarded.equals(298)).toBe(true);
+      expect(liveLifetimeStats.fleetAdminXpAwarded.equals(298)).toBe(true);
     } finally {
       rngSpy.mockRestore();
     }

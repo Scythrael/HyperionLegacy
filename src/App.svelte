@@ -95,6 +95,7 @@
     captainBonusRollChance,
     captainBonusRollChanceMult,
     captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does -- enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
+    foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
     LOOT_MATERIAL_KEYS,
     describeCaptainTalentEffect,
     describeHomeworldTalentEffect,
@@ -524,6 +525,23 @@
       // captain's mission cycle completes) leaves this at 0, which the
       // `creditsDelta > 0` guard below treats as a cheap no-op.
       let creditsDelta = 0;
+      // Task 7 (Progression Pacing Rework): fleet-wide lifetimeStats accumulator
+      // for this poll, SEEDED from the current state and folded ONE captain at a
+      // time inside the loop below via the shared foldLifetimeStatsDelta helper --
+      // the SAME helper (and same per-captain fold) tick() uses on the offline
+      // catch-up path, so live play accrues lifetime stats IDENTICALLY to offline.
+      // This closes the last live-loop/tick() divergence: until now lifetime stats
+      // accrued ONLY during the one-time offline-catchup tick() at load, never
+      // during live play. Declared here (BEFORE the `if (progress >= 1)` block),
+      // seeded off `state.lifetimeStats` -- safe because nothing in this poll
+      // mutates lifetimeStats except this fold, so the seed is still current even
+      // though `state` is reassigned for gameTimeSeconds above and for
+      // captains/homePlanet/FA-XP/credits below. Applied ONCE, gated on `anyFired`
+      // below (anyFired is true exactly when >=1 mission captain was processed,
+      // which is exactly when >=1 fold ran) -- on every other poll this stays
+      // === state.lifetimeStats and is never re-applied, matching the same
+      // reactivity-churn discipline as the other accumulators here.
+      let lifetimeStats = state.lifetimeStats;
 
       if (progress >= 1) {
         const gameSecondsThisCycle = barSeconds * speed;
@@ -613,10 +631,20 @@
             // `if (progress >= 1)` block, silently discarding the running total
             // each iteration. Mirrors tick.ts's own tick() naming exactly.
             creditsDelta: captainCreditsDelta,
+            // Task 7: this captain's per-call lifetimeStats delta, folded into the
+            // fleet-wide `lifetimeStats` accumulator below. Renamed to a
+            // per-captain local mirroring tick.ts's own tick() destructure naming.
+            lifetimeStatsDelta: captainLifetimeStatsDelta,
           } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses, shipStats);
           captains[i] = updatedCaptain;
           fleetAdminXpDelta += captainFleetAdminXpDelta;
           creditsDelta += captainCreditsDelta;
+          // Task 7: fold THIS captain's lifetime-stat delta into the fleet-wide
+          // accumulator via the shared foldLifetimeStatsDelta helper -- the SAME
+          // per-captain fold tick() runs on the offline path, so the two cannot
+          // diverge for lifetime stats. Same per-captain side-effect shape as the
+          // fleetAdminXpDelta/creditsDelta accumulation on the two lines above.
+          lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, captainLifetimeStatsDelta);
           if (!delta.commonOre.equals(0) || !delta.uncommonMaterial.equals(0) || !delta.rareMaterial.equals(0)) {
             anyLootDelivered = true;
             homePlanetDelta.commonOre = homePlanetDelta.commonOre.plus(delta.commonOre);
@@ -646,7 +674,15 @@
       }
 
       if (anyFired) {
-        state = { ...state, captains };
+        // Task 7: captains AND lifetimeStats change under the identical condition
+        // (both are produced by the per-captain loop above, which only runs its
+        // body -- and only sets anyFired -- for mission captains), so both fold
+        // into this ONE reassignment. `lifetimeStats` was accrued per captain via
+        // the shared foldLifetimeStatsDelta helper, identical to tick(); when
+        // anyFired is false no captain advanced, no fold ran, and lifetimeStats is
+        // still === state.lifetimeStats, so leaving it out of the no-op path is
+        // correct (nothing to write).
+        state = { ...state, captains, lifetimeStats };
       }
       if (anyLootDelivered) {
         // Field-by-field, matching tick.ts's own homePlanet merge exactly --

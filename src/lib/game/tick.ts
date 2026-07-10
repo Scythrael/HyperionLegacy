@@ -100,6 +100,40 @@ function mergeLifetimeStatMap(
   return merged;
 }
 
+// Progression Pacing Rework (Task 7): folds ONE captain's per-call
+// MissionLifetimeStatsDelta into a fleet-wide lifetimeStats object, returning a
+// NEW lifetimeStats (base is not mutated). This is the SINGLE source of truth for
+// the lifetimeStats fold, called PER CAPTAIN by BOTH tick() (offline catch-up,
+// below) AND App.svelte's live poll loop -- so live play and offline catch-up
+// cannot diverge for lifetime stats by construction. That drift-proofing is the
+// whole reason it exists: the live loop is a SEPARATE re-implementation of the
+// tick math and has historically dropped ship-stats/credits when it diverged
+// from tick(); routing both paths through this one function removes that risk for
+// lifetime stats. The 2 tally maps merge per-key via mergeLifetimeStatMap; the 3
+// scalars .plus() their delta. Spread FIRST so the two fields the mission economy
+// does NOT feed -- itemsRefined/itemsCrafted -- plus any future lifetimeStats
+// field ride through untouched rather than being silently dropped (the same
+// "prestige silently dropped homePlanet" bug class tick()'s homePlanet fold
+// guards against). MissionLifetimeStatsDelta is a strict SUBSET of lifetimeStats
+// (no itemsRefined/itemsCrafted), so those two are preserved by the spread alone
+// and never overwritten here. Replaces Task 6's inline per-field accumulate +
+// separate final fold inside tick(); folding one delta at a time is exactly
+// value-equivalent (mergeLifetimeStatMap / .plus() are additive and associative,
+// so state + d1 + d2 lands identically whether summed once or per captain).
+export function foldLifetimeStatsDelta(
+  lifetimeStats: GameState["lifetimeStats"],
+  delta: MissionLifetimeStatsDelta
+): GameState["lifetimeStats"] {
+  return {
+    ...lifetimeStats,
+    itemsGathered: mergeLifetimeStatMap(lifetimeStats.itemsGathered, delta.itemsGathered),
+    missionsCompleted: mergeLifetimeStatMap(lifetimeStats.missionsCompleted, delta.missionsCompleted),
+    creditsEarned: lifetimeStats.creditsEarned.plus(delta.creditsEarned),
+    captainXpAwarded: lifetimeStats.captainXpAwarded.plus(delta.captainXpAwarded),
+    fleetAdminXpAwarded: lifetimeStats.fleetAdminXpAwarded.plus(delta.fleetAdminXpAwarded),
+  };
+}
+
 // passiveTrickle's `material` field is typed HomePlanetMaterialKey (the wider
 // superset, since a future trickle could in principle target a crafted good),
 // but homePlanetDelta is keyed on the narrower LootMaterialKey -- this list
@@ -963,22 +997,20 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   // function, via a flat state.credits.plus() -- credits has no leveling
   // curve to resolve, unlike fleetAdminXpDelta's applyFleetAdminXp call.
   let creditsDelta = 0;
-  // Task 6: fleet-wide lifetime-stat accumulators -- same accumulate-locally-
-  // apply-once shape as homePlanetDelta/fleetAdminXpDelta/creditsDelta above, one
-  // per lifetimeStats field the mission economy feeds. Each captain's
-  // lifetimeStatsDelta (from tickCaptainMission) is merged in below; the totals
-  // fold into state.lifetimeStats once, in the final return object. itemsRefined/
-  // itemsCrafted are intentionally NOT accumulated here -- missions don't produce
-  // them (that's the crafting path's job, a later task).
-  // `let` (not const): the two maps are REPLACED each captain by mergeLifetimeStatMap
-  // (which returns a fresh merged map), the single definition of the per-key merge
-  // idiom -- rather than mutated in place. The extra per-captain allocation is
-  // negligible next to the .map()'s own per-iteration allocation.
-  let lifetimeItemsGatheredDelta: Record<string, Decimal> = {};
-  let lifetimeMissionsCompletedDelta: Record<string, Decimal> = {};
-  let lifetimeCreditsEarnedDelta = new Decimal(0);
-  let lifetimeCaptainXpAwardedDelta = new Decimal(0);
-  let lifetimeFleetAdminXpAwardedDelta = new Decimal(0);
+  // Task 7 (Progression Pacing Rework): fleet-wide lifetimeStats accumulator,
+  // SEEDED from the incoming state and folded ONE captain at a time below via the
+  // shared foldLifetimeStatsDelta helper -- the exact same per-captain fold
+  // App.svelte's live poll loop runs, so the two paths cannot diverge for lifetime
+  // stats (that helper is the single source of truth). Replaces Task 6's five
+  // parallel per-field accumulators + the separate final fold in the return
+  // object: the helper now owns both the per-key map merge and the scalar sums, in
+  // one place. Value-identical to the old two-stage approach (the fold is additive
+  // and associative, so folding per captain lands the same totals as accumulating
+  // then folding once). `let` because each fold returns a fresh object;
+  // itemsRefined/itemsCrafted (never fed by the mission economy) ride through
+  // untouched via the helper's spread, exactly as the old final fold's spread did.
+  // If NO captain is on a mission this call, this stays === state.lifetimeStats.
+  let lifetimeStats = state.lifetimeStats;
   // Computed ONCE for the whole fleet (same value for every captain), not
   // per captain inside the .map() below -- Homeworld Talents are fleet-wide,
   // not per-captain.
@@ -1021,23 +1053,12 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     });
     fleetAdminXpDelta += captainFleetAdminXpDelta;
     creditsDelta += captainCreditsDelta;
-    // Task 6: merge THIS captain's lifetime-stat delta into the fleet-wide
-    // accumulators. Maps merge per-key via the shared mergeLifetimeStatMap helper
-    // (the SINGLE definition of the per-key merge idiom, also used by the final
-    // state.lifetimeStats fold); scalars .plus() directly.
-    lifetimeItemsGatheredDelta = mergeLifetimeStatMap(
-      lifetimeItemsGatheredDelta,
-      captainLifetimeStatsDelta.itemsGathered
-    );
-    lifetimeMissionsCompletedDelta = mergeLifetimeStatMap(
-      lifetimeMissionsCompletedDelta,
-      captainLifetimeStatsDelta.missionsCompleted
-    );
-    lifetimeCreditsEarnedDelta = lifetimeCreditsEarnedDelta.plus(captainLifetimeStatsDelta.creditsEarned);
-    lifetimeCaptainXpAwardedDelta = lifetimeCaptainXpAwardedDelta.plus(captainLifetimeStatsDelta.captainXpAwarded);
-    lifetimeFleetAdminXpAwardedDelta = lifetimeFleetAdminXpAwardedDelta.plus(
-      captainLifetimeStatsDelta.fleetAdminXpAwarded
-    );
+    // Task 7: fold THIS captain's lifetime-stat delta into the fleet-wide
+    // accumulator via the shared foldLifetimeStatsDelta helper -- the SAME helper
+    // App.svelte's live poll loop calls per captain, so the two paths stay
+    // identical by construction. Same per-captain side-effect shape as the
+    // fleetAdminXpDelta/creditsDelta accumulation two lines above.
+    lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, captainLifetimeStatsDelta);
     return updated;
   });
 
@@ -1089,19 +1110,14 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
           rareMaterial: state.homePlanet.storage.rareMaterial.plus(homePlanetDelta.rareMaterial),
         },
       },
-      // Task 6: fold the fleet-wide lifetime-stat deltas into state.lifetimeStats.
-      // Spread FIRST (same guard as homePlanet.storage above) so the two maps this
-      // function doesn't feed -- itemsRefined/itemsCrafted -- and any future field
-      // ride through untouched rather than being silently dropped. The 2 fed maps
-      // merge per-key (mergeLifetimeStatMap), the 3 scalars .plus() their deltas.
-      lifetimeStats: {
-        ...state.lifetimeStats,
-        itemsGathered: mergeLifetimeStatMap(state.lifetimeStats.itemsGathered, lifetimeItemsGatheredDelta),
-        missionsCompleted: mergeLifetimeStatMap(state.lifetimeStats.missionsCompleted, lifetimeMissionsCompletedDelta),
-        creditsEarned: state.lifetimeStats.creditsEarned.plus(lifetimeCreditsEarnedDelta),
-        captainXpAwarded: state.lifetimeStats.captainXpAwarded.plus(lifetimeCaptainXpAwardedDelta),
-        fleetAdminXpAwarded: state.lifetimeStats.fleetAdminXpAwarded.plus(lifetimeFleetAdminXpAwardedDelta),
-      },
+      // Task 7: the fleet-wide lifetimeStats accumulated ONE captain at a time
+      // above, each fold routed through the shared foldLifetimeStatsDelta helper
+      // (identical to App.svelte's live loop). itemsRefined/itemsCrafted + any
+      // future lifetimeStats field rode through untouched via that helper's own
+      // spread (same "don't silently drop untouched fields" guard the homePlanet
+      // fold above uses). If no captain was on a mission this call, `lifetimeStats`
+      // is still the original state.lifetimeStats reference -- an exact no-op.
+      lifetimeStats,
     },
     fleetAdminXpDelta
   );
