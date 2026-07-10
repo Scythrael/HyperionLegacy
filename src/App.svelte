@@ -103,6 +103,7 @@
     captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does -- enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
     foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
     addToInventory, // Phase 1 Task 5: the shared inventory add seam, called by BOTH tick() and this live loop so live loot delivery writes inventory/discovered byte-identically to offline catch-up (drift-proof)
+    resolveProcesses, // Phase 1 Task 9: the SINGLE timed-process completion resolver, called by BOTH tick() and this live loop with the SAME ticksElapsed so process completion + lump FA XP resolve identically live and offline (drift-proof)
     LOOT_MATERIAL_KEYS,
     describeCaptainTalentEffect,
     describeHomeworldTalentEffect,
@@ -698,6 +699,29 @@
             );
           }
         }
+
+        // Phase 1, Task 9: resolve every in-flight timed process ONCE, fleet-wide,
+        // with the SAME `ticksElapsed` the per-captain mission loop above used --
+        // the EXACT same resolveProcesses call tick() makes (imported from tick.ts),
+        // so live play and offline catch-up cannot diverge on process completion.
+        // Runs INSIDE this `progress >= 1` block (NOT on every 100ms poll) so
+        // processes advance on the SAME shared-cycle cadence missions do. Threads
+        // `state` forward: postProcessState carries any completed process's output
+        // (inventory/discovered/facilities) plus the drained activeProcesses, so the
+        // LATER mission-loot inventory fold below seeds from this process-updated
+        // inventory and both compose into one inventory (addition is commutative, so
+        // the process-then-loot order here lands the same values as tick()'s
+        // loot-then-process order). Its lump Fleet Admiral XP folds into the SAME
+        // fleetAdminXpDelta accumulator handed to applyFleetAdminXp at the end of
+        // this poll, exactly as mission FA XP does. activeProcesses is empty until
+        // Task 10/11 starts one, so resolveProcesses early-outs to a same-reference
+        // no-op today -- inert but correct + drift-proof for when it isn't.
+        const { next: postProcessState, fleetAdminXpDelta: processFleetAdminXpDelta } = resolveProcesses(
+          state,
+          ticksElapsed
+        );
+        state = postProcessState;
+        fleetAdminXpDelta += processFleetAdminXpDelta;
 
         // Reset once for the whole fleet, not per-captain -- there's only
         // one shared cycle now.

@@ -23,6 +23,7 @@ import {
   captainSpecBonusRollChance,
   xpPerTick,
   foldLifetimeStatsDelta,
+  resolveProcesses,
   MAX_LEVEL_UPS_PER_TICK,
 } from "./tick";
 import Decimal from "break_infinity.js";
@@ -35,6 +36,7 @@ import {
   shipDerivedStats,
   xpForNextFleetAdminLevel,
   type CaptainMissionState,
+  type TimedProcess,
 } from "./model";
 
 function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
@@ -2659,5 +2661,156 @@ describe("buyShip", () => {
     const { next, success } = buyShip(state, "prospectorHauler");
     expect(success).toBe(false);
     expect(next).toBe(state); // same reference, unchanged
+  });
+});
+
+describe("tick() — threads the timed-process resolver through the fleet loop (Phase 1, Task 9)", () => {
+  // Phase 1, Task 9 wired resolveProcesses into BOTH tick() (offline catch-up) AND
+  // App.svelte's live poll loop, each calling the SAME exported resolver with the
+  // SAME ticksElapsed and folding its lump FA XP into the SAME applyFleetAdminXp
+  // input. App.svelte is not DOM-testable here, so these assert at the game-logic
+  // layer that (a) tick() folds process completion + its lump FA XP correctly and
+  // alongside mission FA XP, (b) it feeds the resolver the SAME
+  // deltaSeconds/tickDurationSeconds conversion missions use, (c) the process
+  // portion tick() applies equals a STANDALONE resolveProcesses call (proving the
+  // single shared resolver), and (d) with no active processes tick() is byte-
+  // identical to before this task (inert no-op).
+
+  // freshState (tickDurationSeconds default 1 -> ticksElapsed == deltaSeconds) + the
+  // given in-flight processes seeded onto activeProcesses. The single captain stays
+  // idle unless a caller sets a mission -- so process outputs (refinedMaterial /
+  // components / facilities) never overlap the mission loot tiers (commonOre /
+  // uncommonMaterial / rareMaterial), keeping the process contribution cleanly
+  // isolated for assertion regardless of the internal Math.random loot rolls.
+  function stateWithProcesses(processes: TimedProcess[]) {
+    const s = freshState();
+    return { ...s, activeProcesses: processes, nextProcessId: processes.length + 1 };
+  }
+
+  it("folds a completed process's output + lump FA XP into tick() ALONGSIDE the mission FA XP, in one applyFleetAdminXp pass", () => {
+    const processes: TimedProcess[] = [
+      // Completes within 100 ticks -> +3 refinedMaterial (marked discovered), +10 FA XP.
+      {
+        id: "proc-1",
+        kind: "refineJob",
+        remainingTicks: 10,
+        durationTicks: 10,
+        effect: { type: "addItem", itemId: "refinedMaterial", amount: new Decimal(3) },
+      },
+      // Survives 100 ticks -> stays active with 500 - 100 = 400 remaining, contributes 0 FA XP.
+      {
+        id: "proc-2",
+        kind: "refineJob",
+        remainingTicks: 500,
+        durationTicks: 500,
+        effect: { type: "addItem", itemId: "components", amount: new Decimal(2) },
+      },
+    ];
+    const state = stateWithProcesses(processes);
+    state.captains[0].mission = missionCaptain("shortOreRun"); // one captain out on a mission
+
+    // ticksElapsed = 100 / tickDurationSeconds(1) = 100.
+    const result = tick(100, state);
+
+    // Mission FA XP: 1 captain * 100 whole ticks * rate 1 = 100 (see the "stacks
+    // across active captains" test). Process FA XP: proc-1's lump durationTicks 10
+    // on completion; proc-2 unfinished -> 0. The two fold into ONE fleetAdminXpDelta
+    // handed to applyFleetAdminXp -> 110 total. 110 < xpForNextFleetAdminLevel(1), so
+    // no FA level-up and fleetAdminXp holds the full earned total directly.
+    expect(110).toBeLessThan(xpForNextFleetAdminLevel(1));
+    expect(result.fleetAdminXp.equals(110)).toBe(true);
+    expect(result.fleetAdminLevel).toBe(1);
+
+    // proc-1 completed: output granted through the shared add seam (-> discovered), removed.
+    expect(result.inventory.refinedMaterial.toString()).toBe("3");
+    expect(result.discovered).toContain("refinedMaterial");
+    // proc-2 survived, countdown decremented by the same ticksElapsed the mission used.
+    expect(result.activeProcesses).toHaveLength(1);
+    expect(result.activeProcesses[0].id).toBe("proc-2");
+    expect(result.activeProcesses[0].remainingTicks).toBe(400);
+    expect(result.inventory.components.toString()).toBe("0"); // proc-2 unfinished -> not granted
+  });
+
+  it("the process portion of tick() equals a STANDALONE resolveProcesses call -- same shared resolver, same ticksElapsed", () => {
+    const processes: TimedProcess[] = [
+      {
+        id: "proc-1",
+        kind: "facilityUpgrade",
+        remainingTicks: 25,
+        durationTicks: 25,
+        effect: { type: "facilityLevelUp", facility: "refinery" },
+      },
+      {
+        id: "proc-2",
+        kind: "refineJob",
+        remainingTicks: 500,
+        durationTicks: 500,
+        effect: { type: "addItem", itemId: "refinedMaterial", amount: new Decimal(7) },
+      },
+    ];
+    // No mission captain (freshState's captain is idle), so tick()'s ONLY FA XP
+    // source is the process resolver -- isolating the process contribution for a
+    // clean equality against the standalone call.
+    const state = stateWithProcesses(processes);
+
+    // tickDurationSeconds default 1 -> ticksElapsed 40 on both paths.
+    const standalone = resolveProcesses(state, 40);
+    const viaTick = tick(40, state);
+
+    // tick() reproduced the standalone resolver's process outcomes EXACTLY.
+    expect(viaTick.facilities.refinery.level).toBe(standalone.next.facilities.refinery.level); // 0 -> 1
+    expect(viaTick.facilities.refinery.level).toBe(1);
+    expect(viaTick.activeProcesses).toHaveLength(1);
+    expect(viaTick.activeProcesses[0].id).toBe("proc-2");
+    expect(viaTick.activeProcesses[0].remainingTicks).toBe(standalone.next.activeProcesses[0].remainingTicks);
+    expect(viaTick.activeProcesses[0].remainingTicks).toBe(460); // 500 - 40
+    // The lump FA XP tick() applied equals the resolver's delta exactly (25), with
+    // no mission FA XP mixed in.
+    expect(standalone.fleetAdminXpDelta).toBe(25);
+    expect(viaTick.fleetAdminXp.equals(25)).toBe(true);
+    expect(viaTick.fleetAdminLevel).toBe(1);
+  });
+
+  it("advances processes on ticksElapsed = deltaSeconds / tickDurationSeconds -- the SAME conversion missions use", () => {
+    // tickDurationSeconds 4: a 30-tick process completes at exactly 120s (120/4 =
+    // 30) and NOT at 116s (116/4 = 29). This proves tick() feeds the resolver the
+    // fleet ticksElapsed, not raw deltaSeconds -- the same drift-prone conversion
+    // the task calls out.
+    const proc = (): TimedProcess => ({
+      id: "proc-1",
+      kind: "refineJob",
+      remainingTicks: 30,
+      durationTicks: 30,
+      effect: { type: "addItem", itemId: "refinedMaterial", amount: new Decimal(1) },
+    });
+    const base = { ...freshState(), tickDurationSeconds: 4 }; // captain idle -> no mission FA XP to mix in
+
+    const justShort = tick(116, { ...base, activeProcesses: [proc()], nextProcessId: 2 });
+    expect(justShort.activeProcesses).toHaveLength(1); // 29 ticks elapsed -> 1 remaining, not done
+    expect(justShort.activeProcesses[0].remainingTicks).toBe(1);
+    expect(justShort.fleetAdminXp.equals(0)).toBe(true); // no completion, no mission -> 0 FA XP
+
+    const exact = tick(120, { ...base, activeProcesses: [proc()], nextProcessId: 2 });
+    expect(exact.activeProcesses).toEqual([]); // 30 ticks elapsed -> completes
+    expect(exact.inventory.refinedMaterial.toString()).toBe("1"); // output granted
+    expect(exact.fleetAdminXp.equals(30)).toBe(true); // lump durationTicks 30
+  });
+
+  it("with NO active processes, the resolver is an inert no-op: mission FA XP unchanged and the empty activeProcesses reference threads through untouched", () => {
+    const s = freshState();
+    s.captains[0].mission = missionCaptain("shortOreRun");
+    const beforeProcesses = s.activeProcesses; // the fresh [] reference
+
+    const result = tick(100, s);
+
+    // Mission-only FA XP (1 captain * 100 ticks * rate 1 = 100) -- resolveProcesses
+    // added nothing, exactly as if this task's wiring were absent.
+    expect(result.fleetAdminXp.equals(100)).toBe(true);
+    expect(result.fleetAdminLevel).toBe(1);
+    // resolveProcesses early-outed returning the SAME state reference, so the empty
+    // activeProcesses array threads through untouched (===) into the final state --
+    // a direct check that the no-active-processes path is a genuine reference no-op.
+    expect(result.activeProcesses).toBe(beforeProcesses);
+    expect(result.activeProcesses).toEqual([]);
   });
 });

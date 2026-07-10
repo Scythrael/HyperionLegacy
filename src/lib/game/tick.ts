@@ -1156,39 +1156,68 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
     discovered = added.discovered;
   }
 
-  // applyFleetAdminXp wraps the final state object -- it must run AFTER
-  // captains is built above, since fleetAdminXpDelta was accumulated from
-  // each captain's mission-cycle completions during THIS call's .map()
-  // above. Does not touch inventory at all -- the loot fold immediately
-  // above already produced the final inventory/discovered pair.
-  return applyFleetAdminXp(
-    {
-      ...state,
-      captains,
-      gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
-      // Flat .plus() -- unlike fleetAdminXpDelta (which resolves through
-      // applyFleetAdminXp's level-up loop below), credits has no leveling
-      // curve to resolve, so the accumulated creditsDelta is applied directly
-      // here rather than passed through a second wrapping function.
-      credits: state.credits.plus(creditsDelta),
-      // Loot now lands in the keyed `inventory` (+ its `discovered` reveal set).
-      // The old homePlanet.storage field is GONE (removed in Task 7 -- fully
-      // replaced by `inventory`), so there is nothing for `...state` to carry
-      // through for it. See the loot-fold comment just above for why the values
-      // are identical to the prior storage write.
-      inventory,
-      discovered,
-      // Task 7: the fleet-wide lifetimeStats accumulated ONE captain at a time
-      // above, each fold routed through the shared foldLifetimeStatsDelta helper
-      // (identical to App.svelte's live loop). itemsRefined/itemsCrafted + any
-      // future lifetimeStats field rode through untouched via that helper's own
-      // spread (same "don't silently drop untouched fields" guard the homePlanet
-      // fold above uses). If no captain was on a mission this call, `lifetimeStats`
-      // is still the original state.lifetimeStats reference -- an exact no-op.
-      lifetimeStats,
-    },
-    fleetAdminXpDelta
+  // Phase 1, Task 9: the post-mission fleet state -- missions, passiveTrickle, and
+  // the loot fold above all applied, but Fleet Admiral XP NOT yet resolved through
+  // its level-up pass. Captured as a named intermediate (this was previously the
+  // inline object literal passed straight to applyFleetAdminXp) SO the timed-process
+  // resolver below can run against it before that final FA-XP pass. Nothing in the
+  // mission/credits/loot/lifetime math above changed -- these are the exact same
+  // fields with the exact same values, just held in a const instead of an inline
+  // literal, so a call with no active processes lands byte-identical to before.
+  const postMissionState: GameState = {
+    ...state,
+    captains,
+    gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
+    // Flat .plus() -- unlike fleetAdminXpDelta (which resolves through
+    // applyFleetAdminXp's level-up loop below), credits has no leveling
+    // curve to resolve, so the accumulated creditsDelta is applied directly
+    // here rather than passed through a second wrapping function.
+    credits: state.credits.plus(creditsDelta),
+    // Loot now lands in the keyed `inventory` (+ its `discovered` reveal set).
+    // The old homePlanet.storage field is GONE (removed in Task 7 -- fully
+    // replaced by `inventory`), so there is nothing for `...state` to carry
+    // through for it. See the loot-fold comment just above for why the values
+    // are identical to the prior storage write.
+    inventory,
+    discovered,
+    // Task 7: the fleet-wide lifetimeStats accumulated ONE captain at a time
+    // above, each fold routed through the shared foldLifetimeStatsDelta helper
+    // (identical to App.svelte's live loop). itemsRefined/itemsCrafted + any
+    // future lifetimeStats field rode through untouched via that helper's own
+    // spread (same "don't silently drop untouched fields" guard the homePlanet
+    // fold above uses). If no captain was on a mission this call, `lifetimeStats`
+    // is still the original state.lifetimeStats reference -- an exact no-op.
+    lifetimeStats,
+  };
+
+  // Phase 1, Task 9: resolve every in-flight timed process ONCE, fleet-wide (NOT
+  // per-captain -- processes are facility-owned, not captain-owned), with the SAME
+  // `ticksElapsed` the per-captain mission loop above consumed. This is the SINGLE
+  // shared resolver App.svelte's live poll loop ALSO calls (identical
+  // resolveProcesses import), so offline catch-up and live play cannot diverge on
+  // process completion -- the same drift-proof single-source discipline
+  // foldLifetimeStatsDelta / addToInventory already use. A completed process's lump
+  // Fleet Admiral XP (its full durationTicks) folds into the SAME fleetAdminXpDelta
+  // the mission loop accumulated, so mission FA XP + process FA XP reach
+  // applyFleetAdminXp together and resolve through ONE level-up pass. Threaded on
+  // top of postMissionState so any process output (inventory/discovered/facilities)
+  // composes with the mission loot already folded there. activeProcesses is empty
+  // until refine jobs / facility upgrades start (Task 10/11), so resolveProcesses
+  // early-outs to a same-reference no-op today -- inert but correct + drift-proof
+  // for when processes exist.
+  const { next: postProcessState, fleetAdminXpDelta: processFleetAdminXpDelta } = resolveProcesses(
+    postMissionState,
+    ticksElapsed
   );
+  fleetAdminXpDelta += processFleetAdminXpDelta;
+
+  // applyFleetAdminXp wraps the final state -- it runs AFTER BOTH the captain loop
+  // (mission FA XP) and resolveProcesses (process FA XP) have contributed to
+  // fleetAdminXpDelta, so every FA XP source this call resolves through the one
+  // level-up pass. It does not touch inventory/facilities/activeProcesses -- the
+  // loot fold + resolveProcesses above already produced their final values on
+  // postProcessState.
+  return applyFleetAdminXp(postProcessState, fleetAdminXpDelta);
 }
 
 // Dispatches an idle captain (mission === null) on a mission. Finds the
