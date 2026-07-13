@@ -131,8 +131,8 @@ the existing `discovered` set).
 - **T1 default cap: `1,000,000` per item.** (Calibration: the user's ~week-old save is already brushing
   1M, so this is a fair mid-game starting pressure.)
 - **Upgrade = double the cap.** Each rank doubles the tier's cap (1M → 2M → 4M → …).
-- **Upgrade cost ≈ 80% of the *current* cap, in the tier's common material.** Cost scales with the cap it
-  is raising (at 1M → costs ~800k; at 2M → ~1.6M; …) — deliberately **steep so each rank feels earned**.
+- **Upgrade cost = 75% of the *current* cap, in the tier's common material** (user-set 2026-07-13). Cost scales with the cap it
+  is raising (at 1M → costs 750k; at 2M → 1.5M; …) — deliberately **steep so each rank feels earned**.
 - **Tier unlock cost = 100% of the *previous* tier's default cap.** T2 warehouse unlock costs 1M (T1's
   default). Higher tiers scale from their predecessor's default.
 - **T2 is a stub this phase:** the T2 warehouse unlocks, but its first upgrade is **gated on a T2
@@ -225,10 +225,11 @@ Both are the same pause/resume state on the order; the trigger just differs.
 
 ## 7. Open questions carried into the plan step
 
-1. **Warehouse tab axis:** tier-primary with category-grouping-within (this doc's default) vs.
-   category-primary. Confirm.
-2. **Mission auto-stop granularity:** stop the whole run on primary-material-full (this doc's default) vs.
-   stop only the specific output. Confirm — it affects mission-loot code (closed-form-sensitive).
+1. **Warehouse tab axis:** ✅ RESOLVED (user 2026-07-13) — tier-primary with category-grouping-within
+   (this doc's default) confirmed.
+2. **Mission auto-stop granularity:** ✅ RESOLVED (user 2026-07-13) — stop the whole run on
+   primary-material-full (this doc's default) confirmed. Affects mission-loot code (closed-form-sensitive)
+   — nail the exact wiring at plan time.
 3. **Adaptive-chunk breakpoints (§2.3):** the exact set of per-tick events that force a fine step (cap
    hit, input exhausted, process completion, level-up, order pause/resume) — enumerate precisely at plan
    time; a missed breakpoint is an offline==live drift.
