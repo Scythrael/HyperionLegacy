@@ -84,6 +84,13 @@
   } from "./lib/game/model";
   import {
     tick,
+    // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
+    // economy body. The live poll loop below now calls THIS -- the exact same
+    // function tick()'s offline catch-up runs -- instead of hand-mirroring the
+    // per-captain mission / passiveTrickle / loot / resolveProcesses / credits /
+    // applyFleetAdminXp math inline, which is precisely the surface that used to
+    // drift between the two paths (ship stats, bonus-roll, credits -- all logged).
+    economyTick,
     tickCaptainMission,
     dispatchCaptainOnMission,
     recallCaptain,
@@ -568,303 +575,63 @@
       cycle.nowTick = now;
       const progress = (now - cycle.barCycleStart) / 1000 / barSeconds;
 
-      let captains = state.captains;
-      let anyFired = false;
-
-      // Mirrors tick()'s own homePlanetDelta accumulation in tick.ts: summed
-      // locally across every captain whose mission advances THIS poll, then
-      // folded into state.inventory (via addToInventory) once below -- same
-      // "accumulate locally, apply once" shape as gameTimeSeconds and captains
-      // itself. Starts all-zero and stays that way (anyLootDelivered stays
-      // false) on a poll where the shared cycle doesn't complete, or no captain
-      // on a mission delivers loot this cycle, so the inventory fold below can
-      // be skipped entirely on the (overwhelmingly common) no-op poll --
-      // same reactivity-churn discipline as the existing anyFired guard.
-      let anyLootDelivered = false;
-      const homePlanetDelta: Record<LootMaterialKey, Decimal> = {
-        commonOre: new Decimal(0),
-        uncommonMaterial: new Decimal(0),
-        rareMaterial: new Decimal(0),
-      };
-      // Mirrors tick.ts's own tick() fleetAdminXpDelta accumulation (Task 2):
-      // summed locally across every captain whose mission cycle completes
-      // THIS poll, then handed once to applyFleetAdminXp at the very end of
-      // this callback -- same "accumulate locally, apply once" shape as
-      // homePlanetDelta immediately above. Declared here (BEFORE the
-      // `if (progress >= 1)` block below), not inside it, so it is always
-      // defined by the time applyFleetAdminXp is called at the end of this
-      // callback, whether or not the shared cycle actually completed this
-      // particular 100ms poll. Defaults to 0 -- the overwhelmingly common
-      // poll where progress < 1 (or no captain's mission cycle completes
-      // even when progress >= 1) leaves this at 0, which applyFleetAdminXp
-      // itself treats as a cheap no-op (see that function's own guard).
-      let fleetAdminXpDelta = 0;
-      // Accumulates fleet-wide credits across every captain's completed mission
-      // cycles this poll -- same "accumulate locally, apply once" shape as
-      // fleetAdminXpDelta immediately above, and mirrors tick.ts's own tick()
-      // `creditsDelta` accumulator exactly. Declared here (BEFORE the
-      // `if (progress >= 1)` block below), not inside it, so it is always
-      // defined when the guarded application runs at the end of this callback,
-      // whether or not the shared cycle actually completed this poll. Defaults
-      // to 0 -- the overwhelmingly common poll where progress < 1 (or no
-      // captain's mission cycle completes) leaves this at 0, which the
-      // `creditsDelta > 0` guard below treats as a cheap no-op.
-      let creditsDelta = 0;
-      // Task 7 (Progression Pacing Rework): fleet-wide lifetimeStats accumulator
-      // for this poll, SEEDED from the current state and folded ONE captain at a
-      // time inside the loop below via the shared foldLifetimeStatsDelta helper --
-      // the SAME helper (and same per-captain fold) tick() uses on the offline
-      // catch-up path, so live play accrues lifetime stats IDENTICALLY to offline.
-      // This closes the last live-loop/tick() divergence: until now lifetime stats
-      // accrued ONLY during the one-time offline-catchup tick() at load, never
-      // during live play. Declared here (BEFORE the `if (progress >= 1)` block),
-      // seeded off `state.lifetimeStats` -- safe because nothing in this poll
-      // mutates lifetimeStats except this fold, so the seed is still current even
-      // though `state` is reassigned for gameTimeSeconds above and for
-      // captains/homePlanet/FA-XP/credits below. Applied ONCE, gated on `anyFired`
-      // below (anyFired is true exactly when >=1 mission captain was processed,
-      // which is exactly when >=1 fold ran) -- on every other poll this stays
-      // === state.lifetimeStats and is never re-applied, matching the same
-      // reactivity-churn discipline as the other accumulators here.
-      let lifetimeStats = state.lifetimeStats;
-
+      // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the live poll's economy
+      // is now a SINGLE call to the shared economyTick -- the EXACT same per-span
+      // body offline catch-up (tick()) runs. This REPLACES the hand-mirrored
+      // economy that used to live inline right here: the per-captain mission loop
+      // (its 8-field `bonuses` build + ship-stat resolution + tickCaptainMission +
+      // accumulate), the passiveTrickle loop, the loot -> addToInventory fold, the
+      // mission/lifetimeStats fold, resolveProcesses, the credits award, and the
+      // final applyFleetAdminXp pass. Centralizing ALL of it in economyTick is what
+      // makes live play and offline catch-up drift-proof BY CONSTRUCTION -- those
+      // were two hand-mirrored copies of the same math and historically drifted
+      // (ship stats, bonus-roll, credits -- every incident logged). economyTick
+      // internally does loot-THEN-process where this loop used to do
+      // process-then-loot, but per the A1 map those are commutative (pure Decimal
+      // addition), so the economy RESULT is identical -- we are NOT preserving the
+      // old internal order, we are replacing it with economyTick's.
       if (progress >= 1) {
         const gameSecondsThisCycle = barSeconds * speed;
-        // Same deltaSeconds -> ticksElapsed conversion tick() uses in
-        // tick.ts (divide by the fleet's shared tickDurationSeconds) --
-        // computed ONCE here and reused for every captain below, keeping the
-        // live loop's mission cadence identical to the offline catch-up
-        // path's, which is the whole point of this task.
+        // Same deltaSeconds -> ticksElapsed conversion tick() uses (divide by the
+        // fleet's shared tickDurationSeconds), so the live loop's mission cadence
+        // stays identical to the offline catch-up path's -- the whole point of
+        // routing both through economyTick.
         const ticksElapsed = gameSecondsThisCycle / state.tickDurationSeconds;
 
-        // Fleet-wide Homeworld Talent bonus (same value for every captain
-        // this poll) -- computed once here, mirroring tick.ts's tick(),
-        // which this live loop otherwise duplicates rather than calls
-        // directly (see the comment block above this setInterval). Without
-        // this mirroring, talent points spent on extraction/loot-chance
-        // Homeworld Talents would only ever take effect during the one-time
-        // offline-catchup tick() call at load, never during live play --
-        // exactly the bug this wiring pass exists to close. rareYieldMult is
-        // the ONLY Homeworld Talent effect type tied to extraction (per
-        // model.ts -- there is no captain-level rare-yield talent), same as
-        // tick.ts's own tick().
-        const fleetRareYield = fleetRareYieldMult(state);
-
-        for (let i = 0; i < captains.length; i++) {
-          const captain = captains[i];
-          // Idle captains (mission === null) have no passive economy anymore
-          // -- missions are the only way a captain does anything (mirrors
-          // tick.ts's tick(), which returns idle captains completely
-          // unchanged).
-          if (captain.mission === null) continue;
-          // Resolve the hull this captain flies and project it to the 3 mission
-          // stats (transit/cargo/yield) -- mirrors tick.ts's tick() (Task 7).
-          // CRITICAL: this live-play poll is a SEPARATE copy of the tick math
-          // from tick.ts's tick() (which only runs on offline catch-up + the dev
-          // button). Without this lookup, ship stats applied ONLY offline, never
-          // during live play -- the feature's core hook was dead on the primary
-          // path. state.ships isn't mutated by the tick loop, so reading it here
-          // is safe; assignedCaptainId is the single source of truth for who
-          // flies what. null (a hypothetical ship-less captain) == freighter
-          // baseline, same defensive fallback tick() uses.
-          const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
-          const shipStats = ship ? shipDerivedStats(ship) : null;
-          if (!anyFired) {
-            captains = [...captains]; // copy on first write this poll
-            anyFired = true;
-          }
-          // 8-field bonuses object -- mirrors tick.ts's own tick() exactly:
-          // 7 captain-level helpers (read at usage time off THIS captain's
-          // unlockedCaptainTalents) plus the one fleet-wide helper
-          // (rareYieldMult only, computed once above, outside this per-captain
-          // loop, since Homeworld Talents are fleet-wide, not per-captain).
-          // The last 3 (bonusRollChance/bonusRollChanceMult/specBonusRollChance)
-          // drive the resourcefulness bonus-roll (Lucky Strike I/II + the spec
-          // bonus-roll). They were MISSING from this live-loop copy until now,
-          // so that bonus-roll fired ONLY during offline catch-up (tick()),
-          // never live play -- a pre-existing live-loop/tick() divergence the
-          // ships-feature holistic review surfaced. Kept field-for-field
-          // identical to tick()'s object so the two paths can't silently drift.
-          const bonuses = {
-            commonYieldMult: captainCommonYieldMult(captain),
-            uncommonYieldMult: captainUncommonYieldMult(captain),
-            uncommonChanceMult: captainUncommonChanceMult(captain),
-            rareYieldMult: fleetRareYield,
-            rareChanceMult: captainRareChanceMult(captain),
-            bonusRollChance: captainBonusRollChance(captain),
-            bonusRollChanceMult: captainBonusRollChanceMult(captain),
-            specBonusRollChance: captainSpecBonusRollChance(captain),
-          };
-          // Math.random passed explicitly (rather than omitted) since bonuses
-          // is positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
-          // fleetAdminXpDelta renamed to captainFleetAdminXpDelta on
-          // destructure -- this per-captain loop already runs inside a scope
-          // that has its OWN outer `fleetAdminXpDelta` accumulator (declared
-          // above, before the `if (progress >= 1)` block); an unrenamed
-          // destructure here would shadow that outer accumulator with a
-          // new per-iteration `const`, silently discarding the running total
-          // on every loop iteration instead of adding to it. Mirrors
-          // tick.ts's own tick() naming exactly (see that function's
-          // identical `fleetAdminXpDelta: captainFleetAdminXpDelta` destructure).
-          const {
-            captain: updatedCaptain,
-            homePlanetDelta: delta,
-            fleetAdminXpDelta: captainFleetAdminXpDelta,
-            // Renamed to a per-captain local for the same shadowing reason as
-            // fleetAdminXpDelta above -- an unrenamed `creditsDelta` destructure
-            // here would shadow the outer accumulator declared before the
-            // `if (progress >= 1)` block, silently discarding the running total
-            // each iteration. Mirrors tick.ts's own tick() naming exactly.
-            creditsDelta: captainCreditsDelta,
-            // Task 7: this captain's per-call lifetimeStats delta, folded into the
-            // fleet-wide `lifetimeStats` accumulator below. Renamed to a
-            // per-captain local mirroring tick.ts's own tick() destructure naming.
-            lifetimeStatsDelta: captainLifetimeStatsDelta,
-          } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses, shipStats);
-          captains[i] = updatedCaptain;
-          fleetAdminXpDelta += captainFleetAdminXpDelta;
-          creditsDelta += captainCreditsDelta;
-          // Task 7: fold THIS captain's lifetime-stat delta into the fleet-wide
-          // accumulator via the shared foldLifetimeStatsDelta helper -- the SAME
-          // per-captain fold tick() runs on the offline path, so the two cannot
-          // diverge for lifetime stats. Same per-captain side-effect shape as the
-          // fleetAdminXpDelta/creditsDelta accumulation on the two lines above.
-          lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, captainLifetimeStatsDelta);
-          if (!delta.commonOre.equals(0) || !delta.uncommonMaterial.equals(0) || !delta.rareMaterial.equals(0)) {
-            anyLootDelivered = true;
-            homePlanetDelta.commonOre = homePlanetDelta.commonOre.plus(delta.commonOre);
-            homePlanetDelta.uncommonMaterial = homePlanetDelta.uncommonMaterial.plus(delta.uncommonMaterial);
-            homePlanetDelta.rareMaterial = homePlanetDelta.rareMaterial.plus(delta.rareMaterial);
-          }
+        // ⚠️ ticksElapsed > 0 GUARD (REQUIRED): economyTick has NO internal
+        // non-positive guard -- that guard lived in tick() (`if (deltaSeconds <= 0)
+        // return state;`), the function economyTick was extracted out of. Inside
+        // this `progress >= 1` block ticksElapsed is always strictly positive today
+        // (barSeconds is floored at 1, speed is non-zero here -- speed === 0 returns
+        // early at the top of this callback -- and tickDurationSeconds > 0), so this
+        // guard is belt-and-suspenders. It is kept as hard insurance regardless:
+        // economyTick would otherwise happily advance a zero/negative span, and any
+        // future change to the cycle gating must not be able to silently feed it one.
+        if (ticksElapsed > 0) {
+          // ⚠️ gameTimeSeconds PRESERVATION (load-bearing, NON-economy concern):
+          // this live loop advances gameTimeSeconds CONTINUOUSLY off real elapsed
+          // time on EVERY poll (the `gameTimeSeconds: state.gameTimeSeconds +
+          // realElapsedSeconds * speed` reassignment near the top of this callback),
+          // deliberately decoupled from the cycle cadence for a smooth fleet clock.
+          // economyTick, HOWEVER, ALSO advances gameTimeSeconds -- by this cycle's
+          // deltaSeconds -- because it owns that increment on the offline path. The
+          // OLD inline economy here never touched gameTimeSeconds, so letting
+          // economyTick's bump through would DOUBLE-count the fleet clock (once at
+          // the top of this poll, once inside economyTick) -- a regression. So we
+          // capture the live value BEFORE the call and restore it AFTER: economyTick's
+          // full economy result is kept, its gameTimeSeconds bump alone is discarded.
+          // This is a pure no-op for the economy -- gameTimeSeconds is display-only
+          // bookkeeping that NOTHING in economyTick's math reads (see economyTick's
+          // own header in tick.ts).
+          const liveGameTimeSeconds = state.gameTimeSeconds;
+          state = economyTick(state, ticksElapsed);
+          state = { ...state, gameTimeSeconds: liveGameTimeSeconds };
         }
 
-        // passiveTrickle (Homeworld Talent economyTrickle): same fleet-wide,
-        // mission-independent material generation tick.ts's tick() applies --
-        // mirrored here for the same reason as fleetRareYield above. Applies
-        // even with zero captains dispatched, so it's checked unconditionally
-        // this cycle, not just inside the captains loop.
-        for (const key of state.unlockedHomeworldTalents) {
-          const effect = HOMEWORLD_TALENTS[key].effect;
-          if (effect.type === "passiveTrickle" && (LOOT_MATERIAL_KEYS as string[]).includes(effect.material)) {
-            anyLootDelivered = true;
-            homePlanetDelta[effect.material as LootMaterialKey] = homePlanetDelta[effect.material as LootMaterialKey].plus(
-              effect.perTick * ticksElapsed
-            );
-          }
-        }
-
-        // Task 7 / Task 11: fold the mission-side `captains` + `lifetimeStats`
-        // into `state` HERE -- BEFORE resolveProcesses -- mirroring tick.ts's
-        // postMissionState -> resolveProcesses order. captains AND lifetimeStats
-        // change under the identical condition (both produced by the per-captain
-        // loop above, which only runs its body -- and only sets anyFired -- for
-        // mission captains), so both fold into this ONE reassignment. `lifetimeStats`
-        // was accrued per captain via the shared foldLifetimeStatsDelta helper,
-        // identical to tick(); when anyFired is false no captain advanced, no fold
-        // ran, and lifetimeStats is still === state.lifetimeStats, so skipping the
-        // write is correct (nothing to write).
-        //
-        // ⚠️ ORDERING IS LOAD-BEARING (Task 11): this MUST precede resolveProcesses
-        // below. resolveProcesses now ALSO writes lifetimeStats (a completed refine
-        // job increments itemsRefined), seeding from state.lifetimeStats. If this
-        // mission fold ran AFTER resolveProcesses (as it did pre-Task-11), it would
-        // CLOBBER a refine job's itemsRefined whenever a mission also fired the same
-        // poll -- a live-vs-offline drift (tick() composes them in this order). By
-        // writing the mission fold first, resolveProcesses composes itemsRefined ON
-        // TOP of it, exactly as tick() does. Do NOT move this back below.
-        if (anyFired) {
-          state = { ...state, captains, lifetimeStats };
-        }
-
-        // Phase 1, Task 9: resolve every in-flight timed process ONCE, fleet-wide,
-        // with the SAME `ticksElapsed` the per-captain mission loop above used --
-        // the EXACT same resolveProcesses call tick() makes (imported from tick.ts),
-        // so live play and offline catch-up cannot diverge on process completion.
-        // Runs INSIDE this `progress >= 1` block (NOT on every 100ms poll) so
-        // processes advance on the SAME shared-cycle cadence missions do. Threads
-        // `state` forward (from the mission-fold above): postProcessState carries any
-        // completed process's output (inventory/discovered/facilities/itemsRefined)
-        // plus the drained activeProcesses, so the LATER mission-loot inventory fold
-        // below seeds from this process-updated inventory and both compose into one
-        // inventory (addition is commutative, so the process-then-loot order here
-        // lands the same values as tick()'s loot-then-process order). Its lump Fleet
-        // Admiral XP folds into the SAME fleetAdminXpDelta accumulator handed to
-        // applyFleetAdminXp at the end of this poll, exactly as mission FA XP does.
-        const { next: postProcessState, fleetAdminXpDelta: processFleetAdminXpDelta } = resolveProcesses(
-          state,
-          ticksElapsed
-        );
-        state = postProcessState;
-        fleetAdminXpDelta += processFleetAdminXpDelta;
-
-        // Reset once for the whole fleet, not per-captain -- there's only
-        // one shared cycle now.
+        // Reset once for the whole fleet, not per-captain -- there's only one
+        // shared cycle now. (Poll-lag overshoot past the boundary is discarded --
+        // same as always.)
         cycle.barCycleStart = now;
-      }
-      if (anyLootDelivered) {
-        // Ship Production Economy (Phase 1, Task 5): fold this poll's accumulated
-        // loot delta into the keyed `inventory` + `discovered` pair via the SAME
-        // addToInventory helper tick() uses (tick.ts). This REPLACES the old
-        // direct state.homePlanet.storage merge that used to live here. Routing
-        // BOTH the live-poll path (here) and the offline catch-up path (tick())
-        // through the ONE shared add seam is exactly what makes them
-        // byte-identical: given the same homePlanetDelta this loop produces the
-        // same inventory VALUES and the same `discovered` set tick() would (see
-        // tick.ts's identical `for (const key of LOOT_MATERIAL_KEYS)` fold), so
-        // live play and offline catch-up cannot diverge on inventory. Threaded
-        // through all 3 LOOT_MATERIAL_KEYS in turn (each call returns fresh
-        // objects), seeded from the current state.inventory/state.discovered.
-        //
-        // The old "spread ...state.homePlanet.storage FIRST so untouched fields
-        // (refinedMaterial/components/any future key) aren't silently dropped"
-        // guard now lives INSIDE addToInventory -- it spreads the whole inventory
-        // on every add, so those keys ride through unchanged. Same "don't
-        // silently drop a field" protection as the old field-by-field merge, and
-        // the same guard tick.ts documents against its prestige-dropped-homePlanet
-        // production incident.
-        //
-        // Still gated behind anyLootDelivered: an all-zero delta poll skips this
-        // whole block, leaving state.inventory/state.discovered references
-        // untouched. That is a VALUE-identical no-op vs. running the loop (each
-        // key would .plus(0) to the same value and 0 never marks discovered) --
-        // the gate only avoids reactivity churn on the common no-op poll, exactly
-        // the existing anyFired/anyLootDelivered discipline.
-        let inventory = state.inventory;
-        let discovered = state.discovered;
-        for (const key of LOOT_MATERIAL_KEYS) {
-          const added = addToInventory(inventory, discovered, key, homePlanetDelta[key]);
-          inventory = added.inventory;
-          discovered = added.discovered;
-        }
-        state = { ...state, inventory, discovered };
-      }
-
-      // applyFleetAdminXp (2026-07-08 Fleet Admiral XP Rework, Task 4 --
-      // replaces the old recomputeFleetAdmin call here, same "both the pure
-      // tick() path and the live-loop path need the same hook" pattern
-      // tickCaptainMission's own XP award already established in Phase 4).
-      // Runs unconditionally every poll (not gated behind anyFired/
-      // anyLootDelivered above) since it's a cheap no-op when
-      // fleetAdminXpDelta is 0 AND there's no leftover backlog from a prior
-      // capped call -- applyFleetAdminXp itself returns the SAME state
-      // reference in that (overwhelmingly common) case, so this line doesn't
-      // introduce any extra reactivity churn on the vast majority of polls.
-      // On the astronomically rare poll where a prior call's delta was large
-      // enough to hit MAX_LEVEL_UPS_PER_TICK, this call keeps draining that
-      // backlog even with fleetAdminXpDelta at 0 (see applyFleetAdminXp's own
-      // guard in tick.ts). fleetAdminXpDelta is guaranteed defined
-      // here regardless of whether progress >= 1 this poll -- see its
-      // declaration above, before the `if (progress >= 1)` block.
-      state = applyFleetAdminXp(state, fleetAdminXpDelta);
-
-      // Award mission-cycle credits accumulated above -- mirrors tick()'s
-      // `credits: state.credits.plus(creditsDelta)` (tick.ts). Gated on > 0 so a
-      // poll with no cycle completion stays a cheap no-op (no Decimal churn /
-      // reactivity), consistent with the anyFired/anyLootDelivered guards above.
-      // WITHOUT this, mission credits were awarded ONLY during offline catch-up
-      // (tick()), never live play -- a pre-existing live-loop/tick() divergence.
-      if (creditsDelta > 0) {
-        state = { ...state, credits: state.credits.plus(creditsDelta) };
       }
     }, 100);
 
