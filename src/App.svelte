@@ -1642,7 +1642,7 @@
            exact same left:0%/width:100% that rule already provides, so no
            other branch's rendering changes. -->
       <Panel>
-        <div class="panel-title">HOMEWORLD TALENTS</div>
+        <div class="panel-title">ADMINISTRATION</div>
         <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
         <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
         <!-- Shared button row: the "← Categories" back button (left, shown ONLY
