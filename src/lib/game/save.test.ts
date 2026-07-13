@@ -1894,8 +1894,18 @@ describe("migrate — Ship Production Economy Phase 1: inventory/discovered/faci
 
     const migrated: any = migrate(deserialized!);
 
-    // The three plain-JSON facility/process fields survive byte-for-byte.
-    expect(migrated.facilities).toEqual({ refinery: { level: 0 } });
+    // The three plain-JSON facility/process fields survive byte-for-byte. Phase 2,
+    // Task B2 added the two tiered Warehouses to freshState, so a fresh save now
+    // carries three facilities (refinery + warehouseT1 + warehouseT2), all level 0 --
+    // this is a freshState ROUND-TRIP (zero migration steps), so it reflects
+    // freshState's current shape directly (the v17->v18 MIGRATION tests above still
+    // assert the older refinery-only shape until Task B4 adds the v18->v19 warehouse
+    // seeding to the migration chain).
+    expect(migrated.facilities).toEqual({
+      refinery: { level: 0 },
+      warehouseT1: { level: 0 },
+      warehouseT2: { level: 0 },
+    });
     expect(migrated.facilities).toEqual(original.facilities);
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(1);

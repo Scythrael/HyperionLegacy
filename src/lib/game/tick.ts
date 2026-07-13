@@ -1786,6 +1786,92 @@ export function refineSlotCount(state: GameState): number {
   return slots;
 }
 
+// ============================================================================
+// Tiered Warehouse — per-item storage cap helper (Phase 2, Task B2)
+// (docs/plans/2026-07-13-phase-2-warehouse-refine-economy-design.md §3.3).
+//
+// tierCap(state, tier) returns the CURRENT per-item storage cap for a warehouse
+// tier -- a DERIVED value (never stored), read off that tier's warehouse facility
+// level exactly as refineSlotCount derives the refinery's slot count off its level.
+// DEFINITION ONLY this task: nothing enforces the cap yet. Task B3 consumes tierCap
+// at the producer seam to auto-stop a producer whose output has hit its cap.
+//
+// Formula: BASE_CAP[tier] doubled once per REACHED warehouse rung. Each rung of a
+// warehouse track (model.ts) carries a { storageCapMult: 2 } effect, so multiplying
+// that factor across the reached rungs (i < level) yields base * 2^level -- the
+// design's "cap doubles per level, repeatable". The doubling factor lives on the
+// rung (the upgrade track is the single source of truth), so tierCap needs no edit
+// if a future tier tunes a different factor.
+// ============================================================================
+
+// Base (level-0) per-item cap per tier (design §3.3). T1 = 1,000,000 (calibrated:
+// a ~week-old save is already brushing 1M, a fair mid-game starting pressure). T2 =
+// 1,000,000 is a STUB placeholder -- the real T2 base is TBD when T2 content lands.
+// A tier ABSENT from this map has NO warehouse cap system yet (see tierCap's
+// fail-open branch). Kept in sync with model.ts's WAREHOUSE_T*_BASE_CAP, which feed
+// the upgrade COST formula off the same design numbers.
+const BASE_CAP: Record<number, Decimal> = {
+  1: new Decimal(1_000_000),
+  2: new Decimal(1_000_000), // STUB -- real T2 base TBD
+};
+
+// Which facility key holds each tier's warehouse upgrade track. Beside BASE_CAP so a
+// new tier wires its cap base + its facility in one place.
+const TIER_WAREHOUSE_KEY: Record<number, string> = {
+  1: "warehouseT1",
+  2: "warehouseT2",
+};
+
+// "Effectively uncapped" sentinel for a tier with NO warehouse cap system (a tier
+// absent from BASE_CAP). A finite-but-astronomically-large Decimal, constructed from
+// a STRING so it is a genuine break_infinity value (NOT JS's own number Infinity) --
+// decimal-smoke.test.ts's extreme-magnitude case verifies string-built huge Decimals
+// hold exactly. Chosen over Decimal(Infinity) deliberately: this repo has no Node to
+// verify the library's Infinity-constructor behavior (Omega 8, no over-assumptions),
+// and 1e1000 is unreachable by any in-game quantity, so B3's "amount >= cap -> stop"
+// check is fail-open for un-warehoused tiers either way (a producer is NEVER idled
+// for a tier that has no warehouse).
+const WAREHOUSE_UNCAPPED_SENTINEL = new Decimal("1e1000");
+
+// PURE: reads state + the static FACILITIES/BASE_CAP tables, mutates nothing. See
+// the section header above for the formula. An un-warehoused tier (no BASE_CAP entry)
+// fails OPEN to the uncapped sentinel so Task B3 never auto-stops a producer for a
+// tier whose warehouse doesn't exist. A tier at warehouse level 0 returns its base
+// cap unchanged (no reached rung to double it) -- including T2 while still LOCKED
+// (level 0): its cap is defined even before unlock, but is moot this phase since no
+// T2 item is obtainable.
+export function tierCap(state: GameState, tier: number): Decimal {
+  // Explicitly typed `Decimal | undefined`: this project builds WITHOUT
+  // noUncheckedIndexedAccess (so `BASE_CAP[tier]` would otherwise type as a
+  // non-nullable Decimal and make the `=== undefined` guard a TS2367 "no overlap"
+  // error). The lookup genuinely CAN miss at runtime (an un-warehoused tier), so
+  // the annotation states that honestly, matching the codebase's `?.`/`??`
+  // grow-on-demand convention for the same situation.
+  const base: Decimal | undefined = BASE_CAP[tier];
+  if (base === undefined) {
+    return WAREHOUSE_UNCAPPED_SENTINEL; // fail-open: no warehouse cap system for this tier
+  }
+  const warehouseKey = TIER_WAREHOUSE_KEY[tier];
+  const facilityDef = warehouseKey ? FACILITIES[warehouseKey] : undefined;
+  const level = warehouseKey ? (state.facilities[warehouseKey]?.level ?? 0) : 0;
+  // Multiply the base by each REACHED rung's storageCapMult (i < level), the SAME
+  // reached-rungs loop refineSlotCount uses to SUM addRefineSlots. A rung whose
+  // effect is not a storageCapMult (none on today's warehouse tracks) contributes
+  // nothing. The `i < upgrades.length` guard mirrors refineSlotCount's -- defensive
+  // against a hypothetical over-level read past the finite track.
+  let cap = base;
+  if (facilityDef) {
+    const upgrades = facilityDef.upgrades;
+    for (let i = 0; i < level && i < upgrades.length; i++) {
+      const effect = upgrades[i].effect;
+      if ("storageCapMult" in effect) {
+        cap = cap.times(effect.storageCapMult);
+      }
+    }
+  }
+  return cap;
+}
+
 // Starts ONE refine job for `recipeKey` IF (a) the recipe exists, (b) a refine
 // slot is free (active refineJob count < refineSlotCount), and (c) startProcess
 // can afford the recipe inputs. On any miss it is a same-reference no-op

@@ -25,6 +25,8 @@ import {
   xpPerTick,
   foldLifetimeStatsDelta,
   resolveProcesses,
+  tierCap,
+  canBuildFacilityUpgrade,
   MAX_LEVEL_UPS_PER_TICK,
 } from "./tick";
 import Decimal from "break_infinity.js";
@@ -2910,5 +2912,75 @@ describe("tick() — threads the timed-process resolver through the fleet loop (
     // a direct check that the no-active-processes path is a genuine reference no-op.
     expect(result.activeProcesses).toBe(beforeProcesses);
     expect(result.activeProcesses).toEqual([]);
+  });
+});
+
+// Tiered Warehouse — Phase 2, Task B2 (design §3.3). Exercises the two tick.ts
+// functions the warehouse cap economy adds/reuses:
+//   - tierCap(state, tier): the DERIVED per-item cap (base doubled per reached
+//     warehouse rung). DEFINITION only -- no enforcement yet (that's Task B3).
+//   - canBuildFacilityUpgrade(state, "warehouseT2"): the SAME generic facility gate
+//     the refinery uses, proving it works unchanged for the new warehouse keys and
+//     that the T2 stub's first real upgrade is naturally walled by its unobtainable
+//     denseOre input.
+describe("tierCap — per-tier per-item storage cap (Task B2)", () => {
+  // Build a fresh state with a specific warehouse level, overriding freshState's
+  // level-0 seed so the doubling is exercised against known levels.
+  function withWarehouseLevel(key: string, level: number) {
+    const base = freshState();
+    return { ...base, facilities: { ...base.facilities, [key]: { level } } };
+  }
+
+  it("T1 cap doubles per level: 1M @ L0, 2M @ L1, 4M @ L2", () => {
+    expect(tierCap(withWarehouseLevel("warehouseT1", 0), 1).equals(1_000_000)).toBe(true);
+    expect(tierCap(withWarehouseLevel("warehouseT1", 1), 1).equals(2_000_000)).toBe(true);
+    expect(tierCap(withWarehouseLevel("warehouseT1", 2), 1).equals(4_000_000)).toBe(true);
+    // A few levels up, the pure 2^level doubling still holds: L5 = 1M * 32 = 32M.
+    expect(tierCap(withWarehouseLevel("warehouseT1", 5), 1).equals(32_000_000)).toBe(true);
+  });
+
+  it("T2 (stub) cap is defined even while LOCKED at level 0: 1M base, 2M once unlocked (L1)", () => {
+    // freshState seeds warehouseT2 at level 0 (locked) -- its cap is still a defined
+    // 1M (moot this phase since no T2 item is obtainable, but consistent).
+    expect(tierCap(freshState(), 2).equals(1_000_000)).toBe(true);
+    expect(tierCap(withWarehouseLevel("warehouseT2", 1), 2).equals(2_000_000)).toBe(true);
+  });
+
+  it("an un-warehoused tier (no BASE_CAP entry) fails OPEN to an unreachable cap", () => {
+    // Tier 3 has no warehouse/cap system yet -> tierCap returns the huge sentinel so
+    // Task B3 never auto-stops a producer for a tier with no warehouse. Guard it is
+    // astronomically larger than any real quantity (a billion is nowhere near it).
+    const cap = tierCap(freshState(), 3);
+    expect(cap.gt(1_000_000_000)).toBe(true);
+    expect(cap.gt(new Decimal("1e999"))).toBe(true); // ~1e1000 sentinel -- unreachable in-game
+  });
+});
+
+describe("canBuildFacilityUpgrade — warehouse keys work on the generic gate (Task B2)", () => {
+  it("warehouseT2 rung 0 (unlock) is buildable with 1,000,000 commonOre at level 0", () => {
+    const base = freshState();
+    const s = {
+      ...base,
+      inventory: { ...base.inventory, commonOre: new Decimal(1_000_000) },
+    };
+    // warehouseT2 is seeded at level 0 -> next rung is upgrades[0] (the unlock),
+    // priced at 1M commonOre with no other gate. Affordable -> ok.
+    expect(canBuildFacilityUpgrade(s, "warehouseT2").ok).toBe(true);
+  });
+
+  it("warehouseT2 rung 1 (first real upgrade) is BLOCKED at level 1 -- gated on the unobtainable denseOre", () => {
+    const base = freshState();
+    // Unlock done (level 1). Give a mountain of commonOre to prove the wall is the
+    // MISSING denseOre, not affordability of anything else.
+    const s = {
+      ...base,
+      facilities: { ...base.facilities, warehouseT2: { level: 1 } },
+      inventory: { ...base.inventory, commonOre: new Decimal(1e12) },
+    };
+    const check = canBuildFacilityUpgrade(s, "warehouseT2");
+    expect(check.ok).toBe(false);
+    // The failing gate is the denseOre material -- there is no denseOre in inventory
+    // and nothing produces it, so the rung is naturally walled.
+    expect(check.reason).toMatch(/Dense Ore/); // ITEMS.denseOre.label in the material reason
   });
 });

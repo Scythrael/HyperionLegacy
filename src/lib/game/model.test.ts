@@ -6,6 +6,8 @@ import {
   requiredTicksForPhase,
   MISSIONS,
   RECIPES,
+  REFINE_RECIPES,
+  FACILITIES,
   xpForNextLevel,
   xpForNextFleetAdminLevel,
   CAPTAIN_TALENTS,
@@ -170,9 +172,18 @@ describe("Phase 1 — keyed inventory + discovered (additive)", () => {
 // migration (save.ts, MIGRATIONS[17]) backfills onto old saves. This test guards
 // only that additive freshState seed.
 describe("Phase 1 — facility/process reservation fields (additive)", () => {
-  it("freshState().facilities seeds exactly the refinery at level 0 (not built)", () => {
+  // Phase 2, Task B2: the two tiered Warehouses join the refinery in freshState.
+  // warehouseT1 level 0 = the base tier's live starting state (cap 1M, no unlock);
+  // warehouseT2 level 0 = locked (its rung 0 is the unlock). A NEW game must seed
+  // all three so tierCap + the facility framework read a consistent baseline.
+  // (Existing-save migration to this baseline is Task B4, not tested here.)
+  it("freshState().facilities seeds the refinery + both tiered warehouses, all at level 0", () => {
     const state = freshState();
-    expect(state.facilities).toEqual({ refinery: { level: 0 } });
+    expect(state.facilities).toEqual({
+      refinery: { level: 0 },
+      warehouseT1: { level: 0 },
+      warehouseT2: { level: 0 },
+    });
   });
 
   it("freshState().activeProcesses starts empty and nextProcessId starts at 1", () => {
@@ -680,22 +691,45 @@ describe("effectiveMissionDef", () => {
 // table with the minor/major-component/module/system tiers -- do NOT add those
 // forward entries here until their phase (no placeholders).
 describe("ITEMS — Phase 1 seed registry", () => {
-  it("has exactly the 5 seed entries: 3 raw, 2 refined", () => {
+  it("has the registry entries: 4 raw (incl. the T2 stub ore), 2 refined", () => {
+    // Phase 2, Task B2 added ONE item: denseOre (the unobtainable Tier-2 stub ore
+    // that gates the T2 Warehouse's first real upgrade). So the registry grew from
+    // the Phase 1 seed of 5 -> 6: 4 raw (the 3 mission-loot tiers + denseOre) and
+    // the same 2 refined crafted goods.
     const keys = Object.keys(ITEMS);
-    expect(keys).toHaveLength(5);
-    // Category split: the 3 mission-loot tiers are "raw", the 2 crafted goods
-    // (refinedMaterial, components) are "refined".
+    expect(keys).toHaveLength(6);
     const raw = Object.values(ITEMS).filter((i) => i.category === "raw");
     const refined = Object.values(ITEMS).filter((i) => i.category === "refined");
-    expect(raw).toHaveLength(3);
+    expect(raw).toHaveLength(4);
     expect(refined).toHaveLength(2);
 
     // Pin each seed's category directly so a mis-categorized entry is caught.
     expect(ITEMS.commonOre.category).toBe("raw");
     expect(ITEMS.uncommonMaterial.category).toBe("raw");
     expect(ITEMS.rareMaterial.category).toBe("raw");
+    expect(ITEMS.denseOre.category).toBe("raw");
     expect(ITEMS.refinedMaterial.category).toBe("refined");
     expect(ITEMS.components.category).toBe("refined");
+  });
+
+  // Phase 2, Task B2: the T2 stub ore is the FIRST tier-2 item in the registry. It
+  // must be a real, fully-described catalog entry (so it shows as ❓ + hint in the
+  // Warehouse) but produced by NOTHING this phase -- the honest "future content"
+  // wall gating warehouseT2's first real upgrade. The generic standing-rule test
+  // below already checks its metadata is complete; this pins its tier + stub role.
+  it("denseOre is a tier-2 raw ore stub with a 'no source yet' unlockHint", () => {
+    expect(ITEMS.denseOre).toBeDefined();
+    expect(ITEMS.denseOre.tier).toBe(2);
+    expect(ITEMS.denseOre.category).toBe("raw");
+    expect(ITEMS.denseOre.unlockHint.length).toBeGreaterThan(0);
+    // It is unobtainable this phase -- the "naturally gated" stub. The timed refine
+    // path (REFINE_RECIPES) keys its output by a forward-loose plain string, so a
+    // future recipe COULD target denseOre; guard that none does today, which would
+    // break the T2 wall. (The instant RECIPES path can't -- its output.key is the
+    // narrow HomePlanetMaterialKey union, which structurally excludes denseOre.)
+    for (const recipe of Object.values(REFINE_RECIPES)) {
+      expect(recipe.output.itemId).not.toBe("denseOre");
+    }
   });
 
   // DRIFT GUARD: every live inventory material key MUST have a matching ITEMS
@@ -714,11 +748,15 @@ describe("ITEMS — Phase 1 seed registry", () => {
     }
   });
 
-  it("every ITEMS entry has a non-empty label and flavor, and tier 1 at launch", () => {
+  it("every ITEMS entry has a non-empty label and flavor, and a tier >= 1", () => {
+    // Phase 2, Task B2 introduced the first tier-2 item (denseOre), so items are no
+    // longer all tier 1 -- the invariant is now "a real tier at or above 1" (tier 1
+    // is the lowest warehouse tier). The exact tier split is pinned per-item in the
+    // registry tests above / the denseOre test.
     for (const item of Object.values(ITEMS)) {
       expect(item.label.length).toBeGreaterThan(0);
       expect(item.flavor.length).toBeGreaterThan(0);
-      expect(item.tier).toBe(1); // all launch items are tier 1
+      expect(item.tier).toBeGreaterThanOrEqual(1);
     }
   });
 
@@ -744,5 +782,55 @@ describe("ITEMS — Phase 1 seed registry", () => {
       expect(typeof item.unlockHint, `${key}.unlockHint is a string`).toBe("string");
       expect(item.unlockHint.length, `${key}.unlockHint is non-empty`).toBeGreaterThan(0);
     }
+  });
+});
+
+// Phase 2, Task B2 (design §3.1-§3.3): the tiered Warehouse facilities join the
+// FACILITIES table on the SAME Phase 1 framework the Refinery uses. These guard the
+// DATA table shape -- the generated rung counts, the derived material costs (75% of
+// the cap at each level), the storageCapMult effect on every rung, and the T2 stub's
+// unlock cost + denseOre-gated first upgrade. The cap-VALUE derivation (tierCap) and
+// the T2 buildability GATE (canBuildFacilityUpgrade) are exercised in tick.test.ts,
+// where those functions live.
+describe("FACILITIES — tiered Warehouses (Task B2)", () => {
+  it("warehouseT1 exists with ~25 generated doubling rungs, all { storageCapMult: 2 } and ungated", () => {
+    const wh = FACILITIES.warehouseT1;
+    expect(wh).toBeDefined();
+    // ~25 rungs (the "effectively infinite / repeatable" doubling track, design §3.3).
+    expect(wh.upgrades.length).toBe(25);
+    for (const rung of wh.upgrades) {
+      // Every rung doubles the tier cap -- the effect tierCap multiplies on read.
+      expect(rung.effect).toEqual({ storageCapMult: 2 });
+      // T1 is the base tier: every rung is pure cost + time, NO prereq gates.
+      expect(rung.requiresFleetAdminLevel).toBeUndefined();
+      expect(rung.requiresHomeworldTalents).toBeUndefined();
+      expect(rung.durationTicks).toBeGreaterThan(0);
+    }
+  });
+
+  it("warehouseT1 rung i costs 75% of the cap at level i, in commonOre (spot-check rungs 0,1,2)", () => {
+    const up = FACILITIES.warehouseT1.upgrades;
+    // cap at level i = 1,000,000 * 2^i; cost = 75% of that.
+    // i=0: 0.75 * 1,000,000  = 750,000
+    // i=1: 0.75 * 2,000,000  = 1,500,000
+    // i=2: 0.75 * 4,000,000  = 3,000,000
+    expect(up[0].materials.commonOre.equals(750_000)).toBe(true);
+    expect(up[1].materials.commonOre.equals(1_500_000)).toBe(true);
+    expect(up[2].materials.commonOre.equals(3_000_000)).toBe(true);
+    // The cost is commonOre only (T1's common material), no other input.
+    expect(Object.keys(up[0].materials)).toEqual(["commonOre"]);
+  });
+
+  it("warehouseT2 is a stub: rung 0 unlocks for 1,000,000 commonOre; rung 1 is gated on denseOre", () => {
+    const wh = FACILITIES.warehouseT2;
+    expect(wh).toBeDefined();
+    // Rung 0 = the tier UNLOCK, priced at 100% of T1's default 1M cap, in commonOre
+    // (T1's own ore -> reachable today).
+    expect(Object.keys(wh.upgrades[0].materials)).toEqual(["commonOre"]);
+    expect(wh.upgrades[0].materials.commonOre.equals(1_000_000)).toBe(true);
+    // Rung 1 = the first REAL upgrade, priced in the unobtainable T2 ore -> a natural
+    // wall (no explicit requires* gate; the missing input IS the gate).
+    expect(Object.keys(wh.upgrades[1].materials)).toEqual(["denseOre"]);
+    expect(wh.upgrades[1].materials.denseOre.gt(0)).toBe(true);
   });
 });

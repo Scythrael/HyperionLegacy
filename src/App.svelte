@@ -1823,7 +1823,7 @@
                   {@const eff = nextRefineryUpgrade.effect}
                   <div class="research-name">Next: Level {refineryLevel} → {refineryLevel + 1}</div>
                   <div class="research-cost">
-                    Grants: {#if "addRefineSlots" in eff}+{eff.addRefineSlots} refine slot{eff.addRefineSlots === 1 ? "" : "s"}{:else}{eff.refineSpeedMult}× refine speed{/if}
+                    Grants: {#if "addRefineSlots" in eff}+{eff.addRefineSlots} refine slot{eff.addRefineSlots === 1 ? "" : "s"}{:else if "refineSpeedMult" in eff}{eff.refineSpeedMult}× refine speed{/if}
                     · Duration: {nextRefineryUpgrade.durationTicks} ticks
                   </div>
 
