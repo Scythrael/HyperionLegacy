@@ -1309,3 +1309,44 @@ closed-form, check the 7-tab nav for crowding on a narrow viewport, and confirm 
 pre-v18 save migrates cleanly (inventory built from old storage, no lost materials);
 then final holistic review, then merge — push to `main` still needs separate, explicit
 confirmation from the user, since it triggers a live Vercel production redeploy.
+
+**Session 29** — Tab-layout unification + IA restructure into a **Locations** tab, then
+the 0.7.0 production release (branch `feat/homeworld-systems-rail`, stacked on the
+Phase 1 branch; no separate design/plan doc — an interactive Artifact mockup served as
+the spec). Built subagent-driven (implement → review per task), fully REMOTE (no Node;
+Vercel preview builds only). Work: (1) converted the Homeworld and System tabs from
+top-SubTabs to the left-rail layout (`54c68a0`, `137a737`) — the "every tab shares the
+rail" house-pattern pass. (2) After a player/tester vote settled on a FUNCTION-GROUPED
+information architecture, merged Homeworld + Sector Space into one **Locations** tab (a
+rail of places + per-place SubTabs, mirroring the Command tab) and grouped the
+Facilities rail by owner (Homeworld / Fleet Sector / Ships). Nav **7 → 6**. (`0e309a1`
+Locations merge, `73c1323` Facilities-by-owner, `1b3b423` dead-`SectorStructureKey`
+cleanup, `3329732` Administration retitle.) Chose **Path A** — no working production was
+relocated: the legacy instant-craft Fabrication stays under Homeworld until the Phase-4
+Fabricator subsumes it, and ship ops (Docks/Requisition) stay under Fleet Sector until a
+Phase-5 Shipyard facility exists. All relocated panels (RadialWeb talents, RECIPES,
+resource cards, ship Docks/Requisition) moved **byte-for-byte** (Anti-Regression); each
+task ran implement → review, the big Locations merge got a dedicated APPROVED-WITH-MINOR
+review. (3) Retitled the Homeworld talents panel `HOMEWORLD TALENTS → ADMINISTRATION` to
+match its now-`Administration` subtab and the Admin Points currency. (4) `APP_VERSION`
+bumped **0.6.0 → 0.7.0** + a PATCH_NOTES entry for the nav reorg (note: post-reset 0.7.0
+collides in the newest-first list with the untouched PRE-reset 0.7.0 "Rebuilt
+navigation" entry — the same accepted "never rewrite patch-note history" oddity as the
+0.6.0 collision, not a bug). `SAVE_VERSION` untouched at 18.
+
+**Session 29 — device test + production release.** The user QA-tested the preview on
+BOTH platforms and passed all five tiers, critically **Tier 1 (save safety) on a REAL
+PRODUCTION SAVE**: import prod save → upgrade Refinery ×2 → export → re-import → run
+refine jobs, with zero data loss; refinery consumed inventory and mission unload
+restored it correctly; offline catch-up confirmed; nav confirmed at exactly 6 tabs on
+both platforms. ⚠️ **HARD MERGE GATE consciously OVERRIDDEN by informed user decision:**
+still NO Node available (user is remote indefinitely), so `npm run check` (svelte-check)
+and `npm test` (Vitest) have STILL never run — this stack shipped on thorough device
+validation (real-save Tier 1 clean) + review depth alone. **STANDING DEBT (do the moment
+Node is available):** run svelte-check + vitest and fix-forward; triage the two known
+svelte-check items (the intentional unused `_removedHomePlanet` destructure; the frozen
+`MIGRATIONS[7]/[8]` `: GameState` annotations → widen to `: any`). Final action this
+session: merge `feat/homeworld-systems-rail` → `main` (fast-forward — brings the ENTIRE
+stack live in one shot: Phase 1's keyed inventory + timed processes + Facilities/Refinery
++ SAVE_VERSION 18, PLUS all three UI restructures) and push, releasing **APP_VERSION
+0.7.0** to production.
