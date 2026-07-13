@@ -1924,6 +1924,16 @@
       <div class="tab-scroll-area">
       <div class="fleet-captains-layout">
         <div class="captain-list">
+          <!-- Rail grouped by OWNER (2026-07 Locations-merge follow-up): each
+               facility now sits under the "place" that owns it, with a small
+               quiet .facility-owner-header label above the group. Purely a
+               presentational regroup of the same reused .captain-list-item /
+               .captain-list-item.locked items -- activeFacility/FacilityKey
+               logic and the Refinery content pane are unchanged. -->
+
+          <!-- Homeworld group -- the Refinery (only real facility this pass)
+               plus its two locked homeworld siblings. -->
+          <div class="facility-owner-header">Homeworld</div>
           <button
             class="captain-list-item"
             class:active={activeFacility === "refinery"}
@@ -1937,7 +1947,16 @@
                inert; the title attr is the "Coming soon" affordance. -->
           <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Fabricator</div>
           <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Warehouse</div>
+
+          <!-- Fleet Sector group -- the Shipyard belongs to the fleet's sector
+               presence, not the homeworld. -->
+          <div class="facility-owner-header">Fleet Sector</div>
           <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Shipyard</div>
+
+          <!-- Ships group -- ship-borne facilities, a concept only (no backing
+               state yet); locked like the rest. -->
+          <div class="facility-owner-header">Ships</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Ship Facilities</div>
         </div>
 
         <div class="fleet-captains-content">
@@ -3221,6 +3240,18 @@
      strip, matching .nav-tabs/.sub-tab/etc. */
   .fleet-captains-layout { display: flex; gap: 12px; align-items: flex-start; }
   .captain-list { display: flex; flex-direction: column; gap: 2px; flex: 0 0 96px; }
+  /* Quiet owner-group label in the Facilities rail (2026-07 Locations-merge
+     follow-up) -- a small uppercase muted caption, NOT a button. Extra top
+     margin on any header after the first opens a little air between groups
+     without needing a wrapper element. */
+  .facility-owner-header {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text-dim);
+    padding: 2px;
+  }
+  .facility-owner-header:not(:first-child) { margin-top: 8px; }
   .captain-list-item {
     background: rgba(var(--color-accent-rgb), 0.06);
     border: 1px solid rgba(var(--color-accent-rgb), 0.2);
