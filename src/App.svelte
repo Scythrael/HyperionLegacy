@@ -282,19 +282,6 @@
   type FleetCaptainSubTab = "overview" | "talents";
   let activeFleetCaptainSubTab: FleetCaptainSubTab = "overview";
 
-  // ---- Sector Space tab (Ships — Stats Foundation, Task 11 UI) -------------
-  // Mirrors the Fleet Captain's tab exactly: a LEFT rail of "structures"
-  // (like the Captain 1-10 list) + a right content pane driven by SubTabs for
-  // the selected structure. Only "starbase" is real this pass -- Shipyard/
-  // Refinery/Warehouse/Bank render as locked "Coming Soon" rail items (same
-  // .captain-list-item.locked idiom the Fleet Captain's locked slots use), with
-  // no content behind them. Kept as a typed literal union (not a free string)
-  // so a future real structure is added deliberately, matching TabKey/
-  // FleetCaptainSubTab above. Only the active structure's key needs tracking;
-  // the locked ones are never selectable (their rail items aren't buttons).
-  type SectorStructureKey = "starbase";
-  let activeSectorStructure: SectorStructureKey = "starbase";
-
   // Starbase's two sub-tabs: Docks (ship management -- capacity + per-ship
   // rows + assign/swap) and Requisition (buy hulls). No "Overview" this pass
   // (per the approved layout). Defaults to Docks since managing existing hulls
@@ -309,7 +296,7 @@
   // Shipyard render as locked "Coming Soon" rail items (the exact
   // .captain-list-item.locked idiom Sector Space's locked structures use). Kept as
   // a typed literal union (not a free string) so a future real facility is added
-  // deliberately, matching SectorStructureKey/TabKey above.
+  // deliberately, matching TabKey above.
   type FacilityKey = "refinery";
   let activeFacility: FacilityKey = "refinery";
 
@@ -427,8 +414,7 @@
   // still tracked by activeStarbaseSubTab). Alliance Sector / Colony Registry
   // are locked "Coming soon" rail items with no content behind them yet. Kept
   // as a typed literal union (not a free string) so a future real place (e.g.
-  // alliance / colony) is added deliberately, matching TabKey/
-  // SectorStructureKey above.
+  // alliance / colony) is added deliberately, matching TabKey above.
   type LocationPlace = "homeworld" | "sector";
   let activeLocationPlace: LocationPlace = "homeworld";
 
@@ -1157,7 +1143,7 @@
   // Picker open/close helpers -- pure UI state toggles, mirroring
   // openMissionPopup/closeMissionPopup above. The Assign picker keys off the
   // parked ship's id; the Swap picker keys off the assigned ship's captain id
-  // (see the state declarations near activeSectorStructure for why captain, not
+  // (see the swapPickerCaptainId declaration above for why captain, not
   // ship). closeShipPickers clears both so no stale modal can linger.
   function openAssignPicker(shipId: string) {
     assignPickerShipId = shipId;
