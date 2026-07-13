@@ -721,4 +721,28 @@ describe("ITEMS — Phase 1 seed registry", () => {
       expect(item.tier).toBe(1); // all launch items are tier 1
     }
   });
+
+  // STANDING RULE (Phase 2, Task B1 -- design §3.2 "master catalog"): the
+  // Warehouse renders EVERY item as a slot -- ❓ + an unlockHint until discovered,
+  // then name/count/rarity-color once seen -- so every item MUST carry the full
+  // catalog metadata (tier, category, rarity, unlockHint). This test guards that
+  // constraint registry-wide: a future item added WITHOUT complete metadata (e.g.
+  // a missing/blank unlockHint, so its ❓ slot would have no how-to-get clue) fails
+  // here. Derived by iterating the live ITEMS registry -- no hard-coded key list --
+  // so it automatically covers any item added later.
+  it("every ITEMS entry carries complete Warehouse catalog metadata (tier/category/rarity/unlockHint)", () => {
+    const validCategories = ["raw", "refined", "minorComponent", "majorComponent", "shipModule", "shipSystem"];
+    const validRarities = ["common", "uncommon", "rare", "epic", "legendary"];
+    for (const [key, item] of Object.entries(ITEMS)) {
+      // tier: a real number, at least tier 1 (T1 is the lowest warehouse tier).
+      expect(typeof item.tier, `${key}.tier is a number`).toBe("number");
+      expect(item.tier, `${key}.tier >= 1`).toBeGreaterThanOrEqual(1);
+      // category + rarity: present and a valid member of their respective unions.
+      expect(validCategories, `${key}.category is a valid ItemCategory`).toContain(item.category);
+      expect(validRarities, `${key}.rarity is a valid ItemRarity`).toContain(item.rarity);
+      // unlockHint: a non-empty string -- the ❓-state "how to get this" clue.
+      expect(typeof item.unlockHint, `${key}.unlockHint is a string`).toBe("string");
+      expect(item.unlockHint.length, `${key}.unlockHint is non-empty`).toBeGreaterThan(0);
+    }
+  });
 });

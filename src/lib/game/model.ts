@@ -629,8 +629,15 @@ export type ItemRarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
 export interface ItemDef {
   label: string;        // display name (UI wraps it as [Bracketed Name] per convention)
   category: ItemCategory;
-  tier: number;
+  tier: number;         // which warehouse TIER this item belongs to; all current items are T1 (§3.3)
   rarity: ItemRarity;
+  // Player-facing "how to get this" clue shown in the Warehouse's ❓ (undiscovered)
+  // slot state (Phase 2 design §3.2). DISTINCT from `flavor` (narrative color): the
+  // hint is functional -- a concrete, honest pointer to the item's real source
+  // (a mission, a refine/fabricate recipe), never an invented one. Populated for
+  // EVERY item; the model.test.ts standing-rule test enforces it is non-empty so a
+  // future item added without a Warehouse hint fails the suite.
+  unlockHint: string;
   flavor: string;
   // FORWARD (not populated this pass): only shipModule/shipSystem items ever
   // carry equip stats; every Phase 1 seed leaves this undefined.
@@ -652,6 +659,9 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "raw",
     tier: 1,
     rarity: "common",
+    // The guaranteed common-tier fallback drop on every extraction tick (see
+    // tick.ts's rollExtractionTick) of either ore run.
+    unlockHint: "Hauled up by captains on any ore-run mission.",
     flavor: "Unremarkable rock hauled up by the ton -- the backbone of every refinery run.",
   },
   uncommonMaterial: {
@@ -659,6 +669,9 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "raw",
     tier: 1,
     rarity: "uncommon",
+    // Won on the per-tick uncommonChance roll; the Long Ore Run's uncommonChance
+    // (0.08) is far higher than the Short Ore Run's (0.019).
+    unlockHint: "An uncommon strike on ore-run missions -- better odds on the Long Ore Run.",
     flavor: "A richer seam worth flagging on the survey map. Turns up often enough to plan around.",
   },
   rareMaterial: {
@@ -666,6 +679,9 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "raw",
     tier: 1,
     rarity: "rare",
+    // Won on the per-tick rareChance roll; the Long Ore Run's rareChance (0.02)
+    // dwarfs the Short Ore Run's (0.001), so it's the run to farm for rares.
+    unlockHint: "A rare strike on ore-run missions -- best odds on the Long Ore Run.",
     flavor: "Scarce, dense, and prized -- the payoff that makes the long ore runs worth the fuel.",
   },
   // --- Refined / crafted goods (Homeworld crafting output; RECIPES targets) ---
@@ -674,6 +690,9 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "refined",
     tier: 1,
     rarity: "uncommon",
+    // Output of both the instant RECIPES.refineUnobtainium craft and the timed
+    // REFINE_RECIPES.refineCommonOre job, each consuming Common Ore at the Refinery.
+    unlockHint: "Refined from Common Ore at the Refinery.",
     flavor: "Common ore cooked down to a workable ingot. The first rung of the production ladder.",
   },
   components: {
@@ -681,6 +700,9 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "refined",
     tier: 1,
     rarity: "rare",
+    // Output of the RECIPES.fabricateComponents craft, which consumes Refined
+    // Material (5 -> 1) at the Homeworld.
+    unlockHint: "Fabricated from Refined Material at the Homeworld.",
     flavor: "Fabricated parts stamped from refined stock -- the building blocks fleet production runs on.",
   },
 };
