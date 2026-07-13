@@ -46,6 +46,8 @@ import {
   type TimedProcess,
   type TimedProcessKind,
   type ProcessEffect,
+  WAREHOUSE_T1_BASE_CAP,
+  WAREHOUSE_T2_BASE_CAP,
 } from "./model";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -1811,8 +1813,8 @@ export function refineSlotCount(state: GameState): number {
 // fail-open branch). Kept in sync with model.ts's WAREHOUSE_T*_BASE_CAP, which feed
 // the upgrade COST formula off the same design numbers.
 const BASE_CAP: Record<number, Decimal> = {
-  1: new Decimal(1_000_000),
-  2: new Decimal(1_000_000), // STUB -- real T2 base TBD
+  1: new Decimal(WAREHOUSE_T1_BASE_CAP),
+  2: new Decimal(WAREHOUSE_T2_BASE_CAP), // STUB -- real T2 base TBD
 };
 
 // Which facility key holds each tier's warehouse upgrade track. Beside BASE_CAP so a
