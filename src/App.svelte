@@ -271,7 +271,7 @@
   // homeworld-adjacent tabs (see the .nav-tabs row below). Only the Refinery is
   // real this pass; Warehouse/Fabricator/Shipyard are locked "Coming Soon" rail
   // items, same idiom Sector Space's locked structures use.
-  type TabKey = "homeworld" | "sectorSpace" | "facilities" | "fleetCaptains" | "fleetOperations" | "battlespace" | "system";
+  type TabKey = "locations" | "facilities" | "fleetCaptains" | "fleetOperations" | "battlespace" | "system";
   let activeTab: TabKey = "fleetCaptains";
 
   // Fleet Captain's tab sub-tabs (UI Redesign, Task 8 -- see
@@ -417,6 +417,20 @@
     if (e.key === "Escape" && openCurrencyKey !== null) openCurrencyKey = null;
   }
   // -------------------------------------------------------------------------
+
+  // ---- Locations tab (UI restructure: merged Homeworld + Sector Space) -------
+  // The Locations tab uses a LEFT rail of "places" (.captain-list /
+  // .captain-list-item, reused verbatim) + a right content pane; the selected
+  // place then drives its OWN SubTabs. This replaces the two former top-level
+  // tabs -- Fleet Homeworld (Overview / Fabrication / Administration, still
+  // tracked by activeHomeworldSubTab) and Fleet Sector (Docks / Requisition,
+  // still tracked by activeStarbaseSubTab). Alliance Sector / Colony Registry
+  // are locked "Coming soon" rail items with no content behind them yet. Kept
+  // as a typed literal union (not a free string) so a future real place (e.g.
+  // alliance / colony) is added deliberately, matching TabKey/
+  // SectorStructureKey above.
+  type LocationPlace = "homeworld" | "sector";
+  let activeLocationPlace: LocationPlace = "homeworld";
 
   // Homeworld tab sub-tabs (UI Redesign, Task 10 -- see
   // docs/plans/2026-07-07-ui-redesign-plan.md). Resources holds the
@@ -1500,52 +1514,61 @@
     </div>
 
     <main class="tab-body">
-      {#if activeTab === "homeworld"}
-      <!-- Homeworld (systems rail -- UI consistency pass) -- deliberately
-           MIRRORS the Facilities / Sector Space / Fleet Captain's tabs: a LEFT
-           rail of homeworld "systems" (.captain-list / .captain-list-item,
-           reused verbatim, NOT a new class) + a right content pane for the
-           selected system. Replaces the previous top <SubTabs> bar; selection
-           is STILL tracked by activeHomeworldSubTab (resources / refinery /
-           talents), so the three content blocks below are byte-for-byte
-           unchanged -- only the navigation chrome around them changed. Resources
-           / Refinery-Fabrication / Homeworld Talents are the three real systems;
-           the two locked "Coming Soon" rail items use the exact
-           .captain-list-item.locked idiom Facilities' locked facilities use
-           (neutral label -- no future system named by the user yet). -->
+      {#if activeTab === "locations"}
+      <!-- Locations (UI restructure: merged Homeworld + Sector Space) --
+           deliberately MIRRORS the Facilities / Fleet Captain's tabs: a LEFT
+           rail of "places" (.captain-list / .captain-list-item, reused
+           verbatim, NOT a new class) + a right content pane. The selected place
+           (activeLocationPlace: homeworld / sector) drives its OWN <SubTabs>:
+             - Fleet Homeworld -> Overview / Fabrication / Administration, still
+               tracked by activeHomeworldSubTab (resources / refinery / talents);
+             - Fleet Sector -> Docks / Requisition, still tracked by
+               activeStarbaseSubTab.
+           Every content PANEL below moved VERBATIM from the two former tabs --
+           only the navigation chrome around them changed. The Sector place is
+           FLATTENED: the old activeSectorStructure / Starbase-rail layer is
+           gone, so the sector place shows Docks / Requisition directly (the
+           locked Shipyard/Refinery/Warehouse/Bank structure rail did NOT carry
+           over). Alliance Sector / Colony Registry are locked "Coming soon" rail
+           items using the exact .captain-list-item.locked idiom Facilities'
+           locked facilities use. -->
       <div class="tab-scroll-area">
       <div class="fleet-captains-layout">
         <div class="captain-list">
           <button
             class="captain-list-item"
-            class:active={activeHomeworldSubTab === "resources"}
-            on:click={() => (activeHomeworldSubTab = "resources")}
+            class:active={activeLocationPlace === "homeworld"}
+            on:click={() => (activeLocationPlace = "homeworld")}
           >
-            Resources
+            Fleet Homeworld
           </button>
           <button
             class="captain-list-item"
-            class:active={activeHomeworldSubTab === "refinery"}
-            on:click={() => (activeHomeworldSubTab = "refinery")}
+            class:active={activeLocationPlace === "sector"}
+            on:click={() => (activeLocationPlace = "sector")}
           >
-            Refinery/Fabrication
+            Fleet Sector
           </button>
-          <button
-            class="captain-list-item"
-            class:active={activeHomeworldSubTab === "talents"}
-            on:click={() => (activeHomeworldSubTab = "talents")}
-          >
-            Homeworld Talents
-          </button>
-          <!-- Locked systems -- no content behind them yet (same honest
-               "future signal" role as Facilities' locked facilities and Sector
-               Space's locked structures). Plain non-button divs, so they're
-               inert; the title attr is the "Coming soon" affordance. -->
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Coming Soon</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Coming Soon</div>
+          <!-- Locked places -- no content behind them yet (same honest
+               "future signal" role as Facilities' locked facilities). Plain
+               non-button divs, so they're inert; the title attr is the "Coming
+               soon" affordance. -->
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Alliance Sector</div>
+          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Colony Registry</div>
         </div>
 
         <div class="fleet-captains-content">
+          {#if activeLocationPlace === "homeworld"}
+            <SubTabs
+              tabs={[
+                { key: "resources", label: "Overview" },
+                { key: "refinery", label: "Fabrication" },
+                { key: "talents", label: "Administration" },
+              ]}
+              active={activeHomeworldSubTab}
+              onSelect={(key) => (activeHomeworldSubTab = key as HomeworldSubTab)}
+            />
+
       {#if activeHomeworldSubTab === "resources"}
       <Panel>
         <div class="panel-title">HOME PLANET</div>
@@ -1708,45 +1731,9 @@
         {/if}
       </Panel>
       {/if}
-        </div>
-      </div>
-      </div>
-      {/if}
+          {/if}
 
-      {#if activeTab === "sectorSpace"}
-      <!-- Sector Space (Ships — Stats Foundation, Task 11 UI) -- deliberately
-           MIRRORS the Fleet Captain's tab layout directly below: a LEFT rail of
-           "structures" (.captain-list / .captain-list-item, reused verbatim, NOT
-           a new class) + a right content pane driven by SubTabs for the selected
-           structure. Only Starbase is real this pass; Shipyard/Refinery/
-           Warehouse/Bank are locked "Coming Soon" rail items using the exact
-           .captain-list-item.locked idiom the Fleet Captain's locked captain
-           slots use. Starbase has two sub-tabs -- Docks (ship management) and
-           Requisition (buy hulls). The two assign/swap picker MODALS that the
-           Docks row actions open live near the mission-selection popup further
-           down this template (Task 5's popup is the pattern they clone). -->
-      <div class="tab-scroll-area">
-      <div class="fleet-captains-layout">
-        <div class="captain-list">
-          <button
-            class="captain-list-item"
-            class:active={activeSectorStructure === "starbase"}
-            on:click={() => (activeSectorStructure = "starbase")}
-          >
-            Starbase
-          </button>
-          <!-- Locked structures -- no content behind them yet (same honest
-               "future signal" role as the Fleet Captain's slots 5-10 and the
-               Battlespace/Fleet Ops locked lists). Plain non-button divs, so
-               they're inert; the title attr is the "Coming soon" affordance. -->
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Shipyard</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Refinery</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Warehouse</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Bank</div>
-        </div>
-
-        <div class="fleet-captains-content">
-          {#if activeSectorStructure === "starbase"}
+          {#if activeLocationPlace === "sector"}
             <SubTabs
               tabs={[
                 { key: "docks", label: "Docks" },
@@ -2643,8 +2630,7 @@
     </main>
 
     <div class="nav-tabs">
-      <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
-      <button class="nav-tab" class:active={activeTab === "sectorSpace"} on:click={() => (activeTab = "sectorSpace")}>Sector Space</button>
+      <button class="nav-tab" class:active={activeTab === "locations"} on:click={() => (activeTab = "locations")}>Locations</button>
       <button class="nav-tab" class:active={activeTab === "facilities"} on:click={() => (activeTab = "facilities")}>Facilities</button>
       <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Command</button>
       <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
