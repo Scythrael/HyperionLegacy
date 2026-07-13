@@ -1027,19 +1027,43 @@ export function addToInventory(
   return { inventory: nextInventory, discovered: nextDiscovered };
 }
 
-// Idle captains (mission === null) have no passive economy anymore --
-// missions are the only way a captain does anything. Only mission captains
-// need advancing; this is the sole reason to even call .map() below rather
-// than filtering. gameTimeSeconds and the keyed inventory are fleet-wide
-// bookkeeping, each updated exactly once per call (not once per captain).
-export function tick(deltaSeconds: number, state: GameState): GameState {
-  if (deltaSeconds <= 0) return state;
+// Phase 2 (Task A2, docs/plans/phase2-tick-map.md): the per-span economy body,
+// extracted VERBATIM from tick() below so live play (App.svelte's poll loop) and
+// offline catch-up (tick()) can share ONE implementation of the divergence
+// surface -- the 8-field `bonuses` build + ship-stat resolution, the
+// passiveTrickle loop, the loot -> addToInventory fold, the load-bearing ordering
+// (mission/lifetime fold BEFORE resolveProcesses), and the credits / FA-XP /
+// gameTimeSeconds accumulation. Historically those were hand-mirrored in both
+// paths and drifted (ship stats, bonus-roll, credits -- all logged); centralizing
+// them here is the whole point. This is a MECHANICAL lift, not a math rewrite:
+// nothing in the moved arithmetic changed.
+//
+// Pure/deterministic given (state, ticksElapsed, rng): advancing by ticksElapsed
+// in ONE call equals advancing by chunks summing to ticksElapsed, because every
+// subsystem this calls (tickCaptainMission / resolveProcesses / applyFleetAdminXp)
+// is already closed-form (see tickCaptainMission's header). That is what lets a
+// later task (A4) drive the offline span as a chunk loop; today tick() still
+// calls it ONCE over the whole span, exactly as the pre-extraction code did.
+//
+// Idle captains (mission === null) have no passive economy anymore -- missions
+// are the only way a captain does anything. Only mission captains need advancing;
+// this is the sole reason to even call .map() below rather than filtering.
+// gameTimeSeconds and the keyed inventory are fleet-wide bookkeeping, each updated
+// exactly once per call (not once per captain).
+export function economyTick(state: GameState, ticksElapsed: number, rng: () => number = Math.random): GameState {
+  // gameTimeSeconds is tracked in SECONDS, but economyTick is handed ticksElapsed
+  // (not deltaSeconds), so recover the elapsed seconds via the fleet's shared
+  // tickDurationSeconds -- the EXACT inverse of tick()'s
+  // `deltaSeconds / tickDurationSeconds` conversion. So the value used here is
+  // `(deltaSeconds / tickDurationSeconds) * tickDurationSeconds`, which round-trips
+  // to the original deltaSeconds bit-exactly when tickDurationSeconds is 1 (the
+  // fresh default, model.ts) or any power of two, and is within 1 ULP for any
+  // other value. gameTimeSeconds is display-only fleet bookkeeping that NOTHING
+  // downstream in this function reads -- deltaSeconds is used ONLY at the
+  // gameTimeSeconds increment below -- so this is behavior-equivalent to the old
+  // inline `state.gameTimeSeconds + deltaSeconds`.
+  const deltaSeconds = ticksElapsed * state.tickDurationSeconds;
 
-  // Fleet-wide cadence (moved off CaptainState during the UI Redesign -- see
-  // docs/plans/2026-07-07-ui-redesign-design.md) -- read ONCE, applied
-  // uniformly to every captain below, rather than each captain reading its
-  // own field.
-  const ticksElapsed = deltaSeconds / state.tickDurationSeconds;
   const homePlanetDelta = emptyLootTotals();
   // Accumulates fleet-wide Fleet Admiral XP across every captain's completed
   // mission cycles this call -- same accumulate-locally-apply-once shape as
@@ -1094,15 +1118,18 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
       bonusRollChanceMult: captainBonusRollChanceMult(captain),
       specBonusRollChance: captainSpecBonusRollChance(captain),
     };
-    // Math.random passed explicitly (rather than omitted) since bonuses is
-    // positional arg 4 -- omitting arg 3 here would pass bonuses AS rng.
+    // rng passed explicitly (rather than omitted) since bonuses is positional
+    // arg 4 -- omitting arg 3 here would pass bonuses AS rng. rng is economyTick's
+    // own param, defaulting to Math.random, so tick()'s offline catch-up (which
+    // calls economyTick without an rng) is byte-identical to the pre-extraction
+    // inline Math.random; the live loop / tests can inject a deterministic rng.
     const {
       captain: updated,
       homePlanetDelta: delta,
       fleetAdminXpDelta: captainFleetAdminXpDelta,
       creditsDelta: captainCreditsDelta,
       lifetimeStatsDelta: captainLifetimeStatsDelta,
-    } = tickCaptainMission(ticksElapsed, captain, Math.random, bonuses, shipStats);
+    } = tickCaptainMission(ticksElapsed, captain, rng, bonuses, shipStats);
     (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
       homePlanetDelta[key] = homePlanetDelta[key].plus(delta[key]);
     });
@@ -1221,6 +1248,23 @@ export function tick(deltaSeconds: number, state: GameState): GameState {
   // loot fold + resolveProcesses above already produced their final values on
   // postProcessState.
   return applyFleetAdminXp(postProcessState, fleetAdminXpDelta);
+}
+
+// Offline catch-up entry point -- tech spec §2 (Tick Loop and Time Semantics).
+// Converts the elapsed wall-clock span (deltaSeconds) into the fleet-wide
+// ticksElapsed cadence (moved off CaptainState during the UI Redesign -- see
+// docs/plans/2026-07-07-ui-redesign-design.md), then advances the economy by
+// that whole span in ONE economyTick call. This is IDENTICAL to the
+// pre-extraction body: tick() always resolved the entire span closed-form in a
+// single pass. The CHUNKED offline loop (stepping economyTick between Phase 2
+// breakpoints) is Task A4 -- deliberately NOT added here. economyTick is called
+// WITHOUT an rng argument, so it defaults to Math.random exactly as the old inline
+// body did. App.svelte's offline-catch-up call site (the only external caller) is
+// unaffected: same signature, same result for any (deltaSeconds, state).
+export function tick(deltaSeconds: number, state: GameState): GameState {
+  if (deltaSeconds <= 0) return state;
+  const ticksElapsed = deltaSeconds / state.tickDurationSeconds;
+  return economyTick(state, ticksElapsed);
 }
 
 // Dispatches an idle captain (mission === null) on a mission. Finds the

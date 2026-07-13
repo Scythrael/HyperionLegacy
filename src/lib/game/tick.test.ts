@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   tick,
+  economyTick,
   tickCaptainMission,
   dispatchCaptainOnMission,
   recallCaptain,
@@ -1086,6 +1087,103 @@ describe("tickCaptainMission / tick() — accrues mission-side lifetime stats (T
     } finally {
       rngSpy.mockRestore();
     }
+  });
+});
+
+describe("economyTick / tick() equivalence — the Task A2 mechanical extraction is behavior-preserving", () => {
+  // Phase 2 (Task A2): tick()'s per-span economy body was lifted VERBATIM into the
+  // new exported economyTick(state, ticksElapsed, rng), and tick() now just converts
+  // deltaSeconds -> ticksElapsed and calls economyTick ONCE over the whole span. The
+  // extraction must be a no-op on results: for any (deltaSeconds, state),
+  //   economyTick(state, deltaSeconds / tickDurationSeconds)  ===  tick(deltaSeconds, state)
+  // across EVERY field the economy touches -- inventory/discovered, credits,
+  // captain xp/level/statPoints + mission, fleetAdminXp/Level/adminPoints,
+  // lifetimeStats, activeProcesses, and gameTimeSeconds.
+  //
+  // Determinism: loot depends on rng. tick() reads Math.random directly (it has no
+  // rng param); economyTick defaults rng to Math.random but also accepts an injected
+  // one. Math.random is mocked to a CONSTANT 0 for the tick() side, and the SAME
+  // constant is injected as () => 0 into the economyTick side -- both a non-stateful
+  // rng, so the two paths consume an identical roll stream regardless of call count
+  // (the same closed-form-safe device ALWAYS_MIN_ROLL relies on). rng()=0 makes rare
+  // win every extraction roll (0 < rareChance) and suppresses bonus rolls
+  // (bonusRollChance 0 with no talents), so a full shortOreRun cycle delivers a
+  // deterministic 90 rareMaterial.
+  it("economyTick(state, ticksElapsed) equals tick(ticksElapsed * tickDurationSeconds, state) over a full mission cycle", () => {
+    // A fresh, fully-configured fixture built the SAME way for both paths (freshState
+    // is deterministic; setting the mission is deterministic), so the two states are
+    // structurally identical going in. Both tick() and economyTick are pure (they
+    // never mutate the passed state), but building a fresh one per path also guards
+    // against any accidental shared-reference mutation regressing silently.
+    const makeState = () => {
+      const s = freshState(); // 1 captain + generalFreighter -> 149-tick shortOreRun cycle; tickDurationSeconds 1
+      s.captains[0].mission = missionCaptain("shortOreRun");
+      return s;
+    };
+
+    // shortOreRun cycle = 1 + 25 + 90 + 25 + 8 = 149 whole ticks; tickDurationSeconds
+    // is 1, so ticksElapsed 149 <-> deltaSeconds 149. One full cycle exercises loot
+    // delivery, credits, captain XP + level-up, FA XP, lifetimeStats, and the
+    // gameTimeSeconds increment -- the whole extracted surface.
+    const ticksElapsed = 149;
+
+    const rngSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    let viaTick: ReturnType<typeof tick>;
+    let viaEconomy: ReturnType<typeof economyTick>;
+    try {
+      const tickState = makeState();
+      // deltaSeconds = ticksElapsed * tickDurationSeconds (1) = 149. tick() reads the
+      // mocked Math.random internally.
+      viaTick = tick(ticksElapsed * tickState.tickDurationSeconds, tickState);
+      // economyTick driven directly by ticksElapsed, with the SAME constant rng
+      // injected explicitly (also exercises the new rng param actually threading
+      // through to tickCaptainMission).
+      viaEconomy = economyTick(makeState(), ticksElapsed, () => 0);
+    } finally {
+      rngSpy.mockRestore();
+    }
+
+    // --- inventory + discovered (loot fold via addToInventory) ---
+    expect(viaEconomy.inventory.commonOre.equals(viaTick.inventory.commonOre)).toBe(true);
+    expect(viaEconomy.inventory.uncommonMaterial.equals(viaTick.inventory.uncommonMaterial)).toBe(true);
+    expect(viaEconomy.inventory.rareMaterial.equals(viaTick.inventory.rareMaterial)).toBe(true);
+    expect(viaEconomy.inventory.rareMaterial.equals(90)).toBe(true); // pins the deterministic loot, not just parity
+    expect(viaEconomy.discovered).toEqual(viaTick.discovered);
+
+    // --- credits (flat .plus() of creditsDelta) ---
+    expect(viaEconomy.credits.equals(viaTick.credits)).toBe(true);
+
+    // --- captain xp / level / statPoints + mission state ---
+    const ec = viaEconomy.captains[0];
+    const tc = viaTick.captains[0];
+    expect(ec.xp.equals(tc.xp)).toBe(true);
+    expect(ec.level).toBe(tc.level);
+    expect(ec.statPoints).toBe(tc.statPoints);
+    expect(ec.mission!.phase).toBe(tc.mission!.phase);
+    expect(ec.mission!.phaseProgressTicks).toBeCloseTo(tc.mission!.phaseProgressTicks, 9);
+    expect(ec.mission!.missionKey).toBe(tc.mission!.missionKey);
+
+    // --- fleetAdminXp / fleetAdminLevel / adminPoints (applyFleetAdminXp pass) ---
+    expect(viaEconomy.fleetAdminXp.equals(viaTick.fleetAdminXp)).toBe(true);
+    expect(viaEconomy.fleetAdminLevel).toBe(viaTick.fleetAdminLevel);
+    expect(viaEconomy.adminPoints).toBe(viaTick.adminPoints);
+
+    // --- lifetimeStats (foldLifetimeStatsDelta per captain) ---
+    expect(viaEconomy.lifetimeStats.itemsGathered.rareMaterial.equals(viaTick.lifetimeStats.itemsGathered.rareMaterial)).toBe(true);
+    expect(viaEconomy.lifetimeStats.itemsGathered.commonOre.equals(viaTick.lifetimeStats.itemsGathered.commonOre)).toBe(true);
+    expect(viaEconomy.lifetimeStats.itemsGathered.uncommonMaterial.equals(viaTick.lifetimeStats.itemsGathered.uncommonMaterial)).toBe(true);
+    expect(viaEconomy.lifetimeStats.missionsCompleted.shortOreRun.equals(viaTick.lifetimeStats.missionsCompleted.shortOreRun)).toBe(true);
+    expect(viaEconomy.lifetimeStats.creditsEarned.equals(viaTick.lifetimeStats.creditsEarned)).toBe(true);
+    expect(viaEconomy.lifetimeStats.captainXpAwarded.equals(viaTick.lifetimeStats.captainXpAwarded)).toBe(true);
+    expect(viaEconomy.lifetimeStats.fleetAdminXpAwarded.equals(viaTick.lifetimeStats.fleetAdminXpAwarded)).toBe(true);
+
+    // --- activeProcesses (resolveProcesses output; empty on freshState, still pinned equal) ---
+    expect(viaEconomy.activeProcesses).toEqual(viaTick.activeProcesses);
+
+    // --- gameTimeSeconds (deltaSeconds = ticksElapsed * tickDurationSeconds algebra) ---
+    // tickDurationSeconds is 1 here, so the round-trip is bit-exact; assert strict equality.
+    expect(viaEconomy.gameTimeSeconds).toBe(viaTick.gameTimeSeconds);
+    expect(viaEconomy.gameTimeSeconds).toBe(149);
   });
 });
 
