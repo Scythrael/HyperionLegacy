@@ -26,6 +26,9 @@ import {
   foldLifetimeStatsDelta,
   resolveProcesses,
   tierCap,
+  materialAtCap,
+  offlineCapTicks,
+  OFFLINE_CAP_DAYS_BASE,
   canBuildFacilityUpgrade,
   MAX_LEVEL_UPS_PER_TICK,
 } from "./tick";
@@ -2982,5 +2985,179 @@ describe("canBuildFacilityUpgrade — warehouse keys work on the generic gate (T
     // The failing gate is the denseOre material -- there is no denseOre in inventory
     // and nothing produces it, so the rung is naturally walled.
     expect(check.reason).toMatch(/Dense Ore/); // ITEMS.denseOre.label in the material reason
+  });
+});
+
+// ============================================================================
+// Auto-stop + capped per-tick offline stepping — Phase 2, Task B3 (design §2 + §3.4).
+// Exercises the three seams this task adds:
+//   - materialAtCap(state, itemId): the single "is this material full?" check.
+//   - economyTick mission auto-stop: a captain whose PRIMARY material is at cap idles.
+//   - tick(): offline catch-up now CLAMPS to offlineCapTicks and STEPS per tick.
+// ============================================================================
+describe("materialAtCap — the single warehouse cap-check seam (Task B3)", () => {
+  it("is false BELOW the tier cap, true AT and ABOVE it (commonOre, T1 cap 1M @ L0)", () => {
+    const s = freshState(); // warehouseT1 level 0 -> tierCap(s,1) = 1,000,000; commonOre is a T1 item
+    // One under the cap -> not full.
+    s.inventory.commonOre = new Decimal(999_999);
+    expect(materialAtCap(s, "commonOre")).toBe(false);
+    // EXACTLY at the cap -> full (the .gte boundary: AT the cap counts as full).
+    s.inventory.commonOre = new Decimal(1_000_000);
+    expect(materialAtCap(s, "commonOre")).toBe(true);
+    // Above the cap -> still full.
+    s.inventory.commonOre = new Decimal(2_000_000);
+    expect(materialAtCap(s, "commonOre")).toBe(true);
+  });
+
+  it("tracks the tier cap as the warehouse upgrades: 1M is full at L0 but NOT after a level-up (cap -> 2M)", () => {
+    const base = freshState();
+    // At L0 the cap is 1M, so exactly 1M reads as full.
+    const atL0 = { ...base, inventory: { ...base.inventory, commonOre: new Decimal(1_000_000) } };
+    expect(materialAtCap(atL0, "commonOre")).toBe(true);
+    // Upgrade warehouseT1 to L1 (cap doubles to 2M) -> the same 1M is now below cap.
+    const atL1 = {
+      ...atL0,
+      facilities: { ...base.facilities, warehouseT1: { level: 1 } },
+    };
+    expect(materialAtCap(atL1, "commonOre")).toBe(false);
+  });
+
+  it("fails OPEN (never 'full') for an unknown itemId with no ITEMS catalog entry", () => {
+    const s = freshState();
+    // No catalog entry -> no tier -> no cap system -> a producer is never idled for it.
+    expect(materialAtCap(s, "nonexistentItem")).toBe(false);
+  });
+});
+
+describe("economyTick — mission auto-stop when the primary material is at cap (Task B3)", () => {
+  // shortOreRun's primaryMaterial is commonOre (model.ts); T1 cap @ L0 is 1M.
+  function missionStateWithCommonOre(amount: number) {
+    const s = freshState();
+    s.captains[0].mission = missionCaptain("shortOreRun");
+    s.inventory.commonOre = new Decimal(amount);
+    return s;
+  }
+
+  it("AT cap: the captain idles -- mission, inventory, XP and credits all unchanged", () => {
+    const s = missionStateWithCommonOre(1_000_000); // commonOre exactly at the T1 cap
+    // Constant rng injected; it must never even be consulted since the captain idles.
+    const result = economyTick(s, 1, () => 0);
+
+    // The captain is left EXACTLY as it was: still at the very start of the cycle,
+    // no phase advance, zero cargo, zero XP -- proof tickCaptainMission never ran.
+    const cap = result.captains[0];
+    expect(cap.mission!.phase).toBe("ordersReceived");
+    expect(cap.mission!.phaseProgressTicks).toBe(0);
+    expect(cap.xp.equals(0)).toBe(true);
+    expect(cap.level).toBe(1);
+    // No production this call: commonOre is untouched at the cap (no overflow), and
+    // no other material was gathered. No credits, no fleet XP.
+    expect(result.inventory.commonOre.equals(1_000_000)).toBe(true);
+    expect(result.inventory.rareMaterial.equals(0)).toBe(true);
+    expect(result.credits.equals(0)).toBe(true);
+    expect(result.fleetAdminXp.equals(0)).toBe(true);
+  });
+
+  it("BELOW cap: behaves EXACTLY as today -- the captain runs (phase advances, XP accrues)", () => {
+    const s = missionStateWithCommonOre(999_999); // one under the cap -> normal run
+    const result = economyTick(s, 1, () => 0);
+
+    // shortOreRun ordersReceived phase is 1 tick, so a single tick advances it into
+    // transitOut (progress reset to 0) and accrues 1 whole tick of XP -- the exact
+    // pre-B3 behavior for a below-cap captain.
+    const cap = result.captains[0];
+    expect(cap.mission!.phase).toBe("transitOut");
+    expect(cap.mission!.phaseProgressTicks).toBe(0);
+    expect(cap.xp.equals(1)).toBe(true);
+    expect(result.fleetAdminXp.equals(1)).toBe(true);
+  });
+});
+
+describe("tick — offline catch-up is clamped to offlineCapTicks then stepped (Task B3)", () => {
+  it("offlineCapTicks derives 2 days of ticks from the base days and the tick cadence", () => {
+    const s = freshState(); // tickDurationSeconds 1
+    expect(OFFLINE_CAP_DAYS_BASE).toBe(2);
+    // 2 days * 86,400 s/day / 1 s/tick = 172,800 ticks at the default cadence.
+    expect(offlineCapTicks(s)).toBe(172_800);
+    // The cap scales with the cadence: a coarser tick means fewer ticks span 2 days.
+    expect(offlineCapTicks({ ...s, tickDurationSeconds: 2 })).toBe(86_400);
+  });
+
+  it("a 5-day absence yields the SAME result as a 2-day absence -- the excess span is discarded", () => {
+    // Use a coarse 1-day tick cadence so offlineCapTicks is a tiny 2 -- this keeps the
+    // stepped loop cheap (2 iterations) while still exercising the real clamp path;
+    // at the default 1s cadence the cap would be 172,800 steps, needlessly slow here.
+    const makeS = () => {
+      const s = freshState();
+      s.tickDurationSeconds = 86_400; // 1 day/tick -> offlineCapTicks = 2*86400/86400 = 2
+      s.captains[0].mission = missionCaptain("shortOreRun");
+      return s;
+    };
+    expect(offlineCapTicks(makeS())).toBe(2);
+
+    // Constant rng into tick() so the stepped loot is exactly reproducible.
+    const fiveDays = tick(5 * 86_400, makeS(), () => 0); // rawTicks 5, clamped to 2
+    const twoDays = tick(2 * 86_400, makeS(), () => 0); // rawTicks 2, clamped to 2
+
+    // Both advanced exactly 2 ticks -> identical across every economy field.
+    expect(fiveDays.captains[0].xp.equals(twoDays.captains[0].xp)).toBe(true);
+    expect(fiveDays.captains[0].mission!.phase).toBe(twoDays.captains[0].mission!.phase);
+    expect(fiveDays.captains[0].mission!.phaseProgressTicks).toBeCloseTo(
+      twoDays.captains[0].mission!.phaseProgressTicks,
+      9
+    );
+    expect(fiveDays.inventory.commonOre.equals(twoDays.inventory.commonOre)).toBe(true);
+    expect(fiveDays.credits.equals(twoDays.credits)).toBe(true);
+    expect(fiveDays.fleetAdminXp.equals(twoDays.fleetAdminXp)).toBe(true);
+
+    // Pin the ABSOLUTE clamp: 2 whole ticks -> 2 XP, NOT the 5 an unclamped span
+    // would have accrued. This is the load-bearing assertion that the excess was
+    // discarded, not merely that the two inputs happened to match.
+    expect(fiveDays.captains[0].xp.equals(2)).toBe(true);
+  });
+});
+
+describe("tick — per-tick stepping matches the single-call economy when no cap binds (Task B3)", () => {
+  it("stepping 149 ticks equals one economyTick(149) for ALL fields (constant rng, single captain)", () => {
+    // A modest span (149 = one full shortOreRun cycle) well under the 172,800-tick cap,
+    // with commonOre far below its 1M cap, so NEITHER the clamp NOR auto-stop binds --
+    // this isolates the "stepped loop == old single closed-form call" parity.
+    const makeS = () => {
+      const s = freshState();
+      s.captains[0].mission = missionCaptain("shortOreRun");
+      return s;
+    };
+    // A CONSTANT rng makes loot bit-identical between the two paths even though the
+    // stepped loop rolls tick-by-tick and the single call rolls in one pass: with one
+    // captain and a non-stateful rng, roll ORDER is the same and every roll returns the
+    // same value, so the loot totals are exactly equal (not just statistically so).
+    const viaTick = tick(149, makeS(), () => 0); // stepped: 149 economyTick(state,1) calls
+    const viaSingle = economyTick(makeS(), 149, () => 0); // the pre-B3 single closed-form call
+
+    // Loot (constant rng()=0 -> rare wins every extraction tick -> 90 rareMaterial/cycle).
+    expect(viaTick.inventory.commonOre.equals(viaSingle.inventory.commonOre)).toBe(true);
+    expect(viaTick.inventory.uncommonMaterial.equals(viaSingle.inventory.uncommonMaterial)).toBe(true);
+    expect(viaTick.inventory.rareMaterial.equals(viaSingle.inventory.rareMaterial)).toBe(true);
+    expect(viaTick.inventory.rareMaterial.equals(90)).toBe(true); // pins the deterministic loot
+    expect(viaTick.discovered).toEqual(viaSingle.discovered);
+
+    // Credits: one completed cycle -> shortOreRun creditsPerCycle 10.
+    expect(viaTick.credits.equals(viaSingle.credits)).toBe(true);
+    expect(viaTick.credits.equals(10)).toBe(true);
+
+    // Captain XP / level / mission (149 whole ticks * rate 1 = 149 XP; xpForNextLevel(1)=300,
+    // so still level 1; cycle auto-repeated back to ordersReceived @ progress 0).
+    expect(viaTick.captains[0].xp.equals(viaSingle.captains[0].xp)).toBe(true);
+    expect(viaTick.captains[0].xp.equals(149)).toBe(true);
+    expect(viaTick.captains[0].level).toBe(viaSingle.captains[0].level);
+    expect(viaTick.captains[0].mission!.phase).toBe(viaSingle.captains[0].mission!.phase);
+    expect(viaTick.captains[0].mission!.phaseProgressTicks).toBeCloseTo(
+      viaSingle.captains[0].mission!.phaseProgressTicks,
+      9
+    );
+
+    // Fleet Admiral XP + the fleet clock advance identically across the two paths.
+    expect(viaTick.fleetAdminXp.equals(viaSingle.fleetAdminXp)).toBe(true);
+    expect(viaTick.gameTimeSeconds).toBeCloseTo(viaSingle.gameTimeSeconds, 9);
   });
 });

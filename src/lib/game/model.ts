@@ -96,6 +96,26 @@ export interface MissionDef {
   // exact algorithm and rng() call order.
   uncommonChance: number;
   rareChance: number;
+  // Phase 2 (Task B3, docs/plans/2026-07-13-phase-2-warehouse-refine-economy-
+  // design.md §3.4): the ONE material that DEFINES this run for the warehouse
+  // auto-stop mechanic. When this material is at its tier cap, the captain
+  // running the mission idles (no run, no loot/XP/credits) -- see economyTick's
+  // materialAtCap check in tick.ts. Both launch missions are ore runs, so their
+  // primary is `commonOre`: the GUARANTEED common-tier fallback drop of every
+  // extraction tick (see tick.ts's rollExtractionTick, whose final return always
+  // yields commonOre when rare + uncommon both miss). Typed LootMaterialKey (not
+  // the wider HomePlanetMaterialKey) because missions only ever produce the 3
+  // raw loot tiers -- never a refined/crafted good.
+  //
+  // ⚠️ MUST stay consistent with rollExtractionTick's guaranteed-floor tier for
+  // this mission. Today every mission's guaranteed floor is commonOre, so every
+  // primaryMaterial is commonOre. A FUTURE mission whose guaranteed drop is a
+  // different tier MUST set this field to match, or auto-stop would gate the run
+  // on the wrong material. This is an explicit data field (not inferred from the
+  // roll) so the design's per-mission "primary material" concept (§3.4/§5) reads
+  // straight off the mission def, and so a future non-commonOre run needs no
+  // auto-stop code change -- only this value.
+  primaryMaterial: LootMaterialKey;
   // Display-only grouping -- drives which SubTabs tier a mission renders under
   // in the Fleet Operations tab (a follow-up UI feature). Has NO effect on
   // tick math whatsoever; purely a presentational label read by the UI layer.
@@ -155,6 +175,7 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     cargoCapacity: 90,
     uncommonChance: 0.019, // was lootTable weight 19/1000 (1.9%)
     rareChance: 0.001, // was lootTable weight 1/1000 (0.1%)
+    primaryMaterial: "commonOre", // ore run -- guaranteed common-tier drop defines it (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
     creditsPerCycle: 10,
@@ -168,6 +189,7 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     cargoCapacity: 90,
     uncommonChance: 0.08, // was lootTable weight 80/1000 (8%)
     rareChance: 0.02, // was lootTable weight 20/1000 (2%)
+    primaryMaterial: "commonOre", // ore run -- guaranteed common-tier drop defines it (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
     creditsPerCycle: 20,

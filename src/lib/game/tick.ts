@@ -26,6 +26,7 @@ import {
   ITEMS,
   freshCaptainStack,
   shipDerivedStats,
+  type ItemDef,
   type GameState,
   type ShipTypeKey,
   type ShipInstance,
@@ -1098,6 +1099,25 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   const fleetRareYield = fleetRareYieldMult(state);
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
+    // Phase 2 (Task B3, design §3.4): AUTO-STOP. If this mission's PRIMARY material
+    // is already at its warehouse tier cap, the captain IDLES this call -- no
+    // tickCaptainMission run, so no loot, no XP, no credits, no phase advance. The
+    // captain object is returned UNCHANGED, exactly as an idle (mission === null)
+    // captain is, so a full-material captain contributes nothing this call. This
+    // check is the ONLY new gate on the per-captain path; when the primary material
+    // is BELOW cap (the universal case until 1M+ is stockpiled) it is false and the
+    // captain proceeds through the identical pre-B3 code below -- no behavior change.
+    //
+    // Placed here, inside economyTick, so it applies UNIFORMLY to live play (App.svelte
+    // calls economyTick per bar) AND offline catch-up (tick()'s per-tick step loop) --
+    // one seam, both paths. The check reads state.inventory as it stood at the START
+    // of this call; the offline loop steps ONE tick per economyTick call (below), so
+    // the cap is re-evaluated every tick and a run stops the moment its material fills
+    // (correct-by-construction across the cap breakpoint). Incidental secondary drops
+    // (uncommon/rare) stop WITH the run, per the design's whole-run-stop decision.
+    if (materialAtCap(state, MISSIONS[captain.mission.missionKey].primaryMaterial)) {
+      return captain;
+    }
     // Resolve the hull this captain flies and project it to the three mission
     // stats tickCaptainMission consumes (transit/cargo/yield). GameState.ships[]
     // .assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies what -- so
@@ -1255,18 +1275,77 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
 // Offline catch-up entry point -- tech spec §2 (Tick Loop and Time Semantics).
 // Converts the elapsed wall-clock span (deltaSeconds) into the fleet-wide
 // ticksElapsed cadence (moved off CaptainState during the UI Redesign -- see
-// docs/plans/2026-07-07-ui-redesign-design.md), then advances the economy by
-// that whole span in ONE economyTick call. This is IDENTICAL to the
-// pre-extraction body: tick() always resolved the entire span closed-form in a
-// single pass. The CHUNKED offline loop (stepping economyTick between Phase 2
-// breakpoints) is Task A4 -- deliberately NOT added here. economyTick is called
-// WITHOUT an rng argument, so it defaults to Math.random exactly as the old inline
-// body did. App.svelte's offline-catch-up call site (the only external caller) is
-// unaffected: same signature, same result for any (deltaSeconds, state).
-export function tick(deltaSeconds: number, state: GameState): GameState {
+// docs/plans/2026-07-07-ui-redesign-design.md), CLAMPS it to the offline cap, then
+// STEPS the economy forward ONE tick per economyTick call across the clamped span.
+//
+// Phase 2 (Task B3, design §2 + §3.4): this REPLACES the old single closed-form
+// economyTick(state, wholeSpan) call. Why step per tick instead of one big call:
+// auto-stop (§3.4) COUPLES production to storage -- a captain must stop the moment
+// its material fills, which is a discrete breakpoint mid-span. A single big call
+// checks the cap only ONCE (at the span's start), so it would keep producing past a
+// cap crossing. Stepping ONE tick at a time re-checks the cap every tick inside
+// economyTick, so a run stops exactly when its material fills -- correct by
+// construction across the breakpoint, no closed-form breakpoint math to get wrong
+// (the whole point of the step-forward foundation).
+//
+// Behavior parity vs. pre-B3: for the DETERMINISTIC economy (mission phase progress,
+// captain/FA XP, credits, gameTimeSeconds) stepping N ticks of 1 equals one call of
+// N, because economyTick/tickCaptainMission are closed-form ("one big jump == many
+// small ticks", guarded by the closed-form parity test). LOOT rng SEQUENCING can
+// differ with 2+ captains: a big call ran all of captain A's rolls, then all of B's;
+// the stepped loop interleaves A,B per tick. Both consume the same NUMBER of rolls
+// off the same stream -- only the interleaving order differs, so totals are
+// statistically equivalent (a constant rng makes them bit-identical -- see the test).
+//
+// INTENTIONAL behavior CHANGE (design decision, user-confirmed): a span longer than
+// offlineCapTicks(state) (2 real days at the default cadence) advances only 2 days;
+// the excess is DISCARDED. Pre-B3 tick() advanced the FULL span uncapped. This is the
+// deliberate offline cap, an extensible/derived value (see offlineCapTicks).
+//
+// PERFORMANCE: up to floor(offlineCapTicks) iterations (~172,800 at the 1s cadence),
+// each a full economyTick. Per the design (§2.3) a tight no-render loop handles this
+// well under a second; the 2-day cap BOUNDS it. Deliberately NOT hoisting economyTick's
+// per-captain bonus/ship resolution out of the loop even though it recomputes
+// call-constant values each tick: doing so would require a SEPARATE offline code path
+// that bypasses economyTick, re-introducing the exact live-vs-offline drift the
+// step-forward foundation exists to eliminate (design §2.2). Correctness over speed,
+// exactly as this task scoped it; adaptive chunking is an explicitly-later task. No
+// per-iteration progress log either -- it would dwarf the sub-second loop's own cost
+// (console I/O per tick), and App.svelte already emits a start/end "Welcome back.
+// Advanced Ns offline." bookend around this call.
+//
+// rng defaults to Math.random (the only production caller, App.svelte's offline
+// catch-up, passes no rng -- byte-identical to the old inline Math.random). Tests
+// inject a constant rng to make the stepped loot exactly assertable.
+export function tick(deltaSeconds: number, state: GameState, rng: () => number = Math.random): GameState {
   if (deltaSeconds <= 0) return state;
-  const ticksElapsed = deltaSeconds / state.tickDurationSeconds;
-  return economyTick(state, ticksElapsed);
+  // Same deltaSeconds -> ticksElapsed conversion as before, then clamp to the cap.
+  // Math.min discards any excess span beyond the cap (the intentional 2-day limit).
+  const rawTicksElapsed = deltaSeconds / state.tickDurationSeconds;
+  const clampedTicks = Math.min(rawTicksElapsed, offlineCapTicks(state));
+
+  // Step the WHOLE ticks first: one economyTick(state, 1) per tick, so the auto-stop
+  // cap-check inside economyTick runs every tick. Each call returns a fresh state that
+  // feeds the next -- accumulated inventory carries forward, so a mid-span cap crossing
+  // is seen on the very next iteration.
+  const wholeSteps = Math.floor(clampedTicks);
+  let next = state;
+  for (let i = 0; i < wholeSteps; i++) {
+    next = economyTick(next, 1, rng);
+  }
+
+  // Apply any fractional remainder tick LAST, matching the precision the old single
+  // closed-form call carried (it passed the full fractional ticksElapsed straight to
+  // economyTick). frac is exactly 0 for an integer span (skipped); for a fractional
+  // span it advances the sub-tick residue, exactly as one big call's trailing fraction
+  // would. Summed, wholeSteps*1 + frac == clampedTicks, so the deterministic economy
+  // lands identically to a single economyTick(state, clampedTicks) call.
+  const frac = clampedTicks - wholeSteps;
+  if (frac > 0) {
+    next = economyTick(next, frac, rng);
+  }
+
+  return next;
 }
 
 // Dispatches an idle captain (mission === null) on a mission. Finds the
@@ -1872,6 +1951,81 @@ export function tierCap(state: GameState, tier: number): Decimal {
     }
   }
   return cap;
+}
+
+// ============================================================================
+// Auto-stop cap check (Phase 2, Task B3)
+// (docs/plans/2026-07-13-phase-2-warehouse-refine-economy-design.md §3.4).
+//
+// materialAtCap(state, itemId) returns whether the fleet's stock of `itemId` has
+// REACHED (or somehow exceeded) that item's tier storage cap. This is the ONE
+// cap-check seam for the whole auto-stop mechanic: economyTick calls it to idle a
+// mission whose primary material is full (below), and Task D's refine-order pause
+// will call this SAME function for refinery outputs -- so both producers share one
+// definition of "full" and cannot drift.
+//
+// PURE: reads state.inventory + the static ITEMS table + tierCap, mutates nothing.
+//
+// Fails OPEN on an unknown itemId (no ITEMS entry -> no tier -> return false), so a
+// producer is NEVER idled for an item that has no catalog metadata. This mirrors
+// tierCap's own fail-open stance (an un-warehoused tier returns the uncapped
+// sentinel, against which .gte is always false anyway) -- two layers of the same
+// "never wrongly stop a producer for a missing warehouse" guarantee.
+//
+// The `.gte(cap)` (>=, not >) is deliberate: AT the cap counts as full. At the
+// uncapped sentinel (1e1000) no reachable in-game quantity is >=, so those items
+// read as never-full.
+// ============================================================================
+export function materialAtCap(state: GameState, itemId: string): boolean {
+  // Explicitly typed `ItemDef | undefined` for the SAME reason tierCap annotates
+  // its BASE_CAP lookup: this project builds WITHOUT noUncheckedIndexedAccess, so
+  // `ITEMS[itemId]` would otherwise type as a non-nullable ItemDef and make the
+  // `=== undefined` guard a TS2367 "no overlap" error -- but the lookup genuinely
+  // CAN miss at runtime (an unknown itemId), so the annotation states that honestly.
+  const item: ItemDef | undefined = ITEMS[itemId];
+  if (item === undefined) {
+    return false; // fail-open: no catalog entry -> no cap system -> never "full"
+  }
+  const cap = tierCap(state, item.tier);
+  // inventory is sparse for dynamically-acquired itemIds, so an absent key means 0
+  // held (matching addToInventory's own `?? new Decimal(0)` grow-on-demand shape).
+  const have = state.inventory[itemId] ?? new Decimal(0);
+  return have.gte(cap);
+}
+
+// ============================================================================
+// Offline catch-up cap (Phase 2, Task B3)
+// (docs/plans/2026-07-13-phase-2-warehouse-refine-economy-design.md §2).
+//
+// The MAX number of ticks an offline catch-up will step forward, no matter how
+// long the player was away. Derived (never stored) from a base of 2 real days,
+// converted to ticks via the fleet's shared tickDurationSeconds -- the SAME
+// deltaSeconds<->ticks cadence tick()/economyTick use everywhere else. At the
+// default 1s cadence this is 172,800 ticks (2 * 86,400). Any elapsed span beyond
+// this is DISCARDED by tick() (the excess simply does not accrue).
+//
+// EXTENSIBLE BY DESIGN: the cap is a FUNCTION of state, not a bare constant, so a
+// future "offline extension" upgrade can lengthen it per-save without touching the
+// call site. Today it returns exactly the base; the `+ future offline-extension
+// upgrades` seam below is where such a bonus plugs in (NO such upgrade source
+// exists yet -- per the no-placeholder rule we do NOT invent one now).
+// ============================================================================
+export const OFFLINE_CAP_DAYS_BASE = 2;
+
+// Seconds in one real day -- named rather than an inline 86400 magic number, so the
+// day->seconds conversion reads plainly at the one place it is used.
+const SECONDS_PER_DAY = 86_400;
+
+export function offlineCapTicks(state: GameState): number {
+  // Base days, with room for future upgrade bonuses to add on. Kept as its own
+  // local (not folded into the return expression) so the extension seam is a
+  // one-line change here: `OFFLINE_CAP_DAYS_BASE + offlineExtensionDays(state)`.
+  const capDays = OFFLINE_CAP_DAYS_BASE; // + future offline-extension upgrades
+  const capSeconds = capDays * SECONDS_PER_DAY;
+  // Convert the wall-clock cap into the fleet-wide tick cadence -- the EXACT same
+  // `seconds / tickDurationSeconds` conversion tick() applies to deltaSeconds, so
+  // the cap is expressed in the same unit tick() clamps against.
+  return capSeconds / state.tickDurationSeconds;
 }
 
 // Starts ONE refine job for `recipeKey` IF (a) the recipe exists, (b) a refine
