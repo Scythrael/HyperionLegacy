@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS } from "./model";
 
-export const SAVE_VERSION = 20;
+export const SAVE_VERSION = 21;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -680,6 +680,53 @@ const MIGRATIONS: Record<number, Migration> = {
   19: (state: any): any => ({
     ...state,
     refineOrder: state.refineOrder ?? null,
+  }),
+  // v20 -> v21: Mission Rework + Fuel Economy (docs/plans/2026-07-14-mission-rework-
+  // plan.md Task 9 / design §6). Three additive seeds for the new state this feature
+  // introduced (Tasks 3/4/6), mirroring the minimal single-purpose shape MIGRATIONS[18]/
+  // [19] set the template for:
+  //
+  // - `fuel` (the fleet-wide Decimal stockpile, Task 3): seeded 0 as a PLAIN NUMBER, not
+  //   `new Decimal(0)` -- the unconditional hydrateDecimals() at the end of migrate()
+  //   converts it to a real Decimal (its `fuel` branch already handles this defensively,
+  //   added in Task 3), the exact same plain-0 pattern MIGRATIONS[13] uses for `credits`.
+  //   `?? 0` is idempotent + belt-and-suspenders: a genuine v20 save has NO `fuel` key (so
+  //   it is seeded 0 = an empty tank, the same start freshState gives), but a chained/
+  //   hand-edited save that already carries one keeps its balance rather than losing it.
+  // - `facilities.fuelStorage` at level 0 (Task 4): the base tank's LIVE starting state
+  //   (cap FUEL_TANK_BASE_CAP; NOT "unbuilt" -- the tank is usable from level 0, so
+  //   missions can be fueled immediately, no soft-lock). Same `{ level: 0 }` literal
+  //   freshState seeds, so migrated and fresh shapes cannot drift apart (Omega 4).
+  // - `facilities.missionControl` at level 1 (Task 6) -- ⚠️ LOAD-BEARING, level 1 NOT 0.
+  //   The 2 ore runs are `unlockLevel: 1` and missionUnlocked() derives purely from this
+  //   facility's LEVEL (no separate flag). Seeding level 0 ("not built") would make
+  //   missionUnlocked() return false for BOTH ore runs, silently LOCKING missions that
+  //   existed pre-rework on every returning player's save -- a soft-lock/regression. Level
+  //   1 keeps them dispatchable exactly as before; its level-1 -> 2 upgrade (completion-
+  //   gated) is what later unlocks Salvage + Forage.
+  //
+  // `?? { level: 0 }` / `?? { level: 1 }` are idempotent + belt-and-suspenders (a re-run
+  // or partially-migrated save keeps an existing level rather than resetting it), and
+  // `state.facilities?.` guards the wholesale-absent facilities case defensively -- not
+  // reachable on a real v20 save (MIGRATIONS[17] always seeds facilities), same defense-
+  // in-depth posture as this file's other ?? guards. NO ShipInstance grandfathering: hull
+  // fuel stats (fuelCapacity/engineEfficiency) live on ShipTypeDef and instances derive
+  // them from SHIP_TYPES (Task 3), so there is nothing to backfill onto ships here.
+  // fuelStorage/missionControl facility state is `{ level: number }` -- NO Decimal -- so
+  // hydrateDecimals needs NO change (facilities rides through its own `...state` spread
+  // there, same as refinery/warehouse have since v18). Every OTHER GameState field rides
+  // through untouched on the outer `...state` spread.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to
+  // production, so it is still editable (the frozen-once-shipped rule applies only to
+  // production-released migrations).
+  20: (state: any): any => ({
+    ...state,
+    fuel: state.fuel ?? 0,
+    facilities: {
+      ...state.facilities,
+      fuelStorage: state.facilities?.fuelStorage ?? { level: 0 },
+      missionControl: state.facilities?.missionControl ?? { level: 1 },
+    },
   }),
 };
 
