@@ -1598,15 +1598,15 @@
         <div class="panel-title">HOME PLANET</div>
         <div class="resource-grid resource-grid-3">
           <div class="resource-card">
-            <div class="resource-label">Common Ore</div>
+            <div class="resource-label">{ITEMS.commonOre.label}</div>
             <div class="resource-value">{formatNumber(state.inventory.commonOre)}</div>
           </div>
           <div class="resource-card">
-            <div class="resource-label">Uncommon Material</div>
+            <div class="resource-label">{ITEMS.uncommonMaterial.label}</div>
             <div class="resource-value">{formatNumber(state.inventory.uncommonMaterial)}</div>
           </div>
           <div class="resource-card">
-            <div class="resource-label">Rare Material</div>
+            <div class="resource-label">{ITEMS.rareMaterial.label}</div>
             <div class="resource-value">{formatNumber(state.inventory.rareMaterial)}</div>
           </div>
         </div>
@@ -2663,9 +2663,9 @@
                     <div class="mission-card-body">
                       <div class="research-name">{missionDef.label}</div>
                       <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
-                      <div class="research-cost">Common Ore: {formatNumber(missionDef.extractionRatePerTick)}/tick when no other tier wins ({(100 - missionDef.rareChance * 100 - missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
-                      <div class="research-cost">Uncommon Material: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
-                      <div class="research-cost">Rare Material: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">{ITEMS.commonOre.label}: {formatNumber(missionDef.extractionRatePerTick)}/tick when no other tier wins ({(100 - missionDef.rareChance * 100 - missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">{ITEMS.uncommonMaterial.label}: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
+                      <div class="research-cost">{ITEMS.rareMaterial.label}: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
                     </div>
                   </button>
                 {/each}
@@ -2976,9 +2976,9 @@
           <div class="research-name">Captain: {selectedCaptain.label}</div>
 
           <div class="panel-title">DROP RATES</div>
-          <div class="research-cost">Common Ore: {formatNumber(missionDef.extractionRatePerTick * (1 + commonYieldMult))}/tick when no other tier wins ({(100 - effectiveRareChance * 100 - effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
-          <div class="research-cost">Uncommon Material: {formatNumber(missionDef.extractionRatePerTick * (1 + uncommonYieldMult))}/tick when it wins ({(effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
-          <div class="research-cost">Rare Material: {formatNumber(missionDef.extractionRatePerTick * (1 + rareYieldMult))}/tick when it wins ({(effectiveRareChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">{ITEMS.commonOre.label}: {formatNumber(missionDef.extractionRatePerTick * (1 + commonYieldMult))}/tick when no other tier wins ({(100 - effectiveRareChance * 100 - effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">{ITEMS.uncommonMaterial.label}: {formatNumber(missionDef.extractionRatePerTick * (1 + uncommonYieldMult))}/tick when it wins ({(effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">{ITEMS.rareMaterial.label}: {formatNumber(missionDef.extractionRatePerTick * (1 + rareYieldMult))}/tick when it wins ({(effectiveRareChance * 100).toFixed(1)}% chance/tick)</div>
           {#if effectiveBonusRollChance > 0}
             <div class="research-cost">Bonus Roll: {(effectiveBonusRollChance * 100).toFixed(1)}% chance/tick for a second independent roll (Lucky Strike)</div>
           {/if}

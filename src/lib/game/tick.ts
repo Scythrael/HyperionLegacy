@@ -343,13 +343,13 @@ export function xpPerTick(missionKey: MissionKey, captain: CaptainState, state?:
 export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string {
   switch (effect.type) {
     case "commonYieldMult":
-      return `+${(effect.mult * 100).toFixed(1)}% Common Ore yield`;
+      return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.commonOre.label} yield`;
     case "uncommonYieldMult":
-      return `+${(effect.mult * 100).toFixed(1)}% Uncommon Material yield`;
+      return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.uncommonMaterial.label} yield`;
     case "uncommonChanceMult":
-      return `+${(effect.mult * 100).toFixed(1)}% Uncommon Material chance`;
+      return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.uncommonMaterial.label} chance`;
     case "rareChanceMult":
-      return `+${(effect.mult * 100).toFixed(1)}% Rare Material chance`;
+      return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.rareMaterial.label} chance`;
     case "bonusRollChance":
       return `+${(effect.chance * 100).toFixed(1)}% chance/tick for a bonus roll`;
     case "bonusRollChanceMult":
@@ -381,7 +381,7 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
     case "unlockCaptainSlot":
       return "Unlocks a new captain slot";
     case "rareYieldMult":
-      return `+${(effect.mult * 100).toFixed(1)}% Rare Material yield (fleet-wide)`;
+      return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.rareMaterial.label} yield (fleet-wide)`;
     case "recipeBonusOutput":
       return `+${effect.bonus} bonus output per craft (${RECIPES[effect.recipeKey].label})`;
     case "passiveTrickle":
