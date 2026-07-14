@@ -274,3 +274,27 @@ write it down so you don't relitigate it later.
   crowding / label truncation / wrapping on a narrow (phone-portrait) viewport at the device test -- this can
   only be verified in a real renderer, which this environment doesn't have. Not a known break, just an
   unverified layout risk the added tab widens.
+- Phase 2 refine-order click-through is UNVERIFIED on a live renderer -- running an actual order (batch and
+  continuous) and the refine confirmation modal have only been reasoned about and covered by tests, never
+  eyeballed on the deployed preview. `npm run check`/`npm test` pass, but the closed-form offline-bulk
+  iteration math and the live order UI (live status, pause reasons, Stop control, the confirm prompt +
+  its System -> Options toggle) still want a real browser pass before any device-test sign-off. Same class
+  as the Phase 1 "get eyes on it in a real browser" gate, now specific to refine orders.
+- The Phase 2 item catalog is PROVISIONAL placeholder scaffolding, not final content. The renamed base ores
+  (Titanium / Polysilicate / Iridium Ore) and the seeded raw / refined / component items exist to prove the
+  storage-category and future-crafting plumbing, not as shipped economy -- names are not locked ("Iridium
+  Ore" in particular is a placeholder), and the broader 12-material / 4-mission catalog rework is DEFERRED.
+  Expect these ids/labels/counts to change when the real crafting economy is designed; treat them as
+  forward hooks, not committed content.
+- Multiplayer and server-authoritative item integrity are a POST-COMBAT LAUNCH feature, not built. The
+  whole current item/inventory/warehouse model is single-player, client-authoritative (the save file is the
+  source of truth, trivially editable by the player). Server-side validation of item ownership/quantities
+  only matters once there's a shared/competitive surface, which comes after combat ships. Written down so
+  "the client trusts its own inventory" isn't rediscovered as a security surprise -- it's an intentional
+  scope boundary for now, not an oversight.
+- 21 cosmetic svelte-check "unused CSS selector" warnings remain in `App.svelte`'s `<style>` block (0 ERRORS,
+  21 WARNINGS at `npm run check`). These are the accumulated orphaned rule groups already catalogued in the
+  Phase 4 / UI-Redesign entries above (`.module-*`, `.prestige-*`, `.captain-tab*`, `.icon-btn`,
+  `.stat-pill`/`-label`/`-value`, `.modal-dialog`, etc.) -- inert, no broken references, deliberately left
+  for a single dedicated stylesheet-cleanup pass rather than deleted piecemeal per feature. Not a gate blocker
+  (the gate is errors-only), just standing cosmetic debt.

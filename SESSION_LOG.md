@@ -1310,6 +1310,24 @@ pre-v18 save migrates cleanly (inventory built from old storage, no lost materia
 then final holistic review, then merge — push to `main` still needs separate, explicit
 confirmation from the user, since it triggers a live Vercel production redeploy.
 
+**Session 30 — Phase 2 complete (Warehouse + Refine Economy), branch `feat/phase-2-warehouse`.**
+Shipped the Phase 2 epic: (1) an **offline-progression foundation** (stepped per-tick catch-up,
+2-day cap); (2) a tiered **Warehouse** facility — per-category storage (Raw / Refined / Component,
+plus placeholder tabs), a fill-tile capacity gauge per category, and timed T1 capacity upgrades on
+doubling rungs; (3) **storage caps + auto-stop** so producers pause at cap instead of wasting
+materials; (4) a **refine-order engine + UI** — batch (Refine N) and continuous modes with live
+status, pause reasons (out of ingredients / storage full), a Stop control, and an optional
+confirmation prompt toggleable in System → Options; and (5) a **22-item catalog scaffold** — base
+ores renamed to Titanium / Polysilicate / Iridium Ore plus placeholder raw/refined/component items
+seeded for future crafting. Docs task this session bumped **APP_VERSION 0.7.0 → 0.8.0** and added a
+player PATCH_NOTES entry (note: post-reset 0.8.0 collides in the newest-first list with the untouched
+PRE-reset 0.8.0 "scroll containment" entry — the same accepted "never rewrite patch-note history"
+oddity as the 0.6.0/0.7.0 collisions, not a bug). The gate is GREEN this time — **`npm run check` = 0
+errors (21 cosmetic unused-CSS warnings), `npm test` = 355 passing** — so unlike the Node-less Phase 1
+release, Phase 2 was actually typechecked and unit-tested here. Next: get eyes on the live refine-order
+click-through (order run + confirmation modal) on the deployed preview, then final holistic review, then
+merge — push to `main` still needs separate, explicit user confirmation (live Vercel production redeploy).
+
 **Session 29** — Tab-layout unification + IA restructure into a **Locations** tab, then
 the 0.7.0 production release (branch `feat/homeworld-systems-rail`, stacked on the
 Phase 1 branch; no separate design/plan doc — an interactive Artifact mockup served as
