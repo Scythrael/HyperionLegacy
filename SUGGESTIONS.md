@@ -42,6 +42,16 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   now live in the standalone Facilities tab, what entities fill HOMEWORLD's rail (its non-facility
   structures/sections/overview)? — the user must sketch this before it can be built.
 
+- **Patch-notes / "What's New" as collapsible accordions (user 2026-07-14).** Render the version
+  update history as per-version accordion sections (collapsed by default, newest auto-expanded) instead
+  of the current flat newest-first list in `PATCH_NOTES`. Motivation: the list keeps growing and now
+  carries duplicate version numbers across the pre/post-reset history (two 0.8.0 entries, earlier
+  0.6.0/0.7.0 collisions) — accordions make it scannable and let stale entries collapse out of the way,
+  and would let a version's notes be shown once at its own header rather than relitigated. Natural home
+  is the System-rail **Patch Notes** settings category from the Tab Layout Unification entry above; could
+  ride that mockup-gated pass or a smaller standalone one. Not scoped/built yet — folds in at an
+  applicable UI pass ([[feedback_visual_ui_needs_mockup]]).
+
 - **Multiplayer chat: titles, selectable icons, name colors.** User idea, 2026-07-08. Once multiplayer
   chat exists, players should be able to set a custom title (the user's own example: "Executive Officer
   of Radishes"), a selectable chat icon sourced from unlocked achievements/donation tiers/dev-or-mod

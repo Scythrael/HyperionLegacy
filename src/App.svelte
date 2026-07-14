@@ -883,8 +883,30 @@
           // bookkeeping that NOTHING in economyTick's math reads (see economyTick's
           // own header in tick.ts).
           const liveGameTimeSeconds = state.gameTimeSeconds;
-          state = economyTick(state, ticksElapsed);
-          state = { ...state, gameTimeSeconds: liveGameTimeSeconds };
+          // ⚠️ STEP per whole tick, exactly like the offline tick() path -- do NOT hand
+          // economyTick one big multi-tick span. economyTick's auto-stop cap-check and
+          // refine-order refill each run ONCE per call, so a single economyTick(state, N)
+          // for N>1 would evaluate the storage cap only once across the whole span --
+          // under-enforcing caps and under-producing refine throughput versus offline
+          // catch-up (which steps, see tick()). At production speed (1x, tickDuration 1s)
+          // ticksElapsed is always exactly 1, so this is a single-iteration no-op that
+          // matches the old one-shot call identically; it only diverges (correctly) at
+          // DEV_MODE fast-forward speeds where ticksElapsed > 1. Mirror of tick(): whole
+          // steps first, then a trailing fractional remainder. rng is omitted (defaults
+          // to Math.random), same as the old single call.
+          let stepped = state;
+          const wholeSteps = Math.floor(ticksElapsed);
+          for (let i = 0; i < wholeSteps; i++) {
+            stepped = economyTick(stepped, 1);
+          }
+          const frac = ticksElapsed - wholeSteps;
+          if (frac > 0) {
+            stepped = economyTick(stepped, frac);
+          }
+          // Restore the live fleet clock: economyTick bumped gameTimeSeconds on every
+          // step above, but this loop owns that clock continuously off real elapsed time
+          // (top of the poll). Discard economyTick's bumps, keep its full economy result.
+          state = { ...stepped, gameTimeSeconds: liveGameTimeSeconds };
         }
 
         // Reset once for the whole fleet, not per-captain -- there's only one
