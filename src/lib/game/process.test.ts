@@ -53,7 +53,9 @@ function snapshot(state: ReturnType<typeof freshState>) {
     effect:
       p.effect.type === "addItem"
         ? { type: p.effect.type, itemId: p.effect.itemId, amount: p.effect.amount.toString() }
-        : { type: p.effect.type, facility: p.effect.facility },
+        : p.effect.type === "addFuel"
+          ? { type: p.effect.type, amount: p.effect.amount.toString() } // Fuel Economy v2 (F2): fuelRefineJob effect
+          : { type: p.effect.type, facility: p.effect.facility },
   }));
   return {
     inventory,

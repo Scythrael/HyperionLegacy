@@ -53,6 +53,10 @@ import {
   WAREHOUSE_T2_BASE_CAP,
   FUEL_TANK_BASE_CAP,
   FUEL_CREDITS_PER_UNIT,
+  FUEL_REFINE_INPUT,
+  FUEL_REFINE_OUTPUT,
+  FUEL_REFINE_DURATION_TICKS,
+  FUEL_DEPOT_BASE_PIPELINES,
 } from "./model";
 import { fuelNeeded } from "./fuel";
 
@@ -1414,16 +1418,28 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // auto-stop relies on.
   const postOrderState = processRefineOrder(postProcessState);
 
+  // Fuel Economy v2 (F2): run the Fuel Depot's auto-refine pipelines AFTER
+  // resolveProcesses (so a fuelRefineJob completing this tick frees its pipeline slot to
+  // refill same-tick) and after processRefineOrder (independent -- fuel batches count
+  // against fuelPipelineCount, refine jobs against refineSlotCount; both share
+  // activeProcesses but neither gates the other). It reads the CURRENT tank (post
+  // mission-spend + post batch-deposits) and CURRENT ice (post mission-loot + post
+  // refine-order consumption), starts batches into free pipeline slots while the tank has
+  // room + ice, and is a same-reference no-op when the depot runs no pipeline. Living
+  // HERE inside economyTick is what makes it run identically live and offline (tick()
+  // steps economyTick(_,1) per tick) -- the one-seam parity guarantee.
+  const postFuelState = processFuelPipelines(postOrderState);
+
   // applyFleetAdminXp wraps the final state -- it runs AFTER BOTH the captain loop
   // (mission FA XP) and resolveProcesses (process FA XP) have contributed to
   // fleetAdminXpDelta, so every FA XP source this call resolves through the one
-  // level-up pass. It does not touch inventory/facilities/activeProcesses/refineOrder
-  // -- the loot fold + resolveProcesses + processRefineOrder above already produced
-  // their final values on postOrderState. Threaded through postOrderState (NOT
-  // postProcessState) so the order's newly-started jobs + updated refineOrder ride
-  // into the returned state; with no order postOrderState === postProcessState, so
-  // this is byte-identical to before Task D1.
-  return applyFleetAdminXp(postOrderState, fleetAdminXpDelta);
+  // level-up pass. It does not touch inventory/facilities/activeProcesses/refineOrder/fuel
+  // -- the loot fold + resolveProcesses + processRefineOrder + processFuelPipelines above
+  // already produced their final values on postFuelState. Threaded through postFuelState
+  // so the order's + depot's newly-started jobs ride into the returned state; with no
+  // order and no depot pipeline postFuelState === postProcessState, so this is
+  // byte-identical to before F2. (Fuel batches award NO FA XP -- see resolveProcesses.)
+  return applyFleetAdminXp(postFuelState, fleetAdminXpDelta);
 }
 
 // Offline catch-up entry point -- tech spec §2 (Tick Loop and Time Semantics).
@@ -2338,6 +2354,10 @@ export function fuelCap(state: GameState): Decimal {
     // Multiply the base by each REACHED rung's storageCapMult (i < level) -- the SAME
     // reached-rungs loop tierCap uses. The `i < upgrades.length` guard mirrors
     // tierCap's: defensive against a hypothetical over-level read past the finite track.
+    // Fuel Economy v2 (F2): the fuelStorage track now also carries PROCESSING rungs
+    // (pipeline/yield/input) that have NO storageCapMult, so this loop simply skips them
+    // -- the cap counts only the storage rungs, exactly as refineSlotCount counts only
+    // addRefineSlots rungs and ignores the refineSpeedMult rung on its own mixed track.
     for (let i = 0; i < level && i < upgrades.length; i++) {
       const effect = upgrades[i].effect;
       if ("storageCapMult" in effect) {
@@ -2346,6 +2366,85 @@ export function fuelCap(state: GameState): Decimal {
     }
   }
   return cap;
+}
+
+// ============================================================================
+// Fuel Depot pipeline derivations (Fuel Economy v2 F2, design §2).
+//
+// Three DERIVE-ON-READ helpers, each reading ONE fuelStorage-track effect property
+// across the reached rungs -- the SAME reached-rungs idiom fuelCap / refineSlotCount
+// use. The upgrade track is the single source of truth (no cached counts on
+// FacilityState), so retuning a rung changes these with no bookkeeping / migration.
+//   - fuelPipelineCount : how many concurrent auto-refine pipelines the depot runs NOW.
+//   - fuelBatchOutput   : fuel produced per completed batch (base * yield rungs).
+//   - fuelBatchInput    : Deuterium Ice consumed per batch (base * input rungs; <1 = less).
+// ============================================================================
+
+// Concurrent pipelines the Fuel Depot runs right now = FUEL_DEPOT_BASE_PIPELINES (1 at
+// level 0) + the sum of every { addFuelPipelines } grant on the reached rungs.
+//
+// ⚠️ RETURNS 0 IF THERE IS NO fuelStorage FACILITY RECORD (state.facilities.fuelStorage
+// absent). Real states ALWAYS have it (freshState seeds level 0; F5 migrates it onto old
+// saves), so the base-1 pipeline is live in production from game start. The 0-branch is a
+// defensive guard for hand-built/partial test states that omit the depot record -- those
+// run NO pipelines (nothing to refine ice with), which is the honest reading of "no Fuel
+// Depot". This is what keeps the refine-order tests (which construct a facilities map
+// WITHOUT fuelStorage) isolated from the fuel economy.
+export function fuelPipelineCount(state: GameState): number {
+  const facility = state.facilities["fuelStorage"];
+  if (!facility) return 0; // no Fuel Depot record -> no pipelines (defensive; see note)
+  const facilityDef = FACILITIES["fuelStorage"];
+  const level = facility.level;
+  let count = FUEL_DEPOT_BASE_PIPELINES; // base at level 0
+  if (facilityDef) {
+    const upgrades = facilityDef.upgrades;
+    for (let i = 0; i < level && i < upgrades.length; i++) {
+      const effect = upgrades[i].effect;
+      if ("addFuelPipelines" in effect) {
+        count += effect.addFuelPipelines;
+      }
+    }
+  }
+  return count;
+}
+
+// Fuel produced per completed batch = FUEL_REFINE_OUTPUT * product of every
+// { fuelYieldMult } on the reached rungs (an empty product = the base output). Decimal
+// (feeds the Decimal fuel tank).
+export function fuelBatchOutput(state: GameState): Decimal {
+  let output = new Decimal(FUEL_REFINE_OUTPUT);
+  const facilityDef = FACILITIES["fuelStorage"];
+  const level = state.facilities["fuelStorage"]?.level ?? 0;
+  if (facilityDef) {
+    const upgrades = facilityDef.upgrades;
+    for (let i = 0; i < level && i < upgrades.length; i++) {
+      const effect = upgrades[i].effect;
+      if ("fuelYieldMult" in effect) {
+        output = output.times(effect.fuelYieldMult);
+      }
+    }
+  }
+  return output;
+}
+
+// Deuterium Ice consumed per batch = FUEL_REFINE_INPUT * product of every
+// { fuelInputMult } on the reached rungs (each < 1 REDUCES ice; empty product = base).
+// Decimal (deducted atomically at batch start by startProcess, whose input map is
+// Record<string, Decimal>).
+export function fuelBatchInput(state: GameState): Decimal {
+  let input = new Decimal(FUEL_REFINE_INPUT);
+  const facilityDef = FACILITIES["fuelStorage"];
+  const level = state.facilities["fuelStorage"]?.level ?? 0;
+  if (facilityDef) {
+    const upgrades = facilityDef.upgrades;
+    for (let i = 0; i < level && i < upgrades.length; i++) {
+      const effect = upgrades[i].effect;
+      if ("fuelInputMult" in effect) {
+        input = input.times(effect.fuelInputMult);
+      }
+    }
+  }
+  return input;
 }
 
 // buyFuel(state, units) -- buy up to `units` fuel at FUEL_CREDITS_PER_UNIT credits
@@ -2618,6 +2717,84 @@ export function processRefineOrder(state: GameState): GameState {
   return { ...working, refineOrder: nextOrder };
 }
 
+// ============================================================================
+// Fuel Depot pipeline engine (Fuel Economy v2 F2, design §2).
+//
+// processFuelPipelines(state): the per-tick engine, called ONCE per economyTick (AFTER
+// resolveProcesses + processRefineOrder, so a pipeline slot freed by a batch COMPLETING
+// this tick is immediately refillable this same tick -- no idle gap). PURE: returns a
+// NEW state, or the SAME reference when no pipeline runs.
+//
+// UNLIKE the refine ORDER (a player-set standing instruction on refineOrder), the Fuel
+// Depot's pipelines are ALWAYS-ON / AUTOMATIC -- there is no order object and no manual
+// start. Every tick the depot tries to fill its free pipeline slots with fuel-refine
+// batches while it has room + ice. So there is NO order-state / pausedReason to persist
+// (a paused pipeline is just "no batch started this tick"; F4's fuel chip derives the
+// production rate on read). The batches themselves ARE persisted -- each is a
+// "fuelRefineJob" TimedProcess in activeProcesses (rides saves like any refine job).
+//
+// It mirrors processRefineOrder's structure/idiom, with fuel-tank semantics:
+//   - PIPELINE SLOTS = fuelPipelineCount - (fuelRefineJobs already in flight). Fills only
+//     up to the pipeline count -- exactly what caps concurrency at fuelPipelineCount.
+//   - TANK FULL: fuel >= fuelCap -> stop (the fuel-tank analog of materialAtCap; the
+//     SAME auto-stop idea the mission / refine-order pauses use).
+//   - ICE OUT: Deuterium Ice (commonOre) < the batch input -> stop.
+//   Both gates are checked BEFORE starting a batch (i.e. BEFORE startProcess consumes
+//   ice), so NO ice is ever stranded: ice is only deducted when a batch actually begins,
+//   and a batch only begins when there is tank room AND enough ice. A batch already in
+//   flight always deposits its full output on completion (may overshoot fuelCap by up to
+//   one batch -- the same soft-cap overshoot the warehouse producers have).
+//
+// AUTO-RESUME is STRUCTURAL (no state): each tick re-reads fuel / ice fresh, so the tick
+// a block lifts (mission burns fuel below cap / more ice is mined) the depot starts
+// batches again -- no explicit un-pause. Because it lives inside economyTick, it runs
+// identically live (App.svelte per bar) and offline (tick() steps economyTick(_,1) per
+// tick) -- the SAME one-seam guarantee the refine order + Task B3 auto-stop rely on, so
+// tick(bigSpan) == looping economyTick(_,1) for fuel + ice.
+//
+// Bounded work: at most fuelPipelineCount (<= a few) batches start per call, so the loop
+// is tightly bounded even across a 172,800-tick offline catch-up (once per free slot, not
+// once per tick) -- no Omega-14 unbounded-loop concern.
+export function processFuelPipelines(state: GameState): GameState {
+  const pipelines = fuelPipelineCount(state);
+  if (pipelines <= 0) return state; // no Fuel Depot / no pipelines -> same-reference no-op
+
+  const input = fuelBatchInput(state);   // ice consumed per batch (Decimal)
+  const output = fuelBatchOutput(state); // fuel produced per batch (Decimal)
+  const cap = fuelCap(state);            // current tank cap
+
+  let working = state; // threaded immutably as each startProcess returns fresh state
+  while (true) {
+    // A free pipeline slot must exist. All pipelines busy -> stop (not a "pause", the
+    // depot is working at capacity). SAME slot accounting startRefineJob's gate uses.
+    const inFlight = working.activeProcesses.filter((p) => p.kind === "fuelRefineJob").length;
+    if (inFlight >= pipelines) break;
+
+    // TANK FULL -> stop. fuel does not rise within THIS call (batch deposits happen on
+    // future ticks via resolveProcesses), so this is invariant across the loop, but it is
+    // checked here for symmetry with the ice gate and to mirror processRefineOrder.
+    if (working.fuel.gte(cap)) break;
+
+    // ICE OUT -> stop. Checked BEFORE consuming (gate-before-deduct), so short ice never
+    // gets partially consumed / stranded. Absent key reads as 0 (grow-on-demand).
+    const iceOnHand = working.inventory["commonOre"] ?? new Decimal(0);
+    if (iceOnHand.lt(input)) break;
+
+    // Gates pass -> start ONE batch via the SHARED startProcess engine: it deducts the
+    // ice ATOMICALLY at start and pushes a "fuelRefineJob" TimedProcess whose completion
+    // effect { type: "addFuel" } deposits `output` fuel (resolveProcesses). Its own
+    // affordability gate re-checks the ice we just verified and cannot reject here; the
+    // defensive `!started` break guarantees loop termination regardless.
+    const { next, started } = startProcess(working, "fuelRefineJob", { commonOre: input }, FUEL_REFINE_DURATION_TICKS, {
+      type: "addFuel",
+      amount: output,
+    });
+    if (!started) break;
+    working = next;
+  }
+  return working;
+}
+
 // Advances every active process by `ticksElapsed` and resolves completions. THE
 // single completion resolver (Task 9 calls it from BOTH tick() and the live loop).
 //
@@ -2663,6 +2840,13 @@ export function resolveProcesses(
   let inventory = state.inventory;
   let discovered = state.discovered;
   let facilities = state.facilities;
+  // Fuel Economy v2 (F2): threaded so a completing fuelRefineJob (Fuel Depot pipeline
+  // batch) can deposit its output into the fuel TANK. Seeded from the incoming state's
+  // fuel, so a call that completes no fuel batch returns it value-identical (and the
+  // empty/no-completion early-out leaves it exactly === state.fuel). A single deposit
+  // may push fuel slightly PAST fuelCap -- the SAME soft-cap overshoot addItem has vs.
+  // a warehouse cap; processFuelPipelines re-gates NEW batches at/over cap next tick.
+  let fuel = state.fuel;
   // Task 11: threaded so a completing refineJob can also bump its per-item
   // lifetime itemsRefined tally. Seeded from the incoming state, so a call that
   // completes no refine job returns the SAME lifetimeStats reference (value-
@@ -2713,6 +2897,14 @@ export function resolveProcesses(
           },
         };
       }
+    } else if (process.effect.type === "addFuel") {
+      // Fuel Economy v2 (F2): a completed Fuel Depot pipeline batch deposits its
+      // output into the fuel TANK (not inventory). Plain Decimal add -- may overshoot
+      // fuelCap by up to one batch (soft cap; re-gated next tick), the SAME behavior
+      // addItem has vs. a warehouse cap. No discovery / lifetime accrual (fuel is a
+      // currency, not a catalog item). Closed-form: fires exactly ONCE on the
+      // completion that drops the process, so one big resolve == many small ones.
+      fuel = fuel.plus(process.effect.amount);
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -2721,11 +2913,18 @@ export function resolveProcesses(
       const current = facilities[facility] ?? { level: 0 };
       facilities = { ...facilities, [facility]: { ...current, level: current.level + 1 } };
     }
-    fleetAdminXpDelta += process.durationTicks;
+    // Fleet Admiral XP lump award -- EXCLUDES fuelRefineJob (F2). Fuel refining is an
+    // additive economy that must NOT perturb the tuned FA-XP curve, so a fuel batch
+    // completes with zero FA XP; every OTHER process kind (refineJob / facilityUpgrade)
+    // keeps the "durationTicks lumped on completion" award. Excluding it also keeps the
+    // closed-form FA-XP parity trivially intact (fuel batches contribute 0 either way).
+    if (process.kind !== "fuelRefineJob") {
+      fleetAdminXpDelta += process.durationTicks;
+    }
   }
 
   return {
-    next: { ...state, inventory, discovered, facilities, lifetimeStats, activeProcesses: stillActive },
+    next: { ...state, inventory, discovered, facilities, lifetimeStats, fuel, activeProcesses: stillActive },
     fleetAdminXpDelta,
   };
 }

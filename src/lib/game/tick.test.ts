@@ -1858,6 +1858,10 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
       s.unlockedHomeworldTalents = ["economyTrickle"]; // commonOre, perTick: 1
       // freshState's single captain is idle (mission: null), isolating this to the
       // passive-trickle path -- no mission production to confound the cap check.
+      // Fuel Economy v2 (F2): fill the fuel tank so the always-on Fuel Depot pipelines
+      // (which would ALSO consume commonOre -> fuel) are PAUSED (tank-full), isolating
+      // this test to the trickle-vs-warehouse-cap gate alone.
+      s.fuel = new Decimal(10_000); // >> the level-0 tank cap (500) -> depot idle
       return s;
     };
 
@@ -3243,6 +3247,10 @@ describe("economyTick — mission auto-stop when the primary material is at cap 
     const s = freshState();
     s.captains[0].mission = missionCaptain("shortOreRun");
     s.inventory.commonOre = new Decimal(amount);
+    // Fuel Economy v2 (F2): fill the fuel tank so the always-on Fuel Depot pipelines
+    // (which would ALSO drain commonOre -> fuel) are PAUSED (tank-full), isolating this
+    // test to the MISSION auto-stop-at-warehouse-cap behavior alone.
+    s.fuel = new Decimal(10_000); // >> the level-0 tank cap (500) -> depot idle
     return s;
   }
 
