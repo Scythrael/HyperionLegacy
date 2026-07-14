@@ -93,21 +93,22 @@ function hydrateDecimals(state: any): GameState {
     // this runs -- so the unguarded read is safe, same posture as the lifetimeStats
     // reads.
     //
-    // Task 8: a persisted mid-flight timed process (startProcess pushes them into
-    // activeProcesses) can carry a Decimal on an `addItem` effect -- its `amount`,
-    // the refine-job output -- which round-trips through JSON as a plain string
-    // exactly like every other Decimal here, so it MUST be toDecimal()'d back or
-    // the resolver's addToInventory .plus() would throw on load. Guarded on the
-    // effect type: a `facilityLevelUp` effect (and the process's id/kind/
-    // remainingTicks/durationTicks scalars) carry NO Decimal, so they ride through
-    // untouched. Safe unguarded on state.activeProcesses for the same reason
-    // inventory is: any save reaching hydrateDecimals() has the field present (v18+
-    // freshState seeds [] / MIGRATIONS[17] backfills [] before this runs), and the
-    // .map() no-ops on the empty array the overwhelmingly common (no-process) save
-    // carries. facilities/nextProcessId hold no Decimals, so they ride through via
-    // the `...state` spread with no hydration.
+    // Task 8 / Fuel v2: a persisted mid-flight timed process (startProcess pushes them
+    // into activeProcesses) can carry a Decimal on its effect's `amount` -- an `addItem`
+    // refine-job output OR an `addFuel` fuel-refine batch (Fuel Depot pipelines) -- which
+    // round-trips through JSON as a plain string exactly like every other Decimal here, so
+    // it MUST be toDecimal()'d back or a resolver .plus()/.gt() on it would throw/NaN on
+    // load. Guarded on PRESENCE of an `amount` (both addItem and addFuel carry one; any
+    // future amount-bearing effect is covered automatically -- no per-type opt-in seam): a
+    // `facilityLevelUp` effect (and the process's id/kind/remainingTicks/durationTicks
+    // scalars) have NO `amount`, so they ride through untouched. Safe unguarded on
+    // state.activeProcesses for the same reason inventory is: any save reaching
+    // hydrateDecimals() has the field present (v18+ freshState seeds [] / MIGRATIONS[17]
+    // backfills [] before this runs), and the .map() no-ops on the empty array the
+    // overwhelmingly common (no-process) save carries. facilities/nextProcessId hold no
+    // Decimals, so they ride through via the `...state` spread with no hydration.
     activeProcesses: state.activeProcesses.map((p: any) =>
-      p.effect?.type === "addItem"
+      p.effect && "amount" in p.effect
         ? { ...p, effect: { ...p.effect, amount: toDecimal(p.effect.amount) } }
         : p
     ),
