@@ -71,6 +71,16 @@ function hydrateDecimals(state: any): GameState {
     })),
     fleetAdminXp: toDecimal(state.fleetAdminXp),
     credits: toDecimal(state.credits),
+    // Fuel economy (Mission Rework Task 3): the fleet-wide fuel stockpile is
+    // Decimal-typed, so it round-trips through JSON as a plain string exactly like
+    // credits above and MUST be toDecimal()'d back or the first .plus()/.gte() a
+    // fuel reader (Task 4/5) does would throw. DEFENSIVE `?? new Decimal(0)`: unlike
+    // credits (present on every save since v0), `fuel` is brand-new this pass and the
+    // migration that seeds it onto existing saves is Task 9 (v20->v21). Until that
+    // lands, a pre-migration save reaching here has NO `fuel` field -- toDecimal(undefined)
+    // would produce a NaN Decimal -- so default the absent field to 0. Idempotent and
+    // harmless once Task 9's migration guarantees the field's presence.
+    fuel: toDecimal(state.fuel ?? new Decimal(0)),
     // Phase 1 (Ship Production Economy) keyed inventory: revive every per-VALUE
     // Decimal over this map's DYNAMIC keys (inventory can hold any ITEMS-registry
     // id, not a fixed union) -- the exact hydrateDecimalMap treatment lifetimeStats'

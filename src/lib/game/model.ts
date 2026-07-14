@@ -56,6 +56,20 @@ export interface ShipTypeDef {
   cargoCapacity: number;            // drives extraction-phase length (a later task)
   transitSpeedMult: number;         // divides transit ticks; >1 faster, <1 slower
   extractionYieldMult: number;      // scales per-extraction-tick loot
+  // --- Fuel economy (Mission Rework Task 3, design §3) ---------------------------
+  // TWO non-redundant fuel stats, both TUNABLE first-pass (real balancing at the
+  // device-check stage, same launch-placeholder spirit as this table's other numbers):
+  //   fuelCapacity   -- the RANGE gate: the max fuel a hull can carry for ONE round
+  //                     trip. A mission is reachable iff fuelCapacity >= fuelNeeded
+  //                     (checked at dispatch by Task 5/7; NOTHING reads it yet this pass).
+  //   engineEfficiency -- a 0-BASED bonus that REDUCES fuel burn: fuelNeeded divides
+  //                     the round-trip ticks by (1 + engineEfficiency), so 0 == the
+  //                     baseline 1:1 cost and a higher value costs LESS fuel. Hulls carry
+  //                     distinct base values now; engine-module bonuses that raise it are a
+  //                     FORWARD system (design §3, explicitly deferred). See fuel.ts's
+  //                     fuelNeeded for the formula this feeds.
+  fuelCapacity: number;
+  engineEfficiency: number;
   moduleSlots: number;              // POPULATED but INERT this pass (no module system yet)
   equipmentSlots: number;           // forward bucket; counts finalized with equipment/reactor design
   cost: { credits: number } | null; // null = not purchasable
@@ -321,31 +335,55 @@ export const BASE_XP_PER_TICK: Record<MissionKey, number> = {
 // hull is actually built -- the tactician/explorer families are forward buckets,
 // deliberately absent until their systems exist.
 export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
+  // ⚠️ FUEL STATS ARE FIRST-PASS TUNABLE ⚠️ The fuelCapacity / engineEfficiency
+  // values below establish the four hulls' fuel PROFILES (design §3): the Freighter
+  // is the RANGE hull (largest tank, zero efficiency = baseline 1:1 burn), the Runner
+  // is the EFFICIENCY hull (smallest tank, highest efficiency = least burn), and the
+  // Hauler / Prospector sit between on both axes. Ordering invariants (asserted in
+  // fuel.test.ts) matter more than the exact numbers here: Freighter tank > Hauler/
+  // Prospector > Runner, and Runner efficiency > the rest > Freighter (0). Retuned at
+  // the device-check stage alongside FUEL_PER_TICK / fuel-storage caps.
   generalFreighter: {
     label: "General Freighter", spec: "general", tier: 1,
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.0,
+    fuelCapacity: 200, engineEfficiency: 0, // range hull: big tank, baseline burn
     moduleSlots: 1, equipmentSlots: 0, cost: { credits: 25 },
     description: "A no-frills hauler. Every captain's starter and emergency fallback.",
   },
   prospectorHauler: {
     label: "Hauler", spec: "prospector", tier: 1,
     cargoCapacity: 180, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
+    fuelCapacity: 160, engineEfficiency: 0.15, // between: mid tank, mild efficiency
     moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
     description: "Doubles cargo at the cost of speed — big hauls, longer runs.",
   },
   prospectorRunner: {
     label: "Runner", spec: "prospector", tier: 1,
     cargoCapacity: 60, transitSpeedMult: 1.5, extractionYieldMult: 1.0,
+    fuelCapacity: 100, engineEfficiency: 0.5, // efficiency hull: small tank, least burn
     moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
     description: "Fast transit, small hold — rapid short cycles.",
   },
   prospectorMiner: {
     label: "Prospector", spec: "prospector", tier: 1,
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.35,
+    fuelCapacity: 140, engineEfficiency: 0.25, // between: mid tank, moderate efficiency
     moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
     description: "Specialized extraction rig — more materials per tick.",
   },
 };
+
+// --- Fuel economy constants (Mission Rework Task 3, design §3) -------------------
+// Both FIRST-PASS TUNABLE, same launch-placeholder spirit as MISSIONS'/SHIP_TYPES'
+// numbers -- real balancing at the device-check stage.
+//   FUEL_PER_TICK         -- fuel burned per round-trip transit tick (1 == 1:1 to start);
+//                            the numerator scale in fuel.ts's fuelNeeded.
+//   FUEL_CREDITS_PER_UNIT -- buy price of one fuel unit in credits (Task 4's buyFuel
+//                            spends this; NOTHING reads it yet this pass).
+// Kept as plain numbers (not Decimal): fuel amounts are small, non-idle-scale values --
+// only the GameState.fuel STOCKPILE is Decimal (matches the other currency fields).
+export const FUEL_PER_TICK = 1;
+export const FUEL_CREDITS_PER_UNIT = 5;
 
 // A concrete ship in the fleet -- an instance of one SHIP_TYPES hull. Distinct
 // from ShipTypeDef (the shared, immutable stat template): a ShipInstance is the
@@ -784,6 +822,16 @@ export interface GameState {
   fleetAdminLevel: number; // starts at 1
   adminPoints: number; // unspent, spent via buyHomeworldTalent (tick.ts)
   credits: Decimal;
+  // --- Fuel economy (Mission Rework Task 3, design §3) ---
+  // The fleet-wide fuel STOCKPILE (the RESOURCE spent per dispatch), Decimal-typed
+  // to match the other currency fields (credits/fleetAdminXp) -- it round-trips
+  // through JSON as a string and MUST be re-hydrated on load (save.ts's
+  // hydrateDecimals). Its CAP derives from the fuel-storage facility level (Task 4);
+  // Task 5 spends it at dispatch. This pass only DEFINES + seeds it (freshState = 0):
+  // nothing consumes it yet. The v20->v21 save migration that seeds it onto existing
+  // saves is Task 9's job -- hydrateDecimals defaults an absent field to 0 defensively
+  // until then, so a pre-migration save can't NaN/throw.
+  fuel: Decimal;
   // --- Ships — Stats Foundation ---
   // The fleet's hulls, distinct from the captains flying them. A ShipInstance's
   // assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies it -- the
@@ -1924,6 +1972,11 @@ export function freshState(): GameState {
     fleetAdminLevel: 1,
     adminPoints: 0,
     credits: new Decimal(0),
+    // Fuel economy (Task 3): a brand-new fleet starts with an EMPTY tank -- fuel is
+    // bought with credits (Task 4), never granted free. Existing saves get this same
+    // 0 seed via the v20->v21 migration (Task 9); hydrateDecimals covers the gap
+    // defensively until then.
+    fuel: new Decimal(0),
     // Seed the invariant: the one starting captain (freshCaptains(1) -> id 1) gets
     // exactly one hull, the universal General Freighter. nextShipId starts at 2
     // because "ship-1" is already taken by this seeded hull.
