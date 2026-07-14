@@ -160,6 +160,62 @@ describe("tickCaptainMission — closed-form requirement", () => {
     expect(bigJump.captain.statPoints).toBe(1);
   });
 
+  // Mission Rework (Task 2, docs/plans/2026-07-14-mission-rework-plan.md §Part B):
+  // THE fractional-rate closed-form parity PROOF -- the critical guard the ⚠️ CLOSED-
+  // FORM PARITY TRAP block in tick.ts demands "AT the real fractional rate" before any
+  // non-integer XP rate ships. The rate-1 captain-XP parity test above has a documented
+  // blind spot: at rate 1, Decimal(1).times(N) is integer-exact, so it CANNOT catch the
+  // 0.1*3 !== 0.1+0.1+0.1 float-distributivity drift a fractional rate can introduce.
+  //
+  // This test runs longOreRun -- rate 1.1, a rate NOT exactly representable in binary
+  // floating point (the maximally-adversarial choice; 1.25 is exactly representable and
+  // would NOT stress the drift). It compares the two production XP entry points:
+  //   - OFFLINE catch-up: tick(bigSpan, state)   -- which, post-Phase-2, internally
+  //     STEPS economyTick(state, 1) once per whole tick (+ a trailing frac call).
+  //   - LIVE play:        looping economyTick(state, 1) bigSpan times by hand, exactly
+  //     as App.svelte's poll loop advances one bar at a time.
+  // Because BOTH paths accrue strictly per whole tick -- each step adds
+  // new Decimal(rate).times(1) and never Decimal(rate).times(N>1) -- their Decimal xp
+  // sums must be bit-equal, and the subtract-threshold level-up loop (path-independent
+  // below the per-call cap) must land the SAME level/statPoints. The span (1000 whole
+  // ticks) is chosen to CROSS more than one level-up: 1000 * 1.1 = 1100 XP, past
+  // xpForNextLevel(1)=300 AND xpForNextLevel(2)=600 (cumulative 900) -> level 3.
+  //
+  // If this ever FAILS (drift), the accrual is NOT strictly per-step and must be
+  // re-derived so each whole-tick step adds exactly new Decimal(rate) -- do NOT loosen
+  // the assertion to hide the drift.
+  it("captain xp/level offline==live parity at a FRACTIONAL rate (longOreRun 1.1), across multiple level-ups", () => {
+    // longOreRun is a fractional-rate (1.1) mission; freshState -> tickDurationSeconds 1,
+    // so deltaSeconds == ticksElapsed. A CONSTANT rng()=0 on BOTH paths keeps loot/phase
+    // progression bit-identical, isolating the XP-accrual parity as the thing under test.
+    const bigSpan = 1000; // whole ticks; 1000 * 1.1 = 1100 XP -> crosses level 1->2 and 2->3
+    const makeS = () => {
+      const s = freshState();
+      s.captains[0].mission = missionCaptain("longOreRun");
+      return s;
+    };
+
+    // OFFLINE path: one tick(bigSpan) call (internally 1000x economyTick(state,1)).
+    const offline = tick(bigSpan, makeS(), () => 0);
+
+    // LIVE path: 1000 hand-rolled economyTick(state,1) calls, same constant rng.
+    let live = makeS();
+    for (let i = 0; i < bigSpan; i++) {
+      live = economyTick(live, 1, () => 0);
+    }
+
+    // Decimal equality via .equals() (NOT float ===), per the codebase convention: the
+    // two paths' captain XP totals must be bit-identical despite the fractional rate.
+    expect(offline.captains[0].xp.equals(live.captains[0].xp)).toBe(true);
+    expect(offline.captains[0].level).toBe(live.captains[0].level);
+    expect(offline.captains[0].statPoints).toBe(live.captains[0].statPoints);
+
+    // And prove the span genuinely CROSSED at least one level-up (else the parity would
+    // be vacuous -- both paths trivially agree on "no level-up"). 1100 XP -> level 3.
+    expect(offline.captains[0].level).toBeGreaterThanOrEqual(2);
+    expect(offline.captains[0].level).toBe(3);
+  });
+
   it("zero or negative ticksElapsed is a no-op", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain();
@@ -736,14 +792,30 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
 // in). Mirrors the "no unlocked talents" mult-helper tests directly above:
 // a fresh captain with an empty talent set must see the unmodified base rate.
 describe("xpPerTick — per-tick XP rate", () => {
+  // Mission Rework (Task 2, docs/plans/2026-07-14-mission-rework-plan.md §Part A):
+  // each mission now carries its OWN first-pass per-tick XP rate (design §5:
+  // 1 / 1.1 / 1.2 / 1.25). The last three are FRACTIONAL -- the exact condition
+  // the CLOSED-FORM PARITY TRAP in tick.ts warns about -- so these assertions pin
+  // the retuned BASE_XP_PER_TICK values, and the fractional-rate parity test in the
+  // "closed-form requirement" describe above proves the accrual survives them.
   it("returns the base rate (1) for shortOreRun with a captain that has no talents", () => {
     const captain = freshCaptains(1)[0]; // fresh -> unlockedCaptainTalents: [], spec: null
     expect(xpPerTick("shortOreRun", captain)).toBe(1);
   });
 
-  it("returns the base rate (1) for longOreRun with a captain that has no talents", () => {
+  it("returns the fractional base rate (1.1) for longOreRun with a captain that has no talents", () => {
     const captain = freshCaptains(1)[0];
-    expect(xpPerTick("longOreRun", captain)).toBe(1);
+    expect(xpPerTick("longOreRun", captain)).toBe(1.1);
+  });
+
+  it("returns the fractional base rate (1.2) for salvageWreckage with a captain that has no talents", () => {
+    const captain = freshCaptains(1)[0];
+    expect(xpPerTick("salvageWreckage", captain)).toBe(1.2);
+  });
+
+  it("returns the fractional base rate (1.25) for forageFlora with a captain that has no talents", () => {
+    const captain = freshCaptains(1)[0];
+    expect(xpPerTick("forageFlora", captain)).toBe(1.25);
   });
 });
 

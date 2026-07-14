@@ -291,16 +291,25 @@ export type MissionKey = keyof typeof MISSIONS;
 // Task 4 (captain XP accrual) and Task 5 (Fleet Admiral XP); NOT wired into
 // tickCaptainMission yet.
 export const BASE_XP_PER_TICK: Record<MissionKey, number> = {
+  // Mission Rework (Task 2, docs/plans/2026-07-14-mission-rework-plan.md §Part A,
+  // design §5): each mission's real first-pass per-tick XP rate. shortOreRun is the
+  // balance anchor at 1; the other three carry a small progressive premium
+  // (1.1/1.2/1.25) reflecting their longer/riskier/farther profiles. These are
+  // launch placeholders, same tunable spirit as MISSIONS'/RECIPES' constants -- real
+  // balancing happens at the device-check stage.
   shortOreRun: 1,
-  longOreRun: 1,
-  // Mission Rework (Task 1): the 2 new missions need an XP rate for this exhaustive
-  // Record<MissionKey,...> to compile. Seeded at 1 (integer) as a PLACEHOLDER --
-  // Task 2 owns the real per-mission XP retune (design §5: 1/1.1/1.2/1.25) and MUST
-  // ship the fractional-rate closed-form parity test alongside any non-integer value
-  // (see the ⚠️ CLOSED-FORM PARITY TRAP in tick.ts). Kept integer here so Task 1
-  // introduces NO fractional-XP drift risk on its own.
-  salvageWreckage: 1,
-  forageFlora: 1,
+  // ⚠️ FRACTIONAL RATES ⚠️ longOreRun/salvageWreckage/forageFlora are NON-INTEGER --
+  // exactly the condition the CLOSED-FORM PARITY TRAP in tick.ts (xpPerTick +
+  // tickCaptainMission accrual) warns about. This is SAFE ONLY because, post-Phase-2,
+  // both the offline path (tick() -> economyTick(state,1) per whole tick) and the live
+  // loop (App.svelte -> economyTick(state,1) per bar) accrue STRICTLY per whole tick:
+  // each step adds new Decimal(rate).times(1), never Decimal(rate).times(N>1). The
+  // fractional-rate closed-form parity test in tick.test.ts (longOreRun @ 1.1, across
+  // multiple level-ups) PROVES this holds -- do NOT raise any rate to a fraction
+  // without a matching parity assertion at that rate.
+  longOreRun: 1.1,
+  salvageWreckage: 1.2,
+  forageFlora: 1.25,
 };
 
 // The 4 real hulls this feature ships (design doc, Task 1). TUNABLE -- first-pass
