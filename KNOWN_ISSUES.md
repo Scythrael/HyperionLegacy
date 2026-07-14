@@ -298,3 +298,37 @@ write it down so you don't relitigate it later.
   `.stat-pill`/`-label`/`-value`, `.modal-dialog`, etc.) -- inert, no broken references, deliberately left
   for a single dedicated stylesheet-cleanup pass rather than deleted piecemeal per feature. Not a gate blocker
   (the gate is errors-only), just standing cosmetic debt.
+- REFINED FORMS of the 12 new raw materials, and the FUEL-REFINE recipe, are DEFERRED to the crafting/Fabricator
+  phase (Mission Rework, Session 31). This branch adds the 4 missions and their 12 raw-material triad as the
+  RAW supply only -- there are no refined counterparts for the new raws yet, and no recipe that converts any
+  material into fuel. Fuel is currently a credits-only purchase (see the Fuel Storage entry below); the intended
+  "refine ore/material into fuel" path is a forward hook for the crafting economy, not built here. Add the
+  refined-item definitions and the fuel-refine recipe when the Fabricator/crafting work lands. Not a bug -- a
+  deliberate scope boundary: this rework sources the raw materials, the crafting phase consumes them.
+- The FUEL-REFILL CONSUMABLE (a craftable item that tops up a ship's tank without spending credits) is DEFERRED
+  (Mission Rework, Session 31). Today fuel is bought ONE way only -- credits at the Fuel Storage facility, at a
+  flat rate. A future craftable refill consumable (made from refined materials once the crafting economy exists)
+  is the intended second path, letting late-game players convert materials into range instead of credits. Written
+  down so "there's only one way to get fuel" isn't rediscovered as an oversight -- it's an intentional near-term
+  limitation pending the crafting phase, same forward-hook posture as the fuel-refine recipe above.
+- MISSION DIFFICULTIES and HAZARDS are DEFERRED (Mission Rework, Session 31). Every mission this branch ships is
+  a safe, deterministic round trip -- there is no difficulty tier that raises risk, and no hazard system (pirates,
+  ambushes, ship damage or ship LOSS on a failed/hazardous run). The mission cards already carry a difficulty-tier
+  scaffold from the earlier Fleet Operations UI work, but nothing behind it changes outcomes yet. Combat-adjacent
+  hazards depend on the not-yet-built Battlespace/combat systems, so real mission difficulty and the risk of losing
+  a ship come later. Not a bug -- an intentional scope boundary: missions are currently risk-free by design.
+- `engineEfficiency` has NO in-game UPGRADE SOURCE yet (Mission Rework, Session 31). A ship's fuel burn is driven
+  entirely by its HULL'S base `engineEfficiency` value -- there is no module, talent, research, or upgrade anywhere
+  that improves it, so a captain's fuel economy is fixed by which hull they fly and nothing else. Engine MODULES
+  (the intended upgrade path) depend on the still-inert module/equipment slot system (`SHIP_TYPES`'
+  `moduleSlots`/`equipmentSlots`, itself deferred to the Research phase -- see the earlier ship-slots entry). Same
+  for `fuelCapacity`: hull base values only, no upgrade path yet. Written down so "efficiency can't be improved"
+  isn't rediscovered as a missing feature -- it's a deliberately-inert forward hook awaiting the module system.
+- ALL Mission Rework balance values are FIRST-PASS PLACEHOLDERS, to tune at the device checkpoint, not final
+  numbers (Session 31): the mission-completion count that unlocks Salvage/Forage via Mission Control (~50x ore-run
+  completions); each mission's per-dispatch REQUIREMENTS (captain level / cargo space / fuel); the fuel PRICE
+  (5 credits/unit at Fuel Storage); the hull FUEL STATS (per-hull `fuelCapacity` + `engineEfficiency` base values);
+  and the per-mission XP RATES (captain XP + Fleet-Admiral XP per tick/cycle). All were picked to prove the
+  gating/economy mechanics work end-to-end, NOT calibrated against real play -- expect to retune them together
+  with the still-unfinalized FA XP curve and slot walls during the same on-device pass (same "device-tuned starting
+  value" posture as the FA-curve / refinery-balance entries above).

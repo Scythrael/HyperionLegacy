@@ -1368,3 +1368,47 @@ session: merge `feat/homeworld-systems-rail` → `main` (fast-forward — brings
 stack live in one shot: Phase 1's keyed inventory + timed processes + Facilities/Refinery
 + SAVE_VERSION 18, PLUS all three UI restructures) and push, releasing **APP_VERSION
 0.7.0** to production.
+
+**Session 31 — Mission Rework + Fuel Economy, branch `feat/mission-rework`.**
+Shipped the Mission Rework epic over 10 tasks (subagent-driven, two-stage review per task):
+(1) **Missions & materials** — the two placeholder ore runs became FOUR named missions (Local
+Asteroid, Lunar Mine Contract, Salvage Skirmish Wreckage, Forage Minerals & Flora), each sourcing
+its own raw-material TRIAD for **12 raw materials total** to feed future crafting. (2) **Per-mission
+XP** — captain XP and Fleet-Admiral XP are now per-mission `MissionDef` values, with exp/tick shown
+on each mission card. (3) **Fuel data model** — ships gained `fuelCapacity` (range) + `engineEfficiency`
+(burn rate), and `GameState` gained a fleet-wide `fuel` pool plus a `fuelNeeded` round-trip calc.
+(4) **Fuel Storage facility** — a buildable/expandable fuel tank + `buyFuel` (credits at 5cr/unit).
+(5) **Fuel consumption** — dispatch deducts the round-trip fuel; a captain on auto-repeat STOPS when
+the tank runs dry. (6) **Mission Control facility** — completion-gated unlocks: running the two ore
+missions (~50x) opens Salvage + Forage. (7) **Dispatch requirements** — per-mission gates (captain
+level / cargo space / fuel) with a clear reason when a launch is blocked. (8) **UI** — Operations
+dispatch flow + the two new Facilities panels. (9) **Save migration v20→v21** — seeds `fuel: 0`,
+fuel-storage level 0, mission-control level 1, and grandfathers `fuelCapacity`/`engineEfficiency`
+onto existing ships from their hull defs. (10) **This docs task** — version bump + patch/release docs.
+
+Two closed-form PARITY seams were the load-bearing correctness work, both re-verified offline==live
+(the same "one big jump equals many small ticks" invariant every time-based system in this project
+proves, threaded through BOTH `tick()` and App.svelte's live loop): **fractional per-mission XP**
+(per-tick XP accrues identically whether resolved in one big offline-catchup call or many small live
+ticks) and **fuel spend/offline** (fuel deduction + the auto-repeat empty-tank stop behave identically
+across the offline-catchup path and live play, so a captain doesn't over- or under-burn depending on
+whether the tab was backgrounded).
+
+`APP_VERSION` bumped **0.8.0 → 0.9.0** (`src/App.svelte`, the single source of truth) with a matching
+player PATCH_NOTES entry covering the four missions + 12 materials, Mission Control unlocks, the fuel
+economy (Fuel Storage tank, per-ship capacity/efficiency, auto-repeat stop-on-empty), per-mission XP +
+dispatch requirements, and the folded-in tile-size/one-tap warehouse fix already on main (0.8.x). Note:
+post-reset 0.9.0 collides in the newest-first list with the untouched PRE-reset 0.9.0 "widened the app"
+entry — the same accepted "never rewrite patch-note history" oddity as the 0.6.0/0.7.0/0.8.0 collisions,
+not a bug. `SAVE_VERSION` is now **21**. KNOWN_ISSUES.md logged the deferred pieces (refined forms for
+the 12 raws + the fuel-refine recipe → crafting/Fabricator phase; the fuel-refill consumable → future
+craftable, credits-only for now; mission difficulties + hazards/pirates/ship-loss → post-combat; no
+in-game upgrade source for `engineEfficiency`/`fuelCapacity` yet → engine modules later; and all
+first-pass tunable values → device checkpoint).
+
+The gate is GREEN — **`npm run check` = 0 errors (21 cosmetic unused-CSS / a11y warnings), `npm test`
+= 420 passing (14 files)** — so this was actually typechecked and unit-tested here, not shipped on
+static reading alone. Next: dispatch a final holistic reviewer over the whole branch (especially the
+two parity seams + the fuel/dispatch/offline integration), then device test the mission-rework/fuel
+loop end-to-end and tune the first-pass values, then merge to `main` — push still needs separate,
+explicit user confirmation (live Vercel production redeploy).
