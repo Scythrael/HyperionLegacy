@@ -1412,3 +1412,23 @@ static reading alone. Next: dispatch a final holistic reviewer over the whole br
 two parity seams + the fuel/dispatch/offline integration), then device test the mission-rework/fuel
 loop end-to-end and tune the first-pass values, then merge to `main` — push still needs separate,
 explicit user confirmation (live Vercel production redeploy).
+
+**Session 32 (USER REVISION)** — Reworked the mission-unlock model per the directive "the 2 new missions
+shouldn't be locked behind an upgrade ... 4 missions should be the default." Set all four missions to
+`unlockLevel: 1` (Salvage/Forage were 2), so every mission is available from the level-1 Mission Control
+seed and nothing is locked by default. DEFERRED the completion-gated level-1 -> 2 unlock UPGRADE (removed
+the rung) because it would now unlock nothing (Salvage/Forage are default; no 5th+ mission exists yet) =
+a placeholder — Mission Control's track caps at level 1 (lone founding rung, renders "fully upgraded").
+KEPT the unlock MECHANISM intact and reserved: `requiresMissionCompletions` prereq type + its
+`canBuildFacilityUpgrade` enforcement + `MISSION_CONTROL_UNLOCK_COMPLETIONS`, all now covered by a
+fixture-facility test so re-adding a rung later is a pure data change. KEPT the per-mission CAPABILITY
+requirements (Salvage captain L2 / Forage L3 / cargo 90) — the user removed the unlock, not the
+requirements. UI: Mission Control Overview is now a mission log (available missions + lifetime completion
+counts + a "future missions unlock here" note) instead of a next-unlock progress panel; Upgrades tab shows
+the standard maxed state + the same note; Operations locked-card rendering code retained (won't trigger for
+the current 4). Migration v20->v21 unchanged (level-1 seed already unlocks all four; added a test asserting
+all four are unlocked post-migration). Updated/removed the Task-6/7/8 tests that asserted Salvage/Forage
+LOCKED at level 1; the 0.9.0 patch note copy was corrected. Gate GREEN — **`npm run check` = 0 errors (21
+cosmetic warnings), `npm test` = 416 passing (14 files)** (was 420; net -4 from dropping the deferred-rung
+flow tests, replaced with reserved-mechanism + caps-at-level-1 coverage). Next: controller review of this
+revision, then the holistic branch review + device tuning; push still needs explicit user confirmation.

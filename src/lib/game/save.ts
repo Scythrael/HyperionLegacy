@@ -698,12 +698,12 @@ const MIGRATIONS: Record<number, Migration> = {
   //   missions can be fueled immediately, no soft-lock). Same `{ level: 0 }` literal
   //   freshState seeds, so migrated and fresh shapes cannot drift apart (Omega 4).
   // - `facilities.missionControl` at level 1 (Task 6) -- ⚠️ LOAD-BEARING, level 1 NOT 0.
-  //   The 2 ore runs are `unlockLevel: 1` and missionUnlocked() derives purely from this
-  //   facility's LEVEL (no separate flag). Seeding level 0 ("not built") would make
-  //   missionUnlocked() return false for BOTH ore runs, silently LOCKING missions that
-  //   existed pre-rework on every returning player's save -- a soft-lock/regression. Level
-  //   1 keeps them dispatchable exactly as before; its level-1 -> 2 upgrade (completion-
-  //   gated) is what later unlocks Salvage + Forage.
+  //   ALL FOUR missions are `unlockLevel: 1` (USER REVISION 2026-07-14) and
+  //   missionUnlocked() derives purely from this facility's LEVEL (no separate flag).
+  //   Seeding level 0 ("not built") would make missionUnlocked() return false for every
+  //   mission, silently LOCKING the whole default set on every returning player's save --
+  //   a soft-lock/regression. Level 1 keeps all four dispatchable. The mission-control
+  //   unlock UPGRADE is deferred (track caps at level 1) until future missions exist.
   //
   // `?? { level: 0 }` / `?? { level: 1 }` are idempotent + belt-and-suspenders (a re-run
   // or partially-migrated save keeps an existing level rather than resetting it), and

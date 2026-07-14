@@ -1942,11 +1942,14 @@ function facilityLevel(state: GameState, facilityKey: string): number {
 // the single source of truth for the mapping). There is NO separate per-mission
 // unlock flag -- the level derives it, so it can never drift out of sync.
 //
-// The mapping this pass (4 missions, missionControl caps at level 2):
-//   - level >= 1 (fresh save's seed): shortOreRun + longOreRun (unlockLevel 1).
-//   - level >= 2 (after the completion-gated 1 -> 2 upgrade): + salvageWreckage +
-//     forageFlora (unlockLevel 2).
-// A future mission adds its own unlockLevel + a matching mission-control rung.
+// The mapping this pass (USER REVISION 2026-07-14 -- 4 missions, missionControl caps
+// at level 1):
+//   - level >= 1 (fresh save's seed): ALL FOUR missions (every current MissionDef is
+//     unlockLevel 1) -- nothing is locked by default.
+// A future mission adds its own higher unlockLevel + a re-added mission-control unlock
+// rung (deferred today; see FACILITIES.missionControl). This predicate then gates it
+// automatically -- the level-derived mechanism needs no change to support a locked
+// mission, which is why the locked-mission dispatch guard + UI are retained.
 //
 // PURE: reads state.facilities + the static MISSIONS table; mutates nothing. Exposed
 // for Task 7's dispatch requirements gate + Task 8's Operations UI to gray out locked

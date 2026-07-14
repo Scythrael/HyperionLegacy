@@ -225,7 +225,7 @@
   // this deliberately reads as "0.2.0 newer than 0.9.0" once, only here.
   const APP_VERSION = "0.9.0";
   const PATCH_NOTES: { version: string; summary: string }[] = [
-    { version: "0.9.0", summary: "Four missions to run now -- Local Asteroid, Lunar Mine Contract, Salvage Skirmish Wreckage, and Forage Minerals & Flora -- each hauling back its own trio of raw materials, 12 in total to feed future crafting. New Mission Control facility: completing missions unlocks new ones (run the two ore missions to open up Salvage and Forage). Missions now burn fuel for the round trip -- buy fuel with credits at the new Fuel Storage facility (a tank you can expand), while each ship has its own fuel capacity (how far it can range) and engine efficiency (how little it burns); a captain on auto-repeat stops when the tank runs dry. Every mission now shows its XP earned per tick and its dispatch requirements up front (captain level, cargo space, fuel), with a clear reason spelled out when you can't launch. Also: warehouse fill-tiles are smaller on desktop, and their tooltips now open on a single tap on mobile." },
+    { version: "0.9.0", summary: "Four missions available from the start -- Local Asteroid, Lunar Mine Contract, Salvage Skirmish Wreckage, and Forage Minerals & Flora -- each hauling back its own trio of raw materials, 12 in total to feed future crafting. Salvage and Forage ask for a slightly more experienced captain before they'll launch. New Mission Control facility tracks your available missions and their completion counts; more missions will unlock here as new content arrives. Missions now burn fuel for the round trip -- buy fuel with credits at the new Fuel Storage facility (a tank you can expand), while each ship has its own fuel capacity (how far it can range) and engine efficiency (how little it burns); a captain on auto-repeat stops when the tank runs dry. Every mission now shows its XP earned per tick and its dispatch requirements up front (captain level, cargo space, fuel), with a clear reason spelled out when you can't launch. Also: warehouse fill-tiles are smaller on desktop, and their tooltips now open on a single tap on mobile." },
     { version: "0.8.0", summary: "New Warehouse facility: your materials now have real storage, split into Raw / Refined / Component tabs (plus placeholder tabs for what's coming), each with a fill-tile gauge showing how full it is, and timed capacity upgrades that double how much you can hold. Storage now has caps -- producers automatically pause when a material is full instead of wasting it. Refining got a proper order system: queue a fixed batch (Refine N) or run it continuously, watch live status and why it paused (out of ingredients, or storage full), stop an order any time, with an optional confirmation prompt you can toggle in the System tab's Options. Offline progress now advances your facilities while you're away, capped at 2 days. Groundwork for a bigger crafting economy: the base ores are renamed to Titanium / Polysilicate / Iridium Ore, with placeholder raw, refined, and component items seeded for future recipes." },
     { version: "0.7.0", summary: "Navigation reorganized: Homeworld and Sector Space are now unified under a new Locations tab -- each place keeps its own sub-tabs -- and Facilities are grouped by owner (Homeworld, Fleet Sector, Ships). Same content, tidier layout, fewer tabs." },
     { version: "0.6.0", summary: "New Facilities tab: you can now build and upgrade a Refinery, then run refine jobs that turn common ore into refined material over time -- each upgrade unlocks another refine slot so several jobs run at once, with the later upgrades gated behind your Fleet Admiral level and Homeworld talents. Behind the scenes, all your materials moved into a single unified inventory -- existing saves migrate automatically." },
@@ -2864,13 +2864,24 @@
             />
 
             {#if activeMissionControlSubTab === "overview"}
+              <!-- USER REVISION 2026-07-14: all four current missions are default
+                   (unlockLevel 1), so this Overview is a MISSION LOG of the available
+                   missions + each one's lifetime completion count -- NOT a "next
+                   unlock" progress panel (that unlock upgrade is deferred until future
+                   missions exist; see model.ts FACILITIES.missionControl). The locked-
+                   mission list below is retained (guarded on lockedMissionKeys.length,
+                   empty today) so it lights up automatically when a future mission
+                   ships at a higher unlockLevel. -->
               <Panel>
                 <div class="panel-title">MISSION CONTROL</div>
                 <div class="research-cost">Level: {missionControlLevel}</div>
 
-                <div class="research-name" style="margin-top: 10px;">Unlocked missions</div>
+                <div class="research-name" style="margin-top: 10px;">Available missions</div>
                 {#each unlockedMissionKeys as mKey (mKey)}
-                  <div class="research-cost" style="color: var(--color-success)">✅ {MISSIONS[mKey].label}</div>
+                  {@const completed = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
+                  <div class="research-cost" style="color: var(--color-success)">
+                    ✅ {MISSIONS[mKey].label} — {formatNumber(completed)} completed
+                  </div>
                 {/each}
 
                 {#if lockedMissionKeys.length > 0}
@@ -2879,28 +2890,12 @@
                     <div class="research-cost" style="color: var(--color-text-secondary)">🔒 {MISSIONS[mKey].label} — unlocks at level {MISSIONS[mKey].unlockLevel}</div>
                   {/each}
                 {/if}
-              </Panel>
 
-              <!-- Completion progress toward the NEXT unlock -- only while a
-                   completion-gated rung exists ahead (not maxed AND the rung declares
-                   requiresMissionCompletions). Reads lifetimeStats.missionsCompleted,
-                   the SAME counter canBuildFacilityUpgrade gates on, so "progress"
-                   here matches the wall the Build button enforces. -->
-              {#if !missionControlMaxed && nextMissionControlUpgrade.requiresMissionCompletions}
-                {@const reqCompletions = nextMissionControlUpgrade.requiresMissionCompletions}
-                <Panel>
-                  <div class="panel-title">NEXT UNLOCK PROGRESS</div>
-                  <p class="research-status">Complete these to open the Level {missionControlLevel} → {missionControlLevel + 1} upgrade:</p>
-                  {#each Object.keys(reqCompletions) as mKey (mKey)}
-                    {@const need = reqCompletions[mKey as MissionKey]!}
-                    {@const have = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
-                    {@const met = have.gte(need)}
-                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} {MISSIONS[mKey as MissionKey].label}: {formatNumber(have)} / {need}
-                    </div>
-                  {/each}
-                </Panel>
-              {/if}
+                <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
+                  All current missions are available. Future missions will unlock here
+                  as new content is added.
+                </p>
+              </Panel>
             {/if}
 
             {#if activeMissionControlSubTab === "upgrades"}
@@ -2909,7 +2904,15 @@
                 <div class="research-cost">Level: {missionControlLevel}</div>
 
                 {#if missionControlMaxed}
+                  <!-- USER REVISION 2026-07-14: Mission Control caps at its current
+                       content (the unlock UPGRADE is deferred until future missions
+                       exist -- see model.ts FACILITIES.missionControl). This is the
+                       standard maxed state the Refinery/Warehouse tracks show; the note
+                       flags that a future unlock rung re-appears here with new content. -->
                   <p class="research-status">Fully upgraded.</p>
+                  <p class="research-status" style="margin-top: 6px; color: var(--color-text-secondary);">
+                    Future missions will unlock here as new content is added.
+                  </p>
                 {:else}
                   <div class="research-name">Next: Level {missionControlLevel} → {missionControlLevel + 1}</div>
                   <div class="research-cost">

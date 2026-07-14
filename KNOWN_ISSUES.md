@@ -325,10 +325,22 @@ write it down so you don't relitigate it later.
   for `fuelCapacity`: hull base values only, no upgrade path yet. Written down so "efficiency can't be improved"
   isn't rediscovered as a missing feature -- it's a deliberately-inert forward hook awaiting the module system.
 - ALL Mission Rework balance values are FIRST-PASS PLACEHOLDERS, to tune at the device checkpoint, not final
-  numbers (Session 31): the mission-completion count that unlocks Salvage/Forage via Mission Control (~50x ore-run
-  completions); each mission's per-dispatch REQUIREMENTS (captain level / cargo space / fuel); the fuel PRICE
+  numbers (Session 31): the `MISSION_CONTROL_UNLOCK_COMPLETIONS` threshold (~50x, RESERVED -- see the mission-
+  control unlock-deferral entry below; not live until future missions re-add the rung); each mission's per-dispatch
+  REQUIREMENTS (captain level / cargo space / fuel); the fuel PRICE
   (5 credits/unit at Fuel Storage); the hull FUEL STATS (per-hull `fuelCapacity` + `engineEfficiency` base values);
   and the per-mission XP RATES (captain XP + Fleet-Admiral XP per tick/cycle). All were picked to prove the
   gating/economy mechanics work end-to-end, NOT calibrated against real play -- expect to retune them together
   with the still-unfinalized FA XP curve and slot walls during the same on-device pass (same "device-tuned starting
   value" posture as the FA-curve / refinery-balance entries above).
+- Mission Control unlock UPGRADE is DEFERRED (USER REVISION 2026-07-14). Per the directive "4 missions should
+  be the default", all four current missions are now `unlockLevel: 1` (available from the level-1 seed), and the
+  former completion-gated level-1 -> 2 unlock rung was removed -- it would have unlocked Salvage/Forage, which are
+  now default, and there is no 5th+ mission for a live rung to unlock (a live rung unlocking nothing = a
+  placeholder). Mission Control's track caps at level 1 (a lone founding rung; renders "fully upgraded"). The
+  unlock MECHANISM is intact and RESERVED: `FacilityUpgradeDef.requiresMissionCompletions` + its
+  `canBuildFacilityUpgrade` enforcement + `MISSION_CONTROL_UNLOCK_COMPLETIONS` all remain and are covered by a
+  fixture test (`mission-control.test.ts`). When a future mission batch lands, give those missions a higher
+  `unlockLevel` and re-add the completion-gated rung to `FACILITIES.missionControl` (template preserved in a
+  code comment there) -- a pure data change, no engine work. The per-mission CAPABILITY requirements (Salvage
+  captain L2, Forage L3, cargo 90) were KEPT -- the user removed the unlock, not the requirements.

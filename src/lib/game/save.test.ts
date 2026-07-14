@@ -2360,12 +2360,14 @@ describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
     expect(migrated.captains[0].level).toBe(6);
     expect(migrated.gameTimeSeconds).toBe(12000);
 
-    // --- NO SOFT-LOCK (behavioral): both ore runs (unlockLevel 1) are still UNLOCKED
-    // post-migration. This is the entire reason missionControl seeds at level 1: a
-    // level-0 seed would make missionUnlocked() return false for both, silently locking
-    // missions that existed pre-rework on every returning player's save (a regression). ---
-    expect(missionUnlocked(migrated, "shortOreRun")).toBe(true);
-    expect(missionUnlocked(migrated, "longOreRun")).toBe(true);
+    // --- NO SOFT-LOCK (behavioral): ALL FOUR missions are UNLOCKED post-migration.
+    // USER REVISION 2026-07-14: every mission is unlockLevel 1, and missionControl seeds
+    // at level 1 on migration -- so a returning player lands with the full default mission
+    // set (not just the ore runs). A level-0 seed would make missionUnlocked() return
+    // false for all four, silently locking missions -- the regression this guards against. ---
+    for (const key of ["shortOreRun", "longOreRun", "salvageWreckage", "forageFlora"] as const) {
+      expect(missionUnlocked(migrated, key)).toBe(true);
+    }
 
     // --- FULL PLAYABILITY: a captain can actually still dispatch an ore mission after
     // migration. The migrated tank starts empty (fuel:0), so top it up first (the normal

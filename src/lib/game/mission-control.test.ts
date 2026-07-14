@@ -1,190 +1,150 @@
 // Mission-control facility tests — Mission Rework, Task 6
-// (docs/plans/2026-07-14-mission-rework-plan.md Task 6 + design §2).
+// (docs/plans/2026-07-14-mission-rework-plan.md Task 6 + design §2),
+// REVISED 2026-07-14 (USER REVISION: all 4 missions default; unlock upgrade deferred).
 //
-// Covers the completion-gated mission-unlock system:
-//   - missionUnlocked(state, key): PURE level-derived predicate (tick.ts). Which
-//     missions are dispatchable, as a function of missionControl's level only
-//     (via MissionDef.unlockLevel -- no separate unlock flag).
-//   - the requiresMissionCompletions prereq on the level-1 -> 2 mission-control
-//     upgrade rung, enforced by the SAME generic canBuildFacilityUpgrade gate the
-//     refinery/warehouse/fuel tracks use.
-//   - the freshState seed (missionControl level 1) that keeps the ore runs available
+// Covers the mission-unlock system after the revision:
+//   - missionUnlocked(state, key): PURE level-derived predicate (tick.ts). ALL FOUR
+//     current missions are unlockLevel 1, so every mission is dispatchable at the
+//     level-1 seed -- nothing is locked by default.
+//   - the mission-control track now CAPS at level 1 (a lone founding rung). The
+//     completion-gated level-1 -> 2 unlock UPGRADE is DEFERRED (removed) because
+//     Salvage/Forage are now default and there is no 5th+ mission for a live rung to
+//     unlock -- a live rung unlocking nothing would be a placeholder.
+//   - the requiresMissionCompletions prereq MECHANISM is RETAINED and still enforced
+//     by the generic canBuildFacilityUpgrade gate -- proven here via a test-only
+//     fixture facility -- so re-adding an unlock rung when future missions land is a
+//     pure data change (no engine work).
+//   - the freshState seed (missionControl level 1) that keeps every mission available
 //     from game start (the no-soft-lock / no-regression guarantee).
-//   - the belt-and-suspenders dispatch guard in dispatchCaptainOnMission.
+//   - the belt-and-suspenders dispatch guard in dispatchCaptainOnMission (retained for
+//     future higher-unlockLevel missions).
 //
-// These exercise the REAL FACILITIES.missionControl table (its finite 2-level
-// track), not a synthetic def -- so the assertions double as a guard on that table.
+// These exercise the REAL FACILITIES.missionControl table (its finite 1-level track),
+// not a synthetic def (except the reserved-mechanism fixture, which is clearly marked)
+// -- so the assertions double as a guard on that table.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Decimal from "break_infinity.js";
 import {
   canBuildFacilityUpgrade,
-  startFacilityUpgrade,
-  resolveProcesses,
   missionUnlocked,
   dispatchCaptainOnMission,
 } from "./tick";
-import { freshState, FACILITIES, MISSION_CONTROL_UNLOCK_COMPLETIONS } from "./model";
+import { freshState, FACILITIES } from "./model";
 
-describe("missionControl — fresh state seed + level-derived unlocks", () => {
+describe("missionControl — fresh state seed + level-derived unlocks (USER REVISION: all 4 default)", () => {
   it("freshState seeds missionControl at level 1 (established from game start, no soft-lock)", () => {
     expect(freshState().facilities.missionControl).toEqual({ level: 1 });
   });
 
-  it("the 2 ore runs are unlocked at the level-1 seed; Salvage + Forage are NOT", () => {
+  it("ALL FOUR missions are unlocked at the level-1 seed (nothing is locked by default)", () => {
     const state = freshState(); // missionControl level 1
-    // Ore runs (unlockLevel 1) -- available from the start, exactly as pre-rework.
-    expect(missionUnlocked(state, "shortOreRun")).toBe(true);
-    expect(missionUnlocked(state, "longOreRun")).toBe(true);
-    // Salvage + Forage (unlockLevel 2) -- locked until the level-1 -> 2 upgrade.
-    expect(missionUnlocked(state, "salvageWreckage")).toBe(false);
-    expect(missionUnlocked(state, "forageFlora")).toBe(false);
-  });
-
-  it("at missionControl level 2, all four missions are unlocked (level derives the gate)", () => {
-    const state = freshState();
-    state.facilities = { ...state.facilities, missionControl: { level: 2 } };
-    expect(missionUnlocked(state, "shortOreRun")).toBe(true);
-    expect(missionUnlocked(state, "longOreRun")).toBe(true);
-    expect(missionUnlocked(state, "salvageWreckage")).toBe(true);
-    expect(missionUnlocked(state, "forageFlora")).toBe(true);
+    for (const key of ["shortOreRun", "longOreRun", "salvageWreckage", "forageFlora"] as const) {
+      expect(missionUnlocked(state, key), key).toBe(true);
+    }
   });
 });
 
-describe("missionControl — the level-1 -> 2 upgrade is completion-gated", () => {
-  // A fresh state (missionControl level 1) with ore stocked for the rung's cost and
-  // a chosen completion count for each ore run. Everything the level-1 -> 2 upgrade
-  // needs EXCEPT the completion counts, so those are the gate under test.
-  function stateWithCompletions(shortDone: number, longDone: number) {
-    const s = freshState();
-    return {
-      ...s,
-      inventory: { ...s.inventory, commonOre: new Decimal(250) }, // the rung's material cost
-      lifetimeStats: {
-        ...s.lifetimeStats,
-        missionsCompleted: {
-          shortOreRun: new Decimal(shortDone),
-          longOreRun: new Decimal(longDone),
-        },
-      },
-    };
-  }
+describe("missionControl — track caps at level 1 (unlock UPGRADE deferred, no placeholder rung)", () => {
+  it("FACILITIES.missionControl has exactly 1 rung (the lone founding rung -- no live unlock rung)", () => {
+    expect(FACILITIES.missionControl.upgrades).toHaveLength(1);
+  });
 
-  it("is BLOCKED when neither ore run has reached the completion threshold", () => {
-    const state = stateWithCompletions(0, 0);
+  it("no mission-control rung declares requiresMissionCompletions (the completion-gated unlock is deferred)", () => {
+    for (const rung of FACILITIES.missionControl.upgrades) {
+      expect(rung.requiresMissionCompletions).toBeUndefined();
+    }
+  });
+
+  it("a level-1 missionControl is fully upgraded (no next rung -- caps at current content)", () => {
+    const state = freshState(); // level 1 == the seed
     const result = canBuildFacilityUpgrade(state, "missionControl");
-    expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/completions/);
-  });
-
-  it("is BLOCKED when only ONE ore run has reached the threshold (needs BOTH)", () => {
-    const state = stateWithCompletions(MISSION_CONTROL_UNLOCK_COMPLETIONS, MISSION_CONTROL_UNLOCK_COMPLETIONS - 1);
-    const result = canBuildFacilityUpgrade(state, "missionControl");
-    expect(result.ok).toBe(false);
-    // The still-short run (longOreRun) names the failing gate.
-    expect(result.reason).toMatch(/Lunar Mine Contract/);
-  });
-
-  it("is ALLOWED once BOTH ore runs reach the completion threshold (materials also present)", () => {
-    const state = stateWithCompletions(MISSION_CONTROL_UNLOCK_COMPLETIONS, MISSION_CONTROL_UNLOCK_COMPLETIONS);
-    expect(canBuildFacilityUpgrade(state, "missionControl").ok).toBe(true);
-  });
-
-  it("still BLOCKS on materials if completions are met but the ore cost is short", () => {
-    const state = stateWithCompletions(MISSION_CONTROL_UNLOCK_COMPLETIONS, MISSION_CONTROL_UNLOCK_COMPLETIONS);
-    state.inventory = { ...state.inventory, commonOre: new Decimal(249) }; // needs 250
-    const result = canBuildFacilityUpgrade(state, "missionControl");
-    expect(result.ok).toBe(false);
-    expect(result.reason).not.toMatch(/completions/); // completions passed; material is the wall now
-  });
-});
-
-describe("missionControl — full upgrade flow to level 2 unlocks Salvage + Forage", () => {
-  it("start the completion-gated upgrade, resolve it, and level 2 unlocks the two new missions", () => {
-    const base = freshState();
-    const state = {
-      ...base,
-      inventory: { ...base.inventory, commonOre: new Decimal(250) },
-      lifetimeStats: {
-        ...base.lifetimeStats,
-        missionsCompleted: {
-          shortOreRun: new Decimal(MISSION_CONTROL_UNLOCK_COMPLETIONS),
-          longOreRun: new Decimal(MISSION_CONTROL_UNLOCK_COMPLETIONS),
-        },
-      },
-    };
-
-    // Salvage locked at level 1...
-    expect(missionUnlocked(state, "salvageWreckage")).toBe(false);
-
-    // Start the upgrade -> deducts the 250 ore, pushes the facilityUpgrade process.
-    const started = startFacilityUpgrade(state, "missionControl");
-    expect(started.started).toBe(true);
-    expect(started.next.inventory.commonOre.toString()).toBe("0"); // cost deducted
-    expect(started.next.facilities.missionControl.level).toBe(1); // not bumped until completion
-
-    // Resolve the rung's full duration (60 ticks) -> level 1 -> 2, process cleared.
-    const rungDuration = FACILITIES.missionControl.upgrades[1].durationTicks; // 60
-    const resolved = resolveProcesses(started.next, rungDuration);
-    expect(resolved.next.facilities.missionControl.level).toBe(2);
-    expect(resolved.next.activeProcesses).toHaveLength(0);
-
-    // ...and now Salvage + Forage are unlocked (level derived it, no flag).
-    expect(missionUnlocked(resolved.next, "salvageWreckage")).toBe(true);
-    expect(missionUnlocked(resolved.next, "forageFlora")).toBe(true);
-  });
-});
-
-describe("missionControl — track caps at level 2 (no placeholder rungs)", () => {
-  it("FACILITIES.missionControl has exactly 2 rungs (founding 0->1 + the real 1->2)", () => {
-    expect(FACILITIES.missionControl.upgrades).toHaveLength(2);
-  });
-
-  it("a level-2 missionControl is fully upgraded (no next rung)", () => {
-    const state = freshState();
-    // Pile on resources + completions -- being maxed must override affordability.
-    const maxed = {
-      ...state,
-      facilities: { ...state.facilities, missionControl: { level: 2 } },
-      inventory: { ...state.inventory, commonOre: new Decimal(1e9) },
-      lifetimeStats: {
-        ...state.lifetimeStats,
-        missionsCompleted: { shortOreRun: new Decimal(1e9), longOreRun: new Decimal(1e9) },
-      },
-    };
-    const result = canBuildFacilityUpgrade(maxed, "missionControl");
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/fully upgraded/);
   });
 });
 
-describe("dispatchCaptainOnMission — belt-and-suspenders unlock guard (Task 6)", () => {
-  it("blocks dispatch of a locked mission (Salvage at the level-1 seed), same-ref no-op", () => {
+describe("requiresMissionCompletions — RESERVED prereq mechanism stays enforced (for future unlock rungs)", () => {
+  // The mission-control unlock UPGRADE was deferred (USER REVISION 2026-07-14), so NO
+  // production rung uses requiresMissionCompletions today. But the prereq TYPE
+  // (FacilityUpgradeDef.requiresMissionCompletions) and its enforcement in the generic
+  // canBuildFacilityUpgrade gate (tick.ts) must stay working, so re-adding a completion-
+  // gated rung when future missions land is a pure DATA change with no engine work.
+  //
+  // We prove that by injecting a TEST-ONLY fixture facility into the FACILITIES registry
+  // whose single (level 0 -> 1) rung carries a completion gate, then asserting the gate
+  // blocks/allows as the lifetime completion count crosses its threshold. The fixture is
+  // removed after each test so it never leaks into other suites' view of FACILITIES.
+  const FIXTURE_KEY = "__test_missionCompletionGate";
+  const THRESHOLD = 3;
+
+  beforeEach(() => {
+    FACILITIES[FIXTURE_KEY] = {
+      label: "Test Completion Gate",
+      upgrades: [
+        {
+          materials: {}, // no material wall -- isolate the completion gate
+          durationTicks: 0,
+          effect: { unlocksContent: true },
+          requiresMissionCompletions: { shortOreRun: THRESHOLD },
+        },
+      ],
+    };
+  });
+
+  afterEach(() => {
+    delete FACILITIES[FIXTURE_KEY];
+  });
+
+  it("BLOCKS the rung when the mission's lifetime completion count is below threshold", () => {
+    const state = freshState(); // fixture absent from state.facilities -> level 0 -> next rung is upgrades[0]
+    state.lifetimeStats = {
+      ...state.lifetimeStats,
+      missionsCompleted: { shortOreRun: new Decimal(THRESHOLD - 1) },
+    };
+    const result = canBuildFacilityUpgrade(state, FIXTURE_KEY);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/completions/);
+  });
+
+  it("ALLOWS the rung once the completion count reaches threshold (mechanism intact)", () => {
+    const state = freshState();
+    state.lifetimeStats = {
+      ...state.lifetimeStats,
+      missionsCompleted: { shortOreRun: new Decimal(THRESHOLD) },
+    };
+    expect(canBuildFacilityUpgrade(state, FIXTURE_KEY).ok).toBe(true);
+  });
+});
+
+describe("dispatchCaptainOnMission — belt-and-suspenders unlock guard (retained for future locked missions)", () => {
+  it("all four missions dispatch at the fresh level-1 seed (capability gates cleared)", () => {
     const state = freshState();
     state.fuel = new Decimal(1_000_000); // rule out the fuel gate -- isolate the unlock gate
-    const { next, success } = dispatchCaptainOnMission(state, state.captains[0].id, "salvageWreckage");
+    // Salvage/Forage carry CAPABILITY gates (captain level 2/3) that are SEPARATE from the
+    // unlock and deliberately kept -- bump the captain past them so this test isolates the
+    // UNLOCK behavior (that all four are unlockLevel 1). The Freighter's cargo 90 already
+    // meets salvage/forage's requiresCargoCapacity 90.
+    state.captains[0] = { ...state.captains[0], level: 5 };
+    for (const key of ["shortOreRun", "longOreRun", "salvageWreckage", "forageFlora"] as const) {
+      // Each call reads the SAME idle `state` (dispatch is pure -- returns a new `next`,
+      // never mutates `state`), so the captain stays idle across the loop.
+      const { success } = dispatchCaptainOnMission(state, state.captains[0].id, key);
+      expect(success, key).toBe(true);
+    }
+  });
+
+  it("still BLOCKS a mission whose unlockLevel exceeds the facility level (guard mechanism intact)", () => {
+    const state = freshState();
+    state.fuel = new Decimal(1_000_000);
+    // Drop missionControl BELOW the ore runs' unlockLevel 1 -> they become locked, exercising
+    // the exact missionUnlocked guard a FUTURE higher-unlockLevel mission (paired with a
+    // re-added unlock rung) will hit. This proves the level-derived lock path still works
+    // even though no CURRENT mission triggers it.
+    state.facilities = { ...state.facilities, missionControl: { level: 0 } };
+    const { next, success, reason } = dispatchCaptainOnMission(state, state.captains[0].id, "shortOreRun");
     expect(success).toBe(false);
+    expect(reason).toBe("locked");
     expect(next).toBe(state); // same reference on failure
-  });
-
-  it("allows dispatch of a locked mission once missionControl reaches level 2", () => {
-    const state = freshState();
-    state.fuel = new Decimal(1_000_000);
-    state.facilities = { ...state.facilities, missionControl: { level: 2 } };
-    // Task 7: Salvage now also requires captain level 2 (a modest capability gate on top
-    // of the unlock). This test isolates the UNLOCK gate, so clear the new level gate by
-    // bumping the fresh level-1 captain -- the Freighter's cargo 90 already meets salvage's
-    // requiresCargoCapacity 90. (Requirement gates get their own coverage in
-    // dispatch-requirements.test.ts.)
-    state.captains[0] = { ...state.captains[0], level: 2 };
-    const { success } = dispatchCaptainOnMission(state, state.captains[0].id, "salvageWreckage");
-    expect(success).toBe(true);
-  });
-
-  it("still allows the ore runs at the fresh level-1 seed (no regression)", () => {
-    const state = freshState();
-    state.fuel = new Decimal(1_000_000);
-    const { success } = dispatchCaptainOnMission(state, state.captains[0].id, "shortOreRun");
-    expect(success).toBe(true);
   });
 });

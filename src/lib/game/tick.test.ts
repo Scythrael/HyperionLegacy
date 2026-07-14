@@ -880,12 +880,11 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
   it("a full salvageWreckage cycle on a COMMON roll lands scrapAlloy in inventory", () => {
     const base = freshState();
     base.fuel = new Decimal(1_000_000); // Task 5: fund the dispatch + auto-repeats (fuel-rich, so mission behavior is unchanged)
-    // Task 6: salvageWreckage is unlockLevel 2, but freshState seeds missionControl at
-    // level 1 -- so raise it to level 2 here to clear the new dispatch UNLOCK gate.
-    // This test is about LOOT DELIVERY, not the unlock mechanic (covered in
-    // mission-control.test.ts); the seed just satisfies the precondition.
-    base.facilities = { ...base.facilities, missionControl: { level: 2 } };
-    // Task 7: salvageWreckage also now requires captain level 2 (a modest capability
+    // USER REVISION 2026-07-14: salvageWreckage is now unlockLevel 1, so freshState's
+    // level-1 missionControl seed already UNLOCKS it -- no facility bump needed (the
+    // unlock upgrade was deferred). This test is about LOOT DELIVERY, not the unlock
+    // mechanic (covered in mission-control.test.ts).
+    // Task 7: salvageWreckage still requires captain level 2 (a kept CAPABILITY
     // gate). This test's fresh captain is level 1, so bump them to clear that new gate
     // too -- the test is about LOOT DELIVERY, not the requirement mechanic (covered in
     // dispatch-requirements.test.ts). The default General Freighter's cargo 90 already
