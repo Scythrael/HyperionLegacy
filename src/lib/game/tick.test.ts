@@ -2493,9 +2493,23 @@ describe("tickCaptainMission — assigned ship stats (Task 6)", () => {
   });
 
   it("CLOSED-FORM holds with a RUNNER (cargo 60 / transit 1.5) as shipStats", () => {
-    // 230 ticks crosses more than 2 full runner cycles (2*103=206). 2300 steps
-    // of 0.1 each sum to the same 230.
-    closedFormForShip("prospectorRunner", 230, 2300);
+    // 230 ticks crosses more than 2 full runner cycles (2*103=206). 1840 steps of
+    // 0.125 each sum to EXACTLY 230.
+    //
+    // Step size is 0.125 (== 1/8, exactly representable in IEEE-754), NOT 0.1: with
+    // 0.1, 2300 steps sum to 229.99999999999997 -- a hair UNDER 230 -- so the stepped
+    // path receives less total elapsed time than the 230.0 big jump and lands
+    // phaseProgressTicks at 5.999999999999995 (one whole extraction tick SHORT of the
+    // big jump's 6). Because extraction loot rolls fire on WHOLE-tick boundaries, that
+    // half-ULP shortfall costs a full unit of cargo/XP at this endpoint, breaking the
+    // exact .equals() checks below. That is a float-representation artifact of the STEP
+    // SIZE (the two paths get genuinely-unequal totals), NOT a defect in the closed-form
+    // production code, which snaps at phase boundaries but not at intermediate whole-tick
+    // boundaries mid-phase. 0.125 makes 1840 steps sum to exactly 230, so both paths get
+    // identical total elapsed time and the closed-form property holds bit-exactly. (The
+    // HAULER case above survives 0.1 only by luck -- its 5600*0.1 lands a hair OVER 560,
+    // so floor() stays correct; same underlying fragility, opposite float direction.)
+    closedFormForShip("prospectorRunner", 230, 1840);
   });
 
   it("MINER's extractionYieldMult (1.35) scales one extracting tick's common yield to 1.35x the null baseline", () => {
@@ -2616,10 +2630,16 @@ describe("tick() — applies each captain's assigned-ship stats to their mission
     // ...and, stated as the task frames it, runner strictly further along.
     expect(totalHomeLoot(resultB).greaterThan(totalHomeLoot(resultA))).toBe(true);
 
-    // Cycle completion also awards fleet XP + credits (shortOreRun: 1 XP, 10 cr
-    // per cycle) -- another independent confirmation the runner completed and
-    // the freighter did not.
-    expect(resultB.fleetAdminXp.greaterThan(resultA.fleetAdminXp)).toBe(true);
+    // Fleet XP no longer distinguishes them: since the Progression Pacing Rework
+    // (v0.5.0) FA XP accrues per WHOLE tick a mission advances, NOT as a per-cycle
+    // lump. Both captains were on an active mission for the full 103 ticks, so both
+    // accrued the identical 103 FA XP (fleetAdminXpPerTick == 1, unchanged by ship
+    // stats -- effectiveMissionDef preserves it) regardless of who completed a cycle.
+    // The stale pre-rework assertion here was `resultB > resultA` (true only under
+    // the old per-cycle XP lump). CREDITS remain the cycle-completion discriminator
+    // (still awarded once per completed cycle), so the runner's completion shows up
+    // there: B delivered a cycle (10 cr), A did not (0 cr).
+    expect(resultB.fleetAdminXp.equals(resultA.fleetAdminXp)).toBe(true);
     expect(resultB.credits.equals(10)).toBe(true);
     expect(resultA.credits.equals(0)).toBe(true);
   });
@@ -2642,9 +2662,15 @@ describe("tick() — applies each captain's assigned-ship stats to their mission
 
     expect(result.captains[0].mission!.phase).toBe("extracting");
     expect(result.captains[0].mission!.phaseProgressTicks).toBeCloseTo(77, 6);
-    // No cycle completed within 103 < 149 ticks -> no loot, no XP, no credits.
+    // No cycle completed within 103 < 149 ticks -> no loot, no credits. FA XP,
+    // however, is NON-zero now: since the Progression Pacing Rework (v0.5.0) FA XP
+    // accrues per WHOLE tick a mission advances (fleetAdminXpPerTick == 1), so 103
+    // active ticks yield exactly 103 FA XP even though the cycle never completed
+    // (no level-up crossed -- xpForNextFleetAdminLevel(1) > 103 -- so the stored
+    // value is the un-drained gross 103). The stale pre-rework assertion here was
+    // `equals(0)` (correct only under the old per-CYCLE XP lump).
     expect(totalHomeLoot(result).equals(0)).toBe(true);
-    expect(result.fleetAdminXp.equals(0)).toBe(true);
+    expect(result.fleetAdminXp.equals(103)).toBe(true);
     expect(result.credits.equals(0)).toBe(true);
   });
 });

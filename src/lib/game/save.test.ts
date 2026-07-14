@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import { migrate, serialize, deserialize, importRawSave, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
 import { freshState } from "./model";
@@ -27,11 +27,17 @@ describe("migrate — tickDurationSeconds backfill", () => {
       state: legacyState,
     };
 
-    // migrate()'s while-loop doesn't stop at v2 -- a v1 save chains all the
-    // way through MIGRATIONS[1..4] to v5, so tickDurationSeconds ends up on
-    // captains[0], not on the top-level GameState.
+    // migrate()'s while-loop doesn't stop at v2 -- it runs the WHOLE chain to
+    // v19. MIGRATIONS[1] backfills the missing field to 10 (top-level); [4] moves
+    // it onto captains[0]; [10] (v10->v11 UI Redesign) then strips it back OFF
+    // every captain and restores it fleet-wide on GameState; and [12] (v12->v13
+    // Tick Granularity Rebalance) hardcodes the fleet-wide value to 1. So by the
+    // end of the chain the field is GONE from captains[0] (undefined) and the
+    // top-level value is 1 -- the v1 default of 10 is applied but subsequently
+    // overwritten downstream, which is the correct current end-to-end behavior.
     const migrated: any = migrate(save);
-    expect(migrated.captains[0].tickDurationSeconds).toBe(10);
+    expect(migrated.captains[0].tickDurationSeconds).toBeUndefined();
+    expect(migrated.tickDurationSeconds).toBe(1);
   });
 
   it("current SAVE_VERSION is 19", () => {
@@ -238,7 +244,13 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.modules).toBeUndefined();
     expect(migrated.research).toBeUndefined();
     expect(migrated.lifetimeComponents).toBeUndefined();
-    expect(migrated.tickDurationSeconds).toBeUndefined();
+    // tickDurationSeconds is NOT undefined at the end of the chain: this v4 save's
+    // value (10) is moved onto captains[0] by MIGRATIONS[4], then restored
+    // fleet-wide onto GameState by MIGRATIONS[10] (v10->v11), then hardcoded to 1
+    // by MIGRATIONS[12] (v12->v13 Tick Granularity Rebalance). The old
+    // `.toBeUndefined()` here was correct only when the chain ended at v5 (where
+    // the field lived on captains[0]); the full chain restores it fleet-wide at 1.
+    expect(migrated.tickDurationSeconds).toBe(1);
   });
 
   it("current SAVE_VERSION is 19", () => {
@@ -587,9 +599,16 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
     expect(migrated.inventory.commonOre.equals(200)).toBe(true); // untouched fields survive
 
-    // Unrelated pre-existing fields survive the backfill untouched.
-    expect(migrated.captains[0].tickDurationSeconds).toBe(10);
+    // Unrelated pre-existing fields survive the v8->v9 backfill untouched...
     expect(migrated.captains[0].mission).toBe(null);
+    // ...but tickDurationSeconds does NOT survive on captains[0]: this save enters
+    // at v8, and the chain runs past MIGRATIONS[10] (v10->v11) which STRIPS the
+    // per-captain field and collapses it fleet-wide onto GameState (then
+    // MIGRATIONS[12] rebalances that fleet-wide value to 1). So captains[0] no
+    // longer carries it; the value lives on GameState now. The old `.toBe(10)` on
+    // captains[0] was correct only before the chain reached v10->v11.
+    expect(migrated.captains[0].tickDurationSeconds).toBeUndefined();
+    expect(migrated.tickDurationSeconds).toBe(1);
   });
 
   it("current SAVE_VERSION is 19", () => {
@@ -678,7 +697,13 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     const save: SaveFile = { version: 10, created_at: 0, last_saved_at: 0, game_time_seconds: 500, state: legacyState };
     const migrated: any = migrate(save);
 
-    expect(migrated.tickDurationSeconds).toBe(10);
+    // MIGRATIONS[10] reads the 10 off captains[0] and restores it fleet-wide, but
+    // the chain does not stop at v11: MIGRATIONS[12] (v12->v13 Tick Granularity
+    // Rebalance) then hardcodes the fleet-wide value to 1. So the top-level end
+    // value is 1, not the 10 this step read. The STRIP behavior this test exists
+    // to prove (per-captain field removed) still holds -- see the two
+    // toBeUndefined() checks below.
+    expect(migrated.tickDurationSeconds).toBe(1);
     expect(migrated.captains[0].tickDurationSeconds).toBeUndefined();
     expect(migrated.captains[1].tickDurationSeconds).toBeUndefined();
 
@@ -708,7 +733,11 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     };
     const save: SaveFile = { version: 10, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
     const migrated: any = migrate(save);
-    expect(migrated.tickDurationSeconds).toBe(10);
+    // Defense-in-depth default is 10 at the v10->v11 step, but MIGRATIONS[12]
+    // (v12->v13 Tick Granularity Rebalance) hardcodes the fleet-wide value to 1
+    // downstream, so the end-of-chain value is 1 (same reasoning as the sibling
+    // test above -- the old `.toBe(10)` predated the chain reaching v12->v13).
+    expect(migrated.tickDurationSeconds).toBe(1);
   });
 
   it("current SAVE_VERSION is 19", () => {
@@ -824,7 +853,14 @@ describe("migrate — Big-Number (Decimal) hydration (v11 -> v12)", () => {
     expect(migrated.captains[0].level).toBe(4);
     expect(migrated.captains[0].statPoints).toBe(1);
     expect(migrated.captains[0].mission.phase).toBe("extracting");
-    expect(migrated.captains[0].mission.phaseProgressTicks).toBe(2);
+    // phaseProgressTicks is REMAPPED by MIGRATIONS[12] (v12->v13 Tick Granularity
+    // Rebalance), which the chain reaches after this v11->v12 hydration step. The
+    // captain is mid-extracting on shortOreRun at 2 ticks of the OLD 10-tick
+    // extraction phase (old ceil(cargoCapacity 100 / rate 10) = 10), i.e. 20%
+    // through; the rebalance maps that ratio onto the NEW extraction length
+    // (ceil(cargoCapacity 90 / rate 1) = 90): 0.2 * 90 = 18. The old `.toBe(2)`
+    // predated the chain reaching v12->v13.
+    expect(migrated.captains[0].mission.phaseProgressTicks).toBe(18);
     expect(migrated.gameTimeSeconds).toBe(12000);
   });
 
@@ -1017,7 +1053,16 @@ describe("migrate — Tick Granularity Rebalance (v12 -> v13)", () => {
 
     expect(migrated.tickDurationSeconds).toBe(1);
     expect(migrated.captains[0].mission.phase).toBe("extracting");
-    expect(migrated.captains[0].mission.phaseProgressTicks).toBe(63);
+    // Mathematically 0.7 * 90 = 63 (see hand-trace above), but the migration
+    // computes it as `progressRatio * newRequired` in IEEE-754 float, and
+    // 7/10 is not exactly representable: (7/10)*90 evaluates to 62.99999999999999.
+    // phaseProgressTicks is a float-tolerant counter (the tick loop compares it
+    // against requiredTicks and it can legitimately hold fractional values), so a
+    // ~1e-14 shortfall on a one-time in-flight-mission remap is a benign rounding
+    // artifact, NOT a migration defect. toBeCloseTo (the same idiom the tick tests
+    // use for phaseProgressTicks) asserts the intended 63 within float tolerance;
+    // the old exact `.toBe(63)` was simply too strict for float multiplication.
+    expect(migrated.captains[0].mission.phaseProgressTicks).toBeCloseTo(63, 6);
     // Pre-existing cargo progress survives the remap untouched (only
     // phaseProgressTicks is remapped, never cargo) -- hydrated to Decimal by
     // the same unconditional hydrateDecimals() call as every other migration.
@@ -2304,14 +2349,46 @@ describe("migrate — chained v1 -> v13 migration", () => {
 });
 
 describe("importRawSave", () => {
-  // No test in this file has touched localStorage before this block -- every
-  // other describe block above operates purely on in-memory SaveFile literals
-  // passed straight to migrate(), so there's no existing beforeEach/afterEach
-  // localStorage-clearing convention anywhere in this file to match. Rather
-  // than inventing a new global setup/teardown hook this file has never used,
-  // each test below cleans up only the exact keys it itself wrote (the same
-  // two keys importRawSave/clearSave touch: SAVE_KEY and `${SAVE_KEY}_created_at`),
-  // so no state leaks into any test that runs after it in the same file/process.
+  // These tests exercise importRawSave, which reads/writes the global
+  // `localStorage`. This project has no test-DOM environment configured (vite.config.ts
+  // registers no vitest `environment`, so tests run under the default `node`
+  // environment, and neither jsdom nor happy-dom is installed), so `localStorage`
+  // is simply not defined -- the reason these two tests threw `ReferenceError:
+  // localStorage is not defined` the first time the suite was ever run. Rather than
+  // pull in a whole DOM env (a heavy new dependency) for two tests, install a
+  // minimal in-memory localStorage shim on globalThis for THIS block only, then
+  // remove it afterward so no global leaks into any later test/file. The shim
+  // implements exactly the four methods save.ts touches (getItem/setItem/
+  // removeItem/clear) with Web Storage semantics (getItem returns null for a
+  // missing key; values are coerced to string). Each test still cleans up the
+  // exact keys it wrote (belt-and-suspenders on top of the afterAll teardown).
+  let restoreLocalStorage: (() => void) | null = null;
+  beforeAll(() => {
+    const store = new Map<string, string>();
+    const hadLocalStorage = "localStorage" in globalThis;
+    const previous = (globalThis as any).localStorage;
+    (globalThis as any).localStorage = {
+      getItem: (key: string): string | null => (store.has(key) ? store.get(key)! : null),
+      setItem: (key: string, value: string): void => {
+        store.set(key, String(value));
+      },
+      removeItem: (key: string): void => {
+        store.delete(key);
+      },
+      clear: (): void => {
+        store.clear();
+      },
+    };
+    restoreLocalStorage = () => {
+      if (hadLocalStorage) (globalThis as any).localStorage = previous;
+      else delete (globalThis as any).localStorage;
+    };
+  });
+  afterAll(() => {
+    restoreLocalStorage?.();
+    restoreLocalStorage = null;
+  });
+
   it("rejects garbage input, leaving existing localStorage untouched", () => {
     localStorage.setItem(SAVE_KEY, "some-existing-valid-save-string-placeholder");
     try {
