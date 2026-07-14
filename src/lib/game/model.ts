@@ -285,8 +285,9 @@ export const MISSIONS: Record<
     cargoCapacity: 90,
     uncommonChance: 0.08, // was lootTable weight 80/1000 (8%)
     rareChance: 0.02, // was lootTable weight 20/1000 (2%)
-    // REWIRED (design §1): the Lunar Mine now yields the Ferrite/Cobalt/Osmium
-    // triad instead of the ore keys. Its auto-stop now gates on ferriteOre.
+    // REWIRED (design §1): the Lunar Mine now yields the Titanium/Cobalt/Osmium
+    // triad (fuel-v2 F1 renamed the `ferriteOre` label to "Titanium") instead of the
+    // ore keys. Its auto-stop still gates on the `ferriteOre` key (unchanged).
     lootTable: { common: "ferriteOre", uncommon: "cobaltOre", rare: "osmiumOre" },
     primaryMaterial: "ferriteOre", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
@@ -1221,16 +1222,18 @@ export interface ItemDef {
 export const ITEMS: Record<string, ItemDef> = {
   // --- Raw loot (mission extraction output; keyed as LootMaterialKey) ---
   commonOre: {
-    // Provisional in-fiction name for the common ore tier (id kept `commonOre`
-    // -- label is display-only, no save migration; see design §3.4).
-    label: "Titanium Ore",
+    // Fuel Economy v2 (design §1): the Local Asteroid run's common drop is the
+    // fleet's FTL fuel source, "Deuterium Ice". The item id stays `commonOre` --
+    // the label is display-only, so this rename needs NO save migration. (F2 wires
+    // the Deuterium-Ice -> fuel refine recipe; the label already reads for that role.)
+    label: "Deuterium Ice",
     category: "raw",
     tier: 1,
     rarity: "common",
     // The guaranteed common-tier fallback drop on every extraction tick (see
-    // tick.ts's rollExtractionTick) of either ore run.
-    unlockHint: "Mined on the Local Asteroid run.",
-    flavor: "Unremarkable rock hauled up by the ton -- the backbone of every refinery run.",
+    // tick.ts's rollExtractionTick) of the Local Asteroid run.
+    unlockHint: "Chipped from the Local Asteroid run -- the fleet's raw FTL fuel stock.",
+    flavor: "Dirty water-ice threaded with deuterium, carved out of the asteroid by the ton -- cook it down and it runs the FTL drives.",
   },
   uncommonMaterial: {
     // Provisional in-fiction name for the uncommon ore tier (id kept
@@ -1264,9 +1267,12 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "uncommon",
     // Output of both the instant RECIPES.refineUnobtainium craft and the timed
-    // REFINE_RECIPES.refineCommonOre job, each consuming Common Ore at the Refinery.
-    unlockHint: "Refined from Titanium Ore at the Refinery.",
-    flavor: "Titanium ore cooked down to a workable ingot. The first rung of the production ladder.",
+    // REFINE_RECIPES.refineCommonOre job, each consuming `commonOre` (Deuterium Ice)
+    // at the Refinery. (F1 label swap: the source now reads "Deuterium Ice", not
+    // "Titanium Ore". The ice->ingot flavor is a pre-existing coherence quirk left
+    // for F2's refinery/recipe rework -- F1 is label-only.)
+    unlockHint: "Refined from Deuterium Ice at the Refinery.",
+    flavor: "Deuterium ice cooked down to a workable ingot. The first rung of the production ladder.",
   },
   components: {
     label: "Components",
@@ -1307,12 +1313,16 @@ export const ITEMS: Record<string, ItemDef> = {
 
   // RAW -- future ore/salvage/forage mission loot (3 tiers per mission).
   ferriteOre: {
-    label: "Ferrite Ore",
+    // Fuel Economy v2 (design §1): label-only rename to "Titanium" -- the Lunar Mine
+    // Contract's common structural metal. The item id stays `ferriteOre`, so this is
+    // display-only with NO save migration. (This entry is now genuinely obtainable
+    // via the longOreRun triad, Task 1 -- despite the older scaffold header above.)
+    label: "Titanium",
     category: "raw",
     tier: 1,
     rarity: "common",
     unlockHint: "Mined on the Lunar Mine Contract.",
-    flavor: "A dull, iron-rich rock -- plentiful once the lunar contract opens up.",
+    flavor: "A tough, lightweight structural metal drawn from the lunar seams -- plentiful once the mining contract opens up.",
   },
   cobaltOre: {
     label: "Cobalt Ore",

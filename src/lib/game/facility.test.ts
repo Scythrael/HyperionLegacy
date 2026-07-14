@@ -58,7 +58,7 @@ describe("canBuildFacilityUpgrade — fresh refinery (level 0, the build/unlock 
     const state = stateWith({ inventory: { commonOre: 99 } }); // needs 100
     const result = canBuildFacilityUpgrade(state, "refinery");
     expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/Titanium Ore/); // ITEMS.commonOre.label (renamed from "Common Ore")
+    expect(result.reason).toMatch(/Deuterium Ice/); // ITEMS.commonOre.label (fuel-v2 F1 rename; was "Titanium Ore")
     expect(result.reason).toMatch(/100/); // the needed amount
   });
 });

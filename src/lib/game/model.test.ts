@@ -835,6 +835,22 @@ describe("ITEMS — Phase 1 seed registry", () => {
     expect(ITEMS.components.category).toBe("refined");
   });
 
+  // Fuel Economy v2 (F1, docs/plans/2026-07-14-fuel-economy-v2-design.md §1):
+  // LABEL-ONLY renames of two mission-common raw materials. The item KEYS are kept
+  // (`commonOre`/`ferriteOre`) so NO save migration is needed -- only the display
+  // label (+ its flavor/unlockHint) changes. `commonOre` becomes "Deuterium Ice"
+  // (Local Asteroid's common -- the icy FTL fuel source refined into fuel in F2);
+  // `ferriteOre` becomes "Titanium" (Lunar Mine's common structural metal). This
+  // pins the new labels so a later edit can't silently revert them, and asserts the
+  // original keys still resolve (proving the rename is display-only, not a re-key).
+  it("fuel-v2 renamed labels: commonOre = Deuterium Ice, ferriteOre = Titanium (keys unchanged)", () => {
+    expect(ITEMS.commonOre.label).toBe("Deuterium Ice");
+    expect(ITEMS.ferriteOre.label).toBe("Titanium");
+    // Keys are stable (no migration): the entries still exist under their original ids.
+    expect(ITEMS.commonOre).toBeDefined();
+    expect(ITEMS.ferriteOre).toBeDefined();
+  });
+
   // Phase 2, Task B2: the T2 stub ore is the FIRST tier-2 item in the registry. It
   // must be a real, fully-described catalog entry (so it shows as ❓ + hint in the
   // Warehouse) but produced by NOTHING this phase -- the honest "future content"

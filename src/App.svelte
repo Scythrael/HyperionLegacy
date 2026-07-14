@@ -3764,7 +3764,7 @@
           {@const effectiveBonusRollChance = Math.min(1, bonusRollChance * (1 + bonusRollChanceMult))}
           <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
                lootTable) -- read the real item keys so the popup reports each
-               mission's own drops (Ferrite/Cobalt/Osmium for Lunar Mine, Scrap
+               mission's own drops (Titanium/Cobalt/Osmium for Lunar Mine, Scrap
                Alloy/Salvaged Circuitry/Intact Reactor Core for Salvage, etc.), not
                the hardcoded ore labels. -->
           {@const loot = missionDef.lootTable}
