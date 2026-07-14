@@ -292,6 +292,44 @@ describe("economyTick integration — continuous runs until stopped", () => {
   });
 });
 
+describe("D2 cancellation semantics — stopping a batch commits the in-flight job, drops the rest", () => {
+  it("a batch of 100 stopped after the first job starts yields exactly 1 (design §4.3 'stop after the first → you get 1')", () => {
+    // 1 slot => one job at a time; a batch of 100 with ample ore. This is the exact
+    // scenario the Stop button drives: stopRefineOrder clears the queued ORDER but
+    // never the active TimedProcess, so the one job already in flight commits and
+    // completes normally, and no 2nd job ever starts.
+    const state = orderState({
+      commonOre: 20_000, // enough for 100 jobs -- proves the CAP is the stop, not the ore
+      refineryLevel: 1,
+      order: { recipeKey: "refineCommonOre", mode: { kind: "batch", remaining: 100 } },
+    });
+
+    // One tick: the first job starts (100 ore deducted), batch decremented to 99,
+    // job in flight (10-tick duration) -- nothing completed yet.
+    const afterOneTick = economyTick(state, 1);
+    expect(afterOneTick.activeProcesses.filter((p) => p.kind === "refineJob")).toHaveLength(1);
+    expect(afterOneTick.inventory.commonOre.toString()).toBe("19900"); // 20000 - 100
+    expect(afterOneTick.refineOrder).toEqual({
+      recipeKey: "refineCommonOre",
+      mode: { kind: "batch", remaining: 99 },
+    });
+
+    // Stop the order (the Stop button's exact call): the queue is dropped, but the
+    // in-flight job is a committed process and is untouched.
+    const stopped = stopRefineOrder(afterOneTick);
+    expect(stopped.refineOrder).toBeNull();
+    expect(stopped.activeProcesses.filter((p) => p.kind === "refineJob")).toHaveLength(1); // still committed
+
+    // Step well past the committed job's completion: it finishes (1 output), and
+    // because the order is gone, NO further job starts -- exactly 1, not 100.
+    const settled = stepTicks(stopped, 30);
+    expect(settled.inventory.refinedMaterial.toString()).toBe("1"); // only the committed job
+    expect(settled.inventory.commonOre.toString()).toBe("19900"); // no further ore consumed
+    expect(settled.activeProcesses).toHaveLength(0); // nothing new started after stop
+    expect(settled.refineOrder).toBeNull();
+  });
+});
+
 describe("offline == stepped — an order rides the economyTick seam identically (coupled-offline proof)", () => {
   it("tick(bigSpan) equals looping economyTick(_,1): commonOre, refinedMaterial, processes, and refineOrder all match", () => {
     // A continuous order with 350 ore (exactly 3 jobs, then noInput) on a 1-slot

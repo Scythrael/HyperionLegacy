@@ -86,6 +86,10 @@
     // metadata (rarity/tier/unlockHint/label) the fill-tiles + tooltip read.
     type ItemCategory,
     type ItemDef,
+    // Phase 2 (Task D4): the batch|continuous discriminated union, imported to
+    // type the pending-order descriptor the confirmation modal holds between
+    // "player clicked Refine" and "player confirmed" (see pendingRefineOrder).
+    type RefineOrderMode,
   } from "./lib/game/model";
   import {
     tick,
@@ -124,6 +128,14 @@
     startRefineJob,
     canBuildFacilityUpgrade,
     startFacilityUpgrade,
+    // Phase 2 (Task D4) -- the two PURE refine-ORDER actions the Refinery's
+    // Orders sub-tab wires up. startRefineOrder(state, recipeKey, mode) installs
+    // the standing batch/continuous order; stopRefineOrder(state) clears it (the
+    // in-flight job commits -- design §4.3). The per-tick engine that drains the
+    // order (processRefineOrder) already runs inside economyTick; the UI only
+    // sets/clears the order and reads state.refineOrder for live status.
+    startRefineOrder,
+    stopRefineOrder,
     // Phase 2 (Warehouse UI, Group C) -- the two PURE cap-reader fns the
     // Warehouse fill-tiles + Overview read. tierCap(state, tier) => the CURRENT
     // per-item storage cap for a warehouse tier (derived from its facility
@@ -158,6 +170,7 @@
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave, importRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
+  import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
 
   // DEV_MODE — Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
@@ -223,6 +236,12 @@
   let createdAt = Date.now();
   let currentTheme: ThemeName = "cyan";
   let tickBarEnabled = true;
+  // Phase 2 (Task D3): whether the "are you sure you wish to refine this item?"
+  // confirmation modal is shown before starting a refine order. Persisted in
+  // localStorage (loadRefineConfirmEnabled), NOT on GameState -- exactly like
+  // tickBarEnabled above, so it survives a delete-save and needs no save
+  // migration. Loaded in onMount alongside tickBarEnabled; default TRUE.
+  let refineConfirmEnabled = true;
   let deleteModalOpen = false;
   let deleteConfirmText = "";
 
@@ -527,13 +546,32 @@
   // either change (the initial null -> null run is harmless).
   $: activeWarehouseCat, activeFacility, hideWarehouseTooltip();
 
-  // The Refinery's two sub-tabs: Overview (level + refine slots + active jobs +
-  // Start Refine Job) and Upgrades (the next upgrade rung's material/prereq
-  // readiness + Build). Defaults to Overview since running refine jobs is the
-  // more common day-to-day action than buying the occasional upgrade -- the same
-  // "default to the commonly-checked view" reasoning the other sub-tab groups use.
-  type RefinerySubTab = "overview" | "upgrades";
+  // The Refinery's three sub-tabs: Overview (level + refine slots + active jobs +
+  // one-shot Start Refine Job), Orders (Phase 2 Task D4 -- the batch/continuous
+  // ORDER management view, design §4.4's dedicated refinery management view), and
+  // Upgrades (the next upgrade rung's material/prereq readiness + Build). Defaults
+  // to Overview since running refine jobs is the more common day-to-day action
+  // than buying the occasional upgrade -- the same "default to the commonly-checked
+  // view" reasoning the other sub-tab groups use.
+  type RefinerySubTab = "overview" | "orders" | "upgrades";
   let activeRefinerySubTab: RefinerySubTab = "overview";
+
+  // Phase 2 (Task D4): the Orders sub-tab's batch-count input (N for "Refine N").
+  // Defaults to 10 -- a reasonable first batch, not a placeholder for "empty".
+  // Floored + gated to an integer >= 1 in the handler (see requestStartRefineOrder)
+  // so a blank/fractional/zero entry can never install a malformed batch order.
+  let refineBatchCount = 10;
+
+  // Phase 2 (Task D3): the confirmation-modal handshake. When the player clicks
+  // "Refine N" / "Refine continuously" AND refineConfirmEnabled is on, we stash the
+  // about-to-start order in pendingRefineOrder and open the modal instead of
+  // starting immediately; Confirm reads pendingRefineOrder to start it (and, if the
+  // don't-show-again box is ticked, disables the pref). Cancel drops it. Null when
+  // no confirmation is pending. Same "state near the modal flag" pattern as
+  // deleteModalOpen/deleteConfirmText.
+  let refineConfirmModalOpen = false;
+  let refineConfirmDontShowAgain = false;
+  let pendingRefineOrder: { recipeKey: string; mode: RefineOrderMode } | null = null;
 
   // Ship assign/swap picker modals (Ships — Stats Foundation, Task 11 UI) --
   // mirrors the Fleet Operations mission popup's missionPopupKey/
@@ -734,6 +772,7 @@
     currentTheme = loadTheme();
     document.documentElement.dataset.theme = currentTheme;
     tickBarEnabled = loadTickBarEnabled();
+    refineConfirmEnabled = loadRefineConfirmEnabled();
 
     const loadedSave = loadFromLocalStorage();
     if (loadedSave) {
@@ -992,6 +1031,88 @@
     const outputId = REFINE_RECIPES[recipeKey].output.itemId;
     const outputLabel = ITEMS[outputId]?.label ?? outputId;
     pushLog(`Refine job started → [${outputLabel}].`);
+    doSave();
+  }
+
+  // ── Refine ORDERS (Phase 2, Tasks D3/D4) ──────────────────────────────────
+  // The batch/continuous standing-order layer on top of doStartRefineJob above.
+  //
+  // requestStartRefineOrder is the SINGLE entry point both order buttons call. It
+  // builds the RefineOrderMode, then EITHER (confirmation on) stashes it and opens
+  // the modal, OR (confirmation off) starts it straight away. Splitting "decide the
+  // mode" from "actually start" (doStartRefineOrder) is what lets the modal's
+  // Confirm reuse the exact same start path without rebuilding the mode.
+  function requestStartRefineOrder(recipeKey: string, kind: "batch" | "continuous") {
+    // Build + VALIDATE the mode. A batch floors the input to an integer >= 1 so a
+    // blank/fractional/zero/negative entry can never install a malformed order
+    // (processRefineOrder clears a batch at remaining <= 0, so remaining 0 would be
+    // an instantly-dead order). Continuous carries no count. The "Refine N" button
+    // is also disabled when the count is invalid (refineBatchValid), so this guard
+    // is belt-and-suspenders -- but it keeps the handler correct on its own.
+    let mode: RefineOrderMode;
+    if (kind === "batch") {
+      const n = Math.floor(refineBatchCount);
+      if (!Number.isFinite(n) || n < 1) return; // invalid batch -> no-op
+      mode = { kind: "batch", remaining: n };
+    } else {
+      mode = { kind: "continuous" };
+    }
+
+    if (refineConfirmEnabled) {
+      // Confirmation on -> hold the order, open the modal (Confirm starts it).
+      pendingRefineOrder = { recipeKey, mode };
+      refineConfirmDontShowAgain = false; // fresh checkbox each time the modal opens
+      refineConfirmModalOpen = true;
+    } else {
+      // Confirmation off -> start immediately.
+      doStartRefineOrder(recipeKey, mode);
+    }
+  }
+
+  // Actually installs the standing order via the pure backend fn, logs it, saves.
+  // Called by requestStartRefineOrder (confirmation off) OR confirmRefineOrder
+  // (confirmation accepted). startRefineOrder REPLACES any existing order wholesale
+  // (last write wins) -- jobs the previous order already started stay in flight
+  // (they are committed processes), matching the backend's documented semantics.
+  function doStartRefineOrder(recipeKey: string, mode: RefineOrderMode) {
+    state = startRefineOrder(state, recipeKey, mode);
+    const outputId = REFINE_RECIPES[recipeKey]?.output.itemId ?? recipeKey;
+    const outputLabel = ITEMS[outputId]?.label ?? outputId;
+    const desc = mode.kind === "batch" ? `batch of ${mode.remaining}` : "continuous";
+    pushLog(`Refine order started (${desc}) → [${outputLabel}].`);
+    doSave();
+  }
+
+  // Modal Confirm: if the don't-show-again box was ticked, disable the pref FIRST
+  // (persist it exactly like tickBarEnabled), then start the held order and close.
+  // Guards on pendingRefineOrder being set (it always is when the modal is open,
+  // but the null-check keeps TS happy and is defensive).
+  function confirmRefineOrder() {
+    if (pendingRefineOrder === null) return;
+    if (refineConfirmDontShowAgain) {
+      refineConfirmEnabled = false;
+      saveRefineConfirmEnabled(false);
+    }
+    doStartRefineOrder(pendingRefineOrder.recipeKey, pendingRefineOrder.mode);
+    refineConfirmModalOpen = false;
+    pendingRefineOrder = null;
+  }
+
+  // Modal Cancel: drop the held order, close, reset the checkbox. Starts nothing.
+  function cancelRefineOrder() {
+    refineConfirmModalOpen = false;
+    pendingRefineOrder = null;
+    refineConfirmDontShowAgain = false;
+  }
+
+  // Stop the standing order (design §4.3): clears state.refineOrder so no NEW job
+  // starts; any in-flight refine job COMMITS and completes normally (stopRefineOrder
+  // never touches activeProcesses). Same "same reference on no-op" convention as
+  // the backend -- so pushing a log line only when an order was actually cleared.
+  function doStopRefineOrder() {
+    if (state.refineOrder === null) return;
+    state = stopRefineOrder(state);
+    pushLog("Refine order stopped. In-flight job will finish; queue dropped.");
     doSave();
   }
 
@@ -1380,6 +1501,37 @@
     (state.inventory[itemId] ?? new Decimal(0)).gte(refineRecipe.input[itemId])
   );
   $: refineCanStart = refineHasFreeSlot && refineAffordable;
+
+  // ── Refine ORDER status (Phase 2, Task D4) ────────────────────────────────
+  // All derive off state.refineOrder / refinerySlots, so the Orders sub-tab's
+  // status line + button gates update LIVE as the order progresses, pauses on a
+  // block, or is cleared -- the same reactive-off-state pattern as the gates above.
+
+  // The active standing order, or null. Named so the markup reads it by one name.
+  $: refineOrder = state.refineOrder;
+  // Whether the refinery can accept an order at all: it must be built (>= 1 slot).
+  // Both start buttons gate on this; at 0 slots the buttons show the "build it
+  // first" reason, mirroring the one-shot Start Refine Job button's own gate.
+  $: refineryBuilt = refinerySlots > 0;
+  // Batch-count validity: an integer >= 1 (Math.floor tolerates a "10.0"-style
+  // entry; < 1 or NaN/blank is invalid). Gates the "Refine N" button so a bad
+  // count can't be submitted -- the handler re-checks this too (defense in depth).
+  $: refineBatchValid = Number.isFinite(refineBatchCount) && Math.floor(refineBatchCount) >= 1;
+  // Human-readable status of the active order for the Orders sub-tab readout.
+  // Mode line: "Batch — N remaining" / "Continuous". Pause line (design §4.2):
+  // noInput -> out-of-ingredients, outputFull -> storage-full-expand-warehouse.
+  // Empty string when no order is active (the markup shows an idle line instead).
+  $: refineOrderModeLabel = refineOrder
+    ? refineOrder.mode.kind === "batch"
+      ? `Batch — ${refineOrder.mode.remaining} remaining`
+      : "Continuous — runs until stopped"
+    : "";
+  $: refineOrderPauseLabel =
+    refineOrder?.pausedReason === "noInput"
+      ? "⏸ Out of ingredients"
+      : refineOrder?.pausedReason === "outputFull"
+        ? "⏸ Storage full (expand the Warehouse)"
+        : "";
 
   // Next Refinery UPGRADE rung. upgrades[level] is the rung that takes the
   // facility from `level` to `level+1` (so a level-0 refinery's next rung is
@@ -1997,9 +2149,9 @@
             <SubTabs
               tabs={[
                 { key: "overview", label: "Overview" },
+                { key: "orders", label: "Orders" },
                 { key: "upgrades", label: "Upgrades" },
                 { key: "refineryLocked1", label: "Coming Soon!", locked: true },
-                { key: "refineryLocked2", label: "Coming Soon!", locked: true },
               ]}
               active={activeRefinerySubTab}
               onSelect={(key) => (activeRefinerySubTab = key as RefinerySubTab)}
@@ -2077,6 +2229,98 @@
                 >
                   Start Refine Job
                 </button>
+              </Panel>
+            {/if}
+
+            {#if activeRefinerySubTab === "orders"}
+              <!-- ORDERS (Phase 2, Task D4) -- the batch/continuous standing-order
+                   management view (design §4.4). Start a batch (N iterations) or a
+                   continuous order, see the active order's live status + pause
+                   reason, and Stop it. Buttons gate on the refinery being built
+                   (>= 1 slot) and, for batch, a valid count. Reuses .buy-btn /
+                   .dev-btn + the .research-* readout classes, same as Overview. -->
+              <Panel>
+                {@const orderRecipeItemIds = [...Object.keys(refineRecipe.input), refineRecipe.output.itemId]}
+                <div class="panel-title">REFINE ORDERS</div>
+                <div class="research-cost">Refine slots: {activeRefineJobs.length} / {refinerySlots} in use</div>
+
+                <!-- Recipe reminder + live material balances (same bracketed-[Item]
+                     convention the Overview sub-tab uses). -->
+                <div class="research-name">
+                  Refine [{ITEMS[Object.keys(refineRecipe.input)[0]]?.label ?? "?"}] → [{ITEMS[refineRecipe.output.itemId]?.label ?? refineRecipe.output.itemId}]
+                </div>
+                <div class="research-cost">
+                  Cost: {formatNumber(refineRecipe.input[Object.keys(refineRecipe.input)[0]])} [{ITEMS[Object.keys(refineRecipe.input)[0]]?.label ?? "?"}]
+                  · Output: {formatNumber(refineRecipe.output.amount)} [{ITEMS[refineRecipe.output.itemId]?.label ?? refineRecipe.output.itemId}]
+                  · {refineRecipe.durationTicks} ticks each
+                </div>
+                <div class="research-cost">
+                  Materials:
+                  {#each orderRecipeItemIds as itemId, i}
+                    [{ITEMS[itemId]?.label ?? itemId}] {formatNumber(state.inventory[itemId] ?? new Decimal(0))}{i < orderRecipeItemIds.length - 1 ? " · " : ""}
+                  {/each}
+                </div>
+
+                <!-- Live status of the ACTIVE order (design §4.2 pause reasons).
+                     Derived reactively from state.refineOrder so it updates as the
+                     order drains / pauses / clears. Idle line when none is set. -->
+                <div class="mission-card" style="margin-top: 10px;">
+                  {#if refineOrder}
+                    <div class="research-name">Active order: {refineOrderModeLabel}</div>
+                    {#if refineOrderPauseLabel}
+                      <div class="research-readout" style="color: var(--color-danger);">{refineOrderPauseLabel}</div>
+                    {:else}
+                      <div class="research-readout" style="color: var(--color-success);">▶ Running</div>
+                    {/if}
+                  {:else}
+                    <div class="research-readout">No active order. Start a batch or continuous order below.</div>
+                  {/if}
+                </div>
+
+                <!-- Batch: number input + "Refine N". Disabled if the refinery is
+                     unbuilt OR the count is invalid (< 1). -->
+                <div class="dev-row" style="margin-top: 10px; align-items: center;">
+                  <label style="display: inline-flex; align-items: center; gap: 6px;">
+                    Quantity
+                    <input
+                      class="modal-input"
+                      type="number"
+                      min="1"
+                      step="1"
+                      style="width: 90px;"
+                      bind:value={refineBatchCount}
+                      aria-label="Batch quantity"
+                    />
+                  </label>
+                  <button
+                    class="buy-btn"
+                    disabled={!refineryBuilt || !refineBatchValid}
+                    title={!refineryBuilt
+                      ? "Build the Refinery first (see Upgrades)"
+                      : !refineBatchValid
+                        ? "Enter a whole number of 1 or more"
+                        : undefined}
+                    on:click={() => requestStartRefineOrder("refineCommonOre", "batch")}
+                  >
+                    Refine {refineBatchValid ? Math.floor(refineBatchCount) : "N"}
+                  </button>
+                </div>
+
+                <!-- Continuous + Stop. Continuous is disabled when unbuilt; Stop is
+                     shown only while an order is active. -->
+                <div class="dev-row" style="margin-top: 6px;">
+                  <button
+                    class="buy-btn"
+                    disabled={!refineryBuilt}
+                    title={!refineryBuilt ? "Build the Refinery first (see Upgrades)" : undefined}
+                    on:click={() => requestStartRefineOrder("refineCommonOre", "continuous")}
+                  >
+                    Refine continuously
+                  </button>
+                  {#if refineOrder}
+                    <button class="dev-btn danger" on:click={doStopRefineOrder}>Stop</button>
+                  {/if}
+                </div>
               </Panel>
             {/if}
 
@@ -2791,6 +3035,24 @@
           </label>
         </div>
         <p class="prestige-text">When enabled, the tick bar in the header fills once per tick. When disabled, it's removed from the header entirely.</p>
+        <!-- Phase 2 (Task D3): re-enable the refine-order confirmation popup. Mirrors
+             the Enable Tick Bar row directly above (localStorage-persisted pref, not
+             on GameState). The modal's own "Don't show this again" checkbox turns
+             this OFF; this toggle turns it back ON. -->
+        <div class="dev-row">
+          <label style="display: inline-flex; align-items: center; gap: 6px;">
+            <input
+              type="checkbox"
+              checked={refineConfirmEnabled}
+              on:change={(e) => {
+                refineConfirmEnabled = (e.target as HTMLInputElement).checked;
+                saveRefineConfirmEnabled(refineConfirmEnabled);
+              }}
+            />
+            Confirm before refining
+          </label>
+        </div>
+        <p class="prestige-text">When enabled, a confirmation popup appears before starting a refine order. Ticking "Don't show this again" in that popup turns this off.</p>
         <div class="theme-row">
           {#each THEME_NAMES as name}
             <button
@@ -3093,6 +3355,30 @@
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelDelete}>Cancel</button>
           <button class="dev-btn danger" disabled={deleteConfirmText !== "DELETE"} on:click={confirmDelete}>Delete</button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
+  {#if refineConfirmModalOpen}
+    <!-- Refine-order confirmation modal (Phase 2, Task D3) -- reuses the SAME
+         .modal-backdrop/Panel.modal-dialog/.modal-warning/.modal-row structure as
+         the DELETE SAVE modal above, so all of this app's modals share one visual
+         language. The "Don't show this again" checkbox disables the refineConfirm
+         pref on Confirm (persisted like tickBarEnabled); the System -> Options
+         toggle re-enables it. Confirm starts the held pendingRefineOrder; Cancel
+         starts nothing. -->
+    <div class="modal-backdrop">
+      <Panel class="modal-dialog">
+        <div class="panel-title">CONFIRM REFINE</div>
+        <p class="modal-warning">Are you sure you wish to refine this item? This cannot be undone.</p>
+        <label class="modal-row" style="justify-content: flex-start; gap: 6px; margin-bottom: 4px;">
+          <input type="checkbox" bind:checked={refineConfirmDontShowAgain} />
+          Don't show this again
+        </label>
+        <div class="modal-row">
+          <button class="dev-btn" on:click={cancelRefineOrder}>Cancel</button>
+          <button class="dev-btn" on:click={confirmRefineOrder}>Confirm</button>
         </div>
       </Panel>
     </div>
