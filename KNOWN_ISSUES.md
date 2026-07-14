@@ -298,19 +298,23 @@ write it down so you don't relitigate it later.
   `.stat-pill`/`-label`/`-value`, `.modal-dialog`, etc.) -- inert, no broken references, deliberately left
   for a single dedicated stylesheet-cleanup pass rather than deleted piecemeal per feature. Not a gate blocker
   (the gate is errors-only), just standing cosmetic debt.
-- REFINED FORMS of the 12 new raw materials, and the FUEL-REFINE recipe, are DEFERRED to the crafting/Fabricator
-  phase (Mission Rework, Session 31). This branch adds the 4 missions and their 12 raw-material triad as the
-  RAW supply only -- there are no refined counterparts for the new raws yet, and no recipe that converts any
-  material into fuel. Fuel is currently a credits-only purchase (see the Fuel Storage entry below); the intended
-  "refine ore/material into fuel" path is a forward hook for the crafting economy, not built here. Add the
-  refined-item definitions and the fuel-refine recipe when the Fabricator/crafting work lands. Not a bug -- a
-  deliberate scope boundary: this rework sources the raw materials, the crafting phase consumes them.
+- REFINED FORMS of the 12 new raw materials are DEFERRED to the crafting/Fabricator phase (Mission Rework,
+  Session 31; fuel-refine portion RESOLVED in Fuel Economy v2, Session 32). This branch adds the 4 missions and
+  their 12 raw-material triad as the RAW supply only -- there are still no refined counterparts for the new raws
+  yet. UPDATE (Fuel Economy v2): the "no recipe converts material into fuel" half of this entry is now BUILT --
+  the Fuel Depot (facility key `fuelStorage`) continuously refines Deuterium Ice (`commonOre`) into fuel via its
+  pipelines (`processFuelPipelines`, `tick.ts`), so fuel is no longer a credits-only purchase. What remains
+  deferred is only the refined FORMS of the 12 raws. Add the refined-item definitions when the Fabricator/crafting
+  work lands. Not a bug -- a deliberate scope boundary: this rework sources the raw materials, the crafting phase
+  consumes them.
 - The FUEL-REFILL CONSUMABLE (a craftable item that tops up a ship's tank without spending credits) is DEFERRED
-  (Mission Rework, Session 31). Today fuel is bought ONE way only -- credits at the Fuel Storage facility, at a
-  flat rate. A future craftable refill consumable (made from refined materials once the crafting economy exists)
-  is the intended second path, letting late-game players convert materials into range instead of credits. Written
-  down so "there's only one way to get fuel" isn't rediscovered as an oversight -- it's an intentional near-term
-  limitation pending the crafting phase, same forward-hook posture as the fuel-refine recipe above.
+  (Mission Rework, Session 31; framing updated Fuel Economy v2, Session 32). Fuel now has TWO live sources -- the
+  Fuel Depot's automatic Deuterium-Ice refining (the primary supply) and a credits AUTO-BUY backup that covers a
+  launch shortfall (see the auto-buy entry below) -- so the old "bought ONE way only" framing is superseded. Still
+  deferred is a CRAFTABLE refill consumable (made from refined materials once the crafting economy exists), the
+  intended late-game path that converts materials directly into range without touching credits. Written down so
+  "there's no material-to-fuel item" isn't rediscovered as an oversight -- it's an intentional near-term limitation
+  pending the crafting phase, same forward-hook posture as the refined-forms entry above.
 - MISSION DIFFICULTIES and HAZARDS are DEFERRED (Mission Rework, Session 31). Every mission this branch ships is
   a safe, deterministic round trip -- there is no difficulty tier that raises risk, and no hazard system (pirates,
   ambushes, ship damage or ship LOSS on a failed/hazardous run). The mission cards already carry a difficulty-tier
@@ -344,3 +348,46 @@ write it down so you don't relitigate it later.
   `unlockLevel` and re-add the completion-gated rung to `FACILITIES.missionControl` (template preserved in a
   code comment there) -- a pure data change, no engine work. The per-mission CAPABILITY requirements (Salvage
   captain L2, Forage L3, cargo 90) were KEPT -- the user removed the unlock, not the requirements.
+- MULTI-FUEL-PER-SHIP and FUEL-EFFICIENCY as a ROLLED SHIP-SYSTEM STAT are DEFERRED to the future ship-systems
+  rework (Fuel Economy v2, Session 32). Today there is exactly ONE fungible fuel type (the fleet-wide
+  `GameState.fuel` tank), and a hull's `fuelCapacity`/`engineEfficiency` are FIXED base values on `SHIP_TYPES`
+  with no per-instance variation. The intended future model is: distinct fuel types, and fuel-efficiency (plus
+  tank capacity / range) rolling as stats on installable ship-SYSTEM slots -- a fuel-tank slot, an FTL (jump)
+  drive slot, and a sub-light (in-system) engine slot -- so two identical hulls can diverge on fuel economy by
+  what's installed. This depends on the still-inert module/equipment slot system (`SHIP_TYPES`'
+  `moduleSlots`/`equipmentSlots`, deferred to the Research phase -- see the earlier ship-slots + `engineEfficiency`
+  entries). Written down so "fuel is one-type / efficiency is hull-fixed" isn't rediscovered as a limitation --
+  it's a forward hook awaiting the ship-systems + Research work.
+- The CIVILIAN / TAX / INFRASTRUCTURE ECONOMY is a DEFERRED FUTURE EPIC (Fuel Economy v2, Session 32). The fuel
+  rework is a first slice of a much larger planned economy layer -- a civilian population that generates tax
+  revenue, and infrastructure the player builds/maintains to grow it -- none of which exists yet. Credits today
+  come only from mission cycles; there is no population, tax, or infrastructure model behind them. Written down so
+  the fuel/credits economy's current shape isn't mistaken for the finished economy -- the broader civilian-economy
+  epic is a separate future body of work, not part of this branch.
+- DEUTERIUM ICE (`commonOre`) is DUAL-DEMANDED and will need rebalancing at the crafting rework (Fuel Economy v2,
+  Session 32). The one raw material `commonOre` (labelled "Deuterium Ice") now feeds TWO consumers competing for
+  the same stockpile: (1) the Fuel Depot's fuel-refine pipelines (`processFuelPipelines` -> fuel), and (2) the
+  placeholder `refineCommonOre` recipe (`REFINE_RECIPES`, `model.ts` -> `refinedMaterial`). Both draw down the
+  same `inventory.commonOre` balance, so a player running both the Fuel Depot and a refine order splits their ice
+  between fuel and refined material. This is a KNOWN tension left as-is pending the refined-forms / crafting rework,
+  when the material graph is redesigned (Deuterium Ice may become fuel-only, or the fuel feedstock may move to a
+  dedicated item). Not a bug -- a deliberate provisional overlap flagged so the contention isn't rediscovered as a
+  surprise once both consumers are in active use.
+- ALL Fuel Economy v2 balance values are FIRST-PASS TUNABLES, to calibrate at the device checkpoint, not final
+  numbers (Session 32), on top of the Mission Rework placeholders above: `FUEL_PER_TICK` = 0.1 (fuel burned per
+  transit tick, dropped from 1 in the v2 rebalance); the Fuel Depot refine batch = 50 Deuterium Ice -> 100 fuel
+  over 10 ticks (`FUEL_REFINE_INPUT`/`FUEL_REFINE_OUTPUT`/`FUEL_REFINE_DURATION_TICKS`); the Fuel Depot upgrade
+  magnitudes (base 1 pipeline, +1 pipeline rung, yield x1.5 rung, input x0.7 rung -- `buildFuelDepotUpgrades`,
+  `model.ts`); the friendlier per-mission `creditsPerCycle` values from the v2 rebalance; and the REFUEL_PENALTY
+  of +2 ticks stamped on a cycle whose fuel was auto-bought (`REFUEL_PENALTY_TICKS`, `tick.ts`). All were picked to
+  prove the refining/auto-buy economy works end-to-end, NOT calibrated against real play -- expect to retune them
+  together with the still-unfinalized FA XP curve, slot walls, and Mission Rework fuel stats during the same
+  on-device pass.
+- FUEL AUTO-BUY backup (Fuel Economy v2 F3): when a captain on auto-repeat is short at a cycle boundary, the
+  shortfall is auto-bought with credits (at the flat Fuel Storage price) and the new cycle is stamped with a
+  +`REFUEL_PENALTY_TICKS` refuel delay; the loop only HARD-STOPS (captain idles) when the fleet is ALSO out of
+  credits (the broke-stop floor). This closed-form penalty (`refuelDelayTicks` on `CaptainMissionState`, added to
+  the `ordersReceived` phase) preserves the offline==live parity guarantee (proven in `fuel-consumption-v2.test.ts`).
+  The auto-buy price, the penalty size, and the "buy exactly the shortfall (not to full)" policy are all FIRST-PASS
+  choices -- listed in the tunables entry above; flagged here as behavior so "why did my credits drain / why is a
+  cycle 2 ticks longer" isn't rediscovered as a bug. It is intended: fuel-positive fleets never trigger it.

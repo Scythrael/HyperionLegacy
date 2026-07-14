@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import { migrate, serialize, deserialize, importRawSave, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
-import { freshState } from "./model";
+import { freshState, FUEL_REFINE_DURATION_TICKS } from "./model";
 // Mission Rework Task 9: the v20->v21 round-trip test proves no soft-lock by exercising
 // the LIVE mission-unlock + dispatch + buy-fuel path on the migrated state (not just a
-// field read), so it imports those tick.ts helpers directly.
-import { canDispatch, missionUnlocked, buyFuel } from "./tick";
+// field read), so it imports those tick.ts helpers directly. Fuel Economy v2 (F5) adds
+// economyTick to prove a CURRENT-version (v21) save's Fuel Depot still refines after a
+// round trip (the "no new migration needed" proof).
+import { canDispatch, missionUnlocked, buyFuel, economyTick } from "./tick";
 
 describe("migrate — tickDurationSeconds backfill", () => {
   it("defaults tickDurationSeconds to 10 on a v1 save that predates the field", () => {
@@ -2435,6 +2437,65 @@ describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
 
   it("current SAVE_VERSION is 21", () => {
     expect(SAVE_VERSION).toBe(21);
+  });
+});
+
+// Fuel Economy v2 (F5): the "no new migration needed" PROOF. F1-F4 added NO new persistent
+// state beyond what MIGRATIONS[20] (v20->v21) already seeds:
+//   - F1 renames are LABEL-ONLY (item/facility KEYS unchanged) -> nothing to migrate.
+//   - F2 Fuel Depot kept the facility KEY `fuelStorage` (label-only rename); its pipelines
+//     are ALWAYS-ON / STRUCTURAL (no order object / pausedReason to persist -- processFuelPipelines
+//     re-derives every tick), and the batches it starts are ordinary "fuelRefineJob" TimedProcesses
+//     in activeProcesses that ride saves like any refine job.
+//   - F3 `refuelDelayTicks` on CaptainMissionState is OPTIONAL, read `?? 0` (model.ts) -- an
+//     in-flight v21 mission that predates it reads as 0; a fresh cycle always sets it.
+//   - The rebalance (FUEL_PER_TICK, creditsPerCycle, refine magnitudes) is CONSTANTS -- no state.
+// So SAVE_VERSION stays 21 and NO v21->v22 migration is added (a no-op migration would be pure
+// churn/risk). This test is the evidence: a CURRENT-version (v21) save carrying a mid-flight
+// fuelRefineJob round-trips through serialize/deserialize/migrate (which runs ZERO version steps,
+// already-current, then hydrateDecimals) and still PLAYS -- fuel hydrates, the Fuel Depot refines
+// the persisted batch to completion, and missions dispatch.
+describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 — no new migration)", () => {
+  it("hydrates + PLAYS at the CURRENT version: fuel present, Fuel Depot refines an in-flight batch, missions dispatch", () => {
+    // Build a realistic mid-play v21 state: a stocked Fuel Depot (Deuterium Ice on hand) so a
+    // fuelRefineJob is IN FLIGHT, plus credits to buy fuel and dispatch afterwards.
+    let s = freshState(); // freshState() is the current-version (v21) shape
+    s.inventory = { ...s.inventory, commonOre: new Decimal(1000) }; // Deuterium Ice (key still `commonOre`) for the depot
+    s.credits = new Decimal(1000);
+    // One economyTick fills the depot's free pipeline slot with a fuel-refine batch. rng is
+    // irrelevant here (the single captain is idle -> no mission economy runs), so pin it.
+    s = economyTick(s, 1, () => 0.5);
+    const inFlightBefore = s.activeProcesses.filter((p) => p.kind === "fuelRefineJob").length;
+    expect(inFlightBefore).toBeGreaterThan(0); // a real fuelRefineJob is now persisted in activeProcesses
+
+    // Round-trip at the CURRENT version. serialize() stamps SAVE_VERSION (21); deserialize() +
+    // migrate() run NO version steps (already 21), then hydrateDecimals().
+    const save = deserialize(serialize(s, 0)) as SaveFile;
+    expect(save).not.toBeNull();
+    expect(save!.version).toBe(SAVE_VERSION);
+    expect(save!.version).toBe(21);
+    const restored = migrate(save as SaveFile);
+
+    // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
+    // in-flight batch survived as a persisted fuelRefineJob.
+    expect(restored.fuel).toBeInstanceOf(Decimal);
+    expect(restored.activeProcesses.some((p) => p.kind === "fuelRefineJob")).toBe(true);
+
+    // (b) FUEL DEPOT REFINES: run the persisted batch to completion; the tank must RISE.
+    // This exercises resolveProcesses' `addFuel` deposit on a ROUND-TRIPPED process, proving
+    // the batch's Decimal `amount` deposits correctly even though hydrateDecimals only
+    // explicitly re-hydrates `addItem` amounts (break_infinity coerces the addFuel string on
+    // `.plus()`), so the depot genuinely refines Deuterium Ice -> fuel after a save/load.
+    const fuelBefore = restored.fuel;
+    let played = restored;
+    for (let i = 0; i < FUEL_REFINE_DURATION_TICKS + 2; i++) played = economyTick(played, 1, () => 0.5);
+    expect(played.fuel.gt(fuelBefore)).toBe(true); // non-vacuous: the depot produced fuel post-round-trip
+
+    // (c) MISSIONS DISPATCH: top up the tank (fuel is bought, never granted), then canDispatch
+    // must clear every gate (unlock + captain-level + cargo + fuel-range + fuel-resource).
+    const fueled = buyFuel(played, 100); // 100 units * 5 cr, within the 1000-credit balance
+    expect(fueled.fuel.gte(50)).toBe(true); // shortOreRun round trip needs 50 fuel
+    expect(canDispatch(fueled, 1, "shortOreRun")).toEqual({ ok: true });
   });
 });
 

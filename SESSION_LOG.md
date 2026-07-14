@@ -1432,3 +1432,60 @@ LOCKED at level 1; the 0.9.0 patch note copy was corrected. Gate GREEN — **`np
 cosmetic warnings), `npm test` = 416 passing (14 files)** (was 420; net -4 from dropping the deferred-rung
 flow tests, replaced with reserved-mechanism + caps-at-level-1 coverage). Next: controller review of this
 revision, then the holistic branch review + device tuning; push still needs explicit user confirmation.
+
+**Session 32 — Fuel Economy v2 (F1-F5), branch `feat/mission-rework`.** Reworked the Task-3/4/5 fuel
+mechanic from the v1 "buy fuel with credits" model into a REFINING economy, subagent-driven over five
+tasks (two-stage review per task). (**F1**) Renamed the base ores LABEL-ONLY — `commonOre` → "Deuterium
+Ice" (the fuel feedstock), `ferriteOre` → "Titanium" (item/facility KEYS unchanged) — and rebalanced the
+tunables: `FUEL_PER_TICK` 1 → 0.1 and friendlier per-mission `creditsPerCycle`. (**F2**) The Fuel
+Storage facility became the **Fuel Depot** (label-only rename; facility key stays `fuelStorage`), which
+now continuously refines Deuterium Ice → fuel through **processing pipelines** (`processFuelPipelines`,
+built on the Phase-1 timed-process engine with a new `addFuel` completion effect that deposits into the
+`GameState.fuel` tank instead of inventory). Its upgrade track gained processing rungs on the ONE
+`fuelStorage` track — +pipeline, yield x1.5, input x0.7 — all derive-on-read from reached rungs.
+(**F3**) Consumption rework: the old hard "stop-on-empty" auto-repeat is REPLACED by an **auto-buy**
+backup (a launch shortfall is bought with credits) + a **+2-tick refuel penalty** (closed-form
+`refuelDelayTicks` on `CaptainMissionState`, added to the `ordersReceived` phase) + a **broke-stop
+floor** (idle only when also out of credits). (**F4**) A **fuel chip in the top bar** shows production
+(Depot throughput) vs. expenditure (mission burn) so you can see at a glance whether you're
+fuel-positive, plus the Fuel Depot overview/upgrades UI. (**F5**, this task) MIGRATION DECISION +
+docs.
+
+MIGRATION CONCLUSION: **NO new migration — SAVE_VERSION stays 21.** F1-F4 added NO new persistent state
+beyond what `MIGRATIONS[20]` (v20→v21) already seeds (`fuel`, `fuelStorage`, `missionControl`). Evidence:
+F1 renames are label-only (KEYS unchanged); F2's Fuel Depot kept the `fuelStorage` key and its pipelines
+are always-on/structural (no order state to persist — `processFuelPipelines` re-derives every tick, and
+the batches it starts are ordinary `fuelRefineJob` TimedProcesses that ride saves like any refine job);
+F3's `refuelDelayTicks` is OPTIONAL, read `?? 0` (a pre-F3 in-flight mission reads 0); the rebalance is
+constants. Adding a no-op v21→v22 migration would be pure churn/risk, so none was added. Proven by a new
+test in `save.test.ts` — a CURRENT-version (v21) save carrying a mid-flight `fuelRefineJob` round-trips
+through `serialize`/`deserialize`/`migrate` (zero version steps, then `hydrateDecimals`) and still PLAYS:
+fuel hydrates to a live Decimal, the Fuel Depot refines the persisted batch to completion (the tank
+rises), and `canDispatch` clears every gate after a `buyFuel`. (Side note surfaced + guarded by that
+test: `hydrateDecimals` only explicitly re-hydrates `addItem` effect amounts, not `addFuel`, but
+break_infinity's `.plus()` coerces the surviving JSON string, so a persisted fuel batch deposits
+correctly — no bug, latent fragility now covered.)
+
+Two closed-form PARITY seams were re-verified offline==live (the project's standing "one big jump equals
+many small ticks" invariant, threaded through both `tick()` and App.svelte's live loop): **F2 fuel
+refining** (`processFuelPipelines` — tick(bigSpan) == looping economyTick(_,1) across BOTH pause
+conditions, ice-out and tank-full; `fuel-depot.test.ts`) and **F3 fuel consumption** (auto-buy + the
++2-tick penalty + the broke-stop are bit-identical offline vs. live for fuel/credits/mission-state/
+delivered loot; `fuel-consumption-v2.test.ts` + `fuel.test.ts`).
+
+DOCS (F5): folded fuel-v2 into the UNSHIPPED 0.9.0 release (NO version bump) — rewrote the 0.9.0
+PATCH_NOTES fuel copy from the v1 "buy fuel" description to the final Fuel Depot / auto-buy / top-bar-gauge
+design + the Deuterium Ice / Titanium renames. KNOWN_ISSUES.md: updated the two now-stale v1 fuel entries
+(the fuel-refine recipe is now BUILT via the Fuel Depot; "fuel bought one way only" is superseded by
+refining + auto-buy) and added the v2 deferrals — multi-fuel-per-ship + fuel-efficiency rolling on
+ship-system (fuel-tank/FTL/sub-light) slots (future, awaits the module/Research system); the
+civilian/tax/infrastructure economy (deferred future epic); Deuterium Ice is DUAL-DEMANDED (Fuel Depot
+pipelines + the placeholder `refineCommonOre` recipe) pending the refined-forms/crafting rework; and all
+v2 first-pass TUNABLES (FUEL_PER_TICK 0.1, refine 50→100/10t, pipeline/yield/input upgrade magnitudes,
+friendlier mission credits, the +2-tick penalty).
+
+Gate GREEN — **`npm run check` = 0 errors (21 cosmetic unused-CSS/a11y warnings), `npm test` = 444
+passing (16 files)** (up 1 from 443: the new v21-round-trips-playable test). Next: controller review of
+F5, then the holistic branch review (especially the F2/F3 parity seams + the refining/auto-buy
+integration) + device tuning of the first-pass values; push still needs explicit user confirmation (live
+Vercel production redeploy).
