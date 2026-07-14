@@ -889,8 +889,8 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     // Output of both the instant RECIPES.refineUnobtainium craft and the timed
     // REFINE_RECIPES.refineCommonOre job, each consuming Common Ore at the Refinery.
-    unlockHint: "Refined from Common Ore at the Refinery.",
-    flavor: "Common ore cooked down to a workable ingot. The first rung of the production ladder.",
+    unlockHint: "Refined from Titanium Ore at the Refinery.",
+    flavor: "Titanium ore cooked down to a workable ingot. The first rung of the production ladder.",
   },
   components: {
     label: "Components",
