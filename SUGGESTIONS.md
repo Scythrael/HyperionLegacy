@@ -56,6 +56,16 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   Multiplayer, with authentication, chat, and cloud saving as the foundational first pieces (in that
   order of foundational-ness, not necessarily build order). Not scoped at all yet — purely a "this comes
   after Combat" placeholder for a future brainstorming session.
+  **UPDATE (2026-07-13): multiplayer is a CONFIRMED LAUNCH feature** — the game goes live WITH it. Still
+  POST-COMBAT in build order (combat -> multiplayer -> launch), but no longer just "investigate." Includes
+  login, cloud save, and chat. **This makes the item-authenticity salted-hash ID a REAL feature, not
+  client-side theater** — with one hard requirement: it MUST be SERVER-authoritative. A client-generated
+  deterministic hash (even salted) is forgeable, because the algorithm + salt ship in the JS bundle and any
+  user can read them. The correct design: the SERVER mints the hash when an item drops (using a secret the
+  client never sees) and validates it on every sync; the client only carries an opaque token it cannot
+  reproduce. For non-stacking equipment (future content, its Warehouse tabs reserved in Phase 2), give each
+  instance a UNIQUE instance id NOW (for referencing, like ShipInstance.id) + a reserved `integrity` field,
+  architected so the server becomes the minting/validating authority when the multiplayer backend lands.
 
 - **Cargo capacity as a real ship stat.** User idea, 2026-07-08, from the Extraction Rework
   brainstorming: today `cargoCapacity` is a flat `MissionDef` constant; once the Ships feature (see
