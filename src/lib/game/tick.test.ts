@@ -3189,4 +3189,61 @@ describe("tick — per-tick stepping matches the single-call economy when no cap
     expect(viaTick.fleetAdminXp.equals(viaSingle.fleetAdminXp)).toBe(true);
     expect(viaTick.gameTimeSeconds).toBeCloseTo(viaSingle.gameTimeSeconds, 9);
   });
+
+  // Closes the B3 coverage gap flagged in review: tick() now steps the WHOLE ticks
+  // (economyTick(.,1) each) then applies ONE trailing economyTick(., frac) for the
+  // sub-tick remainder. That fractional path runs on ~EVERY real offline catch-up
+  // (Date.now() yields fractional seconds), yet only the INTEGER-span parity was
+  // tested (149 above). This exercises the whole-steps loop AND the trailing frac
+  // together: a 149.7-tick span = 149 whole steps + a 0.7 remainder. Because
+  // economyTick/tickCaptainMission are closed-form, the 149 whole steps plus the
+  // 0.7 frac must SUM to the same DETERMINISTIC result as one economyTick(., 149.7).
+  it("stepping a FRACTIONAL span equals one economyTick over the same fraction (149.7 = 149 whole steps + 0.7 frac)", () => {
+    // A single shortOreRun cycle is 1+25+90+25+8 = 149 ticks, so 149.7 completes
+    // exactly ONE cycle (loot/credits/reset) then sits 0.7 into ordersReceived of
+    // the next -- exercising both a cycle boundary and a sub-tick remainder.
+    const makeS = () => {
+      const s = freshState(); // 1 captain + generalFreighter -> 149-tick shortOreRun cycle; tickDurationSeconds 1
+      s.captains[0].mission = missionCaptain("shortOreRun");
+      return s;
+    };
+    const deltaSeconds = 149.7; // tickDurationSeconds 1 -> ticksElapsed 149.7 = 149 whole + 0.7 frac
+
+    // A CONSTANT rng()=0 on BOTH sides makes loot bit-identical (single captain ->
+    // same roll order, every roll returns 0), so the whole run is deterministic and
+    // the parity below is exact for Decimals/ints, not merely statistical.
+    const viaTick = tick(deltaSeconds, makeS(), () => 0); // clamped 149.7 -> 149x economyTick(.,1) + economyTick(.,0.7)
+    const viaSingle = economyTick(makeS(), deltaSeconds, () => 0); // one closed-form call over the whole 149.7
+
+    // --- credits (Decimal, exact): one completed cycle -> creditsPerCycle 10 ---
+    expect(viaTick.credits.equals(viaSingle.credits)).toBe(true);
+    expect(viaTick.credits.equals(10)).toBe(true);
+
+    // --- captain XP (Decimal, exact) + level (int, exact) ---
+    // 149 WHOLE ticks * rate 1 = 149 XP; the 0.7 remainder crosses NO whole-tick
+    // boundary (post-cycle-reset ordersReceived 0 -> 0.7), so it adds 0 XP. xp 149
+    // stays under xpForNextLevel(1)=300, so level is still 1 on both paths.
+    expect(viaTick.captains[0].xp.equals(viaSingle.captains[0].xp)).toBe(true);
+    expect(viaTick.captains[0].xp.equals(149)).toBe(true);
+    expect(viaTick.captains[0].level).toBe(viaSingle.captains[0].level);
+    expect(viaTick.captains[0].level).toBe(1);
+
+    // --- mission phase (exact) + phaseProgressTicks (float -> toBeCloseTo) ---
+    // Cycle completes at 149 (reset to ordersReceived @ 0), then 0.7 advances into
+    // ordersReceived. The stepped frac (149.7-149) and the single call's accumulated
+    // 0.7 differ only by sub-1e-13 float residue, so compare with toBeCloseTo.
+    expect(viaTick.captains[0].mission!.phase).toBe(viaSingle.captains[0].mission!.phase);
+    expect(viaTick.captains[0].mission!.phase).toBe("ordersReceived");
+    expect(viaTick.captains[0].mission!.phaseProgressTicks).toBeCloseTo(
+      viaSingle.captains[0].mission!.phaseProgressTicks,
+      9
+    );
+    expect(viaTick.captains[0].mission!.phaseProgressTicks).toBeCloseTo(0.7, 9);
+
+    // --- fleetAdminXp (Decimal, exact) tracks the SAME 149 whole ticks; the fleet
+    // clock advances the full fractional span (float -> toBeCloseTo, ~149.7). ---
+    expect(viaTick.fleetAdminXp.equals(viaSingle.fleetAdminXp)).toBe(true);
+    expect(viaTick.gameTimeSeconds).toBeCloseTo(viaSingle.gameTimeSeconds, 9);
+    expect(viaTick.gameTimeSeconds).toBeCloseTo(149.7, 9);
+  });
 });
