@@ -845,33 +845,40 @@ export interface ItemDef {
 export const ITEMS: Record<string, ItemDef> = {
   // --- Raw loot (mission extraction output; keyed as LootMaterialKey) ---
   commonOre: {
-    label: "Common Ore",
+    // Provisional in-fiction name for the common ore tier (id kept `commonOre`
+    // -- label is display-only, no save migration; see design §3.4).
+    label: "Titanium Ore",
     category: "raw",
     tier: 1,
     rarity: "common",
     // The guaranteed common-tier fallback drop on every extraction tick (see
     // tick.ts's rollExtractionTick) of either ore run.
-    unlockHint: "Hauled up by captains on any ore-run mission.",
+    unlockHint: "Mined on the Local Asteroid run.",
     flavor: "Unremarkable rock hauled up by the ton -- the backbone of every refinery run.",
   },
   uncommonMaterial: {
-    label: "Uncommon Material",
+    // Provisional in-fiction name for the uncommon ore tier (id kept
+    // `uncommonMaterial` -- label is display-only, no save migration).
+    label: "Polysilicate Ore",
     category: "raw",
     tier: 1,
     rarity: "uncommon",
     // Won on the per-tick uncommonChance roll; the Long Ore Run's uncommonChance
     // (0.08) is far higher than the Short Ore Run's (0.019).
-    unlockHint: "An uncommon strike on ore-run missions -- better odds on the Long Ore Run.",
+    unlockHint: "An uncommon strike on the Local Asteroid run.",
     flavor: "A richer seam worth flagging on the survey map. Turns up often enough to plan around.",
   },
   rareMaterial: {
-    label: "Rare Material",
+    // PROVISIONAL in-fiction name for the rare ore tier (id kept `rareMaterial`
+    // -- label is display-only, no save migration). "Iridium Ore" is a working
+    // name, NOT final -- flagged provisional at scaffold time.
+    label: "Iridium Ore",
     category: "raw",
     tier: 1,
     rarity: "rare",
     // Won on the per-tick rareChance roll; the Long Ore Run's rareChance (0.02)
     // dwarfs the Short Ore Run's (0.001), so it's the run to farm for rares.
-    unlockHint: "A rare strike on ore-run missions -- best odds on the Long Ore Run.",
+    unlockHint: "A rare strike on the Local Asteroid run.",
     flavor: "Scarce, dense, and prized -- the payoff that makes the long ore runs worth the fuel.",
   },
   // --- Refined / crafted goods (Homeworld crafting output; RECIPES targets) ---
@@ -911,6 +918,149 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "uncommon",
     unlockHint: "Extracted from deep deposits — no mission reaches them yet.",
     flavor: "Impossibly compacted rock from the deep seams. The fleet can't reach it -- yet.",
+  },
+  // --- Catalog scaffold (Phase 2 Warehouse) -- UNOBTAINABLE PLACEHOLDERS -------
+  // The full material catalog the Warehouse renders as ❓ slots. Every entry below
+  // is produced by NOTHING this pass (no mission, refine, or fabricate recipe
+  // references it), so each is genuinely unobtainable and shows masked with its
+  // unlockHint as the how-to-get clue -- the SAME honest "future content" pattern
+  // as denseOre above. All tier 1. Each carries the FULL catalog metadata the
+  // standing-rule test (model.test.ts) requires; unlockHints point at the FUTURE
+  // missions/facilities that will produce them, not invented sources. When that
+  // content lands, a real producer is wired in and (if needed) the hint updated.
+
+  // RAW -- future ore/salvage/forage mission loot (3 tiers per mission).
+  ferriteOre: {
+    label: "Ferrite Ore",
+    category: "raw",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Mined on the Lunar Mine Contract.",
+    flavor: "A dull, iron-rich rock -- plentiful once the lunar contract opens up.",
+  },
+  cobaltOre: {
+    label: "Cobalt Ore",
+    category: "raw",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "An uncommon strike on the Lunar Mine Contract.",
+    flavor: "A deep-blue seam prized by alloy smiths -- an uncommon find on the moon.",
+  },
+  osmiumOre: {
+    label: "Osmium Ore",
+    category: "raw",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "A rare strike on the Lunar Mine Contract.",
+    flavor: "The densest metal the fleet has ever logged -- a rare payoff from the lunar seams.",
+  },
+  scrapAlloy: {
+    label: "Scrap Alloy",
+    category: "raw",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Recovered on the Salvage Nearby Skirmish Wreckage run.",
+    flavor: "Twisted hull plating pulled from the wrecks -- rough, but it melts down fine.",
+  },
+  salvagedCircuitry: {
+    label: "Salvaged Circuitry",
+    category: "raw",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "An uncommon find on the Salvage Nearby Skirmish Wreckage run.",
+    flavor: "Scorched boards with intact traces -- worth pulling before the reclaimers arrive.",
+  },
+  intactReactorCore: {
+    label: "Intact Reactor Core",
+    category: "raw",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "A rare find on the Salvage Nearby Skirmish Wreckage run.",
+    flavor: "A miraculously whole core still humming with charge -- the salvage jackpot.",
+  },
+  fibrousBiomass: {
+    label: "Fibrous Biomass",
+    category: "raw",
+    tier: 1,
+    rarity: "common",
+    unlockHint: "Foraged on the Forage Minerals and Flora on Nearby Moon run.",
+    flavor: "Tough, stringy plant matter scraped off the regolith -- common but useful stock.",
+  },
+  volatileResin: {
+    label: "Volatile Resin",
+    category: "raw",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "An uncommon forage on the Forage Minerals and Flora on Nearby Moon run.",
+    flavor: "A sticky, faintly luminous sap -- handle with care, it does not like heat.",
+  },
+  exoticSporeCluster: {
+    label: "Exotic Spore Cluster",
+    category: "raw",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "A rare forage on the Forage Minerals and Flora on Nearby Moon run.",
+    flavor: "A pulsing knot of alien spores -- rare, valuable, and best kept sealed.",
+  },
+
+  // REFINED -- future Refinery outputs (raw ore/salvage/biomass cooked down).
+  titaniumIngot: {
+    label: "Titanium Ingot",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined from Titanium Ore at the Refinery.",
+    flavor: "Titanium ore cooked down to a bright, workable bar -- light and unyielding.",
+  },
+  polysilicateWafer: {
+    label: "Polysilicate Wafer",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined from Polysilicate Ore at the Refinery.",
+    flavor: "A thin, mirror-smooth wafer sliced from purified ore -- the substrate of electronics.",
+  },
+  reclaimedAlloy: {
+    label: "Reclaimed Alloy",
+    category: "refined",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Refined from salvage at the Refinery.",
+    flavor: "Battlefield scrap re-smelted into something stronger than it ever was whole.",
+  },
+  purifiedBiomass: {
+    label: "Purified Biomass",
+    category: "refined",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Refined from foraged biomass at the Refinery.",
+    flavor: "Raw flora rendered down to a clean, stable feedstock -- no volatility left.",
+  },
+
+  // COMPONENTS -- future Fabricator outputs (refined stock assembled into parts).
+  frameSegment: {
+    label: "Frame Segment",
+    category: "minorComponent",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Fabricated from refined materials at the Fabricator.",
+    flavor: "A single load-bearing strut -- one of many that skeleton a hull together.",
+  },
+  powerCoupling: {
+    label: "Power Coupling",
+    category: "minorComponent",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "Fabricated from refined materials at the Fabricator.",
+    flavor: "A shielded junction that ties a reactor line into the systems it feeds.",
+  },
+  structuralAssembly: {
+    label: "Structural Assembly",
+    category: "majorComponent",
+    tier: 1,
+    rarity: "rare",
+    unlockHint: "Assembled from components at the Fabricator.",
+    flavor: "Frame segments and couplings married into one rigid sub-structure -- a hull's spine.",
   },
 };
 

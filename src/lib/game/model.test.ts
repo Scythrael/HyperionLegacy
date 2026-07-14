@@ -691,19 +691,30 @@ describe("effectiveMissionDef", () => {
 // table with the minor/major-component/module/system tiers -- do NOT add those
 // forward entries here until their phase (no placeholders).
 describe("ITEMS — Phase 1 seed registry", () => {
-  it("has the registry entries: 4 raw (incl. the T2 stub ore), 2 refined", () => {
-    // Phase 2, Task B2 added ONE item: denseOre (the unobtainable Tier-2 stub ore
-    // that gates the T2 Warehouse's first real upgrade). So the registry grew from
-    // the Phase 1 seed of 5 -> 6: 4 raw (the 3 mission-loot tiers + denseOre) and
-    // the same 2 refined crafted goods.
+  it("has the full scaffolded catalog: 13 raw, 6 refined, 2 minor + 1 major component", () => {
+    // Phase 2 Warehouse catalog scaffold: the registry was grown from the prior 6
+    // (3 mission-loot ores + denseOre stub + 2 crafted goods) to 22 by adding 16
+    // UNOBTAINABLE placeholder items so the Warehouse shows the full material catalog
+    // as ❓ slots. Breakdown of the 22:
+    //   raw (13): commonOre, uncommonMaterial, rareMaterial (the 3 live ore tiers),
+    //     denseOre (T2 stub), + 9 future ore/salvage/forage loot placeholders.
+    //   refined (6): refinedMaterial, components' predecessor stock... i.e. the 2
+    //     live crafted goods + 4 future Refinery-output placeholders.
+    //   minorComponent (2) + majorComponent (1): future Fabricator-output placeholders.
+    // NONE of the 16 new items is produced by anything this pass (pure catalog
+    // scaffold) -- the standing-rule test below covers their metadata generically.
     const keys = Object.keys(ITEMS);
-    expect(keys).toHaveLength(6);
+    expect(keys).toHaveLength(22);
     const raw = Object.values(ITEMS).filter((i) => i.category === "raw");
     const refined = Object.values(ITEMS).filter((i) => i.category === "refined");
-    expect(raw).toHaveLength(4);
-    expect(refined).toHaveLength(2);
+    const minor = Object.values(ITEMS).filter((i) => i.category === "minorComponent");
+    const major = Object.values(ITEMS).filter((i) => i.category === "majorComponent");
+    expect(raw).toHaveLength(13);
+    expect(refined).toHaveLength(6);
+    expect(minor).toHaveLength(2);
+    expect(major).toHaveLength(1);
 
-    // Pin each seed's category directly so a mis-categorized entry is caught.
+    // Pin the original seed categories directly so a mis-categorized entry is caught.
     expect(ITEMS.commonOre.category).toBe("raw");
     expect(ITEMS.uncommonMaterial.category).toBe("raw");
     expect(ITEMS.rareMaterial.category).toBe("raw");
