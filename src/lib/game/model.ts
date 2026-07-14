@@ -65,6 +65,23 @@ export interface ShipTypeDef {
 
 export type LootMaterialKey = "commonOre" | "uncommonMaterial" | "rareMaterial";
 
+// Mission Rework (Task 1, docs/plans/2026-07-14-mission-rework-plan.md): the
+// per-mission loot triad. Each mission's extraction roll is UNCHANGED in mechanic
+// -- it still rolls exactly one of three abstract rarity tiers (rare -> uncommon ->
+// common fallback, see tick.ts's rollExtractionTick) -- but WHICH concrete ITEM
+// each tier deposits is now per-mission, read off this table at delivery time
+// instead of being hard-coded to commonOre/uncommonMaterial/rareMaterial. The three
+// fields are ITEM registry keys (kept as `string` -- the ITEMS registry is keyed on
+// `string`, and a mission can point at any raw-material tier). Every mission MUST
+// point its `common` at an ITEM whose rarity is "common", `uncommon` at "uncommon",
+// and `rare` at "rare" -- the model.test.ts loot-triad test enforces this so a
+// mistyped key cannot silently deposit a rarity-mismatched material.
+export interface MissionLootTable {
+  common: string;   // ITEM key deposited when the common (guaranteed-floor) tier wins
+  uncommon: string; // ITEM key deposited when the uncommon tier wins
+  rare: string;     // ITEM key deposited when the rare tier wins
+}
+
 // Superset of LootMaterialKey: the 3 mission-loot tiers plus the 2 new
 // crafted-good tiers the Homeworld crafting system (RECIPES, below) produces.
 // homePlanet.storage is keyed on this wider type -- both raw loot delivery
@@ -96,26 +113,27 @@ export interface MissionDef {
   // exact algorithm and rng() call order.
   uncommonChance: number;
   rareChance: number;
+  // Mission Rework (Task 1): the concrete ITEM keys this mission deposits per
+  // rarity tier. The extraction roll picks an abstract tier; this table maps that
+  // tier -> the mission's own material at delivery (tick.ts's tickCaptainMission).
+  // See MissionLootTable above for the rarity-consistency contract.
+  lootTable: MissionLootTable;
   // Phase 2 (Task B3, docs/plans/2026-07-13-phase-2-warehouse-refine-economy-
   // design.md §3.4): the ONE material that DEFINES this run for the warehouse
   // auto-stop mechanic. When this material is at its tier cap, the captain
   // running the mission idles (no run, no loot/XP/credits) -- see economyTick's
-  // materialAtCap check in tick.ts. Both launch missions are ore runs, so their
-  // primary is `commonOre`: the GUARANTEED common-tier fallback drop of every
-  // extraction tick (see tick.ts's rollExtractionTick, whose final return always
-  // yields commonOre when rare + uncommon both miss). Typed LootMaterialKey (not
-  // the wider HomePlanetMaterialKey) because missions only ever produce the 3
-  // raw loot tiers -- never a refined/crafted good.
+  // materialAtCap check in tick.ts.
   //
-  // ⚠️ MUST stay consistent with rollExtractionTick's guaranteed-floor tier for
-  // this mission. Today every mission's guaranteed floor is commonOre, so every
-  // primaryMaterial is commonOre. A FUTURE mission whose guaranteed drop is a
-  // different tier MUST set this field to match, or auto-stop would gate the run
-  // on the wrong material. This is an explicit data field (not inferred from the
-  // roll) so the design's per-mission "primary material" concept (§3.4/§5) reads
-  // straight off the mission def, and so a future non-commonOre run needs no
-  // auto-stop code change -- only this value.
-  primaryMaterial: LootMaterialKey;
+  // Mission Rework (Task 1): this is ALWAYS the mission's COMMON item -- i.e.
+  // `lootTable.common` -- because the common tier is the GUARANTEED per-tick floor
+  // drop (rollExtractionTick's final return when rare + uncommon both miss), so it
+  // is the material the run reliably produces and thus the right auto-stop gate.
+  // Widened from LootMaterialKey to `string` because a mission's common is now an
+  // arbitrary ITEM key (e.g. "scrapAlloy"/"ferriteOre"), not just the 3 original
+  // ore-tier keys. materialAtCap (tick.ts) already accepts any `string` itemId, so
+  // no auto-stop code changed. The model.test.ts loot-triad test asserts
+  // primaryMaterial === lootTable.common for every mission, so the two cannot drift.
+  primaryMaterial: string;
   // Display-only grouping -- drives which SubTabs tier a mission renders under
   // in the Fleet Operations tab (a follow-up UI feature). Has NO effect on
   // tick math whatsoever; purely a presentational label read by the UI layer.
@@ -159,15 +177,34 @@ export interface MissionDef {
   creditsPerCycle: number;
 }
 
-// 2 missions at launch: a fast, safe ore run and a slower one with better
-// rare-material odds. Add a new entry here (and nowhere else -- App.svelte's
-// Missions panel iterates this object) if a 3rd mission is ever wanted.
-// Both entries' cargoCapacity divides evenly by extractionRatePerTick (90/1
-// = 90) -- keep this true for any future entry too, or update
-// requiredTicksForPhase's extracting case to handle a smaller final tick.
-export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
+// Mission Rework (Task 1, docs/plans/2026-07-14-mission-rework-plan.md): 4 missions.
+// The 2 original ore runs (KEYS kept `shortOreRun`/`longOreRun` -- label-only rename,
+// so no save migration) plus 2 new missions (`salvageWreckage`, `forageFlora`). Each
+// mission yields its OWN common/uncommon/rare material triad via its `lootTable`
+// (see MissionLootTable) -- the extraction roll mechanic is identical across all 4;
+// only which ITEM each tier deposits differs. Add a new entry here (and nowhere else
+// -- App.svelte's Operations panel iterates this object) if a 5th mission is wanted;
+// growing this object automatically widens MissionKey, and the exhaustive
+// Record<MissionKey,...> maps below (BASE_XP_PER_TICK) will force the new key to be
+// given a value.
+//
+// ⚠️ FIRST-PASS TUNABLE VALUES ⚠️ The 2 NEW missions' phase durations, occurrence
+// chances (design's 98.5/1.4/0.1 common/uncommon/rare split -> uncommonChance 0.014,
+// rareChance 0.001), creditsPerCycle, and fleetAdminXpPerTick are launch placeholders
+// balanced at the device-check stage, same spirit as this file's other constants. The
+// 2 ore runs' numeric fields are UNCHANGED from pre-rework (anti-regression) -- only
+// their `label` and new `lootTable` fields were added/renamed.
+//
+// Every entry's cargoCapacity divides evenly by extractionRatePerTick (90/1 = 90) --
+// keep this true for any future entry too, or update requiredTicksForPhase's
+// extracting case to handle a smaller final tick.
+export const MISSIONS: Record<
+  "shortOreRun" | "longOreRun" | "salvageWreckage" | "forageFlora",
+  MissionDef
+> = {
   shortOreRun: {
-    label: "Short Ore Run",
+    // Renamed "Short Ore Run" -> "Local Asteroid" (label only; key unchanged).
+    label: "Local Asteroid",
     transitOutTicks: 25,
     transitBackTicks: 25,
     unloadTicks: 8,
@@ -175,13 +212,17 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     cargoCapacity: 90,
     uncommonChance: 0.019, // was lootTable weight 19/1000 (1.9%)
     rareChance: 0.001, // was lootTable weight 1/1000 (0.1%)
-    primaryMaterial: "commonOre", // ore run -- guaranteed common-tier drop defines it (§3.4 auto-stop)
+    // ANTI-REGRESSION: the IDENTITY triad -- tier key == item key -- so this run's
+    // delivery is byte-identical to pre-rework (Titanium/Polysilicate/Iridium).
+    lootTable: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
+    primaryMaterial: "commonOre", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
     creditsPerCycle: 10,
   },
   longOreRun: {
-    label: "Long Ore Run",
+    // Renamed "Long Ore Run" -> "Lunar Mine Contract" (label only; key unchanged).
+    label: "Lunar Mine Contract",
     transitOutTicks: 70,
     transitBackTicks: 70,
     unloadTicks: 8,
@@ -189,10 +230,47 @@ export const MISSIONS: Record<"shortOreRun" | "longOreRun", MissionDef> = {
     cargoCapacity: 90,
     uncommonChance: 0.08, // was lootTable weight 80/1000 (8%)
     rareChance: 0.02, // was lootTable weight 20/1000 (2%)
-    primaryMaterial: "commonOre", // ore run -- guaranteed common-tier drop defines it (§3.4 auto-stop)
+    // REWIRED (design §1): the Lunar Mine now yields the Ferrite/Cobalt/Osmium
+    // triad instead of the ore keys. Its auto-stop now gates on ferriteOre.
+    lootTable: { common: "ferriteOre", uncommon: "cobaltOre", rare: "osmiumOre" },
+    primaryMaterial: "ferriteOre", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
     creditsPerCycle: 20,
+  },
+  salvageWreckage: {
+    // NEW mission (design §1). Phase durations are FIRST-PASS placeholders, sized
+    // between the two ore runs (short 25/25, long 70/70) -- retuned at device check.
+    label: "Salvage Skirmish Wreckage",
+    transitOutTicks: 45,
+    transitBackTicks: 45,
+    unloadTicks: 8,
+    extractionRatePerTick: 1,
+    cargoCapacity: 90,
+    uncommonChance: 0.014, // first-pass: design's 1.4% uncommon split (tunable)
+    rareChance: 0.001, // first-pass: design's 0.1% rare split (tunable)
+    lootTable: { common: "scrapAlloy", uncommon: "salvagedCircuitry", rare: "intactReactorCore" },
+    primaryMaterial: "scrapAlloy", // == lootTable.common (§3.4 auto-stop)
+    tier: "I",
+    fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap; Task 2 owns XP retune
+    creditsPerCycle: 30, // first-pass placeholder (tunable)
+  },
+  forageFlora: {
+    // NEW mission (design §1). Phase durations are FIRST-PASS placeholders, the
+    // longest of the four -- retuned at device check.
+    label: "Forage Minerals & Flora on Nearby Moon",
+    transitOutTicks: 55,
+    transitBackTicks: 55,
+    unloadTicks: 8,
+    extractionRatePerTick: 1,
+    cargoCapacity: 90,
+    uncommonChance: 0.014, // first-pass: design's 1.4% uncommon split (tunable)
+    rareChance: 0.001, // first-pass: design's 0.1% rare split (tunable)
+    lootTable: { common: "fibrousBiomass", uncommon: "volatileResin", rare: "exoticSporeCluster" },
+    primaryMaterial: "fibrousBiomass", // == lootTable.common (§3.4 auto-stop)
+    tier: "I",
+    fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap; Task 2 owns XP retune
+    creditsPerCycle: 35, // first-pass placeholder (tunable)
   },
 };
 
@@ -215,6 +293,14 @@ export type MissionKey = keyof typeof MISSIONS;
 export const BASE_XP_PER_TICK: Record<MissionKey, number> = {
   shortOreRun: 1,
   longOreRun: 1,
+  // Mission Rework (Task 1): the 2 new missions need an XP rate for this exhaustive
+  // Record<MissionKey,...> to compile. Seeded at 1 (integer) as a PLACEHOLDER --
+  // Task 2 owns the real per-mission XP retune (design §5: 1/1.1/1.2/1.25) and MUST
+  // ship the fractional-rate closed-form parity test alongside any non-integer value
+  // (see the ⚠️ CLOSED-FORM PARITY TRAP in tick.ts). Kept integer here so Task 1
+  // introduces NO fractional-XP drift risk on its own.
+  salvageWreckage: 1,
+  forageFlora: 1,
 };
 
 // The 4 real hulls this feature ships (design doc, Task 1). TUNABLE -- first-pass

@@ -590,7 +590,13 @@ export function tickCaptainMission(
   shipStats: ShipDerivedStats | null = null
 ): {
   captain: CaptainState;
-  homePlanetDelta: Record<LootMaterialKey, Decimal>;
+  // Mission Rework (Task 1): widened LootMaterialKey -> string. The loot delta is now
+  // keyed by the DISPATCHED mission's own ITEM keys (remapped from abstract rarity
+  // tiers at cycle delivery below), which can be any raw-material key -- not just the
+  // 3 original ore tiers. Still seeded with the 3 ore-tier keys (emptyLootTotals) so
+  // passiveTrickle's commonOre target and ore-run deliveries are byte-identical; new
+  // missions append their own keys on top.
+  homePlanetDelta: Record<string, Decimal>;
   fleetAdminXpDelta: number;
   creditsDelta: number;
   // Task 6: lifetime-stat accrual for this call, folded into state.lifetimeStats
@@ -622,7 +628,12 @@ export function tickCaptainMission(
   const missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : rawMissionDef;
   let mission: CaptainMissionState | null = { ...captain.mission, cargo: { ...captain.mission.cargo } };
   let remaining = ticksElapsed;
-  const homePlanetDelta = emptyLootTotals();
+  // Mission Rework (Task 1): typed Record<string,Decimal> (not the narrow
+  // LootMaterialKey) because the cycle-delivery below remaps the abstract-tier cargo
+  // onto the mission's own lootTable item keys, which may not be one of the 3 seed
+  // keys. Seeded with emptyLootTotals() so the ore tiers are always present (ore-run
+  // delivery + passiveTrickle stay byte-identical); other missions grow keys on demand.
+  const homePlanetDelta: Record<string, Decimal> = emptyLootTotals();
   // Seeded from the captain's CURRENT xp/level/statPoints. Task 4 (Progression
   // Pacing Rework) changed WHEN these mutate: captain XP is no longer a lump
   // awarded inside the cycle-completion branch, it accrues per WHOLE tick the
@@ -808,9 +819,21 @@ export function tickCaptainMission(
         // Capture cargo in a const: `mission` is a `let` (CaptainMissionState |
         // null), and TS drops its non-null narrowing inside the forEach closure.
         const cargo = mission.cargo;
-        (Object.keys(cargo) as LootMaterialKey[]).forEach((key) => {
-          homePlanetDelta[key] = homePlanetDelta[key].plus(cargo[key]);
-        });
+        // Mission Rework (Task 1): THE per-mission loot remap. The cargo still
+        // accumulates under the 3 ABSTRACT rarity tiers (commonOre/uncommonMaterial/
+        // rareMaterial -- the roll mechanic is unchanged), but on delivery each tier's
+        // total is deposited under THIS mission's own lootTable item key. For an ore
+        // run whose lootTable is the identity map (common->commonOre etc.) this is
+        // byte-identical to the pre-rework per-key copy; for salvage/forage/lunar it
+        // routes the same amounts to their own materials. `?? new Decimal(0)` because a
+        // non-ore mission's target keys are not among homePlanetDelta's seed keys yet
+        // (grow-on-demand, same contract as addToInventory). missionDef is the
+        // ship-adjusted def, which preserves lootTable unchanged (effectiveMissionDef
+        // only rescales transit/cargo geometry).
+        const loot = missionDef.lootTable;
+        homePlanetDelta[loot.common] = (homePlanetDelta[loot.common] ?? new Decimal(0)).plus(cargo.commonOre);
+        homePlanetDelta[loot.uncommon] = (homePlanetDelta[loot.uncommon] ?? new Decimal(0)).plus(cargo.uncommonMaterial);
+        homePlanetDelta[loot.rare] = (homePlanetDelta[loot.rare] ?? new Decimal(0)).plus(cargo.rareMaterial);
         // Credits are still awarded once PER completed cycle (this branch can be
         // reached multiple times within one call's while loop -- e.g. a big
         // offline-catchup ticksElapsed spanning several full cycles). Captain XP
@@ -1072,7 +1095,12 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // inline `state.gameTimeSeconds + deltaSeconds`.
   const deltaSeconds = ticksElapsed * state.tickDurationSeconds;
 
-  const homePlanetDelta = emptyLootTotals();
+  // Mission Rework (Task 1): Record<string,Decimal> (not narrow LootMaterialKey) --
+  // each captain's per-mission loot delta may carry item keys beyond the 3 ore tiers.
+  // Seeded with the 3 ore-tier keys (emptyLootTotals) so passiveTrickle's commonOre
+  // target is always present and ore-run folding is byte-identical; other keys grow
+  // on demand below.
+  const homePlanetDelta: Record<string, Decimal> = emptyLootTotals();
   // Accumulates fleet-wide Fleet Admiral XP across every captain's completed
   // mission cycles this call -- same accumulate-locally-apply-once shape as
   // homePlanetDelta immediately above. Consumed once, at the end of this
@@ -1157,9 +1185,13 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
       creditsDelta: captainCreditsDelta,
       lifetimeStatsDelta: captainLifetimeStatsDelta,
     } = tickCaptainMission(ticksElapsed, captain, rng, bonuses, shipStats);
-    (Object.keys(delta) as LootMaterialKey[]).forEach((key) => {
-      homePlanetDelta[key] = homePlanetDelta[key].plus(delta[key]);
-    });
+    // Mission Rework (Task 1): the captain's delta is now keyed by its mission's own
+    // item keys, so fold over the ACTUAL keys present and grow-on-demand (`?? 0`)
+    // rather than assuming the fixed 3 ore tiers. For an ore-only fleet the keys are
+    // exactly the 3 seeds -> byte-identical to the pre-rework forEach.
+    for (const key of Object.keys(delta)) {
+      homePlanetDelta[key] = (homePlanetDelta[key] ?? new Decimal(0)).plus(delta[key]);
+    }
     fleetAdminXpDelta += captainFleetAdminXpDelta;
     creditsDelta += captainCreditsDelta;
     // Task 7: fold THIS captain's lifetime-stat delta into the fleet-wide
@@ -1225,7 +1257,12 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // protection as before.
   let inventory = state.inventory;
   let discovered = state.discovered;
-  for (const key of LOOT_MATERIAL_KEYS) {
+  // Mission Rework (Task 1): fold over the ACTUAL delivered keys (the 3 seeded ore
+  // tiers PLUS any per-mission item keys the salvage/forage/lunar deliveries added),
+  // not the fixed LOOT_MATERIAL_KEYS. addToInventory grows inventory on demand and
+  // gates discovery on a positive amount, so the seeded 0-delta ore tiers reveal
+  // nothing and an ore-only fleet folds byte-identically to the old fixed loop.
+  for (const key of Object.keys(homePlanetDelta)) {
     const added = addToInventory(inventory, discovered, key, homePlanetDelta[key]);
     inventory = added.inventory;
     discovered = added.discovered;

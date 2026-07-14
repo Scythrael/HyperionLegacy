@@ -4,7 +4,7 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
-import { type GameState, type MissionKey, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS } from "./model";
 
 export const SAVE_VERSION = 20;
 export const SAVE_KEY = "fleet_admiral_save";
@@ -304,7 +304,15 @@ function hydrateDecimals(state: any): GameState {
 // (or any other earlier step) has already run, and maps over whatever
 // state.captains looks like at THAT point -- so every captain, regardless of
 // origin, picks up `spec: null` here.
-const OLD_MISSION_TICKS_V12: Record<MissionKey, {
+// Mission Rework (Task 1): FROZEN to the exact 2 mission keys that existed at save
+// v12. Was `Record<MissionKey, ...>`, but MissionKey now includes salvageWreckage/
+// forageFlora -- missions that did NOT exist at v12 and can never appear in a v12
+// save, so this migration snapshot must NOT be forced to carry entries for them.
+// Pinning the key type to the historical literal union keeps the v12 migration a
+// faithful record of the v12 world (the migration LOGIC is unchanged) and stops the
+// evolving MissionKey union from dragging new missions into a shipped migration.
+type MissionKeyV12 = "shortOreRun" | "longOreRun";
+const OLD_MISSION_TICKS_V12: Record<MissionKeyV12, {
   transitOutTicks: number; transitBackTicks: number; unloadTicks: number;
   extractionRatePerTick: number; cargoCapacity: number;
 }> = {
@@ -312,7 +320,7 @@ const OLD_MISSION_TICKS_V12: Record<MissionKey, {
   longOreRun: { transitOutTicks: 8, transitBackTicks: 8, unloadTicks: 1, extractionRatePerTick: 10, cargoCapacity: 100 },
 };
 
-function oldRequiredTicksForPhase_v12(phase: MissionPhase, missionKey: MissionKey): number {
+function oldRequiredTicksForPhase_v12(phase: MissionPhase, missionKey: MissionKeyV12): number {
   const def = OLD_MISSION_TICKS_V12[missionKey];
   switch (phase) {
     case "ordersReceived": return 1;

@@ -41,11 +41,19 @@ import {
   RECIPES,
   shipDerivedStats,
   xpForNextFleetAdminLevel,
+  ITEMS,
   type CaptainMissionState,
+  type MissionKey,
   type TimedProcess,
 } from "./model";
 
-function missionCaptain(missionKey: "shortOreRun" | "longOreRun" = "shortOreRun"): CaptainMissionState {
+function missionCaptain(
+  // Mission Rework (Task 1): widened from the 2 ore-run keys to the full MissionKey
+  // union so tests can dispatch the new salvage/forage missions. cargo stays keyed
+  // by the 3 ABSTRACT rarity tiers (unchanged) -- the per-mission item-key remap
+  // happens at delivery, not in the cargo accumulator.
+  missionKey: MissionKey = "shortOreRun"
+): CaptainMissionState {
   return {
     missionKey,
     phase: "ordersReceived",
@@ -760,6 +768,61 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
     expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
     expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
     expect(captain.mission!.recalled).toBe(false);
+  });
+
+  // Mission Rework (Task 1): the extraction cargo accumulates under the 3 ABSTRACT
+  // rarity tiers (commonOre/uncommonMaterial/rareMaterial), but on cycle-completion
+  // DELIVERY each tier is remapped to the DISPATCHED mission's own loot-table item
+  // key. This proves a non-ore mission deposits ITS OWN triad, not the ore keys.
+  it("delivers the dispatched mission's OWN loot triad (salvageWreckage -> scrapAlloy/salvagedCircuitry/intactReactorCore)", () => {
+    const base = freshCaptains(1)[0];
+    // Pre-load an unloading-phase cargo of one unit per abstract tier, so the
+    // delivery has a distinct, checkable amount in each of the mission's 3 keys.
+    base.mission = { ...missionCaptain("salvageWreckage"), phase: "unloading", phaseProgressTicks: 0 };
+    base.mission.cargo = {
+      commonOre: new Decimal(90),
+      uncommonMaterial: new Decimal(8),
+      rareMaterial: new Decimal(2),
+    };
+    const { homePlanetDelta } = tickCaptainMission(
+      MISSIONS.salvageWreckage.unloadTicks,
+      base,
+      ALWAYS_MIN_ROLL
+    );
+
+    // Delivered under the salvage triad's item keys...
+    expect(homePlanetDelta.scrapAlloy.equals(90)).toBe(true); // common tier -> scrapAlloy
+    expect(homePlanetDelta.salvagedCircuitry.equals(8)).toBe(true); // uncommon -> salvagedCircuitry
+    expect(homePlanetDelta.intactReactorCore.equals(2)).toBe(true); // rare -> intactReactorCore
+    // ...and NOT under the ore-run keys (the pre-rework hard-coded destinations).
+    // The seeded abstract-tier keys remain present at 0 (nothing delivered there).
+    expect((homePlanetDelta.commonOre ?? new Decimal(0)).equals(0)).toBe(true);
+    expect((homePlanetDelta.uncommonMaterial ?? new Decimal(0)).equals(0)).toBe(true);
+    expect((homePlanetDelta.rareMaterial ?? new Decimal(0)).equals(0)).toBe(true);
+  });
+
+  // Full end-to-end through tick(): dispatching salvage and running a whole cycle
+  // with a COMMON-only roll lands scrapAlloy in the fleet inventory (proving the
+  // remap survives the tick()-level fold into inventory, not just the captain delta).
+  it("a full salvageWreckage cycle on a COMMON roll lands scrapAlloy in inventory", () => {
+    const base = freshState();
+    const { next: state, success } = dispatchCaptainOnMission(base, base.captains[0].id, "salvageWreckage");
+    expect(success).toBe(true);
+    // A constant rng of 0.5 fails salvage's rare (0.001) + uncommon (0.014) checks
+    // every roll -> common wins every extraction tick -> scrapAlloy only.
+    const cycleTicks =
+      1 +
+      MISSIONS.salvageWreckage.transitOutTicks +
+      MISSIONS.salvageWreckage.cargoCapacity / MISSIONS.salvageWreckage.extractionRatePerTick +
+      MISSIONS.salvageWreckage.transitBackTicks +
+      MISSIONS.salvageWreckage.unloadTicks;
+    const result = tick(cycleTicks, state, () => 0.5);
+    const scrap = result.inventory.scrapAlloy ?? new Decimal(0);
+    expect(scrap.gt(0)).toBe(true);
+    expect(ITEMS.scrapAlloy.rarity).toBe("common");
+    // The Titanium common key (commonOre) got nothing from this salvage run.
+    // (freshState seeds commonOre at 0; a salvage-only run must not add to it.)
+    expect((result.inventory.commonOre ?? new Decimal(0)).equals(0)).toBe(true);
   });
 
   it("completing a full cycle WHILE recalled ends the mission (mission becomes null)", () => {

@@ -194,7 +194,13 @@ describe("Phase 1 — facility/process reservation fields (additive)", () => {
 });
 
 describe("MISSIONS — launch set", () => {
-  it("has exactly 2 missions with the specified tick counts and cargo/extraction values", () => {
+  // Mission Rework (Task 1): the launch set grew from 2 ore runs to 4 missions
+  // (the 2 ore runs, keys unchanged, + salvageWreckage + forageFlora). This test's
+  // per-field assertions on the 2 ore runs are unchanged (anti-regression); the
+  // count assertion was updated 2 -> 4 and the title made honest.
+  it("has exactly 4 missions with the specified tick counts and cargo/extraction values", () => {
+    expect(Object.keys(MISSIONS)).toHaveLength(4);
+
     expect(MISSIONS.shortOreRun.transitOutTicks).toBe(25);
     expect(MISSIONS.shortOreRun.transitBackTicks).toBe(25);
     expect(MISSIONS.shortOreRun.unloadTicks).toBe(8);
@@ -227,6 +233,101 @@ describe("MISSIONS — launch set", () => {
   it("longOreRun has better rare-material odds than shortOreRun", () => {
     expect(MISSIONS.longOreRun.rareChance).toBeGreaterThan(MISSIONS.shortOreRun.rareChance);
     expect(MISSIONS.longOreRun.uncommonChance).toBeGreaterThan(MISSIONS.shortOreRun.uncommonChance);
+  });
+});
+
+// Mission Rework (Task 1, docs/plans/2026-07-14-mission-rework-plan.md): every
+// mission now carries a per-mission loot triad (lootTable = the common/uncommon/
+// rare ITEM keys it deposits), replacing the old hard-coded commonOre/uncommon
+// Material/rareMaterial the extraction roll used for EVERY mission. The abstract
+// rarity roll is unchanged; only WHICH item key each tier deposits is now
+// per-mission (remapped at delivery -- see tick.ts). primaryMaterial (the auto-stop
+// gate material) is each mission's COMMON item.
+describe("MISSIONS — per-mission loot triads (Mission Rework Task 1)", () => {
+  // The authoritative triad per mission (design §1). Common / uncommon / rare
+  // ITEM keys, all of which already exist as scaffolded ITEMS placeholders.
+  const EXPECTED_TRIADS: Record<
+    "shortOreRun" | "longOreRun" | "salvageWreckage" | "forageFlora",
+    { common: string; uncommon: string; rare: string }
+  > = {
+    shortOreRun: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
+    longOreRun: { common: "ferriteOre", uncommon: "cobaltOre", rare: "osmiumOre" },
+    salvageWreckage: { common: "scrapAlloy", uncommon: "salvagedCircuitry", rare: "intactReactorCore" },
+    forageFlora: { common: "fibrousBiomass", uncommon: "volatileResin", rare: "exoticSporeCluster" },
+  };
+
+  it("all 4 mission keys exist (2 renamed ore runs + salvage + forage)", () => {
+    expect(Object.keys(MISSIONS).sort()).toEqual(
+      ["forageFlora", "longOreRun", "salvageWreckage", "shortOreRun"].sort()
+    );
+  });
+
+  it("labels are renamed to the design's in-fiction names", () => {
+    expect(MISSIONS.shortOreRun.label).toBe("Local Asteroid");
+    expect(MISSIONS.longOreRun.label).toBe("Lunar Mine Contract");
+    expect(MISSIONS.salvageWreckage.label).toBe("Salvage Skirmish Wreckage");
+    expect(MISSIONS.forageFlora.label).toBe("Forage Minerals & Flora on Nearby Moon");
+  });
+
+  it("every mission's lootTable resolves to real, correctly-rarity-tagged ITEMS", () => {
+    for (const key of Object.keys(EXPECTED_TRIADS) as (keyof typeof EXPECTED_TRIADS)[]) {
+      const triad = MISSIONS[key].lootTable;
+      // Each tier's key must exist in ITEMS and carry the matching rarity tag.
+      expect(ITEMS[triad.common], `${key}.common (${triad.common}) exists`).toBeDefined();
+      expect(ITEMS[triad.uncommon], `${key}.uncommon (${triad.uncommon}) exists`).toBeDefined();
+      expect(ITEMS[triad.rare], `${key}.rare (${triad.rare}) exists`).toBeDefined();
+      expect(ITEMS[triad.common].rarity).toBe("common");
+      expect(ITEMS[triad.uncommon].rarity).toBe("uncommon");
+      expect(ITEMS[triad.rare].rarity).toBe("rare");
+    }
+  });
+
+  it("every mission's lootTable matches the authoritative per-mission triad", () => {
+    for (const key of Object.keys(EXPECTED_TRIADS) as (keyof typeof EXPECTED_TRIADS)[]) {
+      expect(MISSIONS[key].lootTable).toEqual(EXPECTED_TRIADS[key]);
+    }
+  });
+
+  it("every mission's primaryMaterial is its COMMON item (the auto-stop gate material)", () => {
+    for (const key of Object.keys(EXPECTED_TRIADS) as (keyof typeof EXPECTED_TRIADS)[]) {
+      expect(MISSIONS[key].primaryMaterial).toBe(EXPECTED_TRIADS[key].common);
+      expect(MISSIONS[key].primaryMaterial).toBe(MISSIONS[key].lootTable.common);
+    }
+  });
+
+  // ANTI-REGRESSION: the Local Asteroid run (shortOreRun) must still deposit the
+  // ORIGINAL Titanium/Polysilicate/Iridium triad under the ORIGINAL storage keys,
+  // and keep its original occurrence chances -- its lootTable is the identity map
+  // (tier key == item key), so its delivery is byte-identical to pre-rework.
+  it("shortOreRun (Local Asteroid) is unchanged: identity triad + original chances", () => {
+    expect(MISSIONS.shortOreRun.lootTable).toEqual({
+      common: "commonOre",
+      uncommon: "uncommonMaterial",
+      rare: "rareMaterial",
+    });
+    expect(MISSIONS.shortOreRun.primaryMaterial).toBe("commonOre");
+    expect(MISSIONS.shortOreRun.uncommonChance).toBe(0.019);
+    expect(MISSIONS.shortOreRun.rareChance).toBe(0.001);
+  });
+
+  it("the 2 new missions have valid phase durations and probabilities", () => {
+    for (const key of ["salvageWreckage", "forageFlora"] as const) {
+      const m = MISSIONS[key];
+      expect(m.transitOutTicks).toBeGreaterThan(0);
+      expect(m.transitBackTicks).toBeGreaterThan(0);
+      expect(m.unloadTicks).toBeGreaterThan(0);
+      expect(m.extractionRatePerTick).toBeGreaterThan(0);
+      // cargoCapacity must divide evenly by extractionRatePerTick (requiredTicksForPhase
+      // has no partial-final-tick path -- see model.ts).
+      expect(m.cargoCapacity % m.extractionRatePerTick).toBe(0);
+      expect(m.uncommonChance).toBeGreaterThan(0);
+      expect(m.uncommonChance).toBeLessThanOrEqual(1);
+      expect(m.rareChance).toBeGreaterThan(0);
+      expect(m.rareChance).toBeLessThanOrEqual(1);
+      // Closed-form parity trap: fleetAdminXpPerTick MUST stay an integer (see the
+      // ⚠️ block in model.ts MissionDef); Task 2 owns any fractional XP retune.
+      expect(Number.isInteger(m.fleetAdminXpPerTick)).toBe(true);
+    }
   });
 });
 
