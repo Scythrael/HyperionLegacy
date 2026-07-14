@@ -60,6 +60,11 @@
     FACILITIES,
     REFINE_RECIPES,
     ITEMS,
+    // Mission Rework (Task 8 UI): the buy-fuel price per unit, shown on the Fuel
+    // Storage facility's buy control so the credits cost of +10/+100/Fill reads
+    // straight off the SAME constant buyFuel (tick.ts) charges -- price shown can
+    // never drift from price charged.
+    FUEL_CREDITS_PER_UNIT,
     // CAPTAIN_SPEC_BONUS / CaptainState import removed in Task 11b: their only
     // App.svelte uses were the deleted spec-picker (CAPTAIN_SPEC_BONUS) and the
     // removed talentTooltipInfo lookup (CaptainState). HomeworldTalentBranch was
@@ -160,6 +165,20 @@
     captainBonusRollChanceMult,
     captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does -- enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
     xpPerTick, // Mission Rework (Task 2): the SHARED per-tick XP RATE helper -- consumed by the Operations mission cards to show each mission's exp/tick (captain-independent today, so the fleet's representative captain is passed)
+    // Mission Rework (Task 8 UI): the consolidated dispatch gate + the mission-
+    // unlock/fuel-cap/buy-fuel backend seams the Operations dispatch + the two new
+    // Facilities panels wire up. canDispatch(state, captainId, missionKey) is the
+    // ONE source of truth for the Dispatch button's enabled/blocked+reason state;
+    // missionUnlocked gates which missions the Operations list shows as available vs
+    // locked, and drives Mission Control's Overview; fuelCap(state) is the live tank
+    // cap the Fuel Storage gauge reads; buyFuel(state, units) backs its +10/+100/Fill
+    // buttons. All PURE (canDispatch/missionUnlocked/fuelCap) except buyFuel, which
+    // returns a new state (same-ref no-op convention on a failed/zero buy).
+    canDispatch,
+    missionUnlocked,
+    fuelCap,
+    buyFuel,
+    type DispatchBlockReason,
     foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
     addToInventory, // Phase 1 Task 5: the shared inventory add seam, called by BOTH tick() and this live loop so live loot delivery writes inventory/discovered byte-identically to offline catch-up (drift-proof)
     resolveProcesses, // Phase 1 Task 9: the SINGLE timed-process completion resolver, called by BOTH tick() and this live loop with the SAME ticksElapsed so process completion + lump FA XP resolve identically live and offline (drift-proof)
@@ -167,6 +186,12 @@
     describeCaptainTalentEffect,
     describeHomeworldTalentEffect,
   } from "./lib/game/tick";
+  // Mission Rework (Task 8 UI): the PURE fuel-cost math. fuelNeeded(mission, shipDef)
+  // returns the round-trip fuel a hull burns for a mission -- shown per mission on the
+  // Operations dispatch surface (list card = representative captain's hull; popup =
+  // the SELECTED captain's hull, the authoritative dispatching cost). Imported from
+  // fuel.ts directly (its own module; tick.ts does not re-export it).
+  import { fuelNeeded } from "./lib/game/fuel";
   import { formatNumber } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave, importRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
@@ -343,7 +368,11 @@
   // Phase 2 (Warehouse UI, Group C): "warehouse" is now a REAL, selectable
   // facility (the fill-tile inventory catalog), joining "refinery". The other
   // rail entries (Fabricator/Shipyard/Ship Facilities) stay locked placeholders.
-  type FacilityKey = "refinery" | "warehouse";
+  // Mission Rework (Task 8 UI): "missionControl" + "fuelStorage" join as REAL,
+  // selectable Homeworld facilities (backed by FACILITIES.missionControl /
+  // FACILITIES.fuelStorage + their upgrade tracks). Each drives its own two-tab
+  // (Overview / Upgrades) content pane, same SubTabs idiom as Refinery/Warehouse.
+  type FacilityKey = "refinery" | "warehouse" | "missionControl" | "fuelStorage";
   let activeFacility: FacilityKey = "refinery";
 
   // ---- Warehouse facility view (Phase 2, Group C) -----------------------------
@@ -571,6 +600,17 @@
   // view" reasoning the other sub-tab groups use.
   type RefinerySubTab = "overview" | "orders" | "upgrades";
   let activeRefinerySubTab: RefinerySubTab = "overview";
+
+  // Mission Rework (Task 8 UI): the two new facilities' sub-tab axes. Both mirror
+  // the Refinery/Warehouse pattern EXACTLY -- an Overview (the at-a-glance state)
+  // and an Upgrades (the next-rung readiness + Build) view -- so their content
+  // panes reuse the same SubTabs + Panel + upgrade-rung idiom. Kept as their own
+  // typed literal unions + let state (not shared with RefinerySubTab) so each
+  // facility's tab selection is independent, same discipline as the others.
+  type MissionControlSubTab = "overview" | "upgrades";
+  let activeMissionControlSubTab: MissionControlSubTab = "overview";
+  type FuelStorageSubTab = "overview" | "upgrades";
+  let activeFuelStorageSubTab: FuelStorageSubTab = "overview";
 
   // Phase 2 (Task D4): the Orders sub-tab's batch-count input (N for "Refine N").
   // Defaults to 10 -- a reasonable first batch, not a placeholder for "empty".
@@ -1166,6 +1206,54 @@
     doSave();
   }
 
+  // Mission Rework (Task 8 UI): buy `units` of fuel into the shared tank via the
+  // backend buyFuel (which clamps the amount to the MIN of requested / tank room /
+  // affordable credits, so it can never overfill or overspend). buyFuel returns the
+  // SAME state reference on a zero/failed buy (broke or tank full), so an identity
+  // check bails without a spurious log/save -- same "same-ref no-op" convention the
+  // other do* handlers use. `units` is a plain number (fuel is human-scale, not
+  // Decimal); the +10/+100 buttons pass a literal, Fill passes the live tank room.
+  function doBuyFuel(units: number) {
+    const next = buyFuel(state, units);
+    if (next === state) return; // no-op: broke, tank full, or nothing requested
+    // Capture the actual amount bought BEFORE reassigning state (buyFuel clamps, so
+    // the real delta can be < units); after `state = next` the two refs are equal.
+    const bought = next.fuel.minus(state.fuel);
+    state = next;
+    pushLog(`Purchased ${formatNumber(bought)} fuel.`);
+    doSave();
+  }
+
+  // Mission Rework (Task 8 UI): maps a canDispatch DispatchBlockReason to a short,
+  // player-facing message for the dispatch button's disabled title + the popup's
+  // blocked-reason line. Reads the mission's OWN requirement values (requiresCaptain
+  // Level / requiresCargoCapacity) so the level/cargo messages name the actual number
+  // the gate checks -- never a hardcoded guess. Exhaustive over the union (every
+  // DispatchBlockReason has a case); the default is belt-and-suspenders only.
+  function dispatchBlockMessage(reason: DispatchBlockReason, missionKey: MissionKey): string {
+    const mission = MISSIONS[missionKey];
+    switch (reason) {
+      case "locked":
+        return "Unlock via Mission Control";
+      case "captainLevel":
+        return `Captain level ${mission.requiresCaptainLevel} required`;
+      case "cargo":
+        return `Needs cargo ${mission.requiresCargoCapacity}`;
+      case "fuelCapacity":
+        return "Ship's tank too small for this trip";
+      case "fuelEmpty":
+        return "Not enough fuel — refuel at Fuel Storage";
+      case "busy":
+        return "Captain is already on a mission";
+      case "noShip":
+        return "Captain has no ship assigned";
+      case "noCaptain":
+        return "No captain selected";
+      default:
+        return "Cannot dispatch";
+    }
+  }
+
   // Captain Talents (Task 6) -- per-captain-scoped, like doDispatchCaptainOnMission
   // above (reads activeCaptain.id, spends THIS captain's own statPoints).
   // Same "same state reference on failure" convention as buyCaptainTalent
@@ -1640,6 +1728,76 @@
   // design §3.2). A simple count pair for the Overview readout.
   $: warehouseDiscoveredCount = Object.keys(ITEMS).filter((id) => state.discovered.includes(id)).length;
   $: warehouseTotalCount = Object.keys(ITEMS).length;
+
+  // ---- Mission Rework (Task 8 UI) reactive derivations ------------------------
+  // All read live `state`, so every readout below (dispatch gate, fuel gauge,
+  // completion progress, unlock lists, upgrade readiness) updates automatically as
+  // fuel is spent/bought, missions complete, and upgrades finish -- no manual
+  // refresh, same reactive contract the Warehouse/Refinery derivations above use.
+
+  // --- Operations dispatch surface ---
+  // The fleet's representative captain (state.captains[0], always seeded) + its
+  // assigned hull. Used ONLY for the AVAILABLE-MISSIONS list card's fuel-cost
+  // readout, mirroring the exp/tick readout's SAME representative-captain choice.
+  // Fuel cost is hull-dependent (varies by engineEfficiency), so this list figure
+  // is indicative; the dispatch POPUP recomputes it for the actually-selected
+  // captain's hull (the authoritative cost). `?? null` guards the belt-and-
+  // suspenders case of a captain with no assigned hull (never true in production).
+  $: representativeCaptain = state.captains[0];
+  $: representativeShip = representativeCaptain
+    ? state.ships.find((s) => s.assignedCaptainId === representativeCaptain.id) ?? null
+    : null;
+  // The dispatch gate for the OPEN mission popup (null when no popup / no captain
+  // picked yet). canDispatch is the ONE source of truth -- the popup's Dispatch
+  // button reads .ok for its disabled state and .reason (via dispatchBlockMessage)
+  // for its title + the blocked-reason line. Reactive so it re-evaluates the moment
+  // fuel/level/etc. change while the popup is open.
+  $: missionPopupGate =
+    missionPopupKey !== null && missionPopupCaptainId !== null
+      ? canDispatch(state, missionPopupCaptainId, missionPopupKey)
+      : null;
+
+  // --- Mission Control facility ---
+  // Level + the next upgrade rung (upgrades[level]; caps at length 2). missionControl
+  // Maxed is an EXPLICIT length check (same noUncheckedIndexedAccess reasoning as
+  // refineryMaxed above) so nextMissionControlUpgrade stays non-undefined-typed in
+  // the {:else} branch. The upgrade check + in-flight process mirror the Refinery's.
+  $: missionControlLevel = state.facilities.missionControl?.level ?? 0;
+  $: missionControlMaxed = missionControlLevel >= FACILITIES.missionControl.upgrades.length;
+  $: nextMissionControlUpgrade = FACILITIES.missionControl.upgrades[missionControlLevel];
+  $: missionControlUpgradeCheck = canBuildFacilityUpgrade(state, "missionControl");
+  $: missionControlUpgradeInFlight = state.activeProcesses.find(
+    (p) =>
+      p.kind === "facilityUpgrade" &&
+      p.effect.type === "facilityLevelUp" &&
+      p.effect.facility === "missionControl"
+  );
+  // Which missions are currently dispatchable vs still locked (derived from the
+  // facility level via missionUnlocked -- the SAME gate canDispatch uses). Drives
+  // Mission Control's Overview "unlocked / locked" lists.
+  $: unlockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => missionUnlocked(state, k));
+  $: lockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => !missionUnlocked(state, k));
+
+  // --- Fuel Storage facility ---
+  // The live tank cap (fuelCap derives it from the fuelStorage level) + the tank's
+  // headroom + fill % (reusing warehouseFillPct, the shared clamp helper). The buy
+  // gate opens only when the player can afford at least one unit AND the tank has
+  // room -- buyFuel clamps partials, but this keeps the buttons honestly disabled
+  // when NOTHING can be bought (broke or full).
+  $: fuelStorageLevel = state.facilities.fuelStorage?.level ?? 0;
+  $: fuelStorageMaxed = fuelStorageLevel >= FACILITIES.fuelStorage.upgrades.length;
+  $: nextFuelStorageUpgrade = FACILITIES.fuelStorage.upgrades[fuelStorageLevel];
+  $: fuelStorageUpgradeCheck = canBuildFacilityUpgrade(state, "fuelStorage");
+  $: fuelStorageUpgradeInFlight = state.activeProcesses.find(
+    (p) =>
+      p.kind === "facilityUpgrade" &&
+      p.effect.type === "facilityLevelUp" &&
+      p.effect.facility === "fuelStorage"
+  );
+  $: fuelCapValue = fuelCap(state);
+  $: fuelRoom = Decimal.max(0, fuelCapValue.minus(state.fuel));
+  $: fuelFillPct = warehouseFillPct(state.fuel, fuelCapValue);
+  $: canBuyFuel = state.credits.gte(FUEL_CREDITS_PER_UNIT) && fuelRoom.gt(0);
 </script>
 
 <!-- Window-level tooltip dismissal. Currency info-tooltip (2026-07-09): close an
@@ -2170,6 +2328,25 @@
           >
             Warehouse
           </button>
+          <!-- Mission Control -- REAL, selectable facility (Mission Rework Task 8):
+               the mission-unlock facility. Same reused .captain-list-item / active
+               idiom as the Refinery/Warehouse buttons. -->
+          <button
+            class="captain-list-item"
+            class:active={activeFacility === "missionControl"}
+            on:click={() => (activeFacility = "missionControl")}
+          >
+            Mission Control
+          </button>
+          <!-- Fuel Storage -- REAL, selectable facility (Mission Rework Task 8): the
+               fuel tank (gauge + buy control) + its cap-doubling upgrade track. -->
+          <button
+            class="captain-list-item"
+            class:active={activeFacility === "fuelStorage"}
+            on:click={() => (activeFacility = "fuelStorage")}
+          >
+            Fuel Storage
+          </button>
 
           <!-- Fleet Sector group -- the Shipyard belongs to the fleet's sector
                presence, not the homeworld. -->
@@ -2665,6 +2842,255 @@
                 </div>
               </Panel>
             {/if}
+
+          {:else if activeFacility === "missionControl"}
+            <!-- MISSION CONTROL (Mission Rework Task 8) -- the mission-unlock
+                 facility. Two sub-tabs mirroring the Refinery: Overview (unlocked /
+                 locked missions + completion progress toward the next unlock) and
+                 Upgrades (the next rung's material + completion-count readiness +
+                 Build). All readiness/actions read the SAME tick.ts backend fns
+                 (missionUnlocked / canBuildFacilityUpgrade / startFacilityUpgrade) +
+                 FACILITIES data, so the UI can't drift from what the backend enforces.
+                 The Upgrades tab adds the completion-count requirement rows that are
+                 unique to this facility (the "earn it by playing" gate, Task 6). -->
+            <SubTabs
+              tabs={[
+                { key: "overview", label: "Overview" },
+                { key: "upgrades", label: "Upgrades" },
+              ]}
+              active={activeMissionControlSubTab}
+              onSelect={(key) => (activeMissionControlSubTab = key as MissionControlSubTab)}
+            />
+
+            {#if activeMissionControlSubTab === "overview"}
+              <Panel>
+                <div class="panel-title">MISSION CONTROL</div>
+                <div class="research-cost">Level: {missionControlLevel}</div>
+
+                <div class="research-name" style="margin-top: 10px;">Unlocked missions</div>
+                {#each unlockedMissionKeys as mKey (mKey)}
+                  <div class="research-cost" style="color: var(--color-success)">✅ {MISSIONS[mKey].label}</div>
+                {/each}
+
+                {#if lockedMissionKeys.length > 0}
+                  <div class="research-name" style="margin-top: 10px;">Locked missions</div>
+                  {#each lockedMissionKeys as mKey (mKey)}
+                    <div class="research-cost" style="color: var(--color-text-secondary)">🔒 {MISSIONS[mKey].label} — unlocks at level {MISSIONS[mKey].unlockLevel}</div>
+                  {/each}
+                {/if}
+              </Panel>
+
+              <!-- Completion progress toward the NEXT unlock -- only while a
+                   completion-gated rung exists ahead (not maxed AND the rung declares
+                   requiresMissionCompletions). Reads lifetimeStats.missionsCompleted,
+                   the SAME counter canBuildFacilityUpgrade gates on, so "progress"
+                   here matches the wall the Build button enforces. -->
+              {#if !missionControlMaxed && nextMissionControlUpgrade.requiresMissionCompletions}
+                {@const reqCompletions = nextMissionControlUpgrade.requiresMissionCompletions}
+                <Panel>
+                  <div class="panel-title">NEXT UNLOCK PROGRESS</div>
+                  <p class="research-status">Complete these to open the Level {missionControlLevel} → {missionControlLevel + 1} upgrade:</p>
+                  {#each Object.keys(reqCompletions) as mKey (mKey)}
+                    {@const need = reqCompletions[mKey as MissionKey]!}
+                    {@const have = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
+                    {@const met = have.gte(need)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} {MISSIONS[mKey as MissionKey].label}: {formatNumber(have)} / {need}
+                    </div>
+                  {/each}
+                </Panel>
+              {/if}
+            {/if}
+
+            {#if activeMissionControlSubTab === "upgrades"}
+              <Panel>
+                <div class="panel-title">MISSION CONTROL UPGRADES</div>
+                <div class="research-cost">Level: {missionControlLevel}</div>
+
+                {#if missionControlMaxed}
+                  <p class="research-status">Fully upgraded.</p>
+                {:else}
+                  <div class="research-name">Next: Level {missionControlLevel} → {missionControlLevel + 1}</div>
+                  <div class="research-cost">
+                    Unlocks the missions gated at level {missionControlLevel + 1} · Duration: {nextMissionControlUpgrade.durationTicks} ticks
+                  </div>
+
+                  <!-- Material readiness ([Item]: have / need, ✅/❌) -- same idiom as
+                       the Refinery/Warehouse upgrade tabs. -->
+                  {#each Object.keys(nextMissionControlUpgrade.materials) as itemId}
+                    {@const need = nextMissionControlUpgrade.materials[itemId]}
+                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const met = have.gte(need)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                    </div>
+                  {/each}
+
+                  <!-- Completion-count prereqs -- THE mission-control-specific gate
+                       (Task 6): each listed mission's lifetime completions must reach
+                       its threshold before this rung is buildable. -->
+                  {#if nextMissionControlUpgrade.requiresMissionCompletions}
+                    {@const reqCompletions = nextMissionControlUpgrade.requiresMissionCompletions}
+                    {#each Object.keys(reqCompletions) as mKey (mKey)}
+                      {@const need = reqCompletions[mKey as MissionKey]!}
+                      {@const have = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
+                      {@const met = have.gte(need)}
+                      <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                        {met ? "✅" : "❌"} {MISSIONS[mKey as MissionKey].label} completions: {formatNumber(have)} / {need}
+                      </div>
+                    {/each}
+                  {/if}
+
+                  <!-- Build -- gated on canBuildFacilityUpgrade (materials + the
+                       completion gate + no in-flight upgrade); its .reason is the
+                       "why not" title when disabled. -->
+                  <button
+                    class="buy-btn"
+                    disabled={!missionControlUpgradeCheck.ok}
+                    title={missionControlUpgradeCheck.ok ? undefined : missionControlUpgradeCheck.reason}
+                    on:click={() => doStartFacilityUpgrade("missionControl")}
+                  >
+                    Build · Level {missionControlLevel} → {missionControlLevel + 1}
+                  </button>
+                {/if}
+
+                {#if missionControlUpgradeInFlight}
+                  {@const progress = missionControlUpgradeInFlight.durationTicks > 0
+                    ? (missionControlUpgradeInFlight.durationTicks - missionControlUpgradeInFlight.remainingTicks) / missionControlUpgradeInFlight.durationTicks
+                    : 1}
+                  {@const remaining = Math.max(0, Math.ceil(missionControlUpgradeInFlight.remainingTicks))}
+                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remaining} / {missionControlUpgradeInFlight.durationTicks} ticks remaining</div>
+                {/if}
+              </Panel>
+            {/if}
+
+          {:else if activeFacility === "fuelStorage"}
+            <!-- FUEL STORAGE (Mission Rework Task 8) -- the fuel tank. Two sub-tabs:
+                 Overview (a fuel/cap GAUGE reusing the Warehouse fill idiom +
+                 warehouseFillPct, plus a buy-fuel control) and Upgrades (the
+                 cap-doubling track, wired EXACTLY like the Warehouse tier tracks).
+                 The gauge + credits + buy gate all read live state, so they update as
+                 fuel is spent by dispatches / bought here / the tank is expanded. -->
+            <SubTabs
+              tabs={[
+                { key: "overview", label: "Overview" },
+                { key: "upgrades", label: "Upgrades" },
+              ]}
+              active={activeFuelStorageSubTab}
+              onSelect={(key) => (activeFuelStorageSubTab = key as FuelStorageSubTab)}
+            />
+
+            {#if activeFuelStorageSubTab === "overview"}
+              <Panel>
+                <div class="panel-title">FUEL STORAGE</div>
+                <div class="research-cost">Storage level: {fuelStorageLevel}</div>
+
+                <!-- Fuel gauge -- current / cap with a horizontal fill bar (the shared
+                     research-bar fill idiom; fill % via warehouseFillPct, the same
+                     clamp helper the Warehouse tiles use). -->
+                <div class="research-cost" style="margin-top: 8px;">Fuel: {formatNumber(state.fuel)} / {formatNumber(fuelCapValue)} ({Math.round(fuelFillPct)}%)</div>
+                <div class="research-bar-track">
+                  <div class="research-bar-fill" style="width:{fuelFillPct}%"></div>
+                </div>
+              </Panel>
+
+              <Panel>
+                <div class="panel-title">BUY FUEL</div>
+                <div class="research-cost">Price: ◈ {FUEL_CREDITS_PER_UNIT} / unit</div>
+                <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
+                {#if fuelRoom.lte(0)}
+                  <p class="research-status" style="color: var(--color-danger); margin-top: 6px;">
+                    Tank full — expand storage (Upgrades) to buy more.
+                  </p>
+                {/if}
+
+                <!-- +10 / +100 / Fill. All share the canBuyFuel gate (affordable AND
+                     room); buyFuel clamps any partial, so a click never overspends or
+                     overfills. Fill passes the exact tank room -> buyFuel takes the min
+                     of room and affordable, topping the tank as far as credits allow. -->
+                <div class="dev-row" style="margin-top: 8px;">
+                  <button
+                    class="buy-btn"
+                    disabled={!canBuyFuel}
+                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
+                    on:click={() => doBuyFuel(10)}
+                  >
+                    +10 · ◈ {formatNumber(10 * FUEL_CREDITS_PER_UNIT)}
+                  </button>
+                  <button
+                    class="buy-btn"
+                    disabled={!canBuyFuel}
+                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
+                    on:click={() => doBuyFuel(100)}
+                  >
+                    +100 · ◈ {formatNumber(100 * FUEL_CREDITS_PER_UNIT)}
+                  </button>
+                  <button
+                    class="buy-btn"
+                    disabled={!canBuyFuel}
+                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
+                    on:click={() => doBuyFuel(fuelRoom.toNumber())}
+                  >
+                    Fill
+                  </button>
+                </div>
+              </Panel>
+            {/if}
+
+            {#if activeFuelStorageSubTab === "upgrades"}
+              <!-- UPGRADES -- the cap-doubling track (FACILITIES.fuelStorage.upgrades),
+                   wired identically to the Warehouse tier tracks: current cap, next cap
+                   (doubles), material readiness, Build gated on canBuildFacilityUpgrade,
+                   + in-flight progress. fuelCap(state) derives the live cap. -->
+              <Panel>
+                <div class="panel-title">FUEL STORAGE — Expand Tank</div>
+                <div class="research-cost">Level: {fuelStorageLevel}</div>
+
+                {#if fuelStorageMaxed}
+                  <p class="research-status">Fully upgraded.</p>
+                {:else}
+                  {@const nextEff = nextFuelStorageUpgrade.effect}
+                  {@const nextCap = "storageCapMult" in nextEff ? fuelCapValue.times(nextEff.storageCapMult) : fuelCapValue}
+                  <div class="research-cost">Current cap: {formatNumber(fuelCapValue)}</div>
+                  <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(nextCap)}</div>
+                  <div class="research-cost">Duration: {nextFuelStorageUpgrade.durationTicks} ticks</div>
+
+                  {#each Object.keys(nextFuelStorageUpgrade.materials) as itemId}
+                    {@const need = nextFuelStorageUpgrade.materials[itemId]}
+                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const met = have.gte(need)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                    </div>
+                  {/each}
+
+                  <button
+                    class="buy-btn"
+                    disabled={!fuelStorageUpgradeCheck.ok}
+                    title={fuelStorageUpgradeCheck.ok ? undefined : fuelStorageUpgradeCheck.reason}
+                    on:click={() => doStartFacilityUpgrade("fuelStorage")}
+                  >
+                    Expand · doubles capacity
+                  </button>
+                {/if}
+
+                {#if fuelStorageUpgradeInFlight}
+                  {@const progress = fuelStorageUpgradeInFlight.durationTicks > 0
+                    ? (fuelStorageUpgradeInFlight.durationTicks - fuelStorageUpgradeInFlight.remainingTicks) / fuelStorageUpgradeInFlight.durationTicks
+                    : 1}
+                  {@const remaining = Math.max(0, Math.ceil(fuelStorageUpgradeInFlight.remainingTicks))}
+                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remaining} / {fuelStorageUpgradeInFlight.durationTicks} ticks remaining</div>
+                {/if}
+              </Panel>
+            {/if}
           {/if}
         </div>
       </div>
@@ -2940,23 +3366,76 @@
               <div class="panel-title">AVAILABLE MISSIONS</div>
               <div class="mission-list">
                 {#each tierIMissions as [missionKey, missionDef]}
-                  <button class="mission-card mission-card-selectable" on:click={() => openMissionPopup(missionKey)}>
-                    <div class="mission-portrait-frame" aria-hidden="true">🖼️</div>
-                    <div class="mission-card-body">
-                      <div class="research-name">{missionDef.label}</div>
-                      <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
-                      <!-- Mission Rework (Task 2): each mission's captain-XP rate, via the
-                           shared xpPerTick helper (NOT raw BASE_XP_PER_TICK) so this readout
-                           tracks the exact rate the tick engine accrues. Passed the fleet's
-                           representative captain (state.captains[0], always seeded) since the
-                           rate is captain-independent today; when the XP-mult seam activates
-                           this card should switch to the popup's selected captain. -->
-                      <div class="research-cost">Captain XP: {xpPerTick(missionKey, state.captains[0])}/tick</div>
-                      <div class="research-cost">{ITEMS.commonOre.label}: {formatNumber(missionDef.extractionRatePerTick)}/tick when no other tier wins ({(100 - missionDef.rareChance * 100 - missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
-                      <div class="research-cost">{ITEMS.uncommonMaterial.label}: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
-                      <div class="research-cost">{ITEMS.rareMaterial.label}: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
+                  <!-- Mission Rework (Task 8 UI): each mission card now shows its
+                       dispatch REQUIREMENTS (captain level / cargo, where the mission
+                       declares them) + its round-trip FUEL cost, and LOCKED missions
+                       (unlockLevel above the Mission Control level) render dimmed with
+                       an unlock hint instead of an openable button -- matching the
+                       game's consistent "show locked content" idiom (locked captain
+                       slots, locked facilities, Battlespace). The player sees what's
+                       coming AND what it will require. missionUnlocked is the SAME gate
+                       canDispatch uses, so this can't disagree with the dispatch path.
+                       Fuel cost uses the representative captain's hull (same idiom as
+                       the exp/tick line); the popup shows the selected captain's exact
+                       cost. -->
+                  {@const unlocked = missionUnlocked(state, missionKey)}
+                  {@const fuelCost = representativeShip
+                    ? fuelNeeded(missionDef, SHIP_TYPES[representativeShip.typeKey])
+                    : null}
+                  <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
+                       lootTable, so a hardcoded ore label would misreport Salvage/
+                       Forage/Lunar Mine). Read the real common/uncommon/rare item keys
+                       here and label them via ITEMS -- Local Asteroid still shows
+                       Titanium/Polysilicate/Iridium, but the others show their own
+                       triads. Same `?.label ?? key` fallback the rest of the file uses. -->
+                  {@const loot = missionDef.lootTable}
+                  {#if unlocked}
+                    <button class="mission-card mission-card-selectable" on:click={() => openMissionPopup(missionKey)}>
+                      <div class="mission-portrait-frame" aria-hidden="true">🖼️</div>
+                      <div class="mission-card-body">
+                        <div class="research-name">{missionDef.label}</div>
+                        <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
+                        <!-- Mission Rework (Task 2): each mission's captain-XP rate, via the
+                             shared xpPerTick helper (NOT raw BASE_XP_PER_TICK) so this readout
+                             tracks the exact rate the tick engine accrues. Passed the fleet's
+                             representative captain (state.captains[0], always seeded) since the
+                             rate is captain-independent today; when the XP-mult seam activates
+                             this card should switch to the popup's selected captain. -->
+                        <div class="research-cost">Captain XP: {xpPerTick(missionKey, state.captains[0])}/tick</div>
+                        <!-- Round-trip fuel cost (Task 8). null only if the representative
+                             captain somehow has no hull (never in production). -->
+                        <div class="research-cost">Fuel / trip: {fuelCost !== null ? formatNumber(fuelCost) : "—"}</div>
+                        <!-- Requirements (Task 7 fields) -- only rendered when the mission
+                             declares them (ore runs omit both). -->
+                        {#if missionDef.requiresCaptainLevel !== undefined}
+                          <div class="research-cost">Requires captain level {missionDef.requiresCaptainLevel}</div>
+                        {/if}
+                        {#if missionDef.requiresCargoCapacity !== undefined}
+                          <div class="research-cost">Requires cargo capacity {missionDef.requiresCargoCapacity}</div>
+                        {/if}
+                        <div class="research-cost">{ITEMS[loot.common]?.label ?? loot.common}: {formatNumber(missionDef.extractionRatePerTick)}/tick when no other tier wins ({(100 - missionDef.rareChance * 100 - missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
+                        <div class="research-cost">{ITEMS[loot.uncommon]?.label ?? loot.uncommon}: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
+                        <div class="research-cost">{ITEMS[loot.rare]?.label ?? loot.rare}: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
+                      </div>
+                    </button>
+                  {:else}
+                    <!-- LOCKED mission -- non-openable, dimmed, with the unlock hint +
+                         a requirements preview so the player can plan toward it. -->
+                    <div class="mission-card mission-card-locked" title="Unlock via Mission Control (Facilities)">
+                      <div class="mission-portrait-frame" aria-hidden="true">🔒</div>
+                      <div class="mission-card-body">
+                        <div class="research-name">🔒 {missionDef.label}</div>
+                        <div class="research-cost">Locked — unlock via Mission Control (Facilities tab)</div>
+                        {#if missionDef.requiresCaptainLevel !== undefined}
+                          <div class="research-cost">Will require captain level {missionDef.requiresCaptainLevel}</div>
+                        {/if}
+                        {#if missionDef.requiresCargoCapacity !== undefined}
+                          <div class="research-cost">Will require cargo capacity {missionDef.requiresCargoCapacity}</div>
+                        {/if}
+                        <div class="research-cost">Fuel / trip: {fuelCost !== null ? formatNumber(fuelCost) : "—"}</div>
+                      </div>
                     </div>
-                  </button>
+                  {/if}
                 {/each}
               </div>
             {/if}
@@ -3279,13 +3758,19 @@
           {@const bonusRollChance = captainBonusRollChance(selectedCaptain)}
           {@const bonusRollChanceMult = captainBonusRollChanceMult(selectedCaptain)}
           {@const effectiveBonusRollChance = Math.min(1, bonusRollChance * (1 + bonusRollChanceMult))}
+          <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
+               lootTable) -- read the real item keys so the popup reports each
+               mission's own drops (Ferrite/Cobalt/Osmium for Lunar Mine, Scrap
+               Alloy/Salvaged Circuitry/Intact Reactor Core for Salvage, etc.), not
+               the hardcoded ore labels. -->
+          {@const loot = missionDef.lootTable}
 
           <div class="research-name">Captain: {selectedCaptain.label}</div>
 
           <div class="panel-title">DROP RATES</div>
-          <div class="research-cost">{ITEMS.commonOre.label}: {formatNumber(missionDef.extractionRatePerTick * (1 + commonYieldMult))}/tick when no other tier wins ({(100 - effectiveRareChance * 100 - effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
-          <div class="research-cost">{ITEMS.uncommonMaterial.label}: {formatNumber(missionDef.extractionRatePerTick * (1 + uncommonYieldMult))}/tick when it wins ({(effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
-          <div class="research-cost">{ITEMS.rareMaterial.label}: {formatNumber(missionDef.extractionRatePerTick * (1 + rareYieldMult))}/tick when it wins ({(effectiveRareChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">{ITEMS[loot.common]?.label ?? loot.common}: {formatNumber(missionDef.extractionRatePerTick * (1 + commonYieldMult))}/tick when no other tier wins ({(100 - effectiveRareChance * 100 - effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">{ITEMS[loot.uncommon]?.label ?? loot.uncommon}: {formatNumber(missionDef.extractionRatePerTick * (1 + uncommonYieldMult))}/tick when it wins ({(effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
+          <div class="research-cost">{ITEMS[loot.rare]?.label ?? loot.rare}: {formatNumber(missionDef.extractionRatePerTick * (1 + rareYieldMult))}/tick when it wins ({(effectiveRareChance * 100).toFixed(1)}% chance/tick)</div>
           {#if effectiveBonusRollChance > 0}
             <div class="research-cost">Bonus Roll: {(effectiveBonusRollChance * 100).toFixed(1)}% chance/tick for a second independent roll (Lucky Strike)</div>
           {/if}
@@ -3296,12 +3781,38 @@
           <div class="research-cost">Transit back: {transitBackTicks} ticks ({(transitBackTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
           <div class="research-cost">Unloading: {unloadTicks} ticks ({(unloadTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
           <div class="research-cost"><strong>Total: {totalTicks} ticks ({(totalTicks * state.tickDurationSeconds).toFixed(1)}s)</strong></div>
+
+          <!-- Mission Rework (Task 8 UI): the AUTHORITATIVE round-trip fuel cost for
+               THIS selected captain's hull (the list card's figure uses the fleet's
+               representative hull; this one drives the actual dispatch), plus the
+               shared tank's current level. If the dispatch is blocked, canDispatch's
+               reason is surfaced here in danger color AND on the Dispatch button's
+               title (the button is disabled below). -->
+          {@const selectedShip = state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null}
+          {@const fuelCost = selectedShip ? fuelNeeded(missionDef, SHIP_TYPES[selectedShip.typeKey]) : null}
+          <div class="panel-title">FUEL</div>
+          <div class="research-cost">Round-trip fuel: {fuelCost !== null ? formatNumber(fuelCost) : "—"}</div>
+          <div class="research-cost">In tank: {formatNumber(state.fuel)} / {formatNumber(fuelCap(state))}</div>
+          {#if missionPopupGate !== null && !missionPopupGate.ok}
+            <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey)}</div>
+          {/if}
         {/if}
 
         <div class="modal-row">
           <button class="dev-btn" on:click={closeMissionPopup}>Cancel</button>
           {#if selectedCaptain !== null}
-            <button class="dev-btn" on:click={doDispatchFromPopup}>Dispatch</button>
+            <!-- Dispatch gated on canDispatch (Task 7). Disabled + reason-titled when
+                 blocked; the same reason shows in the FUEL section above. -->
+            <button
+              class="dev-btn"
+              disabled={missionPopupGate !== null && !missionPopupGate.ok}
+              title={missionPopupGate !== null && !missionPopupGate.ok
+                ? dispatchBlockMessage(missionPopupGate.reason, missionPopupKey)
+                : undefined}
+              on:click={doDispatchFromPopup}
+            >
+              Dispatch
+            </button>
           {/if}
         </div>
       </Panel>
@@ -4067,6 +4578,18 @@
     background: rgba(var(--color-accent-rgb), 0.03);
   }
   .mission-card-body { flex: 1; min-width: 0; }
+  /* Locked mission card (Mission Rework Task 8) -- reuses .mission-card's box +
+     borrows the .mission-card-selectable portrait+body flex ROW layout, but is a
+     static (non-button) dimmed div: the game's consistent "show locked content"
+     signal (cf. .module-card.locked's opacity dim, .captain-list-item.locked).
+     No hover/cursor affordance since it isn't clickable. */
+  .mission-card-locked {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    text-align: left;
+    opacity: 0.6;
+  }
   /* No existing non-dev-panel "danger" button style to reuse -- .dev-btn.danger
      is scoped to the amber dev-panel look, and .prestige-btn's warning color
      is for a different semantic (fleet prestige), not "cancel an in-progress
