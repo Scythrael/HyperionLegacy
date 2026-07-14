@@ -476,8 +476,10 @@
   }
 
   // Tap toggles (mobile): tap a tile to show its tooltip, tap the same tile
-  // again (or elsewhere -- see the tile's own re-show) to hide. On desktop the
-  // mouseenter/leave handlers already drive it; this makes tap work too.
+  // again to hide. On desktop the pointer-hover handlers below drive it; this
+  // makes tap work too. This is the SOLE show/hide path on touch (hover is
+  // mouse-gated), so a first tap can no longer be undone by the synthetic
+  // pointerenter that a tap also fires -- see hoverEnterWarehouseTooltip.
   function toggleWarehouseTooltip(event: Event, itemId: string) {
     if (warehouseTooltip && warehouseTooltip.itemId === itemId) {
       hideWarehouseTooltip();
@@ -485,6 +487,45 @@
       showWarehouseTooltip(event, itemId);
     }
   }
+
+  // Hover is MOUSE-ONLY -- the SAME fix the currency chip uses (see
+  // hoverEnterCurrency/hoverLeaveCurrency). A touch tap ALSO fires synthetic
+  // pointerenter/pointerleave (pointerType "touch") plus focus/blur; before
+  // this, that synthetic pointerenter showed the tooltip and the tap's on:click
+  // then toggled it right back off, so the FIRST tap showed nothing (RadialWeb
+  // mobile lesson). Gating the hover show/hide to pointerType "mouse" leaves
+  // touch driven solely by tap (on:click toggle) + tap-outside
+  // (handleWarehouseOutsidePointer) + context-change clears.
+  function hoverEnterWarehouseTooltip(event: PointerEvent, itemId: string) {
+    if (event.pointerType === "mouse") showWarehouseTooltip(event, itemId);
+  }
+  // Guarded by itemId so leaving tile A can't clear a tooltip that hover has
+  // already switched to tile B (parallels hideCurrency's key guard).
+  function hoverLeaveWarehouseTooltip(event: PointerEvent, itemId: string) {
+    if (event.pointerType === "mouse" && warehouseTooltip?.itemId === itemId) {
+      hideWarehouseTooltip();
+    }
+  }
+
+  // Touch/click dismissal -- mirrors handleCurrencyOutsidePointer. Hide the
+  // warehouse tooltip on any pointer-down that isn't on a warehouse tile.
+  // pointerdown fires for mouse AND touch (RadialWeb mobile lesson);
+  // .closest(".warehouse-tile") keeps a tap on a tile from self-dismissing here
+  // (that tap's on:click toggles it instead). The tooltip itself is
+  // non-interactive, so a tap landing on it dismissing is fine/expected.
+  function handleWarehouseOutsidePointer(event: PointerEvent) {
+    if (warehouseTooltip === null) return;
+    const target = event.target as Element | null;
+    if (target && target.closest(".warehouse-tile")) return;
+    warehouseTooltip = null;
+  }
+
+  // Clear the warehouse tooltip whenever the category tab or the facility
+  // changes (review Minor): the tooltip is anchored to a specific tile's rect,
+  // so leaving that view would otherwise leave it hovering over unrelated
+  // content. Referencing both vars makes this reactive statement re-run on
+  // either change (the initial null -> null run is harmless).
+  $: activeWarehouseCat, activeFacility, hideWarehouseTooltip();
 
   // The Refinery's two sub-tabs: Overview (level + refine slots + active jobs +
   // Start Refine Job) and Upgrades (the next upgrade rung's material/prereq
@@ -1411,10 +1452,17 @@
   $: warehouseTotalCount = Object.keys(ITEMS).length;
 </script>
 
-<!-- Currency info-tooltip dismissal (2026-07-09): close an open chip tooltip on
-     Escape or on any pointer-down outside a currency chip. See
-     handleCurrencyOutsidePointer / handleCurrencyKeydown in the script block. -->
-<svelte:window on:pointerdown={handleCurrencyOutsidePointer} on:keydown={handleCurrencyKeydown} />
+<!-- Window-level tooltip dismissal. Currency info-tooltip (2026-07-09): close an
+     open chip tooltip on Escape or on any pointer-down outside a currency chip.
+     Warehouse fill-tile tooltip (Phase 2): same tap-outside dismissal, outside a
+     .warehouse-tile. Svelte fires BOTH on:pointerdown handlers for one event.
+     See handleCurrencyOutsidePointer / handleWarehouseOutsidePointer /
+     handleCurrencyKeydown in the script block. -->
+<svelte:window
+  on:pointerdown={handleCurrencyOutsidePointer}
+  on:pointerdown={handleWarehouseOutsidePointer}
+  on:keydown={handleCurrencyKeydown}
+/>
 
 <div class="root">
   <Starfield />
@@ -2283,8 +2331,8 @@
                             class:full={atCap}
                             class:rare-ring={discovered && rarityRing}
                             style="--wh-rc: {warehouseRarityColor(item.rarity)};"
-                            on:mouseenter={(e) => showWarehouseTooltip(e, item.id)}
-                            on:mouseleave={hideWarehouseTooltip}
+                            on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, item.id)}
+                            on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, item.id)}
                             on:focus={(e) => showWarehouseTooltip(e, item.id)}
                             on:blur={hideWarehouseTooltip}
                             on:click={(e) => toggleWarehouseTooltip(e, item.id)}
