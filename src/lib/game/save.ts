@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionKey, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS } from "./model";
 
-export const SAVE_VERSION = 18;
+export const SAVE_VERSION = 19;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -602,6 +602,44 @@ const MIGRATIONS: Record<number, Migration> = {
       nextProcessId: 1,
     };
   },
+  // v18 -> v19: Tiered Warehouse facilities (Phase 2, Task B2/B4 -- docs/plans/
+  // 2026-07-13-phase-2-warehouse-refine-economy-design.md §3.1-§3.3). Task B2 added
+  // two tiered Warehouse facilities to freshState (facilities.warehouseT1 /
+  // facilities.warehouseT2, each { level: 0 }); this step backfills them onto an
+  // existing v18 save, whose facilities map was seeded refinery-ONLY by MIGRATIONS[17]
+  // (Phase 1). Both warehouses are added at level 0 IF ABSENT -- warehouseT1's level 0
+  // is the base tier's LIVE starting state (cap 1,000,000; NOT "unbuilt" -- T1 is
+  // available from the start), and warehouseT2's level 0 is LOCKED (its rung 0 is the
+  // unlock). Uses the SAME `{ level: 0 }` literal freshState (model.ts) seeds, so the
+  // migrated and fresh shapes cannot drift apart (Omega 4).
+  //
+  // - refinery is preserved value-for-value via `...state.facilities`; ONLY the two
+  //   warehouse keys are added. inventory / activeProcesses / lifetimeStats /
+  //   nextProcessId and every other GameState field ride through untouched on the outer
+  //   `...state` spread -- this step's sole job is the two warehouse facility seeds.
+  // - `?? { level: 0 }` is idempotent + belt-and-suspenders: a genuine v18 save has
+  //   neither key (so both are seeded), but if a chained/hand-edited save somehow
+  //   already carries one, its existing level is preserved rather than reset to 0.
+  //   `state.facilities?.` guards the wholesale-absent facilities case defensively
+  //   (not reachable on a real v18 save -- MIGRATIONS[17] always seeds facilities --
+  //   same defense-in-depth posture as this file's other ?? guards).
+  // - Warehouse facility state is `{ level: number }` -- NO Decimal -- so hydrateDecimals
+  //   needs NO change: facilities rides through its own `...state` spread there with no
+  //   per-key hydration, exactly as the refinery key already has since v18.
+  // - Refine-order state and the refine confirmation preference are NOT migrated here --
+  //   they belong to a later Group-D (refine orders) task, which adds its OWN migration
+  //   when built. Task B4 is warehouses ONLY (keep it minimal).
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to
+  // production, so it is still editable (the frozen-once-shipped rule applies only to
+  // production-released migrations).
+  18: (state: any): any => ({
+    ...state,
+    facilities: {
+      ...state.facilities,
+      warehouseT1: state.facilities?.warehouseT1 ?? { level: 0 },
+      warehouseT2: state.facilities?.warehouseT2 ?? { level: 0 },
+    },
+  }),
 };
 
 export function migrate(save: SaveFile): GameState {
