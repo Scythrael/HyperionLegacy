@@ -1502,52 +1502,130 @@ export function tick(deltaSeconds: number, state: GameState, rng: () => number =
   return next;
 }
 
-// Dispatches an idle captain (mission === null) on a mission. Finds the
-// captain by id (not array index -- ids and indices can diverge once
-// captains are ever removed/reordered, though nothing does that today).
-// Fails (same state reference, unchanged) if no captain has that id, or if
-// they already have an active mission. On success, seeds a brand-new
-// CaptainMissionState at the very start of the cycle (phase "ordersReceived",
-// zero progress, empty cargo, not recalled).
+// Mission Rework (Task 7, design §4): the typed reason canDispatch returns when a
+// dispatch is BLOCKED. A string union (not a numeric enum) so it serializes/logs as a
+// readable token and the Operations UI (Task 8) can switch on it exhaustively. The
+// order of the members mirrors canDispatch's gate order (see below):
+//   noCaptain    -- no captain has that id (bad caller / stale UI reference)
+//   busy         -- the captain is already on a mission (dispatch is idle-only)
+//   locked       -- MISSIONS[key].unlockLevel > the missionControl facility level (Task 6)
+//   captainLevel -- the captain's level is below MISSIONS[key].requiresCaptainLevel
+//   cargo        -- the captain's ship cargoCapacity is below requiresCargoCapacity
+//   noShip       -- the captain flies no hull, so the trip can't be priced/carried
+//   fuelCapacity -- the hull's tank is physically too small for the round trip (RANGE)
+//   fuelEmpty    -- the shared fuel tank can't cover the round trip's cost (RESOURCE)
+// NOTE: there is deliberately NO `credits` reason. Dispatch itself spends FUEL, not
+// credits (credits are spent earlier, buying fuel via buyFuel). Adding a credit gate
+// here would be a ghost gate that never fires -- see the report / design §4.
+export type DispatchBlockReason =
+  | "noCaptain"
+  | "busy"
+  | "locked"
+  | "captainLevel"
+  | "cargo"
+  | "noShip"
+  | "fuelCapacity"
+  | "fuelEmpty";
+
+// Mission Rework (Task 7): THE single consolidated dispatch gate. Pure predicate --
+// reads state + the static MISSIONS/SHIP_TYPES tables, mutates nothing, spends nothing.
+// This is the ONE source of truth for "can this captain fly this mission right now?":
+// it folds together the Task-6 unlock gate + the Task-5 fuel range/resource gates that
+// dispatchCaptainOnMission used to check inline, and ADDS the two per-mission capability
+// requirements (captain level, ship cargo). dispatchCaptainOnMission calls this first
+// and does nothing else gate-wise; the Operations UI (Task 8) calls it directly to
+// render each mission's dispatch button (enabled, or disabled with the reason shown).
+//
+// GATE ORDER is deliberate, cheapest/most-fundamental first, and determines WHICH
+// reason surfaces when several fail at once (ok itself is order-independent -- all must
+// pass): identity (noCaptain) -> status (busy) -> unlock (locked) -> captain capability
+// (captainLevel) -> hull existence (noShip) -> hull capability (cargo) -> fuel RANGE
+// (fuelCapacity) -> fuel RESOURCE (fuelEmpty). captainLevel is checked BEFORE noShip on
+// purpose: it's a property of the CAPTAIN alone, needs no hull, and is the more useful
+// thing to tell the player first.
+export function canDispatch(
+  state: GameState,
+  captainId: number,
+  missionKey: MissionKey
+): { ok: true } | { ok: false; reason: DispatchBlockReason } {
+  // --- Identity + status: the captain must exist and be idle (dispatch is idle-only).
+  // Found by id, not array index -- ids and indices can diverge if captains are ever
+  // reordered/removed (nothing does today, but the contract is id-keyed).
+  const captain = state.captains.find((c) => c.id === captainId);
+  if (!captain) return { ok: false, reason: "noCaptain" };
+  if (captain.mission !== null) return { ok: false, reason: "busy" };
+
+  // --- Unlock gate (Task 6): the mission-control facility level must have reached this
+  // mission's unlockLevel. missionUnlocked derives it from the facility level (no flag).
+  if (!missionUnlocked(state, missionKey)) return { ok: false, reason: "locked" };
+
+  const mission = MISSIONS[missionKey];
+
+  // --- Captain-capability gate (Task 7): the flying captain's level must meet the
+  // mission's requiresCaptainLevel. OPTIONAL -- ore runs omit it, so `undefined` skips
+  // the check entirely (it is NOT treated as a requirement of 0). Needs no ship, so it
+  // is checked before the hull is resolved.
+  if (mission.requiresCaptainLevel !== undefined && captain.level < mission.requiresCaptainLevel) {
+    return { ok: false, reason: "captainLevel" };
+  }
+
+  // --- Hull existence: resolve THIS captain's hull. GameState.ships[].assignedCaptainId
+  // is the single source of truth for who flies what (the SAME .find() the economyTick
+  // mission loop + the old inline dispatch gate used). No hull -> can't price fuel or
+  // carry cargo, so block rather than dispatch a free, un-fuelled trip. The invariant
+  // "every captain has exactly one hull" holds in production (migration + new-game seed
+  // both assign one), so this is a belt-and-suspenders guard, not a routine path.
+  const ship = state.ships.find((s) => s.assignedCaptainId === captainId);
+  if (!ship) return { ok: false, reason: "noShip" };
+  const shipDef = SHIP_TYPES[ship.typeKey];
+
+  // --- Hull-capability gate (Task 7): the ship's cargoCapacity (from SHIP_TYPES, NOT the
+  // mission's own cargoCapacity field) must meet requiresCargoCapacity. OPTIONAL, same
+  // undefined-skips semantics as the captain-level gate above.
+  if (mission.requiresCargoCapacity !== undefined && shipDef.cargoCapacity < mission.requiresCargoCapacity) {
+    return { ok: false, reason: "cargo" };
+  }
+
+  // --- Fuel gates (Task 5, folded in here). fuelNeeded reads the BASE mission's transit
+  // legs scaled by the hull's engineEfficiency (see fuel.ts) -- one round trip's cost.
+  const need = fuelNeeded(mission, shipDef);
+  // RANGE: the hull physically cannot carry enough fuel for the round trip. A HULL-
+  // capability check (independent of how much fuel is in the shared tank), so it reads
+  // the hull's static fuelCapacity, not state.fuel. Forward-defensive: no current hull+
+  // mission combo trips it, but it honors the design's stated dispatch contract.
+  if (shipDef.fuelCapacity < need) return { ok: false, reason: "fuelCapacity" };
+  // RESOURCE: the shared tank doesn't hold enough fuel for this trip. Compared as Decimal
+  // (< a plain number) since state.fuel is the Decimal stockpile.
+  if (state.fuel.lt(need)) return { ok: false, reason: "fuelEmpty" };
+
+  return { ok: true };
+}
+
+// Dispatches an idle captain (mission === null) on a mission. As of Task 7 this is a
+// THIN WRAPPER over canDispatch (above) -- canDispatch is the single source of truth
+// for every gate (identity, busy, unlock, captain level, cargo, fuel range/resource),
+// so this function only (a) consults it, (b) on failure returns the SAME state ref +
+// success:false + the block reason (so callers/UI can show it), and (c) on success
+// seeds a brand-new CaptainMissionState at the start of the cycle and spends the first
+// cycle's fuel. The return grew an OPTIONAL `reason` (undefined on success) -- purely
+// ADDITIVE, so pre-Task-7 callers that read only { next, success } are unaffected.
 export function dispatchCaptainOnMission(
   state: GameState,
   captainId: number,
   missionKey: MissionKey
-): { next: GameState; success: boolean } {
+): { next: GameState; success: boolean; reason?: DispatchBlockReason } {
+  const gate = canDispatch(state, captainId, missionKey);
+  // Blocked: same-ref no-op (dispatch's long-standing failure convention) + the reason.
+  if (!gate.ok) return { next: state, success: false, reason: gate.reason };
+
+  // gate.ok GUARANTEES: the captain exists and is idle, has an assigned hull, and the
+  // shared tank covers one round trip. So the lookups below cannot fail -- idx !== -1 and
+  // the ship .find() is non-undefined (asserted with `!`), matching what canDispatch just
+  // verified. We recompute them here (rather than threading them out of canDispatch) to
+  // keep canDispatch a clean boolean predicate.
   const idx = state.captains.findIndex((c) => c.id === captainId);
-  if (idx === -1) return { next: state, success: false };
-  if (state.captains[idx].mission !== null) return { next: state, success: false };
-
-  // Mission Rework (Task 6): belt-and-suspenders UNLOCK gate. A mission is only
-  // dispatchable once the mission-control facility has reached its unlockLevel (see
-  // missionUnlocked). This is a minimal safety net so a mis-wired caller can never
-  // dispatch a locked mission (e.g. Salvage/Forage before the level-1 -> 2 upgrade);
-  // the FULL, reason-carrying requirements gate for the UI is Task 7's canDispatch.
-  if (!missionUnlocked(state, missionKey)) return { next: state, success: false };
-
-  // Mission Rework (Task 5): the DISPATCH-TIME fuel gate + spend (design §3/§7). The
-  // player pays the FIRST cycle's round-trip fuel up front, here, before the mission
-  // starts; each later auto-repeat pays for its own next cycle at the cycle boundary
-  // inside tickCaptainMission (below). fuelNeeded reads the BASE mission's transit legs
-  // scaled by the hull's engineEfficiency (see fuel.ts), so we resolve THIS captain's
-  // hull to price the trip. GameState.ships[].assignedCaptainId is the single source of
-  // truth for who flies what -- the SAME .find() the economyTick mission loop uses.
-  const ship = state.ships.find((s) => s.assignedCaptainId === captainId);
-  // A captain with no assigned hull cannot be priced (no fuelCapacity/efficiency to read)
-  // -- block rather than dispatch a free, un-fuelled trip. The invariant "every captain
-  // has exactly one hull" holds in production (migration + new-game seed both assign one),
-  // so this is a belt-and-suspenders guard, not a routine path.
-  if (!ship) return { next: state, success: false };
+  const ship = state.ships.find((s) => s.assignedCaptainId === captainId)!;
   const need = fuelNeeded(MISSIONS[missionKey], SHIP_TYPES[ship.typeKey]);
-  // RANGE gate: the hull physically cannot carry enough fuel for one round trip. This is
-  // a HULL-CAPABILITY check (independent of how much fuel is in the shared tank), so it
-  // reads the hull's static fuelCapacity, not state.fuel. Forward-defensive: no current
-  // hull+mission combo trips it, but it honors the design's stated dispatch contract and
-  // pairs with Task 7's per-mission requirement reasons.
-  if (SHIP_TYPES[ship.typeKey].fuelCapacity < need) return { next: state, success: false };
-  // RESOURCE gate: the shared tank doesn't hold enough fuel for this trip. Compared as
-  // Decimal (< a plain number) since state.fuel is the Decimal stockpile.
-  if (state.fuel.lt(need)) return { next: state, success: false };
 
   const captains = [...state.captains];
   captains[idx] = {
@@ -1560,8 +1638,9 @@ export function dispatchCaptainOnMission(
       recalled: false,
     },
   };
-  // Deduct the first cycle's fuel from the shared tank. `need` is a plain number; the
-  // stockpile is Decimal, so .minus(need). Guaranteed >= 0 by the RESOURCE gate above.
+  // Deduct the first cycle's fuel from the shared tank (Task 5). `need` is a plain number;
+  // the stockpile is Decimal, so .minus(need). Guaranteed >= 0 by canDispatch's fuelEmpty
+  // gate, which passed.
   return { next: { ...state, captains, fuel: state.fuel.minus(need) }, success: true };
 }
 

@@ -201,6 +201,25 @@ export interface MissionDef {
   // to this table MUST declare its own unlockLevel, and the mission-control track must
   // grow a matching rung to reach that level. See FACILITIES.missionControl below.
   unlockLevel: number;
+  // Mission Rework (Task 7, design §4): per-mission CAPABILITY requirements checked at
+  // dispatch by canDispatch (tick.ts), SEPARATE from the unlockLevel gate above. Both
+  // are OPTIONAL -- a mission that omits them gates on neither (the ore runs do exactly
+  // that), so `undefined` means "no requirement", NOT "requirement of 0". They are
+  // FIRST-PASS TUNABLE values in the same launch-placeholder spirit as this file's other
+  // numbers; real balancing happens at the device-check stage.
+  //
+  // requiresCaptainLevel: the flying captain's CaptainState.level must be >= this. Ore
+  // runs leave it undefined (always accessible); Salvage/Forage set a SMALL bump because
+  // they are ALREADY completion-gated behind the level-1 -> 2 mission-control upgrade
+  // (~50x ore completions), by which point a captain is well past a low level -- so a
+  // hard captain-level wall on top would be redundant over-gating (design §4: "modest").
+  requiresCaptainLevel?: number;
+  // requiresCargoCapacity: the flying captain's SHIP cargoCapacity (SHIP_TYPES[typeKey]
+  // .cargoCapacity, NOT this mission's own cargoCapacity field above) must be >= this.
+  // Set to 90 for Salvage/Forage == the default General Freighter's hold, so it only
+  // excludes the small-hold Runner (60), nudging the player toward a real hauler for the
+  // bigger runs WITHOUT hard-blocking a standard loadout. Ore runs leave it undefined.
+  requiresCargoCapacity?: number;
 }
 
 // Mission Rework (Task 1, docs/plans/2026-07-14-mission-rework-plan.md): 4 missions.
@@ -283,6 +302,8 @@ export const MISSIONS: Record<
     fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap; Task 2 owns XP retune
     creditsPerCycle: 30, // first-pass placeholder (tunable)
     unlockLevel: 2, // unlocked by the level-1 -> 2 mission-control upgrade (completion-gated)
+    requiresCaptainLevel: 2, // modest bump -- already unlock-gated, so kept small (design §4)
+    requiresCargoCapacity: 90, // == default Freighter hold; excludes only the small Runner (60)
   },
   forageFlora: {
     // NEW mission (design §1). Phase durations are FIRST-PASS placeholders, the
@@ -301,6 +322,8 @@ export const MISSIONS: Record<
     fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap; Task 2 owns XP retune
     creditsPerCycle: 35, // first-pass placeholder (tunable)
     unlockLevel: 2, // unlocked by the level-1 -> 2 mission-control upgrade (completion-gated)
+    requiresCaptainLevel: 3, // slightly above Salvage's 2 -- the longest run of the four (design §4)
+    requiresCargoCapacity: 90, // == default Freighter hold; excludes only the small Runner (60)
   },
 };
 

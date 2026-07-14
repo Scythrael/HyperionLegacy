@@ -885,6 +885,12 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
     // This test is about LOOT DELIVERY, not the unlock mechanic (covered in
     // mission-control.test.ts); the seed just satisfies the precondition.
     base.facilities = { ...base.facilities, missionControl: { level: 2 } };
+    // Task 7: salvageWreckage also now requires captain level 2 (a modest capability
+    // gate). This test's fresh captain is level 1, so bump them to clear that new gate
+    // too -- the test is about LOOT DELIVERY, not the requirement mechanic (covered in
+    // dispatch-requirements.test.ts). The default General Freighter's cargo 90 already
+    // meets salvage's requiresCargoCapacity 90, so only the level needs raising.
+    base.captains[0] = { ...base.captains[0], level: 2 };
     const { next: state, success } = dispatchCaptainOnMission(base, base.captains[0].id, "salvageWreckage");
     expect(success).toBe(true);
     // A constant rng of 0.5 fails salvage's rare (0.001) + uncommon (0.014) checks

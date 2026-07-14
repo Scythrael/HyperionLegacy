@@ -171,6 +171,12 @@ describe("dispatchCaptainOnMission — belt-and-suspenders unlock guard (Task 6)
     const state = freshState();
     state.fuel = new Decimal(1_000_000);
     state.facilities = { ...state.facilities, missionControl: { level: 2 } };
+    // Task 7: Salvage now also requires captain level 2 (a modest capability gate on top
+    // of the unlock). This test isolates the UNLOCK gate, so clear the new level gate by
+    // bumping the fresh level-1 captain -- the Freighter's cargo 90 already meets salvage's
+    // requiresCargoCapacity 90. (Requirement gates get their own coverage in
+    // dispatch-requirements.test.ts.)
+    state.captains[0] = { ...state.captains[0], level: 2 };
     const { success } = dispatchCaptainOnMission(state, state.captains[0].id, "salvageWreckage");
     expect(success).toBe(true);
   });
