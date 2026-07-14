@@ -1172,9 +1172,27 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // the same fleet-wide cadence as everything else, and multiplying by
   // ticksElapsed (rather than looping per tick) keeps this closed-form, same
   // requirement tickCaptainMission's own header comment explains.
+  //
+  // AUTO-STOP CONSISTENCY (Phase 2, Task B3 review -- design §3.4): a trickle is
+  // a PRODUCER of its material, so it must stop the moment that material is at
+  // its warehouse cap -- exactly like the mission auto-stop gate above idles a
+  // captain whose primary material is full. Without this gate the trickle would
+  // keep adding commonOre even while every commonOre-producing mission is
+  // auto-stopped, contradicting "a full material's producers all stop." The cap
+  // is read off `state` (START-of-tick inventory), the SAME snapshot the mission
+  // gate above reads, so both producers make the stop decision on identical data.
+  // This is additive/no-loss: a capped material simply receives no trickle THIS
+  // tick (nothing is discarded), and tick()'s per-tick step loop re-evaluates the
+  // cap every tick so the trickle resumes the instant the material drops below
+  // cap. BELOW-cap behavior is byte-identical to before (the gate is false), so
+  // the closed-form scaling for the universal below-cap case is unchanged.
   for (const key of state.unlockedHomeworldTalents) {
     const effect = HOMEWORLD_TALENTS[key].effect;
-    if (effect.type === "passiveTrickle" && (LOOT_MATERIAL_KEYS as string[]).includes(effect.material)) {
+    if (
+      effect.type === "passiveTrickle" &&
+      (LOOT_MATERIAL_KEYS as string[]).includes(effect.material) &&
+      !materialAtCap(state, effect.material)
+    ) {
       homePlanetDelta[effect.material as LootMaterialKey] = homePlanetDelta[effect.material as LootMaterialKey].plus(
         effect.perTick * ticksElapsed
       );

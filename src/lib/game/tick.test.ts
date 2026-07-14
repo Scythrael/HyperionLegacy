@@ -1696,6 +1696,35 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
     expect(result.inventory.commonOre.toNumber()).toBeCloseTo(3.5, 6);
   });
 
+  // Task B3 review item: passiveTrickle is a PRODUCER of commonOre, so it must
+  // auto-stop when commonOre is at its warehouse cap (design §3.4), exactly like a
+  // commonOre mission does -- otherwise a full material keeps receiving trickle
+  // while every mission producing it is idled. economyTrickle trickles commonOre
+  // (perTick 1); commonOre is a T1 item, cap 1M @ warehouseT1 L0. economyTick is
+  // called DIRECTLY (single call) with the trickle material at / below cap; the
+  // gate reads START-of-call inventory, so a single call is enough to prove it.
+  it("passiveTrickle is GATED on the warehouse cap: no trickle AT cap, normal trickle below (Task B3 auto-stop consistency)", () => {
+    const makeState = () => {
+      const s = freshState();
+      s.unlockedHomeworldTalents = ["economyTrickle"]; // commonOre, perTick: 1
+      // freshState's single captain is idle (mission: null), isolating this to the
+      // passive-trickle path -- no mission production to confound the cap check.
+      return s;
+    };
+
+    // AT cap: the trickle stops -- commonOre stays EXACTLY at the cap, no overflow.
+    const atCap = makeState();
+    atCap.inventory.commonOre = new Decimal(1_000_000); // exactly the T1 cap @ L0
+    const cappedResult = economyTick(atCap, 1, () => 0);
+    expect(cappedResult.inventory.commonOre.equals(1_000_000)).toBe(true); // gate skipped the +1 add
+
+    // BELOW cap: UNCHANGED behavior -- the trickle still adds perTick * ticksElapsed.
+    const belowCap = makeState();
+    belowCap.inventory.commonOre = new Decimal(500_000); // well under the cap
+    const belowResult = economyTick(belowCap, 1, () => 0);
+    expect(belowResult.inventory.commonOre.equals(500_001)).toBe(true); // 500_000 + perTick(1) * ticks(1)
+  });
+
   it("with no unlocked Homeworld Talents, extraction and passive production are unaffected (regression guard)", () => {
     const state = freshState();
     state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
