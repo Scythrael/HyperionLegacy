@@ -192,6 +192,7 @@ describe("tickCaptainMission — closed-form requirement", () => {
     const makeS = () => {
       const s = freshState();
       s.captains[0].mission = missionCaptain("longOreRun");
+      s.fuel = new Decimal(1_000_000_000); // Task 5: fuel-rich so the auto-repeat never stops on empty (this test isolates XP accrual, not the fuel gate)
       return s;
     };
 
@@ -878,6 +879,7 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
   // remap survives the tick()-level fold into inventory, not just the captain delta).
   it("a full salvageWreckage cycle on a COMMON roll lands scrapAlloy in inventory", () => {
     const base = freshState();
+    base.fuel = new Decimal(1_000_000); // Task 5: fund the dispatch + auto-repeats (fuel-rich, so mission behavior is unchanged)
     const { next: state, success } = dispatchCaptainOnMission(base, base.captains[0].id, "salvageWreckage");
     expect(success).toBe(true);
     // A constant rng of 0.5 fails salvage's rare (0.001) + uncommon (0.014) checks
@@ -1258,6 +1260,7 @@ describe("economyTick / tick() equivalence — the Task A2 mechanical extraction
     const makeState = () => {
       const s = freshState(); // 1 captain + generalFreighter -> 149-tick shortOreRun cycle; tickDurationSeconds 1
       s.captains[0].mission = missionCaptain("shortOreRun");
+      s.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so both paths auto-repeat identically (equivalence isn't about the fuel gate)
       return s;
     };
 
@@ -1640,6 +1643,7 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     // (simulating a PRIOR delivery already sitting in inventory) to prove this tick's delta is ADDED
     // to existing totals, not overwriting them: expected result = {75, 21, 10}.
     const state = freshState();
+    state.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so the cycle auto-repeats (this test asserts the repeat, not the fuel gate)
     state.inventory = {
       commonOre: new Decimal(5),
       uncommonMaterial: new Decimal(1),
@@ -1881,6 +1885,7 @@ describe("tick() — Homeworld/Captain Talent effects wired into extraction and 
 describe("dispatchCaptainOnMission", () => {
   it("dispatches an idle captain, setting their initial mission state exactly", () => {
     const state = freshState(); // captains[0].mission is null (idle)
+    state.fuel = new Decimal(1_000_000); // Task 5: fund the dispatch fuel gate (fuel-rich)
     const { next, success } = dispatchCaptainOnMission(state, 1, "shortOreRun");
 
     expect(success).toBe(true);
@@ -1901,6 +1906,7 @@ describe("dispatchCaptainOnMission", () => {
     // pre-Phase-4 -- same intent (prove dispatchCaptainOnMission only touches `mission`),
     // updated to the post-Task-2 CaptainState/GameState shape.
     const state = freshState();
+    state.fuel = new Decimal(1_000_000); // Task 5: fund the dispatch fuel gate so the dispatch actually happens (else this test is vacuous)
     state.captains[0].level = 4;
     state.captains[0].xp = new Decimal(250); // xp is Decimal -- new Decimal(...), not a plain-number assignment
     state.captains[0].statPoints = 3;
@@ -1915,6 +1921,7 @@ describe("dispatchCaptainOnMission", () => {
 
   it("fails if the captain is already on a mission (same state reference, unchanged)", () => {
     const state = freshState();
+    state.fuel = new Decimal(1_000_000); // Task 5: fund the FIRST dispatch (the second fails on the already-on-mission guard, not fuel)
     const { next: dispatched } = dispatchCaptainOnMission(state, 1, "shortOreRun");
 
     const { next, success } = dispatchCaptainOnMission(dispatched, 1, "longOreRun");
@@ -2712,6 +2719,7 @@ describe("tick() — applies each captain's assigned-ship stats to their mission
   // (transit 1.0 / cargo 90 / yield 1.0 == effectiveMissionDef no-op).
   const stateOnShortOreRun = () => {
     const state = freshState();
+    state.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so the Runner's auto-repeat isn't gated (these tests are about ship stats, not fuel)
     state.captains[0].mission = {
       missionKey: "shortOreRun",
       phase: "ordersReceived",
@@ -3315,6 +3323,7 @@ describe("tick — per-tick stepping matches the single-call economy when no cap
     const makeS = () => {
       const s = freshState();
       s.captains[0].mission = missionCaptain("shortOreRun");
+      s.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so the cycle auto-repeats identically on both paths (parity isn't about the fuel gate)
       return s;
     };
     // A CONSTANT rng makes loot bit-identical between the two paths even though the
@@ -3366,6 +3375,7 @@ describe("tick — per-tick stepping matches the single-call economy when no cap
     const makeS = () => {
       const s = freshState(); // 1 captain + generalFreighter -> 149-tick shortOreRun cycle; tickDurationSeconds 1
       s.captains[0].mission = missionCaptain("shortOreRun");
+      s.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so the cycle auto-repeats identically on both paths (parity isn't about the fuel gate)
       return s;
     };
     const deltaSeconds = 149.7; // tickDurationSeconds 1 -> ticksElapsed 149.7 = 149 whole + 0.7 frac

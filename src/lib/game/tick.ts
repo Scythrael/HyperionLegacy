@@ -54,6 +54,7 @@ import {
   FUEL_TANK_BASE_CAP,
   FUEL_CREDITS_PER_UNIT,
 } from "./model";
+import { fuelNeeded } from "./fuel";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
 // there's no compiler link between this array and the union type, so a 6th
@@ -589,7 +590,17 @@ export function tickCaptainMission(
   // for the exact same reason the `bonuses` constant above does. tick() resolves
   // the assigned hull to these stats and passes them in (Task 7); this function
   // no longer reads captain.shipType at all (removed in Task 3).
-  shipStats: ShipDerivedStats | null = null
+  shipStats: ShipDerivedStats | null = null,
+  // Mission Rework (Task 5): the shared fuel tank's budget available to THIS call, and
+  // the fuel one round-trip cycle of this mission burns. Both plain numbers (fuel is
+  // small/human-scale -- see fuel.ts). The DEFAULTS reproduce this function's pre-fuel
+  // behavior EXACTLY: fuelPerCycle 0 makes every auto-repeat affordable
+  // (fuelRemaining >= 0 is always true) and spends nothing, so every existing call
+  // site/test that omits these two args is byte-identical to before. economyTick (the
+  // only production caller) passes the real per-captain budget + per-cycle cost so the
+  // auto-repeat gate below can stop the run when the tank can't cover the next cycle.
+  fuelBudget: number = Infinity,
+  fuelPerCycle: number = 0
 ): {
   captain: CaptainState;
   // Mission Rework (Task 1): widened LootMaterialKey -> string. The loot delta is now
@@ -604,6 +615,10 @@ export function tickCaptainMission(
   // Task 6: lifetime-stat accrual for this call, folded into state.lifetimeStats
   // by tick(). Always present (zeroed on the early-outs), never undefined.
   lifetimeStatsDelta: MissionLifetimeStatsDelta;
+  // Mission Rework (Task 5): fuel actually spent on auto-repeats this call
+  // (fuelPerCycle x cycles that repeated). economyTick subtracts this from the shared
+  // Decimal tank. 0 on the early-outs and whenever fuelPerCycle is 0 (the default).
+  fuelSpent: number;
 } {
   if (!captain.mission || ticksElapsed <= 0) {
     return {
@@ -612,6 +627,7 @@ export function tickCaptainMission(
       fleetAdminXpDelta: 0,
       creditsDelta: 0,
       lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
+      fuelSpent: 0,
     };
   }
 
@@ -702,6 +718,17 @@ export function tickCaptainMission(
   // ones summing to the same span count the identical number of completions.
   // Rolled into lifetimeStatsDelta.missionsCompleted[missionKey] after the loop.
   let cyclesCompleted = 0;
+  // Mission Rework (Task 5): fuel accounting for the auto-repeat gate. fuelRemaining is
+  // the shared-tank budget this call may still draw on (seeded from fuelBudget, drawn
+  // down PER auto-repeat below); fuelSpent is the running total this call reports back
+  // to economyTick to subtract from the Decimal tank. Both stay 0 / untouched when
+  // fuelPerCycle is 0 (the default), so the pre-fuel closed-form behavior is preserved.
+  // These decrement ONLY at cycle boundaries (the auto-repeat branch), exactly like
+  // credits/cyclesCompleted -- so fuel falls out of the per-tick stepping the SAME way
+  // loot/XP/credits do: one big ticksElapsed and many small ones summing to it draw the
+  // identical fuel at the identical cycle boundaries (closed-form / stepped-safe).
+  let fuelRemaining = fuelBudget;
+  let fuelSpent = 0;
 
   // The ship's extractionYieldMult is a MULTIPLIER (1.0 = no change, 1.35 =
   // +35%), but resolvedBonuses' tier yield mults are stored as ADDITIVE deltas
@@ -847,9 +874,23 @@ export function tickCaptainMission(
         // credit award and the loot delivery above, so all three (loot,
         // credits, completion count) stay perfectly in sync per cycle.
         cyclesCompleted += 1;
+        // Mission Rework (Task 5): the AUTO-REPEAT fuel gate. A finished cycle either
+        // ends (recall), or STARTS A FRESH CYCLE -- and starting one now costs a round
+        // trip of fuel from the shared tank. Three outcomes, in priority order:
+        //   1. recalled  -> end the mission (unchanged pre-fuel behavior).
+        //   2. can afford (fuelRemaining >= fuelPerCycle) -> spend it and repeat. With
+        //      the default fuelPerCycle 0 this is always true and spends nothing, so the
+        //      pre-fuel "always auto-repeat" behavior is exactly preserved.
+        //   3. STOP-ON-EMPTY: the tank can't cover the next round trip -> end the mission
+        //      (mission -> null), the SAME terminal state as a completed recall. The
+        //      captain idles until refuelled + re-dispatched. This mirrors the material
+        //      auto-stop's "a producer stops when it can't proceed," but it is TERMINAL
+        //      (recall-like) rather than a freeze, per the design's stop-on-empty rule.
         if (mission.recalled) {
           mission = null;
-        } else {
+        } else if (fuelRemaining >= fuelPerCycle) {
+          fuelRemaining -= fuelPerCycle; // draw this cycle's fuel from the call budget
+          fuelSpent += fuelPerCycle;     // report it back for the tank deduction
           mission = {
             missionKey: mission.missionKey,
             phase: "ordersReceived",
@@ -857,6 +898,8 @@ export function tickCaptainMission(
             cargo: emptyLootTotals(),
             recalled: false,
           };
+        } else {
+          mission = null; // stop-on-empty: tank can't cover the next cycle
         }
       } else {
         mission.phase = MISSION_PHASE_ORDER[nextIndex];
@@ -967,6 +1010,7 @@ export function tickCaptainMission(
     fleetAdminXpDelta,
     creditsDelta,
     lifetimeStatsDelta,
+    fuelSpent,
   };
 }
 
@@ -1132,6 +1176,16 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // per captain inside the .map() below -- Homeworld Talents are fleet-wide,
   // not per-captain.
   const fleetRareYield = fleetRareYieldMult(state);
+  // Mission Rework (Task 5): the SHARED fuel tank, threaded through the per-captain map
+  // below. fuelBudgetRemaining starts at the whole tank (state.fuel as a number -- fuel
+  // is human-scale, see fuel.ts) and is DRAWN DOWN as each captain's auto-repeats spend
+  // from it, so two captains completing a cycle in the SAME call cannot double-spend the
+  // one tank (map callbacks run sequentially, so the decrement is visible to the next
+  // captain). totalFuelSpent is the sum subtracted from the Decimal tank once, below.
+  // With no mission captains (or a fuel-rich tank) both stay at their seed / 0, so a
+  // call lands byte-identical to before this task.
+  let fuelBudgetRemaining = state.fuel.toNumber();
+  let totalFuelSpent = 0;
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // Phase 2 (Task B3, design §3.4): AUTO-STOP. If this mission's PRIMARY material
@@ -1165,6 +1219,12 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     // baseline) rather than throwing on shipDerivedStats(undefined).
     const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
     const shipStats = ship ? shipDerivedStats(ship) : null;
+    // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
+    // THIS hull. fuelNeeded reads the BASE mission's transit legs (see fuel.ts), so pass
+    // the raw MISSIONS def + the hull's static ShipTypeDef, NOT the ship-adjusted
+    // shipStats. A ship-less captain (the null-ship freighter-baseline fallback above)
+    // costs 0 -> never fuel-gated, matching that path's "no ship modifier" behavior.
+    const fuelPerCycle = ship ? fuelNeeded(MISSIONS[captain.mission.missionKey], SHIP_TYPES[ship.typeKey]) : 0;
     const bonuses = {
       commonYieldMult: captainCommonYieldMult(captain),
       uncommonYieldMult: captainUncommonYieldMult(captain),
@@ -1186,7 +1246,13 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
       fleetAdminXpDelta: captainFleetAdminXpDelta,
       creditsDelta: captainCreditsDelta,
       lifetimeStatsDelta: captainLifetimeStatsDelta,
-    } = tickCaptainMission(ticksElapsed, captain, rng, bonuses, shipStats);
+      fuelSpent: captainFuelSpent,
+    } = tickCaptainMission(ticksElapsed, captain, rng, bonuses, shipStats, fuelBudgetRemaining, fuelPerCycle);
+    // Mission Rework (Task 5): draw this captain's auto-repeat fuel from the shared tank
+    // budget so a later captain in this SAME map sees the reduced budget (no
+    // double-spend), and sum it for the single Decimal tank deduction below.
+    fuelBudgetRemaining -= captainFuelSpent;
+    totalFuelSpent += captainFuelSpent;
     // Mission Rework (Task 1): the captain's delta is now keyed by its mission's own
     // item keys, so fold over the ACTUAL keys present and grow-on-demand (`?? 0`)
     // rather than assuming the fixed 3 ore tiers. For an ore-only fleet the keys are
@@ -1287,6 +1353,12 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     // curve to resolve, so the accumulated creditsDelta is applied directly
     // here rather than passed through a second wrapping function.
     credits: state.credits.plus(creditsDelta),
+    // Mission Rework (Task 5): subtract the total auto-repeat fuel spent this call from
+    // the shared Decimal tank, ONCE (totalFuelSpent is a plain number; .minus accepts
+    // it). Guaranteed >= 0: each captain's spend was gated on fuelBudgetRemaining, which
+    // began at state.fuel.toNumber(), so the sum never exceeds the tank. 0 when no cycle
+    // repeated (or a fuel-rich/no-mission call) -> state.fuel rides through unchanged.
+    fuel: state.fuel.minus(totalFuelSpent),
     // Loot now lands in the keyed `inventory` (+ its `discovered` reveal set).
     // The old homePlanet.storage field is GONE (removed in Task 7 -- fully
     // replaced by `inventory`), so there is nothing for `...state` to carry
@@ -1446,6 +1518,30 @@ export function dispatchCaptainOnMission(
   if (idx === -1) return { next: state, success: false };
   if (state.captains[idx].mission !== null) return { next: state, success: false };
 
+  // Mission Rework (Task 5): the DISPATCH-TIME fuel gate + spend (design §3/§7). The
+  // player pays the FIRST cycle's round-trip fuel up front, here, before the mission
+  // starts; each later auto-repeat pays for its own next cycle at the cycle boundary
+  // inside tickCaptainMission (below). fuelNeeded reads the BASE mission's transit legs
+  // scaled by the hull's engineEfficiency (see fuel.ts), so we resolve THIS captain's
+  // hull to price the trip. GameState.ships[].assignedCaptainId is the single source of
+  // truth for who flies what -- the SAME .find() the economyTick mission loop uses.
+  const ship = state.ships.find((s) => s.assignedCaptainId === captainId);
+  // A captain with no assigned hull cannot be priced (no fuelCapacity/efficiency to read)
+  // -- block rather than dispatch a free, un-fuelled trip. The invariant "every captain
+  // has exactly one hull" holds in production (migration + new-game seed both assign one),
+  // so this is a belt-and-suspenders guard, not a routine path.
+  if (!ship) return { next: state, success: false };
+  const need = fuelNeeded(MISSIONS[missionKey], SHIP_TYPES[ship.typeKey]);
+  // RANGE gate: the hull physically cannot carry enough fuel for one round trip. This is
+  // a HULL-CAPABILITY check (independent of how much fuel is in the shared tank), so it
+  // reads the hull's static fuelCapacity, not state.fuel. Forward-defensive: no current
+  // hull+mission combo trips it, but it honors the design's stated dispatch contract and
+  // pairs with Task 7's per-mission requirement reasons.
+  if (SHIP_TYPES[ship.typeKey].fuelCapacity < need) return { next: state, success: false };
+  // RESOURCE gate: the shared tank doesn't hold enough fuel for this trip. Compared as
+  // Decimal (< a plain number) since state.fuel is the Decimal stockpile.
+  if (state.fuel.lt(need)) return { next: state, success: false };
+
   const captains = [...state.captains];
   captains[idx] = {
     ...captains[idx],
@@ -1457,7 +1553,9 @@ export function dispatchCaptainOnMission(
       recalled: false,
     },
   };
-  return { next: { ...state, captains }, success: true };
+  // Deduct the first cycle's fuel from the shared tank. `need` is a plain number; the
+  // stockpile is Decimal, so .minus(need). Guaranteed >= 0 by the RESOURCE gate above.
+  return { next: { ...state, captains, fuel: state.fuel.minus(need) }, success: true };
 }
 
 // Flags an active mission as recalled. Deliberately does NOT reset phase,
