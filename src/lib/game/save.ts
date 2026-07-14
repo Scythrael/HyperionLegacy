@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionKey, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS } from "./model";
 
-export const SAVE_VERSION = 19;
+export const SAVE_VERSION = 20;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -639,6 +639,29 @@ const MIGRATIONS: Record<number, Migration> = {
       warehouseT1: state.facilities?.warehouseT1 ?? { level: 0 },
       warehouseT2: state.facilities?.warehouseT2 ?? { level: 0 },
     },
+  }),
+  // v19 -> v20: Refine-order engine (Phase 2, Task D1 -- docs/plans/2026-07-13-phase-
+  // 2-warehouse-refine-economy-design.md §4/§5). Task D1 added `refineOrder`
+  // (RefineOrder | null) to GameState + freshState (seeded null); this step backfills
+  // that same null seed onto an existing v19 save, which predates the field entirely.
+  //
+  // - `?? null` is idempotent + belt-and-suspenders: a genuine v19 save has NO
+  //   refineOrder key (so it is seeded null), but if a chained/hand-edited save somehow
+  //   already carries one, its existing order is PRESERVED rather than wiped. Mirrors
+  //   the `?? { level: 0 }` posture MIGRATIONS[18] uses for the warehouse facilities.
+  // - Every OTHER GameState field rides through untouched on the outer `...state`
+  //   spread -- this step's sole job is the one `refineOrder` seed, exactly the
+  //   minimal-single-field shape MIGRATIONS[18] set the template for.
+  // - RefineOrder carries NO Decimal (recipeKey string, mode.remaining a plain number,
+  //   pausedReason a string literal), so hydrateDecimals needs NO change: refineOrder
+  //   rides through its own `...state` spread there with no per-field revival, exactly
+  //   as the Decimal-free `facilities`/`nextProcessId` fields already do.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to
+  // production, so it is still editable (the frozen-once-shipped rule applies only to
+  // production-released migrations).
+  19: (state: any): any => ({
+    ...state,
+    refineOrder: state.refineOrder ?? null,
   }),
 };
 

@@ -47,6 +47,8 @@ import {
   type TimedProcess,
   type TimedProcessKind,
   type ProcessEffect,
+  type RefineOrder,
+  type RefineOrderMode,
   WAREHOUSE_T1_BASE_CAP,
   WAREHOUSE_T2_BASE_CAP,
 } from "./model";
@@ -1284,13 +1286,33 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   );
   fleetAdminXpDelta += processFleetAdminXpDelta;
 
+  // Phase 2, Task D1: process the standing refine ORDER (if any) AFTER
+  // resolveProcesses -- so a refine slot freed by a job COMPLETING this tick is
+  // immediately refillable this SAME tick (no idle gap for a continuous order). The
+  // order starts new jobs into every free slot while unblocked; a job it starts here
+  // is a fresh TimedProcess that begins advancing on the NEXT economyTick (its
+  // remainingTicks are untouched by the resolveProcesses that already ran above),
+  // exactly as a manually-started startRefineJob would. processRefineOrder reads the
+  // SAME materialAtCap cap seam the mission/trickle auto-stop uses, so "output full"
+  // pauses are consistent fleet-wide. A same-reference no-op when there is no order,
+  // so a call with no order lands byte-identical to before this task. It touches only
+  // inventory/activeProcesses/refineOrder -- no FA XP -- so it composes cleanly before
+  // the final applyFleetAdminXp pass below. Because it lives HERE inside economyTick,
+  // it runs identically on the live path (App.svelte per bar) and the offline path
+  // (tick() steps economyTick(_,1) per tick) -- the same one-seam guarantee Task B3's
+  // auto-stop relies on.
+  const postOrderState = processRefineOrder(postProcessState);
+
   // applyFleetAdminXp wraps the final state -- it runs AFTER BOTH the captain loop
   // (mission FA XP) and resolveProcesses (process FA XP) have contributed to
   // fleetAdminXpDelta, so every FA XP source this call resolves through the one
-  // level-up pass. It does not touch inventory/facilities/activeProcesses -- the
-  // loot fold + resolveProcesses above already produced their final values on
-  // postProcessState.
-  return applyFleetAdminXp(postProcessState, fleetAdminXpDelta);
+  // level-up pass. It does not touch inventory/facilities/activeProcesses/refineOrder
+  // -- the loot fold + resolveProcesses + processRefineOrder above already produced
+  // their final values on postOrderState. Threaded through postOrderState (NOT
+  // postProcessState) so the order's newly-started jobs + updated refineOrder ride
+  // into the returned state; with no order postOrderState === postProcessState, so
+  // this is byte-identical to before Task D1.
+  return applyFleetAdminXp(postOrderState, fleetAdminXpDelta);
 }
 
 // Offline catch-up entry point -- tech spec §2 (Tick Loop and Time Semantics).
@@ -2096,6 +2118,152 @@ export function startRefineJob(
     itemId: recipe.output.itemId,
     amount: recipe.output.amount,
   });
+}
+
+// ============================================================================
+// Refine ORDER engine (Phase 2, Task D1)
+// (docs/plans/2026-07-13-phase-2-warehouse-refine-economy-design.md §4).
+//
+// A refine ORDER is a STANDING instruction that keeps starting single refine JOBS
+// (via startRefineJob -- NO duplicated job-creation logic) every economyTick until
+// its work is done or a block hits. It is the batch/continuous layer ON TOP of Phase
+// 1's single-job startRefineJob, not a replacement for it.
+//
+// THREE functions:
+//   - startRefineOrder(state, recipeKey, mode): set/replace the active order (pure).
+//   - stopRefineOrder(state): clear the active order (pure) -- D2's cancellation path
+//     builds on this basic clear.
+//   - processRefineOrder(state): the per-tick engine, called by economyTick above.
+// ============================================================================
+
+// Sets (or REPLACES) the fleet's standing refine order. PURE: returns a NEW state
+// with refineOrder set, or the SAME reference (no-op) if recipeKey is unknown -- the
+// reject convention startRefineJob/startProcess share, so a bad key can never install
+// an order that could never run. pausedReason is intentionally ABSENT on a fresh
+// order (it is "running" until processRefineOrder proves otherwise on the next tick).
+// Replacing an existing order simply overwrites the record; any JOBS the previous
+// order already started stay in flight (they are committed TimedProcesses, not owned
+// by the order record). The D4 UI calls this; tests call it directly.
+export function startRefineOrder(
+  state: GameState,
+  recipeKey: string,
+  mode: RefineOrderMode
+): GameState {
+  if (!REFINE_RECIPES[recipeKey]) return state; // unknown recipe -> same-reference no-op
+  return { ...state, refineOrder: { recipeKey, mode } };
+}
+
+// Clears the standing refine order (refineOrder -> null). PURE. Idempotent: clearing
+// when there is no order returns the SAME reference. Does NOT touch activeProcesses --
+// a job the order already started is a committed process that runs to completion
+// (design §4.3: the in-progress iteration commits; only the queued REMAINDER is
+// dropped). D2 layers its full cancellation rules on this basic clear.
+export function stopRefineOrder(state: GameState): GameState {
+  if (state.refineOrder === null) return state;
+  return { ...state, refineOrder: null };
+}
+
+// The per-tick refine-order engine, called ONCE per economyTick (AFTER
+// resolveProcesses, so a slot freed by a job COMPLETING this tick is immediately
+// refillable this same tick -- no idle gap for a continuous order). PURE: returns a
+// NEW state, or the SAME reference when there is no order to process.
+//
+// Each call fills EVERY currently-free refine slot with a new job while the order is
+// unblocked, then records why it stopped:
+//   - FREE SLOTS = refineSlotCount - (refine jobs already in flight). Filling only up
+//     to the slot count is what caps an order at refineSlotCount parallel jobs.
+//   - OUTPUT FULL: the recipe's output material is at its warehouse cap
+//     (materialAtCap -- the SAME cap seam missions/trickle auto-stop on) -> pause
+//     "outputFull". Checked BEFORE inputs so a full output is the reported reason even
+//     if inputs also happen to be short (the storage block is the more specific one).
+//   - NO INPUT: inputs unaffordable -> pause "noInput".
+//   - SLOTS BUSY (all slots occupied, work remains): NOT a pause -- the order is
+//     actively working, just at capacity -- so pausedReason is left CLEARED.
+//   - BATCH DONE: a batch order whose `remaining` reaches 0 CLEARS (-> null).
+//
+// AUTO-RESUME is STRUCTURAL: pausedReason starts undefined each call and is only set
+// if a block is hit THIS tick, so the tick a block lifts (input arrives / cap frees)
+// the order starts jobs again and records no pausedReason -- no explicit un-pause.
+//
+// Bounded work: it starts at most refineSlotCount (<= a few) jobs per call, so the
+// inner loop is tightly bounded -- no Omega-14 unbounded-loop concern even across a
+// 172,800-tick offline catch-up (the loop runs once per free slot, not once per tick).
+export function processRefineOrder(state: GameState): GameState {
+  const order = state.refineOrder;
+  if (order === null) return state; // no order -> same-reference no-op
+
+  // Unknown recipe on a persisted/corrupted order -> leave it untouched rather than
+  // throw on `undefined.input`/`undefined.output`. startRefineOrder guards NEW orders,
+  // so this only shields a hand-edited/older save; no progress, and no pause reason is
+  // invented (there is no mechanically meaningful reason to surface).
+  const recipe = REFINE_RECIPES[order.recipeKey];
+  if (!recipe) return state;
+
+  let working = state;                    // threaded immutably as each startRefineJob returns fresh state
+  let mode = order.mode;                  // batch mode's `remaining` is decremented per started job
+  let pausedReason: "noInput" | "outputFull" | undefined = undefined;
+
+  // Start jobs until: batch exhausted (clears), all slots busy (stop, no pause), or a
+  // block hits (output full / no input -> pause with the reason).
+  while (true) {
+    // Batch exhausted -> the order is complete; clear it (-> null) and return.
+    if (mode.kind === "batch" && mode.remaining <= 0) {
+      return { ...working, refineOrder: null };
+    }
+
+    // A free slot must exist to start another job. All slots busy is NOT a pause (the
+    // order is working at capacity), so we stop WITHOUT setting pausedReason. This is
+    // the SAME slot accounting startRefineJob's own gate uses.
+    const activeRefineJobs = working.activeProcesses.filter((p) => p.kind === "refineJob").length;
+    if (activeRefineJobs >= refineSlotCount(working)) break;
+
+    // Output at its warehouse cap -> pause "outputFull" (checked before inputs).
+    if (materialAtCap(working, recipe.output.itemId)) {
+      pausedReason = "outputFull";
+      break;
+    }
+
+    // Inputs unaffordable -> pause "noInput". The SAME affordability test startProcess
+    // applies (an absent inventory key reads as 0), read HERE so the pause reason is
+    // known BEFORE delegating -- startRefineJob alone would only report started:false,
+    // never WHY (slot-busy vs. unaffordable are indistinguishable from its return).
+    let affordable = true;
+    for (const itemId of Object.keys(recipe.input)) {
+      const have = working.inventory[itemId] ?? new Decimal(0);
+      if (have.lt(recipe.input[itemId])) {
+        affordable = false;
+        break;
+      }
+    }
+    if (!affordable) {
+      pausedReason = "noInput";
+      break;
+    }
+
+    // All gates pass -> start ONE job via the SHARED startRefineJob (atomic
+    // deduct-at-start + process push -- no duplicated job-creation logic). Its own
+    // slot/afford gates re-check the same conditions and cannot reject here (we just
+    // verified them), but if it ever did, the defensive `!started` break below
+    // guarantees the loop still terminates rather than spinning forever.
+    const { next, started } = startRefineJob(working, order.recipeKey);
+    if (!started) break;
+    working = next;
+
+    // One batch iteration consumed. A continuous order carries no counter to decrement.
+    if (mode.kind === "batch") {
+      mode = { kind: "batch", remaining: mode.remaining - 1 };
+    }
+  }
+
+  // Write back the (possibly decremented) mode + this tick's pausedReason. A batch
+  // that hit `remaining` 0 exactly on its last start is cleared by the top-of-loop
+  // check on the very next iteration, so it never reaches here with remaining 0 --
+  // this path is only taken on a slot-busy stop (no pause) or a block (with a reason).
+  const nextOrder: RefineOrder =
+    pausedReason === undefined
+      ? { recipeKey: order.recipeKey, mode }
+      : { recipeKey: order.recipeKey, mode, pausedReason };
+  return { ...working, refineOrder: nextOrder };
 }
 
 // Advances every active process by `ticksElapsed` and resolves completions. THE

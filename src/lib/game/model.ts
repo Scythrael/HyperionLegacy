@@ -635,6 +635,37 @@ export const FACILITIES: Record<string, FacilityDef> = {
   },
 };
 
+// --- Refine orders (Phase 2, Task D1 -- docs/plans/2026-07-13-phase-2-warehouse-
+// refine-economy-design.md §4/§5) -------------------------------------------------
+// A STANDING refine order, distinct from a single startRefineJob (which starts ONE
+// job). An order keeps starting refine jobs each economyTick until its work is done
+// or a block hits. Two modes:
+//   - batch: run a FIXED number of iterations. `remaining` is decremented once per
+//     STARTED job; the order CLEARS (state.refineOrder -> null) when it reaches 0.
+//   - continuous: run UNBOUNDED until the player stops it (stopRefineOrder / the D2
+//     cancellation path). It never self-clears -- it only pauses/resumes.
+// The two are a discriminated union (on `kind`), the SAME named-union convention as
+// ProcessEffect/FacilityUpgradeEffect above, so a future mode slots in without
+// touching every consumer that switches on `kind`.
+export type RefineOrderMode =
+  | { kind: "batch"; remaining: number }
+  | { kind: "continuous" };
+
+// One standing refine order. `pausedReason` is ABSENT while the order is running and
+// is RECOMPUTED every tick by processRefineOrder (tick.ts): it records WHY the order
+// made no progress this tick (inputs exhausted / output at its warehouse cap) for the
+// D4 Overview readout AND for AUTO-RESUME -- because it is recomputed from scratch
+// each tick, it clears automatically the tick a block lifts (input arrives / cap
+// frees), so resuming a paused order needs no explicit un-pause action. NO Decimal on
+// this shape (recipeKey string, remaining a plain number, pausedReason a string
+// literal), so save hydration needs no per-field revival -- it rides the `...state`
+// spread untouched.
+export interface RefineOrder {
+  recipeKey: string;                       // which REFINE_RECIPES entry this order runs
+  mode: RefineOrderMode;
+  pausedReason?: "noInput" | "outputFull"; // absent = running; set per-tick by processRefineOrder
+}
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence -- every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
@@ -696,6 +727,16 @@ export interface GameState {
   facilities: Record<string, FacilityState>; // facilityKey -> { level }; level 0 = not built
   activeProcesses: TimedProcess[];            // in-flight refine jobs + facility upgrades (empty until Task 8 starts one)
   nextProcessId: number;                      // monotonic id source for new TimedProcess.id ("proc-N"); never reused
+  // Phase 2, Task D1 (design §4/§5): the fleet's ONE standing refine order, or null
+  // when none is active. A SINGLE nullable order (NOT a list/map) is the minimal
+  // correct shape for today's ONE refinery -- it can be widened to a per-refinery map
+  // if a second refinery ever ships, without precluding it now (Omega 8 YAGNI). It is
+  // processed each tick inside economyTick (processRefineOrder, tick.ts), which fills
+  // free refine slots with jobs while the order is unblocked and rides the SAME
+  // economyTick seam as the Task B3 auto-stop -- so it behaves identically live and in
+  // the offline per-tick step loop. freshState seeds null; the v19->v20 migration
+  // (save.ts) backfills null onto existing saves.
+  refineOrder: RefineOrder | null;
 }
 
 export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
@@ -1663,5 +1704,8 @@ export function freshState(): GameState {
     facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 } },
     activeProcesses: [],
     nextProcessId: 1,
+    // Phase 2, Task D1: no standing refine order on a fresh save. Existing saves get
+    // this same null seed via the v19->v20 migration (save.ts, MIGRATIONS[19]).
+    refineOrder: null,
   };
 }

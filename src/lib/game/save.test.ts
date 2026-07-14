@@ -40,8 +40,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -79,8 +79,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -253,8 +253,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -350,8 +350,8 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -456,8 +456,8 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -541,8 +541,8 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -611,8 +611,8 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -670,8 +670,8 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     expect(migrated.inventory.refinedMaterial.equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -740,8 +740,8 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -1529,8 +1529,8 @@ describe("migrate — Ships stats foundation: grandfather a Freighter per captai
     expect(migrated.nextShipId).toBe(original.nextShipId);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -1737,8 +1737,8 @@ describe("migrate — lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.missionsCompleted.longOreRun.equals(3)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -1987,8 +1987,8 @@ describe("migrate — Ship Production Economy Phase 1: inventory/discovered/faci
     expect(migrated.discovered).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
@@ -2127,18 +2127,18 @@ describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(migrated.facilities.refinery).toEqual({ level: 0 });
   });
 
-  it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), confirming the v19 fresh shape is stable (zero migration steps)", () => {
-    // A brand-new freshState() save is already at the CURRENT SAVE_VERSION (19), so
-    // migrate()'s while loop runs ZERO iterations (no MIGRATIONS[19]); the three
+  it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), confirming the v20 fresh shape is stable (zero migration steps)", () => {
+    // A brand-new freshState() save is already at the CURRENT SAVE_VERSION (20), so
+    // migrate()'s while loop runs ZERO iterations (no MIGRATIONS[20]); the three
     // facilities survive purely via the serialize -> deserialize -> hydrateDecimals
-    // pass-through, and this pins that a fresh v19 game already carries the same
+    // pass-through, and this pins that a fresh v20 game already carries the same
     // three-facility shape MIGRATIONS[18] backfills onto old saves (migrated == fresh).
     const original = freshState();
     const raw = serialize(original, Date.now());
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
-    expect(deserialized!.version).toBe(SAVE_VERSION); // 19 -> zero migration steps
-    expect(deserialized!.version).toBe(19);
+    expect(deserialized!.version).toBe(SAVE_VERSION); // 20 -> zero migration steps
+    expect(deserialized!.version).toBe(20);
 
     const migrated: any = migrate(deserialized!);
     expect(migrated.facilities).toEqual({
@@ -2149,8 +2149,115 @@ describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(migrated.facilities).toEqual(original.facilities);
   });
 
-  it("current SAVE_VERSION is 19", () => {
-    expect(SAVE_VERSION).toBe(19);
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
+  });
+});
+
+describe("migrate — refine-order backfill (v19 -> v20)", () => {
+  it("seeds refineOrder: null on a genuine v19 save, leaving every other field untouched", () => {
+    // A genuine v19 shape: every Phase 1 + Task B2 field present (notably all THREE
+    // facilities -- refinery + warehouseT1 + warehouseT2 -- which MIGRATIONS[18]
+    // seeded), but NO refineOrder key (Task D1 added it to freshState only on this
+    // feature branch, so a real v19 save has none). Hand-written literal, same
+    // reasoning as every other legacy fixture here: freshState() now always seeds
+    // refineOrder, so it can no longer stand in for this pre-D1 shape.
+    const legacyState: any = {
+      gameTimeSeconds: 9000,
+      tickDurationSeconds: 1,
+      credits: 300,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 90,
+      fleetAdminLevel: 2,
+      adminPoints: 1,
+      inventory: { commonOre: 750, uncommonMaterial: 3, rareMaterial: 8, refinedMaterial: 20, components: 2 },
+      discovered: ["commonOre", "refinedMaterial"],
+      facilities: { refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 } },
+      activeProcesses: [],
+      nextProcessId: 4,
+      ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+      shipStorageCapacity: 8,
+      nextShipId: 2,
+      lifetimeStats: {
+        itemsGathered: { commonOre: 2000 }, itemsRefined: { refinedMaterial: 20 }, itemsCrafted: {},
+        missionsCompleted: { shortOreRun: 9 }, creditsEarned: 500, captainXpAwarded: 1200, fleetAdminXpAwarded: 90,
+      },
+      captains: [
+        { id: 1, label: "Captain 1", xp: 150, level: 4, statPoints: 2, spec: null, unlockedCaptainTalents: [], mission: null },
+      ],
+      // no refineOrder key -- the real pre-v20 shape
+    };
+
+    const save: SaveFile = { version: 19, created_at: 0, last_saved_at: 0, game_time_seconds: 9000, state: legacyState };
+    const migrated: any = migrate(save);
+
+    // The one job of this step: refineOrder seeded null.
+    expect(migrated.refineOrder).toBeNull();
+
+    // Everything else rides through untouched (Decimal fields hydrated). Facilities,
+    // inventory, lifetimeStats, captains -- a spread bug or an accidental re-seed
+    // would show here.
+    expect(migrated.facilities).toEqual({ refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 } });
+    expect(migrated.inventory.commonOre.equals(750)).toBe(true);
+    expect(migrated.inventory.refinedMaterial.equals(20)).toBe(true);
+    expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial"]);
+    expect(migrated.activeProcesses).toEqual([]);
+    expect(migrated.nextProcessId).toBe(4);
+    expect(migrated.lifetimeStats.itemsRefined.refinedMaterial.equals(20)).toBe(true);
+    expect(migrated.credits.equals(300)).toBe(true);
+    expect(migrated.captains[0].xp.equals(150)).toBe(true);
+    expect(migrated.captains[0].level).toBe(4);
+    expect(migrated.gameTimeSeconds).toBe(9000);
+  });
+
+  it("preserves an already-present refineOrder rather than wiping it (idempotent ?? guard)", () => {
+    // Defense-in-depth for the `?? null` guard: a chained/hand-edited save that
+    // already carries a refineOrder must keep it, not have it reset to null. Not
+    // reachable via a real shipped-v19 save (none has the key), but the guard makes
+    // the step safe if it ever is -- same posture as MIGRATIONS[18]'s ?? guard test.
+    const existingOrder = { recipeKey: "refineCommonOre", mode: { kind: "batch", remaining: 7 } };
+    const legacyState: any = {
+      gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
+      fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
+      inventory: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 },
+      discovered: [], facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 } },
+      activeProcesses: [], nextProcessId: 1,
+      ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+      shipStorageCapacity: 8, nextShipId: 2,
+      lifetimeStats: {
+        itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {},
+        creditsEarned: 0, captainXpAwarded: 0, fleetAdminXpAwarded: 0,
+      },
+      captains: [{ id: 1, label: "Captain 1", xp: 0, level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
+      refineOrder: existingOrder, // already present
+    };
+
+    const save: SaveFile = { version: 19, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
+    const migrated: any = migrate(save);
+    expect(migrated.refineOrder).toEqual(existingOrder); // preserved, NOT reset to null
+  });
+
+  it("round-trips a state carrying an ACTIVE order through serialize -> deserialize -> migrate intact (no Decimal-hydration hazard)", () => {
+    // refineOrder carries NO Decimal, so it must survive the JSON round-trip verbatim.
+    // A batch order with a live remaining count is the strongest case (a plain number
+    // that JSON preserves, and a pausedReason string) -- proving hydrateDecimals needs
+    // no per-field revival for the new field.
+    const original = { ...freshState(), refineOrder: { recipeKey: "refineCommonOre", mode: { kind: "batch" as const, remaining: 4 }, pausedReason: "noInput" as const } };
+    const raw = serialize(original, Date.now());
+    const deserialized = deserialize(raw);
+    expect(deserialized).not.toBeNull();
+    expect(deserialized!.version).toBe(SAVE_VERSION); // fresh -> zero migration steps
+
+    const migrated: any = migrate(deserialized!);
+    expect(migrated.refineOrder).toEqual({
+      recipeKey: "refineCommonOre",
+      mode: { kind: "batch", remaining: 4 },
+      pausedReason: "noInput",
+    });
+  });
+
+  it("current SAVE_VERSION is 20", () => {
+    expect(SAVE_VERSION).toBe(20);
   });
 });
 
