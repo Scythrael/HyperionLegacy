@@ -81,6 +81,11 @@
     // Docks ship-row loop var and parked-ship picker list are all inferred from
     // state.ships (ShipInstance[]), so ShipInstance itself isn't imported.
     type ShipTypeKey,
+    // Phase 2 (Warehouse UI, Group C): ItemCategory drives the category->tab
+    // mapping (raw/refined/component/ship-equipment grids); ItemDef is the tile
+    // metadata (rarity/tier/unlockHint/label) the fill-tiles + tooltip read.
+    type ItemCategory,
+    type ItemDef,
   } from "./lib/game/model";
   import {
     tick,
@@ -119,6 +124,15 @@
     startRefineJob,
     canBuildFacilityUpgrade,
     startFacilityUpgrade,
+    // Phase 2 (Warehouse UI, Group C) -- the two PURE cap-reader fns the
+    // Warehouse fill-tiles + Overview read. tierCap(state, tier) => the CURRENT
+    // per-item storage cap for a warehouse tier (derived from its facility
+    // level); materialAtCap(state, itemId) => whether an item's stock has
+    // reached that cap (the auto-stop "full/expand-me" signal). Both are the
+    // SAME fns the backend auto-stop uses, so the UI's "full" can never drift
+    // from what actually idles a producer.
+    tierCap,
+    materialAtCap,
     buyCaptainTalent,
     buyHomeworldTalent,
     respecCaptainTalents,
@@ -305,8 +319,172 @@
   // .captain-list-item.locked idiom Sector Space's locked structures use). Kept as
   // a typed literal union (not a free string) so a future real facility is added
   // deliberately, matching TabKey above.
-  type FacilityKey = "refinery";
+  // Phase 2 (Warehouse UI, Group C): "warehouse" is now a REAL, selectable
+  // facility (the fill-tile inventory catalog), joining "refinery". The other
+  // rail entries (Fabricator/Shipyard/Ship Facilities) stay locked placeholders.
+  type FacilityKey = "refinery" | "warehouse";
   let activeFacility: FacilityKey = "refinery";
+
+  // ---- Warehouse facility view (Phase 2, Group C) -----------------------------
+  // A tiered fill-tile inventory catalog. The top SubTabs axis is CATEGORY:
+  // Overview + Upgrade (the facility-management views, mirroring the Refinery's
+  // Overview/Upgrades) then one tab per item CATEGORY GROUP. Each catalog tab
+  // groups its ITEMS by tier into one tier-panel per tier, and renders a grid of
+  // fill-tiles (one per item) that read live inventory/discovered/cap state.
+  //
+  // Kept a typed literal union (not a free string) so a future category tab is
+  // added deliberately, the same discipline FacilityKey/RefinerySubTab use.
+  type WarehouseCat =
+    | "overview"
+    | "upgrade"
+    | "raw"
+    | "refined"
+    | "components"
+    | "shipEquipment"
+    | "troopEquipment"
+    | "consumables";
+  let activeWarehouseCat: WarehouseCat = "overview";
+
+  // The 8 category SubTabs, in display order. SubTabs is already horizontally
+  // scrollable (nowrap + overflow-x:auto), so 8 entries scroll on a narrow
+  // screen with no extra work -- exactly the mockup's scrollable category strip.
+  const WAREHOUSE_CAT_TABS: { key: WarehouseCat; label: string }[] = [
+    { key: "overview", label: "Overview" },
+    { key: "upgrade", label: "Upgrade" },
+    { key: "raw", label: "Raw Materials" },
+    { key: "refined", label: "Refined" },
+    { key: "components", label: "Components" },
+    { key: "shipEquipment", label: "Ship Equipment" },
+    { key: "troopEquipment", label: "Troop Equipment" },
+    { key: "consumables", label: "Consumables" },
+  ];
+
+  // Which ItemCategory value(s) each CATALOG tab shows (design §3.1 grouping).
+  // The management tabs (overview/upgrade) and the future stub tabs
+  // (troopEquipment/consumables -- no ItemCategory exists for them yet) are
+  // ABSENT here on purpose: a tab absent from this map is NOT a catalog grid.
+  // "Components" folds minor+major; "Ship Equipment" folds module+system.
+  const WAREHOUSE_CAT_CATEGORIES: Partial<Record<WarehouseCat, ItemCategory[]>> = {
+    raw: ["raw"],
+    refined: ["refined"],
+    components: ["minorComponent", "majorComponent"],
+    shipEquipment: ["shipModule", "shipSystem"],
+  };
+
+  // The warehouse TIERS that have their own facility + cap system today (design
+  // §3.1: each tier is its own facility). Drives the Upgrade tab's per-tier
+  // cards AND the "is this tier's storage unlocked?" check for tier panels.
+  // T1 is the BASE tier (available from level 0); T2 is the unlock stub.
+  const WAREHOUSE_TIERS: { tier: number; key: string; label: string }[] = [
+    { tier: 1, key: "warehouseT1", label: "Tier 1" },
+    { tier: 2, key: "warehouseT2", label: "Tier 2" },
+  ];
+
+  // A tier's storage is "unlocked" when its warehouse facility is built. T1 is
+  // the base tier -- always unlocked (cap active at level 0, no unlock rung). A
+  // higher tier (T2+) is locked until its unlock rung (level 0 -> 1) completes,
+  // i.e. facility level > 0. A tier with NO warehouse facility at all (none
+  // today beyond T2) is treated as unlocked so its items still show (fail-open,
+  // matching tierCap's own uncapped fail-open for un-warehoused tiers).
+  function warehouseTierUnlocked(tier: number): boolean {
+    if (tier <= 1) return true;
+    const facilityKey = `warehouseT${tier}`;
+    if (!FACILITIES[facilityKey]) return true; // no facility gate for this tier
+    return (state.facilities[facilityKey]?.level ?? 0) > 0;
+  }
+
+  // Per-category placeholder glyph for a discovered tile (real icons land later,
+  // per the mockup's "icons are placeholders" note). A generic emoji per
+  // category group -- deliberately simple; the fill + count + rarity ring carry
+  // the real at-a-glance information, not the glyph.
+  function warehouseCategoryGlyph(category: ItemCategory): string {
+    switch (category) {
+      case "raw":
+        return "🪨";
+      case "refined":
+        return "🔷";
+      case "minorComponent":
+      case "majorComponent":
+        return "⚙️";
+      case "shipModule":
+      case "shipSystem":
+        return "🛡️";
+    }
+  }
+
+  // Rarity -> tile accent color. Reuses existing theme tokens where one fits
+  // (uncommon -> success green, legendary -> warning amber); rare/epic/common
+  // have no matching token so use fixed hex (the mockup's own rarity palette).
+  // Drives the fill gradient, the rare+ ring, and the tooltip rarity label.
+  function warehouseRarityColor(rarity: ItemDef["rarity"]): string {
+    switch (rarity) {
+      case "common":
+        return "#8b9cb0";
+      case "uncommon":
+        return "var(--color-success)";
+      case "rare":
+        return "#4fa3f2";
+      case "epic":
+        return "#b07cf2";
+      case "legendary":
+        return "var(--color-warning)";
+    }
+  }
+
+  // % of cap an item's stock fills, clamped to [0,100] for the tile fill height
+  // and tooltip mini-bar. cap is always >= the tier base (>= 1M), never 0, so
+  // the divide is safe. An at-cap item reads 100 exactly (materialAtCap's >=).
+  function warehouseFillPct(count: Decimal, cap: Decimal): number {
+    if (cap.lte(0)) return 0; // defensive -- no real tier cap is ever <= 0
+    const pct = count.div(cap).times(100).toNumber();
+    return Math.max(0, Math.min(100, pct));
+  }
+
+  // Warehouse tile tooltip (Phase 2, Group C) -- a single fleet-positioned
+  // element (not one-per-tile), the SAME pattern the currency-chip tooltip uses,
+  // so it escapes the scroll container's clipping. Holds only the hovered/tapped
+  // itemId + a viewport position; the tooltip MARKUP re-derives name/count/cap/
+  // pct/atCap from live `state` each render, so the readout stays live (fills
+  // move) even while the pointer rests on a tile. null = hidden.
+  let warehouseTooltip: { itemId: string; x: number; y: number } | null = null;
+
+  // Approximate tooltip footprint, used only to keep it on-screen (clamp +
+  // flip-above). A slight over-estimate is fine -- it just biases toward
+  // flipping above / nudging left a touch early, never clips.
+  const WAREHOUSE_TOOLTIP_W = 220;
+  const WAREHOUSE_TOOLTIP_H = 190;
+
+  // Position the tooltip from the hovered tile's on-screen rect: below it by
+  // default, flipped above if it would overflow the viewport bottom, and clamped
+  // horizontally. Mirrors the mockup's own showTip() geometry.
+  function showWarehouseTooltip(event: Event, itemId: string) {
+    const target = event.currentTarget as HTMLElement | null;
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    let x = Math.min(window.innerWidth - WAREHOUSE_TOOLTIP_W - 8, rect.left);
+    x = Math.max(8, x);
+    let y = rect.bottom + 8;
+    if (y + WAREHOUSE_TOOLTIP_H > window.innerHeight) {
+      y = rect.top - WAREHOUSE_TOOLTIP_H - 8;
+    }
+    y = Math.max(8, y);
+    warehouseTooltip = { itemId, x, y };
+  }
+
+  function hideWarehouseTooltip() {
+    warehouseTooltip = null;
+  }
+
+  // Tap toggles (mobile): tap a tile to show its tooltip, tap the same tile
+  // again (or elsewhere -- see the tile's own re-show) to hide. On desktop the
+  // mouseenter/leave handlers already drive it; this makes tap work too.
+  function toggleWarehouseTooltip(event: Event, itemId: string) {
+    if (warehouseTooltip && warehouseTooltip.itemId === itemId) {
+      hideWarehouseTooltip();
+    } else {
+      showWarehouseTooltip(event, itemId);
+    }
+  }
 
   // The Refinery's two sub-tabs: Overview (level + refine slots + active jobs +
   // Start Refine Job) and Upgrades (the next upgrade rung's material/prereq
@@ -1187,6 +1365,50 @@
       p.effect.type === "facilityLevelUp" &&
       p.effect.facility === "refinery"
   );
+
+  // ---- Warehouse reactive derivations (Phase 2, Group C) ----------------------
+
+  // Builds the tier-panel groups for a catalog category tab: every ITEMS entry
+  // whose category is in that tab's category set, grouped by `tier`, tiers
+  // ascending. PURE over the static ITEMS table (independent of live state), so
+  // it only re-runs when the active tab changes -- the per-tile fill/count/cap
+  // read live `state` in the markup instead. A management/stub tab (absent from
+  // WAREHOUSE_CAT_CATEGORIES) yields [] -> the markup shows its stub/panel.
+  function warehouseTierGroups(cat: WarehouseCat): { tier: number; items: (ItemDef & { id: string })[] }[] {
+    const categories = WAREHOUSE_CAT_CATEGORIES[cat];
+    if (!categories) return [];
+    const byTier = new Map<number, (ItemDef & { id: string })[]>();
+    for (const id of Object.keys(ITEMS)) {
+      const item = ITEMS[id];
+      if (!categories.includes(item.category)) continue;
+      const bucket = byTier.get(item.tier) ?? [];
+      bucket.push({ id, ...item });
+      byTier.set(item.tier, bucket);
+    }
+    return [...byTier.keys()]
+      .sort((a, b) => a - b)
+      .map((tier) => ({ tier, items: byTier.get(tier) ?? [] }));
+  }
+
+  // The tier groups for the currently-selected catalog tab (empty for
+  // overview/upgrade/stub tabs). Re-derives when the active tab changes.
+  $: warehouseGroups = warehouseTierGroups(activeWarehouseCat);
+
+  // Overview summary derivations (design §3.1: at-a-glance warehouse state).
+  // T1 level + its live per-item cap (the primary, always-available tier).
+  $: warehouseT1Level = state.facilities.warehouseT1?.level ?? 0;
+  $: warehouseT1Cap = tierCap(state, 1);
+  // Every DISCOVERED catalog item currently AT its cap -- the auto-stop "full,
+  // expand storage" set. Drives the Overview's "items at cap" count + the
+  // Attention card's per-item FULL list. materialAtCap is the same fn the
+  // backend auto-stop uses, so this can't disagree with what actually idles.
+  $: warehouseItemsAtCap = Object.keys(ITEMS).filter(
+    (id) => state.discovered.includes(id) && materialAtCap(state, id)
+  );
+  // Discovered / total across the whole catalog (the 100%-completion checklist,
+  // design §3.2). A simple count pair for the Overview readout.
+  $: warehouseDiscoveredCount = Object.keys(ITEMS).filter((id) => state.discovered.includes(id)).length;
+  $: warehouseTotalCount = Object.keys(ITEMS).length;
 </script>
 
 <!-- Currency info-tooltip dismissal (2026-07-09): close an open chip tooltip on
@@ -1700,7 +1922,16 @@
                Fleet Captain's locked slots). Plain non-button divs, so they're
                inert; the title attr is the "Coming soon" affordance. -->
           <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Fabricator</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Warehouse</div>
+          <!-- Warehouse -- REAL, selectable facility (Phase 2, Group C): the
+               fill-tile inventory catalog. Same reused .captain-list-item /
+               active idiom as the Refinery button above. -->
+          <button
+            class="captain-list-item"
+            class:active={activeFacility === "warehouse"}
+            on:click={() => (activeFacility = "warehouse")}
+          >
+            Warehouse
+          </button>
 
           <!-- Fleet Sector group -- the Shipyard belongs to the fleet's sector
                presence, not the homeworld. -->
@@ -1885,6 +2116,223 @@
                   </div>
                   <div class="research-readout">{remaining} / {refineryUpgradeInFlight.durationTicks} ticks remaining</div>
                 {/if}
+              </Panel>
+            {/if}
+          {:else if activeFacility === "warehouse"}
+            <!-- WAREHOUSE (Phase 2, Group C) -- the fill-tile inventory catalog.
+                 Mirrors the Refinery's SubTabs + content structure above, but the
+                 SubTabs axis is CATEGORY: Overview + Upgrade (management views)
+                 then one tab per item-category group. Each catalog tab groups its
+                 ITEMS by tier into tier-panels of fill-tiles that read LIVE
+                 inventory/discovered/cap state (so fills move as you gather). All
+                 upgrade actions/gates read the SAME tick.ts backend fns the
+                 Refinery uses (tierCap / materialAtCap / canBuildFacilityUpgrade /
+                 startFacilityUpgrade). -->
+            <SubTabs
+              tabs={WAREHOUSE_CAT_TABS}
+              active={activeWarehouseCat}
+              onSelect={(key) => (activeWarehouseCat = key as WarehouseCat)}
+            />
+
+            {#if activeWarehouseCat === "overview"}
+              <!-- OVERVIEW -- at-a-glance warehouse state (design §3.1): T1 level +
+                   cap, how many items are AT cap (the ⚠ auto-stop signal),
+                   discovered/total catalog progress, and an Attention card listing
+                   each FULL material when any producer is idled. -->
+              <Panel>
+                <div class="panel-title">WAREHOUSE — TIER 1</div>
+                <div class="research-cost">Storage level: {warehouseT1Level}</div>
+                <div class="research-cost">Cap per item: {formatNumber(warehouseT1Cap)}</div>
+                <div
+                  class="research-cost"
+                  style="color: {warehouseItemsAtCap.length > 0 ? 'var(--color-danger)' : 'var(--color-text-secondary)'}"
+                >
+                  Items at cap: {warehouseItemsAtCap.length}{warehouseItemsAtCap.length > 0 ? " ⚠" : ""}
+                </div>
+                <div class="research-cost">Discovered: {warehouseDiscoveredCount} / {warehouseTotalCount} items</div>
+              </Panel>
+
+              {#if warehouseItemsAtCap.length > 0}
+                <Panel>
+                  <div class="panel-title">⚠ ATTENTION</div>
+                  {#each warehouseItemsAtCap as id (id)}
+                    <div class="research-cost" style="color: var(--color-danger)">
+                      [{ITEMS[id]?.label ?? id}] — FULL, producers auto-stopped
+                    </div>
+                  {/each}
+                  <p class="research-status" style="margin-top: 8px;">
+                    A full material auto-stops the tasks feeding it. Expand storage (Upgrade tab) or consume it to resume.
+                  </p>
+                </Panel>
+              {/if}
+            {/if}
+
+            {#if activeWarehouseCat === "upgrade"}
+              <!-- UPGRADE -- one card per warehouse tier (design §3.3): current
+                   cap, next cap (doubles), the next rung's material cost +
+                   duration, and a Build/Expand button gated on the SAME
+                   canBuildFacilityUpgrade the backend enforces (so button and
+                   action agree). T2 at level 0 reads as an UNLOCK; its later
+                   denseOre-gated rungs naturally show ❌ (unobtainable input =
+                   honest "future content" wall). In-flight progress mirrors the
+                   Refinery's. -->
+              {#each WAREHOUSE_TIERS as wt (wt.key)}
+                {@const level = state.facilities[wt.key]?.level ?? 0}
+                {@const upgrades = FACILITIES[wt.key].upgrades}
+                {@const maxed = level >= upgrades.length}
+                {@const currentCap = tierCap(state, wt.tier)}
+                {@const check = canBuildFacilityUpgrade(state, wt.key)}
+                {@const isUnlockRung = wt.tier > 1 && level === 0}
+                {@const inFlight = state.activeProcesses.find(
+                  (p) =>
+                    p.kind === "facilityUpgrade" &&
+                    p.effect.type === "facilityLevelUp" &&
+                    p.effect.facility === wt.key
+                )}
+                <Panel>
+                  <div class="panel-title">{wt.label} — {isUnlockRung ? "Unlock Storage" : "Expand Storage"}</div>
+                  <div class="research-cost">Level: {level}</div>
+
+                  {#if maxed}
+                    <p class="research-status">Fully upgraded.</p>
+                  {:else}
+                    {@const nextRung = upgrades[level]}
+                    {@const nextEff = nextRung.effect}
+                    {@const nextCap = "storageCapMult" in nextEff ? currentCap.times(nextEff.storageCapMult) : currentCap}
+                    <div class="research-cost">Current cap: {formatNumber(currentCap)} / item</div>
+                    {#if !isUnlockRung}
+                      <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(nextCap)} / item</div>
+                    {/if}
+                    <div class="research-cost">Duration: {nextRung.durationTicks} ticks</div>
+
+                    <!-- Material readiness: [Item]: have / need, ✅/❌. -->
+                    {#each Object.keys(nextRung.materials) as itemId}
+                      {@const need = nextRung.materials[itemId]}
+                      {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                      {@const met = have.gte(need)}
+                      <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                        {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                      </div>
+                    {/each}
+
+                    {#if isUnlockRung}
+                      <p class="research-status" style="margin-top: 6px;">
+                        Unlocks {wt.label} storage. Its first expansion needs a Tier-{wt.tier} material you can't reach yet.
+                      </p>
+                    {/if}
+
+                    <button
+                      class="buy-btn"
+                      disabled={!check.ok}
+                      title={check.ok ? undefined : check.reason}
+                      on:click={() => doStartFacilityUpgrade(wt.key)}
+                    >
+                      {isUnlockRung ? `Unlock ${wt.label}` : "Expand · doubles capacity"}
+                    </button>
+                  {/if}
+
+                  {#if inFlight}
+                    {@const progress = inFlight.durationTicks > 0
+                      ? (inFlight.durationTicks - inFlight.remainingTicks) / inFlight.durationTicks
+                      : 1}
+                    {@const remaining = Math.max(0, Math.ceil(inFlight.remainingTicks))}
+                    <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                    <div class="research-bar-track">
+                      <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                    </div>
+                    <div class="research-readout">{remaining} / {inFlight.durationTicks} ticks remaining</div>
+                  {/if}
+                </Panel>
+              {/each}
+            {/if}
+
+            {#if activeWarehouseCat === "raw" || activeWarehouseCat === "refined" || activeWarehouseCat === "components" || activeWarehouseCat === "shipEquipment"}
+              <!-- CATALOG GRID -- tier-panels of fill-tiles for the active
+                   category (design §3.2). A category with NO items today (its
+                   items don't exist yet) shows a "future content" stub instead of
+                   an empty grid. -->
+              {#if warehouseGroups.length === 0}
+                <Panel>
+                  <div class="warehouse-stub">
+                    <div class="warehouse-stub-glyph">🗄️</div>
+                    <p>No items in this category yet — future content. Each will get its own fill-tile once it exists in the game.</p>
+                  </div>
+                </Panel>
+              {:else}
+                <Panel>
+                  {#each warehouseGroups as group (group.tier)}
+                    {@const unlocked = warehouseTierUnlocked(group.tier)}
+                    {@const cap = tierCap(state, group.tier)}
+                    <div class="warehouse-tier" class:locked={!unlocked}>
+                      <div class="warehouse-tier-head">
+                        <span class="warehouse-tier-label">Tier {group.tier}</span>
+                        <span class="warehouse-tier-line"></span>
+                        <span class="warehouse-tier-cap">{unlocked ? `cap ${formatNumber(cap)} / item` : "locked"}</span>
+                      </div>
+                      <div class="warehouse-grid">
+                        {#each group.items as item (item.id)}
+                          {@const discovered = state.discovered.includes(item.id)}
+                          {@const count = state.inventory[item.id] ?? new Decimal(0)}
+                          {@const atCap = discovered && materialAtCap(state, item.id)}
+                          {@const pct = warehouseFillPct(count, cap)}
+                          {@const rarityRing = item.rarity === "rare" || item.rarity === "epic" || item.rarity === "legendary"}
+                          <button
+                            type="button"
+                            class="warehouse-tile"
+                            class:unknown={!discovered}
+                            class:full={atCap}
+                            class:rare-ring={discovered && rarityRing}
+                            style="--wh-rc: {warehouseRarityColor(item.rarity)};"
+                            on:mouseenter={(e) => showWarehouseTooltip(e, item.id)}
+                            on:mouseleave={hideWarehouseTooltip}
+                            on:focus={(e) => showWarehouseTooltip(e, item.id)}
+                            on:blur={hideWarehouseTooltip}
+                            on:click={(e) => toggleWarehouseTooltip(e, item.id)}
+                          >
+                            {#if discovered}
+                              <span
+                                class="warehouse-fill"
+                                style="height: {atCap ? 100 : pct}%; --wh-fillc: {atCap ? 'var(--color-danger)' : 'var(--wh-rc)'};"
+                              ></span>
+                              <span class="warehouse-pct">{Math.round(atCap ? 100 : pct)}%</span>
+                              <span class="warehouse-glyph">{warehouseCategoryGlyph(item.category)}</span>
+                              <span class="warehouse-ct">{formatNumber(count)}</span>
+                            {:else}
+                              <span class="warehouse-glyph warehouse-glyph-unknown">❓</span>
+                            {/if}
+                          </button>
+                        {/each}
+                      </div>
+                      {#if !unlocked}
+                        {@const unlockRung = FACILITIES[`warehouseT${group.tier}`].upgrades[0]}
+                        {@const unlockIds = Object.keys(unlockRung.materials)}
+                        <p class="warehouse-locked-note">
+                          Tier {group.tier} storage locked — <b>unlock in the Upgrade tab</b>{#if unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
+                        </p>
+                      {/if}
+                    </div>
+                  {/each}
+                </Panel>
+              {/if}
+            {/if}
+
+            {#if activeWarehouseCat === "troopEquipment"}
+              <!-- Future stub -- no ItemCategory exists for troop gear yet. -->
+              <Panel>
+                <div class="warehouse-stub">
+                  <div class="warehouse-stub-glyph">🎖️</div>
+                  <p><b>Troop Equipment</b> (name TBD) — non-stacking gear, each drop its own tile with rolled stats. Future content.</p>
+                </div>
+              </Panel>
+            {/if}
+
+            {#if activeWarehouseCat === "consumables"}
+              <!-- Future stub -- no ItemCategory exists for consumables yet. -->
+              <Panel>
+                <div class="warehouse-stub">
+                  <div class="warehouse-stub-glyph">🧪</div>
+                  <p><b>Consumables</b> — buffs & status restoration (stackable). Big for troops. Future content.</p>
+                </div>
               </Panel>
             {/if}
           {/if}
@@ -2698,6 +3146,47 @@
       </Panel>
     </div>
   {/if}
+
+  <!-- Warehouse tile tooltip (Phase 2, Group C) -- a SINGLE fleet-positioned
+       element (position:fixed, so it escapes the scroll container's clipping),
+       the same one-tooltip pattern the currency chips use. Its content re-derives
+       from live `state` each render, so the readout stays live while hovering.
+       pointer-events:none so it never blocks the tile beneath it. -->
+  {#if warehouseTooltip}
+    {@const tip = ITEMS[warehouseTooltip.itemId]}
+    {#if tip}
+      {@const tipId = warehouseTooltip.itemId}
+      {@const tipDiscovered = state.discovered.includes(tipId)}
+      {@const tipCount = state.inventory[tipId] ?? new Decimal(0)}
+      {@const tipCap = tierCap(state, tip.tier)}
+      {@const tipAtCap = tipDiscovered && materialAtCap(state, tipId)}
+      {@const tipPct = warehouseFillPct(tipCount, tipCap)}
+      <div class="warehouse-tooltip" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
+        {#if !tipDiscovered}
+          <div class="warehouse-tt-name" style="color: var(--color-text-secondary)">❓ Undiscovered</div>
+          <div class="warehouse-tt-hint">Hint: {tip.unlockHint}</div>
+        {:else}
+          <div class="warehouse-tt-name">{tip.label}</div>
+          <div class="warehouse-tt-rarity" style="color: {warehouseRarityColor(tip.rarity)}">{tip.rarity}</div>
+          <div class="warehouse-tt-row">
+            <span>Stored</span>
+            <span class="warehouse-tt-v">{formatNumber(tipCount)} / {formatNumber(tipCap)}</span>
+          </div>
+          <div class="warehouse-tt-bar">
+            <span style="width: {tipAtCap ? 100 : tipPct}%; background: {tipAtCap ? 'var(--color-danger)' : warehouseRarityColor(tip.rarity)};"></span>
+          </div>
+          <div class="warehouse-tt-row">
+            <span>Filled</span>
+            <span class="warehouse-tt-v" style="color: {tipAtCap ? 'var(--color-danger)' : 'var(--color-text-primary)'}">{Math.round(tipAtCap ? 100 : tipPct)}%</span>
+          </div>
+          <div class="warehouse-tt-stat">{tip.flavor}</div>
+          {#if tipAtCap}
+            <div class="warehouse-tt-warn">⚠ FULL — producers auto-stopped. Expand storage.</div>
+          {/if}
+        {/if}
+      </div>
+    {/if}
+  {/if}
 </div>
 
 <style>
@@ -3368,4 +3857,113 @@
   /* Requisition hull blurb -- tightens .prestige-text's default bottom margin
      so the description sits snug above the Buy button within the card. */
   .ship-desc { margin-bottom: 10px; }
+
+  /* ============================================================
+     Warehouse fill-tile catalog (Phase 2, Group C)
+     Adapted from the user-approved warehouse-mockup.html: tiles
+     fill from the bottom to show % of cap, ❓ for undiscovered, a
+     danger pulse at cap (the auto-stop "expand me" signal). Uses
+     the app's own theme tokens; each tile's rarity accent comes in
+     via the inline --wh-rc custom property (and the fill color via
+     --wh-fillc, which flips to danger at cap).
+     ============================================================ */
+
+  /* tier panel */
+  .warehouse-tier { margin-bottom: 16px; }
+  .warehouse-tier:last-child { margin-bottom: 0; }
+  .warehouse-tier-head { display: flex; align-items: center; gap: 8px; margin: 0 2px 8px; }
+  .warehouse-tier-label {
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    font-weight: 700; color: var(--color-text-primary);
+  }
+  .warehouse-tier.locked .warehouse-tier-label { color: var(--color-text-dim); }
+  .warehouse-tier-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--color-border), transparent); }
+  .warehouse-tier-cap { font-family: var(--font-mono); font-size: 9px; color: var(--color-text-secondary); }
+
+  /* the fill-tile grid -- 5 across, dropping to 4 on the narrowest phones */
+  .warehouse-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+  @media (max-width: 480px) { .warehouse-grid { grid-template-columns: repeat(4, 1fr); } }
+
+  .warehouse-tile {
+    position: relative;
+    aspect-ratio: 1;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid var(--color-border);
+    overflow: hidden;
+    cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 0;
+    font-family: var(--font-body);
+    transition: border-color 0.15s;
+  }
+  .warehouse-tile:hover, .warehouse-tile:focus-visible { border-color: var(--color-border-strong); outline: none; }
+  .warehouse-tile.rare-ring { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--wh-rc) 55%, transparent); }
+  .warehouse-tile.unknown { border-style: dashed; opacity: 0.7; }
+
+  .warehouse-fill {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(var(--wh-fillc, var(--color-accent)), color-mix(in srgb, var(--wh-fillc, var(--color-accent)) 35%, transparent));
+    opacity: 0.28; z-index: 0; transition: height 0.3s;
+  }
+  .warehouse-glyph { position: relative; z-index: 1; font-size: 15px; line-height: 1; }
+  .warehouse-glyph-unknown { color: var(--color-text-dim); }
+  .warehouse-ct {
+    position: relative; z-index: 1; font-family: var(--font-mono);
+    font-size: 9px; font-weight: 700; margin-top: 3px; color: var(--color-text-primary);
+  }
+  .warehouse-pct {
+    position: absolute; top: 3px; right: 4px; z-index: 1;
+    font-family: var(--font-mono); font-size: 8px; color: var(--color-text-secondary);
+  }
+
+  /* at-cap: the danger pulse -- the visible auto-stop "expand storage" signal */
+  .warehouse-tile.full {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 10px -1px color-mix(in srgb, var(--color-danger) 60%, transparent);
+    animation: warehouse-pulse 1.6s ease-in-out infinite;
+  }
+  .warehouse-tile.full .warehouse-fill { opacity: 0.42; }
+  .warehouse-tile.full .warehouse-ct { color: var(--color-danger); }
+  @keyframes warehouse-pulse {
+    0%, 100% { box-shadow: 0 0 8px -2px color-mix(in srgb, var(--color-danger) 50%, transparent); }
+    50% { box-shadow: 0 0 15px 0 color-mix(in srgb, var(--color-danger) 75%, transparent); }
+  }
+
+  .warehouse-locked-note {
+    text-align: center; padding: 12px; font-size: 11px;
+    color: var(--color-text-secondary); font-style: italic; margin: 8px 0 0;
+  }
+  .warehouse-locked-note b { color: var(--color-accent); font-style: normal; }
+
+  /* future-content stub (empty categories + troop/consumable tabs) */
+  .warehouse-stub { padding: 30px 16px; text-align: center; color: var(--color-text-secondary); }
+  .warehouse-stub-glyph { font-size: 28px; opacity: 0.55; }
+  .warehouse-stub p { font-size: 12px; line-height: 1.55; margin: 10px 0 0; }
+
+  /* tile tooltip -- position:fixed so it escapes the scroll container's
+     clipping, the same approach the currency-chip tooltip uses */
+  .warehouse-tooltip {
+    position: fixed; z-index: 60; width: 210px;
+    background: var(--color-bg-mid);
+    border: 1px solid var(--color-border-strong);
+    border-radius: 8px; padding: 11px;
+    box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.7);
+    pointer-events: none;
+  }
+  .warehouse-tt-name { font-size: 13px; font-weight: 700; color: var(--color-text-primary); }
+  .warehouse-tt-rarity { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; margin-top: 1px; }
+  .warehouse-tt-row { display: flex; justify-content: space-between; font-size: 11px; margin-top: 8px; color: var(--color-text-secondary); }
+  .warehouse-tt-v { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-primary); }
+  .warehouse-tt-bar {
+    height: 6px; border-radius: 3px; overflow: hidden; margin-top: 7px;
+    background: rgba(var(--color-accent-rgb), 0.08); border: 1px solid var(--color-border);
+  }
+  .warehouse-tt-bar span { display: block; height: 100%; }
+  .warehouse-tt-stat { font-size: 11px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.5; }
+  .warehouse-tt-hint { font-size: 11px; color: var(--color-warning); margin-top: 8px; line-height: 1.5; font-style: italic; }
+  .warehouse-tt-warn { font-size: 11px; color: var(--color-danger); font-weight: 700; margin-top: 8px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .warehouse-tile.full { animation: none; }
+  }
 </style>
