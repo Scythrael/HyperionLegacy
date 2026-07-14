@@ -527,6 +527,20 @@
     }
   }
 
+  // Focus shows the tooltip for KEYBOARD users ONLY. A touch tap (and a mouse
+  // click) also fires `focus` on the <button>; before this gate, focus showed
+  // the tooltip and then the SAME tap's on:click toggled it right back OFF -- so
+  // on mobile the first tap flashed nothing and it took a SECOND tap to actually
+  // show it (the reported two-tap bug). `:focus-visible` matches ONLY
+  // keyboard-driven focus (browsers deliberately suppress it for pointer/touch
+  // focus), so Tab-focus still surfaces the tooltip for a11y while touch is
+  // driven solely by the on:click toggle (one tap) and mouse by hover. Desktop
+  // hover/click behavior is unchanged.
+  function focusShowWarehouseTooltip(event: FocusEvent, itemId: string) {
+    const el = event.currentTarget as HTMLElement | null;
+    if (el && el.matches(":focus-visible")) showWarehouseTooltip(event, itemId);
+  }
+
   // Touch/click dismissal -- mirrors handleCurrencyOutsidePointer. Hide the
   // warehouse tooltip on any pointer-down that isn't on a warehouse tile.
   // pointerdown fires for mouse AND touch (RadialWeb mobile lesson);
@@ -2600,7 +2614,7 @@
                             style="--wh-rc: {warehouseRarityColor(item.rarity)};"
                             on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, item.id)}
                             on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, item.id)}
-                            on:focus={(e) => showWarehouseTooltip(e, item.id)}
+                            on:focus={(e) => focusShowWarehouseTooltip(e, item.id)}
                             on:blur={hideWarehouseTooltip}
                             on:click={(e) => toggleWarehouseTooltip(e, item.id)}
                           >
@@ -4237,9 +4251,16 @@
   .warehouse-tier-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--color-border), transparent); }
   .warehouse-tier-cap { font-family: var(--font-mono); font-size: 9px; color: var(--color-text-secondary); }
 
-  /* the fill-tile grid -- 5 across, dropping to 4 on the narrowest phones */
-  .warehouse-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
-  @media (max-width: 480px) { .warehouse-grid { grid-template-columns: repeat(4, 1fr); } }
+  /* the fill-tile grid. MOBILE (default) stays 4-across -- the size confirmed
+     perfect on-device -- so mobile is deliberately left untouched. DESKTOP was
+     the problem: the old fixed-5-across stretched each tile to ~1/4 of a wide
+     panel (excessively chunky). On desktop we instead PACK small tiles via
+     auto-fill at a ~60px floor, dropping desktop tiles to roughly a quarter of
+     their old area WITHOUT shrinking the text. The 60px floor is the size knob. */
+  .warehouse-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+  @media (min-width: 481px) {
+    .warehouse-grid { grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); }
+  }
 
   .warehouse-tile {
     position: relative;
