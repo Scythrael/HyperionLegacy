@@ -1518,6 +1518,13 @@ export function dispatchCaptainOnMission(
   if (idx === -1) return { next: state, success: false };
   if (state.captains[idx].mission !== null) return { next: state, success: false };
 
+  // Mission Rework (Task 6): belt-and-suspenders UNLOCK gate. A mission is only
+  // dispatchable once the mission-control facility has reached its unlockLevel (see
+  // missionUnlocked). This is a minimal safety net so a mis-wired caller can never
+  // dispatch a locked mission (e.g. Salvage/Forage before the level-1 -> 2 upgrade);
+  // the FULL, reason-carrying requirements gate for the UI is Task 7's canDispatch.
+  if (!missionUnlocked(state, missionKey)) return { next: state, success: false };
+
   // Mission Rework (Task 5): the DISPATCH-TIME fuel gate + spend (design §3/§7). The
   // player pays the FIRST cycle's round-trip fuel up front, here, before the mission
   // starts; each later auto-repeat pays for its own next cycle at the cycle boundary
@@ -1850,6 +1857,25 @@ function facilityLevel(state: GameState, facilityKey: string): number {
   return state.facilities[facilityKey]?.level ?? 0;
 }
 
+// Mission Rework (Task 6): is `missionKey` currently dispatchable, purely as a
+// function of the mission-control facility's LEVEL? A mission is unlocked once the
+// facility has reached that mission's declared unlockLevel (MissionDef.unlockLevel,
+// the single source of truth for the mapping). There is NO separate per-mission
+// unlock flag -- the level derives it, so it can never drift out of sync.
+//
+// The mapping this pass (4 missions, missionControl caps at level 2):
+//   - level >= 1 (fresh save's seed): shortOreRun + longOreRun (unlockLevel 1).
+//   - level >= 2 (after the completion-gated 1 -> 2 upgrade): + salvageWreckage +
+//     forageFlora (unlockLevel 2).
+// A future mission adds its own unlockLevel + a matching mission-control rung.
+//
+// PURE: reads state.facilities + the static MISSIONS table; mutates nothing. Exposed
+// for Task 7's dispatch requirements gate + Task 8's Operations UI to gray out locked
+// missions. dispatchCaptainOnMission already calls it as a belt-and-suspenders guard.
+export function missionUnlocked(state: GameState, missionKey: MissionKey): boolean {
+  return facilityLevel(state, "missionControl") >= MISSIONS[missionKey].unlockLevel;
+}
+
 // PURE predicate -- reads state + the static FACILITIES table, mutates nothing,
 // starts nothing. `ok: true` means startFacilityUpgrade would succeed right now;
 // `ok: false` carries a `reason` naming the FIRST failing gate. Gate order is
@@ -1944,6 +1970,26 @@ export function canBuildFacilityUpgrade(
       if (facilityLevel(state, depKey) < need) {
         const depLabel = FACILITIES[depKey]?.label ?? depKey;
         return { ok: false, reason: `Requires ${depLabel} level ${need}` };
+      }
+    }
+  }
+
+  // Prerequisite gate: PLAY-COMPLETION counts (Mission Rework Task 6). EVERY listed
+  // mission's lifetime completion count must be >= its threshold. Reads the SAME
+  // state.lifetimeStats.missionsCompleted map the mission economy already increments
+  // per completed cycle (tick.ts's tickCaptainMission); an absent key reads as 0
+  // (grow-on-demand, matching the sparse-map contract). This is the gate that makes
+  // the mission-control unlock track "earn it by playing". Mirrors the FA-level gate
+  // above: first unmet mission names the reason (its label + have/need counts).
+  if (upgrade.requiresMissionCompletions) {
+    for (const mKey of Object.keys(upgrade.requiresMissionCompletions) as MissionKey[]) {
+      const need = upgrade.requiresMissionCompletions[mKey]!;
+      const have = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0);
+      if (have.lt(need)) {
+        return {
+          ok: false,
+          reason: `Requires ${need} ${MISSIONS[mKey].label} completions (have ${have.toString()})`,
+        };
       }
     }
   }

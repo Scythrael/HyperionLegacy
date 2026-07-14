@@ -1966,14 +1966,17 @@ describe("migrate — Ship Production Economy Phase 1: inventory/discovered/faci
     // freshState's current shape directly (the v17->v18 MIGRATION tests above now also
     // end on this same shape, because Task B4's MIGRATIONS[18] extends
     // the chain to v19 and seeds the two Warehouses -- see their updated assertions).
-    // Mission Rework Task 4 added fuelStorage (level 0) to freshState, so the fresh
-    // shape now carries four facilities. (Old-save fuelStorage backfill is Task 9's
-    // v20->v21 migration, not tested here -- this is a fresh round-trip.)
+    // Mission Rework Task 4 added fuelStorage (level 0) to freshState, and Task 6
+    // added missionControl (level 1 -- established from game start so ore runs stay
+    // available), so the fresh shape now carries five facilities. (Old-save
+    // fuelStorage/missionControl backfill is Task 9's v20->v21 migration, not tested
+    // here -- this is a fresh round-trip.)
     expect(migrated.facilities).toEqual({
       refinery: { level: 0 },
       warehouseT1: { level: 0 },
       warehouseT2: { level: 0 },
       fuelStorage: { level: 0 },
+      missionControl: { level: 1 },
     });
     expect(migrated.facilities).toEqual(original.facilities);
     expect(migrated.activeProcesses).toEqual([]);
@@ -2145,13 +2148,15 @@ describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(deserialized!.version).toBe(20);
 
     const migrated: any = migrate(deserialized!);
-    // Mission Rework Task 4 added fuelStorage (level 0) to freshState -- the fresh
-    // shape now carries four facilities (old-save backfill is Task 9's v20->v21 step).
+    // Mission Rework Task 4 added fuelStorage (level 0) and Task 6 added missionControl
+    // (level 1) to freshState -- the fresh shape now carries five facilities (old-save
+    // backfill of both is Task 9's v20->v21 step).
     expect(migrated.facilities).toEqual({
       refinery: { level: 0 },
       warehouseT1: { level: 0 },
       warehouseT2: { level: 0 },
       fuelStorage: { level: 0 },
+      missionControl: { level: 1 },
     });
     expect(migrated.facilities).toEqual(original.facilities);
   });

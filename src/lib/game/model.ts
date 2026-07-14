@@ -189,6 +189,18 @@ export interface MissionDef {
   // placeholder, not balance-tested, same spirit as this file's other tunable
   // constants.
   creditsPerCycle: number;
+  // Mission Rework (Task 6): the mission-control facility LEVEL a fleet must have
+  // reached before this mission is dispatchable. This is the SINGLE SOURCE OF TRUTH
+  // for the unlock gate -- tick.ts's missionUnlocked(state, key) is simply
+  // `facilityLevel(state, "missionControl") >= MISSIONS[key].unlockLevel`, so there
+  // is NO separate per-mission "unlocked" flag to keep in sync (the level derives it).
+  // The 2 ore runs are `1` (available from a fresh save, whose missionControl seeds at
+  // level 1 -- so they are NEVER soft-locked, matching pre-rework behavior). Salvage +
+  // Forage are `2` (the level-1 -> 2 mission-control upgrade, itself gated on ore-run
+  // completion counts, is what raises the facility to level 2). A future mission added
+  // to this table MUST declare its own unlockLevel, and the mission-control track must
+  // grow a matching rung to reach that level. See FACILITIES.missionControl below.
+  unlockLevel: number;
 }
 
 // Mission Rework (Task 1, docs/plans/2026-07-14-mission-rework-plan.md): 4 missions.
@@ -233,6 +245,7 @@ export const MISSIONS: Record<
     tier: "I",
     fleetAdminXpPerTick: 1,
     creditsPerCycle: 10,
+    unlockLevel: 1, // available from a fresh save (missionControl seeds at level 1)
   },
   longOreRun: {
     // Renamed "Long Ore Run" -> "Lunar Mine Contract" (label only; key unchanged).
@@ -251,6 +264,7 @@ export const MISSIONS: Record<
     tier: "I",
     fleetAdminXpPerTick: 1,
     creditsPerCycle: 20,
+    unlockLevel: 1, // available from a fresh save (missionControl seeds at level 1)
   },
   salvageWreckage: {
     // NEW mission (design §1). Phase durations are FIRST-PASS placeholders, sized
@@ -268,6 +282,7 @@ export const MISSIONS: Record<
     tier: "I",
     fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap; Task 2 owns XP retune
     creditsPerCycle: 30, // first-pass placeholder (tunable)
+    unlockLevel: 2, // unlocked by the level-1 -> 2 mission-control upgrade (completion-gated)
   },
   forageFlora: {
     // NEW mission (design §1). Phase durations are FIRST-PASS placeholders, the
@@ -285,6 +300,7 @@ export const MISSIONS: Record<
     tier: "I",
     fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap; Task 2 owns XP retune
     creditsPerCycle: 35, // first-pass placeholder (tunable)
+    unlockLevel: 2, // unlocked by the level-1 -> 2 mission-control upgrade (completion-gated)
   },
 };
 
@@ -575,7 +591,18 @@ export type FacilityUpgradeEffect =
   // (tierCap) exactly as refineSlotCount narrows with `"addRefineSlots" in effect`,
   // so this new member is safely IGNORED by every existing consumer that checks for
   // a different property.
-  | { storageCapMult: number };
+  | { storageCapMult: number }
+  // Mission Rework (Task 6): a marker for a rung whose ENTIRE benefit is the LEVEL
+  // BUMP ITSELF -- it grants no summed slot/speed/cap stat. The mission-control
+  // facility's rungs carry this: what a level unlocks is derived on read from the
+  // facility LEVEL (see tick.ts's missionUnlocked + MissionDef.unlockLevel), NOT by
+  // summing an effect off the track. Every existing consumer (refineSlotCount /
+  // tierCap / fuelCap) narrows by ITS OWN property AND scopes to its own facility, so
+  // this member is inert to all of them -- it exists only to satisfy the required
+  // `effect` field honestly (a misleading `addRefineSlots: 0` / `storageCapMult: 1`
+  // would imply a stat this facility does not have). Extensible union, same
+  // property-presence narrowing convention as the members above.
+  | { unlocksContent: true };
 
 // One rung of a facility's upgrade track = the requirements to reach the NEXT
 // level. `materials` are deducted ATOMICALLY at start by startProcess (design §4).
@@ -599,6 +626,16 @@ export interface FacilityUpgradeDef {
   requiresResearch?: string[];                    // EMPTY today (no research topics) -- reserved, no placeholder
   requiresFacilityLevels?: Record<string, number>;
   requiresFleetAdminLevel?: number;
+  // Mission Rework (Task 6): a PLAY-COMPLETION gate. Each listed mission must have a
+  // lifetime completion count (state.lifetimeStats.missionsCompleted[key]) >= the
+  // given threshold before this rung is buildable. A NEW prereq kind alongside the
+  // FA-level / talent / research / facility-level gates above -- same OPTIONAL posture
+  // (absent = gate does not apply) and the SAME "first failing gate names the reason"
+  // treatment in canBuildFacilityUpgrade (tick.ts). Partial over MissionKey because a
+  // rung gates on only SOME missions (the mission-control level-1 -> 2 rung gates on
+  // the 2 ore runs, the missions available at that point). This is the mechanism that
+  // makes the mission-control unlock track "earn it by playing" rather than "buy it".
+  requiresMissionCompletions?: Partial<Record<MissionKey, number>>;
 }
 
 export interface FacilityDef {
@@ -777,6 +814,35 @@ function buildFuelStorageUpgrades(): FacilityUpgradeDef[] {
   return upgrades;
 }
 
+// --- Mission-control facility (Mission Rework Task 6 -- design §2) ------------
+// The facility whose LEVEL unlocks missions. Unlike the Refinery (built from level
+// 0) or the Warehouse/Fuel tanks (usable base at level 0), mission control is
+// SEEDED at level 1 on a fresh save (freshState below) + on migrated saves (Task 9)
+// so the 2 ore runs -- which existed BEFORE this rework -- stay available from game
+// start. That is the no-soft-lock / no-regression guarantee: a fresh fleet can
+// dispatch the ore runs immediately, exactly as it could pre-rework.
+//
+// The track is FINITE and caps at level 2 (REAL content only -- NO placeholder
+// level-3+ rungs; a future mission batch adds the next real rung when it lands):
+//   - upgrades[0] (level 0 -> 1): the FOUNDING rung. It is PRE-GRANTED via the
+//     level-1 seed, so a player never builds it in normal play. It exists because
+//     the generic facility gate indexes the NEXT rung as upgrades[currentLevel] --
+//     so the real level-1 -> 2 rung MUST sit at index 1, which requires index 0 to
+//     be present. It is genuine (ungated, zero-cost: a level-0 mission control would
+//     establish instantly), NOT a placeholder -- the same spirit as freshState
+//     pre-granting the starting captain + hull instead of making the player build
+//     them. Its effect is the inert `unlocksContent` marker (the ore runs it "grants"
+//     are derived from level via MissionDef.unlockLevel, not from this effect).
+//   - upgrades[1] (level 1 -> 2): the REAL rung. Unlocks Salvage + Forage
+//     (MissionDef.unlockLevel === 2), GATED on the play-completion counts below via
+//     requiresMissionCompletions -- the whole point of this facility. A modest
+//     commonOre cost is layered on (the completion gate, not the cost, is the wall).
+//
+// UNLOCK THRESHOLD -- FIRST-PASS TUNABLE. 50 completions of EACH currently-available
+// ore run before the level-2 upgrade opens. Same launch-placeholder discipline as
+// every other numeric constant in this file; real balance at the device checkpoint.
+export const MISSION_CONTROL_UNLOCK_COMPLETIONS = 50;
+
 export const FACILITIES: Record<string, FacilityDef> = {
   refinery: {
     label: "Refinery",
@@ -836,6 +902,42 @@ export const FACILITIES: Record<string, FacilityDef> = {
   fuelStorage: {
     label: "Fuel Storage",
     upgrades: buildFuelStorageUpgrades(),
+  },
+  // Mission Rework Task 6: Mission Control -- SEEDED at level 1 (freshState +
+  // migration) so the ore runs are available from game start (no soft-lock). Its
+  // upgrade track unlocks missions per level; see the block above for why upgrades[0]
+  // (the founding rung) is pre-granted and upgrades[1] is the real, completion-gated
+  // level-1 -> 2 unlock. missionUnlocked (tick.ts) derives which missions are
+  // dispatchable from this facility's level via MissionDef.unlockLevel.
+  missionControl: {
+    label: "Mission Control",
+    upgrades: [
+      // [0] Level 0 -> 1: FOUNDING rung (pre-granted at the level-1 seed; never built
+      // in normal play). Ungated, zero-cost -- present only so upgrades[1] is the
+      // next rung for a level-1 facility. Inert `unlocksContent` effect: the ore runs
+      // it conceptually establishes are level-derived (unlockLevel 1), not summed here.
+      {
+        materials: {},
+        durationTicks: 0,
+        effect: { unlocksContent: true },
+      },
+      // [1] Level 1 -> 2: the REAL rung. Reaching level 2 unlocks Salvage + Forage
+      // (their MissionDef.unlockLevel === 2). GATED on completing BOTH ore runs
+      // MISSION_CONTROL_UNLOCK_COMPLETIONS times each -- the play-completion wall that
+      // is the point of this facility. The commonOre cost is a modest first-pass
+      // placeholder (the completion gate, not the cost, is the real barrier); the
+      // duration is a placeholder in the other facilities' ballpark. Track ENDS here
+      // (length 2 -> caps at level 2; no placeholder rungs beyond real content).
+      {
+        materials: { commonOre: new Decimal(250) }, // first-pass placeholder (tunable)
+        durationTicks: 60, // first-pass placeholder (tunable)
+        effect: { unlocksContent: true },
+        requiresMissionCompletions: {
+          shortOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS,
+          longOreRun: MISSION_CONTROL_UNLOCK_COMPLETIONS,
+        },
+      },
+    ],
   },
 };
 
@@ -2076,7 +2178,13 @@ export function freshState(): GameState {
     // immediately, no soft-lock). Existing saves get this seed via the v20->v21
     // migration (Task 9, save.ts) -- NOT this function's job. fuelCap tolerates an
     // absent key (?? 0) regardless, but seeding keeps the facility present for the UI.
-    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 } },
+    // Mission Rework Task 6 (additive seed): missionControl starts at level 1 -- NOT
+    // level 0. Level 0 is "not built"; seeding at level 1 means the facility is
+    // ESTABLISHED from game start, so the 2 ore runs (unlockLevel 1) are dispatchable
+    // immediately -- the no-soft-lock / no-regression guarantee (ore runs existed
+    // pre-rework). Its level-1 -> 2 upgrade (completion-gated) unlocks Salvage + Forage.
+    // Existing saves get this same level-1 seed via the v20->v21 migration (Task 9).
+    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 } },
     activeProcesses: [],
     nextProcessId: 1,
     // Phase 2, Task D1: no standing refine order on a fresh save. Existing saves get

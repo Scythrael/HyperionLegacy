@@ -880,6 +880,11 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
   it("a full salvageWreckage cycle on a COMMON roll lands scrapAlloy in inventory", () => {
     const base = freshState();
     base.fuel = new Decimal(1_000_000); // Task 5: fund the dispatch + auto-repeats (fuel-rich, so mission behavior is unchanged)
+    // Task 6: salvageWreckage is unlockLevel 2, but freshState seeds missionControl at
+    // level 1 -- so raise it to level 2 here to clear the new dispatch UNLOCK gate.
+    // This test is about LOOT DELIVERY, not the unlock mechanic (covered in
+    // mission-control.test.ts); the seed just satisfies the precondition.
+    base.facilities = { ...base.facilities, missionControl: { level: 2 } };
     const { next: state, success } = dispatchCaptainOnMission(base, base.captains[0].id, "salvageWreckage");
     expect(success).toBe(true);
     // A constant rng of 0.5 fails salvage's rare (0.001) + uncommon (0.014) checks
