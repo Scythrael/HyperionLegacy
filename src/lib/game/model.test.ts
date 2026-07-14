@@ -228,8 +228,10 @@ describe("MISSIONS — launch set", () => {
     expect(MISSIONS.shortOreRun.fleetAdminXpPerTick).toBe(1);
     expect(MISSIONS.longOreRun.fleetAdminXpPerTick).toBe(1);
 
-    expect(MISSIONS.shortOreRun.creditsPerCycle).toBe(10);
-    expect(MISSIONS.longOreRun.creditsPerCycle).toBe(20);
+    // Fuel Economy v2 (F3): friendlier credit rewards so income comfortably exceeds any
+    // auto-buy fuel cost (bumped 10 -> 30 / 20 -> 75). Tunable, device-retuned.
+    expect(MISSIONS.shortOreRun.creditsPerCycle).toBe(30);
+    expect(MISSIONS.longOreRun.creditsPerCycle).toBe(75);
   });
 
   it("both missions' occurrence chances are valid probabilities (0-1)", () => {

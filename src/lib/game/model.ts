@@ -272,7 +272,11 @@ export const MISSIONS: Record<
     primaryMaterial: "commonOre", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
-    creditsPerCycle: 10,
+    // FUEL v2 (F3) friendlier bump 10 -> 30. Exceeds this run's WORST-CASE auto-buy fuel
+    // cost (Freighter need 5 * FUEL_CREDITS_PER_UNIT 5 = 25cr for a fully-empty tank), so
+    // credit income comfortably clears any auto-buy even in the degenerate no-refinery case.
+    // FIRST-PASS TUNABLE (device-retuned), same spirit as this file's other placeholders.
+    creditsPerCycle: 30,
     unlockLevel: 1, // available from a fresh save (missionControl seeds at level 1)
   },
   longOreRun: {
@@ -292,7 +296,10 @@ export const MISSIONS: Record<
     primaryMaterial: "ferriteOre", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
-    creditsPerCycle: 20,
+    // FUEL v2 (F3) friendlier bump 20 -> 75. Exceeds this run's worst-case auto-buy fuel cost
+    // (Freighter need 14 * 5 = 70cr). Larger absolute bump than the short run's because the
+    // long run's round trip burns more fuel; FIRST-PASS TUNABLE (device-retuned).
+    creditsPerCycle: 75,
     unlockLevel: 1, // available from a fresh save (missionControl seeds at level 1)
   },
   salvageWreckage: {
@@ -310,7 +317,7 @@ export const MISSIONS: Record<
     primaryMaterial: "scrapAlloy", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap; Task 2 owns XP retune
-    creditsPerCycle: 30, // first-pass placeholder (tunable)
+    creditsPerCycle: 50, // FUEL v2 (F3) bump 30 -> 50 (> Freighter need 9 * 5 = 45cr worst-case auto-buy); tunable
     unlockLevel: 1, // USER REVISION 2026-07-14: default-available (all 4 missions unlock at the
     // level-1 seed). Was 2 (behind the deferred mission-control unlock upgrade). See the
     // MissionDef.unlockLevel comment + FACILITIES.missionControl for why that rung is deferred.
@@ -334,7 +341,7 @@ export const MISSIONS: Record<
     primaryMaterial: "fibrousBiomass", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap; Task 2 owns XP retune
-    creditsPerCycle: 35, // first-pass placeholder (tunable)
+    creditsPerCycle: 60, // FUEL v2 (F3) bump 35 -> 60 (> Freighter need 11 * 5 = 55cr worst-case auto-buy); tunable
     unlockLevel: 1, // USER REVISION 2026-07-14: default-available (see salvageWreckage's note +
     // the MissionDef.unlockLevel comment). Was 2 (behind the now-deferred unlock upgrade).
     requiresCaptainLevel: 3, // slightly above Salvage's 2 -- CAPABILITY gate, KEPT (see salvageWreckage)
@@ -430,14 +437,34 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
 // --- Fuel economy constants (Mission Rework Task 3, design §3) -------------------
 // Both FIRST-PASS TUNABLE, same launch-placeholder spirit as MISSIONS'/SHIP_TYPES'
 // numbers -- real balancing at the device-check stage.
-//   FUEL_PER_TICK         -- fuel burned per round-trip transit tick (1 == 1:1 to start);
+//   FUEL_PER_TICK         -- fuel burned per round-trip transit tick.
 //                            the numerator scale in fuel.ts's fuelNeeded.
-//   FUEL_CREDITS_PER_UNIT -- buy price of one fuel unit in credits (Task 4's buyFuel
-//                            spends this; NOTHING reads it yet this pass).
+//   FUEL_CREDITS_PER_UNIT -- buy price of one fuel unit in credits (buyFuel + the F3
+//                            auto-buy-shortfall path both charge this).
 // Kept as plain numbers (not Decimal): fuel amounts are small, non-idle-scale values --
 // only the GameState.fuel STOCKPILE is Decimal (matches the other currency fields).
-export const FUEL_PER_TICK = 1;
+//
+// ⚠️ FUEL ECONOMY v2 REBALANCE FLAG (F3, design §3/§4) ⚠️ FUEL_PER_TICK was DROPPED
+// 1 -> 0.1 (a 10x cut) after device-test feedback that fuel v1 (1.0) ran the tank dry too
+// fast and bankrupted the player. At 0.1 a round trip costs a SMALL FRACTION of the
+// mission's credit reward: Freighter (engineEfficiency 0) shortOreRun = 50 transit ticks *
+// 0.1 = 5 fuel/cycle (vs 250 credits' worth at v1's 1.0). At this consumption the F2 Fuel
+// Depot's refining (50 Deuterium Ice -> 100 fuel/batch) trivially keeps the tank topped, so
+// credit auto-buy (F3) is a rare soft backup, not a hard wall. FIRST-PASS TUNABLE, device-
+// retuned at the checkpoint alongside the fuel-refine constants + fuel-storage caps. The
+// Freighter's integer needs (short 5 / long 14 / salvage 9 / forage 11) keep the Decimal
+// fuel-tank deductions EXACT -- load-bearing for the F3 offline==live parity proof.
+export const FUEL_PER_TICK = 0.1;
 export const FUEL_CREDITS_PER_UNIT = 5;
+
+// ⚠️ FUEL ECONOMY v2 (F3, design §3): the "+2 ticks" refuel-at-a-non-allied-station delay
+// added to a mission cycle whenever that cycle had to AUTO-BUY its fuel shortfall from
+// credits (tank was short at the cycle boundary but the shortfall was affordable). Modelled
+// CLOSED-FORM as a per-cycle addition to the ordersReceived phase's required ticks (stored
+// on CaptainMissionState.refuelDelayTicks, set when the auto-buy fires) so it advances
+// identically whether the span is one big tick() call or many stepped economyTick(_,1)
+// calls -- the offline==live parity guarantee. FIRST-PASS TUNABLE (device-retuned).
+export const REFUEL_PENALTY_TICKS = 2;
 
 // FUEL_TANK_BASE_CAP -- the global Fuel Tank's capacity at fuel-storage facility
 // level 0 (Mission Rework Task 4, design §3). PARALLELS WAREHOUSE_T1_BASE_CAP: it
@@ -493,6 +520,15 @@ export interface CaptainMissionState {
   cargo: Record<LootMaterialKey, Decimal>;
   recalled: boolean; // if true, ends the loop (mission -> null) after THIS cycle's unloading completes,
   // instead of auto-restarting at ordersReceived. Does not interrupt the current cycle mid-flight.
+  // FUEL ECONOMY v2 (F3, design §3): the "+2 ticks" refuel-at-a-non-allied-station delay for
+  // THIS cycle -- REFUEL_PENALTY_TICKS when this cycle had to auto-buy its fuel shortfall from
+  // credits (tank short but affordable at the cycle boundary), otherwise 0. Added to the
+  // ordersReceived phase's required ticks in tickCaptainMission, so a penalized cycle runs 2
+  // ticks longer. CLOSED-FORM: it is a per-cycle constant stamped at the cycle boundary, so it
+  // advances identically one-big-call vs many-stepped-calls (the offline==live parity proof).
+  // OPTIONAL so pre-F3 saves (whose in-flight missions predate the field) rehydrate as absent
+  // and are read as 0 (`?? 0`) -- no migration needed; a fresh cycle always sets it explicitly.
+  refuelDelayTicks?: number;
 }
 
 // How many ticks a phase requires before advancing to the next one.

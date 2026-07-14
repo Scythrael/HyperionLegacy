@@ -1196,7 +1196,7 @@ describe("tickCaptainMission / tick() — accrues mission-side lifetime stats (T
     expect(bigJump.lifetimeStatsDelta.itemsGathered.commonOre.equals(0)).toBe(true);
     expect(bigJump.lifetimeStatsDelta.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
     expect(bigJump.lifetimeStatsDelta.missionsCompleted.shortOreRun.equals(2)).toBe(true);
-    expect(bigJump.lifetimeStatsDelta.creditsEarned.equals(20)).toBe(true); // 2 * creditsPerCycle 10
+    expect(bigJump.lifetimeStatsDelta.creditsEarned.equals(60)).toBe(true); // 2 * creditsPerCycle 30 (F3 bump)
     expect(bigJump.lifetimeStatsDelta.captainXpAwarded.equals(320)).toBe(true); // GROSS: rate 1 * 320 whole ticks
     expect(bigJump.lifetimeStatsDelta.fleetAdminXpAwarded.equals(320)).toBe(true);
 
@@ -1232,8 +1232,8 @@ describe("tickCaptainMission / tick() — accrues mission-side lifetime stats (T
       expect(result.lifetimeStats.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
       // itemsGathered still mirrors the fleet-wide loot delivered into inventory.
       expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(result.inventory.rareMaterial)).toBe(true);
-      // Scalars sum too: 2 cycles * 10 credits; 2 captains * 149 gross XP each.
-      expect(result.lifetimeStats.creditsEarned.equals(20)).toBe(true);
+      // Scalars sum too: 2 cycles * 30 credits (F3 bump); 2 captains * 149 gross XP each.
+      expect(result.lifetimeStats.creditsEarned.equals(60)).toBe(true);
       expect(result.lifetimeStats.captainXpAwarded.equals(298)).toBe(true); // 2 * 149
       expect(result.lifetimeStats.fleetAdminXpAwarded.equals(298)).toBe(true); // 2 * 149
     } finally {
@@ -1471,13 +1471,13 @@ describe("foldLifetimeStatsDelta / live-loop parity — lifetime stats accrue id
       expect(liveLifetimeStats.itemsCrafted).toEqual(viaTick.lifetimeStats.itemsCrafted);
 
       // Pin the absolute expected values too (2 captains * one full 149-tick cycle
-      // each): 2 completed cycles, 180 rare (2*90), 20 credits (2*10), 298 gross XP
+      // each): 2 completed cycles, 180 rare (2*90), 60 credits (2*30, F3 bump), 298 gross XP
       // each stream (2*149) -- not just internal agreement.
       expect(liveLifetimeStats.missionsCompleted.shortOreRun.equals(2)).toBe(true);
       expect(liveLifetimeStats.itemsGathered.rareMaterial.equals(180)).toBe(true);
       expect(liveLifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
       expect(liveLifetimeStats.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
-      expect(liveLifetimeStats.creditsEarned.equals(20)).toBe(true);
+      expect(liveLifetimeStats.creditsEarned.equals(60)).toBe(true);
       expect(liveLifetimeStats.captainXpAwarded.equals(298)).toBe(true);
       expect(liveLifetimeStats.fleetAdminXpAwarded.equals(298)).toBe(true);
     } finally {
@@ -1699,11 +1699,12 @@ describe("tick() — idle captains do nothing, mission captains route through ti
     // phase "unloading" with unloadTicks=8 (shortOreRun), phaseProgressTicks: 0. deltaSeconds=8,
     // state.tickDurationSeconds=1 (fresh default) -> ticksElapsed=8 -> exactly completes the
     // unloading phase (8 >= requiredTicks(8)) -- cycle completes, creditsDelta accumulates
-    // missionDef.creditsPerCycle (10 for shortOreRun) exactly once.
+    // missionDef.creditsPerCycle (30 for shortOreRun after the F3 bump) exactly once.
     //
     // state.credits starts pre-seeded at 5 (freshState()'s own default is Decimal(0); seeded to a
     // non-zero value here) to prove this tick's creditsDelta is ADDED via .plus(), not overwriting
-    // existing credits: expected result = 5 + 10 = 15.
+    // existing credits: expected result = 5 + 30 = 35. (The auto-repeat then broke-stops -- tank 0,
+    // 5 credits can't cover the 25cr shortfall -- but the completed cycle's 30cr is still banked.)
     const state = freshState();
     state.credits = new Decimal(5);
     state.captains[0].mission = {
@@ -1716,7 +1717,7 @@ describe("tick() — idle captains do nothing, mission captains route through ti
 
     const result = tick(8, state);
 
-    expect(result.credits.equals(15)).toBe(true); // 5 pre-seeded + 10 creditsPerCycle
+    expect(result.credits.equals(35)).toBe(true); // 5 pre-seeded + 30 creditsPerCycle (F3 bump)
   });
 });
 
@@ -2795,9 +2796,9 @@ describe("tick() — applies each captain's assigned-ship stats to their mission
     // The stale pre-rework assertion here was `resultB > resultA` (true only under
     // the old per-cycle XP lump). CREDITS remain the cycle-completion discriminator
     // (still awarded once per completed cycle), so the runner's completion shows up
-    // there: B delivered a cycle (10 cr), A did not (0 cr).
+    // there: B delivered a cycle (30 cr, F3 bump), A did not (0 cr).
     expect(resultB.fleetAdminXp.equals(resultA.fleetAdminXp)).toBe(true);
-    expect(resultB.credits.equals(10)).toBe(true);
+    expect(resultB.credits.equals(30)).toBe(true);
     expect(resultA.credits.equals(0)).toBe(true);
   });
 
@@ -3358,9 +3359,9 @@ describe("tick — per-tick stepping matches the single-call economy when no cap
     expect(viaTick.inventory.rareMaterial.equals(90)).toBe(true); // pins the deterministic loot
     expect(viaTick.discovered).toEqual(viaSingle.discovered);
 
-    // Credits: one completed cycle -> shortOreRun creditsPerCycle 10.
+    // Credits: one completed cycle -> shortOreRun creditsPerCycle 30 (F3 bump).
     expect(viaTick.credits.equals(viaSingle.credits)).toBe(true);
-    expect(viaTick.credits.equals(10)).toBe(true);
+    expect(viaTick.credits.equals(30)).toBe(true);
 
     // Captain XP / level / mission (149 whole ticks * rate 1 = 149 XP; xpForNextLevel(1)=300,
     // so still level 1; cycle auto-repeated back to ordersReceived @ progress 0).
@@ -3404,9 +3405,9 @@ describe("tick — per-tick stepping matches the single-call economy when no cap
     const viaTick = tick(deltaSeconds, makeS(), () => 0); // clamped 149.7 -> 149x economyTick(.,1) + economyTick(.,0.7)
     const viaSingle = economyTick(makeS(), deltaSeconds, () => 0); // one closed-form call over the whole 149.7
 
-    // --- credits (Decimal, exact): one completed cycle -> creditsPerCycle 10 ---
+    // --- credits (Decimal, exact): one completed cycle -> creditsPerCycle 30 (F3 bump) ---
     expect(viaTick.credits.equals(viaSingle.credits)).toBe(true);
-    expect(viaTick.credits.equals(10)).toBe(true);
+    expect(viaTick.credits.equals(30)).toBe(true);
 
     // --- captain XP (Decimal, exact) + level (int, exact) ---
     // 149 WHOLE ticks * rate 1 = 149 XP; the 0.7 remainder crosses NO whole-tick

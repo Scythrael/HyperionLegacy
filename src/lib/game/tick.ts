@@ -53,6 +53,7 @@ import {
   WAREHOUSE_T2_BASE_CAP,
   FUEL_TANK_BASE_CAP,
   FUEL_CREDITS_PER_UNIT,
+  REFUEL_PENALTY_TICKS,
   FUEL_REFINE_INPUT,
   FUEL_REFINE_OUTPUT,
   FUEL_REFINE_DURATION_TICKS,
@@ -604,7 +605,17 @@ export function tickCaptainMission(
   // only production caller) passes the real per-captain budget + per-cycle cost so the
   // auto-repeat gate below can stop the run when the tank can't cover the next cycle.
   fuelBudget: number = Infinity,
-  fuelPerCycle: number = 0
+  fuelPerCycle: number = 0,
+  // Fuel Economy v2 (F3): the credits available to THIS call for AUTO-BUYING a fuel shortfall
+  // at a cycle boundary, and the price per fuel unit. Threaded exactly like fuelBudget above
+  // (economyTick draws it down per captain so a shared credit pool can't double-spend). The
+  // DEFAULT Infinity reproduces the pre-F3 behavior for any call that omits it EXCEPT that a
+  // short tank now auto-buys instead of stopping -- but with fuelPerCycle 0 (the default) the
+  // tank is never short, so a call omitting BOTH new fuel args is byte-identical to pre-F3.
+  // creditsPerUnit defaults to FUEL_CREDITS_PER_UNIT (the real price) so a caller passing only
+  // a finite creditsBudget still charges correctly.
+  creditsBudget: number = Infinity,
+  creditsPerUnit: number = FUEL_CREDITS_PER_UNIT
 ): {
   captain: CaptainState;
   // Mission Rework (Task 1): widened LootMaterialKey -> string. The loot delta is now
@@ -623,6 +634,11 @@ export function tickCaptainMission(
   // (fuelPerCycle x cycles that repeated). economyTick subtracts this from the shared
   // Decimal tank. 0 on the early-outs and whenever fuelPerCycle is 0 (the default).
   fuelSpent: number;
+  // Fuel Economy v2 (F3): credits actually spent AUTO-BUYING fuel shortfalls this call
+  // (sum of shortfall * creditsPerUnit across cycle boundaries that auto-bought). economyTick
+  // subtracts this from the shared Decimal credits balance, mirroring fuelSpent. 0 on the
+  // early-outs and whenever no auto-buy fired (the tank always covered the cycle).
+  creditsSpentOnFuel: number;
 } {
   if (!captain.mission || ticksElapsed <= 0) {
     return {
@@ -632,6 +648,7 @@ export function tickCaptainMission(
       creditsDelta: 0,
       lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
       fuelSpent: 0,
+      creditsSpentOnFuel: 0,
     };
   }
 
@@ -733,6 +750,18 @@ export function tickCaptainMission(
   // identical fuel at the identical cycle boundaries (closed-form / stepped-safe).
   let fuelRemaining = fuelBudget;
   let fuelSpent = 0;
+  // Fuel Economy v2 (F3): the credit budget this call may still draw on for AUTO-BUYING a fuel
+  // shortfall (seeded from creditsBudget, drawn down per auto-buy below), and the running total
+  // this call reports back to economyTick to subtract from the shared Decimal credits balance.
+  // Same cycle-boundary-only draw as fuelRemaining/fuelSpent, so credits fall out of the per-tick
+  // stepping identically (closed-form / stepped-safe). NOTE: creditsRemaining is NOT replenished
+  // by credits EARNED within this same call -- a completed cycle's reward is banked by economyTick
+  // at the END of the call (available to the NEXT call's boundary), NOT mid-loop. This matches the
+  // stepped path exactly because economyTick always advances ONE tick per call in production (live
+  // + offline both step economyTick(_,1)), so at most one cycle boundary occurs per call and a
+  // reward is never needed to fund an auto-buy in the same call that earned it.
+  let creditsRemaining = creditsBudget;
+  let creditsSpentOnFuel = 0;
 
   // The ship's extractionYieldMult is a MULTIPLIER (1.0 = no change, 1.35 =
   // +35%), but resolvedBonuses' tier yield mults are stored as ADDITIVE deltas
@@ -765,7 +794,18 @@ export function tickCaptainMission(
   };
 
   while (remaining > 0 && mission !== null) {
-    const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
+    // Fuel Economy v2 (F3): the ordersReceived phase of a cycle that AUTO-BOUGHT its fuel
+    // shortfall runs REFUEL_PENALTY_TICKS longer ("refuel at a non-allied station"). The delay
+    // is a per-cycle constant stamped on mission.refuelDelayTicks at the cycle boundary (below)
+    // / at dispatch, added ONLY to the first phase, so a penalized cycle is exactly 2 ticks
+    // longer. CLOSED-FORM: requiredTicks is a pure function of (phase, missionDef, the cycle's
+    // own stamped delay), all constant across the whole cycle, so one big ticksElapsed and many
+    // small ones summing to it cross the phase boundary at the identical point -- the same
+    // property every other requiredTicksForPhase read in this loop already relies on. Non-
+    // ordersReceived phases add 0. `?? 0` tolerates a pre-F3 in-flight mission (field absent).
+    const requiredTicks =
+      requiredTicksForPhase(mission.phase, missionDef) +
+      (mission.phase === "ordersReceived" ? mission.refuelDelayTicks ?? 0 : 0);
     const ticksLeftInPhase = requiredTicks - mission.phaseProgressTicks;
     let ticksToApply = Math.min(remaining, ticksLeftInPhase);
 
@@ -878,32 +918,60 @@ export function tickCaptainMission(
         // credit award and the loot delivery above, so all three (loot,
         // credits, completion count) stay perfectly in sync per cycle.
         cyclesCompleted += 1;
-        // Mission Rework (Task 5): the AUTO-REPEAT fuel gate. A finished cycle either
-        // ends (recall), or STARTS A FRESH CYCLE -- and starting one now costs a round
-        // trip of fuel from the shared tank. Three outcomes, in priority order:
-        //   1. recalled  -> end the mission (unchanged pre-fuel behavior).
-        //   2. can afford (fuelRemaining >= fuelPerCycle) -> spend it and repeat. With
-        //      the default fuelPerCycle 0 this is always true and spends nothing, so the
-        //      pre-fuel "always auto-repeat" behavior is exactly preserved.
-        //   3. STOP-ON-EMPTY: the tank can't cover the next round trip -> end the mission
-        //      (mission -> null), the SAME terminal state as a completed recall. The
-        //      captain idles until refuelled + re-dispatched. This mirrors the material
-        //      auto-stop's "a producer stops when it can't proceed," but it is TERMINAL
-        //      (recall-like) rather than a freeze, per the design's stop-on-empty rule.
+        // Fuel Economy v2 (F3): the AUTO-REPEAT fuel-spend rule (REPLACES Task-5's
+        // stop-on-empty). A finished cycle either ends (recall) or STARTS A FRESH CYCLE,
+        // which costs one round trip's fuel (need = fuelPerCycle). Outcomes, in priority
+        // order:
+        //   1. recalled -> end the mission (unchanged pre-fuel behavior).
+        //   2. TANK HAS ENOUGH (fuelRemaining >= need) -> spend it, NO penalty. With the
+        //      default fuelPerCycle 0 this is always true and spends nothing, so a call
+        //      omitting the fuel args is byte-identical to the pre-fuel engine.
+        //   3. TANK SHORT but the shortfall is AFFORDABLE in credits -> AUTO-BUY the
+        //      shortfall at creditsPerUnit AND stamp a +2-tick refuel penalty on the new
+        //      cycle (refuelDelayTicks). The tank had `fuelRemaining`; we buy exactly the
+        //      `shortfall` (NOT capped by fuelCap -- just enough to fly) then spend `need`,
+        //      netting the tank to 0 (a reduction of `fuelRemaining`, reported as fuelSpent);
+        //      credits drop by the purchase cost (reported as creditsSpentOnFuel).
+        //   4. TRULY BROKE (short AND can't afford the shortfall) -> HARD-STOP (mission ->
+        //      null), the anti-infinite-fuel floor. Same terminal state as a completed
+        //      recall; the captain idles until refuelled/re-dispatched. Rare by design --
+        //      the refinery + friendly credits keep the player afloat.
+        // The reconstruction reuses `missionKey` (function-scope const == this mission's key;
+        // auto-repeat never changes it) so it stays valid even after the broke branch nulls
+        // `mission` (avoids a null-narrowing snag on `mission.missionKey`).
         if (mission.recalled) {
           mission = null;
-        } else if (fuelRemaining >= fuelPerCycle) {
-          fuelRemaining -= fuelPerCycle; // draw this cycle's fuel from the call budget
-          fuelSpent += fuelPerCycle;     // report it back for the tank deduction
-          mission = {
-            missionKey: mission.missionKey,
-            phase: "ordersReceived",
-            phaseProgressTicks: 0,
-            cargo: emptyLootTotals(),
-            recalled: false,
-          };
         } else {
-          mission = null; // stop-on-empty: tank can't cover the next cycle
+          const need = fuelPerCycle;
+          let refuelDelayTicks = 0;
+          let startNextCycle = true;
+          if (fuelRemaining >= need) {
+            fuelRemaining -= need; // draw this cycle's fuel from the call budget
+            fuelSpent += need;     // report it back for the tank deduction
+          } else {
+            const shortfall = need - fuelRemaining;
+            const cost = shortfall * creditsPerUnit;
+            if (creditsRemaining >= cost) {
+              creditsRemaining -= cost;      // draw the auto-buy from the credit budget
+              creditsSpentOnFuel += cost;    // report it back for the credits deduction
+              fuelSpent += fuelRemaining;    // the tank drains from fuelRemaining down to 0
+              fuelRemaining = 0;
+              refuelDelayTicks = REFUEL_PENALTY_TICKS; // +2-tick refuel penalty on this cycle
+            } else {
+              startNextCycle = false;
+              mission = null; // truly broke: hard-stop (anti-infinite-fuel floor)
+            }
+          }
+          if (startNextCycle) {
+            mission = {
+              missionKey,
+              phase: "ordersReceived",
+              phaseProgressTicks: 0,
+              cargo: emptyLootTotals(),
+              recalled: false,
+              refuelDelayTicks,
+            };
+          }
         }
       } else {
         mission.phase = MISSION_PHASE_ORDER[nextIndex];
@@ -1015,6 +1083,7 @@ export function tickCaptainMission(
     creditsDelta,
     lifetimeStatsDelta,
     fuelSpent,
+    creditsSpentOnFuel,
   };
 }
 
@@ -1190,6 +1259,16 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // call lands byte-identical to before this task.
   let fuelBudgetRemaining = state.fuel.toNumber();
   let totalFuelSpent = 0;
+  // Fuel Economy v2 (F3): the SHARED credit balance available for AUTO-BUYING fuel shortfalls,
+  // threaded through the per-captain map exactly like fuelBudgetRemaining above so two captains
+  // auto-buying in the SAME call can't double-spend the one balance (map callbacks run
+  // sequentially, so each draw is visible to the next captain). totalCreditsSpentOnFuel is the
+  // sum subtracted from the Decimal credits balance once, below. state.credits.toNumber() loses
+  // precision only for astronomically large balances -- where "can I afford a few units of fuel"
+  // is trivially yes -- so the affordability DECISION is unaffected; the exact credit FIELD stays
+  // Decimal-exact because totalCreditsSpentOnFuel is the true sum of (small) purchase costs.
+  let creditsBudgetRemaining = state.credits.toNumber();
+  let totalCreditsSpentOnFuel = 0;
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // Phase 2 (Task B3, design §3.4): AUTO-STOP. If this mission's PRIMARY material
@@ -1251,12 +1330,27 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
       creditsDelta: captainCreditsDelta,
       lifetimeStatsDelta: captainLifetimeStatsDelta,
       fuelSpent: captainFuelSpent,
-    } = tickCaptainMission(ticksElapsed, captain, rng, bonuses, shipStats, fuelBudgetRemaining, fuelPerCycle);
+      creditsSpentOnFuel: captainCreditsSpentOnFuel,
+    } = tickCaptainMission(
+      ticksElapsed,
+      captain,
+      rng,
+      bonuses,
+      shipStats,
+      fuelBudgetRemaining,
+      fuelPerCycle,
+      creditsBudgetRemaining
+    );
     // Mission Rework (Task 5): draw this captain's auto-repeat fuel from the shared tank
     // budget so a later captain in this SAME map sees the reduced budget (no
     // double-spend), and sum it for the single Decimal tank deduction below.
     fuelBudgetRemaining -= captainFuelSpent;
     totalFuelSpent += captainFuelSpent;
+    // Fuel Economy v2 (F3): same draw-down for the shared credit balance used to auto-buy fuel
+    // shortfalls, so a later captain sees the reduced balance; summed for the single Decimal
+    // credits deduction below.
+    creditsBudgetRemaining -= captainCreditsSpentOnFuel;
+    totalCreditsSpentOnFuel += captainCreditsSpentOnFuel;
     // Mission Rework (Task 1): the captain's delta is now keyed by its mission's own
     // item keys, so fold over the ACTUAL keys present and grow-on-demand (`?? 0`)
     // rather than assuming the fixed 3 ore tiers. For an ore-only fleet the keys are
@@ -1356,7 +1450,10 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     // applyFleetAdminXp's level-up loop below), credits has no leveling
     // curve to resolve, so the accumulated creditsDelta is applied directly
     // here rather than passed through a second wrapping function.
-    credits: state.credits.plus(creditsDelta),
+    // Fuel Economy v2 (F3): earnings (creditsDelta) are ADDED and auto-buy fuel spend
+    // (totalCreditsSpentOnFuel) is SUBTRACTED, both exact Decimal ops. Order is irrelevant
+    // (addition then subtraction of exact operands); a call with no auto-buy subtracts 0.
+    credits: state.credits.plus(creditsDelta).minus(totalCreditsSpentOnFuel),
     // Mission Rework (Task 5): subtract the total auto-repeat fuel spent this call from
     // the shared Decimal tank, ONCE (totalFuelSpent is a plain number; .minus accepts
     // it). Guaranteed >= 0: each captain's spend was gated on fuelBudgetRemaining, which
@@ -1610,9 +1707,17 @@ export function canDispatch(
   // the hull's static fuelCapacity, not state.fuel. Forward-defensive: no current hull+
   // mission combo trips it, but it honors the design's stated dispatch contract.
   if (shipDef.fuelCapacity < need) return { ok: false, reason: "fuelCapacity" };
-  // RESOURCE: the shared tank doesn't hold enough fuel for this trip. Compared as Decimal
-  // (< a plain number) since state.fuel is the Decimal stockpile.
-  if (state.fuel.lt(need)) return { ok: false, reason: "fuelEmpty" };
+  // RESOURCE (Fuel Economy v2 F3): a short tank NO LONGER hard-blocks dispatch by itself --
+  // dispatchCaptainOnMission AUTO-BUYS the shortfall from credits (paying a +2-tick refuel
+  // penalty) and flies anyway. So `fuelEmpty` now fires ONLY when the tank is short AND the
+  // shortfall is UNAFFORDABLE (the "truly broke" floor). An affordable-shortfall dispatch
+  // passes this gate. shortfall/cost as plain numbers (fuel is human-scale, and state.fuel <
+  // need here so .toNumber() is exact); credits compared as Decimal (.lt) -- it's the balance.
+  if (state.fuel.lt(need)) {
+    const shortfall = need - state.fuel.toNumber();
+    const cost = shortfall * FUEL_CREDITS_PER_UNIT;
+    if (state.credits.lt(cost)) return { ok: false, reason: "fuelEmpty" };
+  }
 
   return { ok: true };
 }
@@ -1643,6 +1748,17 @@ export function dispatchCaptainOnMission(
   const ship = state.ships.find((s) => s.assignedCaptainId === captainId)!;
   const need = fuelNeeded(MISSIONS[missionKey], SHIP_TYPES[ship.typeKey]);
 
+  // Fuel Economy v2 (F3): the first cycle's fuel-spend, mirroring the auto-repeat rule. If the
+  // tank covers `need`, spend straight from it (no penalty). If the tank is SHORT, canDispatch's
+  // fuelEmpty gate has ALREADY guaranteed the shortfall is affordable, so AUTO-BUY exactly the
+  // shortfall from credits and stamp the +2-tick refuel penalty on this first cycle. shortfall/
+  // cost are plain numbers (fuel is human-scale, and state.fuel < need here so .toNumber() is
+  // exact); the tank + credits are updated with exact Decimal ops.
+  const short = state.fuel.lt(need);
+  const shortfall = short ? need - state.fuel.toNumber() : 0;
+  const cost = shortfall * FUEL_CREDITS_PER_UNIT;
+  const refuelDelayTicks = short ? REFUEL_PENALTY_TICKS : 0;
+
   const captains = [...state.captains];
   captains[idx] = {
     ...captains[idx],
@@ -1652,12 +1768,22 @@ export function dispatchCaptainOnMission(
       phaseProgressTicks: 0,
       cargo: emptyLootTotals(),
       recalled: false,
+      refuelDelayTicks,
     },
   };
-  // Deduct the first cycle's fuel from the shared tank (Task 5). `need` is a plain number;
-  // the stockpile is Decimal, so .minus(need). Guaranteed >= 0 by canDispatch's fuelEmpty
-  // gate, which passed.
-  return { next: { ...state, captains, fuel: state.fuel.minus(need) }, success: true };
+  // Tank: buy the shortfall (if any) INTO it, then spend the full round trip -- so it nets to
+  // (fuel + shortfall - need), i.e. 0 on a short tank or (fuel - need) on a covered one. Credits:
+  // drop by the auto-buy cost (0 when the tank covered it, so .minus(0) is a value no-op). Both
+  // guaranteed >= 0 by canDispatch (fuelCapacity + fuelEmpty gates passed).
+  return {
+    next: {
+      ...state,
+      captains,
+      fuel: state.fuel.plus(shortfall).minus(need),
+      credits: state.credits.minus(cost),
+    },
+    success: true,
+  };
 }
 
 // Flags an active mission as recalled. Deliberately does NOT reset phase,

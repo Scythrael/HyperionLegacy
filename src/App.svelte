@@ -1243,7 +1243,9 @@
       case "fuelCapacity":
         return "Ship's tank too small for this trip";
       case "fuelEmpty":
-        return "Not enough fuel — refuel at Fuel Storage";
+        // Fuel Economy v2 (F3): a short tank now auto-buys the shortfall from credits; this
+        // reason fires only when the shortfall is ALSO unaffordable (truly broke).
+        return "Not enough fuel or credits to refuel";
       case "busy":
         return "Captain is already on a mission";
       case "noShip":
