@@ -159,6 +159,7 @@
     captainBonusRollChance,
     captainBonusRollChanceMult,
     captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does -- enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
+    xpPerTick, // Mission Rework (Task 2): the SHARED per-tick XP RATE helper -- consumed by the Operations mission cards to show each mission's exp/tick (captain-independent today, so the fleet's representative captain is passed)
     foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
     addToInventory, // Phase 1 Task 5: the shared inventory add seam, called by BOTH tick() and this live loop so live loot delivery writes inventory/discovered byte-identically to offline catch-up (drift-proof)
     resolveProcesses, // Phase 1 Task 9: the SINGLE timed-process completion resolver, called by BOTH tick() and this live loop with the SAME ticksElapsed so process completion + lump FA XP resolve identically live and offline (drift-proof)
@@ -2944,6 +2945,13 @@
                     <div class="mission-card-body">
                       <div class="research-name">{missionDef.label}</div>
                       <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
+                      <!-- Mission Rework (Task 2): each mission's captain-XP rate, via the
+                           shared xpPerTick helper (NOT raw BASE_XP_PER_TICK) so this readout
+                           tracks the exact rate the tick engine accrues. Passed the fleet's
+                           representative captain (state.captains[0], always seeded) since the
+                           rate is captain-independent today; when the XP-mult seam activates
+                           this card should switch to the popup's selected captain. -->
+                      <div class="research-cost">Captain XP: {xpPerTick(missionKey, state.captains[0])}/tick</div>
                       <div class="research-cost">{ITEMS.commonOre.label}: {formatNumber(missionDef.extractionRatePerTick)}/tick when no other tier wins ({(100 - missionDef.rareChance * 100 - missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
                       <div class="research-cost">{ITEMS.uncommonMaterial.label}: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
                       <div class="research-cost">{ITEMS.rareMaterial.label}: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
