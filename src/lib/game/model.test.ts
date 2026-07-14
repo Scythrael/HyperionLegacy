@@ -177,12 +177,17 @@ describe("Phase 1 — facility/process reservation fields (additive)", () => {
   // warehouseT2 level 0 = locked (its rung 0 is the unlock). A NEW game must seed
   // all three so tierCap + the facility framework read a consistent baseline.
   // (Existing-save migration to this baseline is Task B4, not tested here.)
-  it("freshState().facilities seeds the refinery + both tiered warehouses, all at level 0", () => {
+  it("freshState().facilities seeds the refinery + both tiered warehouses + fuel storage, all at level 0", () => {
     const state = freshState();
+    // Mission Rework Task 4 (additive): fuelStorage joins the seed at level 0 = the
+    // base tank's live starting state (cap FUEL_TANK_BASE_CAP, no unlock, usable from
+    // game start so missions can be fueled -- no soft-lock). Same posture as
+    // warehouseT1's live level-0 base.
     expect(state.facilities).toEqual({
       refinery: { level: 0 },
       warehouseT1: { level: 0 },
       warehouseT2: { level: 0 },
+      fuelStorage: { level: 0 },
     });
   });
 

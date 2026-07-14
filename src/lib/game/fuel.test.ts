@@ -18,8 +18,10 @@ import {
   freshState,
   FUEL_PER_TICK,
   FUEL_CREDITS_PER_UNIT,
+  FUEL_TANK_BASE_CAP,
 } from "./model";
 import { roundTripTransitTicks, fuelNeeded } from "./fuel";
+import { fuelCap, buyFuel } from "./tick";
 import { serialize, deserialize, migrate, SAVE_VERSION, type SaveFile } from "./save";
 
 describe("ship fuel stats", () => {
@@ -103,5 +105,89 @@ describe("GameState.fuel", () => {
     const restored = migrate(save);
     expect(restored.fuel).toBeInstanceOf(Decimal);
     expect(restored.fuel.eq(0)).toBe(true);
+  });
+});
+
+// --- Task 4: fuel-storage facility cap + buyFuel ----------------------------
+describe("fuelCap", () => {
+  it("returns a POSITIVE base cap on a fresh state (no soft-lock — fuel buyable from start)", () => {
+    // ⚠️ The critical no-soft-lock guarantee: missions are available from game
+    // start and need fuel to dispatch, so the tank MUST hold fuel at facility
+    // level 0. Unlike an un-built warehouse tier, fuelCap never returns a tiny /
+    // sentinel value — a fresh fleet's cap is exactly FUEL_TANK_BASE_CAP.
+    const state = freshState();
+    const cap = fuelCap(state);
+    expect(cap).toBeInstanceOf(Decimal);
+    expect(cap.gt(0)).toBe(true);
+    expect(cap.eq(FUEL_TANK_BASE_CAP)).toBe(true);
+  });
+
+  it("doubles the base cap once per reached fuelStorage level (base * 2^level)", () => {
+    const state = freshState();
+    state.facilities.fuelStorage = { level: 1 };
+    expect(fuelCap(state).eq(FUEL_TANK_BASE_CAP * 2)).toBe(true);
+    state.facilities.fuelStorage = { level: 3 };
+    expect(fuelCap(state).eq(FUEL_TANK_BASE_CAP * 8)).toBe(true); // 500 * 2^3 = 4000
+  });
+});
+
+describe("buyFuel", () => {
+  it("deducts units * FUEL_CREDITS_PER_UNIT credits and adds units fuel (affordable + fits)", () => {
+    const state = freshState();
+    state.credits = new Decimal(1000);
+    state.fuel = new Decimal(0);
+    const next = buyFuel(state, 10);
+    expect(next.fuel.eq(10)).toBe(true);
+    expect(next.credits.eq(1000 - 10 * FUEL_CREDITS_PER_UNIT)).toBe(true); // 1000 - 50 = 950
+    // Immutable: the ORIGINAL state is untouched.
+    expect(state.fuel.eq(0)).toBe(true);
+    expect(state.credits.eq(1000)).toBe(true);
+  });
+
+  it("clamps the purchase to remaining tank capacity (can't overfill)", () => {
+    const state = freshState(); // cap = FUEL_TANK_BASE_CAP (500) at level 0
+    state.credits = new Decimal(100000);
+    state.fuel = new Decimal(FUEL_TANK_BASE_CAP - 5); // room for only 5 more
+    const next = buyFuel(state, 100); // asked for 100, only 5 fit
+    expect(next.fuel.eq(FUEL_TANK_BASE_CAP)).toBe(true); // filled exactly to cap
+    // Charged only for the 5 units actually bought.
+    expect(next.credits.eq(new Decimal(100000).minus(5 * FUEL_CREDITS_PER_UNIT))).toBe(true);
+  });
+
+  it("clamps the purchase to what the credits can afford (can't overspend / go negative)", () => {
+    const state = freshState();
+    state.credits = new Decimal(10); // affords exactly 10/5 = 2 units
+    state.fuel = new Decimal(0);
+    const next = buyFuel(state, 100); // asked for 100, affords 2
+    expect(next.fuel.eq(2)).toBe(true);
+    expect(next.credits.eq(0)).toBe(true); // spent all, never negative
+    expect(next.credits.gte(0)).toBe(true);
+  });
+
+  it("is a no-op when broke (0 credits)", () => {
+    const state = freshState();
+    state.credits = new Decimal(0);
+    state.fuel = new Decimal(0);
+    const next = buyFuel(state, 10);
+    expect(next.fuel.eq(0)).toBe(true);
+    expect(next.credits.eq(0)).toBe(true);
+  });
+
+  it("is a no-op when the tank is already full", () => {
+    const state = freshState();
+    state.credits = new Decimal(1000);
+    state.fuel = new Decimal(FUEL_TANK_BASE_CAP); // at cap already
+    const next = buyFuel(state, 10);
+    expect(next.fuel.eq(FUEL_TANK_BASE_CAP)).toBe(true);
+    expect(next.credits.eq(1000)).toBe(true); // nothing spent
+  });
+
+  it("is a no-op for a non-positive request (no negative-units exploit)", () => {
+    const state = freshState();
+    state.credits = new Decimal(1000);
+    state.fuel = new Decimal(100);
+    const next = buyFuel(state, -5); // negative must not add credits / remove fuel
+    expect(next.fuel.eq(100)).toBe(true);
+    expect(next.credits.eq(1000)).toBe(true);
   });
 });

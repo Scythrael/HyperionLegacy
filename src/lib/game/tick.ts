@@ -51,6 +51,8 @@ import {
   type RefineOrderMode,
   WAREHOUSE_T1_BASE_CAP,
   WAREHOUSE_T2_BASE_CAP,
+  FUEL_TANK_BASE_CAP,
+  FUEL_CREDITS_PER_UNIT,
 } from "./model";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
@@ -2071,6 +2073,93 @@ export function materialAtCap(state: GameState, itemId: string): boolean {
   // held (matching addToInventory's own `?? new Decimal(0)` grow-on-demand shape).
   const have = state.inventory[itemId] ?? new Decimal(0);
   return have.gte(cap);
+}
+
+// ============================================================================
+// Fuel tank cap + buy (Mission Rework Task 4, design §3).
+//
+// fuelCap(state) -- the CURRENT global Fuel Tank capacity, a DERIVED value (never
+// stored), read off the fuel-storage facility's level exactly as tierCap reads a
+// warehouse tier's cap off its warehouse level. This is the PARALLEL of tierCap for
+// the single global fuel tank.
+//
+// Formula: FUEL_TANK_BASE_CAP doubled once per REACHED fuel-storage rung. Each rung
+// carries a { storageCapMult: 2 } effect (model.ts's buildFuelStorageUpgrades), so
+// multiplying that factor across the reached rungs (i < level) yields
+// base * 2^level -- the same derive-on-read/reached-rungs idiom tierCap uses. The
+// doubling factor lives on the rung (the upgrade track is the single source of
+// truth), so fuelCap needs no edit if a future rung tunes a different factor.
+//
+// ⚠️ CRITICAL -- NO SOFT-LOCK (design §3): unlike tierCap (which returns a fail-open
+// SENTINEL for a tier ABSENT from BASE_CAP, and treats a locked tier's cap as moot),
+// fuelCap ALWAYS returns a real, USABLE base cap -- even at level 0 on a fresh save.
+// Missions are dispatchable from game start and need fuel, so the tank must hold
+// fuel BEFORE any upgrade. There is no "un-built tank" state: level 0 = a live
+// FUEL_TANK_BASE_CAP tank, and the loop below simply runs zero times (returns base).
+//
+// PURE: reads state + the static FACILITIES table + the FUEL_TANK_BASE_CAP constant,
+// mutates nothing.
+// ============================================================================
+export function fuelCap(state: GameState): Decimal {
+  let cap = new Decimal(FUEL_TANK_BASE_CAP); // level-0 base: a real, usable tank (no soft-lock)
+  const facilityDef = FACILITIES["fuelStorage"];
+  // Absent key -> level 0 (grow-on-demand, the SAME `?? 0` posture facilityLevel and
+  // tierCap use). A fresh/seeded save has fuelStorage at level 0, so the loop runs
+  // zero times and the base cap is returned unchanged -- the guaranteed usable base.
+  const level = state.facilities["fuelStorage"]?.level ?? 0;
+  if (facilityDef) {
+    const upgrades = facilityDef.upgrades;
+    // Multiply the base by each REACHED rung's storageCapMult (i < level) -- the SAME
+    // reached-rungs loop tierCap uses. The `i < upgrades.length` guard mirrors
+    // tierCap's: defensive against a hypothetical over-level read past the finite track.
+    for (let i = 0; i < level && i < upgrades.length; i++) {
+      const effect = upgrades[i].effect;
+      if ("storageCapMult" in effect) {
+        cap = cap.times(effect.storageCapMult);
+      }
+    }
+  }
+  return cap;
+}
+
+// buyFuel(state, units) -- buy up to `units` fuel at FUEL_CREDITS_PER_UNIT credits
+// each, returning a NEW GameState (immutable-update style, like buyShip/craftRecipe).
+// A no-op returns the SAME state reference (the codebase's "no change on failure"
+// convention).
+//
+// Clamping (design §3, "buy into the tank up to its cap", affordability-guarded).
+// The amount actually bought is the MIN of three limits, so it can NEVER overfill
+// the tank NOR overspend the credit balance:
+//   1. `units` requested (floored at 0 -- a non-positive request buys nothing, so a
+//      negative `units` can't add credits / drain fuel).
+//   2. tank ROOM = fuelCap(state) - state.fuel (0 if already at/over cap).
+//   3. AFFORDABLE = state.credits / FUEL_CREDITS_PER_UNIT.
+// If that min is <= 0 (broke, or tank full, or non-positive request) it's a same-ref
+// no-op. Otherwise deduct buy * price from credits (>= 0 guaranteed since buy <=
+// affordable) and add `buy` to fuel (<= cap guaranteed since buy <= room). Both moves
+// are exact Decimal math -- fuel and credits never go negative.
+//
+// NOTE: `buy` is not floored to a whole unit -- the affordability clamp can yield a
+// fractional amount (spending the credit balance exactly). This is intentional: the
+// tank already holds fractional fuel (fuelNeeded is fractional, Task 3), so a single
+// exact-Decimal min is the cleanest rule and avoids leaving unspendable credit dust.
+// PURE apart from returning the new state; reads only state + the two constants.
+export function buyFuel(state: GameState, units: number): GameState {
+  const want = Decimal.max(0, new Decimal(units)); // non-positive request -> 0 (no exploit)
+  const room = Decimal.max(0, fuelCap(state).minus(state.fuel)); // remaining tank capacity
+  const affordable = state.credits.div(FUEL_CREDITS_PER_UNIT); // units the credits cover
+  // Clamp to the MIN of all three limits. break_infinity.js's Decimal.min is BINARY
+  // (two DecimalSource args only -- decimal-smoke.test.ts documents this), so the
+  // three-way min is CHAINED, never a single 3-arg call (a silent-drop trap).
+  const buy = Decimal.min(Decimal.min(want, room), affordable); // fits cap AND affordable
+  if (buy.lte(0)) return state; // broke, tank full, or nothing requested -> same-ref no-op
+
+  const cost = buy.times(FUEL_CREDITS_PER_UNIT);
+  return {
+    ...state,
+    credits: state.credits.minus(cost), // >= 0: buy <= affordable => cost <= credits
+    fuel: state.fuel.plus(buy),         // <= cap: buy <= room => fuel + buy <= cap
+  };
 }
 
 // ============================================================================
