@@ -803,8 +803,11 @@ export function tickCaptainMission(
       const nextIndex = MISSION_PHASE_ORDER.indexOf(mission.phase) + 1;
       if (nextIndex >= MISSION_PHASE_ORDER.length) {
         // Just completed "unloading" -- one full cycle is done.
-        (Object.keys(mission.cargo) as LootMaterialKey[]).forEach((key) => {
-          homePlanetDelta[key] = homePlanetDelta[key].plus(mission.cargo[key]);
+        // Capture cargo in a const: `mission` is a `let` (CaptainMissionState |
+        // null), and TS drops its non-null narrowing inside the forEach closure.
+        const cargo = mission.cargo;
+        (Object.keys(cargo) as LootMaterialKey[]).forEach((key) => {
+          homePlanetDelta[key] = homePlanetDelta[key].plus(cargo[key]);
         });
         // Credits are still awarded once PER completed cycle (this branch can be
         // reached multiple times within one call's while loop -- e.g. a big

@@ -185,7 +185,7 @@
   // --- Pan offset (Task 10) -------------------------------------------------
   // The world is translated by (panX, panY). Task 10 drives these from a
   // Pointer-Events drag on .web-viewport. They start at 0 (hub centered — see
-  // the `.web-world` centering note in <style>) and accumulate pointer deltas.
+  // the `.web-world` centering note in the style block) and accumulate pointer deltas.
   let panX = 0;
   let panY = 0;
 
@@ -784,7 +784,7 @@
 
 <!-- Viewport: the clipped window onto the world. Fills its parent. Task 10's
      pan gestures attach here via Pointer Events (unified mouse+touch+stylus).
-     touch-action:none (in <style>) stops the browser hijacking touch-drags as
+     touch-action:none (in the style block) stops the browser hijacking touch-drags as
      page scroll so our pointermove pan is the sole consumer. class:grabbing
      swaps the cursor to "grabbing" while a drag is live (desktop nicety;
      harmless on touch). The pointercancel handler mirrors pointerup so an
@@ -805,13 +805,13 @@
   <div class="web-world" style="transform: translate({panX}px, {panY}px);">
     <!-- Connector layer. Placed FIRST inside .web-world so it paints BEHIND every
          .web-node that follows. DOM order already stacks later siblings on top;
-         an explicit z-index (SVG z-index:0, .web-node z-index:1 — see <style>)
+         an explicit z-index (SVG z-index:0, .web-node z-index:1 — see the style block)
          makes that reliable so each opaque node covers its elbow's inner portion.
-         pointer-events:none (set in <style>) so it never intercepts a node tap or
+         pointer-events:none (set in the style block) so it never intercepts a node tap or
          a pan drag.
 
          COORDINATE ALIGNMENT — the one part that must be exactly right (Device
-         Checkpoint A rework; see the HALF const in <script> for the full rationale
+         Checkpoint A rework; see the HALF const in the script block for the full rationale
          and the .web-connectors CSS for the box geometry):
          The <svg> is a REAL, non-zero 2*HALF × 2*HALF canvas positioned at
          left:−HALF; top:−HALF relative to .web-world's origin (NOT the old 0×0 +
@@ -924,7 +924,7 @@
      genuine top-level, viewport-fixed overlay even when RadialWeb is later
      mounted inside a <Panel> whose backdrop-filter would otherwise contain a
      position:fixed descendant (the known trap — see the `portal` action comment
-     in <script>). The backdrop's flex centering places the card; the card has no
+     in the script block). The backdrop's flex centering places the card; the card has no
      position of its own.
 
      Dismiss paths:
@@ -1080,14 +1080,14 @@
      (0,0) sits at world-origin + (−HALF,−HALF) and its center (HALF,HALF) sits
      exactly on world-origin. Endpoints are drawn at (x+HALF, y+HALF) in the
      markup, which — combined with this −HALF element shift — lands them on the
-     node centers (see the HALF const in <script> for the arithmetic). NO
+     node centers (see the HALF const in the script block for the arithmetic). NO
      viewBox → user units == CSS px, 1:1, un-scaled. pointer-events:none so taps
      and pan drags pass straight through to the nodes / world beneath.
      NOTE: HALF (5000) is mirrored here as 5000 / −5000 / 10000 because CSS can't
      read the JS const; keep these in sync with HALF if it is ever retuned. */
   .web-connectors {
     position: absolute;
-    left: -5000px; /* = −HALF (keep in sync with the HALF const in <script>) */
+    left: -5000px; /* = −HALF (keep in sync with the HALF const in the script block) */
     top: -5000px; /* = −HALF */
     width: 10000px; /* = 2*HALF */
     height: 10000px; /* = 2*HALF */

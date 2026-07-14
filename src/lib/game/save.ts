@@ -462,7 +462,7 @@ const MIGRATIONS: Record<number, Migration> = {
       // pre-migration), but defense in depth, same category as MIGRATIONS[2]/
       // [3]/[10]'s ??/fallback comments above.
       const progressRatio = Math.min(1, c.mission.phaseProgressTicks / oldRequired);
-      const newRequired = requiredTicksForPhase(c.mission.phase, MISSIONS[c.mission.missionKey]);
+      const newRequired = requiredTicksForPhase(c.mission.phase, MISSIONS[c.mission.missionKey as keyof typeof MISSIONS]);
       return { ...c, mission: { ...c.mission, phaseProgressTicks: progressRatio * newRequired } };
     }),
   }),
