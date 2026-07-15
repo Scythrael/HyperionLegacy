@@ -165,11 +165,13 @@
     respecHomeworldTalents,
     chooseCaptainSpec,
     RESPEC_COST_CREDITS,
-    captainCommonYieldMult,
-    captainUncommonYieldMult,
+    // captainCommonYieldMult / captainUncommonYieldMult / fleetRareYieldMult were
+    // removed here (2026-07-15): their ONLY consumer was the captain popup's
+    // per-tier drop-rate TEXT rows, which the drops icon row replaced. The live
+    // economy computes those yield mults internally inside economyTick, so nothing
+    // in App.svelte references them anymore.
     captainUncommonChanceMult,
     captainRareChanceMult,
-    fleetRareYieldMult, // consumed by both the live tick loop below and the captain-selection popup markup (Task 5) for its live drop-rate preview
     captainBonusRollChance,
     captainBonusRollChanceMult,
     captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does -- enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
@@ -499,6 +501,33 @@
     }
   }
 
+  // Mission DROP icon row (2026-07-15 UI) -- the tiers a mission ACTUALLY drops,
+  // as {key, chancePct} descriptors driving both the icon row and each icon's
+  // tooltip. common ALWAYS drops; uncommon/rare are INCLUDED ONLY when their
+  // chance is > 0 (so Local Deuterium Skim, whose uncommon/rare chances are both
+  // 0, shows a single icon; resource runs show three). chancePct is THIS tier's
+  // per-tick win chance as a percent: common = 1 - uncommon - rare, uncommon =
+  // uncommonChance, rare = rareChance.
+  //
+  // The chances are passed IN rather than read off a MissionDef so the ONE builder
+  // serves both callers without changing any value: the AVAILABLE-MISSIONS card
+  // hands in the mission's BASE chances (matching that card's old text rows) and
+  // the captain popup hands in the captain-EFFECTIVE chances it already computed
+  // (matching the popup's old text rows). Filtering on the passed chance is
+  // equivalent to filtering on the base chance for the zero case, since an
+  // effective chance is base * (1 + mult) and is 0 exactly when the base is 0.
+  function missionDropTiers(
+    loot: { common: string; uncommon: string; rare: string },
+    uncommonChance: number,
+    rareChance: number,
+  ): Array<{ key: string; chancePct: number }> {
+    const tiers: Array<{ key: string; chancePct: number }> = [];
+    tiers.push({ key: loot.common, chancePct: (1 - uncommonChance - rareChance) * 100 });
+    if (uncommonChance > 0) tiers.push({ key: loot.uncommon, chancePct: uncommonChance * 100 });
+    if (rareChance > 0) tiers.push({ key: loot.rare, chancePct: rareChance * 100 });
+    return tiers;
+  }
+
   // % of cap an item's stock fills, clamped to [0,100] for the tile fill height
   // and tooltip mini-bar. cap is always >= the tier base (>= 1M), never 0, so
   // the divide is safe. An at-cap item reads 100 exactly (materialAtCap's >=).
@@ -514,7 +543,13 @@
   // itemId + a viewport position; the tooltip MARKUP re-derives name/count/cap/
   // pct/atCap from live `state` each render, so the readout stays live (fills
   // move) even while the pointer rests on a tile. null = hidden.
-  let warehouseTooltip: { itemId: string; x: number; y: number } | null = null;
+  // dropChancePct discriminates the TWO tooltip flavors this one element now
+  // serves (mission drops UI, 2026-07-15): null = a Warehouse TILE tooltip
+  // (stored/cap/fill%/flavor, the original behavior); a number = a mission DROP
+  // ICON tooltip (rarity-colored name + stored qty + flavor + THIS number as the
+  // per-tick drop chance). One open-tooltip model either way -- opening one kind
+  // replaces the other, and only one tab/popup surfaces its icons at a time.
+  let warehouseTooltip: { itemId: string; x: number; y: number; dropChancePct: number | null } | null = null;
 
   // Approximate tooltip footprint, used only to keep it on-screen (clamp +
   // flip-above). A slight over-estimate is fine -- it just biases toward
@@ -525,7 +560,10 @@
   // Position the tooltip from the hovered tile's on-screen rect: below it by
   // default, flipped above if it would overflow the viewport bottom, and clamped
   // horizontally. Mirrors the mockup's own showTip() geometry.
-  function showWarehouseTooltip(event: Event, itemId: string) {
+  // dropChancePct defaults to null so EXISTING warehouse-tile callers are
+  // unchanged (they pass 2 args); mission drop icons pass the third arg to tag
+  // this as a drop tooltip and carry the chance to display.
+  function showWarehouseTooltip(event: Event, itemId: string, dropChancePct: number | null = null) {
     const target = event.currentTarget as HTMLElement | null;
     if (!target) return;
     const rect = target.getBoundingClientRect();
@@ -536,7 +574,7 @@
       y = rect.top - WAREHOUSE_TOOLTIP_H - 8;
     }
     y = Math.max(8, y);
-    warehouseTooltip = { itemId, x, y };
+    warehouseTooltip = { itemId, x, y, dropChancePct };
   }
 
   function hideWarehouseTooltip() {
@@ -548,11 +586,11 @@
   // makes tap work too. This is the SOLE show/hide path on touch (hover is
   // mouse-gated), so a first tap can no longer be undone by the synthetic
   // pointerenter that a tap also fires -- see hoverEnterWarehouseTooltip.
-  function toggleWarehouseTooltip(event: Event, itemId: string) {
+  function toggleWarehouseTooltip(event: Event, itemId: string, dropChancePct: number | null = null) {
     if (warehouseTooltip && warehouseTooltip.itemId === itemId) {
       hideWarehouseTooltip();
     } else {
-      showWarehouseTooltip(event, itemId);
+      showWarehouseTooltip(event, itemId, dropChancePct);
     }
   }
 
@@ -564,8 +602,8 @@
   // mobile lesson). Gating the hover show/hide to pointerType "mouse" leaves
   // touch driven solely by tap (on:click toggle) + tap-outside
   // (handleWarehouseOutsidePointer) + context-change clears.
-  function hoverEnterWarehouseTooltip(event: PointerEvent, itemId: string) {
-    if (event.pointerType === "mouse") showWarehouseTooltip(event, itemId);
+  function hoverEnterWarehouseTooltip(event: PointerEvent, itemId: string, dropChancePct: number | null = null) {
+    if (event.pointerType === "mouse") showWarehouseTooltip(event, itemId, dropChancePct);
   }
   // Guarded by itemId so leaving tile A can't clear a tooltip that hover has
   // already switched to tile B (parallels hideCurrency's key guard).
@@ -584,9 +622,9 @@
   // focus), so Tab-focus still surfaces the tooltip for a11y while touch is
   // driven solely by the on:click toggle (one tap) and mouse by hover. Desktop
   // hover/click behavior is unchanged.
-  function focusShowWarehouseTooltip(event: FocusEvent, itemId: string) {
+  function focusShowWarehouseTooltip(event: FocusEvent, itemId: string, dropChancePct: number | null = null) {
     const el = event.currentTarget as HTMLElement | null;
-    if (el && el.matches(":focus-visible")) showWarehouseTooltip(event, itemId);
+    if (el && el.matches(":focus-visible")) showWarehouseTooltip(event, itemId, dropChancePct);
   }
 
   // Touch/click dismissal -- mirrors handleCurrencyOutsidePointer. Hide the
@@ -598,7 +636,10 @@
   function handleWarehouseOutsidePointer(event: PointerEvent) {
     if (warehouseTooltip === null) return;
     const target = event.target as Element | null;
-    if (target && target.closest(".warehouse-tile")) return;
+    // Spare BOTH trigger kinds: a warehouse tile (its own on:click toggles) and a
+    // mission drop icon (.drop-icon, added 2026-07-15) -- a tap landing on either
+    // must not self-dismiss here before that element's toggle runs.
+    if (target && target.closest(".warehouse-tile, .drop-icon")) return;
     warehouseTooltip = null;
   }
 
@@ -3630,31 +3671,76 @@
                   {@const loot = missionDef.lootTable}
                   {#if unlocked}
                     <button class="mission-card mission-card-selectable" on:click={() => openMissionPopup(missionKey)}>
-                      <div class="mission-portrait-frame" aria-hidden="true">🖼️</div>
-                      <div class="mission-card-body">
-                        <div class="research-name">{missionDef.label}</div>
-                        <div class="research-cost">Cargo capacity: {formatNumber(missionDef.cargoCapacity)}</div>
-                        <!-- Mission Rework (Task 2): each mission's captain-XP rate, via the
-                             shared xpPerTick helper (NOT raw BASE_XP_PER_TICK) so this readout
-                             tracks the exact rate the tick engine accrues. Passed the fleet's
-                             representative captain (state.captains[0], always seeded) since the
-                             rate is captain-independent today; when the XP-mult seam activates
-                             this card should switch to the popup's selected captain. -->
-                        <div class="research-cost">Captain XP: {xpPerTick(missionKey, state.captains[0])}/tick</div>
-                        <!-- Round-trip fuel cost (Task 8). null only if the representative
-                             captain somehow has no hull (never in production). -->
-                        <div class="research-cost">Fuel / trip: {fuelCost !== null ? formatNumber(fuelCost) : "—"}</div>
-                        <!-- Requirements (Task 7 fields) -- only rendered when the mission
-                             declares them (ore runs omit both). -->
-                        {#if missionDef.requiresCaptainLevel !== undefined}
-                          <div class="research-cost">Requires captain level {missionDef.requiresCaptainLevel}</div>
-                        {/if}
-                        {#if missionDef.requiresCargoCapacity !== undefined}
-                          <div class="research-cost">Requires cargo capacity {missionDef.requiresCargoCapacity}</div>
-                        {/if}
-                        <div class="research-cost">{ITEMS[loot.common]?.label ?? loot.common}: {formatNumber(missionDef.extractionRatePerTick)}/tick when no other tier wins ({(100 - missionDef.rareChance * 100 - missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
-                        <div class="research-cost">{ITEMS[loot.uncommon]?.label ?? loot.uncommon}: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.uncommonChance * 100).toFixed(1)}% chance/tick)</div>
-                        <div class="research-cost">{ITEMS[loot.rare]?.label ?? loot.rare}: {formatNumber(missionDef.extractionRatePerTick)}/tick when it wins ({(missionDef.rareChance * 100).toFixed(1)}% chance/tick)</div>
+                      <!-- Card redesign (2026-07-15): HEADER = portrait placeholder +
+                           name, with the captain-XP/tick readout tucked under the name so
+                           the dispatch value survives the body's restructure into
+                           Requirements / Rewards columns below. No mission-art asset
+                           exists yet, so the portrait stays a dashed placeholder (🚀). -->
+                      <div class="mission-card-header">
+                        <div class="mission-portrait-frame" aria-hidden="true">🚀</div>
+                        <div class="mission-card-heading">
+                          <div class="research-name">{missionDef.label}</div>
+                          <!-- Mission Rework (Task 2): each mission's captain-XP rate, via the
+                               shared xpPerTick helper (NOT raw BASE_XP_PER_TICK) so this readout
+                               tracks the exact rate the tick engine accrues. Passed the fleet's
+                               representative captain (state.captains[0], always seeded) since the
+                               rate is captain-independent today; when the XP-mult seam activates
+                               this card should switch to the popup's selected captain.
+                               Value/formula UNCHANGED by the redesign -- only its position moved
+                               from a body text row to this header sub-line. -->
+                          <div class="mission-xp-line">{xpPerTick(missionKey, state.captains[0])}/tick XP</div>
+                        </div>
+                      </div>
+                      <!-- BODY = two columns. LEFT lists this mission's dispatch GATE
+                           requirements; RIGHT is the rarity-colored Rewards drops row. -->
+                      <div class="mission-card-columns">
+                        <div class="mission-card-col">
+                          <div class="mission-col-label">Mission Requirements:</div>
+                          <!-- Level gate (Task 7 requiresCaptainLevel) -- defaults to 1,
+                               the baseline captain level, when the mission declares none. -->
+                          <div class="mission-req-line">Level: {missionDef.requiresCaptainLevel ?? 1}</div>
+                          <!-- Cargo gate (Task 7 requiresCargoCapacity) -- "—" = the mission
+                               has no cargo-capacity requirement (ore runs omit it). -->
+                          <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "—"}</div>
+                          <!-- Round-trip FUEL cost (Task 8) -- 0 for the free local run;
+                               "—" only if the representative captain somehow has no hull
+                               (never in production). Same figure/formula as before, just
+                               relabeled "Fuel Capacity" and moved into this column. -->
+                          <div class="mission-req-line">Fuel Capacity: {fuelCost !== null ? formatNumber(fuelCost) : "—"}</div>
+                        </div>
+                        <div class="mission-card-col">
+                          <div class="mission-col-label">Rewards</div>
+                          <!-- Drops icon row (2026-07-15) -- REPLACES the old three per-tier
+                               text lines. One rarity-colored icon per tier that actually
+                               drops (missionDropTiers filters out uncommon/rare when their
+                               chance is 0, so Local Deuterium Skim shows a single icon).
+                               Hover/tap an icon for its Warehouse-style tooltip (name /
+                               stored qty / flavor / this mission's drop chance).
+                               These icons are SPANS, not buttons: this card is ITSELF a
+                               button element (opens the dispatch popup), and a button may not
+                               nest a button. on:click|stopPropagation shows the tooltip
+                               WITHOUT also opening the popup; keyboard users reach the same
+                               drops as focusable buttons inside that popup. Chances passed
+                               are the mission's BASE chances (this card is captain-agnostic;
+                               the popup applies the selected captain's modifiers). -->
+                          <div class="drops-row">
+                            {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
+                              {@const dropItem = ITEMS[drop.key]}
+                              {#if dropItem}
+                                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -- INTENTIONAL: this icon is a span, not a button, because it lives inside the card's own button (a button may not nest a button) and stopPropagation keeps a tap from opening the popup. Keyboard/AT users get the SAME drops as real, focusable buttons in the dispatch popup, so no interaction is lost. -->
+                                <span
+                                  class="drop-icon"
+                                  role="img"
+                                  style="--drop-rc: {warehouseRarityColor(dropItem.rarity)};"
+                                  aria-label="{dropItem.label} — {drop.chancePct.toFixed(1)}% drop chance"
+                                  on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                  on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
+                                  on:click|stopPropagation={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                >{warehouseCategoryGlyph(dropItem.category)}</span>
+                              {/if}
+                            {/each}
+                          </div>
+                        </div>
                       </div>
                     </button>
                   {:else}
@@ -3971,24 +4057,19 @@
             </div>
           {/if}
         {:else}
-          <!-- Per-tier bonus math (2026-07-07 Loot Tier Rework) -- mirrors
-               tick.ts's rollExtractionTick EXACTLY: same Math.min(1, ...)
-               clamp on each tier's occurrence chance, same (1 + mult) yield
-               scaling, same which-mult-affects-which-tier mapping.
-               rareYieldMult is FLEET-WIDE ONLY (fleetLogisticsYield/Fleet
-               Requisitions, a Homeworld Talent, is the ONLY source of
-               rareYieldMult in the whole talent tree -- there is no
-               captain-level rare-yield talent), so it reads
-               fleetRareYieldMult(state) directly with NO captain-level
-               contribution added, unlike commonYieldMult/uncommonYieldMult
-               below which each sum ONLY this captain's own Captain Talents. -->
+          <!-- Per-tier occurrence CHANCE math (2026-07-07 Loot Tier Rework) --
+               mirrors tick.ts's rollExtractionTick EXACTLY: same Math.min(1, ...)
+               clamp on each tier's occurrence chance, so the drops icon row's
+               tooltip shows the captain-EFFECTIVE chance the dispatched mission
+               will really roll. (The old per-tier YIELD-mult consts --
+               commonYieldMult/uncommonYieldMult/rareYieldMult -- were dropped with
+               the per-tick text rows the drops icon row replaced, 2026-07-15: the
+               icon tooltip reports drop CHANCE + stored qty, not a per-tick yield,
+               so those mults are no longer displayed anywhere here.) -->
           {@const uncommonChanceMult = captainUncommonChanceMult(selectedCaptain)}
           {@const rareChanceMult = captainRareChanceMult(selectedCaptain)}
           {@const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + uncommonChanceMult))}
           {@const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + rareChanceMult))}
-          {@const commonYieldMult = captainCommonYieldMult(selectedCaptain)}
-          {@const uncommonYieldMult = captainUncommonYieldMult(selectedCaptain)}
-          {@const rareYieldMult = fleetRareYieldMult(state)}
           {@const transitOutTicks = missionDef.transitOutTicks}
           {@const extractingTicks = requiredTicksForPhase("extracting", missionDef)}
           {@const transitBackTicks = missionDef.transitBackTicks}
@@ -4007,9 +4088,33 @@
           <div class="research-name">Captain: {selectedCaptain.label}</div>
 
           <div class="panel-title">DROP RATES</div>
-          <div class="research-cost">{ITEMS[loot.common]?.label ?? loot.common}: {formatNumber(missionDef.extractionRatePerTick * (1 + commonYieldMult))}/tick when no other tier wins ({(100 - effectiveRareChance * 100 - effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
-          <div class="research-cost">{ITEMS[loot.uncommon]?.label ?? loot.uncommon}: {formatNumber(missionDef.extractionRatePerTick * (1 + uncommonYieldMult))}/tick when it wins ({(effectiveUncommonChance * 100).toFixed(1)}% chance/tick)</div>
-          <div class="research-cost">{ITEMS[loot.rare]?.label ?? loot.rare}: {formatNumber(missionDef.extractionRatePerTick * (1 + rareYieldMult))}/tick when it wins ({(effectiveRareChance * 100).toFixed(1)}% chance/tick)</div>
+          <!-- Drops icon row (2026-07-15) -- REPLACES the three per-tier text lines.
+               Same shared builder + tooltip as the AVAILABLE-MISSIONS card, but fed
+               this captain's EFFECTIVE chances (effectiveUncommonChance /
+               effectiveRareChance -- the captain-modified, clamped values the popup
+               already computed), so each icon's tooltip drop-chance matches what the
+               dispatched mission will really roll. These are real <button>s (the
+               popup is a Panel, not a button, so nesting is fine) -- fully
+               keyboard-focusable, driving the SAME Warehouse-style tooltip. -->
+          <div class="drops-row">
+            <span class="drops-label">Drops:</span>
+            {#each missionDropTiers(loot, effectiveUncommonChance, effectiveRareChance) as drop (drop.key)}
+              {@const dropItem = ITEMS[drop.key]}
+              {#if dropItem}
+                <button
+                  type="button"
+                  class="drop-icon"
+                  style="--drop-rc: {warehouseRarityColor(dropItem.rarity)};"
+                  aria-label="{dropItem.label} — {drop.chancePct.toFixed(1)}% drop chance"
+                  on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
+                  on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
+                  on:focus={(e) => focusShowWarehouseTooltip(e, drop.key, drop.chancePct)}
+                  on:blur={hideWarehouseTooltip}
+                  on:click={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
+                >{warehouseCategoryGlyph(dropItem.category)}</button>
+              {/if}
+            {/each}
+          </div>
           {#if effectiveBonusRollChance > 0}
             <div class="research-cost">Bonus Roll: {(effectiveBonusRollChance * 100).toFixed(1)}% chance/tick for a second independent roll (Lucky Strike)</div>
           {/if}
@@ -4285,35 +4390,59 @@
     {@const tip = ITEMS[warehouseTooltip.itemId]}
     {#if tip}
       {@const tipId = warehouseTooltip.itemId}
-      {@const tipDiscovered = state.discovered.includes(tipId)}
       {@const tipCount = state.inventory[tipId] ?? new Decimal(0)}
-      {@const tipCap = tierCap(state, tip.tier)}
-      {@const tipAtCap = tipDiscovered && materialAtCap(state, tipId)}
-      {@const tipPct = warehouseFillPct(tipCount, tipCap)}
-      <div class="warehouse-tooltip" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
-        {#if !tipDiscovered}
-          <div class="warehouse-tt-name" style="color: var(--color-text-secondary)">❓ Undiscovered</div>
-          <div class="warehouse-tt-hint">Hint: {tip.unlockHint}</div>
-        {:else}
-          <div class="warehouse-tt-name">{tip.label}</div>
+      {#if warehouseTooltip.dropChancePct !== null}
+        <!-- Mission DROP ICON tooltip (2026-07-15) -- the SAME positioned element,
+             styling, and one-open model as the warehouse tile tooltip, but with the
+             drop-icon content: a rarity-colored item NAME, the live STORED quantity
+             (re-derived from `state.inventory` each render, so it tracks fills), the
+             per-mission DROP CHANCE this icon was opened with, and the item flavor.
+             Unlike the tile tooltip it never gates on discovery -- the mission cards
+             already name their loot openly, so revealing the item here spoils
+             nothing. -->
+        <div class="warehouse-tooltip" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
+          <div class="warehouse-tt-name" style="color: {warehouseRarityColor(tip.rarity)}">{tip.label}</div>
           <div class="warehouse-tt-rarity" style="color: {warehouseRarityColor(tip.rarity)}">{tip.rarity}</div>
           <div class="warehouse-tt-row">
             <span>Stored</span>
-            <span class="warehouse-tt-v">{formatNumber(tipCount)} / {formatNumber(tipCap)}</span>
-          </div>
-          <div class="warehouse-tt-bar">
-            <span style="width: {tipAtCap ? 100 : tipPct}%; background: {tipAtCap ? 'var(--color-danger)' : warehouseRarityColor(tip.rarity)};"></span>
+            <span class="warehouse-tt-v">{formatNumber(tipCount)}</span>
           </div>
           <div class="warehouse-tt-row">
-            <span>Filled</span>
-            <span class="warehouse-tt-v" style="color: {tipAtCap ? 'var(--color-danger)' : 'var(--color-text-primary)'}">{Math.round(tipAtCap ? 100 : tipPct)}%</span>
+            <span>Drop chance</span>
+            <span class="warehouse-tt-v" style="color: {warehouseRarityColor(tip.rarity)}">{warehouseTooltip.dropChancePct.toFixed(1)}%</span>
           </div>
           <div class="warehouse-tt-stat">{tip.flavor}</div>
-          {#if tipAtCap}
-            <div class="warehouse-tt-warn">⚠ FULL — producers auto-stopped. Expand storage.</div>
+        </div>
+      {:else}
+        {@const tipDiscovered = state.discovered.includes(tipId)}
+        {@const tipCap = tierCap(state, tip.tier)}
+        {@const tipAtCap = tipDiscovered && materialAtCap(state, tipId)}
+        {@const tipPct = warehouseFillPct(tipCount, tipCap)}
+        <div class="warehouse-tooltip" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
+          {#if !tipDiscovered}
+            <div class="warehouse-tt-name" style="color: var(--color-text-secondary)">❓ Undiscovered</div>
+            <div class="warehouse-tt-hint">Hint: {tip.unlockHint}</div>
+          {:else}
+            <div class="warehouse-tt-name">{tip.label}</div>
+            <div class="warehouse-tt-rarity" style="color: {warehouseRarityColor(tip.rarity)}">{tip.rarity}</div>
+            <div class="warehouse-tt-row">
+              <span>Stored</span>
+              <span class="warehouse-tt-v">{formatNumber(tipCount)} / {formatNumber(tipCap)}</span>
+            </div>
+            <div class="warehouse-tt-bar">
+              <span style="width: {tipAtCap ? 100 : tipPct}%; background: {tipAtCap ? 'var(--color-danger)' : warehouseRarityColor(tip.rarity)};"></span>
+            </div>
+            <div class="warehouse-tt-row">
+              <span>Filled</span>
+              <span class="warehouse-tt-v" style="color: {tipAtCap ? 'var(--color-danger)' : 'var(--color-text-primary)'}">{Math.round(tipAtCap ? 100 : tipPct)}%</span>
+            </div>
+            <div class="warehouse-tt-stat">{tip.flavor}</div>
+            {#if tipAtCap}
+              <div class="warehouse-tt-warn">⚠ FULL — producers auto-stopped. Expand storage.</div>
+            {/if}
           {/if}
-        {/if}
-      </div>
+        </div>
+      {/if}
     {/if}
   {/if}
 </div>
@@ -4773,7 +4902,19 @@
     transition: width 0.2s linear;
   }
   .research-readout { font-size: 11px; color: var(--color-text-secondary); text-align: right; }
-  .mission-list { display: flex; flex-direction: column; gap: 10px; }
+  /* AVAILABLE MISSIONS grid (2026-07-15 card redesign) -- was a single-column
+     flex stack; now a responsive grid that fits ~3 cards across on a wide
+     Operations panel and collapses to 2 then 1 column as the panel narrows.
+     auto-fill + minmax(260px, 1fr) does the responsive reflow with NO media
+     queries: each track is >= 260px, so the browser packs as many equal
+     columns as fit and stretches them to fill the row. The IN PROGRESS cards
+     above are NOT inside .mission-list, so they keep their full-width stack. */
+  .mission-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
+    align-items: start; /* cards size to their own content, not the tallest sibling */
+  }
   .mission-card {
     padding: 12px;
     border-radius: 10px;
@@ -4792,10 +4933,15 @@
      properties, so this card (and its portrait-frame placeholder below)
      repaint correctly on every theme switch, same as every other themed
      element in this file. */
+  /* Card redesign (2026-07-15): the selectable card is now a VERTICAL stack
+     (header row on top, then the two-column body) instead of the old
+     portrait-left / body-right single row. Its own inner .mission-card-header
+     re-creates the portrait+name row, so the portrait still sits beside the
+     name -- only the exp/requirements/rewards moved into the columns below. */
   .mission-card-selectable {
     display: flex;
+    flex-direction: column;
     gap: 12px;
-    align-items: flex-start;
     text-align: left;
     width: 100%;
     background: rgba(var(--color-accent-rgb), 0.06);
@@ -4808,6 +4954,27 @@
   .mission-card-selectable:hover {
     border-color: var(--color-accent);
   }
+  /* Header row: portrait placeholder beside the name + exp sub-line. */
+  .mission-card-header { display: flex; gap: 12px; align-items: center; }
+  /* Descendant selector (specificity 0,2,0) shrinks the shared portrait for
+     the card header WITHOUT touching .mission-portrait-frame's border/bg/
+     centering -- the SAME idiom .top-bar-header .top-bar-portrait uses above,
+     so there's no source-order dependency. ~48px reads as two text lines tall
+     (name + exp), matching the sketch's two-line picture box. The LOCKED card
+     keeps the full 64px frame (it isn't inside .mission-card-header). */
+  .mission-card-header .mission-portrait-frame { flex: 0 0 48px; height: 48px; font-size: 22px; }
+  .mission-card-heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  /* research-name carries a 6px bottom margin of its own; zero it here so the
+     exp sub-line sits tight under the name inside the flex-gap heading column. */
+  .mission-card-heading .research-name { margin-bottom: 0; }
+  .mission-xp-line { font-size: 11px; color: var(--color-text-secondary); }
+  /* Body: two equal columns (Requirements | Rewards), matching the sketch. */
+  .mission-card-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .mission-card-col { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  /* Column heading ("Mission Requirements:" / "Rewards") -- a touch stronger
+     than the body rows so each column reads as a labelled group. */
+  .mission-col-label { font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; }
+  .mission-req-line { font-size: 12px; color: var(--color-text-secondary); }
   /* Portrait-frame placeholder -- no ship/captain art asset exists yet (see
      the 🖼️ emoji placeholder in the template), so this is a dashed
      theme-tinted box rather than an <img>, sized to read clearly as "art
@@ -5097,8 +5264,36 @@
 
   /* tile tooltip -- position:fixed so it escapes the scroll container's
      clipping, the same approach the currency-chip tooltip uses */
+  /* Mission drops icon row (2026-07-15) -- a "Drops:" label + a compact,
+     rarity-RINGED icon per dropping tier. The icons are the same size in both
+     the AVAILABLE-MISSIONS card and the dispatch popup; --drop-rc is the item's
+     rarity color (warehouseRarityColor), set inline per icon. Reset button/span
+     defaults so both element kinds (card uses a <span>, popup a <button>) render
+     identically. */
+  .drops-row {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 10px; /* match .research-cost's vertical rhythm */
+  }
+  .drops-label { font-size: 12px; color: var(--color-text-secondary); }
+  .drop-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; margin: 0;
+    font-size: 14px; line-height: 1;
+    border-radius: 6px;
+    border: 1.5px solid var(--drop-rc);
+    background: var(--color-bg-mid);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25) inset;
+    cursor: pointer; -webkit-appearance: none; appearance: none;
+    color: inherit; font-family: inherit;
+  }
+  .drop-icon:hover { background: var(--color-bg-high, var(--color-bg-mid)); }
+  .drop-icon:focus-visible { outline: 2px solid var(--drop-rc); outline-offset: 1px; }
+
   .warehouse-tooltip {
-    position: fixed; z-index: 60; width: 210px;
+    /* z-index 110 clears the .modal-backdrop (z-index 100) so a drop-icon tooltip
+       raised from INSIDE the dispatch popup renders above the modal. The warehouse
+       tile tooltip is never shown while a modal is open, so this is safe for it. */
+    position: fixed; z-index: 110; width: 210px;
     background: var(--color-bg-mid);
     border: 1px solid var(--color-border-strong);
     border-radius: 8px; padding: 11px;
