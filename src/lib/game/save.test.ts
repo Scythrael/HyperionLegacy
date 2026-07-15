@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import { migrate, serialize, deserialize, importRawSave, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
-import { freshState, FUEL_REFINE_DURATION_TICKS } from "./model";
+import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP } from "./model";
 // Mission Rework Task 9: the v20->v21 round-trip test proves no soft-lock by exercising
 // the LIVE mission-unlock + dispatch + buy-fuel path on the migrated state (not just a
 // field read), so it imports those tick.ts helpers directly. Fuel Economy v2 (F5) adds
@@ -2293,7 +2293,7 @@ describe("migrate — refine-order backfill (v19 -> v20)", () => {
 });
 
 describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
-  it("seeds fuel:0, fuelStorage level 0, and missionControl level 1 on a genuine v20 save, leaving every other field untouched", () => {
+  it("seeds fuel:FUEL_TANK_BASE_CAP (full tank), fuelStorage level 0, and missionControl level 1 on a genuine v20 save, leaving every other field untouched", () => {
     // A genuine v20 shape: every Phase-2 field present (all THREE facilities that
     // MIGRATIONS[17]/[18] seed -- refinery + warehouseT1 + warehouseT2 -- plus the
     // refineOrder:null MIGRATIONS[19] seeds), but NO `fuel` field and NO fuelStorage/
@@ -2334,10 +2334,13 @@ describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
     const migrated: any = migrate(save);
 
     // --- The three jobs of MIGRATIONS[20]. ---
-    // fuel seeded to 0 AND hydrated to a real Decimal (hydrateDecimals' fuel branch).
+    // fuel seeded to a FULL tank (FUEL_TANK_BASE_CAP) AND hydrated to a real Decimal
+    // (hydrateDecimals' fuel branch). Soft-lock fix (2026-07-14): a pre-fuel v20 save has
+    // NO fuel field, no ice, and maybe no credits, so seeding an EMPTY tank would soft-lock
+    // a returning player just like a new one -- the full-tank grant is the one-time bootstrap.
     // .equals(), not .toBe() (Decimal is an object, reference-compared by toBe).
     expect(migrated.fuel instanceof Decimal).toBe(true);
-    expect(migrated.fuel.equals(0)).toBe(true);
+    expect(migrated.fuel.equals(FUEL_TANK_BASE_CAP)).toBe(true);
     // fuelStorage seeded at level 0 -- the base tank's live starting state (cap
     // FUEL_TANK_BASE_CAP; usable immediately, no soft-lock).
     expect(migrated.facilities.fuelStorage).toEqual({ level: 0 });
@@ -2371,13 +2374,13 @@ describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
       expect(missionUnlocked(migrated, key)).toBe(true);
     }
 
-    // --- FULL PLAYABILITY: a captain can actually still dispatch an ore mission after
-    // migration. The migrated tank starts empty (fuel:0), so top it up first (the normal
-    // in-game flow -- fuel is bought, never granted free), then canDispatch must return
-    // ok:true (unlock + captain-level + cargo + fuel-range + fuel-resource gates all pass). ---
-    const fueled = buyFuel(migrated, 100); // 100 units * 5 cr = 500 cr, within the 1000-credit balance
-    expect(fueled.fuel.gte(50)).toBe(true); // shortOreRun round trip (25+25 ticks / (1+0 eff)) = 50 fuel needed
-    expect(canDispatch(fueled, 1, "shortOreRun")).toEqual({ ok: true });
+    // --- FULL PLAYABILITY: a captain can immediately dispatch an ore mission after
+    // migration with NO player setup. Soft-lock fix (2026-07-14): the migrated tank now
+    // starts FULL (FUEL_TANK_BASE_CAP), so canDispatch must return ok:true directly
+    // (unlock + captain-level + cargo + fuel-range + fuel-resource gates all pass) -- the
+    // returning-player half of the no-soft-lock guarantee, mirroring the fresh-game half. ---
+    expect(migrated.fuel.gte(50)).toBe(true); // full tank comfortably covers the shortOreRun round trip
+    expect(canDispatch(migrated, 1, "shortOreRun")).toEqual({ ok: true });
   });
 
   it("matches freshState() exactly for the new fields (a migrated v20 save and a fresh v21 game have the SAME fuel/facility shape)", () => {
@@ -2460,6 +2463,11 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 �
     // Build a realistic mid-play v21 state: a stocked Fuel Depot (Deuterium Ice on hand) so a
     // fuelRefineJob is IN FLIGHT, plus credits to buy fuel and dispatch afterwards.
     let s = freshState(); // freshState() is the current-version (v21) shape
+    // Soft-lock fix (2026-07-14): freshState now starts with a FULL tank (= cap). Assertion
+    // (b) below proves the Fuel Depot RAISES the tank, which needs headroom, so drain the
+    // tank to 0 here. This test's SUBJECT is depot-refines-after-round-trip, NOT the starting
+    // fuel level -- the empty seed keeps that subject exercised (a full tank couldn't rise).
+    s.fuel = new Decimal(0);
     s.inventory = { ...s.inventory, commonOre: new Decimal(1000) }; // Deuterium Ice (key still `commonOre`) for the depot
     s.credits = new Decimal(1000);
     // One economyTick fills the depot's free pipeline slot with a fuel-refine batch. rng is

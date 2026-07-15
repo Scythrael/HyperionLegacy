@@ -153,7 +153,8 @@ describe("F3 (b) tank short but affordable -> auto-buy shortfall + credits down 
 
 describe("F3 (c) truly broke -> hard-stop (dispatch blocked / auto-repeat ends)", () => {
   it("canDispatch blocks (fuelEmpty) when the tank is short AND the shortfall is unaffordable", () => {
-    const s = freshState(); // fuel 0
+    const s = freshState();
+    s.fuel = new Decimal(0); // drain the default-full tank -- this test's SUBJECT is the broke, empty-tank floor
     s.credits = new Decimal(5); // shortfall 5 -> cost 25 > 5 credits -> can't afford
     expect(canDispatch(s, 1, "shortOreRun")).toEqual({ ok: false, reason: "fuelEmpty" });
   });

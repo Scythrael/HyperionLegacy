@@ -2327,11 +2327,16 @@ export function freshState(): GameState {
     fleetAdminLevel: 1,
     adminPoints: 0,
     credits: new Decimal(0),
-    // Fuel economy (Task 3): a brand-new fleet starts with an EMPTY tank -- fuel is
-    // bought with credits (Task 4), never granted free. Existing saves get this same
-    // 0 seed via the v20->v21 migration (Task 9); hydrateDecimals covers the gap
-    // defensively until then.
-    fuel: new Decimal(0),
+    // Fuel economy (Task 3 / soft-lock fix 2026-07-14): a brand-new fleet starts with a
+    // FULL tank -- exactly FUEL_TANK_BASE_CAP, the level-0 fuelCap. WHY the change from the
+    // original empty seed: a pristine save has 0 credits and 0 Deuterium Ice, so an empty
+    // tank meant canDispatch returned fuelEmpty for EVERY mission and the player was
+    // soft-locked at the very first dispatch -- unable to run the first mission that would
+    // bootstrap the whole fuel economy (missions earn the credits/ice that buy/refine more
+    // fuel). A full starting tank is a one-time, non-exploitable bootstrap grant: it only
+    // ever seeds a NEW game (and, via the ?? in MIGRATIONS[20], a pre-fuel save that has no
+    // fuel field at all). Existing saves that ALREADY carry a fuel balance keep it.
+    fuel: new Decimal(FUEL_TANK_BASE_CAP),
     // Seed the invariant: the one starting captain (freshCaptains(1) -> id 1) gets
     // exactly one hull, the universal General Freighter. nextShipId starts at 2
     // because "ship-1" is already taken by this seeded hull.

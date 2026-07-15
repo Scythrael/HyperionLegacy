@@ -4,7 +4,7 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP } from "./model";
 
 export const SAVE_VERSION = 21;
 export const SAVE_KEY = "fleet_admiral_save";
@@ -687,13 +687,19 @@ const MIGRATIONS: Record<number, Migration> = {
   // introduced (Tasks 3/4/6), mirroring the minimal single-purpose shape MIGRATIONS[18]/
   // [19] set the template for:
   //
-  // - `fuel` (the fleet-wide Decimal stockpile, Task 3): seeded 0 as a PLAIN NUMBER, not
-  //   `new Decimal(0)` -- the unconditional hydrateDecimals() at the end of migrate()
-  //   converts it to a real Decimal (its `fuel` branch already handles this defensively,
-  //   added in Task 3), the exact same plain-0 pattern MIGRATIONS[13] uses for `credits`.
-  //   `?? 0` is idempotent + belt-and-suspenders: a genuine v20 save has NO `fuel` key (so
-  //   it is seeded 0 = an empty tank, the same start freshState gives), but a chained/
-  //   hand-edited save that already carries one keeps its balance rather than losing it.
+  // - `fuel` (the fleet-wide Decimal stockpile, Task 3): seeded FUEL_TANK_BASE_CAP as a
+  //   PLAIN NUMBER, not `new Decimal(...)` -- the unconditional hydrateDecimals() at the end
+  //   of migrate() converts it to a real Decimal (its `fuel` branch already handles this
+  //   defensively, added in Task 3), the exact same plain-number pattern MIGRATIONS[13] uses
+  //   for `credits`.
+  //   SOFT-LOCK FIX (2026-07-14): the seed changed from 0 to FUEL_TANK_BASE_CAP (a FULL tank)
+  //   to match freshState's new full-tank start. A pre-fuel v20 save has NO `fuel` key, no
+  //   Deuterium Ice, and possibly no credits, so an empty-tank seed would have soft-locked a
+  //   returning player exactly as it did a new one -- canDispatch fuelEmpty on every mission,
+  //   no way to bootstrap the fuel economy. The `??` is DELIBERATELY KEPT: only a save with
+  //   NO fuel field (a genuine pre-fuel v20) gets the one-time full-tank grant; a chained/
+  //   hand-edited save that ALREADY carries a fuel balance keeps it exactly (never reset,
+  //   never topped up). Non-exploitable: the grant fires once, only when fuel is absent.
   // - `facilities.fuelStorage` at level 0 (Task 4): the base tank's LIVE starting state
   //   (cap FUEL_TANK_BASE_CAP; NOT "unbuilt" -- the tank is usable from level 0, so
   //   missions can be fueled immediately, no soft-lock). Same `{ level: 0 }` literal
@@ -722,7 +728,7 @@ const MIGRATIONS: Record<number, Migration> = {
   // production-released migrations).
   20: (state: any): any => ({
     ...state,
-    fuel: state.fuel ?? 0,
+    fuel: state.fuel ?? FUEL_TANK_BASE_CAP,
     facilities: {
       ...state.facilities,
       fuelStorage: state.facilities?.fuelStorage ?? { level: 0 },

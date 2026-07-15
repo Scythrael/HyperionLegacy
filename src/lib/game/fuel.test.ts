@@ -77,10 +77,13 @@ describe("fuelNeeded", () => {
 });
 
 describe("GameState.fuel", () => {
-  it("seeds a fresh save to Decimal 0", () => {
+  it("seeds a fresh save to a FULL Decimal tank (FUEL_TANK_BASE_CAP)", () => {
+    // Soft-lock fix (2026-07-14): a brand-new fleet now starts with a full tank, not an
+    // empty one, so the very first mission is dispatchable with no credits/ice -- see
+    // dispatch-requirements.test.ts for the behavioral no-soft-lock proof.
     const state = freshState();
     expect(state.fuel).toBeInstanceOf(Decimal);
-    expect(state.fuel.eq(0)).toBe(true);
+    expect(state.fuel.eq(FUEL_TANK_BASE_CAP)).toBe(true);
   });
 
   it("survives a serialize -> deserialize -> migrate round trip as a live Decimal", () => {
@@ -212,9 +215,10 @@ const SHORT_RUN_CYCLE_TICKS = 149;
 
 describe("dispatch fuel gate + spend (dispatchCaptainOnMission)", () => {
   it("BLOCKS dispatch (RESOURCE gate) when state.fuel < fuelNeeded, leaving state unchanged", () => {
-    const state = freshState(); // fuel seeds to 0 on a fresh save
+    const state = freshState();
+    state.fuel = new Decimal(0); // empty the default-full tank -- this test isolates the RESOURCE (empty-tank) block
     const { next, success } = dispatchCaptainOnMission(state, 1, "shortOreRun");
-    expect(success).toBe(false); // 0 fuel can't cover the 50-fuel round trip
+    expect(success).toBe(false); // 0 fuel can't cover the round trip
     expect(next).toBe(state); // same-ref no-op on failure (dispatch's own convention)
     expect(next.captains[0].mission).toBe(null); // captain stayed idle
     expect(next.fuel.eq(0)).toBe(true); // no fuel spent on a blocked dispatch
