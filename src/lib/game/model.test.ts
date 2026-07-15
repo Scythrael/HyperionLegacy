@@ -20,8 +20,11 @@ import {
   shipDerivedStats,
   effectiveMissionDef,
   ITEMS,
+  BASE_XP_PER_TICK,
+  FUEL_CREDITS_PER_UNIT,
 } from "./model";
 import type { CaptainTalentKey, HomeworldTalentKey } from "./model";
+import { fuelNeeded } from "./fuel";
 
 describe("freshState — captain roster shape", () => {
   it("starts with exactly 1 captain (Command branch is how the roster grows now)", () => {
@@ -209,8 +212,11 @@ describe("MISSIONS — launch set", () => {
   // (the 2 ore runs, keys unchanged, + salvageWreckage + forageFlora). This test's
   // per-field assertions on the 2 ore runs are unchanged (anti-regression); the
   // count assertion was updated 2 -> 4 and the title made honest.
-  it("has exactly 4 missions with the specified tick counts and cargo/extraction values", () => {
-    expect(Object.keys(MISSIONS)).toHaveLength(4);
+  it("has exactly 5 missions with the specified tick counts and cargo/extraction values", () => {
+    // Fuel-sourcing RESTRUCTURE (2026-07-15): grew 4 -> 5 with the free localFuelRun
+    // bootstrap (asserted in its own describe block above). The ore-run per-field
+    // assertions below are unchanged (anti-regression).
+    expect(Object.keys(MISSIONS)).toHaveLength(5);
 
     expect(MISSIONS.shortOreRun.transitOutTicks).toBe(25);
     expect(MISSIONS.shortOreRun.transitBackTicks).toBe(25);
@@ -234,11 +240,15 @@ describe("MISSIONS — launch set", () => {
     expect(MISSIONS.longOreRun.creditsPerCycle).toBe(75);
   });
 
-  it("both missions' occurrence chances are valid probabilities (0-1)", () => {
+  it("every mission's occurrence chances are valid probabilities (0-1)", () => {
     for (const key of Object.keys(MISSIONS) as (keyof typeof MISSIONS)[]) {
-      expect(MISSIONS[key].uncommonChance).toBeGreaterThan(0);
+      // localFuelRun is the exception: it yields Deuterium Ice ONLY, so its uncommon/rare
+      // chances are deliberately EXACTLY 0 (never roll). Its 0-only contract is enforced in
+      // the dedicated restructure describe block above; here it must just be a valid [0,1].
+      const minChance = key === "localFuelRun" ? 0 : Number.MIN_VALUE;
+      expect(MISSIONS[key].uncommonChance).toBeGreaterThanOrEqual(minChance);
       expect(MISSIONS[key].uncommonChance).toBeLessThanOrEqual(1);
-      expect(MISSIONS[key].rareChance).toBeGreaterThan(0);
+      expect(MISSIONS[key].rareChance).toBeGreaterThanOrEqual(minChance);
       expect(MISSIONS[key].rareChance).toBeLessThanOrEqual(1);
     }
   });
@@ -260,22 +270,28 @@ describe("MISSIONS — per-mission loot triads (Mission Rework Task 1)", () => {
   // The authoritative triad per mission (design §1). Common / uncommon / rare
   // ITEM keys, all of which already exist as scaffolded ITEMS placeholders.
   const EXPECTED_TRIADS: Record<
-    "shortOreRun" | "longOreRun" | "salvageWreckage" | "forageFlora",
+    "localFuelRun" | "shortOreRun" | "longOreRun" | "salvageWreckage" | "forageFlora",
     { common: string; uncommon: string; rare: string }
   > = {
+    // Fuel-sourcing RESTRUCTURE: the fuel bootstrap yields Deuterium Ice ONLY. Its
+    // uncommon/rare slots point at the generic tiers to satisfy the rarity contract
+    // below, but with uncommonChance/rareChance 0 they NEVER roll (see the dedicated
+    // localFuelRun tests further down).
+    localFuelRun: { common: "deuteriumIce", uncommon: "uncommonMaterial", rare: "rareMaterial" },
     shortOreRun: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
     longOreRun: { common: "ferriteOre", uncommon: "cobaltOre", rare: "osmiumOre" },
     salvageWreckage: { common: "scrapAlloy", uncommon: "salvagedCircuitry", rare: "intactReactorCore" },
     forageFlora: { common: "fibrousBiomass", uncommon: "volatileResin", rare: "exoticSporeCluster" },
   };
 
-  it("all 4 mission keys exist (2 renamed ore runs + salvage + forage)", () => {
+  it("all 5 mission keys exist (fuel bootstrap + 2 ore runs + salvage + forage)", () => {
     expect(Object.keys(MISSIONS).sort()).toEqual(
-      ["forageFlora", "longOreRun", "salvageWreckage", "shortOreRun"].sort()
+      ["forageFlora", "localFuelRun", "longOreRun", "salvageWreckage", "shortOreRun"].sort()
     );
   });
 
-  it("labels are renamed to the design's in-fiction names", () => {
+  it("labels are the design's in-fiction names", () => {
+    expect(MISSIONS.localFuelRun.label).toBe("Local Deuterium Skim");
     expect(MISSIONS.shortOreRun.label).toBe("Local Asteroid");
     expect(MISSIONS.longOreRun.label).toBe("Lunar Mine Contract");
     expect(MISSIONS.salvageWreckage.label).toBe("Salvage Skirmish Wreckage");
@@ -341,6 +357,75 @@ describe("MISSIONS — per-mission loot triads (Mission Rework Task 1)", () => {
       // ⚠️ block in model.ts MissionDef); Task 2 owns any fractional XP retune.
       expect(Number.isInteger(m.fleetAdminXpPerTick)).toBe(true);
     }
+  });
+});
+
+// Fuel-sourcing RESTRUCTURE (2026-07-15): Deuterium Ice becomes its OWN dedicated
+// fuel-ore item; the F1 label relabels are reverted; a free local fuel-only mission
+// is the bootstrap; credit auto-buy gets expensive. See project_fleet_admiral memory.
+describe("Fuel-sourcing restructure — label reverts + dedicated Deuterium Ice item", () => {
+  it("reverts commonOre back to 'Titanium Ore' (Local Asteroid common; F1's 'Deuterium Ice' undone)", () => {
+    expect(ITEMS.commonOre.label).toBe("Titanium Ore");
+    expect(ITEMS.commonOre.rarity).toBe("common");
+    // The refinery-output flavor/hint were also reverted off the ice wording.
+    expect(ITEMS.refinedMaterial.unlockHint).toContain("Titanium Ore");
+    expect(ITEMS.refinedMaterial.flavor.toLowerCase()).not.toContain("deuterium");
+  });
+
+  it("reverts ferriteOre back to 'Ferrite' (Lunar Mine common; F1's 'Titanium' undone)", () => {
+    expect(ITEMS.ferriteOre.label).toBe("Ferrite");
+    expect(ITEMS.ferriteOre.rarity).toBe("common");
+  });
+
+  it("adds a dedicated `deuteriumIce` item: raw, tier 1, common, labelled 'Deuterium Ice'", () => {
+    const ice = ITEMS.deuteriumIce;
+    expect(ice).toBeDefined();
+    expect(ice.label).toBe("Deuterium Ice");
+    expect(ice.category).toBe("raw");
+    expect(ice.tier).toBe(1);
+    expect(ice.rarity).toBe("common");
+    expect(ice.unlockHint.length).toBeGreaterThan(0);
+    expect(ice.flavor.length).toBeGreaterThan(0);
+  });
+
+  it("makes credit fuel auto-buy EXPENSIVE (FUEL_CREDITS_PER_UNIT 5 -> 20)", () => {
+    expect(FUEL_CREDITS_PER_UNIT).toBe(20);
+  });
+});
+
+describe("Fuel-sourcing restructure — the free localFuelRun bootstrap mission", () => {
+  it("is FIRST in mission display order (the starter)", () => {
+    expect(Object.keys(MISSIONS)[0]).toBe("localFuelRun");
+  });
+
+  it("yields Deuterium Ice ONLY: common = deuteriumIce, uncommonChance/rareChance both 0", () => {
+    const m = MISSIONS.localFuelRun;
+    expect(m.lootTable.common).toBe("deuteriumIce");
+    expect(m.primaryMaterial).toBe("deuteriumIce");
+    expect(m.uncommonChance).toBe(0);
+    expect(m.rareChance).toBe(0);
+  });
+
+  it("costs NO fuel: 0 transit both ways -> fuelNeeded 0 for every hull", () => {
+    expect(MISSIONS.localFuelRun.transitOutTicks).toBe(0);
+    expect(MISSIONS.localFuelRun.transitBackTicks).toBe(0);
+    for (const hullKey of Object.keys(SHIP_TYPES) as (keyof typeof SHIP_TYPES)[]) {
+      expect(fuelNeeded(MISSIONS.localFuelRun, SHIP_TYPES[hullKey])).toBe(0);
+    }
+  });
+
+  it("is available from a fresh save (unlockLevel 1) with NO capability gates", () => {
+    const m = MISSIONS.localFuelRun;
+    expect(m.unlockLevel).toBe(1);
+    // The bootstrap must be flyable by a fresh level-1 captain in the starter Freighter.
+    expect(m.requiresCaptainLevel).toBeUndefined();
+    expect(m.requiresCargoCapacity).toBeUndefined();
+    expect(m.tier).toBe("I"); // renders under the Operations tier-I list
+  });
+
+  it("has an INTEGER per-tick XP rate (closed-form parity trap)", () => {
+    expect(Number.isInteger(BASE_XP_PER_TICK.localFuelRun)).toBe(true);
+    expect(Number.isInteger(MISSIONS.localFuelRun.fleetAdminXpPerTick)).toBe(true);
   });
 });
 
@@ -805,25 +890,23 @@ describe("effectiveMissionDef", () => {
 // table with the minor/major-component/module/system tiers -- do NOT add those
 // forward entries here until their phase (no placeholders).
 describe("ITEMS — Phase 1 seed registry", () => {
-  it("has the full scaffolded catalog: 13 raw, 6 refined, 2 minor + 1 major component", () => {
-    // Phase 2 Warehouse catalog scaffold: the registry was grown from the prior 6
-    // (3 mission-loot ores + denseOre stub + 2 crafted goods) to 22 by adding 16
-    // UNOBTAINABLE placeholder items so the Warehouse shows the full material catalog
-    // as ❓ slots. Breakdown of the 22:
-    //   raw (13): commonOre, uncommonMaterial, rareMaterial (the 3 live ore tiers),
-    //     denseOre (T2 stub), + 9 future ore/salvage/forage loot placeholders.
-    //   refined (6): refinedMaterial, components' predecessor stock... i.e. the 2
-    //     live crafted goods + 4 future Refinery-output placeholders.
+  it("has the full scaffolded catalog: 14 raw, 6 refined, 2 minor + 1 major component", () => {
+    // Phase 2 Warehouse catalog scaffold grew the registry to 22. The Fuel-sourcing
+    // RESTRUCTURE (2026-07-15) adds ONE more raw item -- the dedicated `deuteriumIce`
+    // fuel ore (a real, obtainable item via localFuelRun) -- bringing the total to 23.
+    // Breakdown of the 23:
+    //   raw (14): commonOre, uncommonMaterial, rareMaterial (the 3 live ore tiers),
+    //     deuteriumIce (the live fuel ore), denseOre (T2 stub), + 9 future ore/salvage/
+    //     forage loot placeholders.
+    //   refined (6): the 2 live crafted goods + 4 future Refinery-output placeholders.
     //   minorComponent (2) + majorComponent (1): future Fabricator-output placeholders.
-    // NONE of the 16 new items is produced by anything this pass (pure catalog
-    // scaffold) -- the standing-rule test below covers their metadata generically.
     const keys = Object.keys(ITEMS);
-    expect(keys).toHaveLength(22);
+    expect(keys).toHaveLength(23);
     const raw = Object.values(ITEMS).filter((i) => i.category === "raw");
     const refined = Object.values(ITEMS).filter((i) => i.category === "refined");
     const minor = Object.values(ITEMS).filter((i) => i.category === "minorComponent");
     const major = Object.values(ITEMS).filter((i) => i.category === "majorComponent");
-    expect(raw).toHaveLength(13);
+    expect(raw).toHaveLength(14);
     expect(refined).toHaveLength(6);
     expect(minor).toHaveLength(2);
     expect(major).toHaveLength(1);
@@ -837,20 +920,17 @@ describe("ITEMS — Phase 1 seed registry", () => {
     expect(ITEMS.components.category).toBe("refined");
   });
 
-  // Fuel Economy v2 (F1, docs/plans/2026-07-14-fuel-economy-v2-design.md §1):
-  // LABEL-ONLY renames of two mission-common raw materials. The item KEYS are kept
-  // (`commonOre`/`ferriteOre`) so NO save migration is needed -- only the display
-  // label (+ its flavor/unlockHint) changes. `commonOre` becomes "Deuterium Ice"
-  // (Local Asteroid's common -- the icy FTL fuel source refined into fuel in F2);
-  // `ferriteOre` becomes "Titanium" (Lunar Mine's common structural metal). This
-  // pins the new labels so a later edit can't silently revert them, and asserts the
-  // original keys still resolve (proving the rename is display-only, not a re-key).
-  it("fuel-v2 renamed labels: commonOre = Deuterium Ice, ferriteOre = Titanium (keys unchanged)", () => {
-    expect(ITEMS.commonOre.label).toBe("Deuterium Ice");
-    expect(ITEMS.ferriteOre.label).toBe("Titanium");
-    // Keys are stable (no migration): the entries still exist under their original ids.
+  // Fuel-sourcing RESTRUCTURE (2026-07-15): F1's LABEL-ONLY renames of commonOre ->
+  // "Deuterium Ice" and ferriteOre -> "Titanium" are REVERTED (commonOre is "Titanium
+  // Ore" again, ferriteOre is "Ferrite"), because Deuterium Ice is now its OWN dedicated
+  // `deuteriumIce` item. Still display-only + no migration: the KEYS never changed across
+  // the F1 relabel OR this revert. (The label values are pinned in the restructure describe
+  // block above; here we just prove the original keys still resolve.)
+  it("ore keys are stable across the F1 relabel + the restructure revert (no re-key, no migration)", () => {
     expect(ITEMS.commonOre).toBeDefined();
     expect(ITEMS.ferriteOre).toBeDefined();
+    expect(ITEMS.commonOre.label).toBe("Titanium Ore"); // reverted off F1's "Deuterium Ice"
+    expect(ITEMS.ferriteOre.label).toBe("Ferrite"); // reverted off F1's "Titanium"
   });
 
   // Phase 2, Task B2: the T2 stub ore is the FIRST tier-2 item in the registry. It

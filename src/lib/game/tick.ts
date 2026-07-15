@@ -2864,7 +2864,7 @@ export function processRefineOrder(state: GameState): GameState {
 //     up to the pipeline count -- exactly what caps concurrency at fuelPipelineCount.
 //   - TANK FULL: fuel >= fuelCap -> stop (the fuel-tank analog of materialAtCap; the
 //     SAME auto-stop idea the mission / refine-order pauses use).
-//   - ICE OUT: Deuterium Ice (commonOre) < the batch input -> stop.
+//   - ICE OUT: Deuterium Ice (`deuteriumIce`) < the batch input -> stop.
 //   Both gates are checked BEFORE starting a batch (i.e. BEFORE startProcess consumes
 //   ice), so NO ice is ever stranded: ice is only deducted when a batch actually begins,
 //   and a batch only begins when there is tank room AND enough ice. A batch already in
@@ -2903,7 +2903,10 @@ export function processFuelPipelines(state: GameState): GameState {
 
     // ICE OUT -> stop. Checked BEFORE consuming (gate-before-deduct), so short ice never
     // gets partially consumed / stranded. Absent key reads as 0 (grow-on-demand).
-    const iceOnHand = working.inventory["commonOre"] ?? new Decimal(0);
+    // Fuel-sourcing RESTRUCTURE (2026-07-15): the ice is now the dedicated `deuteriumIce`
+    // item (mined on localFuelRun), NOT `commonOre` -- commonOre feeds only the material
+    // Refinery again. This is the ONLY input the Fuel Depot draws on.
+    const iceOnHand = working.inventory["deuteriumIce"] ?? new Decimal(0);
     if (iceOnHand.lt(input)) break;
 
     // Gates pass -> start ONE batch via the SHARED startProcess engine: it deducts the
@@ -2911,7 +2914,7 @@ export function processFuelPipelines(state: GameState): GameState {
     // effect { type: "addFuel" } deposits `output` fuel (resolveProcesses). Its own
     // affordability gate re-checks the ice we just verified and cannot reject here; the
     // defensive `!started` break guarantees loop termination regardless.
-    const { next, started } = startProcess(working, "fuelRefineJob", { commonOre: input }, FUEL_REFINE_DURATION_TICKS, {
+    const { next, started } = startProcess(working, "fuelRefineJob", { deuteriumIce: input }, FUEL_REFINE_DURATION_TICKS, {
       type: "addFuel",
       amount: output,
     });

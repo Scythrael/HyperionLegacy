@@ -50,7 +50,7 @@ describe("ship fuel stats", () => {
 describe("fuel constants", () => {
   it("exposes the first-pass tunables", () => {
     expect(FUEL_PER_TICK).toBe(1); // Fuel Economy v2: reverted 0.1 -> 1 in the 2026-07-15 device retune (0.1 was too generous)
-    expect(FUEL_CREDITS_PER_UNIT).toBe(5);
+    expect(FUEL_CREDITS_PER_UNIT).toBe(20); // Fuel-sourcing restructure: 5 -> 20 (expensive auto-buy; refining is the intended path)
   });
 });
 
@@ -159,7 +159,8 @@ describe("buyFuel", () => {
 
   it("clamps the purchase to what the credits can afford (can't overspend / go negative)", () => {
     const state = freshState();
-    state.credits = new Decimal(10); // affords exactly 10/5 = 2 units
+    // Exactly enough for 2 units (computed off the constant so it survives price retunes).
+    state.credits = new Decimal(2 * FUEL_CREDITS_PER_UNIT);
     state.fuel = new Decimal(0);
     const next = buyFuel(state, 100); // asked for 100, affords 2
     expect(next.fuel.eq(2)).toBe(true);

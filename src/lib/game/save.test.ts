@@ -2468,7 +2468,10 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 â
     // tank to 0 here. This test's SUBJECT is depot-refines-after-round-trip, NOT the starting
     // fuel level -- the empty seed keeps that subject exercised (a full tank couldn't rise).
     s.fuel = new Decimal(0);
-    s.inventory = { ...s.inventory, commonOre: new Decimal(1000) }; // Deuterium Ice (key still `commonOre`) for the depot
+    // Fuel-sourcing RESTRUCTURE (2026-07-15): the depot refines the dedicated `deuteriumIce`
+    // item now (NOT commonOre), so seed the ice under its own key. A v21 save's Fuel Depot
+    // gets its ice by running the free localFuelRun -- here we seed a stock directly.
+    s.inventory = { ...s.inventory, deuteriumIce: new Decimal(1000) };
     s.credits = new Decimal(1000);
     // One economyTick fills the depot's free pipeline slot with a fuel-refine batch. rng is
     // irrelevant here (the single captain is idle -> no mission economy runs), so pin it.
@@ -2501,7 +2504,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 â
 
     // (c) MISSIONS DISPATCH: top up the tank (fuel is bought, never granted), then canDispatch
     // must clear every gate (unlock + captain-level + cargo + fuel-range + fuel-resource).
-    const fueled = buyFuel(played, 100); // 100 units * 5 cr, within the 1000-credit balance
+    const fueled = buyFuel(played, 100); // clamps to what 1000 credits affords at 20 cr/unit (50 units)
     expect(fueled.fuel.gte(50)).toBe(true); // shortOreRun round trip needs 50 fuel
     expect(canDispatch(fueled, 1, "shortOreRun")).toEqual({ ok: true });
   });

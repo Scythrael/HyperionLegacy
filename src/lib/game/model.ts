@@ -253,9 +253,48 @@ export interface MissionDef {
 // keep this true for any future entry too, or update requiredTicksForPhase's
 // extracting case to handle a smaller final tick.
 export const MISSIONS: Record<
-  "shortOreRun" | "longOreRun" | "salvageWreckage" | "forageFlora",
+  "localFuelRun" | "shortOreRun" | "longOreRun" | "salvageWreckage" | "forageFlora",
   MissionDef
 > = {
+  // Fuel-sourcing RESTRUCTURE (2026-07-15): the fuel BOOTSTRAP mission -- FIRST in the
+  // object so it renders FIRST in the Operations tier-I list (the starter). A LOCAL,
+  // in-system run (no FTL): transitOut/back are BOTH 0 -> roundTripTransitTicks 0 ->
+  // fuelNeeded 0 (fuel.ts), so it costs NO fuel and dispatches on an empty tank / zero
+  // credits -- the escape hatch that seeds the whole fuel economy. Its loot is Deuterium
+  // Ice ONLY: uncommonChance/rareChance are BOTH 0, so rollExtractionTick's rare/uncommon
+  // branches never win and every extraction tick deposits the common tier -> deuteriumIce.
+  //
+  // ⚠️ 0-TICK TRANSIT PHASES verified safe: tickCaptainMission's phase loop advances a
+  // phase whenever phaseProgressTicks >= requiredTicks, and 0 >= 0 holds, so a 0-length
+  // transitOut/transitBack is traversed within the same call as long as budget remains --
+  // no infinite loop (each cycle still spends 1+90+8 = 99 ticks on its non-zero phases)
+  // and no parity break (a phase boundary landing at a call boundary is the SAME case the
+  // engine already handles for every other phase; the next call resolves the pending
+  // 0-tick phase at 0 cost). Confirmed by the localFuelRun cycle/parity tests.
+  //
+  // The uncommon/rare lootTable slots point at the generic uncommonMaterial/rareMaterial
+  // tiers ONLY to satisfy the loot-triad rarity contract (model.test.ts asserts common/
+  // uncommon/rare rarity tags); with both chances 0 they NEVER roll, so cargo.uncommon
+  // Material/rareMaterial stay 0 and homePlanetDelta deposits 0 to them (a 0 delta does
+  // NOT mark them discovered -- addToInventory gates discovery on amount.gt(0)). So the
+  // run genuinely yields deuteriumIce and nothing else. FIRST-PASS TUNABLE values.
+  localFuelRun: {
+    // PROVISIONAL name (flagged for user rename, same as the ore-tier item names).
+    label: "Local Deuterium Skim",
+    transitOutTicks: 0, // LOCAL run -> 0 transit -> fuelNeeded 0 (no fuel cost)
+    transitBackTicks: 0,
+    unloadTicks: 8,
+    extractionRatePerTick: 1,
+    cargoCapacity: 90, // 90 Deuterium Ice per cycle (divides evenly by rate 1)
+    uncommonChance: 0, // Deuterium Ice ONLY -- no uncommon tier
+    rareChance: 0, //     -- and no rare tier
+    lootTable: { common: "deuteriumIce", uncommon: "uncommonMaterial", rare: "rareMaterial" },
+    primaryMaterial: "deuteriumIce", // == lootTable.common (§3.4 auto-stop)
+    tier: "I",
+    fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap
+    creditsPerCycle: 10, // modest -- the payoff is the fuel ore, not credits; TUNABLE
+    unlockLevel: 1, // available from a fresh save (the bootstrap; missionControl seeds at level 1)
+  },
   shortOreRun: {
     // Renamed "Short Ore Run" -> "Local Asteroid" (label only; key unchanged).
     label: "Local Asteroid",
@@ -376,6 +415,9 @@ export const BASE_XP_PER_TICK: Record<MissionKey, number> = {
   // (1.1/1.2/1.25) reflecting their longer/riskier/farther profiles. These are
   // launch placeholders, same tunable spirit as MISSIONS'/RECIPES' constants -- real
   // balancing happens at the device-check stage.
+  // Fuel-sourcing RESTRUCTURE (2026-07-15): the free fuel bootstrap. INTEGER rate
+  // (parity-safe, see the trap note below); a modest 1/tick, same anchor as shortOreRun.
+  localFuelRun: 1,
   shortOreRun: 1,
   // ⚠️ FRACTIONAL RATES ⚠️ longOreRun/salvageWreckage/forageFlora are NON-INTEGER --
   // exactly the condition the CLOSED-FORM PARITY TRAP in tick.ts (xpPerTick +
@@ -463,7 +505,13 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
 // The Freighter's integer needs (short 50 / long 140 / salvage 90 / forage 110) keep the
 // Decimal fuel-tank deductions EXACT -- load-bearing for the F3 offline==live parity proof.
 export const FUEL_PER_TICK = 1;
-export const FUEL_CREDITS_PER_UNIT = 5;
+// Fuel-sourcing RESTRUCTURE (2026-07-15): 5 -> 20. Credit auto-buy is now an EXPENSIVE
+// convenience / soft-lock escape hatch, NOT a cheap crutch: the intended fuel path is
+// refining Deuterium Ice (mined free on localFuelRun) at the Fuel Depot. At 20cr/unit a
+// Freighter shortOreRun empty-tank top-up costs 50*20 = 1000cr (vs its 30cr reward), so
+// leaning on auto-buy bleeds credits fast -- deliberately steering the player to refine.
+// FIRST-PASS TUNABLE, same launch-placeholder spirit as the constants above.
+export const FUEL_CREDITS_PER_UNIT = 20;
 
 // ⚠️ FUEL ECONOMY v2 (F3, design §3): the "+2 ticks" refuel-at-a-non-allied-station delay
 // added to a mission cycle whenever that cycle had to AUTO-BUY its fuel shortfall from
@@ -487,8 +535,9 @@ export const REFUEL_PENALTY_TICKS = 2;
 export const FUEL_TANK_BASE_CAP = 500;
 
 // --- Fuel Depot refining constants (Fuel Economy v2 F2, design §2) ---------------
-// The Fuel Depot's pipelines continuously refine Deuterium Ice (`commonOre`) into
-// fuel: each pipeline runs one BATCH at a time -- consume FUEL_REFINE_INPUT ice ->
+// The Fuel Depot's pipelines continuously refine Deuterium Ice (`deuteriumIce`, its own
+// dedicated item as of the 2026-07-15 restructure) into fuel: each pipeline runs one BATCH
+// at a time -- consume FUEL_REFINE_INPUT ice ->
 // produce FUEL_REFINE_OUTPUT fuel over FUEL_REFINE_DURATION_TICKS ticks -- then
 // repeats automatically (processFuelPipelines, tick.ts). These are the LEVEL-0 base
 // values; Fuel Depot upgrades scale them (yield up, input down -- see the fuelYield/
@@ -1342,18 +1391,21 @@ export interface ItemDef {
 export const ITEMS: Record<string, ItemDef> = {
   // --- Raw loot (mission extraction output; keyed as LootMaterialKey) ---
   commonOre: {
-    // Fuel Economy v2 (design §1): the Local Asteroid run's common drop is the
-    // fleet's FTL fuel source, "Deuterium Ice". The item id stays `commonOre` --
-    // the label is display-only, so this rename needs NO save migration. (F2 wires
-    // the Deuterium-Ice -> fuel refine recipe; the label already reads for that role.)
-    label: "Deuterium Ice",
+    // Fuel-sourcing RESTRUCTURE (2026-07-15): F1 had relabeled `commonOre` to
+    // "Deuterium Ice" and pointed the Fuel Depot's refine at it (dual-demand: the
+    // material Refinery ALSO consumes commonOre). That is REVERTED here -- commonOre
+    // is once again the Local Asteroid run's common structural ore, "Titanium Ore",
+    // and the Fuel Depot now refines the NEW dedicated `deuteriumIce` item (below)
+    // instead. The item id stays `commonOre`, so this revert is display-only with NO
+    // save migration; its only consumer is now the material Refinery again.
+    label: "Titanium Ore",
     category: "raw",
     tier: 1,
     rarity: "common",
     // The guaranteed common-tier fallback drop on every extraction tick (see
     // tick.ts's rollExtractionTick) of the Local Asteroid run.
-    unlockHint: "Chipped from the Local Asteroid run -- the fleet's raw FTL fuel stock.",
-    flavor: "Dirty water-ice threaded with deuterium, carved out of the asteroid by the ton -- cook it down and it runs the FTL drives.",
+    unlockHint: "Chipped from the Local Asteroid run -- the fleet's staple structural ore.",
+    flavor: "Common titanium-bearing rock, hauled from the local asteroid by the ton -- the workhorse feedstock for the Refinery.",
   },
   uncommonMaterial: {
     // Provisional in-fiction name for the uncommon ore tier (id kept
@@ -1380,6 +1432,24 @@ export const ITEMS: Record<string, ItemDef> = {
     unlockHint: "A rare strike on the Local Asteroid run.",
     flavor: "Scarce, dense, and prized -- the payoff that makes the long ore runs worth the fuel.",
   },
+  // --- Dedicated fuel ore (Fuel-sourcing RESTRUCTURE 2026-07-15) ---------------
+  // The fleet's FTL fuel SOURCE, now its OWN item (id `deuteriumIce`) rather than a
+  // relabeled `commonOre`. This is the ONLY thing the Fuel Depot refines into fuel
+  // (processFuelPipelines, tick.ts): mine it on the free `localFuelRun` mission ->
+  // refine it into fuel at the Depot. Decoupling it from `commonOre` kills the old
+  // dual-demand (commonOre now feeds ONLY the material Refinery again). Raw, tier 1,
+  // common -- it renders as a Warehouse Raw tile off the ITEMS registry like every
+  // other raw. ADDITIVE: a brand-new key, so no save migration (empty inventory is
+  // fine; it appears the moment the fuel run first delivers it).
+  deuteriumIce: {
+    label: "Deuterium Ice",
+    category: "raw",
+    tier: 1,
+    rarity: "common",
+    // The guaranteed (and ONLY) drop of the localFuelRun mission -- a common-tier ore.
+    unlockHint: "Skimmed from the Local Deuterium Skim run -- refine it into fuel at the Fuel Depot.",
+    flavor: "Deuterium-laced water ice cracked from a local field. Cook it down at the Fuel Depot and it runs the FTL drives.",
+  },
   // --- Refined / crafted goods (Homeworld crafting output; RECIPES targets) ---
   refinedMaterial: {
     label: "Refined Material",
@@ -1387,12 +1457,12 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "uncommon",
     // Output of both the instant RECIPES.refineUnobtainium craft and the timed
-    // REFINE_RECIPES.refineCommonOre job, each consuming `commonOre` (Deuterium Ice)
-    // at the Refinery. (F1 label swap: the source now reads "Deuterium Ice", not
-    // "Titanium Ore". The ice->ingot flavor is a pre-existing coherence quirk left
-    // for F2's refinery/recipe rework -- F1 is label-only.)
-    unlockHint: "Refined from Deuterium Ice at the Refinery.",
-    flavor: "Deuterium ice cooked down to a workable ingot. The first rung of the production ladder.",
+    // REFINE_RECIPES.refineCommonOre job, each consuming `commonOre` (Titanium Ore)
+    // at the Refinery. (Fuel-sourcing RESTRUCTURE 2026-07-15: reverted F1's "Deuterium
+    // Ice" wording back to Titanium -- the material Refinery consumes titanium ore, the
+    // Fuel Depot now refines the separate `deuteriumIce` item instead.)
+    unlockHint: "Refined from Titanium Ore at the Refinery.",
+    flavor: "Titanium ore cooked down to a workable ingot. The first rung of the production ladder.",
   },
   components: {
     label: "Components",
@@ -1433,16 +1503,18 @@ export const ITEMS: Record<string, ItemDef> = {
 
   // RAW -- future ore/salvage/forage mission loot (3 tiers per mission).
   ferriteOre: {
-    // Fuel Economy v2 (design §1): label-only rename to "Titanium" -- the Lunar Mine
-    // Contract's common structural metal. The item id stays `ferriteOre`, so this is
-    // display-only with NO save migration. (This entry is now genuinely obtainable
-    // via the longOreRun triad, Task 1 -- despite the older scaffold header above.)
-    label: "Titanium",
+    // Fuel-sourcing RESTRUCTURE (2026-07-15): reverted F1's "Titanium" relabel back to
+    // "Ferrite" -- the Lunar Mine Contract's common structural metal. (F1 had moved the
+    // Titanium name here when it repurposed `commonOre` as Deuterium Ice; that whole
+    // relabel chain is undone now that Deuterium Ice is its own dedicated item.) The item
+    // id stays `ferriteOre`, so this is display-only with NO save migration. Genuinely
+    // obtainable via the longOreRun triad (Task 1) despite the older scaffold header above.
+    label: "Ferrite",
     category: "raw",
     tier: 1,
     rarity: "common",
     unlockHint: "Mined on the Lunar Mine Contract.",
-    flavor: "A tough, lightweight structural metal drawn from the lunar seams -- plentiful once the mining contract opens up.",
+    flavor: "A tough, iron-rich structural alloy drawn from the lunar seams -- plentiful once the mining contract opens up.",
   },
   cobaltOre: {
     label: "Cobalt Ore",
