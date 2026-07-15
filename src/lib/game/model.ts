@@ -272,10 +272,13 @@ export const MISSIONS: Record<
     primaryMaterial: "commonOre", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
-    // FUEL v2 (F3) friendlier bump 10 -> 30. Exceeds this run's WORST-CASE auto-buy fuel
-    // cost (Freighter need 5 * FUEL_CREDITS_PER_UNIT 5 = 25cr for a fully-empty tank), so
-    // credit income comfortably clears any auto-buy even in the degenerate no-refinery case.
-    // FIRST-PASS TUNABLE (device-retuned), same spirit as this file's other placeholders.
+    // FUEL v2 (F3) friendlier bump 10 -> 30, KEPT through the 2026-07-15 FUEL_PER_TICK
+    // 0.1 -> 1 retune. NOTE: at FUEL_PER_TICK 1 this reward NO LONGER exceeds the worst-case
+    // auto-buy cost (Freighter need 50 * FUEL_CREDITS_PER_UNIT 5 = 250cr for an empty tank) --
+    // and it does not NEED to: the non-bricking guarantee is now the Fuel Depot's refining
+    // outpacing consumption from a full starting tank, not credit-funded auto-buy (see the
+    // reframed sustainability test in fuel-consumption-v2.test.ts). This is just a generous
+    // reward. FIRST-PASS TUNABLE, same spirit as this file's other placeholders.
     creditsPerCycle: 30,
     unlockLevel: 1, // available from a fresh save (missionControl seeds at level 1)
   },
@@ -296,9 +299,10 @@ export const MISSIONS: Record<
     primaryMaterial: "ferriteOre", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
-    // FUEL v2 (F3) friendlier bump 20 -> 75. Exceeds this run's worst-case auto-buy fuel cost
-    // (Freighter need 14 * 5 = 70cr). Larger absolute bump than the short run's because the
-    // long run's round trip burns more fuel; FIRST-PASS TUNABLE (device-retuned).
+    // FUEL v2 (F3) friendlier bump 20 -> 75, KEPT through the 2026-07-15 FUEL_PER_TICK retune.
+    // At FUEL_PER_TICK 1 this no longer exceeds the worst-case auto-buy cost (Freighter
+    // need 140 * 5 = 700cr) -- and need not, for the same reason as shortOreRun (refining, not
+    // credit auto-buy, is the non-bricking mechanism). A generous reward; FIRST-PASS TUNABLE.
     creditsPerCycle: 75,
     unlockLevel: 1, // available from a fresh save (missionControl seeds at level 1)
   },
@@ -317,7 +321,7 @@ export const MISSIONS: Record<
     primaryMaterial: "scrapAlloy", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap; Task 2 owns XP retune
-    creditsPerCycle: 50, // FUEL v2 (F3) bump 30 -> 50 (> Freighter need 9 * 5 = 45cr worst-case auto-buy); tunable
+    creditsPerCycle: 50, // FUEL v2 (F3) bump 30 -> 50, KEPT through the 2026-07-15 retune (at FUEL_PER_TICK 1 the worst-case auto-buy is now need 90 * 5 = 450cr; refining, not this reward, is the non-bricking mechanism); tunable
     unlockLevel: 1, // USER REVISION 2026-07-14: default-available (all 4 missions unlock at the
     // level-1 seed). Was 2 (behind the deferred mission-control unlock upgrade). See the
     // MissionDef.unlockLevel comment + FACILITIES.missionControl for why that rung is deferred.
@@ -341,7 +345,7 @@ export const MISSIONS: Record<
     primaryMaterial: "fibrousBiomass", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1, // INTEGER -- see MissionDef's closed-form parity trap; Task 2 owns XP retune
-    creditsPerCycle: 60, // FUEL v2 (F3) bump 35 -> 60 (> Freighter need 11 * 5 = 55cr worst-case auto-buy); tunable
+    creditsPerCycle: 60, // FUEL v2 (F3) bump 35 -> 60, KEPT through the 2026-07-15 retune (at FUEL_PER_TICK 1 the worst-case auto-buy is now need 110 * 5 = 550cr; refining, not this reward, is the non-bricking mechanism); tunable
     unlockLevel: 1, // USER REVISION 2026-07-14: default-available (see salvageWreckage's note +
     // the MissionDef.unlockLevel comment). Was 2 (behind the now-deferred unlock upgrade).
     requiresCaptainLevel: 3, // slightly above Salvage's 2 -- CAPABILITY gate, KEPT (see salvageWreckage)
@@ -444,17 +448,21 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
 // Kept as plain numbers (not Decimal): fuel amounts are small, non-idle-scale values --
 // only the GameState.fuel STOCKPILE is Decimal (matches the other currency fields).
 //
-// ⚠️ FUEL ECONOMY v2 REBALANCE FLAG (F3, design §3/§4) ⚠️ FUEL_PER_TICK was DROPPED
-// 1 -> 0.1 (a 10x cut) after device-test feedback that fuel v1 (1.0) ran the tank dry too
-// fast and bankrupted the player. At 0.1 a round trip costs a SMALL FRACTION of the
-// mission's credit reward: Freighter (engineEfficiency 0) shortOreRun = 50 transit ticks *
-// 0.1 = 5 fuel/cycle (vs 250 credits' worth at v1's 1.0). At this consumption the F2 Fuel
-// Depot's refining (50 Deuterium Ice -> 100 fuel/batch) trivially keeps the tank topped, so
-// credit auto-buy (F3) is a rare soft backup, not a hard wall. FIRST-PASS TUNABLE, device-
-// retuned at the checkpoint alongside the fuel-refine constants + fuel-storage caps. The
-// Freighter's integer needs (short 5 / long 14 / salvage 9 / forage 11) keep the Decimal
-// fuel-tank deductions EXACT -- load-bearing for the F3 offline==live parity proof.
-export const FUEL_PER_TICK = 0.1;
+// ⚠️ FUEL ECONOMY v2 RETUNE (device feedback 2026-07-15) ⚠️ FUEL_PER_TICK was REVERTED
+// 0.1 -> 1 (back to the original v1 value). HISTORY: F3 first DROPPED it 1 -> 0.1 fearing a
+// dry-tank bankruptcy, but on-device play showed 0.1 was TOO GENEROUS -- the Fuel Depot's
+// refining trivially dwarfed the tiny 0.1 consumption (three captains ran ~+1.19k fuel/min
+// net-positive with NO upgrades), so fuel was a non-factor, not a managed resource. At 1 a
+// round trip costs 1 fuel per transit tick (the meaningful value): Freighter
+// (engineEfficiency 0) shortOreRun = 50 transit ticks * 1 = 50 fuel/cycle. This stays
+// SUSTAINABLE, NOT bankrupting: a fresh full 500 tank plus the F2 Fuel Depot's refining
+// (100 fuel / 10-tick batch = 10 fuel/tick) still FAR outpaces a mission's consumption
+// (50 fuel / 149-tick cycle ~= 0.34 fuel/tick) -- refining alone keeps a fresh game afloat
+// with no credit spend. It just makes fuel a real resource again, so credit auto-buy (F3)
+// is a genuine short-tank backstop rather than a never-triggered branch. FIRST-PASS TUNABLE.
+// The Freighter's integer needs (short 50 / long 140 / salvage 90 / forage 110) keep the
+// Decimal fuel-tank deductions EXACT -- load-bearing for the F3 offline==live parity proof.
+export const FUEL_PER_TICK = 1;
 export const FUEL_CREDITS_PER_UNIT = 5;
 
 // ⚠️ FUEL ECONOMY v2 (F3, design §3): the "+2 ticks" refuel-at-a-non-allied-station delay
