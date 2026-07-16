@@ -1,59 +1,64 @@
 <script lang="ts">
-  // Root.svelte -- the app's top-level view router.
+  // Root.svelte -- top-level view router for the Crystalis Soft URL structure:
+  //   crystalisoft.com/              -> (future) studio landing   [separate CSWebsite project]
+  //   crystalisoft.com/game          -> (future) games hub        [CSWebsite project]
+  //   /game/hl                       -> Hyperion Legacy's page (Landing.svelte -- hero, Play, news)
+  //   /game/hl/play                  -> the playable game (App.svelte)
+  //   /game/<other>[/play]           -> (future) other games, same shape
   //
-  // For now the whole domain LEADS TO THE GAME. The game lives at its canonical
-  // route /game/hl -- forward-compatible with the planned Crystalis Soft URL
-  // structure:
-  //   crystalisoft.com/          -> (future) the studio website  [separate CSWebsite project]
-  //   crystalisoft.com/game      -> (future) the website's games hub  [CSWebsite project]
-  //   crystalisoft.com/game/hl   -> Hyperion Legacy  [THIS project]
-  //   crystalisoft.com/game/<x>  -> (future) other games
-  // Serving "/" + "/game" from the CSWebsite project while /game/hl comes from
-  // this one is a Vercel cross-project domain-rewrite set up LATER, once that
-  // website actually exists. Until then, every non-game path here just redirects
-  // to the game, so any entry point (root, /game, the legacy /play, a bookmark)
-  // lands you in Hyperion Legacy.
+  // For now the separate studio site doesn't exist, so "/" and "/game" (and any
+  // unknown path) resolve to THIS game's landing (/game/hl); the legacy "/play"
+  // resolves to the game. When the CSWebsite project is built it will own "/" and
+  // "/game" via a Vercel cross-project domain rewrite, leaving /game/hl* to us.
   //
-  // Landing.svelte (the marketing page built earlier) is PARKED -- kept in the
-  // repo, no longer imported/bundled -- as a candidate basis for the future
-  // CSWebsite studio landing, not deleted.
-  //
-  // Deep-linking / refresh on /game/hl is handled at the hosting layer by
-  // vercel.json's SPA rewrite (serves index.html for any non-asset path so this
-  // router can boot and resolve the route client-side).
+  // "Routing" is a single reactive `view` ("game" | "landing") derived from the
+  // path. resolve() also yields the CANONICAL url so we can normalize/redirect
+  // the address bar (replaceState -> no back-button trap). Deep-link/refresh on
+  // any /game/hl* path is served index.html by vercel.json's SPA rewrite.
   import { onMount, onDestroy } from "svelte";
   import App from "./App.svelte";
+  import Landing from "./Landing.svelte";
 
-  const GAME_ROUTE = "/game/hl";
+  const LANDING_ROUTE = "/game/hl";
+  const GAME_ROUTE = "/game/hl/play";
 
-  // The game renders only on its canonical route (tolerating a trailing slash).
-  function isGameRoute(pathname: string): boolean {
-    return pathname === GAME_ROUTE || pathname === GAME_ROUTE + "/";
+  type View = "game" | "landing";
+
+  // Map any pathname -> {what to render, its canonical url}. Trailing slashes tolerated.
+  function resolve(pathname: string): { view: View; canonical: string } {
+    const p = pathname.replace(/\/+$/, "") || "/";
+    if (p === GAME_ROUTE || p === "/play") return { view: "game", canonical: GAME_ROUTE };
+    // /game/hl, and (until the real studio site exists) "/", "/game", anything else.
+    return { view: "landing", canonical: LANDING_ROUTE };
   }
 
-  // Current route. Reassigning this re-renders the {#if} below.
   let path = window.location.pathname;
+  let view: View = "landing";
 
-  // "Everything leads to the game" (interim). replaceState -- NOT pushState -- so
-  // the redirect leaves no back-button trap between "/" and "/game/hl": hitting
-  // Back from the game exits the site rather than bouncing through the redirect.
-  function redirectToGameIfNeeded(): boolean {
-    if (isGameRoute(path)) return false;
-    history.replaceState({}, "", GAME_ROUTE);
-    path = GAME_ROUTE;
-    return true;
+  // Set the view for a path and normalize the address bar to its canonical url.
+  function apply(pathname: string): void {
+    const { view: v, canonical } = resolve(pathname);
+    view = v;
+    path = canonical;
+    if (canonical !== pathname.replace(/\/+$/, "")) {
+      history.replaceState({}, "", canonical);
+    }
   }
 
-  // Run SYNCHRONOUSLY at component init (before the first render) so a non-game
-  // entry URL never flashes a blank frame -- the first paint is already the game.
-  redirectToGameIfNeeded();
+  // Synchronous at init (before first render) so a non-canonical entry url never
+  // flashes -- the first paint is already the resolved view.
+  apply(path);
 
-  // Browser Back/Forward changes the URL without calling our code, so resync
-  // `path` from the live location -- and re-apply the redirect if it landed on a
-  // non-game path (until the real website exists to own "/" and "/game").
+  // SPA navigation handed to child views (Landing's Play button; the game's back link).
+  function navigate(to: string): void {
+    if (resolve(to).canonical === path) return;
+    history.pushState({}, "", to);
+    apply(to);
+  }
+
+  // Browser Back/Forward changes the url without calling navigate() -- resync.
   function handlePopState(): void {
-    path = window.location.pathname;
-    redirectToGameIfNeeded();
+    apply(window.location.pathname);
   }
 
   onMount(() => {
@@ -65,6 +70,46 @@
   });
 </script>
 
-{#if isGameRoute(path)}
+{#if view === "game"}
   <App />
+
+  <!-- Small escape hatch back to this game's landing page (/game/hl). Tiny,
+       translucent, top-left; brightens on hover; z-index below the game's
+       modals (z:100) so it never covers a dialog. -->
+  <button
+    class="site-link"
+    on:click={() => navigate(LANDING_ROUTE)}
+    title="Back to the Hyperion Legacy page"
+  >
+    &larr; Back
+  </button>
+{:else}
+  <Landing {navigate} />
 {/if}
+
+<style>
+  .site-link {
+    position: fixed;
+    top: 6px;
+    left: 6px;
+    z-index: 90;
+    padding: 3px 9px;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    color: var(--color-text-secondary);
+    background: rgba(6, 10, 18, 0.72);
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    opacity: 0.55;
+    transition:
+      opacity 0.12s ease,
+      color 0.12s ease,
+      border-color 0.12s ease;
+  }
+  .site-link:hover {
+    opacity: 1;
+    color: var(--color-accent);
+    border-color: var(--color-border-strong);
+  }
+</style>

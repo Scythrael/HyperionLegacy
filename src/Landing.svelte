@@ -9,7 +9,7 @@
   //
   // Props:
   //   navigate(to) -- Root.svelte's SPA push-state helper. The Play button
-  //   calls navigate("/play") to boot the game without a full page reload.
+  //   calls navigate("/game/hl/play") to boot the game without a full page reload.
   import Panel from "./lib/Panel.svelte";
   import Starfield from "./lib/Starfield.svelte";
   import { APP_VERSION, PATCH_NOTES } from "./lib/patchNotes";
@@ -30,7 +30,7 @@
   }));
 
   function handlePlay() {
-    navigate("/play");
+    navigate("/game/hl/play");
   }
 </script>
 
