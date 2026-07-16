@@ -3,7 +3,11 @@
   --color-bg-deep: #060a12;
   --color-bg-mid: #0a1120;
   --color-panel-bg: rgba(20, 40, 60, 0.32);
-  --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+  /* Derived from the accent triplet so it re-hues with the theme automatically:
+     each [data-theme] block below overrides --color-accent-rgb, and because a
+     custom property's value is substituted at use-time, this rgba() picks up
+     whichever accent-rgb is in scope. One definition instead of six copies. */
+  --color-panel-bg-strong: rgba(var(--color-accent-rgb), 0.06);
   --color-border: rgba(103, 232, 249, 0.18);
   --color-border-strong: rgba(103, 232, 249, 0.4);
   --color-accent: #67e8f9;
@@ -21,12 +25,24 @@
   --font-mono: "JetBrains Mono", monospace;
 }
 
+/* Each theme shifts three things beyond the accent/border it always did:
+   the panel background and the two NON-white text colors (secondary + dim) are
+   re-hued to the theme, so the palette reads as one cohesive color instead of
+   red/green accents stranded on a cyan panel. Deliberately NOT re-hued:
+   --color-text-primary stays the near-white :root value on every theme (body
+   text that is white should stay white -- user directive). --color-panel-bg
+   keeps the same darkness/alpha (0.32) as the cyan baseline; only its hue moves,
+   so no theme's panels get lighter or louder. --color-panel-bg-strong follows
+   the accent automatically (see :root). */
 [data-theme="cyan"] {
   --color-accent: #67e8f9;
   --color-accent-bright: #8ff0e0;
   --color-accent-rgb: 103, 232, 249;
   --color-border: rgba(103, 232, 249, 0.18);
   --color-border-strong: rgba(103, 232, 249, 0.4);
+  --color-panel-bg: rgba(20, 40, 60, 0.32);
+  --color-text-secondary: #8fa3ad;
+  --color-text-dim: #5a7a85;
 }
 [data-theme="green"] {
   --color-accent: #67f9a8;
@@ -34,6 +50,9 @@
   --color-accent-rgb: 103, 249, 168;
   --color-border: rgba(103, 249, 168, 0.18);
   --color-border-strong: rgba(103, 249, 168, 0.4);
+  --color-panel-bg: rgba(20, 52, 40, 0.32);
+  --color-text-secondary: #8fad9c;
+  --color-text-dim: #5a856f;
 }
 [data-theme="blue"] {
   --color-accent: #6798f9;
@@ -41,6 +60,9 @@
   --color-accent-rgb: 103, 152, 249;
   --color-border: rgba(103, 152, 249, 0.18);
   --color-border-strong: rgba(103, 152, 249, 0.4);
+  --color-panel-bg: rgba(24, 34, 64, 0.32);
+  --color-text-secondary: #8f9cad;
+  --color-text-dim: #5a6a85;
 }
 [data-theme="red"] {
   --color-accent: #f96767;
@@ -48,6 +70,9 @@
   --color-accent-rgb: 249, 103, 103;
   --color-border: rgba(249, 103, 103, 0.18);
   --color-border-strong: rgba(249, 103, 103, 0.4);
+  --color-panel-bg: rgba(56, 28, 30, 0.32);
+  --color-text-secondary: #ad9694;
+  --color-text-dim: #85686a;
 }
 [data-theme="white"] {
   --color-accent: #e8e8f0;
@@ -55,6 +80,9 @@
   --color-accent-rgb: 232, 232, 240;
   --color-border: rgba(232, 232, 240, 0.18);
   --color-border-strong: rgba(232, 232, 240, 0.4);
+  --color-panel-bg: rgba(44, 46, 54, 0.32);
+  --color-text-secondary: #a8a8b0;
+  --color-text-dim: #70707a;
 }
 [data-theme="gray"] {
   --color-accent: #a0a8b0;
@@ -62,6 +90,9 @@
   --color-accent-rgb: 160, 168, 176;
   --color-border: rgba(160, 168, 176, 0.18);
   --color-border-strong: rgba(160, 168, 176, 0.4);
+  --color-panel-bg: rgba(40, 44, 50, 0.32);
+  --color-text-secondary: #9aa0a8;
+  --color-text-dim: #686e76;
 }
 
 * { box-sizing: border-box; }
