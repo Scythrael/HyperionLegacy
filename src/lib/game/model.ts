@@ -1283,6 +1283,18 @@ export interface GameState {
   // the offline per-tick step loop. freshState seeds null; the v19->v20 migration
   // (save.ts) backfills null onto existing saves.
   refineOrder: RefineOrder | null;
+  // --- Research (Phase 3, Task R1 -- docs/plans/2026-07-15-research-*.md §2) ---
+  // The set of UNLOCKED blueprint keys (BLUEPRINTS ids the player has researched).
+  // Modeled as a string[] rather than a Set so it serializes cleanly through the JSON
+  // save format -- the SAME choice `discovered` (above) and unlockedHomeworldTalents
+  // make. String keys carry NO Decimal, so hydrateDecimals (save.ts) needs NO change:
+  // the field rides through its `...state` spread untouched, exactly like `discovered`.
+  // freshState seeds [] (nothing researched on a new save). The v21->v22 seed migration
+  // that backfills [] onto existing saves is Task R6's job -- NOT freshState's. The
+  // research-project ENGINE that appends to this (startResearch + the resolver's
+  // unlockBlueprint effect) is Task R3; R1 only DEFINES + seeds the field and the two
+  // pure read helpers below (blueprintUnlocked / blueprintResearchable).
+  researchedBlueprints: string[];
 }
 
 export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
@@ -1641,6 +1653,149 @@ export const ITEMS: Record<string, ItemDef> = {
     flavor: "Frame segments and couplings married into one rigid sub-structure -- a hull's spine.",
   },
 };
+
+// --- Research: blueprints (Phase 3, Task R1 -- docs/plans/2026-07-15-research-
+// {design,plan}.md §2/§5) --------------------------------------------------------
+// A BLUEPRINT is a RECIPE the (next-feature) Fabricator will craft into a ship
+// component. Research is the GATE on WHICH recipes exist; the Fabricator is the forge
+// that runs them. The two features deliberately SHARE this one definition -- the
+// blueprint carries the Fabricator recipe RIGHT HERE (`recipe`) so Research and the
+// Fabricator never drift over what a researched blueprint actually builds.
+//
+// SCOPE NOTE (R1 is DATA ONLY): this task ships the BlueprintDef shape, the BLUEPRINTS
+// content, the GameState.researchedBlueprints field, and the two pure read helpers
+// below. The Research FACILITY that gates tiers/slots is R2; the timed research-project
+// ENGINE that actually unlocks a blueprint (startResearch + the resolver) is R3; the UI
+// is R5. NOTHING crafts a researched blueprint yet -- that arrives with the Fabricator.
+//
+// ⚠️ FIRST-PASS TUNABLE VALUES ⚠️ Every number below (tier, researchDurationTicks,
+// researchCreditCost, and the recipe input/output amounts) is a launch placeholder in
+// the SAME spirit as MISSIONS'/SHIP_TYPES'/REFINE_RECIPES' constants -- the exact recipes
+// get finalized WITH the Fabricator (it consumes them), and real balancing happens at the
+// device-check stage. They are defined now purely to keep Research + Fabricator one
+// coherent, testable data set.
+export interface BlueprintDef {
+  key: string;   // mirrors the BLUEPRINTS map key (asserted in research.test.ts -- no drift)
+  label: string; // in-world display name, e.g. "Frame Segment Blueprint"
+  tier: number;  // gated by the Research facility LEVEL (R2): researchable once level >= tier
+  researchDurationTicks: number; // time to research (R3 runs it as a timed process)
+  researchCreditCost: number;    // credits, deduct-at-start (R3); the long-term credit sink
+  // The recipe the FABRICATOR will use (defined now, crafted later). `inputs` +
+  // `outputItem` are plain-string ITEMS keys (forward-loose like inventory/ProcessEffect),
+  // so a recipe can target any registry item. Amounts are plain numbers (recipe QUANTITIES,
+  // not idle-scale currency) -- the Fabricator wraps them in Decimal at its deduct site,
+  // exactly as the fuel constants are plain numbers wrapped at their deduct site.
+  recipe: { inputs: Record<string, number>; outputItem: string; outputQty: number };
+  flavor?: string;      // narrative color (optional)
+  unlockHint?: string;  // functional "how to unlock" clue for the UI (optional)
+}
+
+// First-pass blueprint set (design §5) -- tied to the already-scaffolded component
+// ITEMS (frameSegment/powerCoupling [minorComponent], structuralAssembly [majorComponent]).
+// Keyed Record<string, BlueprintDef> (not a narrow union), matching FACILITIES'/
+// REFINE_RECIPES' forward-loose keying so a later blueprint slots in with no type change.
+// Add entries HERE (and nowhere else -- the R5 Research panel iterates this object).
+//
+//   Tier 1 (basic minor components): frameSegmentBp -> frameSegment, powerCouplingBp ->
+//     powerCoupling. Recipes consume REFINED materials (titaniumIngot / polysilicateWafer).
+//   Tier 2 (a major component): structuralAssemblyBp -> structuralAssembly, built from the
+//     tier-1 minor components + a refined material -- exercising the component ladder
+//     (raw -> refined -> minor -> major) the item taxonomy is built around.
+// Higher tiers (equipment / modules / ship systems) are DEFERRED until the Fabricator +
+// ship-systems phases define them (design §5) -- no placeholder tiers here.
+export const BLUEPRINTS: Record<string, BlueprintDef> = {
+  frameSegmentBp: {
+    key: "frameSegmentBp",
+    label: "Frame Segment Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 500,
+    // Structural strut <- structural metal. Titanium Ingot is the refined structural feedstock.
+    recipe: { inputs: { titaniumIngot: 4 }, outputItem: "frameSegment", outputQty: 1 },
+    flavor: "The schematics for a hull's load-bearing struts -- the first thing any shipwright learns to stamp.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
+  },
+  powerCouplingBp: {
+    key: "powerCouplingBp",
+    label: "Power Coupling Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 600,
+    // Electronics junction <- electronics substrate. Polysilicate Wafer is the refined substrate.
+    recipe: { inputs: { polysilicateWafer: 4 }, outputItem: "powerCoupling", outputQty: 1 },
+    flavor: "Wiring diagrams for the shielded junctions that tie a reactor line into the systems it feeds.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
+  },
+  structuralAssemblyBp: {
+    key: "structuralAssemblyBp",
+    label: "Structural Assembly Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1500,
+    // Major component <- tier-1 minor components + a refined metal. Demonstrates the ladder:
+    // frame segments + a power coupling, reinforced with titanium, married into a hull spine.
+    recipe: {
+      inputs: { frameSegment: 2, powerCoupling: 1, titaniumIngot: 2 },
+      outputItem: "structuralAssembly",
+      outputQty: 1,
+    },
+    flavor: "The master plan for marrying frame segments and couplings into one rigid sub-structure.",
+    unlockHint: "Researched at the Research Lab (requires a higher lab tier); crafted at the Fabricator later.",
+  },
+};
+
+// The Research facility's key in GameState.facilities. R2 adds FACILITIES.research and
+// seeds it at level 1 in freshState; R1 has NO research facility yet. Named here as the
+// SINGLE SOURCE OF TRUTH so R1's tier-gate helper (and R2/R3/R5) all reference ONE
+// literal instead of scattering the raw "research" string.
+export const RESEARCH_FACILITY_KEY = "research";
+
+// The Research facility's LEVEL, read DEFENSIVELY (absent facility -> 0). R1 has no
+// research facility, so this returns 0 until R2 seeds it at level 1 -- meaning tier-1
+// blueprints are NOT researchable in R1 alone and become researchable the moment R2's
+// seed lands, with NO change to blueprintResearchable. This duplicates tick.ts's private
+// facilityLevel() logic ON PURPOSE: model.ts must NOT import tick.ts (tick.ts imports
+// model.ts; the reverse is a circular dependency). CONSOLIDATION CANDIDATE (Omega 4):
+// once R2 formalizes the research facility, a single exported facilityLevel() could live
+// in model.ts and tick.ts import it -- flagged, not done now (out of R1's additive scope).
+function researchFacilityLevel(state: GameState): number {
+  return state.facilities[RESEARCH_FACILITY_KEY]?.level ?? 0;
+}
+
+// Is a research PROJECT for `key` currently in flight? R3 adds the research-project
+// engine: startResearch pushes a TimedProcess whose completion effect is
+// { type: "unlockBlueprint"; key } (design §3 / plan R3). That effect member does NOT
+// exist on ProcessEffect YET (R3 adds it), so we read the effect STRUCTURALLY here.
+// TODAY activeProcesses can never hold such an entry, so this returns false for every
+// blueprint -- but the SAME scan reports a live project the moment R3 lands, with no
+// change. The one `as` cast is the ONLY forward reference; ⚠️ R3 MUST keep the effect's
+// discriminant "unlockBlueprint" and its `key` field (both fixed in design §3) for this
+// to stay correct. Including this term now keeps blueprintResearchable's full contract
+// (tier + not-unlocked + not-in-progress) honest and testable from R1.
+function researchInProgress(state: GameState, key: string): boolean {
+  return state.activeProcesses.some((p) => {
+    const effect = p.effect as { type: string; key?: string };
+    return effect.type === "unlockBlueprint" && effect.key === key;
+  });
+}
+
+// Has the player researched this blueprint? Pure membership test over the unlocked set.
+export function blueprintUnlocked(state: GameState, key: string): boolean {
+  return state.researchedBlueprints.includes(key);
+}
+
+// Can this blueprint be researched RIGHT NOW? True iff: the key is a real blueprint AND
+// it is not already unlocked AND no project for it is in flight AND the Research facility
+// has reached its tier (level >= tier). This is the pure AVAILABILITY predicate the R4
+// canResearch gate builds on (R4 adds the credits/free-slot reasons on top); R1 ships the
+// tier + unlocked + in-progress core so it is testable the moment R2's facility level exists.
+export function blueprintResearchable(state: GameState, key: string): boolean {
+  const bp = BLUEPRINTS[key];
+  if (!bp) return false; // unknown key -- not a real blueprint
+  if (blueprintUnlocked(state, key)) return false; // already researched
+  if (researchInProgress(state, key)) return false; // a project is already unlocking it
+  return bp.tier <= researchFacilityLevel(state); // tier gated by the research-facility level
+}
 
 // Open-ended (levels can climb indefinitely) -- a formula, not a finite table
 // like HOMEWORLD_TALENTS' Fleet Logistics branch below (hand-tuned per entry).
@@ -2458,5 +2613,10 @@ export function freshState(): GameState {
     // Phase 2, Task D1: no standing refine order on a fresh save. Existing saves get
     // this same null seed via the v19->v20 migration (save.ts, MIGRATIONS[19]).
     refineOrder: null,
+    // Research Task R1: nothing researched on a brand-new save. Existing saves get this
+    // same [] seed via the v21->v22 migration (Task R6, save.ts) -- NOT this function's
+    // job. A string[] (no Decimal), so hydrateDecimals needs no change (see the field's
+    // comment on GameState above).
+    researchedBlueprints: [],
   };
 }
