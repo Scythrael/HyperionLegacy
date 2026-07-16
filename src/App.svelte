@@ -286,17 +286,25 @@
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
   const DEV_MODE_ENV = import.meta.env.VITE_DEV_MODE === "true";
 
-  // The Debug tab + [DEV] grant controls gate on build-time DEV_MODE only
-  // (true on Vercel Preview, false on Production per the note above -- so they
-  // show on preview/local dev builds but never on production).
+  // The Debug tab + [DEV] grant controls gate on build-time DEV_MODE only -- so
+  // they show on preview/local dev builds but NEVER on production.
   //
-  // A `?dev` URL bypass was added during Progression-Pacing-Rework device
-  // testing, then REMOVED before merging to main (2026-07-11, user decision) so
-  // production ships with NO self-serve cheat surface -- the dev grants (free FA
-  // levels / admin points / stat points) must not be reachable by real players,
-  // which matters especially once leaderboards/multiplayer exist. Dev tools stay
-  // available wherever VITE_DEV_MODE is true (preview + local .env.local).
-  const DEV_MODE = DEV_MODE_ENV;
+  // DEV_MODE is true when EITHER:
+  //   - VITE_DEV_MODE=true (local .env.local, per the note above), OR
+  //   - __IS_PREVIEW_BUILD__ -- injected by vite.config.ts from Vercel's build-time
+  //     VERCEL_ENV, true ONLY on Preview deployments. This auto-enables the dev
+  //     panel on every preview deploy (e.g. devpreview.crystalisoft.com) with NO
+  //     Vercel-dashboard env config, and stays HARD-OFF on the Production build
+  //     (VERCEL_ENV==='production' => __IS_PREVIEW_BUILD__ false) no matter which
+  //     URL serves it. This is the security boundary (Omega 6): the [DEV] grants
+  //     -- free FA levels / admin / stat points / CREDITS -- must never be reachable
+  //     by real players, especially once leaderboards/multiplayer exist.
+  //
+  // A `?dev` URL bypass was added during Progression-Pacing-Rework device testing,
+  // then REMOVED before merging to main (2026-07-11, user decision) so production
+  // ships NO self-serve cheat surface. Not reinstated: the preview-build signal
+  // above replaces the need for it without exposing anything on production.
+  const DEV_MODE = DEV_MODE_ENV || __IS_PREVIEW_BUILD__;
 
   // Player-facing app version + patch notes moved to ./lib/patchNotes.ts
   // (2026-07-15) so the public Landing page can share the same source of
@@ -1259,6 +1267,15 @@
     );
     state = { ...state, captains: nextCaptains };
     pushLog(`[DEV] +10 stat points to ${captain.label} (now ${captain.statPoints + 10}).`);
+  }
+
+  // +`amount` credits -- the base currency (a Decimal), so Refinery/Research/
+  // Fabricator upgrades + fuel top-ups can be tested without grinding mission
+  // payouts first. Raw test grant, same immutable { ...state } shape as the
+  // grants above; credits only ever ADD here.
+  function devGrantCredits(amount: number) {
+    state = { ...state, credits: state.credits.plus(new Decimal(amount)) };
+    pushLog(`[DEV] +${formatNumber(new Decimal(amount))} credits (now ${formatNumber(state.credits)}).`);
   }
 
   // (doCraftRecipe -- the legacy instant Homeworld craft-button handler -- was
@@ -4847,6 +4864,12 @@
             <button class="dev-btn" on:click={devGrantFleetAdminLevels}>+5 FA Levels</button>
             <button class="dev-btn" on:click={devGrantAdminPoints}>+100 Admin Pts</button>
             <button class="dev-btn" on:click={devGrantStatPoints}>+10 Stat Pts (active captain)</button>
+          </div>
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Credits</span>
+            <button class="dev-btn" on:click={() => devGrantCredits(10000)}>+10K</button>
+            <button class="dev-btn" on:click={() => devGrantCredits(100000)}>+100K</button>
+            <button class="dev-btn" on:click={() => devGrantCredits(1000000)}>+1M</button>
           </div>
           <div class="dev-row">
             <button class="dev-btn" on:click={doSave}>Save now</button>
