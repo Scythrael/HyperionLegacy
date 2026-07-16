@@ -5,7 +5,6 @@ import {
   freshCaptainStack,
   requiredTicksForPhase,
   MISSIONS,
-  RECIPES,
   REFINE_RECIPES,
   FACILITIES,
   xpForNextLevel,
@@ -194,6 +193,10 @@ describe("Phase 1 — facility/process reservation fields (additive)", () => {
     // Research Task R2 (additive): the Research Lab joins the seed at level 1 (NOT
     // level 0) -- same seeded-founding posture as missionControl, so tier-1 blueprints
     // are researchable from game start (no soft-lock) and researchSlotCount reads 1.
+    // Fabricator Task F1 (additive): the Fabricator joins the seed at level 1 (NOT
+    // level 0) -- same seeded-founding posture as the Research Lab, so tier-1 blueprints
+    // are FABRICABLE from game start once researched (no soft-lock) and fabricateSlotCount
+    // reads 1.
     expect(state.facilities).toEqual({
       refinery: { level: 0 },
       warehouseT1: { level: 0 },
@@ -201,6 +204,7 @@ describe("Phase 1 — facility/process reservation fields (additive)", () => {
       fuelStorage: { level: 0 },
       missionControl: { level: 1 },
       research: { level: 1 },
+      fabricator: { level: 1 },
     });
   });
 
@@ -452,18 +456,8 @@ describe("requiredTicksForPhase", () => {
   });
 });
 
-describe("RECIPES — launch set", () => {
-  it("has exactly 2 recipes with well-formed inputs/output", () => {
-    expect(Object.keys(RECIPES)).toHaveLength(2);
-    for (const recipe of Object.values(RECIPES)) {
-      expect(Object.keys(recipe.inputs).length).toBeGreaterThan(0);
-      // recipe.output.amount is now a Decimal -- .toBeGreaterThan() needs a
-      // plain-number operand, so compare via .gt(0) instead (both express the
-      // same "amount is a positive quantity" check).
-      expect(recipe.output.amount.gt(0)).toBe(true);
-    }
-  });
-});
+// (The "RECIPES — launch set" block was REMOVED in Phase 4, Task F5 with the
+//  legacy instant-craft table it covered. Timed-craft coverage: fabricator.test.ts.)
 
 describe("xpForNextLevel", () => {
   // Task 4 (Progression Pacing Rework) steepened the captain curve from

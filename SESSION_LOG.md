@@ -1531,3 +1531,54 @@ Gate GREEN — **`npm run check` = 0 errors (21 cosmetic unused-CSS/a11y warning
 parity seam + the R2 tier/slot derive-on-read) + device tuning of the first-pass research values; then merge,
 and push only on explicit user confirmation (live Vercel production redeploy). The Fabricator (crafting from
 researched blueprints) is the intended next feature.
+
+**Session 34 — Fabricator (Phase 4), branch `feat/fabricator`.** Added the Fabricator: the crafting half of the
+Research -> Fabricator loop, a facility that consumes materials to craft the components unlocked by researched
+blueprints (`BLUEPRINTS` + `researchedBlueprints`, shipped with the Research Lab in 0.10.0). Built
+subagent-driven over seven tasks (two-stage review per task) plus this final version/docs task; the
+mechanic deliberately MIRRORS the Refinery's order/slot timed-crafting rather than reinventing it. (**F1**) The
+DATA MODEL: a tunable `craftDurationTicks` field added to `BlueprintDef` (120/120/300 first-pass -- two tier-1
+minor components + the tier-2 assembly) and `FACILITIES.fabricator` (key `fabricator`, Homeworld owner, seeded
+at level 1 in fresh state so tier-1 blueprints are fabricable from game start -- no soft-lock, mirroring
+Research/Mission Control), whose LEVEL gates which blueprint TIERS are craftable and whose reached rungs each
+grant a craft SLOT (`fabricateSlotCount`, derive-on-read exactly as `researchSlotCount`/`refineSlotCount`).
+(**F2**) The fabricate-ORDER engine: `startFabricateOrder` / `fabricateOrder` state (Craft-N or continuous),
+a new `"fabricateJob"` `TimedProcessKind` whose completion reuses the existing `{ type: "addItem" }` effect
+(so `resolveProcesses` needed no new effect type), per-iteration ATOMIC input deduct at job start, idle-and-
+resume when materials run out, storage-cap auto-stop, and an `itemsCrafted` lifetime-stat increment -- the
+same order idiom the Refinery already proved. ⚠️ Re-verified the project's standing closed-form parity
+invariant (offline `tick(bigSpan)` == looping the live path, "one big jump equals many small ticks") across a
+craft completing mid-span, the high-risk seam. (**F3**) A `canFabricate` GATE returning TYPED reasons
+(`notResearched` / `tierLocked` / `noSlot` / `materials` / `storageFull`), which `startFabricateOrder`
+delegates to so there's no drifted duplicate guard -- mirroring `canResearch` / `canDispatch`. (**F4**) The
+Fabricator UI panel (House rail + Overview / Craft / Upgrades SubTabs, like the Refinery): in-flight craft
+progress bars with real-time remaining, a blueprint list grouped by tier with recipe + duration + Craft-N/
+continuous controls gated by `canFabricate` (disabled + reason), an empty-state that SIGNPOSTS the Research Lab
+when nothing is researched yet, and a forward signpost that these components feed the Shipyard (next feature).
+(**F5**) LEGACY CLEANUP: removed the legacy `RECIPES` / `craftRecipe` / `doCraftRecipe` / `RecipeKey`
+instant-craft system + the Homeworld Fabrication sub-tab that rendered it, and removed ONLY the hardcoded "HOME
+PLANET" 3-material inventory panel from the Homeworld Overview sub-tab (the Warehouse replaced it) while
+KEEPING the Overview shell as a placeholder; `itemsCrafted` STAYS (now fed by the Fabricator instead of
+`craftRecipe`). The cleanup orphaned the `recipeBonusOutput` industry-talent effect (it only ever buffed the
+legacy craft) -- both industry nodes (`industryHub`, `industryBonusOutput`) were neutralized to the existing
+`{ type: "none" }` "No bonus yet" placeholder, with the re-wire-to-Fabricator follow-up logged in SUGGESTIONS.md.
+(**F6**) Save migration **v22->v23** seeding `FACILITIES.fabricator` at level 1 onto existing saves (mirroring
+the Research L1-seed idiom, `MIGRATIONS[21]`); `researchedBlueprints`/the component items/`itemsCrafted` all
+already existed from prior versions, so no other backfill was needed. `SAVE_VERSION` is now 23. (**F7**, this
+task) VERSION BUMP + docs.
+
+DOCS (F7): bumped `APP_VERSION` 0.10.0 -> **0.11.0** (Y-bump, new feature) and prepended a newest-first 0.11.0
+PATCH_NOTES entry describing the Fabricator / craft-N-or-continuous orders / auto-pause-and-resume / tier+slot
+upgrades / the Shipyard forward-note / and the retired Homeworld instant-craft + Home Planet-list tidy-up. No
+`package.json` sync (this project has never tracked its "version" to `APP_VERSION` -- sits at the scaffold
+`0.0.0`, per existing convention). KNOWN_ISSUES.md gained three entries: fabricated components have no consumer
+yet (the Shipyard will); all Fabricator balance/content values (120/120/300 durations, tier count, slot rungs,
+recipes) are FIRST-PASS placeholders for the device checkpoint; and the two industry talent nodes now read "No
+bonus yet" (orphaned `recipeBonusOutput`, re-wire logged in SUGGESTIONS.md). No patchNotes test exists to
+update (no test references `APP_VERSION`/`PATCH_NOTES` -- grep-confirmed).
+
+Gate GREEN -- **`npm run check` = 0 errors (20 cosmetic unused-CSS/a11y warnings), `npm test` = 584 passing
+(20 files).** Next: final holistic review of the `feat/fabricator` branch (especially the F2 fabricate-order
+parity seam + the F3 gate/F5 legacy-removal completeness) + device tuning of the first-pass Fabricator values;
+then merge, and push only on explicit user confirmation (live Vercel production redeploy). The Shipyard
+(building ships from fabricated components -- the north-star toward combat) is the intended next feature.

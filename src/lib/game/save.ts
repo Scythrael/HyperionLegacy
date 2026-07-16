@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP } from "./model";
 
-export const SAVE_VERSION = 22;
+export const SAVE_VERSION = 23;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -772,6 +772,41 @@ const MIGRATIONS: Record<number, Migration> = {
     facilities: {
       ...state.facilities,
       research: state.facilities?.research ?? { level: 1 },
+    },
+  }),
+  // v22 -> v23: Fabricator (docs/plans/2026-07-16-fabricator-plan.md Task F6 / design). Two additive
+  // seeds for the new state the Fabricator feature introduced (Tasks F1/F2), mirroring the minimal
+  // single-purpose shape MIGRATIONS[18]/[19]/[20]/[21] set the template for:
+  //
+  // - `facilities.fabricator` at level 1 (Task F1) -- ⚠️ LOAD-BEARING, level 1 NOT 0, the same
+  //   reasoning research carries in MIGRATIONS[21] (and missionControl in MIGRATIONS[20]). Level 0 is
+  //   "not built"; seeding at level 1 makes the Fabricator ESTABLISHED from game start, so tier-1
+  //   blueprints are fabricable immediately on a returning player's save (canFabricate gates
+  //   blueprint.tier > fabricator level -> tierLocked). A level-0 seed would silently LOCK all tier-1
+  //   fabrication on every existing save -- a soft-lock/regression. Same `{ level: 1 }` literal
+  //   freshState seeds, so migrated and fresh shapes cannot drift apart (Omega 4).
+  // - `fabricateOrder` (the standing fabricate order, Task F2): seeded null if absent -- the same
+  //   fresh idle value freshState gives, and the exact `?? null` nullable-field idiom MIGRATIONS[19]
+  //   used to seed `refineOrder`. FabricateOrder carries NO Decimal (blueprintKey string, mode.remaining
+  //   a plain number, pausedReason a string literal), so hydrateDecimals needs NO change: it rides
+  //   through its own `...state` spread there with no per-field revival, exactly as `refineOrder` does.
+  //
+  // `?? { level: 1 }` / `?? null` are idempotent + belt-and-suspenders: a genuine v22 save has neither
+  // key (so both are seeded), but a chained/hand-edited save that already carries a fabricator level or
+  // an active fabricateOrder keeps it exactly (never reset, never wiped). `state.facilities?.` guards
+  // the wholesale-absent facilities case defensively -- not reachable on a real v22 save (MIGRATIONS[17]
+  // always seeds facilities), same defense-in-depth posture as this file's other ?? guards. F2's
+  // fabricateJob timed processes ride `activeProcesses`, which is ALREADY migrated + hydrated (its
+  // addItem effect's Decimal `amount` is revived by hydrateDecimals), so there is nothing to do for them
+  // here. Every OTHER GameState field rides through untouched on the outer `...state` spread.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production, so it is
+  // still editable (the frozen-once-shipped rule applies only to production-released migrations).
+  22: (state: any): any => ({
+    ...state,
+    fabricateOrder: state.fabricateOrder ?? null,
+    facilities: {
+      ...state.facilities,
+      fabricator: state.facilities?.fabricator ?? { level: 1 },
     },
   }),
 };

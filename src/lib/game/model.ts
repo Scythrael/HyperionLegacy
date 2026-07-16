@@ -684,7 +684,18 @@ export interface CaptainState {
 // countdown/completion machinery; only its completion effect differs. Like "fuelRefineJob"
 // it is EXCLUDED from the resolver's Fleet-Admiral-XP lump award (see resolveProcesses) --
 // research is automated infra that must not perturb the tuned FA-XP curve.
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject";
+// Fabricator (Phase 4, Task F2): a "fabricateJob" crafts a researched blueprint's
+// component from materials -- the Fabricator's analog of the Refinery's "refineJob".
+// It reuses the SAME countdown/completion machinery and the SAME "addItem" completion
+// effect (resolveProcesses needs no new branch); only its INPUTS (a blueprint recipe)
+// and its lifetime tally (itemsCrafted, not itemsRefined) differ. UNLIKE refineJob it
+// is EXCLUDED from the resolver's Fleet-Admiral-XP lump award (see resolveProcesses) --
+// like researchProject/fuelRefineJob, it is a blueprint-gated, long-duration automated
+// economy that must not perturb the tuned FA-XP curve (a 120-300-tick craft would dump
+// a large lump; the tiny-duration Phase-1 refineJob keeps its award). ⚠️ DESIGN DECISION
+// flagged to the controller -- flip the exclusion + this comment together if fabrication
+// should feed FA XP.
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -811,7 +822,21 @@ export type FacilityUpgradeEffect =
   // slot grant, never a content-unlock marker. Property-presence narrowing (same as the
   // members above), so a rung carrying this is inert to refineSlotCount / tierCap /
   // fuelCap / the fuel helpers, and vice-versa.
-  | { addResearchSlots: number };
+  | { addResearchSlots: number }
+  // --- Fabricator (Phase 4, F1 -- design §1): the Fabricator's SLOT grant ----------
+  // +N concurrent craft jobs this facility can run. fabricateSlotCount (tick.ts) SUMS
+  // this across the reached rungs -- the EXACT same derive-on-read/reached-rungs idiom
+  // refineSlotCount uses for `addRefineSlots` and researchSlotCount uses for
+  // `addResearchSlots` (fabricate slots are the Fabricator's analog of refine/research
+  // slots). The blueprint TIER unlock is NOT summed off an effect: it derives from the
+  // facility LEVEL (a blueprint is fabricable when fabricator level >= blueprint.tier),
+  // the same way researchSlotCount's Research Lab derives tiers from level -- so a
+  // fabricate rung's effect is ONLY the slot grant, never a content-unlock marker.
+  // ADDED ADDITIVELY + INERT: property-presence narrowing (same convention as every
+  // member above), so a rung carrying this is inert to refineSlotCount / researchSlotCount
+  // / tierCap / fuelCap, and -- critically -- NO existing facility rung sets it, so this
+  // member changes NO existing behavior (anti-regression: Omega 15).
+  | { addFabricateSlots: number };
 
 // One rung of a facility's upgrade track = the requirements to reach the NEXT
 // level. `materials` are deducted ATOMICALLY at start by startProcess (design §4).
@@ -1267,6 +1292,60 @@ export const FACILITIES: Record<string, FacilityDef> = {
       },
     ],
   },
+  // --- Fabricator (Phase 4, F1 -- design §1) -----------------------------------
+  // The facility whose LEVEL gates which blueprint TIERS are fabricable + how many
+  // craft SLOTS run in parallel. A DIRECT CLONE of the Research Lab's shape (a level-
+  // derived tier gate + a summed slot grant), differing only in the effect field it
+  // carries (addFabricateSlots) and the fact that the CRAFT cost is materials + time,
+  // never credits -- but the UPGRADE rungs, like every other facility's, cost credits.
+  //   - SEEDED AT LEVEL 1 like the Research Lab / Mission Control (freshState below):
+  //     tier-1 blueprints are fabricable from game start once researched (fabricable
+  //     when level >= tier), so there is no soft-lock.
+  //   - RUNGS CARRY A REAL SLOT GRANT like the Refinery / Research Lab: each rung's
+  //     { addFabricateSlots } effect is SUMMED across reached rungs by fabricateSlotCount
+  //     (tick.ts), exactly as researchSlotCount sums { addResearchSlots }. The blueprint-
+  //     TIER unlock is level-derived (not summed), the same way the Research Lab derives
+  //     researchable tiers from its level.
+  //
+  // FINITE track that CAPS at real content: only blueprint tiers 1 and 2 exist today
+  // (BLUEPRINTS), so the track has exactly TWO rungs (level 1 and level 2). NO rung
+  // beyond tier 2 -- adding one would be a placeholder that unlocks nothing, against
+  // this file's no-placeholder discipline. A future blueprint tier re-extends the track
+  // additively (one more rung), mirroring the Research Lab / Refinery / Warehouse tracks.
+  //
+  // COST MODEL -- upgrade rungs cost CREDITS (the OPTIONAL `credits` FacilityUpgradeDef
+  // field, the SAME gate the Research rungs use), NOT materials (materials are the CRAFT
+  // cost, spent by the fabricate engine in F2). ⚠️ FIRST-PASS TUNABLE values
+  // (credits/duration/FA-level), same launch-placeholder spirit as the Research Lab.
+  fabricator: {
+    label: "Fabricator",
+    upgrades: [
+      // [0] Level 0 -> 1: the FOUNDING rung. PRE-GRANTED via the level-1 freshState seed
+      // (never built in normal play), so it is ungated + zero-cost + zero-duration -- the
+      // SAME founding-rung posture as the Research Lab's. Its effect grants the FIRST
+      // craft slot (fabricateSlotCount sums it -> 1 at level 1). Reaching level 1 is ALSO
+      // what makes TIER-1 blueprints fabricable (level >= 1), but that is derived from the
+      // LEVEL, not from this effect.
+      {
+        materials: {},
+        durationTicks: 0,
+        effect: { addFabricateSlots: 1 },
+      },
+      // [1] Level 1 -> 2: the REAL upgrade rung. Reaching level 2 unlocks TIER-2
+      // blueprints (fabricable: tier 2 <= level 2) AND grants a 2nd craft slot
+      // (fabricateSlotCount sums to 2). Gated on CREDITS (the SAME optional gate the
+      // Research rungs use) + a modest FA-level prereq. NO materials (materials are the
+      // per-craft cost, not the upgrade cost). Track ENDS here (finite; only tiers 1-2
+      // exist). ⚠️ FIRST-PASS TUNABLE credits/duration/FA-level.
+      {
+        materials: {},
+        credits: new Decimal(5000), // the tier-2 unlock's credit sink (tunable)
+        durationTicks: 120, // tunable
+        effect: { addFabricateSlots: 1 },
+        requiresFleetAdminLevel: 3, // modest gate, mirrors the Research Lab's idiom (tunable)
+      },
+    ],
+  },
 };
 
 // --- Refine orders (Phase 2, Task D1 -- docs/plans/2026-07-13-phase-2-warehouse-
@@ -1298,6 +1377,30 @@ export interface RefineOrder {
   recipeKey: string;                       // which REFINE_RECIPES entry this order runs
   mode: RefineOrderMode;
   pausedReason?: "noInput" | "outputFull"; // absent = running; set per-tick by processRefineOrder
+}
+
+// --- Fabricate orders (Fabricator Phase 4, Task F2 -- docs/plans/2026-07-16-fabricator-
+// design.md §2) --------------------------------------------------------------------
+// A STANDING fabricate order, a LINE-FOR-LINE mirror of RefineOrder above, for the
+// Fabricator instead of the Refinery. It keeps starting single fabricate JOBS (via
+// startFabricateJob) each economyTick until its work is done or a block hits. The ONE
+// shape difference vs. RefineOrder: `blueprintKey` (a BLUEPRINTS id) replaces
+// `recipeKey` (a REFINE_RECIPES id) -- the job it runs is a researched blueprint's
+// recipe, not a refine recipe. Same two modes (batch count-N / continuous) and the same
+// per-tick-recomputed `pausedReason` (auto-resume by construction). A SEPARATE
+// FabricateOrderMode (structurally identical to RefineOrderMode) is defined so the two
+// order systems stay INDEPENDENTLY evolvable -- a future refine-only or fabricate-only
+// mode can be added without coupling the other (Omega 8 YAGNI + Omega 4: consolidation
+// candidate if they never diverge, flagged not forced). NO Decimal on this shape, so
+// save hydration needs no per-field revival -- it rides the `...state` spread untouched.
+export type FabricateOrderMode =
+  | { kind: "batch"; remaining: number }
+  | { kind: "continuous" };
+
+export interface FabricateOrder {
+  blueprintKey: string;                    // which BLUEPRINTS entry (its recipe) this order crafts
+  mode: FabricateOrderMode;
+  pausedReason?: "noInput" | "outputFull"; // absent = running; set per-tick by processFabricateOrder
 }
 
 export interface GameState {
@@ -1381,6 +1484,15 @@ export interface GameState {
   // the offline per-tick step loop. freshState seeds null; the v19->v20 migration
   // (save.ts) backfills null onto existing saves.
   refineOrder: RefineOrder | null;
+  // Fabricator (Phase 4, Task F2 -- design §2): the fleet's ONE standing fabricate order,
+  // or null when none is active -- the EXACT mirror of refineOrder above, for the
+  // Fabricator. A SINGLE nullable order (not a list/map) is the minimal correct shape for
+  // today's ONE fabricator (widenable to a per-fabricator map later without precluding it
+  // now, Omega 8 YAGNI). It is processed each tick inside economyTick (processFabricateOrder,
+  // tick.ts) at the SAME seam as refineOrder, so it behaves identically live and in the
+  // offline per-tick step loop. freshState seeds null; the v22->v23 migration (save.ts, F6)
+  // backfills null onto existing saves.
+  fabricateOrder: FabricateOrder | null;
   // --- Research (Phase 3, Task R1 -- docs/plans/2026-07-15-research-*.md §2) ---
   // The set of UNLOCKED blueprint keys (BLUEPRINTS ids the player has researched).
   // Modeled as a string[] rather than a Set so it serializes cleanly through the JSON
@@ -1395,36 +1507,20 @@ export interface GameState {
   researchedBlueprints: string[];
 }
 
-export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
-
-export interface RecipeDef {
-  label: string;
-  inputs: Partial<Record<HomePlanetMaterialKey, Decimal>>;
-  output: { key: HomePlanetMaterialKey; amount: Decimal };
-}
-
-// 2 recipes at launch, one per structure -- proves the crafting mechanic.
-// Add entries here (and nowhere else -- App.svelte's Homeworld panels iterate
-// this object) as the "fully fleshed out crafting system" grows later.
-export const RECIPES: Record<RecipeKey, RecipeDef> = {
-  refineUnobtainium: {
-    label: "Refine Unobtainium Ore",
-    inputs: { commonOre: new Decimal(10) },
-    output: { key: "refinedMaterial", amount: new Decimal(1) },
-  },
-  fabricateComponents: {
-    label: "Fabricate Components",
-    inputs: { refinedMaterial: new Decimal(5) },
-    output: { key: "components", amount: new Decimal(1) },
-  },
-};
+// RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
+// RETIRED in the Fabricator feature (Phase 4, Task F5). The timed Fabricator
+// facility (BLUEPRINTS + craftDurationTicks + startFabricateOrder, below/tick.ts)
+// fully subsumes that mechanic -- researched blueprints crafted over time via the
+// order/slot engine, feeding the SAME lifetimeStats.itemsCrafted tally. The old
+// `recipeBonusOutput` Homeworld Talent effect that only modified this instant path
+// was retired with it (see HomeworldTalentEffect below).
 
 // --- Timed refine recipes (Ship Production Economy, Phase 1, Task 11 --
 // docs/plans/2026-07-11-facility-framework-refinery-design.md §6) ----------------
-// The going-forward, TIMED refinery mechanic -- DISTINCT from the instant
-// RECIPES/craftRecipe() path above, which is deliberately left intact this pass
-// (Anti-Regression 15a; design §9 open item 4 -- retire it only when the
-// Fabricator subsumes it). A refine recipe is inputs -> ONE output over a fixed
+// The going-forward, TIMED refinery mechanic. (The old instant
+// RECIPES/craftRecipe() path this once stood beside was RETIRED in Phase 4,
+// Task F5, once the Fabricator subsumed it -- see the retirement note above.)
+// A refine recipe is inputs -> ONE output over a fixed
 // duration; startRefineJob (tick.ts) hands it to the Task 8 startProcess engine
 // (atomic deduct-at-start), and resolveProcesses grants the output + increments
 // lifetimeStats.itemsRefined on completion.
@@ -1560,17 +1656,18 @@ export const ITEMS: Record<string, ItemDef> = {
     unlockHint: "Skimmed from the Local Deuterium Skim run -- refine it into fuel at the Fuel Depot.",
     flavor: "Deuterium-laced water ice cracked from a local field. Cook it down at the Fuel Depot and it runs the FTL drives.",
   },
-  // --- Refined / crafted goods (Homeworld crafting output; RECIPES targets) ---
+  // --- Refined / crafted goods (Refinery / Fabricator output) ---
   refinedMaterial: {
     label: "Refined Material",
     category: "refined",
     tier: 1,
     rarity: "uncommon",
-    // Output of both the instant RECIPES.refineUnobtainium craft and the timed
-    // REFINE_RECIPES.refineCommonOre job, each consuming `commonOre` (Titanium Ore)
-    // at the Refinery. (Fuel-sourcing RESTRUCTURE 2026-07-15: reverted F1's "Deuterium
-    // Ice" wording back to Titanium -- the material Refinery consumes titanium ore, the
-    // Fuel Depot now refines the separate `deuteriumIce` item instead.)
+    // Output of the timed REFINE_RECIPES.refineCommonOre job, consuming `commonOre`
+    // (Titanium Ore) at the Refinery. (The legacy instant RECIPES.refineUnobtainium
+    // craft that once also produced it was retired in Phase 4, Task F5.) (Fuel-sourcing
+    // RESTRUCTURE 2026-07-15: reverted F1's "Deuterium Ice" wording back to Titanium --
+    // the material Refinery consumes titanium ore, the Fuel Depot now refines the
+    // separate `deuteriumIce` item instead.)
     unlockHint: "Refined from Titanium Ore at the Refinery.",
     flavor: "Titanium ore cooked down to a workable ingot. The first rung of the production ladder.",
   },
@@ -1579,8 +1676,9 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "refined",
     tier: 1,
     rarity: "rare",
-    // Output of the RECIPES.fabricateComponents craft, which consumes Refined
-    // Material (5 -> 1) at the Homeworld.
+    // Output of the Fabricator (a researched blueprint crafted from Refined
+    // Material via the timed fabricate-order engine). Replaced the legacy instant
+    // RECIPES.fabricateComponents craft, retired in Phase 4, Task F5.
     unlockHint: "Fabricated from Refined Material at the Homeworld.",
     flavor: "Fabricated parts stamped from refined stock -- the building blocks fleet production runs on.",
   },
@@ -1778,6 +1876,15 @@ export interface BlueprintDef {
   tier: number;  // gated by the Research facility LEVEL (R2): researchable once level >= tier
   researchDurationTicks: number; // time to research (R3 runs it as a timed process)
   researchCreditCost: number;    // credits, deduct-at-start (R3); the long-term credit sink
+  // Fabricator (Phase 4, F1 -- design §3): time to CRAFT this blueprint's component
+  // once researched (the Fabricator runs it as a timed process, `durationTicks =
+  // craftDurationTicks`, EXACTLY as R3 runs research off researchDurationTicks). The
+  // Fabricator's cost is materials (recipe.inputs) + this TIME -- NO credits (locked
+  // brainstorm decision #3: credits stay Research's sink, materials are the
+  // Fabricator's). ⚠️ FIRST-PASS TUNABLE (same launch-placeholder spirit as
+  // researchDurationTicks): tier-1 components ~120 ticks, tier-2 ~300 -- real balance
+  // at the device checkpoint. Must be a positive finite number.
+  craftDurationTicks: number;
   // The recipe the FABRICATOR will use (defined now, crafted later). `inputs` +
   // `outputItem` are plain-string ITEMS keys (forward-loose like inventory/ProcessEffect),
   // so a recipe can target any registry item. Amounts are plain numbers (recipe QUANTITIES,
@@ -1808,6 +1915,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     tier: 1,
     researchDurationTicks: 60,
     researchCreditCost: 500,
+    craftDurationTicks: 120, // tier-1 first-pass (tunable)
     // Structural strut <- structural metal. Titanium Ingot is the refined structural feedstock.
     recipe: { inputs: { titaniumIngot: 4 }, outputItem: "frameSegment", outputQty: 1 },
     flavor: "The schematics for a hull's load-bearing struts -- the first thing any shipwright learns to stamp.",
@@ -1819,6 +1927,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     tier: 1,
     researchDurationTicks: 60,
     researchCreditCost: 600,
+    craftDurationTicks: 120, // tier-1 first-pass (tunable)
     // Electronics junction <- electronics substrate. Polysilicate Wafer is the refined substrate.
     recipe: { inputs: { polysilicateWafer: 4 }, outputItem: "powerCoupling", outputQty: 1 },
     flavor: "Wiring diagrams for the shielded junctions that tie a reactor line into the systems it feeds.",
@@ -1830,6 +1939,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     tier: 2,
     researchDurationTicks: 120,
     researchCreditCost: 1500,
+    craftDurationTicks: 300, // tier-2 first-pass (tunable)
     // Major component <- tier-1 minor components + a refined metal. Demonstrates the ladder:
     // frame segments + a power coupling, reinforced with titanium, married into a hull spine.
     recipe: {
@@ -1847,6 +1957,12 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
 // SINGLE SOURCE OF TRUTH so R1's tier-gate helper (and R2/R3/R5) all reference ONE
 // literal instead of scattering the raw "research" string.
 export const RESEARCH_FACILITY_KEY = "research";
+
+// The Fabricator facility's key in GameState.facilities. Mirrors RESEARCH_FACILITY_KEY:
+// the SINGLE SOURCE OF TRUTH for the raw "fabricator" string so F1's slot helper (tick.ts)
+// + F2/F3/F4/F6 all reference ONE literal instead of scattering it. F1 adds FACILITIES.
+// fabricator and seeds it at level 1 in freshState.
+export const FABRICATOR_FACILITY_KEY = "fabricator";
 
 // The Research facility's LEVEL, read DEFENSIVELY (absent facility -> 0). R1 has no
 // research facility, so this returns 0 until R2 seeds it at level 1 -- meaning tier-1
@@ -2006,7 +2122,11 @@ export type CaptainTalentEffect =
 export type HomeworldTalentEffect =
   | { type: "unlockCaptainSlot" }
   | { type: "rareYieldMult"; mult: number }
-  | { type: "recipeBonusOutput"; recipeKey: RecipeKey; bonus: number }
+  // (The `recipeBonusOutput` member was RETIRED in Phase 4, Task F5 with the
+  //  legacy RECIPES/craftRecipe instant-craft it exclusively modified. The two
+  //  industry-branch nodes that granted it now carry the honest `none`
+  //  placeholder, below -- their real mechanic is the Fabricator facility, a
+  //  future re-wire.)
   | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number }
   // Radial Skill Web (Task 3): a genuinely-null gateway effect, added to mirror
   // CaptainTalentEffect's own `none` member (Task 2) exactly. Used by the
@@ -2412,9 +2532,12 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     y: 0,
     isHub: true,
     neighbors: ["industryBonusOutput"],
-    // Modest real starter effect (mirrors the fleetLogistics hub's rationale) --
-    // a small fabrication bonus is thematically apt for an industry category.
-    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
+    // `none` placeholder (Phase 4, Task F5): this hub once granted
+    // recipeBonusOutput on the legacy instant-craft, retired with RECIPES. The
+    // industry branch's real mechanic is now the Fabricator facility; a future
+    // task re-wires this node to a Fabricator bonus. Rendered honestly as "no
+    // bonus yet" -- the same `none` idiom the Homeland Defense/Citizenry hubs use.
+    effect: { type: "none" },
     flavor: "Nationalize the foundries and the whole homeworld starts to hum.",
   },
   industryBonusOutput: {
@@ -2424,7 +2547,10 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     x: -180,
     y: -120,
     neighbors: ["industryHub"],
-    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
+    // `none` placeholder (Phase 4, Task F5) -- see industryHub above: retired with
+    // the legacy recipeBonusOutput/RECIPES instant-craft; a future task re-wires
+    // this to a Fabricator bonus.
+    effect: { type: "none" },
     flavor: "New jigs and fixtures on the fabrication line mean every batch stretches a little further.",
   },
 };
@@ -2712,12 +2838,16 @@ export function freshState(): GameState {
     // Existing saves get this same level-1 seed via the v21->v22 migration (Task R6,
     // save.ts) -- NOT this function's job. researchSlotCount tolerates an absent key
     // (?? 0) regardless, but seeding keeps the facility present for the R5 UI.
-    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 } },
+    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 } },
     activeProcesses: [],
     nextProcessId: 1,
     // Phase 2, Task D1: no standing refine order on a fresh save. Existing saves get
     // this same null seed via the v19->v20 migration (save.ts, MIGRATIONS[19]).
     refineOrder: null,
+    // Fabricator Task F2: no standing fabricate order on a fresh save (the mirror of the
+    // refineOrder: null seed above). Existing saves get this same null seed via the
+    // v22->v23 migration (save.ts, F6) -- NOT this function's job.
+    fabricateOrder: null,
     // Research Task R1: nothing researched on a brand-new save. Existing saves get this
     // same [] seed via the v21->v22 migration (Task R6, save.ts) -- NOT this function's
     // job. A string[] (no Decimal), so hydrateDecimals needs no change (see the field's

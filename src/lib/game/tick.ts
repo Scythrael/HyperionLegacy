@@ -16,7 +16,6 @@ import {
   xpForNextFleetAdminLevel,
   MISSIONS,
   BASE_XP_PER_TICK,
-  RECIPES,
   SHIP_TYPES,
   CAPTAIN_TALENTS,
   CAPTAIN_SPEC_BONUS,
@@ -37,8 +36,6 @@ import {
   type ShipDerivedStats,
   type MissionPhase,
   type MissionKey,
-  type RecipeKey,
-  type HomePlanetMaterialKey,
   type CaptainTalentKey,
   type HomeworldTalentKey,
   type CaptainTalentBranch,
@@ -49,6 +46,8 @@ import {
   type ProcessEffect,
   type RefineOrder,
   type RefineOrderMode,
+  type FabricateOrder,
+  type FabricateOrderMode,
   WAREHOUSE_T1_BASE_CAP,
   WAREHOUSE_T2_BASE_CAP,
   FUEL_TANK_BASE_CAP,
@@ -59,6 +58,7 @@ import {
   FUEL_REFINE_DURATION_TICKS,
   FUEL_DEPOT_BASE_PIPELINES,
   RESEARCH_FACILITY_KEY,
+  FABRICATOR_FACILITY_KEY,
   BLUEPRINTS,
   blueprintUnlocked,
 } from "./model";
@@ -376,11 +376,9 @@ export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string
 }
 
 // Same pattern as describeCaptainTalentEffect above, for the Homeworld Talent
-// tree's effect union. recipeBonusOutput looks up RECIPES[effect.recipeKey].label
-// for the recipe's display name -- the SAME lookup App.svelte's own crafting
-// log line already uses (`Crafted: ${RECIPES[recipeKey].label}.`) -- rather
-// than surfacing the raw RecipeKey string. passiveTrickle has no equivalent
-// display-label table anywhere in the codebase for HomePlanetMaterialKey, so
+// tree's effect union. (The `recipeBonusOutput` case was RETIRED in Phase 4,
+// Task F5 with the legacy RECIPES instant-craft it described.) passiveTrickle has
+// no display-label table anywhere in the codebase for HomePlanetMaterialKey, so
 // it surfaces the raw material key as-is (e.g. "commonOre"), matching how
 // this same codebase already displays raw LootMaterialKey/HomePlanetMaterialKey
 // strings elsewhere with no translation layer (see mission cargo readouts in
@@ -393,8 +391,6 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
       return "Unlocks a new captain slot";
     case "rareYieldMult":
       return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.rareMaterial.label} yield (fleet-wide)`;
-    case "recipeBonusOutput":
-      return `+${effect.bonus} bonus output per craft (${RECIPES[effect.recipeKey].label})`;
     case "passiveTrickle":
       return `+${effect.perTick}/tick passive ${effect.material}`;
     // Radial Skill Web (Task 3): the gateway-hub effect, mirroring the captain
@@ -1518,27 +1514,46 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // auto-stop relies on.
   const postOrderState = processRefineOrder(postProcessState);
 
+  // Fabricator (Phase 4, Task F2): process the standing fabricate ORDER (if any) at the
+  // SAME per-tick seam as the refine order -- AFTER resolveProcesses (a fabricate slot
+  // freed by a job COMPLETING this tick is refillable this same tick) and AFTER
+  // processRefineOrder (so a fabricate craft can consume refined materials the refine
+  // order just produced/started this tick; the two are independent -- fabricate jobs count
+  // against fabricateSlotCount, refine jobs against refineSlotCount; both share
+  // activeProcesses but neither gates the other). It starts new fabricate jobs into every
+  // free fabricate slot while unblocked; a job it starts here is a fresh TimedProcess that
+  // begins advancing on the NEXT economyTick (its remainingTicks untouched by the
+  // resolveProcesses that already ran above), exactly as processRefineOrder's jobs do. It
+  // touches only inventory/activeProcesses/fabricateOrder -- no FA XP -- so it composes
+  // cleanly before the final applyFleetAdminXp pass below. A same-reference no-op when
+  // there is no order. Stepped per WHOLE tick here (economyTick is called with span 1 by
+  // the offline loop), so tick(bigSpan) == looping economyTick(_,1) for fabrication too --
+  // the SAME one-seam offline==live guarantee the refine order relies on.
+  const postFabricateState = processFabricateOrder(postOrderState);
+
   // Fuel Economy v2 (F2): run the Fuel Depot's auto-refine pipelines AFTER
   // resolveProcesses (so a fuelRefineJob completing this tick frees its pipeline slot to
-  // refill same-tick) and after processRefineOrder (independent -- fuel batches count
-  // against fuelPipelineCount, refine jobs against refineSlotCount; both share
-  // activeProcesses but neither gates the other). It reads the CURRENT tank (post
-  // mission-spend + post batch-deposits) and CURRENT ice (post mission-loot + post
-  // refine-order consumption), starts batches into free pipeline slots while the tank has
-  // room + ice, and is a same-reference no-op when the depot runs no pipeline. Living
-  // HERE inside economyTick is what makes it run identically live and offline (tick()
-  // steps economyTick(_,1) per tick) -- the one-seam parity guarantee.
-  const postFuelState = processFuelPipelines(postOrderState);
+  // refill same-tick) and after processRefineOrder / processFabricateOrder (independent --
+  // fuel batches count against fuelPipelineCount, refine jobs against refineSlotCount,
+  // fabricate jobs against fabricateSlotCount; all share activeProcesses but none gates the
+  // others). It reads the CURRENT tank (post mission-spend + post batch-deposits) and
+  // CURRENT ice (post mission-loot + post refine-order consumption), starts batches into
+  // free pipeline slots while the tank has room + ice, and is a same-reference no-op when
+  // the depot runs no pipeline. Living HERE inside economyTick is what makes it run
+  // identically live and offline (tick() steps economyTick(_,1) per tick) -- the one-seam
+  // parity guarantee.
+  const postFuelState = processFuelPipelines(postFabricateState);
 
   // applyFleetAdminXp wraps the final state -- it runs AFTER BOTH the captain loop
   // (mission FA XP) and resolveProcesses (process FA XP) have contributed to
   // fleetAdminXpDelta, so every FA XP source this call resolves through the one
-  // level-up pass. It does not touch inventory/facilities/activeProcesses/refineOrder/fuel
-  // -- the loot fold + resolveProcesses + processRefineOrder + processFuelPipelines above
-  // already produced their final values on postFuelState. Threaded through postFuelState
-  // so the order's + depot's newly-started jobs ride into the returned state; with no
-  // order and no depot pipeline postFuelState === postProcessState, so this is
-  // byte-identical to before F2. (Fuel batches award NO FA XP -- see resolveProcesses.)
+  // level-up pass. It does not touch inventory/facilities/activeProcesses/refineOrder/
+  // fabricateOrder/fuel -- the loot fold + resolveProcesses + processRefineOrder +
+  // processFabricateOrder + processFuelPipelines above already produced their final values
+  // on postFuelState. Threaded through postFuelState so every engine's newly-started jobs
+  // ride into the returned state; with no order/fabricate-order and no depot pipeline
+  // postFuelState === postProcessState, so this is byte-identical to before those features.
+  // (Fuel batches + fabricate jobs award NO FA XP -- see resolveProcesses.)
   return applyFleetAdminXp(postFuelState, fleetAdminXpDelta);
 }
 
@@ -1910,60 +1925,10 @@ export function buyShip(
   };
 }
 
-// Validates every input in the recipe is affordable, deducts them all, adds
-// the output -- same "same state reference on failure" convention as every
-// other buy/action function in this file (dispatchCaptainOnMission,
-// recallCaptain). Manual-craft-button only this phase; an auto-craft toggle
-// is a deliberate near-term follow-up, not built here.
-export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: GameState; success: boolean } {
-  const recipe = RECIPES[recipeKey];
-  // recipe.inputs[key] is Decimal | undefined (Partial<Record<...>>), so the
-  // fallback must be a Decimal too -- `?? 0` would leave `needed` typed
-  // `Decimal | number`, and a plain number has no `.lt()`/`.minus()` methods.
-  for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
-    const needed = recipe.inputs[key] ?? new Decimal(0);
-    // Affordability gate reads the keyed `inventory` (was homePlanet.storage).
-    // Input keys are the recipe's own HomePlanetMaterialKeys, all seeded in
-    // inventory (freshState/migration), so this is a 1:1 read swap.
-    if (state.inventory[key].lt(needed)) return { next: state, success: false };
-  }
-
-  // Deduct every input from a NEW inventory clone (immutable-update style, was a
-  // storage clone). A DEDUCT is NOT a discovery event -- it does NOT go through
-  // addToInventory; consuming an item you already had reveals nothing new. Same
-  // exact per-input .minus(needed) as before.
-  const inventory = { ...state.inventory };
-  for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
-    const needed = recipe.inputs[key] ?? new Decimal(0);
-    inventory[key] = inventory[key].minus(needed);
-  }
-
-  // recipeBonusOutput (Homeworld Talent, e.g. industryBonusOutput): a FLAT
-  // extra amount added per craft, not a multiplier -- matches the effect
-  // type's own `bonus: number` field name/shape. Reduce over every unlocked
-  // talent (not just industryBonusOutput by name) so any future
-  // recipeBonusOutput entry targeting a different recipeKey works without
-  // touching this function again. effect.bonus stays plain number (Big-Number
-  // Migration field-split table) -- this reduce is unchanged plain-number
-  // arithmetic, unrelated to the Decimal boundary below.
-  const bonusOutput = state.unlockedHomeworldTalents.reduce((sum, key) => {
-    const effect = HOMEWORLD_TALENTS[key].effect;
-    return effect.type === "recipeBonusOutput" && effect.recipeKey === recipeKey ? sum + effect.bonus : sum;
-  }, 0);
-  // Add the crafted output through the single add seam (addToInventory) so the
-  // output item is marked discovered. The added amount is the recipe's base
-  // output PLUS the flat recipeBonusOutput, combined into ONE Decimal here so the
-  // helper's single .plus() reproduces the old
-  // `.plus(recipe.output.amount).plus(bonusOutput)` chain exactly -- both
-  // operands are integer amounts (output.amount is a Decimal, bonusOutput a plain
-  // number), so this reassociation is value-identical. A real recipe's output is
-  // always >= 1, so the discovered mark always fires here (unlike the loot fold,
-  // which can see 0 deltas).
-  const outputAmount = recipe.output.amount.plus(bonusOutput);
-  const added = addToInventory(inventory, state.discovered, recipe.output.key, outputAmount);
-
-  return { next: { ...state, inventory: added.inventory, discovered: added.discovered }, success: true };
-}
+// (craftRecipe -- the legacy INSTANT Homeworld craft action -- was RETIRED in
+// Phase 4, Task F5. The timed Fabricator engine (startFabricateOrder /
+// processFabricateOrder, below) fully replaces it, feeding the SAME
+// lifetimeStats.itemsCrafted tally on craft completion.)
 
 // ============================================================================
 // Timed-process engine — Phase 1, Task 8
@@ -2363,6 +2328,28 @@ export function researchSlotCount(state: GameState): number {
     const effect = upgrades[i].effect;
     if ("addResearchSlots" in effect) {
       slots += effect.addResearchSlots;
+    }
+  }
+  return slots;
+}
+
+// Fabricate SLOT count (Fabricator Task F1) -- how many concurrent craft jobs the
+// Fabricator can run RIGHT NOW. A LINE-FOR-LINE clone of researchSlotCount, swapping
+// only the facility key + the effect field: SUM every { addFabricateSlots } grant on
+// the rungs the fabricator has ALREADY reached -- the EXACT same reached-rungs loop
+// refineSlotCount / researchSlotCount use. A fresh save seeds fabricator at level 1,
+// whose founding rung (upgrades[0]) grants addFabricateSlots:1 -> 1 slot; the level
+// 1->2 rung adds a 2nd. Level 0 / an absent facility sums nothing -> 0 (the defensive
+// floor). The `i < upgrades.length` guard is the same belt-and-suspenders bound the
+// siblings carry. Consumed by F2's startFabricateJob (concurrency cap) + the F4 panel.
+export function fabricateSlotCount(state: GameState): number {
+  const level = facilityLevel(state, FABRICATOR_FACILITY_KEY);
+  const upgrades = FACILITIES[FABRICATOR_FACILITY_KEY].upgrades;
+  let slots = 0;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    const effect = upgrades[i].effect;
+    if ("addFabricateSlots" in effect) {
+      slots += effect.addFabricateSlots;
     }
   }
   return slots;
@@ -3025,6 +3012,287 @@ export function processRefineOrder(state: GameState): GameState {
 }
 
 // ============================================================================
+// Fabricate engine (Fabricator Phase 4, Task F2)
+// (docs/plans/2026-07-16-fabricator-design.md §2).
+//
+// A LINE-FOR-LINE clone of the Refinery's refine engine above (startRefineJob +
+// startRefineOrder/stopRefineOrder/processRefineOrder), for the Fabricator. The Refinery
+// crafts a REFINE_RECIPES entry (raw ore -> refined material); the Fabricator crafts a
+// researched BLUEPRINTS entry's `recipe` (refined materials/components -> a component).
+// Everything else is identical: single-job start with atomic deduct + a "fabricateJob"
+// TimedProcess whose "addItem" completion effect deposits the component (resolveProcesses,
+// no new branch); a standing ORDER (batch count-N / continuous) that fills free fabricate
+// slots each economyTick, pauses with a reason when blocked, and auto-resumes when the
+// block lifts. Offline==live parity comes from the SAME economyTick seam (tick() steps
+// economyTick(_,1) per whole tick), NOT from any closed-form-in-order math -- exactly as
+// the refine order relies on.
+//
+// The ONE thing the Fabricator adds that the Refinery lacks: a blueprint carries RESEARCH
+// + TIER gates (a refine recipe is always available once the refinery is built). So
+// startFabricateJob's gate is richer than startRefineJob's -- it also requires the
+// blueprint researched (blueprintUnlocked) and tier-available (fabricator level >= tier)
+// and the output not at its storage cap. These guards are INLINED here for F2; F3 lifts
+// them into a typed `canFabricate` (mirroring canResearch) and this delegates to it.
+// ============================================================================
+
+// ============================================================================
+// Fabricator availability gate (Fabricator Task F3, plan §F3).
+//
+// FabricateBlockReason: the typed reason canFabricate returns when a craft is BLOCKED.
+// A string union (not a numeric enum) so it serializes/logs as a readable token and the
+// F4 Fabricator UI can switch on it exhaustively to render each blueprint's disabled Craft
+// button with its cause. DELIBERATELY mirrors ResearchBlockReason (above). The order of the
+// members mirrors canFabricate's gate order (see below):
+//   notFound       -- no blueprint has that key (bad caller / stale UI reference)
+//   notResearched  -- the blueprint is NOT unlocked (blueprintUnlocked is false)
+//   tierLocked     -- BLUEPRINTS[key].tier > the fabricator facility level (upgrade to unlock)
+//   noSlot         -- every fabricate slot is busy (active fabricateJobs >= fabricateSlotCount)
+//   materials      -- a recipe input is unaffordable (any input: on-hand < required)
+//   storageFull    -- the output component is at its warehouse storage cap (materialAtCap)
+export type FabricateBlockReason =
+  | "notFound"
+  | "notResearched"
+  | "tierLocked"
+  | "noSlot"
+  | "materials"
+  | "storageFull";
+
+// Fabricator Task F3: THE single consolidated fabricate gate. Pure predicate -- reads state
+// + the static BLUEPRINTS/ITEMS tables + the derived fabricateSlotCount, mutates nothing,
+// spends nothing. The ONE source of truth for "can this blueprint be fabricated right now?":
+// it folds F2's inline startFabricateJob guards (researched / tier / slot / storage-cap /
+// affordability) into one typed-reason result, MIRRORING canResearch. startFabricateJob
+// (below) calls this first and does nothing else gate-wise; the F4 UI calls it directly to
+// render each blueprint's Craft button (enabled, or disabled with the reason shown).
+//
+// GATE ORDER is deliberate, cheapest/most-fundamental first, and determines WHICH reason
+// surfaces when several fail at once (ok itself is order-independent -- all must pass):
+// identity (notFound) -> ownership (notResearched) -> tier unlock (tierLocked) ->
+// concurrency (noSlot) -> resource (materials) -> storage (storageFull). NOTE the
+// materials-BEFORE-storageFull nuance (plan §F3): F2's startFabricateJob DELEGATED the
+// affordability check to startProcess (so it ran AFTER the cap check). canFabricate must
+// surface `materials` explicitly, so it checks inputs HERE, before the cap gate -- mirroring
+// how canResearch checks credits explicitly rather than relying on startProcess. This is a
+// reason-ordering choice only: every failing gate still yields the SAME { started:false,
+// same-ref } outcome F2 produced (F2 exposed no reason), so it is behavior-preserving.
+export function canFabricate(
+  state: GameState,
+  blueprintKey: string
+): { ok: true } | { ok: false; reason: FabricateBlockReason } {
+  // --- Identity: the key must name a real blueprint. An absent def means "not a real
+  // blueprint" (bad caller / stale UI reference) -- checked first so every later gate can
+  // safely read `bp`.
+  const bp = BLUEPRINTS[blueprintKey];
+  if (!bp) return { ok: false, reason: "notFound" };
+
+  // --- Ownership: the blueprint must be RESEARCHED (unlocked via the Research Lab) before
+  // it can be fabricated. Pure membership test, surfaced as its own reason.
+  if (!blueprintUnlocked(state, blueprintKey)) return { ok: false, reason: "notResearched" };
+
+  // --- Tier unlock: the fabricator's LEVEL must have reached the blueprint's tier -- the
+  // SAME level-derived tier gate the Research Lab uses (facilityLevel >= tier).
+  if (bp.tier > facilityLevel(state, FABRICATOR_FACILITY_KEY)) {
+    return { ok: false, reason: "tierLocked" };
+  }
+
+  // --- Concurrency: a free fabricate slot -- count in-flight fabricateJobs against the cap
+  // (facility upgrades do not consume fabricate slots). At 0 slots (unbuilt fabricator) this
+  // is always full -> no job can start. The EXACT slot accounting startRefineJob uses.
+  const activeFabricateJobs = state.activeProcesses.filter((p) => p.kind === "fabricateJob").length;
+  if (activeFabricateJobs >= fabricateSlotCount(state)) return { ok: false, reason: "noSlot" };
+
+  // --- Resource: every recipe input must be affordable (on-hand >= required). recipe.inputs
+  // amounts are plain numbers; an absent inventory key reads as 0 (the SAME affordability
+  // test startProcess applies, checked HERE so the `materials` reason surfaces BEFORE the
+  // cap gate). Any single short input blocks the whole craft.
+  for (const itemId of Object.keys(bp.recipe.inputs)) {
+    const have = state.inventory[itemId] ?? new Decimal(0);
+    if (have.lt(bp.recipe.inputs[itemId])) return { ok: false, reason: "materials" };
+  }
+
+  // --- Storage: the output component must not be at its warehouse cap. Reads the SAME
+  // materialAtCap seam the refine order + missions/trickle auto-stop on (AT the cap counts
+  // as full). A full component store cannot start new crafts.
+  if (materialAtCap(state, bp.recipe.outputItem)) return { ok: false, reason: "storageFull" };
+
+  return { ok: true };
+}
+
+// Starts ONE fabricate job for `blueprintKey`. As of Task F3 this is a THIN WRAPPER over
+// canFabricate (above) -- canFabricate is the single source of truth for every gate
+// (notFound, notResearched, tierLocked, noSlot, materials, storageFull), so this function
+// only (a) consults it, (b) on a block returns the SAME state ref + started:false + the
+// block reason (so callers/UI can show WHY), and (c) on ok deducts the recipe inputs
+// ATOMICALLY at start (via startProcess) and pushes a "fabricateJob" TimedProcess whose
+// completion effect { type: "addItem", itemId: recipe.outputItem } adds the component
+// (resolveProcesses grants it + marks it discovered + bumps lifetimeStats.itemsCrafted).
+//
+// The return keeps the START family's { next, started } shape (startProcess / startRefineJob
+// / startResearch) and ADDS an OPTIONAL `reason` (undefined on success) EXACTLY the way
+// startResearch exposes canResearch's reason -- purely additive, so callers reading only
+// { next, started } (e.g. processFabricateOrder) are unaffected.
+//
+// ⚠️ ANTI-REGRESSION (Task F3): the SUCCESS path is UNCHANGED from F2 -- same inputs map,
+// same startProcess call (which applies its own final affordability gate + atomic deduct),
+// same "addItem" effect. Only the guards moved into canFabricate; startProcess's deduct is
+// what actually spends the inputs, so the deduct-at-start behavior is byte-for-byte the same.
+export function startFabricateJob(
+  state: GameState,
+  blueprintKey: string
+): { next: GameState; started: boolean; reason?: FabricateBlockReason } {
+  // The single consolidated gate. On a block: same-ref no-op (the reject convention every
+  // other start/action in this file shares) + the reason, so a blocked start can never be
+  // mistaken for a no-op change.
+  const gate = canFabricate(state, blueprintKey);
+  if (!gate.ok) return { next: state, started: false, reason: gate.reason };
+
+  // gate.ok GUARANTEES a real, researched, tier-available blueprint with a free slot,
+  // affordable inputs, and output room, so the def lookup below cannot fail -- recomputed
+  // here (rather than threaded out of canFabricate) to keep canFabricate a clean predicate.
+  const bp = BLUEPRINTS[blueprintKey];
+
+  // Build the Decimal inputs map from the recipe's plain-number amounts (recipe QUANTITIES,
+  // wrapped at the deduct site exactly as fuel/research constants are). Then hand off to
+  // startProcess, which applies the FINAL affordability gate + atomic deduct and pushes the
+  // "fabricateJob" TimedProcess whose completion effect adds the component. UNCHANGED from F2.
+  const inputs: Record<string, Decimal> = {};
+  for (const itemId of Object.keys(bp.recipe.inputs)) {
+    inputs[itemId] = new Decimal(bp.recipe.inputs[itemId]);
+  }
+
+  return startProcess(state, "fabricateJob", inputs, bp.craftDurationTicks, {
+    type: "addItem",
+    itemId: bp.recipe.outputItem,
+    amount: new Decimal(bp.recipe.outputQty),
+  });
+}
+
+// Sets (or REPLACES) the fleet's standing fabricate order. PURE: returns a NEW state with
+// fabricateOrder set, or the SAME reference (no-op) if blueprintKey is unknown -- the
+// EXACT mirror of startRefineOrder. pausedReason is intentionally ABSENT on a fresh order
+// (running until processFabricateOrder proves otherwise next tick). Replacing an existing
+// order overwrites the record; JOBS the previous order already started stay in flight
+// (committed TimedProcesses, not owned by the order record). The F4 UI calls this; tests
+// call it directly.
+export function startFabricateOrder(
+  state: GameState,
+  blueprintKey: string,
+  mode: FabricateOrderMode
+): GameState {
+  if (!BLUEPRINTS[blueprintKey]) return state; // unknown blueprint -> same-reference no-op
+  return { ...state, fabricateOrder: { blueprintKey, mode } };
+}
+
+// Clears the standing fabricate order (fabricateOrder -> null). PURE. Idempotent: clearing
+// when there is no order returns the SAME reference. Does NOT touch activeProcesses -- a
+// job the order already started is a committed process that runs to completion (the
+// in-progress iteration commits; only the queued REMAINDER is dropped). The mirror of
+// stopRefineOrder.
+export function stopFabricateOrder(state: GameState): GameState {
+  if (state.fabricateOrder === null) return state;
+  return { ...state, fabricateOrder: null };
+}
+
+// The per-tick fabricate-order engine, called ONCE per economyTick (AFTER resolveProcesses,
+// so a fabricate slot freed by a job COMPLETING this tick is immediately refillable this
+// same tick -- no idle gap for a continuous order). PURE: returns a NEW state, or the SAME
+// reference when there is no order to process. A LINE-FOR-LINE clone of processRefineOrder,
+// operating on the active order's BLUEPRINT recipe (bp.recipe.inputs / .outputItem) instead
+// of a REFINE_RECIPES entry.
+//
+// Each call fills EVERY currently-free fabricate slot with a new job while the order is
+// unblocked, then records why it stopped -- identical structure/idiom to processRefineOrder:
+//   - FREE SLOTS = fabricateSlotCount - (fabricate jobs already in flight).
+//   - OUTPUT FULL: the component is at its warehouse cap (materialAtCap) -> pause
+//     "outputFull" (checked BEFORE inputs -- the more specific storage block).
+//   - NO INPUT: recipe inputs unaffordable -> pause "noInput".
+//   - SLOTS BUSY (all slots occupied, work remains): NOT a pause (working at capacity) ->
+//     pausedReason left CLEARED.
+//   - BATCH DONE: a batch order whose `remaining` reaches 0 CLEARS (-> null).
+//
+// AUTO-RESUME is STRUCTURAL: pausedReason starts undefined each call and is only set if a
+// block is hit THIS tick, so the tick a block lifts the order starts jobs again and records
+// no pausedReason -- no explicit un-pause. Bounded work: at most fabricateSlotCount (<= a
+// few) jobs start per call, so the inner loop is tightly bounded even across a 172,800-tick
+// offline catch-up (once per free slot, not once per tick) -- no Omega-14 concern.
+export function processFabricateOrder(state: GameState): GameState {
+  const order = state.fabricateOrder;
+  if (order === null) return state; // no order -> same-reference no-op
+
+  // Unknown blueprint on a persisted/corrupted order -> leave it untouched rather than
+  // throw on `undefined.recipe`. startFabricateOrder guards NEW orders, so this only
+  // shields a hand-edited/older save; no progress, no invented pause reason.
+  const bp = BLUEPRINTS[order.blueprintKey];
+  if (!bp) return state;
+
+  let working = state;                    // threaded immutably as each startFabricateJob returns fresh state
+  let mode = order.mode;                  // batch mode's `remaining` is decremented per started job
+  let pausedReason: "noInput" | "outputFull" | undefined = undefined;
+
+  // Start jobs until: batch exhausted (clears), all slots busy (stop, no pause), or a
+  // block hits (output full / no input -> pause with the reason).
+  while (true) {
+    // Batch exhausted -> the order is complete; clear it (-> null) and return.
+    if (mode.kind === "batch" && mode.remaining <= 0) {
+      return { ...working, fabricateOrder: null };
+    }
+
+    // A free slot must exist to start another job. All slots busy is NOT a pause (the order
+    // is working at capacity), so we stop WITHOUT setting pausedReason. SAME slot accounting
+    // startFabricateJob's own gate uses.
+    const activeFabricateJobs = working.activeProcesses.filter((p) => p.kind === "fabricateJob").length;
+    if (activeFabricateJobs >= fabricateSlotCount(working)) break;
+
+    // Output at its warehouse cap -> pause "outputFull" (checked before inputs, the more
+    // specific storage block -- mirrors processRefineOrder's ordering).
+    if (materialAtCap(working, bp.recipe.outputItem)) {
+      pausedReason = "outputFull";
+      break;
+    }
+
+    // Inputs unaffordable -> pause "noInput". The SAME affordability test startProcess
+    // applies (an absent inventory key reads as 0), read HERE so the pause reason is known
+    // BEFORE delegating -- startFabricateJob alone would only report started:false, never
+    // WHY. recipe.inputs amounts are plain numbers; Decimal.lt accepts a number directly.
+    let affordable = true;
+    for (const itemId of Object.keys(bp.recipe.inputs)) {
+      const have = working.inventory[itemId] ?? new Decimal(0);
+      if (have.lt(bp.recipe.inputs[itemId])) {
+        affordable = false;
+        break;
+      }
+    }
+    if (!affordable) {
+      pausedReason = "noInput";
+      break;
+    }
+
+    // All gates pass -> start ONE job via the SHARED startFabricateJob (atomic deduct-at-start
+    // + process push -- no duplicated job-creation logic). Its own gates re-check the same
+    // conditions and cannot reject here (we just verified them), but the defensive `!started`
+    // break guarantees termination even if it ever did.
+    const { next, started } = startFabricateJob(working, order.blueprintKey);
+    if (!started) break;
+    working = next;
+
+    // One batch iteration consumed. A continuous order carries no counter to decrement.
+    if (mode.kind === "batch") {
+      mode = { kind: "batch", remaining: mode.remaining - 1 };
+    }
+  }
+
+  // Write back the (possibly decremented) mode + this tick's pausedReason. A batch that hit
+  // `remaining` 0 exactly on its last start is cleared by the top-of-loop check on the very
+  // next iteration, so it never reaches here with remaining 0 -- this path is only a
+  // slot-busy stop (no pause) or a block (with a reason).
+  const nextOrder: FabricateOrder =
+    pausedReason === undefined
+      ? { blueprintKey: order.blueprintKey, mode }
+      : { blueprintKey: order.blueprintKey, mode, pausedReason };
+  return { ...working, fabricateOrder: nextOrder };
+}
+
+// ============================================================================
 // Fuel Depot pipeline engine (Fuel Economy v2 F2, design §2).
 //
 // processFuelPipelines(state): the per-tick engine, called ONCE per economyTick (AFTER
@@ -3430,6 +3698,24 @@ export function resolveProcesses(
             [itemId]: priorRefined.plus(process.effect.amount),
           },
         };
+      } else if (process.kind === "fabricateJob") {
+        // Fabricator (Phase 4, Task F2): a completed FABRICATE JOB accrues the per-item
+        // lifetime itemsCrafted total -- the EXACT mirror of the refineJob -> itemsRefined
+        // hook just above, keyed on kind === "fabricateJob" so the shared addItem effect
+        // routes to the right lifetime map (a refineJob feeds itemsRefined, a fabricateJob
+        // feeds itemsCrafted; a facilityUpgrade never uses addItem). Closed-form for the
+        // SAME reason: it fires exactly ONCE, on the completion that drops the process, so
+        // one big resolve and many small ones accrue the identical total. Immutable per-key
+        // add (fresh maps); an item absent from itemsCrafted starts at 0.
+        const itemId = process.effect.itemId;
+        const priorCrafted = lifetimeStats.itemsCrafted[itemId] ?? new Decimal(0);
+        lifetimeStats = {
+          ...lifetimeStats,
+          itemsCrafted: {
+            ...lifetimeStats.itemsCrafted,
+            [itemId]: priorCrafted.plus(process.effect.amount),
+          },
+        };
       }
     } else if (process.effect.type === "addFuel") {
       // Fuel Economy v2 (F2): a completed Fuel Depot pipeline batch deposits its
@@ -3461,12 +3747,23 @@ export function resolveProcesses(
       const current = facilities[facility] ?? { level: 0 };
       facilities = { ...facilities, [facility]: { ...current, level: current.level + 1 } };
     }
-    // Fleet Admiral XP lump award -- EXCLUDES fuelRefineJob (F2) AND researchProject (R3).
-    // Both are additive/automated economies that must NOT perturb the tuned FA-XP curve, so
-    // each completes with zero FA XP; every OTHER process kind (refineJob / facilityUpgrade)
-    // keeps the "durationTicks lumped on completion" award. Excluding them also keeps the
-    // closed-form FA-XP parity trivially intact (they contribute 0 either way).
-    if (process.kind !== "fuelRefineJob" && process.kind !== "researchProject") {
+    // Fleet Admiral XP lump award -- EXCLUDES fuelRefineJob (F2), researchProject (R3), AND
+    // fabricateJob (Fabricator F2). All three are additive/automated economies that must NOT
+    // perturb the tuned FA-XP curve, so each completes with zero FA XP; every OTHER process
+    // kind (refineJob / facilityUpgrade) keeps the "durationTicks lumped on completion"
+    // award. ⚠️ fabricateJob is a DESIGN DECISION flagged to the controller: unlike its
+    // refine twin (a tiny-duration Phase-1 manual job that keeps the award), a fabricate
+    // craft is a blueprint-gated 120-300-tick automated-order job -- lumping its full
+    // durationTicks would be a large FA-XP injection that skews progression, and it matches
+    // researchProject (also blueprint-gated) more than refineJob. Flip this (drop the
+    // fabricateJob clause) + the TimedProcessKind comment together if fabrication should feed
+    // FA XP. Excluding them also keeps the closed-form FA-XP parity trivially intact (they
+    // contribute 0 either way).
+    if (
+      process.kind !== "fuelRefineJob" &&
+      process.kind !== "researchProject" &&
+      process.kind !== "fabricateJob"
+    ) {
       fleetAdminXpDelta += process.durationTicks;
     }
   }

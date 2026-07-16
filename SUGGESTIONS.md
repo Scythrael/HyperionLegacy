@@ -724,3 +724,28 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   and increment `lifetimeStats.itemsRefined` by iterations×output) — deterministic, no per-tick simulation.
   This is the biggest closed-form-math risk in the epic and the one most in need of a REAL test run (Node),
   so it was split out from the shippable single-job core rather than bundled into a no-typecheck build.
+
+- **Fabricator build-to-target auto-chain (Option 3, deferred — user 2026-07-16).** Deferred from the
+  Fabricator brainstorm (`docs/plans/2026-07-16-fabricator-design.md`) in favor of the Refinery-style
+  order/slot mechanic (Option 1). The idea: instead of the player manually crafting intermediates then
+  the final component, they set a TARGET ("I want N `structuralAssembly`") and the Fabricator computes the
+  whole blueprint dependency chain (e.g. `structuralAssembly` needs 2 `frameSegment` + 1 `powerCoupling` +
+  refined mats) and auto-crafts the intermediates first, then the assembly — anticipating ship
+  bills-of-materials for the future Shipyard. Notably more complex than the flat per-blueprint order UX
+  (recursive BOM expansion, a multi-stage order queue, and offline-bulk resolution across a DAG of crafts
+  rather than a single recipe), and a different UX from the Refinery — so it's a follow-up, not the first
+  Fabricator pass. Build the flat order system first; layer auto-chain on top once components have a real
+  sink (Shipyard) and the BOM shapes are known.
+
+- **Re-wire the industry Homeworld-talent branch to buff the new Fabricator (2026-07-16, from Fabricator
+  Task F5).** Retiring the legacy `RECIPES` instant-craft (F5) orphaned the `recipeBonusOutput` talent
+  effect, which only ever buffed the legacy `fabricateComponents` craft. Its two industry-branch nodes
+  (`industryHub`, `industryBonusOutput`) were retargeted to the existing `{ type: "none" }` "No bonus yet"
+  placeholder (nodes/graph/spent points preserved — talents store by key, no migration) rather than
+  deleted. So today those two nodes are honestly inert. The natural re-wire: a NEW talent effect giving a
+  bonus-output CHANCE on Fabricator crafts (thematically perfect for an "industry" branch). ⚠️ NOT a
+  trivial add — a bonus-output RNG hook on the craft engine MUST resolve in BULK for offline batches (the
+  exact closed-form concern the resourcefulness bonus-roll had incidents over, and the same
+  Completions "free-output-chance" seam already reserved elsewhere in this file). Do it as its own careful
+  task with an offline-parity test. Until then the industry branch reads "No bonus yet" (consistent with
+  the Homeland Defense / Citizenry placeholder hubs).
