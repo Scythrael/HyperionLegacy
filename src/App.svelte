@@ -5372,6 +5372,22 @@
               <span>Filled</span>
               <span class="warehouse-tt-v" style="color: {tipAtCap ? 'var(--color-danger)' : 'var(--color-text-primary)'}">{Math.round(tipAtCap ? 100 : tipPct)}%</span>
             </div>
+            <!-- Allocated / Free readout (Crafting Allocation Redesign C5, 2026-07-16).
+                 Total is the "Stored" row above (physical stock). Allocated = units
+                 reserved by active craft lines (state.refineLines + fabricateLines via
+                 the `allLines` reactive); Free = usable stock. `allocatedItem` is
+                 DISPLAY-CLAMPED to <= Total here (Decimal.min) so a reserve-ahead
+                 continuous line can never render "Allocated > Total" -- the freeItem
+                 helper already clamps Free >= 0, this keeps the tooltip coherent. -->
+            {@const tipAllocated = Decimal.min(allocatedItem(allLines, tipId), tipCount)}
+            <div class="warehouse-tt-row">
+              <span>Allocated</span>
+              <span class="warehouse-tt-v" style="color: var(--color-warning)">{formatNumber(tipAllocated)}</span>
+            </div>
+            <div class="warehouse-tt-row">
+              <span>Free</span>
+              <span class="warehouse-tt-v" style="color: var(--color-success)">{formatNumber(freeItem(state.inventory, allLines, tipId))}</span>
+            </div>
             <div class="warehouse-tt-stat">{tip.flavor}</div>
             {#if tipAtCap}
               <div class="warehouse-tt-warn">⚠ FULL — producers auto-stopped. Expand storage.</div>
