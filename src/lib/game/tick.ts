@@ -3092,59 +3092,126 @@ export function processRefineOrder(state: GameState): GameState {
 // them into a typed `canFabricate` (mirroring canResearch) and this delegates to it.
 // ============================================================================
 
-// Starts ONE fabricate job for `blueprintKey` IF every gate passes: (a) the key names a
-// real blueprint, (b) it is RESEARCHED (blueprintUnlocked), (c) it is TIER-AVAILABLE
-// (fabricator level >= blueprint.tier), (d) a fabricate slot is free (active fabricateJob
-// count < fabricateSlotCount), (e) the output component is NOT at its warehouse cap, and
-// (f) startProcess can afford the recipe inputs. On any miss it is a same-reference no-op
-// ({ next: state, started: false }) -- the reject convention every action in this file
-// shares. On success it delegates to startProcess (Task 8 engine), which deducts the
-// inputs ATOMICALLY at start and pushes a "fabricateJob" TimedProcess whose completion
-// effect adds the component (resolveProcesses grants it + marks it discovered + bumps
-// lifetimeStats.itemsCrafted).
+// ============================================================================
+// Fabricator availability gate (Fabricator Task F3, plan §F3).
 //
-// GATE ORDER mirrors the F3 canFabricate ordering (cheapest/most-fundamental first):
-// identity -> researched -> tier -> slot -> storage-cap -> affordability. The
-// affordability check is DELEGATED to startProcess (its own input-affordable gate) rather
-// than duplicated, exactly as startRefineJob delegates it.
+// FabricateBlockReason: the typed reason canFabricate returns when a craft is BLOCKED.
+// A string union (not a numeric enum) so it serializes/logs as a readable token and the
+// F4 Fabricator UI can switch on it exhaustively to render each blueprint's disabled Craft
+// button with its cause. DELIBERATELY mirrors ResearchBlockReason (above). The order of the
+// members mirrors canFabricate's gate order (see below):
+//   notFound       -- no blueprint has that key (bad caller / stale UI reference)
+//   notResearched  -- the blueprint is NOT unlocked (blueprintUnlocked is false)
+//   tierLocked     -- BLUEPRINTS[key].tier > the fabricator facility level (upgrade to unlock)
+//   noSlot         -- every fabricate slot is busy (active fabricateJobs >= fabricateSlotCount)
+//   materials      -- a recipe input is unaffordable (any input: on-hand < required)
+//   storageFull    -- the output component is at its warehouse storage cap (materialAtCap)
+export type FabricateBlockReason =
+  | "notFound"
+  | "notResearched"
+  | "tierLocked"
+  | "noSlot"
+  | "materials"
+  | "storageFull";
+
+// Fabricator Task F3: THE single consolidated fabricate gate. Pure predicate -- reads state
+// + the static BLUEPRINTS/ITEMS tables + the derived fabricateSlotCount, mutates nothing,
+// spends nothing. The ONE source of truth for "can this blueprint be fabricated right now?":
+// it folds F2's inline startFabricateJob guards (researched / tier / slot / storage-cap /
+// affordability) into one typed-reason result, MIRRORING canResearch. startFabricateJob
+// (below) calls this first and does nothing else gate-wise; the F4 UI calls it directly to
+// render each blueprint's Craft button (enabled, or disabled with the reason shown).
 //
-// `blueprintKey` is typed `string` (forward-loose, like startRefineJob's recipeKey) with
-// an explicit undefined guard, so an unknown key is a clean rejection rather than a throw.
+// GATE ORDER is deliberate, cheapest/most-fundamental first, and determines WHICH reason
+// surfaces when several fail at once (ok itself is order-independent -- all must pass):
+// identity (notFound) -> ownership (notResearched) -> tier unlock (tierLocked) ->
+// concurrency (noSlot) -> resource (materials) -> storage (storageFull). NOTE the
+// materials-BEFORE-storageFull nuance (plan §F3): F2's startFabricateJob DELEGATED the
+// affordability check to startProcess (so it ran AFTER the cap check). canFabricate must
+// surface `materials` explicitly, so it checks inputs HERE, before the cap gate -- mirroring
+// how canResearch checks credits explicitly rather than relying on startProcess. This is a
+// reason-ordering choice only: every failing gate still yields the SAME { started:false,
+// same-ref } outcome F2 produced (F2 exposed no reason), so it is behavior-preserving.
+export function canFabricate(
+  state: GameState,
+  blueprintKey: string
+): { ok: true } | { ok: false; reason: FabricateBlockReason } {
+  // --- Identity: the key must name a real blueprint. An absent def means "not a real
+  // blueprint" (bad caller / stale UI reference) -- checked first so every later gate can
+  // safely read `bp`.
+  const bp = BLUEPRINTS[blueprintKey];
+  if (!bp) return { ok: false, reason: "notFound" };
+
+  // --- Ownership: the blueprint must be RESEARCHED (unlocked via the Research Lab) before
+  // it can be fabricated. Pure membership test, surfaced as its own reason.
+  if (!blueprintUnlocked(state, blueprintKey)) return { ok: false, reason: "notResearched" };
+
+  // --- Tier unlock: the fabricator's LEVEL must have reached the blueprint's tier -- the
+  // SAME level-derived tier gate the Research Lab uses (facilityLevel >= tier).
+  if (bp.tier > facilityLevel(state, FABRICATOR_FACILITY_KEY)) {
+    return { ok: false, reason: "tierLocked" };
+  }
+
+  // --- Concurrency: a free fabricate slot -- count in-flight fabricateJobs against the cap
+  // (facility upgrades do not consume fabricate slots). At 0 slots (unbuilt fabricator) this
+  // is always full -> no job can start. The EXACT slot accounting startRefineJob uses.
+  const activeFabricateJobs = state.activeProcesses.filter((p) => p.kind === "fabricateJob").length;
+  if (activeFabricateJobs >= fabricateSlotCount(state)) return { ok: false, reason: "noSlot" };
+
+  // --- Resource: every recipe input must be affordable (on-hand >= required). recipe.inputs
+  // amounts are plain numbers; an absent inventory key reads as 0 (the SAME affordability
+  // test startProcess applies, checked HERE so the `materials` reason surfaces BEFORE the
+  // cap gate). Any single short input blocks the whole craft.
+  for (const itemId of Object.keys(bp.recipe.inputs)) {
+    const have = state.inventory[itemId] ?? new Decimal(0);
+    if (have.lt(bp.recipe.inputs[itemId])) return { ok: false, reason: "materials" };
+  }
+
+  // --- Storage: the output component must not be at its warehouse cap. Reads the SAME
+  // materialAtCap seam the refine order + missions/trickle auto-stop on (AT the cap counts
+  // as full). A full component store cannot start new crafts.
+  if (materialAtCap(state, bp.recipe.outputItem)) return { ok: false, reason: "storageFull" };
+
+  return { ok: true };
+}
+
+// Starts ONE fabricate job for `blueprintKey`. As of Task F3 this is a THIN WRAPPER over
+// canFabricate (above) -- canFabricate is the single source of truth for every gate
+// (notFound, notResearched, tierLocked, noSlot, materials, storageFull), so this function
+// only (a) consults it, (b) on a block returns the SAME state ref + started:false + the
+// block reason (so callers/UI can show WHY), and (c) on ok deducts the recipe inputs
+// ATOMICALLY at start (via startProcess) and pushes a "fabricateJob" TimedProcess whose
+// completion effect { type: "addItem", itemId: recipe.outputItem } adds the component
+// (resolveProcesses grants it + marks it discovered + bumps lifetimeStats.itemsCrafted).
+//
+// The return keeps the START family's { next, started } shape (startProcess / startRefineJob
+// / startResearch) and ADDS an OPTIONAL `reason` (undefined on success) EXACTLY the way
+// startResearch exposes canResearch's reason -- purely additive, so callers reading only
+// { next, started } (e.g. processFabricateOrder) are unaffected.
+//
+// ⚠️ ANTI-REGRESSION (Task F3): the SUCCESS path is UNCHANGED from F2 -- same inputs map,
+// same startProcess call (which applies its own final affordability gate + atomic deduct),
+// same "addItem" effect. Only the guards moved into canFabricate; startProcess's deduct is
+// what actually spends the inputs, so the deduct-at-start behavior is byte-for-byte the same.
 export function startFabricateJob(
   state: GameState,
   blueprintKey: string
-): { next: GameState; started: boolean } {
+): { next: GameState; started: boolean; reason?: FabricateBlockReason } {
+  // The single consolidated gate. On a block: same-ref no-op (the reject convention every
+  // other start/action in this file shares) + the reason, so a blocked start can never be
+  // mistaken for a no-op change.
+  const gate = canFabricate(state, blueprintKey);
+  if (!gate.ok) return { next: state, started: false, reason: gate.reason };
+
+  // gate.ok GUARANTEES a real, researched, tier-available blueprint with a free slot,
+  // affordable inputs, and output room, so the def lookup below cannot fail -- recomputed
+  // here (rather than threaded out of canFabricate) to keep canFabricate a clean predicate.
   const bp = BLUEPRINTS[blueprintKey];
-  if (!bp) return { next: state, started: false }; // unknown blueprint -> same-ref no-op
-
-  // Researched? A blueprint must be unlocked (via the Research Lab) before it can be
-  // fabricated. An un-researched key is a clean rejection (the F3 canFabricate
-  // `notResearched` reason).
-  if (!blueprintUnlocked(state, blueprintKey)) return { next: state, started: false };
-
-  // Tier-available? The fabricator's LEVEL must have reached the blueprint's tier -- the
-  // SAME level-derived tier gate the Research Lab uses (facilityLevel >= tier). A tier-2
-  // blueprint on a level-1 fabricator is rejected (the F3 `tierLocked` reason).
-  if (bp.tier > facilityLevel(state, FABRICATOR_FACILITY_KEY)) return { next: state, started: false };
-
-  // Slot gate: count only the fabricate jobs already in flight (facility upgrades do not
-  // consume fabricate slots). A free slot exists iff that count is below the derived slot
-  // total. At 0 slots (unbuilt fabricator) this is always false -> no job can start. This
-  // is the EXACT slot accounting startRefineJob uses, keyed on kind === "fabricateJob".
-  const activeFabricateJobs = state.activeProcesses.filter((p) => p.kind === "fabricateJob").length;
-  if (activeFabricateJobs >= fabricateSlotCount(state)) return { next: state, started: false };
-
-  // Output at its warehouse cap -> reject (the F3 `storageFull` reason). Reads the SAME
-  // materialAtCap seam the refine order + missions/trickle auto-stop on. UNLIKE
-  // startRefineJob (which has no cap gate -- Phase-1 manual jobs may overshoot), the
-  // Fabricator gates on the cap here so a full component store cannot start new crafts.
-  if (materialAtCap(state, bp.recipe.outputItem)) return { next: state, started: false };
 
   // Build the Decimal inputs map from the recipe's plain-number amounts (recipe QUANTITIES,
   // wrapped at the deduct site exactly as fuel/research constants are). Then hand off to
-  // startProcess, which applies the FINAL affordability gate + atomic deduct; if the inputs
-  // are short it returns { next: state, started: false } (same reference), so an
-  // unaffordable job is rejected there with no extra check needed here.
+  // startProcess, which applies the FINAL affordability gate + atomic deduct and pushes the
+  // "fabricateJob" TimedProcess whose completion effect adds the component. UNCHANGED from F2.
   const inputs: Record<string, Decimal> = {};
   for (const itemId of Object.keys(bp.recipe.inputs)) {
     inputs[itemId] = new Decimal(bp.recipe.inputs[itemId]);

@@ -24,6 +24,7 @@ import Decimal from "break_infinity.js";
 import { freshState, BLUEPRINTS, FACILITIES, FABRICATOR_FACILITY_KEY, type GameState, type FabricateOrder } from "./model";
 import {
   fabricateSlotCount,
+  canFabricate,
   startFabricateJob,
   startFabricateOrder,
   stopFabricateOrder,
@@ -372,5 +373,167 @@ describe("Fabricator F2 — offline == live parity (the high-risk seam)", () => 
     expect(jumped.inventory.titaniumIngot.toString()).toBe("0"); // 12 consumed (3 crafts' inputs)
     expect(jumped.activeProcesses.filter((p) => p.kind === "fabricateJob")).toHaveLength(1); // craft3 in flight
     expect(jumped.fabricateOrder).toEqual({ blueprintKey: "frameSegmentBp", mode: { kind: "continuous" } }); // still running
+  });
+});
+
+// ============================================================================
+// Task F3 (AVAILABILITY GATE): canFabricate is the single consolidated fabricate
+// gate -- a pure predicate mirroring canResearch. It folds F2's inline
+// startFabricateJob guards into one typed-reason result the F4 UI can switch on.
+// These tests parallel research.test.ts's canResearch block against the SAME
+// frameSegmentBp fixture (titaniumIngot x4 -> frameSegment x1; frameSegment is a
+// tier-1 item, warehouse cap 1,000,000). They pin:
+//   - each FabricateBlockReason for its own unmet condition (notFound /
+//     notResearched / tierLocked / noSlot / materials / storageFull);
+//   - { ok: true } when every gate passes;
+//   - GATE-ORDER precedence (notResearched -> tierLocked -> ... -> materials ->
+//     storageFull), especially the materials-before-storageFull nuance the plan calls
+//     out (both fail at once -> "materials" surfaces);
+//   - startFabricateJob now DELEGATES to canFabricate: same-ref no-op + the reason on
+//     each block, and the UNCHANGED F2 deduct/start path (reason undefined) on ok.
+// ============================================================================
+
+describe("Fabricator F3 — canFabricate returns each reason for its unmet condition", () => {
+  it("notFound — no blueprint has that key (defensive)", () => {
+    expect(canFabricate(fabState({ titaniumIngot: 100 }), "notARealBlueprint")).toEqual({
+      ok: false,
+      reason: "notFound",
+    });
+  });
+
+  it("notResearched — the blueprint is not in researchedBlueprints", () => {
+    const s = fabState({ titaniumIngot: 100, researched: [] });
+    expect(canFabricate(s, "frameSegmentBp")).toEqual({ ok: false, reason: "notResearched" });
+  });
+
+  it("tierLocked — the blueprint's tier exceeds the fabricator level", () => {
+    // structuralAssemblyBp is tier 2; a researched tier-2 blueprint on a level-1
+    // fabricator is tier-locked even with ample materials.
+    const s = fabState({
+      titaniumIngot: 100,
+      frameSegment: 100,
+      researched: ["structuralAssemblyBp"],
+      fabricatorLevel: 1,
+    });
+    expect(canFabricate(s, "structuralAssemblyBp")).toEqual({ ok: false, reason: "tierLocked" });
+  });
+
+  it("noSlot — every fabricate slot is busy (active jobs >= fabricateSlotCount)", () => {
+    // 1 slot on a fresh level-1 fabricator. Start one job to fill it, then the next
+    // gate check sees no free slot (materials still ample, output not at cap).
+    const s0 = fabState({ titaniumIngot: 100 });
+    const busy = startFabricateJob(s0, "frameSegmentBp");
+    expect(busy.started).toBe(true);
+    expect(canFabricate(busy.next, "frameSegmentBp")).toEqual({ ok: false, reason: "noSlot" });
+  });
+
+  it("materials — a recipe input is unaffordable (on-hand < required)", () => {
+    // frameSegmentBp needs titaniumIngot x4; on-hand 3 is short.
+    const s = fabState({ titaniumIngot: 3 });
+    expect(canFabricate(s, "frameSegmentBp")).toEqual({ ok: false, reason: "materials" });
+  });
+
+  it("storageFull — the output component is at its warehouse cap", () => {
+    // frameSegment (tier 1) cap is 1,000,000 at warehouse level 0; AT the cap counts
+    // as full (materialAtCap uses >=). Inputs ample so only the cap gate fails.
+    const s = fabState({ titaniumIngot: 100, frameSegment: 1_000_000 });
+    expect(canFabricate(s, "frameSegmentBp")).toEqual({ ok: false, reason: "storageFull" });
+  });
+
+  it("{ ok: true } when every gate passes", () => {
+    expect(canFabricate(fabState({ titaniumIngot: 100 }), "frameSegmentBp")).toEqual({ ok: true });
+  });
+});
+
+describe("Fabricator F3 — gate-order precedence (which reason surfaces when several fail)", () => {
+  it("notResearched wins over materials + storageFull when all three fail", () => {
+    // Not researched AND no materials AND output at cap -> the most-fundamental
+    // (identity/ownership) reason surfaces first.
+    const s = fabState({ titaniumIngot: 0, frameSegment: 1_000_000, researched: [] });
+    expect(canFabricate(s, "frameSegmentBp")).toEqual({ ok: false, reason: "notResearched" });
+  });
+
+  it("tierLocked wins over materials when both fail", () => {
+    // Researched tier-2 blueprint, level-1 fabricator, zero of its inputs -> tier
+    // gate (checked before materials) surfaces.
+    const s = fabState({
+      titaniumIngot: 0,
+      frameSegment: 0,
+      researched: ["structuralAssemblyBp"],
+      fabricatorLevel: 1,
+    });
+    expect(canFabricate(s, "structuralAssemblyBp")).toEqual({ ok: false, reason: "tierLocked" });
+  });
+
+  it("materials wins over storageFull when both fail (the plan's ordering nuance)", () => {
+    // Inputs short AND output at cap: "materials" is checked BEFORE "storageFull", so
+    // the affordability reason surfaces -- the explicit-before-startProcess ordering
+    // F3 requires (mirrors canResearch checking credits before the process gate).
+    const s = fabState({ titaniumIngot: 3, frameSegment: 1_000_000 });
+    expect(canFabricate(s, "frameSegmentBp")).toEqual({ ok: false, reason: "materials" });
+  });
+});
+
+describe("Fabricator F3 — startFabricateJob delegates to canFabricate (reason + unchanged ok path)", () => {
+  it("on ok: still deducts inputs + pushes ONE job, reason undefined (F2 path unchanged)", () => {
+    const s = fabState({ titaniumIngot: 10 });
+    const r = startFabricateJob(s, "frameSegmentBp");
+    expect(r.started).toBe(true);
+    expect(r.reason).toBeUndefined();
+    expect(r.next.inventory.titaniumIngot.toString()).toBe("6"); // 10 - 4 atomic deduct
+    expect(r.next.activeProcesses.filter((p) => p.kind === "fabricateJob")).toHaveLength(1);
+  });
+
+  it("notFound block: same-ref no-op with reason 'notFound'", () => {
+    const s = fabState({ titaniumIngot: 100 });
+    const r = startFabricateJob(s, "notARealBlueprint");
+    expect(r.started).toBe(false);
+    expect(r.reason).toBe("notFound");
+    expect(r.next).toBe(s);
+  });
+
+  it("notResearched block: same-ref no-op with reason 'notResearched'", () => {
+    const s = fabState({ titaniumIngot: 100, researched: [] });
+    const r = startFabricateJob(s, "frameSegmentBp");
+    expect(r.started).toBe(false);
+    expect(r.reason).toBe("notResearched");
+    expect(r.next).toBe(s);
+  });
+
+  it("tierLocked block: same-ref no-op with reason 'tierLocked'", () => {
+    const s = fabState({
+      titaniumIngot: 100,
+      frameSegment: 100,
+      researched: ["structuralAssemblyBp"],
+      fabricatorLevel: 1,
+    });
+    const r = startFabricateJob(s, "structuralAssemblyBp");
+    expect(r.started).toBe(false);
+    expect(r.reason).toBe("tierLocked");
+    expect(r.next).toBe(s);
+  });
+
+  it("noSlot block: same-ref no-op with reason 'noSlot'", () => {
+    const busy = startFabricateJob(fabState({ titaniumIngot: 100 }), "frameSegmentBp");
+    const r = startFabricateJob(busy.next, "frameSegmentBp");
+    expect(r.started).toBe(false);
+    expect(r.reason).toBe("noSlot");
+    expect(r.next).toBe(busy.next);
+  });
+
+  it("materials block: same-ref no-op with reason 'materials'", () => {
+    const s = fabState({ titaniumIngot: 3 });
+    const r = startFabricateJob(s, "frameSegmentBp");
+    expect(r.started).toBe(false);
+    expect(r.reason).toBe("materials");
+    expect(r.next).toBe(s);
+  });
+
+  it("storageFull block: same-ref no-op with reason 'storageFull'", () => {
+    const s = fabState({ titaniumIngot: 100, frameSegment: 1_000_000 });
+    const r = startFabricateJob(s, "frameSegmentBp");
+    expect(r.started).toBe(false);
+    expect(r.reason).toBe("storageFull");
+    expect(r.next).toBe(s);
   });
 });
