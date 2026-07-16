@@ -1582,3 +1582,51 @@ Gate GREEN -- **`npm run check` = 0 errors (20 cosmetic unused-CSS/a11y warnings
 parity seam + the F3 gate/F5 legacy-removal completeness) + device tuning of the first-pass Fabricator values;
 then merge, and push only on explicit user confirmation (live Vercel production redeploy). The Shipyard
 (building ships from fabricated components -- the north-star toward combat) is the intended next feature.
+
+**Session 35 — Crafting Allocation Redesign (Phase 4b), branch `feat/crafting-allocation`.** Reworked the
+just-shipped Fabricator (0.11.0) AND the existing Refinery from a single flat recipe-list ORDER (one order
+shared across all of a facility's slots) into independent PER-SLOT PRODUCTION LINES, plus a material
+ALLOCATION/HOLD subsystem so concurrent crafts can't double-spend and any line can be cancelled with its
+unstarted materials refunded. Built subagent-driven over seven tasks (two-stage review per task) plus this
+final version/docs task; deliberately REPLACES-not-adds on top of stable, just-shipped code (the biggest
+such change since the Fabricator itself). (**C1**) ALLOCATION CORE: `allocated(state, item)` /
+`free(state, item)` helpers, DERIVED (not stored) from the active lines -- `allocated` = Σ over every
+active refinery+fabricator line of `line.remaining × recipeInputs(line)[item]`, `free` = `inventory[item]
+− allocated` (clamped ≥ 0). Deriving rather than storing means no drift, no new save field, and no new
+offline-parity surface. An in-flight iteration has already consumed its inputs (deduct-at-start) so it is
+NOT counted in `allocated`, keeping `free ≥ 0` always. (**C2**) LINES DATA MODEL + ENGINE: replaced the
+single `refineOrder`/`fabricateOrder` with `refineLines`/`fabricateLines` arrays (each
+`{ id, recipeKey|blueprintKey, remaining, mode }`, capped at the facility's slot count), plus
+`processRefineLines`/`processFabricateLines` (cloned from the proven per-tick order engine, now per-line)
+and `startLine`/`cancelLine`, wired into `economyTick`. Cancel removes the line so its unstarted reservation
+releases automatically. ⚠️ Re-verified the standing closed-form parity invariant (offline `tick(bigSpan)` ==
+looping the live path) across MULTIPLE lines completing mid-span -- the high-risk seam, same discipline the
+Fabricator/Research/mission engines each carried. (**C3**) FREE-AWARE GATES: `canStartLine` with typed
+reasons, and the quantity cap = `floor(free / per-iteration inputs)` so you can only order what you can
+currently reserve -- combined with cancel/refund, softlock is structurally impossible. (**C4**) The shared
+per-line CONFIGURATOR UI (one panel per slot, tier → item → amount → ingredient preview → start, with an
+active line showing progress + Cancel), used by BOTH Refinery and Fabricator -- MOCKUP-APPROVED before
+coding per the visual-UI-needs-mockup practice. (**C5**) The inventory TOOLTIP now shows Allocated / Free /
+Total per item, reusing the derived `allocated` helper. (**C6**) Save migration **v23->v24** replacing the
+single `refineOrder`/`fabricateOrder` with empty `refineLines: []`/`fabricateLines: []` (any in-flight
+preview-only v23 order is dropped as acceptable; active timed jobs in `activeProcesses` still resolve
+normally). `SAVE_VERSION` is now 24. (**C7**, this task) VERSION BUMP + docs.
+
+DOCS (C7): bumped `APP_VERSION` 0.11.0 -> **0.12.0** (Y-bump, feature-scale rework) and prepended a
+newest-first 0.12.0 PATCH_NOTES entry describing per-slot production lines, up-front material reservation,
+the Allocated/Free/Total tooltip, cancel-and-refund, the affordable-now quantity cap (no softlock), and the
+Shipyard forward-note. No `package.json` sync (this project has never tracked `version` to `APP_VERSION` --
+sits at the scaffold `0.0.0`, per existing convention). KNOWN_ISSUES.md gained five entries: configurator
+is batch-only (continuous still engine-supported, a loaded continuous line still runs); no per-line
+rename/reorder + the confirm-to-start dialog now covers fabricate too (honoring the existing shared toggle);
+the Refinery's single refine recipe leaves its dropdowns sparse until more recipes land; components still
+have no consumer until the Shipyard (restating the standing forward-window); and all first-pass Fabricator/
+Refinery tunables remain subject to the device-checkpoint balance pass (unchanged by this UX rework). No
+patchNotes test exists to update (no test references `APP_VERSION`/`PATCH_NOTES` -- grep-confirmed).
+
+Gate GREEN -- **`npm run check` = 0 errors (20 cosmetic unused-CSS/a11y warnings), `npm test` = 627 passing
+(21 files).** Next: final holistic review of the `feat/crafting-allocation` branch (especially the C2
+per-line offline-parity seam + the C3 free-aware-consumer completeness) + device tuning of the still-first-
+pass Fabricator/Refinery values; then merge, and push only on explicit user confirmation (live Vercel
+production redeploy). The Shipyard (building ships from fabricated components -- the north-star toward
+combat) remains the intended next feature.
