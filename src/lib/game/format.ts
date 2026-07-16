@@ -52,3 +52,77 @@ function formatDecimal(d: Decimal): string {
   const decimals = scaled < 10 ? 2 : scaled < 100 ? 1 : 0;
   return `${scaled.toFixed(decimals)}${TIERS[tier]}`;
 }
+
+// ============================================================================
+// formatDuration -- a compact, human-readable time span.
+//
+// Added 2026-07-16 (fuel net-display fix) as a SHARED helper, co-located with
+// formatNumber because this is the ONE place span formatting lives (the same
+// single-source discipline the header comment above states for number
+// formatting). Wave 2's fuel-runway readout reuses it, so it is written general
+// (full s/m/h/d ladder), not tailored to today's one caller.
+//
+// Converts a TICK count to seconds via `ticks * secondsPerTick`, then renders
+// the largest one or two units with a leading "~" (the value is an estimate --
+// the caller passes an average rate, not a guaranteed countdown):
+//   sub-minute -> "~45s"      minutes -> "~12m"
+//   hours      -> "~2h 15m"   days    -> "~3d 4h"
+// A zero trailing sub-unit is dropped ("~2h", not "~2h 0m"). On a rounding
+// boundary the sub-unit rolls up into the next unit (e.g. 59.6s of remainder
+// never renders as "60m"/"60s").
+//
+// GUARDS (why each): a non-finite or non-positive span has no sensible ladder
+// rendering, so:
+//   - NaN / <= 0 (includes 0, negatives, -Infinity) -> "—"  (nothing to show)
+//   - +Infinity                                      -> "∞"  (never drains)
+// A positive span that rounds below one second still reads "~1s" so the readout
+// never shows a broken "~0s".
+export function formatDuration(ticks: number, secondsPerTick: number): string {
+  const totalSeconds = ticks * secondsPerTick;
+
+  // Non-finite / non-positive guards FIRST, before any arithmetic. Order
+  // matters: NaN fails every comparison, so test it explicitly; +Infinity is
+  // the one "still finite work remaining is unbounded" case that reads "∞".
+  if (Number.isNaN(totalSeconds)) return "—";
+  if (totalSeconds === Infinity) return "∞";
+  if (totalSeconds <= 0) return "—"; // 0, negatives, and -Infinity all mean "nothing to show"
+
+  const SECONDS_PER_MINUTE = 60;
+  const SECONDS_PER_HOUR = 3600;
+  const SECONDS_PER_DAY = 86400;
+
+  // Sub-minute: whole seconds, floored at 1 so a positive sub-second span never
+  // renders "~0s".
+  if (totalSeconds < SECONDS_PER_MINUTE) {
+    return `~${Math.max(1, Math.round(totalSeconds))}s`;
+  }
+
+  // Minutes (no seconds sub-unit -- minute granularity is enough at this scale).
+  // A round-up landing on 60 rolls into "~1h" so we never print "~60m".
+  if (totalSeconds < SECONDS_PER_HOUR) {
+    const minutes = Math.round(totalSeconds / SECONDS_PER_MINUTE);
+    return minutes >= 60 ? "~1h" : `~${minutes}m`;
+  }
+
+  // Hours + minutes. Floor the whole hours, round the remainder to minutes; a
+  // remainder rounding to 60 rolls up into an extra hour with 0 minutes (then
+  // dropped by the zero-trailing rule).
+  if (totalSeconds < SECONDS_PER_DAY) {
+    let hours = Math.floor(totalSeconds / SECONDS_PER_HOUR);
+    let minutes = Math.round((totalSeconds - hours * SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
+    if (minutes >= 60) {
+      hours += 1;
+      minutes = 0;
+    }
+    return minutes > 0 ? `~${hours}h ${minutes}m` : `~${hours}h`;
+  }
+
+  // Days + hours. Same floor-big / round-small / roll-up-on-boundary pattern.
+  let days = Math.floor(totalSeconds / SECONDS_PER_DAY);
+  let hours = Math.round((totalSeconds - days * SECONDS_PER_DAY) / SECONDS_PER_HOUR);
+  if (hours >= 24) {
+    days += 1;
+    hours = 0;
+  }
+  return hours > 0 ? `~${days}d ${hours}h` : `~${days}d`;
+}

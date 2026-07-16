@@ -3105,6 +3105,126 @@ export function processFuelPipelines(state: GameState): GameState {
   return working;
 }
 
+// ============================================================================
+// fuelFlowSummary -- the DISPLAY-ONLY fuel-economy readout (Fuel net-display fix,
+// 2026-07-16).
+//
+// PURPOSE / THE BUG IT FIXES: the top-bar fuel chip and the Fuel Depot "REFINING"
+// panel used to subtract mission burn from the refinery's THEORETICAL MAX
+// throughput (a CEILING) UNCONDITIONALLY -- so when the player was OUT of
+// Deuterium Ice (the refinery actually produces 0) the Net still read POSITIVE.
+// Reported symptom: "even when I'm out of deuterium ice, it's still showing a net
+// positive." This helper computes an EFFECTIVE production that is 0 exactly when
+// the real refinery makes 0, and derives the Net + sufficiency from that.
+//
+// PURE / READ-ONLY: mutates nothing, spends nothing, starts no process. It does
+// NOT touch the tick engine -- processFuelPipelines (above) is unchanged and
+// still the sole authority on what the refinery DOES. This function only mirrors
+// that authority's GATES so the DISPLAY matches reality.
+//
+// GATE MIRROR (must stay in lockstep with processFuelPipelines' three stop
+// conditions above):
+//   - pipelines <= 0                       -> no depot / no pipelines -> makes 0
+//   - fuel >= fuelCap (tank full)          -> throttled to 0 (tank topped off)
+//   - iceOnHand < fuelBatchInput (ice out) -> makes 0 (nothing to refine)
+// iceOnHand reads the SAME `state.inventory["deuteriumIce"] ?? 0` (Decimal) the
+// engine reads -- the dedicated fuel-ore item, not commonOre.
+//
+// BURN: the per-tick mission-fuel-burn sum was MOVED here from App.svelte (it
+// previously lived inline in the fuel reactive block). Moving it in pulls in ZERO
+// new imports -- MISSIONS, SHIP_TYPES, fuelNeeded, requiredTicksForPhase,
+// effectiveMissionDef, shipDerivedStats are ALL already imported by this module
+// (the engine computes the same burn during ticks). This makes the summary fully
+// self-contained (testable from a GameState alone) and keeps burn as ONE source
+// of truth in the engine module, right next to the production it is compared to.
+// ============================================================================
+
+// The five phases of one full mission round-trip, in order. Summing each phase's
+// required ticks (on the SHIP-ADJUSTED def) gives the real cadence a mission
+// burns its fuelNeeded over -- so burn/tick = fuelNeeded / cycleTicks. Reuses
+// requiredTicksForPhase (the SAME per-phase length the tick engine advances on),
+// so this length cannot drift from the engine's actual cycle.
+const FUEL_CYCLE_PHASES: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
+
+// Total ticks in ONE full round-trip cycle of `baseMission` when flown by `ship`,
+// summed over all five phases of the ship-adjusted def (effectiveMissionDef
+// rescales transit by the hull's speed). Guards a 0/negative sum at the call site.
+function missionCycleTicks(baseMission: MissionDef, ship: ShipInstance): number {
+  const eff = effectiveMissionDef(baseMission, shipDerivedStats(ship));
+  return FUEL_CYCLE_PHASES.reduce((total, phase) => total + requiredTicksForPhase(phase, eff), 0);
+}
+
+// The shape the fuel UI reads. See the fields' inline notes for each meaning.
+export interface FuelFlowSummary {
+  maxProductionPerTick: number; // CEILING: pipelines * fuelBatchOutput / duration (informational "Production (max)")
+  effectiveProductionPerTick: number; // hasIce ? maxProductionPerTick : 0  -- THE FIX (0 when the refinery really makes 0)
+  iceInputPerTick: number; // Deuterium Ice consumed at full throughput: pipelines * fuelBatchInput / duration
+  burnPerTick: number; // per-tick mission-fuel-burn sum across every captain currently on a mission
+  netPerTick: number; // effectiveProductionPerTick - burnPerTick (the honest steady-state net)
+  hasIce: boolean; // pipelines > 0 && iceOnHand >= fuelBatchInput (a batch can actually start)
+  tankFull: boolean; // fuel >= fuelCap (refining throttled to 0 because the tank is topped off)
+  refiningActive: boolean; // hasIce && !tankFull (a batch is genuinely being refined right now)
+  sufficient: boolean; // netPerTick >= 0 || tankFull -- topped-off tank counts as fine even when throttled
+}
+
+export function fuelFlowSummary(state: GameState): FuelFlowSummary {
+  const pipelines = fuelPipelineCount(state);
+  const batchInput = fuelBatchInput(state); // Decimal (ice per batch)
+
+  // CEILING production + its ice cost -- the UNCHANGED formulas the old chip used.
+  // Guarded against a 0 duration exactly as the App.svelte block was.
+  const maxProductionPerTick =
+    FUEL_REFINE_DURATION_TICKS > 0 ? (pipelines * fuelBatchOutput(state).toNumber()) / FUEL_REFINE_DURATION_TICKS : 0;
+  const iceInputPerTick =
+    FUEL_REFINE_DURATION_TICKS > 0 ? (pipelines * batchInput.toNumber()) / FUEL_REFINE_DURATION_TICKS : 0;
+
+  // --- Gate mirror (see header). iceOnHand as Decimal, compared with .gte so a
+  // 49-ice reserve against a 50-ice batch reads as NO ice, exactly like the
+  // engine's `iceOnHand.lt(input)` stop. pipelines > 0 folds the "no depot" stop
+  // into hasIce (no pipelines -> nothing can refine -> not "has usable ice").
+  const iceOnHand = state.inventory["deuteriumIce"] ?? new Decimal(0);
+  const hasIce = pipelines > 0 && iceOnHand.gte(batchInput);
+  const tankFull = state.fuel.gte(fuelCap(state));
+  const refiningActive = hasIce && !tankFull;
+
+  // THE FIX: effective production is the ceiling ONLY when a batch can start.
+  // NOTE it is NOT zeroed on tankFull -- a full tank is "topped off / fine", and
+  // sufficiency (below) treats tankFull as sufficient regardless of net sign.
+  const effectiveProductionPerTick = hasIce ? maxProductionPerTick : 0;
+
+  // BURN (moved from App.svelte, formula byte-identical): for every captain
+  // CURRENTLY on a mission, that mission's round-trip fuel cost / its cycle
+  // length. A captain with no assigned hull contributes 0 (can't fly, can't
+  // burn). fuelNeeded reads the BASE mission by its own convention (fuel.ts);
+  // the cycle length uses the ship-adjusted def so the rate is fuel per REAL tick.
+  const burnPerTick = state.captains.reduce((sum, captain) => {
+    if (captain.mission === null) return sum;
+    const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
+    if (!ship) return sum;
+    const baseMission = MISSIONS[captain.mission.missionKey];
+    const cycleTicks = missionCycleTicks(baseMission, ship);
+    if (cycleTicks <= 0) return sum;
+    return sum + fuelNeeded(baseMission, SHIP_TYPES[ship.typeKey]) / cycleTicks;
+  }, 0);
+
+  const netPerTick = effectiveProductionPerTick - burnPerTick;
+  // A topped-off tank is fine even though refining is throttled to 0 -- so it
+  // counts as sufficient regardless of the (possibly negative) net.
+  const sufficient = netPerTick >= 0 || tankFull;
+
+  return {
+    maxProductionPerTick,
+    effectiveProductionPerTick,
+    iceInputPerTick,
+    burnPerTick,
+    netPerTick,
+    hasIce,
+    tankFull,
+    refiningActive,
+    sufficient,
+  };
+}
+
 // Advances every active process by `ticksElapsed` and resolves completions. THE
 // single completion resolver (Task 9 calls it from BOTH tick() and the live loop).
 //
