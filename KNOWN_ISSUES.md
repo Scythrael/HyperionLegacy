@@ -411,3 +411,29 @@ write it down so you don't relitigate it later.
   to prove the research/tier/slot mechanics work end-to-end, NOT calibrated against real play -- expect to retune
   them together with the still-unfinalized FA XP curve, slot walls, and Mission/Fuel balance during the same
   on-device pass (same "device-tuned starting value" posture as the refinery/mission/fuel balance entries above).
+- FABRICATED COMPONENTS AREN'T CONSUMED BY ANYTHING YET (Fabricator, Phase 4). The Fabricator crafts researched
+  blueprints (`BLUEPRINTS`, `model.ts`) into components that land in the unified inventory (visible on the
+  Warehouse Component tab), but nothing draws them back down yet -- there is no sink. The SHIPYARD is the intended
+  NEXT feature and will consume these components into ships (the north-star: build-a-ship-from-scratch -> combat).
+  So a player can fabricate every component and still have nowhere to spend them -- components just stockpile until
+  the Shipyard ships. Not a bug -- the same accepted forward-window the Research -> Fabricator loop already carried
+  (research had no consumer until the Fabricator; the Fabricator has no consumer until the Shipyard).
+- ALL Fabricator balance/content values are FIRST-PASS PLACEHOLDERS, to tune at the device checkpoint, not final
+  numbers (Fabricator, Phase 4): the per-blueprint craft DURATIONS (`craftDurationTicks` -- 120/120/300 today for
+  the two tier-1 minor components + the tier-2 assembly, `BLUEPRINTS`, `model.ts`); the TIER COUNT (only tiers 1
+  and 2 exist, mirroring Research's content depth -- no placeholder higher tiers); the Fabricator UPGRADE track's
+  slot RUNGS (which levels grant +1 craft slot via `fabricateSlotCount`, and the tier each level unlocks); and the
+  blueprint RECIPES themselves (which refined/component ITEMS each blueprint consumes and produces, and in what
+  quantities -- shared with Research's R1 catalog). All were picked to prove the craft/order/tier/slot mechanics
+  work end-to-end, NOT calibrated against real play -- expect to retune them together with the still-unfinalized
+  FA XP curve, slot walls, and Mission/Fuel/Research balance during the same on-device pass (same "device-tuned
+  starting value" posture as the research/refinery/mission/fuel balance entries above).
+- The two INDUSTRY Homeworld-talent nodes (`industryHub`, `industryBonusOutput`) read "No bonus yet" (Fabricator
+  Phase 4, F5). Their old `recipeBonusOutput` effect only ever buffed the retired legacy `RECIPES` instant-craft
+  (specifically the old `fabricateComponents` recipe), so when F5 removed that legacy system the effect was
+  orphaned -- both nodes were neutralized to the existing `{ type: "none" }` "No bonus yet" placeholder rather than
+  left pointing at dead code. They remain purchasable-but-inert until a future task re-wires the industry branch to
+  buff the NEW Fabricator (the natural target: a bonus-output chance on fabricate crafts, thematically perfect for
+  an "industry" branch) -- logged in SUGGESTIONS.md ("Re-wire the industry Homeworld-talent branch to buff the new
+  Fabricator"). Same standing "purchasable-but-unwired talent effect, wired as its underlying system ships" posture
+  the other stub talent effects already carry -- not a bug, a deliberately-deferred re-wire.
