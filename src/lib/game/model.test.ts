@@ -191,12 +191,16 @@ describe("Phase 1 — facility/process reservation fields (additive)", () => {
     // ESTABLISHED from game start and the 2 ore runs (unlockLevel 1) dispatchable
     // immediately (no soft-lock / no regression). Its level-1 -> 2 completion-gated
     // upgrade unlocks Salvage + Forage.
+    // Research Task R2 (additive): the Research Lab joins the seed at level 1 (NOT
+    // level 0) -- same seeded-founding posture as missionControl, so tier-1 blueprints
+    // are researchable from game start (no soft-lock) and researchSlotCount reads 1.
     expect(state.facilities).toEqual({
       refinery: { level: 0 },
       warehouseT1: { level: 0 },
       warehouseT2: { level: 0 },
       fuelStorage: { level: 0 },
       missionControl: { level: 1 },
+      research: { level: 1 },
     });
   });
 

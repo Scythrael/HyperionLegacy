@@ -18,15 +18,18 @@
 //      one is NOT until level >= 2; an already-unlocked blueprint is not researchable.
 
 import { describe, it, expect } from "vitest";
+import Decimal from "break_infinity.js";
 import {
   freshState,
   BLUEPRINTS,
   ITEMS,
+  FACILITIES,
   blueprintUnlocked,
   blueprintResearchable,
   RESEARCH_FACILITY_KEY,
 } from "./model";
 import type { GameState } from "./model";
+import { researchSlotCount, canBuildFacilityUpgrade, startFacilityUpgrade } from "./tick";
 
 describe("Research R1 — BLUEPRINTS registry is well-formed", () => {
   it("is non-empty", () => {
@@ -115,8 +118,14 @@ describe("Research R1 — blueprintResearchable (tier gated by research-facility
   }
 
   it("is FALSE for a tier-1 blueprint when the facility is absent (level 0 default)", () => {
-    // Fresh R1 state has NO research facility -> defensive level read is 0 -> tier 1 > 0.
-    expect(blueprintResearchable(freshState(), "frameSegmentBp")).toBe(false);
+    // R2 UPDATE: freshState now SEEDS the research facility at level 1 (see the R2
+    // block below), so a bare freshState makes tier-1 researchable. To still exercise
+    // the DEFENSIVE absent-facility read (absent key -> level 0 -> tier 1 > 0), we
+    // explicitly DELETE the seeded facility here. The intent of this R1 test -- that a
+    // missing facility reads as level 0 and gates tier-1 out -- is unchanged.
+    const state = freshState();
+    delete (state.facilities as Record<string, { level: number }>)[RESEARCH_FACILITY_KEY];
+    expect(blueprintResearchable(state, "frameSegmentBp")).toBe(false);
   });
 
   it("is TRUE for a tier-1 blueprint once the facility is level >= 1", () => {
@@ -138,5 +147,121 @@ describe("Research R1 — blueprintResearchable (tier gated by research-facility
 
   it("is FALSE for an unknown blueprint key", () => {
     expect(blueprintResearchable(stateWithResearchLevel(5), "notABlueprint")).toBe(false);
+  });
+});
+
+// ============================================================================
+// Task R2 -- the Research Lab FACILITY (docs/plans/2026-07-15-research-{design,
+// plan}.md R2 + design §1). A finite upgrade track that gates blueprint TIERS
+// (via the facility LEVEL, which blueprintResearchable already reads) and derives
+// the number of concurrent research SLOTS. Fresh state seeds it at level 1 so
+// tier-1 is researchable from the start (no soft-lock, mirrors Mission Control).
+//
+// COST MODEL (locked design decision #3 + §6): the level 1->2 upgrade is gated on
+// CREDITS, NOT materials -- "credits get a real long-term sink; materials are the
+// Fabricator's job". The facility-upgrade framework had no credits gate before R2;
+// R2 adds an OPTIONAL `credits` field to FacilityUpgradeDef (inert for every existing
+// facility, none of which set it). These tests pin that credit gate + the deduct.
+// ============================================================================
+describe("Research R2 — Research Lab facility (tier + slot upgrade track)", () => {
+  it("FACILITIES.research exists, is labelled 'Research Lab', with a FINITE 2-level track", () => {
+    const research = FACILITIES[RESEARCH_FACILITY_KEY];
+    expect(research).toBeDefined();
+    expect(research.label).toBe("Research Lab");
+    // Caps at REAL content: level 1 (founding = tier-1) + level 2 (tier-2). Only tiers
+    // 1 and 2 of blueprints exist today, so there is NO rung beyond tier 2 (no placeholder).
+    expect(research.upgrades.length).toBe(2);
+  });
+
+  it("the founding rung (level 0->1) is zero-cost/ungated and grants the FIRST research slot", () => {
+    const founding = FACILITIES[RESEARCH_FACILITY_KEY].upgrades[0];
+    expect(Object.keys(founding.materials).length).toBe(0); // no material cost
+    expect(founding.credits).toBeUndefined();               // pre-granted -> no credit gate
+    expect(founding.requiresFleetAdminLevel).toBeUndefined();
+    expect(founding.effect).toEqual({ addResearchSlots: 1 }); // establishes the lab's first slot
+  });
+
+  it("the level 1->2 rung is CREDIT-gated (no materials), and adds the 2nd research slot", () => {
+    const rung = FACILITIES[RESEARCH_FACILITY_KEY].upgrades[1];
+    expect(Object.keys(rung.materials).length).toBe(0);      // locked design #3: NO materials
+    expect(rung.credits).toBeDefined();
+    expect((rung.credits as Decimal).gt(0)).toBe(true);      // a real credit cost
+    expect(rung.effect).toEqual({ addResearchSlots: 1 });    // +1 slot on this chosen rung
+  });
+
+  it("fresh state seeds the research facility at level 1", () => {
+    expect(freshState().facilities[RESEARCH_FACILITY_KEY]).toEqual({ level: 1 });
+  });
+
+  it("researchSlotCount is 1 on a fresh state (level 1 = one slot)", () => {
+    expect(researchSlotCount(freshState())).toBe(1);
+  });
+
+  it("researchSlotCount rises to 2 once the research facility reaches level 2", () => {
+    const state = freshState();
+    state.facilities[RESEARCH_FACILITY_KEY] = { level: 2 };
+    expect(researchSlotCount(state)).toBe(2);
+  });
+
+  it("researchSlotCount is 0 when the facility is absent (defensive level-0 read)", () => {
+    const state = freshState();
+    delete (state.facilities as Record<string, { level: number }>)[RESEARCH_FACILITY_KEY];
+    expect(researchSlotCount(state)).toBe(0);
+  });
+
+  it("tier-1 blueprints are researchable from a FRESH state; tier-2 is not (until upgrade)", () => {
+    const state = freshState();
+    expect(blueprintResearchable(state, "frameSegmentBp")).toBe(true);       // tier 1 <= level 1
+    expect(blueprintResearchable(state, "powerCouplingBp")).toBe(true);      // tier 1 <= level 1
+    expect(blueprintResearchable(state, "structuralAssemblyBp")).toBe(false); // tier 2 > level 1
+  });
+
+  it("leveling the research facility to 2 makes the tier-2 blueprint researchable", () => {
+    const state = freshState();
+    state.facilities[RESEARCH_FACILITY_KEY] = { level: 2 };
+    expect(blueprintResearchable(state, "structuralAssemblyBp")).toBe(true);
+  });
+
+  it("the upgrade track CAPS at real content: a level-2 lab reports fully upgraded", () => {
+    const state = freshState();
+    state.facilities[RESEARCH_FACILITY_KEY] = { level: 2 };
+    const check = canBuildFacilityUpgrade(state, RESEARCH_FACILITY_KEY);
+    expect(check.ok).toBe(false);
+    expect(check.reason).toMatch(/fully upgraded/i); // no rung beyond tier 2
+  });
+
+  it("the level 1->2 CREDIT gate blocks when broke even if all other gates pass", () => {
+    // High FA level clears the FA-level prereq, so CREDITS are the sole remaining gate.
+    const state: GameState = { ...freshState(), fleetAdminLevel: 99, credits: new Decimal(0) };
+    const check = canBuildFacilityUpgrade(state, RESEARCH_FACILITY_KEY);
+    expect(check.ok).toBe(false);
+    expect(check.reason).toMatch(/credit/i); // the credit gate names itself
+  });
+
+  it("the level 1->2 rung is buildable once affordable + FA-level met", () => {
+    const rung = FACILITIES[RESEARCH_FACILITY_KEY].upgrades[1];
+    const funded: GameState = {
+      ...freshState(),
+      fleetAdminLevel: 99,
+      credits: (rung.credits as Decimal).plus(1),
+    };
+    expect(canBuildFacilityUpgrade(funded, RESEARCH_FACILITY_KEY).ok).toBe(true);
+  });
+
+  it("startFacilityUpgrade DEDUCTS the rung's credits at start and queues the level-up", () => {
+    const rung = FACILITIES[RESEARCH_FACILITY_KEY].upgrades[1];
+    const cost = rung.credits as Decimal;
+    const state: GameState = { ...freshState(), fleetAdminLevel: 99, credits: cost.plus(500) };
+    const { next, started } = startFacilityUpgrade(state, RESEARCH_FACILITY_KEY);
+    expect(started).toBe(true);
+    expect(next.credits.equals(500)).toBe(true); // credits deducted atomically at start
+    // A facilityUpgrade process targeting the research facility is now in flight.
+    const queued = next.activeProcesses.some(
+      (p) =>
+        p.kind === "facilityUpgrade" &&
+        p.effect.type === "facilityLevelUp" &&
+        (p.effect as { facility: string }).facility === RESEARCH_FACILITY_KEY
+    );
+    expect(queued).toBe(true);
   });
 });

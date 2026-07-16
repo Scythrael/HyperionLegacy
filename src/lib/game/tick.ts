@@ -58,6 +58,7 @@ import {
   FUEL_REFINE_OUTPUT,
   FUEL_REFINE_DURATION_TICKS,
   FUEL_DEPOT_BASE_PIPELINES,
+  RESEARCH_FACILITY_KEY,
 } from "./model";
 import { fuelNeeded } from "./fuel";
 
@@ -2218,6 +2219,19 @@ export function canBuildFacilityUpgrade(
     }
   }
 
+  // Credits gate (Research Task R2). An OPTIONAL flat credit cost, checked just before
+  // materials (both are "resource affordability" gates; the prereqs above come first).
+  // INERT for every PRE-R2 facility -- none set `upgrade.credits`, so `!== undefined`
+  // is false and this never fires for them (no behavior change / no regression). The
+  // Research Lab's level 1->2 rung is the first to use it (locked design #3: research
+  // costs credits, not materials). Deducted atomically at start by startFacilityUpgrade.
+  if (upgrade.credits !== undefined && state.credits.lt(upgrade.credits)) {
+    return {
+      ok: false,
+      reason: `Need ${upgrade.credits.toString()} credits (have ${state.credits.toString()})`,
+    };
+  }
+
   // Material gate (checked LAST -- see the ordering note on the function). EVERY
   // material entry must be affordable against LIVE inventory. Because startProcess
   // deducts every running process's inputs at ITS start, live inventory already
@@ -2266,7 +2280,19 @@ export function startFacilityUpgrade(
   // Safe: canBuildFacilityUpgrade.ok guarantees the facility exists and the rung
   // is in range (it would have returned a reason otherwise).
   const upgrade = FACILITIES[facilityKey].upgrades[facilityLevel(state, facilityKey)];
-  return startProcess(state, "facilityUpgrade", upgrade.materials, upgrade.durationTicks, {
+  // Credits deduct-at-start (Research Task R2). If this rung carries a credit cost,
+  // subtract it from a fresh state clone BEFORE handing off to startProcess, so the
+  // credit spend + the material deduct + the process push all land in the SAME
+  // transition (atomic start, the design §4 posture materials already use). >= 0 is
+  // guaranteed: canBuildFacilityUpgrade.ok proved state.credits >= upgrade.credits.
+  // INERT for pre-R2 facilities (upgrade.credits === undefined -> afterCredits === state),
+  // so their start path is byte-identical to before. Credits are deducted ONCE here (a
+  // discrete start event), never per-tick, so this adds NO offline-catch-up parity seam.
+  const afterCredits =
+    upgrade.credits !== undefined
+      ? { ...state, credits: state.credits.minus(upgrade.credits) }
+      : state;
+  return startProcess(afterCredits, "facilityUpgrade", upgrade.materials, upgrade.durationTicks, {
     type: "facilityLevelUp",
     facility: facilityKey,
   });
@@ -2312,6 +2338,29 @@ export function refineSlotCount(state: GameState): number {
     const effect = upgrades[i].effect;
     if ("addRefineSlots" in effect) {
       slots += effect.addRefineSlots;
+    }
+  }
+  return slots;
+}
+
+// Research SLOT count (Research Task R2) -- how many concurrent research projects the
+// Research Lab can run RIGHT NOW. Derived (not stored) by SUMMING every { addResearchSlots }
+// grant on the rungs the lab has ALREADY reached -- the EXACT same reached-rungs loop
+// refineSlotCount uses for the refinery, just reading the `research` facility + the
+// `addResearchSlots` property. A fresh save seeds research at level 1, whose founding
+// rung (upgrades[0]) grants addResearchSlots:1 -> 1 slot; the level 1->2 rung adds a 2nd.
+// Level 0 / an absent facility sums nothing -> 0 (the defensive floor, though freshState
+// always seeds level 1). The `i < upgrades.length` guard is the same belt-and-suspenders
+// bound refineSlotCount carries. Consumed by R3's startResearch (concurrency cap) + the
+// R5 Overview panel; nothing reads it before R3.
+export function researchSlotCount(state: GameState): number {
+  const level = facilityLevel(state, RESEARCH_FACILITY_KEY);
+  const upgrades = FACILITIES[RESEARCH_FACILITY_KEY].upgrades;
+  let slots = 0;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    const effect = upgrades[i].effect;
+    if ("addResearchSlots" in effect) {
+      slots += effect.addResearchSlots;
     }
   }
   return slots;

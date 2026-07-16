@@ -783,7 +783,19 @@ export type FacilityUpgradeEffect =
   // coexist on the one fuelStorage track without interfering. ⚠️ First-pass TUNABLE.
   | { addFuelPipelines: number } // +N concurrent auto-refine pipelines (fuelPipelineCount sums)
   | { fuelYieldMult: number }    // xM fuel produced per batch (fuelBatchOutput multiplies)
-  | { fuelInputMult: number };   // xM Deuterium Ice consumed per batch; M<1 = less ice (fuelBatchInput multiplies)
+  | { fuelInputMult: number }    // xM Deuterium Ice consumed per batch; M<1 = less ice (fuelBatchInput multiplies)
+  // --- Research (Task R2, design §1): the Research Lab's SLOT grant ---------------
+  // +N concurrent research projects this facility can run. researchSlotCount (tick.ts)
+  // SUMS this across the reached rungs -- the EXACT same derive-on-read/reached-rungs
+  // idiom refineSlotCount uses for `addRefineSlots` (research slots are literally the
+  // Research Lab's analog of the Refinery's refine slots). The Research Lab's blueprint
+  // TIER unlock is NOT summed off an effect: it derives from the facility LEVEL
+  // (blueprintResearchable reads level >= tier), the same way missionUnlocked derives
+  // missions from the mission-control level -- so a research rung's effect is ONLY the
+  // slot grant, never a content-unlock marker. Property-presence narrowing (same as the
+  // members above), so a rung carrying this is inert to refineSlotCount / tierCap /
+  // fuelCap / the fuel helpers, and vice-versa.
+  | { addResearchSlots: number };
 
 // One rung of a facility's upgrade track = the requirements to reach the NEXT
 // level. `materials` are deducted ATOMICALLY at start by startProcess (design §4).
@@ -801,6 +813,20 @@ export type FacilityUpgradeEffect =
 //     Rework shipped first), so these are real numbers, not stand-ins.
 export interface FacilityUpgradeDef {
   materials: Record<string, Decimal>;
+  // Research (Task R2, design §1/§6 + locked brainstorm decision #3 "Cost = time +
+  // CREDITS. No materials"): an OPTIONAL flat CREDITS cost for this rung, deducted
+  // ATOMICALLY at start alongside `materials` (startFacilityUpgrade). Absent = no
+  // credit gate (grow-on-demand posture, exactly like every `requires*` gate above).
+  // ⚠️ Introduced by R2 because the facility-upgrade framework had NO credits gate
+  // before -- every PRE-R2 facility (refinery/warehouses/fuel depot/mission control)
+  // OMITS this field, so the credits gate in canBuildFacilityUpgrade + the deduct in
+  // startFacilityUpgrade are INERT for all of them (no behavior change, no regression).
+  // The Research Lab is the FIRST rung-cost-in-credits facility (its upgrade credit
+  // sink is the design's "credits get a real long-term sink"). A Decimal (not a plain
+  // number) to match state.credits' type at the compare/deduct sites; it lives in the
+  // STATIC FACILITIES table (constructed at module load, like `materials`' Decimals),
+  // so it never round-trips through the JSON save -- no hydration concern.
+  credits?: Decimal;
   durationTicks: number;
   effect: FacilityUpgradeEffect;
   requiresHomeworldTalents?: HomeworldTalentKey[];
@@ -1167,6 +1193,62 @@ export const FACILITIES: Record<string, FacilityDef> = {
       // The requiresMissionCompletions prereq TYPE + its canBuildFacilityUpgrade
       // enforcement stay in place and tested (mission-control.test.ts), so this is a
       // pure data re-add with no engine work.
+    ],
+  },
+  // --- Research Lab (Task R2 -- design §1) --------------------------------------
+  // The facility whose LEVEL gates which blueprint TIERS are researchable + how many
+  // research SLOTS run in parallel. It combines TWO established patterns:
+  //   - SEEDED AT LEVEL 1 like Mission Control (freshState below): tier-1 blueprints
+  //     are researchable from game start (blueprintResearchable reads level >= tier),
+  //     so there is no soft-lock -- a fresh fleet can research immediately.
+  //   - RUNGS CARRY A REAL SLOT GRANT like the Refinery: each rung's { addResearchSlots }
+  //     effect is SUMMED across reached rungs by researchSlotCount (tick.ts), exactly as
+  //     refineSlotCount sums { addRefineSlots }. The blueprint-TIER unlock is level-
+  //     derived (not summed), the same way missionUnlocked derives missions from level.
+  //
+  // FINITE track that CAPS at real content: only blueprint tiers 1 and 2 exist today
+  // (BLUEPRINTS), so the track has exactly TWO rungs (level 1 and level 2). NO rung
+  // beyond tier 2 -- adding one would be a placeholder that unlocks nothing, against
+  // this file's no-placeholder discipline. A future blueprint tier re-extends the track
+  // additively (one more rung), mirroring how the Refinery/Warehouse tracks grow.
+  //
+  // COST MODEL -- CREDITS, NOT MATERIALS (locked brainstorm decision #3 + design §6:
+  // "Cost = time + CREDITS. No materials. ... credits get a real long-term sink"). The
+  // level 1->2 rung is gated on `credits` (the OPTIONAL FacilityUpgradeDef field R2
+  // added) + an FA-level prereq (mirroring the Refinery's requiresFleetAdminLevel idiom).
+  // ⚠️ FIRST-PASS TUNABLE values (credits/duration/FA-level), same launch-placeholder
+  // spirit as every other table here -- real balance at the device checkpoint.
+  //
+  // NAME "Research Lab" is PROVISIONAL (design §1 open question -- user may rename to
+  // "Research Division" etc.; the KEY `research`/RESEARCH_FACILITY_KEY is stable and a
+  // rename touches only this label).
+  research: {
+    label: "Research Lab",
+    upgrades: [
+      // [0] Level 0 -> 1: the FOUNDING rung. PRE-GRANTED via the level-1 freshState seed
+      // (never built in normal play), so it is ungated + zero-cost + zero-duration --
+      // the SAME founding-rung posture as Mission Control's. Its effect grants the FIRST
+      // research slot (researchSlotCount sums it -> 1 at level 1), exactly as the
+      // Refinery's level 0->1 build grants its first refine slot. Establishing the lab
+      // (reaching level 1) is ALSO what makes tier-1 blueprints researchable (level >= 1),
+      // but that is derived from the LEVEL, not from this effect.
+      {
+        materials: {},
+        durationTicks: 0,
+        effect: { addResearchSlots: 1 },
+      },
+      // [1] Level 1 -> 2: the REAL upgrade rung. Reaching level 2 unlocks TIER-2
+      // blueprints (blueprintResearchable: tier 2 <= level 2) AND grants a 2nd research
+      // slot (researchSlotCount sums to 2). Gated on CREDITS (the design's long-term
+      // sink -- NO materials) + a modest FA-level prereq. Track ENDS here (finite; only
+      // tiers 1-2 exist). ⚠️ FIRST-PASS TUNABLE credits/duration/FA-level.
+      {
+        materials: {}, // locked design #3: NO materials on research costs
+        credits: new Decimal(5000), // the tier-2 unlock's credit sink (tunable)
+        durationTicks: 120, // matches the tier-2 blueprint's research duration (tunable)
+        effect: { addResearchSlots: 1 },
+        requiresFleetAdminLevel: 3, // modest gate, mirrors the Refinery's FA-level idiom (tunable)
+      },
     ],
   },
 };
@@ -2607,7 +2689,14 @@ export function freshState(): GameState {
     // no-regression guarantee. The mission-control unlock UPGRADE is deferred (the track
     // caps at level 1); a future mission batch re-adds it. See FACILITIES.missionControl.
     // Existing saves get this same level-1 seed via the v20->v21 migration (Task 9).
-    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 } },
+    // Research Task R2 (additive seed): research starts at level 1 -- NOT level 0.
+    // Level 0 is "not built"; seeding at level 1 makes the Research Lab ESTABLISHED
+    // from game start, so tier-1 blueprints are researchable immediately (no soft-lock,
+    // mirrors missionControl). researchSlotCount reads level 1 -> 1 research slot.
+    // Existing saves get this same level-1 seed via the v21->v22 migration (Task R6,
+    // save.ts) -- NOT this function's job. researchSlotCount tolerates an absent key
+    // (?? 0) regardless, but seeding keeps the facility present for the R5 UI.
+    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 } },
     activeProcesses: [],
     nextProcessId: 1,
     // Phase 2, Task D1: no standing refine order on a fresh save. Existing saves get

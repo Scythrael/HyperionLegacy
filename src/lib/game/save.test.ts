@@ -1988,6 +1988,7 @@ describe("migrate — Ship Production Economy Phase 1: inventory/discovered/faci
       warehouseT2: { level: 0 },
       fuelStorage: { level: 0 },
       missionControl: { level: 1 },
+      research: { level: 1 }, // Research Task R2 (fresh round-trip reflects freshState directly)
     });
     expect(migrated.facilities).toEqual(original.facilities);
     expect(migrated.activeProcesses).toEqual([]);
@@ -2152,10 +2153,11 @@ describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
 
   it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), confirming the current fresh shape is stable (zero migration steps)", () => {
     // A brand-new freshState() save is already at the CURRENT SAVE_VERSION (21), so
-    // migrate()'s while loop runs ZERO iterations (no MIGRATIONS[21]); the five
+    // migrate()'s while loop runs ZERO iterations (no MIGRATIONS[21]); the six
     // facilities survive purely via the serialize -> deserialize -> hydrateDecimals
-    // pass-through, and this pins that a fresh game already carries the same
-    // five-facility shape the migration chain backfills onto old saves (migrated == fresh).
+    // pass-through, and this pins that a fresh game already carries the same shape the
+    // migration chain backfills onto old saves (migrated == fresh). (research, the sixth,
+    // is R2's fresh seed; old-save research backfill is R6's v21->v22 step.)
     const original = freshState();
     const raw = serialize(original, Date.now());
     const deserialized = deserialize(raw);
@@ -2164,15 +2166,17 @@ describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(deserialized!.version).toBe(21);
 
     const migrated: any = migrate(deserialized!);
-    // Mission Rework Task 4 added fuelStorage (level 0) and Task 6 added missionControl
-    // (level 1) to freshState -- the fresh shape now carries five facilities (old-save
-    // backfill of both is Task 9's v20->v21 step).
+    // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
+    // (level 1), and Research Task R2 added research (level 1) to freshState -- the fresh
+    // shape now carries six facilities (old-save backfill of fuel/mission is Task 9's
+    // v20->v21 step; research is R6's v21->v22 step).
     expect(migrated.facilities).toEqual({
       refinery: { level: 0 },
       warehouseT1: { level: 0 },
       warehouseT2: { level: 0 },
       fuelStorage: { level: 0 },
       missionControl: { level: 1 },
+      research: { level: 1 }, // Research Task R2 (fresh round-trip reflects freshState directly)
     });
     expect(migrated.facilities).toEqual(original.facilities);
   });
@@ -2408,9 +2412,17 @@ describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
     // The two new facilities: byte-identical structural shape to freshState's.
     expect(migrated.facilities.fuelStorage).toEqual(fresh.facilities.fuelStorage);
     expect(migrated.facilities.missionControl).toEqual(fresh.facilities.missionControl);
-    // And the FULL facilities map matches freshState's five-facility shape -- proves the
-    // migrated old save and a brand-new game are indistinguishable on facilities.
-    expect(migrated.facilities).toEqual(fresh.facilities);
+    // The FULL facilities map matches freshState's shape -- proves the migrated old save
+    // and a brand-new game are indistinguishable on facilities.
+    // ⚠️ R2 UPDATE: freshState now ALSO seeds `research: { level: 1 }`, but the v21->v22
+    // migration that backfills it onto old saves is Task R6 (NOT YET WRITTEN -- SAVE_VERSION
+    // is still 21). So a v20 save migrated to the CURRENT version legitimately LACKS
+    // `research` until R6 lands. We therefore compare against freshState's facilities MINUS
+    // `research` here; R6 will add the migration seed AND restore the full-parity assertion
+    // (its own v21->v22 round-trip test). This is the fresh-state-only half of R2 (see the
+    // R2 anti-regression note: R6 owns the old-save migration).
+    const { research: _freshResearch, ...freshFacilitiesPreR2 } = fresh.facilities as Record<string, unknown>;
+    expect(migrated.facilities).toEqual(freshFacilitiesPreR2);
   });
 
   it("preserves an already-present fuel / fuelStorage / missionControl rather than reseeding (idempotent ?? guard)", () => {
