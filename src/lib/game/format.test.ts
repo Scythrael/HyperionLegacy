@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { formatNumber } from "./format";
+import { formatNumber, formatDuration } from "./format";
 
 // Pins formatNumber's contract post-migration (Task 8, Big-Number Migration):
 // the plain-number branch must remain BYTE-IDENTICAL to the pre-migration
@@ -140,5 +140,68 @@ describe("formatNumber", () => {
       const invalid = new Decimal(NaN);
       expect(formatNumber(invalid)).toBe("0");
     });
+  });
+});
+
+// ============================================================================
+// formatDuration(ticks, secondsPerTick) -> compact human string.
+//
+// Author: Claude Opus 4.8 · 2026-07-16. SHARED helper (co-located with
+// formatNumber as the ONE place time-span formatting lives). Converts a tick
+// count to seconds (ticks * secondsPerTick) and renders a compact "~"-prefixed
+// span, dropping zero trailing units and rolling up on unit boundaries. Guards
+// 0 / negative / NaN -> "—" and +Infinity -> "∞". Fuel-runway (Wave 2) reuses
+// this, so the tests pin the full s/m/h/d contract, not just the current caller.
+// ============================================================================
+describe("formatDuration", () => {
+  // secondsPerTick 1 is the default game cadence, so ticks == seconds here.
+  it("sub-minute renders as \"~Ns\" (45 ticks @ 1s/tick -> ~45s)", () => {
+    expect(formatDuration(45, 1)).toBe("~45s");
+  });
+
+  it("minutes render as \"~Nm\", no seconds (720 ticks @ 1s -> 12m -> ~12m)", () => {
+    expect(formatDuration(720, 1)).toBe("~12m");
+  });
+
+  it("hours render as \"~Hh Mm\" (8100s = 2h15m -> ~2h 15m)", () => {
+    expect(formatDuration(8100, 1)).toBe("~2h 15m");
+  });
+
+  it("drops a zero trailing minute (7200s = exactly 2h -> ~2h, not ~2h 0m)", () => {
+    expect(formatDuration(7200, 1)).toBe("~2h");
+  });
+
+  it("days render as \"~Dd Hh\" (273600s = 3d4h -> ~3d 4h)", () => {
+    expect(formatDuration(273600, 1)).toBe("~3d 4h");
+  });
+
+  it("drops a zero trailing hour (172800s = exactly 2d -> ~2d, not ~2d 0h)", () => {
+    expect(formatDuration(172800, 1)).toBe("~2d");
+  });
+
+  it("scales by secondsPerTick, not just tick count (30 ticks @ 2s/tick = 60s -> ~1m)", () => {
+    expect(formatDuration(30, 2)).toBe("~1m");
+  });
+
+  it("returns \"—\" for 0 ticks", () => {
+    expect(formatDuration(0, 1)).toBe("—");
+  });
+
+  it("returns \"—\" for negative ticks", () => {
+    expect(formatDuration(-10, 1)).toBe("—");
+  });
+
+  it("returns \"—\" for NaN", () => {
+    expect(formatDuration(NaN, 1)).toBe("—");
+  });
+
+  it("returns \"∞\" for +Infinity ticks", () => {
+    expect(formatDuration(Infinity, 1)).toBe("∞");
+  });
+
+  it("floors a sub-second positive span to \"~1s\" (never \"~0s\")", () => {
+    // 0.3 ticks @ 1s -> 0.3s rounds toward 0 but a positive span must read as
+    // at least ~1s so the readout never shows a broken \"~0s\".
+    expect(formatDuration(0.3, 1)).toBe("~1s");
   });
 });

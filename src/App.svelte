@@ -84,11 +84,10 @@
     // straight off the SAME constant buyFuel (tick.ts) charges -- price shown can
     // never drift from price charged.
     FUEL_CREDITS_PER_UNIT,
-    // Fuel Economy v2 (F4 UI): the Fuel Depot batch length (ticks per refine batch).
-    // The fuel-chip + Fuel Depot production readout divide fuel-per-batch by this to
-    // get the depot's steady-state fuel/tick throughput, reading the SAME constant the
-    // pipeline engine (processFuelPipelines, tick.ts) runs a batch over.
-    FUEL_REFINE_DURATION_TICKS,
+    // FUEL_REFINE_DURATION_TICKS import removed in the net-display fix (2026-07-16):
+    // its only App.svelte use was the inline fuel-throughput math, which moved into
+    // fuelFlowSummary (tick.ts). The helper reads the constant directly now, so
+    // App.svelte no longer needs it.
     // CAPTAIN_SPEC_BONUS / CaptainState import removed in Task 11b: their only
     // App.svelte uses were the deleted spec-picker (CAPTAIN_SPEC_BONUS) and the
     // removed talentTooltipInfo lookup (CaptainState). HomeworldTalentBranch was
@@ -216,6 +215,13 @@
     fuelPipelineCount,
     fuelBatchOutput,
     fuelBatchInput,
+    // Fuel net-display fix (2026-07-16): the PURE, read-only fuel-economy summary.
+    // Mirrors processFuelPipelines' ice/tank/pipeline gates so the DISPLAYED net
+    // matches what the refinery actually does -- effectiveProductionPerTick is 0
+    // when out of Deuterium Ice (fixing the "net positive while out of ice" bug).
+    // The per-tick mission-burn sum (formerly computed inline in the fuel reactive
+    // block below) now lives inside this helper: ONE source of truth in the engine.
+    fuelFlowSummary,
     // Research (Task R5 UI) -- the three PURE research seams the Research Lab panel
     // wires up. researchSlotCount(state) => how many parallel research projects the
     // lab can run right now (derived from its upgrade level, parallels refineSlotCount);
@@ -1980,73 +1986,52 @@
     }
   }
 
-  // ---- Fuel economy: production vs expenditure (Fuel Economy v2 F4, design §5) ----
+  // ---- Fuel economy: production vs expenditure (Fuel Economy v2 F4, design §5;
+  // net-display fix 2026-07-16) ----
   // Drives BOTH the top-bar fuel chip's tooltip AND the Fuel Depot Overview's refining-
   // status readout, so the two can never disagree (single derivation, shown twice).
   //
   // The player's core question is "is my fuel self-sustaining?" -- answered by netting
   // the Fuel Depot's refining PRODUCTION against the active missions' EXPENDITURE, both
   // expressed as fuel/tick (a tick is state.tickDurationSeconds seconds; default 1).
+  //
+  // NET-DISPLAY FIX (2026-07-16): all of this now derives from fuelFlowSummary(state)
+  // (tick.ts) -- a PURE helper that mirrors processFuelPipelines' ice/tank/pipeline
+  // gates. It replaced an inline block that subtracted burn from the refinery's MAX
+  // (ceiling) throughput UNCONDITIONALLY, which showed a false NET POSITIVE while the
+  // player was OUT of Deuterium Ice (the refinery really makes 0 then). The burn sum
+  // that used to live inline here moved INTO the helper -- ONE source of truth in the
+  // engine. Var names are preserved so the rest of the template is untouched.
+  $: fuelFlow = fuelFlowSummary(state);
 
-  // missionCycleTicks: total ticks in ONE full round-trip cycle of `baseMission` when
-  // flown by `ship` -- summed over all five mission phases of the SHIP-ADJUSTED def
-  // (effectiveMissionDef rescales transit by the hull's speed). This is the real cadence
-  // a mission burns its fuelNeeded over, so expenditure/tick = fuelNeeded / cycleTicks.
-  // Reuses requiredTicksForPhase (the SAME per-phase length the tick engine advances on)
-  // so the length can't drift from the engine's actual cycle. Guards a 0 sum defensively.
-  const FUEL_CYCLE_PHASES: MissionPhase[] = [
-    "ordersReceived",
-    "transitOut",
-    "extracting",
-    "transitBack",
-    "unloading",
-  ];
-  function missionCycleTicks(baseMission: (typeof MISSIONS)[MissionKey], ship: (typeof state.ships)[number]): number {
-    const eff = effectiveMissionDef(baseMission, shipDerivedStats(ship));
-    return FUEL_CYCLE_PHASES.reduce((total, phase) => total + requiredTicksForPhase(phase, eff), 0);
-  }
+  // MAX refining throughput (the CEILING) -- concurrent pipelines * fuel-per-batch /
+  // batch-length-ticks. Still shown verbatim as the informational "Production (max)" /
+  // "Refining (max)" line: it is the cap, NOT the guaranteed inflow (the pipelines
+  // auto-throttle to nothing when the tank is full or Deuterium Ice runs out).
+  $: fuelProductionPerTick = fuelFlow.maxProductionPerTick;
+  // Deuterium Ice consumed at that full throughput (ice/tick) -- the input cost line.
+  $: fuelIceInputPerTick = fuelFlow.iceInputPerTick;
+  // EXPENDITURE (fuel/tick): steady-state mission burn, summed across active missions
+  // (the sum now lives inside fuelFlowSummary; this just surfaces it under its old name).
+  $: fuelExpenditurePerTick = fuelFlow.burnPerTick;
 
-  // PRODUCTION (fuel/tick): the Fuel Depot's MAX refining throughput = concurrent
-  // pipelines * fuel-per-batch / batch-length-ticks. This is a CEILING, not a guaranteed
-  // inflow -- the pipelines auto-throttle to nothing when the tank is full or Deuterium
-  // Ice runs out (processFuelPipelines, tick.ts). The tooltip labels it as the cap.
-  $: fuelProductionPerTick =
-    FUEL_REFINE_DURATION_TICKS > 0
-      ? (fuelPipelineCount(state) * fuelBatchOutput(state).toNumber()) / FUEL_REFINE_DURATION_TICKS
-      : 0;
-  // Deuterium Ice consumed at that full throughput (ice/tick) -- the input cost, shown
-  // so the player can see the refinery is eating their mined ice.
-  $: fuelIceInputPerTick =
-    FUEL_REFINE_DURATION_TICKS > 0
-      ? (fuelPipelineCount(state) * fuelBatchInput(state).toNumber()) / FUEL_REFINE_DURATION_TICKS
-      : 0;
+  // NET (fuel/tick) now derives from EFFECTIVE production (0 when out of ice / no depot),
+  // so it reads NEGATIVE when the refinery is idle for lack of ice -- THE FIX. hasIce /
+  // tankFull feed the chip's + panel's status lines; sufficient = net >= 0 || tankFull
+  // (a topped-off tank is fine even while throttled to 0).
+  $: fuelNetPerTick = fuelFlow.netPerTick;
+  $: fuelHasIce = fuelFlow.hasIce;
+  $: fuelTankFull = fuelFlow.tankFull;
+  $: fuelSufficient = fuelFlow.sufficient;
 
-  // EXPENDITURE (fuel/tick): summed over every captain CURRENTLY on a mission, that
-  // mission's round-trip fuel cost / its cycle length -- the steady-state burn rate.
-  // A captain with no assigned hull contributes 0 (can't fly, can't burn). fuelNeeded
-  // reads the BASE mission by its own convention (fuel.ts); the cycle length uses the
-  // ship-adjusted def so the rate is fuel per REAL tick.
-  $: fuelExpenditurePerTick = state.captains.reduce((sum, captain) => {
-    if (captain.mission === null) return sum;
-    const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
-    if (!ship) return sum;
-    const baseMission = MISSIONS[captain.mission.missionKey];
-    const cycleTicks = missionCycleTicks(baseMission, ship);
-    if (cycleTicks <= 0) return sum;
-    return sum + fuelNeeded(baseMission, SHIP_TYPES[ship.typeKey]) / cycleTicks;
-  }, 0);
-
-  // NET (fuel/tick) + a friendlier per-minute magnitude. Ticks/minute = 60 /
-  // tickDurationSeconds (default cadence 1s -> 60). NOTE: the dev speed multiplier
-  // scales production and expenditure EQUALLY, so it never flips the sufficiency SIGN --
-  // only the displayed magnitude. fuelSufficient drives the green/red indicator.
-  $: fuelNetPerTick = fuelProductionPerTick - fuelExpenditurePerTick;
+  // Friendlier per-minute magnitudes. Ticks/minute = 60 / tickDurationSeconds (default
+  // cadence 1s -> 60). NOTE: the dev speed multiplier scales production and expenditure
+  // EQUALLY, so it never flips the sufficiency SIGN -- only the displayed magnitude.
   $: fuelTicksPerMinute = 60 / Math.max(1, state.tickDurationSeconds);
   $: fuelProductionPerMinute = fuelProductionPerTick * fuelTicksPerMinute;
   $: fuelExpenditurePerMinute = fuelExpenditurePerTick * fuelTicksPerMinute;
   $: fuelIceInputPerMinute = fuelIceInputPerTick * fuelTicksPerMinute;
   $: fuelNetPerMinute = fuelNetPerTick * fuelTicksPerMinute;
-  $: fuelSufficient = fuelNetPerTick >= 0;
   // Active-mission count for the tooltip's expenditure context ("across N missions").
   $: fuelActiveMissionCount = state.captains.filter((c) => c.mission !== null).length;
   // In-flight fuel refine batches (the Fuel Depot's pipelines), same kind-filter idiom
@@ -2180,8 +2165,16 @@
                   <span>Net</span>
                   <span>{fuelNetPerMinute >= 0 ? "+" : "−"}{formatNumber(Math.abs(fuelNetPerMinute))}/min</span>
                 </div>
+                <!-- Net status "why" line. Ordered so the ROOT reason wins: a
+                     topped-off tank first (refining is throttled, but that's fine),
+                     then out-of-ice (the net-display fix: refinery makes 0, so Net
+                     is a pure drain), then the normal fuel-positive / draining split. -->
                 <div class="fuel-tt-note">
-                  {#if fuelSufficient}
+                  {#if fuelTankFull}
+                    Idle — tank full (topped off).
+                  {:else if !fuelHasIce}
+                    Refinery idle — out of Deuterium Ice (mine more via Operations).
+                  {:else if fuelSufficient}
                     Fuel-positive — refining outpaces your missions.
                   {:else}
                     Draining — shortfalls auto-buy fuel with credits (+2-tick delay).
@@ -3348,7 +3341,9 @@
                   style="margin-top: 4px; font-weight: 600; color: {fuelSufficient ? 'var(--color-success)' : 'var(--color-danger)'};"
                 >
                   Net: {fuelNetPerMinute >= 0 ? "+" : "−"}{formatNumber(Math.abs(fuelNetPerMinute))} fuel/min —
-                  {#if fuelSufficient}fuel-positive{:else}draining, auto-buying with credits{/if}
+                  <!-- Root-reason order matches the top-bar chip's note: tank full ->
+                       out of ice (net-display fix) -> fuel-positive -> draining. -->
+                  {#if fuelTankFull}tank full (topped off){:else if !fuelHasIce}refinery idle: out of Deuterium Ice{:else if fuelSufficient}fuel-positive{:else}draining, auto-buying with credits{/if}
                 </div>
 
                 <!-- Live batch progress. Empty = depot idle: tank full, or Deuterium Ice
