@@ -21,19 +21,16 @@
 
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { freshState, BLUEPRINTS, FACILITIES, FABRICATOR_FACILITY_KEY, type GameState, type FabricateOrder } from "./model";
+import { freshState, BLUEPRINTS, FACILITIES, FABRICATOR_FACILITY_KEY, type GameState } from "./model";
 import {
   fabricateSlotCount,
   canFabricate,
   startFabricateJob,
-  // startFabricateOrder/stopFabricateOrder are DEAD as of Task C2 (retired in C4) but
-  // still exported as compile-shims; their pure set/clear behavior is still covered
-  // below. The per-tick order engine (processFabricateOrder) + its economyTick
-  // integration/parity tests were REMOVED in C2 -- offline parity is now proven by the
-  // multi-line craft-lines.test.ts. The Fabricator FACILITY / startFabricateJob /
-  // canFabricate tests (F1/F2/F3) below are UNCHANGED (those functions are not retired).
-  startFabricateOrder,
-  stopFabricateOrder,
+  // The single standing-order model (startFabricateOrder/stopFabricateOrder + its
+  // processFabricateOrder engine) is fully RETIRED as of Task C4 -- the per-slot line
+  // engine replaces it, and its offline parity is proven by craft-lines.test.ts. The
+  // Fabricator FACILITY / startFabricateJob / canFabricate tests (F1/F2/F3) below are
+  // UNCHANGED (those functions are not retired).
   economyTick,
 } from "./tick";
 
@@ -133,7 +130,6 @@ function fabState(opts: {
   frameSegment?: number;
   fabricatorLevel?: number;
   researched?: string[];
-  order?: FabricateOrder | null;
 }): GameState {
   const s = freshState();
   const inventory: Record<string, Decimal> = { ...s.inventory };
@@ -146,7 +142,6 @@ function fabState(opts: {
     // Default: the tier-1 Frame Segment blueprint is researched so the happy-path gates
     // pass. A test that wants the not-researched block passes `researched: []`.
     researchedBlueprints: opts.researched ?? ["frameSegmentBp"],
-    fabricateOrder: opts.order ?? null,
   };
 }
 
@@ -241,30 +236,9 @@ describe("Fabricator F2 — completion adds output + increments itemsCrafted (id
   });
 });
 
-describe("Fabricator F2 — startFabricateOrder / stopFabricateOrder (pure set / clear)", () => {
-  it("sets a batch order (running, no pausedReason) without mutating the input", () => {
-    const state = fabState({});
-    const next = startFabricateOrder(state, "frameSegmentBp", { kind: "batch", remaining: 5 });
-    expect(next.fabricateOrder).toEqual({ blueprintKey: "frameSegmentBp", mode: { kind: "batch", remaining: 5 } });
-    expect(next.fabricateOrder?.pausedReason).toBeUndefined();
-    expect(state.fabricateOrder).toBeNull(); // input untouched (immutability)
-  });
-
-  it("is a same-reference no-op for an unknown blueprint key", () => {
-    const state = fabState({});
-    const next = startFabricateOrder(state, "notARealBlueprint", { kind: "continuous" });
-    expect(next).toBe(state);
-    expect(next.fabricateOrder).toBeNull();
-  });
-
-  it("stopFabricateOrder clears an active order; is a same-reference no-op when none is set", () => {
-    const withOrder = startFabricateOrder(fabState({}), "frameSegmentBp", { kind: "continuous" });
-    expect(stopFabricateOrder(withOrder).fabricateOrder).toBeNull();
-
-    const none = fabState({});
-    expect(stopFabricateOrder(none)).toBe(none);
-  });
-});
+// The startFabricateOrder / stopFabricateOrder (pure set/clear) describe block was
+// REMOVED in Task C4: those setters are retired with the single-order model. The
+// per-slot line setters (startLine/cancelLine) are covered in craft-lines.test.ts.
 
 // NOTE (Task C2): the "count-N order produces exactly N", "mid-run shortfall pauses",
 // and "offline == live parity" describe blocks that lived here tested the RETIRED

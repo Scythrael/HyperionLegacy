@@ -2761,8 +2761,11 @@ describe("migrate — fabricator state backfill (v22 -> v23)", () => {
 
     // fabricator facility: byte-identical structural shape to freshState's.
     expect(migrated.facilities.fabricator).toEqual(fresh.facilities.fabricator);
-    // fabricateOrder: same fresh idle value freshState gives (null).
-    expect(migrated.fabricateOrder).toEqual(fresh.fabricateOrder);
+    // NOTE (Task C4): the `fabricateOrder` parity assertion was removed here. The single-order
+    // model is retired -- freshState no longer carries `fabricateOrder`, while the SHIPPED
+    // MIGRATIONS[22] still seeds `fabricateOrder: null` onto a v23 shape. That transient extra
+    // key is harmless (ignored by the line engine) and is dropped by C6's v23->v24 migration;
+    // the facility-shape parity below is the part that still holds in C4.
     // The FULL facilities map now matches freshState's shape (fabricator included) -- proves the
     // migrated old save and a brand-new game are indistinguishable on facilities.
     expect(migrated.facilities).toEqual(fresh.facilities);

@@ -117,16 +117,6 @@
     // metadata (rarity/tier/unlockHint/label) the fill-tiles + tooltip read.
     type ItemCategory,
     type ItemDef,
-    // Phase 2 (Task D4): the batch|continuous discriminated union, imported to
-    // type the pending-order descriptor the confirmation modal holds between
-    // "player clicked Refine" and "player confirmed" (see pendingRefineOrder).
-    type RefineOrderMode,
-    // Fabricator (Task F4 UI): the batch|continuous fabricate-order mode union,
-    // built at the Craft-tab start-button click site and handed to
-    // doStartFabricateOrder -> startFabricateOrder. The EXACT structural mirror of
-    // RefineOrderMode (kept as its own type so the two order systems stay
-    // independently evolvable, matching the model.ts split).
-    type FabricateOrderMode,
     // Research (Task R5 UI): the blueprint def shape -- types the reason→text
     // helper's `bp` param (so tierLocked can read bp.tier for its "Requires
     // Research Lab level N" message) and the per-blueprint markup loop var.
@@ -168,14 +158,19 @@
     startRefineJob,
     canBuildFacilityUpgrade,
     startFacilityUpgrade,
-    // Phase 2 (Task D4) -- the two PURE refine-ORDER actions the Refinery's
-    // Orders sub-tab wires up. startRefineOrder(state, recipeKey, mode) installs
-    // the standing batch/continuous order; stopRefineOrder(state) clears it (the
-    // in-flight job commits -- design §4.3). The per-tick engine that drains the
-    // order (processRefineOrder) already runs inside economyTick; the UI only
-    // sets/clears the order and reads state.refineOrder for live status.
-    startRefineOrder,
-    stopRefineOrder,
+    // Crafting Allocation Redesign (Task C3/C4) -- the per-slot production LINE seams the
+    // Refinery + Fabricator configurators wire up (replacing the retired standing-order
+    // actions). startLine(state, kind, recipeKey, mode) appends a configured line (gated by
+    // canStartLine, returns { next, started, reason? }); cancelLine(state, lineId) removes a
+    // line and releases its unstarted reservation; canStartLine(state, kind, recipeKey, count)
+    // is the ONE typed-reason gate each Start button reads for enabled/blocked state;
+    // maxAffordableIterations(state, kind, recipeKey) is the affordable-now quantity cap the
+    // amount field clamps to. All PURE except startLine/cancelLine which return new state.
+    startLine,
+    cancelLine,
+    canStartLine,
+    maxAffordableIterations,
+    type StartLineBlockReason,
     // Phase 2 (Warehouse UI, Group C) -- the two PURE cap-reader fns the
     // Warehouse fill-tiles + Overview read. tierCap(state, tier) => the CURRENT
     // per-item storage cap for a warehouse tier (derived from its facility
@@ -246,22 +241,13 @@
     canResearch,
     startResearch,
     type ResearchBlockReason,
-    // Fabricator (Phase 4, Task F4 UI) -- the fabricate seams the Fabricator panel
-    // wires up, the EXACT mirrors of the research seams above. fabricateSlotCount(state)
-    // => how many parallel fabricate jobs the fabricator can run right now (derived from
-    // its upgrade level, parallels researchSlotCount/refineSlotCount); canFabricate(state,
-    // key) is the ONE consolidated gate ({ ok } | { ok, reason }) each Craft-tab card's
-    // start control reads for its enabled/blocked+reason state; startFabricateOrder(state,
-    // key, mode) installs the ONE standing fabricate order (returns a NEW state, same as
-    // startRefineOrder -- NOT { next, started }); stopFabricateOrder(state) clears it (the
-    // in-flight job commits). The per-tick engine that drains the order
-    // (processFabricateOrder) already runs inside economyTick; the UI only sets/clears the
-    // order and reads state.fabricateOrder for live status.
+    // Fabricator (Phase 4, Task F4 UI) -- fabricateSlotCount(state) => how many parallel
+    // fabricate jobs the fabricator can run right now (derived from its upgrade level,
+    // parallels researchSlotCount/refineSlotCount, and the number of Fabricator production-
+    // line slots). The standing fabricate-order seams (startFabricateOrder/stopFabricateOrder)
+    // AND canFabricate/FabricateBlockReason were RETIRED from the UI in C4 -- the Craft tab now
+    // uses the shared startLine/canStartLine + startLineBlockText seams above.
     fabricateSlotCount,
-    canFabricate,
-    startFabricateOrder,
-    stopFabricateOrder,
-    type FabricateBlockReason,
     type DispatchBlockReason,
     foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
     addToInventory, // Phase 1 Task 5: the shared inventory add seam, called by BOTH tick() and this live loop so live loot delivery writes inventory/discovered byte-identically to offline catch-up (drift-proof)
@@ -276,6 +262,20 @@
   // the SELECTED captain's hull, the authoritative dispatching cost). Imported from
   // fuel.ts directly (its own module; tick.ts does not re-export it).
   import { fuelNeeded } from "./lib/game/fuel";
+  // Crafting Allocation Redesign (Task C1/C4) -- the DERIVED material-allocation helpers the
+  // per-line configurator's REQUIRES preview reads: lineInputsPerIteration(line) => a recipe's
+  // per-iteration input map (for the "per/ea" column); allocatedItem(lines, item) => units
+  // reserved by all active lines; freeItem(inventory, lines, item) => usable stock (inventory −
+  // allocated, clamped ≥ 0). CraftLine/CraftLineMode/CraftLineKind type the line arrays + the
+  // batch|continuous run-mode the configurator builds for startLine.
+  import {
+    lineInputsPerIteration,
+    allocatedItem,
+    freeItem,
+    type CraftLine,
+    type CraftLineMode,
+    type CraftLineKind,
+  } from "./lib/game/allocation";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave, importRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
@@ -754,29 +754,32 @@
   type FabricatorSubTab = "overview" | "craft" | "upgrades";
   let activeFabricatorSubTab: FabricatorSubTab = "overview";
 
-  // Fabricator (Task F4 UI): the Craft tab's batch-count input (N for "Fabricate N"), the
-  // EXACT mirror of refineBatchCount below. Defaults to 10 -- a reasonable first batch.
-  // Floored + gated to an integer >= 1 (fabricateBatchValid) so a blank/fractional/zero
-  // entry can never install a malformed batch order (processFabricateOrder clears a batch
-  // at remaining <= 0, so remaining 0 would be an instantly-dead order).
-  let fabricateBatchCount = 10;
+  // Crafting Allocation Redesign (Task C4): the per-line CONFIGURATOR's local form state.
+  // A configured craft becomes a real line ONLY on Start (via startLine) -- until then the
+  // selections live here, in COMPONENT-LOCAL state, never on GameState. Only ONE configurator
+  // is expanded at a time (the mockup's "one open form"), so a single shared form suffices:
+  //   - openConfig: which idle slot's form is expanded ({ kind, slotIndex }), or null (all
+  //     collapsed). `kind` picks the dropdown data source + the startLine kind.
+  //   - cfgTier: the selected tier (refine has no tiers -> always 1; fabricate = a real tier).
+  //   - cfgRecipeKey: the selected REFINE_RECIPES / BLUEPRINTS key (the item dropdown value).
+  //   - cfgQty: the batch quantity, clamped 1..maxAffordableIterations at start (defense in
+  //     depth on top of the field's min/max) so a blank/fractional/over-cap entry can't start.
+  let openConfig: { kind: CraftLineKind; slotIndex: number } | null = null;
+  let cfgTier = 1;
+  let cfgRecipeKey = "";
+  let cfgQty = 1;
 
-  // Phase 2 (Task D4): the Orders sub-tab's batch-count input (N for "Refine N").
-  // Defaults to 10 -- a reasonable first batch, not a placeholder for "empty".
-  // Floored + gated to an integer >= 1 in the handler (see requestStartRefineOrder)
-  // so a blank/fractional/zero entry can never install a malformed batch order.
-  let refineBatchCount = 10;
-
-  // Phase 2 (Task D3): the confirmation-modal handshake. When the player clicks
-  // "Refine N" / "Refine continuously" AND refineConfirmEnabled is on, we stash the
-  // about-to-start order in pendingRefineOrder and open the modal instead of
-  // starting immediately; Confirm reads pendingRefineOrder to start it (and, if the
-  // don't-show-again box is ticked, disables the pref). Cancel drops it. Null when
-  // no confirmation is pending. Same "state near the modal flag" pattern as
-  // deleteModalOpen/deleteConfirmText.
+  // Crafting Allocation Redesign (Task C4): the Start-confirmation handshake, REUSED from the
+  // retired refine-order flow. When the player clicks a configurator's Start AND
+  // refineConfirmEnabled is on, we stash the about-to-start line in pendingLineStart and open
+  // the modal instead of starting immediately; Confirm reads pendingLineStart to start it (and,
+  // if the don't-show-again box is ticked, disables the pref). Cancel drops it. Null when no
+  // confirmation is pending. The confirm now covers BOTH facilities (the shared doStartLine
+  // handler), and is materially SOFTER than before: a started line reserves materials that a
+  // Cancel fully refunds. Same "state near the modal flag" pattern as deleteModalOpen.
   let refineConfirmModalOpen = false;
   let refineConfirmDontShowAgain = false;
-  let pendingRefineOrder: { recipeKey: string; mode: RefineOrderMode } | null = null;
+  let pendingLineStart: { kind: CraftLineKind; recipeKey: string; mode: CraftLineMode } | null = null;
 
   // Ship assign/swap picker modals (Ships — Stats Foundation, Task 11 UI) --
   // mirrors the Fleet Operations mission popup's missionPopupKey/
@@ -1314,122 +1317,134 @@
     doSave();
   }
 
-  // ── Refine ORDERS (Phase 2, Tasks D3/D4) ──────────────────────────────────
-  // The batch/continuous standing-order layer on top of doStartRefineJob above.
-  //
-  // requestStartRefineOrder is the SINGLE entry point both order buttons call. It
-  // builds the RefineOrderMode, then EITHER (confirmation on) stashes it and opens
-  // the modal, OR (confirmation off) starts it straight away. Splitting "decide the
-  // mode" from "actually start" (doStartRefineOrder) is what lets the modal's
-  // Confirm reuse the exact same start path without rebuilding the mode.
-  function requestStartRefineOrder(recipeKey: string, kind: "batch" | "continuous") {
-    // Build + VALIDATE the mode. A batch floors the input to an integer >= 1 so a
-    // blank/fractional/zero/negative entry can never install a malformed order
-    // (processRefineOrder clears a batch at remaining <= 0, so remaining 0 would be
-    // an instantly-dead order). Continuous carries no count. The "Refine N" button
-    // is also disabled when the count is invalid (refineBatchValid), so this guard
-    // is belt-and-suspenders -- but it keeps the handler correct on its own.
-    let mode: RefineOrderMode;
-    if (kind === "batch") {
-      const n = Math.floor(refineBatchCount);
-      if (!Number.isFinite(n) || n < 1) return; // invalid batch -> no-op
-      mode = { kind: "batch", remaining: n };
-    } else {
-      mode = { kind: "continuous" };
-    }
+  // ── Production LINES (Crafting Allocation Redesign, Task C4) ───────────────
+  // The per-slot configurator handlers shared by BOTH facilities (Refinery + Fabricator).
+  // A line is created ONLY here, on Start; the configurator form (openConfig/cfgTier/
+  // cfgRecipeKey/cfgQty) holds the selection until then.
 
+  // Open the idle-slot configurator for `kind`'s `slotIndex`, seeding sensible defaults so
+  // the form is immediately usable. Only ONE configurator is open at a time (opening one
+  // replaces any other). Refine has no tiers -> tier 1; fabricate seeds the first AVAILABLE
+  // tier (researched + tier-reached). The recipe defaults to the first item in that tier, and
+  // qty resets to 1 (the safe floor; the field clamps up to the affordable cap).
+  function openConfigurator(kind: CraftLineKind, slotIndex: number) {
+    openConfig = { kind, slotIndex };
+    cfgQty = 1;
+    if (kind === "refine") {
+      cfgTier = 1; // REFINE_RECIPES carry no tier -> a single synthetic "Tier 1"
+      cfgRecipeKey = Object.keys(REFINE_RECIPES)[0] ?? "";
+    } else {
+      const tiers = availableFabricateTiers;
+      cfgTier = tiers[0] ?? 1;
+      cfgRecipeKey = fabricateKeysForTier(cfgTier)[0] ?? "";
+    }
+  }
+
+  // Collapse whatever configurator is open (idle-slot "cancel"/after a start). Leaves the
+  // form values as-is; the next openConfigurator reseeds them.
+  function closeConfigurator() {
+    openConfig = null;
+  }
+
+  // Fabricate tier changed in the dropdown: point the item dropdown at the first blueprint of
+  // the newly-selected tier so cfgRecipeKey never dangles on a tier that no longer lists it.
+  function onFabricateTierChange(tier: number) {
+    cfgTier = tier;
+    cfgRecipeKey = fabricateKeysForTier(tier)[0] ?? "";
+  }
+
+  // doStartLine is the SINGLE entry point every configurator Start button calls. Mirrors the
+  // sibling do* commit idiom but routes through the optional confirm first: if
+  // refineConfirmEnabled is on, stash the pending line + open the modal (Confirm commits);
+  // otherwise commit straight away. `mode` is the batch/continuous run-mode (the configurator
+  // only builds batch; continuous is engine-supported but not surfaced by this UI).
+  function doStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode) {
     if (refineConfirmEnabled) {
-      // Confirmation on -> hold the order, open the modal (Confirm starts it).
-      pendingRefineOrder = { recipeKey, mode };
+      pendingLineStart = { kind, recipeKey, mode };
       refineConfirmDontShowAgain = false; // fresh checkbox each time the modal opens
       refineConfirmModalOpen = true;
     } else {
-      // Confirmation off -> start immediately.
-      doStartRefineOrder(recipeKey, mode);
+      commitStartLine(kind, recipeKey, mode);
     }
   }
 
-  // Actually installs the standing order via the pure backend fn, logs it, saves.
-  // Called by requestStartRefineOrder (confirmation off) OR confirmRefineOrder
-  // (confirmation accepted). startRefineOrder REPLACES any existing order wholesale
-  // (last write wins) -- jobs the previous order already started stay in flight
-  // (they are committed processes), matching the backend's documented semantics.
-  function doStartRefineOrder(recipeKey: string, mode: RefineOrderMode) {
-    state = startRefineOrder(state, recipeKey, mode);
-    const outputId = REFINE_RECIPES[recipeKey]?.output.itemId ?? recipeKey;
+  // Actually appends the line via the pure backend fn, logs it, saves -- the EXACT sibling
+  // commit idiom (const { next, started } = fn(...); if (!started) return; state = next; log;
+  // save). startLine gates on canStartLine and returns { next, started, reason? }; on any block
+  // it returns the SAME state ref + started:false, so the bail is a clean no-op (the Start
+  // button's own disabled state already mirrors canStartLine, so a block here only covers a
+  // race). On success we collapse the configurator (its work is done). The log names the
+  // recipe's OUTPUT item (bracketed, per the [Item] convention).
+  function commitStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode) {
+    const { next, started } = startLine(state, kind, recipeKey, mode);
+    if (!started) return;
+    state = next;
+    const outputId =
+      kind === "refine"
+        ? REFINE_RECIPES[recipeKey]?.output.itemId ?? recipeKey
+        : BLUEPRINTS[recipeKey]?.recipe.outputItem ?? recipeKey;
     const outputLabel = ITEMS[outputId]?.label ?? outputId;
-    const desc = mode.kind === "batch" ? `batch of ${mode.remaining}` : "continuous";
-    pushLog(`Refine order started (${desc}) → [${outputLabel}].`);
+    const verb = kind === "refine" ? "Refine" : "Fabricate";
+    const desc = mode.kind === "batch" ? `×${mode.remaining}` : "continuous";
+    pushLog(`${verb} line started (${desc}) → [${outputLabel}].`);
+    closeConfigurator();
     doSave();
   }
 
-  // Modal Confirm: if the don't-show-again box was ticked, disable the pref FIRST
-  // (persist it exactly like tickBarEnabled), then start the held order and close.
-  // Guards on pendingRefineOrder being set (it always is when the modal is open,
-  // but the null-check keeps TS happy and is defensive).
-  function confirmRefineOrder() {
-    if (pendingRefineOrder === null) return;
+  // Modal Confirm: if the don't-show-again box was ticked, disable the pref FIRST (persist it
+  // exactly like tickBarEnabled), then commit the held line and close. Guards on pendingLineStart
+  // being set (it always is when the modal is open, but the null-check keeps TS happy).
+  function confirmLineStart() {
+    if (pendingLineStart === null) return;
     if (refineConfirmDontShowAgain) {
       refineConfirmEnabled = false;
       saveRefineConfirmEnabled(false);
     }
-    doStartRefineOrder(pendingRefineOrder.recipeKey, pendingRefineOrder.mode);
+    commitStartLine(pendingLineStart.kind, pendingLineStart.recipeKey, pendingLineStart.mode);
     refineConfirmModalOpen = false;
-    pendingRefineOrder = null;
+    pendingLineStart = null;
   }
 
-  // Modal Cancel: drop the held order, close, reset the checkbox. Starts nothing.
-  function cancelRefineOrder() {
+  // Modal Cancel: drop the held line, close, reset the checkbox. Starts nothing.
+  function cancelLineStart() {
     refineConfirmModalOpen = false;
-    pendingRefineOrder = null;
+    pendingLineStart = null;
     refineConfirmDontShowAgain = false;
   }
 
-  // Stop the standing order (design §4.3): clears state.refineOrder so no NEW job
-  // starts; any in-flight refine job COMMITS and completes normally (stopRefineOrder
-  // never touches activeProcesses). Same "same reference on no-op" convention as
-  // the backend -- so pushing a log line only when an order was actually cleared.
-  function doStopRefineOrder() {
-    if (state.refineOrder === null) return;
-    state = stopRefineOrder(state);
-    pushLog("Refine order stopped. In-flight job will finish; queue dropped.");
+  // Cancel (remove) an active line. cancelLine drops the line + releases its UNSTARTED
+  // reservation (allocation is derived, so fewer lines = less allocated, no ledger to unwind);
+  // any in-flight timed job it already started commits + completes normally (design §2). PURE
+  // backend fn, same-ref no-op when the id doesn't match -- so we always reassign + log + save.
+  function doCancelLine(lineId: string) {
+    state = cancelLine(state, lineId);
+    pushLog("Production line canceled; remaining reservation released.");
     doSave();
   }
 
-  // ── Fabricate ORDERS (Fabricator Phase 4, Task F4 UI) ─────────────────────
-  // The batch/continuous standing-order layer for the Fabricator, the DIRECT mirror
-  // of doStartRefineOrder/doStopRefineOrder above (the Fabricator has NO confirmation
-  // modal -- fabricating spends materials, not a scarce one-shot, so the Craft card's
-  // button gate + canFabricate check is sufficient; no extra confirm step). The Craft
-  // card builds the FabricateOrderMode at the click site and hands it here.
-  //
-  // Installs the ONE standing fabricate order via the pure backend fn, logs it, saves.
-  // startFabricateOrder REPLACES any existing order wholesale (last write wins) and
-  // returns a NEW state UNLESS blueprintKey is unknown (same-ref no-op) -- jobs the
-  // previous order already started stay in flight (committed processes). The commit
-  // idiom is IDENTICAL to doStartRefineOrder (state = fn(...); log; save); no `started`
-  // flag to destructure because startFabricateOrder returns bare state, exactly like
-  // startRefineOrder. The log names the blueprint's OUTPUT component (bracketed, per the
-  // [Item] convention) since a blueprint is identified by what it crafts.
-  function doStartFabricateOrder(blueprintKey: string, mode: FabricateOrderMode) {
-    state = startFabricateOrder(state, blueprintKey, mode);
-    const bp = BLUEPRINTS[blueprintKey];
-    const outputLabel = ITEMS[bp?.recipe.outputItem ?? ""]?.label ?? blueprintKey;
-    const desc = mode.kind === "batch" ? `batch of ${mode.remaining}` : "continuous";
-    pushLog(`Fabricate order started (${desc}) → [${outputLabel}].`);
-    doSave();
-  }
-
-  // Stop the standing fabricate order: clears state.fabricateOrder so no NEW job starts;
-  // any in-flight fabricate job COMMITS and completes normally (stopFabricateOrder never
-  // touches activeProcesses). Same "same reference on no-op" convention as the backend --
-  // so a log line is pushed only when an order was actually cleared. Mirror of
-  // doStopRefineOrder.
-  function doStopFabricateOrder() {
-    if (state.fabricateOrder === null) return;
-    state = stopFabricateOrder(state);
-    pushLog("Fabricate order stopped. In-flight job will finish; queue dropped.");
-    doSave();
+  // Maps a canStartLine BLOCK reason to the human sentence a disabled Start button shows. Named
+  // parallel to fabricateBlockText; covers every StartLineBlockReason so a new reason is a
+  // compile error here (exhaustive). `bp` is the selected blueprint (for the tierLocked level
+  // hint), undefined for refine (which never surfaces notResearched/tierLocked).
+  function startLineBlockText(reason: StartLineBlockReason, bp?: BlueprintDef): string {
+    switch (reason) {
+      case "notFound":
+        return "That recipe no longer exists.";
+      case "notResearched":
+        return "Research this blueprint at the Research Lab first.";
+      case "tierLocked":
+        return `Requires Fabricator level ${bp?.tier ?? "?"} (upgrade the Fabricator).`;
+      case "noSlot":
+        return "Every slot on this facility is busy.";
+      case "invalidCount":
+        return "Enter a whole quantity of 1 or more.";
+      case "materials":
+        return "Not enough free materials to reserve that quantity.";
+      case "storageFull":
+        return "Output storage is full (expand the Warehouse).";
+      default:
+        return "Cannot start this line right now.";
+    }
   }
 
   // Start the NEXT upgrade rung for `facilityKey`. Backend gates on
@@ -1887,36 +1902,15 @@
   );
   $: refineCanStart = refineHasFreeSlot && refineAffordable;
 
-  // ── Refine ORDER status (Phase 2, Task D4) ────────────────────────────────
-  // All derive off state.refineOrder / refinerySlots, so the Orders sub-tab's
-  // status line + button gates update LIVE as the order progresses, pauses on a
-  // block, or is cleared -- the same reactive-off-state pattern as the gates above.
-
-  // The active standing order, or null. Named so the markup reads it by one name.
-  $: refineOrder = state.refineOrder;
-  // Whether the refinery can accept an order at all: it must be built (>= 1 slot).
-  // Both start buttons gate on this; at 0 slots the buttons show the "build it
-  // first" reason, mirroring the one-shot Start Refine Job button's own gate.
+  // ── Production LINES status (Crafting Allocation Redesign, Task C4) ────────
+  // Whether the refinery is built at all (>= 1 slot). Below 1 slot there are no line
+  // slots to render, so the Production sub-tab shows a "build it first" empty state.
   $: refineryBuilt = refinerySlots > 0;
-  // Batch-count validity: an integer >= 1 (Math.floor tolerates a "10.0"-style
-  // entry; < 1 or NaN/blank is invalid). Gates the "Refine N" button so a bad
-  // count can't be submitted -- the handler re-checks this too (defense in depth).
-  $: refineBatchValid = Number.isFinite(refineBatchCount) && Math.floor(refineBatchCount) >= 1;
-  // Human-readable status of the active order for the Orders sub-tab readout.
-  // Mode line: "Batch — N remaining" / "Continuous". Pause line (design §4.2):
-  // noInput -> out-of-ingredients, outputFull -> storage-full-expand-warehouse.
-  // Empty string when no order is active (the markup shows an idle line instead).
-  $: refineOrderModeLabel = refineOrder
-    ? refineOrder.mode.kind === "batch"
-      ? `Batch — ${refineOrder.mode.remaining} remaining`
-      : "Continuous — runs until stopped"
-    : "";
-  $: refineOrderPauseLabel =
-    refineOrder?.pausedReason === "noInput"
-      ? "⏸ Out of ingredients"
-      : refineOrder?.pausedReason === "outputFull"
-        ? "⏸ Storage full (expand the Warehouse)"
-        : "";
+  // ALL active lines across BOTH facilities -- the allocation basis every configurator's
+  // REQUIRES preview reads (allocatedItem/freeItem take this array). Derived off state so
+  // the free/allocated numbers update LIVE as lines start, drain, and cancel. `?? []`
+  // guards a pre-C2 save shape defensively (C6's migration seeds the arrays).
+  $: allLines = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
 
   // Next Refinery UPGRADE rung. upgrades[level] is the rung that takes the
   // facility from `level` to `level+1` (so a level-0 refinery's next rung is
@@ -2134,39 +2128,28 @@
     (k) => blueprintUnlocked(state, k) && BLUEPRINTS[k].tier <= fabricatorLevel
   ).length;
 
-  // The active standing fabricate order, or null. Named so the markup reads it by one
-  // name (mirror of refineOrder). Fleet-wide singular -- ONE order at a time; a Craft
-  // card's start button installs it, replacing any prior order (last write wins).
-  $: fabricateOrder = state.fabricateOrder;
-  // Whether the fabricator can accept an order at all: it must be built (>= 1 slot).
+  // Whether the fabricator is built at all (>= 1 slot). Below 1 slot there are no line
+  // slots to render, so the Craft sub-tab shows the Research-Lab empty-state signpost.
   $: fabricatorBuilt = fabricateSlots > 0;
-  // Batch-count validity: an integer >= 1 (Math.floor tolerates a "10.0"-style entry;
-  // < 1 or NaN/blank is invalid). Gates the "Fabricate N" button; the click handler
-  // floors the count into the mode (defense in depth). Mirror of refineBatchValid.
-  $: fabricateBatchValid = Number.isFinite(fabricateBatchCount) && Math.floor(fabricateBatchCount) >= 1;
-  // Human-readable status of the active order for the Craft sub-tab readout. Mode line:
-  // "Batch — N remaining" / "Continuous". Pause line (mirrors processFabricateOrder's
-  // pausedReason): noInput -> out-of-materials, outputFull -> storage-full. Empty string
-  // when no order is active (the markup shows an idle line instead). Mirror of the refine
-  // order labels.
-  $: fabricateOrderModeLabel = fabricateOrder
-    ? fabricateOrder.mode.kind === "batch"
-      ? `Batch — ${fabricateOrder.mode.remaining} remaining`
-      : "Continuous — runs until stopped"
-    : "";
-  $: fabricateOrderPauseLabel =
-    fabricateOrder?.pausedReason === "noInput"
-      ? "⏸ Out of materials"
-      : fabricateOrder?.pausedReason === "outputFull"
-        ? "⏸ Storage full (expand the Warehouse)"
-        : "";
-  // The blueprint label the active order is crafting (for the status card's heading), or
-  // "" when no order. Reads the order's blueprintKey -> its output component label.
-  $: fabricateOrderLabel = fabricateOrder
-    ? ITEMS[BLUEPRINTS[fabricateOrder.blueprintKey]?.recipe.outputItem ?? ""]?.label ??
-      BLUEPRINTS[fabricateOrder.blueprintKey]?.label ??
-      fabricateOrder.blueprintKey
-    : "";
+
+  // The blueprints a Fabricator line can currently configure: RESEARCHED (blueprintUnlocked)
+  // AND tier-available (tier <= fabricator level) -- the SAME two stable gates the fabricable
+  // count uses. These populate the configurator's tier + item dropdowns. Derived off state so
+  // researching/upgrading updates the dropdowns LIVE. An empty list -> the Research-Lab signpost.
+  $: availableFabricateBlueprints = Object.keys(BLUEPRINTS)
+    .map((k) => BLUEPRINTS[k])
+    .filter((bp) => blueprintUnlocked(state, bp.key) && bp.tier <= fabricatorLevel);
+  // The DISTINCT tiers among those blueprints, ascending -- the tier dropdown's options.
+  $: availableFabricateTiers = [...new Set(availableFabricateBlueprints.map((bp) => bp.tier))].sort(
+    (a, b) => a - b
+  );
+
+  // The available blueprint KEYS in a given tier -- the item dropdown's options for that tier,
+  // and the seed the tier-change/open handlers use to reset cfgRecipeKey. Reads the reactive
+  // availableFabricateBlueprints at call time, so it always reflects the current research/level.
+  function fabricateKeysForTier(tier: number): string[] {
+    return availableFabricateBlueprints.filter((bp) => bp.tier === tier).map((bp) => bp.key);
+  }
 
   // Blueprints grouped by TIER for the Research list (tiers ascending). PURE over
   // the STATIC BLUEPRINTS table (independent of live state -- the per-blueprint
@@ -2236,30 +2219,10 @@
     }
   }
 
-  // Fabricator (Task F4 UI): map a canFabricate BLOCK reason to the human sentence shown
-  // on a disabled Craft button's title + inline "why not" text. The DIRECT clone of
-  // researchBlockText above. tierLocked reads the blueprint's tier to name the required
-  // fabricator level (canFabricate blocks when bp.tier > fabricator level, so reaching
-  // level == tier unlocks it). notResearched is largely defensive here -- the Craft tab
-  // only lists RESEARCHED blueprints, so a real card won't surface it -- but it's mapped
-  // for exhaustiveness (and covers a render/click race). notFound is a defensive fallback
-  // (a real listed blueprint can't hit it). Mirrors researchBlockText's reason→text idiom.
-  function fabricateBlockText(reason: FabricateBlockReason, bp: BlueprintDef): string {
-    switch (reason) {
-      case "notResearched":
-        return "Research at the Research Lab first";
-      case "tierLocked":
-        return `Requires Fabricator level ${bp.tier}`;
-      case "noSlot":
-        return "All fabricate slots busy";
-      case "materials":
-        return "Not enough materials";
-      case "storageFull":
-        return "Storage full (expand the Warehouse)";
-      case "notFound":
-        return "Unavailable";
-    }
-  }
+  // (Task C4) fabricateBlockText was RETIRED here with the Craft-tab order controls -- the
+  // per-line configurator's disabled Start now reads startLineBlockText (above), which maps the
+  // shared StartLineBlockReason. canFabricate is no longer called from the UI either (the
+  // Overview's fabricable count derives from blueprintUnlocked + tier directly).
 
   // ---- Fuel economy: production vs expenditure (Fuel Economy v2 F4, design §5;
   // net-display fix 2026-07-16) ----
@@ -2985,7 +2948,7 @@
             <SubTabs
               tabs={[
                 { key: "overview", label: "Overview" },
-                { key: "orders", label: "Orders" },
+                { key: "orders", label: "Production" },
                 { key: "upgrades", label: "Upgrades" },
                 { key: "refineryLocked1", label: "Coming Soon!", locked: true },
               ]}
@@ -3068,94 +3031,124 @@
             {/if}
 
             {#if activeRefinerySubTab === "orders"}
-              <!-- ORDERS (Phase 2, Task D4) -- the batch/continuous standing-order
-                   management view (design §4.4). Start a batch (N iterations) or a
-                   continuous order, see the active order's live status + pause
-                   reason, and Stop it. Buttons gate on the refinery being built
-                   (>= 1 slot) and, for batch, a valid count. Reuses .buy-btn /
-                   .dev-btn + the .research-* readout classes, same as Overview. -->
+              <!-- PRODUCTION LINES (Crafting Allocation Redesign, Task C4) -- one panel
+                   per refinery slot. ACTIVE lines (state.refineLines) render first, each
+                   as a card with a Cancel button (top-right, danger), its recipe, a
+                   progress bar, and the tick readout (via remainingReadout, off the line's
+                   in-flight job matched by lineId). Remaining IDLE slots render a compact
+                   "configure a craft" prompt that expands into the tier→item→qty→REQUIRES
+                   →Start configurator (only one open at a time). All gates read the shared
+                   canStartLine / maxAffordableIterations; the REQUIRES preview reads the
+                   derived allocation helpers (free/allocated/total). Reuses .mission-card /
+                   .buy-btn / .dev-btn.danger + the .research-* classes. -->
               <Panel>
-                {@const orderRecipeItemIds = [...Object.keys(refineRecipe.input), refineRecipe.output.itemId]}
-                <div class="panel-title">REFINE ORDERS</div>
-                <div class="research-cost">Refine slots: {activeRefineJobs.length} / {refinerySlots} in use</div>
+                <div class="panel-title">PRODUCTION LINES</div>
+                <div class="research-cost">Refine slots: {(state.refineLines ?? []).length} / {refinerySlots} in use</div>
 
-                <!-- Recipe reminder + live material balances (same bracketed-[Item]
-                     convention the Overview sub-tab uses). -->
-                <div class="research-name">
-                  Refine [{ITEMS[Object.keys(refineRecipe.input)[0]]?.label ?? "?"}] → [{ITEMS[refineRecipe.output.itemId]?.label ?? refineRecipe.output.itemId}]
-                </div>
-                <div class="research-cost">
-                  Cost: {formatNumber(refineRecipe.input[Object.keys(refineRecipe.input)[0]])} [{ITEMS[Object.keys(refineRecipe.input)[0]]?.label ?? "?"}]
-                  · Output: {formatNumber(refineRecipe.output.amount)} [{ITEMS[refineRecipe.output.itemId]?.label ?? refineRecipe.output.itemId}]
-                  · {durationReadout(refineRecipe.durationTicks, showTickCounts, state.tickDurationSeconds)} each
-                </div>
-                <div class="research-cost">
-                  Materials:
-                  {#each orderRecipeItemIds as itemId, i}
-                    [{ITEMS[itemId]?.label ?? itemId}] {formatNumber(state.inventory[itemId] ?? new Decimal(0))}{i < orderRecipeItemIds.length - 1 ? " · " : ""}
+                {#if !refineryBuilt}
+                  <p class="research-status" style="margin-top: 10px;">
+                    Build the <strong>Refinery</strong> first (see Upgrades) to run production lines.
+                  </p>
+                {:else}
+                  {@const refineLines = state.refineLines ?? []}
+                  {@const idleSlots = Math.max(0, refinerySlots - refineLines.length)}
+
+                  <!-- Active refine lines (one card each). -->
+                  {#each refineLines as line, li (line.id)}
+                    {@const recipe = REFINE_RECIPES[line.recipeKey]}
+                    {@const job = state.activeProcesses.find((p) => p.lineId === line.id)}
+                    {@const progress = job && job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 0}
+                    <div class="mission-card" style="margin-top: 10px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                        <div class="research-name">LINE {li + 1} · REFINING</div>
+                        <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                      </div>
+                      <div class="research-cost">
+                        {#if recipe}
+                          {#each Object.keys(recipe.input) as inId, i}{formatNumber(recipe.input[inId])}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(recipe.input).length - 1 ? " + " : ""}{/each}
+                          → [{ITEMS[recipe.output.itemId]?.label ?? recipe.output.itemId}]
+                        {:else}[{line.recipeKey}]{/if}
+                        · {line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous"}
+                      </div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                      </div>
+                      <div class="research-readout">
+                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued — starts next tick{/if}
+                      </div>
+                    </div>
                   {/each}
-                </div>
 
-                <!-- Live status of the ACTIVE order (design §4.2 pause reasons).
-                     Derived reactively from state.refineOrder so it updates as the
-                     order drains / pauses / clears. Idle line when none is set. -->
-                <div class="mission-card" style="margin-top: 10px;">
-                  {#if refineOrder}
-                    <div class="research-name">Active order: {refineOrderModeLabel}</div>
-                    {#if refineOrderPauseLabel}
-                      <div class="research-readout" style="color: var(--color-danger);">{refineOrderPauseLabel}</div>
+                  <!-- Idle slots: a compact prompt that expands into the configurator. -->
+                  {#each Array(idleSlots) as _, idx}
+                    {@const slotIndex = refineLines.length + idx}
+                    {@const isOpen = openConfig?.kind === "refine" && openConfig.slotIndex === slotIndex}
+                    {#if isOpen}
+                      {@const maxQty = maxAffordableIterations(state, "refine", cfgRecipeKey)}
+                      {@const gate = canStartLine(state, "refine", cfgRecipeKey, Math.floor(cfgQty))}
+                      {@const perIteration = lineInputsPerIteration({ id: "", kind: "refine", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
+                      <div class="mission-card" style="margin-top: 10px;">
+                        <div class="research-name">Line {slotIndex + 1} · configure a craft</div>
+
+                        <!-- Tier dropdown (refine recipes carry no tier -> a single Tier 1). -->
+                        <div class="dev-row" style="margin-top: 8px; align-items: center;">
+                          <label style="display: inline-flex; align-items: center; gap: 6px;">
+                            Tier
+                            <select class="modal-input" bind:value={cfgTier} aria-label="Tier">
+                              <option value={1}>Tier 1</option>
+                            </select>
+                          </label>
+                          <!-- Item dropdown: every refine recipe, labelled by its output item. -->
+                          <label style="display: inline-flex; align-items: center; gap: 6px;">
+                            Item
+                            <select class="modal-input" bind:value={cfgRecipeKey} aria-label="Item">
+                              {#each Object.keys(REFINE_RECIPES) as rk}
+                                <option value={rk}>{ITEMS[REFINE_RECIPES[rk].output.itemId]?.label ?? rk}</option>
+                              {/each}
+                            </select>
+                          </label>
+                          <!-- Qty field, bounded 1..maxAffordableIterations. -->
+                          <label style="display: inline-flex; align-items: center; gap: 6px;">
+                            Qty
+                            <input class="modal-input" type="number" min="1" max={maxQty} step="1" style="width: 80px;" bind:value={cfgQty} aria-label="Quantity" />
+                            <span class="research-cost">(max {maxQty})</span>
+                          </label>
+                        </div>
+
+                        <!-- REQUIRES (×qty) preview: per input, its per/ea → total, plus free / allocated / total. -->
+                        <div class="research-cost" style="margin-top: 8px;">REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</div>
+                        {#each Object.keys(perIteration) as itemId}
+                          {@const per = perIteration[itemId]}
+                          {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
+                          {@const free = freeItem(state.inventory, allLines, itemId)}
+                          {@const allocated = allocatedItem(allLines, itemId)}
+                          {@const stock = state.inventory[itemId] ?? new Decimal(0)}
+                          <div class="mission-card" style="margin-top: 4px;">
+                            <div class="research-cost">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
+                            <div class="research-cost" style="color: var(--color-success);">Free {formatNumber(free)}</div>
+                            <div class="research-cost">Allocated {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
+                          </div>
+                        {/each}
+
+                        <div class="dev-row" style="margin-top: 8px;">
+                          <button
+                            class="buy-btn"
+                            disabled={!gate.ok}
+                            title={gate.ok ? undefined : startLineBlockText(gate.reason)}
+                            on:click={() => doStartLine("refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                          >
+                            Refine · ×{Math.max(1, Math.floor(cfgQty))}
+                          </button>
+                          <button class="dev-btn" on:click={closeConfigurator}>Close</button>
+                        </div>
+                      </div>
                     {:else}
-                      <div class="research-readout" style="color: var(--color-success);">▶ Running</div>
+                      <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("refine", slotIndex)}>
+                        Line {slotIndex + 1} · idle — configure a craft
+                      </button>
                     {/if}
-                  {:else}
-                    <div class="research-readout">No active order. Start a batch or continuous order below.</div>
-                  {/if}
-                </div>
-
-                <!-- Batch: number input + "Refine N". Disabled if the refinery is
-                     unbuilt OR the count is invalid (< 1). -->
-                <div class="dev-row" style="margin-top: 10px; align-items: center;">
-                  <label style="display: inline-flex; align-items: center; gap: 6px;">
-                    Quantity
-                    <input
-                      class="modal-input"
-                      type="number"
-                      min="1"
-                      step="1"
-                      style="width: 90px;"
-                      bind:value={refineBatchCount}
-                      aria-label="Batch quantity"
-                    />
-                  </label>
-                  <button
-                    class="buy-btn"
-                    disabled={!refineryBuilt || !refineBatchValid}
-                    title={!refineryBuilt
-                      ? "Build the Refinery first (see Upgrades)"
-                      : !refineBatchValid
-                        ? "Enter a whole number of 1 or more"
-                        : undefined}
-                    on:click={() => requestStartRefineOrder("refineCommonOre", "batch")}
-                  >
-                    Refine {refineBatchValid ? Math.floor(refineBatchCount) : "N"}
-                  </button>
-                </div>
-
-                <!-- Continuous + Stop. Continuous is disabled when unbuilt; Stop is
-                     shown only while an order is active. -->
-                <div class="dev-row" style="margin-top: 6px;">
-                  <button
-                    class="buy-btn"
-                    disabled={!refineryBuilt}
-                    title={!refineryBuilt ? "Build the Refinery first (see Upgrades)" : undefined}
-                    on:click={() => requestStartRefineOrder("refineCommonOre", "continuous")}
-                  >
-                    Refine continuously
-                  </button>
-                  {#if refineOrder}
-                    <button class="dev-btn danger" on:click={doStopRefineOrder}>Stop</button>
-                  {/if}
-                </div>
+                  {/each}
+                {/if}
               </Panel>
             {/if}
 
@@ -4016,22 +4009,20 @@
               </Panel>
             {/if}
           {:else if activeFacility === "fabricator"}
-            <!-- FABRICATOR (Fabricator Task F4) -- the component-crafting facility. It
-                 CONSUMES the researched blueprints from the Research Lab: three sub-tabs
-                 mirroring the Research Lab's STRUCTURE (Overview / Craft / Upgrades) with
-                 the Refinery's ORDER controls on the Craft tab. Overview = slots in use +
-                 in-flight craft jobs (progress bar + real time remaining) + researched-vs-
-                 fabricable counts + the Shipyard signpost. Craft = the RESEARCHED
-                 blueprints grouped by tier, each with its recipe/time + batch/continuous
-                 ORDER controls (doStartFabricateOrder / doStopFabricateOrder) gated by
-                 canFabricate. Upgrades = the fabricator's tier/slot track wired to the
-                 SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade. All readiness/
-                 actions read the SAME tick.ts fabricate fns (fabricateSlotCount /
-                 canFabricate / startFabricateOrder / stopFabricateOrder) + model.ts tables
-                 (FACILITIES.fabricator / BLUEPRINTS / ITEMS), so the UI can't drift from
-                 what the backend enforces. Reuses the research/refine progress-bar idiom +
-                 the .mission-card / .buy-btn / .dev-btn / .research-* classes (no new
-                 markup style). -->
+            <!-- FABRICATOR (Fabricator Task F4; Craft tab reworked in Task C4) -- the
+                 component-crafting facility. It CONSUMES the researched blueprints from the
+                 Research Lab: three sub-tabs mirroring the Research Lab's STRUCTURE (Overview /
+                 Craft / Upgrades). Overview = slots in use + in-flight craft jobs (progress bar
+                 + real time remaining) + researched-vs-fabricable counts + the Shipyard
+                 signpost. Craft = the per-slot PRODUCTION LINES view (active fabricate lines +
+                 the tier→item→qty→REQUIRES→Start configurator on idle slots), the direct mirror
+                 of the Refinery's Production tab, driven by the shared startLine / cancelLine /
+                 canStartLine / maxAffordableIterations seams. Upgrades = the fabricator's tier/
+                 slot track wired to the SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade.
+                 Readiness/actions read the SAME tick.ts fns + model.ts tables (FACILITIES.
+                 fabricator / BLUEPRINTS / ITEMS), so the UI can't drift from what the backend
+                 enforces. Reuses the research/refine progress-bar idiom + the .mission-card /
+                 .buy-btn / .dev-btn / .research-* classes (no new markup style). -->
             <SubTabs
               tabs={[
                 { key: "overview", label: "Overview" },
@@ -4085,142 +4076,131 @@
             {/if}
 
             {#if activeFabricatorSubTab === "craft"}
-              <!-- CRAFT -- the RESEARCHED blueprints grouped by TIER (ascending). One
-                   fleet-wide standing order at a time (mirror of the Refinery's ONE
-                   refineOrder): the active order's status/pause + Stop live in a card at
-                   the top; each blueprint card shows its recipe (inputs → outputQty×output,
-                   ITEM labels), craft time (durationReadout), live material balances, and
-                   the batch/continuous ORDER controls. Start controls gate on canFabricate
-                   (disabled + fabricateBlockText reason). Only researched blueprints appear;
-                   with none researched, an empty-state line points to the Research Lab. -->
+              <!-- CRAFT (Crafting Allocation Redesign, Task C4) -- the Fabricator's per-slot
+                   PRODUCTION LINES view, the DIRECT mirror of the Refinery's Production tab:
+                   active fabricate lines (state.fabricateLines) render first (card + Cancel +
+                   recipe + progress + tick readout), then idle slots render the tier→item→
+                   qty→REQUIRES→Start configurator. The tier/item dropdowns list only RESEARCHED
+                   + tier-available blueprints (availableFabricateBlueprints); with none available
+                   the idle slots collapse to the Research-Lab signpost. All gates read the shared
+                   canStartLine / maxAffordableIterations; the REQUIRES preview reads the derived
+                   allocation helpers. Reuses .mission-card / .buy-btn / .dev-btn.danger. -->
               <Panel>
                 <div class="panel-title">CRAFT</div>
-                <div class="research-cost">Craft slots: {activeFabricateJobs.length} / {fabricateSlots} in use</div>
+                <div class="research-cost">Craft slots: {(state.fabricateLines ?? []).length} / {fabricateSlots} in use</div>
 
-                <!-- Live status of the ACTIVE order (fleet-wide singular). Derived
-                     reactively from state.fabricateOrder so it updates as the order drains/
-                     pauses/clears. Idle line when none is set; Stop shown only when active. -->
-                <div class="mission-card" style="margin-top: 10px;">
-                  {#if fabricateOrder}
-                    <div class="research-name">Active order: [{fabricateOrderLabel}] — {fabricateOrderModeLabel}</div>
-                    {#if fabricateOrderPauseLabel}
-                      <div class="research-readout" style="color: var(--color-danger);">{fabricateOrderPauseLabel}</div>
-                    {:else}
-                      <div class="research-readout" style="color: var(--color-success);">▶ Running</div>
-                    {/if}
-                    <div class="dev-row" style="margin-top: 6px;">
-                      <button class="dev-btn danger" on:click={doStopFabricateOrder}>Stop order</button>
-                    </div>
-                  {:else}
-                    <div class="research-readout">No active order. Start a batch or continuous craft below.</div>
-                  {/if}
-                </div>
-
-                {#if researchedBlueprintCount === 0}
-                  <!-- EMPTY STATE -- nothing researched yet. Point the player at the
-                       Research Lab, the ONLY way to unlock a fabricable blueprint. -->
-                  <p class="research-status" style="margin-top: 12px;">
-                    Research blueprints at the <strong>Research Lab</strong> to unlock things to fabricate.
+                {#if !fabricatorBuilt}
+                  <p class="research-status" style="margin-top: 10px;">
+                    Build the <strong>Fabricator</strong> first (see Upgrades) to run production lines.
                   </p>
                 {:else}
-                  <!-- Shared batch-quantity input -- one N for every card's Fabricate-N
-                       button (like the Refinery's single Quantity field). -->
-                  <div class="dev-row" style="margin-top: 10px; align-items: center;">
-                    <label style="display: inline-flex; align-items: center; gap: 6px;">
-                      Batch quantity
-                      <input
-                        class="modal-input"
-                        type="number"
-                        min="1"
-                        step="1"
-                        style="width: 90px;"
-                        bind:value={fabricateBatchCount}
-                        aria-label="Fabricate batch quantity"
-                      />
-                    </label>
-                  </div>
+                  {@const fabricateLines = state.fabricateLines ?? []}
+                  {@const idleSlots = Math.max(0, fabricateSlots - fabricateLines.length)}
 
-                  {#each blueprintTierGroups as group (group.tier)}
-                    <!-- Only RESEARCHED blueprints appear on the Craft tab; a tier with
-                         none researched is skipped entirely (no empty heading). -->
-                    {@const researchedInTier = group.blueprints.filter((bp) => blueprintUnlocked(state, bp.key))}
-                    {#if researchedInTier.length > 0}
-                      <div class="research-name" style="margin-top: 12px;">Tier {group.tier}</div>
-                      {#each researchedInTier as bp (bp.key)}
-                        {@const gate = canFabricate(state, bp.key)}
-                        <!-- tierLocked is the ONLY canFabricate reason that genuinely
-                             prevents SETTING an order: the fabricator's level hasn't
-                             reached this blueprint's tier, so it can't be crafted until you
-                             upgrade. Computed directly (bp.tier > level -- canFabricate's own
-                             tierLocked condition) so the order-SET gate can exclude it while
-                             ignoring the TRANSIENT reasons (materials/noSlot/storageFull),
-                             which the F2 engine auto-pauses + auto-resumes on -- exactly like
-                             the Refinery lets you set an order that then sits paused. -->
-                        {@const tierLocked = bp.tier > fabricatorLevel}
-                        {@const orderItemIds = [...Object.keys(bp.recipe.inputs), bp.recipe.outputItem]}
-                        <div class="mission-card">
-                          <div class="research-name">{bp.label}</div>
-                          <!-- Recipe: inputs → output, bracketed [Item] labels. -->
-                          <div class="research-cost">
-                            Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
-                          </div>
-                          <div class="research-cost">Time: {durationReadout(bp.craftDurationTicks, showTickCounts, state.tickDurationSeconds)} each</div>
-                          <!-- Live material balances (inputs + output), same bracketed-
-                               [Item] convention the Refinery order tab uses. -->
-                          <div class="research-cost">
-                            Materials:
-                            {#each orderItemIds as itemId, i}
-                              [{ITEMS[itemId]?.label ?? itemId}] {formatNumber(state.inventory[itemId] ?? new Decimal(0))}{i < orderItemIds.length - 1 ? " · " : ""}
-                            {/each}
+                  <!-- Active fabricate lines (one card each). -->
+                  {#each fabricateLines as line, li (line.id)}
+                    {@const bp = BLUEPRINTS[line.recipeKey]}
+                    {@const job = state.activeProcesses.find((p) => p.lineId === line.id)}
+                    {@const progress = job && job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 0}
+                    <div class="mission-card" style="margin-top: 10px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                        <div class="research-name">LINE {li + 1} · FABRICATING</div>
+                        <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                      </div>
+                      <div class="research-cost">
+                        {#if bp}
+                          {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each}
+                          → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
+                        {:else}[{line.recipeKey}]{/if}
+                        · {line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous"}
+                      </div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                      </div>
+                      <div class="research-readout">
+                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued — starts next tick{/if}
+                      </div>
+                    </div>
+                  {/each}
+
+                  <!-- Idle slots: the configurator, OR the Research-Lab signpost when nothing
+                       is researched + tier-available to configure. -->
+                  {#if idleSlots > 0 && availableFabricateBlueprints.length === 0}
+                    <p class="research-status" style="margin-top: 12px;">
+                      Research blueprints at the <strong>Research Lab</strong> to unlock things to fabricate.
+                    </p>
+                  {:else}
+                    {#each Array(idleSlots) as _, idx}
+                      {@const slotIndex = fabricateLines.length + idx}
+                      {@const isOpen = openConfig?.kind === "fabricate" && openConfig.slotIndex === slotIndex}
+                      {#if isOpen}
+                        {@const maxQty = maxAffordableIterations(state, "fabricate", cfgRecipeKey)}
+                        {@const gate = canStartLine(state, "fabricate", cfgRecipeKey, Math.floor(cfgQty))}
+                        {@const perIteration = lineInputsPerIteration({ id: "", kind: "fabricate", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
+                        <div class="mission-card" style="margin-top: 10px;">
+                          <div class="research-name">Line {slotIndex + 1} · configure a craft</div>
+
+                          <div class="dev-row" style="margin-top: 8px; align-items: center;">
+                            <!-- Tier dropdown: the researched + tier-available tiers. -->
+                            <label style="display: inline-flex; align-items: center; gap: 6px;">
+                              Tier
+                              <select class="modal-input" value={cfgTier} on:change={(e) => onFabricateTierChange(Number((e.target as HTMLSelectElement).value))} aria-label="Tier">
+                                {#each availableFabricateTiers as t}
+                                  <option value={t}>Tier {t}</option>
+                                {/each}
+                              </select>
+                            </label>
+                            <!-- Item dropdown: the blueprints in the selected tier. -->
+                            <label style="display: inline-flex; align-items: center; gap: 6px;">
+                              Item
+                              <select class="modal-input" bind:value={cfgRecipeKey} aria-label="Item">
+                                {#each fabricateKeysForTier(cfgTier) as bk}
+                                  <option value={bk}>{BLUEPRINTS[bk]?.label ?? bk}</option>
+                                {/each}
+                              </select>
+                            </label>
+                            <!-- Qty field, bounded 1..maxAffordableIterations. -->
+                            <label style="display: inline-flex; align-items: center; gap: 6px;">
+                              Qty
+                              <input class="modal-input" type="number" min="1" max={maxQty} step="1" style="width: 80px;" bind:value={cfgQty} aria-label="Quantity" />
+                              <span class="research-cost">(max {maxQty})</span>
+                            </label>
                           </div>
 
-                          <!-- ORDER controls: Fabricate N (batch) + Fabricate continuously.
-                               Both gate on the fabricator being built, canFabricate (the
-                               single backend gate -> reason via fabricateBlockText), and
-                               (batch) a valid count. The click builds the FabricateOrderMode
-                               and hands it to doStartFabricateOrder (floored count, defense
-                               in depth vs. the fabricateBatchValid gate). -->
+                          <!-- REQUIRES (×qty) preview: per input, per/ea → total, plus free / allocated / total. -->
+                          <div class="research-cost" style="margin-top: 8px;">REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</div>
+                          {#each Object.keys(perIteration) as itemId}
+                            {@const per = perIteration[itemId]}
+                            {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
+                            {@const free = freeItem(state.inventory, allLines, itemId)}
+                            {@const allocated = allocatedItem(allLines, itemId)}
+                            {@const stock = state.inventory[itemId] ?? new Decimal(0)}
+                            <div class="mission-card" style="margin-top: 4px;">
+                              <div class="research-cost">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
+                              <div class="research-cost" style="color: var(--color-success);">Free {formatNumber(free)}</div>
+                              <div class="research-cost">Allocated {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
+                            </div>
+                          {/each}
+
                           <div class="dev-row" style="margin-top: 8px;">
                             <button
                               class="buy-btn"
-                              disabled={!fabricatorBuilt || !fabricateBatchValid || tierLocked}
-                              title={!fabricatorBuilt
-                                ? "Build the Fabricator first (see Upgrades)"
-                                : tierLocked
-                                  ? fabricateBlockText("tierLocked", bp)
-                                  : !fabricateBatchValid
-                                    ? "Enter a whole number of 1 or more"
-                                    : undefined}
-                              on:click={() => doStartFabricateOrder(bp.key, { kind: "batch", remaining: Math.floor(fabricateBatchCount) })}
+                              disabled={!gate.ok}
+                              title={gate.ok ? undefined : startLineBlockText(gate.reason, BLUEPRINTS[cfgRecipeKey])}
+                              on:click={() => doStartLine("fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
                             >
-                              Fabricate {fabricateBatchValid ? Math.floor(fabricateBatchCount) : "N"}
+                              Fabricate · ×{Math.max(1, Math.floor(cfgQty))}
                             </button>
-                            <button
-                              class="buy-btn"
-                              disabled={!fabricatorBuilt || tierLocked}
-                              title={!fabricatorBuilt
-                                ? "Build the Fabricator first (see Upgrades)"
-                                : tierLocked
-                                  ? fabricateBlockText("tierLocked", bp)
-                                  : undefined}
-                              on:click={() => doStartFabricateOrder(bp.key, { kind: "continuous" })}
-                            >
-                              Fabricate continuously
-                            </button>
+                            <button class="dev-btn" on:click={closeConfigurator}>Close</button>
                           </div>
-                          <!-- Informational "will pause" line -- when a TRANSIENT condition
-                               (materials/noSlot/storageFull) is currently unmet, the order can
-                               still be SET; it just sits paused until the block lifts (F2
-                               auto-resume). So this is a muted hint, NOT a disabled button --
-                               mirroring the Refinery's set-then-pause order UX. tierLocked is
-                               excluded here (its disabled button already shows that reason). -->
-                          {#if !gate.ok && !tierLocked}
-                            <div class="research-cost" style="color: var(--color-text-secondary);">{fabricateBlockText(gate.reason, bp)} — order will pause until resolved</div>
-                          {/if}
                         </div>
-                      {/each}
-                    {/if}
-                  {/each}
+                      {:else}
+                        <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("fabricate", slotIndex)}>
+                          Line {slotIndex + 1} · idle — configure a craft
+                        </button>
+                      {/if}
+                    {/each}
+                  {/if}
                 {/if}
               </Panel>
             {/if}
@@ -5218,24 +5198,23 @@
   {/if}
 
   {#if refineConfirmModalOpen}
-    <!-- Refine-order confirmation modal (Phase 2, Task D3) -- reuses the SAME
-         .modal-backdrop/Panel.modal-dialog/.modal-warning/.modal-row structure as
-         the DELETE SAVE modal above, so all of this app's modals share one visual
-         language. The "Don't show this again" checkbox disables the refineConfirm
-         pref on Confirm (persisted like tickBarEnabled); the System -> Options
-         toggle re-enables it. Confirm starts the held pendingRefineOrder; Cancel
-         starts nothing. -->
+    <!-- Start-a-craft confirmation modal (Crafting Allocation Redesign, Task C4 -- reuses the
+         Phase-2 refine-confirm pref + modal). Same .modal-backdrop/Panel.modal-dialog/
+         .modal-warning/.modal-row structure as the DELETE SAVE modal, so all modals share one
+         visual language. The "Don't show this again" checkbox disables the refineConfirm pref on
+         Confirm (persisted like tickBarEnabled); the System -> Options toggle re-enables it.
+         Confirm commits the held pendingLineStart (via startLine); Cancel starts nothing. -->
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
-        <div class="panel-title">CONFIRM REFINE</div>
-        <p class="modal-warning">Are you sure you wish to refine this item? This cannot be undone.</p>
+        <div class="panel-title">CONFIRM CRAFT</div>
+        <p class="modal-warning">Start this production line? Its materials will be reserved — you can cancel the line to refund the remainder.</p>
         <label class="modal-row" style="justify-content: flex-start; gap: 6px; margin-bottom: 4px;">
           <input type="checkbox" bind:checked={refineConfirmDontShowAgain} />
           Don't show this again
         </label>
         <div class="modal-row">
-          <button class="dev-btn" on:click={cancelRefineOrder}>Cancel</button>
-          <button class="dev-btn" on:click={confirmRefineOrder}>Confirm</button>
+          <button class="dev-btn" on:click={cancelLineStart}>Cancel</button>
+          <button class="dev-btn" on:click={confirmLineStart}>Confirm</button>
         </div>
       </Panel>
     </div>

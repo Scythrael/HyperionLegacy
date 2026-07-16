@@ -1366,60 +1366,15 @@ export const FACILITIES: Record<string, FacilityDef> = {
   },
 };
 
-// --- Refine orders (Phase 2, Task D1 -- docs/plans/2026-07-13-phase-2-warehouse-
-// refine-economy-design.md §4/§5) -------------------------------------------------
-// A STANDING refine order, distinct from a single startRefineJob (which starts ONE
-// job). An order keeps starting refine jobs each economyTick until its work is done
-// or a block hits. Two modes:
-//   - batch: run a FIXED number of iterations. `remaining` is decremented once per
-//     STARTED job; the order CLEARS (state.refineOrder -> null) when it reaches 0.
-//   - continuous: run UNBOUNDED until the player stops it (stopRefineOrder / the D2
-//     cancellation path). It never self-clears -- it only pauses/resumes.
-// The two are a discriminated union (on `kind`), the SAME named-union convention as
-// ProcessEffect/FacilityUpgradeEffect above, so a future mode slots in without
-// touching every consumer that switches on `kind`.
-export type RefineOrderMode =
-  | { kind: "batch"; remaining: number }
-  | { kind: "continuous" };
-
-// One standing refine order. `pausedReason` is ABSENT while the order is running and
-// is RECOMPUTED every tick by processRefineOrder (tick.ts): it records WHY the order
-// made no progress this tick (inputs exhausted / output at its warehouse cap) for the
-// D4 Overview readout AND for AUTO-RESUME -- because it is recomputed from scratch
-// each tick, it clears automatically the tick a block lifts (input arrives / cap
-// frees), so resuming a paused order needs no explicit un-pause action. NO Decimal on
-// this shape (recipeKey string, remaining a plain number, pausedReason a string
-// literal), so save hydration needs no per-field revival -- it rides the `...state`
-// spread untouched.
-export interface RefineOrder {
-  recipeKey: string;                       // which REFINE_RECIPES entry this order runs
-  mode: RefineOrderMode;
-  pausedReason?: "noInput" | "outputFull"; // absent = running; set per-tick by processRefineOrder
-}
-
-// --- Fabricate orders (Fabricator Phase 4, Task F2 -- docs/plans/2026-07-16-fabricator-
-// design.md §2) --------------------------------------------------------------------
-// A STANDING fabricate order, a LINE-FOR-LINE mirror of RefineOrder above, for the
-// Fabricator instead of the Refinery. It keeps starting single fabricate JOBS (via
-// startFabricateJob) each economyTick until its work is done or a block hits. The ONE
-// shape difference vs. RefineOrder: `blueprintKey` (a BLUEPRINTS id) replaces
-// `recipeKey` (a REFINE_RECIPES id) -- the job it runs is a researched blueprint's
-// recipe, not a refine recipe. Same two modes (batch count-N / continuous) and the same
-// per-tick-recomputed `pausedReason` (auto-resume by construction). A SEPARATE
-// FabricateOrderMode (structurally identical to RefineOrderMode) is defined so the two
-// order systems stay INDEPENDENTLY evolvable -- a future refine-only or fabricate-only
-// mode can be added without coupling the other (Omega 8 YAGNI + Omega 4: consolidation
-// candidate if they never diverge, flagged not forced). NO Decimal on this shape, so
-// save hydration needs no per-field revival -- it rides the `...state` spread untouched.
-export type FabricateOrderMode =
-  | { kind: "batch"; remaining: number }
-  | { kind: "continuous" };
-
-export interface FabricateOrder {
-  blueprintKey: string;                    // which BLUEPRINTS entry (its recipe) this order crafts
-  mode: FabricateOrderMode;
-  pausedReason?: "noInput" | "outputFull"; // absent = running; set per-tick by processFabricateOrder
-}
+// --- Refine / Fabricate orders (RETIRED, Crafting Allocation Redesign Task C4) -----
+// The single standing-order model (RefineOrder / FabricateOrder + their RefineOrderMode
+// / FabricateOrderMode unions, and the GameState.refineOrder / fabricateOrder fields)
+// was REMOVED here. The per-slot production LINES (refineLines / fabricateLines below,
+// typed CraftLine[] from allocation.ts) fully replace it: independent lines, one per
+// occupied facility slot, with material allocation DERIVED from the lines. See
+// allocation.ts (CraftLineMode is the batch|continuous run-mode union the lines carry)
+// and tick.ts (startLine / cancelLine / processRefineLines / processFabricateLines).
+// C6's save migration drops any legacy refineOrder / fabricateOrder key off old saves.
 
 export interface GameState {
   captains: CaptainState[];
@@ -1492,29 +1447,10 @@ export interface GameState {
   facilities: Record<string, FacilityState>; // facilityKey -> { level }; level 0 = not built
   activeProcesses: TimedProcess[];            // in-flight refine jobs + facility upgrades (empty until Task 8 starts one)
   nextProcessId: number;                      // monotonic id source for new TimedProcess.id ("proc-N"); never reused
-  // Phase 2, Task D1 (design §4/§5): the fleet's ONE standing refine order, or null
-  // when none is active. A SINGLE nullable order (NOT a list/map) is the minimal
-  // correct shape for today's ONE refinery -- it can be widened to a per-refinery map
-  // if a second refinery ever ships, without precluding it now (Omega 8 YAGNI). It is
-  // processed each tick inside economyTick (processRefineOrder, tick.ts), which fills
-  // free refine slots with jobs while the order is unblocked and rides the SAME
-  // economyTick seam as the Task B3 auto-stop -- so it behaves identically live and in
-  // the offline per-tick step loop. freshState seeds null; the v19->v20 migration
-  // (save.ts) backfills null onto existing saves.
-  refineOrder: RefineOrder | null;
-  // Fabricator (Phase 4, Task F2 -- design §2): the fleet's ONE standing fabricate order,
-  // or null when none is active -- the EXACT mirror of refineOrder above, for the
-  // Fabricator. A SINGLE nullable order (not a list/map) is the minimal correct shape for
-  // today's ONE fabricator (widenable to a per-fabricator map later without precluding it
-  // now, Omega 8 YAGNI). It is processed each tick inside economyTick (processFabricateOrder,
-  // tick.ts) at the SAME seam as refineOrder, so it behaves identically live and in the
-  // offline per-tick step loop. freshState seeds null; the v22->v23 migration (save.ts, F6)
-  // backfills null onto existing saves.
-  fabricateOrder: FabricateOrder | null;
   // --- Crafting Allocation Redesign (Task C2 -- docs/plans/2026-07-16-crafting-
   // allocation-redesign-design.md §2) --------------------------------------------
   // The per-slot production LINES that REPLACE the single refineOrder/fabricateOrder
-  // above (which are now DEAD, kept only until Task C4 retires them + their UI). Each
+  // (both RETIRED in Task C4 -- the single-order fields are gone). Each
   // facility owns an array of independent lines -- one per occupied slot -- so a
   // 3-slot Refinery can refine 3 DIFFERENT recipes at once (the single-order model
   // could only run one recipe across all slots). The array LENGTH is capped at the
@@ -1549,9 +1485,9 @@ export interface GameState {
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
 // RETIRED in the Fabricator feature (Phase 4, Task F5). The timed Fabricator
-// facility (BLUEPRINTS + craftDurationTicks + startFabricateOrder, below/tick.ts)
-// fully subsumes that mechanic -- researched blueprints crafted over time via the
-// order/slot engine, feeding the SAME lifetimeStats.itemsCrafted tally. The old
+// facility (BLUEPRINTS + craftDurationTicks + the per-slot production-line engine in
+// tick.ts) fully subsumes that mechanic -- researched blueprints crafted over time via
+// the line/slot engine, feeding the SAME lifetimeStats.itemsCrafted tally. The old
 // `recipeBonusOutput` Homeworld Talent effect that only modified this instant path
 // was retired with it (see HomeworldTalentEffect below).
 
@@ -2881,13 +2817,6 @@ export function freshState(): GameState {
     facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 } },
     activeProcesses: [],
     nextProcessId: 1,
-    // Phase 2, Task D1: no standing refine order on a fresh save. Existing saves get
-    // this same null seed via the v19->v20 migration (save.ts, MIGRATIONS[19]).
-    refineOrder: null,
-    // Fabricator Task F2: no standing fabricate order on a fresh save (the mirror of the
-    // refineOrder: null seed above). Existing saves get this same null seed via the
-    // v22->v23 migration (save.ts, F6) -- NOT this function's job.
-    fabricateOrder: null,
     // Crafting Allocation Redesign Task C2: no production lines on a fresh save; the
     // first line is added by startLine when the player configures a slot. nextCraftLineId
     // starts at 1 so the first minted id is "craft-1" (mirrors nextShipId/nextProcessId).

@@ -42,8 +42,8 @@ import { REFINE_RECIPES, BLUEPRINTS } from "./model";
 // facility kind slots in as a new literal without touching call sites.
 export type CraftLineKind = "refine" | "fabricate";
 
-// A production line's RUN MODE (Task C2). Structurally identical to model.ts's
-// RefineOrderMode / FabricateOrderMode (the retired single-order shapes it replaces),
+// A production line's RUN MODE (Task C2). Structurally identical to the RefineOrderMode /
+// FabricateOrderMode single-order shapes it replaced (removed from model.ts in Task C4),
 // kept as a discriminated union so a future mode slots in without touching every
 // consumer that switches on `kind`:
 //   - batch: run a FIXED number of iterations, then the line clears itself.

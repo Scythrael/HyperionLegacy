@@ -44,11 +44,10 @@ import {
   type TimedProcess,
   type TimedProcessKind,
   type ProcessEffect,
-  // RefineOrder / FabricateOrder (the single-order record types) are retired in Task
-  // C2 -- their per-tick engines are gone; only the *Mode unions survive, still used by
-  // the dead-but-kept startRefineOrder/startFabricateOrder setters (removed in C4).
-  type RefineOrderMode,
-  type FabricateOrderMode,
+  // The single-order model (RefineOrder / FabricateOrder + their *Mode unions + the
+  // startRefineOrder/startFabricateOrder setters) is fully RETIRED as of Task C4 -- the
+  // per-slot production LINES (startLine/cancelLine, below) replace it. Nothing here
+  // imports the order types anymore.
   WAREHOUSE_T1_BASE_CAP,
   WAREHOUSE_T2_BASE_CAP,
   FUEL_TANK_BASE_CAP,
@@ -1927,8 +1926,8 @@ export function buyShip(
 }
 
 // (craftRecipe -- the legacy INSTANT Homeworld craft action -- was RETIRED in
-// Phase 4, Task F5. The timed Fabricator engine (startFabricateOrder /
-// processFabricateOrder, below) fully replaces it, feeding the SAME
+// Phase 4, Task F5. The timed Fabricator engine (now the per-slot production-LINE
+// engine, processFabricateLines below) fully replaces it, feeding the SAME
 // lifetimeStats.itemsCrafted tally on craft completion.)
 
 // ============================================================================
@@ -2882,46 +2881,11 @@ export function startRefineJob(
 // Refine ORDER engine (Phase 2, Task D1)
 // (docs/plans/2026-07-13-phase-2-warehouse-refine-economy-design.md §4).
 //
-// A refine ORDER is a STANDING instruction that keeps starting single refine JOBS
-// (via startRefineJob -- NO duplicated job-creation logic) every economyTick until
-// its work is done or a block hits. It is the batch/continuous layer ON TOP of Phase
-// 1's single-job startRefineJob, not a replacement for it.
-//
-// THREE functions:
-//   - startRefineOrder(state, recipeKey, mode): set/replace the active order (pure).
-//   - stopRefineOrder(state): clear the active order (pure) -- D2's cancellation path
-//     builds on this basic clear.
-//   - processRefineOrder(state): the per-tick engine, called by economyTick above.
+// The standing single-order model (startRefineOrder / stopRefineOrder and their
+// Fabricator twins) was RETIRED in Task C4. The per-slot production LINE engine below
+// (startLine / cancelLine + processRefineLines / processFabricateLines) replaces it
+// entirely: independent lines, one per occupied slot, with DERIVED allocation.
 // ============================================================================
-
-// Sets (or REPLACES) the fleet's standing refine order. PURE: returns a NEW state
-// with refineOrder set, or the SAME reference (no-op) if recipeKey is unknown -- the
-// reject convention startRefineJob/startProcess share, so a bad key can never install
-// an order that could never run. pausedReason is intentionally ABSENT on a fresh
-// order (it is "running" until processRefineOrder proves otherwise on the next tick).
-// Replacing an existing order simply overwrites the record; any JOBS the previous
-// order already started stay in flight (they are committed TimedProcesses, not owned
-// by the order record). The D4 UI calls this; tests call it directly.
-// DEAD as of C2 — retired in C4 (per-line UI). Kept only so App.svelte compiles.
-export function startRefineOrder(
-  state: GameState,
-  recipeKey: string,
-  mode: RefineOrderMode
-): GameState {
-  if (!REFINE_RECIPES[recipeKey]) return state; // unknown recipe -> same-reference no-op
-  return { ...state, refineOrder: { recipeKey, mode } };
-}
-
-// Clears the standing refine order (refineOrder -> null). PURE. Idempotent: clearing
-// when there is no order returns the SAME reference. Does NOT touch activeProcesses --
-// a job the order already started is a committed process that runs to completion
-// (design §4.3: the in-progress iteration commits; only the queued REMAINDER is
-// dropped). D2 layers its full cancellation rules on this basic clear.
-// DEAD as of C2 — retired in C4 (per-line UI). Kept only so App.svelte compiles.
-export function stopRefineOrder(state: GameState): GameState {
-  if (state.refineOrder === null) return state;
-  return { ...state, refineOrder: null };
-}
 
 // ============================================================================
 // Per-slot production LINE engine (Crafting Allocation Redesign, Task C2)
@@ -3477,44 +3441,17 @@ export function startFabricateJob(
   });
 }
 
-// Sets (or REPLACES) the fleet's standing fabricate order. PURE: returns a NEW state with
-// fabricateOrder set, or the SAME reference (no-op) if blueprintKey is unknown -- the
-// EXACT mirror of startRefineOrder. pausedReason is intentionally ABSENT on a fresh order
-// (running until processFabricateOrder proves otherwise next tick). Replacing an existing
-// order overwrites the record; JOBS the previous order already started stay in flight
-// (committed TimedProcesses, not owned by the order record). The F4 UI calls this; tests
-// call it directly.
-// DEAD as of C2 — retired in C4 (per-line UI). Kept only so App.svelte compiles.
-export function startFabricateOrder(
-  state: GameState,
-  blueprintKey: string,
-  mode: FabricateOrderMode
-): GameState {
-  if (!BLUEPRINTS[blueprintKey]) return state; // unknown blueprint -> same-reference no-op
-  return { ...state, fabricateOrder: { blueprintKey, mode } };
-}
-
-// Clears the standing fabricate order (fabricateOrder -> null). PURE. Idempotent: clearing
-// when there is no order returns the SAME reference. Does NOT touch activeProcesses -- a
-// job the order already started is a committed process that runs to completion (the
-// in-progress iteration commits; only the queued REMAINDER is dropped). The mirror of
-// stopRefineOrder.
-// DEAD as of C2 — retired in C4 (per-line UI). Kept only so App.svelte compiles.
-export function stopFabricateOrder(state: GameState): GameState {
-  if (state.fabricateOrder === null) return state;
-  return { ...state, fabricateOrder: null };
-}
-
-// processFabricateOrder was RETIRED in Task C2 -- the standing single-order engine is
-// replaced by processFabricateLines (see the per-slot line-engine section above,
-// alongside processRefineLines). The startFabricateOrder/stopFabricateOrder setters
-// remain as annotated dead code only until Task C4 deletes them with the old order UI.
+// The standing single-order model for the Fabricator (startFabricateOrder /
+// stopFabricateOrder) was RETIRED in Task C4, together with its Refinery twin and the
+// processRefineOrder/processFabricateOrder engines (already gone in C2). The per-slot
+// production LINE engine (startLine/cancelLine + processFabricateLines) is the sole
+// crafting model now.
 
 // ============================================================================
 // Fuel Depot pipeline engine (Fuel Economy v2 F2, design §2).
 //
 // processFuelPipelines(state): the per-tick engine, called ONCE per economyTick (AFTER
-// resolveProcesses + processRefineOrder, so a pipeline slot freed by a batch COMPLETING
+// resolveProcesses + the production-line engine, so a pipeline slot freed by a batch COMPLETING
 // this tick is immediately refillable this same tick -- no idle gap). PURE: returns a
 // NEW state, or the SAME reference when no pipeline runs.
 //
