@@ -71,45 +71,10 @@
 </script>
 
 {#if view === "game"}
+  <!-- No in-game "back" affordance: it overlapped the player portrait, and the
+       browser back button / editing the URL still return to the landing page.
+       navigate() lives on for Landing's Play button (passed as a prop below). -->
   <App />
-
-  <!-- Small escape hatch back to this game's landing page (/game/hl). Tiny,
-       translucent, top-left; brightens on hover; z-index below the game's
-       modals (z:100) so it never covers a dialog. -->
-  <button
-    class="site-link"
-    on:click={() => navigate(LANDING_ROUTE)}
-    title="Back to the Hyperion Legacy page"
-  >
-    &larr; Back
-  </button>
 {:else}
   <Landing {navigate} />
 {/if}
-
-<style>
-  .site-link {
-    position: fixed;
-    top: 6px;
-    left: 6px;
-    z-index: 90;
-    padding: 3px 9px;
-    font-family: var(--font-mono);
-    font-size: 0.68rem;
-    letter-spacing: 0.06em;
-    color: var(--color-text-secondary);
-    background: rgba(6, 10, 18, 0.72);
-    border: 1px solid var(--color-border);
-    cursor: pointer;
-    opacity: 0.55;
-    transition:
-      opacity 0.12s ease,
-      color 0.12s ease,
-      border-color 0.12s ease;
-  }
-  .site-link:hover {
-    opacity: 1;
-    color: var(--color-accent);
-    border-color: var(--color-border-strong);
-  }
-</style>
