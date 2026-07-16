@@ -1489,3 +1489,45 @@ passing (16 files)** (up 1 from 443: the new v21-round-trips-playable test). Nex
 F5, then the holistic branch review (especially the F2/F3 parity seams + the refining/auto-buy
 integration) + device tuning of the first-pass values; push still needs explicit user confirmation (live
 Vercel production redeploy).
+
+**Session 33 — Research (Phase 3), branch `feat/research`.** Added the Research Lab: a facility where you
+research **blueprints** — designs that unlock what the (not-yet-built) Fabricator will later craft — built
+subagent-driven over seven tasks (two-stage review per task) plus a final version/docs task. (**R1**) The
+blueprint DATA MODEL: a forward-loose keyed `BLUEPRINTS` record (`model.ts`), each `BlueprintDef` carrying
+its `tier`, `researchDurationTicks`, `researchCreditCost`, and the full `recipe` (`inputs`/`outputItem`/
+`outputQty`) the Fabricator will consume later — defined now so the recipe ships with the blueprint. Content
+is 3 blueprints across 2 tiers (tier 1: frameSegment/powerCoupling from refined materials; tier 2:
+structuralAssembly from the tier-1 minor components + a refined metal, exercising the raw→refined→minor→major
+component ladder). New `GameState.researchedBlueprints: string[]` holds the unlocked keys. (**R2**) The
+**Research Lab** facility (`FACILITIES.research`, key `research`, seeded at level 1 in `freshState` like
+Mission Control so tier-1 blueprints are researchable from game start — no soft-lock). Its LEVEL gates which
+blueprint TIERS are researchable (`blueprintResearchable`: tier ≤ level, level-derived like `missionUnlocked`)
+and its reached rungs each grant a research SLOT (`addResearchSlots`, summed by `researchSlotCount` exactly
+as the Refinery sums refine slots). FINITE 2-rung track (level 1→2 only — tier 2 is the highest real content;
+no placeholder rungs), the level 1→2 rung gated on CREDITS (the design's long-term sink — no materials) + a
+Fleet-Admiral-level prereq. (**R3**) The research-project ENGINE: `startResearch` deducts credits at start
+and pushes a `TimedProcess` whose completion effect adds the key to `researchedBlueprints` (idempotent, no
+dup), riding the same Phase-1 timed-process engine and game-time clock as refine/fuel jobs. Re-verified the
+project's standing closed-form parity invariant (offline `tick(bigSpan)` == looping the live path, "one big
+jump equals many small ticks") for research progress. (**R4**) A `canResearch` GATE returning TYPED reasons
+(already researched, in flight, tier-locked, no free slot, not enough credits) so the UI can explain exactly
+why a blueprint can't start. (**R5**) The Research Lab UI panel — iterates `BLUEPRINTS`, shows tier/duration/
+cost, in-flight progress bars, the typed gate reasons, and the lab's upgrade track. (**R6**) Save migration
+**v21→v22** backfilling `researchedBlueprints: []` (and the seeded `research` facility) onto existing saves;
+`SAVE_VERSION` is now 22. (**R7**, this task) VERSION BUMP + docs.
+
+DOCS (R7): bumped `APP_VERSION` 0.9.0 → **0.10.0** (Y-bump, new feature) and prepended a newest-first 0.10.0
+PATCH_NOTES entry (dated 2026-07-15) describing the Research Lab / blueprints / tiers-unlock-as-you-upgrade,
+and calling out that crafting arrives with the Fabricator (next feature). `package.json` "version" was NOT
+synced — this project has never tracked it to `APP_VERSION` (it sits at the scaffold default `0.0.0`, last
+touched only by the project rename), so it was left as-is per existing convention. KNOWN_ISSUES.md gained two
+entries: researched blueprints aren't craftable yet (the Fabricator, the intended next feature, will consume
+`researchedBlueprints` + each blueprint's `recipe`), and all Research balance/content values (recipes,
+durations, credit costs, tier count, slot-per-level rungs) are FIRST-PASS placeholders to tune at the device
+checkpoint. No patchNotes test exists to update (no test references `APP_VERSION`/`PATCH_NOTES`).
+
+Gate GREEN — **`npm run check` = 0 errors (21 cosmetic unused-CSS/a11y warnings), `npm test` = 518 passing
+(17 files).** Next: final holistic review of the `feat/research` branch (especially the R3 research-engine
+parity seam + the R2 tier/slot derive-on-read) + device tuning of the first-pass research values; then merge,
+and push only on explicit user confirmation (live Vercel production redeploy). The Fabricator (crafting from
+researched blueprints) is the intended next feature.

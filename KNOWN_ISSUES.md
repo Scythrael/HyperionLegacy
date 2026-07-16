@@ -391,3 +391,23 @@ write it down so you don't relitigate it later.
   The auto-buy price, the penalty size, and the "buy exactly the shortfall (not to full)" policy are all FIRST-PASS
   choices -- listed in the tunables entry above; flagged here as behavior so "why did my credits drain / why is a
   cycle 2 ticks longer" isn't rediscovered as a bug. It is intended: fuel-positive fleets never trigger it.
+- RESEARCHED BLUEPRINTS ARE NOT CRAFTABLE YET (Research, Phase 3). The Research Lab lets you research blueprints
+  (`BLUEPRINTS`, `model.ts`) which land in `GameState.researchedBlueprints`, but nothing consumes that list yet --
+  each `BlueprintDef` already carries the `recipe` (`inputs`/`outputItem`/`outputQty`) the future FABRICATOR will
+  use, defined now so the recipe data ships with the blueprint, but there is NO crafting engine, no Fabricator
+  facility, and no "build this" UI in this branch. So a player can research every blueprint and still produce
+  zero components -- research currently only lines up what will become buildable. The Fabricator is the intended
+  NEXT feature and will consume `researchedBlueprints` + the per-blueprint `recipe` to actually craft. Not a bug --
+  a deliberate scope boundary: this phase ships the research half of the loop, the Fabricator ships the crafting half.
+- ALL Research balance/content values are FIRST-PASS PLACEHOLDERS, to tune at the device checkpoint, not final
+  numbers (Research, Phase 3): the blueprint RECIPES themselves (which refined/component ITEMS each blueprint
+  consumes and produces, and in what quantities -- `BLUEPRINTS`, `model.ts`); the per-blueprint research DURATIONS
+  (`researchDurationTicks` -- 60/60/120 today) and CREDIT COSTS (`researchCreditCost` -- 500/600/1500 today, the
+  intended long-term credit sink); the TIER COUNT (only tiers 1 and 2 exist, 3 blueprints total -- no placeholder
+  higher tiers, per the file's no-placeholder discipline; equipment/module/ship-system tiers are DEFERRED until the
+  Fabricator + ship-systems phases define them); and the Research Lab UPGRADE track -- its slot-per-level rungs
+  (each reached rung grants +1 research slot via `addResearchSlots`, summed by `researchSlotCount`; the track caps
+  at level 2 = 2 slots today) plus the level 1->2 rung's credit cost and Fleet-Admiral-level prereq. All were picked
+  to prove the research/tier/slot mechanics work end-to-end, NOT calibrated against real play -- expect to retune
+  them together with the still-unfinalized FA XP curve, slot walls, and Mission/Fuel balance during the same
+  on-device pass (same "device-tuned starting value" posture as the refinery/mission/fuel balance entries above).
