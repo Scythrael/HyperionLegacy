@@ -811,7 +811,21 @@ export type FacilityUpgradeEffect =
   // slot grant, never a content-unlock marker. Property-presence narrowing (same as the
   // members above), so a rung carrying this is inert to refineSlotCount / tierCap /
   // fuelCap / the fuel helpers, and vice-versa.
-  | { addResearchSlots: number };
+  | { addResearchSlots: number }
+  // --- Fabricator (Phase 4, F1 -- design §1): the Fabricator's SLOT grant ----------
+  // +N concurrent craft jobs this facility can run. fabricateSlotCount (tick.ts) SUMS
+  // this across the reached rungs -- the EXACT same derive-on-read/reached-rungs idiom
+  // refineSlotCount uses for `addRefineSlots` and researchSlotCount uses for
+  // `addResearchSlots` (fabricate slots are the Fabricator's analog of refine/research
+  // slots). The blueprint TIER unlock is NOT summed off an effect: it derives from the
+  // facility LEVEL (a blueprint is fabricable when fabricator level >= blueprint.tier),
+  // the same way researchSlotCount's Research Lab derives tiers from level -- so a
+  // fabricate rung's effect is ONLY the slot grant, never a content-unlock marker.
+  // ADDED ADDITIVELY + INERT: property-presence narrowing (same convention as every
+  // member above), so a rung carrying this is inert to refineSlotCount / researchSlotCount
+  // / tierCap / fuelCap, and -- critically -- NO existing facility rung sets it, so this
+  // member changes NO existing behavior (anti-regression: Omega 15).
+  | { addFabricateSlots: number };
 
 // One rung of a facility's upgrade track = the requirements to reach the NEXT
 // level. `materials` are deducted ATOMICALLY at start by startProcess (design §4).
@@ -1264,6 +1278,60 @@ export const FACILITIES: Record<string, FacilityDef> = {
         durationTicks: 120, // matches the tier-2 blueprint's research duration (tunable)
         effect: { addResearchSlots: 1 },
         requiresFleetAdminLevel: 3, // modest gate, mirrors the Refinery's FA-level idiom (tunable)
+      },
+    ],
+  },
+  // --- Fabricator (Phase 4, F1 -- design §1) -----------------------------------
+  // The facility whose LEVEL gates which blueprint TIERS are fabricable + how many
+  // craft SLOTS run in parallel. A DIRECT CLONE of the Research Lab's shape (a level-
+  // derived tier gate + a summed slot grant), differing only in the effect field it
+  // carries (addFabricateSlots) and the fact that the CRAFT cost is materials + time,
+  // never credits -- but the UPGRADE rungs, like every other facility's, cost credits.
+  //   - SEEDED AT LEVEL 1 like the Research Lab / Mission Control (freshState below):
+  //     tier-1 blueprints are fabricable from game start once researched (fabricable
+  //     when level >= tier), so there is no soft-lock.
+  //   - RUNGS CARRY A REAL SLOT GRANT like the Refinery / Research Lab: each rung's
+  //     { addFabricateSlots } effect is SUMMED across reached rungs by fabricateSlotCount
+  //     (tick.ts), exactly as researchSlotCount sums { addResearchSlots }. The blueprint-
+  //     TIER unlock is level-derived (not summed), the same way the Research Lab derives
+  //     researchable tiers from its level.
+  //
+  // FINITE track that CAPS at real content: only blueprint tiers 1 and 2 exist today
+  // (BLUEPRINTS), so the track has exactly TWO rungs (level 1 and level 2). NO rung
+  // beyond tier 2 -- adding one would be a placeholder that unlocks nothing, against
+  // this file's no-placeholder discipline. A future blueprint tier re-extends the track
+  // additively (one more rung), mirroring the Research Lab / Refinery / Warehouse tracks.
+  //
+  // COST MODEL -- upgrade rungs cost CREDITS (the OPTIONAL `credits` FacilityUpgradeDef
+  // field, the SAME gate the Research rungs use), NOT materials (materials are the CRAFT
+  // cost, spent by the fabricate engine in F2). ⚠️ FIRST-PASS TUNABLE values
+  // (credits/duration/FA-level), same launch-placeholder spirit as the Research Lab.
+  fabricator: {
+    label: "Fabricator",
+    upgrades: [
+      // [0] Level 0 -> 1: the FOUNDING rung. PRE-GRANTED via the level-1 freshState seed
+      // (never built in normal play), so it is ungated + zero-cost + zero-duration -- the
+      // SAME founding-rung posture as the Research Lab's. Its effect grants the FIRST
+      // craft slot (fabricateSlotCount sums it -> 1 at level 1). Reaching level 1 is ALSO
+      // what makes TIER-1 blueprints fabricable (level >= 1), but that is derived from the
+      // LEVEL, not from this effect.
+      {
+        materials: {},
+        durationTicks: 0,
+        effect: { addFabricateSlots: 1 },
+      },
+      // [1] Level 1 -> 2: the REAL upgrade rung. Reaching level 2 unlocks TIER-2
+      // blueprints (fabricable: tier 2 <= level 2) AND grants a 2nd craft slot
+      // (fabricateSlotCount sums to 2). Gated on CREDITS (the SAME optional gate the
+      // Research rungs use) + a modest FA-level prereq. NO materials (materials are the
+      // per-craft cost, not the upgrade cost). Track ENDS here (finite; only tiers 1-2
+      // exist). ⚠️ FIRST-PASS TUNABLE credits/duration/FA-level.
+      {
+        materials: {},
+        credits: new Decimal(5000), // the tier-2 unlock's credit sink (tunable)
+        durationTicks: 120, // tunable
+        effect: { addFabricateSlots: 1 },
+        requiresFleetAdminLevel: 3, // modest gate, mirrors the Research Lab's idiom (tunable)
       },
     ],
   },
@@ -1778,6 +1846,15 @@ export interface BlueprintDef {
   tier: number;  // gated by the Research facility LEVEL (R2): researchable once level >= tier
   researchDurationTicks: number; // time to research (R3 runs it as a timed process)
   researchCreditCost: number;    // credits, deduct-at-start (R3); the long-term credit sink
+  // Fabricator (Phase 4, F1 -- design §3): time to CRAFT this blueprint's component
+  // once researched (the Fabricator runs it as a timed process, `durationTicks =
+  // craftDurationTicks`, EXACTLY as R3 runs research off researchDurationTicks). The
+  // Fabricator's cost is materials (recipe.inputs) + this TIME -- NO credits (locked
+  // brainstorm decision #3: credits stay Research's sink, materials are the
+  // Fabricator's). ⚠️ FIRST-PASS TUNABLE (same launch-placeholder spirit as
+  // researchDurationTicks): tier-1 components ~120 ticks, tier-2 ~300 -- real balance
+  // at the device checkpoint. Must be a positive finite number.
+  craftDurationTicks: number;
   // The recipe the FABRICATOR will use (defined now, crafted later). `inputs` +
   // `outputItem` are plain-string ITEMS keys (forward-loose like inventory/ProcessEffect),
   // so a recipe can target any registry item. Amounts are plain numbers (recipe QUANTITIES,
@@ -1808,6 +1885,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     tier: 1,
     researchDurationTicks: 60,
     researchCreditCost: 500,
+    craftDurationTicks: 120, // tier-1 first-pass (tunable)
     // Structural strut <- structural metal. Titanium Ingot is the refined structural feedstock.
     recipe: { inputs: { titaniumIngot: 4 }, outputItem: "frameSegment", outputQty: 1 },
     flavor: "The schematics for a hull's load-bearing struts -- the first thing any shipwright learns to stamp.",
@@ -1819,6 +1897,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     tier: 1,
     researchDurationTicks: 60,
     researchCreditCost: 600,
+    craftDurationTicks: 120, // tier-1 first-pass (tunable)
     // Electronics junction <- electronics substrate. Polysilicate Wafer is the refined substrate.
     recipe: { inputs: { polysilicateWafer: 4 }, outputItem: "powerCoupling", outputQty: 1 },
     flavor: "Wiring diagrams for the shielded junctions that tie a reactor line into the systems it feeds.",
@@ -1830,6 +1909,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     tier: 2,
     researchDurationTicks: 120,
     researchCreditCost: 1500,
+    craftDurationTicks: 300, // tier-2 first-pass (tunable)
     // Major component <- tier-1 minor components + a refined metal. Demonstrates the ladder:
     // frame segments + a power coupling, reinforced with titanium, married into a hull spine.
     recipe: {
@@ -1847,6 +1927,12 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
 // SINGLE SOURCE OF TRUTH so R1's tier-gate helper (and R2/R3/R5) all reference ONE
 // literal instead of scattering the raw "research" string.
 export const RESEARCH_FACILITY_KEY = "research";
+
+// The Fabricator facility's key in GameState.facilities. Mirrors RESEARCH_FACILITY_KEY:
+// the SINGLE SOURCE OF TRUTH for the raw "fabricator" string so F1's slot helper (tick.ts)
+// + F2/F3/F4/F6 all reference ONE literal instead of scattering it. F1 adds FACILITIES.
+// fabricator and seeds it at level 1 in freshState.
+export const FABRICATOR_FACILITY_KEY = "fabricator";
 
 // The Research facility's LEVEL, read DEFENSIVELY (absent facility -> 0). R1 has no
 // research facility, so this returns 0 until R2 seeds it at level 1 -- meaning tier-1
@@ -2712,7 +2798,7 @@ export function freshState(): GameState {
     // Existing saves get this same level-1 seed via the v21->v22 migration (Task R6,
     // save.ts) -- NOT this function's job. researchSlotCount tolerates an absent key
     // (?? 0) regardless, but seeding keeps the facility present for the R5 UI.
-    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 } },
+    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 } },
     activeProcesses: [],
     nextProcessId: 1,
     // Phase 2, Task D1: no standing refine order on a fresh save. Existing saves get

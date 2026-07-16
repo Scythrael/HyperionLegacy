@@ -59,6 +59,7 @@ import {
   FUEL_REFINE_DURATION_TICKS,
   FUEL_DEPOT_BASE_PIPELINES,
   RESEARCH_FACILITY_KEY,
+  FABRICATOR_FACILITY_KEY,
   BLUEPRINTS,
   blueprintUnlocked,
 } from "./model";
@@ -2363,6 +2364,28 @@ export function researchSlotCount(state: GameState): number {
     const effect = upgrades[i].effect;
     if ("addResearchSlots" in effect) {
       slots += effect.addResearchSlots;
+    }
+  }
+  return slots;
+}
+
+// Fabricate SLOT count (Fabricator Task F1) -- how many concurrent craft jobs the
+// Fabricator can run RIGHT NOW. A LINE-FOR-LINE clone of researchSlotCount, swapping
+// only the facility key + the effect field: SUM every { addFabricateSlots } grant on
+// the rungs the fabricator has ALREADY reached -- the EXACT same reached-rungs loop
+// refineSlotCount / researchSlotCount use. A fresh save seeds fabricator at level 1,
+// whose founding rung (upgrades[0]) grants addFabricateSlots:1 -> 1 slot; the level
+// 1->2 rung adds a 2nd. Level 0 / an absent facility sums nothing -> 0 (the defensive
+// floor). The `i < upgrades.length` guard is the same belt-and-suspenders bound the
+// siblings carry. Consumed by F2's startFabricateJob (concurrency cap) + the F4 panel.
+export function fabricateSlotCount(state: GameState): number {
+  const level = facilityLevel(state, FABRICATOR_FACILITY_KEY);
+  const upgrades = FACILITIES[FABRICATOR_FACILITY_KEY].upgrades;
+  let slots = 0;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    const effect = upgrades[i].effect;
+    if ("addFabricateSlots" in effect) {
+      slots += effect.addFabricateSlots;
     }
   }
   return slots;

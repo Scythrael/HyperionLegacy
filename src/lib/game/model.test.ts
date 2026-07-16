@@ -194,6 +194,10 @@ describe("Phase 1 — facility/process reservation fields (additive)", () => {
     // Research Task R2 (additive): the Research Lab joins the seed at level 1 (NOT
     // level 0) -- same seeded-founding posture as missionControl, so tier-1 blueprints
     // are researchable from game start (no soft-lock) and researchSlotCount reads 1.
+    // Fabricator Task F1 (additive): the Fabricator joins the seed at level 1 (NOT
+    // level 0) -- same seeded-founding posture as the Research Lab, so tier-1 blueprints
+    // are FABRICABLE from game start once researched (no soft-lock) and fabricateSlotCount
+    // reads 1.
     expect(state.facilities).toEqual({
       refinery: { level: 0 },
       warehouseT1: { level: 0 },
@@ -201,6 +205,7 @@ describe("Phase 1 — facility/process reservation fields (additive)", () => {
       fuelStorage: { level: 0 },
       missionControl: { level: 1 },
       research: { level: 1 },
+      fabricator: { level: 1 },
     });
   });
 

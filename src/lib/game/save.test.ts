@@ -1993,6 +1993,7 @@ describe("migrate — Ship Production Economy Phase 1: inventory/discovered/faci
       fuelStorage: { level: 0 },
       missionControl: { level: 1 },
       research: { level: 1 }, // Research Task R2 (fresh round-trip reflects freshState directly)
+      fabricator: { level: 1 }, // Fabricator Task F1 (fresh round-trip reflects freshState directly)
     });
     expect(migrated.facilities).toEqual(original.facilities);
     expect(migrated.activeProcesses).toEqual([]);
@@ -2183,6 +2184,7 @@ describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
       fuelStorage: { level: 0 },
       missionControl: { level: 1 },
       research: { level: 1 }, // Research Task R2 (fresh round-trip reflects freshState directly)
+      fabricator: { level: 1 }, // Fabricator Task F1 (fresh round-trip reflects freshState directly; old-save backfill is F6's v22->v23 step)
     });
     expect(migrated.facilities).toEqual(original.facilities);
   });
@@ -2423,10 +2425,15 @@ describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
     // and a brand-new game are indistinguishable on facilities. R6 UPDATE (2026-07-15):
     // the chain now continues through MIGRATIONS[21] (v21->v22, Research Task R6), which
     // seeds `research: { level: 1 }` -- so a v20 save migrated to the CURRENT version now
-    // carries `research` too, and this restores the full-parity assertion R2 deferred here
-    // (the earlier `freshFacilitiesPreR2` stripping is gone; the research half is proven by
-    // the dedicated v21->v22 block below).
-    expect(migrated.facilities).toEqual(fresh.facilities);
+    // carries `research` too.
+    // F1 UPDATE (2026-07-16): freshState now ALSO seeds `fabricator: { level: 1 }`, but the
+    // old-save backfill for it is F6's v22->v23 step (MIGRATIONS[22]), NOT YET added -- so a
+    // v20 save migrated to the CURRENT version does not yet carry `fabricator`. Strip it from
+    // the fresh comparison here, EXACTLY as R2 deferred `research` (freshFacilitiesPreR2) until
+    // R6 restored it. F6 removes this strip and restores the full-parity assertion; the
+    // fabricator half is proven meanwhile by the fabricator.test.ts fresh-seed test.
+    const { fabricator: _fabF1, ...freshFacilitiesPreF1 } = fresh.facilities;
+    expect(migrated.facilities).toEqual(freshFacilitiesPreF1);
   });
 
   it("preserves an already-present fuel / fuelStorage / missionControl rather than reseeding (idempotent ?? guard)", () => {
@@ -2575,7 +2582,12 @@ describe("migrate — research state backfill (v21 -> v22)", () => {
     expect(migrated.facilities.research).toEqual(fresh.facilities.research);
     // The FULL facilities map now matches freshState's shape (research included) -- proves the
     // migrated old save and a brand-new game are indistinguishable on facilities.
-    expect(migrated.facilities).toEqual(fresh.facilities);
+    // F1 UPDATE (2026-07-16): freshState now ALSO seeds `fabricator: { level: 1 }`, whose
+    // old-save backfill is F6's v22->v23 step (NOT YET added) -- so a v21 save migrated to the
+    // CURRENT version does not yet carry `fabricator`. Strip it from the fresh comparison here
+    // (same deferral R2 used for `research`, restored by F6).
+    const { fabricator: _fabF1, ...freshFacilitiesPreF1 } = fresh.facilities;
+    expect(migrated.facilities).toEqual(freshFacilitiesPreF1);
   });
 
   it("preserves an already-present researchedBlueprints / research facility rather than reseeding (idempotent ?? guard)", () => {
