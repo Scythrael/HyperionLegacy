@@ -3225,6 +3225,104 @@ export function fuelFlowSummary(state: GameState): FuelFlowSummary {
   };
 }
 
+// ============================================================================
+// fuelRunwayProjection -- "how long until the tank runs dry?" under a FULL-
+// SUSTAINABILITY model (Wave 2 fuel-runway readout, 2026-07-16).
+//
+// PURPOSE: give the player an honest countdown to fuel-empty that CREDITS the
+// Deuterium Ice their running missions keep mining. A naive "fuel / burn" ignores
+// the refinery topping the tank back up from mission-looted ice; this projects
+// the real two-phase trajectory instead.
+//
+// WHY MEASURED, NOT MODELLED: mission ice output is a stochastic loot roll (rarity
+// triads), so there is no clean closed form for "ice mined per tick". The LIVE
+// loop (App.svelte) therefore SAMPLES the actual per-tick fuel & ice deltas as an
+// EMA and passes them in as dFuelPerTick / dIcePerTick. This function is PURE math
+// over those measured rates -- no Decimal, no state, no side effects -- so the
+// entire decision matrix is unit-testable in isolation.
+//
+// THE TWO PHASES (only reached when ice is actually depleting):
+//   Phase 1 -- ice still on hand: fuel drifts at the measured dFuelPerTick until
+//              the ice stockpile hits zero (iceRunway ticks from now).
+//   Phase 2 -- ice gone: the refinery makes nothing, so the tank just burns down
+//              at the deterministic mission burn (burnPerTick) with no refill.
+// The fuel level entering phase 2 (fuelAtIceOut) is clamped to [0, fuelCap]
+// because measured drift can only carry it between empty and a full tank.
+//
+// sustainable:true  <=> the tank never empties (returns runwayTicks:null).
+// sustainable:false  => runwayTicks is a finite tick count >= 0, OR null when a
+//                       guard trips (non-finite input / computed value) -- the UI
+//                       renders null as "unknown".
+// ============================================================================
+export interface FuelRunwayProjection {
+  sustainable: boolean; // true => tank never empties (runwayTicks is null)
+  runwayTicks: number | null; // finite ticks-until-empty; null = self-sustaining OR unknown (see sustainable)
+}
+
+export function fuelRunwayProjection(input: {
+  fuel: number; // current fuel in the tank
+  fuelCap: number; // tank capacity (phase-1 fuel gain clamps here)
+  ice: number; // current Deuterium Ice on hand
+  dFuelPerTick: number; // MEASURED net fuel change / tick (EMA); may be + or -
+  dIcePerTick: number; // MEASURED net ice change / tick (EMA); may be + or -
+  burnPerTick: number; // deterministic mission fuel burn / tick, >= 0 (fuelFlowSummary.burnPerTick)
+}): FuelRunwayProjection {
+  const EPS = 1e-9; // treat |x| < EPS as "flat" so fp noise doesn't read as drain/growth
+  const { fuel, fuelCap, ice, dFuelPerTick, dIcePerTick, burnPerTick } = input;
+
+  // GUARD 1 -- any non-finite input (NaN / +-Infinity) makes the projection
+  // meaningless. Bail to "unknown" before any arithmetic can propagate it.
+  const inputs = [fuel, fuelCap, ice, dFuelPerTick, dIcePerTick, burnPerTick];
+  if (!inputs.every((n) => Number.isFinite(n))) {
+    return { sustainable: false, runwayTicks: null };
+  }
+
+  // finalize -- the SINGLE exit for a computed countdown. GUARD 2: a non-finite or
+  // negative result is nonsensical (e.g. from pathological inputs the finiteness
+  // check above cannot catch), so it collapses to "unknown". Otherwise clamp >= 0
+  // so a rounding-noise "-0"/tiny-negative never surfaces.
+  const finalize = (ticks: number): FuelRunwayProjection => {
+    if (!Number.isFinite(ticks) || ticks < 0) {
+      return { sustainable: false, runwayTicks: null };
+    }
+    return { sustainable: false, runwayTicks: Math.max(0, ticks) };
+  };
+
+  // STEP 1 -- no burn: fuel is not being consumed at all, so there is nothing to
+  // count down. Self-sustaining by definition, whatever the measured deltas say.
+  if (burnPerTick <= EPS) {
+    return { sustainable: true, runwayTicks: null };
+  }
+
+  // STEP 2 -- ice is NOT depleting (stockpile flat or growing): the refinery can
+  // run indefinitely, so fuel's own measured trend decides the outcome.
+  if (dIcePerTick >= -EPS) {
+    // Fuel flat or rising -> the refinery keeps up forever. Self-sustaining.
+    if (dFuelPerTick >= -EPS) {
+      return { sustainable: true, runwayTicks: null };
+    }
+    // Fuel still net-negative even with unlimited ice -> burn outruns full
+    // refining; the tank drains at |dFuelPerTick| per tick.
+    return finalize(fuel / -dFuelPerTick);
+  }
+
+  // STEP 3 -- ice IS depleting (dIcePerTick < -EPS): two-phase projection.
+  const iceRunway = ice / -dIcePerTick; // ticks until the ice stockpile hits zero
+
+  // Fuel might die BEFORE the ice does. If fuel is also draining and its own
+  // runway is no longer than the ice runway, fuel-empty is the first wall.
+  if (dFuelPerTick < -EPS && fuel / -dFuelPerTick <= iceRunway) {
+    return finalize(fuel / -dFuelPerTick);
+  }
+
+  // Otherwise fuel survives to ice-out. Project the tank level at that moment
+  // (clamped to a real tank: never below empty, never above cap), then phase 2
+  // burns that remaining fuel down with no more refining.
+  const fuelAtIceOut = Math.min(Math.max(fuel + dFuelPerTick * iceRunway, 0), fuelCap);
+  const phase2 = fuelAtIceOut / burnPerTick; // burnPerTick > EPS guaranteed by STEP 1
+  return finalize(iceRunway + phase2);
+}
+
 // Advances every active process by `ticksElapsed` and resolves completions. THE
 // single completion resolver (Task 9 calls it from BOTH tick() and the live loop).
 //

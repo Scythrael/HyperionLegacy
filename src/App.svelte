@@ -222,6 +222,10 @@
     // The per-tick mission-burn sum (formerly computed inline in the fuel reactive
     // block below) now lives inside this helper: ONE source of truth in the engine.
     fuelFlowSummary,
+    // Fuel-runway readout (Wave 2) -- PURE two-phase "ticks until fuel-empty"
+    // projection over the live-measured net fuel & ice rates (see the EMA in the
+    // poll loop). Full-sustainability model: credits mission-mined Deuterium Ice.
+    fuelRunwayProjection,
     // Research (Task R5 UI) -- the three PURE research seams the Research Lab panel
     // wires up. researchSlotCount(state) => how many parallel research projects the
     // lab can run right now (derived from its upgrade level, parallels refineSlotCount);
@@ -880,6 +884,24 @@
   // captain owning its own independent barCycleStart/nowTick pair.
   let cycle: { barCycleStart: number; nowTick: number } = { barCycleStart: Date.now(), nowTick: Date.now() };
 
+  // Fuel-runway measurement (Wave 2, 2026-07-16) -- MEASURED, not modelled. Mission
+  // ice output is a stochastic loot roll, so instead of modelling it we sample the
+  // ACTUAL per-tick net fuel & ice deltas out of the live economy loop and smooth
+  // them with an EMA. fuelRunwayProjection(...) (tick.ts) then projects a runway
+  // from these rates. These are UI-local bookkeeping ONLY -- they never feed back
+  // into the economy (the loop's read of them is strictly read-only); assigning
+  // them inside the poll callback is what re-triggers the `$: fuelRunway` reactive.
+  // EMA_ALPHA 0.1 -> ~10-sample smoothing horizon: responsive enough to track a
+  // player starting/stopping missions within seconds, damped enough that a single
+  // lucky/unlucky loot tick doesn't whipsaw the readout. WARMUP_SAMPLES 15 hides
+  // the readout ("measuring…") until the EMA has settled, so the very first noisy
+  // samples never render a wildly wrong countdown.
+  const RUNWAY_EMA_ALPHA = 0.1;
+  const RUNWAY_WARMUP_SAMPLES = 15;
+  let emaDFuelPerTick = 0,
+    emaDIcePerTick = 0,
+    runwaySamples = 0;
+
   function pushLog(msg: string) {
     logEntries = [msg, ...logEntries].slice(0, 8);
   }
@@ -1024,6 +1046,14 @@
           // bookkeeping that NOTHING in economyTick's math reads (see economyTick's
           // own header in tick.ts).
           const liveGameTimeSeconds = state.gameTimeSeconds;
+
+          // Fuel-runway measurement (Wave 2) -- READ-ONLY snapshot of the PRE-step
+          // fuel & ice, captured here while `state` is still the pre-economy value.
+          // These reads do NOT touch `state`/`stepped` or the economy; they only
+          // feed the UI-local EMA updated after the stepping completes below.
+          const preFuel = state.fuel.toNumber();
+          const preIce = state.inventory["deuteriumIce"]?.toNumber() ?? 0;
+
           // ⚠️ STEP per whole tick, exactly like the offline tick() path -- do NOT hand
           // economyTick one big multi-tick span. economyTick's auto-stop cap-check and
           // refine-order refill each run ONCE per call, so a single economyTick(state, N)
@@ -1048,6 +1078,23 @@
           // step above, but this loop owns that clock continuously off real elapsed time
           // (top of the poll). Discard economyTick's bumps, keep its full economy result.
           state = { ...stepped, gameTimeSeconds: liveGameTimeSeconds };
+
+          // Fuel-runway EMA update (Wave 2) -- runs AFTER the economy is fully
+          // stepped, comparing the post-step fuel & ice (read off `stepped`) to the
+          // pre-step snapshot captured above. Per-tick instantaneous rate = total
+          // delta over this poll / ticksElapsed (so DEV fast-forward polls that
+          // batch multiple ticks still contribute a per-TICK rate, not a per-poll
+          // one). The first sample seeds the EMA directly; thereafter it blends.
+          // This is pure UI bookkeeping -- it writes only these three locals and
+          // never mutates `state`/`stepped` or the economy.
+          const postIce = stepped.inventory["deuteriumIce"]?.toNumber() ?? 0;
+          const instDFuel = (stepped.fuel.toNumber() - preFuel) / ticksElapsed;
+          const instDIce = (postIce - preIce) / ticksElapsed;
+          emaDFuelPerTick =
+            runwaySamples === 0 ? instDFuel : RUNWAY_EMA_ALPHA * instDFuel + (1 - RUNWAY_EMA_ALPHA) * emaDFuelPerTick;
+          emaDIcePerTick =
+            runwaySamples === 0 ? instDIce : RUNWAY_EMA_ALPHA * instDIce + (1 - RUNWAY_EMA_ALPHA) * emaDIcePerTick;
+          runwaySamples++;
         }
 
         // Reset once for the whole fleet, not per-captain -- there's only one
@@ -2015,6 +2062,26 @@
   // (the sum now lives inside fuelFlowSummary; this just surfaces it under its old name).
   $: fuelExpenditurePerTick = fuelFlow.burnPerTick;
 
+  // FUEL RUNWAY (Wave 2) -- "how long until the tank runs dry?" under a full-
+  // sustainability model that credits mission-mined Deuterium Ice. The rates are
+  // MEASURED, not modelled: emaDFuelPerTick/emaDIcePerTick are smoothed samples of
+  // the live economy loop's actual per-tick deltas (updated in the poll callback,
+  // which is why touching them there re-runs this reactive). We hold the readout at
+  // null ("measuring…") until RUNWAY_WARMUP_SAMPLES have accrued so the first noisy
+  // samples never render a wildly wrong countdown. fuelRunwayProjection is pure and
+  // takes plain numbers, so we convert the Decimal fuel/cap/ice to numbers here.
+  $: fuelRunway =
+    runwaySamples < RUNWAY_WARMUP_SAMPLES
+      ? null
+      : fuelRunwayProjection({
+          fuel: state.fuel.toNumber(),
+          fuelCap: fuelCap(state).toNumber(),
+          ice: state.inventory["deuteriumIce"]?.toNumber() ?? 0,
+          dFuelPerTick: emaDFuelPerTick,
+          dIcePerTick: emaDIcePerTick,
+          burnPerTick: fuelFlow.burnPerTick,
+        });
+
   // NET (fuel/tick) now derives from EFFECTIVE production (0 when out of ice / no depot),
   // so it reads NEGATIVE when the refinery is idle for lack of ice -- THE FIX. hasIce /
   // tankFull feed the chip's + panel's status lines; sufficient = net >= 0 || tankFull
@@ -2180,6 +2247,35 @@
                     Draining — shortfalls auto-buy fuel with credits (+2-tick delay).
                   {/if}
                 </div>
+                <!-- FUEL RUNWAY (Wave 2): measured full-sustainability countdown to
+                     fuel-empty. null=warming up ("measuring…"); sustainable=never
+                     drains (∞, success green); finite=time left (warning, or danger
+                     when under a minute); guarded-null=unknown ("—"). -->
+                <div class="fuel-tt-sep"></div>
+                {#if fuelRunway === null}
+                  <div class="fuel-tt-row">
+                    <span>Fuel runway</span>
+                    <span>measuring…</span>
+                  </div>
+                {:else if fuelRunway.sustainable}
+                  <div class="fuel-tt-row" style="color: var(--color-success); font-weight: 600;">
+                    <span>Fuel runway</span>
+                    <span>∞ self-sustaining</span>
+                  </div>
+                {:else if fuelRunway.runwayTicks !== null}
+                  <div
+                    class="fuel-tt-row"
+                    style="color: {fuelRunway.runwayTicks * state.tickDurationSeconds < 60 ? 'var(--color-danger)' : 'var(--color-warning)'}; font-weight: 600;"
+                  >
+                    <span>Fuel runway</span>
+                    <span>{formatDuration(fuelRunway.runwayTicks, state.tickDurationSeconds)} left</span>
+                  </div>
+                {:else}
+                  <div class="fuel-tt-row">
+                    <span>Fuel runway</span>
+                    <span>—</span>
+                  </div>
+                {/if}
               </div>
             </div>
           {/if}
@@ -3345,6 +3441,27 @@
                        out of ice (net-display fix) -> fuel-positive -> draining. -->
                   {#if fuelTankFull}tank full (topped off){:else if !fuelHasIce}refinery idle: out of Deuterium Ice{:else if fuelSufficient}fuel-positive{:else}draining, auto-buying with credits{/if}
                 </div>
+
+                <!-- FUEL RUNWAY (Wave 2): measured full-sustainability countdown to
+                     fuel-empty (credits mission-mined Deuterium Ice). Mirrors the
+                     top-bar chip's runway line. null=warming up; sustainable=∞ (never
+                     drains); finite=time left (warning/danger); guarded-null="—". -->
+                {#if fuelRunway === null}
+                  <div class="research-cost" style="margin-top: 4px;">Fuel runway: measuring…</div>
+                {:else if fuelRunway.sustainable}
+                  <div class="research-cost" style="margin-top: 4px; font-weight: 600; color: var(--color-success);">
+                    Fuel runway: ∞ self-sustaining
+                  </div>
+                {:else if fuelRunway.runwayTicks !== null}
+                  <div
+                    class="research-cost"
+                    style="margin-top: 4px; font-weight: 600; color: {fuelRunway.runwayTicks * state.tickDurationSeconds < 60 ? 'var(--color-danger)' : 'var(--color-warning)'};"
+                  >
+                    Fuel runway: {formatDuration(fuelRunway.runwayTicks, state.tickDurationSeconds)} left
+                  </div>
+                {:else}
+                  <div class="research-cost" style="margin-top: 4px;">Fuel runway: —</div>
+                {/if}
 
                 <!-- Live batch progress. Empty = depot idle: tank full, or Deuterium Ice
                      ran out (mine more via Local Asteroid). Reuses the refinery job-card
