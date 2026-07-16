@@ -126,3 +126,54 @@ export function formatDuration(ticks: number, secondsPerTick: number): string {
   }
   return hours > 0 ? `~${days}d ${hours}h` : `~${days}d`;
 }
+
+// ============================================================================
+// formatClock -- a PRECISE colon-delimited countdown clock.
+//
+// Added 2026-07-16 (tick-timer readouts). Deliberately DISTINCT from
+// formatDuration above: formatDuration renders an APPROXIMATE "~2h 15m" span
+// (used by the fuel-runway estimate, which is a moving average, not a fixed
+// countdown), whereas formatClock renders an EXACT "01:39"-style clock for the
+// deterministic "N ticks remaining" job/upgrade readouts where the remaining
+// time is a precise, countable value.
+//
+// Converts a TICK count to whole seconds via Math.round(ticks * secondsPerTick)
+// -- rounded (not floored) so a readout ending on a fractional tick lands on
+// the nearest second rather than perpetually reading one second short -- then
+// clamps negatives to 0 and splits into days/hours/minutes/seconds. The
+// smallest form is "MM:SS"; hours add a leading "H:"; days add a leading "Dd ".
+// Days are shown ONLY when present (no "0d 00:..." noise).
+//
+// GUARD: a non-finite input (NaN, +Infinity, -Infinity) has no clock rendering
+// -> "—" (matches formatDuration's "nothing to show" sentinel). Note this is a
+// stricter guard than formatDuration's: +Infinity here is "—", not "∞", because
+// a fixed countdown is never legitimately infinite (an infinite remaining tick
+// count would signal bad data, not a never-draining tank).
+export function formatClock(ticks: number, secondsPerTick: number): string {
+  const rawSeconds = ticks * secondsPerTick;
+
+  // Non-finite guard FIRST, before any arithmetic. Number.isFinite is false for
+  // NaN, +Infinity, and -Infinity alike -- all three have no sensible clock.
+  if (!Number.isFinite(rawSeconds)) return "—";
+
+  // Clamp negatives to 0 (a countdown never shows negative time), then round to
+  // whole seconds for a stable clock face.
+  const total = Math.max(0, Math.round(rawSeconds));
+
+  const SECONDS_PER_MINUTE = 60;
+  const SECONDS_PER_HOUR = 3600;
+  const SECONDS_PER_DAY = 86400;
+
+  const days = Math.floor(total / SECONDS_PER_DAY);
+  const hours = Math.floor((total % SECONDS_PER_DAY) / SECONDS_PER_HOUR);
+  const minutes = Math.floor((total % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
+  const seconds = total % SECONDS_PER_MINUTE;
+
+  const pad2 = (n: number): string => String(n).padStart(2, "0");
+
+  // Largest-unit-first: days force the full "Dd HH:MM:SS" form; hours force
+  // "H:MM:SS"; anything smaller is the bare "MM:SS".
+  if (days > 0) return `${days}d ${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`;
+  if (hours > 0) return `${hours}:${pad2(minutes)}:${pad2(seconds)}`;
+  return `${pad2(minutes)}:${pad2(seconds)}`;
+}
