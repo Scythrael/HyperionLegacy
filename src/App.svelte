@@ -79,6 +79,12 @@
     BLUEPRINTS,
     blueprintUnlocked,
     RESEARCH_FACILITY_KEY,
+    // Fabricator (Phase 4, Task F4 UI) -- the stable "fabricator" facility key the
+    // Fabricator rail entry + panel + upgrade wiring reference (never the raw
+    // string), mirroring RESEARCH_FACILITY_KEY. Drives the Overview slot/level
+    // reads, the Craft-tab canFabricate gate, and the Upgrades tab's
+    // canBuildFacilityUpgrade/doStartFacilityUpgrade(FABRICATOR_FACILITY_KEY) calls.
+    FABRICATOR_FACILITY_KEY,
     // Mission Rework (Task 8 UI): the buy-fuel price per unit, shown on the Fuel
     // Storage facility's buy control so the credits cost of +10/+100/Fill reads
     // straight off the SAME constant buyFuel (tick.ts) charges -- price shown can
@@ -118,6 +124,12 @@
     // type the pending-order descriptor the confirmation modal holds between
     // "player clicked Refine" and "player confirmed" (see pendingRefineOrder).
     type RefineOrderMode,
+    // Fabricator (Task F4 UI): the batch|continuous fabricate-order mode union,
+    // built at the Craft-tab start-button click site and handed to
+    // doStartFabricateOrder -> startFabricateOrder. The EXACT structural mirror of
+    // RefineOrderMode (kept as its own type so the two order systems stay
+    // independently evolvable, matching the model.ts split).
+    type FabricateOrderMode,
     // Research (Task R5 UI): the blueprint def shape -- types the reason→text
     // helper's `bp` param (so tierLocked can read bp.tier for its "Requires
     // Research Lab level N" message) and the per-blueprint markup loop var.
@@ -238,6 +250,22 @@
     canResearch,
     startResearch,
     type ResearchBlockReason,
+    // Fabricator (Phase 4, Task F4 UI) -- the fabricate seams the Fabricator panel
+    // wires up, the EXACT mirrors of the research seams above. fabricateSlotCount(state)
+    // => how many parallel fabricate jobs the fabricator can run right now (derived from
+    // its upgrade level, parallels researchSlotCount/refineSlotCount); canFabricate(state,
+    // key) is the ONE consolidated gate ({ ok } | { ok, reason }) each Craft-tab card's
+    // start control reads for its enabled/blocked+reason state; startFabricateOrder(state,
+    // key, mode) installs the ONE standing fabricate order (returns a NEW state, same as
+    // startRefineOrder -- NOT { next, started }); stopFabricateOrder(state) clears it (the
+    // in-flight job commits). The per-tick engine that drains the order
+    // (processFabricateOrder) already runs inside economyTick; the UI only sets/clears the
+    // order and reads state.fabricateOrder for live status.
+    fabricateSlotCount,
+    canFabricate,
+    startFabricateOrder,
+    stopFabricateOrder,
+    type FabricateBlockReason,
     type DispatchBlockReason,
     foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
     addToInventory, // Phase 1 Task 5: the shared inventory add seam, called by BOTH tick() and this live loop so live loot delivery writes inventory/discovered byte-identically to offline catch-up (drift-proof)
@@ -415,7 +443,11 @@
   // (Overview / Upgrades) content pane, same SubTabs idiom as Refinery/Warehouse.
   // Research (Task R5 UI): "research" (the Research Lab) joins as a REAL, selectable
   // Homeworld facility, backed by FACILITIES.research + its tier/slot upgrade track.
-  type FacilityKey = "refinery" | "warehouse" | "missionControl" | "fuelStorage" | "research";
+  // Fabricator (Task F4 UI): "fabricator" (the Fabricator) joins as a REAL, selectable
+  // Homeworld facility, backed by FACILITIES.fabricator + its tier/slot upgrade track --
+  // it CRAFTS the components the Research Lab unlocked. Same deliberate typed-union
+  // addition as "research" above.
+  type FacilityKey = "refinery" | "warehouse" | "missionControl" | "fuelStorage" | "research" | "fabricator";
   let activeFacility: FacilityKey = "refinery";
 
   // ---- Warehouse facility view (Phase 2, Group C) -----------------------------
@@ -701,6 +733,21 @@
   // Overview (the at-a-glance "what's cooking" view), matching the others.
   type ResearchSubTab = "overview" | "research" | "upgrades";
   let activeResearchSubTab: ResearchSubTab = "overview";
+
+  // Fabricator (Task F4 UI): the Fabricator's THREE-tab axis -- Overview (slots in use +
+  // in-flight craft jobs + researched/fabricable counts + the Shipyard signpost), Craft
+  // (the tier-grouped RESEARCHED-blueprint list with per-blueprint order controls), and
+  // Upgrades (the fabricator's tier/slot track). Same independent typed-union + let-state
+  // discipline as ResearchSubTab above; defaults to Overview, matching the others.
+  type FabricatorSubTab = "overview" | "craft" | "upgrades";
+  let activeFabricatorSubTab: FabricatorSubTab = "overview";
+
+  // Fabricator (Task F4 UI): the Craft tab's batch-count input (N for "Fabricate N"), the
+  // EXACT mirror of refineBatchCount below. Defaults to 10 -- a reasonable first batch.
+  // Floored + gated to an integer >= 1 (fabricateBatchValid) so a blank/fractional/zero
+  // entry can never install a malformed batch order (processFabricateOrder clears a batch
+  // at remaining <= 0, so remaining 0 would be an instantly-dead order).
+  let fabricateBatchCount = 10;
 
   // Phase 2 (Task D4): the Orders sub-tab's batch-count input (N for "Refine N").
   // Defaults to 10 -- a reasonable first batch, not a placeholder for "empty".
@@ -1324,6 +1371,42 @@
     if (state.refineOrder === null) return;
     state = stopRefineOrder(state);
     pushLog("Refine order stopped. In-flight job will finish; queue dropped.");
+    doSave();
+  }
+
+  // ── Fabricate ORDERS (Fabricator Phase 4, Task F4 UI) ─────────────────────
+  // The batch/continuous standing-order layer for the Fabricator, the DIRECT mirror
+  // of doStartRefineOrder/doStopRefineOrder above (the Fabricator has NO confirmation
+  // modal -- fabricating spends materials, not a scarce one-shot, so the Craft card's
+  // button gate + canFabricate check is sufficient; no extra confirm step). The Craft
+  // card builds the FabricateOrderMode at the click site and hands it here.
+  //
+  // Installs the ONE standing fabricate order via the pure backend fn, logs it, saves.
+  // startFabricateOrder REPLACES any existing order wholesale (last write wins) and
+  // returns a NEW state UNLESS blueprintKey is unknown (same-ref no-op) -- jobs the
+  // previous order already started stay in flight (committed processes). The commit
+  // idiom is IDENTICAL to doStartRefineOrder (state = fn(...); log; save); no `started`
+  // flag to destructure because startFabricateOrder returns bare state, exactly like
+  // startRefineOrder. The log names the blueprint's OUTPUT component (bracketed, per the
+  // [Item] convention) since a blueprint is identified by what it crafts.
+  function doStartFabricateOrder(blueprintKey: string, mode: FabricateOrderMode) {
+    state = startFabricateOrder(state, blueprintKey, mode);
+    const bp = BLUEPRINTS[blueprintKey];
+    const outputLabel = ITEMS[bp?.recipe.outputItem ?? ""]?.label ?? blueprintKey;
+    const desc = mode.kind === "batch" ? `batch of ${mode.remaining}` : "continuous";
+    pushLog(`Fabricate order started (${desc}) → [${outputLabel}].`);
+    doSave();
+  }
+
+  // Stop the standing fabricate order: clears state.fabricateOrder so no NEW job starts;
+  // any in-flight fabricate job COMMITS and completes normally (stopFabricateOrder never
+  // touches activeProcesses). Same "same reference on no-op" convention as the backend --
+  // so a log line is pushed only when an order was actually cleared. Mirror of
+  // doStopRefineOrder.
+  function doStopFabricateOrder() {
+    if (state.fabricateOrder === null) return;
+    state = stopFabricateOrder(state);
+    pushLog("Fabricate order stopped. In-flight job will finish; queue dropped.");
     doSave();
   }
 
@@ -1991,6 +2074,78 @@
   $: totalBlueprintCount = Object.keys(BLUEPRINTS).length;
   $: researchedBlueprintCount = state.researchedBlueprints.length;
 
+  // ── Fabricator status (Fabricator Task F4 UI) ─────────────────────────────
+  // All derive off state (facilities / activeProcesses / fabricateOrder), so the
+  // Fabricator panel's counts, slot gauge, in-flight bars, order status, and button
+  // gates update LIVE as jobs start/finish + the order drains/pauses/clears -- the SAME
+  // reactive-off-state contract the Research/Refinery derivations above use.
+
+  // Fabricator level (0 = not built; freshState seeds 1) + its parallel-craft slot count
+  // (derived from levels reached; parallels researchSlots). fabricateSlotCount reads state
+  // directly, so it's reactive here.
+  $: fabricatorLevel = state.facilities[FABRICATOR_FACILITY_KEY]?.level ?? 0;
+  $: fabricateSlots = fabricateSlotCount(state);
+  // The fabricate jobs currently in flight (kind "fabricateJob"). Their count vs
+  // fabricateSlots is the free-slot gate (enforced in canFabricate); each also renders a
+  // progress row in the Overview sub-tab.
+  $: activeFabricateJobs = state.activeProcesses.filter((p) => p.kind === "fabricateJob");
+
+  // Next Fabricator UPGRADE rung (upgrades[level]; caps at length 2 today). fabricatorMaxed
+  // is an EXPLICIT length check (same noUncheckedIndexedAccess reasoning as researchMaxed)
+  // so nextFabricatorUpgrade stays non-undefined-typed in the {:else} branch. The upgrade
+  // check + in-flight process mirror the Research Lab's.
+  $: fabricatorMaxed = fabricatorLevel >= FACILITIES[FABRICATOR_FACILITY_KEY].upgrades.length;
+  $: nextFabricatorUpgrade = FACILITIES[FABRICATOR_FACILITY_KEY].upgrades[fabricatorLevel];
+  $: fabricatorUpgradeCheck = canBuildFacilityUpgrade(state, FABRICATOR_FACILITY_KEY);
+  $: fabricatorUpgradeInFlight = state.activeProcesses.find(
+    (p) =>
+      p.kind === "facilityUpgrade" &&
+      p.effect.type === "facilityLevelUp" &&
+      p.effect.facility === FABRICATOR_FACILITY_KEY
+  );
+
+  // Fabricable count: researched blueprints whose tier the fabricator's LEVEL has reached
+  // (the STABLE "you have the capability to craft this" count, NOT the transient
+  // canFabricate.ok which flickers with live materials/slots). Paired with
+  // researchedBlueprintCount as the Overview's researched-vs-fabricable at-a-glance line.
+  $: fabricableBlueprintCount = Object.keys(BLUEPRINTS).filter(
+    (k) => blueprintUnlocked(state, k) && BLUEPRINTS[k].tier <= fabricatorLevel
+  ).length;
+
+  // The active standing fabricate order, or null. Named so the markup reads it by one
+  // name (mirror of refineOrder). Fleet-wide singular -- ONE order at a time; a Craft
+  // card's start button installs it, replacing any prior order (last write wins).
+  $: fabricateOrder = state.fabricateOrder;
+  // Whether the fabricator can accept an order at all: it must be built (>= 1 slot).
+  $: fabricatorBuilt = fabricateSlots > 0;
+  // Batch-count validity: an integer >= 1 (Math.floor tolerates a "10.0"-style entry;
+  // < 1 or NaN/blank is invalid). Gates the "Fabricate N" button; the click handler
+  // floors the count into the mode (defense in depth). Mirror of refineBatchValid.
+  $: fabricateBatchValid = Number.isFinite(fabricateBatchCount) && Math.floor(fabricateBatchCount) >= 1;
+  // Human-readable status of the active order for the Craft sub-tab readout. Mode line:
+  // "Batch — N remaining" / "Continuous". Pause line (mirrors processFabricateOrder's
+  // pausedReason): noInput -> out-of-materials, outputFull -> storage-full. Empty string
+  // when no order is active (the markup shows an idle line instead). Mirror of the refine
+  // order labels.
+  $: fabricateOrderModeLabel = fabricateOrder
+    ? fabricateOrder.mode.kind === "batch"
+      ? `Batch — ${fabricateOrder.mode.remaining} remaining`
+      : "Continuous — runs until stopped"
+    : "";
+  $: fabricateOrderPauseLabel =
+    fabricateOrder?.pausedReason === "noInput"
+      ? "⏸ Out of materials"
+      : fabricateOrder?.pausedReason === "outputFull"
+        ? "⏸ Storage full (expand the Warehouse)"
+        : "";
+  // The blueprint label the active order is crafting (for the status card's heading), or
+  // "" when no order. Reads the order's blueprintKey -> its output component label.
+  $: fabricateOrderLabel = fabricateOrder
+    ? ITEMS[BLUEPRINTS[fabricateOrder.blueprintKey]?.recipe.outputItem ?? ""]?.label ??
+      BLUEPRINTS[fabricateOrder.blueprintKey]?.label ??
+      fabricateOrder.blueprintKey
+    : "";
+
   // Blueprints grouped by TIER for the Research list (tiers ascending). PURE over
   // the STATIC BLUEPRINTS table (independent of live state -- the per-blueprint
   // researched/gate reads happen in the markup), so this is a plain const computed
@@ -2028,6 +2183,31 @@
         return "Not enough credits";
       case "alreadyResearched":
         return "Already researched";
+      case "notFound":
+        return "Unavailable";
+    }
+  }
+
+  // Fabricator (Task F4 UI): map a canFabricate BLOCK reason to the human sentence shown
+  // on a disabled Craft button's title + inline "why not" text. The DIRECT clone of
+  // researchBlockText above. tierLocked reads the blueprint's tier to name the required
+  // fabricator level (canFabricate blocks when bp.tier > fabricator level, so reaching
+  // level == tier unlocks it). notResearched is largely defensive here -- the Craft tab
+  // only lists RESEARCHED blueprints, so a real card won't surface it -- but it's mapped
+  // for exhaustiveness (and covers a render/click race). notFound is a defensive fallback
+  // (a real listed blueprint can't hit it). Mirrors researchBlockText's reason→text idiom.
+  function fabricateBlockText(reason: FabricateBlockReason, bp: BlueprintDef): string {
+    switch (reason) {
+      case "notResearched":
+        return "Research at the Research Lab first";
+      case "tierLocked":
+        return `Requires Fabricator level ${bp.tier}`;
+      case "noSlot":
+        return "All fabricate slots busy";
+      case "materials":
+        return "Not enough materials";
+      case "storageFull":
+        return "Storage full (expand the Warehouse)";
       case "notFound":
         return "Unavailable";
     }
@@ -2725,7 +2905,17 @@
                "future signal" role as Sector Space's locked structures and the
                Fleet Captain's locked slots). Plain non-button divs, so they're
                inert; the title attr is the "Coming soon" affordance. -->
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Fabricator</div>
+          <!-- Fabricator -- REAL, selectable facility (Fabricator Task F4): CRAFTS the
+               components the Research Lab unlocked. Same reused .captain-list-item /
+               active idiom as the Refinery/Warehouse/Research buttons; replaced the
+               locked placeholder that stood here through Phases 1-3. -->
+          <button
+            class="captain-list-item"
+            class:active={activeFacility === "fabricator"}
+            on:click={() => (activeFacility = "fabricator")}
+          >
+            Fabricator
+          </button>
           <!-- Warehouse -- REAL, selectable facility (Phase 2, Group C): the
                fill-tile inventory catalog. Same reused .captain-list-item /
                active idiom as the Refinery button above. -->
@@ -3818,6 +4008,297 @@
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
                   <div class="research-readout">{remaining} / {researchUpgradeInFlight.durationTicks} ticks remaining</div>
+                {/if}
+              </Panel>
+            {/if}
+          {:else if activeFacility === "fabricator"}
+            <!-- FABRICATOR (Fabricator Task F4) -- the component-crafting facility. It
+                 CONSUMES the researched blueprints from the Research Lab: three sub-tabs
+                 mirroring the Research Lab's STRUCTURE (Overview / Craft / Upgrades) with
+                 the Refinery's ORDER controls on the Craft tab. Overview = slots in use +
+                 in-flight craft jobs (progress bar + real time remaining) + researched-vs-
+                 fabricable counts + the Shipyard signpost. Craft = the RESEARCHED
+                 blueprints grouped by tier, each with its recipe/time + batch/continuous
+                 ORDER controls (doStartFabricateOrder / doStopFabricateOrder) gated by
+                 canFabricate. Upgrades = the fabricator's tier/slot track wired to the
+                 SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade. All readiness/
+                 actions read the SAME tick.ts fabricate fns (fabricateSlotCount /
+                 canFabricate / startFabricateOrder / stopFabricateOrder) + model.ts tables
+                 (FACILITIES.fabricator / BLUEPRINTS / ITEMS), so the UI can't drift from
+                 what the backend enforces. Reuses the research/refine progress-bar idiom +
+                 the .mission-card / .buy-btn / .dev-btn / .research-* classes (no new
+                 markup style). -->
+            <SubTabs
+              tabs={[
+                { key: "overview", label: "Overview" },
+                { key: "craft", label: "Craft" },
+                { key: "upgrades", label: "Upgrades" },
+              ]}
+              active={activeFabricatorSubTab}
+              onSelect={(key) => (activeFabricatorSubTab = key as FabricatorSubTab)}
+            />
+
+            {#if activeFabricatorSubTab === "overview"}
+              <!-- OVERVIEW -- fabricator level, craft-slot usage, any in-flight craft
+                   jobs (progress bar + real time remaining, the SAME idiom the refine/
+                   research jobs use), the fabricable-vs-researched count, and the forward
+                   SIGNPOST that components become usable with the Shipyard. -->
+              <Panel>
+                <div class="panel-title">FABRICATOR</div>
+                <div class="research-cost">Level: {fabricatorLevel}</div>
+                <div class="research-cost">Craft slots: {activeFabricateJobs.length} / {fabricateSlots} in use</div>
+                <div class="research-cost">Blueprints fabricable: {fabricableBlueprintCount} / {researchedBlueprintCount} researched</div>
+
+                <!-- In-flight fabricate jobs -- one progress card each. progress is how
+                     much of the duration has elapsed (durationTicks - remainingTicks over
+                     durationTicks), read straight off the fabricateJob TimedProcess -- the
+                     SAME derivation the refine/research bars use. The job names the
+                     component it is crafting (effect.itemId -> label). -->
+                {#if activeFabricateJobs.length > 0}
+                  <div class="research-cost" style="margin-top: 10px;">In progress:</div>
+                  {#each activeFabricateJobs as job (job.id)}
+                    {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
+                    <div class="mission-card">
+                      <div class="research-name">
+                        {#if job.effect.type === "addItem"}Fabricating → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else}Fabricate job{/if}
+                      </div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                      </div>
+                      <div class="research-readout">{formatDuration(job.remainingTicks, state.tickDurationSeconds)} remaining</div>
+                    </div>
+                  {/each}
+                {:else}
+                  <p class="research-status" style="margin-top: 10px;">No active fabricate jobs.</p>
+                {/if}
+
+                <!-- Forward signpost (design F4): fabricated components aren't usable until
+                     the Shipyard, the next feature. -->
+                <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
+                  Fabricated components become usable when the <strong>Shipyard</strong> comes online (next feature).
+                </p>
+              </Panel>
+            {/if}
+
+            {#if activeFabricatorSubTab === "craft"}
+              <!-- CRAFT -- the RESEARCHED blueprints grouped by TIER (ascending). One
+                   fleet-wide standing order at a time (mirror of the Refinery's ONE
+                   refineOrder): the active order's status/pause + Stop live in a card at
+                   the top; each blueprint card shows its recipe (inputs → outputQty×output,
+                   ITEM labels), craft time (formatDuration), live material balances, and
+                   the batch/continuous ORDER controls. Start controls gate on canFabricate
+                   (disabled + fabricateBlockText reason). Only researched blueprints appear;
+                   with none researched, an empty-state line points to the Research Lab. -->
+              <Panel>
+                <div class="panel-title">CRAFT</div>
+                <div class="research-cost">Craft slots: {activeFabricateJobs.length} / {fabricateSlots} in use</div>
+
+                <!-- Live status of the ACTIVE order (fleet-wide singular). Derived
+                     reactively from state.fabricateOrder so it updates as the order drains/
+                     pauses/clears. Idle line when none is set; Stop shown only when active. -->
+                <div class="mission-card" style="margin-top: 10px;">
+                  {#if fabricateOrder}
+                    <div class="research-name">Active order: [{fabricateOrderLabel}] — {fabricateOrderModeLabel}</div>
+                    {#if fabricateOrderPauseLabel}
+                      <div class="research-readout" style="color: var(--color-danger);">{fabricateOrderPauseLabel}</div>
+                    {:else}
+                      <div class="research-readout" style="color: var(--color-success);">▶ Running</div>
+                    {/if}
+                    <div class="dev-row" style="margin-top: 6px;">
+                      <button class="dev-btn danger" on:click={doStopFabricateOrder}>Stop order</button>
+                    </div>
+                  {:else}
+                    <div class="research-readout">No active order. Start a batch or continuous craft below.</div>
+                  {/if}
+                </div>
+
+                {#if researchedBlueprintCount === 0}
+                  <!-- EMPTY STATE -- nothing researched yet. Point the player at the
+                       Research Lab, the ONLY way to unlock a fabricable blueprint. -->
+                  <p class="research-status" style="margin-top: 12px;">
+                    Research blueprints at the <strong>Research Lab</strong> to unlock things to fabricate.
+                  </p>
+                {:else}
+                  <!-- Shared batch-quantity input -- one N for every card's Fabricate-N
+                       button (like the Refinery's single Quantity field). -->
+                  <div class="dev-row" style="margin-top: 10px; align-items: center;">
+                    <label style="display: inline-flex; align-items: center; gap: 6px;">
+                      Batch quantity
+                      <input
+                        class="modal-input"
+                        type="number"
+                        min="1"
+                        step="1"
+                        style="width: 90px;"
+                        bind:value={fabricateBatchCount}
+                        aria-label="Fabricate batch quantity"
+                      />
+                    </label>
+                  </div>
+
+                  {#each blueprintTierGroups as group (group.tier)}
+                    <!-- Only RESEARCHED blueprints appear on the Craft tab; a tier with
+                         none researched is skipped entirely (no empty heading). -->
+                    {@const researchedInTier = group.blueprints.filter((bp) => blueprintUnlocked(state, bp.key))}
+                    {#if researchedInTier.length > 0}
+                      <div class="research-name" style="margin-top: 12px;">Tier {group.tier}</div>
+                      {#each researchedInTier as bp (bp.key)}
+                        {@const gate = canFabricate(state, bp.key)}
+                        <!-- tierLocked is the ONLY canFabricate reason that genuinely
+                             prevents SETTING an order: the fabricator's level hasn't
+                             reached this blueprint's tier, so it can't be crafted until you
+                             upgrade. Computed directly (bp.tier > level -- canFabricate's own
+                             tierLocked condition) so the order-SET gate can exclude it while
+                             ignoring the TRANSIENT reasons (materials/noSlot/storageFull),
+                             which the F2 engine auto-pauses + auto-resumes on -- exactly like
+                             the Refinery lets you set an order that then sits paused. -->
+                        {@const tierLocked = bp.tier > fabricatorLevel}
+                        {@const orderItemIds = [...Object.keys(bp.recipe.inputs), bp.recipe.outputItem]}
+                        <div class="mission-card">
+                          <div class="research-name">{bp.label}</div>
+                          <!-- Recipe: inputs → output, bracketed [Item] labels. -->
+                          <div class="research-cost">
+                            Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
+                          </div>
+                          <div class="research-cost">Time: {formatDuration(bp.craftDurationTicks, state.tickDurationSeconds)} each</div>
+                          <!-- Live material balances (inputs + output), same bracketed-
+                               [Item] convention the Refinery order tab uses. -->
+                          <div class="research-cost">
+                            Materials:
+                            {#each orderItemIds as itemId, i}
+                              [{ITEMS[itemId]?.label ?? itemId}] {formatNumber(state.inventory[itemId] ?? new Decimal(0))}{i < orderItemIds.length - 1 ? " · " : ""}
+                            {/each}
+                          </div>
+
+                          <!-- ORDER controls: Fabricate N (batch) + Fabricate continuously.
+                               Both gate on the fabricator being built, canFabricate (the
+                               single backend gate -> reason via fabricateBlockText), and
+                               (batch) a valid count. The click builds the FabricateOrderMode
+                               and hands it to doStartFabricateOrder (floored count, defense
+                               in depth vs. the fabricateBatchValid gate). -->
+                          <div class="dev-row" style="margin-top: 8px;">
+                            <button
+                              class="buy-btn"
+                              disabled={!fabricatorBuilt || !fabricateBatchValid || tierLocked}
+                              title={!fabricatorBuilt
+                                ? "Build the Fabricator first (see Upgrades)"
+                                : tierLocked
+                                  ? fabricateBlockText("tierLocked", bp)
+                                  : !fabricateBatchValid
+                                    ? "Enter a whole number of 1 or more"
+                                    : undefined}
+                              on:click={() => doStartFabricateOrder(bp.key, { kind: "batch", remaining: Math.floor(fabricateBatchCount) })}
+                            >
+                              Fabricate {fabricateBatchValid ? Math.floor(fabricateBatchCount) : "N"}
+                            </button>
+                            <button
+                              class="buy-btn"
+                              disabled={!fabricatorBuilt || tierLocked}
+                              title={!fabricatorBuilt
+                                ? "Build the Fabricator first (see Upgrades)"
+                                : tierLocked
+                                  ? fabricateBlockText("tierLocked", bp)
+                                  : undefined}
+                              on:click={() => doStartFabricateOrder(bp.key, { kind: "continuous" })}
+                            >
+                              Fabricate continuously
+                            </button>
+                          </div>
+                          <!-- Informational "will pause" line -- when a TRANSIENT condition
+                               (materials/noSlot/storageFull) is currently unmet, the order can
+                               still be SET; it just sits paused until the block lifts (F2
+                               auto-resume). So this is a muted hint, NOT a disabled button --
+                               mirroring the Refinery's set-then-pause order UX. tierLocked is
+                               excluded here (its disabled button already shows that reason). -->
+                          {#if !gate.ok && !tierLocked}
+                            <div class="research-cost" style="color: var(--color-text-secondary);">{fabricateBlockText(gate.reason, bp)} — order will pause until resolved</div>
+                          {/if}
+                        </div>
+                      {/each}
+                    {/if}
+                  {/each}
+                {/if}
+              </Panel>
+            {/if}
+
+            {#if activeFabricatorSubTab === "upgrades"}
+              <!-- UPGRADES -- the Fabricator's finite tier/slot track
+                   (FACILITIES.fabricator.upgrades[level]; caps at length 2 today). Each
+                   next rung grants a craft slot AND unlocks the next blueprint tier for
+                   fabrication. Cost is CREDITS (materials are the per-craft cost, not the
+                   upgrade cost), so the credits gate leads; the materials loop is kept
+                   (empty today) to mirror the sibling upgrade tabs. Build is wired to the
+                   SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade -- NOT
+                   re-implemented. A LINE-FOR-LINE clone of the Research Lab's Upgrades
+                   tab, swapping research→fabricator vars + addResearchSlots→
+                   addFabricateSlots. In-flight progress reuses the refine/research bar
+                   idiom. -->
+              <Panel>
+                <div class="panel-title">FABRICATOR — Upgrades</div>
+                <div class="research-cost">Level: {fabricatorLevel}</div>
+
+                {#if fabricatorMaxed}
+                  <p class="research-status">Fully upgraded.</p>
+                {:else}
+                  {@const eff = nextFabricatorUpgrade.effect}
+                  <div class="research-name">Next: Level {fabricatorLevel} → {fabricatorLevel + 1}</div>
+                  <!-- Grant line: each fabricator rung grants a craft slot AND unlocks the
+                       next tier. The slot text lives inside the narrow so eff.
+                       addFabricateSlots is typed; the whole phrase is kept contiguous
+                       WITHIN each branch (no whitespace-only text at a block boundary,
+                       which Svelte would trim) so the " · " separator renders. -->
+                  <div class="research-cost">
+                    {#if "addFabricateSlots" in eff}Grants: +{eff.addFabricateSlots} craft slot{eff.addFabricateSlots === 1 ? "" : "s"} · unlocks Tier {fabricatorLevel + 1} blueprints{:else}Grants: unlocks Tier {fabricatorLevel + 1} blueprints{/if}
+                  </div>
+                  <div class="research-cost">Duration: {nextFabricatorUpgrade.durationTicks} ticks</div>
+
+                  <!-- Credits cost readiness (fabricator rungs cost credits, not materials). -->
+                  {#if nextFabricatorUpgrade.credits !== undefined}
+                    {@const met = state.credits.gte(nextFabricatorUpgrade.credits)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} Cost: ◈ {formatNumber(nextFabricatorUpgrade.credits)} (have {formatNumber(state.credits)})
+                    </div>
+                  {/if}
+
+                  <!-- Material readiness ([Item]: have / need, ✅/❌) -- empty for the
+                       fabricator track today, kept for parity with the sibling tabs. -->
+                  {#each Object.keys(nextFabricatorUpgrade.materials) as itemId}
+                    {@const need = nextFabricatorUpgrade.materials[itemId]}
+                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const met = have.gte(need)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                    </div>
+                  {/each}
+
+                  <!-- Fleet Admiral level prereq (absent field => no wall). -->
+                  {#if nextFabricatorUpgrade.requiresFleetAdminLevel !== undefined}
+                    {@const met = state.fleetAdminLevel >= nextFabricatorUpgrade.requiresFleetAdminLevel}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextFabricatorUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                    </div>
+                  {/if}
+
+                  <button
+                    class="buy-btn"
+                    disabled={!fabricatorUpgradeCheck.ok}
+                    title={fabricatorUpgradeCheck.ok ? undefined : fabricatorUpgradeCheck.reason}
+                    on:click={() => doStartFacilityUpgrade(FABRICATOR_FACILITY_KEY)}
+                  >
+                    Build · Level {fabricatorLevel} → {fabricatorLevel + 1}
+                  </button>
+                {/if}
+
+                {#if fabricatorUpgradeInFlight}
+                  {@const progress = fabricatorUpgradeInFlight.durationTicks > 0
+                    ? (fabricatorUpgradeInFlight.durationTicks - fabricatorUpgradeInFlight.remainingTicks) / fabricatorUpgradeInFlight.durationTicks
+                    : 1}
+                  {@const remaining = Math.max(0, Math.ceil(fabricatorUpgradeInFlight.remainingTicks))}
+                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remaining} / {fabricatorUpgradeInFlight.durationTicks} ticks remaining</div>
                 {/if}
               </Panel>
             {/if}
