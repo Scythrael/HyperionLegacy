@@ -19,6 +19,9 @@
   // once chosen, the panel renders that spec's RadialWeb instead (see the
   // captain Talents sub-tab markup below).
   import TreeSelector from "./lib/TreeSelector.svelte";
+  // Player-facing release marker + patch-note history. Extracted from this
+  // file so src/Landing.svelte can render the same news strip from one source.
+  import { APP_VERSION, PATCH_NOTES } from "./lib/patchNotes";
   import {
     freshState,
     specCards,
@@ -233,30 +236,10 @@
   // available wherever VITE_DEV_MODE is true (preview + local .env.local).
   const DEV_MODE = DEV_MODE_ENV;
 
-  // Player-facing app version + patch notes, shown on the About sub-tab
-  // (System tab). Distinct from SAVE_VERSION (save.ts) -- that's the save
-  // SCHEMA version, bumped only when the save shape changes; this is a
-  // human-readable release marker, bumped by hand whenever there's a
-  // user-visible batch of changes worth calling out. Newest entry first.
-  // Reset to a disciplined X.Y.Z scheme starting 2026-07-07 (Y bumps per
-  // feature release, Z bumps per minor fix) -- the pre-reset 0.6.0-0.9.0
-  // history above is left untouched (never rewrite patch-note history), so
-  // this deliberately reads as "0.2.0 newer than 0.9.0" once, only here.
-  const APP_VERSION = "0.9.0";
-  const PATCH_NOTES: { version: string; summary: string }[] = [
-    { version: "0.9.0", summary: "Five missions available from the start -- a free Local Deuterium Skim that gathers fuel-grade Deuterium Ice at no fuel cost, plus Local Asteroid, Lunar Mine Contract, Salvage Skirmish Wreckage, and Forage Minerals & Flora, the four resource runs each hauling back its own trio of raw materials (12 in total to feed future crafting). Salvage and Forage ask for a slightly more experienced captain before they'll launch. New Mission Control facility tracks your available missions and their completion counts; more missions will unlock here as new content arrives. Missions now burn fuel for the round trip, and fuel runs on a proper economy: the new Fuel Depot automatically refines Deuterium Ice into fuel through processing pipelines you can expand (upgrade for more pipelines, more fuel per batch, and less ice per batch) -- run the free fuel skim, refine the ice, and you stay self-sufficient. If a captain is short at launch, the shortfall is auto-bought with credits as a pricey backup -- costing a short refuel delay on that trip -- and only stops repeating if you're also out of credits. A fuel gauge in the top bar shows at a glance whether you're producing more fuel than you're burning. Each ship has its own fuel capacity (how far it can range) and engine efficiency (how little it burns). Every mission now shows its XP earned per tick and its dispatch requirements up front (captain level, cargo space, fuel), with a clear reason spelled out when you can't launch. Also: warehouse fill-tiles are smaller on desktop, and their tooltips now open on a single tap on mobile." },
-    { version: "0.8.0", summary: "New Warehouse facility: your materials now have real storage, split into Raw / Refined / Component tabs (plus placeholder tabs for what's coming), each with a fill-tile gauge showing how full it is, and timed capacity upgrades that double how much you can hold. Storage now has caps -- producers automatically pause when a material is full instead of wasting it. Refining got a proper order system: queue a fixed batch (Refine N) or run it continuously, watch live status and why it paused (out of ingredients, or storage full), stop an order any time, with an optional confirmation prompt you can toggle in the System tab's Options. Offline progress now advances your facilities while you're away, capped at 2 days. Groundwork for a bigger crafting economy: the base ores are renamed to Titanium / Polysilicate / Iridium Ore, with placeholder raw, refined, and component items seeded for future recipes." },
-    { version: "0.7.0", summary: "Navigation reorganized: Homeworld and Sector Space are now unified under a new Locations tab -- each place keeps its own sub-tabs -- and Facilities are grouped by owner (Homeworld, Fleet Sector, Ships). Same content, tidier layout, fewer tabs." },
-    { version: "0.6.0", summary: "New Facilities tab: you can now build and upgrade a Refinery, then run refine jobs that turn common ore into refined material over time -- each upgrade unlocks another refine slot so several jobs run at once, with the later upgrades gated behind your Fleet Admiral level and Homeworld talents. Behind the scenes, all your materials moved into a single unified inventory -- existing saves migrate automatically." },
-    { version: "0.5.0", summary: "Captains and your Fleet Admiral now earn XP every tick while missions run, instead of only when a mission cycle finishes -- leveling feels steady and continuous, and the Fleet Admiral now climbs much faster the more captains you have out on missions at once. Unlocking captain slots 3 and 4 now also requires reaching a Fleet Admiral level (on top of the existing talent cost), and captain slots you can actually work toward now read \"Locked\" instead of \"Coming Soon.\"" },
-    { version: "0.4.0", summary: "Ships are now real, swappable hulls with distinct stats -- cargo capacity, transit speed, and extraction yield all change how a captain's missions play out. New Sector Space > Starbase area to manage your fleet, assign hulls to captains, and buy new hulls with credits. Existing saves auto-upgrade, giving every captain a starter Freighter." },
-    { version: "0.3.0", summary: "Talent trees are now an explorable radial \"skill web\" you pan around, revealing new nodes as you learn. Captains pick a specialization -- Prospector, Tactician, or Explorer -- and Fleet Admiral talents are organized into 5 navigable categories. Learned nodes power up glowing links between them. Existing saves are migrated automatically." },
-    { version: "0.2.0", summary: "Reworked mission loot so uncommon and rare materials can both drop in the same tick instead of one replacing the others; talent bonuses now target a specific material tier each. Added Import Save. Version numbering restarts here -- 0.2.1/0.2.2 for small fixes, 0.3.0 for the next feature." },
-    { version: "0.9.0", summary: "Widened the app to use most of the screen instead of a narrow centered column; retired the diagonal-corner panel look for a flatter style; moved the app's branding into this About tab." },
-    { version: "0.8.0", summary: "Reworked scrolling so only the active tab's content scrolls, not the whole page; added \"Coming Soon\" locked placeholders for future sub-tabs and captain slots." },
-    { version: "0.7.0", summary: "Rebuilt navigation: a global header with Fleet Admiral level/XP and a single fleet-wide tick, a dedicated Fleet Captain's tab, and a mission-first Fleet Operations tab." },
-    { version: "0.6.0", summary: "Added Captain Talents and Homeworld Talents -- two talent trees plus Fleet Admiral leveling." },
-  ];
+  // Player-facing app version + patch notes moved to ./lib/patchNotes.ts
+  // (2026-07-15) so the public Landing page can share the same source of
+  // truth. Imported at the top of this <script>; used unchanged by the About
+  // sub-tab (APP_VERSION) and the Patch Notes sub-tab (PATCH_NOTES) below.
 
   // Display-only phase labels for the MISSIONS panel's phase readout. Purely
   // a UI concern -- nothing outside this file needs to map a MissionPhase to
