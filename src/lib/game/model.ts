@@ -684,7 +684,18 @@ export interface CaptainState {
 // countdown/completion machinery; only its completion effect differs. Like "fuelRefineJob"
 // it is EXCLUDED from the resolver's Fleet-Admiral-XP lump award (see resolveProcesses) --
 // research is automated infra that must not perturb the tuned FA-XP curve.
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject";
+// Fabricator (Phase 4, Task F2): a "fabricateJob" crafts a researched blueprint's
+// component from materials -- the Fabricator's analog of the Refinery's "refineJob".
+// It reuses the SAME countdown/completion machinery and the SAME "addItem" completion
+// effect (resolveProcesses needs no new branch); only its INPUTS (a blueprint recipe)
+// and its lifetime tally (itemsCrafted, not itemsRefined) differ. UNLIKE refineJob it
+// is EXCLUDED from the resolver's Fleet-Admiral-XP lump award (see resolveProcesses) --
+// like researchProject/fuelRefineJob, it is a blueprint-gated, long-duration automated
+// economy that must not perturb the tuned FA-XP curve (a 120-300-tick craft would dump
+// a large lump; the tiny-duration Phase-1 refineJob keeps its award). ⚠️ DESIGN DECISION
+// flagged to the controller -- flip the exclusion + this comment together if fabrication
+// should feed FA XP.
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -1368,6 +1379,30 @@ export interface RefineOrder {
   pausedReason?: "noInput" | "outputFull"; // absent = running; set per-tick by processRefineOrder
 }
 
+// --- Fabricate orders (Fabricator Phase 4, Task F2 -- docs/plans/2026-07-16-fabricator-
+// design.md §2) --------------------------------------------------------------------
+// A STANDING fabricate order, a LINE-FOR-LINE mirror of RefineOrder above, for the
+// Fabricator instead of the Refinery. It keeps starting single fabricate JOBS (via
+// startFabricateJob) each economyTick until its work is done or a block hits. The ONE
+// shape difference vs. RefineOrder: `blueprintKey` (a BLUEPRINTS id) replaces
+// `recipeKey` (a REFINE_RECIPES id) -- the job it runs is a researched blueprint's
+// recipe, not a refine recipe. Same two modes (batch count-N / continuous) and the same
+// per-tick-recomputed `pausedReason` (auto-resume by construction). A SEPARATE
+// FabricateOrderMode (structurally identical to RefineOrderMode) is defined so the two
+// order systems stay INDEPENDENTLY evolvable -- a future refine-only or fabricate-only
+// mode can be added without coupling the other (Omega 8 YAGNI + Omega 4: consolidation
+// candidate if they never diverge, flagged not forced). NO Decimal on this shape, so
+// save hydration needs no per-field revival -- it rides the `...state` spread untouched.
+export type FabricateOrderMode =
+  | { kind: "batch"; remaining: number }
+  | { kind: "continuous" };
+
+export interface FabricateOrder {
+  blueprintKey: string;                    // which BLUEPRINTS entry (its recipe) this order crafts
+  mode: FabricateOrderMode;
+  pausedReason?: "noInput" | "outputFull"; // absent = running; set per-tick by processFabricateOrder
+}
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence -- every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
@@ -1449,6 +1484,15 @@ export interface GameState {
   // the offline per-tick step loop. freshState seeds null; the v19->v20 migration
   // (save.ts) backfills null onto existing saves.
   refineOrder: RefineOrder | null;
+  // Fabricator (Phase 4, Task F2 -- design §2): the fleet's ONE standing fabricate order,
+  // or null when none is active -- the EXACT mirror of refineOrder above, for the
+  // Fabricator. A SINGLE nullable order (not a list/map) is the minimal correct shape for
+  // today's ONE fabricator (widenable to a per-fabricator map later without precluding it
+  // now, Omega 8 YAGNI). It is processed each tick inside economyTick (processFabricateOrder,
+  // tick.ts) at the SAME seam as refineOrder, so it behaves identically live and in the
+  // offline per-tick step loop. freshState seeds null; the v22->v23 migration (save.ts, F6)
+  // backfills null onto existing saves.
+  fabricateOrder: FabricateOrder | null;
   // --- Research (Phase 3, Task R1 -- docs/plans/2026-07-15-research-*.md §2) ---
   // The set of UNLOCKED blueprint keys (BLUEPRINTS ids the player has researched).
   // Modeled as a string[] rather than a Set so it serializes cleanly through the JSON
@@ -2804,6 +2848,10 @@ export function freshState(): GameState {
     // Phase 2, Task D1: no standing refine order on a fresh save. Existing saves get
     // this same null seed via the v19->v20 migration (save.ts, MIGRATIONS[19]).
     refineOrder: null,
+    // Fabricator Task F2: no standing fabricate order on a fresh save (the mirror of the
+    // refineOrder: null seed above). Existing saves get this same null seed via the
+    // v22->v23 migration (save.ts, F6) -- NOT this function's job.
+    fabricateOrder: null,
     // Research Task R1: nothing researched on a brand-new save. Existing saves get this
     // same [] seed via the v21->v22 migration (Task R6, save.ts) -- NOT this function's
     // job. A string[] (no Decimal), so hydrateDecimals needs no change (see the field's
