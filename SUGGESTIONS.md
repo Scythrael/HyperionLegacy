@@ -749,3 +749,24 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   Completions "free-output-chance" seam already reserved elsewhere in this file). Do it as its own careful
   task with an offline-parity test. Until then the industry branch reads "No bonus yet" (consistent with
   the Homeland Defense / Citizenry placeholder hubs).
+
+- **Play-simulator / progression-pacing model for balancing (user 2026-07-16 — PARK for the balancing
+  phase).** A tool that simulates the player experience and reports how long it takes to reach each
+  milestone (specific unlocks/upgrades, one after another) — e.g. "Warehouse T2 @ ~40m, Research Lab @ ~2h,
+  first Fabricator craft @ ~5h, ...". Explicitly a FUTURE project for the proper balancing phase, not now.
+  **Why this game is unusually well-suited (and the recommended shape):** the economy is already CLOSED-FORM
+  and offline-parity-proven — `tick()`/`economyTick` (tick.ts) is a pure deterministic state-advance. So the
+  sim is NOT a from-scratch build; it's a HEADLESS harness that drives the existing engine (no rendering,
+  millions of ticks in ms). Recommended flavor: (1) a **deterministic policy sim** — a headless script that
+  plays via a *player-policy model* (heuristic: keep captains on missions, refine/craft toward the next
+  gate, buy the cheapest next unlock, research in order), stepping economyTick and logging the tick each
+  milestone is hit → a timeline, diff-able across balance changes; (2) a **Monte-Carlo overlay** for the
+  loot RNG → p50/p90 time-to-milestone distributions. **The hard/real-project part** is the player-policy
+  model (what a reasonable player does, in what order) + instrumenting the milestone list — the engine and
+  offline-parity come for free. Preferred over a standalone spreadsheet/closed-form model precisely BECAUSE
+  the exact engine already exists (a spreadsheet would re-derive it and drift from the real code). Needs its
+  own brainstorm/design pass when the balancing phase starts: the policy heuristic, the milestone registry,
+  the output format (timeline / distribution), and where it lives (a headless `npm run sim` script reusing
+  the game modules). Ties into: the device-checkpoint tuning notes scattered across KNOWN_ISSUES (craft
+  durations, tier costs, slot rungs, FA-XP curve) — the sim is how those get calibrated coherently instead
+  of one-at-a-time.
