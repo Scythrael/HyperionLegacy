@@ -55,13 +55,16 @@
         </button>
       </div>
 
-      <!-- LINKS ROW: room reserved for future socials; Discord is a dimmed
-           "Coming Soon" placeholder, NOT a live link (invite added later). -->
+      <!-- LINKS ROW: community links; room reserved for future socials. -->
       <div class="links-row" aria-label="Community links">
-        <span class="link-chip is-disabled" aria-disabled="true">
+        <a
+          class="link-chip"
+          href="https://discord.gg/rcY7uqchTC"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           <span class="link-chip-label">Discord</span>
-          <span class="link-chip-soon">Coming Soon</span>
-        </span>
+        </a>
       </div>
     </section>
 
@@ -225,18 +228,16 @@
     border: 1px solid var(--color-border);
     background: var(--color-panel-bg);
   }
-  .link-chip.is-disabled {
-    color: var(--color-text-dim);
-    opacity: 0.65;
-    cursor: not-allowed;
+  .link-chip {
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    transition:
+      color 0.12s ease,
+      border-color 0.12s ease;
   }
-  .link-chip-soon {
-    font-size: 0.66rem;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    padding: 2px 8px;
-    border: 1px solid var(--color-border);
-    color: var(--color-text-dim);
+  .link-chip:hover {
+    color: var(--color-accent);
+    border-color: var(--color-border-strong);
   }
 
   /* --- BLURB --------------------------------------------------------------- */
