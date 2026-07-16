@@ -16,7 +16,6 @@ import {
   xpForNextFleetAdminLevel,
   MISSIONS,
   BASE_XP_PER_TICK,
-  RECIPES,
   SHIP_TYPES,
   CAPTAIN_TALENTS,
   CAPTAIN_SPEC_BONUS,
@@ -37,8 +36,6 @@ import {
   type ShipDerivedStats,
   type MissionPhase,
   type MissionKey,
-  type RecipeKey,
-  type HomePlanetMaterialKey,
   type CaptainTalentKey,
   type HomeworldTalentKey,
   type CaptainTalentBranch,
@@ -379,11 +376,9 @@ export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string
 }
 
 // Same pattern as describeCaptainTalentEffect above, for the Homeworld Talent
-// tree's effect union. recipeBonusOutput looks up RECIPES[effect.recipeKey].label
-// for the recipe's display name -- the SAME lookup App.svelte's own crafting
-// log line already uses (`Crafted: ${RECIPES[recipeKey].label}.`) -- rather
-// than surfacing the raw RecipeKey string. passiveTrickle has no equivalent
-// display-label table anywhere in the codebase for HomePlanetMaterialKey, so
+// tree's effect union. (The `recipeBonusOutput` case was RETIRED in Phase 4,
+// Task F5 with the legacy RECIPES instant-craft it described.) passiveTrickle has
+// no display-label table anywhere in the codebase for HomePlanetMaterialKey, so
 // it surfaces the raw material key as-is (e.g. "commonOre"), matching how
 // this same codebase already displays raw LootMaterialKey/HomePlanetMaterialKey
 // strings elsewhere with no translation layer (see mission cargo readouts in
@@ -396,8 +391,6 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
       return "Unlocks a new captain slot";
     case "rareYieldMult":
       return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.rareMaterial.label} yield (fleet-wide)`;
-    case "recipeBonusOutput":
-      return `+${effect.bonus} bonus output per craft (${RECIPES[effect.recipeKey].label})`;
     case "passiveTrickle":
       return `+${effect.perTick}/tick passive ${effect.material}`;
     // Radial Skill Web (Task 3): the gateway-hub effect, mirroring the captain
@@ -1932,60 +1925,10 @@ export function buyShip(
   };
 }
 
-// Validates every input in the recipe is affordable, deducts them all, adds
-// the output -- same "same state reference on failure" convention as every
-// other buy/action function in this file (dispatchCaptainOnMission,
-// recallCaptain). Manual-craft-button only this phase; an auto-craft toggle
-// is a deliberate near-term follow-up, not built here.
-export function craftRecipe(state: GameState, recipeKey: RecipeKey): { next: GameState; success: boolean } {
-  const recipe = RECIPES[recipeKey];
-  // recipe.inputs[key] is Decimal | undefined (Partial<Record<...>>), so the
-  // fallback must be a Decimal too -- `?? 0` would leave `needed` typed
-  // `Decimal | number`, and a plain number has no `.lt()`/`.minus()` methods.
-  for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
-    const needed = recipe.inputs[key] ?? new Decimal(0);
-    // Affordability gate reads the keyed `inventory` (was homePlanet.storage).
-    // Input keys are the recipe's own HomePlanetMaterialKeys, all seeded in
-    // inventory (freshState/migration), so this is a 1:1 read swap.
-    if (state.inventory[key].lt(needed)) return { next: state, success: false };
-  }
-
-  // Deduct every input from a NEW inventory clone (immutable-update style, was a
-  // storage clone). A DEDUCT is NOT a discovery event -- it does NOT go through
-  // addToInventory; consuming an item you already had reveals nothing new. Same
-  // exact per-input .minus(needed) as before.
-  const inventory = { ...state.inventory };
-  for (const key of Object.keys(recipe.inputs) as HomePlanetMaterialKey[]) {
-    const needed = recipe.inputs[key] ?? new Decimal(0);
-    inventory[key] = inventory[key].minus(needed);
-  }
-
-  // recipeBonusOutput (Homeworld Talent, e.g. industryBonusOutput): a FLAT
-  // extra amount added per craft, not a multiplier -- matches the effect
-  // type's own `bonus: number` field name/shape. Reduce over every unlocked
-  // talent (not just industryBonusOutput by name) so any future
-  // recipeBonusOutput entry targeting a different recipeKey works without
-  // touching this function again. effect.bonus stays plain number (Big-Number
-  // Migration field-split table) -- this reduce is unchanged plain-number
-  // arithmetic, unrelated to the Decimal boundary below.
-  const bonusOutput = state.unlockedHomeworldTalents.reduce((sum, key) => {
-    const effect = HOMEWORLD_TALENTS[key].effect;
-    return effect.type === "recipeBonusOutput" && effect.recipeKey === recipeKey ? sum + effect.bonus : sum;
-  }, 0);
-  // Add the crafted output through the single add seam (addToInventory) so the
-  // output item is marked discovered. The added amount is the recipe's base
-  // output PLUS the flat recipeBonusOutput, combined into ONE Decimal here so the
-  // helper's single .plus() reproduces the old
-  // `.plus(recipe.output.amount).plus(bonusOutput)` chain exactly -- both
-  // operands are integer amounts (output.amount is a Decimal, bonusOutput a plain
-  // number), so this reassociation is value-identical. A real recipe's output is
-  // always >= 1, so the discovered mark always fires here (unlike the loot fold,
-  // which can see 0 deltas).
-  const outputAmount = recipe.output.amount.plus(bonusOutput);
-  const added = addToInventory(inventory, state.discovered, recipe.output.key, outputAmount);
-
-  return { next: { ...state, inventory: added.inventory, discovered: added.discovered }, success: true };
-}
+// (craftRecipe -- the legacy INSTANT Homeworld craft action -- was RETIRED in
+// Phase 4, Task F5. The timed Fabricator engine (startFabricateOrder /
+// processFabricateOrder, below) fully replaces it, feeding the SAME
+// lifetimeStats.itemsCrafted tally on craft completion.)
 
 // ============================================================================
 // Timed-process engine — Phase 1, Task 8

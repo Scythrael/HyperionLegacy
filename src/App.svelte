@@ -36,7 +36,6 @@
     // by the flying hull's speed, so the fuel-chip expenditure math can measure a burn
     // rate against the REAL (ship-adjusted) cycle length -- not the un-adjusted base.
     effectiveMissionDef,
-    RECIPES,
     xpForNextLevel,
     xpForNextFleetAdminLevel,
     CAPTAIN_TALENTS,
@@ -104,8 +103,6 @@
     type MissionKey,
     type MissionPhase,
     type LootMaterialKey,
-    type RecipeKey,
-    type HomePlanetMaterialKey,
     type CaptainTalentBranch,
     type CaptainTalentKey,
     type HomeworldTalentKey,
@@ -147,7 +144,6 @@
     tickCaptainMission,
     dispatchCaptainOnMission,
     recallCaptain,
-    craftRecipe,
     applyFleetAdminXp,
     // Ships — Stats Foundation (Task 11 UI) -- the two pure ship actions wired
     // into the Sector Space > Starbase panels below. buyShip(state, typeKey)
@@ -877,12 +873,15 @@
   let activeLocationPlace: LocationPlace = "homeworld";
 
   // Homeworld tab sub-tabs (UI Redesign, Task 10 -- see
-  // docs/plans/2026-07-07-ui-redesign-plan.md). Resources holds the
-  // relocated HOME PLANET content; Refinery holds the relocated
-  // Refinery/Fabrication RECIPES content; Talents holds the relocated
-  // HOMEWORLD TALENTS content. Defaults to Resources as the most commonly
-  // checked view.
-  type HomeworldSubTab = "resources" | "refinery" | "talents";
+  // docs/plans/2026-07-07-ui-redesign-plan.md). Resources is the Overview
+  // (a minimal placeholder this pass -- fleshed out later); Talents holds the
+  // relocated HOMEWORLD TALENTS content. Defaults to Resources as the most
+  // commonly checked view.
+  //
+  // The former "refinery" sub-tab (the legacy RECIPES instant-craft/"Fabrication"
+  // panel) was RETIRED in Phase 4, Task F5 -- crafting now lives in the dedicated
+  // Fabricator facility panel (under Facilities), not a Homeworld sub-tab.
+  type HomeworldSubTab = "resources" | "talents";
   let activeHomeworldSubTab: HomeworldSubTab = "resources";
 
   // System tab sub-tabs (UI Redesign, Task 10; gained About in the layout-
@@ -1261,13 +1260,9 @@
     pushLog(`[DEV] +10 stat points to ${captain.label} (now ${captain.statPoints + 10}).`);
   }
 
-  function doCraftRecipe(recipeKey: RecipeKey) {
-    const { next, success } = craftRecipe(state, recipeKey);
-    if (!success) return;
-    state = next;
-    pushLog(`Crafted: ${RECIPES[recipeKey].label}.`);
-    doSave();
-  }
+  // (doCraftRecipe -- the legacy instant Homeworld craft-button handler -- was
+  //  RETIRED in Phase 4, Task F5 along with the RECIPES panel it drove. Crafting
+  //  is now the Fabricator facility panel's timed order controls.)
 
   // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the two Facilities-tab
   // action wrappers. Both follow the SAME reassign-`state` + pushLog + doSave
@@ -2480,8 +2475,8 @@
            rail of "places" (.captain-list / .captain-list-item, reused
            verbatim, NOT a new class) + a right content pane. The selected place
            (activeLocationPlace: homeworld / sector) drives its OWN <SubTabs>:
-             - Fleet Homeworld -> Overview / Fabrication / Administration, still
-               tracked by activeHomeworldSubTab (resources / refinery / talents);
+             - Fleet Homeworld -> Overview / Administration, still
+               tracked by activeHomeworldSubTab (resources / talents);
              - Fleet Sector -> Docks / Requisition, still tracked by
                activeStarbaseSubTab.
            Every content PANEL below moved VERBATIM from the two former tabs --
@@ -2522,7 +2517,6 @@
             <SubTabs
               tabs={[
                 { key: "resources", label: "Overview" },
-                { key: "refinery", label: "Fabrication" },
                 { key: "talents", label: "Administration" },
               ]}
               active={activeHomeworldSubTab}
@@ -2530,58 +2524,22 @@
             />
 
       {#if activeHomeworldSubTab === "resources"}
+      <!-- Homeworld Overview (Phase 4, Task F5): minimal placeholder. The old
+           hardcoded "HOME PLANET" 3-material panel was retired here -- full
+           material inventory now lives in the Warehouse, and this Overview is
+           to be fleshed out later (per the design's "fleshed out later" note).
+           The sub-tab shell is kept so navigation still renders. -->
       <Panel>
         <div class="panel-title">HOME PLANET</div>
-        <div class="resource-grid resource-grid-3">
-          <div class="resource-card">
-            <div class="resource-label">{ITEMS.commonOre.label}</div>
-            <div class="resource-value">{formatNumber(state.inventory.commonOre)}</div>
-          </div>
-          <div class="resource-card">
-            <div class="resource-label">{ITEMS.uncommonMaterial.label}</div>
-            <div class="resource-value">{formatNumber(state.inventory.uncommonMaterial)}</div>
-          </div>
-          <div class="resource-card">
-            <div class="resource-label">{ITEMS.rareMaterial.label}</div>
-            <div class="resource-value">{formatNumber(state.inventory.rareMaterial)}</div>
-          </div>
-        </div>
+        <p class="research-status">Homeworld overview coming soon — check the Warehouse for your full material inventory.</p>
       </Panel>
-      {/if}
-
-      {#if activeHomeworldSubTab === "refinery"}
-      <!-- Refinery/Fabrication (Task 8, Phase 4) -- one panel per RECIPES
-           entry, fleet-wide (not per-captain -- Homeworld structures belong
-           to the whole fleet, unlike the per-captain MISSIONS panel under
-           Fleet Ops). Iterates RECIPES rather than hardcoding each recipe's
-           markup twice, so a 3rd recipe added to RECIPES later (per that
-           object's own header comment) picks up a panel automatically. -->
-      {#each Object.entries(RECIPES) as [recipeKey, recipe]}
-        {@const inputEntries = Object.entries(recipe.inputs) as [HomePlanetMaterialKey, Decimal][]}
-        {@const affordable = inputEntries.every(([key, amount]) => state.inventory[key].gte(amount))}
-        <Panel>
-          <div class="panel-title">{recipeKey === "refineUnobtainium" ? "REFINERY" : "FABRICATION"}</div>
-          <div class="research-name">{recipe.label}</div>
-          <div class="research-cost">
-            Requires:
-            {#each inputEntries as [key, amount], i}
-              {formatNumber(amount)} {key}{i < inputEntries.length - 1 ? ", " : ""}
-              (have {formatNumber(state.inventory[key])})
-            {/each}
-          </div>
-          <div class="research-cost">Produces: {formatNumber(recipe.output.amount)} {recipe.output.key}</div>
-          <button class="buy-btn" disabled={!affordable} on:click={() => doCraftRecipe(recipeKey as RecipeKey)}>
-            Craft · {recipe.label}
-          </button>
-        </Panel>
-      {/each}
       {/if}
 
       {#if activeHomeworldSubTab === "talents"}
       <!-- Homeworld Talents (Task 6, Captain & Homeworld Talent Trees) --
            fleet-wide (not per-captain -- reads state.adminPoints /
            state.unlockedHomeworldTalents directly, never activeCaptain),
-           placed after Refinery/Fabrication above. Same fixed-5-branch
+           placed after the Overview above. Same fixed-5-branch
            iteration pattern as the Captain Talents panel under Fleet Ops, so
            Homeland Defense/Citizenry (zero entries today, see model.ts)
            render as labeled, empty columns.
@@ -5757,35 +5715,9 @@
     margin-bottom: 12px;
     font-weight: 600;
   }
-  /* minmax(0, 1fr), not a bare 1fr (2026-07-07 mobile pass): a bare `1fr`
-     track can't shrink below its content's min-content width, so on a
-     narrow screen a long formatted number (e.g. "1.23e15") forces the whole
-     grid wider than .resource-grid's own container -- and since every
-     ancestor up to .root uses overflow:hidden for scroll containment, that
-     overflow doesn't scroll into view, it just gets silently clipped off
-     the right edge. minmax(0, 1fr) lets the track shrink to fit; the
-     overflow-wrap below on .resource-value then wraps the text onto a
-     second line inside its own card if it still doesn't fit on one, instead
-     of the whole grid overflowing the panel. */
-  .resource-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-  /* HOME PLANET has exactly 3 loot materials, not 4 -- reusing .resource-grid
-     as-is would use its hardcoded repeat(4, 1fr) and leave an empty 4th
-     column (uneven, oddly gapped), since that column count is a literal, not
-     auto-fill/auto-fit. This modifier overrides just the column count; every
-     other .resource-grid rule (gap) and all of .resource-card/-label/-value
-     are reused unchanged. */
-  .resource-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .resource-card {
-    padding: 10px 8px;
-    border-radius: 10px;
-    background: var(--color-panel-bg-strong);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
-    text-align: center;
-    min-width: 0; /* lets the card itself shrink to its grid track's width, same reason as the grid comment above */
-  }
-  .resource-label { font-size: 10px; color: var(--color-text-secondary); margin-bottom: 4px; }
-  .resource-value { font-family: var(--font-mono); font-size: 16px; overflow-wrap: break-word; }
-  .resource-value.locked { color: var(--color-text-dim); }
+  /* The .resource-grid / .resource-grid-3 / .resource-card / .resource-label /
+     .resource-value(.locked) family was REMOVED in Phase 4, Task F5 -- its only
+     user was the retired "HOME PLANET" 3-material Overview panel. */
   .tick-bar-track {
     height: 10px;
     background: var(--color-panel-bg-strong);

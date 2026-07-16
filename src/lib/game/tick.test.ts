@@ -7,7 +7,6 @@ import {
   recallCaptain,
   assignShipToCaptain,
   buyShip,
-  craftRecipe,
   buyCaptainTalent,
   buyHomeworldTalent,
   respecCaptainTalents,
@@ -38,7 +37,6 @@ import {
   freshCaptains,
   freshLifetimeStats,
   MISSIONS,
-  RECIPES,
   shipDerivedStats,
   xpForNextFleetAdminLevel,
   ITEMS,
@@ -1991,55 +1989,9 @@ describe("recallCaptain", () => {
   });
 });
 
-describe("craftRecipe", () => {
-  it("succeeds when inputs are sufficient: deducts inputs, adds output", () => {
-    const state = freshState();
-    state.inventory.commonOre = new Decimal(25);
-    const { next, success } = craftRecipe(state, "refineUnobtainium");
-    expect(success).toBe(true);
-    expect(next.inventory.commonOre.equals(15)).toBe(true);
-    expect(next.inventory.refinedMaterial.equals(1)).toBe(true);
-    // Discovery spot-check: the crafted OUTPUT (refinedMaterial) is marked
-    // discovered; the DEDUCTED input (commonOre) is NOT -- consuming an item you
-    // already had reveals nothing new (deducts bypass the add seam entirely).
-    expect(next.discovered).toContain("refinedMaterial");
-    expect(next.discovered).not.toContain("commonOre");
-  });
-
-  it("fails (same state reference) when inputs are insufficient", () => {
-    const state = freshState(); // commonOre: 0
-    const { next, success } = craftRecipe(state, "refineUnobtainium");
-    expect(success).toBe(false);
-    expect(next).toBe(state);
-  });
-
-  it("supports multi-input recipes, deducting every input listed", () => {
-    const state = freshState();
-    state.inventory.refinedMaterial = new Decimal(12);
-    const { next, success } = craftRecipe(state, "fabricateComponents");
-    expect(success).toBe(true);
-    expect(next.inventory.refinedMaterial.equals(7)).toBe(true);
-    expect(next.inventory.components.equals(1)).toBe(true);
-  });
-
-  it("recipeBonusOutput (Homeworld Talent) adds a FLAT bonus to the matching recipe's output, not a multiplier", () => {
-    const state = freshState();
-    state.unlockedHomeworldTalents = ["industryBonusOutput"]; // recipeKey: fabricateComponents, bonus: 1
-    state.inventory.refinedMaterial = new Decimal(5);
-    const { next, success } = craftRecipe(state, "fabricateComponents");
-    expect(success).toBe(true);
-    expect(next.inventory.components.equals(2)).toBe(true); // base output 1 + flat bonus 1
-  });
-
-  it("recipeBonusOutput does NOT apply to a different recipe than the one it names", () => {
-    const state = freshState();
-    state.unlockedHomeworldTalents = ["industryBonusOutput"]; // targets fabricateComponents only
-    state.inventory.commonOre = new Decimal(10);
-    const { next, success } = craftRecipe(state, "refineUnobtainium");
-    expect(success).toBe(true);
-    expect(next.inventory.refinedMaterial.equals(1)).toBe(true); // unmodified base output
-  });
-});
+// (The craftRecipe test block -- including its two recipeBonusOutput cases --
+//  was REMOVED in Phase 4, Task F5 with the legacy instant-craft it covered. The
+//  timed Fabricator engine's coverage lives in fabricator.test.ts.)
 
 // Radial Skill Web (Task 5): buy-gating moved from the old single-parent
 // `requires` chain to graph adjacency. A node is learnable iff it is a hub OR

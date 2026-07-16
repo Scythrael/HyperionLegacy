@@ -1507,36 +1507,20 @@ export interface GameState {
   researchedBlueprints: string[];
 }
 
-export type RecipeKey = "refineUnobtainium" | "fabricateComponents";
-
-export interface RecipeDef {
-  label: string;
-  inputs: Partial<Record<HomePlanetMaterialKey, Decimal>>;
-  output: { key: HomePlanetMaterialKey; amount: Decimal };
-}
-
-// 2 recipes at launch, one per structure -- proves the crafting mechanic.
-// Add entries here (and nowhere else -- App.svelte's Homeworld panels iterate
-// this object) as the "fully fleshed out crafting system" grows later.
-export const RECIPES: Record<RecipeKey, RecipeDef> = {
-  refineUnobtainium: {
-    label: "Refine Unobtainium Ore",
-    inputs: { commonOre: new Decimal(10) },
-    output: { key: "refinedMaterial", amount: new Decimal(1) },
-  },
-  fabricateComponents: {
-    label: "Fabricate Components",
-    inputs: { refinedMaterial: new Decimal(5) },
-    output: { key: "components", amount: new Decimal(1) },
-  },
-};
+// RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
+// RETIRED in the Fabricator feature (Phase 4, Task F5). The timed Fabricator
+// facility (BLUEPRINTS + craftDurationTicks + startFabricateOrder, below/tick.ts)
+// fully subsumes that mechanic -- researched blueprints crafted over time via the
+// order/slot engine, feeding the SAME lifetimeStats.itemsCrafted tally. The old
+// `recipeBonusOutput` Homeworld Talent effect that only modified this instant path
+// was retired with it (see HomeworldTalentEffect below).
 
 // --- Timed refine recipes (Ship Production Economy, Phase 1, Task 11 --
 // docs/plans/2026-07-11-facility-framework-refinery-design.md §6) ----------------
-// The going-forward, TIMED refinery mechanic -- DISTINCT from the instant
-// RECIPES/craftRecipe() path above, which is deliberately left intact this pass
-// (Anti-Regression 15a; design §9 open item 4 -- retire it only when the
-// Fabricator subsumes it). A refine recipe is inputs -> ONE output over a fixed
+// The going-forward, TIMED refinery mechanic. (The old instant
+// RECIPES/craftRecipe() path this once stood beside was RETIRED in Phase 4,
+// Task F5, once the Fabricator subsumed it -- see the retirement note above.)
+// A refine recipe is inputs -> ONE output over a fixed
 // duration; startRefineJob (tick.ts) hands it to the Task 8 startProcess engine
 // (atomic deduct-at-start), and resolveProcesses grants the output + increments
 // lifetimeStats.itemsRefined on completion.
@@ -1672,17 +1656,18 @@ export const ITEMS: Record<string, ItemDef> = {
     unlockHint: "Skimmed from the Local Deuterium Skim run -- refine it into fuel at the Fuel Depot.",
     flavor: "Deuterium-laced water ice cracked from a local field. Cook it down at the Fuel Depot and it runs the FTL drives.",
   },
-  // --- Refined / crafted goods (Homeworld crafting output; RECIPES targets) ---
+  // --- Refined / crafted goods (Refinery / Fabricator output) ---
   refinedMaterial: {
     label: "Refined Material",
     category: "refined",
     tier: 1,
     rarity: "uncommon",
-    // Output of both the instant RECIPES.refineUnobtainium craft and the timed
-    // REFINE_RECIPES.refineCommonOre job, each consuming `commonOre` (Titanium Ore)
-    // at the Refinery. (Fuel-sourcing RESTRUCTURE 2026-07-15: reverted F1's "Deuterium
-    // Ice" wording back to Titanium -- the material Refinery consumes titanium ore, the
-    // Fuel Depot now refines the separate `deuteriumIce` item instead.)
+    // Output of the timed REFINE_RECIPES.refineCommonOre job, consuming `commonOre`
+    // (Titanium Ore) at the Refinery. (The legacy instant RECIPES.refineUnobtainium
+    // craft that once also produced it was retired in Phase 4, Task F5.) (Fuel-sourcing
+    // RESTRUCTURE 2026-07-15: reverted F1's "Deuterium Ice" wording back to Titanium --
+    // the material Refinery consumes titanium ore, the Fuel Depot now refines the
+    // separate `deuteriumIce` item instead.)
     unlockHint: "Refined from Titanium Ore at the Refinery.",
     flavor: "Titanium ore cooked down to a workable ingot. The first rung of the production ladder.",
   },
@@ -1691,8 +1676,9 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "refined",
     tier: 1,
     rarity: "rare",
-    // Output of the RECIPES.fabricateComponents craft, which consumes Refined
-    // Material (5 -> 1) at the Homeworld.
+    // Output of the Fabricator (a researched blueprint crafted from Refined
+    // Material via the timed fabricate-order engine). Replaced the legacy instant
+    // RECIPES.fabricateComponents craft, retired in Phase 4, Task F5.
     unlockHint: "Fabricated from Refined Material at the Homeworld.",
     flavor: "Fabricated parts stamped from refined stock -- the building blocks fleet production runs on.",
   },
@@ -2136,7 +2122,11 @@ export type CaptainTalentEffect =
 export type HomeworldTalentEffect =
   | { type: "unlockCaptainSlot" }
   | { type: "rareYieldMult"; mult: number }
-  | { type: "recipeBonusOutput"; recipeKey: RecipeKey; bonus: number }
+  // (The `recipeBonusOutput` member was RETIRED in Phase 4, Task F5 with the
+  //  legacy RECIPES/craftRecipe instant-craft it exclusively modified. The two
+  //  industry-branch nodes that granted it now carry the honest `none`
+  //  placeholder, below -- their real mechanic is the Fabricator facility, a
+  //  future re-wire.)
   | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number }
   // Radial Skill Web (Task 3): a genuinely-null gateway effect, added to mirror
   // CaptainTalentEffect's own `none` member (Task 2) exactly. Used by the
@@ -2542,9 +2532,12 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     y: 0,
     isHub: true,
     neighbors: ["industryBonusOutput"],
-    // Modest real starter effect (mirrors the fleetLogistics hub's rationale) --
-    // a small fabrication bonus is thematically apt for an industry category.
-    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
+    // `none` placeholder (Phase 4, Task F5): this hub once granted
+    // recipeBonusOutput on the legacy instant-craft, retired with RECIPES. The
+    // industry branch's real mechanic is now the Fabricator facility; a future
+    // task re-wires this node to a Fabricator bonus. Rendered honestly as "no
+    // bonus yet" -- the same `none` idiom the Homeland Defense/Citizenry hubs use.
+    effect: { type: "none" },
     flavor: "Nationalize the foundries and the whole homeworld starts to hum.",
   },
   industryBonusOutput: {
@@ -2554,7 +2547,10 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     x: -180,
     y: -120,
     neighbors: ["industryHub"],
-    effect: { type: "recipeBonusOutput", recipeKey: "fabricateComponents", bonus: 1 },
+    // `none` placeholder (Phase 4, Task F5) -- see industryHub above: retired with
+    // the legacy recipeBonusOutput/RECIPES instant-craft; a future task re-wires
+    // this to a Fabricator bonus.
+    effect: { type: "none" },
     flavor: "New jigs and fixtures on the fabrication line mean every batch stretches a little further.",
   },
 };

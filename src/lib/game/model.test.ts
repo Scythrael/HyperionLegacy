@@ -5,7 +5,6 @@ import {
   freshCaptainStack,
   requiredTicksForPhase,
   MISSIONS,
-  RECIPES,
   REFINE_RECIPES,
   FACILITIES,
   xpForNextLevel,
@@ -457,18 +456,8 @@ describe("requiredTicksForPhase", () => {
   });
 });
 
-describe("RECIPES — launch set", () => {
-  it("has exactly 2 recipes with well-formed inputs/output", () => {
-    expect(Object.keys(RECIPES)).toHaveLength(2);
-    for (const recipe of Object.values(RECIPES)) {
-      expect(Object.keys(recipe.inputs).length).toBeGreaterThan(0);
-      // recipe.output.amount is now a Decimal -- .toBeGreaterThan() needs a
-      // plain-number operand, so compare via .gt(0) instead (both express the
-      // same "amount is a positive quantity" check).
-      expect(recipe.output.amount.gt(0)).toBe(true);
-    }
-  });
-});
+// (The "RECIPES — launch set" block was REMOVED in Phase 4, Task F5 with the
+//  legacy instant-craft table it covered. Timed-craft coverage: fabricator.test.ts.)
 
 describe("xpForNextLevel", () => {
   // Task 4 (Progression Pacing Rework) steepened the captain curve from
