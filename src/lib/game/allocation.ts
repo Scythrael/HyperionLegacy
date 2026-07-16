@@ -42,17 +42,44 @@ import { REFINE_RECIPES, BLUEPRINTS } from "./model";
 // facility kind slots in as a new literal without touching call sites.
 export type CraftLineKind = "refine" | "fabricate";
 
+// A production line's RUN MODE (Task C2). Structurally identical to model.ts's
+// RefineOrderMode / FabricateOrderMode (the retired single-order shapes it replaces),
+// kept as a discriminated union so a future mode slots in without touching every
+// consumer that switches on `kind`:
+//   - batch: run a FIXED number of iterations, then the line clears itself.
+//   - continuous: run UNBOUNDED until the player cancels the line.
+//
+// ⚠️ RELATIONSHIP TO CraftLine.remaining (the allocation basis) -- READ THIS:
+//   For a BATCH line, `mode.remaining` and the top-level `line.remaining` are the
+//   SAME live count (iterations not yet started) and are ALWAYS updated together in
+//   one object construction by the engine (processRefineLines/processFabricateLines,
+//   tick.ts) -- they cannot drift because they are never written apart. `line.remaining`
+//   is the field the PURE allocation helpers below read (they know nothing about
+//   `mode`); `mode.remaining` is the same value carried on the discriminated union so
+//   the engine/UI can switch on `mode.kind` and read the count in one place. (This
+//   duplication is a deliberate, contained mirror of the retired order shape, not a
+//   stored ledger -- flagged as an Omega-4 consolidation candidate for a later pass.)
+//   For a CONTINUOUS line, `mode` carries no count; the top-level `line.remaining` is
+//   held at 1 (it reserves exactly its ONE queued next iteration, so that iteration's
+//   inputs are guaranteed affordable from `free` when its slot next frees) and is
+//   never decremented.
+export type CraftLineMode =
+  | { kind: "batch"; remaining: number }
+  | { kind: "continuous" };
+
 // One active production line = one configured craft occupying one facility slot.
 // `remaining` is the count of iterations NOT YET STARTED (whose inputs are still
 // reserved in `inventory`); an iteration drops out of `remaining` the moment its
 // timed job starts and its inputs are consumed. This is the ONLY field allocation
 // math reads besides the recipe -- see the module header for why in-flight
-// iterations are deliberately excluded.
+// iterations are deliberately excluded, and see CraftLineMode above for how
+// `remaining` relates to `mode` per run mode.
 export interface CraftLine {
   id: string;
   kind: CraftLineKind;
   recipeKey: string; // REFINE_RECIPES key when kind==="refine"; BLUEPRINTS key when "fabricate"
-  remaining: number; // iterations not yet started (inputs still reserved, not yet consumed)
+  remaining: number; // iterations not yet started (inputs still reserved, not yet consumed) -- allocation basis
+  mode: CraftLineMode; // batch (fixed N) or continuous (unbounded); see CraftLineMode's ⚠️ note
 }
 
 // Inputs consumed by a SINGLE iteration of this line, as a fresh Decimal map keyed

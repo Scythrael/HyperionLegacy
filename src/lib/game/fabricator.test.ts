@@ -26,11 +26,15 @@ import {
   fabricateSlotCount,
   canFabricate,
   startFabricateJob,
+  // startFabricateOrder/stopFabricateOrder are DEAD as of Task C2 (retired in C4) but
+  // still exported as compile-shims; their pure set/clear behavior is still covered
+  // below. The per-tick order engine (processFabricateOrder) + its economyTick
+  // integration/parity tests were REMOVED in C2 -- offline parity is now proven by the
+  // multi-line craft-lines.test.ts. The Fabricator FACILITY / startFabricateJob /
+  // canFabricate tests (F1/F2/F3) below are UNCHANGED (those functions are not retired).
   startFabricateOrder,
   stopFabricateOrder,
-  processFabricateOrder,
   economyTick,
-  tick,
 } from "./tick";
 
 describe("Fabricator F1 — BLUEPRINTS craftDurationTicks", () => {
@@ -154,24 +158,6 @@ function stepTicks(state: GameState, n: number): GameState {
   return s;
 }
 
-// A comparable snapshot of the fabricate-order-relevant state, for the offline==stepped
-// parity assertion. Decimals -> strings; processes -> their scalar fields (order is
-// stable per resolveProcesses' rebuild); fabricateOrder is a plain object (no Decimal).
-// Mirrors refine-order.test.ts's `orderSnapshot`.
-function fabSnapshot(state: GameState) {
-  return {
-    titaniumIngot: (state.inventory.titaniumIngot ?? new Decimal(0)).toString(),
-    frameSegment: (state.inventory.frameSegment ?? new Decimal(0)).toString(),
-    processes: state.activeProcesses.map((p) => ({
-      id: p.id,
-      kind: p.kind,
-      remainingTicks: p.remainingTicks,
-      durationTicks: p.durationTicks,
-    })),
-    fabricateOrder: state.fabricateOrder,
-  };
-}
-
 describe("Fabricator F2 — startFabricateJob (atomic deduct + timed craft push)", () => {
   it("deducts the recipe inputs once and pushes ONE fabricateJob on a valid craft", () => {
     const result = startFabricateJob(fabState({ titaniumIngot: 10 }), "frameSegmentBp");
@@ -280,101 +266,14 @@ describe("Fabricator F2 — startFabricateOrder / stopFabricateOrder (pure set /
   });
 });
 
-describe("Fabricator F2 — count-N order produces exactly N then idles", () => {
-  it("a batch of 3 on a single-slot fabricator crafts 3 components, consumes 3x inputs, then clears", () => {
-    // 1 slot => sequential crafts, 120 ticks each. Batch of 3, titaniumIngot for exactly
-    // 3 crafts (12). Step well past the 3rd craft's completion (~361).
-    const state = fabState({
-      titaniumIngot: 12,
-      order: { blueprintKey: "frameSegmentBp", mode: { kind: "batch", remaining: 3 } },
-    });
-    const done = stepTicks(state, 400);
-
-    expect(done.inventory.frameSegment.toString()).toBe("3"); // exactly N
-    expect(done.inventory.titaniumIngot.toString()).toBe("0"); // 12 - 3*4 consumed
-    expect(done.activeProcesses).toHaveLength(0);
-    expect(done.fabricateOrder).toBeNull(); // batch cleared at remaining 0
-    expect(done.lifetimeStats.itemsCrafted.frameSegment.toString()).toBe("3");
-  });
-
-  it("a batch never over-produces: exactly N even after many extra ticks", () => {
-    const state = fabState({
-      titaniumIngot: 40, // ample -- proves the batch COUNT is the stop, not the material
-      order: { blueprintKey: "frameSegmentBp", mode: { kind: "batch", remaining: 2 } },
-    });
-    const done = stepTicks(state, 600);
-    expect(done.inventory.frameSegment.toString()).toBe("2"); // never a 3rd
-    expect(done.fabricateOrder).toBeNull();
-    expect(done.activeProcesses).toHaveLength(0);
-  });
-});
-
-describe("Fabricator F2 — mid-run material shortfall pauses (noInput) and auto-resumes", () => {
-  it("crafts what it can afford, pauses noInput with the remaining count, then resumes when inputs return", () => {
-    // Batch of 5 but material for only 1 craft (titaniumIngot 4). 1 slot. After the one
-    // affordable craft completes and the slot frees, the next iteration is unaffordable
-    // -> pause noInput with 4 remaining.
-    const state = fabState({
-      titaniumIngot: 4,
-      order: { blueprintKey: "frameSegmentBp", mode: { kind: "batch", remaining: 5 } },
-    });
-    const paused = stepTicks(state, 130); // past the first craft's completion (tick 121)
-    expect(paused.inventory.frameSegment.toString()).toBe("1"); // one craft done
-    expect(paused.inventory.titaniumIngot.toString()).toBe("0"); // consumed
-    expect(paused.activeProcesses).toHaveLength(0); // job finished, none started (unaffordable)
-    expect(paused.fabricateOrder).toEqual({
-      blueprintKey: "frameSegmentBp",
-      mode: { kind: "batch", remaining: 4 }, // 5 - 1 started
-      pausedReason: "noInput",
-    });
-
-    // Materials land (a refinery run delivers titanium ingots) -> next tick resumes: one
-    // craft starts (1 slot), 4 deducted, remaining 4 -> 3, pause clears.
-    const refuelled: GameState = {
-      ...paused,
-      inventory: { ...paused.inventory, titaniumIngot: new Decimal(8) },
-    };
-    const resumed = economyTick(refuelled, 1);
-    expect(resumed.activeProcesses.filter((p) => p.kind === "fabricateJob")).toHaveLength(1);
-    expect(resumed.inventory.titaniumIngot.toString()).toBe("4"); // 8 - 4
-    expect(resumed.fabricateOrder).toEqual({
-      blueprintKey: "frameSegmentBp",
-      mode: { kind: "batch", remaining: 3 }, // 4 - 1 started
-    });
-    expect(resumed.fabricateOrder?.pausedReason).toBeUndefined(); // auto-resumed
-  });
-});
-
-describe("Fabricator F2 — offline == live parity (the high-risk seam)", () => {
-  it("tick(bigSpan) equals looping economyTick(_,1) for inventory, processes, and fabricateOrder — NON-VACUOUS", () => {
-    // A continuous order with titaniumIngot for exactly 3 crafts (12) on a 1-slot
-    // fabricator, captain idle (no mission rng), tickDurationSeconds 1 so seconds ==
-    // ticks. Over SPAN=250 ticks: craft1 done@121, craft2 done@241 (starts craft3,
-    // draining the last 4 ingots), craft3 still in flight at 250 -> a craft completes
-    // MID-SPAN and one is in flight, exercising both the resolve seam and the order refill.
-    const base = fabState({
-      titaniumIngot: 12,
-      order: { blueprintKey: "frameSegmentBp", mode: { kind: "continuous" } },
-    });
-    const SPAN = 250;
-
-    // Path A: one offline catch-up call (tick() internally steps economyTick(_,1) per
-    // whole tick). Path B: hand-stepped economyTick, one tick at a time.
-    const jumped = tick(SPAN, base);
-    const stepped = stepTicks(base, SPAN);
-
-    expect(fabSnapshot(jumped)).toEqual(fabSnapshot(stepped));
-
-    // NON-VACUITY (the parity would pass trivially if nothing happened): assert real work
-    // occurred across the span -- components PRODUCED, inputs CONSUMED, processes RESOLVED,
-    // and one still in flight.
-    expect(jumped.inventory.frameSegment.toString()).toBe("2"); // 2 crafts completed (produced)
-    expect(jumped.lifetimeStats.itemsCrafted.frameSegment.toString()).toBe("2"); // 2 processes resolved
-    expect(jumped.inventory.titaniumIngot.toString()).toBe("0"); // 12 consumed (3 crafts' inputs)
-    expect(jumped.activeProcesses.filter((p) => p.kind === "fabricateJob")).toHaveLength(1); // craft3 in flight
-    expect(jumped.fabricateOrder).toEqual({ blueprintKey: "frameSegmentBp", mode: { kind: "continuous" } }); // still running
-  });
-});
+// NOTE (Task C2): the "count-N order produces exactly N", "mid-run shortfall pauses",
+// and "offline == live parity" describe blocks that lived here tested the RETIRED
+// processFabricateOrder engine (driven through economyTick). That engine is gone --
+// replaced by the per-slot line engine (processFabricateLines) -- so those blocks were
+// removed. The equivalent behavior (batch produces exactly N then the line clears;
+// concurrent lines; the ⚠️ multi-line offline==live parity, NON-VACUOUS) is now covered
+// in craft-lines.test.ts. The startFabricateJob completion + F3 canFabricate tests below
+// are UNCHANGED (those functions are not retired).
 
 // ============================================================================
 // Task F3 (AVAILABILITY GATE): canFabricate is the single consolidated fabricate

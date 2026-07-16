@@ -39,14 +39,16 @@ const REFINE_PER_ITER = 100; // REFINE_RECIPES.refineCommonOre.input.commonOre
 
 const FAB_KEY = "structuralAssemblyBp";
 
-// Small helper to build a refine line for the one real refine recipe.
+// Small helper to build a refine line for the one real refine recipe. `mode` is
+// batch-N synced with `remaining` (Task C2 added the required field); the pure
+// allocation helpers under test read only `remaining`, so mode is inert here.
 function refineLine(id: string, remaining: number): CraftLine {
-  return { id, kind: "refine", recipeKey: REFINE_KEY, remaining };
+  return { id, kind: "refine", recipeKey: REFINE_KEY, remaining, mode: { kind: "batch", remaining } };
 }
 
 // Small helper to build a fabricate line for a real blueprint.
 function fabricateLine(id: string, recipeKey: string, remaining: number): CraftLine {
-  return { id, kind: "fabricate", recipeKey, remaining };
+  return { id, kind: "fabricate", recipeKey, remaining, mode: { kind: "batch", remaining } };
 }
 
 describe("lineInputsPerIteration", () => {
@@ -75,12 +77,14 @@ describe("lineInputsPerIteration", () => {
       kind: "refine",
       recipeKey: "doesNotExist",
       remaining: 5,
+      mode: { kind: "continuous" },
     });
     const fabUnknown = lineInputsPerIteration({
       id: "y",
       kind: "fabricate",
       recipeKey: "doesNotExist",
       remaining: 5,
+      mode: { kind: "continuous" },
     });
     expect(refineUnknown).toEqual({});
     expect(fabUnknown).toEqual({});
@@ -125,7 +129,7 @@ describe("allocatedItem", () => {
 
   it("unknown recipeKey line contributes 0", () => {
     const lines: CraftLine[] = [
-      { id: "x", kind: "refine", recipeKey: "doesNotExist", remaining: 999 },
+      { id: "x", kind: "refine", recipeKey: "doesNotExist", remaining: 999, mode: { kind: "continuous" } },
     ];
     expect(allocatedItem(lines, "commonOre").toNumber()).toBe(0);
   });

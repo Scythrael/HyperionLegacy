@@ -1,4 +1,11 @@
 import Decimal from "break_infinity.js";
+// Crafting Allocation Redesign (Task C2): the production-LINE shape lives in
+// allocation.ts (C1's pure derived-allocation core). Imported here TYPE-ONLY so
+// GameState.refineLines/fabricateLines can be typed as CraftLine[] with NO runtime
+// dependency -- allocation.ts imports the recipe registries FROM this file at
+// runtime, and a value import back would create a cycle; `import type` is erased at
+// compile time, so there is no runtime import cycle.
+import type { CraftLine } from "./allocation";
 
 // Data model — tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -742,6 +749,17 @@ export interface TimedProcess {
   remainingTicks: number; // ticks left until completion; decremented by resolveProcesses -- closed-form countdown
   durationTicks: number;  // FIXED at creation -- initial remainingTicks AND the lump FA XP awarded on completion
   effect: ProcessEffect;  // what completion does (add item / level up a facility)
+  // Crafting Allocation Redesign (Task C2): the production LINE that owns this job,
+  // when it was started by the per-slot line engine (processRefineLines /
+  // processFabricateLines, tick.ts) -- the CraftLine.id ("craft-N"). It ties an
+  // in-flight job back to its line so the engine can enforce "at most ONE in-flight
+  // job per line" (a line with a matching `lineId` in activeProcesses is busy) and
+  // know when a finished batch line may be removed. ABSENT (undefined) on every OTHER
+  // process kind -- manual refine/fabricate jobs (startRefineJob/startFabricateJob),
+  // facility upgrades, fuel batches, research projects -- so those ride through
+  // untouched. A plain string (no Decimal), so save hydration needs no change: it
+  // rides the activeProcesses `...state` spread verbatim.
+  lineId?: string;
 }
 
 // A built facility's live state. `level` 0 = not built; unlock is the level 0->1
@@ -1493,6 +1511,28 @@ export interface GameState {
   // offline per-tick step loop. freshState seeds null; the v22->v23 migration (save.ts, F6)
   // backfills null onto existing saves.
   fabricateOrder: FabricateOrder | null;
+  // --- Crafting Allocation Redesign (Task C2 -- docs/plans/2026-07-16-crafting-
+  // allocation-redesign-design.md §2) --------------------------------------------
+  // The per-slot production LINES that REPLACE the single refineOrder/fabricateOrder
+  // above (which are now DEAD, kept only until Task C4 retires them + their UI). Each
+  // facility owns an array of independent lines -- one per occupied slot -- so a
+  // 3-slot Refinery can refine 3 DIFFERENT recipes at once (the single-order model
+  // could only run one recipe across all slots). The array LENGTH is capped at the
+  // facility's derived slot count (refineSlotCount/fabricateSlotCount) by startLine
+  // (tick.ts). Material ALLOCATION is DERIVED from these arrays, never stored
+  // (allocation.ts, C1): allocated(item) = Σ line.remaining × inputsPerIteration.
+  // freshState seeds both `[]`; the v23->v24 migration (save.ts, Task C6) backfills
+  // the same empty seed onto existing saves + drops any legacy order. NO Decimal on
+  // CraftLine (id/recipeKey strings, remaining a plain number, mode a string-literal
+  // union), so hydrateDecimals needs no change -- the arrays ride the `...state`
+  // spread verbatim.
+  refineLines: CraftLine[];
+  fabricateLines: CraftLine[];
+  // Monotonic id source for new CraftLine.id ("craft-N"); never reused -- mirrors
+  // nextShipId ("ship-N") / nextProcessId ("proc-N"). A started line's timed job
+  // stamps this id on TimedProcess.lineId so the engine can match a job back to its
+  // line (one in-flight job per line). freshState seeds 1; the C6 migration backfills 1.
+  nextCraftLineId: number;
   // --- Research (Phase 3, Task R1 -- docs/plans/2026-07-15-research-*.md §2) ---
   // The set of UNLOCKED blueprint keys (BLUEPRINTS ids the player has researched).
   // Modeled as a string[] rather than a Set so it serializes cleanly through the JSON
@@ -2848,6 +2888,13 @@ export function freshState(): GameState {
     // refineOrder: null seed above). Existing saves get this same null seed via the
     // v22->v23 migration (save.ts, F6) -- NOT this function's job.
     fabricateOrder: null,
+    // Crafting Allocation Redesign Task C2: no production lines on a fresh save; the
+    // first line is added by startLine when the player configures a slot. nextCraftLineId
+    // starts at 1 so the first minted id is "craft-1" (mirrors nextShipId/nextProcessId).
+    // Existing saves get this same empty seed via the v23->v24 migration (save.ts, C6).
+    refineLines: [],
+    fabricateLines: [],
+    nextCraftLineId: 1,
     // Research Task R1: nothing researched on a brand-new save. Existing saves get this
     // same [] seed via the v21->v22 migration (Task R6, save.ts) -- NOT this function's
     // job. A string[] (no Decimal), so hydrateDecimals needs no change (see the field's
