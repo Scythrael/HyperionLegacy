@@ -35,10 +35,12 @@ import {
   canBuildFacilityUpgrade,
   startFacilityUpgrade,
   startResearch,
+  canResearch,
   resolveProcesses,
   economyTick,
   tick,
 } from "./tick";
+import type { ResearchBlockReason } from "./tick";
 
 describe("Research R1 — BLUEPRINTS registry is well-formed", () => {
   it("is non-empty", () => {
@@ -456,5 +458,176 @@ describe("⚠️ Research R3 REQUIRED offline==live PARITY — a research projec
     expect(offline.activeProcesses.filter((p) => p.kind === "researchProject").length).toBe(0); // process consumed
     // Credits were deducted EXACTLY once (at start), never per-tick.
     expect(offline.credits.equals(250)).toBe(true);
+  });
+});
+
+// ============================================================================
+// Task R4 -- the availability GATE + typed reasons (docs/plans/2026-07-15-research-
+// {design,plan}.md R4 + design §3). canResearch consolidates startResearch's three
+// inline R3 gates (researchable / free slot / affordable) into ONE pure predicate
+// that returns { ok: true } or { ok: false; reason } -- MIRRORING canDispatch, the
+// mission-rework gate. The reason union lets the R5 UI switch on each block to render
+// a disabled Research button with its cause. startResearch is refactored to a THIN
+// WRAPPER: it consults canResearch, and on a block returns the SAME state ref +
+// started:false + the reason (additive `reason?`, mirroring dispatchCaptainOnMission).
+//
+// GATE ORDER (cheapest/most-fundamental first -- determines WHICH reason surfaces when
+// several fail at once; ok itself is order-independent, all must pass):
+//   notFound -> alreadyResearched -> inProgress -> tierLocked -> noSlot -> credits
+// ============================================================================
+describe("Research R4 — canResearch (typed-reason availability gate)", () => {
+  // A fresh, funded state: research level 1 (tier-1 researchable), one free slot, and
+  // plenty of credits -- so tier-1 blueprints pass EVERY gate unless a test unmeets one.
+  const funded = (): GameState => ({ ...freshState(), credits: new Decimal(1_000_000) });
+
+  it("returns { ok: true } when researchable + a free slot + affordable", () => {
+    const result = canResearch(funded(), "frameSegmentBp");
+    expect(result.ok).toBe(true);
+  });
+
+  it("reason 'notFound' for an unknown blueprint key", () => {
+    const result = canResearch(funded(), "notABlueprint");
+    expect(result).toEqual({ ok: false, reason: "notFound" });
+  });
+
+  it("reason 'alreadyResearched' for a blueprint already in researchedBlueprints", () => {
+    const state: GameState = { ...funded(), researchedBlueprints: ["frameSegmentBp"] };
+    const result = canResearch(state, "frameSegmentBp");
+    expect(result).toEqual({ ok: false, reason: "alreadyResearched" });
+  });
+
+  it("reason 'inProgress' when a project for this key is already in flight", () => {
+    const { next, started } = startResearch(funded(), "frameSegmentBp");
+    expect(started).toBe(true);
+    const result = canResearch(next, "frameSegmentBp");
+    expect(result).toEqual({ ok: false, reason: "inProgress" });
+  });
+
+  it("reason 'tierLocked' when the blueprint's tier exceeds the research-facility level", () => {
+    // freshState research level 1 -> the tier-2 structuralAssemblyBp is above the lab tier.
+    const result = canResearch(funded(), "structuralAssemblyBp");
+    expect(result).toEqual({ ok: false, reason: "tierLocked" });
+  });
+
+  it("reason 'noSlot' when every research slot is busy", () => {
+    // Level 1 -> 1 slot. Fill it with a DIFFERENT researchable tier-1 project, then ask
+    // about a second tier-1 blueprint: researchable + affordable, but no free slot.
+    const { next, started } = startResearch(funded(), "frameSegmentBp");
+    expect(started).toBe(true);
+    expect(researchSlotCount(next)).toBe(1);
+    const result = canResearch(next, "powerCouplingBp");
+    expect(result).toEqual({ ok: false, reason: "noSlot" });
+  });
+
+  it("reason 'credits' when the blueprint is unaffordable", () => {
+    const cost = BLUEPRINTS.frameSegmentBp.researchCreditCost; // 500
+    const state: GameState = { ...freshState(), credits: new Decimal(cost - 1) };
+    const result = canResearch(state, "frameSegmentBp");
+    expect(result).toEqual({ ok: false, reason: "credits" });
+  });
+
+  // --- Gate-ORDER precedence: when several conditions fail at once, the EARLIER gate
+  // wins. These pin the documented order so a future reshuffle is caught.
+  it("alreadyResearched OUTRANKS credits (earlier gate wins when both fail)", () => {
+    // Already researched AND broke -> the earlier alreadyResearched gate surfaces.
+    const state: GameState = {
+      ...freshState(),
+      credits: new Decimal(0),
+      researchedBlueprints: ["frameSegmentBp"],
+    };
+    const result = canResearch(state, "frameSegmentBp");
+    expect(result).toEqual({ ok: false, reason: "alreadyResearched" });
+  });
+
+  it("tierLocked OUTRANKS credits (a broke, tier-locked blueprint reports tierLocked)", () => {
+    // Tier-2 blueprint at lab level 1 AND zero credits -> tierLocked precedes credits.
+    const state: GameState = { ...freshState(), credits: new Decimal(0) };
+    const result = canResearch(state, "structuralAssemblyBp");
+    expect(result).toEqual({ ok: false, reason: "tierLocked" });
+  });
+
+  it("a ResearchBlockReason value narrows on ok:false (type-level sanity)", () => {
+    const result = canResearch(funded(), "notABlueprint");
+    if (!result.ok) {
+      const reason: ResearchBlockReason = result.reason;
+      expect(reason).toBe("notFound");
+    }
+  });
+});
+
+// ============================================================================
+// Task R4 -- startResearch is refactored to CONSUME canResearch. Behavior-preserving:
+// the success + credit-deduct + process-start path is UNCHANGED (still covered by the
+// R3 startResearch block above); this block pins the NEW additive `reason?` field --
+// undefined on success, the canResearch reason on each block -- and re-confirms the
+// same-REFERENCE no-op convention on every blocked path.
+// ============================================================================
+describe("Research R4 — startResearch exposes canResearch's reason", () => {
+  it("on success: started true, reason undefined, credits deducted, process pushed", () => {
+    const cost = BLUEPRINTS.frameSegmentBp.researchCreditCost; // 500
+    const state: GameState = { ...freshState(), credits: new Decimal(cost + 250) };
+    const result = startResearch(state, "frameSegmentBp");
+    expect(result.started).toBe(true);
+    expect(result.reason).toBeUndefined(); // no reason on a successful start
+    // The R3 success path is intact: credits deducted once, one researchProject queued.
+    expect(result.next.credits.equals(250)).toBe(true);
+    expect(result.next.activeProcesses.filter((p) => p.kind === "researchProject").length).toBe(1);
+  });
+
+  it("on unaffordable: same-ref no-op + reason 'credits'", () => {
+    const cost = BLUEPRINTS.frameSegmentBp.researchCreditCost;
+    const state: GameState = { ...freshState(), credits: new Decimal(cost - 1) };
+    const result = startResearch(state, "frameSegmentBp");
+    expect(result.started).toBe(false);
+    expect(result.next).toBe(state);
+    expect(result.reason).toBe("credits");
+  });
+
+  it("on unknown key: same-ref no-op + reason 'notFound'", () => {
+    const state: GameState = { ...freshState(), credits: new Decimal(1_000_000) };
+    const result = startResearch(state, "notABlueprint");
+    expect(result.started).toBe(false);
+    expect(result.next).toBe(state);
+    expect(result.reason).toBe("notFound");
+  });
+
+  it("on tier-locked: same-ref no-op + reason 'tierLocked'", () => {
+    const state: GameState = { ...freshState(), credits: new Decimal(1_000_000) };
+    const result = startResearch(state, "structuralAssemblyBp");
+    expect(result.started).toBe(false);
+    expect(result.next).toBe(state);
+    expect(result.reason).toBe("tierLocked");
+  });
+
+  it("on already-researched: same-ref no-op + reason 'alreadyResearched'", () => {
+    const state: GameState = {
+      ...freshState(),
+      credits: new Decimal(1_000_000),
+      researchedBlueprints: ["frameSegmentBp"],
+    };
+    const result = startResearch(state, "frameSegmentBp");
+    expect(result.started).toBe(false);
+    expect(result.next).toBe(state);
+    expect(result.reason).toBe("alreadyResearched");
+  });
+
+  it("on in-progress: same-ref no-op + reason 'inProgress'", () => {
+    const state: GameState = { ...freshState(), credits: new Decimal(1_000_000) };
+    const once = startResearch(state, "frameSegmentBp");
+    expect(once.started).toBe(true);
+    const twice = startResearch(once.next, "frameSegmentBp");
+    expect(twice.started).toBe(false);
+    expect(twice.next).toBe(once.next);
+    expect(twice.reason).toBe("inProgress");
+  });
+
+  it("on no free slot: same-ref no-op + reason 'noSlot'", () => {
+    const state: GameState = { ...freshState(), credits: new Decimal(1_000_000) };
+    const first = startResearch(state, "frameSegmentBp");
+    expect(first.started).toBe(true);
+    const second = startResearch(first.next, "powerCouplingBp");
+    expect(second.started).toBe(false);
+    expect(second.next).toBe(first.next);
+    expect(second.reason).toBe("noSlot");
   });
 });

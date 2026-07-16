@@ -60,7 +60,7 @@ import {
   FUEL_DEPOT_BASE_PIPELINES,
   RESEARCH_FACILITY_KEY,
   BLUEPRINTS,
-  blueprintResearchable,
+  blueprintUnlocked,
 } from "./model";
 import { fuelNeeded } from "./fuel";
 
@@ -2368,26 +2368,99 @@ export function researchSlotCount(state: GameState): number {
   return slots;
 }
 
-// Research PROJECT start (Research Task R3, design §3). Starts a timed research project
-// on `blueprintKey` IF all three gates pass, else a same-REFERENCE no-op. Returns
-// { next, started } -- the SAME shape/naming the START family (startProcess /
-// startRefineJob / startFacilityUpgrade) uses, so a caller reads the outcome exactly
-// as it reads a refine-job/upgrade start. On success it deducts the blueprint's credit
-// cost ATOMICALLY at start (mirroring startFacilityUpgrade's credit deduct) and pushes a
+// Research Task R4 (design §3): the typed reason canResearch returns when a research
+// project is BLOCKED. A string union (not a numeric enum) so it serializes/logs as a
+// readable token and the R5 Research Lab UI can switch on it exhaustively to render each
+// blueprint's disabled Research button with its cause. This DELIBERATELY mirrors the
+// mission-rework DispatchBlockReason idiom (above). The order of the members mirrors
+// canResearch's gate order (see below):
+//   notFound          -- no blueprint has that key (bad caller / stale UI reference)
+//   alreadyResearched -- the blueprint is already in researchedBlueprints (blueprintUnlocked)
+//   inProgress        -- a researchProject for this key is already in activeProcesses
+//   tierLocked        -- BLUEPRINTS[key].tier > the research facility level (upgrade to unlock)
+//   noSlot            -- every research slot is busy (active projects >= researchSlotCount)
+//   credits           -- state.credits < BLUEPRINTS[key].researchCreditCost (can't afford)
+export type ResearchBlockReason =
+  | "notFound"
+  | "alreadyResearched"
+  | "inProgress"
+  | "tierLocked"
+  | "noSlot"
+  | "credits";
+
+// Research Task R4: THE single consolidated research gate. Pure predicate -- reads state +
+// the static BLUEPRINTS table + the derived researchSlotCount, mutates nothing, spends
+// nothing. This is the ONE source of truth for "can this blueprint be researched right
+// now?": it folds the three inline gates R3's startResearch used to check (researchable /
+// free slot / affordable) into one typed-reason result, MIRRORING canDispatch. startResearch
+// (below) calls this first and does nothing else gate-wise; the R5 UI calls it directly to
+// render each blueprint's Research button (enabled, or disabled with the reason shown).
+//
+// GATE ORDER is deliberate, cheapest/most-fundamental first, and determines WHICH reason
+// surfaces when several fail at once (ok itself is order-independent -- all must pass):
+// identity (notFound) -> ownership (alreadyResearched) -> in-flight (inProgress) -> tier
+// unlock (tierLocked) -> concurrency (noSlot) -> resource (credits). NOTE: this decomposes
+// blueprintResearchable's folded predicate (which returns a single bool over notFound +
+// alreadyResearched + inProgress + tierLocked) back into its four distinct reasons, so the
+// UI can tell the player exactly WHICH condition is unmet -- the reason blueprintResearchable
+// itself is NOT reused here (it can't name which of its four terms failed).
+export function canResearch(
+  state: GameState,
+  blueprintKey: string
+): { ok: true } | { ok: false; reason: ResearchBlockReason } {
+  // --- Identity: the key must name a real blueprint. An absent def means "not a real
+  // blueprint" (bad caller / stale UI reference) -- checked first so every later gate can
+  // safely read `bp`.
+  const bp = BLUEPRINTS[blueprintKey];
+  if (!bp) return { ok: false, reason: "notFound" };
+
+  // --- Ownership: already researched -> nothing to do. Pure membership test (the same one
+  // blueprintResearchable folds in), surfaced here as its own reason.
+  if (blueprintUnlocked(state, blueprintKey)) return { ok: false, reason: "alreadyResearched" };
+
+  // --- In-flight: a researchProject for THIS key is already unlocking it. Scanned the SAME
+  // way model.ts's researchInProgress + startProcess read the effect discriminant (fixed by
+  // design §3: { type: "unlockBlueprint"; key }).
+  const inProgress = state.activeProcesses.some(
+    (p) =>
+      p.kind === "researchProject" &&
+      p.effect.type === "unlockBlueprint" &&
+      p.effect.key === blueprintKey
+  );
+  if (inProgress) return { ok: false, reason: "inProgress" };
+
+  // --- Tier unlock: the research facility's level must have reached the blueprint's tier
+  // (blueprintResearchable reads the SAME level >= tier relation; here it's its own reason so
+  // the UI can show the required lab level).
+  if (bp.tier > facilityLevel(state, RESEARCH_FACILITY_KEY)) {
+    return { ok: false, reason: "tierLocked" };
+  }
+
+  // --- Concurrency: a free research slot -- count in-flight research projects against the
+  // cap (the Research Lab's analog of the Refinery's refine-slot cap).
+  const activeResearch = state.activeProcesses.filter((p) => p.kind === "researchProject").length;
+  if (activeResearch >= researchSlotCount(state)) return { ok: false, reason: "noSlot" };
+
+  // --- Resource: affordable. researchCreditCost is a plain number (recipe-scale, not idle-
+  // scale); wrap it in a Decimal to compare against state.credits (Decimal, so .lt is exact).
+  if (state.credits.lt(new Decimal(bp.researchCreditCost))) return { ok: false, reason: "credits" };
+
+  return { ok: true };
+}
+
+// Research PROJECT start (Research Task R3, design §3). As of Task R4 this is a THIN WRAPPER
+// over canResearch (above) -- canResearch is the single source of truth for every gate
+// (notFound, alreadyResearched, inProgress, tierLocked, noSlot, credits), so this function
+// only (a) consults it, (b) on a block returns the SAME state ref + started:false + the block
+// reason (so callers/UI can show it), and (c) on ok deducts the blueprint's credit cost
+// ATOMICALLY at start (mirroring startFacilityUpgrade's credit deduct) and pushes a
 // "researchProject" TimedProcess whose completion effect { type: "unlockBlueprint", key }
 // adds the key to researchedBlueprints (resolveProcesses).
 //
-// THREE GATES (this is the BASIC gate R3 ships; R4 replaces it with the full typed-reason
-// canResearch and refactors this to call it):
-//   1. RESEARCHABLE -- blueprintResearchable(state, key) folds: real key, not already
-//      unlocked, no project for it already in flight, AND tier <= research-facility level.
-//   2. FREE SLOT -- active researchProject processes < researchSlotCount(state). This is
-//      the Research Lab's analog of the Refinery's refine-slot cap (startRefineJob's gate).
-//   3. AFFORDABLE -- state.credits >= the blueprint's researchCreditCost.
-// Gate order is cheap-structural (researchable) -> slot -> credits; `started` itself is
-// order-independent (all three must pass). Any failed gate returns the SAME state
-// reference (the reject convention every other start/action in this file shares), so a
-// blocked start can never be mistaken for a no-op change.
+// The return keeps the START family's { next, started } shape (startProcess / startRefineJob
+// / startFacilityUpgrade), so pre-R4 callers reading only { next, started } are unaffected;
+// R4 ADDS an OPTIONAL `reason` (undefined on success) EXACTLY the way dispatchCaptainOnMission
+// exposes canDispatch's reason -- purely additive.
 //
 // CREDITS DEDUCT ONCE AT START (a discrete event, never per-tick) -> the research project
 // then runs as an ORDINARY timed process stepped inside economyTick, so it is offline==live
@@ -2397,28 +2470,23 @@ export function researchSlotCount(state: GameState): number {
 export function startResearch(
   state: GameState,
   blueprintKey: string
-): { next: GameState; started: boolean } {
+): { next: GameState; started: boolean; reason?: ResearchBlockReason } {
+  // The single consolidated gate. On a block: same-ref no-op (the reject convention every
+  // other start/action in this file shares) + the reason, so a blocked start can never be
+  // mistaken for a no-op change.
+  const gate = canResearch(state, blueprintKey);
+  if (!gate.ok) return { next: state, started: false, reason: gate.reason };
+
+  // gate.ok GUARANTEES a real, researchable, affordable blueprint with a free slot, so the
+  // def lookup below cannot fail -- recomputed here (rather than threaded out of canResearch)
+  // to keep canResearch a clean predicate.
   const bp = BLUEPRINTS[blueprintKey];
-  // Unknown key -> blueprintResearchable would also reject it, but read the def first so
-  // we can price it; an absent def means "not a real blueprint" -> same-ref no-op.
-  if (!bp) return { next: state, started: false };
-
-  // Gate 1: researchable (real + not unlocked + not in-progress + tier <= lab level).
-  if (!blueprintResearchable(state, blueprintKey)) return { next: state, started: false };
-
-  // Gate 2: a free research slot -- count in-flight research projects against the cap.
-  const activeResearch = state.activeProcesses.filter((p) => p.kind === "researchProject").length;
-  if (activeResearch >= researchSlotCount(state)) return { next: state, started: false };
-
-  // Gate 3: affordable. researchCreditCost is a plain number (recipe-scale, not idle-scale);
-  // wrap it in a Decimal to compare/deduct against state.credits (Decimal), the SAME wrap-at-
-  // -use posture the fuel constants use. `credits` is Decimal, so .lt / .minus are exact.
   const cost = new Decimal(bp.researchCreditCost);
-  if (state.credits.lt(cost)) return { next: state, started: false };
 
   // Deduct credits from a FRESH state clone BEFORE handing off to startProcess, so the
   // credit spend + the process push land in the SAME transition (atomic start, the design
-  // §4 posture materials/upgrade-credits already use). >= 0 guaranteed by Gate 3.
+  // §4 posture materials/upgrade-credits already use). >= 0 guaranteed by canResearch's
+  // credits gate (gate.ok above).
   const afterCredits = { ...state, credits: state.credits.minus(cost) };
   // No MATERIAL inputs (locked design #3: research costs TIME + CREDITS, not materials), so
   // the inputs map is empty -- startProcess's gate/deduct loops no-op over it. It pushes the
