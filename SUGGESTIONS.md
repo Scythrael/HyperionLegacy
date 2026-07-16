@@ -736,3 +736,16 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   rather than a single recipe), and a different UX from the Refinery — so it's a follow-up, not the first
   Fabricator pass. Build the flat order system first; layer auto-chain on top once components have a real
   sink (Shipyard) and the BOM shapes are known.
+
+- **Re-wire the industry Homeworld-talent branch to buff the new Fabricator (2026-07-16, from Fabricator
+  Task F5).** Retiring the legacy `RECIPES` instant-craft (F5) orphaned the `recipeBonusOutput` talent
+  effect, which only ever buffed the legacy `fabricateComponents` craft. Its two industry-branch nodes
+  (`industryHub`, `industryBonusOutput`) were retargeted to the existing `{ type: "none" }` "No bonus yet"
+  placeholder (nodes/graph/spent points preserved — talents store by key, no migration) rather than
+  deleted. So today those two nodes are honestly inert. The natural re-wire: a NEW talent effect giving a
+  bonus-output CHANCE on Fabricator crafts (thematically perfect for an "industry" branch). ⚠️ NOT a
+  trivial add — a bonus-output RNG hook on the craft engine MUST resolve in BULK for offline batches (the
+  exact closed-form concern the resourcefulness bonus-roll had incidents over, and the same
+  Completions "free-output-chance" seam already reserved elsewhere in this file). Do it as its own careful
+  task with an offline-parity test. Until then the industry branch reads "No bonus yet" (consistent with
+  the Homeland Defense / Citizenry placeholder hubs).
