@@ -68,7 +68,10 @@ import { fuelNeeded } from "./fuel";
 // pure allocation core -- `lineInputsPerIteration` builds a line's per-iteration input
 // map from the recipe registries (the SAME map startRefineJob/startFabricateJob build
 // inline), and `CraftLine`/`CraftLineMode` are the line + run-mode shapes.
-import { lineInputsPerIteration, type CraftLine, type CraftLineKind, type CraftLineMode } from "./allocation";
+// Crafting Allocation Redesign (Task C3): canStartLine's `materials` gate + the
+// maxAffordableIterations cap both read `freeItem` (inventory MINUS what active lines
+// already reserved) so a new line can only reserve from the currently-free pool.
+import { lineInputsPerIteration, freeItem, type CraftLine, type CraftLineKind, type CraftLineMode } from "./allocation";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
 // there's no compiler link between this array and the union type, so a 6th
@@ -3093,36 +3096,207 @@ export function processFabricateLines(state: GameState): GameState {
   return { ...next, fabricateLines: nextLines };
 }
 
-// Adds a new production line to a facility (the C4 configurator's Start action; tests
-// call it directly). PURE: returns a NEW state with the line appended + nextCraftLineId
-// bumped, or the SAME reference (no-op) if a guard fails. The guards here are the
-// MINIMAL safety for C2 -- Task C3 adds the full canStartLine typed-reason gate + the
-// affordable-now quantity cap and wires startLine to delegate to it.
-//   - unknown recipe for this kind -> no-op (never install an unrunnable line).
-//   - batch with count <= 0 -> no-op (nothing to run).
-//   - no free slot (array length >= the facility's derived slot count) -> no-op.
-// The new line's `remaining` (allocation basis) is the batch count, or 1 for a
-// continuous line (it reserves exactly its one queued next iteration -- see CraftLineMode).
+// ============================================================================
+// Line-start gate + affordable-now cap (Crafting Allocation Redesign, Task C3,
+// plan §C3). Two PURE readers the C4 configurator UI leans on:
+//   - maxAffordableIterations : the quantity cap the UI clamps its amount field to.
+//   - canStartLine            : the typed-reason gate the UI shows on a disabled Start.
+// Both mirror the Fabricator's canFabricate idiom (typed reason, gate-order-defined
+// precedence, pure predicate). startLine (below) delegates ALL its guards here, so the
+// line engine and the UI share ONE definition of "can this line start right now?".
+// ============================================================================
+
+// maxAffordableIterations(state, kind, recipeKey): the largest WHOLE iteration count
+// that can be reserved from FREE stock RIGHT NOW =
+//   min over each recipe input of  floor( free[item] / perIteration[item] ).
+//
+// The crucial word is FREE, not raw inventory: `freeItem` subtracts what the ACTIVE
+// lines already reserved, so a second line can never double-book units an existing line
+// is holding. This is the affordable-now quantity cap the C4 amount field clamps to, and
+// the number canStartLine's `materials` gate compares the requested count against.
+//
+// Returns 0 when any input's free is below one iteration (the floor is 0, so the min is
+// 0), or when the recipe is unknown / has no inputs (nothing to reserve against -> 0,
+// NOT an unbounded cap). PURE: reads state.inventory + both line arrays + the static
+// registries via lineInputsPerIteration; mutates nothing.
+export function maxAffordableIterations(
+  state: GameState,
+  kind: CraftLineKind,
+  recipeKey: string
+): number {
+  // Inputs consumed by ONE iteration of this recipe. Reuse the SAME per-iteration map the
+  // allocation core builds, fed a PROBE line carrying only the two fields it reads
+  // (kind + recipeKey); the other CraftLine fields are inert for this lookup. An unknown
+  // recipe yields {} (lineInputsPerIteration's defensive empty map).
+  const probe: CraftLine = { id: "", kind, recipeKey, remaining: 0, mode: { kind: "continuous" } };
+  const perIteration = lineInputsPerIteration(probe);
+  const inputItems = Object.keys(perIteration);
+
+  // No inputs (unknown recipe, or a genuinely input-less recipe): there is nothing to
+  // reserve against, so there is no affordable-now quantity -> 0 (the gate reads 0 as
+  // "cannot start any"), deliberately NOT an unbounded cap.
+  if (inputItems.length === 0) return 0;
+
+  // FREE (inventory - already-reserved), across BOTH facilities' lines: the reservable
+  // pool a NEW line draws from. `?? []` guards a pre-C2 state shape defensively.
+  const allLines = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
+
+  // min over inputs of floor(free / perUnit). Accumulate as a Decimal (break_infinity)
+  // because free stock can exceed Number range; convert once at the end.
+  let cap: Decimal | null = null;
+  for (const itemId of inputItems) {
+    const perUnit = perIteration[itemId];
+    // A non-positive per-unit amount would divide-by-zero / be meaningless; skip it so it
+    // contributes no bound (defensive -- real recipes carry positive input amounts).
+    if (perUnit.lte(0)) continue;
+    const free = freeItem(state.inventory, allLines, itemId);
+    const iterations = free.div(perUnit).floor(); // whole iterations THIS input can fund
+    cap = cap === null ? iterations : Decimal.min(cap, iterations);
+  }
+
+  // Every input had a non-positive per-unit amount (degenerate recipe) -> no real bound -> 0.
+  if (cap === null) return 0;
+  if (cap.lte(0)) return 0;
+
+  // Convert the Decimal bound to a plain integer count. break_infinity can hold values far
+  // beyond Number range, so guard: a non-finite / oversized cap clamps to MAX_SAFE_INTEGER
+  // (still a finite, usable integer for the UI's amount field). floor is belt-and-suspenders
+  // on top of the Decimal .floor() above.
+  const n = cap.toNumber();
+  if (!isFinite(n) || n > Number.MAX_SAFE_INTEGER) return Number.MAX_SAFE_INTEGER;
+  return Math.floor(n);
+}
+
+// StartLineBlockReason: the typed reason canStartLine returns when a line CANNOT start.
+// A string union (not a numeric enum) so it serializes/logs as a readable token and the
+// C4 configurator can switch on it exhaustively to render a disabled Start with its cause.
+// DELIBERATELY parallels FabricateBlockReason; the ORDER mirrors canStartLine's gate order:
+//   notFound      -- the key names no recipe/blueprint in the kind's registry
+//   notResearched -- FABRICATE only: the blueprint is not unlocked (blueprintUnlocked false)
+//   tierLocked    -- FABRICATE only: BLUEPRINTS[key].tier > the fabricator facility level
+//   noSlot        -- the kind's lines array already fills its slot count (one line per slot)
+//   invalidCount  -- the requested count is not a positive integer
+//   materials     -- count exceeds maxAffordableIterations (can't reserve that many from free)
+//   storageFull   -- the output item is at its warehouse storage cap (materialAtCap)
+// notResearched + tierLocked are a FABRICATE-ONLY subset: refine recipes carry no research
+// or tier gate (a refine recipe is always available once the refinery is built), so a refine
+// line can never surface those two reasons.
+export type StartLineBlockReason =
+  | "notFound"
+  | "notResearched"
+  | "tierLocked"
+  | "noSlot"
+  | "invalidCount"
+  | "materials"
+  | "storageFull";
+
+// canStartLine(state, kind, recipeKey, count): THE single consolidated line-start gate.
+// Pure predicate mirroring canFabricate -- reads state + the static registries + the derived
+// slot counts, mutates nothing, spends nothing. The ONE source of truth for "can this line
+// start right now?": startLine (below) calls it and does nothing else gate-wise, and the C4
+// UI calls it directly to render each Start button (enabled, or disabled with the reason).
+//
+// GATE ORDER is deliberate (cheapest/most-fundamental first) and determines WHICH reason
+// surfaces when several fail at once (ok itself is order-independent -- all must pass):
+// identity (notFound) -> ownership (notResearched, fabricate) -> tier unlock (tierLocked,
+// fabricate) -> concurrency (noSlot) -> count validity (invalidCount) -> resource (materials)
+// -> storage (storageFull). This consolidates C2's inline startLine guards (recipe existence
+// / count / slot) and ADDS the research/tier/affordability/storage gates canFabricate carries.
+export function canStartLine(
+  state: GameState,
+  kind: CraftLineKind,
+  recipeKey: string,
+  count: number
+): { ok: true } | { ok: false; reason: StartLineBlockReason } {
+  // --- Identity: the key must name a real recipe/blueprint in THIS kind's registry.
+  // Checked first so every later gate can safely read the def.
+  if (kind === "refine") {
+    if (!REFINE_RECIPES[recipeKey]) return { ok: false, reason: "notFound" };
+  } else {
+    if (!BLUEPRINTS[recipeKey]) return { ok: false, reason: "notFound" };
+  }
+
+  // --- Ownership + tier (FABRICATE ONLY): a blueprint must be RESEARCHED and its tier must
+  // be reached by the fabricator's level -- the SAME two gates canFabricate applies. Refine
+  // recipes have neither gate, so a refine line skips this block entirely (these reasons are
+  // a fabricate-only subset of StartLineBlockReason).
+  if (kind === "fabricate") {
+    if (!blueprintUnlocked(state, recipeKey)) return { ok: false, reason: "notResearched" };
+    if (BLUEPRINTS[recipeKey].tier > facilityLevel(state, FABRICATOR_FACILITY_KEY)) {
+      return { ok: false, reason: "tierLocked" };
+    }
+  }
+
+  // --- Concurrency: one line per slot. A NEW line needs a free slot: the kind's current
+  // line count must be below the facility's derived slot count. EXACT mirror of C2 startLine's
+  // slot guard (and canFabricate's noSlot, though that counts in-flight jobs -- lines here).
+  const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
+  const slotCount = kind === "refine" ? refineSlotCount(state) : fabricateSlotCount(state);
+  if (lines.length >= slotCount) return { ok: false, reason: "noSlot" };
+
+  // --- Count validity: a line must order a WHOLE, POSITIVE number of iterations. Guards a
+  // continuous line's implicit 1 (always valid) and a batch line's configured count.
+  if (!Number.isInteger(count) || count <= 0) return { ok: false, reason: "invalidCount" };
+
+  // --- Resource: the requested count must be reservable NOW from FREE stock (inventory minus
+  // what active lines already reserved). maxAffordableIterations is that affordable-now cap;
+  // asking for more than it means the units aren't currently reservable -> materials.
+  if (count > maxAffordableIterations(state, kind, recipeKey)) {
+    return { ok: false, reason: "materials" };
+  }
+
+  // --- Storage: the OUTPUT item must not already be at its warehouse cap (AT the cap counts
+  // as full -- the SAME materialAtCap seam canFabricate/missions/trickle stop on). Refine
+  // outputs a { itemId, amount } record (-> .itemId); a blueprint outputs recipe.outputItem.
+  const outputItem =
+    kind === "refine" ? REFINE_RECIPES[recipeKey].output.itemId : BLUEPRINTS[recipeKey].recipe.outputItem;
+  if (materialAtCap(state, outputItem)) return { ok: false, reason: "storageFull" };
+
+  return { ok: true };
+}
+
+// Adds a new production line to a facility (the C4 configurator's Start action; tests call
+// it directly). As of Task C3 this is a THIN WRAPPER over canStartLine -- canStartLine is the
+// single source of truth for every gate (notFound / notResearched / tierLocked / noSlot /
+// invalidCount / materials / storageFull), so this function only (a) derives the reserved
+// iteration count from the mode, (b) consults the gate, (c) on a block returns the SAME state
+// ref + started:false + the block reason (so the UI can show WHY), and (d) on ok appends the
+// line UNCHANGED from C2.
+//
+// The return keeps the START family's { next, started } shape (startProcess / startRefineJob
+// / startFabricateJob) and ADDS an OPTIONAL `reason` (undefined on success) EXACTLY the way
+// startFabricateJob exposes canFabricate's reason.
+//
+// The new line's `remaining` (allocation basis) is the batch count, or 1 for a continuous
+// line (it reserves exactly its one queued next iteration -- see CraftLineMode). This is the
+// SAME count canStartLine's affordability gate validated, so an appended line is always
+// reservable from free at start.
 export function startLine(
   state: GameState,
   kind: CraftLineKind,
   recipeKey: string,
   mode: CraftLineMode
-): GameState {
-  // Recipe existence, per kind.
-  if (kind === "refine" && !REFINE_RECIPES[recipeKey]) return state;
-  if (kind === "fabricate" && !BLUEPRINTS[recipeKey]) return state;
-  // A batch line must order at least one iteration.
-  if (mode.kind === "batch" && mode.remaining <= 0) return state;
-  // A free slot must exist: one line per slot, capped at the facility's derived count.
-  const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
-  const slotCount = kind === "refine" ? refineSlotCount(state) : fabricateSlotCount(state);
-  if (lines.length >= slotCount) return state;
+): { next: GameState; started: boolean; reason?: StartLineBlockReason } {
+  // Iterations this line reserves up front: a batch reserves its full count; a continuous
+  // line reserves exactly its ONE queued next iteration. This is the count canStartLine gates.
+  const count = mode.kind === "batch" ? mode.remaining : 1;
 
-  const remaining = mode.kind === "batch" ? mode.remaining : 1;
+  // Single consolidated gate. On a block: same-ref no-op (the reject convention every other
+  // start/action in this file shares) + the typed reason, so a blocked start can never be
+  // mistaken for a no-op change.
+  const gate = canStartLine(state, kind, recipeKey, count);
+  if (!gate.ok) return { next: state, started: false, reason: gate.reason };
+
+  // gate.ok GUARANTEES a real recipe, ownership/tier (fabricate), a free slot, a valid count,
+  // affordable inputs, and output room. Append the line -- byte-for-byte the C2 append path.
+  const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
+  const remaining = count;
   const line: CraftLine = { id: `craft-${state.nextCraftLineId}`, kind, recipeKey, remaining, mode };
   const field = kind === "refine" ? "refineLines" : "fabricateLines";
-  return { ...state, [field]: [...lines, line], nextCraftLineId: state.nextCraftLineId + 1 };
+  return {
+    next: { ...state, [field]: [...lines, line], nextCraftLineId: state.nextCraftLineId + 1 },
+    started: true,
+  };
 }
 
 // Cancels (removes) a line by id from whichever facility array holds it. Its UNSTARTED
