@@ -6,19 +6,13 @@ write it down so you don't relitigate it later.
 - No offline-cap or offline-efficiency reduction yet — offline time is
   applied at full rate regardless of duration. Fine for prototype; revisit
   before any real playtest longer than a day.
-- Homeworld Refinery/Fabrication (Phase 4) each run exactly one hand-picked
-  recipe (`refineUnobtainium`, `fabricateComponents`) with no player choice
-  of inputs/outputs yet — proves the crafting mechanic, not the "fully
-  fleshed out crafting system" the design doc gestures at. Add entries to
-  `RECIPES` (`model.ts`) when that's ready to grow; no auto-craft toggle
-  exists yet either (manual Craft-button only), which is a deliberate
-  near-term follow-up per Task 5's implementation notes.
-- The Refinery/Fabrication panel's title (`App.svelte`) is a hardcoded
-  `recipeKey === "refineUnobtainium" ? "REFINERY" : "FABRICATION"` ternary,
-  not derived from `RECIPES` data — correct for both of today's launch
-  recipes, but a 3rd, non-fabrication recipe would silently fall into the
-  "FABRICATION" label. Add a `structureLabel` field to `RecipeDef` if/when
-  a 3rd recipe is actually added.
+- [RESOLVED 2026-07-16, Fabricator Phase 4 Task F5] The legacy Homeworld
+  Refinery/Fabrication INSTANT-craft sub-tab (`RECIPES` / `craftRecipe` +
+  the `recipeKey === "refineUnobtainium" ? "REFINERY" : "FABRICATION"` title
+  ternary) was RETIRED. Crafting now lives entirely in the timed facilities:
+  the Facilities → Refinery (step 2, ore → refined) and the new Facilities →
+  Fabricator (step 3, blueprint components), both order/slot-based. `RECIPES`,
+  `craftRecipe`, `doCraftRecipe`, and `RecipeKey` were deleted.
 - `buyHomeworldTalent()` (`tick.ts`) builds its new-captain object literal
   inline (`id`/`label`/`shipType`/`...freshCaptainStack()`) instead of
   reusing a shared helper — currently byte-identical to `freshCaptains()`'s
@@ -262,13 +256,10 @@ write it down so you don't relitigate it later.
   gating mechanics work end-to-end, NOT calibrated against real play -- expect to retune them together with
   the FA XP curve during the same on-device pass (same "device-tuned starting value" posture as the FA curve
   / slot-wall entries above).
-- Two "Refinery" surfaces now COEXIST, sharing a name: (1) the OLD Homeworld -> Refinery INSTANT-craft
-  sub-tab (`RECIPES` / `craftRecipe` in `model.ts`/`App.svelte` -- click a button, materials convert
-  immediately, no time cost), and (2) the NEW Facilities -> Refinery, a timed facility you build/upgrade and
-  that runs refine jobs over real ticks. This is DELIBERATE (both paths coexist until the planned Fabricator
-  subsumes the instant-craft path), not a bug -- but the shared "Refinery" label across two mechanically
-  different surfaces is a real player-confusion risk. Consider renaming or retiring the instant-craft one
-  once the Fabricator work makes it redundant, so the name collision doesn't outlive its reason to exist.
+- [RESOLVED 2026-07-16, Fabricator Phase 4 Task F5] The "two Refinery surfaces" name collision is gone:
+  the OLD Homeworld → Refinery INSTANT-craft sub-tab was retired (the Fabricator subsumed the instant-craft
+  path, exactly as this entry anticipated). Only the timed Facilities → Refinery remains, and crafting of
+  components moved to the new Facilities → Fabricator. No shared-label confusion remains.
 - The bottom nav bar now has 7 tabs -- Facilities was inserted as a new 3rd tab, giving the full row
   Homeworld / Sector Space / Facilities / Command / Operations / Battlespace / System (up from 6). Check for
   crowding / label truncation / wrapping on a narrow (phone-portrait) viewport at the device test -- this can

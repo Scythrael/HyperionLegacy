@@ -863,8 +863,9 @@
   // The Locations tab uses a LEFT rail of "places" (.captain-list /
   // .captain-list-item, reused verbatim) + a right content pane; the selected
   // place then drives its OWN SubTabs. This replaces the two former top-level
-  // tabs -- Fleet Homeworld (Overview / Fabrication / Administration, still
-  // tracked by activeHomeworldSubTab) and Fleet Sector (Docks / Requisition,
+  // tabs -- Fleet Homeworld (Overview / Administration, still tracked by
+  // activeHomeworldSubTab; the old Fabrication sub-tab was retired in Phase 4
+  // Task F5 -- crafting moved to the Facilities -> Fabricator) and Fleet Sector (Docks / Requisition,
   // still tracked by activeStarbaseSubTab). Alliance Sector / Colony Registry
   // are locked "Coming soon" rail items with no content behind them yet. Kept
   // as a typed literal union (not a free string) so a future real place (e.g.
