@@ -58,6 +58,9 @@ import {
   FUEL_REFINE_OUTPUT,
   FUEL_REFINE_DURATION_TICKS,
   FUEL_DEPOT_BASE_PIPELINES,
+  RESEARCH_FACILITY_KEY,
+  BLUEPRINTS,
+  blueprintUnlocked,
 } from "./model";
 import { fuelNeeded } from "./fuel";
 
@@ -2218,6 +2221,19 @@ export function canBuildFacilityUpgrade(
     }
   }
 
+  // Credits gate (Research Task R2). An OPTIONAL flat credit cost, checked just before
+  // materials (both are "resource affordability" gates; the prereqs above come first).
+  // INERT for every PRE-R2 facility -- none set `upgrade.credits`, so `!== undefined`
+  // is false and this never fires for them (no behavior change / no regression). The
+  // Research Lab's level 1->2 rung is the first to use it (locked design #3: research
+  // costs credits, not materials). Deducted atomically at start by startFacilityUpgrade.
+  if (upgrade.credits !== undefined && state.credits.lt(upgrade.credits)) {
+    return {
+      ok: false,
+      reason: `Need ${upgrade.credits.toString()} credits (have ${state.credits.toString()})`,
+    };
+  }
+
   // Material gate (checked LAST -- see the ordering note on the function). EVERY
   // material entry must be affordable against LIVE inventory. Because startProcess
   // deducts every running process's inputs at ITS start, live inventory already
@@ -2266,7 +2282,19 @@ export function startFacilityUpgrade(
   // Safe: canBuildFacilityUpgrade.ok guarantees the facility exists and the rung
   // is in range (it would have returned a reason otherwise).
   const upgrade = FACILITIES[facilityKey].upgrades[facilityLevel(state, facilityKey)];
-  return startProcess(state, "facilityUpgrade", upgrade.materials, upgrade.durationTicks, {
+  // Credits deduct-at-start (Research Task R2). If this rung carries a credit cost,
+  // subtract it from a fresh state clone BEFORE handing off to startProcess, so the
+  // credit spend + the material deduct + the process push all land in the SAME
+  // transition (atomic start, the design §4 posture materials already use). >= 0 is
+  // guaranteed: canBuildFacilityUpgrade.ok proved state.credits >= upgrade.credits.
+  // INERT for pre-R2 facilities (upgrade.credits === undefined -> afterCredits === state),
+  // so their start path is byte-identical to before. Credits are deducted ONCE here (a
+  // discrete start event), never per-tick, so this adds NO offline-catch-up parity seam.
+  const afterCredits =
+    upgrade.credits !== undefined
+      ? { ...state, credits: state.credits.minus(upgrade.credits) }
+      : state;
+  return startProcess(afterCredits, "facilityUpgrade", upgrade.materials, upgrade.durationTicks, {
     type: "facilityLevelUp",
     facility: facilityKey,
   });
@@ -2315,6 +2343,159 @@ export function refineSlotCount(state: GameState): number {
     }
   }
   return slots;
+}
+
+// Research SLOT count (Research Task R2) -- how many concurrent research projects the
+// Research Lab can run RIGHT NOW. Derived (not stored) by SUMMING every { addResearchSlots }
+// grant on the rungs the lab has ALREADY reached -- the EXACT same reached-rungs loop
+// refineSlotCount uses for the refinery, just reading the `research` facility + the
+// `addResearchSlots` property. A fresh save seeds research at level 1, whose founding
+// rung (upgrades[0]) grants addResearchSlots:1 -> 1 slot; the level 1->2 rung adds a 2nd.
+// Level 0 / an absent facility sums nothing -> 0 (the defensive floor, though freshState
+// always seeds level 1). The `i < upgrades.length` guard is the same belt-and-suspenders
+// bound refineSlotCount carries. Consumed by R3's startResearch (concurrency cap) + the
+// R5 Overview panel; nothing reads it before R3.
+export function researchSlotCount(state: GameState): number {
+  const level = facilityLevel(state, RESEARCH_FACILITY_KEY);
+  const upgrades = FACILITIES[RESEARCH_FACILITY_KEY].upgrades;
+  let slots = 0;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    const effect = upgrades[i].effect;
+    if ("addResearchSlots" in effect) {
+      slots += effect.addResearchSlots;
+    }
+  }
+  return slots;
+}
+
+// Research Task R4 (design §3): the typed reason canResearch returns when a research
+// project is BLOCKED. A string union (not a numeric enum) so it serializes/logs as a
+// readable token and the R5 Research Lab UI can switch on it exhaustively to render each
+// blueprint's disabled Research button with its cause. This DELIBERATELY mirrors the
+// mission-rework DispatchBlockReason idiom (above). The order of the members mirrors
+// canResearch's gate order (see below):
+//   notFound          -- no blueprint has that key (bad caller / stale UI reference)
+//   alreadyResearched -- the blueprint is already in researchedBlueprints (blueprintUnlocked)
+//   inProgress        -- a researchProject for this key is already in activeProcesses
+//   tierLocked        -- BLUEPRINTS[key].tier > the research facility level (upgrade to unlock)
+//   noSlot            -- every research slot is busy (active projects >= researchSlotCount)
+//   credits           -- state.credits < BLUEPRINTS[key].researchCreditCost (can't afford)
+export type ResearchBlockReason =
+  | "notFound"
+  | "alreadyResearched"
+  | "inProgress"
+  | "tierLocked"
+  | "noSlot"
+  | "credits";
+
+// Research Task R4: THE single consolidated research gate. Pure predicate -- reads state +
+// the static BLUEPRINTS table + the derived researchSlotCount, mutates nothing, spends
+// nothing. This is the ONE source of truth for "can this blueprint be researched right
+// now?": it folds the three inline gates R3's startResearch used to check (researchable /
+// free slot / affordable) into one typed-reason result, MIRRORING canDispatch. startResearch
+// (below) calls this first and does nothing else gate-wise; the R5 UI calls it directly to
+// render each blueprint's Research button (enabled, or disabled with the reason shown).
+//
+// GATE ORDER is deliberate, cheapest/most-fundamental first, and determines WHICH reason
+// surfaces when several fail at once (ok itself is order-independent -- all must pass):
+// identity (notFound) -> ownership (alreadyResearched) -> in-flight (inProgress) -> tier
+// unlock (tierLocked) -> concurrency (noSlot) -> resource (credits). NOTE: this decomposes
+// blueprintResearchable's folded predicate (which returns a single bool over notFound +
+// alreadyResearched + inProgress + tierLocked) back into its four distinct reasons, so the
+// UI can tell the player exactly WHICH condition is unmet -- the reason blueprintResearchable
+// itself is NOT reused here (it can't name which of its four terms failed).
+export function canResearch(
+  state: GameState,
+  blueprintKey: string
+): { ok: true } | { ok: false; reason: ResearchBlockReason } {
+  // --- Identity: the key must name a real blueprint. An absent def means "not a real
+  // blueprint" (bad caller / stale UI reference) -- checked first so every later gate can
+  // safely read `bp`.
+  const bp = BLUEPRINTS[blueprintKey];
+  if (!bp) return { ok: false, reason: "notFound" };
+
+  // --- Ownership: already researched -> nothing to do. Pure membership test (the same one
+  // blueprintResearchable folds in), surfaced here as its own reason.
+  if (blueprintUnlocked(state, blueprintKey)) return { ok: false, reason: "alreadyResearched" };
+
+  // --- In-flight: a researchProject for THIS key is already unlocking it. Scanned the SAME
+  // way model.ts's researchInProgress + startProcess read the effect discriminant (fixed by
+  // design §3: { type: "unlockBlueprint"; key }).
+  const inProgress = state.activeProcesses.some(
+    (p) =>
+      p.kind === "researchProject" &&
+      p.effect.type === "unlockBlueprint" &&
+      p.effect.key === blueprintKey
+  );
+  if (inProgress) return { ok: false, reason: "inProgress" };
+
+  // --- Tier unlock: the research facility's level must have reached the blueprint's tier
+  // (blueprintResearchable reads the SAME level >= tier relation; here it's its own reason so
+  // the UI can show the required lab level).
+  if (bp.tier > facilityLevel(state, RESEARCH_FACILITY_KEY)) {
+    return { ok: false, reason: "tierLocked" };
+  }
+
+  // --- Concurrency: a free research slot -- count in-flight research projects against the
+  // cap (the Research Lab's analog of the Refinery's refine-slot cap).
+  const activeResearch = state.activeProcesses.filter((p) => p.kind === "researchProject").length;
+  if (activeResearch >= researchSlotCount(state)) return { ok: false, reason: "noSlot" };
+
+  // --- Resource: affordable. researchCreditCost is a plain number (recipe-scale, not idle-
+  // scale); wrap it in a Decimal to compare against state.credits (Decimal, so .lt is exact).
+  if (state.credits.lt(new Decimal(bp.researchCreditCost))) return { ok: false, reason: "credits" };
+
+  return { ok: true };
+}
+
+// Research PROJECT start (Research Task R3, design §3). As of Task R4 this is a THIN WRAPPER
+// over canResearch (above) -- canResearch is the single source of truth for every gate
+// (notFound, alreadyResearched, inProgress, tierLocked, noSlot, credits), so this function
+// only (a) consults it, (b) on a block returns the SAME state ref + started:false + the block
+// reason (so callers/UI can show it), and (c) on ok deducts the blueprint's credit cost
+// ATOMICALLY at start (mirroring startFacilityUpgrade's credit deduct) and pushes a
+// "researchProject" TimedProcess whose completion effect { type: "unlockBlueprint", key }
+// adds the key to researchedBlueprints (resolveProcesses).
+//
+// The return keeps the START family's { next, started } shape (startProcess / startRefineJob
+// / startFacilityUpgrade), so pre-R4 callers reading only { next, started } are unaffected;
+// R4 ADDS an OPTIONAL `reason` (undefined on success) EXACTLY the way dispatchCaptainOnMission
+// exposes canDispatch's reason -- purely additive.
+//
+// CREDITS DEDUCT ONCE AT START (a discrete event, never per-tick) -> the research project
+// then runs as an ORDINARY timed process stepped inside economyTick, so it is offline==live
+// parity-safe by construction (tick(bigSpan) == looping economyTick(_,1)); see the parity
+// test in research.test.ts. Research awards NO Fleet Admiral XP (resolveProcesses excludes
+// the researchProject kind from the lump award, mirroring fuelRefineJob).
+export function startResearch(
+  state: GameState,
+  blueprintKey: string
+): { next: GameState; started: boolean; reason?: ResearchBlockReason } {
+  // The single consolidated gate. On a block: same-ref no-op (the reject convention every
+  // other start/action in this file shares) + the reason, so a blocked start can never be
+  // mistaken for a no-op change.
+  const gate = canResearch(state, blueprintKey);
+  if (!gate.ok) return { next: state, started: false, reason: gate.reason };
+
+  // gate.ok GUARANTEES a real, researchable, affordable blueprint with a free slot, so the
+  // def lookup below cannot fail -- recomputed here (rather than threaded out of canResearch)
+  // to keep canResearch a clean predicate.
+  const bp = BLUEPRINTS[blueprintKey];
+  const cost = new Decimal(bp.researchCreditCost);
+
+  // Deduct credits from a FRESH state clone BEFORE handing off to startProcess, so the
+  // credit spend + the process push land in the SAME transition (atomic start, the design
+  // §4 posture materials/upgrade-credits already use). >= 0 guaranteed by canResearch's
+  // credits gate (gate.ok above).
+  const afterCredits = { ...state, credits: state.credits.minus(cost) };
+  // No MATERIAL inputs (locked design #3: research costs TIME + CREDITS, not materials), so
+  // the inputs map is empty -- startProcess's gate/deduct loops no-op over it. It pushes the
+  // "researchProject" TimedProcess (remainingTicks = researchDurationTicks) whose completion
+  // effect unlocks the blueprint.
+  return startProcess(afterCredits, "researchProject", {}, bp.researchDurationTicks, {
+    type: "unlockBlueprint",
+    key: blueprintKey,
+  });
 }
 
 // ============================================================================
@@ -2982,6 +3163,12 @@ export function resolveProcesses(
   // identical -- the empty-early-out and the no-completion path both leave it
   // untouched). Re-cloned only when a refineJob actually completes below.
   let lifetimeStats = state.lifetimeStats;
+  // Research (Task R3): threaded so a completing researchProject can append its unlocked
+  // blueprint key. Seeded from the incoming state, so a call that completes no research
+  // project returns it value-identical (the empty/no-completion early-out leaves it exactly
+  // === state.researchedBlueprints). Re-cloned only when a research project actually completes
+  // below, and only when the key is not already present (idempotent -- no duplicate).
+  let researchedBlueprints = state.researchedBlueprints;
   let fleetAdminXpDelta = 0;
   // Survivors are rebuilt in original order, so activeProcesses ordering is stable
   // across both chunkings (the parity test compares the arrays deep-equal).
@@ -3034,6 +3221,20 @@ export function resolveProcesses(
       // currency, not a catalog item). Closed-form: fires exactly ONCE on the
       // completion that drops the process, so one big resolve == many small ones.
       fuel = fuel.plus(process.effect.amount);
+    } else if (process.effect.type === "unlockBlueprint") {
+      // Research (Task R3): a completed research project UNLOCKS its blueprint by appending
+      // the key to researchedBlueprints. IDEMPOTENT -- guarded on `.includes` so a duplicate
+      // is never added (defensive: startResearch's in-progress gate already prevents two
+      // projects for one key, and an unlocked blueprint is not researchable, so a real play
+      // path can't reach a double-add -- but the resolver stays correct even if it did).
+      // A fresh array only when it actually appends (immutable, mirroring the accumulators
+      // above). Closed-form: fires exactly ONCE on the completion that drops the process, so
+      // one big resolve == many small ones lands the identical set. EXCLUDED from the FA-XP
+      // lump award below (see the kind check) -- research is automated infra like fuel refining.
+      const key = process.effect.key;
+      if (!researchedBlueprints.includes(key)) {
+        researchedBlueprints = [...researchedBlueprints, key];
+      }
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -3042,18 +3243,27 @@ export function resolveProcesses(
       const current = facilities[facility] ?? { level: 0 };
       facilities = { ...facilities, [facility]: { ...current, level: current.level + 1 } };
     }
-    // Fleet Admiral XP lump award -- EXCLUDES fuelRefineJob (F2). Fuel refining is an
-    // additive economy that must NOT perturb the tuned FA-XP curve, so a fuel batch
-    // completes with zero FA XP; every OTHER process kind (refineJob / facilityUpgrade)
-    // keeps the "durationTicks lumped on completion" award. Excluding it also keeps the
-    // closed-form FA-XP parity trivially intact (fuel batches contribute 0 either way).
-    if (process.kind !== "fuelRefineJob") {
+    // Fleet Admiral XP lump award -- EXCLUDES fuelRefineJob (F2) AND researchProject (R3).
+    // Both are additive/automated economies that must NOT perturb the tuned FA-XP curve, so
+    // each completes with zero FA XP; every OTHER process kind (refineJob / facilityUpgrade)
+    // keeps the "durationTicks lumped on completion" award. Excluding them also keeps the
+    // closed-form FA-XP parity trivially intact (they contribute 0 either way).
+    if (process.kind !== "fuelRefineJob" && process.kind !== "researchProject") {
       fleetAdminXpDelta += process.durationTicks;
     }
   }
 
   return {
-    next: { ...state, inventory, discovered, facilities, lifetimeStats, fuel, activeProcesses: stillActive },
+    next: {
+      ...state,
+      inventory,
+      discovered,
+      facilities,
+      lifetimeStats,
+      fuel,
+      researchedBlueprints,
+      activeProcesses: stillActive,
+    },
     fleetAdminXpDelta,
   };
 }

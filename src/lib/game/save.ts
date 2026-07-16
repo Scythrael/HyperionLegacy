@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP } from "./model";
 
-export const SAVE_VERSION = 21;
+export const SAVE_VERSION = 22;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -733,6 +733,45 @@ const MIGRATIONS: Record<number, Migration> = {
       ...state.facilities,
       fuelStorage: state.facilities?.fuelStorage ?? { level: 0 },
       missionControl: state.facilities?.missionControl ?? { level: 1 },
+    },
+  }),
+  // v21 -> v22: Research (docs/plans/…research-plan.md Task R6 / design). Two additive seeds
+  // for the new state the Research feature introduced (Tasks R1/R2), mirroring the minimal
+  // single-purpose shape MIGRATIONS[18]/[19]/[20] set the template for:
+  //
+  // - `researchedBlueprints` (the fleet-wide unlocked-blueprint list, Task R1): seeded `[]` if
+  //   absent. A string[] of blueprint KEYS -- NO Decimal -- so hydrateDecimals needs NO change:
+  //   it rides through its own `...state` spread there with no per-value revival, exactly as the
+  //   Decimal-free `discovered` string[] already does. The `?? []` is idempotent + belt-and-
+  //   suspenders: a genuine v21 save has NO researchedBlueprints key (so it is seeded `[]`), but
+  //   a chained/hand-edited save that already carries unlocks keeps them exactly (never wiped).
+  // - `facilities.research` at level 1 (Task R2) -- ⚠️ LOAD-BEARING, level 1 NOT 0, the same
+  //   reasoning missionControl carries in MIGRATIONS[20]. Level 0 is "not built"; seeding at
+  //   level 1 makes the Research Lab ESTABLISHED from game start, so tier-1 blueprints are
+  //   researchable immediately on a returning player's save (blueprintResearchable() gates on
+  //   research-facility level >= tier). A level-0 seed would silently LOCK all research on every
+  //   existing save -- a soft-lock/regression. Same `{ level: 1 }` literal freshState seeds, so
+  //   migrated and fresh shapes cannot drift apart (Omega 4). researchSlotCount tolerates an
+  //   absent key (?? 0) regardless, but seeding keeps the facility present for the R5 UI.
+  //
+  // `?? { level: 1 }` is idempotent + belt-and-suspenders (a re-run or partially-migrated save
+  // keeps an existing level rather than resetting it), and `state.facilities?.` guards the
+  // wholesale-absent facilities case defensively -- not reachable on a real v21 save
+  // (MIGRATIONS[17] always seeds facilities), same defense-in-depth posture as this file's other
+  // ?? guards. research facility state is `{ level: number }` -- NO Decimal -- so hydrateDecimals
+  // needs NO change (facilities rides through its own `...state` spread there, same as refinery/
+  // warehouse/fuelStorage/missionControl have since v18/v21). R3's researchProject timed processes
+  // ride `activeProcesses`, which is ALREADY migrated + hydrated (its unlockBlueprint effect carries
+  // no `amount`, so hydrateDecimals leaves it untouched), so there is nothing to do for them here.
+  // Every OTHER GameState field rides through untouched on the outer `...state` spread.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production, so it
+  // is still editable (the frozen-once-shipped rule applies only to production-released migrations).
+  21: (state: any): any => ({
+    ...state,
+    researchedBlueprints: state.researchedBlueprints ?? [],
+    facilities: {
+      ...state.facilities,
+      research: state.facilities?.research ?? { level: 1 },
     },
   }),
 };
