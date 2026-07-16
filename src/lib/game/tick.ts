@@ -59,6 +59,8 @@ import {
   FUEL_REFINE_DURATION_TICKS,
   FUEL_DEPOT_BASE_PIPELINES,
   RESEARCH_FACILITY_KEY,
+  BLUEPRINTS,
+  blueprintResearchable,
 } from "./model";
 import { fuelNeeded } from "./fuel";
 
@@ -2366,6 +2368,68 @@ export function researchSlotCount(state: GameState): number {
   return slots;
 }
 
+// Research PROJECT start (Research Task R3, design §3). Starts a timed research project
+// on `blueprintKey` IF all three gates pass, else a same-REFERENCE no-op. Returns
+// { next, started } -- the SAME shape/naming the START family (startProcess /
+// startRefineJob / startFacilityUpgrade) uses, so a caller reads the outcome exactly
+// as it reads a refine-job/upgrade start. On success it deducts the blueprint's credit
+// cost ATOMICALLY at start (mirroring startFacilityUpgrade's credit deduct) and pushes a
+// "researchProject" TimedProcess whose completion effect { type: "unlockBlueprint", key }
+// adds the key to researchedBlueprints (resolveProcesses).
+//
+// THREE GATES (this is the BASIC gate R3 ships; R4 replaces it with the full typed-reason
+// canResearch and refactors this to call it):
+//   1. RESEARCHABLE -- blueprintResearchable(state, key) folds: real key, not already
+//      unlocked, no project for it already in flight, AND tier <= research-facility level.
+//   2. FREE SLOT -- active researchProject processes < researchSlotCount(state). This is
+//      the Research Lab's analog of the Refinery's refine-slot cap (startRefineJob's gate).
+//   3. AFFORDABLE -- state.credits >= the blueprint's researchCreditCost.
+// Gate order is cheap-structural (researchable) -> slot -> credits; `started` itself is
+// order-independent (all three must pass). Any failed gate returns the SAME state
+// reference (the reject convention every other start/action in this file shares), so a
+// blocked start can never be mistaken for a no-op change.
+//
+// CREDITS DEDUCT ONCE AT START (a discrete event, never per-tick) -> the research project
+// then runs as an ORDINARY timed process stepped inside economyTick, so it is offline==live
+// parity-safe by construction (tick(bigSpan) == looping economyTick(_,1)); see the parity
+// test in research.test.ts. Research awards NO Fleet Admiral XP (resolveProcesses excludes
+// the researchProject kind from the lump award, mirroring fuelRefineJob).
+export function startResearch(
+  state: GameState,
+  blueprintKey: string
+): { next: GameState; started: boolean } {
+  const bp = BLUEPRINTS[blueprintKey];
+  // Unknown key -> blueprintResearchable would also reject it, but read the def first so
+  // we can price it; an absent def means "not a real blueprint" -> same-ref no-op.
+  if (!bp) return { next: state, started: false };
+
+  // Gate 1: researchable (real + not unlocked + not in-progress + tier <= lab level).
+  if (!blueprintResearchable(state, blueprintKey)) return { next: state, started: false };
+
+  // Gate 2: a free research slot -- count in-flight research projects against the cap.
+  const activeResearch = state.activeProcesses.filter((p) => p.kind === "researchProject").length;
+  if (activeResearch >= researchSlotCount(state)) return { next: state, started: false };
+
+  // Gate 3: affordable. researchCreditCost is a plain number (recipe-scale, not idle-scale);
+  // wrap it in a Decimal to compare/deduct against state.credits (Decimal), the SAME wrap-at-
+  // -use posture the fuel constants use. `credits` is Decimal, so .lt / .minus are exact.
+  const cost = new Decimal(bp.researchCreditCost);
+  if (state.credits.lt(cost)) return { next: state, started: false };
+
+  // Deduct credits from a FRESH state clone BEFORE handing off to startProcess, so the
+  // credit spend + the process push land in the SAME transition (atomic start, the design
+  // §4 posture materials/upgrade-credits already use). >= 0 guaranteed by Gate 3.
+  const afterCredits = { ...state, credits: state.credits.minus(cost) };
+  // No MATERIAL inputs (locked design #3: research costs TIME + CREDITS, not materials), so
+  // the inputs map is empty -- startProcess's gate/deduct loops no-op over it. It pushes the
+  // "researchProject" TimedProcess (remainingTicks = researchDurationTicks) whose completion
+  // effect unlocks the blueprint.
+  return startProcess(afterCredits, "researchProject", {}, bp.researchDurationTicks, {
+    type: "unlockBlueprint",
+    key: blueprintKey,
+  });
+}
+
 // ============================================================================
 // Tiered Warehouse — per-item storage cap helper (Phase 2, Task B2)
 // (docs/plans/2026-07-13-phase-2-warehouse-refine-economy-design.md §3.3).
@@ -3031,6 +3095,12 @@ export function resolveProcesses(
   // identical -- the empty-early-out and the no-completion path both leave it
   // untouched). Re-cloned only when a refineJob actually completes below.
   let lifetimeStats = state.lifetimeStats;
+  // Research (Task R3): threaded so a completing researchProject can append its unlocked
+  // blueprint key. Seeded from the incoming state, so a call that completes no research
+  // project returns it value-identical (the empty/no-completion early-out leaves it exactly
+  // === state.researchedBlueprints). Re-cloned only when a research project actually completes
+  // below, and only when the key is not already present (idempotent -- no duplicate).
+  let researchedBlueprints = state.researchedBlueprints;
   let fleetAdminXpDelta = 0;
   // Survivors are rebuilt in original order, so activeProcesses ordering is stable
   // across both chunkings (the parity test compares the arrays deep-equal).
@@ -3083,6 +3153,20 @@ export function resolveProcesses(
       // currency, not a catalog item). Closed-form: fires exactly ONCE on the
       // completion that drops the process, so one big resolve == many small ones.
       fuel = fuel.plus(process.effect.amount);
+    } else if (process.effect.type === "unlockBlueprint") {
+      // Research (Task R3): a completed research project UNLOCKS its blueprint by appending
+      // the key to researchedBlueprints. IDEMPOTENT -- guarded on `.includes` so a duplicate
+      // is never added (defensive: startResearch's in-progress gate already prevents two
+      // projects for one key, and an unlocked blueprint is not researchable, so a real play
+      // path can't reach a double-add -- but the resolver stays correct even if it did).
+      // A fresh array only when it actually appends (immutable, mirroring the accumulators
+      // above). Closed-form: fires exactly ONCE on the completion that drops the process, so
+      // one big resolve == many small ones lands the identical set. EXCLUDED from the FA-XP
+      // lump award below (see the kind check) -- research is automated infra like fuel refining.
+      const key = process.effect.key;
+      if (!researchedBlueprints.includes(key)) {
+        researchedBlueprints = [...researchedBlueprints, key];
+      }
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -3091,18 +3175,27 @@ export function resolveProcesses(
       const current = facilities[facility] ?? { level: 0 };
       facilities = { ...facilities, [facility]: { ...current, level: current.level + 1 } };
     }
-    // Fleet Admiral XP lump award -- EXCLUDES fuelRefineJob (F2). Fuel refining is an
-    // additive economy that must NOT perturb the tuned FA-XP curve, so a fuel batch
-    // completes with zero FA XP; every OTHER process kind (refineJob / facilityUpgrade)
-    // keeps the "durationTicks lumped on completion" award. Excluding it also keeps the
-    // closed-form FA-XP parity trivially intact (fuel batches contribute 0 either way).
-    if (process.kind !== "fuelRefineJob") {
+    // Fleet Admiral XP lump award -- EXCLUDES fuelRefineJob (F2) AND researchProject (R3).
+    // Both are additive/automated economies that must NOT perturb the tuned FA-XP curve, so
+    // each completes with zero FA XP; every OTHER process kind (refineJob / facilityUpgrade)
+    // keeps the "durationTicks lumped on completion" award. Excluding them also keeps the
+    // closed-form FA-XP parity trivially intact (they contribute 0 either way).
+    if (process.kind !== "fuelRefineJob" && process.kind !== "researchProject") {
       fleetAdminXpDelta += process.durationTicks;
     }
   }
 
   return {
-    next: { ...state, inventory, discovered, facilities, lifetimeStats, fuel, activeProcesses: stillActive },
+    next: {
+      ...state,
+      inventory,
+      discovered,
+      facilities,
+      lifetimeStats,
+      fuel,
+      researchedBlueprints,
+      activeProcesses: stillActive,
+    },
     fleetAdminXpDelta,
   };
 }

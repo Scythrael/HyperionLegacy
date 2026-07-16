@@ -678,7 +678,13 @@ export interface CaptainState {
 // (addFuel, below). It is deliberately EXCLUDED from the resolver's Fleet-Admiral-XP
 // lump award (see resolveProcesses) so the new fuel economy does not perturb the
 // tuned FA-XP curve.
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob";
+// Research (Task R3, design §3): "researchProject" is a timed research project run by
+// the Research Lab -- a countdown whose COMPLETION unlocks a blueprint (the unlockBlueprint
+// effect below) rather than adding an item / bumping a level. It reuses the SAME
+// countdown/completion machinery; only its completion effect differs. Like "fuelRefineJob"
+// it is EXCLUDED from the resolver's Fleet-Admiral-XP lump award (see resolveProcesses) --
+// research is automated infra that must not perturb the tuned FA-XP curve.
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -695,7 +701,17 @@ export type ProcessEffect =
   // fixed countdown, but this effect targets the capped fuel tank instead of an item
   // key. resolveProcesses adds it to state.fuel on completion (may overshoot fuelCap
   // by up to one batch, the SAME soft-cap behavior addItem has vs. a warehouse cap).
-  | { type: "addFuel"; amount: Decimal };
+  | { type: "addFuel"; amount: Decimal }
+  // Research (Task R3, design §3): a completed research project unlocks its blueprint by
+  // adding `key` to state.researchedBlueprints (resolveProcesses, idempotent -- no dup).
+  // The discriminant "unlockBlueprint" and the `key: string` field are FIXED by design §3
+  // and are the EXACT shape R1's blueprintResearchable already scans activeProcesses for
+  // (its "not in progress" check reads `effect.type === "unlockBlueprint" && effect.key`
+  // via a forward cast) -- keep them in lockstep or that scan silently goes stale.
+  // Carries NO Decimal (unlike addItem/addFuel's `amount`), so hydrateDecimals (save.ts)
+  // needs NO change: its `"amount" in effect` guard skips this effect, and it round-trips
+  // through JSON as plain {type,key} strings.
+  | { type: "unlockBlueprint"; key: string };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).

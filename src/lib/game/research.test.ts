@@ -29,7 +29,16 @@ import {
   RESEARCH_FACILITY_KEY,
 } from "./model";
 import type { GameState } from "./model";
-import { researchSlotCount, canBuildFacilityUpgrade, startFacilityUpgrade } from "./tick";
+import type { TimedProcess } from "./model";
+import {
+  researchSlotCount,
+  canBuildFacilityUpgrade,
+  startFacilityUpgrade,
+  startResearch,
+  resolveProcesses,
+  economyTick,
+  tick,
+} from "./tick";
 
 describe("Research R1 — BLUEPRINTS registry is well-formed", () => {
   it("is non-empty", () => {
@@ -263,5 +272,189 @@ describe("Research R2 — Research Lab facility (tier + slot upgrade track)", ()
         (p.effect as { facility: string }).facility === RESEARCH_FACILITY_KEY
     );
     expect(queued).toBe(true);
+  });
+});
+
+// ============================================================================
+// Task R3 -- the research-project ENGINE (docs/plans/2026-07-15-research-{design,
+// plan}.md R3 + design §3). startResearch starts a timed research project on a
+// researchable blueprint (deduct credits at start, respect the slot cap); when the
+// project's TimedProcess completes inside resolveProcesses its `unlockBlueprint`
+// effect adds the blueprint key to researchedBlueprints. Research runs as an ORDINARY
+// timed process stepped inside economyTick, so tick(bigSpan) == looping
+// economyTick(_,1) bit-identical -- the ⚠️ offline-parity seam the controller re-verifies.
+//
+// NOTE (return contract): startResearch mirrors the START family (startProcess /
+// startRefineJob / startFacilityUpgrade) with { next, started }, and is a same-REFERENCE
+// no-op on any failed gate -- the basic gate R3 ships. R4 adds the full typed-reason
+// canResearch and refactors startResearch to use it.
+// ============================================================================
+describe("Research R3 — startResearch (start a timed research project)", () => {
+  it("deducts researchCreditCost at start and pushes a researchProject process", () => {
+    const cost = BLUEPRINTS.frameSegmentBp.researchCreditCost; // 500
+    const state: GameState = { ...freshState(), credits: new Decimal(cost + 250) };
+    const { next, started } = startResearch(state, "frameSegmentBp");
+    expect(started).toBe(true);
+    // Credits deducted ONCE at start (a discrete event -> parity-safe).
+    expect(next.credits.equals(250)).toBe(true);
+    // Exactly one researchProject process, carrying the unlockBlueprint effect for this key,
+    // with remainingTicks seeded from the blueprint's researchDurationTicks.
+    const proj = next.activeProcesses.filter((p) => p.kind === "researchProject");
+    expect(proj.length).toBe(1);
+    expect(proj[0].effect).toEqual({ type: "unlockBlueprint", key: "frameSegmentBp" });
+    expect(proj[0].remainingTicks).toBe(BLUEPRINTS.frameSegmentBp.researchDurationTicks);
+    expect(proj[0].durationTicks).toBe(BLUEPRINTS.frameSegmentBp.researchDurationTicks);
+  });
+
+  it("is a same-REFERENCE no-op when the blueprint is unaffordable", () => {
+    const cost = BLUEPRINTS.frameSegmentBp.researchCreditCost;
+    const state: GameState = { ...freshState(), credits: new Decimal(cost - 1) };
+    const result = startResearch(state, "frameSegmentBp");
+    expect(result.started).toBe(false);
+    expect(result.next).toBe(state); // no clone -- nothing changed
+  });
+
+  it("is a same-REFERENCE no-op when the blueprint is not researchable (tier-locked)", () => {
+    // freshState research level is 1 -> the tier-2 structuralAssemblyBp is NOT researchable.
+    const state: GameState = { ...freshState(), credits: new Decimal(1_000_000) };
+    const result = startResearch(state, "structuralAssemblyBp");
+    expect(result.started).toBe(false);
+    expect(result.next).toBe(state);
+  });
+
+  it("is a same-REFERENCE no-op for an already-researched blueprint", () => {
+    const state: GameState = {
+      ...freshState(),
+      credits: new Decimal(1_000_000),
+      researchedBlueprints: ["frameSegmentBp"],
+    };
+    const result = startResearch(state, "frameSegmentBp");
+    expect(result.started).toBe(false);
+    expect(result.next).toBe(state);
+  });
+
+  it("is a same-REFERENCE no-op for an unknown blueprint key", () => {
+    const state: GameState = { ...freshState(), credits: new Decimal(1_000_000) };
+    const result = startResearch(state, "notABlueprint");
+    expect(result.started).toBe(false);
+    expect(result.next).toBe(state);
+  });
+
+  it("does NOT let two projects run against the SAME blueprint (in-progress gate)", () => {
+    const state: GameState = { ...freshState(), credits: new Decimal(1_000_000) };
+    const once = startResearch(state, "frameSegmentBp");
+    expect(once.started).toBe(true);
+    // A project for frameSegmentBp is now in flight -> blueprintResearchable is false for it.
+    const twice = startResearch(once.next, "frameSegmentBp");
+    expect(twice.started).toBe(false);
+    expect(twice.next).toBe(once.next);
+  });
+
+  it("respects the slot cap: a 2nd concurrent project is blocked when all slots are full", () => {
+    // freshState research level 1 -> researchSlotCount 1. One project fills the only slot.
+    const state: GameState = { ...freshState(), credits: new Decimal(1_000_000) };
+    expect(researchSlotCount(state)).toBe(1);
+    const first = startResearch(state, "frameSegmentBp");
+    expect(first.started).toBe(true);
+    const second = startResearch(first.next, "powerCouplingBp"); // a DIFFERENT researchable tier-1 bp
+    expect(second.started).toBe(false); // no free slot
+    expect(second.next).toBe(first.next);
+  });
+
+  it("allows TWO concurrent projects once the lab is level 2 (2 slots)", () => {
+    const state: GameState = { ...freshState(), credits: new Decimal(1_000_000) };
+    state.facilities[RESEARCH_FACILITY_KEY] = { level: 2 };
+    expect(researchSlotCount(state)).toBe(2);
+    const first = startResearch(state, "frameSegmentBp");
+    expect(first.started).toBe(true);
+    const second = startResearch(first.next, "powerCouplingBp");
+    expect(second.started).toBe(true);
+    expect(second.next.activeProcesses.filter((p) => p.kind === "researchProject").length).toBe(2);
+  });
+});
+
+describe("Research R3 — resolveProcesses completes a research project", () => {
+  it("unlocks the blueprint on completion (idempotent add) and awards NO Fleet Admiral XP", () => {
+    const cost = BLUEPRINTS.frameSegmentBp.researchCreditCost;
+    const dur = BLUEPRINTS.frameSegmentBp.researchDurationTicks;
+    const state: GameState = { ...freshState(), credits: new Decimal(cost) };
+    const { next } = startResearch(state, "frameSegmentBp");
+    // Advance past the full duration in one resolve.
+    const { next: done, fleetAdminXpDelta } = resolveProcesses(next, dur);
+    expect(done.researchedBlueprints).toContain("frameSegmentBp");
+    expect(blueprintUnlocked(done, "frameSegmentBp")).toBe(true);
+    // The project process is consumed (resolved exactly once, removed).
+    expect(done.activeProcesses.filter((p) => p.kind === "researchProject").length).toBe(0);
+    // No FA XP for research (automated infra -- mirrors the fuel-refine exclusion).
+    expect(fleetAdminXpDelta).toBe(0);
+  });
+
+  it("is idempotent: a completing project never duplicates an already-present key", () => {
+    // Craft a state where the key is ALREADY researched AND a matching project is mid-flight
+    // (a state normal play can't reach, but resolveProcesses must still not double-add).
+    const proc: TimedProcess = {
+      id: "proc-test",
+      kind: "researchProject",
+      remainingTicks: 1,
+      durationTicks: 1,
+      effect: { type: "unlockBlueprint", key: "frameSegmentBp" },
+    };
+    const state: GameState = {
+      ...freshState(),
+      researchedBlueprints: ["frameSegmentBp"],
+      activeProcesses: [proc],
+    };
+    const { next: done } = resolveProcesses(state, 1);
+    expect(done.researchedBlueprints).toEqual(["frameSegmentBp"]); // no duplicate
+  });
+});
+
+describe("⚠️ Research R3 REQUIRED offline==live PARITY — a research project completes mid-span", () => {
+  // Research runs as an ordinary timed process stepped inside economyTick, so a big
+  // offline catch-up (tick(bigSpan), which internally steps economyTick(_,1)) must be
+  // BIT-IDENTICAL to looping economyTick(_,1) live -- for researchedBlueprints, credits,
+  // and activeProcesses -- across a span where the project COMPLETES mid-span. rng ()=>0
+  // is irrelevant (no captain is on a mission) but pinned per the parity idiom.
+  const DUR = BLUEPRINTS.frameSegmentBp.researchDurationTicks; // 60
+  const COST = BLUEPRINTS.frameSegmentBp.researchCreditCost; // 500
+  const BIG_SPAN = 100; // > DUR, so the project completes well inside the span
+  const RNG = () => 0;
+
+  // A fresh, research-started state (project in flight, credits already deducted once).
+  // Built per path so neither path mutates the other's input.
+  const seed = (): GameState => {
+    const s: GameState = { ...freshState(), credits: new Decimal(COST + 250) };
+    const { next, started } = startResearch(s, "frameSegmentBp");
+    expect(started).toBe(true);
+    return next;
+  };
+
+  // The three fields the parity claim covers, in a JSON-comparable shape.
+  const snap = (st: GameState) => ({
+    researchedBlueprints: st.researchedBlueprints,
+    credits: st.credits.toString(),
+    activeProcesses: st.activeProcesses.map((p) => ({
+      id: p.id,
+      kind: p.kind,
+      remainingTicks: p.remainingTicks,
+      durationTicks: p.durationTicks,
+      effect: p.effect,
+    })),
+  });
+
+  it("tick(BIG_SPAN) == looping economyTick(_,1) bit-identical (research completed mid-span)", () => {
+    const offline = tick(BIG_SPAN, seed(), RNG); // internally steps economyTick(_,1)
+
+    let live = seed();
+    for (let i = 0; i < BIG_SPAN; i++) live = economyTick(live, 1, RNG);
+
+    // BIT-IDENTICAL across every field the parity claim covers.
+    expect(snap(offline)).toEqual(snap(live));
+
+    // NON-VACUOUS: the research actually COMPLETED within the span.
+    expect(offline.researchedBlueprints).toContain("frameSegmentBp"); // blueprint unlocked
+    expect(offline.activeProcesses.filter((p) => p.kind === "researchProject").length).toBe(0); // process consumed
+    // Credits were deducted EXACTLY once (at start), never per-tick.
+    expect(offline.credits.equals(250)).toBe(true);
   });
 });
