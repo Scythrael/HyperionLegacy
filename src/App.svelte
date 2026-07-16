@@ -248,7 +248,7 @@
   // the SELECTED captain's hull, the authoritative dispatching cost). Imported from
   // fuel.ts directly (its own module; tick.ts does not re-export it).
   import { fuelNeeded } from "./lib/game/fuel";
-  import { formatNumber } from "./lib/game/format";
+  import { formatNumber, formatDuration } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave, importRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
@@ -3541,7 +3541,6 @@
                   <div class="research-cost" style="margin-top: 10px;">In progress:</div>
                   {#each activeResearchProjects as job (job.id)}
                     {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
-                    {@const remaining = Math.max(0, Math.ceil(job.remainingTicks))}
                     <div class="mission-card">
                       <div class="research-name">
                         {#if job.effect.type === "unlockBlueprint"}Researching → [{BLUEPRINTS[job.effect.key]?.label ?? job.effect.key}]{:else}Research project{/if}
@@ -3549,7 +3548,7 @@
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
-                      <div class="research-readout">{remaining} / {job.durationTicks} ticks remaining</div>
+                      <div class="research-readout">{formatDuration(job.remainingTicks, state.tickDurationSeconds)} remaining</div>
                     </div>
                   {/each}
                 {:else}
@@ -3585,6 +3584,15 @@
                   {#each group.blueprints as bp (bp.key)}
                     {@const unlocked = blueprintUnlocked(state, bp.key)}
                     {@const gate = canResearch(state, bp.key)}
+                    <!-- In-flight lookup: the researchProject TimedProcess unlocking THIS
+                         blueprint (effect.key === bp.key). When present, canResearch
+                         returned `inProgress`, so the card renders a live progress bar +
+                         human time-remaining in place of the disabled "Researching…"
+                         button (same track/fill/readout idiom as the Overview card). Other
+                         blocked reasons (noSlot / tierLocked / credits) still fall through
+                         to their disabled buttons. Declared here (immediate {#each} child)
+                         because {@const} cannot be a child of a plain element. -->
+                    {@const job = activeResearchProjects.find((p) => p.effect.type === "unlockBlueprint" && p.effect.key === bp.key)}
                     <div class="mission-card">
                       <div class="research-name">{bp.label}</div>
                       <!-- Recipe (what the Fabricator will craft): inputs → output.
@@ -3592,10 +3600,16 @@
                       <div class="research-cost">
                         Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
                       </div>
-                      <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {bp.researchDurationTicks} ticks</div>
+                      <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {formatDuration(bp.researchDurationTicks, state.tickDurationSeconds)}</div>
 
                       {#if unlocked}
                         <div class="research-cost" style="color: var(--color-success)">✓ Researched — craftable once the Fabricator is online</div>
+                      {:else if job}
+                        {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
+                        <div class="research-bar-track">
+                          <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                        </div>
+                        <div class="research-readout">{formatDuration(job.remainingTicks, state.tickDurationSeconds)} remaining</div>
                       {:else if gate.ok}
                         <button class="buy-btn" on:click={() => doStartResearch(bp.key)}>
                           Research · ◈ {formatNumber(bp.researchCreditCost)}
