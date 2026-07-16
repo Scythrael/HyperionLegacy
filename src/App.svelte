@@ -276,10 +276,11 @@
   // the SELECTED captain's hull, the authoritative dispatching cost). Imported from
   // fuel.ts directly (its own module; tick.ts does not re-export it).
   import { fuelNeeded } from "./lib/game/fuel";
-  import { formatNumber, formatDuration } from "./lib/game/format";
+  import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave, importRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
+  import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
 
   // DEV_MODE — Vercel §9.5.3: true on Preview, false on Production. Locally,
@@ -336,6 +337,13 @@
   let createdAt = Date.now();
   let currentTheme: ThemeName = "cyan";
   let tickBarEnabled = true;
+  // Whether the raw tick numbers are shown next to the human-readable clock
+  // timers on every "N remaining" / "Duration" readout. Persisted in
+  // localStorage (loadShowTickCounts), NOT on GameState -- exactly like
+  // tickBarEnabled above, so it survives a delete-save and needs no save
+  // migration. Loaded in onMount alongside tickBarEnabled; default FALSE
+  // (players see just the clock; tick counts are an opt-in power-user detail).
+  let showTickCounts = false;
   // Phase 2 (Task D3): whether the "are you sure you wish to refine this item?"
   // confirmation modal is shown before starting a refine order. Persisted in
   // localStorage (loadRefineConfirmEnabled), NOT on GameState -- exactly like
@@ -991,6 +999,7 @@
     currentTheme = loadTheme();
     document.documentElement.dataset.theme = currentTheme;
     tickBarEnabled = loadTickBarEnabled();
+    showTickCounts = loadShowTickCounts();
     refineConfirmEnabled = loadRefineConfirmEnabled();
 
     const loadedSave = loadFromLocalStorage();
@@ -2178,6 +2187,32 @@
   })();
 
   // Map a canResearch BLOCK reason to the human sentence shown on a disabled
+  // Tick-readout formatters (2026-07-16). Both wrap formatClock (the PRECISE
+  // clock in format.ts) and conditionally prepend the raw tick counts, gated on
+  // the "Show tick counts" Options toggle. They are PURE and take showTicks +
+  // secPerTick as EXPLICIT params (not closed-over state) so Svelte's legacy
+  // `$:`/template reactivity re-invokes them whenever showTickCounts or
+  // state.tickDurationSeconds changes -- a helper that read those off the
+  // enclosing scope would not re-run when the toggle flips.
+  //
+  // remainingReadout: live countdown. off -> "01:39 remaining";
+  //                   on  -> "373646 / 400000 ticks · 01:39 remaining".
+  // The tick figure is Math.max(0, Math.ceil(remainingTicks)) so a fractional
+  // remaining tick shows the whole tick still pending (never a rounded-down
+  // "0 ticks" while time is visibly left on the clock), clamped non-negative.
+  function remainingReadout(remainingTicks: number, totalTicks: number, showTicks: boolean, secPerTick: number): string {
+    const clock = formatClock(remainingTicks, secPerTick);
+    const ticks = Math.max(0, Math.ceil(remainingTicks));
+    return showTicks ? `${ticks} / ${totalTicks} ticks · ${clock} remaining` : `${clock} remaining`;
+  }
+
+  // durationReadout: static duration (a fixed cost/length, not a countdown).
+  // off -> "01:39";  on -> "120 ticks (01:39)".
+  function durationReadout(ticks: number, showTicks: boolean, secPerTick: number): string {
+    const clock = formatClock(ticks, secPerTick);
+    return showTicks ? `${ticks} ticks (${clock})` : clock;
+  }
+
   // Research button's title (and its inline "why not" text). tierLocked reads the
   // blueprint's tier to name the required lab level (canResearch blocks when
   // bp.tier > lab level, so reaching level == tier unlocks it). alreadyResearched
@@ -2981,7 +3016,7 @@
                 <div class="research-cost">
                   Cost: {formatNumber(refineRecipe.input[Object.keys(refineRecipe.input)[0]])} [{ITEMS[Object.keys(refineRecipe.input)[0]]?.label ?? "?"}]
                   · Output: {formatNumber(refineRecipe.output.amount)} [{ITEMS[refineRecipe.output.itemId]?.label ?? refineRecipe.output.itemId}]
-                  · {refineRecipe.durationTicks} ticks
+                  · {durationReadout(refineRecipe.durationTicks, showTickCounts, state.tickDurationSeconds)}
                 </div>
                 <div class="research-cost">
                   Materials:
@@ -2999,7 +3034,6 @@
                   <div class="research-cost" style="margin-top: 10px;">Active jobs:</div>
                   {#each activeRefineJobs as job (job.id)}
                     {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
-                    {@const remaining = Math.max(0, Math.ceil(job.remainingTicks))}
                     <div class="mission-card">
                       <div class="research-name">
                         {#if job.effect.type === "addItem"}Refining → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else}Refine job{/if}
@@ -3007,7 +3041,7 @@
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
-                      <div class="research-readout">{remaining} / {job.durationTicks} ticks remaining</div>
+                      <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                     </div>
                   {/each}
                 {/if}
@@ -3053,7 +3087,7 @@
                 <div class="research-cost">
                   Cost: {formatNumber(refineRecipe.input[Object.keys(refineRecipe.input)[0]])} [{ITEMS[Object.keys(refineRecipe.input)[0]]?.label ?? "?"}]
                   · Output: {formatNumber(refineRecipe.output.amount)} [{ITEMS[refineRecipe.output.itemId]?.label ?? refineRecipe.output.itemId}]
-                  · {refineRecipe.durationTicks} ticks each
+                  · {durationReadout(refineRecipe.durationTicks, showTickCounts, state.tickDurationSeconds)} each
                 </div>
                 <div class="research-cost">
                   Materials:
@@ -3148,7 +3182,7 @@
                   <div class="research-name">Next: Level {refineryLevel} → {refineryLevel + 1}</div>
                   <div class="research-cost">
                     Grants: {#if "addRefineSlots" in eff}+{eff.addRefineSlots} refine slot{eff.addRefineSlots === 1 ? "" : "s"}{:else if "refineSpeedMult" in eff}{eff.refineSpeedMult}× refine speed{/if}
-                    · Duration: {nextRefineryUpgrade.durationTicks} ticks
+                    · Duration: {durationReadout(nextRefineryUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}
                   </div>
 
                   <!-- Material readiness: [Item]: have / need, ✅ (have≥need) or ❌. -->
@@ -3202,12 +3236,11 @@
                   {@const progress = refineryUpgradeInFlight.durationTicks > 0
                     ? (refineryUpgradeInFlight.durationTicks - refineryUpgradeInFlight.remainingTicks) / refineryUpgradeInFlight.durationTicks
                     : 1}
-                  {@const remaining = Math.max(0, Math.ceil(refineryUpgradeInFlight.remainingTicks))}
                   <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
-                  <div class="research-readout">{remaining} / {refineryUpgradeInFlight.durationTicks} ticks remaining</div>
+                  <div class="research-readout">{remainingReadout(refineryUpgradeInFlight.remainingTicks, refineryUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                 {/if}
               </Panel>
             {/if}
@@ -3296,7 +3329,7 @@
                     {#if !isUnlockRung}
                       <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(nextCap)} / item</div>
                     {/if}
-                    <div class="research-cost">Duration: {nextRung.durationTicks} ticks</div>
+                    <div class="research-cost">Duration: {durationReadout(nextRung.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                     <!-- Material readiness: [Item]: have / need, ✅/❌. -->
                     {#each Object.keys(nextRung.materials) as itemId}
@@ -3328,12 +3361,11 @@
                     {@const progress = inFlight.durationTicks > 0
                       ? (inFlight.durationTicks - inFlight.remainingTicks) / inFlight.durationTicks
                       : 1}
-                    {@const remaining = Math.max(0, Math.ceil(inFlight.remainingTicks))}
                     <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
                     <div class="research-bar-track">
                       <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                     </div>
-                    <div class="research-readout">{remaining} / {inFlight.durationTicks} ticks remaining</div>
+                    <div class="research-readout">{remainingReadout(inFlight.remainingTicks, inFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                   {/if}
                 </Panel>
               {/each}
@@ -3501,7 +3533,7 @@
                 {:else}
                   <div class="research-name">Next: Level {missionControlLevel} → {missionControlLevel + 1}</div>
                   <div class="research-cost">
-                    Unlocks the missions gated at level {missionControlLevel + 1} · Duration: {nextMissionControlUpgrade.durationTicks} ticks
+                    Unlocks the missions gated at level {missionControlLevel + 1} · Duration: {durationReadout(nextMissionControlUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}
                   </div>
 
                   <!-- Material readiness ([Item]: have / need, ✅/❌) -- same idiom as
@@ -3547,12 +3579,11 @@
                   {@const progress = missionControlUpgradeInFlight.durationTicks > 0
                     ? (missionControlUpgradeInFlight.durationTicks - missionControlUpgradeInFlight.remainingTicks) / missionControlUpgradeInFlight.durationTicks
                     : 1}
-                  {@const remaining = Math.max(0, Math.ceil(missionControlUpgradeInFlight.remainingTicks))}
                   <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
-                  <div class="research-readout">{remaining} / {missionControlUpgradeInFlight.durationTicks} ticks remaining</div>
+                  <div class="research-readout">{remainingReadout(missionControlUpgradeInFlight.remainingTicks, missionControlUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                 {/if}
               </Panel>
             {/if}
@@ -3636,11 +3667,10 @@
                   <div class="research-cost" style="margin-top: 10px;">Refining now:</div>
                   {#each activeFuelRefineJobs as job (job.id)}
                     {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
-                    {@const remaining = Math.max(0, Math.ceil(job.remainingTicks))}
                     <div class="research-bar-track" style="margin-top: 4px;">
                       <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                     </div>
-                    <div class="research-readout">{remaining} / {job.durationTicks} ticks remaining</div>
+                    <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                   {/each}
                 {:else}
                   <p class="research-status" style="margin-top: 8px;">
@@ -3741,7 +3771,7 @@
                     <div class="research-cost">Current: {formatNumber(fuelBatchInput(state))} ice/batch</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchInput(state).times(nextEff.fuelInputMult))} ice/batch</div>
                   {/if}
-                  <div class="research-cost">Duration: {nextFuelStorageUpgrade.durationTicks} ticks</div>
+                  <div class="research-cost">Duration: {durationReadout(nextFuelStorageUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                   {#each Object.keys(nextFuelStorageUpgrade.materials) as itemId}
                     {@const need = nextFuelStorageUpgrade.materials[itemId]}
@@ -3770,12 +3800,11 @@
                   {@const progress = fuelStorageUpgradeInFlight.durationTicks > 0
                     ? (fuelStorageUpgradeInFlight.durationTicks - fuelStorageUpgradeInFlight.remainingTicks) / fuelStorageUpgradeInFlight.durationTicks
                     : 1}
-                  {@const remaining = Math.max(0, Math.ceil(fuelStorageUpgradeInFlight.remainingTicks))}
                   <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
-                  <div class="research-readout">{remaining} / {fuelStorageUpgradeInFlight.durationTicks} ticks remaining</div>
+                  <div class="research-readout">{remainingReadout(fuelStorageUpgradeInFlight.remainingTicks, fuelStorageUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                 {/if}
               </Panel>
             {/if}
@@ -3831,7 +3860,7 @@
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
-                      <div class="research-readout">{formatDuration(job.remainingTicks, state.tickDurationSeconds)} remaining</div>
+                      <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                     </div>
                   {/each}
                 {:else}
@@ -3883,7 +3912,7 @@
                       <div class="research-cost">
                         Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
                       </div>
-                      <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {formatDuration(bp.researchDurationTicks, state.tickDurationSeconds)}</div>
+                      <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                       {#if unlocked}
                         <div class="research-cost" style="color: var(--color-success)">✓ Researched — craftable once the Fabricator is online</div>
@@ -3892,7 +3921,7 @@
                         <div class="research-bar-track">
                           <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                         </div>
-                        <div class="research-readout">{formatDuration(job.remainingTicks, state.tickDurationSeconds)} remaining</div>
+                        <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                       {:else if gate.ok}
                         <button class="buy-btn" on:click={() => doStartResearch(bp.key)}>
                           Research · ◈ {formatNumber(bp.researchCreditCost)}
@@ -3935,7 +3964,7 @@
                   <div class="research-cost">
                     {#if "addResearchSlots" in eff}Grants: +{eff.addResearchSlots} research slot{eff.addResearchSlots === 1 ? "" : "s"} · unlocks Tier {researchLevel + 1} blueprints{:else}Grants: unlocks Tier {researchLevel + 1} blueprints{/if}
                   </div>
-                  <div class="research-cost">Duration: {nextResearchUpgrade.durationTicks} ticks</div>
+                  <div class="research-cost">Duration: {durationReadout(nextResearchUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                   <!-- Credits cost readiness (research rungs cost credits, not materials). -->
                   {#if nextResearchUpgrade.credits !== undefined}
@@ -3978,12 +4007,11 @@
                   {@const progress = researchUpgradeInFlight.durationTicks > 0
                     ? (researchUpgradeInFlight.durationTicks - researchUpgradeInFlight.remainingTicks) / researchUpgradeInFlight.durationTicks
                     : 1}
-                  {@const remaining = Math.max(0, Math.ceil(researchUpgradeInFlight.remainingTicks))}
                   <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
-                  <div class="research-readout">{remaining} / {researchUpgradeInFlight.durationTicks} ticks remaining</div>
+                  <div class="research-readout">{remainingReadout(researchUpgradeInFlight.remainingTicks, researchUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                 {/if}
               </Panel>
             {/if}
@@ -4041,7 +4069,7 @@
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
-                      <div class="research-readout">{formatDuration(job.remainingTicks, state.tickDurationSeconds)} remaining</div>
+                      <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                     </div>
                   {/each}
                 {:else}
@@ -4061,7 +4089,7 @@
                    fleet-wide standing order at a time (mirror of the Refinery's ONE
                    refineOrder): the active order's status/pause + Stop live in a card at
                    the top; each blueprint card shows its recipe (inputs → outputQty×output,
-                   ITEM labels), craft time (formatDuration), live material balances, and
+                   ITEM labels), craft time (durationReadout), live material balances, and
                    the batch/continuous ORDER controls. Start controls gate on canFabricate
                    (disabled + fabricateBlockText reason). Only researched blueprints appear;
                    with none researched, an empty-state line points to the Research Lab. -->
@@ -4136,7 +4164,7 @@
                           <div class="research-cost">
                             Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
                           </div>
-                          <div class="research-cost">Time: {formatDuration(bp.craftDurationTicks, state.tickDurationSeconds)} each</div>
+                          <div class="research-cost">Time: {durationReadout(bp.craftDurationTicks, showTickCounts, state.tickDurationSeconds)} each</div>
                           <!-- Live material balances (inputs + output), same bracketed-
                                [Item] convention the Refinery order tab uses. -->
                           <div class="research-cost">
@@ -4226,7 +4254,7 @@
                   <div class="research-cost">
                     {#if "addFabricateSlots" in eff}Grants: +{eff.addFabricateSlots} craft slot{eff.addFabricateSlots === 1 ? "" : "s"} · unlocks Tier {fabricatorLevel + 1} blueprints{:else}Grants: unlocks Tier {fabricatorLevel + 1} blueprints{/if}
                   </div>
-                  <div class="research-cost">Duration: {nextFabricatorUpgrade.durationTicks} ticks</div>
+                  <div class="research-cost">Duration: {durationReadout(nextFabricatorUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                   <!-- Credits cost readiness (fabricator rungs cost credits, not materials). -->
                   {#if nextFabricatorUpgrade.credits !== undefined}
@@ -4269,12 +4297,11 @@
                   {@const progress = fabricatorUpgradeInFlight.durationTicks > 0
                     ? (fabricatorUpgradeInFlight.durationTicks - fabricatorUpgradeInFlight.remainingTicks) / fabricatorUpgradeInFlight.durationTicks
                     : 1}
-                  {@const remaining = Math.max(0, Math.ceil(fabricatorUpgradeInFlight.remainingTicks))}
                   <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
-                  <div class="research-readout">{remaining} / {fabricatorUpgradeInFlight.durationTicks} ticks remaining</div>
+                  <div class="research-readout">{remainingReadout(fabricatorUpgradeInFlight.remainingTicks, fabricatorUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                 {/if}
               </Panel>
             {/if}
@@ -4536,7 +4563,7 @@
                     <div class="research-bar-track">
                       <div class="research-bar-fill" style="width:{progress * 100}%"></div>
                     </div>
-                    <div class="research-readout">{remainingTicks} ticks remaining in phase</div>
+                    <div class="research-readout">{remainingReadout(remainingTicks, Math.ceil(requiredTicks), showTickCounts, state.tickDurationSeconds)} in phase</div>
                     <div class="research-cost">
                       Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
                       {formatNumber(mission.cargo.rareMaterial)} rare
@@ -4791,6 +4818,23 @@
           </label>
         </div>
         <p class="prestige-text">When enabled, the tick bar in the header fills once per tick. When disabled, it's removed from the header entirely.</p>
+        <!-- Show raw tick counts alongside the human-readable clock timers on every
+             "N remaining" / "Duration" readout. Mirrors the Enable Tick Bar row above
+             (localStorage-persisted pref, not on GameState). Default OFF. -->
+        <div class="dev-row">
+          <label style="display: inline-flex; align-items: center; gap: 6px;">
+            <input
+              type="checkbox"
+              checked={showTickCounts}
+              on:change={(e) => {
+                showTickCounts = (e.target as HTMLInputElement).checked;
+                saveShowTickCounts(showTickCounts);
+              }}
+            />
+            Show tick counts
+          </label>
+        </div>
+        <p class="prestige-text">When enabled, the raw tick numbers are shown next to the clock timers on job and upgrade readouts. When disabled, only the clock is shown.</p>
         <!-- Phase 2 (Task D3): re-enable the refine-order confirmation popup. Mirrors
              the Enable Tick Bar row directly above (localStorage-persisted pref, not
              on GameState). The modal's own "Don't show this again" checkbox turns

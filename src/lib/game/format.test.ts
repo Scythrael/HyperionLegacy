@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { formatNumber, formatDuration } from "./format";
+import { formatNumber, formatDuration, formatClock } from "./format";
 
 // Pins formatNumber's contract post-migration (Task 8, Big-Number Migration):
 // the plain-number branch must remain BYTE-IDENTICAL to the pre-migration
@@ -203,5 +203,60 @@ describe("formatDuration", () => {
     // 0.3 ticks @ 1s -> 0.3s rounds toward 0 but a positive span must read as
     // at least ~1s so the readout never shows a broken \"~0s\".
     expect(formatDuration(0.3, 1)).toBe("~1s");
+  });
+});
+
+// ============================================================================
+// formatClock(ticks, secondsPerTick) -> PRECISE colon-delimited clock.
+//
+// Author: Claude Opus 4.8 · 2026-07-16. Distinct from formatDuration's
+// approximate "~2h 15m" reading: formatClock is an EXACT countdown clock used
+// by the "N remaining" tick readouts. Converts a tick count to whole seconds
+// (Math.round(ticks * secondsPerTick), clamped at 0), then splits into
+// d/h/m/s and renders zero-padded. Days appear ONLY when present; the hours
+// segment is padded only inside a longer form. Non-finite (NaN/±Infinity)
+// guards to "—". Tests below are the authoritative contract (TDD, written
+// before the implementation).
+// ============================================================================
+describe("formatClock", () => {
+  // secondsPerTick 1 is the default game cadence, so ticks == seconds here.
+  it("sub-hour renders as \"MM:SS\" (99s -> 01:39)", () => {
+    expect(formatClock(99, 1)).toBe("01:39");
+  });
+
+  it("zero renders as \"00:00\"", () => {
+    expect(formatClock(0, 1)).toBe("00:00");
+  });
+
+  it("whole minutes render as \"MM:SS\" (120s -> 02:00)", () => {
+    expect(formatClock(120, 1)).toBe("02:00");
+  });
+
+  it("an exact hour renders as \"H:MM:SS\" (3600s -> 1:00:00)", () => {
+    expect(formatClock(3600, 1)).toBe("1:00:00");
+  });
+
+  it("over a day renders as \"Dd HH:MM:SS\" (90061s -> 1d 01:01:01)", () => {
+    expect(formatClock(90061, 1)).toBe("1d 01:01:01");
+  });
+
+  it("large multi-day span (373646s -> 4d 07:47:26)", () => {
+    expect(formatClock(373646, 1)).toBe("4d 07:47:26");
+  });
+
+  it("clamps a negative span to \"00:00\"", () => {
+    expect(formatClock(-10, 1)).toBe("00:00");
+  });
+
+  it("returns \"—\" for NaN", () => {
+    expect(formatClock(NaN, 1)).toBe("—");
+  });
+
+  it("returns \"—\" for +Infinity", () => {
+    expect(formatClock(Infinity, 1)).toBe("—");
+  });
+
+  it("scales by secondsPerTick, not just tick count (60 ticks @ 2s/tick = 120s -> 02:00)", () => {
+    expect(formatClock(60, 2)).toBe("02:00");
   });
 });
