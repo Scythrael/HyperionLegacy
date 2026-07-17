@@ -4,6 +4,14 @@ Ideas raised during development that aren't being built right now. Captured here
 past the conversation they were mentioned in (Ops-style "write it down so you don't relitigate it" —
 see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future features).
 
+- **NEXT (0.11.0) — Ship equipment slots + T1 gear crafting (user 2026-07-17).** First step of the
+  equipment → ship systems/modules → Combat arc. Ships have equipment slots. Each ship ships with a
+  built-in BASELINE ("standard") gear grade already fitted, so a bare ship is functional; crafted **T1**
+  gear is a *slight* active upgrade over that baseline (deliberately small — the ladder climbs from there).
+  Craft at least T1 items to fit those slots. Design happens in its own brainstorm when picked up; recorded
+  here (and in `docs/plans/2026-07-17-update-detector-design.md` §8) so the intent survives. Prereqs already
+  built: research→fabricate→shipyard pipeline, allocation model, ShipInstance in fleet.
+
 - **Sector Space (Shipyard/Starbase).** Shelved mid-brainstorm in favor of the Captain & Homeworld
   Talent Trees. Shipyard would plausibly center on upgrading a captain's existing Vector-Fall Engine
   (reducing mission transit ticks) rather than building new ship hulls, given captains and ships are
