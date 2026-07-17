@@ -3,6 +3,25 @@
 Things known to be broken or missing, deliberately deferred. Ops §8.E.7:
 write it down so you don't relitigate it later.
 
+- **A material can overshoot its warehouse cap by a full mission cycle's haul (user-observed 2026-07-16:
+  Deuterium Ice at 1.3M / 1M cap, running at 1000x dev speed).** ROOT CAUSE (traced, not a symptom): the
+  `materialAtCap` auto-stop (`tick.ts:1302`) only idles a mission BEFORE it STARTS a run when the primary
+  material is already `>= cap` — it can NOT stop a run already mid-cycle. A skim/ore run extracts for ~90
+  ticks and deposits its ENTIRE haul at the `unloading` phase, so when the material sits just under cap the
+  cap-check passes, the in-flight cycle completes, and its whole haul lands in one shot → the material ends
+  up OVER cap → only THEN does the mission idle. Overshoot = one cycle's deposit. The cap-stop is correct and
+  per-tick (verified: the live loop steps `economyTick(_,1)` per whole tick even at 1000x); this is a
+  can't-stop-mid-cycle window, not a stepping bug. AMPLIFIED because **cargoCapacity is NOT a hard cap on
+  returned cargo** (it drives extraction LENGTH, not a ceiling — see the SUGGESTIONS.md "Cargo & progression
+  redesign / cargo-as-true-hold-cap" entry, the documented 94>90 issue): with yield talents + bonus-rolls
+  stacked (esp. dev-maxed while testing), a single cycle's haul can be huge, so one over-cap deposit blows
+  far past the cap. Not save-corrupting (just excess free material). FIXES (need a careful pass, offline-parity
+  sensitive + a real design choice — do NOT rush): (a) the root fix = clamp a cycle's returned cargo to the
+  ship's hold capacity (the cargo-as-hold-cap redesign the user already wants to brainstorm "so it's not
+  gimmicky"); and/or (b) clamp material DEPOSITS at the warehouse cap (discard the overflow) in the loot path;
+  and/or (c) cap-check DURING extraction to stop mid-run at the cap (touches the delicate closed-form loot
+  block). Ties into the cargo-redesign brainstorm — best fixed there rather than as a one-off patch.
+
 - No offline-cap or offline-efficiency reduction yet — offline time is
   applied at full rate regardless of duration. Fine for prototype; revisit
   before any real playtest longer than a day.
