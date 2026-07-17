@@ -112,10 +112,18 @@
     left: 0;
     right: 0;
     z-index: 1000;
-    padding: env(safe-area-inset-top) 12px 0;
+    /* Full-bleed top bar (no side inset) so it cleanly covers the game's top
+       chrome instead of reading as a floating card with content peeking around it.
+       Honors the iOS safe-area top inset (index.html sets viewport-fit=cover). */
+    padding: env(safe-area-inset-top) 0 0;
   }
 
-  /* Frosted-glass panel -- same recipe as src/lib/Panel.svelte. */
+  /* Full-width top bar. The game's top bar sits directly BEHIND this fixed banner,
+     so the background MUST be opaque: --color-panel-bg alone is only 0.32 alpha,
+     and Brave (and some mobile browsers) drop backdrop-filter entirely, so relying
+     on blur to hide what's behind fails -- the game text bleeds through. We stack
+     the accent-tinted panel-bg OVER an opaque --color-bg-mid so nothing shows
+     through on ANY browser, and keep blur(10px) as a frost bonus where honored. */
   .banner-inner {
     position: relative;
     display: flex;
@@ -124,11 +132,11 @@
     gap: 12px;
     /* Extra right padding reserves space for the absolutely-positioned dismiss. */
     padding: 11px 44px 11px 14px;
-    background: var(--color-panel-bg);
+    background: linear-gradient(var(--color-panel-bg), var(--color-panel-bg)), var(--color-bg-mid);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid var(--color-border);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    border-bottom: 1px solid var(--color-border-strong);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
   }
 
   /* Message: icon + text. min-width:0 lets the text ellipsis/wrap instead of
