@@ -953,6 +953,25 @@ export function exportRawSave(): string | null {
   return localStorage.getItem(SAVE_KEY);
 }
 
+// Browser-side convenience: export the raw save AND trigger a file download.
+// Single source of truth for the download glue so both the in-game "Export Save"
+// button and the update-detector banner's "Export save" action produce identical
+// behavior (same filename shape, same blob type). Returns false when there is no
+// save to export. DOM-dependent -- only call from the browser (no-op targets like
+// SSR/tests have no document/URL).
+export function downloadRawSave(): boolean {
+  const raw = exportRawSave();
+  if (!raw) return false;
+  const blob = new Blob([raw], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fleet-admiral-save-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  return true;
+}
+
 // Counterpart to exportRawSave -- writes a previously-exported raw save
 // string back into localStorage, after confirming it actually deserializes
 // (rejects garbage/corrupt input rather than silently corrupting the

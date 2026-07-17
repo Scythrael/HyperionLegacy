@@ -305,7 +305,7 @@
     type CraftLineKind,
   } from "./lib/game/allocation";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
-  import { saveToLocalStorage, loadFromLocalStorage, clearSave, exportRawSave, importRawSave } from "./lib/game/save";
+  import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, importRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
@@ -1850,15 +1850,9 @@
   }
 
   function doExportSave() {
-    const raw = exportRawSave();
-    if (!raw) return;
-    const blob = new Blob([raw], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `fleet-admiral-save-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Delegates to the shared helper in save.ts so this button and the
+    // update-detector banner's "Export save" stay identical (see downloadRawSave).
+    downloadRawSave();
   }
 
   function resetSave() {
