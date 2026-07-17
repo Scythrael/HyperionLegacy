@@ -46,8 +46,8 @@ describe("migrate — tickDurationSeconds backfill", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -85,8 +85,8 @@ describe("migrate — research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -259,8 +259,8 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -356,8 +356,8 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -462,8 +462,8 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -547,8 +547,8 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -617,8 +617,8 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -676,8 +676,8 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
     expect(migrated.inventory.refinedMaterial.equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -746,8 +746,8 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -1535,8 +1535,8 @@ describe("migrate — Ships stats foundation: grandfather a Freighter per captai
     expect(migrated.nextShipId).toBe(original.nextShipId);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -1743,8 +1743,8 @@ describe("migrate — lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.missionsCompleted.longOreRun.equals(3)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -2014,8 +2014,8 @@ describe("migrate — Ship Production Economy Phase 1: inventory/discovered/faci
     expect(migrated.discovered).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -2175,7 +2175,7 @@ describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(23);
+    expect(deserialized!.version).toBe(24);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2195,8 +2195,8 @@ describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(migrated.facilities).toEqual(original.facilities);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -2237,8 +2237,16 @@ describe("migrate — refine-order backfill (v19 -> v20)", () => {
     const save: SaveFile = { version: 19, created_at: 0, last_saved_at: 0, game_time_seconds: 9000, state: legacyState };
     const migrated: any = migrate(save);
 
-    // The one job of this step: refineOrder seeded null.
-    expect(migrated.refineOrder).toBeNull();
+    // MIGRATIONS[19] seeds refineOrder null here, but the chain now continues through
+    // MIGRATIONS[23] (v23->v24, Crafting Allocation Redesign Task C6), which RETIRES the
+    // single-order model: it drops the refineOrder/fabricateOrder keys and seeds the new
+    // per-slot line fields. So the FINAL v24 shape carries NO refineOrder key at all, plus
+    // empty refineLines/fabricateLines and nextCraftLineId 1.
+    expect("refineOrder" in migrated).toBe(false); // dropped by C6's v23->v24 step
+    expect("fabricateOrder" in migrated).toBe(false);
+    expect(migrated.refineLines).toEqual([]);
+    expect(migrated.fabricateLines).toEqual([]);
+    expect(migrated.nextCraftLineId).toBe(1);
 
     // Everything else rides through untouched (Decimal fields hydrated). Facilities,
     // inventory, lifetimeStats, captains -- a spread bug or an accidental re-seed
@@ -2261,11 +2269,13 @@ describe("migrate — refine-order backfill (v19 -> v20)", () => {
     expect(migrated.gameTimeSeconds).toBe(9000);
   });
 
-  it("preserves an already-present refineOrder rather than wiping it (idempotent ?? guard)", () => {
-    // Defense-in-depth for the `?? null` guard: a chained/hand-edited save that
-    // already carries a refineOrder must keep it, not have it reset to null. Not
-    // reachable via a real shipped-v19 save (none has the key), but the guard makes
-    // the step safe if it ever is -- same posture as MIGRATIONS[18]'s ?? guard test.
+  it("drops a legacy refineOrder carried on the save -- C6's v23->v24 retires the single-order model", () => {
+    // MIGRATIONS[19]'s `?? null` guard preserves an already-present refineOrder at the
+    // v19->v20 step, but the chain now continues to v24 through MIGRATIONS[23] (Task C6),
+    // which retires the single-order model entirely -- so even a save that STILL carries a
+    // legacy standing order comes out CLEAN at the current version: no refineOrder key, and
+    // the new empty per-slot line fields instead. This is the whole point of C6's drop-key
+    // rest-destructure -- dead legacy order state can't ride along into the line model.
     const existingOrder = { recipeKey: "refineCommonOre", mode: { kind: "batch", remaining: 7 } };
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
@@ -2285,7 +2295,10 @@ describe("migrate — refine-order backfill (v19 -> v20)", () => {
 
     const save: SaveFile = { version: 19, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
     const migrated: any = migrate(save);
-    expect(migrated.refineOrder).toEqual(existingOrder); // preserved, NOT reset to null
+    expect("refineOrder" in migrated).toBe(false); // legacy order dropped by C6's v23->v24 step, NOT preserved
+    expect(migrated.refineLines).toEqual([]);
+    expect(migrated.fabricateLines).toEqual([]);
+    expect(migrated.nextCraftLineId).toBe(1);
   });
 
   it("round-trips a state carrying an ACTIVE order through serialize -> deserialize -> migrate intact (no Decimal-hydration hazard)", () => {
@@ -2307,8 +2320,8 @@ describe("migrate — refine-order backfill (v19 -> v20)", () => {
     });
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -2378,7 +2391,11 @@ describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
     expect(migrated.inventory.commonOre.equals(1200)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
-    expect(migrated.refineOrder).toBeNull();
+    // The refineOrder:null MIGRATIONS[19] seeds is DROPPED by MIGRATIONS[23] (Task C6, v23->v24),
+    // which retires the single-order model -- the final v24 shape carries no order key, only the
+    // new empty line fields.
+    expect("refineOrder" in migrated).toBe(false);
+    expect(migrated.refineLines).toEqual([]);
     expect(migrated.nextProcessId).toBe(5);
     expect(migrated.credits.equals(1000)).toBe(true);
     expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(40)).toBe(true);
@@ -2465,8 +2482,8 @@ describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
     expect(migrated.facilities.missionControl).toEqual({ level: 2 }); // preserved, NOT reset to level 1
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -2538,7 +2555,10 @@ describe("migrate — research state backfill (v21 -> v22)", () => {
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
     expect(migrated.inventory.commonOre.equals(1200)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
-    expect(migrated.refineOrder).toBeNull();
+    // refineOrder (seeded null by MIGRATIONS[19]) is DROPPED by MIGRATIONS[23] (Task C6, v23->v24) --
+    // the single-order model is retired, so the final v24 shape has no order key, only line fields.
+    expect("refineOrder" in migrated).toBe(false);
+    expect(migrated.refineLines).toEqual([]);
     expect(migrated.nextProcessId).toBe(5);
     expect(migrated.credits.equals(5000)).toBe(true);
     expect(migrated.fuel instanceof Decimal).toBe(true);
@@ -2649,8 +2669,8 @@ describe("migrate — research state backfill (v21 -> v22)", () => {
     expect(blueprintResearchable(migratedTwice, "frameSegmentBp")).toBe(true); // still playable
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -2710,9 +2730,14 @@ describe("migrate — fabricator state backfill (v22 -> v23)", () => {
     // level (tierLocked), so a level-0 seed would lock ALL tier-1 fabrication on every returning
     // player's save -- a soft-lock/regression.
     expect(migrated.facilities.fabricator).toEqual({ level: 1 });
-    // fabricateOrder seeded to its fresh idle value (null -- no standing order), mirroring the
-    // refineOrder null seed MIGRATIONS[19] established.
-    expect(migrated.fabricateOrder).toBeNull();
+    // MIGRATIONS[22] seeds fabricateOrder null, but the chain now continues through MIGRATIONS[23]
+    // (Task C6, v23->v24), which retires the single-order model: it DROPS the refineOrder/
+    // fabricateOrder keys and seeds the new per-slot line fields. So the final v24 shape carries
+    // NEITHER order key, plus empty refineLines/fabricateLines and nextCraftLineId 1.
+    expect("fabricateOrder" in migrated).toBe(false); // dropped by C6's v23->v24 step
+    expect(migrated.refineLines).toEqual([]);
+    expect(migrated.fabricateLines).toEqual([]);
+    expect(migrated.nextCraftLineId).toBe(1);
 
     // --- Pre-existing facilities ride through untouched (a spread bug or an accidental re-seed
     // of an existing facility level would show here). ---
@@ -2726,7 +2751,7 @@ describe("migrate — fabricator state backfill (v22 -> v23)", () => {
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
     expect(migrated.inventory.commonOre.equals(1200)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
-    expect(migrated.refineOrder).toBeNull();
+    expect("refineOrder" in migrated).toBe(false); // also dropped by C6's v23->v24 step (see above)
     expect(migrated.researchedBlueprints).toEqual([]);
     expect(migrated.nextProcessId).toBe(5);
     expect(migrated.credits.equals(5000)).toBe(true);
@@ -2761,18 +2786,22 @@ describe("migrate — fabricator state backfill (v22 -> v23)", () => {
 
     // fabricator facility: byte-identical structural shape to freshState's.
     expect(migrated.facilities.fabricator).toEqual(fresh.facilities.fabricator);
-    // fabricateOrder: same fresh idle value freshState gives (null).
-    expect(migrated.fabricateOrder).toEqual(fresh.fabricateOrder);
+    // NOTE (Task C4): the `fabricateOrder` parity assertion was removed here. The single-order
+    // model is retired -- freshState no longer carries `fabricateOrder`, while the SHIPPED
+    // MIGRATIONS[22] still seeds `fabricateOrder: null` onto a v23 shape. That transient extra
+    // key is harmless (ignored by the line engine) and is dropped by C6's v23->v24 migration;
+    // the facility-shape parity below is the part that still holds in C4.
     // The FULL facilities map now matches freshState's shape (fabricator included) -- proves the
     // migrated old save and a brand-new game are indistinguishable on facilities.
     expect(migrated.facilities).toEqual(fresh.facilities);
   });
 
-  it("preserves an already-present fabricator facility / fabricateOrder rather than reseeding (idempotent ?? guard)", () => {
-    // Defense-in-depth for the `??` seeds: a chained/hand-edited/partially-migrated save that
-    // already carries either field must keep its existing value, not have it reset to the seed. Not
-    // reachable via a real shipped-v22 save (none has these keys), but the guard makes a re-run safe
-    // -- same posture as MIGRATIONS[18]/[19]/[20]/[21]'s ?? tests.
+  it("preserves an already-present fabricator facility (idempotent ?? guard) but DROPS a legacy fabricateOrder (C6 v23->v24)", () => {
+    // Two behaviors on one fixture: (1) MIGRATIONS[22]'s `??` guard preserves an already-present
+    // fabricator facility level (not reset to the seed) -- the idempotent-guard property, same
+    // posture as MIGRATIONS[18]/[19]/[20]/[21]'s ?? tests. (2) A legacy fabricateOrder standing on
+    // the save is DROPPED by MIGRATIONS[23] (Task C6, v23->v24), which retires the single-order
+    // model -- so unlike the facility, the order does NOT survive the chain to the current version.
     const standingOrder = { blueprintKey: "frameSegmentBp", mode: { kind: "batch", remaining: 3 } };
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
@@ -2789,16 +2818,19 @@ describe("migrate — fabricator state backfill (v22 -> v23)", () => {
     };
     const save: SaveFile = { version: 22, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
     const migrated: any = migrate(save);
-    expect(migrated.facilities.fabricator).toEqual({ level: 4 }); // preserved, NOT reset to level 1
-    expect(migrated.fabricateOrder).toEqual(standingOrder); // existing order preserved, NOT wiped to null
+    expect(migrated.facilities.fabricator).toEqual({ level: 4 }); // preserved by MIGRATIONS[22]'s ?? guard, NOT reset to level 1
+    expect("fabricateOrder" in migrated).toBe(false); // legacy order dropped by C6's v23->v24 step, NOT preserved
+    expect(migrated.fabricateLines).toEqual([]);
   });
 
-  it("a v22->v23 migrated save re-serializes and reloads to the SAME fabricator shape (round-trip stable)", () => {
-    // Round-trip proof: migrate a genuine v22 save to v23, re-serialize it (now stamped
-    // SAVE_VERSION=23), then deserialize + migrate again (zero migration steps this time -- already
-    // current) and confirm the fabricator facility and fabricateOrder survive a normal save/load
-    // verbatim. Both carry NO Decimal, so they ride the JSON round-trip and the `...state` spread in
-    // hydrateDecimals untouched -- no revival needed.
+  it("a v22 migrated save re-serializes and reloads to the SAME fabricator shape (round-trip stable)", () => {
+    // Round-trip proof: migrate a genuine v22 save to the current version, re-serialize it (now
+    // stamped SAVE_VERSION), then deserialize + migrate again (zero migration steps this time --
+    // already current) and confirm the fabricator facility survives a normal save/load verbatim. It
+    // carries NO Decimal, so it rides the JSON round-trip and the `...state` spread in
+    // hydrateDecimals untouched -- no revival needed. The transient fabricateOrder:null that
+    // MIGRATIONS[22] seeds is dropped by MIGRATIONS[23] (Task C6, v23->v24), so it is absent on both
+    // passes -- verified below.
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 5000, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
@@ -2813,18 +2845,212 @@ describe("migrate — fabricator state backfill (v22 -> v23)", () => {
     const save: SaveFile = { version: 22, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
     const migratedOnce: any = migrate(save);
 
-    // Re-serialize the migrated v23 state and reload it (the normal autosave/load path).
+    // Re-serialize the migrated state and reload it (the normal autosave/load path).
     const reloaded = deserialize(serialize(migratedOnce, 0)) as SaveFile;
     expect(reloaded).not.toBeNull();
-    expect(reloaded!.version).toBe(SAVE_VERSION); // re-stamped at the current version (23)
+    expect(reloaded!.version).toBe(SAVE_VERSION); // re-stamped at the current version (24)
     const migratedTwice: any = migrate(reloaded);
 
     expect(migratedTwice.facilities.fabricator).toEqual({ level: 1 });
-    expect(migratedTwice.fabricateOrder).toBeNull();
+    expect("fabricateOrder" in migratedTwice).toBe(false); // dropped by C6's v23->v24 step
+    expect(migratedTwice.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 23", () => {
-    expect(SAVE_VERSION).toBe(23);
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
+  });
+});
+
+// Crafting Allocation Redesign (Task C6): the v23 -> v24 migration. Tasks C1-C5 RETIRED the single-
+// order refine/fabricate model (GameState.refineOrder/fabricateOrder, each *Order|null) and replaced
+// it with independent per-slot production LINES: freshState now seeds refineLines/fabricateLines
+// (CraftLine[], both []) plus nextCraftLineId (1). MIGRATIONS[23] does TWO things a shipped-v23 save
+// needs: (a) seed those three new line fields, and (b) DROP the two now-removed order keys via a
+// rest-destructure -- so even a v23 save still carrying a legacy standing order comes out CLEAN. This
+// is the FIRST migration in this file that removes keys as well as adding them (v4->v5 and v10->v11
+// moved fields, but did not strip a retired top-level nullable). NO hydration change is needed:
+// CraftLine carries NO Decimal (id/kind/recipeKey strings, remaining a plain number, mode a plain
+// object), so both arrays ride the `...rest` spread in hydrateDecimals untouched, exactly as the
+// Decimal-free `discovered` string[] does; any in-flight refine/fabricate job rides activeProcesses
+// (already migrated + hydrated). These tests mirror the v22->v23 (fabricator) block above (genuine-
+// old-save seed+drop / freshState parity / idempotent-defensive guard / round-trip), swapping in the
+// line fields and the dropped order keys.
+describe("migrate — production-lines backfill + legacy-order drop (v23 -> v24)", () => {
+  it("seeds empty refineLines/fabricateLines + nextCraftLineId 1 and DROPS legacy refineOrder/fabricateOrder on a genuine v23 save, leaving every other field untouched", () => {
+    // A genuine v23 shape: every Fabricator field present (facilities.fabricator + fabricateOrder,
+    // seeded by MIGRATIONS[22]) plus the refineOrder MIGRATIONS[19] seeds -- but NO refineLines/
+    // fabricateLines/nextCraftLineId (Crafting Allocation Redesign added those to freshState only on
+    // this feature branch, so a real shipped-v23 save has none). CRUCIALLY this fixture carries
+    // NON-NULL standing orders on BOTH refineOrder and fabricateOrder, to prove the drop clears real
+    // legacy order state (not just a null placeholder). Hand-written literal, same reasoning as every
+    // other legacy fixture here; realistic non-fresh progress proves the seeds don't clobber state.
+    const legacyRefineOrder = { recipeKey: "refineCommonOre", mode: { kind: "batch", remaining: 5 }, pausedReason: null };
+    const legacyFabricateOrder = { blueprintKey: "frameSegmentBp", mode: { kind: "continuous" }, pausedReason: "noInput" };
+    const legacyState: any = {
+      gameTimeSeconds: 12000,
+      tickDurationSeconds: 1,
+      credits: 5000,
+      unlockedHomeworldTalents: [],
+      fleetAdminXp: 400,
+      fleetAdminLevel: 5,
+      adminPoints: 3,
+      inventory: { commonOre: 1200, uncommonMaterial: 15, rareMaterial: 4, refinedMaterial: 30, components: 6 },
+      discovered: ["commonOre", "uncommonMaterial", "refinedMaterial"],
+      facilities: { refinery: { level: 2 }, warehouseT1: { level: 3 }, warehouseT2: { level: 1 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 } },
+      activeProcesses: [],
+      nextProcessId: 5,
+      ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+      shipStorageCapacity: 8,
+      nextShipId: 2,
+      refineOrder: legacyRefineOrder, // legacy standing order -- must be DROPPED
+      fabricateOrder: legacyFabricateOrder, // legacy standing order -- must be DROPPED
+      fuel: 500,
+      researchedBlueprints: ["frameSegmentBp"],
+      lifetimeStats: {
+        itemsGathered: { commonOre: 5000 }, itemsRefined: { refinedMaterial: 30 }, itemsCrafted: {},
+        missionsCompleted: { shortOreRun: 40 }, creditsEarned: 2000, captainXpAwarded: 3000, fleetAdminXpAwarded: 400,
+      },
+      captains: [
+        { id: 1, label: "Captain 1", xp: 600, level: 6, statPoints: 2, spec: null, unlockedCaptainTalents: [], mission: null },
+      ],
+      // no refineLines / fabricateLines / nextCraftLineId -- the real pre-v24 shape
+    };
+
+    const save: SaveFile = { version: 23, created_at: 0, last_saved_at: 0, game_time_seconds: 12000, state: legacyState };
+    const migrated: any = migrate(save);
+
+    // --- The jobs of MIGRATIONS[23]. ---
+    // (1) The three new line fields seeded to their fresh-idle values.
+    expect(migrated.refineLines).toEqual([]);
+    expect(migrated.fabricateLines).toEqual([]);
+    expect(migrated.nextCraftLineId).toBe(1);
+    // (2) BOTH legacy order keys DROPPED entirely -- the rest-destructure removes them, so the
+    // final v24 shape does not carry them even though the v23 fixture held non-null orders. This
+    // is the core C6 guarantee: retired single-order state cannot ride along into the line model.
+    expect("refineOrder" in migrated).toBe(false);
+    expect("fabricateOrder" in migrated).toBe(false);
+
+    // --- Pre-existing facilities ride through untouched (a spread bug would show here). ---
+    expect(migrated.facilities.refinery).toEqual({ level: 2 });
+    expect(migrated.facilities.warehouseT1).toEqual({ level: 3 });
+    expect(migrated.facilities.warehouseT2).toEqual({ level: 1 });
+    expect(migrated.facilities.fuelStorage).toEqual({ level: 0 });
+    expect(migrated.facilities.missionControl).toEqual({ level: 1 });
+    expect(migrated.facilities.research).toEqual({ level: 1 });
+    expect(migrated.facilities.fabricator).toEqual({ level: 1 });
+
+    // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
+    expect(migrated.inventory.commonOre.equals(1200)).toBe(true);
+    expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
+    expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp"]);
+    expect(migrated.nextProcessId).toBe(5);
+    expect(migrated.credits.equals(5000)).toBe(true);
+    expect(migrated.fuel instanceof Decimal).toBe(true);
+    expect(migrated.fuel.equals(500)).toBe(true);
+    expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(40)).toBe(true);
+    expect(migrated.captains[0].level).toBe(6);
+    expect(migrated.gameTimeSeconds).toBe(12000);
+  });
+
+  it("matches freshState() exactly for the new fields (a migrated v23 save and a fresh v24 game have the SAME line shape)", () => {
+    // Anti-regression parity: whatever freshState() seeds for refineLines / fabricateLines /
+    // nextCraftLineId, the migration must produce the IDENTICAL shape -- otherwise a returning
+    // player and a new player diverge on these fields. Builds a minimal v23 save (with the null
+    // orders a fresh shipped-v23 carried) and compares its migrated result against a live
+    // freshState().
+    const fresh = freshState();
+    const legacyState: any = {
+      gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
+      fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
+      inventory: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 },
+      discovered: [], facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 } },
+      activeProcesses: [], nextProcessId: 1,
+      ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+      shipStorageCapacity: 8, nextShipId: 2, refineOrder: null, fabricateOrder: null, fuel: 500, researchedBlueprints: [],
+      lifetimeStats: { itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {}, creditsEarned: 0, captainXpAwarded: 0, fleetAdminXpAwarded: 0 },
+      captains: [{ id: 1, label: "Captain 1", xp: 0, level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
+    };
+    const save: SaveFile = { version: 23, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
+    const migrated: any = migrate(save);
+
+    // The three new line fields: byte-identical to freshState's seeds.
+    expect(migrated.refineLines).toEqual(fresh.refineLines);
+    expect(migrated.fabricateLines).toEqual(fresh.fabricateLines);
+    expect(migrated.nextCraftLineId).toBe(fresh.nextCraftLineId);
+    // And the retired order keys are absent on BOTH the migrated old save and a brand-new game --
+    // freshState no longer carries them either, so the two shapes are indistinguishable here.
+    expect("refineOrder" in migrated).toBe(false);
+    expect("fabricateOrder" in migrated).toBe(false);
+    expect("refineOrder" in fresh).toBe(false);
+    expect("fabricateOrder" in fresh).toBe(false);
+  });
+
+  it("preserves already-present lines / nextCraftLineId rather than reseeding (idempotent defensive guard)", () => {
+    // Defense-in-depth for the `?? []` / `?? 1` seeds: a chained/hand-edited/partially-migrated save
+    // that already carries configured lines or a bumped id must keep them, not have them reset to the
+    // empty seed. Not reachable via a real shipped-v23 save (none has these keys), but the guard makes
+    // a re-run safe -- same posture as MIGRATIONS[18]/[19]/[20]/[21]/[22]'s ?? tests. The legacy order
+    // keys, even if still present here, are STILL dropped (the drop is unconditional).
+    const existingRefineLines = [{ id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 4, mode: { kind: "batch", remaining: 4 } }];
+    const legacyState: any = {
+      gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
+      fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
+      inventory: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 },
+      discovered: [], facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 } },
+      activeProcesses: [], nextProcessId: 1,
+      ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+      shipStorageCapacity: 8, nextShipId: 2, refineOrder: null, fabricateOrder: null, fuel: 500, researchedBlueprints: [],
+      refineLines: existingRefineLines, // already configured -- must survive
+      fabricateLines: [], nextCraftLineId: 7, // bumped id -- must survive
+      lifetimeStats: { itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {}, creditsEarned: 0, captainXpAwarded: 0, fleetAdminXpAwarded: 0 },
+      captains: [{ id: 1, label: "Captain 1", xp: 0, level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
+    };
+    const save: SaveFile = { version: 23, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
+    const migrated: any = migrate(save);
+    expect(migrated.refineLines).toEqual(existingRefineLines); // preserved, NOT reset to []
+    expect(migrated.nextCraftLineId).toBe(7); // preserved, NOT reset to 1
+  });
+
+  it("a v23 migrated save re-serializes and reloads to the SAME line shape (round-trip stable + plays)", () => {
+    // Round-trip proof: migrate a genuine v23 save to the current version, re-serialize it (now
+    // stamped SAVE_VERSION), then deserialize + migrate again (zero migration steps this time --
+    // already current) and confirm the line fields survive a normal save/load verbatim and the state
+    // still PLAYS (economyTick advances without throwing). CraftLine carries NO Decimal, so it rides
+    // the JSON round-trip and the `...state` spread in hydrateDecimals untouched -- no revival needed.
+    const legacyState: any = {
+      gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 5000, unlockedHomeworldTalents: [],
+      fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
+      inventory: { commonOre: 0, uncommonMaterial: 0, rareMaterial: 0, refinedMaterial: 0, components: 0 },
+      discovered: [], facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 } },
+      activeProcesses: [], nextProcessId: 1,
+      ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+      shipStorageCapacity: 8, nextShipId: 2, refineOrder: null, fabricateOrder: null, fuel: 500, researchedBlueprints: [],
+      lifetimeStats: { itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {}, creditsEarned: 0, captainXpAwarded: 0, fleetAdminXpAwarded: 0 },
+      captains: [{ id: 1, label: "Captain 1", xp: 0, level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
+    };
+    const save: SaveFile = { version: 23, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
+    const migratedOnce: any = migrate(save);
+
+    // Re-serialize the migrated state and reload it (the normal autosave/load path).
+    const reloaded = deserialize(serialize(migratedOnce, 0)) as SaveFile;
+    expect(reloaded).not.toBeNull();
+    expect(reloaded!.version).toBe(SAVE_VERSION); // re-stamped at the current version (24)
+    const migratedTwice: any = migrate(reloaded);
+
+    expect(migratedTwice.refineLines).toEqual([]);
+    expect(migratedTwice.fabricateLines).toEqual([]);
+    expect(migratedTwice.nextCraftLineId).toBe(1);
+    expect("refineOrder" in migratedTwice).toBe(false);
+    expect("fabricateOrder" in migratedTwice).toBe(false);
+
+    // PLAYS: a tick advances without throwing on the round-tripped state (empty lines stay empty).
+    const played = economyTick(migratedTwice, 1, () => 0.5);
+    expect(played.refineLines).toEqual([]);
+    expect(played.fabricateLines).toEqual([]);
+  });
+
+  it("current SAVE_VERSION is 24", () => {
+    expect(SAVE_VERSION).toBe(24);
   });
 });
 
@@ -2868,12 +3094,12 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 �
     const inFlightBefore = s.activeProcesses.filter((p) => p.kind === "fuelRefineJob").length;
     expect(inFlightBefore).toBeGreaterThan(0); // a real fuelRefineJob is now persisted in activeProcesses
 
-    // Round-trip at the CURRENT version. serialize() stamps SAVE_VERSION (23); deserialize() +
-    // migrate() run NO version steps (already 23), then hydrateDecimals().
+    // Round-trip at the CURRENT version. serialize() stamps SAVE_VERSION (24); deserialize() +
+    // migrate() run NO version steps (already 24), then hydrateDecimals().
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(23);
+    expect(save!.version).toBe(24);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the

@@ -44,10 +44,10 @@ import {
   type TimedProcess,
   type TimedProcessKind,
   type ProcessEffect,
-  type RefineOrder,
-  type RefineOrderMode,
-  type FabricateOrder,
-  type FabricateOrderMode,
+  // The single-order model (RefineOrder / FabricateOrder + their *Mode unions + the
+  // startRefineOrder/startFabricateOrder setters) is fully RETIRED as of Task C4 -- the
+  // per-slot production LINES (startLine/cancelLine, below) replace it. Nothing here
+  // imports the order types anymore.
   WAREHOUSE_T1_BASE_CAP,
   WAREHOUSE_T2_BASE_CAP,
   FUEL_TANK_BASE_CAP,
@@ -63,6 +63,14 @@ import {
   blueprintUnlocked,
 } from "./model";
 import { fuelNeeded } from "./fuel";
+// Crafting Allocation Redesign (Task C2): the per-slot line engine below reuses C1's
+// pure allocation core -- `lineInputsPerIteration` builds a line's per-iteration input
+// map from the recipe registries (the SAME map startRefineJob/startFabricateJob build
+// inline), and `CraftLine`/`CraftLineMode` are the line + run-mode shapes.
+// Crafting Allocation Redesign (Task C3): canStartLine's `materials` gate + the
+// maxAffordableIterations cap both read `freeItem` (inventory MINUS what active lines
+// already reserved) so a new line can only reserve from the currently-free pool.
+import { lineInputsPerIteration, freeItem, type CraftLine, type CraftLineKind, type CraftLineMode } from "./allocation";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
 // there's no compiler link between this array and the union type, so a 6th
@@ -1497,62 +1505,54 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   );
   fleetAdminXpDelta += processFleetAdminXpDelta;
 
-  // Phase 2, Task D1: process the standing refine ORDER (if any) AFTER
-  // resolveProcesses -- so a refine slot freed by a job COMPLETING this tick is
-  // immediately refillable this SAME tick (no idle gap for a continuous order). The
-  // order starts new jobs into every free slot while unblocked; a job it starts here
-  // is a fresh TimedProcess that begins advancing on the NEXT economyTick (its
-  // remainingTicks are untouched by the resolveProcesses that already ran above),
-  // exactly as a manually-started startRefineJob would. processRefineOrder reads the
-  // SAME materialAtCap cap seam the mission/trickle auto-stop uses, so "output full"
-  // pauses are consistent fleet-wide. A same-reference no-op when there is no order,
-  // so a call with no order lands byte-identical to before this task. It touches only
-  // inventory/activeProcesses/refineOrder -- no FA XP -- so it composes cleanly before
-  // the final applyFleetAdminXp pass below. Because it lives HERE inside economyTick,
-  // it runs identically on the live path (App.svelte per bar) and the offline path
-  // (tick() steps economyTick(_,1) per tick) -- the same one-seam guarantee Task B3's
-  // auto-stop relies on.
-  const postOrderState = processRefineOrder(postProcessState);
+  // Crafting Allocation Redesign (Task C2): process the per-slot REFINE production LINES
+  // AFTER resolveProcesses -- so a slot freed by a job COMPLETING this tick is immediately
+  // refillable this SAME tick (no idle gap for a continuous line). REPLACES the retired
+  // single-order processRefineOrder at the EXACT same seam. Each line starts at most one
+  // fresh job (one slot per line); a job it starts here is a fresh TimedProcess that begins
+  // advancing on the NEXT economyTick (its remainingTicks untouched by the resolveProcesses
+  // that already ran above), exactly as a manually-started startRefineJob would.
+  // processRefineLines reads the SAME materialAtCap cap seam the mission/trickle auto-stop
+  // uses. A same-reference no-op when there are no refine lines, so a call with none lands
+  // byte-identical to before this task. It touches only inventory/activeProcesses/
+  // refineLines -- no FA XP -- so it composes cleanly before the final applyFleetAdminXp
+  // pass below. Living HERE inside economyTick is what makes it run identically on the live
+  // path (App.svelte per bar) and the offline path (tick() steps economyTick(_,1) per tick)
+  // -- the one-seam offline==live guarantee, now over multiple lines (see the C2 parity test).
+  const postRefineLinesState = processRefineLines(postProcessState);
 
-  // Fabricator (Phase 4, Task F2): process the standing fabricate ORDER (if any) at the
-  // SAME per-tick seam as the refine order -- AFTER resolveProcesses (a fabricate slot
-  // freed by a job COMPLETING this tick is refillable this same tick) and AFTER
-  // processRefineOrder (so a fabricate craft can consume refined materials the refine
-  // order just produced/started this tick; the two are independent -- fabricate jobs count
-  // against fabricateSlotCount, refine jobs against refineSlotCount; both share
-  // activeProcesses but neither gates the other). It starts new fabricate jobs into every
-  // free fabricate slot while unblocked; a job it starts here is a fresh TimedProcess that
-  // begins advancing on the NEXT economyTick (its remainingTicks untouched by the
-  // resolveProcesses that already ran above), exactly as processRefineOrder's jobs do. It
-  // touches only inventory/activeProcesses/fabricateOrder -- no FA XP -- so it composes
-  // cleanly before the final applyFleetAdminXp pass below. A same-reference no-op when
-  // there is no order. Stepped per WHOLE tick here (economyTick is called with span 1 by
-  // the offline loop), so tick(bigSpan) == looping economyTick(_,1) for fabrication too --
-  // the SAME one-seam offline==live guarantee the refine order relies on.
-  const postFabricateState = processFabricateOrder(postOrderState);
+  // Process the per-slot FABRICATE production LINES at the SAME per-tick seam, AFTER
+  // resolveProcesses (a fabricate slot freed this tick is refillable this tick) and AFTER
+  // processRefineLines (so a fabricate line can consume refined materials a refine line
+  // just produced/started this tick; the two are independent -- each bounded by its own
+  // facility's slot count, sharing activeProcesses but neither gating the other). Mirrors
+  // processRefineLines exactly (shared per-line stepper). A same-reference no-op when there
+  // are no fabricate lines. Stepped per WHOLE tick here, so tick(bigSpan) == looping
+  // economyTick(_,1) for fabrication too -- the SAME one-seam guarantee.
+  const postFabricateLinesState = processFabricateLines(postRefineLinesState);
 
   // Fuel Economy v2 (F2): run the Fuel Depot's auto-refine pipelines AFTER
   // resolveProcesses (so a fuelRefineJob completing this tick frees its pipeline slot to
-  // refill same-tick) and after processRefineOrder / processFabricateOrder (independent --
+  // refill same-tick) and after processRefineLines / processFabricateLines (independent --
   // fuel batches count against fuelPipelineCount, refine jobs against refineSlotCount,
   // fabricate jobs against fabricateSlotCount; all share activeProcesses but none gates the
   // others). It reads the CURRENT tank (post mission-spend + post batch-deposits) and
-  // CURRENT ice (post mission-loot + post refine-order consumption), starts batches into
+  // CURRENT ice (post mission-loot + post refine-line consumption), starts batches into
   // free pipeline slots while the tank has room + ice, and is a same-reference no-op when
   // the depot runs no pipeline. Living HERE inside economyTick is what makes it run
   // identically live and offline (tick() steps economyTick(_,1) per tick) -- the one-seam
   // parity guarantee.
-  const postFuelState = processFuelPipelines(postFabricateState);
+  const postFuelState = processFuelPipelines(postFabricateLinesState);
 
   // applyFleetAdminXp wraps the final state -- it runs AFTER BOTH the captain loop
   // (mission FA XP) and resolveProcesses (process FA XP) have contributed to
   // fleetAdminXpDelta, so every FA XP source this call resolves through the one
-  // level-up pass. It does not touch inventory/facilities/activeProcesses/refineOrder/
-  // fabricateOrder/fuel -- the loot fold + resolveProcesses + processRefineOrder +
-  // processFabricateOrder + processFuelPipelines above already produced their final values
+  // level-up pass. It does not touch inventory/facilities/activeProcesses/refineLines/
+  // fabricateLines/fuel -- the loot fold + resolveProcesses + processRefineLines +
+  // processFabricateLines + processFuelPipelines above already produced their final values
   // on postFuelState. Threaded through postFuelState so every engine's newly-started jobs
-  // ride into the returned state; with no order/fabricate-order and no depot pipeline
-  // postFuelState === postProcessState, so this is byte-identical to before those features.
+  // ride into the returned state; with no lines and no depot pipeline postFuelState ===
+  // postProcessState, so this is byte-identical to before those features.
   // (Fuel batches + fabricate jobs award NO FA XP -- see resolveProcesses.)
   return applyFleetAdminXp(postFuelState, fleetAdminXpDelta);
 }
@@ -1926,8 +1926,8 @@ export function buyShip(
 }
 
 // (craftRecipe -- the legacy INSTANT Homeworld craft action -- was RETIRED in
-// Phase 4, Task F5. The timed Fabricator engine (startFabricateOrder /
-// processFabricateOrder, below) fully replaces it, feeding the SAME
+// Phase 4, Task F5. The timed Fabricator engine (now the per-slot production-LINE
+// engine, processFabricateLines below) fully replaces it, feeding the SAME
 // lifetimeStats.itemsCrafted tally on craft completion.)
 
 // ============================================================================
@@ -1970,12 +1970,20 @@ export function buyShip(
 // clone (NOT routed through addToInventory) -- exactly as craftRecipe deducts its
 // recipe inputs. Only the process OUTPUT (granted later, in resolveProcesses)
 // goes through the discovery-marking add seam.
+// `lineId` (Crafting Allocation Redesign, Task C2): OPTIONAL owning-line id, stamped
+// onto the created TimedProcess so the per-slot line engine can match a job back to
+// its line (one in-flight job per line). OMITTED by every existing caller (manual
+// refine/fabricate jobs, facility upgrades, fuel batches, research) -- when undefined
+// the field is left OFF the process entirely (not set to undefined), so those
+// processes are byte-identical to before this param existed and a deep-equal parity
+// snapshot is unaffected.
 export function startProcess(
   state: GameState,
   kind: TimedProcessKind,
   inputs: Record<string, Decimal>,
   durationTicks: number,
-  effect: ProcessEffect
+  effect: ProcessEffect,
+  lineId?: string
 ): { next: GameState; started: boolean } {
   // Gate: EVERY input must be affordable. An absent inventory key reads as 0
   // (grow-on-demand contract, same as addToInventory) -- so requiring a
@@ -2005,6 +2013,10 @@ export function startProcess(
     remainingTicks: durationTicks,
     durationTicks,
     effect,
+    // Only attach lineId when a caller supplied one (the line engine), via
+    // conditional spread -- so a non-line process carries NO lineId key at all,
+    // keeping it identical to a pre-C2 process for deep-equal snapshots.
+    ...(lineId !== undefined ? { lineId } : {}),
   };
 
   return {
@@ -2869,146 +2881,408 @@ export function startRefineJob(
 // Refine ORDER engine (Phase 2, Task D1)
 // (docs/plans/2026-07-13-phase-2-warehouse-refine-economy-design.md §4).
 //
-// A refine ORDER is a STANDING instruction that keeps starting single refine JOBS
-// (via startRefineJob -- NO duplicated job-creation logic) every economyTick until
-// its work is done or a block hits. It is the batch/continuous layer ON TOP of Phase
-// 1's single-job startRefineJob, not a replacement for it.
-//
-// THREE functions:
-//   - startRefineOrder(state, recipeKey, mode): set/replace the active order (pure).
-//   - stopRefineOrder(state): clear the active order (pure) -- D2's cancellation path
-//     builds on this basic clear.
-//   - processRefineOrder(state): the per-tick engine, called by economyTick above.
+// The standing single-order model (startRefineOrder / stopRefineOrder and their
+// Fabricator twins) was RETIRED in Task C4. The per-slot production LINE engine below
+// (startLine / cancelLine + processRefineLines / processFabricateLines) replaces it
+// entirely: independent lines, one per occupied slot, with DERIVED allocation.
 // ============================================================================
 
-// Sets (or REPLACES) the fleet's standing refine order. PURE: returns a NEW state
-// with refineOrder set, or the SAME reference (no-op) if recipeKey is unknown -- the
-// reject convention startRefineJob/startProcess share, so a bad key can never install
-// an order that could never run. pausedReason is intentionally ABSENT on a fresh
-// order (it is "running" until processRefineOrder proves otherwise on the next tick).
-// Replacing an existing order simply overwrites the record; any JOBS the previous
-// order already started stay in flight (they are committed TimedProcesses, not owned
-// by the order record). The D4 UI calls this; tests call it directly.
-export function startRefineOrder(
+// ============================================================================
+// Per-slot production LINE engine (Crafting Allocation Redesign, Task C2)
+// (docs/plans/2026-07-16-crafting-allocation-redesign-design.md §2).
+//
+// REPLACES the retired single-order engine (processRefineOrder / processFabricateOrder,
+// removed this task) with INDEPENDENT per-slot lines. The key structural change: the
+// old engine ran ONE order that filled EVERY free slot of a facility with the SAME
+// recipe; the new engine runs an ARRAY of lines, each owning AT MOST ONE in-flight job
+// (one slot per line), so a 3-slot facility can run 3 DIFFERENT recipes concurrently.
+// Parallelism now comes from HAVING multiple lines, not from one order fanning out.
+//
+// Everything else is the SAME closed-form, once-per-tick machinery the orders used --
+// startProcess's atomic deduct-at-start, resolveProcesses' unchanged completion (addItem
+// + itemsRefined/itemsCrafted), the materialAtCap storage-cap stop -- so offline==live
+// parity holds for the exact same reason: economyTick steps these processors ONCE per
+// whole tick (tick() loops economyTick(_,1)), and allocation is DERIVED from the lines
+// (no stored ledger, no new parity surface).
+//
+// TWO facility processors (processRefineLines / processFabricateLines) share ONE
+// per-line stepper (stepCraftLine) + one loop (runCraftLines); plus the line lifecycle
+// actions startLine / cancelLine. The stepper is kind-agnostic (it branches on
+// line.kind for the registry lookup), but each processor only ever passes its OWN
+// facility's array, so a refine line and a fabricate line never mix.
+// ============================================================================
+
+// The recipe-derived job parameters for ONE iteration of a line: the inputs to consume
+// (reusing C1's lineInputsPerIteration -- the SAME map startRefineJob/startFabricateJob
+// build inline), the output item + amount to grant on completion, the craft duration,
+// and the TimedProcess kind. Returns null for an unknown/corrupt recipeKey (a hand-
+// edited/older save) so the caller leaves the line inert rather than throwing -- the
+// exact defensive posture the retired orders' `if (!recipe) return state` guard had.
+interface CraftLineJobSpec {
+  inputs: Record<string, Decimal>;
+  outputItemId: string;
+  outputAmount: Decimal;
+  durationTicks: number;
+  jobKind: TimedProcessKind;
+}
+function lineJobSpec(line: CraftLine): CraftLineJobSpec | null {
+  const inputs = lineInputsPerIteration(line); // C1 helper: {} for an unknown recipe
+  if (line.kind === "refine") {
+    const recipe = REFINE_RECIPES[line.recipeKey];
+    if (!recipe) return null; // unknown refine recipe -> inert line
+    return {
+      inputs,
+      outputItemId: recipe.output.itemId,
+      outputAmount: recipe.output.amount,
+      durationTicks: recipe.durationTicks,
+      jobKind: "refineJob",
+    };
+  }
+  // kind === "fabricate"
+  const bp = BLUEPRINTS[line.recipeKey];
+  if (!bp) return null; // unknown blueprint -> inert line
+  return {
+    inputs,
+    outputItemId: bp.recipe.outputItem,
+    outputAmount: new Decimal(bp.recipe.outputQty), // recipe.outputQty is a plain number
+    durationTicks: bp.craftDurationTicks,
+    jobKind: "fabricateJob",
+  };
+}
+
+// Advances ONE line by (at most) one tick's worth of work, returning the state after
+// any job it started AND the line's next value (null = REMOVE the line this tick). It
+// enforces the core per-line invariant -- AT MOST ONE in-flight job per line -- and the
+// same storage-cap / affordability stops the retired order used, minus the pausedReason
+// bookkeeping (lines have no pause-reason field in C2; a blocked line simply survives
+// unchanged and retries next tick). PURE: no mutation; the returned `next` is a fresh
+// state when a job started, else the same reference.
+function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; line: CraftLine | null } {
+  const spec = lineJobSpec(line);
+  if (spec === null) {
+    // Unknown/corrupt recipe on a persisted line: keep it inert (survives), start
+    // nothing -- never throw on `undefined.output`. Mirrors the orders' corrupt guard.
+    return { next: state, line };
+  }
+
+  // ONE in-flight job per line: if this line already owns a running job (matched by the
+  // lineId startProcess stamped), its single slot is BUSY -- do nothing this tick. The
+  // line survives, waiting for resolveProcesses to complete that job (which runs BEFORE
+  // this processor each economyTick, so the slot is refillable the SAME tick it frees).
+  const hasInFlightJob = state.activeProcesses.some((p) => p.lineId === line.id);
+  if (hasInFlightJob) return { next: state, line };
+
+  // No in-flight job. A BATCH line whose `remaining` has reached 0 has therefore
+  // finished its LAST iteration (its final job already completed -- otherwise
+  // hasInFlightJob above would be true) -> REMOVE it. A CONTINUOUS line never reaches
+  // this stop: its `remaining` is held at 1 and never decremented (see below).
+  if (line.mode.kind === "batch" && line.remaining <= 0) {
+    return { next: state, line: null };
+  }
+
+  // Output at its warehouse cap -> this line makes no progress this tick (survives,
+  // starts nothing). The SAME materialAtCap seam missions/trickle/the retired orders
+  // stop on. startRefineJob does NOT itself check the cap (the retired order checked it
+  // externally, as we do here); startFabricateJob's canFabricate would, but we check
+  // here for BOTH kinds uniformly so refine + fabricate lines behave identically.
+  if (materialAtCap(state, spec.outputItemId)) {
+    return { next: state, line };
+  }
+
+  // Start this iteration's job via startProcess directly (NOT startRefineJob/
+  // startFabricateJob -- those apply a facility-wide slot gate that would double-count
+  // sibling lines' fresh jobs, and we need to stamp the owning lineId). startProcess
+  // applies the FINAL affordability gate + the atomic deduct-at-start; the line's own
+  // reservation guarantees affordability, so `started:false` here is a defensive
+  // backstop (short inputs -> the line simply waits and retries). The completion effect
+  // is the SAME shared addItem startRefineJob/startFabricateJob use, so resolveProcesses
+  // grants the output + bumps itemsRefined/itemsCrafted with NO new branch.
+  const { next, started } = startProcess(
+    state,
+    spec.jobKind,
+    spec.inputs,
+    spec.durationTicks,
+    { type: "addItem", itemId: spec.outputItemId, amount: spec.outputAmount },
+    line.id
+  );
+  if (!started) return { next: state, line }; // unaffordable right now -> line waits
+
+  // Job started -> one not-yet-started iteration has left the allocation basis. For a
+  // BATCH line, decrement BOTH `remaining` and `mode.remaining` in ONE construction so
+  // they cannot drift (see CraftLineMode's ⚠️ note). For a CONTINUOUS line, `remaining`
+  // stays 1 -- it always reserves its next queued iteration and never counts down.
+  if (line.mode.kind === "batch") {
+    const nextRemaining = line.remaining - 1;
+    return { next, line: { ...line, remaining: nextRemaining, mode: { kind: "batch", remaining: nextRemaining } } };
+  }
+  return { next, line };
+}
+
+// Steps every line in one facility's array, threading state immutably through each
+// (so a job started by an earlier line is visible to a later line's affordability gate
+// this same tick) and dropping any line stepCraftLine removed (returned null). Bounded
+// work: at most one job start per line per call, and the array length is capped at the
+// facility's slot count (startLine) -- so no Omega-14 unbounded-loop concern even across
+// a 172,800-tick offline catch-up (it runs once per LINE, not once per tick).
+function runCraftLines(state: GameState, lines: CraftLine[]): { next: GameState; lines: CraftLine[] } {
+  let working = state;
+  const nextLines: CraftLine[] = [];
+  for (const line of lines) {
+    const stepped = stepCraftLine(working, line);
+    working = stepped.next;
+    if (stepped.line !== null) nextLines.push(stepped.line);
+  }
+  return { next: working, lines: nextLines };
+}
+
+// The per-tick REFINE line engine, called ONCE per economyTick (AFTER resolveProcesses,
+// so a slot freed by a job completing this tick is refillable the same tick). PURE:
+// returns a NEW state, or the SAME reference when there are no refine lines (the
+// same-ref no-op the retired processRefineOrder had for a null order). `?? []` tolerates
+// a pre-C6 save that predates the field (defensive; freshState always seeds []).
+export function processRefineLines(state: GameState): GameState {
+  const lines = state.refineLines ?? [];
+  if (lines.length === 0) return state; // no lines -> same-reference no-op
+  const { next, lines: nextLines } = runCraftLines(state, lines);
+  return { ...next, refineLines: nextLines };
+}
+
+// The per-tick FABRICATE line engine -- the EXACT mirror of processRefineLines for the
+// Fabricator's array. Shares stepCraftLine/runCraftLines (kind-agnostic); differs ONLY
+// in which facility array it reads/writes. Called at the SAME economyTick seam, AFTER
+// processRefineLines (so a fabricate line can consume refined materials a refine line
+// produced/started this tick -- the two are independent, each bounded by its own
+// facility's slot count).
+export function processFabricateLines(state: GameState): GameState {
+  const lines = state.fabricateLines ?? [];
+  if (lines.length === 0) return state; // no lines -> same-reference no-op
+  const { next, lines: nextLines } = runCraftLines(state, lines);
+  return { ...next, fabricateLines: nextLines };
+}
+
+// ============================================================================
+// Line-start gate + affordable-now cap (Crafting Allocation Redesign, Task C3,
+// plan §C3). Two PURE readers the C4 configurator UI leans on:
+//   - maxAffordableIterations : the quantity cap the UI clamps its amount field to.
+//   - canStartLine            : the typed-reason gate the UI shows on a disabled Start.
+// Both mirror the Fabricator's canFabricate idiom (typed reason, gate-order-defined
+// precedence, pure predicate). startLine (below) delegates ALL its guards here, so the
+// line engine and the UI share ONE definition of "can this line start right now?".
+// ============================================================================
+
+// maxAffordableIterations(state, kind, recipeKey): the largest WHOLE iteration count
+// that can be reserved from FREE stock RIGHT NOW =
+//   min over each recipe input of  floor( free[item] / perIteration[item] ).
+//
+// The crucial word is FREE, not raw inventory: `freeItem` subtracts what the ACTIVE
+// lines already reserved, so a second line can never double-book units an existing line
+// is holding. This is the affordable-now quantity cap the C4 amount field clamps to, and
+// the number canStartLine's `materials` gate compares the requested count against.
+//
+// Returns 0 when any input's free is below one iteration (the floor is 0, so the min is
+// 0), or when the recipe is unknown / has no inputs (nothing to reserve against -> 0,
+// NOT an unbounded cap). PURE: reads state.inventory + both line arrays + the static
+// registries via lineInputsPerIteration; mutates nothing.
+export function maxAffordableIterations(
   state: GameState,
+  kind: CraftLineKind,
+  recipeKey: string
+): number {
+  // Inputs consumed by ONE iteration of this recipe. Reuse the SAME per-iteration map the
+  // allocation core builds, fed a PROBE line carrying only the two fields it reads
+  // (kind + recipeKey); the other CraftLine fields are inert for this lookup. An unknown
+  // recipe yields {} (lineInputsPerIteration's defensive empty map).
+  const probe: CraftLine = { id: "", kind, recipeKey, remaining: 0, mode: { kind: "continuous" } };
+  const perIteration = lineInputsPerIteration(probe);
+  const inputItems = Object.keys(perIteration);
+
+  // No inputs (unknown recipe, or a genuinely input-less recipe): there is nothing to
+  // reserve against, so there is no affordable-now quantity -> 0 (the gate reads 0 as
+  // "cannot start any"), deliberately NOT an unbounded cap.
+  if (inputItems.length === 0) return 0;
+
+  // FREE (inventory - already-reserved), across BOTH facilities' lines: the reservable
+  // pool a NEW line draws from. `?? []` guards a pre-C2 state shape defensively.
+  const allLines = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
+
+  // min over inputs of floor(free / perUnit). Accumulate as a Decimal (break_infinity)
+  // because free stock can exceed Number range; convert once at the end.
+  let cap: Decimal | null = null;
+  for (const itemId of inputItems) {
+    const perUnit = perIteration[itemId];
+    // A non-positive per-unit amount would divide-by-zero / be meaningless; skip it so it
+    // contributes no bound (defensive -- real recipes carry positive input amounts).
+    if (perUnit.lte(0)) continue;
+    const free = freeItem(state.inventory, allLines, itemId);
+    const iterations = free.div(perUnit).floor(); // whole iterations THIS input can fund
+    cap = cap === null ? iterations : Decimal.min(cap, iterations);
+  }
+
+  // Every input had a non-positive per-unit amount (degenerate recipe) -> no real bound -> 0.
+  if (cap === null) return 0;
+  if (cap.lte(0)) return 0;
+
+  // Convert the Decimal bound to a plain integer count. break_infinity can hold values far
+  // beyond Number range, so guard: a non-finite / oversized cap clamps to MAX_SAFE_INTEGER
+  // (still a finite, usable integer for the UI's amount field). floor is belt-and-suspenders
+  // on top of the Decimal .floor() above.
+  const n = cap.toNumber();
+  if (!isFinite(n) || n > Number.MAX_SAFE_INTEGER) return Number.MAX_SAFE_INTEGER;
+  return Math.floor(n);
+}
+
+// StartLineBlockReason: the typed reason canStartLine returns when a line CANNOT start.
+// A string union (not a numeric enum) so it serializes/logs as a readable token and the
+// C4 configurator can switch on it exhaustively to render a disabled Start with its cause.
+// DELIBERATELY parallels FabricateBlockReason; the ORDER mirrors canStartLine's gate order:
+//   notFound      -- the key names no recipe/blueprint in the kind's registry
+//   notResearched -- FABRICATE only: the blueprint is not unlocked (blueprintUnlocked false)
+//   tierLocked    -- FABRICATE only: BLUEPRINTS[key].tier > the fabricator facility level
+//   noSlot        -- the kind's lines array already fills its slot count (one line per slot)
+//   invalidCount  -- the requested count is not a positive integer
+//   materials     -- count exceeds maxAffordableIterations (can't reserve that many from free)
+//   storageFull   -- the output item is at its warehouse storage cap (materialAtCap)
+// notResearched + tierLocked are a FABRICATE-ONLY subset: refine recipes carry no research
+// or tier gate (a refine recipe is always available once the refinery is built), so a refine
+// line can never surface those two reasons.
+export type StartLineBlockReason =
+  | "notFound"
+  | "notResearched"
+  | "tierLocked"
+  | "noSlot"
+  | "invalidCount"
+  | "materials"
+  | "storageFull";
+
+// canStartLine(state, kind, recipeKey, count): THE single consolidated line-start gate.
+// Pure predicate mirroring canFabricate -- reads state + the static registries + the derived
+// slot counts, mutates nothing, spends nothing. The ONE source of truth for "can this line
+// start right now?": startLine (below) calls it and does nothing else gate-wise, and the C4
+// UI calls it directly to render each Start button (enabled, or disabled with the reason).
+//
+// GATE ORDER is deliberate (cheapest/most-fundamental first) and determines WHICH reason
+// surfaces when several fail at once (ok itself is order-independent -- all must pass):
+// identity (notFound) -> ownership (notResearched, fabricate) -> tier unlock (tierLocked,
+// fabricate) -> concurrency (noSlot) -> count validity (invalidCount) -> resource (materials)
+// -> storage (storageFull). This consolidates C2's inline startLine guards (recipe existence
+// / count / slot) and ADDS the research/tier/affordability/storage gates canFabricate carries.
+export function canStartLine(
+  state: GameState,
+  kind: CraftLineKind,
   recipeKey: string,
-  mode: RefineOrderMode
-): GameState {
-  if (!REFINE_RECIPES[recipeKey]) return state; // unknown recipe -> same-reference no-op
-  return { ...state, refineOrder: { recipeKey, mode } };
-}
+  count: number
+): { ok: true } | { ok: false; reason: StartLineBlockReason } {
+  // --- Identity: the key must name a real recipe/blueprint in THIS kind's registry.
+  // Checked first so every later gate can safely read the def.
+  if (kind === "refine") {
+    if (!REFINE_RECIPES[recipeKey]) return { ok: false, reason: "notFound" };
+  } else {
+    if (!BLUEPRINTS[recipeKey]) return { ok: false, reason: "notFound" };
+  }
 
-// Clears the standing refine order (refineOrder -> null). PURE. Idempotent: clearing
-// when there is no order returns the SAME reference. Does NOT touch activeProcesses --
-// a job the order already started is a committed process that runs to completion
-// (design §4.3: the in-progress iteration commits; only the queued REMAINDER is
-// dropped). D2 layers its full cancellation rules on this basic clear.
-export function stopRefineOrder(state: GameState): GameState {
-  if (state.refineOrder === null) return state;
-  return { ...state, refineOrder: null };
-}
-
-// The per-tick refine-order engine, called ONCE per economyTick (AFTER
-// resolveProcesses, so a slot freed by a job COMPLETING this tick is immediately
-// refillable this same tick -- no idle gap for a continuous order). PURE: returns a
-// NEW state, or the SAME reference when there is no order to process.
-//
-// Each call fills EVERY currently-free refine slot with a new job while the order is
-// unblocked, then records why it stopped:
-//   - FREE SLOTS = refineSlotCount - (refine jobs already in flight). Filling only up
-//     to the slot count is what caps an order at refineSlotCount parallel jobs.
-//   - OUTPUT FULL: the recipe's output material is at its warehouse cap
-//     (materialAtCap -- the SAME cap seam missions/trickle auto-stop on) -> pause
-//     "outputFull". Checked BEFORE inputs so a full output is the reported reason even
-//     if inputs also happen to be short (the storage block is the more specific one).
-//   - NO INPUT: inputs unaffordable -> pause "noInput".
-//   - SLOTS BUSY (all slots occupied, work remains): NOT a pause -- the order is
-//     actively working, just at capacity -- so pausedReason is left CLEARED.
-//   - BATCH DONE: a batch order whose `remaining` reaches 0 CLEARS (-> null).
-//
-// AUTO-RESUME is STRUCTURAL: pausedReason starts undefined each call and is only set
-// if a block is hit THIS tick, so the tick a block lifts (input arrives / cap frees)
-// the order starts jobs again and records no pausedReason -- no explicit un-pause.
-//
-// Bounded work: it starts at most refineSlotCount (<= a few) jobs per call, so the
-// inner loop is tightly bounded -- no Omega-14 unbounded-loop concern even across a
-// 172,800-tick offline catch-up (the loop runs once per free slot, not once per tick).
-export function processRefineOrder(state: GameState): GameState {
-  const order = state.refineOrder;
-  if (order === null) return state; // no order -> same-reference no-op
-
-  // Unknown recipe on a persisted/corrupted order -> leave it untouched rather than
-  // throw on `undefined.input`/`undefined.output`. startRefineOrder guards NEW orders,
-  // so this only shields a hand-edited/older save; no progress, and no pause reason is
-  // invented (there is no mechanically meaningful reason to surface).
-  const recipe = REFINE_RECIPES[order.recipeKey];
-  if (!recipe) return state;
-
-  let working = state;                    // threaded immutably as each startRefineJob returns fresh state
-  let mode = order.mode;                  // batch mode's `remaining` is decremented per started job
-  let pausedReason: "noInput" | "outputFull" | undefined = undefined;
-
-  // Start jobs until: batch exhausted (clears), all slots busy (stop, no pause), or a
-  // block hits (output full / no input -> pause with the reason).
-  while (true) {
-    // Batch exhausted -> the order is complete; clear it (-> null) and return.
-    if (mode.kind === "batch" && mode.remaining <= 0) {
-      return { ...working, refineOrder: null };
-    }
-
-    // A free slot must exist to start another job. All slots busy is NOT a pause (the
-    // order is working at capacity), so we stop WITHOUT setting pausedReason. This is
-    // the SAME slot accounting startRefineJob's own gate uses.
-    const activeRefineJobs = working.activeProcesses.filter((p) => p.kind === "refineJob").length;
-    if (activeRefineJobs >= refineSlotCount(working)) break;
-
-    // Output at its warehouse cap -> pause "outputFull" (checked before inputs).
-    if (materialAtCap(working, recipe.output.itemId)) {
-      pausedReason = "outputFull";
-      break;
-    }
-
-    // Inputs unaffordable -> pause "noInput". The SAME affordability test startProcess
-    // applies (an absent inventory key reads as 0), read HERE so the pause reason is
-    // known BEFORE delegating -- startRefineJob alone would only report started:false,
-    // never WHY (slot-busy vs. unaffordable are indistinguishable from its return).
-    let affordable = true;
-    for (const itemId of Object.keys(recipe.input)) {
-      const have = working.inventory[itemId] ?? new Decimal(0);
-      if (have.lt(recipe.input[itemId])) {
-        affordable = false;
-        break;
-      }
-    }
-    if (!affordable) {
-      pausedReason = "noInput";
-      break;
-    }
-
-    // All gates pass -> start ONE job via the SHARED startRefineJob (atomic
-    // deduct-at-start + process push -- no duplicated job-creation logic). Its own
-    // slot/afford gates re-check the same conditions and cannot reject here (we just
-    // verified them), but if it ever did, the defensive `!started` break below
-    // guarantees the loop still terminates rather than spinning forever.
-    const { next, started } = startRefineJob(working, order.recipeKey);
-    if (!started) break;
-    working = next;
-
-    // One batch iteration consumed. A continuous order carries no counter to decrement.
-    if (mode.kind === "batch") {
-      mode = { kind: "batch", remaining: mode.remaining - 1 };
+  // --- Ownership + tier (FABRICATE ONLY): a blueprint must be RESEARCHED and its tier must
+  // be reached by the fabricator's level -- the SAME two gates canFabricate applies. Refine
+  // recipes have neither gate, so a refine line skips this block entirely (these reasons are
+  // a fabricate-only subset of StartLineBlockReason).
+  if (kind === "fabricate") {
+    if (!blueprintUnlocked(state, recipeKey)) return { ok: false, reason: "notResearched" };
+    if (BLUEPRINTS[recipeKey].tier > facilityLevel(state, FABRICATOR_FACILITY_KEY)) {
+      return { ok: false, reason: "tierLocked" };
     }
   }
 
-  // Write back the (possibly decremented) mode + this tick's pausedReason. A batch
-  // that hit `remaining` 0 exactly on its last start is cleared by the top-of-loop
-  // check on the very next iteration, so it never reaches here with remaining 0 --
-  // this path is only taken on a slot-busy stop (no pause) or a block (with a reason).
-  const nextOrder: RefineOrder =
-    pausedReason === undefined
-      ? { recipeKey: order.recipeKey, mode }
-      : { recipeKey: order.recipeKey, mode, pausedReason };
-  return { ...working, refineOrder: nextOrder };
+  // --- Concurrency: one line per slot. A NEW line needs a free slot: the kind's current
+  // line count must be below the facility's derived slot count. EXACT mirror of C2 startLine's
+  // slot guard (and canFabricate's noSlot, though that counts in-flight jobs -- lines here).
+  const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
+  const slotCount = kind === "refine" ? refineSlotCount(state) : fabricateSlotCount(state);
+  if (lines.length >= slotCount) return { ok: false, reason: "noSlot" };
+
+  // --- Count validity: a line must order a WHOLE, POSITIVE number of iterations. Guards a
+  // continuous line's implicit 1 (always valid) and a batch line's configured count.
+  if (!Number.isInteger(count) || count <= 0) return { ok: false, reason: "invalidCount" };
+
+  // --- Resource: the requested count must be reservable NOW from FREE stock (inventory minus
+  // what active lines already reserved). maxAffordableIterations is that affordable-now cap;
+  // asking for more than it means the units aren't currently reservable -> materials.
+  if (count > maxAffordableIterations(state, kind, recipeKey)) {
+    return { ok: false, reason: "materials" };
+  }
+
+  // --- Storage: the OUTPUT item must not already be at its warehouse cap (AT the cap counts
+  // as full -- the SAME materialAtCap seam canFabricate/missions/trickle stop on). Refine
+  // outputs a { itemId, amount } record (-> .itemId); a blueprint outputs recipe.outputItem.
+  const outputItem =
+    kind === "refine" ? REFINE_RECIPES[recipeKey].output.itemId : BLUEPRINTS[recipeKey].recipe.outputItem;
+  if (materialAtCap(state, outputItem)) return { ok: false, reason: "storageFull" };
+
+  return { ok: true };
+}
+
+// Adds a new production line to a facility (the C4 configurator's Start action; tests call
+// it directly). As of Task C3 this is a THIN WRAPPER over canStartLine -- canStartLine is the
+// single source of truth for every gate (notFound / notResearched / tierLocked / noSlot /
+// invalidCount / materials / storageFull), so this function only (a) derives the reserved
+// iteration count from the mode, (b) consults the gate, (c) on a block returns the SAME state
+// ref + started:false + the block reason (so the UI can show WHY), and (d) on ok appends the
+// line UNCHANGED from C2.
+//
+// The return keeps the START family's { next, started } shape (startProcess / startRefineJob
+// / startFabricateJob) and ADDS an OPTIONAL `reason` (undefined on success) EXACTLY the way
+// startFabricateJob exposes canFabricate's reason.
+//
+// The new line's `remaining` (allocation basis) is the batch count, or 1 for a continuous
+// line (it reserves exactly its one queued next iteration -- see CraftLineMode). This is the
+// SAME count canStartLine's affordability gate validated, so an appended line is always
+// reservable from free at start.
+export function startLine(
+  state: GameState,
+  kind: CraftLineKind,
+  recipeKey: string,
+  mode: CraftLineMode
+): { next: GameState; started: boolean; reason?: StartLineBlockReason } {
+  // Iterations this line reserves up front: a batch reserves its full count; a continuous
+  // line reserves exactly its ONE queued next iteration. This is the count canStartLine gates.
+  const count = mode.kind === "batch" ? mode.remaining : 1;
+
+  // Single consolidated gate. On a block: same-ref no-op (the reject convention every other
+  // start/action in this file shares) + the typed reason, so a blocked start can never be
+  // mistaken for a no-op change.
+  const gate = canStartLine(state, kind, recipeKey, count);
+  if (!gate.ok) return { next: state, started: false, reason: gate.reason };
+
+  // gate.ok GUARANTEES a real recipe, ownership/tier (fabricate), a free slot, a valid count,
+  // affordable inputs, and output room. Append the line -- byte-for-byte the C2 append path.
+  const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
+  const remaining = count;
+  const line: CraftLine = { id: `craft-${state.nextCraftLineId}`, kind, recipeKey, remaining, mode };
+  const field = kind === "refine" ? "refineLines" : "fabricateLines";
+  return {
+    next: { ...state, [field]: [...lines, line], nextCraftLineId: state.nextCraftLineId + 1 },
+    started: true,
+  };
+}
+
+// Cancels (removes) a line by id from whichever facility array holds it. Its UNSTARTED
+// reservation releases automatically -- allocation is DERIVED from the lines, so fewer
+// lines means less allocated, no ledger to unwind. Any IN-FLIGHT timed job the line
+// started is a COMMITTED TimedProcess and is deliberately left UNTOUCHED: it completes
+// normally and grants its output (design §2 / Task C2: do NOT refund an in-flight
+// iteration). PURE. Same-reference no-op when no line matches the id.
+export function cancelLine(state: GameState, lineId: string): GameState {
+  const refineLines = state.refineLines ?? [];
+  const fabricateLines = state.fabricateLines ?? [];
+  const inRefine = refineLines.some((l) => l.id === lineId);
+  const inFabricate = fabricateLines.some((l) => l.id === lineId);
+  if (!inRefine && !inFabricate) return state; // no such line -> same-ref no-op
+  return {
+    ...state,
+    // Only the array that actually held the line is rebuilt; the other rides through
+    // unchanged. (A line id is unique across both facilities via nextCraftLineId, so at
+    // most one branch matches, but both are checked independently for robustness.)
+    refineLines: inRefine ? refineLines.filter((l) => l.id !== lineId) : refineLines,
+    fabricateLines: inFabricate ? fabricateLines.filter((l) => l.id !== lineId) : fabricateLines,
+  };
 }
 
 // ============================================================================
@@ -3167,136 +3441,17 @@ export function startFabricateJob(
   });
 }
 
-// Sets (or REPLACES) the fleet's standing fabricate order. PURE: returns a NEW state with
-// fabricateOrder set, or the SAME reference (no-op) if blueprintKey is unknown -- the
-// EXACT mirror of startRefineOrder. pausedReason is intentionally ABSENT on a fresh order
-// (running until processFabricateOrder proves otherwise next tick). Replacing an existing
-// order overwrites the record; JOBS the previous order already started stay in flight
-// (committed TimedProcesses, not owned by the order record). The F4 UI calls this; tests
-// call it directly.
-export function startFabricateOrder(
-  state: GameState,
-  blueprintKey: string,
-  mode: FabricateOrderMode
-): GameState {
-  if (!BLUEPRINTS[blueprintKey]) return state; // unknown blueprint -> same-reference no-op
-  return { ...state, fabricateOrder: { blueprintKey, mode } };
-}
-
-// Clears the standing fabricate order (fabricateOrder -> null). PURE. Idempotent: clearing
-// when there is no order returns the SAME reference. Does NOT touch activeProcesses -- a
-// job the order already started is a committed process that runs to completion (the
-// in-progress iteration commits; only the queued REMAINDER is dropped). The mirror of
-// stopRefineOrder.
-export function stopFabricateOrder(state: GameState): GameState {
-  if (state.fabricateOrder === null) return state;
-  return { ...state, fabricateOrder: null };
-}
-
-// The per-tick fabricate-order engine, called ONCE per economyTick (AFTER resolveProcesses,
-// so a fabricate slot freed by a job COMPLETING this tick is immediately refillable this
-// same tick -- no idle gap for a continuous order). PURE: returns a NEW state, or the SAME
-// reference when there is no order to process. A LINE-FOR-LINE clone of processRefineOrder,
-// operating on the active order's BLUEPRINT recipe (bp.recipe.inputs / .outputItem) instead
-// of a REFINE_RECIPES entry.
-//
-// Each call fills EVERY currently-free fabricate slot with a new job while the order is
-// unblocked, then records why it stopped -- identical structure/idiom to processRefineOrder:
-//   - FREE SLOTS = fabricateSlotCount - (fabricate jobs already in flight).
-//   - OUTPUT FULL: the component is at its warehouse cap (materialAtCap) -> pause
-//     "outputFull" (checked BEFORE inputs -- the more specific storage block).
-//   - NO INPUT: recipe inputs unaffordable -> pause "noInput".
-//   - SLOTS BUSY (all slots occupied, work remains): NOT a pause (working at capacity) ->
-//     pausedReason left CLEARED.
-//   - BATCH DONE: a batch order whose `remaining` reaches 0 CLEARS (-> null).
-//
-// AUTO-RESUME is STRUCTURAL: pausedReason starts undefined each call and is only set if a
-// block is hit THIS tick, so the tick a block lifts the order starts jobs again and records
-// no pausedReason -- no explicit un-pause. Bounded work: at most fabricateSlotCount (<= a
-// few) jobs start per call, so the inner loop is tightly bounded even across a 172,800-tick
-// offline catch-up (once per free slot, not once per tick) -- no Omega-14 concern.
-export function processFabricateOrder(state: GameState): GameState {
-  const order = state.fabricateOrder;
-  if (order === null) return state; // no order -> same-reference no-op
-
-  // Unknown blueprint on a persisted/corrupted order -> leave it untouched rather than
-  // throw on `undefined.recipe`. startFabricateOrder guards NEW orders, so this only
-  // shields a hand-edited/older save; no progress, no invented pause reason.
-  const bp = BLUEPRINTS[order.blueprintKey];
-  if (!bp) return state;
-
-  let working = state;                    // threaded immutably as each startFabricateJob returns fresh state
-  let mode = order.mode;                  // batch mode's `remaining` is decremented per started job
-  let pausedReason: "noInput" | "outputFull" | undefined = undefined;
-
-  // Start jobs until: batch exhausted (clears), all slots busy (stop, no pause), or a
-  // block hits (output full / no input -> pause with the reason).
-  while (true) {
-    // Batch exhausted -> the order is complete; clear it (-> null) and return.
-    if (mode.kind === "batch" && mode.remaining <= 0) {
-      return { ...working, fabricateOrder: null };
-    }
-
-    // A free slot must exist to start another job. All slots busy is NOT a pause (the order
-    // is working at capacity), so we stop WITHOUT setting pausedReason. SAME slot accounting
-    // startFabricateJob's own gate uses.
-    const activeFabricateJobs = working.activeProcesses.filter((p) => p.kind === "fabricateJob").length;
-    if (activeFabricateJobs >= fabricateSlotCount(working)) break;
-
-    // Output at its warehouse cap -> pause "outputFull" (checked before inputs, the more
-    // specific storage block -- mirrors processRefineOrder's ordering).
-    if (materialAtCap(working, bp.recipe.outputItem)) {
-      pausedReason = "outputFull";
-      break;
-    }
-
-    // Inputs unaffordable -> pause "noInput". The SAME affordability test startProcess
-    // applies (an absent inventory key reads as 0), read HERE so the pause reason is known
-    // BEFORE delegating -- startFabricateJob alone would only report started:false, never
-    // WHY. recipe.inputs amounts are plain numbers; Decimal.lt accepts a number directly.
-    let affordable = true;
-    for (const itemId of Object.keys(bp.recipe.inputs)) {
-      const have = working.inventory[itemId] ?? new Decimal(0);
-      if (have.lt(bp.recipe.inputs[itemId])) {
-        affordable = false;
-        break;
-      }
-    }
-    if (!affordable) {
-      pausedReason = "noInput";
-      break;
-    }
-
-    // All gates pass -> start ONE job via the SHARED startFabricateJob (atomic deduct-at-start
-    // + process push -- no duplicated job-creation logic). Its own gates re-check the same
-    // conditions and cannot reject here (we just verified them), but the defensive `!started`
-    // break guarantees termination even if it ever did.
-    const { next, started } = startFabricateJob(working, order.blueprintKey);
-    if (!started) break;
-    working = next;
-
-    // One batch iteration consumed. A continuous order carries no counter to decrement.
-    if (mode.kind === "batch") {
-      mode = { kind: "batch", remaining: mode.remaining - 1 };
-    }
-  }
-
-  // Write back the (possibly decremented) mode + this tick's pausedReason. A batch that hit
-  // `remaining` 0 exactly on its last start is cleared by the top-of-loop check on the very
-  // next iteration, so it never reaches here with remaining 0 -- this path is only a
-  // slot-busy stop (no pause) or a block (with a reason).
-  const nextOrder: FabricateOrder =
-    pausedReason === undefined
-      ? { blueprintKey: order.blueprintKey, mode }
-      : { blueprintKey: order.blueprintKey, mode, pausedReason };
-  return { ...working, fabricateOrder: nextOrder };
-}
+// The standing single-order model for the Fabricator (startFabricateOrder /
+// stopFabricateOrder) was RETIRED in Task C4, together with its Refinery twin and the
+// processRefineOrder/processFabricateOrder engines (already gone in C2). The per-slot
+// production LINE engine (startLine/cancelLine + processFabricateLines) is the sole
+// crafting model now.
 
 // ============================================================================
 // Fuel Depot pipeline engine (Fuel Economy v2 F2, design §2).
 //
 // processFuelPipelines(state): the per-tick engine, called ONCE per economyTick (AFTER
-// resolveProcesses + processRefineOrder, so a pipeline slot freed by a batch COMPLETING
+// resolveProcesses + the production-line engine, so a pipeline slot freed by a batch COMPLETING
 // this tick is immediately refillable this same tick -- no idle gap). PURE: returns a
 // NEW state, or the SAME reference when no pipeline runs.
 //

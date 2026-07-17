@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP } from "./model";
 
-export const SAVE_VERSION = 23;
+export const SAVE_VERSION = 24;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -809,6 +809,49 @@ const MIGRATIONS: Record<number, Migration> = {
       fabricator: state.facilities?.fabricator ?? { level: 1 },
     },
   }),
+  // v23 -> v24: Crafting Allocation Redesign (docs/plans/2026-07-16-crafting-allocation-redesign-
+  // plan.md Task C6 / design). The single-order refine/fabricate model (refineOrder/fabricateOrder,
+  // each RefineOrder|FabricateOrder|null) is RETIRED and replaced by independent per-slot production
+  // LINES: GameState now carries `refineLines`/`fabricateLines` (CraftLine[]) plus `nextCraftLineId`
+  // (the monotonic id source, mirroring nextShipId/nextProcessId). This step seeds those three new
+  // fields onto an existing v23 save AND -- unlike every prior additive migration in this file --
+  // it also DROPS two now-removed keys.
+  //
+  // - refineLines / fabricateLines seeded `[]` if absent (a returning player starts with no
+  //   configured lines, exactly the empty seed freshState gives; the first line is minted by
+  //   startLine when they configure a slot). CraftLine carries NO Decimal (id/kind/recipeKey are
+  //   strings, remaining a plain number, mode a plain object), so hydrateDecimals needs NO change:
+  //   both arrays ride through their own `...rest` spread there with no per-element revival, exactly
+  //   as the Decimal-free `discovered` string[] already does. Any in-flight refine/fabricate timed
+  //   job rides `activeProcesses` (already migrated + hydrated -- its addItem effect's Decimal
+  //   `amount` is revived there), so there is nothing to do for those here.
+  // - nextCraftLineId seeded `1` if absent -- byte-identical to freshState's seed, so the migrated
+  //   and fresh shapes cannot drift apart (Omega 4). `1` makes the first minted id "craft-1".
+  // - refineOrder / fabricateOrder are DROPPED. They are pulled out of the object via a rest-
+  //   destructure (`_ro`/`_fo` are the intentionally-unused captures) so the returned shape carries
+  //   NEITHER key -- even a v23 save that still holds a legacy standing order (shipped MIGRATIONS[19]
+  //   seeds refineOrder, MIGRATIONS[22] seeds fabricateOrder) comes out CLEAN, with only the new
+  //   line fields. Those legacy orders have no home in the line model (the line engine never reads
+  //   them), so leaving them behind would be dead, misleading state riding along in every save.
+  //
+  // `?? []` / `?? 1` are idempotent + belt-and-suspenders: a genuine v23 save has none of the three
+  // line fields (so all are seeded), but a chained/hand-edited save that already carries configured
+  // lines or a bumped id keeps them exactly (never reset). Every OTHER GameState field rides through
+  // untouched on the `...rest` spread. Additive-plus-drop, defensive, idempotent -- re-running it on
+  // an already-v24-shaped state (no order keys, lines present) is a no-op beyond re-confirming the
+  // seeds.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production, so it is
+  // still editable (the frozen-once-shipped rule applies only to production-released migrations).
+  23: (state: any): any => {
+    // Rest-destructure drops the two retired single-order keys; `_ro`/`_fo` are unused captures.
+    const { refineOrder: _ro, fabricateOrder: _fo, ...rest } = state;
+    return {
+      ...rest,
+      refineLines: rest.refineLines ?? [],
+      fabricateLines: rest.fabricateLines ?? [],
+      nextCraftLineId: rest.nextCraftLineId ?? 1,
+    };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {
