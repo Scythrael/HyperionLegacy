@@ -310,6 +310,7 @@
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
+  import { focusTrap } from "./lib/focusTrap";
 
   // DEV_MODE, Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
@@ -5240,7 +5241,7 @@
     {@const missionDef = MISSIONS[missionPopupKey]}
     {@const selectedCaptain = missionPopupCaptainId !== null ? state.captains.find((c) => c.id === missionPopupCaptainId) ?? null : null}
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Select a captain for this mission" use:focusTrap={closeMissionPopup}>
       <Panel class="modal-dialog">
         <div class="panel-title">{missionDef.label.toUpperCase()}</div>
 
@@ -5375,7 +5376,7 @@
          case a captain got dispatched between opening and rendering. -->
     {@const pickerShip = state.ships.find((s) => s.id === assignPickerShipId) ?? null}
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Assign hull to captain" use:focusTrap={closeShipPickers}>
       <Panel class="modal-dialog">
         <div class="panel-title">ASSIGN HULL{pickerShip ? `, ${SHIP_TYPES[pickerShip.typeKey].label.toUpperCase()}` : ""}</div>
         <p class="modal-instruction">Assign this hull to a captain. Their current ship parks.</p>
@@ -5412,7 +5413,7 @@
          the Assign picker above, just listing ships. -->
     {@const swapCaptain = state.captains.find((c) => c.id === swapPickerCaptainId) ?? null}
     {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Swap hull for captain" use:focusTrap={closeShipPickers}>
       <Panel class="modal-dialog">
         <div class="panel-title">SWAP HULL{swapCaptain ? `, ${swapCaptain.label.toUpperCase()}` : ""}</div>
         <p class="modal-instruction">Choose a parked ship for this captain. Their current hull parks.</p>
@@ -5445,7 +5446,7 @@
        DELETE SAVE / respec / Import modals below are untouched. -->
 
   {#if deleteModalOpen}
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete save confirmation" use:focusTrap={cancelDelete}>
       <Panel class="modal-dialog">
         <div class="panel-title">DELETE SAVE</div>
         <p class="modal-warning">This will permanently erase your progress. This can't be undone.</p>
@@ -5466,7 +5467,7 @@
          visual language. The "Don't show this again" checkbox disables the refineConfirm pref on
          Confirm (persisted like tickBarEnabled); the System -> Options toggle re-enables it.
          Confirm commits the held pendingLineStart (via startLine); Cancel starts nothing. -->
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Confirm craft" use:focusTrap={cancelLineStart}>
       <Panel class="modal-dialog">
         <div class="panel-title">CONFIRM CRAFT</div>
         <p class="modal-warning">Start this production line? Its materials will be reserved, you can cancel the line to refund the remainder.</p>
@@ -5492,7 +5493,7 @@
          (disabled below RESPEC_COST_CREDITS) is already a deliberate,
          gated action, so a plain Cancel/Confirm pair is enough friction
          here, on top of the cost + irreversibility warning text below. -->
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Reset homeworld talents" use:focusTrap={cancelHomeworldRespec}>
       <Panel class="modal-dialog">
         <div class="panel-title">RESET HOMEWORLD TALENTS</div>
         <p class="modal-warning">
@@ -5530,7 +5531,7 @@
          refunds talent points AND frees up a new free spec pick, the
          confirmed "changing an established spec costs exactly one respec"
          design. -->
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Reset captain talents" use:focusTrap={cancelCaptainRespec}>
       <Panel class="modal-dialog">
         <div class="panel-title">RESET CAPTAIN TALENTS, {activeCaptain.label}</div>
         <p class="modal-warning">
@@ -5564,7 +5565,7 @@
          rejected file) renders as a second .modal-warning line WITHOUT
          closing the modal, so the user can immediately pick a different
          file from the same still-open dialog. -->
-    <div class="modal-backdrop">
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Import save confirmation" use:focusTrap={cancelImport}>
       <Panel class="modal-dialog">
         <div class="panel-title">IMPORT SAVE</div>
         <p class="modal-warning">This will REPLACE your current save. This can't be undone.</p>
