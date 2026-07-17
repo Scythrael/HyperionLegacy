@@ -5732,23 +5732,6 @@
     color: var(--color-accent-bright);
   }
   .subtitle { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
-  .stat-pill {
-    padding: 6px 10px;
-    border-radius: 8px;
-    background: rgba(var(--color-accent-rgb), 0.08);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    text-align: right;
-  }
-  .stat-label { font-size: 9px; color: var(--color-text-secondary); text-transform: uppercase; }
-  .stat-value { font-family: var(--font-mono); font-size: 13px; color: var(--color-accent); }
-  .icon-btn {
-    background: rgba(var(--color-accent-rgb), 0.1);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.25);
-    border-radius: 8px;
-    padding: 6px 10px;
-    color: var(--color-accent);
-    cursor: pointer;
-  }
   .tab-body {
     /* Replaces the old .main rule (same class removed from the <main> tag in
        the template, <main> becomes <main class="tab-body">). This is the
@@ -5933,31 +5916,13 @@
     border-top-color: var(--color-accent);
     background: rgba(var(--color-accent-rgb), 0.08);
   }
-  .captain-tabs { display: flex; gap: 8px; }
-  .captain-tab {
-    flex: 1;
-    background: rgba(var(--color-accent-rgb), 0.06);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    border-radius: 8px;
-    padding: 8px 10px;
-    color: var(--color-text-secondary);
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .captain-tab.active {
-    background: rgba(var(--color-accent-rgb), 0.15);
-    color: var(--color-accent-bright);
-    border-color: var(--color-accent);
-  }
-  /* Fleet Captain's tab layout (UI Redesign, Task 8), left-hand vertical
-     captain list + right-hand content pane, replacing the old horizontal
-     .captain-tabs row above (left in place for now; see this task's plan
-     section and KNOWN_ISSUES.md re: whether it's still used anywhere once
-     Task 11 does its final sweep). .captain-list-item now uses the flat,
-     square-cornered "panel" look (2026-07-07 button-style pass) instead of
-     the old rounded pill, a thin 2px gap between items reveals the
-     background behind, reading as a segmented banner rather than one solid
-     strip, matching .nav-tabs/.sub-tab/etc. */
+  /* Fleet Captain's tab layout (UI Redesign, Task 8): left-hand vertical
+     captain list + right-hand content pane. .captain-list-item uses the flat,
+     square-cornered "panel" look (2026-07-07 button-style pass) instead of a
+     rounded pill; a thin 2px gap between items reveals the background behind,
+     reading as a segmented banner rather than one solid strip, matching
+     .nav-tabs/.sub-tab/etc. (The old horizontal .captain-tabs rules were
+     removed in the 0.10.2 orphaned-CSS cleanup.) */
   .fleet-captains-layout { display: flex; gap: 12px; align-items: flex-start; }
   .captain-list { display: flex; flex-direction: column; gap: 2px; flex: 0 0 96px; }
   /* Quiet owner-group label in the Facilities rail (2026-07 Locations-merge
@@ -6204,17 +6169,6 @@
     cursor: pointer;
     margin-top: 10px;
   }
-  .module-list { display: flex; flex-direction: column; gap: 10px; }
-  .module-card {
-    padding: 12px;
-    border-radius: 10px;
-    background: var(--color-panel-bg-strong);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
-  }
-  .module-card.locked { opacity: 0.5; }
-  .module-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .module-name { font-size: 13px; font-weight: 600; }
-  .module-rate { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); margin-top: 2px; }
   .buy-btn {
     background: rgba(var(--color-accent-rgb), 0.15);
     border: 1px solid var(--color-border-strong);
@@ -6226,25 +6180,6 @@
   }
   .buy-btn:disabled { cursor: not-allowed; }
   .prestige-text { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 12px; }
-  .locked-heading {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--color-text-secondary);
-    opacity: 0.7;
-    margin: 0 0 6px;
-  }
-  .prestige-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
-  .prestige-yield { font-size: 12px; }
-  .prestige-btn {
-    background: rgba(251, 191, 36, 0.15);
-    border: 1px solid rgba(251, 191, 36, 0.5);
-    color: var(--color-warning);
-    padding: 10px 18px;
-    font-size: 12px;
-    letter-spacing: 1px;
-    cursor: pointer;
-  }
-
   .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
   .theme-swatch {
     width: 28px;
@@ -6284,10 +6219,6 @@
     justify-content: center;
     z-index: 100;
     padding: 20px;
-  }
-  .modal-dialog {
-    max-width: 360px;
-    width: 100%;
   }
   .modal-warning { font-size: 13px; color: var(--color-danger); line-height: 1.5; margin: 0 0 10px; }
   .modal-instruction { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 8px; }
