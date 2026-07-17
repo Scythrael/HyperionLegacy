@@ -3154,17 +3154,20 @@ describe("economyTick — mission auto-stop when the primary material is at cap 
     return s;
   }
 
-  it("AT cap: the captain idles -- mission, inventory, XP and credits all unchanged", () => {
+  it("AT cap + AT BASE (ordersReceived): the captain IDLES immediately (mission -> null), no production", () => {
+    // missionCaptain("shortOreRun") starts the mission at `ordersReceived` -- the pre-
+    // departure phase, i.e. the captain is AT BASE. Per the recall-on-cap fix (see
+    // mission-recall-on-cap.test.ts): a capped run must NOT be dispatched, so the mission
+    // ends immediately (mission -> null == idle at base) rather than FREEZING in place (the
+    // old behavior, which stranded the ship). tickCaptainMission still never runs.
     const s = missionStateWithCommonOre(1_000_000); // commonOre exactly at the T1 cap
     // Constant rng injected; it must never even be consulted since the captain idles.
     const result = economyTick(s, 1, () => 0);
 
-    // The captain is left EXACTLY as it was: still at the very start of the cycle,
-    // no phase advance, zero cargo, zero XP -- proof tickCaptainMission never ran.
+    // The captain is now IDLE at base -- the mission ended without launching a run.
     const cap = result.captains[0];
-    expect(cap.mission!.phase).toBe("ordersReceived");
-    expect(cap.mission!.phaseProgressTicks).toBe(0);
-    expect(cap.xp.equals(0)).toBe(true);
+    expect(cap.mission).toBeNull();
+    expect(cap.xp.equals(0)).toBe(true); // no ticks ran -> no XP
     expect(cap.level).toBe(1);
     // No production this call: commonOre is untouched at the cap (no overflow), and
     // no other material was gathered. No credits, no fleet XP.
