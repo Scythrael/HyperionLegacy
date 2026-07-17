@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP } from "./model";
 
-export const SAVE_VERSION = 24;
+export const SAVE_VERSION = 25;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -852,6 +852,42 @@ const MIGRATIONS: Record<number, Migration> = {
       nextCraftLineId: rest.nextCraftLineId ?? 1,
     };
   },
+  // v24 -> v25: Shipyard (Phase 5, Task S6 -- docs/plans/2026-07-16-shipyard-plan.md). One additive
+  // seed for the new state the Shipyard feature introduced (Task S1), mirroring the minimal single-
+  // purpose facility-seed shape MIGRATIONS[18]/[20]/[21]/[22] set the template for:
+  //
+  // - `facilities.shipyard` at level 0 (Task S1) -- ⚠️ LOAD-BEARING CONTRAST: level 0 NOT 1, the
+  //   OPPOSITE of the level-1 seeds research (MIGRATIONS[21]) and fabricator (MIGRATIONS[22]) carry.
+  //   The Shipyard starts LOCKED / UNFOUNDED: level 0 is "not built", and the founding rung (its
+  //   level 0 -> 1 upgrade, gated on credits + Fleet Admiral level) is a REAL buildable unlock the
+  //   player establishes -- NOT pre-granted like the research/fabricator facilities, which are
+  //   established from game start so their tier-1 work is available immediately. Building a hull is
+  //   gated on shipyard level >= 1 (S3's canBuildShip -> notFounded), so seeding level 0 here is
+  //   CORRECT (it does not soft-lock anything the way a level-0 research/fabricator seed would have):
+  //   a returning player founds the Shipyard exactly as a brand-new one does. Same `{ level: 0 }`
+  //   literal freshState seeds, so the migrated and fresh shapes cannot drift apart (Omega 4).
+  //
+  // `?? { level: 0 }` is idempotent + belt-and-suspenders: a genuine v24 save has NO shipyard key
+  // (so it is seeded), but a chained/hand-edited save that already carries a shipyard level keeps it
+  // exactly (never reset). `state.facilities?.` guards the wholesale-absent facilities case
+  // defensively -- not reachable on a real v24 save (MIGRATIONS[17] always seeds facilities), same
+  // defense-in-depth posture as this file's other ?? guards. shipyard facility state is
+  // `{ level: number }` -- NO Decimal -- so hydrateDecimals needs NO change: shipyard rides through
+  // its own `...state` spread there with no per-key revival, exactly as refinery/warehouse/
+  // fuelStorage/missionControl/research/fabricator have since v18/v21/v23. S3's shipBuild timed
+  // jobs ride `activeProcesses`, which is ALREADY migrated + hydrated (its addShip effect carries NO
+  // `amount`, so hydrateDecimals leaves it untouched -- a ShipInstance is Decimal-free), so there is
+  // nothing to do for them here. Every OTHER GameState field rides through untouched on the outer
+  // `...state` spread.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production, so it is
+  // still editable (the frozen-once-shipped rule applies only to production-released migrations).
+  24: (state: any): any => ({
+    ...state,
+    facilities: {
+      ...state.facilities,
+      shipyard: state.facilities?.shipyard ?? { level: 0 },
+    },
+  }),
 };
 
 export function migrate(save: SaveFile): GameState {
