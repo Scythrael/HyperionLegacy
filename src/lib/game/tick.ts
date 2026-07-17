@@ -1175,15 +1175,45 @@ export function applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): 
 // helper is what makes the live and offline inventory writes byte-identical
 // (drift-proof). Task 4 declared this helper for tick()'s own use but left it
 // module-private; Task 5 consuming it from App.svelte is the reason it is now
-// exported. Behaviour is unchanged -- this is a visibility-only change.
+// exported.
+//
+// WAREHOUSE CAP CLAMP (fix/warehouse-cap-clamp, 2026-07-16): every producer deposit
+// is now CLAMPED at the item's warehouse cap. Callers pass `cap` (from itemCap, the
+// per-item cap helper below); the stored quantity becomes
+// `Decimal.min(have + amount, cap)`, so a deposit can raise a material UP TO the cap
+// but NEVER past it -- excess is silently discarded (standard idle-game "storage
+// full = overflow lost"). This is the ROOT-CAUSE fix for the overshoot bug: the
+// `materialAtCap` auto-stop only prevents a producer from STARTING when already at
+// cap, so a cycle completing while just-under-cap used to dump its whole haul PAST
+// the cap (Deuterium Ice seen at 1.3M against a 1M cap). Clamping HERE, at the single
+// shared add seam, fixes it for the loot fold, resolveProcesses outputs, AND the
+// passiveTrickle talent in one place -- no call site can forget it.
+//
+// The clamp is a STRICT bound, so BELOW-cap deposits are BYTE-IDENTICAL to the old
+// plain `.plus()`: min(have + amount, cap) == have + amount whenever have + amount <=
+// cap. For an UNCAPPED item, callers pass WAREHOUSE_UNCAPPED_SENTINEL (1e1000); no
+// reachable in-game quantity approaches it, so `min` is a no-op and uncapped items
+// accumulate freely -- exactly the fail-open stance itemCap/tierCap/materialAtCap
+// already take for un-warehoused tiers.
+//
+// DISCOVERY IS GATED ON THE REQUESTED amount (amount.gt(0)), NOT the clamped delta:
+// receiving a positive amount reveals the item even if the clamp discarded all of it.
+// That is correct and simplest -- an item can only be AT its cap because you already
+// received it (so it was already discovered), meaning the two readings coincide in
+// practice; gating on the requested amount keeps the reveal rule unchanged from
+// before the clamp (drift-proof).
 export function addToInventory(
   inventory: Record<string, Decimal>,
   discovered: string[],
   itemId: string,
-  amount: Decimal
+  amount: Decimal,
+  cap: Decimal
 ): { inventory: Record<string, Decimal>; discovered: string[] } {
   const nextInventory = { ...inventory };
-  nextInventory[itemId] = (nextInventory[itemId] ?? new Decimal(0)).plus(amount);
+  // Clamp at the cap: raise up to `cap`, discard any overflow. break_infinity.js's
+  // Decimal.min is BINARY (see the fuel buyFuel clamp and decimal-smoke.test.ts).
+  const raw = (nextInventory[itemId] ?? new Decimal(0)).plus(amount);
+  nextInventory[itemId] = Decimal.min(raw, cap);
   const nextDiscovered =
     amount.gt(0) && !discovered.includes(itemId) ? [...discovered, itemId] : discovered;
   return { inventory: nextInventory, discovered: nextDiscovered };
@@ -1469,7 +1499,10 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // gates discovery on a positive amount, so the seeded 0-delta ore tiers reveal
   // nothing and an ore-only fleet folds byte-identically to the old fixed loop.
   for (const key of Object.keys(homePlanetDelta)) {
-    const added = addToInventory(inventory, discovered, key, homePlanetDelta[key]);
+    // Warehouse cap clamp: the deposit is bounded at this item's cap (itemCap), so a
+    // cycle completing while just-under-cap lands AT the cap instead of overshooting.
+    // Below cap this is byte-identical to the old unclamped add (min is a no-op).
+    const added = addToInventory(inventory, discovered, key, homePlanetDelta[key], itemCap(state, key));
     inventory = added.inventory;
     discovered = added.discovered;
   }
@@ -2824,6 +2857,38 @@ export function materialAtCap(state: GameState, itemId: string): boolean {
 }
 
 // ============================================================================
+// Per-item warehouse cap (fix/warehouse-cap-clamp, 2026-07-16).
+//
+// itemCap(state, itemId) returns the current storage cap for `itemId` -- the value
+// addToInventory clamps every producer deposit against. It is the DEPOSIT-side twin
+// of materialAtCap (the auto-stop cap-CHECK above): both resolve the same cap the
+// same way (ITEMS[itemId] -> tierCap(state, item.tier)), so the "how full is full"
+// definition lives in exactly ONE derivation and the deposit clamp and the auto-stop
+// can never disagree.
+//
+// PURE: reads the static ITEMS table + tierCap (which reads state.facilities),
+// mutates nothing.
+//
+// Fails OPEN on an unknown itemId (no ITEMS entry -> no tier) by returning the
+// WAREHOUSE_UNCAPPED_SENTINEL, so a deposit of an un-catalogued item is NEVER clamped
+// -- identical fail-open stance to materialAtCap (which returns false for the same
+// case) and to tierCap (which returns the sentinel for an un-warehoused tier). A
+// catalogued item whose tier has no warehouse cap system likewise flows through
+// tierCap's own sentinel branch, so both "no catalog" and "no warehouse" paths land
+// on the same effectively-uncapped value against which Decimal.min is a no-op.
+export function itemCap(state: GameState, itemId: string): Decimal {
+  // Explicitly typed `ItemDef | undefined` for the SAME noUncheckedIndexedAccess
+  // reason materialAtCap annotates its lookup: the ITEMS lookup genuinely CAN miss at
+  // runtime (an unknown itemId), so the annotation states that honestly and keeps the
+  // `=== undefined` guard from being a TS2367 "no overlap" error.
+  const item: ItemDef | undefined = ITEMS[itemId];
+  if (item === undefined) {
+    return WAREHOUSE_UNCAPPED_SENTINEL; // fail-open: no catalog entry -> never clamp
+  }
+  return tierCap(state, item.tier);
+}
+
+// ============================================================================
 // Fuel tank cap + buy (Mission Rework Task 4, design §3).
 //
 // fuelCap(state) -- the CURRENT global Fuel Tank capacity, a DERIVED value (never
@@ -4014,8 +4079,16 @@ export function resolveProcesses(
     // (never pushed to stillActive) so it resolves exactly once.
     if (process.effect.type === "addItem") {
       // Output granted through the shared add seam -> the item is marked
-      // discovered (its amount is always > 0 for a real refine recipe).
-      const applied = addToInventory(inventory, discovered, process.effect.itemId, process.effect.amount);
+      // discovered (its amount is always > 0 for a real refine recipe). Warehouse cap
+      // clamp: the deposit is bounded at the output item's cap (itemCap), so a job
+      // completing while just-under-cap lands AT the cap rather than overshooting.
+      const applied = addToInventory(
+        inventory,
+        discovered,
+        process.effect.itemId,
+        process.effect.amount,
+        itemCap(state, process.effect.itemId)
+      );
       inventory = applied.inventory;
       discovered = applied.discovered;
       // Task 11: a completed REFINE JOB (and ONLY a refine job) also accrues the
