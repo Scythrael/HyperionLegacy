@@ -84,6 +84,17 @@
     // reads, the Craft-tab canFabricate gate, and the Upgrades tab's
     // canBuildFacilityUpgrade/doStartFacilityUpgrade(FABRICATOR_FACILITY_KEY) calls.
     FABRICATOR_FACILITY_KEY,
+    // Shipyard (Phase 5, Task S5 UI) -- the stable "shipyard" facility key the Shipyard
+    // rail entry + Build/Upgrades panel + founding/upgrade wiring reference (never the raw
+    // string), mirroring RESEARCH_FACILITY_KEY / FABRICATOR_FACILITY_KEY. Drives the
+    // founded-vs-unfounded Build split (facilities[SHIPYARD_FACILITY_KEY].level >= 1), the
+    // per-hull canBuildShip gate, and the Upgrades tab's canBuildFacilityUpgrade/
+    // doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY) calls (the founding rung is level 0->1).
+    SHIPYARD_FACILITY_KEY,
+    // Shipyard (Task S5 UI): the hull-type key type -- types the per-hull loop var + the
+    // doStartShipBuild param, so SHIP_TYPES lookups (label/cargoCapacity/spec/buildRecipe)
+    // and the canBuildShip/shipBuildDurationTicks calls are key-checked at compile time.
+    type ShipTypeKey,
     // Mission Rework (Task 8 UI): the buy-fuel price per unit, shown on the Fuel
     // Storage facility's buy control so the credits cost of +10/+100/Fill reads
     // straight off the SAME constant buyFuel (tick.ts) charges -- price shown can
@@ -246,6 +257,20 @@
     // AND canFabricate/FabricateBlockReason were RETIRED from the UI in C4 -- the Craft tab now
     // uses the shared startLine/canStartLine + startLineBlockText seams above.
     fabricateSlotCount,
+    // Shipyard (Phase 5, Task S5 UI) -- the three PURE ship-build seams the Shipyard
+    // Build panel wires up. canBuildShip(state, typeKey) is the ONE consolidated gate
+    // ({ ok } | { ok, reason }) each hull's Build button reads for its enabled/blocked+
+    // reason state; startShipBuild(state, typeKey) starts ONE build (deduct-at-start
+    // BOM + credits + a timed shipBuild process), returning { next, started, reason? }
+    // -- doStartShipBuild below destructures `started` and bails on a same-ref no-op,
+    // exactly like doStartFacilityUpgrade/doStartResearch. shipBuildDurationTicks(state,
+    // typeKey) is the effective (build-speed-adjusted) build time the hull card's ⏱
+    // readout formats. ShipBuildBlockReason types the reason→text map. All read the SAME
+    // tick.ts fns + model.ts tables the engine enforces, so the panel can't drift.
+    canBuildShip,
+    startShipBuild,
+    shipBuildDurationTicks,
+    type ShipBuildBlockReason,
     type DispatchBlockReason,
     foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
     addToInventory, // Phase 1 Task 5: the shared inventory add seam, called by BOTH tick() and this live loop so live loot delivery writes inventory/discovered byte-identically to offline catch-up (drift-proof)
@@ -270,6 +295,11 @@
     lineInputsPerIteration,
     allocatedItem,
     freeItem,
+    // Shipyard (Task S5 UI): the reservation-aware FREE-stock reader for the hull-card
+    // REQUIRES box. freeItemForState(state, itemId) = inventory MINUS what active craft
+    // lines reserve -- the SAME pool canBuildShip gates a build's BOM against, so the "free
+    // {n}" the card shows (red when free < need) matches exactly what the build can spend.
+    freeItemForState,
     type CraftLine,
     type CraftLineMode,
     type CraftLineKind,
@@ -458,7 +488,7 @@
   // Homeworld facility, backed by FACILITIES.fabricator + its tier/slot upgrade track --
   // it CRAFTS the components the Research Lab unlocked. Same deliberate typed-union
   // addition as "research" above.
-  type FacilityKey = "refinery" | "warehouse" | "missionControl" | "fuelStorage" | "research" | "fabricator";
+  type FacilityKey = "refinery" | "warehouse" | "missionControl" | "fuelStorage" | "research" | "fabricator" | "shipyard";
   let activeFacility: FacilityKey = "refinery";
 
   // ---- Warehouse facility view (Phase 2, Group C) -----------------------------
@@ -752,6 +782,17 @@
   // discipline as ResearchSubTab above; defaults to Overview, matching the others.
   type FabricatorSubTab = "overview" | "craft" | "upgrades";
   let activeFabricatorSubTab: FabricatorSubTab = "overview";
+
+  // Shipyard (Task S5 UI): the Shipyard's TWO-tab axis -- Build (the founded-vs-unfounded
+  // hull-build surface: the "Found the Shipyard" prompt when unfounded, else the in-flight
+  // build card + one card per SHIP_TYPES hull with its BOM/cost/time + Build button) and
+  // Upgrades (the shipyard's founding + build-speed track, wired to the SHARED facility-
+  // upgrade seams exactly like the Fabricator/Research Upgrades tabs). Same independent
+  // typed-union + let-state discipline as FabricatorSubTab above; defaults to Build (the
+  // primary "make a ship" view -- the Shipyard has no at-a-glance Overview, unlike the
+  // producer facilities, because its single build slot's status lives on the Build tab).
+  type ShipyardSubTab = "build" | "upgrades";
+  let activeShipyardSubTab: ShipyardSubTab = "build";
 
   // Crafting Allocation Redesign (Task C4): the per-line CONFIGURATOR's local form state.
   // A configured craft becomes a real line ONLY on Start (via startLine) -- until then the
@@ -1489,6 +1530,51 @@
     doSave();
   }
 
+  // Shipyard (Task S5 UI): start ONE ship build for `typeKey`. Backend (startShipBuild ->
+  // canBuildShip) gates on notFound/notFounded/noSlot/storageFull/materials/credits AND
+  // deducts the whole component BOM + credits at start (deduct-at-start, atomic); on ANY
+  // block it returns the SAME state reference + started:false, so the identity bail below is
+  // a no-op (no spurious log/save) -- the SAME reassign-`state` + pushLog + doSave idiom
+  // (destructuring `started`) doStartFacilityUpgrade/doStartResearch use. The hull card's
+  // Build button is ALREADY disabled per canBuildShip, so this bail only covers a race where
+  // state changed between render and click. NO confirm modal (design/mockup: a build is
+  // committed once started, so the direct Build press is the commitment). The log names the
+  // hull being built (SHIP_TYPES label).
+  function doStartShipBuild(typeKey: ShipTypeKey) {
+    const { next, started } = startShipBuild(state, typeKey);
+    if (!started) return;
+    state = next;
+    const hullLabel = SHIP_TYPES[typeKey]?.label ?? typeKey;
+    pushLog(`Ship build started → ${hullLabel}.`);
+    doSave();
+  }
+
+  // Maps a canBuildShip BLOCK reason to the human sentence a disabled hull Build button
+  // shows. Named + shaped parallel to startLineBlockText / the retired fabricateBlockText;
+  // the switch covers EVERY ShipBuildBlockReason so a new reason is a compile error here
+  // (exhaustive). `typeKey` is the hull the button is for -- reserved for a future
+  // per-component "Need N [Item]" message; unused today (the generic materials text reads
+  // fine against the card's own red per-component free/need rows), but threaded so the
+  // signature is ready without touching call sites.
+  function shipBuildBlockText(reason: ShipBuildBlockReason, _typeKey?: ShipTypeKey): string {
+    switch (reason) {
+      case "notFounded":
+        return "Found the Shipyard first (Upgrades).";
+      case "noSlot":
+        return "Shipyard busy — a build is in progress.";
+      case "storageFull":
+        return "Ship storage full.";
+      case "materials":
+        return "Not enough free materials.";
+      case "credits":
+        return "Not enough credits.";
+      case "notFound":
+        return "Unavailable.";
+      default:
+        return "Cannot build this hull right now.";
+    }
+  }
+
   // Mission Rework (Task 8 UI): buy `units` of fuel into the shared tank via the
   // backend buyFuel (which clamps the amount to the MIN of requested / tank room /
   // affordable credits, so it can never overfill or overspend). buyFuel returns the
@@ -2134,6 +2220,45 @@
   $: availableFabricateTiers = [...new Set(availableFabricateBlueprints.map((bp) => bp.tier))].sort(
     (a, b) => a - b
   );
+
+  // ============================================================================
+  // Shipyard (Phase 5, Task S5 UI) -- the reactive reads the Build/Upgrades panel below
+  // consumes. Structurally the DIRECT clone of the Fabricator's upgrade-derivation block
+  // above (level / maxed / next-rung / upgrade-check / in-flight-upgrade), plus the
+  // Shipyard-specific founded flag and the single in-flight ship BUILD (distinct from an
+  // in-flight facility upgrade). All derive off `state`, so founding/upgrading/starting a
+  // build updates the panel LIVE. No engine logic here -- these only READ the S1-S3 seams.
+  // ============================================================================
+  // The Shipyard's LEVEL, read DEFENSIVELY (absent facility -> 0), the SAME idiom
+  // fabricatorLevel uses. Level 0 = LOCKED/unfounded (freshState seeds it at 0); the
+  // founding rung (upgrades[0], level 0->1) establishes it. shipyardFounded is the
+  // founded-vs-unfounded split the Build tab branches on (mirrors canBuildShip's own
+  // facilityLevel(...) < 1 -> "notFounded" gate, so UI + engine agree on "is it built").
+  $: shipyardLevel = state.facilities[SHIPYARD_FACILITY_KEY]?.level ?? 0;
+  $: shipyardFounded = shipyardLevel >= 1;
+
+  // Next Shipyard UPGRADE rung (upgrades[level]; the founding rung IS upgrades[0], so the
+  // SAME next-rung read drives BOTH the unfounded "Found" button and the Upgrades tab's
+  // build-speed rungs). shipyardMaxed is an EXPLICIT length check (same
+  // noUncheckedIndexedAccess reasoning as fabricatorMaxed) so nextShipyardUpgrade stays
+  // non-undefined-typed in the {:else} branch. The upgrade check + in-flight facility-
+  // upgrade process mirror the Fabricator's exactly (shared canBuildFacilityUpgrade seam).
+  $: shipyardMaxed = shipyardLevel >= FACILITIES[SHIPYARD_FACILITY_KEY].upgrades.length;
+  $: nextShipyardUpgrade = FACILITIES[SHIPYARD_FACILITY_KEY].upgrades[shipyardLevel];
+  $: shipyardUpgradeCheck = canBuildFacilityUpgrade(state, SHIPYARD_FACILITY_KEY);
+  $: shipyardUpgradeInFlight = state.activeProcesses.find(
+    (p) =>
+      p.kind === "facilityUpgrade" &&
+      p.effect.type === "facilityLevelUp" &&
+      p.effect.facility === SHIPYARD_FACILITY_KEY
+  );
+
+  // The SINGLE in-flight ship BUILD, if any (the Shipyard has one build slot this pass, so
+  // find -- not filter -- suffices). This is the "shipBuild" TimedProcess, DISTINCT from the
+  // facilityUpgrade above: it renders the "BUILDING · {hull}" progress card at the TOP of a
+  // founded Build tab. Its completion effect { type: "addShip", typeKey } carries the hull
+  // being built, read below for the card's label (narrowed on effect.type === "addShip").
+  $: activeShipBuild = state.activeProcesses.find((p) => p.kind === "shipBuild");
 
   // The available blueprint KEYS in a given tier -- the item dropdown's options for that tier,
   // and the seed the tier-change/open handlers use to reset cfgRecipeKey. Reads the reactive
@@ -2875,7 +3000,21 @@
           <!-- Fleet Sector group -- the Shipyard belongs to the fleet's sector
                presence, not the homeworld. -->
           <div class="facility-owner-header">Fleet Sector</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Shipyard</div>
+          <!-- Shipyard -- REAL, selectable facility (Shipyard Task S5 UI): BUILDS hulls
+               from fabricated components. Same reused .captain-list-item / active idiom as
+               the Refinery/Fabricator/Research buttons; replaced the locked placeholder
+               that stood here through Phases 1-4. NOTE: the Shipyard only BUILDS ships --
+               assigning a built hull to a captain still happens at the Docks (Sector Space
+               > Starbase), which is SEPARATE and unchanged. Selectable even when UNFOUNDED
+               (level 0): the Build tab then shows the "Found the Shipyard" prompt, whose
+               Found button establishes it via the shared facility-upgrade founding rung. -->
+          <button
+            class="captain-list-item"
+            class:active={activeFacility === "shipyard"}
+            on:click={() => (activeFacility = "shipyard")}
+          >
+            Shipyard
+          </button>
 
           <!-- Ships group -- ship-borne facilities, a concept only (no backing
                state yet); locked like the rest. -->
@@ -4191,6 +4330,222 @@
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
                   <div class="research-readout">{remainingReadout(fabricatorUpgradeInFlight.remainingTicks, fabricatorUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                {/if}
+              </Panel>
+            {/if}
+          {:else if activeFacility === "shipyard"}
+            <!-- SHIPYARD (Phase 5, Task S5 UI) -- the hull-BUILD facility. It CONSUMES the
+                 components the Fabricator crafts + credits to build a ship over time, then
+                 parks the finished hull in the fleet. Two sub-tabs mirroring the sibling
+                 facilities' STRUCTURE: Build (the founded-vs-unfounded build surface) and
+                 Upgrades (the founding + build-speed track). All actions/readiness read the
+                 tick.ts backend fns (canBuildShip / startShipBuild / shipBuildDurationTicks /
+                 canBuildFacilityUpgrade / doStartFacilityUpgrade) + the model.ts tables
+                 (SHIP_TYPES / ITEMS / FACILITIES.shipyard), so the UI can't drift from what
+                 the backend enforces. Reuses the research/fabricate progress-bar idiom + the
+                 .mission-card / .buy-btn / .research-* classes (no new markup style). NOTE:
+                 the Shipyard only BUILDS -- assigning a hull to a captain stays at the Docks
+                 (Sector Space > Starbase), which is SEPARATE and unchanged. -->
+            <SubTabs
+              tabs={[
+                { key: "build", label: "Build" },
+                { key: "upgrades", label: "Upgrades" },
+              ]}
+              active={activeShipyardSubTab}
+              onSelect={(key) => (activeShipyardSubTab = key as ShipyardSubTab)}
+            />
+
+            {#if activeShipyardSubTab === "build"}
+              <Panel>
+                <div class="panel-title">SHIPYARD — Build</div>
+
+                {#if !shipyardFounded}
+                  <!-- UNFOUNDED (level 0): the "establish the Shipyard" prompt. The founding
+                       rung IS upgrades[0] (level 0->1), so the Found button wires to the
+                       SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade seams exactly
+                       like every other facility's founding rung -- NOT a bespoke path. Shows
+                       the credit cost + FA-level wall + (when a founding is already running)
+                       the in-flight progress bar. nextShipyardUpgrade is the founding rung
+                       here (shipyardMaxed can't be true at level 0 given the 3-rung track). -->
+                  <p class="research-status">Shipyard not yet established. Found it to begin building hulls.</p>
+                  {#if !shipyardMaxed}
+                    <div class="research-cost" style="margin-top: 8px;">
+                      Founding cost: ◈ {formatNumber(nextShipyardUpgrade.credits ?? new Decimal(0))} (have {formatNumber(state.credits)})
+                    </div>
+                    {#if nextShipyardUpgrade.requiresFleetAdminLevel !== undefined}
+                      {@const met = state.fleetAdminLevel >= nextShipyardUpgrade.requiresFleetAdminLevel}
+                      <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                        {met ? "✅" : "❌"} Requires Fleet Admiral level {nextShipyardUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                      </div>
+                    {/if}
+                    <div class="research-cost">Founding time: {durationReadout(nextShipyardUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+
+                    <button
+                      class="buy-btn"
+                      style="margin-top: 8px;"
+                      disabled={!shipyardUpgradeCheck.ok}
+                      title={shipyardUpgradeCheck.ok ? undefined : shipyardUpgradeCheck.reason}
+                      on:click={() => doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY)}
+                    >
+                      Found · ◈ {formatNumber(nextShipyardUpgrade.credits ?? new Decimal(0))}
+                    </button>
+                  {/if}
+
+                  <!-- In-flight founding progress (a founding is a facilityUpgrade process). -->
+                  {#if shipyardUpgradeInFlight}
+                    {@const progress = shipyardUpgradeInFlight.durationTicks > 0
+                      ? (shipyardUpgradeInFlight.durationTicks - shipyardUpgradeInFlight.remainingTicks) / shipyardUpgradeInFlight.durationTicks
+                      : 1}
+                    <div class="research-name" style="margin-top: 10px;">Establishing the Shipyard…</div>
+                    <div class="research-bar-track">
+                      <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                    </div>
+                    <div class="research-readout">{remainingReadout(shipyardUpgradeInFlight.remainingTicks, shipyardUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {/if}
+                {:else}
+                  <!-- FOUNDED (level >= 1): the build surface. An in-flight ship BUILD (if any)
+                       renders as a committed progress card at the TOP -- NO cancel (a build is
+                       committed once started; its BOM + credits are already spent). Then one
+                       card per SHIP_TYPES hull: label + stat line + a REQUIRES box (each BOM
+                       component as "{need}× [Item]" with its reservation-aware FREE stock, red
+                       when short) + the credits/time line + a Build button gated by canBuildShip. -->
+                  <div class="research-cost">Shipyard level: {shipyardLevel}</div>
+
+                  {#if activeShipBuild}
+                    {@const progress = activeShipBuild.durationTicks > 0
+                      ? (activeShipBuild.durationTicks - activeShipBuild.remainingTicks) / activeShipBuild.durationTicks
+                      : 1}
+                    {@const buildingKey = activeShipBuild.effect.type === "addShip" ? activeShipBuild.effect.typeKey : undefined}
+                    <div class="mission-card" style="margin-top: 10px;">
+                      <div class="research-name">BUILDING · {buildingKey ? (SHIP_TYPES[buildingKey]?.label ?? buildingKey) : "hull"}</div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                      </div>
+                      <div class="research-readout">{remainingReadout(activeShipBuild.remainingTicks, activeShipBuild.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                    </div>
+                  {/if}
+
+                  <!-- One card per hull. SHIP_TYPES is the SAME table the engine reads, so a
+                       hull can never appear here that canBuildShip would reject on identity. -->
+                  {#each Object.keys(SHIP_TYPES) as typeKey (typeKey)}
+                    {@const def = SHIP_TYPES[typeKey as ShipTypeKey]}
+                    {@const recipe = def.buildRecipe}
+                    {@const gate = canBuildShip(state, typeKey)}
+                    <div class="mission-card" style="margin-top: 10px;">
+                      <div class="research-name">{def.label}</div>
+                      <div class="research-cost">{def.cargoCapacity} cargo · {def.spec}</div>
+
+                      <!-- REQUIRES box: each BOM component + its reservation-aware FREE stock
+                           (freeItemForState -- inventory minus what craft lines reserve, the
+                           SAME pool canBuildShip's materials gate reads). Red when free < need. -->
+                      <div class="research-cost" style="margin-top: 6px;">REQUIRES</div>
+                      {#each Object.keys(recipe.components) as itemId}
+                        {@const need = recipe.components[itemId]}
+                        {@const free = freeItemForState(state, itemId)}
+                        {@const short = free.lt(need)}
+                        <div class="research-cost" style="color: {short ? 'var(--color-danger)' : 'var(--color-success)'}">
+                          {need}× [{ITEMS[itemId]?.label ?? itemId}] · free {formatNumber(free)}
+                        </div>
+                      {/each}
+
+                      <!-- Credits + effective (build-speed-adjusted) build time. -->
+                      <div class="research-cost" style="margin-top: 6px;">
+                        ◈ {formatNumber(recipe.credits)} · ⏱ {formatClock(shipBuildDurationTicks(state, typeKey as ShipTypeKey), state.tickDurationSeconds)}
+                      </div>
+
+                      <button
+                        class="buy-btn"
+                        style="margin-top: 6px;"
+                        disabled={!gate.ok}
+                        title={gate.ok ? undefined : shipBuildBlockText(gate.reason, typeKey as ShipTypeKey)}
+                        on:click={() => doStartShipBuild(typeKey as ShipTypeKey)}
+                      >
+                        Build
+                      </button>
+                      <!-- Block reason shown inline (the mockup surfaces the cause under a
+                           disabled Build button). Suppressed when buildable. -->
+                      {#if !gate.ok}
+                        <div class="research-cost" style="color: var(--color-danger); margin-top: 4px;">{shipBuildBlockText(gate.reason, typeKey as ShipTypeKey)}</div>
+                      {/if}
+                    </div>
+                  {/each}
+                {/if}
+              </Panel>
+            {/if}
+
+            {#if activeShipyardSubTab === "upgrades"}
+              <!-- UPGRADES -- the Shipyard's finite founding + build-SPEED track
+                   (FACILITIES.shipyard.upgrades; founding rung [0] + two buildSpeedMult
+                   rungs). A LINE-FOR-LINE clone of the Fabricator's Upgrades tab, swapping
+                   fabricator→shipyard vars + the grant line (addFabricateSlots →
+                   buildSpeedMult). Build is wired to the SHARED canBuildFacilityUpgrade /
+                   doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY) -- NOT re-implemented. This
+                   is the SAME founding rung the Build tab's Found button drives, so founding
+                   from either place is one code path. -->
+              <Panel>
+                <div class="panel-title">SHIPYARD — Upgrades</div>
+                <div class="research-cost">Level: {shipyardLevel}</div>
+
+                {#if shipyardMaxed}
+                  <p class="research-status">Fully upgraded.</p>
+                {:else}
+                  {@const eff = nextShipyardUpgrade.effect}
+                  <div class="research-name">Next: Level {shipyardLevel} → {shipyardLevel + 1}</div>
+                  <!-- Grant line: the founding rung ([0], unlocksContent) ESTABLISHES the
+                       Shipyard; the later rungs carry { buildSpeedMult } (the S3 engine
+                       divides a hull's build time by the product of reached mults). Kept
+                       contiguous within each branch so Svelte doesn't trim the phrase. -->
+                  <div class="research-cost">
+                    {#if "buildSpeedMult" in eff}Grants: {eff.buildSpeedMult}× build speed{:else}Grants: establishes the Shipyard (build hulls){/if}
+                  </div>
+                  <div class="research-cost">Duration: {durationReadout(nextShipyardUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+
+                  <!-- Credits cost readiness (shipyard rungs cost credits, not materials). -->
+                  {#if nextShipyardUpgrade.credits !== undefined}
+                    {@const met = state.credits.gte(nextShipyardUpgrade.credits)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} Cost: ◈ {formatNumber(nextShipyardUpgrade.credits)} (have {formatNumber(state.credits)})
+                    </div>
+                  {/if}
+
+                  <!-- Material readiness -- empty for the shipyard track today, kept for
+                       parity with the sibling upgrade tabs. -->
+                  {#each Object.keys(nextShipyardUpgrade.materials) as itemId}
+                    {@const need = nextShipyardUpgrade.materials[itemId]}
+                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const met = have.gte(need)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                    </div>
+                  {/each}
+
+                  <!-- Fleet Admiral level prereq (absent field => no wall). -->
+                  {#if nextShipyardUpgrade.requiresFleetAdminLevel !== undefined}
+                    {@const met = state.fleetAdminLevel >= nextShipyardUpgrade.requiresFleetAdminLevel}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextShipyardUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                    </div>
+                  {/if}
+
+                  <button
+                    class="buy-btn"
+                    disabled={!shipyardUpgradeCheck.ok}
+                    title={shipyardUpgradeCheck.ok ? undefined : shipyardUpgradeCheck.reason}
+                    on:click={() => doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY)}
+                  >
+                    {shipyardLevel === 0 ? "Found" : "Build"} · Level {shipyardLevel} → {shipyardLevel + 1}
+                  </button>
+                {/if}
+
+                {#if shipyardUpgradeInFlight}
+                  {@const progress = shipyardUpgradeInFlight.durationTicks > 0
+                    ? (shipyardUpgradeInFlight.durationTicks - shipyardUpgradeInFlight.remainingTicks) / shipyardUpgradeInFlight.durationTicks
+                    : 1}
+                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remainingReadout(shipyardUpgradeInFlight.remainingTicks, shipyardUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
                 {/if}
               </Panel>
             {/if}
