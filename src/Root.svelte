@@ -18,6 +18,8 @@
   import { onMount, onDestroy } from "svelte";
   import App from "./App.svelte";
   import Landing from "./Landing.svelte";
+  import UpdateBanner from "./UpdateBanner.svelte";
+  import { startUpdatePolling } from "./lib/updateDetector";
 
   const LANDING_ROUTE = "/game/hl";
   const GAME_ROUTE = "/game/hl/play";
@@ -63,12 +65,20 @@
 
   onMount(() => {
     window.addEventListener("popstate", handlePopState);
+    // Begin polling build.json for a newer deploy; flips the `updateAvailable`
+    // store that UpdateBanner subscribes to. Idempotent -- safe to call once here.
+    startUpdatePolling();
   });
 
   onDestroy(() => {
     window.removeEventListener("popstate", handlePopState);
   });
 </script>
+
+<!-- Fixed-overlay banner: sits above every view without entering normal flow, so
+     App.svelte's hard 100dvh flex layout is undisturbed. Renders nothing unless
+     an update is available. Lives outside the {#if} so it overlays either view. -->
+<UpdateBanner />
 
 {#if view === "game"}
   <!-- No in-game "back" affordance: it overlapped the player portrait, and the
