@@ -75,16 +75,41 @@
   });
 </script>
 
-<!-- Fixed-overlay banner: sits above every view without entering normal flow, so
-     App.svelte's hard 100dvh flex layout is undisturbed. Renders nothing unless
-     an update is available. Lives outside the {#if} so it overlays either view. -->
-<UpdateBanner />
-
 {#if view === "game"}
-  <!-- No in-game "back" affordance: it overlapped the player portrait, and the
-       browser back button / editing the URL still return to the landing page.
-       navigate() lives on for Landing's Play button (passed as a prop below). -->
-  <App />
+  <!-- The game runs inside a fixed-height shell so the update banner can take real
+       layout space and push the app DOWN rather than overlay it (the banner covering
+       the header was the problem). The banner renders nothing unless an update is
+       available, so it has zero footprint until then. -->
+  <div class="app-shell">
+    <UpdateBanner />
+    <!-- No in-game "back" affordance: it overlapped the player portrait, and the
+         browser back button / editing the URL still return to the landing page.
+         navigate() lives on for Landing's Play button (passed as a prop below). -->
+    <App />
+  </div>
 {:else}
+  <!-- On the landing page the banner is a normal-flow strip at the very top; the
+       page scrolls beneath it as usual. -->
+  <UpdateBanner />
   <Landing {navigate} />
 {/if}
+
+<style>
+  /* The app's fixed-height shell -- relocated here from App.svelte's .root so the
+     update banner can share the viewport and push the app down instead of overlaying
+     it. 100vh is declared FIRST as the dvh fallback: a browser without dvh support
+     drops the invalid 100dvh line and keeps 100vh; browsers WITH dvh support override
+     with 100dvh. This fallback pair is load-bearing -- without it a dvh-unsupported
+     browser would get no height and collapse the scroll-containment shell (a real
+     regression caught before; see App.svelte's .root and the scroll-containment
+     locked design doc). The banner is a flex-shrink:0 child; App.svelte's .root fills
+     the remaining height via flex:1. overflow:hidden keeps the page from growing --
+     the one scrollable region lives inside App (.tab-scroll-area). */
+  .app-shell {
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+</style>

@@ -52,7 +52,7 @@
         </svg>
         <div class="text">
           <div class="title">A new version of Hyperion Legacy is available</div>
-          <div class="subline">Refresh to get the latest fixes — your progress auto-saves.</div>
+          <div class="subline">Refresh to get the latest fixes. Your progress auto-saves.</div>
         </div>
       </div>
 
@@ -107,14 +107,12 @@
      documented in RadialWeb.svelte does not apply here. `viewport-fit=cover`
      (index.html) means we honor the iOS safe-area top inset. */
   .update-banner {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 1000;
-    /* Full-bleed top bar (no side inset) so it cleanly covers the game's top
-       chrome instead of reading as a floating card with content peeking around it.
-       Honors the iOS safe-area top inset (index.html sets viewport-fit=cover). */
+    /* Normal-flow top strip: a flex child of Root's .app-shell, so it takes real
+       layout space and PUSHES the app down instead of overlaying it -- it never
+       covers the game's header/top bar. Renders nothing when there's no update, so
+       it has zero footprint until needed. Full-bleed (no side inset). Honors the
+       iOS safe-area top inset (index.html sets viewport-fit=cover). */
+    flex: 0 0 auto;
     padding: env(safe-area-inset-top) 0 0;
   }
 

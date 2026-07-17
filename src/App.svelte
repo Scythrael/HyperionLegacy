@@ -5663,23 +5663,21 @@
 
 <style>
   .root {
-    /* Was min-height: 100dvh -- now a HARD height, so this flex column never
-       grows past the viewport. The ONE scrollable region below
-       (.tab-scroll-area, per active tab) absorbs overflow instead of the
-       whole page growing underneath the header/nav bars, which is the entire
-       point of this change -- see docs/plans/2026-07-07-scroll-containment-
-       locked-placeholders-design.md.
-       100vh declared FIRST as a fallback, same cascade-order idiom this
-       codebase already uses (app.css's html/body rules, and this rule's own
-       prior min-height pair) -- on a browser without dvh support, the second
-       line below is invalid CSS and gets ignored entirely, leaving 100vh in
-       effect; browsers WITH dvh support apply the second line, overriding
-       the first. Without this fallback, a dvh-unsupported browser would get
-       NO height on .root at all (an unrecognized declaration is dropped, not
-       degraded), collapsing the entire new scroll-containment shell -- a
-       real, not hypothetical, regression a code-quality review caught. */
-    height: 100vh;
-    height: 100dvh;
+    /* The hard viewport height (100vh/100dvh, with its dvh-fallback idiom) now
+       lives ONE level up on Root.svelte's .app-shell, so the update banner can
+       share the viewport and push the app DOWN instead of overlaying it. .root
+       fills whatever height .app-shell leaves after the banner, via flex.
+       This PRESERVES the scroll-containment invariant (see
+       docs/plans/2026-07-07-scroll-containment-locked-placeholders-design.md):
+       .root still has a definite (flex-derived) height and overflow: hidden, so
+       the page never grows past the viewport and the ONE scrollable region
+       (.tab-scroll-area, per active tab) still absorbs all overflow. When no
+       banner is showing it renders nothing, so .app-shell hands .root the full
+       viewport height exactly as before -- behavior is unchanged in that case.
+       flex:1 + min-height:0 is the same idiom .tab-body/.tab-scroll-area already
+       use, so .frame's height:100% still resolves against a definite height. */
+    flex: 1 1 auto;
+    min-height: 0;
     position: relative;
     overflow: hidden;
   }
