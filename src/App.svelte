@@ -6069,6 +6069,17 @@
     font-family: var(--font-mono);
     font-size: 13px;
   }
+  /* A native <select> otherwise renders its closed control -- and especially its
+     OPENED option list -- with the browser's default WHITE background, which the
+     6%-opacity --color-panel-bg-strong above can't override; light theme text on
+     white is unreadable (the crafting configurator's Tier/Item dropdowns). Force a
+     SOLID dark background + themed text on the select and each <option> so the list
+     is readable in every theme. */
+  select.modal-input,
+  select.modal-input option {
+    background: var(--color-bg-mid);
+    color: var(--color-text-primary);
+  }
   .modal-row { display: flex; justify-content: flex-end; gap: 2px; }
   /* Popup captain-picker list (2026-07-07 Fleet Operations Mission UI, Task 6)
      -- stacks the idle-captain buttons inside the captain-selection popup
