@@ -3,8 +3,17 @@
 Things known to be broken or missing, deliberately deferred. Ops §8.E.7:
 write it down so you don't relitigate it later.
 
-- **A material can overshoot its warehouse cap by a full mission cycle's haul (user-observed 2026-07-16:
-  Deuterium Ice at 1.3M / 1M cap, running at 1000x dev speed).** ROOT CAUSE (traced, not a symptom): the
+- **[RESOLVED 2026-07-16] A material can overshoot its warehouse cap by a full mission cycle's haul
+  (user-observed: Deuterium Ice at 1.3M / 1M cap, running at 1000x dev speed).** FIXED in two parts:
+  (1) `addToInventory` (the single shared deposit seam) now CLAMPS every producer deposit at the item's
+  warehouse cap via `Decimal.min(have + amount, itemCap(state, itemId))` — overflow is discarded, uncapped
+  items untouched (the sentinel makes `min` a no-op), below-cap byte-identical, offline-parity verified
+  (`fix/warehouse-cap-clamp`); and (2) the related freeze-in-place bug (a ship stranded mid-mission at cap)
+  was fixed separately by recall-on-cap (`fix/mission-recall-on-cap`) — a mission that can't complete now
+  returns to base + idles instead of freezing. The deeper GAMEPLAY feature (cargo capacity as a *meaningful*
+  stat — bigger hold hauls more, small hold overflows) remains a separate future pass; see the SUGGESTIONS.md
+  "Cargo & progression redesign" entry. Original diagnosis kept below for reference.
+  ORIGINAL ROOT CAUSE (traced, not a symptom): the
   `materialAtCap` auto-stop (`tick.ts:1302`) only idles a mission BEFORE it STARTS a run when the primary
   material is already `>= cap` — it can NOT stop a run already mid-cycle. A skim/ore run extracts for ~90
   ticks and deposits its ENTIRE haul at the `unloading` phase, so when the material sits just under cap the
