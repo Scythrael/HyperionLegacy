@@ -784,3 +784,25 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   NOT piecemeal — and it's the natural thing to settle WHEN the Shipyard lands (the next new consumer), since that's
   when the question stops being theoretical. Until then, facility upgrades can quietly spend reserved ore (no
   corruption/softlock, just a stalled line — documented in KNOWN_ISSUES).
+
+- **Away Missions — randomly-generated dungeon crawls with turn-based combat (user 2026-07-16, TABLE for down
+  the line).** A new active game MODE: you send crew on an **Away Mission** (gated by **away-mission slots** that
+  come from the [[Crew system]] — the crew on board fill these slots), which drops you into a **randomly-generated
+  dungeon** you navigate room-to-room by clicking directional arrows / hitting the cursor keys. Rooms contain a
+  proper **turn-based RPG battle system** (user is explicit: turn-based, "the only good one haha") and yield
+  **potentially great item rewards** (feeds the equipment/loot economy). Deep future — depends on the Crew system
+  existing (slots + who you send + their stats), plus a from-scratch **turn-based combat engine**, a **dungeon
+  generator**, and room-navigation UI + a **loot table** system.
+  - **Cross-links (design as a shared family when the time comes):** the equipment/loadout mechanic overlaps the
+    logged **Landing Party missions** (item slots for a planet-side team) and **Battlespace Invasion** (ground
+    troops); the fighters overlap the **Ground combat** entry (ground characters with offense/defense/debuff specs,
+    garrisons/platoons). Away Missions are plausibly the PvE, single-player expression of that same ground-combat +
+    loadout family — build the turn-based-combat engine + equipment slots ONCE and reuse across Away Missions /
+    Landing Party / Invasion, not three times.
+  - **⚠️ Architectural flag (important):** unlike EVERYTHING built so far, a dungeon crawl is **active, interactive,
+    session-based play** — it does NOT fit the game's closed-form / offline-tickable model (you can't advance a
+    click-through-rooms turn-based fight during offline catch-up). So Away Missions are something you actively DO in
+    a session, a mini-game bolted onto the idle loop, with its own real-time-ish state that pauses when you leave —
+    a genuinely different interaction paradigm from the tick economy. Worth deciding early how an in-progress away
+    mission interacts with the offline model (freeze/resume? abandon? a soft time limit?). Its own full brainstorm
+    when the Crew system + a combat engine are on the table.
