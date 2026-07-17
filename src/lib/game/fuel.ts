@@ -1,5 +1,5 @@
 // ============================================================================
-// Fuel model -- pure fuel math for the mission fuel economy.
+// Fuel model, pure fuel math for the mission fuel economy.
 // Author: Mission Rework Task 3 (docs/plans/2026-07-14-mission-rework-plan.md),
 // design §3. Created 2026-07-14.
 //
@@ -22,14 +22,14 @@ import { FUEL_PER_TICK } from "./model";
 // --- Functions --------------------------------------------------------------
 
 // roundTripTransitTicks: the number of TRANSIT ticks a full mission round trip
-// costs -- transit-OUT plus transit-BACK, and NOTHING else. The mission phase model
+// costs, transit-OUT plus transit-BACK, and NOTHING else. The mission phase model
 // (model.ts's MissionPhase / requiredTicksForPhase) has five phases:
 //   ordersReceived -> transitOut -> extracting -> transitBack -> unloading
 // Only the two TRANSIT phases represent distance covered under engine power, so only
 // those burn fuel: ordersReceived (dispatch paperwork), extracting (station-keeping at
 // the site), and unloading (docked at home) are explicitly NOT counted. The two
 // transit legs are separate MissionDef fields (transitOutTicks / transitBackTicks) and
-// can differ, so the round trip is their SUM -- not simply 2x one leg.
+// can differ, so the round trip is their SUM, not simply 2x one leg.
 //
 // NOTE: this reads the BASE mission's transit fields, i.e. the un-ship-adjusted
 // durations. A hull's transitSpeedMult (effectiveMissionDef, model.ts) rescales how
@@ -54,7 +54,7 @@ export function roundTripTransitTicks(mission: MissionDef): number {
 //
 // PURE: reads only its two argument objects and the FUEL_PER_TICK constant; mutates
 // nothing. Takes the hull's ShipTypeDef (the immutable stat template) rather than a
-// ShipInstance -- a ShipInstance carries only its typeKey and derives hull stats from
+// ShipInstance, a ShipInstance carries only its typeKey and derives hull stats from
 // SHIP_TYPES on demand (model.ts's shipDerivedStats pattern), so callers holding an
 // instance pass SHIP_TYPES[instance.typeKey].
 export function fuelNeeded(mission: MissionDef, ship: ShipTypeDef): number {

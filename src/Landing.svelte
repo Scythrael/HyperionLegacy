@@ -1,14 +1,14 @@
 <script lang="ts">
-  // Landing.svelte -- the public marketing page served at "/" (see Root.svelte).
+  // Landing.svelte, the public marketing page served at "/" (see Root.svelte).
   //
   // Deliberately reuses the GAME's visual language so the site reads as part of
   // the product, not a separate brochure: the shared Panel.svelte chamfered
   // panel, the app.css --color-* theme tokens, and the Orbitron/Space Grotesk
-  // font stack. Nothing here touches game state -- it only renders copy, links,
+  // font stack. Nothing here touches game state, it only renders copy, links,
   // and the latest patch notes, then hands control to the game via navigate().
   //
   // Props:
-  //   navigate(to) -- Root.svelte's SPA push-state helper. The Play button
+  //   navigate(to), Root.svelte's SPA push-state helper. The Play button
   //   calls navigate("/game/hl/play") to boot the game without a full page reload.
   import Panel from "./lib/Panel.svelte";
   import Starfield from "./lib/Starfield.svelte";
@@ -172,7 +172,7 @@
     margin-top: 34px;
   }
 
-  /* Prominent primary CTA -- filled accent slab with the game's chamfer-free
+  /* Prominent primary CTA, filled accent slab with the game's chamfer-free
      flat style (matches the post-0.9.0 flatter panel direction). */
   .btn-play {
     display: inline-flex;
@@ -274,7 +274,7 @@
     grid-template-columns: repeat(3, 1fr);
     gap: 14px;
   }
-  /* :global -- .news-card is passed to Panel.svelte, which renders it on a
+  /* :global, .news-card is passed to Panel.svelte, which renders it on a
      child <section>; the class lands outside this component's scope, so the
      scoped selector wouldn't reach it without :global. */
   .news-grid :global(.news-card) {

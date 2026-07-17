@@ -1,18 +1,18 @@
 <script lang="ts">
-  // UpdateBanner.svelte -- dismissible "a new version is available" banner.
+  // UpdateBanner.svelte, dismissible "a new version is available" banner.
   //
   // Shows ONLY when the updateDetector poller flips `updateAvailable` to true
   // (a newer version.json id was seen than the one this tab booted with). It sits
   // as a fixed overlay across the very top of the viewport (mounted once in
   // Root.svelte) so it never disturbs App.svelte's hard 100dvh flex-column
-  // layout -- see Root.svelte's mount comment for why fixed (not in-flow).
+  // layout, see Root.svelte's mount comment for why fixed (not in-flow).
   //
   // Three actions:
-  //   Export save -- downloads a raw save backup. Deliberately does NOT dismiss
+  //   Export save, downloads a raw save backup. Deliberately does NOT dismiss
   //                  the banner (a player exporting a backup still wants the
   //                  refresh prompt to stay put until they actually refresh).
-  //   Refresh     -- reloads the page to pick up the new build.
-  //   Dismiss (x) -- snoozes via dismissUpdate(); the poller re-surfaces later.
+  //   Refresh    , reloads the page to pick up the new build.
+  //   Dismiss (x), snoozes via dismissUpdate(); the poller re-surfaces later.
   //
   // Visual recipe mirrors src/lib/Panel.svelte's frosted-glass panel and uses
   // ONLY theme CSS variables so it recolors with the player's chosen theme.
@@ -108,7 +108,7 @@
      (index.html) means we honor the iOS safe-area top inset. */
   .update-banner {
     /* Normal-flow top strip: a flex child of Root's .app-shell, so it takes real
-       layout space and PUSHES the app down instead of overlaying it -- it never
+       layout space and PUSHES the app down instead of overlaying it, it never
        covers the game's header/top bar. Renders nothing when there's no update, so
        it has zero footprint until needed. Full-bleed (no side inset). Honors the
        iOS safe-area top inset (index.html sets viewport-fit=cover). */
@@ -119,7 +119,7 @@
   /* Full-width top bar. The game's top bar sits directly BEHIND this fixed banner,
      so the background MUST be opaque: --color-panel-bg alone is only 0.32 alpha,
      and Brave (and some mobile browsers) drop backdrop-filter entirely, so relying
-     on blur to hide what's behind fails -- the game text bleeds through. We stack
+     on blur to hide what's behind fails, the game text bleeds through. We stack
      the accent-tinted panel-bg OVER an opaque --color-bg-mid so nothing shows
      through on ANY browser, and keep blur(10px) as a frost bonus where honored. */
   .banner-inner {

@@ -1,4 +1,4 @@
-// Timed-process engine tests -- Phase 1, Task 8
+// Timed-process engine tests, Phase 1, Task 8
 // (docs/plans/2026-07-11-facility-framework-refinery-design.md §3, §4).
 //
 // Covers the two engine functions (startProcess / resolveProcesses, both in
@@ -8,14 +8,14 @@
 // later Refinery UI / mission economy.
 //
 // The load-bearing guarantees under test:
-//   1. ATOMIC deduct-at-start -- inputs leave inventory in the SAME transition
+//   1. ATOMIC deduct-at-start, inputs leave inventory in the SAME transition
 //      that creates the process (design §4), so there is no checked-but-not-yet-
 //      consumed window for a second concurrent start to exploit.
-//   2. CLOSED-FORM resolve -- one resolveProcesses(state, N) is byte-identical to
+//   2. CLOSED-FORM resolve, one resolveProcesses(state, N) is byte-identical to
 //      N resolveProcesses(state, 1) for inventory, facilities, activeProcesses,
 //      AND the summed Fleet Admiral XP. This is the offline-catch-up == live-loop
 //      guarantee the whole engine exists to provide.
-//   3. LUMP FA XP on completion -- a completed process awards its durationTicks of
+//   3. LUMP FA XP on completion, a completed process awards its durationTicks of
 //      Fleet Admiral XP exactly once, regardless of how the elapsed ticks chunked.
 
 import { describe, it, expect } from "vitest";
@@ -77,7 +77,7 @@ const addItem = (itemId: string, amount: number): ProcessEffect => ({
 });
 const levelUp = (facility: string): ProcessEffect => ({ type: "facilityLevelUp", facility });
 
-describe("startProcess -- atomic deduct-at-start (Task 8)", () => {
+describe("startProcess, atomic deduct-at-start (Task 8)", () => {
   it("rejects a start the inventory cannot afford, returning the SAME state reference unchanged", () => {
     const state = stateWith({ commonOre: 5 });
     const result = startProcess(
@@ -88,7 +88,7 @@ describe("startProcess -- atomic deduct-at-start (Task 8)", () => {
       addItem("refinedMaterial", 1)
     );
     expect(result.started).toBe(false);
-    expect(result.next).toBe(state); // literally the same object -- no clone on the reject path
+    expect(result.next).toBe(state); // literally the same object, no clone on the reject path
     expect(state.inventory.commonOre.toString()).toBe("5"); // untouched
     expect(state.activeProcesses).toEqual([]);
     expect(state.nextProcessId).toBe(1);
@@ -104,7 +104,7 @@ describe("startProcess -- atomic deduct-at-start (Task 8)", () => {
       addItem("refinedMaterial", 1)
     );
     expect(result.started).toBe(true);
-    // Deducted at START (not at completion) -- inventory already reflects the reservation.
+    // Deducted at START (not at completion), inventory already reflects the reservation.
     expect(result.next.inventory.commonOre.toString()).toBe("20");
     expect(result.next.activeProcesses).toHaveLength(1);
     const proc = result.next.activeProcesses[0];
@@ -121,7 +121,7 @@ describe("startProcess -- atomic deduct-at-start (Task 8)", () => {
     expect(state.activeProcesses).toEqual([]);
   });
 
-  it("gates on EVERY input -- a multi-input start with one affordable and one short is rejected", () => {
+  it("gates on EVERY input, a multi-input start with one affordable and one short is rejected", () => {
     const state = stateWith({ commonOre: 100, rareMaterial: 1 });
     const result = startProcess(
       state,
@@ -132,13 +132,13 @@ describe("startProcess -- atomic deduct-at-start (Task 8)", () => {
     );
     expect(result.started).toBe(false);
     expect(result.next).toBe(state);
-    // Neither input was touched -- the whole start is atomic, no partial deduct.
+    // Neither input was touched, the whole start is atomic, no partial deduct.
     expect(state.inventory.commonOre.toString()).toBe("100");
     expect(state.inventory.rareMaterial.toString()).toBe("1");
   });
 });
 
-describe("startProcess -- double-consume guard (design §4)", () => {
+describe("startProcess, double-consume guard (design §4)", () => {
   it("the SECOND of two concurrent starts fails once the first has deducted the shared materials", () => {
     // Only enough ore for ONE job. Under a naive check-now/consume-later design
     // both starts would see 10 and both begin, over-drawing to -10. Atomic
@@ -157,13 +157,13 @@ describe("startProcess -- double-consume guard (design §4)", () => {
       addItem("refinedMaterial", 1)
     );
     expect(second.started).toBe(false);
-    expect(second.next).toBe(first.next); // rejected -- inventory never goes negative
+    expect(second.next).toBe(first.next); // rejected, inventory never goes negative
     expect(second.next.inventory.commonOre.toString()).toBe("0");
     expect(second.next.activeProcesses).toHaveLength(1); // still just the first job
   });
 });
 
-describe("resolveProcesses -- completion applies effects, lumps FA XP, removes the process (Task 8)", () => {
+describe("resolveProcesses, completion applies effects, lumps FA XP, removes the process (Task 8)", () => {
   it("completes an addItem process: output added via the shared seam (marks discovered), FA XP = durationTicks, process removed", () => {
     const base = freshState();
     const process: TimedProcess = {
@@ -194,7 +194,7 @@ describe("resolveProcesses -- completion applies effects, lumps FA XP, removes t
     };
     const state = { ...base, activeProcesses: [process], nextProcessId: 2 };
 
-    const { next, fleetAdminXpDelta } = resolveProcesses(state, 30); // overshoots -- still completes once
+    const { next, fleetAdminXpDelta } = resolveProcesses(state, 30); // overshoots, still completes once
 
     expect(next.facilities.refinery.level).toBe(1); // 0 -> 1
     expect(next.activeProcesses).toEqual([]);
@@ -228,7 +228,7 @@ describe("resolveProcesses -- completion applies effects, lumps FA XP, removes t
   });
 });
 
-describe("resolveProcesses -- CLOSED-FORM parity (critical): one big resolve == many small (Task 8)", () => {
+describe("resolveProcesses, CLOSED-FORM parity (critical): one big resolve == many small (Task 8)", () => {
   it("a set of varied-remaining processes resolves identically whether stepped 1x320 or jumped once by 320", () => {
     // Varied remaining ticks + varied effects (two addItem to the SAME item to
     // exercise accumulation, one to a second item, one facility upgrade, and one
@@ -276,7 +276,7 @@ describe("resolveProcesses -- CLOSED-FORM parity (critical): one big resolve == 
   });
 });
 
-describe("save round-trip -- a persisted addItem process revives effect.amount as a Decimal (Task 8)", () => {
+describe("save round-trip, a persisted addItem process revives effect.amount as a Decimal (Task 8)", () => {
   it("serializes a mid-process save and rehydrates effect.amount from its JSON string back into a Decimal", () => {
     const base = freshState();
     const process: TimedProcess = {
@@ -298,7 +298,7 @@ describe("save round-trip -- a persisted addItem process revives effect.amount a
     const revivedProc = revived.activeProcesses[0];
     expect(revivedProc.effect.type).toBe("addItem");
     // The load-bearing assertion: amount came back as a real Decimal (has .plus),
-    // not a bare string -- so the resolver's addToInventory .plus() won't throw.
+    // not a bare string, so the resolver's addToInventory .plus() won't throw.
     if (revivedProc.effect.type === "addItem") {
       expect(revivedProc.effect.amount).toBeInstanceOf(Decimal);
       expect(revivedProc.effect.amount.toString()).toBe("42");

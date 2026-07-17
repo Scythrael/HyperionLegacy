@@ -1,14 +1,14 @@
-// updateDetector.test.ts -- unit tests for the update-detector store + poller.
+// updateDetector.test.ts, unit tests for the update-detector store + poller.
 //
 // ENV NOTE: these run under the DEFAULT (node) vitest env, NOT a DOM env. jsdom is
 // not a project dependency (not in package.json, not in node_modules) and there is
 // no vitest config selecting a DOM environment, so a per-file environment directive
 // pointing at jsdom would fail to resolve the environment package (and is also why
-// no such directive appears above -- vitest scans comments for that token, so even
+// no such directive appears above, vitest scans comments for that token, so even
 // naming it verbatim here would wrongly trip environment selection). The module
 // under test guards all document/window access behind `typeof` checks (also correct
-// for SSR), so the behavior these tests exercise -- the immediate fetch-compare
-// check, the snooze, and idempotency -- runs cleanly under node. The visibilitychange
+// for SSR), so the behavior these tests exercise, the immediate fetch-compare
+// check, the snooze, and idempotency, runs cleanly under node. The visibilitychange
 // and focus listeners are simply skipped when document/window are absent (the node
 // case here).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -62,7 +62,7 @@ describe("update poller", () => {
     vi.useFakeTimers();
   });
   afterEach(() => {
-    // The started-guard, snooze flag, and timers are module singletons -- wipe them
+    // The started-guard, snooze flag, and timers are module singletons, wipe them
     // so each case starts clean. Restore mocks + real timers so nothing leaks out.
     resetUpdateDetectorForTests();
     vi.restoreAllMocks();

@@ -1,5 +1,5 @@
 // ============================================================================
-// Crafting Allocation Redesign -- Task C1 tests (TDD)
+// Crafting Allocation Redesign, Task C1 tests (TDD)
 //
 // Author: Claude (Opus 4.8) | Date: 2026-07-16
 // Plan: docs/plans/2026-07-16-crafting-allocation-redesign-plan.md (Task C1)
@@ -7,7 +7,7 @@
 //
 // Pins the DERIVED material-allocation core: how much of an item active craft
 // lines RESERVE (allocated) vs. how much is left to spend (free). Allocation is
-// never stored -- the lines are the single source of truth -- so these pure
+// never stored, the lines are the single source of truth, so these pure
 // helpers take a `lines` array as a parameter (C2 wires them to GameState).
 //
 // ⚠️ WORKED-EXAMPLE RECONCILIATION: the design §1 table illustrates with a
@@ -197,7 +197,7 @@ describe("freeItem", () => {
 // The state-taking convenience over freeItem: it reads the craft-line reservation
 // off BOTH GameState line arrays (refineLines + fabricateLines) so material
 // spend-gates (canBuildFacilityUpgrade, S3 canBuildShip) don't re-thread the lines
-// themselves. It is a thin wrapper over the pure freeItem tested above -- these
+// themselves. It is a thin wrapper over the pure freeItem tested above, these
 // tests pin (a) it sums BOTH arrays, (b) it tolerates absent arrays as empty, and
 // (c) it inherits freeItem's clamp/absent-key behavior.
 describe("freeItemForState (state convenience)", () => {

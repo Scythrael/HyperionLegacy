@@ -1,4 +1,4 @@
-// Fuel consumption rework tests -- Fuel Economy v2 F3
+// Fuel consumption rework tests, Fuel Economy v2 F3
 // (docs/plans/2026-07-14-fuel-economy-v2-design.md §3/§4/§"Offline"),
 // UPDATED for the 2026-07-15 fuel-sourcing RESTRUCTURE (see below).
 //
@@ -13,12 +13,12 @@
 //      auto-repeat ends the mission). The anti-infinite-fuel floor.
 //
 // ⚠️ FUEL-SOURCING RESTRUCTURE (2026-07-15) ⚠️ Two things change here:
-//   (a) FUEL_CREDITS_PER_UNIT 5 -> 20 -- credit auto-buy is now EXPENSIVE (a Freighter
+//   (a) FUEL_CREDITS_PER_UNIT 5 -> 20, credit auto-buy is now EXPENSIVE (a Freighter
 //       shortOreRun empty-tank top-up is 50*20 = 1000cr), so the hardcoded auto-buy cost
 //       assertions below moved from *5 to *20.
 //   (b) The Fuel Depot now refines the DEDICATED `deuteriumIce` item, NOT `commonOre`.
 //       shortOreRun's common drop is `commonOre` (Titanium Ore) again, which the depot no
-//       longer touches -- so a shortOreRun mission NO LONGER self-feeds its own refinery.
+//       longer touches, so a shortOreRun mission NO LONGER self-feeds its own refinery.
 //       The refining scenarios below therefore SEED a `deuteriumIce` reserve (as the free
 //       localFuelRun mission supplies in real play) so refining still fires. This is the
 //       "update the refinery-input seed commonOre -> deuteriumIce" the restructure calls for.
@@ -29,7 +29,7 @@
 // economyTick(_,1) bit-identical (the required offline==live parity proof at the bottom).
 //
 // freshState() seeds ONE captain (id 1) flying "ship-1" (General Freighter, engineEfficiency
-// 0), so fuelNeeded(shortOreRun, Freighter) = (25+25)*1/(1+0) = 50 fuel/round-trip -- an
+// 0), so fuelNeeded(shortOreRun, Freighter) = (25+25)*1/(1+0) = 50 fuel/round-trip, an
 // INTEGER, which is what makes the parity assertions bit-exact. One shortOreRun cycle is 149
 // whole ticks (1 orders + 25 out + 90 extract + 25 back + 8 unload); a penalized cycle is 151.
 import { describe, it, expect } from "vitest";
@@ -54,7 +54,7 @@ const AUTOBUY_COST = NEED * FUEL_CREDITS_PER_UNIT; // 50 * 20 = 1000 (empty-tank
 
 // rng ()=>0.5 loses EVERY tier roll (0.5 >= rareChance 0.001 and >= uncommonChance 0.019),
 // so common wins each extraction tick. For shortOreRun that deposits commonOre (Titanium Ore),
-// NOT Deuterium Ice -- the restructure decoupled the two. Refining is fed by a SEEDED
+// NOT Deuterium Ice, the restructure decoupled the two. Refining is fed by a SEEDED
 // deuteriumIce reserve in the tests that exercise it (see the header note). Using a constant
 // rng keeps loot interleaving out of the parity comparison.
 const ALL_COMMON = () => 0.5;
@@ -65,14 +65,14 @@ function withIce(s: GameState, amount: number): GameState {
   return { ...s, inventory: { ...s.inventory, deuteriumIce: new Decimal(amount) } };
 }
 
-// Step economyTick(state, 1) n times -- the SAME per-tick stepping tick()'s offline loop does.
+// Step economyTick(state, 1) n times, the SAME per-tick stepping tick()'s offline loop does.
 function step(state: GameState, n: number, rng = ALL_COMMON): GameState {
   let s = state;
   for (let i = 0; i < n; i++) s = economyTick(s, 1, rng);
   return s;
 }
 
-describe("F3 retune -- constants", () => {
+describe("F3 retune, constants", () => {
   it("keeps FUEL_PER_TICK at 1 and makes credit auto-buy EXPENSIVE (FUEL_CREDITS_PER_UNIT 5 -> 20)", () => {
     expect(FUEL_PER_TICK).toBe(1);
     expect(FUEL_CREDITS_PER_UNIT).toBe(20); // restructure: expensive convenience, not a crutch
@@ -83,7 +83,7 @@ describe("F3 retune -- constants", () => {
   });
 
   it("KEEPS the friendlier mission creditsPerCycle as generous rewards (NOT the non-bricking mechanism)", () => {
-    // These values are UNCHANGED -- they stay as generous rewards. At FUEL_CREDITS_PER_UNIT 20
+    // These values are UNCHANGED, they stay as generous rewards. At FUEL_CREDITS_PER_UNIT 20
     // a reward is now FAR below its mission's worst-case (empty-tank) auto-buy cost, and it does
     // not need to match it: non-bricking comes from refining Deuterium Ice (mined free on
     // localFuelRun) + the full starting tank, not from credit-funded auto-buy.
@@ -95,16 +95,16 @@ describe("F3 retune -- constants", () => {
   });
 });
 
-describe("F3 -- SUSTAINABILITY is the non-bricking guarantee (refining, not credit auto-buy)", () => {
+describe("F3, SUSTAINABILITY is the non-bricking guarantee (refining, not credit auto-buy)", () => {
   it("the Fuel Depot's production RATE far exceeds a mission's consumption RATE", () => {
     // Level-0 depot: one batch = FUEL_REFINE_OUTPUT (100) fuel over FUEL_REFINE_DURATION_TICKS
     // (10) ticks = 10 fuel/tick produced, vs shortOreRun's NEED (50) spread over CYCLE_TICKS
     // (149) = ~0.336 fuel/tick consumed. Production dwarfs consumption (>25x), so a tank fed
-    // ice trends toward its cap instead of draining -- refining keeps the fuel economy afloat.
+    // ice trends toward its cap instead of draining, refining keeps the fuel economy afloat.
     const productionPerTick = FUEL_REFINE_OUTPUT / FUEL_REFINE_DURATION_TICKS; // 100 / 10 = 10
     const consumptionPerTick = NEED / CYCLE_TICKS; // 50 / 149 ~= 0.336
     expect(productionPerTick).toBeGreaterThan(consumptionPerTick);
-    expect(productionPerTick).toBeGreaterThan(consumptionPerTick * 25); // not marginal -- a huge margin
+    expect(productionPerTick).toBeGreaterThan(consumptionPerTick * 25); // not marginal, a huge margin
   });
 
   it("a fresh game with a Deuterium Ice reserve stays fuel-healthy for many cycles on refining alone", () => {
@@ -123,7 +123,7 @@ describe("F3 -- SUSTAINABILITY is the non-bricking guarantee (refining, not cred
     // (2) Still self-funding from the tank alone: fuel >= one round trip's NEED.
     expect(after.fuel.gte(NEED)).toBe(true);
     // (3) NON-VACUOUS refining proof: the tank ended >= its post-dispatch 450 even though the
-    //     mission burned 50 at each of the 5 boundaries -- so refining REPLACED everything
+    //     mission burned 50 at each of the 5 boundaries, so refining REPLACED everything
     //     consumed (a pure drain would leave 450 - 250 = 200). Credit auto-buy is NOT the source
     //     (credits were 0 at dispatch), and the reserve was actually drawn down (proof below).
     expect(after.fuel.gte(450)).toBe(true);
@@ -142,10 +142,10 @@ describe("F3 (a) tank has enough -> spend, NO penalty, NO auto-buy", () => {
     expect(s.fuel.eq(350)).toBe(true);
 
     // Run one full cycle. No Deuterium Ice on hand (shortOreRun delivers Titanium, not ice, and
-    // none was seeded), so the depot refines nothing -- the tank (350) simply covers the 50-fuel
+    // none was seeded), so the depot refines nothing, the tank (350) simply covers the 50-fuel
     // repeat with NO auto-buy, NO penalty.
     const afterCycle = step(s, CYCLE_TICKS);
-    // credits rose ONLY by the cycle reward (30) -- proof no auto-buy deducted.
+    // credits rose ONLY by the cycle reward (30), proof no auto-buy deducted.
     expect(afterCycle.credits.eq(1030)).toBe(true);
     // tank paid one repeat (350 -> 300); nothing refilled it.
     expect(afterCycle.fuel.eq(300)).toBe(true);
@@ -192,7 +192,7 @@ describe("F3 (b) tank short but affordable -> auto-buy shortfall + credits down 
   it("canDispatch is OK when the tank is short but the shortfall is affordable (auto-buy at dispatch)", () => {
     const s = freshState();
     s.fuel = new Decimal(3); // short of the 50 need
-    s.credits = new Decimal(2000); // shortfall 47 -> cost 47*20 = 940 -- affordable
+    s.credits = new Decimal(2000); // shortfall 47 -> cost 47*20 = 940, affordable
     expect(canDispatch(s, 1, "shortOreRun")).toEqual({ ok: true });
   });
 
@@ -212,7 +212,7 @@ describe("F3 (b) tank short but affordable -> auto-buy shortfall + credits down 
 describe("F3 (c) truly broke -> hard-stop (dispatch blocked / auto-repeat ends)", () => {
   it("canDispatch blocks (fuelEmpty) when the tank is short AND the shortfall is unaffordable", () => {
     const s = freshState();
-    s.fuel = new Decimal(0); // drain the default-full tank -- this test's SUBJECT is the broke, empty-tank floor
+    s.fuel = new Decimal(0); // drain the default-full tank, this test's SUBJECT is the broke, empty-tank floor
     s.credits = new Decimal(5); // shortfall 50 -> cost 1000 > 5 credits -> can't afford
     expect(canDispatch(s, 1, "shortOreRun")).toEqual({ ok: false, reason: "fuelEmpty" });
   });
@@ -228,15 +228,15 @@ describe("F3 (c) truly broke -> hard-stop (dispatch blocked / auto-repeat ends)"
     expect(after.captains[0].mission).toBeNull(); // hard-stopped (mission ended)
     expect(after.fuel.eq(0)).toBe(true);
     // Cycle 1's reward (30) IS still earned+banked this call (applied at call end), so the
-    // player is left with 30 credits and an idled captain -- next manual dispatch can afford it.
+    // player is left with 30 credits and an idled captain, next manual dispatch can afford it.
     expect(after.credits.eq(30)).toBe(true);
   });
 });
 
-describe("Fuel-sourcing restructure -- the free localFuelRun bootstrap runs on 0 fuel + refines its ice", () => {
+describe("Fuel-sourcing restructure, the free localFuelRun bootstrap runs on 0 fuel + refines its ice", () => {
   it("dispatches on an EMPTY tank with 0 credits (0 fuel cost) and never fuel-stops", () => {
     let s = freshState();
-    s.fuel = new Decimal(0); // fully drained -- proves the local run needs NO fuel
+    s.fuel = new Decimal(0); // fully drained, proves the local run needs NO fuel
     s.credits = new Decimal(0); // ...and no credit auto-buy either
     const d = dispatchCaptainOnMission(s, 1, "localFuelRun");
     expect(d.success).toBe(true); // 0 fuel need -> dispatchable from a bricked fuel state
@@ -254,7 +254,7 @@ describe("Fuel-sourcing restructure -- the free localFuelRun bootstrap runs on 0
     // Run one full cycle + margin so it delivers ~90 Deuterium Ice, then a few more ticks so
     // the Depot's first batch (50 ice -> 100 fuel over 10 ticks) completes.
     const afterDelivery = step(s, 99);
-    // Ice was delivered (a positive Deuterium Ice balance appeared) -- and ONLY Deuterium Ice:
+    // Ice was delivered (a positive Deuterium Ice balance appeared), and ONLY Deuterium Ice:
     // the generic uncommon/rare tiers stayed 0 (uncommonChance/rareChance are 0).
     expect((afterDelivery.inventory.deuteriumIce ?? new Decimal(0)).gt(0)).toBe(true);
     expect((afterDelivery.inventory.uncommonMaterial ?? new Decimal(0)).eq(0)).toBe(true);
@@ -268,7 +268,7 @@ describe("Fuel-sourcing restructure -- the free localFuelRun bootstrap runs on 0
   });
 });
 
-describe("⚠️ F3 REQUIRED offline==live PARITY -- refining + consumption + auto-buy + penalty all fire", () => {
+describe("⚠️ F3 REQUIRED offline==live PARITY, refining + consumption + auto-buy + penalty all fire", () => {
   // The controller re-verifies this personally. A multi-cycle span where the Fuel Depot refines
   // Deuterium Ice -> fuel, the mission burns fuel every cycle, the ice reserve RUNS OUT mid-span,
   // and once it does the drained tank forces an auto-buy + the +2-tick penalty. So all FOUR
@@ -279,7 +279,7 @@ describe("⚠️ F3 REQUIRED offline==live PARITY -- refining + consumption + au
   // mission's own loot, a single shortOreRun no longer self-feeds its refinery. We SEED a SMALL
   // Deuterium Ice reserve (100 = exactly 2 batches -> +200 fuel, then ice-out). The tank starts
   // at 0 (dispatch drained it), refining lifts it to ~200 early, then the 50-fuel-per-cycle burn
-  // drains it back to 0 within a few cycles -- and THAT boundary auto-buys (credits are ample, so
+  // drains it back to 0 within a few cycles, and THAT boundary auto-buys (credits are ample, so
   // it never hard-stops). rng is a CONSTANT so loot interleaving can't perturb the comparison.
   const BIG_SPAN = 1000; // long enough that ice depletes, the tank drains, and an auto-buy fires
   const SEED_ICE = 100; // exactly 2 refine batches worth

@@ -1,4 +1,4 @@
-// Refine-order confirmation-popup persistence -- a display/UX preference,
+// Refine-order confirmation-popup persistence, a display/UX preference,
 // deliberately separate from src/lib/game/save.ts's save-file contract so it
 // survives a "delete save" and needs no save-schema migration (the SAME
 // rationale, and the SAME localStorage-only shape, as src/lib/tickBarPreference.ts

@@ -1,13 +1,13 @@
 // The ONE number formatting function. Never call .toString() on a game
-// number for display anywhere else in the codebase -- Ops §8.E.4. If the
+// number for display anywhere else in the codebase, Ops §8.E.4. If the
 // format needs to change later (named tiers, scientific notation threshold,
 // etc.) this is the only place that changes.
 //
-// Accepts EITHER a plain number (time/tick/percentage/cost displays -- these
+// Accepts EITHER a plain number (time/tick/percentage/cost displays, these
 // never migrated to Decimal, see docs/plans/2026-07-08-big-number-migration-
 // plan.md's field-split table) OR a Decimal (resource/currency displays),
 // delegating to formatDecimal below for the latter. The plain-number branch
-// is BYTE-IDENTICAL to this function's pre-migration body -- zero behavior
+// is BYTE-IDENTICAL to this function's pre-migration body, zero behavior
 // change for any existing caller.
 
 import Decimal from "break_infinity.js";
@@ -41,7 +41,7 @@ export function formatNumber(n: number | Decimal): string {
 // would surface as NaN in its own mantissa field.
 function formatDecimal(d: Decimal): string {
   if (Number.isNaN(d.mantissa)) return "0";
-  if (d.exponent < 3) return formatNumber(d.toNumber()); // small enough to safely round-trip through a plain double -- reuse the exact plain-number branch above, not a duplicate implementation
+  if (d.exponent < 3) return formatNumber(d.toNumber()); // small enough to safely round-trip through a plain double, reuse the exact plain-number branch above, not a duplicate implementation
   if (d.exponent >= TIERS.length * 3) return d.toExponential(2);
 
   const tier = Math.floor(d.exponent / 3);
@@ -54,7 +54,7 @@ function formatDecimal(d: Decimal): string {
 }
 
 // ============================================================================
-// formatDuration -- a compact, human-readable time span.
+// formatDuration, a compact, human-readable time span.
 //
 // Added 2026-07-16 (fuel net-display fix) as a SHARED helper, co-located with
 // formatNumber because this is the ONE place span formatting lives (the same
@@ -73,7 +73,7 @@ function formatDecimal(d: Decimal): string {
 //
 // GUARDS (why each): a non-finite or non-positive span has no sensible ladder
 // rendering, so:
-//   - NaN / <= 0 (includes 0, negatives, -Infinity) -> "--"  (nothing to show)
+//   - NaN / <= 0 (includes 0, negatives, -Infinity) -> "-"  (nothing to show)
 //   - +Infinity                                      -> "∞"  (never drains)
 // A positive span that rounds below one second still reads "~1s" so the readout
 // never shows a broken "~0s".
@@ -83,9 +83,9 @@ export function formatDuration(ticks: number, secondsPerTick: number): string {
   // Non-finite / non-positive guards FIRST, before any arithmetic. Order
   // matters: NaN fails every comparison, so test it explicitly; +Infinity is
   // the one "still finite work remaining is unbounded" case that reads "∞".
-  if (Number.isNaN(totalSeconds)) return "--";
+  if (Number.isNaN(totalSeconds)) return "-";
   if (totalSeconds === Infinity) return "∞";
-  if (totalSeconds <= 0) return "--"; // 0, negatives, and -Infinity all mean "nothing to show"
+  if (totalSeconds <= 0) return "-"; // 0, negatives, and -Infinity all mean "nothing to show"
 
   const SECONDS_PER_MINUTE = 60;
   const SECONDS_PER_HOUR = 3600;
@@ -97,7 +97,7 @@ export function formatDuration(ticks: number, secondsPerTick: number): string {
     return `~${Math.max(1, Math.round(totalSeconds))}s`;
   }
 
-  // Minutes (no seconds sub-unit -- minute granularity is enough at this scale).
+  // Minutes (no seconds sub-unit, minute granularity is enough at this scale).
   // A round-up landing on 60 rolls into "~1h" so we never print "~60m".
   if (totalSeconds < SECONDS_PER_HOUR) {
     const minutes = Math.round(totalSeconds / SECONDS_PER_MINUTE);
@@ -128,7 +128,7 @@ export function formatDuration(ticks: number, secondsPerTick: number): string {
 }
 
 // ============================================================================
-// formatClock -- a PRECISE colon-delimited countdown clock.
+// formatClock, a PRECISE colon-delimited countdown clock.
 //
 // Added 2026-07-16 (tick-timer readouts). Deliberately DISTINCT from
 // formatDuration above: formatDuration renders an APPROXIMATE "~2h 15m" span
@@ -138,23 +138,23 @@ export function formatDuration(ticks: number, secondsPerTick: number): string {
 // time is a precise, countable value.
 //
 // Converts a TICK count to whole seconds via Math.round(ticks * secondsPerTick)
-// -- rounded (not floored) so a readout ending on a fractional tick lands on
-// the nearest second rather than perpetually reading one second short -- then
+//, rounded (not floored) so a readout ending on a fractional tick lands on
+// the nearest second rather than perpetually reading one second short, then
 // clamps negatives to 0 and splits into days/hours/minutes/seconds. The
 // smallest form is "MM:SS"; hours add a leading "H:"; days add a leading "Dd ".
 // Days are shown ONLY when present (no "0d 00:..." noise).
 //
 // GUARD: a non-finite input (NaN, +Infinity, -Infinity) has no clock rendering
-// -> "--" (matches formatDuration's "nothing to show" sentinel). Note this is a
-// stricter guard than formatDuration's: +Infinity here is "--", not "∞", because
+// -> "-" (matches formatDuration's "nothing to show" sentinel). Note this is a
+// stricter guard than formatDuration's: +Infinity here is "-", not "∞", because
 // a fixed countdown is never legitimately infinite (an infinite remaining tick
 // count would signal bad data, not a never-draining tank).
 export function formatClock(ticks: number, secondsPerTick: number): string {
   const rawSeconds = ticks * secondsPerTick;
 
   // Non-finite guard FIRST, before any arithmetic. Number.isFinite is false for
-  // NaN, +Infinity, and -Infinity alike -- all three have no sensible clock.
-  if (!Number.isFinite(rawSeconds)) return "--";
+  // NaN, +Infinity, and -Infinity alike, all three have no sensible clock.
+  if (!Number.isFinite(rawSeconds)) return "-";
 
   // Clamp negatives to 0 (a countdown never shows negative time), then round to
   // whole seconds for a stable clock face.

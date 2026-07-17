@@ -1,7 +1,7 @@
 // Verifies the production chain CONNECTS: the Refinery now produces the exact refined
 // materials the Fabricator's tier-1 blueprints consume (mine -> refine -> fabricate).
 // Before the 2026-07-16 recipe add, the only refine recipe made the generic
-// `refinedMaterial`, which no blueprint uses -- the chain dead-ended in the middle.
+// `refinedMaterial`, which no blueprint uses, the chain dead-ended in the middle.
 import { describe, it, expect } from "vitest";
 import { REFINE_RECIPES, BLUEPRINTS, ITEMS } from "./model";
 

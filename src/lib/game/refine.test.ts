@@ -1,4 +1,4 @@
-// Refinery slot + refine-completion tests -- Phase 1, Task 11 (S4 update)
+// Refinery slot + refine-completion tests, Phase 1, Task 11 (S4 update)
 // (docs/plans/2026-07-11-facility-framework-refinery-design.md §6).
 //
 // Covers the still-live Task 11 pieces, all built on the Task 8 timed-process
@@ -10,11 +10,11 @@
 //     (and ONLY a refineJob) also increments lifetimeStats.itemsRefined[itemId].
 //
 // S4 RETIREMENT: startRefineJob (the one-shot manual "start a single refine job"
-// action) and its slot/afford-gate tests were REMOVED in S4 -- the per-slot
+// action) and its slot/afford-gate tests were REMOVED in S4, the per-slot
 // production LINE engine (startLine + stepCraftLine, which calls startProcess
 // DIRECTLY) drives refining now. The completion-hook tests below therefore build
-// their "refineJob" process via startProcess directly -- the SAME seam the line
-// engine uses -- rather than through the retired startRefineJob wrapper.
+// their "refineJob" process via startProcess directly, the SAME seam the line
+// engine uses, rather than through the retired startRefineJob wrapper.
 
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
@@ -22,7 +22,7 @@ import { refineSlotCount, startProcess, resolveProcesses } from "./tick";
 import { freshState, REFINE_RECIPES, FACILITIES, type TimedProcess } from "./model";
 
 // Build a "refineJob" TimedProcess for the launch recipe the SAME way the line
-// engine does -- startProcess("refineJob", inputs, duration, addItem effect) --
+// engine does, startProcess("refineJob", inputs, duration, addItem effect) --
 // so the completion-hook tests below exercise the real deduct-at-start + process
 // push without depending on the retired startRefineJob wrapper.
 function startRefineCommonOre(state: ReturnType<typeof freshState>) {
@@ -50,7 +50,7 @@ function stateWith(opts: { inventory?: Record<string, number>; refineryLevel?: n
   };
 }
 
-describe("refineSlotCount -- sums addRefineSlots across levels reached", () => {
+describe("refineSlotCount, sums addRefineSlots across levels reached", () => {
   it("level 0 (unbuilt refinery) grants 0 slots", () => {
     expect(refineSlotCount(stateWith({ refineryLevel: 0 }))).toBe(0);
   });
@@ -68,14 +68,14 @@ describe("refineSlotCount -- sums addRefineSlots across levels reached", () => {
     expect(refineSlotCount(stateWith({ refineryLevel: 3 }))).toBe(3);
   });
 
-  it("level 4 STILL grants 3 slots -- the 3->4 rung is refineSpeedMult, not a slot", () => {
+  it("level 4 STILL grants 3 slots, the 3->4 rung is refineSpeedMult, not a slot", () => {
     // Guards the derivation against the mixed-effect track: upgrades[3] is a
     // refineSpeedMult, so reaching level 4 must NOT add a 4th slot.
     expect(refineSlotCount(stateWith({ refineryLevel: 4 }))).toBe(3);
   });
 });
 
-// (The "startRefineJob -- single manual job (slot + afford gates)" describe was
+// (The "startRefineJob, single manual job (slot + afford gates)" describe was
 //  REMOVED in S4 with the startRefineJob wrapper it exercised. Its slot gate is
 //  now covered by refineSlotCount above + the line engine's own tests; the
 //  atomic deduct-at-start + affordability guard it delegated to is covered by
@@ -101,7 +101,7 @@ describe("refineJob completion grants output + lifetime itemsRefined", () => {
   });
 
   it("does NOT feed itemsRefined for a facilityUpgrade completion (only refineJob does)", () => {
-    // A facilityLevelUp process completing must leave itemsRefined empty -- the
+    // A facilityLevelUp process completing must leave itemsRefined empty, the
     // hook is guarded on kind === 'refineJob'.
     const base = freshState();
     const upgrade: TimedProcess = {
@@ -118,7 +118,7 @@ describe("refineJob completion grants output + lifetime itemsRefined", () => {
   });
 });
 
-describe("refineJob completion -- CLOSED-FORM parity for the itemsRefined hook", () => {
+describe("refineJob completion, CLOSED-FORM parity for the itemsRefined hook", () => {
   it("one big resolve == many small: refinedMaterial, itemsRefined, and FA XP all match", () => {
     const state = stateWith({ inventory: { commonOre: 100 }, refineryLevel: 1 });
     const { next: started } = startRefineCommonOre(state);

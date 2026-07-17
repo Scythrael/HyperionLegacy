@@ -1,7 +1,7 @@
-// Fuel data model tests -- Mission Rework Task 3
+// Fuel data model tests, Mission Rework Task 3
 // (docs/plans/2026-07-14-mission-rework-plan.md Task 3, design §3).
 //
-// Covers the fuel DATA MODEL only (no consumption / UI -- those are Tasks 5/8):
+// Covers the fuel DATA MODEL only (no consumption / UI, those are Tasks 5/8):
 //   - Every SHIP_TYPES hull carries the two new stats (fuelCapacity,
 //     engineEfficiency) so no hull can ship without them.
 //   - roundTripTransitTicks / fuelNeeded pure math: a known mission+hull value,
@@ -79,7 +79,7 @@ describe("fuelNeeded", () => {
 describe("GameState.fuel", () => {
   it("seeds a fresh save to a FULL Decimal tank (FUEL_TANK_BASE_CAP)", () => {
     // Soft-lock fix (2026-07-14): a brand-new fleet now starts with a full tank, not an
-    // empty one, so the very first mission is dispatchable with no credits/ice -- see
+    // empty one, so the very first mission is dispatchable with no credits/ice, see
     // dispatch-requirements.test.ts for the behavioral no-soft-lock proof.
     const state = freshState();
     expect(state.fuel).toBeInstanceOf(Decimal);
@@ -113,11 +113,11 @@ describe("GameState.fuel", () => {
 
 // --- Task 4: fuel-storage facility cap + buyFuel ----------------------------
 describe("fuelCap", () => {
-  it("returns a POSITIVE base cap on a fresh state (no soft-lock -- fuel buyable from start)", () => {
+  it("returns a POSITIVE base cap on a fresh state (no soft-lock, fuel buyable from start)", () => {
     // ⚠️ The critical no-soft-lock guarantee: missions are available from game
     // start and need fuel to dispatch, so the tank MUST hold fuel at facility
     // level 0. Unlike an un-built warehouse tier, fuelCap never returns a tiny /
-    // sentinel value -- a fresh fleet's cap is exactly FUEL_TANK_BASE_CAP.
+    // sentinel value, a fresh fleet's cap is exactly FUEL_TANK_BASE_CAP.
     const state = freshState();
     const cap = fuelCap(state);
     expect(cap).toBeInstanceOf(Decimal);
@@ -202,7 +202,7 @@ describe("buyFuel", () => {
 //
 // freshState() seeds a single captain flying the "ship-1" General Freighter
 // (fuelCapacity 200, engineEfficiency 0), so fuelNeeded(shortOreRun, Freighter) is
-// exactly (25+25)*1/(1+0) = 50 fuel per round trip -- an INTEGER (post-2026-07-15 device
+// exactly (25+25)*1/(1+0) = 50 fuel per round trip, an INTEGER (post-2026-07-15 device
 // retune FUEL_PER_TICK 0.1 -> 1), which is what makes the offline==live parity assertions
 // below bit-exact (integer Decimal deductions carry no float drift). One shortOreRun
 // cycle is 149 whole ticks (1 orders + 25 out + 90 extract + 25 back + 8 unload).
@@ -217,7 +217,7 @@ const SHORT_RUN_CYCLE_TICKS = 149;
 describe("dispatch fuel gate + spend (dispatchCaptainOnMission)", () => {
   it("BLOCKS dispatch (RESOURCE gate) when state.fuel < fuelNeeded, leaving state unchanged", () => {
     const state = freshState();
-    state.fuel = new Decimal(0); // empty the default-full tank -- this test isolates the RESOURCE (empty-tank) block
+    state.fuel = new Decimal(0); // empty the default-full tank, this test isolates the RESOURCE (empty-tank) block
     const { next, success } = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(success).toBe(false); // 0 fuel can't cover the round trip
     expect(next).toBe(state); // same-ref no-op on failure (dispatch's own convention)
@@ -262,7 +262,7 @@ describe("auto-repeat broke-stop (economyTick)", () => {
     // At the FIRST cycle boundary the tank is 0 and credits (at the start of that tick,
     // before this cycle's reward is banked) are 0 -> the shortfall is unaffordable ->
     // broke-stop. rng ()=>0 wins rare every tick so NO Deuterium Ice is produced and the
-    // Fuel Depot cannot refill the tank -- isolating the pure broke-stop.
+    // Fuel Depot cannot refill the tank, isolating the pure broke-stop.
     let state = freshState();
     state.fuel = new Decimal(FREIGHTER_SHORT_RUN_FUEL); // 50 -> 0 after dispatch
     const dispatched = dispatchCaptainOnMission(state, 1, "shortOreRun");
@@ -290,7 +290,7 @@ describe("auto-repeat broke-stop (economyTick)", () => {
     for (let i = 0; i < 500; i++) {
       state = economyTick(state, 1, () => 0);
     }
-    expect(state.captains[0].mission).not.toBe(null); // still running -- fuel never gated it
+    expect(state.captains[0].mission).not.toBe(null); // still running, fuel never gated it
     // dispatch (1) + repeats at ticks 149/298/447 (3) = 4 round trips paid, 50 fuel each.
     expect(state.fuel.eq(1_000_000_000 - FREIGHTER_SHORT_RUN_FUEL * 4)).toBe(true);
   });

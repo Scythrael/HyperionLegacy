@@ -1,4 +1,4 @@
-/* Theme tokens -- tech spec §9.6.2. Change the palette here, never inline. */
+/* Theme tokens, tech spec §9.6.2. Change the palette here, never inline. */
 :root {
   --color-bg-deep: #060a12;
   --color-bg-mid: #0a1120;
@@ -30,7 +30,7 @@
    re-hued to the theme, so the palette reads as one cohesive color instead of
    red/green accents stranded on a cyan panel. Deliberately NOT re-hued:
    --color-text-primary stays the near-white :root value on every theme (body
-   text that is white should stay white -- user directive). --color-panel-bg
+   text that is white should stay white, user directive). --color-panel-bg
    keeps the same darkness/alpha (0.32) as the cyan baseline; only its hue moves,
    so no theme's panels get lighter or louder. --color-panel-bg-strong follows
    the accent automatically (see :root). */

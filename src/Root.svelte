@@ -1,8 +1,8 @@
 <script lang="ts">
-  // Root.svelte -- top-level view router for the Crystalis Soft URL structure:
+  // Root.svelte, top-level view router for the Crystalis Soft URL structure:
   //   crystalisoft.com/              -> (future) studio landing   [separate CSWebsite project]
   //   crystalisoft.com/game          -> (future) games hub        [CSWebsite project]
-  //   /game/hl                       -> Hyperion Legacy's page (Landing.svelte -- hero, Play, news)
+  //   /game/hl                       -> Hyperion Legacy's page (Landing.svelte, hero, Play, news)
   //   /game/hl/play                  -> the playable game (App.svelte)
   //   /game/<other>[/play]           -> (future) other games, same shape
   //
@@ -48,7 +48,7 @@
   }
 
   // Synchronous at init (before first render) so a non-canonical entry url never
-  // flashes -- the first paint is already the resolved view.
+  // flashes, the first paint is already the resolved view.
   apply(path);
 
   // SPA navigation handed to child views (Landing's Play button; the game's back link).
@@ -58,7 +58,7 @@
     apply(to);
   }
 
-  // Browser Back/Forward changes the url without calling navigate() -- resync.
+  // Browser Back/Forward changes the url without calling navigate(), resync.
   function handlePopState(): void {
     apply(window.location.pathname);
   }
@@ -66,7 +66,7 @@
   onMount(() => {
     window.addEventListener("popstate", handlePopState);
     // Begin polling version.json for a newer deploy; flips the `updateAvailable`
-    // store that UpdateBanner subscribes to. Idempotent -- safe to call once here.
+    // store that UpdateBanner subscribes to. Idempotent, safe to call once here.
     startUpdatePolling();
   });
 
@@ -95,11 +95,11 @@
 {/if}
 
 <style>
-  /* The app's fixed-height shell -- relocated here from App.svelte's .root so the
+  /* The app's fixed-height shell, relocated here from App.svelte's .root so the
      update banner can share the viewport and push the app down instead of overlaying
      it. 100vh is declared FIRST as the dvh fallback: a browser without dvh support
      drops the invalid 100dvh line and keeps 100vh; browsers WITH dvh support override
-     with 100dvh. This fallback pair is load-bearing -- without it a dvh-unsupported
+     with 100dvh. This fallback pair is load-bearing, without it a dvh-unsupported
      browser would get no height and collapse the scroll-containment shell (a real
      regression caught before; see App.svelte's .root and the scroll-containment
      locked design doc). The banner is a flex-shrink:0 child; App.svelte's .root fills

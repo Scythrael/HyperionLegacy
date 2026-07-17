@@ -1,21 +1,21 @@
-// Facility framework tests -- Phase 1, Task 10
+// Facility framework tests, Phase 1, Task 10
 // (docs/plans/2026-07-11-facility-framework-refinery-design.md §5, §6).
 //
 // Covers the two facility functions in tick.ts:
 //   - canBuildFacilityUpgrade(state, facilityKey): pure predicate over the NEXT
-//     upgrade rung (FACILITIES[key].upgrades[currentLevel]) -- material + prereq
+//     upgrade rung (FACILITIES[key].upgrades[currentLevel]), material + prereq
 //     gates, with a reason string for the first failing gate.
-//   - startFacilityUpgrade(state, facilityKey): the action -- on an OK gate it
+//   - startFacilityUpgrade(state, facilityKey): the action, on an OK gate it
 //     hands the rung's materials/duration/level-up effect to the Task 8
 //     startProcess engine (atomic deduct-at-start); on a failed gate it is a
 //     same-reference no-op.
 //
 // These exercise the REAL FACILITIES table (the refinery's finite 4-level track),
-// not a synthetic def -- so the gate assertions double as a guard on that table's
+// not a synthetic def, so the gate assertions double as a guard on that table's
 // shape. The FA-level / talent gates live on the LATER rungs (the level 0->1
 // build is intentionally ungated so a fresh save can build the refinery), so the
 // gate tests set state.facilities.refinery.level to the rung whose gate they
-// exercise -- that is deliberate, not a workaround.
+// exercise, that is deliberate, not a workaround.
 
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
@@ -53,7 +53,7 @@ function stateWith(opts: {
   };
 }
 
-describe("canBuildFacilityUpgrade -- fresh refinery (level 0, the build/unlock rung)", () => {
+describe("canBuildFacilityUpgrade, fresh refinery (level 0, the build/unlock rung)", () => {
   it("is buildable with enough materials (level-0 build is ungated beyond its cost)", () => {
     // upgrades[0] = { materials: { commonOre: 100 }, ... } with no requires* gates.
     const state = stateWith({ inventory: { commonOre: 100 } });
@@ -71,7 +71,7 @@ describe("canBuildFacilityUpgrade -- fresh refinery (level 0, the build/unlock r
   });
 });
 
-describe("canBuildFacilityUpgrade -- prerequisite gates on the later rungs", () => {
+describe("canBuildFacilityUpgrade, prerequisite gates on the later rungs", () => {
   it("blocks when below requiresFleetAdminLevel (rung 1 requires FA level 2)", () => {
     // Refinery at level 1 -> next rung is upgrades[1], which gates on FA level 2.
     // Materials are satisfied so the FA gate is unambiguously the failing one.
@@ -119,10 +119,10 @@ describe("canBuildFacilityUpgrade -- prerequisite gates on the later rungs", () 
   });
 });
 
-describe("canBuildFacilityUpgrade -- maxed track", () => {
+describe("canBuildFacilityUpgrade, maxed track", () => {
   it("is NOT buildable once the level equals upgrades.length (no next rung)", () => {
     const maxLevel = FACILITIES.refinery.upgrades.length; // 4
-    // Give it a mountain of every material -- being maxed must override affordability.
+    // Give it a mountain of every material, being maxed must override affordability.
     const state = stateWith({
       inventory: { commonOre: 1e9, refinedMaterial: 1e9 },
       refineryLevel: maxLevel,
@@ -142,13 +142,13 @@ describe("canBuildFacilityUpgrade -- maxed track", () => {
   });
 });
 
-describe("startFacilityUpgrade -- delegates to startProcess (atomic deduct-at-start)", () => {
+describe("startFacilityUpgrade, delegates to startProcess (atomic deduct-at-start)", () => {
   it("pushes a facilityUpgrade process, deducts materials atomically, and completes to level+1", () => {
     const state = stateWith({ inventory: { commonOre: 100 } });
     const started = startFacilityUpgrade(state, "refinery");
 
     expect(started.started).toBe(true);
-    // Materials deducted AT START (not at completion) -- inventory already 0.
+    // Materials deducted AT START (not at completion), inventory already 0.
     expect(started.next.inventory.commonOre.toString()).toBe("0");
     expect(started.next.activeProcesses).toHaveLength(1);
     const proc = started.next.activeProcesses[0];
@@ -156,7 +156,7 @@ describe("startFacilityUpgrade -- delegates to startProcess (atomic deduct-at-st
     expect(proc.durationTicks).toBe(20); // upgrades[0].durationTicks
     expect(proc.remainingTicks).toBe(20);
     expect(proc.effect).toEqual({ type: "facilityLevelUp", facility: "refinery" });
-    // Level is still 0 mid-flight -- it only bumps at completion.
+    // Level is still 0 mid-flight, it only bumps at completion.
     expect(started.next.facilities.refinery.level).toBe(0);
 
     // Resolve PAST the duration -> the upgrade completes and the level increments.
@@ -170,18 +170,18 @@ describe("startFacilityUpgrade -- delegates to startProcess (atomic deduct-at-st
     const state = stateWith({ inventory: { commonOre: 50 } }); // needs 100
     const result = startFacilityUpgrade(state, "refinery");
     expect(result.started).toBe(false);
-    expect(result.next).toBe(state); // literally the same object -- no clone on reject
+    expect(result.next).toBe(state); // literally the same object, no clone on reject
     expect(state.inventory.commonOre.toString()).toBe("50"); // untouched
     expect(state.activeProcesses).toEqual([]);
   });
 });
 
-describe("canBuildFacilityUpgrade -- sequential-per-facility gate (one upgrade in flight at a time)", () => {
+describe("canBuildFacilityUpgrade, sequential-per-facility gate (one upgrade in flight at a time)", () => {
   it("blocks a second upgrade of the SAME facility while one is in flight, then re-opens after it completes", () => {
     // Enough ore for TWO level-0->1 builds (100 each). Without the sequential gate,
     // both would start (level only bumps at completion, so canBuild keeps reading
     // rung 0) and the fleet would reach level 2 while paying only the cheap rung 0
-    // twice -- skipping rung 1's higher cost + FA-level gate. The gate must prevent
+    // twice, skipping rung 1's higher cost + FA-level gate. The gate must prevent
     // the SECOND start.
     const state = stateWith({ inventory: { commonOre: 200 } });
 
@@ -206,7 +206,7 @@ describe("canBuildFacilityUpgrade -- sequential-per-facility gate (one upgrade i
 
     // Complete the in-flight build -> level 0 -> 1, process removed. The NEXT rung
     // (upgrades[1]) is now the target. It requires FA level 2, so at fresh FA level
-    // 1 canBuild reports the FA gate -- NOT "already in progress" (proving the
+    // 1 canBuild reports the FA gate, NOT "already in progress" (proving the
     // in-flight block cleared on completion), and NOT the old rung 0.
     const resolved = resolveProcesses(first.next, 20);
     expect(resolved.next.facilities.refinery.level).toBe(1);
@@ -235,9 +235,9 @@ describe("canBuildFacilityUpgrade -- sequential-per-facility gate (one upgrade i
 // MINUS active-line reservations). Because free <= raw, this is a STRICT tightening:
 // identical behavior when nothing is reserved (free == raw), harder only when a line
 // holds the material. refineCommonOre reserves commonOre; the refinery 0->1 rung
-// COSTS commonOre (100) -- so a single 1-iteration refine line (100 reserved) exactly
+// COSTS commonOre (100), so a single 1-iteration refine line (100 reserved) exactly
 // overlaps the upgrade cost, the cleanest possible leak repro.
-describe("canBuildFacilityUpgrade -- reservation-aware (gates on craft-line `free`, not raw inventory)", () => {
+describe("canBuildFacilityUpgrade, reservation-aware (gates on craft-line `free`, not raw inventory)", () => {
   it("BLOCKS an upgrade whose material a craft line has reserved (was affordable on raw -> leak closed)", () => {
     // 100 commonOre on hand = exactly the refinery 0->1 cost. With NO reservation the
     // raw inventory covers it, so the upgrade is affordable...
@@ -268,7 +268,7 @@ describe("canBuildFacilityUpgrade -- reservation-aware (gates on craft-line `fre
   it("is UNAFFECTED when the reserved material does not overlap the upgrade cost (free == raw)", () => {
     // A fabricate line reserving structuralAssembly inputs (frameSegment/powerCoupling/
     // titaniumIngot) touches NO commonOre, so the commonOre-costed refinery upgrade sees
-    // free == raw and stays buildable -- proving the change is inert without overlap.
+    // free == raw and stays buildable, proving the change is inert without overlap.
     const line: CraftLine = {
       id: "fab-1",
       kind: "fabricate",
@@ -287,8 +287,8 @@ describe("canBuildFacilityUpgrade -- reservation-aware (gates on craft-line `fre
     };
     const result = startFacilityUpgrade(reserved, "refinery");
     expect(result.started).toBe(false);
-    expect(result.next).toBe(reserved); // same reference -- rejected before any clone
-    // The reserved ore is untouched -- it stays available for the line's iteration.
+    expect(result.next).toBe(reserved); // same reference, rejected before any clone
+    // The reserved ore is untouched, it stays available for the line's iteration.
     expect(reserved.inventory.commonOre.toString()).toBe("100");
     expect(reserved.activeProcesses).toEqual([]);
   });
@@ -305,10 +305,10 @@ describe("canBuildFacilityUpgrade -- reservation-aware (gates on craft-line `fre
   });
 });
 
-describe("canBuildFacilityUpgrade -- distinct-facility concurrency (unchanged by S2)", () => {
+describe("canBuildFacilityUpgrade, distinct-facility concurrency (unchanged by S2)", () => {
   it("does NOT block a facility when a DIFFERENT facility has an upgrade in flight (distinct-facility concurrency preserved)", () => {
     // An in-flight upgrade whose effect targets some OTHER facility ("warehouse")
-    // must not block the refinery -- the gate keys strictly on effect.facility.
+    // must not block the refinery, the gate keys strictly on effect.facility.
     const base = stateWith({ inventory: { commonOre: 100 } });
     const otherFacilityUpgrade = {
       id: "proc-99",

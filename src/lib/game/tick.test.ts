@@ -47,7 +47,7 @@ import {
 function missionCaptain(
   // Mission Rework (Task 1): widened from the 2 ore-run keys to the full MissionKey
   // union so tests can dispatch the new salvage/forage missions. cargo stays keyed
-  // by the 3 ABSTRACT rarity tiers (unchanged) -- the per-mission item-key remap
+  // by the 3 ABSTRACT rarity tiers (unchanged), the per-mission item-key remap
   // happens at delivery, not in the cargo accumulator.
   missionKey: MissionKey = "shortOreRun"
 ): CaptainMissionState {
@@ -63,26 +63,26 @@ function missionCaptain(
 // A constant (non-stateful) rng returning 0 on every call. Its meaning has
 // changed TWICE across this codebase's history:
 //   - Under the ORIGINAL mechanic: "always land on the first (commonOre)
-//     bucket" -- the original reason for the name ALWAYS_MIN_ROLL.
+//     bucket", the original reason for the name ALWAYS_MIN_ROLL.
 //   - Under the (now-replaced) independent-per-tier mechanic: 0 passed BOTH
 //     occurrence checks AND landed the uncommon amount-roll on its lowest
 //     bucket, so every roll delivered uncommon=1 AND rare=1 simultaneously.
 //   - Under THIS (2026-07-08 Extraction Rework) sequential mutually-exclusive
 //     mechanic: rare is checked FIRST, and 0 passes ANY positive rareChance
-//     check (0 < rareChance is true for both missions) -- so rng()=0 now
+//     check (0 < rareChance is true for both missions), so rng()=0 now
 //     means RARE WINS OUTRIGHT ON THE VERY FIRST rng() CALL, every single
 //     time. Uncommon and common are never even reached; only 1 rng() call
 //     happens per roll, not 2 or 3. commonOre and uncommonMaterial are both
 //     exactly 0 on every roll under this constant now (mutual exclusivity).
 // Kept the same name across all three meanings since it's still, in every
 // version, "the constant that always produces the rng() value most favorable
-// to the earliest-checked/lowest-numbered tier or bucket" -- still a constant
+// to the earliest-checked/lowest-numbered tier or bucket", still a constant
 // (not stateful) rng, so the closed-form "one big jump equals many small
 // ticks" guarantee (which only requires an rng that behaves the SAME on
 // every call, regardless of call count) is unaffected.
 const ALWAYS_MIN_ROLL = () => 0;
 
-describe("tickCaptainMission -- closed-form requirement", () => {
+describe("tickCaptainMission, closed-form requirement", () => {
   it("one big jump equals many small ticks, across multiple phase transitions", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain("shortOreRun");
@@ -91,7 +91,7 @@ describe("tickCaptainMission -- closed-form requirement", () => {
     const bigJump = tickCaptainMission(320, base, ALWAYS_MIN_ROLL);
 
     let steppedCaptain = base;
-    // Decimal, not a plain-number literal accumulator -- mirrors homePlanetDelta's own
+    // Decimal, not a plain-number literal accumulator, mirrors homePlanetDelta's own
     // Decimal shape so the .plus() accumulation below stays in Decimal-land throughout,
     // same "accumulate locally, apply once" pattern tick.ts itself uses.
     let steppedDelta = { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
@@ -106,7 +106,7 @@ describe("tickCaptainMission -- closed-form requirement", () => {
     }
 
     // Per-key .equals() checks (not .toEqual()) for both the mission's cargo (Decimal)
-    // and homePlanetDelta -- established codebase convention (see save.test.ts's
+    // and homePlanetDelta, established codebase convention (see save.test.ts's
     // Decimal-vs-Decimal comparisons) even when BOTH sides are real Decimal instances,
     // since toEqual's structural comparison isn't guaranteed reliable across Decimal's
     // internal mantissa/exponent representation. The non-Decimal mission fields
@@ -128,7 +128,7 @@ describe("tickCaptainMission -- closed-form requirement", () => {
   // Task 4 (captain XP -> per-tick accrual) CRITICAL parity test. Captain XP is
   // now earned per WHOLE tick the mission advances (not a lump per completed
   // cycle), so xp/level/statPoints must survive chunking exactly like cargo does
-  // above. Stepped in SINGLE (1-tick) increments -- integer step size, so each
+  // above. Stepped in SINGLE (1-tick) increments, integer step size, so each
   // step advances exactly one whole tick and the closed-form whole-tick counter
   // increments by clean integers on both paths (no fractional-XP drift). The
   // subtract-threshold level-up loop is path-independent when the per-call cap
@@ -158,28 +158,28 @@ describe("tickCaptainMission -- closed-form requirement", () => {
   });
 
   // Mission Rework (Task 2, docs/plans/2026-07-14-mission-rework-plan.md §Part B):
-  // THE fractional-rate closed-form parity PROOF -- the critical guard the ⚠️ CLOSED-
+  // THE fractional-rate closed-form parity PROOF, the critical guard the ⚠️ CLOSED-
   // FORM PARITY TRAP block in tick.ts demands "AT the real fractional rate" before any
   // non-integer XP rate ships. The rate-1 captain-XP parity test above has a documented
   // blind spot: at rate 1, Decimal(1).times(N) is integer-exact, so it CANNOT catch the
   // 0.1*3 !== 0.1+0.1+0.1 float-distributivity drift a fractional rate can introduce.
   //
-  // This test runs longOreRun -- rate 1.1, a rate NOT exactly representable in binary
+  // This test runs longOreRun, rate 1.1, a rate NOT exactly representable in binary
   // floating point (the maximally-adversarial choice; 1.25 is exactly representable and
   // would NOT stress the drift). It compares the two production XP entry points:
-  //   - OFFLINE catch-up: tick(bigSpan, state)   -- which, post-Phase-2, internally
+  //   - OFFLINE catch-up: tick(bigSpan, state)  , which, post-Phase-2, internally
   //     STEPS economyTick(state, 1) once per whole tick (+ a trailing frac call).
   //   - LIVE play:        looping economyTick(state, 1) bigSpan times by hand, exactly
   //     as App.svelte's poll loop advances one bar at a time.
-  // Because BOTH paths accrue strictly per whole tick -- each step adds
-  // new Decimal(rate).times(1) and never Decimal(rate).times(N>1) -- their Decimal xp
+  // Because BOTH paths accrue strictly per whole tick, each step adds
+  // new Decimal(rate).times(1) and never Decimal(rate).times(N>1), their Decimal xp
   // sums must be bit-equal, and the subtract-threshold level-up loop (path-independent
   // below the per-call cap) must land the SAME level/statPoints. The span (1000 whole
   // ticks) is chosen to CROSS more than one level-up: 1000 * 1.1 = 1100 XP, past
   // xpForNextLevel(1)=300 AND xpForNextLevel(2)=600 (cumulative 900) -> level 3.
   //
   // If this ever FAILS (drift), the accrual is NOT strictly per-step and must be
-  // re-derived so each whole-tick step adds exactly new Decimal(rate) -- do NOT loosen
+  // re-derived so each whole-tick step adds exactly new Decimal(rate), do NOT loosen
   // the assertion to hide the drift.
   it("captain xp/level offline==live parity at a FRACTIONAL rate (longOreRun 1.1), across multiple level-ups", () => {
     // longOreRun is a fractional-rate (1.1) mission; freshState -> tickDurationSeconds 1,
@@ -209,7 +209,7 @@ describe("tickCaptainMission -- closed-form requirement", () => {
     expect(offline.captains[0].statPoints).toBe(live.captains[0].statPoints);
 
     // And prove the span genuinely CROSSED at least one level-up (else the parity would
-    // be vacuous -- both paths trivially agree on "no level-up"). 1100 XP -> level 3.
+    // be vacuous, both paths trivially agree on "no level-up"). 1100 XP -> level 3.
     expect(offline.captains[0].level).toBeGreaterThanOrEqual(2);
     expect(offline.captains[0].level).toBe(3);
   });
@@ -231,7 +231,7 @@ describe("tickCaptainMission -- closed-form requirement", () => {
   });
 });
 
-describe("tickCaptainMission -- phase progression", () => {
+describe("tickCaptainMission, phase progression", () => {
   it("advances phaseProgressTicks within ordersReceived without completing it", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain();
@@ -263,14 +263,14 @@ describe("tickCaptainMission -- phase progression", () => {
     const { captain, homePlanetDelta } = tickCaptainMission(141.9, base, ALWAYS_MIN_ROLL);
     expect(captain.mission!.phase).toBe("unloading");
     expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.9, 6);
-    // not unloaded yet -- per-key .equals(), not .toEqual() against a plain-number literal.
+    // not unloaded yet, per-key .equals(), not .toEqual() against a plain-number literal.
     expect(homePlanetDelta.commonOre.equals(0)).toBe(true);
     expect(homePlanetDelta.uncommonMaterial.equals(0)).toBe(true);
     expect(homePlanetDelta.rareMaterial.equals(0)).toBe(true);
   });
 });
 
-describe("tickCaptainMission -- extraction loot rolls", () => {
+describe("tickCaptainMission, extraction loot rolls", () => {
   // shortOreRun: extractionRatePerTick 1, uncommonChance 0.019, rareChance 0.001.
   // A constant rng of 0.5 fails BOTH occurrence checks every roll (hand-verify:
   // rare check first: 0.5 < 0.001? no. uncommon check second: 0.5 < 0.019? no.) --
@@ -280,7 +280,7 @@ describe("tickCaptainMission -- extraction loot rolls", () => {
   it("rolls loot once per whole tick crossed during extracting, adding extractionRatePerTick units each time", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    // 3.5 ticks of extracting crosses whole boundaries 1, 2, 3 -- 3 rolls. Neither
+    // 3.5 ticks of extracting crosses whole boundaries 1, 2, 3, 3 rolls. Neither
     // occurrence check ever passes (see NOTHING_OCCURS above), so every roll is
     // pure commonOre at the full per-tick base amount: 3 * 1 = 3.
     const { captain } = tickCaptainMission(3.5, base, NOTHING_OCCURS);
@@ -293,7 +293,7 @@ describe("tickCaptainMission -- extraction loot rolls", () => {
   it("a large jump resolves every extraction tick's loot roll, not just the last one", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    // Exactly 90 ticks completes extracting (cargoCapacity 90 / rate 1) -- 90 rolls, all
+    // Exactly 90 ticks completes extracting (cargoCapacity 90 / rate 1), 90 rolls, all
     // commonOre under NOTHING_OCCURS, each delivering the full base amount: 90 * 1 = 90.
     const { captain } = tickCaptainMission(90, base, NOTHING_OCCURS);
     expect(captain.mission!.cargo.commonOre.equals(90)).toBe(true);
@@ -303,7 +303,7 @@ describe("tickCaptainMission -- extraction loot rolls", () => {
   it("neither tier occurs: pure commonOre at the unmodified extractionRatePerTick", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    // Hand-trace (shortOreRun, 1 roll, NEW check order -- rare is checked FIRST, then
+    // Hand-trace (shortOreRun, 1 roll, NEW check order, rare is checked FIRST, then
     // uncommon, then common wins by default):
     //   call 1 (rare occurrence): 0.5 < 0.001? no -> rare does NOT occur.
     //   call 2 (uncommon occurrence): 0.5 < 0.019? no -> uncommon does NOT occur.
@@ -318,7 +318,7 @@ describe("tickCaptainMission -- extraction loot rolls", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
     // A constant rng of 0 passes the VERY FIRST check every time, for any mission with a
-    // positive rareChance -- rare wins immediately, only 1 rng() call is ever made, and
+    // positive rareChance, rare wins immediately, only 1 rng() call is ever made, and
     // uncommon/common are never even reached. Hand-trace (shortOreRun, 1 roll):
     //   call 1 (rare occurrence): 0 < 0.001 -> true, rare occurs and wins outright.
     //   rareAmount = extractionRatePerTick 1 * (1+0) = 1. No further rng() calls happen.
@@ -341,7 +341,7 @@ describe("tickCaptainMission -- extraction loot rolls", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
     // NOTHING_OCCURS (0.5) fails both occurrence checks regardless of commonYieldMult
-    // (that bonus doesn't touch either chance) -- common wins by default, and its FULL
+    // (that bonus doesn't touch either chance), common wins by default, and its FULL
     // base amount is scaled: commonAmount = extractionRatePerTick 1 * (1+0.25) = 1.25.
     const { captain } = tickCaptainMission(1, base, NOTHING_OCCURS, { commonYieldMult: 0.25 });
     expect(captain.mission!.cargo.commonOre.equals(1.25)).toBe(true);
@@ -353,11 +353,11 @@ describe("tickCaptainMission -- extraction loot rolls", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
     // A constant rng of 0.01 (shortOreRun, rareChance 0.001, uncommonChance 0.019). NEW
-    // check order -- rare first, then uncommon:
+    // check order, rare first, then uncommon:
     //   call 1 (rare occurrence): 0.01 < 0.001? no -> rare does NOT occur.
     //   call 2 (uncommon occurrence): 0.01 < 0.019 -> true, uncommon occurs and wins outright.
     //   uncommonAmount = extractionRatePerTick 1 * (1+0.5) = 1.5.
-    // Mutual exclusivity means commonOre and rareMaterial are BOTH exactly 0 here -- the
+    // Mutual exclusivity means commonOre and rareMaterial are BOTH exactly 0 here, the
     // winning tier gets the full amount, the other two tiers get nothing this roll.
     const rng = () => 0.01;
     const { captain } = tickCaptainMission(1, base, rng, { uncommonYieldMult: 0.5 });
@@ -375,7 +375,7 @@ describe("tickCaptainMission -- extraction loot rolls", () => {
     //   uncommon is never even checked, since rare already won.
     // uncommonMaterial and commonOre landing at exactly 0 (not some scaled/leftover value)
     // is exactly what proves rareYieldMult only scales rare's own tier, and that mutual
-    // exclusivity holds -- the other two tiers get nothing when rare wins.
+    // exclusivity holds, the other two tiers get nothing when rare wins.
     const rng = () => 0.0005;
     const { captain } = tickCaptainMission(1, base, rng, { rareYieldMult: 0.4 });
     expect(captain.mission!.cargo.rareMaterial.equals(1.4)).toBe(true);
@@ -387,7 +387,7 @@ describe("tickCaptainMission -- extraction loot rolls", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain("longOreRun"), phase: "extracting", phaseProgressTicks: 0 };
     // longOreRun: rareChance 0.02, uncommonChance 0.08. A constant rng of 0.1 is used for
-    // EVERY call. NEW check order -- rare first, then uncommon, then common by default.
+    // EVERY call. NEW check order, rare first, then uncommon, then common by default.
     // Unboosted: call 1 (rare occurrence) 0.1 < 0.02? no -> rare does NOT occur.
     //   call 2 (uncommon occurrence) 0.1 < 0.08? no -> uncommon does NOT occur either.
     //   common wins by default: commonAmount = extractionRatePerTick 1 * (1+0) = 1.
@@ -423,7 +423,7 @@ describe("tickCaptainMission -- extraction loot rolls", () => {
     expect(unboosted.captain.mission!.cargo.commonOre.equals(1)).toBe(true);
 
     // Boosted: effectiveRareChance = 0.02 * (1 + 4) = 0.1. Rare is checked FIRST: call 1
-    //   (rare occurrence): 0.09 < 0.1 -> true, rare occurs and wins outright -- uncommon is
+    //   (rare occurrence): 0.09 < 0.1 -> true, rare occurs and wins outright, uncommon is
     //   NEVER checked this time (differs from the old mechanic, which checked uncommon
     //   first regardless of rare's outcome). rareAmount = extractionRatePerTick 1 * (1+0) = 1
     //   (rareYieldMult defaults to 0 on this call). commonOre and uncommonMaterial are both
@@ -435,7 +435,7 @@ describe("tickCaptainMission -- extraction loot rolls", () => {
   });
 });
 
-describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () => {
+describe("tickCaptainMission, bonus roll (Resourcefulness Lucky Strike)", () => {
   it("bonus trigger check fails: only the primary roll's delta is added, no extra rng() calls consumed", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
@@ -451,7 +451,7 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
   it("bonus trigger fires and its own mini-sequence lands on rare", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    // A constant rng of 0.0005 (shortOreRun rareChance 0.001): primary roll call 1 (rare) -- 0.0005 <
+    // A constant rng of 0.0005 (shortOreRun rareChance 0.001): primary roll call 1 (rare), 0.0005 <
     // 0.001 -> true, primary rare wins, amount 1, only 1 rng() call for the primary. Bonus trigger check
     // (call 2): effectiveBonusRollChance = 0.02*(1+0) = 0.02, 0.0005 < 0.02 -> true, bonus fires. Bonus
     // mini-sequence call 3 (rare): 0.0005 < 0.001 -> true, bonus ALSO lands rare, amount 1. Total:
@@ -465,9 +465,9 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
   it("bonus trigger fires and its own mini-sequence lands on uncommon", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    // A constant rng of 0.01 (shortOreRun rareChance 0.001, uncommonChance 0.019): primary roll -- rare
+    // A constant rng of 0.01 (shortOreRun rareChance 0.001, uncommonChance 0.019): primary roll, rare
     // 0.01 < 0.001? no. uncommon 0.01 < 0.019? yes -> primary uncommon wins, amount 1 (2 rng() calls).
-    // Bonus trigger (call 3): 0.01 < 0.02 -> true, fires. Bonus mini-sequence -- rare (call 4) 0.01 <
+    // Bonus trigger (call 3): 0.01 < 0.02 -> true, fires. Bonus mini-sequence, rare (call 4) 0.01 <
     // 0.001? no. uncommon (call 5) 0.01 < 0.019? yes -> bonus ALSO lands uncommon, amount 1. Total:
     // uncommonMaterial = 1 (primary) + 1 (bonus) = 2, commonOre/rareMaterial both 0.
     const { captain } = tickCaptainMission(1, base, () => 0.01, { bonusRollChance: 0.02 });
@@ -497,7 +497,7 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
     // Same 6-call shape as the previous test, but the final common-30% check uses 0.9 (fails: 0.9 < 0.3?
-    // no) -- all 3 of the bonus's own checks miss, so the bonus roll contributes NOTHING this tick.
+    // no), all 3 of the bonus's own checks miss, so the bonus roll contributes NOTHING this tick.
     const values = [0.5, 0.5, 0.02, 0.5, 0.5, 0.9];
     let i = 0;
     const rng = () => values[i++];
@@ -510,9 +510,9 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
   it("no bonus-roll talents unlocked: bonusRollChance/bonusRollChanceMult default to 0, bonus check never fires regardless of rng", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
-    // rng constant 0 -- would trigger EVERY check if any chance were nonzero (0 < any positive chance is
+    // rng constant 0, would trigger EVERY check if any chance were nonzero (0 < any positive chance is
     // always true). With no bonuses arg at all, bonusRollChance/bonusRollChanceMult both resolve to 0 via
-    // the ?? 0 fallback, so effectiveBonusRollChance is exactly 0, and 0 < 0 is false -- bonus never
+    // the ?? 0 fallback, so effectiveBonusRollChance is exactly 0, and 0 < 0 is false, bonus never
     // fires even under the most favorable possible rng. Primary roll (rare checked first) DOES fire:
     // rare wins on rng()=0 (matches the existing ALWAYS_MIN_ROLL test in the primary describe block).
     const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
@@ -521,7 +521,7 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
     expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
   });
 
-  // Task 2c (Talent Tree Visual Redesign, Captain Specialization) -- regression
+  // Task 2c (Talent Tree Visual Redesign, Captain Specialization), regression
   // guard for the exact correctness trap this task's design doc calls out:
   // captainSpecBonusRollChance's +0.01 MUST be added AFTER
   // bonusRollChance*(1+bonusRollChanceMult) is computed, not folded into
@@ -530,23 +530,23 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
   // spec:"resourcefulness" (specBonusRollChance 0.01), the CORRECT effective
   // bonus-trigger chance is 0.02*(1+1.0) + 0.01 = 0.05 exactly. A WRONG
   // implementation that instead folded 0.01 into the base before scaling would
-  // compute (0.02+0.01)*(1+1.0) = 0.06 instead -- a full 0.01 higher, which
+  // compute (0.02+0.01)*(1+1.0) = 0.06 instead, a full 0.01 higher, which
   // these two tests below would catch by using an rng value that sits between
   // the two candidate boundaries.
   //
   // Hand-traced call order (both tests below), from the live tick.ts source
   // (tickCaptainMission's extracting-phase loop body):
-  //   call 1: rollExtractionTick's rare check      -- rng() < effectiveRareChance
-  //   call 2: rollExtractionTick's uncommon check  -- rng() < effectiveUncommonChance
-  //   call 3: bonus-roll TRIGGER check             -- rng() < effectiveBonusRollChance
+  //   call 1: rollExtractionTick's rare check     , rng() < effectiveRareChance
+  //   call 2: rollExtractionTick's uncommon check , rng() < effectiveUncommonChance
+  //   call 3: bonus-roll TRIGGER check            , rng() < effectiveBonusRollChance
   //   (only if call 3 passes:)
-  //   call 4: rollBonusExtractionTick's rare check     -- rng() < effectiveRareChance
-  //   call 5: rollBonusExtractionTick's uncommon check -- rng() < effectiveUncommonChance
-  //   call 6: rollBonusExtractionTick's common 30% check -- rng() < BONUS_ROLL_COMMON_CHANCE (0.3)
+  //   call 4: rollBonusExtractionTick's rare check    , rng() < effectiveRareChance
+  //   call 5: rollBonusExtractionTick's uncommon check, rng() < effectiveUncommonChance
+  //   call 6: rollBonusExtractionTick's common 30% check, rng() < BONUS_ROLL_COMMON_CHANCE (0.3)
   //
   // Both prospectorKeenEyeI/II are ALSO unlocked in this captain's
   // setup below (uncommonChanceMult 0.25, rareChanceMult 0.5), per the design
-  // doc's own scenario -- this only affects calls 1/2/4/5's thresholds, not
+  // doc's own scenario, this only affects calls 1/2/4/5's thresholds, not
   // the trigger check at call 3, but it's included here to keep the setup
   // identical to the design doc's stated regression scenario:
   //   effectiveRareChance     = shortOreRun.rareChance 0.001 * (1+0.5)  = 0.0015
@@ -555,7 +555,7 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
   // (both are comfortably under 0.04), so calls 1 and 2 fail identically in
   // both tests below regardless of which side of 0.05 the constant sits on --
   // isolating the boundary check to call 3 alone, exactly as intended.
-  it("resourcefulness spec + both Lucky Strike talents combine to exactly 0.05, not 0.06 (regression guard for the spec-bonus scaling order) -- BELOW the boundary fires the bonus", () => {
+  it("resourcefulness spec + both Lucky Strike talents combine to exactly 0.05, not 0.06 (regression guard for the spec-bonus scaling order), BELOW the boundary fires the bonus", () => {
     const base = freshCaptains(1)[0];
     base.spec = "resourcefulness";
     base.unlockedCaptainTalents = [
@@ -581,7 +581,7 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
     //   call 6 (bonus common 30%): 0.0499 < 0.3 -> YES, bonus lands common too, commonOre += 1.
     // Total: commonOre = 1 (primary) + 1 (bonus) = 2. If the WRONG (folded-in,
     // 0.06 threshold) implementation were in place instead, call 3's check
-    // would be 0.0499 < 0.06 -- ALSO true, so this test alone can't distinguish
+    // would be 0.0499 < 0.06, ALSO true, so this test alone can't distinguish
     // 0.05 from 0.06; the companion "ABOVE the boundary" test right below
     // is what actually proves the boundary sits at 0.05, not 0.06 or anything else.
     const { captain } = tickCaptainMission(1, base, () => 0.0499, bonuses);
@@ -590,7 +590,7 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
     expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
   });
 
-  it("resourcefulness spec + both Lucky Strike talents combine to exactly 0.05, not 0.06 (regression guard for the spec-bonus scaling order) -- ABOVE the boundary does NOT fire the bonus", () => {
+  it("resourcefulness spec + both Lucky Strike talents combine to exactly 0.05, not 0.06 (regression guard for the spec-bonus scaling order), ABOVE the boundary does NOT fire the bonus", () => {
     const base = freshCaptains(1)[0];
     base.spec = "resourcefulness";
     base.unlockedCaptainTalents = [
@@ -610,11 +610,11 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
     // Same constant-rng approach, but 0.0501 this time:
     //   call 1 (rare, 0.0015): 0.0501 < 0.0015? no.
     //   call 2 (uncommon, 0.02375): 0.0501 < 0.02375? no -> primary common wins, commonOre += 1.
-    //   call 3 (bonus trigger, TRUE threshold 0.05): 0.0501 < 0.05? NO -- bonus does NOT fire.
-    //   (no further rng() calls happen -- the bonus mini-sequence is only
+    //   call 3 (bonus trigger, TRUE threshold 0.05): 0.0501 < 0.05? NO, bonus does NOT fire.
+    //   (no further rng() calls happen, the bonus mini-sequence is only
     //   entered if call 3 passes.)
     // Total: commonOre = 1 (primary only). This is the test that actually
-    // proves the boundary sits at 0.05 and not 0.06 -- a WRONG (folded-in)
+    // proves the boundary sits at 0.05 and not 0.06, a WRONG (folded-in)
     // implementation using a 0.06 threshold would have call 3 evaluate
     // 0.0501 < 0.06 -> TRUE, firing the bonus and producing commonOre = 2
     // instead, failing this assertion.
@@ -629,16 +629,16 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
   // the same captain/talent setup as the two regression-guard tests directly
   // above, but with spec left at its default null, so specBonusRollChance
   // resolves to 0 (see captainSpecBonusRollChance's own "else 0" branch).
-  // effectiveBonusRollChance is then exactly 0.02*(1+1.0) + 0 = 0.04 -- the
-  // OLD (pre-Captain-Specialization) value -- not 0.05. Reusing the SAME
+  // effectiveBonusRollChance is then exactly 0.02*(1+1.0) + 0 = 0.04, the
+  // OLD (pre-Captain-Specialization) value, not 0.05. Reusing the SAME
   // 0.0499 constant as the "BELOW the boundary" test above (which fired the
   // bonus at the 0.05 threshold) but here the bonus must NOT fire, since
-  // 0.0499 is ABOVE this test's 0.04 threshold -- the sharpest possible
+  // 0.0499 is ABOVE this test's 0.04 threshold, the sharpest possible
   // contrast between "spec chosen" and "spec: null" using one identical rng
   // value.
   it("spec: null leaves the effective bonus-roll chance at the pre-spec value (0.04, not 0.05)", () => {
     const base = freshCaptains(1)[0];
-    // base.spec is already null by freshCaptains' own default -- left
+    // base.spec is already null by freshCaptains' own default, left
     // unset here deliberately, not explicitly reassigned, so this test also
     // documents that null is the baseline rather than something a caller
     // must remember to reset.
@@ -654,13 +654,13 @@ describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () =
       rareChanceMult: captainRareChanceMult(base),
       bonusRollChance: captainBonusRollChance(base), // 0.02
       bonusRollChanceMult: captainBonusRollChanceMult(base), // 1.0
-      specBonusRollChance: captainSpecBonusRollChance(base), // 0 -- spec is null
+      specBonusRollChance: captainSpecBonusRollChance(base), // 0, spec is null
     };
     // call 1 (rare, 0.0015): 0.0499 < 0.0015? no.
     // call 2 (uncommon, 0.02375): 0.0499 < 0.02375? no -> primary common wins, commonOre += 1.
     // call 3 (bonus trigger, TRUE threshold here 0.02*(1+1.0)+0 = 0.04): 0.0499 < 0.04?
-    //   NO -- bonus does NOT fire (0.0499 is above 0.04, even though it's below 0.05).
-    // Total: commonOre = 1 (primary only) -- proving the pre-spec ceiling is 0.04,
+    //   NO, bonus does NOT fire (0.0499 is above 0.04, even though it's below 0.05).
+    // Total: commonOre = 1 (primary only), proving the pre-spec ceiling is 0.04,
     // not 0.05, for this exact same talent configuration.
     const { captain } = tickCaptainMission(1, base, () => 0.0499, bonuses);
     expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true);
@@ -684,7 +684,7 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
   it("captainCommonYieldMult ignores unlocked talents of OTHER effect types", () => {
     const captain = freshCaptains(1)[0];
     // prospectorRefinedExtraction/prospectorKeenEyeI/II are uncommonYieldMult,
-    // uncommonChanceMult, and rareChanceMult respectively -- none is commonYieldMult.
+    // uncommonChanceMult, and rareChanceMult respectively, none is commonYieldMult.
     // Set directly on unlockedCaptainTalents (bypassing buyCaptainTalent's own
     // adjacency validation) purely to exercise this helper's effect-type filter.
     captain.unlockedCaptainTalents = ["prospectorRefinedExtraction", "prospectorKeenEyeI", "prospectorKeenEyeII"];
@@ -699,7 +699,7 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
   it("captainUncommonYieldMult reads prospectorRefinedExtraction's mult when unlocked (Refined Extraction)", () => {
     const captain = freshCaptains(1)[0];
     // prospectorRefinedExtraction neighbors prospectorBulkExtraction in the radial
-    // web, but this helper only reads unlockedCaptainTalents -- set directly rather
+    // web, but this helper only reads unlockedCaptainTalents, set directly rather
     // than going through buyCaptainTalent's own adjacency validation.
     captain.unlockedCaptainTalents = ["prospectorRefinedExtraction"];
     expect(captainUncommonYieldMult(captain)).toBeCloseTo(0.15, 6);
@@ -754,7 +754,7 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
 
   // Task 2c (Talent Tree Visual Redesign, Captain Specialization): direct
   // unit coverage for captainSpecBonusRollChance itself, independent of the
-  // talent tree -- CAPTAIN_SPEC_BONUS.resourcefulness's flat +0.01 grant only
+  // talent tree, CAPTAIN_SPEC_BONUS.resourcefulness's flat +0.01 grant only
   // applies when captain.spec === "resourcefulness" exactly; every other spec
   // value (tactical/science, which have no CAPTAIN_SPEC_BONUS entry at all yet)
   // and null (no spec chosen) both yield 0 here.
@@ -771,7 +771,7 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
 
   // Radial Skill Web (Task 7): the test that used to sit here --
   // "captainCommonYieldMult includes the command spec's +0.05, independent of
-  // talent-tree nodes" -- was REMOVED, not re-pointed. Its whole purpose was
+  // talent-tree nodes", was REMOVED, not re-pointed. Its whole purpose was
   // the CAPTAIN_SPEC_BONUS.command fold-in inside captainCommonYieldMult, and
   // both the `command` branch/spec and that fold-in were deleted in Task 2/7.
   // There is no equivalent commonYieldMult spec bonus to re-point it at (the
@@ -784,16 +784,16 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
 // rework-*): xpPerTick is the SHARED per-tick XP RATE helper that Task 4
 // (captain XP accrual) and Task 5 (Fleet Admiral XP) will both consume. Today
 // it returns the mission's flat BASE_XP_PER_TICK (both missions = 1) unchanged,
-// because there are NO XP-boosting captain talents or global buffs yet -- the
+// because there are NO XP-boosting captain talents or global buffs yet, the
 // `captain`/`state` params are the reserved multiplier-seam hooks (see
 // xpPerTick's own comment in tick.ts for exactly where a future XP-mult plugs
 // in). Mirrors the "no unlocked talents" mult-helper tests directly above:
 // a fresh captain with an empty talent set must see the unmodified base rate.
-describe("xpPerTick -- per-tick XP rate", () => {
+describe("xpPerTick, per-tick XP rate", () => {
   // Mission Rework (Task 2, docs/plans/2026-07-14-mission-rework-plan.md §Part A):
   // each mission now carries its OWN first-pass per-tick XP rate (design §5:
-  // 1 / 1.1 / 1.2 / 1.25). The last three are FRACTIONAL -- the exact condition
-  // the CLOSED-FORM PARITY TRAP in tick.ts warns about -- so these assertions pin
+  // 1 / 1.1 / 1.2 / 1.25). The last three are FRACTIONAL, the exact condition
+  // the CLOSED-FORM PARITY TRAP in tick.ts warns about, so these assertions pin
   // the retuned BASE_XP_PER_TICK values, and the fractional-rate parity test in the
   // "closed-form requirement" describe above proves the accrual survives them.
   it("returns the base rate (1) for shortOreRun with a captain that has no talents", () => {
@@ -817,7 +817,7 @@ describe("xpPerTick -- per-tick XP rate", () => {
   });
 });
 
-describe("tickCaptainMission -- cycle completion, auto-repeat, and recall", () => {
+describe("tickCaptainMission, cycle completion, auto-repeat, and recall", () => {
   it("completing a full cycle (not recalled) delivers cargo to homePlanetDelta and restarts at ordersReceived", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
@@ -833,7 +833,7 @@ describe("tickCaptainMission -- cycle completion, auto-repeat, and recall", () =
     expect(homePlanetDelta.rareMaterial.equals(2)).toBe(true);
     expect(captain.mission!.phase).toBe("ordersReceived"); // auto-repeated
     expect(captain.mission!.phaseProgressTicks).toBe(0);
-    // reset -- per-key .equals(), not .toEqual() against a plain-number literal.
+    // reset, per-key .equals(), not .toEqual() against a plain-number literal.
     expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
     expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
     expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
@@ -878,12 +878,12 @@ describe("tickCaptainMission -- cycle completion, auto-repeat, and recall", () =
     const base = freshState();
     base.fuel = new Decimal(1_000_000); // Task 5: fund the dispatch + auto-repeats (fuel-rich, so mission behavior is unchanged)
     // USER REVISION 2026-07-14: salvageWreckage is now unlockLevel 1, so freshState's
-    // level-1 missionControl seed already UNLOCKS it -- no facility bump needed (the
+    // level-1 missionControl seed already UNLOCKS it, no facility bump needed (the
     // unlock upgrade was deferred). This test is about LOOT DELIVERY, not the unlock
     // mechanic (covered in mission-control.test.ts).
     // Task 7: salvageWreckage still requires captain level 2 (a kept CAPABILITY
     // gate). This test's fresh captain is level 1, so bump them to clear that new gate
-    // too -- the test is about LOOT DELIVERY, not the requirement mechanic (covered in
+    // too, the test is about LOOT DELIVERY, not the requirement mechanic (covered in
     // dispatch-requirements.test.ts). The default General Freighter's cargo 90 already
     // meets salvage's requiresCargoCapacity 90, so only the level needs raising.
     base.captains[0] = { ...base.captains[0], level: 2 };
@@ -925,7 +925,7 @@ describe("tickCaptainMission -- cycle completion, auto-repeat, and recall", () =
 
     // Each cycle's extracting phase is 90 whole-tick rolls (cargoCapacity 90 / rate 1).
     // Under ALWAYS_MIN_ROLL (rng() constant 0), rare is checked FIRST every roll and 0
-    // passes any positive rareChance check -- so EVERY roll delivers rareMaterial 1 (the
+    // passes any positive rareChance check, so EVERY roll delivers rareMaterial 1 (the
     // full extractionRatePerTick base amount, unscaled), and commonOre/uncommonMaterial
     // are both 0 for every roll (mutual exclusivity; see the "ALWAYS_MIN_ROLL always
     // lands on rare first" hand-trace above). Per cycle: 90 rolls * 1 rareMaterial = 90
@@ -940,7 +940,7 @@ describe("tickCaptainMission -- cycle completion, auto-repeat, and recall", () =
   it("recall takes effect at the end of the CURRENT cycle, not immediately", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 5, recalled: true };
-    // 3 more ticks: still mid-extraction, far from completing the cycle -- recalled flag is inert until unloading finishes.
+    // 3 more ticks: still mid-extraction, far from completing the cycle, recalled flag is inert until unloading finishes.
     const { captain } = tickCaptainMission(3, base, ALWAYS_MIN_ROLL);
     expect(captain.mission).not.toBe(null);
     expect(captain.mission!.phase).toBe("extracting");
@@ -948,7 +948,7 @@ describe("tickCaptainMission -- cycle completion, auto-repeat, and recall", () =
   });
 });
 
-describe("tickCaptainMission -- accrues captain XP per active tick", () => {
+describe("tickCaptainMission, accrues captain XP per active tick", () => {
   // Task 4 replaced the old lump-per-completed-cycle award (xp += 50 on each
   // cycle) with PER-WHOLE-TICK accrual: the captain earns xpPerTick(missionKey)
   // (= BASE_XP_PER_TICK.shortOreRun = 1) for every whole tick the mission
@@ -956,13 +956,13 @@ describe("tickCaptainMission -- accrues captain XP per active tick", () => {
   // loot rolls) so the accrual is closed-form/chunk-invariant.
   it("accrues XP per whole tick advanced even when NO cycle completes (proves tick-based, not lump-per-cycle)", () => {
     const base = freshCaptains(1)[0]; // xp 0, level 1, statPoints 0
-    base.mission = missionCaptain(); // shortOreRun, 149 ticks/cycle -- 50 ticks completes NO cycle
+    base.mission = missionCaptain(); // shortOreRun, 149 ticks/cycle, 50 ticks completes NO cycle
     const { captain } = tickCaptainMission(50, base, ALWAYS_MIN_ROLL);
     // 50 whole ticks advanced (orders 1 + transitOut 25 + 24 into extracting) at
     // rate 1 = 50 XP. Under the OLD lump mechanic this would be 0 (no cycle done).
     expect(captain.xp.equals(50)).toBe(true);
     expect(captain.level).toBe(1); // 50 < xpForNextLevel(1)=300, no level-up yet
-    expect(captain.statPoints).toBe(0); // unchanged -- no level-up occurred
+    expect(captain.statPoints).toBe(0); // unchanged, no level-up occurred
   });
 
   it("accrues NO XP for a sub-whole (partial) tick until it completes a whole tick", () => {
@@ -1000,7 +1000,7 @@ describe("tickCaptainMission -- accrues captain XP per active tick", () => {
   });
 });
 
-describe("tickCaptainMission -- awards credits on cycle completion", () => {
+describe("tickCaptainMission, awards credits on cycle completion", () => {
   it("awards creditsDelta 0 when no cycle completes (partial ticksElapsed)", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain(); // mid-cycle, phaseProgressTicks 0, far from completing
@@ -1009,7 +1009,7 @@ describe("tickCaptainMission -- awards credits on cycle completion", () => {
   });
 
   it("awards creditsDelta 0 when the captain has no mission at all", () => {
-    const base = freshCaptains(1)[0]; // freshCaptainStack's baseline -- mission is null (idle)
+    const base = freshCaptains(1)[0]; // freshCaptainStack's baseline, mission is null (idle)
     const { creditsDelta } = tickCaptainMission(50, base, ALWAYS_MIN_ROLL);
     expect(creditsDelta).toBe(0);
   });
@@ -1037,7 +1037,7 @@ describe("tickCaptainMission -- awards credits on cycle completion", () => {
   });
 });
 
-describe("tickCaptainMission -- accrues Fleet Admiral XP per active tick (Task 5)", () => {
+describe("tickCaptainMission, accrues Fleet Admiral XP per active tick (Task 5)", () => {
   // Task 5 replaced the old lump-per-completed-cycle FA award
   // (fleetAdminXpDelta += missionDef.fleetAdminXpPerCycle on each finished cycle)
   // with PER-WHOLE-TICK accrual, mirroring captain XP (Task 4): the fleet earns
@@ -1046,11 +1046,11 @@ describe("tickCaptainMission -- accrues Fleet Admiral XP per active tick (Task 5
   // SAME wholeTicksElapsed counter captain XP uses.
   it("accrues fleetAdminXpDelta per whole tick advanced even when NO cycle completes (proves per-tick, not per-cycle)", () => {
     const base = freshCaptains(1)[0];
-    base.mission = missionCaptain(); // shortOreRun, 149 ticks/cycle -- 50 ticks completes NO cycle
+    base.mission = missionCaptain(); // shortOreRun, 149 ticks/cycle, 50 ticks completes NO cycle
     const { fleetAdminXpDelta } = tickCaptainMission(50, base, ALWAYS_MIN_ROLL);
     // 50 whole ticks advanced (orders 1 + transitOut 25 + 24 into extracting) at
     // fleetAdminXpPerTick 1 = 50. Under the OLD per-cycle mechanic this would be 0
-    // (no cycle done in 50 of the 149 ticks a full cycle needs) -- so this asserts
+    // (no cycle done in 50 of the 149 ticks a full cycle needs), so this asserts
     // the accrual is per-tick AND independent of cycle completion.
     expect(fleetAdminXpDelta).toBe(50);
   });
@@ -1071,7 +1071,7 @@ describe("tickCaptainMission -- accrues Fleet Admiral XP per active tick (Task 5
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain("shortOreRun");
     // 320 whole ticks of rate-1 FA XP = 320. (320 > 2*149=298, so this also spans
-    // multiple auto-repeat cycles -- FA XP no longer cares about cycle count, only
+    // multiple auto-repeat cycles, FA XP no longer cares about cycle count, only
     // whole ticks advanced, which is the whole behavior change under test.)
     const bigJump = tickCaptainMission(320, base, ALWAYS_MIN_ROLL);
 
@@ -1089,11 +1089,11 @@ describe("tickCaptainMission -- accrues Fleet Admiral XP per active tick (Task 5
   });
 });
 
-describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Task 6)", () => {
+describe("tickCaptainMission / tick(), accrues mission-side lifetime stats (Task 6)", () => {
   // Task 6 (Progression Pacing Rework): tickCaptainMission now returns a
   // lifetimeStatsDelta (itemsGathered + missionsCompleted maps, plus 3 Decimal
   // scalars), and tick() folds it into state.lifetimeStats. This ADDS tracking
-  // alongside the existing XP/loot/credit accrual -- it must not change any of
+  // alongside the existing XP/loot/credit accrual, it must not change any of
   // those existing values (asserted implicitly here: the same 149-tick cycle
   // still delivers the same loot/credits/XP it always did). itemsGathered mirrors
   // the loot delivered into homePlanetDelta; missionsCompleted counts completed
@@ -1101,7 +1101,7 @@ describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Ta
   // / the GROSS captain XP awarded this call / the FA XP awarded this call.
 
   it("one full shortOreRun cycle via tick(): missionsCompleted +1, itemsGathered mirrors delivered loot, credits/XP scalars pinned", () => {
-    // Force every extraction roll onto rare (rng()=0 => rare wins outright -- see
+    // Force every extraction roll onto rare (rng()=0 => rare wins outright, see
     // ALWAYS_MIN_ROLL's comment above) so the delivered loot is deterministic: 90
     // extracting ticks * 1 unit = 90 rareMaterial, 0 common, 0 uncommon, and NO
     // bonus rolls (bonusRollChance is 0 with no talents). tick() calls Math.random
@@ -1122,7 +1122,7 @@ describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Ta
 
       // itemsGathered MIRRORS the loot delivered into inventory. freshState
       // starts inventory all-zero and has no passiveTrickle, so the inventory delta IS
-      // the delivered mission loot -- itemsGathered must equal it key-for-key.
+      // the delivered mission loot, itemsGathered must equal it key-for-key.
       expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(90)).toBe(true);
       expect(result.lifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
       expect(result.lifetimeStats.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
@@ -1140,7 +1140,7 @@ describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Ta
       expect(result.lifetimeStats.fleetAdminXpAwarded.equals(149)).toBe(true);
 
       // YAGNI: missions do NOT populate itemsRefined/itemsCrafted (no refinery/
-      // fabricator produces here) -- they stay empty.
+      // fabricator produces here), they stay empty.
       expect(result.lifetimeStats.itemsRefined).toEqual({});
       expect(result.lifetimeStats.itemsCrafted).toEqual({});
     } finally {
@@ -1152,7 +1152,7 @@ describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Ta
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain("shortOreRun");
     // 320 ticks: 2 full cycles (298) + 22 into the 3rd (orders + partial transitOut
-    // only -- no 3rd extraction). Under ALWAYS_MIN_ROLL every extraction roll is
+    // only, no 3rd extraction). Under ALWAYS_MIN_ROLL every extraction roll is
     // rare, so 2 completed cycles deliver 2 * 90 = 180 rareMaterial, 0 common/uncommon.
     const bigJump = tickCaptainMission(320, base, ALWAYS_MIN_ROLL);
 
@@ -1179,7 +1179,7 @@ describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Ta
       steppedFaXp = steppedFaXp.plus(d.fleetAdminXpAwarded);
     }
 
-    // Big call agrees with the stepped sum, per field -- the closed-form guarantee.
+    // Big call agrees with the stepped sum, per field, the closed-form guarantee.
     expect(bigJump.lifetimeStatsDelta.itemsGathered.rareMaterial.equals(steppedRare)).toBe(true);
     expect(bigJump.lifetimeStatsDelta.itemsGathered.commonOre.equals(steppedCommon)).toBe(true);
     expect(bigJump.lifetimeStatsDelta.itemsGathered.uncommonMaterial.equals(steppedUncommon)).toBe(true);
@@ -1199,7 +1199,7 @@ describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Ta
 
     // captainXpAwarded is the GROSS award, NOT the captain's post-level-up xp: 320
     // XP crosses xpForNextLevel(1)=300, so the captain's own xp lands at 20 (level 2)
-    // while captainXpAwarded stays the full 320 granted -- proving it's the lifetime
+    // while captainXpAwarded stays the full 320 granted, proving it's the lifetime
     // "XP awarded" figure, not the leftover current xp.
     expect(bigJump.captain.xp.equals(20)).toBe(true);
     expect(bigJump.captain.level).toBe(2);
@@ -1210,7 +1210,7 @@ describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Ta
     // branch (two captains folding into the SAME missionsCompleted[key] /
     // itemsGathered[key]) is never asserted at the tick() level. Two captains, both
     // on shortOreRun, each completing exactly one 149-tick cycle in the same call,
-    // must SUM: 2 completed cycles, 180 rareMaterial (2 * 90), etc. -- proving the
+    // must SUM: 2 completed cycles, 180 rareMaterial (2 * 90), etc., proving the
     // fleet-wide accumulators combine per-captain deltas rather than overwrite.
     const rngSpy = vi.spyOn(Math, "random").mockReturnValue(0); // rare wins every roll => deterministic 90 rare/cycle
     try {
@@ -1222,7 +1222,7 @@ describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Ta
       // = exactly one full cycle each (both auto-repeat to ordersReceived/0 after).
       const result = tick(149, state);
 
-      // Summed across BOTH captains -- this is the second-hit merge under test.
+      // Summed across BOTH captains, this is the second-hit merge under test.
       expect(result.lifetimeStats.missionsCompleted.shortOreRun.equals(2)).toBe(true); // 1 + 1
       expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(180)).toBe(true); // 90 + 90
       expect(result.lifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
@@ -1239,20 +1239,20 @@ describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Ta
   });
 });
 
-describe("economyTick / tick() equivalence -- the Task A2 mechanical extraction is behavior-preserving", () => {
+describe("economyTick / tick() equivalence, the Task A2 mechanical extraction is behavior-preserving", () => {
   // Phase 2 (Task A2): tick()'s per-span economy body was lifted VERBATIM into the
   // new exported economyTick(state, ticksElapsed, rng), and tick() now just converts
   // deltaSeconds -> ticksElapsed and calls economyTick ONCE over the whole span. The
   // extraction must be a no-op on results: for any (deltaSeconds, state),
   //   economyTick(state, deltaSeconds / tickDurationSeconds)  ===  tick(deltaSeconds, state)
-  // across EVERY field the economy touches -- inventory/discovered, credits,
+  // across EVERY field the economy touches, inventory/discovered, credits,
   // captain xp/level/statPoints + mission, fleetAdminXp/Level/adminPoints,
   // lifetimeStats, activeProcesses, and gameTimeSeconds.
   //
   // Determinism: loot depends on rng. tick() reads Math.random directly (it has no
   // rng param); economyTick defaults rng to Math.random but also accepts an injected
   // one. Math.random is mocked to a CONSTANT 0 for the tick() side, and the SAME
-  // constant is injected as () => 0 into the economyTick side -- both a non-stateful
+  // constant is injected as () => 0 into the economyTick side, both a non-stateful
   // rng, so the two paths consume an identical roll stream regardless of call count
   // (the same closed-form-safe device ALWAYS_MIN_ROLL relies on). rng()=0 makes rare
   // win every extraction roll (0 < rareChance) and suppresses bonus rolls
@@ -1274,7 +1274,7 @@ describe("economyTick / tick() equivalence -- the Task A2 mechanical extraction 
     // shortOreRun cycle = 1 + 25 + 90 + 25 + 8 = 149 whole ticks; tickDurationSeconds
     // is 1, so ticksElapsed 149 <-> deltaSeconds 149. One full cycle exercises loot
     // delivery, credits, captain XP + level-up, FA XP, lifetimeStats, and the
-    // gameTimeSeconds increment -- the whole extracted surface.
+    // gameTimeSeconds increment, the whole extracted surface.
     const ticksElapsed = 149;
 
     const rngSpy = vi.spyOn(Math, "random").mockReturnValue(0);
@@ -1337,7 +1337,7 @@ describe("economyTick / tick() equivalence -- the Task A2 mechanical extraction 
   });
 });
 
-describe("foldLifetimeStatsDelta / live-loop parity -- lifetime stats accrue identically live and offline (Task 7)", () => {
+describe("foldLifetimeStatsDelta / live-loop parity, lifetime stats accrue identically live and offline (Task 7)", () => {
   // Task 7 (Progression Pacing Rework): App.svelte's live poll loop is a SEPARATE
   // re-implementation of the tick math from tick(), and has historically dropped
   // ship-stats/credits when it diverged from tick(). To make lifetime-stat accrual
@@ -1345,7 +1345,7 @@ describe("foldLifetimeStatsDelta / live-loop parity -- lifetime stats accrue ide
   // exported helper, foldLifetimeStatsDelta, called PER CAPTAIN by BOTH tick() and
   // the live loop. These tests (a) pin the helper's own semantics and (b) prove the
   // live-loop fold path and tick() produce IDENTICAL state.lifetimeStats for the
-  // same tick sequence -- so if tick() ever stopped folding through the helper (or
+  // same tick sequence, so if tick() ever stopped folding through the helper (or
   // the helper's math regressed), the parity test below would FAIL.
 
   it("foldLifetimeStatsDelta: merges maps per-key, sums scalars, preserves untouched fields, does not mutate base", () => {
@@ -1399,10 +1399,10 @@ describe("foldLifetimeStatsDelta / live-loop parity -- lifetime stats accrue ide
     // rng pinned to 0 => rare wins every extraction roll (deterministic 90 rare per
     // completed cycle, no bonus rolls), so BOTH paths are fully deterministic. With
     // Math.random constant, the interleaving/count of rng calls between the two
-    // paths is irrelevant -- every call returns 0 either way.
+    // paths is irrelevant, every call returns 0 either way.
     const rngSpy = vi.spyOn(Math, "random").mockReturnValue(0);
     try {
-      // Shared starting state: 2 captains both on shortOreRun -- exercises the
+      // Shared starting state: 2 captains both on shortOreRun, exercises the
       // per-key SECOND-hit merge inside the fold (both captains fold into the same
       // missionsCompleted[shortOreRun] / itemsGathered[rareMaterial]).
       const makeState = () => {
@@ -1413,11 +1413,11 @@ describe("foldLifetimeStatsDelta / live-loop parity -- lifetime stats accrue ide
         return s;
       };
 
-      // Path A -- offline catch-up: tick() folds lifetimeStats internally, via the
+      // Path A, offline catch-up: tick() folds lifetimeStats internally, via the
       // shared helper, per captain.
       const viaTick = tick(149, makeState());
 
-      // Path B -- REPLICATES App.svelte's live poll loop's lifetimeStats fold
+      // Path B, REPLICATES App.svelte's live poll loop's lifetimeStats fold
       // EXACTLY: for each mission captain, call tickCaptainMission with the SAME
       // ticksElapsed / rng / bonuses / shipStats tick() builds, and fold each
       // returned lifetimeStatsDelta into a `lifetimeStats` seeded from the SAME
@@ -1426,7 +1426,7 @@ describe("foldLifetimeStatsDelta / live-loop parity -- lifetime stats accrue ide
       // a Svelte component and can't be imported into this DOM-free layer, so its
       // fold sequence is reproduced here from the same public functions). If tick()
       // ever stops folding through the helper (drifts), these two diverge and this
-      // test fails -- the anti-drift guard.
+      // test fails, the anti-drift guard.
       const liveState = makeState();
       const ticksElapsed = 149 / liveState.tickDurationSeconds;
       const fleetRareYield = fleetRareYieldMult(liveState);
@@ -1449,7 +1449,7 @@ describe("foldLifetimeStatsDelta / live-loop parity -- lifetime stats accrue ide
         liveLifetimeStats = foldLifetimeStatsDelta(liveLifetimeStats, lifetimeStatsDelta);
       }
 
-      // The two paths must agree field-for-field -- the whole point of the task.
+      // The two paths must agree field-for-field, the whole point of the task.
       expect(
         liveLifetimeStats.missionsCompleted.shortOreRun.equals(viaTick.lifetimeStats.missionsCompleted.shortOreRun)
       ).toBe(true);
@@ -1469,7 +1469,7 @@ describe("foldLifetimeStatsDelta / live-loop parity -- lifetime stats accrue ide
 
       // Pin the absolute expected values too (2 captains * one full 149-tick cycle
       // each): 2 completed cycles, 180 rare (2*90), 60 credits (2*30, F3 bump), 298 gross XP
-      // each stream (2*149) -- not just internal agreement.
+      // each stream (2*149), not just internal agreement.
       expect(liveLifetimeStats.missionsCompleted.shortOreRun.equals(2)).toBe(true);
       expect(liveLifetimeStats.itemsGathered.rareMaterial.equals(180)).toBe(true);
       expect(liveLifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
@@ -1483,14 +1483,14 @@ describe("foldLifetimeStatsDelta / live-loop parity -- lifetime stats accrue ide
   });
 });
 
-describe("tick() -- Fleet Admiral XP stacks across active captains (Task 5)", () => {
+describe("tick(), Fleet Admiral XP stacks across active captains (Task 5)", () => {
   // Stacking falls out for free: tick() already sums every captain's returned
   // fleetAdminXpDelta fleet-wide before handing the total to applyFleetAdminXp.
   // With FA now per-tick, N captains each on an active mission contribute N FA
   // XP/tick combined, with no stacking-specific code. This test proves that sum.
   it("two captains each on a mission over N ticks accrue 2*N fleet-admin XP", () => {
     const state = freshState();
-    state.captains = freshCaptains(2); // both idle by default -- dispatch both below
+    state.captains = freshCaptains(2); // both idle by default, dispatch both below
     state.captains[0].mission = missionCaptain("shortOreRun");
     state.captains[1].mission = missionCaptain("shortOreRun");
     // N = 100 ticks (tickDurationSeconds 1 by fresh default -> ticksElapsed = 100).
@@ -1502,24 +1502,24 @@ describe("tick() -- Fleet Admiral XP stacks across active captains (Task 5)", ()
     const result = tick(100, state);
     expect(result.fleetAdminXp.equals(200)).toBe(true); // 2 captains * 100 ticks * rate 1
     expect(result.fleetAdminLevel).toBe(1); // 200 < xpForNextFleetAdminLevel(1) -> no level-up
-    expect(result.adminPoints).toBe(0); // unchanged -- no level-up granted a point
+    expect(result.adminPoints).toBe(0); // unchanged, no level-up granted a point
   });
 });
 
-describe("tick() -- idle captains do nothing, mission captains route through tickCaptainMission", () => {
+describe("tick(), idle captains do nothing, mission captains route through tickCaptainMission", () => {
   it("an idle captain (mission: null) is returned completely unchanged", () => {
-    const state = freshState(); // captains[0].mission is null (idle) -- freshCaptainStack's baseline
+    const state = freshState(); // captains[0].mission is null (idle), freshCaptainStack's baseline
     const before = state.captains[0];
 
     const result = tick(10, state);
 
     // tick()'s map callback for an idle captain is `if (captain.mission === null) return captain;`
-    // -- it returns the EXACT SAME object reference for that captain, not a copy, since there's
+    //, it returns the EXACT SAME object reference for that captain, not a copy, since there's
     // nothing left to compute for an idle captain. So `toBe` (reference equality) is the correct,
-    // stronger assertion here -- not just `toEqual` (structural equality) -- and is a direct check
+    // stronger assertion here, not just `toEqual` (structural equality), and is a direct check
     // that the implementation takes the early-return branch rather than reconstructing the object.
     expect(result.captains[0]).toBe(before);
-    // Field-by-field as a second, independent check (belt-and-suspenders -- if a future change
+    // Field-by-field as a second, independent check (belt-and-suspenders, if a future change
     // swaps the early return for a shallow copy, this still passes while the toBe above would catch it).
     expect(result.captains[0].id).toBe(before.id);
     expect(result.captains[0].label).toBe(before.label);
@@ -1531,7 +1531,7 @@ describe("tick() -- idle captains do nothing, mission captains route through tic
 
   it("gameTimeSeconds advances exactly once per call, not once per captain", () => {
     const state = freshState();
-    state.captains = freshCaptains(3); // 3 idle captains -- proves the advance isn't per-captain
+    state.captains = freshCaptains(3); // 3 idle captains, proves the advance isn't per-captain
     const result = tick(10, state);
     expect(result.gameTimeSeconds).toBe(10);
   });
@@ -1565,20 +1565,20 @@ describe("tick() -- idle captains do nothing, mission captains route through tic
     // 90 - 0 = 90; ticksToApply = min(1, 90) = 1. Epsilon-snap check: |0 + 1 - 90| = 89, not <
     // 1e-9, so ticksToApply stays 1. fromWhole = floor(0) = 0, toWhole = floor(0+1) = 1 -> 1 loot
     // roll, cargo gains 1 unit (some tier, rng-dependent, but exactly 1 unit total no matter which
-    // tier wins under this sequential mutually-exclusive mechanic -- see rollExtractionTick's own
+    // tier wins under this sequential mutually-exclusive mechanic, see rollExtractionTick's own
     // comment). phaseProgressTicks becomes 1, remaining becomes 0. 1 < 90, so phase does NOT
-    // complete this tick -- captain 0 stays in "extracting", nothing delivered to homePlanetDelta.
+    // complete this tick, captain 0 stays in "extracting", nothing delivered to homePlanetDelta.
     //
     // Captain 1: phase "extracting", phaseProgressTicks: 89, cargo.commonOre: 89 (pre-seeded, as if
-    // 89 prior whole-tick rolls all landed commonOre) -- exactly 1 tick away from completing the
+    // 89 prior whole-tick rolls all landed commonOre), exactly 1 tick away from completing the
     // 90-tick "extracting" phase. Same ticksElapsed = 1. ticksLeftInPhase = 90 - 89 = 1; ticksToApply
-    // = min(1, 1) = 1. Epsilon-snap check: |89 + 1 - 90| = 0 < 1e-9 -- true, so ticksToApply
+    // = min(1, 1) = 1. Epsilon-snap check: |89 + 1 - 90| = 0 < 1e-9, true, so ticksToApply
     // recomputed as 90 - 89 = 1 (unchanged, no drift here since these are whole numbers). fromWhole =
     // floor(89) = 89, toWhole = floor(89+1) = 90 -> 1 loot roll, cargo total becomes 90 (89 pre-seeded
-    // + 1 more roll). phaseProgressTicks becomes 90, which equals requiredTicks (90) -- extracting
+    // + 1 more roll). phaseProgressTicks becomes 90, which equals requiredTicks (90), extracting
     // phase COMPLETES. MISSION_PHASE_ORDER.indexOf("extracting") = 2, nextIndex = 3 -> "transitBack"
     // (not the last phase, "unloading"), so captain 1 advances to "transitBack" with
-    // phaseProgressTicks reset to 0. Still no delivery to homePlanetDelta -- that only happens when
+    // phaseProgressTicks reset to 0. Still no delivery to homePlanetDelta, that only happens when
     // "unloading" itself completes, which neither captain reaches this tick.
     //
     // So: state.inventory must be UNCHANGED (still all zero) after this single tick() call,
@@ -1604,7 +1604,7 @@ describe("tick() -- idle captains do nothing, mission captains route through tic
     const result = tick(1, state);
 
     // Captain 0 gained exactly 1 roll's worth (1 unit, tier rng-dependent) of onboard cargo.
-    // .plus() chain (not +) since these are Decimal fields -- .equals() (not toBe) on the
+    // .plus() chain (not +) since these are Decimal fields, .equals() (not toBe) on the
     // resulting Decimal, same reasoning as every other Decimal-field assertion in this file.
     const cap0CargoTotal = result.captains[0].mission!.cargo.commonOre
       .plus(result.captains[0].mission!.cargo.uncommonMaterial)
@@ -1622,9 +1622,9 @@ describe("tick() -- idle captains do nothing, mission captains route through tic
     expect(result.captains[1].mission!.phase).toBe("transitBack");
     expect(result.captains[1].mission!.phaseProgressTicks).toBe(0);
 
-    // Neither captain reached "unloading" this tick -- nothing delivered home yet.
+    // Neither captain reached "unloading" this tick, nothing delivered home yet.
     // Full 5-key shape (freshState seeds inventory with the same crafted-good tiers)
-    // -- per-key .equals() (not .toEqual against a plain-number-literal object),
+    //, per-key .equals() (not .toEqual against a plain-number-literal object),
     // since inventory's values are real Decimal instances.
     expect(result.inventory.commonOre.equals(0)).toBe(true);
     expect(result.inventory.uncommonMaterial.equals(0)).toBe(true);
@@ -1642,7 +1642,7 @@ describe("tick() -- idle captains do nothing, mission captains route through tic
     // requiredTicks("unloading")=8. ticksLeftInPhase = 8 - 0 = 8; ticksToApply = min(8,8) = 8. Not
     // "extracting", so no loot roll in this step. phaseProgressTicks becomes 8, remaining becomes 0.
     // 8 >= requiredTicks(8) -> phase completes. MISSION_PHASE_ORDER.indexOf("unloading") = 4 (last),
-    // nextIndex = 5 >= length(5) -- cycle complete: cargo {commonOre:70, uncommonMaterial:20,
+    // nextIndex = 5 >= length(5), cycle complete: cargo {commonOre:70, uncommonMaterial:20,
     // rareMaterial:10} is added to homePlanetDelta, then (recalled: false) mission auto-repeats to
     // "ordersReceived" with phaseProgressTicks 0 and fresh empty cargo.
     //
@@ -1668,7 +1668,7 @@ describe("tick() -- idle captains do nothing, mission captains route through tic
 
     const result = tick(8, state);
 
-    // Per-key .equals(), not .toEqual() against a plain-number-literal object -- inventory
+    // Per-key .equals(), not .toEqual() against a plain-number-literal object, inventory
     // values are real Decimal instances.
     expect(result.inventory.commonOre.equals(75)).toBe(true);
     expect(result.inventory.uncommonMaterial.equals(21)).toBe(true);
@@ -1677,7 +1677,7 @@ describe("tick() -- idle captains do nothing, mission captains route through tic
     expect(result.inventory.components.equals(0)).toBe(true);
     // Discovery spot-check: all three loot tiers delivered a POSITIVE amount this
     // cycle (cargo {70,20,10}), so each flips to discovered (was empty on freshState).
-    // refinedMaterial/components saw no delta and stay masked -- proving the add seam
+    // refinedMaterial/components saw no delta and stay masked, proving the add seam
     // only reveals tiers that actually arrived.
     expect(result.discovered).toContain("commonOre");
     expect(result.discovered).toContain("uncommonMaterial");
@@ -1695,13 +1695,13 @@ describe("tick() -- idle captains do nothing, mission captains route through tic
     // Same hand-trace as the "delivers cargo to state.inventory..." test immediately above --
     // phase "unloading" with unloadTicks=8 (shortOreRun), phaseProgressTicks: 0. deltaSeconds=8,
     // state.tickDurationSeconds=1 (fresh default) -> ticksElapsed=8 -> exactly completes the
-    // unloading phase (8 >= requiredTicks(8)) -- cycle completes, creditsDelta accumulates
+    // unloading phase (8 >= requiredTicks(8)), cycle completes, creditsDelta accumulates
     // missionDef.creditsPerCycle (30 for shortOreRun after the F3 bump) exactly once.
     //
     // state.credits starts pre-seeded at 5 (freshState()'s own default is Decimal(0); seeded to a
     // non-zero value here) to prove this tick's creditsDelta is ADDED via .plus(), not overwriting
-    // existing credits: expected result = 5 + 30 = 35. (The auto-repeat then broke-stops -- tank 0,
-    // 5 credits can't cover the 25cr shortfall -- but the completed cycle's 30cr is still banked.)
+    // existing credits: expected result = 5 + 30 = 35. (The auto-repeat then broke-stops, tank 0,
+    // 5 credits can't cover the 25cr shortfall, but the completed cycle's 30cr is still banked.)
     const state = freshState();
     state.credits = new Decimal(5);
     state.captains[0].mission = {
@@ -1718,21 +1718,21 @@ describe("tick() -- idle captains do nothing, mission captains route through tic
   });
 });
 
-describe("tick() -- Homeworld/Captain Talent effects wired into extraction and passive production", () => {
+describe("tick(), Homeworld/Captain Talent effects wired into extraction and passive production", () => {
   // IMPORTANT (2026-07-08 Extraction Rework): under the mechanism this replaces, the
   // uncommon/rare tiers were capped at small flat bucket amounts (1-3 units) regardless
   // of the mission's actual per-tick rate, and whatever those tiers rolled was SUBTRACTED
-  // from extractionRatePerTick before commonOre absorbed the leftover -- so
+  // from extractionRatePerTick before commonOre absorbed the leftover, so
   // total = extractionRatePerTick * (1 + commonYieldMult) EXACTLY, independent of
   // uncommonYieldMult/rareYieldMult, and ONLY commonYieldMult (Captain Talent only, no
   // Homeworld Talent produces it) changed the deterministic per-tick total.
   //
   // Under THIS sequential mutually-exclusive mechanism, that's no longer the general
   // case: whichever tier wins the roll receives the FULL extractionRatePerTick base
-  // amount, scaled by ITS OWN yieldMult -- so if rare wins, total =
+  // amount, scaled by ITS OWN yieldMult, so if rare wins, total =
   // extractionRatePerTick * (1 + rareYieldMult), not extractionRatePerTick unmodified.
   // The "total = rate * (1 + winning tier's own yieldMult)" identity now holds for
-  // WHICHEVER tier wins, not just common -- so:
+  // WHICHEVER tier wins, not just common, so:
   // - The two commonYieldMult tests below force Math.random to a fixed 0.5, which fails
   //   BOTH occurrence checks for shortOreRun (0.5 < 0.001? no. 0.5 < 0.019? no.), so
   //   common is GUARANTEED to win and the total is provably
@@ -1740,7 +1740,7 @@ describe("tick() -- Homeworld/Captain Talent effects wired into extraction and p
   // - The fleetLogisticsYield/rareYieldMult test below instead forces Math.random to a
   //   fixed value comfortably below shortOreRun's rareChance (0.001), so RARE is
   //   GUARANTEED to win instead, and the total is provably
-  //   extractionRatePerTick * (1 + rareYieldMult) -- a more precise test than the old
+  //   extractionRatePerTick * (1 + rareYieldMult), a more precise test than the old
   //   composition-invariant version, which could no longer prove anything meaningful
   //   once the invariant it relied on stopped holding universally.
   it("prospectorBulkExtraction (Captain Talent, commonYieldMult) boosts a mission captain's extraction via tick()", () => {
@@ -1755,7 +1755,7 @@ describe("tick() -- Homeworld/Captain Talent effects wired into extraction and p
       // Math.random mocked to 0.5 fails both occurrence checks (rare: 0.5<0.001? no;
       // uncommon: 0.5<0.019? no), so common wins outright and receives commonYieldMult:
       // extractionRatePerTick 1 * (1 + 0.1) = 1.1.
-      // .plus() chain (Decimal), not + -- .toNumber() before toBeCloseTo since that
+      // .plus() chain (Decimal), not +, .toNumber() before toBeCloseTo since that
       // matcher needs a plain-number operand, not a Decimal instance.
       const totalDelivered = result.captains[0].mission!.cargo.commonOre
         .plus(result.captains[0].mission!.cargo.uncommonMaterial)
@@ -1782,7 +1782,7 @@ describe("tick() -- Homeworld/Captain Talent effects wired into extraction and p
 
       // Rare wins outright and receives its own rareYieldMult: extractionRatePerTick 1 *
       // (1 + 0.05) = 1.05. Mutual exclusivity means commonOre and uncommonMaterial are
-      // BOTH exactly 0 here -- this is a MORE precise assertion than a tier-agnostic
+      // BOTH exactly 0 here, this is a MORE precise assertion than a tier-agnostic
       // total, since it also proves fleetLogisticsYield's bonus landed on the correct
       // tier (rareMaterial) and nowhere else.
       expect(result.captains[0].mission!.cargo.rareMaterial.toNumber()).toBeCloseTo(1.05, 6);
@@ -1801,7 +1801,7 @@ describe("tick() -- Homeworld/Captain Talent effects wired into extraction and p
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
     try {
       const state = freshState();
-      state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05 rareYieldMult (inert this roll -- rare never occurs)
+      state.unlockedHomeworldTalents = ["fleetLogisticsYield"]; // +0.05 rareYieldMult (inert this roll, rare never occurs)
       state.captains[0].unlockedCaptainTalents = ["prospectorBulkExtraction"]; // +0.1 commonYieldMult (does affect the total)
       state.captains[0].mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
 
@@ -1809,7 +1809,7 @@ describe("tick() -- Homeworld/Captain Talent effects wired into extraction and p
 
       // Common wins (0.5 fails both occurrence checks) and receives ONLY its own
       // commonYieldMult: extractionRatePerTick 1 * (1 + 0.1) = 1.1, same as the
-      // commonYieldMult-only test above -- proving fleetLogisticsYield being
+      // commonYieldMult-only test above, proving fleetLogisticsYield being
       // simultaneously unlocked doesn't change this number.
       const totalDelivered = result.captains[0].mission!.cargo.commonOre
         .plus(result.captains[0].mission!.cargo.uncommonMaterial)
@@ -1823,7 +1823,7 @@ describe("tick() -- Homeworld/Captain Talent effects wired into extraction and p
   it("passiveTrickle (Homeworld Talent economyTrickle) adds material even with every captain idle", () => {
     const state = freshState();
     state.unlockedHomeworldTalents = ["economyTrickle"]; // commonOre, perTick: 1
-    // freshState's single captain is idle (mission: null) by default -- no mission math
+    // freshState's single captain is idle (mission: null) by default, no mission math
     // should run at all, isolating this test to the passive-trickle path.
 
     const result = tick(1, state); // ticksElapsed = 1/1 = 1 -> 1 * perTick(1) = 1
@@ -1845,7 +1845,7 @@ describe("tick() -- Homeworld/Captain Talent effects wired into extraction and p
 
   // Task B3 review item: passiveTrickle is a PRODUCER of commonOre, so it must
   // auto-stop when commonOre is at its warehouse cap (design §3.4), exactly like a
-  // commonOre mission does -- otherwise a full material keeps receiving trickle
+  // commonOre mission does, otherwise a full material keeps receiving trickle
   // while every mission producing it is idled. economyTrickle trickles commonOre
   // (perTick 1); commonOre is a T1 item, cap 1M @ warehouseT1 L0. economyTick is
   // called DIRECTLY (single call) with the trickle material at / below cap; the
@@ -1855,7 +1855,7 @@ describe("tick() -- Homeworld/Captain Talent effects wired into extraction and p
       const s = freshState();
       s.unlockedHomeworldTalents = ["economyTrickle"]; // commonOre, perTick: 1
       // freshState's single captain is idle (mission: null), isolating this to the
-      // passive-trickle path -- no mission production to confound the cap check.
+      // passive-trickle path, no mission production to confound the cap check.
       // Fuel Economy v2 (F2): fill the fuel tank so the always-on Fuel Depot pipelines
       // (which would ALSO consume commonOre -> fuel) are PAUSED (tank-full), isolating
       // this test to the trickle-vs-warehouse-cap gate alone.
@@ -1863,13 +1863,13 @@ describe("tick() -- Homeworld/Captain Talent effects wired into extraction and p
       return s;
     };
 
-    // AT cap: the trickle stops -- commonOre stays EXACTLY at the cap, no overflow.
+    // AT cap: the trickle stops, commonOre stays EXACTLY at the cap, no overflow.
     const atCap = makeState();
     atCap.inventory.commonOre = new Decimal(1_000_000); // exactly the T1 cap @ L0
     const cappedResult = economyTick(atCap, 1, () => 0);
     expect(cappedResult.inventory.commonOre.equals(1_000_000)).toBe(true); // gate skipped the +1 add
 
-    // BELOW cap: UNCHANGED behavior -- the trickle still adds perTick * ticksElapsed.
+    // BELOW cap: UNCHANGED behavior, the trickle still adds perTick * ticksElapsed.
     const belowCap = makeState();
     belowCap.inventory.commonOre = new Decimal(500_000); // well under the cap
     const belowResult = economyTick(belowCap, 1, () => 0);
@@ -1885,7 +1885,7 @@ describe("tick() -- Homeworld/Captain Talent effects wired into extraction and p
     const totalDelivered = result.captains[0].mission!.cargo.commonOre
       .plus(result.captains[0].mission!.cargo.uncommonMaterial)
       .plus(result.captains[0].mission!.cargo.rareMaterial);
-    // With no unlocked Homeworld Talents, all yield-mults are 0 -- whichever tier wins
+    // With no unlocked Homeworld Talents, all yield-mults are 0, whichever tier wins
     // this roll (rng-dependent, unmocked Math.random) still delivers EXACTLY
     // extractionRatePerTick (1), unscaled. The "total = rate * (1 + winning tier's own
     // yieldMult)" identity holds regardless of which tier wins when every mult is 0.
@@ -1915,12 +1915,12 @@ describe("dispatchCaptainOnMission", () => {
   it("leaves the rest of the captain and the rest of state untouched", () => {
     // Setup uses xp/level/statPoints (the current CaptainState fields) rather than the
     // removed Generator-Stack fields (modules/resources/augmentPoints) this test used
-    // pre-Phase-4 -- same intent (prove dispatchCaptainOnMission only touches `mission`),
+    // pre-Phase-4, same intent (prove dispatchCaptainOnMission only touches `mission`),
     // updated to the post-Task-2 CaptainState/GameState shape.
     const state = freshState();
     state.fuel = new Decimal(1_000_000); // Task 5: fund the dispatch fuel gate so the dispatch actually happens (else this test is vacuous)
     state.captains[0].level = 4;
-    state.captains[0].xp = new Decimal(250); // xp is Decimal -- new Decimal(...), not a plain-number assignment
+    state.captains[0].xp = new Decimal(250); // xp is Decimal, new Decimal(...), not a plain-number assignment
     state.captains[0].statPoints = 3;
     state.inventory.commonOre = new Decimal(42); // inventory values are Decimal too
 
@@ -1963,7 +1963,7 @@ describe("recallCaptain", () => {
 
     const { next, success } = recallCaptain(state, 1);
     expect(success).toBe(true);
-    // Per-field checks (not one .toEqual()) -- cargo's values are real Decimal instances.
+    // Per-field checks (not one .toEqual()), cargo's values are real Decimal instances.
     expect(next.captains[0].mission!.missionKey).toBe("shortOreRun");
     expect(next.captains[0].mission!.phase).toBe("extracting");
     expect(next.captains[0].mission!.phaseProgressTicks).toBe(4.5);
@@ -1988,13 +1988,13 @@ describe("recallCaptain", () => {
   });
 });
 
-// (The craftRecipe test block -- including its two recipeBonusOutput cases --
+// (The craftRecipe test block, including its two recipeBonusOutput cases --
 //  was REMOVED in Phase 4, Task F5 with the legacy instant-craft it covered. The
 //  timed Fabricator engine's coverage lives in fabricator.test.ts.)
 
 // Radial Skill Web (Task 5): buy-gating moved from the old single-parent
 // `requires` chain to graph adjacency. A node is learnable iff it is a hub OR
-// at least one of its neighbors is already owned -- the exact rule
+// at least one of its neighbors is already owned, the exact rule
 // computeVisibleTalents (talentWeb.ts) uses for fog-of-war, so what the UI
 // shows as learnable is exactly what buy allows. Keys/costs below are the LIVE
 // radial CAPTAIN_TALENTS/HOMEWORLD_TALENTS tables (model.ts), not the old
@@ -2006,7 +2006,7 @@ describe("recallCaptain", () => {
 describe("buyCaptainTalent", () => {
   it("gates on adjacency, not requires: hub buyable from empty; non-adjacent fails; adjacent-to-owned then succeeds", () => {
     let state = freshState();
-    state.captains[0].statPoints = 10; // ample -- isolate the adjacency gate from the cost gate
+    state.captains[0].statPoints = 10; // ample, isolate the adjacency gate from the cost gate
 
     // prospectorBulkExtraction is NOT a hub and no neighbor is owned yet -> fail.
     const nonAdjacent = buyCaptainTalent(state, 1, "prospectorBulkExtraction");
@@ -2058,7 +2058,7 @@ describe("buyCaptainTalent", () => {
 describe("buyHomeworldTalent", () => {
   it("gates on adjacency, not requires: hub buyable from empty; non-adjacent fails; adjacent-to-owned then succeeds", () => {
     let state = freshState();
-    state.adminPoints = 10; // ample -- isolate the adjacency gate from the cost gate
+    state.adminPoints = 10; // ample, isolate the adjacency gate from the cost gate
 
     // fleetLogisticsSlot1 is NOT a hub and no neighbor is owned yet -> fail.
     const nonAdjacent = buyHomeworldTalent(state, "fleetLogisticsSlot1");
@@ -2119,7 +2119,7 @@ describe("buyHomeworldTalent", () => {
     // nextShipId advanced by exactly 1 (2 -> 3), monotonic id source consumed.
     expect(next.nextShipId).toBe(originalNextShipId + 1);
 
-    // The new captain no longer owns a hull -- shipType was removed entirely
+    // The new captain no longer owns a hull, shipType was removed entirely
     // (captain/ship separation). Not "resourcer", not any value: absent.
     expect("shipType" in next.captains[1]).toBe(false);
 
@@ -2149,10 +2149,10 @@ describe("buyHomeworldTalent", () => {
 
   // --- Task 9: Captain-slot Fleet-Admiral-level walls -----------------------
   // Only the LATER slot talents carry requiresFleetAdminLevel (slot2=5,
-  // slot3=25). slot1 (the 2nd-captain unlock) is UNGATED -- its old L1 wall was
+  // slot3=25). slot1 (the 2nd-captain unlock) is UNGATED, its old L1 wall was
   // a functional no-op (players start at FA level 1) and was removed, so it now
   // has NO requiresFleetAdminLevel field. The wall on slot2/slot3 is LAYERED on
-  // top of the pre-existing adminPoints-cost and graph-adjacency gates -- those
+  // top of the pre-existing adminPoints-cost and graph-adjacency gates, those
   // captains are "wall breakers" that require BOTH the adminPoint cost AND a
   // Fleet-Admiral level to learn. These tests isolate the FA-level gate (using
   // slot2, L5) by satisfying the other two gates up front.
@@ -2171,7 +2171,7 @@ describe("buyHomeworldTalent", () => {
     expect(blocked.success).toBe(false);
     expect(blocked.next).toBe(belowState);
 
-    // At the wall (level 5 >= 5): succeeds -- talent unlocked AND a captain added
+    // At the wall (level 5 >= 5): succeeds, talent unlocked AND a captain added
     // (the unlockCaptainSlot side-effect still fires once the gate passes).
     const atState = { ...base, fleetAdminLevel: 5 };
     const allowed = buyHomeworldTalent(atState, "fleetLogisticsSlot2");
@@ -2203,14 +2203,14 @@ describe("buyHomeworldTalent", () => {
 });
 
 describe("respecCaptainTalents / respecHomeworldTalents", () => {
-  // Task 8 (Talent Tree Visual Redesign) -- coverage for Task 7's
+  // Task 8 (Talent Tree Visual Redesign), coverage for Task 7's
   // respecCaptainTalents/respecHomeworldTalents, added to tick.ts in commits
   // fc4f317/da9b7f1. Every cost below is hand-verified against the LIVE
   // CAPTAIN_TALENTS/HOMEWORLD_TALENTS tables in model.ts (not transcribed
   // blindly): prospectorBulkExtraction.cost=2, prospectorRefinedExtraction.cost=4,
   // fleetLogisticsSlot1.cost=3 (effect.type: "unlockCaptainSlot" --
   // never refunded/removed), fleetLogisticsYield.cost=4 (effect.type:
-  // "rareYieldMult" -- a normal refundable node). RESPEC_COST_CREDITS is 50
+  // "rareYieldMult", a normal refundable node). RESPEC_COST_CREDITS is 50
   // (tick.ts, same constant both respec functions share).
 
   it("respecCaptainTalents refunds the exact statPoints cost sum of every unlocked talent, clears the list, and deducts flat 50 credits", () => {
@@ -2247,12 +2247,12 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
     const state = freshState();
     state.credits = new Decimal(50);
     state.adminPoints = 0;
-    // fleetLogisticsSlot1: effect.type "unlockCaptainSlot" -- must survive, must NOT be refunded.
-    // fleetLogisticsYield: effect.type "rareYieldMult" -- a normal node, must be refunded (cost 4) and removed.
+    // fleetLogisticsSlot1: effect.type "unlockCaptainSlot", must survive, must NOT be refunded.
+    // fleetLogisticsYield: effect.type "rareYieldMult", a normal node, must be refunded (cost 4) and removed.
     state.unlockedHomeworldTalents = ["fleetLogisticsSlot1", "fleetLogisticsYield"];
     const { next, success } = respecHomeworldTalents(state);
     expect(success).toBe(true);
-    expect(next.adminPoints).toBe(4); // fleetLogisticsYield's cost only -- the slot node contributes 0
+    expect(next.adminPoints).toBe(4); // fleetLogisticsYield's cost only, the slot node contributes 0
     expect(next.unlockedHomeworldTalents).toEqual(["fleetLogisticsSlot1"]); // slot key survives, non-slot key removed
     expect(next.credits.equals(0)).toBe(true); // 50 - 50
   });
@@ -2285,7 +2285,7 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
     state.captains[0].spec = "resourcefulness";
     state.captains[0].unlockedCaptainTalents = ["prospectorBulkExtraction", "prospectorRefinedExtraction"]; // refund = 2+4 = 6
     state.captains[0].statPoints = 0;
-    // Only 2 args -- newSpec is genuinely omitted (not passed as `undefined` explicitly), exercising the
+    // Only 2 args, newSpec is genuinely omitted (not passed as `undefined` explicitly), exercising the
     // `newSpec === undefined ? captain.spec : newSpec` branch's "omitted" path, not just its "undefined" path.
     const { next, success } = respecCaptainTalents(state, 1);
     expect(success).toBe(true);
@@ -2300,7 +2300,7 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
     state.captains[0].spec = "resourcefulness";
     state.captains[0].unlockedCaptainTalents = ["prospectorBulkExtraction", "prospectorRefinedExtraction"]; // refund = 2+4 = 6
     state.captains[0].statPoints = 0;
-    // Explicit `null` must be preserved, not collapsed into "keep current spec" -- this is exactly why
+    // Explicit `null` must be preserved, not collapsed into "keep current spec", this is exactly why
     // respecCaptainTalents's implementation uses a strict `=== undefined` check rather than `newSpec ?? captain.spec`
     // (the `??` form would also replace an explicit null with captain.spec, indistinguishable from omitting the arg).
     const { next, success } = respecCaptainTalents(state, 1, null);
@@ -2312,7 +2312,7 @@ describe("respecCaptainTalents / respecHomeworldTalents", () => {
 });
 
 describe("chooseCaptainSpec", () => {
-  // Task 14 (Radial Skill Web) -- coverage for the FREE first-pick spec setter
+  // Task 14 (Radial Skill Web), coverage for the FREE first-pick spec setter
   // added to tick.ts. The rule under test: it succeeds ONLY from spec === null
   // (free, no cost/point change); a captain that already has a spec must go
   // through respecCaptainTalents(..., null) instead, so chooseCaptainSpec
@@ -2327,17 +2327,17 @@ describe("chooseCaptainSpec", () => {
     const { next, success } = chooseCaptainSpec(state, 1, "resourcefulness");
     expect(success).toBe(true);
     expect(next.captains[0].spec).toBe("resourcefulness");
-    expect(next.captains[0].statPoints).toBe(7); // unchanged -- free pick, no point cost
-    expect(next.credits.equals(50)).toBe(true); // unchanged -- free pick, no credit cost
+    expect(next.captains[0].statPoints).toBe(7); // unchanged, free pick, no point cost
+    expect(next.credits.equals(50)).toBe(true); // unchanged, free pick, no credit cost
   });
 
-  it("fails (same state reference) when the captain already has a spec set -- changing an established spec must go through respec, not this", () => {
+  it("fails (same state reference) when the captain already has a spec set, changing an established spec must go through respec, not this", () => {
     const state = freshState();
-    state.captains[0].spec = "tactical"; // already chosen -- the free pick is no longer available
+    state.captains[0].spec = "tactical"; // already chosen, the free pick is no longer available
     const { next, success } = chooseCaptainSpec(state, 1, "resourcefulness");
     expect(success).toBe(false);
     expect(next).toBe(state); // reference identity, not just structural equality
-    expect(state.captains[0].spec).toBe("tactical"); // untouched -- the change was refused, not applied
+    expect(state.captains[0].spec).toBe("tactical"); // untouched, the change was refused, not applied
   });
 
   it("fails (same state reference) for a captainId that doesn't exist", () => {
@@ -2358,7 +2358,7 @@ describe("applyFleetAdminXp", () => {
   });
 
   it("adds the delta to fleetAdminXp when no level-up threshold is crossed", () => {
-    // A delta well under xpForNextFleetAdminLevel(1) crosses no threshold -- xp
+    // A delta well under xpForNextFleetAdminLevel(1) crosses no threshold, xp
     // just accumulates, level/adminPoints unchanged. Derive the "small" delta
     // from the curve so a future rescale can't invalidate the premise.
     const subThresholdDelta = xpForNextFleetAdminLevel(1) - 1; // largest delta that still crosses NO level from L1
@@ -2371,7 +2371,7 @@ describe("applyFleetAdminXp", () => {
 
   it("resolves exactly one level-up and carries the remainder forward, mirroring captain XP's subtract-and-carry shape", () => {
     // Curve-derived (no hard-coded scale): pre-load fleetAdminXp to just SHORT of
-    // the level-1 threshold, then apply a delta that carries it just PAST -- proves
+    // the level-1 threshold, then apply a delta that carries it just PAST, proves
     // startingXp = existing xp + delta both count toward the crossing, that exactly
     // ONE threshold is subtracted, and the leftover is carried forward.
     //   startingXp = (threshold1 - remainder) + 2*remainder = threshold1 + remainder
@@ -2379,7 +2379,7 @@ describe("applyFleetAdminXp", () => {
     const threshold1 = xpForNextFleetAdminLevel(1);
     const remainder = 100; // small carry, safely below xpForNextFleetAdminLevel(2)
     const state = freshState();
-    state.fleetAdminXp = new Decimal(threshold1 - remainder); // fleetAdminXp is Decimal -- new Decimal(...), not a plain-number assignment
+    state.fleetAdminXp = new Decimal(threshold1 - remainder); // fleetAdminXp is Decimal, new Decimal(...), not a plain-number assignment
     const result = applyFleetAdminXp(state, 2 * remainder);
     expect(result.fleetAdminLevel).toBe(2);
     expect(result.fleetAdminXp.equals(remainder)).toBe(true);
@@ -2409,8 +2409,8 @@ describe("applyFleetAdminXp", () => {
     // MAX_LEVEL_UPS_PER_TICK (imported from tick.ts, its single canonical
     // definition) is 10,000. This cap is a property of applyFleetAdminXp's
     // loop, NOT of the curve, so it does not itself need to derive from the
-    // curve -- but the DELTA below still does (see the sum-of-squares note).
-    // Can't hand-trace 10,000 individual level-up steps one by one -- instead,
+    // curve, but the DELTA below still does (see the sum-of-squares note).
+    // Can't hand-trace 10,000 individual level-up steps one by one, instead,
     // construct a delta PROVABLY large enough to require MORE than the cap's worth
     // of level-ups if it were uncapped, DERIVED FROM THE CURVE so a future rescale
     // of xpForNextFleetAdminLevel can never silently drop the delta below the cap
@@ -2440,7 +2440,7 @@ describe("applyFleetAdminXp", () => {
     expect(result.adminPoints).toBe(MAX_LEVEL_UPS_PER_TICK);
     // The cap stopped the loop mid-resolution (not the loop running out of xp): the
     // delta was built to hold ~2x the resolving sum, so a large remainder is left
-    // over. .toNumber() first -- toBeGreaterThan needs a plain-number operand.
+    // over. .toNumber() first, toBeGreaterThan needs a plain-number operand.
     expect(result.fleetAdminXp.toNumber()).toBeGreaterThan(0);
   });
 
@@ -2448,10 +2448,10 @@ describe("applyFleetAdminXp", () => {
     // Found during this branch's final holistic review: an early-return keyed
     // ONLY on `fleetAdminXpDelta <= 0` would freeze a capped backlog forever
     // on every subsequent delta-0 poll (the overwhelmingly common case in
-    // live play) -- contradicting this function's own stated intent that
+    // live play), contradicting this function's own stated intent that
     // leftover XP "keeps resolving on the NEXT tick() call." Reuses the SAME
     // curve-derived backlog-construction math as the cap test above (2x the exact
-    // sum for MAX_LEVEL_UPS_PER_TICK level-ups -- see that test for the derivation)
+    // sum for MAX_LEVEL_UPS_PER_TICK level-ups, see that test for the derivation)
     // to first produce a genuinely capped, backlogged state, then confirm a SECOND
     // call with delta=0 keeps draining it rather than returning the identical
     // stuck state. Derived from xpForNextFleetAdminLevel(1) so a future curve
@@ -2470,25 +2470,25 @@ describe("applyFleetAdminXp", () => {
     // A stale/broken guard (checking only fleetAdminXpDelta <= 0) would return
     // the SAME reference here, leaving fleetAdminLevel/adminPoints/fleetAdminXp
     // completely unchanged forever. The fixed guard checks for a remaining
-    // backlog too, so this second call -- despite delta being 0 -- must make
+    // backlog too, so this second call, despite delta being 0, must make
     // real progress: MORE level-ups resolved, adminPoints increased further,
     // and the leftover xp reduced from what it was after the first call.
     expect(afterSecondCall).not.toBe(afterFirstCappedCall);
     expect(afterSecondCall.adminPoints).toBeGreaterThan(MAX_LEVEL_UPS_PER_TICK);
     expect(afterSecondCall.fleetAdminLevel).toBeGreaterThan(afterFirstCappedCall.fleetAdminLevel);
-    // .toNumber() on both sides -- toBeLessThan needs plain-number operands, and
+    // .toNumber() on both sides, toBeLessThan needs plain-number operands, and
     // backloggedXp is a captured Decimal reference from afterFirstCappedCall above.
     expect(afterSecondCall.fleetAdminXp.toNumber()).toBeLessThan(backloggedXp.toNumber());
   });
 });
 
 // ---------------------------------------------------------------------------
-// Ships -- Stats Foundation, Task 6: the assigned ship's three derived stats
+// Ships, Stats Foundation, Task 6: the assigned ship's three derived stats
 // (cargoCapacity, transitSpeedMult, extractionYieldMult) threaded into
 // tickCaptainMission via its optional 5th param `shipStats`. Two invariants
 // under test:
 //   1. Passing shipStats = null (or omitting the 5th arg entirely) reproduces
-//      today's exact behavior -- the ship path is strictly additive, never a
+//      today's exact behavior, the ship path is strictly additive, never a
 //      silent change to no-ship callers.
 //   2. The CLOSED-FORM guarantee (one big ticksElapsed == many small ones
 //      summing to the same total) survives the ship modifier. This holds for
@@ -2499,10 +2499,10 @@ describe("applyFleetAdminXp", () => {
 // A helper mirrors shipDerivedStats' real input shape (a ShipInstance) so these
 // tests exercise the production projection, not a hand-built stub.
 // ---------------------------------------------------------------------------
-describe("tickCaptainMission -- assigned ship stats (Task 6)", () => {
+describe("tickCaptainMission, assigned ship stats (Task 6)", () => {
   // Builds a ShipDerivedStats the same way production will: from a real
   // ShipInstance run through shipDerivedStats. assignedCaptainId is irrelevant
-  // to tickCaptainMission (it never reads assignment -- Task 3 removed that);
+  // to tickCaptainMission (it never reads assignment, Task 3 removed that);
   // null is fine and matches a parked-but-projected hull.
   const shipStatsFor = (typeKey: "prospectorHauler" | "prospectorRunner" | "prospectorMiner") =>
     shipDerivedStats({ id: "h", typeKey, assignedCaptainId: null });
@@ -2524,7 +2524,7 @@ describe("tickCaptainMission -- assigned ship stats (Task 6)", () => {
     // toEqual across the whole returned mission is safe here: with ALWAYS_MIN_ROLL
     // (rare wins every roll), commonOre/uncommonMaterial are exactly Decimal(0) on
     // both paths, and the only non-zero cargo (rareMaterial) is built by the SAME
-    // sequence of .plus() ops on both -- structurally identical Decimals, not just
+    // sequence of .plus() ops on both, structurally identical Decimals, not just
     // numerically equal, so toEqual holds. If this ever gets brittle, drop to the
     // per-key .equals() shape used elsewhere in this file.
     expect(nullArg.captain.mission).toEqual(noArg.captain.mission);
@@ -2550,7 +2550,7 @@ describe("tickCaptainMission -- assigned ship stats (Task 6)", () => {
   //     cycle 1+17+60+17+8 = 103 ticks.
   // Because effectiveMissionDef is computed ONCE per call (constant across the
   // whole while loop), the big call and the small-step chain see the SAME
-  // requiredTicksForPhase values for every phase -- exactly the property that
+  // requiredTicksForPhase values for every phase, exactly the property that
   // makes the base closed-form test pass, now with ship-scaled thresholds.
   const closedFormForShip = (
     typeKey: "prospectorHauler" | "prospectorRunner",
@@ -2596,7 +2596,7 @@ describe("tickCaptainMission -- assigned ship stats (Task 6)", () => {
 
   it("CLOSED-FORM holds with a HAULER (cargo 180 / transit 0.8) as shipStats", () => {
     // 560 ticks crosses more than 2 full hauler cycles (2*253=506). 5600 steps
-    // of 0.1 each sum to the same 560 -- same step granularity as the base test.
+    // of 0.1 each sum to the same 560, same step granularity as the base test.
     closedFormForShip("prospectorHauler", 560, 5600);
   });
 
@@ -2605,7 +2605,7 @@ describe("tickCaptainMission -- assigned ship stats (Task 6)", () => {
     // 0.125 each sum to EXACTLY 230.
     //
     // Step size is 0.125 (== 1/8, exactly representable in IEEE-754), NOT 0.1: with
-    // 0.1, 2300 steps sum to 229.99999999999997 -- a hair UNDER 230 -- so the stepped
+    // 0.1, 2300 steps sum to 229.99999999999997, a hair UNDER 230, so the stepped
     // path receives less total elapsed time than the 230.0 big jump and lands
     // phaseProgressTicks at 5.999999999999995 (one whole extraction tick SHORT of the
     // big jump's 6). Because extraction loot rolls fire on WHOLE-tick boundaries, that
@@ -2615,7 +2615,7 @@ describe("tickCaptainMission -- assigned ship stats (Task 6)", () => {
     // production code, which snaps at phase boundaries but not at intermediate whole-tick
     // boundaries mid-phase. 0.125 makes 1840 steps sum to exactly 230, so both paths get
     // identical total elapsed time and the closed-form property holds bit-exactly. (The
-    // HAULER case above survives 0.1 only by luck -- its 5600*0.1 lands a hair OVER 560,
+    // HAULER case above survives 0.1 only by luck, its 5600*0.1 lands a hair OVER 560,
     // so floor() stays correct; same underlying fragility, opposite float direction.)
     closedFormForShip("prospectorRunner", 230, 1840);
   });
@@ -2645,7 +2645,7 @@ describe("tickCaptainMission -- assigned ship stats (Task 6)", () => {
     const minerCommon = minerResult.captain.mission!.cargo.commonOre;
     expect(minerCommon.equals(nullCommon.times(1.35))).toBe(true);
     // Miner leaves cargoCapacity 90 / transit 1.0 unchanged, so nothing but the
-    // common AMOUNT should differ -- uncommon/rare stay at 0 on both paths.
+    // common AMOUNT should differ, uncommon/rare stay at 0 on both paths.
     expect(minerResult.captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
     expect(minerResult.captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
   });
@@ -2653,7 +2653,7 @@ describe("tickCaptainMission -- assigned ship stats (Task 6)", () => {
 
 // ---------------------------------------------------------------------------
 // Task 7: tick() resolves each captain's assigned ship and passes its stats
-// into tickCaptainMission. This is the INTEGRATION point -- Task 6 taught
+// into tickCaptainMission. This is the INTEGRATION point, Task 6 taught
 // tickCaptainMission to ACCEPT a 5th shipStats arg, but only tick() knows which
 // hull a captain flies (via GameState.ships[].assignedCaptainId). These tests
 // prove the fleet loop looks the ship up and threads its stats through, so a
@@ -2666,12 +2666,12 @@ describe("tickCaptainMission -- assigned ship stats (Task 6)", () => {
 //     geometry, no rng), and
 //   - the TOTAL units delivered to inventory on cycle completion. Each
 //     whole extracting tick adds exactly 1 unit total across tiers (the tier is
-//     rng-chosen, but the count is not -- see rollExtractionTick's mutual-
+//     rng-chosen, but the count is not, see rollExtractionTick's mutual-
 //     exclusivity comment), so a completed cycle delivers exactly cargoCapacity
 //     units regardless of how Math.random split them across tiers.
 // ---------------------------------------------------------------------------
-describe("tick() -- applies each captain's assigned-ship stats to their mission", () => {
-  // Sum of the three loot tiers in inventory -- the rng-independent
+describe("tick(), applies each captain's assigned-ship stats to their mission", () => {
+  // Sum of the three loot tiers in inventory, the rng-independent
   // "total units delivered" quantity the traces below rely on.
   const totalHomeLoot = (state: ReturnType<typeof freshState>) => {
     const s = state.inventory;
@@ -2680,7 +2680,7 @@ describe("tick() -- applies each captain's assigned-ship stats to their mission"
 
   // Put freshState()'s single captain (id 1) on a fresh shortOreRun, at the very
   // start of the cycle (ordersReceived / 0). freshState seeds exactly one hull
-  // (ship-1, generalFreighter, assignedCaptainId: 1) -- so out of the box this
+  // (ship-1, generalFreighter, assignedCaptainId: 1), so out of the box this
   // captain flies the Freighter, which is the pre-ship-wiring implicit baseline
   // (transit 1.0 / cargo 90 / yield 1.0 == effectiveMissionDef no-op).
   const stateOnShortOreRun = () => {
@@ -2698,7 +2698,7 @@ describe("tick() -- applies each captain's assigned-ship stats to their mission"
 
   it("a RUNNER-assigned captain is FURTHER ALONG than a FREIGHTER-assigned captain for the same elapsed time", () => {
     // tickDurationSeconds = 1 (fresh default), so deltaSeconds == ticksElapsed.
-    // Run both for 103 ticks -- chosen because that is EXACTLY one full RUNNER
+    // Run both for 103 ticks, chosen because that is EXACTLY one full RUNNER
     // cycle, so the runner's lead is unmissable (it completes and delivers,
     // while the freighter has not even finished its first extraction).
     //
@@ -2715,12 +2715,12 @@ describe("tick() -- applies each captain's assigned-ship stats to their mission"
     //     "ordersReceived", having delivered a full 60-unit haul to homePlanet.
     const DELTA = 103;
 
-    // Case A: baseline -- the seeded Freighter stays assigned to captain 1.
+    // Case A: baseline, the seeded Freighter stays assigned to captain 1.
     const stateA = stateOnShortOreRun();
     const resultA = tick(DELTA, stateA);
 
     // Case B: swap captain 1's hull to a Runner by mutating the seeded ship's
-    // typeKey (cleaner than adding a second ship + re-parking -- assignment is
+    // typeKey (cleaner than adding a second ship + re-parking, assignment is
     // unchanged, only the hull type differs, isolating the stat effect).
     const stateB = stateOnShortOreRun();
     stateB.ships[0].typeKey = "prospectorRunner";
@@ -2743,7 +2743,7 @@ describe("tick() -- applies each captain's assigned-ship stats to their mission"
     // (v0.5.0) FA XP accrues per WHOLE tick a mission advances, NOT as a per-cycle
     // lump. Both captains were on an active mission for the full 103 ticks, so both
     // accrued the identical 103 FA XP (fleetAdminXpPerTick == 1, unchanged by ship
-    // stats -- effectiveMissionDef preserves it) regardless of who completed a cycle.
+    // stats, effectiveMissionDef preserves it) regardless of who completed a cycle.
     // The stale pre-rework assertion here was `resultB > resultA` (true only under
     // the old per-cycle XP lump). CREDITS remain the cycle-completion discriminator
     // (still awarded once per completed cycle), so the runner's completion shows up
@@ -2758,7 +2758,7 @@ describe("tick() -- applies each captain's assigned-ship stats to their mission"
     // transit 1.0 / cargo 90 == shortOreRun's own base cargo). So passing its
     // shipStats must produce the SAME phase geometry as passing null (the old
     // implicit "no ship" behavior). We verify by checking the exact phase the
-    // Freighter captain lands in after a 103-tick run -- computed purely from the
+    // Freighter captain lands in after a 103-tick run, computed purely from the
     // 149-tick base cycle, no ship modifier involved.
     //
     // At 103 ticks: orders done @1, transitOut done @26, so extracting progress
@@ -2775,7 +2775,7 @@ describe("tick() -- applies each captain's assigned-ship stats to their mission"
     // however, is NON-zero now: since the Progression Pacing Rework (v0.5.0) FA XP
     // accrues per WHOLE tick a mission advances (fleetAdminXpPerTick == 1), so 103
     // active ticks yield exactly 103 FA XP even though the cycle never completed
-    // (no level-up crossed -- xpForNextFleetAdminLevel(1) > 103 -- so the stored
+    // (no level-up crossed, xpForNextFleetAdminLevel(1) > 103, so the stored
     // value is the un-drained gross 103). The stale pre-rework assertion here was
     // `equals(0)` (correct only under the old per-CYCLE XP lump).
     expect(totalHomeLoot(result).equals(0)).toBe(true);
@@ -2819,7 +2819,7 @@ describe("assignShipToCaptain", () => {
 
   it("self-reassign is a harmless no-op: the captain keeps the ship they already fly (NOT parked)", () => {
     // ORDERING GUARD TEST. captain 1 flies ship-1. Re-assigning ship-1 to
-    // captain 1 must leave ship-1 STILL assigned to captain 1 -- it must NOT be
+    // captain 1 must leave ship-1 STILL assigned to captain 1, it must NOT be
     // nulled. This is the case the .map() ordering exists to protect: the target
     // branch (s.id === shipId) runs first and wins, so the "park the old hull"
     // branch never sees ship-1 as a *different* old hull to park.
@@ -2828,10 +2828,10 @@ describe("assignShipToCaptain", () => {
 
     expect(success).toBe(true);
     const ship1 = next.ships.find((s) => s.id === "ship-1")!;
-    expect(ship1.assignedCaptainId).toBe(1); // STILL captain 1's -- not parked
+    expect(ship1.assignedCaptainId).toBe(1); // STILL captain 1's, not parked
   });
 
-  it("fails (same state reference) if the captain is on a mission -- hull can't change mid-cycle", () => {
+  it("fails (same state reference) if the captain is on a mission, hull can't change mid-cycle", () => {
     // The on-mission lock is load-bearing for the closed-form guarantee: a hull
     // that changed mid-mission would invalidate effectiveMissionDef's per-cycle
     // stability. captain 1 has a live mission -> assignment must refuse.
@@ -2850,7 +2850,7 @@ describe("assignShipToCaptain", () => {
   });
 
   it("fails (same state reference) if the target ship is assigned to a DIFFERENT captain", () => {
-    // ship-2 is flown by captain 2. captain 1 cannot poach it -- assignment
+    // ship-2 is flown by captain 2. captain 1 cannot poach it, assignment
     // refuses rather than stealing another captain's hull.
     const state = twoShipFleet();
     state.ships[1] = { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: 2 };
@@ -2873,13 +2873,13 @@ describe("assignShipToCaptain", () => {
   });
 });
 
-// (The "buyShip" describe block -- covering the instant Requisition credit-buy's
-//  buy/at-capacity/insufficient-credits paths -- was REMOVED in S4 along with the
+// (The "buyShip" describe block, covering the instant Requisition credit-buy's
+//  buy/at-capacity/insufficient-credits paths, was REMOVED in S4 along with the
 //  buyShip function it exercised. Hulls are now BUILT at the Shipyard over time
 //  (startShipBuild + the shipBuild engine, covered by their own tests); the
 //  instant credit-buy path no longer exists to test.)
 
-describe("tick() -- threads the timed-process resolver through the fleet loop (Phase 1, Task 9)", () => {
+describe("tick(), threads the timed-process resolver through the fleet loop (Phase 1, Task 9)", () => {
   // Phase 1, Task 9 wired resolveProcesses into BOTH tick() (offline catch-up) AND
   // App.svelte's live poll loop, each calling the SAME exported resolver with the
   // SAME ticksElapsed and folding its lump FA XP into the SAME applyFleetAdminXp
@@ -2893,7 +2893,7 @@ describe("tick() -- threads the timed-process resolver through the fleet loop (P
 
   // freshState (tickDurationSeconds default 1 -> ticksElapsed == deltaSeconds) + the
   // given in-flight processes seeded onto activeProcesses. The single captain stays
-  // idle unless a caller sets a mission -- so process outputs (refinedMaterial /
+  // idle unless a caller sets a mission, so process outputs (refinedMaterial /
   // components / facilities) never overlap the mission loot tiers (commonOre /
   // uncommonMaterial / rareMaterial), keeping the process contribution cleanly
   // isolated for assertion regardless of the internal Math.random loot rolls.
@@ -2946,7 +2946,7 @@ describe("tick() -- threads the timed-process resolver through the fleet loop (P
     expect(result.inventory.components.toString()).toBe("0"); // proc-2 unfinished -> not granted
   });
 
-  it("the process portion of tick() equals a STANDALONE resolveProcesses call -- same shared resolver, same ticksElapsed", () => {
+  it("the process portion of tick() equals a STANDALONE resolveProcesses call, same shared resolver, same ticksElapsed", () => {
     const processes: TimedProcess[] = [
       {
         id: "proc-1",
@@ -2964,7 +2964,7 @@ describe("tick() -- threads the timed-process resolver through the fleet loop (P
       },
     ];
     // No mission captain (freshState's captain is idle), so tick()'s ONLY FA XP
-    // source is the process resolver -- isolating the process contribution for a
+    // source is the process resolver, isolating the process contribution for a
     // clean equality against the standalone call.
     const state = stateWithProcesses(processes);
 
@@ -2986,10 +2986,10 @@ describe("tick() -- threads the timed-process resolver through the fleet loop (P
     expect(viaTick.fleetAdminLevel).toBe(1);
   });
 
-  it("advances processes on ticksElapsed = deltaSeconds / tickDurationSeconds -- the SAME conversion missions use", () => {
+  it("advances processes on ticksElapsed = deltaSeconds / tickDurationSeconds, the SAME conversion missions use", () => {
     // tickDurationSeconds 4: a 30-tick process completes at exactly 120s (120/4 =
     // 30) and NOT at 116s (116/4 = 29). This proves tick() feeds the resolver the
-    // fleet ticksElapsed, not raw deltaSeconds -- the same drift-prone conversion
+    // fleet ticksElapsed, not raw deltaSeconds, the same drift-prone conversion
     // the task calls out.
     const proc = (): TimedProcess => ({
       id: "proc-1",
@@ -3018,7 +3018,7 @@ describe("tick() -- threads the timed-process resolver through the fleet loop (P
 
     const result = tick(100, s);
 
-    // Mission-only FA XP (1 captain * 100 ticks * rate 1 = 100) -- resolveProcesses
+    // Mission-only FA XP (1 captain * 100 ticks * rate 1 = 100), resolveProcesses
     // added nothing, exactly as if this task's wiring were absent.
     expect(result.fleetAdminXp.equals(100)).toBe(true);
     expect(result.fleetAdminLevel).toBe(1);
@@ -3030,15 +3030,15 @@ describe("tick() -- threads the timed-process resolver through the fleet loop (P
   });
 });
 
-// Tiered Warehouse -- Phase 2, Task B2 (design §3.3). Exercises the two tick.ts
+// Tiered Warehouse, Phase 2, Task B2 (design §3.3). Exercises the two tick.ts
 // functions the warehouse cap economy adds/reuses:
 //   - tierCap(state, tier): the DERIVED per-item cap (base doubled per reached
-//     warehouse rung). DEFINITION only -- no enforcement yet (that's Task B3).
+//     warehouse rung). DEFINITION only, no enforcement yet (that's Task B3).
 //   - canBuildFacilityUpgrade(state, "warehouseT2"): the SAME generic facility gate
 //     the refinery uses, proving it works unchanged for the new warehouse keys and
 //     that the T2 stub's first real upgrade is naturally walled by its unobtainable
 //     denseOre input.
-describe("tierCap -- per-tier per-item storage cap (Task B2)", () => {
+describe("tierCap, per-tier per-item storage cap (Task B2)", () => {
   // Build a fresh state with a specific warehouse level, overriding freshState's
   // level-0 seed so the doubling is exercised against known levels.
   function withWarehouseLevel(key: string, level: number) {
@@ -3055,7 +3055,7 @@ describe("tierCap -- per-tier per-item storage cap (Task B2)", () => {
   });
 
   it("T2 (stub) cap is defined even while LOCKED at level 0: 1M base, 2M once unlocked (L1)", () => {
-    // freshState seeds warehouseT2 at level 0 (locked) -- its cap is still a defined
+    // freshState seeds warehouseT2 at level 0 (locked), its cap is still a defined
     // 1M (moot this phase since no T2 item is obtainable, but consistent).
     expect(tierCap(freshState(), 2).equals(1_000_000)).toBe(true);
     expect(tierCap(withWarehouseLevel("warehouseT2", 1), 2).equals(2_000_000)).toBe(true);
@@ -3067,11 +3067,11 @@ describe("tierCap -- per-tier per-item storage cap (Task B2)", () => {
     // astronomically larger than any real quantity (a billion is nowhere near it).
     const cap = tierCap(freshState(), 3);
     expect(cap.gt(1_000_000_000)).toBe(true);
-    expect(cap.gt(new Decimal("1e999"))).toBe(true); // ~1e1000 sentinel -- unreachable in-game
+    expect(cap.gt(new Decimal("1e999"))).toBe(true); // ~1e1000 sentinel, unreachable in-game
   });
 });
 
-describe("canBuildFacilityUpgrade -- warehouse keys work on the generic gate (Task B2)", () => {
+describe("canBuildFacilityUpgrade, warehouse keys work on the generic gate (Task B2)", () => {
   it("warehouseT2 rung 0 (unlock) is buildable with 1,000,000 commonOre at level 0", () => {
     const base = freshState();
     const s = {
@@ -3083,7 +3083,7 @@ describe("canBuildFacilityUpgrade -- warehouse keys work on the generic gate (Ta
     expect(canBuildFacilityUpgrade(s, "warehouseT2").ok).toBe(true);
   });
 
-  it("warehouseT2 rung 1 (first real upgrade) is BLOCKED at level 1 -- gated on the unobtainable denseOre", () => {
+  it("warehouseT2 rung 1 (first real upgrade) is BLOCKED at level 1, gated on the unobtainable denseOre", () => {
     const base = freshState();
     // Unlock done (level 1). Give a mountain of commonOre to prove the wall is the
     // MISSING denseOre, not affordability of anything else.
@@ -3094,20 +3094,20 @@ describe("canBuildFacilityUpgrade -- warehouse keys work on the generic gate (Ta
     };
     const check = canBuildFacilityUpgrade(s, "warehouseT2");
     expect(check.ok).toBe(false);
-    // The failing gate is the denseOre material -- there is no denseOre in inventory
+    // The failing gate is the denseOre material, there is no denseOre in inventory
     // and nothing produces it, so the rung is naturally walled.
     expect(check.reason).toMatch(/Dense Ore/); // ITEMS.denseOre.label in the material reason
   });
 });
 
 // ============================================================================
-// Auto-stop + capped per-tick offline stepping -- Phase 2, Task B3 (design §2 + §3.4).
+// Auto-stop + capped per-tick offline stepping, Phase 2, Task B3 (design §2 + §3.4).
 // Exercises the three seams this task adds:
 //   - materialAtCap(state, itemId): the single "is this material full?" check.
 //   - economyTick mission auto-stop: a captain whose PRIMARY material is at cap idles.
 //   - tick(): offline catch-up now CLAMPS to offlineCapTicks and STEPS per tick.
 // ============================================================================
-describe("materialAtCap -- the single warehouse cap-check seam (Task B3)", () => {
+describe("materialAtCap, the single warehouse cap-check seam (Task B3)", () => {
   it("is false BELOW the tier cap, true AT and ABOVE it (commonOre, T1 cap 1M @ L0)", () => {
     const s = freshState(); // warehouseT1 level 0 -> tierCap(s,1) = 1,000,000; commonOre is a T1 item
     // One under the cap -> not full.
@@ -3141,7 +3141,7 @@ describe("materialAtCap -- the single warehouse cap-check seam (Task B3)", () =>
   });
 });
 
-describe("economyTick -- mission auto-stop when the primary material is at cap (Task B3)", () => {
+describe("economyTick, mission auto-stop when the primary material is at cap (Task B3)", () => {
   // shortOreRun's primaryMaterial is commonOre (model.ts); T1 cap @ L0 is 1M.
   function missionStateWithCommonOre(amount: number) {
     const s = freshState();
@@ -3155,7 +3155,7 @@ describe("economyTick -- mission auto-stop when the primary material is at cap (
   }
 
   it("AT cap + AT BASE (ordersReceived): the captain IDLES immediately (mission -> null), no production", () => {
-    // missionCaptain("shortOreRun") starts the mission at `ordersReceived` -- the pre-
+    // missionCaptain("shortOreRun") starts the mission at `ordersReceived`, the pre-
     // departure phase, i.e. the captain is AT BASE. Per the recall-on-cap fix (see
     // mission-recall-on-cap.test.ts): a capped run must NOT be dispatched, so the mission
     // ends immediately (mission -> null == idle at base) rather than FREEZING in place (the
@@ -3164,7 +3164,7 @@ describe("economyTick -- mission auto-stop when the primary material is at cap (
     // Constant rng injected; it must never even be consulted since the captain idles.
     const result = economyTick(s, 1, () => 0);
 
-    // The captain is now IDLE at base -- the mission ended without launching a run.
+    // The captain is now IDLE at base, the mission ended without launching a run.
     const cap = result.captains[0];
     expect(cap.mission).toBeNull();
     expect(cap.xp.equals(0)).toBe(true); // no ticks ran -> no XP
@@ -3177,12 +3177,12 @@ describe("economyTick -- mission auto-stop when the primary material is at cap (
     expect(result.fleetAdminXp.equals(0)).toBe(true);
   });
 
-  it("BELOW cap: behaves EXACTLY as today -- the captain runs (phase advances, XP accrues)", () => {
+  it("BELOW cap: behaves EXACTLY as today, the captain runs (phase advances, XP accrues)", () => {
     const s = missionStateWithCommonOre(999_999); // one under the cap -> normal run
     const result = economyTick(s, 1, () => 0);
 
     // shortOreRun ordersReceived phase is 1 tick, so a single tick advances it into
-    // transitOut (progress reset to 0) and accrues 1 whole tick of XP -- the exact
+    // transitOut (progress reset to 0) and accrues 1 whole tick of XP, the exact
     // pre-B3 behavior for a below-cap captain.
     const cap = result.captains[0];
     expect(cap.mission!.phase).toBe("transitOut");
@@ -3192,7 +3192,7 @@ describe("economyTick -- mission auto-stop when the primary material is at cap (
   });
 });
 
-describe("tick -- offline catch-up is clamped to offlineCapTicks then stepped (Task B3)", () => {
+describe("tick, offline catch-up is clamped to offlineCapTicks then stepped (Task B3)", () => {
   it("offlineCapTicks derives 2 days of ticks from the base days and the tick cadence", () => {
     const s = freshState(); // tickDurationSeconds 1
     expect(OFFLINE_CAP_DAYS_BASE).toBe(2);
@@ -3202,8 +3202,8 @@ describe("tick -- offline catch-up is clamped to offlineCapTicks then stepped (T
     expect(offlineCapTicks({ ...s, tickDurationSeconds: 2 })).toBe(86_400);
   });
 
-  it("a 5-day absence yields the SAME result as a 2-day absence -- the excess span is discarded", () => {
-    // Use a coarse 1-day tick cadence so offlineCapTicks is a tiny 2 -- this keeps the
+  it("a 5-day absence yields the SAME result as a 2-day absence, the excess span is discarded", () => {
+    // Use a coarse 1-day tick cadence so offlineCapTicks is a tiny 2, this keeps the
     // stepped loop cheap (2 iterations) while still exercising the real clamp path;
     // at the default 1s cadence the cap would be 172,800 steps, needlessly slow here.
     const makeS = () => {
@@ -3236,7 +3236,7 @@ describe("tick -- offline catch-up is clamped to offlineCapTicks then stepped (T
   });
 });
 
-describe("tick -- per-tick stepping matches the single-call economy when no cap binds (Task B3)", () => {
+describe("tick, per-tick stepping matches the single-call economy when no cap binds (Task B3)", () => {
   it("stepping 149 ticks equals one economyTick(149) for ALL fields (constant rng, single captain)", () => {
     // A modest span (149 = one full shortOreRun cycle) well under the 172,800-tick cap,
     // with commonOre far below its 1M cap, so NEITHER the clamp NOR auto-stop binds --
@@ -3292,7 +3292,7 @@ describe("tick -- per-tick stepping matches the single-call economy when no cap 
   it("stepping a FRACTIONAL span equals one economyTick over the same fraction (149.7 = 149 whole steps + 0.7 frac)", () => {
     // A single shortOreRun cycle is 1+25+90+25+8 = 149 ticks, so 149.7 completes
     // exactly ONE cycle (loot/credits/reset) then sits 0.7 into ordersReceived of
-    // the next -- exercising both a cycle boundary and a sub-tick remainder.
+    // the next, exercising both a cycle boundary and a sub-tick remainder.
     const makeS = () => {
       const s = freshState(); // 1 captain + generalFreighter -> 149-tick shortOreRun cycle; tickDurationSeconds 1
       s.captains[0].mission = missionCaptain("shortOreRun");

@@ -9,7 +9,7 @@ import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintRe
 // round trip (the "no new migration needed" proof).
 import { canDispatch, missionUnlocked, buyFuel, economyTick } from "./tick";
 
-describe("migrate -- tickDurationSeconds backfill", () => {
+describe("migrate, tickDurationSeconds backfill", () => {
   it("defaults tickDurationSeconds to 10 on a v1 save that predates the field", () => {
     // A genuine pre-tick-bar v1 shape: flat (pre-Phase-1) fields, no
     // tickDurationSeconds, no research, no synthesizer/alloys keys at all --
@@ -33,13 +33,13 @@ describe("migrate -- tickDurationSeconds backfill", () => {
       state: legacyState,
     };
 
-    // migrate()'s while-loop doesn't stop at v2 -- it runs the WHOLE chain to
+    // migrate()'s while-loop doesn't stop at v2, it runs the WHOLE chain to
     // v19. MIGRATIONS[1] backfills the missing field to 10 (top-level); [4] moves
     // it onto captains[0]; [10] (v10->v11 UI Redesign) then strips it back OFF
     // every captain and restores it fleet-wide on GameState; and [12] (v12->v13
     // Tick Granularity Rebalance) hardcodes the fleet-wide value to 1. So by the
     // end of the chain the field is GONE from captains[0] (undefined) and the
-    // top-level value is 1 -- the v1 default of 10 is applied but subsequently
+    // top-level value is 1, the v1 default of 10 is applied but subsequently
     // overwritten downstream, which is the correct current end-to-end behavior.
     const migrated: any = migrate(save);
     expect(migrated.captains[0].tickDurationSeconds).toBeUndefined();
@@ -51,7 +51,7 @@ describe("migrate -- tickDurationSeconds backfill", () => {
   });
 });
 
-describe("migrate -- research field backfill", () => {
+describe("migrate, research field backfill", () => {
   it("defaults research to a fresh alloySynthesis entry on a v2 save that predates the field", () => {
     // A genuine v2 shape: tickDurationSeconds now present (MIGRATIONS[1]
     // already ran on real saves of this era), but research doesn't exist
@@ -75,7 +75,7 @@ describe("migrate -- research field backfill", () => {
       state: legacyState,
     };
 
-    // Chains through MIGRATIONS[2..4] to v5 -- research ends up on
+    // Chains through MIGRATIONS[2..4] to v5, research ends up on
     // captains[0], not the top level.
     const migrated: any = migrate(save);
     expect(migrated.captains[0].research.alloySynthesis).toEqual({
@@ -90,7 +90,7 @@ describe("migrate -- research field backfill", () => {
   });
 });
 
-describe("migrate -- synthesizer/alloys field backfill (hotfix)", () => {
+describe("migrate, synthesizer/alloys field backfill (hotfix)", () => {
   it("defaults modules.synthesizer and resources.alloys to 0 on a v3 save that predates the fields", () => {
     // A genuine v3 shape: tickDurationSeconds and research both present
     // (MIGRATIONS[1] and [2] already ran on real saves of this era), but
@@ -115,7 +115,7 @@ describe("migrate -- synthesizer/alloys field backfill (hotfix)", () => {
       state: legacyState,
     };
 
-    // Chains through MIGRATIONS[3..4] to v5 -- synthesizer/alloys end up
+    // Chains through MIGRATIONS[3..4] to v5, synthesizer/alloys end up
     // under captains[0].modules/resources, not the top level.
     const migrated: any = migrate(save);
     expect(migrated.captains[0].modules.synthesizer).toBe(0);
@@ -128,7 +128,7 @@ describe("migrate -- synthesizer/alloys field backfill (hotfix)", () => {
     // that passed through the unpatched version already got its version
     // field re-stamped to 3 by the next autosave (serialize() always writes
     // current SAVE_VERSION), even though those two fields are still missing
-    // entirely. This is that exact shape -- version already 3, fields gone.
+    // entirely. This is that exact shape, version already 3, fields gone.
     // Hand-written literal for the same reason as the fixture above; also
     // carries realistic non-fresh progress (modules.miner:19, completed
     // research) to confirm the repair doesn't clobber unrelated fields.
@@ -159,24 +159,24 @@ describe("migrate -- synthesizer/alloys field backfill (hotfix)", () => {
   });
 });
 
-// NOTE: the pre-Task-3 "migrate -- chained v1 -> v4 migration" describe block
+// NOTE: the pre-Task-3 "migrate, chained v1 -> v4 migration" describe block
 // that used to live here was deleted, not just edited. It predated Task 1's
 // model.ts refactor (its freshState()-based fixture no longer matches the
 // real v1 shape and its assertions read top-level fields that MIGRATIONS[4]
 // now moves under captains[0]), and it is now strictly redundant with
-// "migrate -- chained v1 -> v5 migration" below, which covers the same "one
+// "migrate, chained v1 -> v5 migration" below, which covers the same "one
 // genuine legacy save chained through every migration step" property,
 // correctly extended through v5. Keeping both would mean maintaining two
-// overlapping tests of the same property, one of them broken -- removing the
+// overlapping tests of the same property, one of them broken, removing the
 // stale one is a deliberate, authorized deviation from this task's own
 // "keep every existing describe block untouched" instruction, not a silent
 // coverage drop (the new block is a strict superset).
 
-describe("migrate -- captains roster backfill (v4 -> v5)", () => {
+describe("migrate, captains roster backfill (v4 -> v5)", () => {
   it("moves the old flat shape into captains[0] and adds a fresh captains[1]", () => {
     // A genuine pre-Phase-1 save: resources/modules/research/lifetimeComponents/
     // tickDurationSeconds sitting directly on the state object, `captains`
-    // entirely absent -- exactly the real shape this migration exists to repair.
+    // entirely absent, exactly the real shape this migration exists to repair.
     const legacyState: any = {
       resources: { ore: 500, ingots: 200, components: 50, alloys: 12 },
       modules: { miner: 19, refinery: 5, fabricator: 2, synthesizer: 1 },
@@ -200,7 +200,7 @@ describe("migrate -- captains roster backfill (v4 -> v5)", () => {
     expect(migrated.captains).toHaveLength(2);
 
     // Captain 1: the old single stack, preserved verbatim (including
-    // already-completed research -- this is what a real returning player's
+    // already-completed research, this is what a real returning player's
     // save looks like right now).
     expect(migrated.captains[0].id).toBe(1);
     expect(migrated.captains[0].label).toBe("Captain 1");
@@ -208,7 +208,7 @@ describe("migrate -- captains roster backfill (v4 -> v5)", () => {
     // captainOne). This save enters at v4 but migrate()'s while loop chains all
     // the way through MIGRATIONS[15] (v15->v16, Ships stats foundation), which
     // drops shipType from every captain as part of the captain/ship separation
-    // -- so the field is gone from the final migrated shape. Asserting its
+    //, so the field is gone from the final migrated shape. Asserting its
     // absence instead, and confirming captain 1 picked up a grandfathered
     // generalFreighter ship in its place (ships[0] -> captain 1).
     expect(migrated.captains[0].shipType).toBeUndefined();
@@ -222,16 +222,16 @@ describe("migrate -- captains roster backfill (v4 -> v5)", () => {
     expect(migrated.captains[0].captainPrestigeCount).toBe(0);
     expect(migrated.captains[0].specialization).toBe(null);
 
-    // Captain 2: fresh, never played -- built by a LIVE call to model.ts's
+    // Captain 2: fresh, never played, built by a LIVE call to model.ts's
     // freshCaptains(), so its shape tracks whatever CaptainState currently
     // requires (xp/level/statPoints as of Phase 4's leveling system) rather
     // than the modules/lifetimeComponents shape this test originally asserted
-    // before the Generator Stack was removed (Task 2) -- that assertion
+    // before the Generator Stack was removed (Task 2), that assertion
     // would throw (modules is undefined) since freshCaptains() no longer
     // produces it at all. Asserting the CURRENT baseline instead.
     expect(migrated.captains[1].id).toBe(2);
     expect(migrated.captains[1].label).toBe("Captain 2");
-    // xp is Decimal-designated (Task 3) -- migrate() now ALWAYS runs
+    // xp is Decimal-designated (Task 3), migrate() now ALWAYS runs
     // hydrateDecimals() unconditionally at the end, regardless of which
     // version a save started/ended at, so even this v4->v5 test's result has
     // a real Decimal here, not a plain 0. .equals(), not .toBe() (Decimal is
@@ -264,7 +264,7 @@ describe("migrate -- captains roster backfill (v4 -> v5)", () => {
   });
 });
 
-describe("migrate -- captain miner-floor backfill (hotfix)", () => {
+describe("migrate, captain miner-floor backfill (hotfix)", () => {
   it("repairs a captain permanently stuck at 0 miners, leaves an unaffected captain untouched", () => {
     // The real-world corrupted shape: a save that already migrated through
     // the unpatched v4->v5 step (or was otherwise created with the old
@@ -361,20 +361,20 @@ describe("migrate -- captain miner-floor backfill (hotfix)", () => {
   });
 });
 
-// NOTE: the pre-Task-3 "migrate -- chained v1 -> v6 migration" describe block
-// that used to live here was deleted, not just edited -- same deliberate,
+// NOTE: the pre-Task-3 "migrate, chained v1 -> v6 migration" describe block
+// that used to live here was deleted, not just edited, same deliberate,
 // authorized deviation from this task's own "keep every existing describe
 // block untouched" instruction as the v1->v5 deletion noted above. It
 // exercised the exact same legacyState literal and is now strictly redundant
-// with "migrate -- chained v1 -> v7 migration" below, which covers the same
+// with "migrate, chained v1 -> v7 migration" below, which covers the same
 // "one genuine legacy save chained through every migration step" property,
 // correctly extended through v7's grandfathering. Keeping both would mean
 // maintaining two overlapping tests of the same property, one of them stale.
 
-describe("migrate -- skill tree backfill (v6 -> v7)", () => {
+describe("migrate, skill tree backfill (v6 -> v7)", () => {
   it("grandfathers an existing v6 save's 2nd captain as if commandRank1 were already bought", () => {
     // A genuine v6 save: 2 captains (Phase 1's fixed starting count), no
-    // skill tree fields at all. Hand-written literal -- freshState() no
+    // skill tree fields at all. Hand-written literal, freshState() no
     // longer produces this shape (it now starts at 1 captain, post this
     // same feature), so it can't stand in for a real legacy save here.
     const legacyState: any = {
@@ -467,22 +467,22 @@ describe("migrate -- skill tree backfill (v6 -> v7)", () => {
   });
 });
 
-// NOTE: the pre-Task-4 "migrate -- chained v1 -> v7 migration" describe block
-// that used to live here was deleted, not just edited -- same deliberate,
+// NOTE: the pre-Task-4 "migrate, chained v1 -> v7 migration" describe block
+// that used to live here was deleted, not just edited, same deliberate,
 // authorized deviation from this task's own "keep every existing describe
 // block untouched" instruction as the v1->v5 and v1->v6 deletions noted
 // above. It exercised the exact same legacyState literal and is now strictly
-// redundant with "migrate -- chained v1 -> v8 migration" below, which covers
+// redundant with "migrate, chained v1 -> v8 migration" below, which covers
 // the same "one genuine legacy save chained through every migration step"
 // property, correctly extended through v8's homePlanet/mission backfill.
 // Keeping both would mean maintaining two overlapping tests of the same
 // property, one of them stale.
 
-describe("migrate -- home planet storage & captain mission backfill (v7 -> v8)", () => {
+describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", () => {
   it("backfills homePlanet.storage and mission: null on a genuine v7 save that predates both fields", () => {
     // A genuine v7 shape: skill tree fields present (MIGRATIONS[6] already ran
     // on real saves of this era), but `homePlanet` doesn't exist anywhere on
-    // GameState yet, and captains have no `mission` field at all -- hand-
+    // GameState yet, and captains have no `mission` field at all, hand-
     // written literal, same reasoning as every other legacy fixture in this
     // file: freshState() no longer represents this shape (it now always
     // includes homePlanet and every captain always has `mission`).
@@ -505,7 +505,7 @@ describe("migrate -- home planet storage & captain mission backfill (v7 -> v8)",
           captainPoints: 0,
           captainPrestigeCount: 0,
           specialization: null,
-          // no `mission` key at all -- the real pre-v8 shape
+          // no `mission` key at all, the real pre-v8 shape
         },
       ],
     };
@@ -523,7 +523,7 @@ describe("migrate -- home planet storage & captain mission backfill (v7 -> v8)",
     // it chains all the way to v18. MIGRATIONS[8] (v8->v9) backfills the storage
     // object to all 5 keys, then MIGRATIONS[17] (v17->v18) builds `inventory` 1:1
     // from that storage AND STRIPS the homePlanet field (Task 7). So the migrated
-    // v18 shape has NO homePlanet -- the 5 material balances live in `inventory`,
+    // v18 shape has NO homePlanet, the 5 material balances live in `inventory`,
     // each a real Decimal (hydrateDecimalMap), all zero here since this pre-v8 save
     // never held loot. Per-key instanceof + .equals() checks (Decimal is an object,
     // never structurally equals a plain number).
@@ -552,23 +552,23 @@ describe("migrate -- home planet storage & captain mission backfill (v7 -> v8)",
   });
 });
 
-// NOTE: the pre-Task-7 "migrate -- chained v1 -> v8 migration" describe block
-// that used to live here was deleted, not just edited -- same deliberate,
+// NOTE: the pre-Task-7 "migrate, chained v1 -> v8 migration" describe block
+// that used to live here was deleted, not just edited, same deliberate,
 // authorized deviation from this task's own "keep every existing describe
 // block untouched" instruction as the v1->v5, v1->v6, and v1->v7 deletions
 // noted above. It exercised the exact same legacyState literal and is now
-// strictly redundant with "migrate -- chained v1 -> v9 migration" below, which
+// strictly redundant with "migrate, chained v1 -> v9 migration" below, which
 // covers the same "one genuine legacy save chained through every migration
 // step" property, correctly extended through v9's captain leveling/Homeworld
 // crafting backfill. Keeping both would mean maintaining two overlapping
 // tests of the same property, one of them stale.
 
-describe("migrate -- captain leveling and Homeworld crafting backfill (v8 -> v9)", () => {
+describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)", () => {
   it("backfills xp/level/statPoints on every captain, and refinedMaterial/components on homePlanet storage", () => {
     // A genuine v8 shape: homePlanet.storage and mission both present
     // (MIGRATIONS[7] already ran on real saves of this era), but captains
     // have no xp/level/statPoints fields at all, and homePlanet.storage is
-    // missing the 2 new crafted-goods keys entirely -- hand-written literal,
+    // missing the 2 new crafted-goods keys entirely, hand-written literal,
     // same reasoning as every other legacy fixture in this file: freshState()
     // no longer represents this shape (it now always includes all 5 storage
     // keys and every captain always has xp/level/statPoints).
@@ -582,14 +582,14 @@ describe("migrate -- captain leveling and Homeworld crafting backfill (v8 -> v9)
           shipType: "resourcer",
           tickDurationSeconds: 10,
           mission: null,
-          // no xp/level/statPoints -- the real pre-v9 shape
+          // no xp/level/statPoints, the real pre-v9 shape
         },
       ],
     };
 
     const save: SaveFile = { version: 8, created_at: 0, last_saved_at: 0, game_time_seconds: 5000, state: legacyState };
     const migrated: any = migrate(save);
-    // xp is Decimal-designated -- same instanceof/.equals() treatment as the
+    // xp is Decimal-designated, same instanceof/.equals() treatment as the
     // v4->v5 test above. The material balances migrate through to `inventory`
     // (built 1:1 from storage by MIGRATIONS[17], which then strips homePlanet --
     // Task 7); refinedMaterial/components were backfilled to 0 by this v8->v9 step.
@@ -622,13 +622,13 @@ describe("migrate -- captain leveling and Homeworld crafting backfill (v8 -> v9)
   });
 });
 
-describe("migrate -- captain and Fleet Admiral talent tree backfill (v9 -> v10)", () => {
+describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", () => {
   it("backfills unlockedCaptainTalents on every captain, and the Fleet Admiral fields on GameState", () => {
     // A genuine v9 shape: xp/level/statPoints and homePlanet.storage's full
     // 5-key set both present (MIGRATIONS[8] already ran on real saves of this
     // era), but captains have no unlockedCaptainTalents field at all, and
     // GameState has no unlockedHomeworldTalents/fleetAdminXp/fleetAdminLevel/
-    // adminPoints fields at all -- hand-written literal, same reasoning as
+    // adminPoints fields at all, hand-written literal, same reasoning as
     // every other legacy fixture in this file: freshState() no longer
     // represents this shape (it now always includes all five new fields).
     const legacyState: any = {
@@ -644,17 +644,17 @@ describe("migrate -- captain and Fleet Admiral talent tree backfill (v9 -> v10)"
           xp: 500,
           level: 3,
           statPoints: 2,
-          // no unlockedCaptainTalents -- the real pre-v10 shape
+          // no unlockedCaptainTalents, the real pre-v10 shape
         },
       ],
-      // no unlockedHomeworldTalents/fleetAdminXp/fleetAdminLevel/adminPoints -- the real pre-v10 shape
+      // no unlockedHomeworldTalents/fleetAdminXp/fleetAdminLevel/adminPoints, the real pre-v10 shape
     };
 
     const save: SaveFile = { version: 9, created_at: 0, last_saved_at: 0, game_time_seconds: 8000, state: legacyState };
     const migrated: any = migrate(save);
     expect(migrated.captains[0].unlockedCaptainTalents).toEqual([]);
     expect(migrated.unlockedHomeworldTalents).toEqual([]);
-    // fleetAdminXp is Decimal-designated -- same instanceof/.equals()
+    // fleetAdminXp is Decimal-designated, same instanceof/.equals()
     // treatment as the v4->v5 test above.
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(0)).toBe(true);
@@ -662,9 +662,9 @@ describe("migrate -- captain and Fleet Admiral talent tree backfill (v9 -> v10)"
     expect(migrated.adminPoints).toBe(0);
 
     // Unrelated pre-existing fields survive the backfill untouched. xp is
-    // Decimal-designated -- same instanceof/.equals() treatment as above. The
+    // Decimal-designated, same instanceof/.equals() treatment as above. The
     // material balances migrate through to `inventory` (MIGRATIONS[17] builds it
-    // 1:1 from storage, then strips homePlanet -- Task 7).
+    // 1:1 from storage, then strips homePlanet, Task 7).
     expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
     expect(migrated.captains[0].xp.equals(500)).toBe(true);
     expect(migrated.captains[0].level).toBe(3);
@@ -681,7 +681,7 @@ describe("migrate -- captain and Fleet Admiral talent tree backfill (v9 -> v10)"
   });
 });
 
-describe("migrate -- fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => {
+describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => {
   it("reads tickDurationSeconds off the first captain and strips it from every captain", () => {
     // A genuine pre-v11 shape: every captain still carries its own
     // tickDurationSeconds (the per-captain era, before the UI Redesign
@@ -707,7 +707,7 @@ describe("migrate -- fleet-wide tickDurationSeconds backfill (v10 -> v11)", () =
     // the chain does not stop at v11: MIGRATIONS[12] (v12->v13 Tick Granularity
     // Rebalance) then hardcodes the fleet-wide value to 1. So the top-level end
     // value is 1, not the 10 this step read. The STRIP behavior this test exists
-    // to prove (per-captain field removed) still holds -- see the two
+    // to prove (per-captain field removed) still holds, see the two
     // toBeUndefined() checks below.
     expect(migrated.tickDurationSeconds).toBe(1);
     expect(migrated.captains[0].tickDurationSeconds).toBeUndefined();
@@ -717,8 +717,8 @@ describe("migrate -- fleet-wide tickDurationSeconds backfill (v10 -> v11)", () =
     expect(migrated.captains[0].id).toBe(1);
     expect(migrated.gameTimeSeconds).toBe(500);
     // The material balance ends up in `inventory` (MIGRATIONS[17] builds it 1:1
-    // from storage, then strips homePlanet -- Task 7). Its values are Decimal-
-    // designated -- migrate() ALWAYS runs hydrateDecimals() unconditionally at the
+    // from storage, then strips homePlanet, Task 7). Its values are Decimal-
+    // designated, migrate() ALWAYS runs hydrateDecimals() unconditionally at the
     // end, so even this v10->v11 test's result has a real Decimal here, not a plain
     // 10. .equals(), not .toBe() (Decimal is an object, reference-compared by toBe,
     // which would always fail here).
@@ -742,7 +742,7 @@ describe("migrate -- fleet-wide tickDurationSeconds backfill (v10 -> v11)", () =
     // Defense-in-depth default is 10 at the v10->v11 step, but MIGRATIONS[12]
     // (v12->v13 Tick Granularity Rebalance) hardcodes the fleet-wide value to 1
     // downstream, so the end-of-chain value is 1 (same reasoning as the sibling
-    // test above -- the old `.toBe(10)` predated the chain reaching v12->v13).
+    // test above, the old `.toBe(10)` predated the chain reaching v12->v13).
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
@@ -751,11 +751,11 @@ describe("migrate -- fleet-wide tickDurationSeconds backfill (v10 -> v11)", () =
   });
 });
 
-describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
+describe("migrate, Big-Number (Decimal) hydration (v11 -> v12)", () => {
   it("converts every Decimal-designated field from plain number to a real Decimal instance on a genuine pre-v12 save", () => {
     // A genuine v11 shape: every field this migration cares about is still a
     // plain JS number (mission.cargo's 3 keys, xp, homePlanet.storage's 5
-    // keys, fleetAdminXp) -- exactly what a real save written by any
+    // keys, fleetAdminXp), exactly what a real save written by any
     // pre-Big-Number-Migration build of this game looks like. Hand-written
     // literal, same reasoning as every other legacy fixture in this file:
     // freshState() (Task 2) now constructs live Decimal instances directly,
@@ -769,12 +769,12 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
       gameTimeSeconds: 12000,
       tickDurationSeconds: 10,
       unlockedHomeworldTalents: [],
-      fleetAdminXp: 750, // plain number -- pre-v12 shape
+      fleetAdminXp: 750, // plain number, pre-v12 shape
       fleetAdminLevel: 2,
       adminPoints: 1,
       homePlanet: {
         storage: {
-          commonOre: 120, // plain number -- pre-v12 shape, all 5 keys
+          commonOre: 120, // plain number, pre-v12 shape, all 5 keys
           uncommonMaterial: 8,
           rareMaterial: 3,
           refinedMaterial: 15,
@@ -786,7 +786,7 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
           id: 1,
           label: "Captain 1",
           shipType: "resourcer",
-          xp: 340, // plain number -- pre-v12 shape
+          xp: 340, // plain number, pre-v12 shape
           level: 4,
           statPoints: 1,
           unlockedCaptainTalents: [],
@@ -795,7 +795,7 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
             phase: "extracting",
             phaseProgressTicks: 2,
             recalled: false,
-            cargo: { commonOre: 6, uncommonMaterial: 1, rareMaterial: 0 }, // plain numbers -- pre-v12 shape
+            cargo: { commonOre: 6, uncommonMaterial: 1, rareMaterial: 0 }, // plain numbers, pre-v12 shape
           },
         },
         {
@@ -806,7 +806,7 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
           level: 1,
           statPoints: 0,
           unlockedCaptainTalents: [],
-          mission: null, // idle captain -- confirms hydrateDecimals() does NOT try to read .cargo off a null mission
+          mission: null, // idle captain, confirms hydrateDecimals() does NOT try to read .cargo off a null mission
         },
       ],
     };
@@ -815,7 +815,7 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
     const migrated: any = migrate(save);
 
     // The 5 material balances end up in `inventory` (MIGRATIONS[17] builds it 1:1
-    // from storage, then strips homePlanet -- Task 7).
+    // from storage, then strips homePlanet, Task 7).
     expect(migrated.homePlanet).toBeUndefined();
     expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
     expect(migrated.inventory.commonOre.equals(120)).toBe(true);
@@ -843,7 +843,7 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
     expect(migrated.captains[0].mission.cargo.rareMaterial.equals(0)).toBe(true);
 
     // Captain 2's xp still hydrates even though this captain is idle
-    // (mission: null) -- xp hydration doesn't depend on mission state at all.
+    // (mission: null), xp hydration doesn't depend on mission state at all.
     expect(migrated.captains[1].xp instanceof Decimal).toBe(true);
     expect(migrated.captains[1].xp.equals(0)).toBe(true);
     // The critical null-mission guard: hydrateDecimals() must NOT attempt to
@@ -851,7 +851,7 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
     // some hydrated-but-empty shape.
     expect(migrated.captains[1].mission).toBe(null);
 
-    // Non-Decimal fields survive completely untouched -- confirms this
+    // Non-Decimal fields survive completely untouched, confirms this
     // migration/hydration step doesn't clobber anything outside its own
     // confirmed field list.
     expect(migrated.fleetAdminLevel).toBe(2);
@@ -872,7 +872,7 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
 
   it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), producing Decimal instances with the same values (proves toJSON()/hydration works end-to-end, not just via the migration-table path)", () => {
     // freshState() (Task 2) already constructs real Decimal instances
-    // directly (new Decimal(0) everywhere) -- this test's whole point is
+    // directly (new Decimal(0) everywhere), this test's whole point is
     // proving the ROUND TRIP through actual serialize()/deserialize() still
     // produces working Decimal instances, since that's the real path this
     // game's save/load code exercises every time (loadFromLocalStorage()
@@ -880,7 +880,7 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
     // needs zero Decimal-specific code (JSON.stringify calls Decimal's own
     // toJSON() automatically, turning every Decimal field into a string in
     // the JSON), and deserialize()'s JSON.parse leaves those as plain
-    // strings -- migrate()'s unconditional hydrateDecimals() call is what
+    // strings, migrate()'s unconditional hydrateDecimals() call is what
     // converts them back, even though save.version is already the CURRENT
     // SAVE_VERSION and the while loop runs zero iterations.
     const original = freshState();
@@ -888,9 +888,9 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
 
-    // Confirms the save was written at the CURRENT version -- the while loop
+    // Confirms the save was written at the CURRENT version, the while loop
     // inside migrate() below genuinely runs zero iterations for this test,
-    // since there's no MIGRATIONS[12] -- hydrateDecimals() running here is
+    // since there's no MIGRATIONS[12], hydrateDecimals() running here is
     // entirely due to it being unconditional, not because any migration step
     // triggered it.
     expect(deserialized!.version).toBe(SAVE_VERSION);
@@ -899,10 +899,10 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
 
     // Every Decimal-designated field is a real Decimal instance with the
     // SAME value freshState() originally constructed (all zeros, per
-    // freshState()'s own new Decimal(0) baseline) -- .equals(), not .toBe(),
+    // freshState()'s own new Decimal(0) baseline), .equals(), not .toBe(),
     // since these are freshly-constructed Decimal instances from
     // hydrateDecimals(), never the same object reference as `original`'s.
-    // (Material balances assert on the keyed `inventory` -- converted from
+    // (Material balances assert on the keyed `inventory`, converted from
     // homePlanet.storage in Task 6; this is freshState/round-tripped CURRENT
     // state, not an old-save migration input, and Task 7 removes the storage
     // field, so these must read inventory. hydrateDecimals()'s per-value
@@ -925,7 +925,7 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
     migrated.captains.forEach((c: any, i: number) => {
       expect(c.xp instanceof Decimal).toBe(true);
       expect(c.xp.equals(original.captains[i].xp)).toBe(true);
-      // freshState()'s captains all start with mission: null (idle) -- this
+      // freshState()'s captains all start with mission: null (idle), this
       // branch of hydrateDecimals() (the ternary's `: c.mission` side) is
       // exercised here; the non-null mission/cargo branch is covered by the
       // hand-written literal test above.
@@ -934,10 +934,10 @@ describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
   });
 });
 
-describe("migrate -- Tick Granularity Rebalance (v12 -> v13)", () => {
+describe("migrate, Tick Granularity Rebalance (v12 -> v13)", () => {
   it("leaves an idle captain (mission: null) completely untouched", () => {
     // A genuine v12 shape: tickDurationSeconds still 10 (pre-rebalance),
-    // idle captain -- confirms the migration's `if (!c.mission) return c;`
+    // idle captain, confirms the migration's `if (!c.mission) return c;`
     // early-return branch fires and does not attempt to read
     // c.mission.phase/missionKey/phaseProgressTicks off a null mission.
     const legacyState: any = {
@@ -966,13 +966,13 @@ describe("migrate -- Tick Granularity Rebalance (v12 -> v13)", () => {
     const migrated: any = migrate(save);
 
     expect(migrated.tickDurationSeconds).toBe(1); // MIGRATIONS[12] always sets this, regardless of any captain's mission state
-    expect(migrated.captains[0].mission).toBe(null); // untouched -- still null, not {} or some hydrated-but-empty shape
+    expect(migrated.captains[0].mission).toBe(null); // untouched, still null, not {} or some hydrated-but-empty shape
   });
 
   it("remaps a captain 50% through longOreRun's old transitOut phase onto the new transitOut tick-count", () => {
     // Hand-traced (see this task's Step 4, "longOreRun transitOut variant"):
     // old transitOutTicks for longOreRun (OLD_MISSION_TICKS_V12.longOreRun)
-    // is 8 -- phaseProgressTicks: 4 is exactly 50% through. New
+    // is 8, phaseProgressTicks: 4 is exactly 50% through. New
     // MISSIONS.longOreRun.transitOutTicks (post-rebalance, model.ts) is 70.
     // progressRatio = min(1, 4/8) = 0.5. Migrated phaseProgressTicks =
     // 0.5 * 70 = 35.
@@ -1012,7 +1012,7 @@ describe("migrate -- Tick Granularity Rebalance (v12 -> v13)", () => {
     expect(migrated.captains[0].mission.phaseProgressTicks).toBe(35);
     expect(migrated.captains[0].mission.missionKey).toBe("longOreRun"); // untouched
     expect(migrated.captains[0].mission.recalled).toBe(false); // untouched
-    // cargo is Decimal-designated -- hydrateDecimals() runs unconditionally
+    // cargo is Decimal-designated, hydrateDecimals() runs unconditionally
     // after MIGRATIONS[12], same as every other migration in this file.
     expect(migrated.captains[0].mission.cargo.commonOre instanceof Decimal).toBe(true);
   });
@@ -1070,7 +1070,7 @@ describe("migrate -- Tick Granularity Rebalance (v12 -> v13)", () => {
     // the old exact `.toBe(63)` was simply too strict for float multiplication.
     expect(migrated.captains[0].mission.phaseProgressTicks).toBeCloseTo(63, 6);
     // Pre-existing cargo progress survives the remap untouched (only
-    // phaseProgressTicks is remapped, never cargo) -- hydrated to Decimal by
+    // phaseProgressTicks is remapped, never cargo), hydrated to Decimal by
     // the same unconditional hydrateDecimals() call as every other migration.
     expect(migrated.captains[0].mission.cargo.commonOre instanceof Decimal).toBe(true);
     expect(migrated.captains[0].mission.cargo.commonOre.equals(70)).toBe(true);
@@ -1079,11 +1079,11 @@ describe("migrate -- Tick Granularity Rebalance (v12 -> v13)", () => {
 
   it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), landing on tickDurationSeconds: 1 with no in-progress mission to remap", () => {
     // freshState() (Task 1 of this feature) already sets tickDurationSeconds:
-    // 1 directly -- this test's whole point is proving the ROUND TRIP through
+    // 1 directly, this test's whole point is proving the ROUND TRIP through
     // actual serialize()/deserialize() still produces a v13-shaped state,
     // since that's the real path loadFromLocalStorage() exercises every
     // time. Every one of freshState()'s captains starts idle (mission: null),
-    // so this exercises MIGRATIONS[12]'s early-return branch only -- the
+    // so this exercises MIGRATIONS[12]'s early-return branch only, the
     // remap math itself (progressRatio * newRequired) is only exercised by
     // the hand-constructed mid-phase tests above, never by this round-trip,
     // since a truly fresh save has nothing in-progress to remap.
@@ -1092,9 +1092,9 @@ describe("migrate -- Tick Granularity Rebalance (v12 -> v13)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
 
-    // Confirms the save was written at the CURRENT version -- the while loop
+    // Confirms the save was written at the CURRENT version, the while loop
     // inside migrate() below genuinely runs zero iterations for this test,
-    // since there's no MIGRATIONS[13] -- MIGRATIONS[12] is never invoked on
+    // since there's no MIGRATIONS[13], MIGRATIONS[12] is never invoked on
     // this path at all.
     expect(deserialized!.version).toBe(SAVE_VERSION);
 
@@ -1103,21 +1103,21 @@ describe("migrate -- Tick Granularity Rebalance (v12 -> v13)", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
     expect(migrated.captains).toHaveLength(original.captains.length);
     migrated.captains.forEach((c: any) => {
-      expect(c.mission).toBe(null); // freshState()'s captains are all idle -- nothing to remap
+      expect(c.mission).toBe(null); // freshState()'s captains are all idle, nothing to remap
     });
   });
 });
 
-describe("migrate -- credits and Captain Specialization backfill (v13 -> v14)", () => {
+describe("migrate, credits and Captain Specialization backfill (v13 -> v14)", () => {
   it("backfills credits: 0 (fleet-wide) and spec: null (per captain) on a genuine v13 save that predates both fields", () => {
     // A genuine v13 shape: every field through MIGRATIONS[12] already present
     // (tickDurationSeconds collapsed fleet-wide at 1, homePlanet.storage's full
     // 5-key set, fleetAdminXp/fleetAdminLevel/adminPoints, captains carrying
-    // xp/level/statPoints/unlockedCaptainTalents/mission) -- exactly what
+    // xp/level/statPoints/unlockedCaptainTalents/mission), exactly what
     // serialize() actually produced on this branch's parent commit (confirmed
     // by diffing hydrateDecimals() at 7e9c8d2^, which has no `credits` key at
     // all), but with no top-level `credits` field anywhere on GameState, and
-    // no `spec` field on either captain -- hand-written literal, same
+    // no `spec` field on either captain, hand-written literal, same
     // reasoning as every other legacy fixture in this file: freshState() now
     // always includes `credits` and every captain always has `spec` (this same
     // Task 5 commit added both), so it can no longer stand in for this
@@ -1144,7 +1144,7 @@ describe("migrate -- credits and Captain Specialization backfill (v13 -> v14)", 
           statPoints: 1,
           unlockedCaptainTalents: [],
           mission: null,
-          // no `spec` key at all -- the real pre-v14 shape
+          // no `spec` key at all, the real pre-v14 shape
         },
         {
           id: 2,
@@ -1155,10 +1155,10 @@ describe("migrate -- credits and Captain Specialization backfill (v13 -> v14)", 
           statPoints: 0,
           unlockedCaptainTalents: [],
           mission: null,
-          // no `spec` key at all -- the real pre-v14 shape
+          // no `spec` key at all, the real pre-v14 shape
         },
       ],
-      // no `credits` field at all -- the real pre-v14 shape
+      // no `credits` field at all, the real pre-v14 shape
     };
 
     const save: SaveFile = { version: 13, created_at: 0, last_saved_at: 0, game_time_seconds: 6000, state: legacyState };
@@ -1167,7 +1167,7 @@ describe("migrate -- credits and Captain Specialization backfill (v13 -> v14)", 
     // credits is Decimal-designated (MIGRATIONS[13] sets a plain `0`;
     // hydrateDecimals(), called unconditionally at the end of migrate(),
     // converts it to a real Decimal same as fleetAdminXp/homePlanet.storage
-    // above) -- .equals(), not .toBe(), since Decimal is an object
+    // above), .equals(), not .toBe(), since Decimal is an object
     // (reference-compared by toBe, which would always fail here).
     expect(migrated.credits instanceof Decimal).toBe(true);
     expect(migrated.credits.equals(0)).toBe(true);
@@ -1191,11 +1191,11 @@ describe("migrate -- credits and Captain Specialization backfill (v13 -> v14)", 
   });
 });
 
-describe("migrate -- Radial Skill Web talent restructure (v14 -> v15)", () => {
+describe("migrate, Radial Skill Web talent restructure (v14 -> v15)", () => {
   it("refunds each captain's old captain-talent costs from a FROZEN v14 snapshot, clears the talent list, and nulls only the command spec", () => {
     // A genuine v14 shape: every field through MIGRATIONS[13] already present
     // (credits fleet-wide, per-captain spec, xp/level/statPoints/
-    // unlockedCaptainTalents/mission) -- exactly what serialize() produced on
+    // unlockedCaptainTalents/mission), exactly what serialize() produced on
     // this branch's parent commit. The captains here still carry the OLD v14
     // captain-talent KEYS (commandExtractionI/II, resourcefulnessRareChanceI/II,
     // resourcefulnessBonusRollI/II) and the OLD selectable specs
@@ -1220,7 +1220,7 @@ describe("migrate -- Radial Skill Web talent restructure (v14 -> v15)", () => {
       gameTimeSeconds: 7000,
       tickDurationSeconds: 1,
       credits: 0,
-      unlockedHomeworldTalents: ["fleetLogisticsSlot1", "industryBonusOutput"], // preserved v14 homeworld keys -- must pass through untouched
+      unlockedHomeworldTalents: ["fleetLogisticsSlot1", "industryBonusOutput"], // preserved v14 homeworld keys, must pass through untouched
       fleetAdminXp: 200,
       fleetAdminLevel: 2,
       adminPoints: 3,
@@ -1268,7 +1268,7 @@ describe("migrate -- Radial Skill Web talent restructure (v14 -> v15)", () => {
           xp: 0,
           level: 1,
           statPoints: 2,
-          spec: "diplomacy", // removed spec, never selectable -- nulled defensively (defense in depth)
+          spec: "diplomacy", // removed spec, never selectable, nulled defensively (defense in depth)
           unlockedCaptainTalents: [],
           mission: null,
         },
@@ -1299,13 +1299,13 @@ describe("migrate -- Radial Skill Web talent restructure (v14 -> v15)", () => {
     expect(migrated.captains[3].unlockedCaptainTalents).toEqual([]);
     expect(migrated.captains[3].statPoints).toBe(2);
 
-    // Homeworld talents pass through the migration completely untouched -- Task 3
+    // Homeworld talents pass through the migration completely untouched, Task 3
     // preserved every v14 homeworld key, so there is no homeworld refund here.
     expect(migrated.unlockedHomeworldTalents).toEqual(["fleetLogisticsSlot1", "industryBonusOutput"]);
 
     // Unrelated pre-existing fields survive the migration untouched. xp,
     // credits, fleetAdminXp, and homePlanet.storage's keys are Decimal-
-    // designated -- hydrateDecimals() runs unconditionally at the end of
+    // designated, hydrateDecimals() runs unconditionally at the end of
     // migrate(), so they arrive as real Decimal instances (instanceof +
     // .equals(), never .toBe(), since Decimal is an object).
     expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
@@ -1325,7 +1325,7 @@ describe("migrate -- Radial Skill Web talent restructure (v14 -> v15)", () => {
   it("uses the FROZEN v14 cost snapshot, not the live CAPTAIN_TALENTS table (whose old keys no longer exist post-Task-2)", () => {
     // Guards the migration's self-containment: a captain owning ALL SIX old v14
     // keys must refund exactly 2+4+2+4+6+8 = 26, derived from the hardcoded
-    // snapshot inside MIGRATIONS[14] -- NOT from CAPTAIN_TALENTS, which after
+    // snapshot inside MIGRATIONS[14], NOT from CAPTAIN_TALENTS, which after
     // Task 2 holds none of these keys (a live-table lookup would yield 0 for
     // every one and silently under-refund). statPoints 0 -> 26.
     const legacyState: any = {
@@ -1368,11 +1368,11 @@ describe("migrate -- Radial Skill Web talent restructure (v14 -> v15)", () => {
   });
 });
 
-describe("migrate -- Ships stats foundation: grandfather a Freighter per captain (v15 -> v16)", () => {
+describe("migrate, Ships stats foundation: grandfather a Freighter per captain (v15 -> v16)", () => {
   it("gives every captain a generalFreighter ship, drops shipType, adds ships/shipStorageCapacity/nextShipId, and leaves an in-flight mission intact", () => {
     // A genuine v15 shape: every field through MIGRATIONS[14] already present
     // (credits fleet-wide, per-captain spec, xp/level/statPoints/
-    // unlockedCaptainTalents/mission) -- exactly what serialize() produced on
+    // unlockedCaptainTalents/mission), exactly what serialize() produced on
     // this branch's parent commit, still carrying the now-removed per-captain
     // `shipType` field. Hand-written literal, same reasoning as every other
     // legacy fixture in this file: post-Task-3, CaptainState no longer declares
@@ -1380,8 +1380,8 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
     // nextShipId, so freshState() can no longer stand in for this pre-v16 shape.
     //
     // Two captains exercise the two branches this migration must get right:
-    //   - Captain 1 (id 1): idle (mission: null) -- gets ship-1, loses shipType.
-    //   - Captain 2 (id 2): mid-mission with a live cargo object -- gets ship-2,
+    //   - Captain 1 (id 1): idle (mission: null), gets ship-1, loses shipType.
+    //   - Captain 2 (id 2): mid-mission with a live cargo object, gets ship-2,
     //     loses shipType, and its `mission` object MUST survive the grandfather
     //     untouched (the seeded Freighter equals today's implicit ship, so an
     //     in-flight mission must behave identically after migration).
@@ -1400,7 +1400,7 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
         {
           id: 1,
           label: "Captain 1",
-          shipType: "resourcer", // pre-v16 field -- MIGRATIONS[15] must strip it
+          shipType: "resourcer", // pre-v16 field, MIGRATIONS[15] must strip it
           xp: 300,
           level: 3,
           statPoints: 1,
@@ -1411,7 +1411,7 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
         {
           id: 2,
           label: "Captain 2",
-          shipType: "resourcer", // pre-v16 field -- MIGRATIONS[15] must strip it
+          shipType: "resourcer", // pre-v16 field, MIGRATIONS[15] must strip it
           xp: 0,
           level: 1,
           statPoints: 0,
@@ -1422,7 +1422,7 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
             phase: "extracting",
             phaseProgressTicks: 2,
             recalled: false,
-            cargo: { commonOre: 6, uncommonMaterial: 1, rareMaterial: 0 }, // in-flight loot -- must survive untouched
+            cargo: { commonOre: 6, uncommonMaterial: 1, rareMaterial: 0 }, // in-flight loot, must survive untouched
           },
         },
       ],
@@ -1448,7 +1448,7 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
     expect(migrated.captains[1].shipType).toBeUndefined();
 
     // The in-flight captain's mission survives the grandfather completely
-    // intact -- the seeded Freighter equals today's implicit ship, so a
+    // intact, the seeded Freighter equals today's implicit ship, so a
     // running mission must be unaffected. cargo is Decimal-designated, so it
     // arrives hydrated (instanceof + .equals(), never .toBe()), same as every
     // other Decimal field in this file.
@@ -1479,17 +1479,17 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
   });
 
   it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), preserving ships/shipStorageCapacity/nextShipId intact (proves the new v16 fields survive a NORMAL save/load, not just an OLD-save migration)", () => {
-    // The three new v16 fields -- ships (ShipInstance[]), shipStorageCapacity
-    // (number), nextShipId (number) -- contain NO Decimal anywhere (every
+    // The three new v16 fields, ships (ShipInstance[]), shipStorageCapacity
+    // (number), nextShipId (number), contain NO Decimal anywhere (every
     // ShipInstance is {id: string, typeKey: string, assignedCaptainId: number},
     // and the two scalars are plain numbers), so they are plain-JSON-safe and
     // need zero hydration. This test proves they survive the REAL save/load
     // path loadFromLocalStorage() runs every time: serialize() (which
     // JSON.stringify's the WHOLE state object wholesale, never a hand-picked
-    // field list -- see serialize() in save.ts) -> deserialize() (a straight
+    // field list, see serialize() in save.ts) -> deserialize() (a straight
     // JSON.parse pass-through, no field-by-field reconstruction) -> migrate()
     // (whose hydrateDecimals() spreads `...state`, carrying every non-Decimal
-    // field -- including these three -- through untouched). Because a
+    // field, including these three, through untouched). Because a
     // freshState() save is already at the CURRENT SAVE_VERSION, migrate()'s
     // while loop runs ZERO iterations (there's no MIGRATIONS[16]); the fields
     // land intact purely via the serialize->parse->spread pass-through, NOT via
@@ -1499,7 +1499,7 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
     // FAIL-BEFORE / PASS-AFTER trace: if serialize() had instead reconstructed
     // its SaveFile by hand-picking known GameState fields (or if deserialize()/
     // hydrateDecimals() rebuilt GameState field-by-field), these three fields --
-    // unknown to that pre-v16 field list -- would be DROPPED, and every
+    // unknown to that pre-v16 field list, would be DROPPED, and every
     // assertion below would fail (ships undefined, shipStorageCapacity/
     // nextShipId undefined). They pass because all three paths are generic
     // pass-through, which this test now locks against any future regression to
@@ -1509,7 +1509,7 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
 
-    // Confirms the save was written at the CURRENT version -- migrate()'s while
+    // Confirms the save was written at the CURRENT version, migrate()'s while
     // loop below genuinely runs zero iterations (no MIGRATIONS[16]), so these
     // fields survive entirely via serialize->parse->spread, not via migration.
     expect(deserialized!.version).toBe(SAVE_VERSION);
@@ -1517,7 +1517,7 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
     const migrated: any = migrate(deserialized!);
 
     // freshState() seeds exactly one hull (the universal General Freighter),
-    // shipStorageCapacity 8, nextShipId 2 -- all three must survive the round
+    // shipStorageCapacity 8, nextShipId 2, all three must survive the round
     // trip byte-for-byte (plain-JSON scalars/objects, so .toEqual()/.toBe(),
     // never the Decimal instanceof/.equals() treatment used elsewhere).
     expect(migrated.ships).toHaveLength(original.ships.length);
@@ -1525,7 +1525,7 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
     expect(migrated.ships[0].id).toBe("ship-1"); // stable id preserved verbatim
     expect(migrated.ships[0].typeKey).toBe("generalFreighter"); // ship type preserved
     expect(migrated.ships[0].assignedCaptainId).toBe(1); // assignment (single source of truth) preserved
-    // Full structural equality against the original -- catches any dropped or
+    // Full structural equality against the original, catches any dropped or
     // mutated key on the ShipInstance, not just the three spot-checked above.
     expect(migrated.ships).toEqual(original.ships);
 
@@ -1540,7 +1540,7 @@ describe("migrate -- Ships stats foundation: grandfather a Freighter per captain
   });
 });
 
-describe("migrate -- lifetimeStats reservation backfill (v16 -> v17)", () => {
+describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
   it("backfills a fully-zeroed lifetimeStats on a genuine v16 save that predates the field, leaving every existing field untouched", () => {
     // A genuine v16 shape: every field through MIGRATIONS[15] already present
     // (ships/shipStorageCapacity/nextShipId, per-captain spec, no shipType,
@@ -1593,11 +1593,11 @@ describe("migrate -- lifetimeStats reservation backfill (v16 -> v17)", () => {
             phase: "extracting",
             phaseProgressTicks: 2,
             recalled: false,
-            cargo: { commonOre: 6, uncommonMaterial: 1, rareMaterial: 0 }, // in-flight loot -- must survive untouched
+            cargo: { commonOre: 6, uncommonMaterial: 1, rareMaterial: 0 }, // in-flight loot, must survive untouched
           },
         },
       ],
-      // no `lifetimeStats` key at all -- the real pre-v17 shape
+      // no `lifetimeStats` key at all, the real pre-v17 shape
     };
 
     const save: SaveFile = { version: 16, created_at: 0, last_saved_at: 0, game_time_seconds: 6000, state: legacyState };
@@ -1605,7 +1605,7 @@ describe("migrate -- lifetimeStats reservation backfill (v16 -> v17)", () => {
 
     // lifetimeStats is created by MIGRATIONS[16] via the shared
     // freshLifetimeStats() factory. The 4 tally maps start empty; the 3 scalar
-    // sums are Decimal-designated -- MIGRATIONS[16] produces live Decimal(0)s
+    // sums are Decimal-designated, MIGRATIONS[16] produces live Decimal(0)s
     // directly (freshLifetimeStats() constructs `new Decimal(0)`), and
     // hydrateDecimals() re-confirms them (idempotent). instanceof + .equals(),
     // never .toBe(), since Decimal is an object (reference-compared by toBe,
@@ -1651,10 +1651,10 @@ describe("migrate -- lifetimeStats reservation backfill (v16 -> v17)", () => {
   it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), restoring lifetimeStats' Decimal scalars as real Decimal instances (proves the field survives a NORMAL save/load, not just an OLD-save migration)", () => {
     // lifetimeStats' 3 scalar sums (creditsEarned/captainXpAwarded/
     // fleetAdminXpAwarded) are Decimal-designated, so on the REAL save/load path
-    // loadFromLocalStorage() runs every time -- serialize() (JSON.stringify's the
+    // loadFromLocalStorage() runs every time, serialize() (JSON.stringify's the
     // WHOLE state; Decimal.toJSON() turns each into a plain string) ->
     // deserialize() (straight JSON.parse; those stay plain strings) -> migrate()
-    // -- they arrive as strings and are converted back ONLY by hydrateDecimals()
+    //, they arrive as strings and are converted back ONLY by hydrateDecimals()
     // (called unconditionally at the end of migrate()). Because a freshState()
     // save is already at the CURRENT SAVE_VERSION, migrate()'s while loop runs
     // ZERO iterations (there's no MIGRATIONS[17]); the Decimals are restored
@@ -1666,14 +1666,14 @@ describe("migrate -- lifetimeStats reservation backfill (v16 -> v17)", () => {
     // no lifetimeStats branch, so on this round trip creditsEarned would come
     // back as the plain string "0" (never a Decimal) and the instanceof
     // assertions below would fail. They pass because hydrateDecimals() now
-    // converts those 3 scalars -- this test locks that against any future
+    // converts those 3 scalars, this test locks that against any future
     // regression that drops the lifetimeStats hydration branch.
     const original = freshState();
     const raw = serialize(original, Date.now());
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
 
-    // Confirms the save was written at the CURRENT version -- migrate()'s while
+    // Confirms the save was written at the CURRENT version, migrate()'s while
     // loop below genuinely runs zero iterations (no MIGRATIONS[17]), so the
     // Decimals are restored entirely via serialize->parse->hydrateDecimals, not
     // via any migration step.
@@ -1682,7 +1682,7 @@ describe("migrate -- lifetimeStats reservation backfill (v16 -> v17)", () => {
     const migrated: any = migrate(deserialized!);
 
     // The 3 Decimal scalars survive as real Decimal instances with freshState()'s
-    // original all-zero values -- .equals(), not .toBe(), since these are freshly
+    // original all-zero values, .equals(), not .toBe(), since these are freshly
     // constructed by hydrateDecimals(), never the same object reference as
     // `original`'s.
     expect(migrated.lifetimeStats.creditsEarned instanceof Decimal).toBe(true);
@@ -1692,7 +1692,7 @@ describe("migrate -- lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.fleetAdminXpAwarded instanceof Decimal).toBe(true);
     expect(migrated.lifetimeStats.fleetAdminXpAwarded.equals(original.lifetimeStats.fleetAdminXpAwarded)).toBe(true);
 
-    // The 4 tally maps survive as empty objects (plain-JSON {} both ways -- no
+    // The 4 tally maps survive as empty objects (plain-JSON {} both ways, no
     // Decimal values inside them yet, so .toEqual({}), not the instanceof
     // treatment the scalars get).
     expect(migrated.lifetimeStats.itemsGathered).toEqual({});
@@ -1701,12 +1701,12 @@ describe("migrate -- lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.missionsCompleted).toEqual({});
   });
 
-  it("round-trips NON-EMPTY lifetimeStats tally maps, restoring each per-VALUE Decimal (Task 6 -- proves the maps hydrate, not just the scalars)", () => {
+  it("round-trips NON-EMPTY lifetimeStats tally maps, restoring each per-VALUE Decimal (Task 6, proves the maps hydrate, not just the scalars)", () => {
     // Task 6 starts POPULATING the lifetimeStats tally maps with Decimal values.
     // Those per-value Decimals have the identical string-vs-Decimal round-trip
     // hazard the 3 scalars have: JSON.stringify (via Decimal.toJSON()) turns each
     // map VALUE into a plain string, and deserialize()/JSON.parse leaves it a
-    // string -- only hydrateDecimals()'s NEW per-map per-value toDecimal() pass
+    // string, only hydrateDecimals()'s NEW per-map per-value toDecimal() pass
     // converts them back. Before Task 6, hydrateDecimals() spread the maps AS-IS
     // (no per-value hydration), so on this round trip itemsGathered.commonOre would
     // come back as the plain string "1234" (never a Decimal) and the instanceof
@@ -1748,15 +1748,15 @@ describe("migrate -- lifetimeStats reservation backfill (v16 -> v17)", () => {
   });
 });
 
-describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facilities/processes backfill (v17 -> v18)", () => {
+describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilities/processes backfill (v17 -> v18)", () => {
   it("builds inventory 1:1 from homePlanet.storage, discovers only >0 items, seeds facilities/activeProcesses/nextProcessId, DROPS the old homePlanet field, and leaves lifetimeStats intact", () => {
     // A genuine v17 shape: every field through MIGRATIONS[16] already present --
     // notably lifetimeStats (which SHIPPED live in v17, so a real returning
-    // player's save already carries accrued totals here) -- but with NO
+    // player's save already carries accrued totals here), but with NO
     // `inventory`, `discovered`, `facilities`, `activeProcesses`, or `nextProcessId`
     // key anywhere on GameState. Hand-written literal, same reasoning as every
     // other legacy fixture in this file: freshState() now always seeds all five
-    // Phase 1 fields (Task 2 added inventory/discovered; Task 3 -- this task --
+    // Phase 1 fields (Task 2 added inventory/discovered; Task 3, this task --
     // added facilities/activeProcesses/nextProcessId), so it can no longer stand
     // in for this pre-v18 shape.
     //
@@ -1789,7 +1789,7 @@ describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facil
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8,
       nextShipId: 2,
-      // lifetimeStats ALREADY LIVE at v17 -- carries real accrued history that
+      // lifetimeStats ALREADY LIVE at v17, carries real accrued history that
       // MIGRATIONS[17] must leave completely untouched.
       lifetimeStats: {
         itemsGathered: { commonOre: 1000, rareMaterial: 12 },
@@ -1812,13 +1812,13 @@ describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facil
           mission: null,
         },
       ],
-      // no inventory/discovered/facilities/activeProcesses/nextProcessId -- the real pre-v18 shape
+      // no inventory/discovered/facilities/activeProcesses/nextProcessId, the real pre-v18 shape
     };
 
     const save: SaveFile = { version: 17, created_at: 0, last_saved_at: 0, game_time_seconds: 6000, state: legacyState };
     const migrated: any = migrate(save);
 
-    // inventory is built 1:1 from storage -- SAME 5 keys, each value copied across
+    // inventory is built 1:1 from storage, SAME 5 keys, each value copied across
     // as a real Decimal (hydrateDecimals()'s hydrateDecimalMap re-confirms the
     // Decimals MIGRATIONS[17] already produced). instanceof + .equals(), never
     // .toBe() (Decimal is an object).
@@ -1836,13 +1836,13 @@ describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facil
     expect(migrated.inventory.components instanceof Decimal).toBe(true);
     expect(migrated.inventory.components.equals(3)).toBe(true);
 
-    // discovered contains EXACTLY the >0 items -- no zero-balance key leaks in.
+    // discovered contains EXACTLY the >0 items, no zero-balance key leaks in.
     expect(migrated.discovered.sort()).toEqual(["commonOre", "components", "rareMaterial"]);
     expect(migrated.discovered).not.toContain("uncommonMaterial");
     expect(migrated.discovered).not.toContain("refinedMaterial");
 
     // Facility/process reservation fields get the clean-slate baseline. NOTE: this
-    // save enters at v17, but migrate()'s while loop does NOT stop at v18 -- it now
+    // save enters at v17, but migrate()'s while loop does NOT stop at v18, it now
     // chains all the way through MIGRATIONS[18] (v18->v19, seeds the two tiered
     // Warehouses), MIGRATIONS[20] (v20->v21, Mission Rework Task 9, seeds fuelStorage
     // level 0 + missionControl level 1), MIGRATIONS[21] (v21->v22, Research Task R6,
@@ -1869,15 +1869,15 @@ describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facil
 
     // homePlanet is DROPPED by this migration (Task 7): MIGRATIONS[17] reads the old
     // save's homePlanet.storage to build inventory, then strips the field entirely.
-    // A migrated v18 save has NO homePlanet -- its balances live ONLY in `inventory`
+    // A migrated v18 save has NO homePlanet, its balances live ONLY in `inventory`
     // (asserted above). This is the load-bearing round-trip guarantee: hydrateDecimals
     // no longer hydrates homePlanet, so a lingering field would go un-hydrated (or, if
-    // hydration still tried to read it, throw) -- confirming the field is gone proves
+    // hydration still tried to read it, throw), confirming the field is gone proves
     // the removal is complete end-to-end.
     expect("homePlanet" in migrated).toBe(false);
     expect(migrated.homePlanet).toBeUndefined();
 
-    // lifetimeStats survives completely untouched -- its accrued history is NOT
+    // lifetimeStats survives completely untouched, its accrued history is NOT
     // re-seeded. Maps keep their entries (per-value Decimals hydrated); scalars
     // keep their sums (Decimal-designated, hydrated).
     expect(migrated.lifetimeStats.itemsGathered.commonOre instanceof Decimal).toBe(true);
@@ -1941,7 +1941,7 @@ describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facil
     );
     expect(migrated.inventory.commonOre.equals(0)).toBe(true);
     expect(migrated.discovered).toEqual([]); // no owned items -> no discoveries
-    // Eight facilities -- MIGRATIONS[18] seeds the two Warehouses, MIGRATIONS[20] (Mission
+    // Eight facilities, MIGRATIONS[18] seeds the two Warehouses, MIGRATIONS[20] (Mission
     // Rework Task 9) seeds fuelStorage (level 0) + missionControl (level 1), MIGRATIONS[21]
     // (Research Task R6) seeds research (level 1), MIGRATIONS[22] (Fabricator Task F6) seeds
     // fabricator (level 1), and MIGRATIONS[24] (Shipyard Task S6) seeds shipyard (level 0)
@@ -1964,14 +1964,14 @@ describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facil
   it("round-trips a freshState() through serialize() -> deserialize() -> migrate(), preserving the Phase 1 facility/process fields (proves they survive a NORMAL save/load, not just an OLD-save migration)", () => {
     // facilities/activeProcesses/nextProcessId contain NO Decimal (level/id are
     // plain numbers, activeProcesses is empty), so they are plain-JSON-safe and
-    // need zero hydration -- they survive purely via serialize (JSON.stringify the
+    // need zero hydration, they survive purely via serialize (JSON.stringify the
     // whole state) -> deserialize (JSON.parse pass-through) -> migrate (the
     // `...state` spread in hydrateDecimals carries them through). inventory's
     // per-value Decimals DO round-trip through strings, so this also confirms the
     // new hydrateDecimalMap(inventory) branch revives them. Because a freshState()
     // save is already at the CURRENT SAVE_VERSION, migrate()'s while loop runs ZERO
     // iterations (no MIGRATIONS[18]); everything below lands via the pass-through +
-    // unconditional hydrateDecimals(), NOT via any migration step -- same round-trip
+    // unconditional hydrateDecimals(), NOT via any migration step, same round-trip
     // property the v15->v16 / v16->v17 freshState() round-trip tests lock in.
     const original = freshState();
     const raw = serialize(original, Date.now());
@@ -1987,12 +1987,12 @@ describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facil
     // this is a freshState ROUND-TRIP (zero migration steps), so it reflects
     // freshState's current shape directly (the v17->v18 MIGRATION tests above now also
     // end on this same shape, because Task B4's MIGRATIONS[18] extends
-    // the chain to v19 and seeds the two Warehouses -- see their updated assertions).
+    // the chain to v19 and seeds the two Warehouses, see their updated assertions).
     // Mission Rework Task 4 added fuelStorage (level 0) to freshState, and Task 6
-    // added missionControl (level 1 -- established from game start so ore runs stay
+    // added missionControl (level 1, established from game start so ore runs stay
     // available), so the fresh shape now carries five facilities. (Old-save
     // fuelStorage/missionControl backfill is Task 9's v20->v21 migration, not tested
-    // here -- this is a fresh round-trip.)
+    // here, this is a fresh round-trip.)
     expect(migrated.facilities).toEqual({
       refinery: { level: 0 },
       warehouseT1: { level: 0 },
@@ -2009,7 +2009,7 @@ describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facil
     expect(migrated.nextProcessId).toBe(original.nextProcessId);
 
     // inventory's per-value Decimals come back as real Decimal instances equal to
-    // freshState()'s (all zeros) -- .equals()/instanceof, since hydrateDecimals()
+    // freshState()'s (all zeros), .equals()/instanceof, since hydrateDecimals()
     // rebuilds them fresh (never the same object reference as original's).
     expect(Object.keys(migrated.inventory).sort()).toEqual(Object.keys(original.inventory).sort());
     for (const key of Object.keys(original.inventory)) {
@@ -2024,12 +2024,12 @@ describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facil
   });
 });
 
-describe("migrate -- Tiered Warehouse facility backfill (v18 -> v19)", () => {
+describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
   it("seeds warehouseT1/warehouseT2 at level 0 on a genuine v18 save, leaving refinery, inventory, and every other field untouched", () => {
-    // A genuine v18 shape: every Phase 1 field already present -- notably
+    // A genuine v18 shape: every Phase 1 field already present, notably
     // `facilities` seeded REFINERY-ONLY by MIGRATIONS[17], `inventory`,
     // `discovered`, `activeProcesses`, `nextProcessId`, and live `lifetimeStats`
-    // -- but with NO warehouseT1/warehouseT2 facility keys (Task B2 added those to
+    //, but with NO warehouseT1/warehouseT2 facility keys (Task B2 added those to
     // freshState only on this feature branch, so a real shipped-v18 production save
     // has neither). Hand-written literal, same reasoning as every other legacy
     // fixture in this file: freshState() now always seeds all three facilities, so
@@ -2055,7 +2055,7 @@ describe("migrate -- Tiered Warehouse facility backfill (v18 -> v19)", () => {
         components: 0,
       },
       discovered: ["commonOre", "rareMaterial", "refinedMaterial"],
-      // REFINERY-ONLY facilities map -- the exact shape MIGRATIONS[17] produces, with
+      // REFINERY-ONLY facilities map, the exact shape MIGRATIONS[17] produces, with
       // a non-zero level to prove the warehouse backfill does not touch it.
       facilities: { refinery: { level: 2 } },
       activeProcesses: [],
@@ -2075,14 +2075,14 @@ describe("migrate -- Tiered Warehouse facility backfill (v18 -> v19)", () => {
       captains: [
         { id: 1, label: "Captain 1", xp: 300, level: 3, statPoints: 1, spec: null, unlockedCaptainTalents: [], mission: null },
       ],
-      // no warehouseT1/warehouseT2 facility keys -- the real pre-v19 shape
+      // no warehouseT1/warehouseT2 facility keys, the real pre-v19 shape
     };
 
     const save: SaveFile = { version: 18, created_at: 0, last_saved_at: 0, game_time_seconds: 7000, state: legacyState };
     const migrated: any = migrate(save);
 
     // The two Warehouses are seeded at level 0; the refinery survives at its
-    // pre-migration level (2), NOT reset. NOTE: the chain does NOT stop at v19 -- it
+    // pre-migration level (2), NOT reset. NOTE: the chain does NOT stop at v19, it
     // continues through MIGRATIONS[20] (v20->v21, Mission Rework Task 9, seeds fuelStorage
     // level 0 + missionControl level 1), MIGRATIONS[21] (v21->v22, Research Task R6,
     // seeds research level 1), MIGRATIONS[22] (v22->v23, Fabricator Task F6, seeds
@@ -2099,7 +2099,7 @@ describe("migrate -- Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(migrated.facilities.fabricator).toEqual({ level: 1 }); // seeded by MIGRATIONS[22]
 
     // inventory survives 1:1, every value a real Decimal (hydrateDecimalMap) with the
-    // same balance -- the warehouse backfill touches ONLY facilities, never inventory.
+    // same balance, the warehouse backfill touches ONLY facilities, never inventory.
     expect(Object.keys(migrated.inventory).sort()).toEqual(
       ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"]
     );
@@ -2137,7 +2137,7 @@ describe("migrate -- Tiered Warehouse facility backfill (v18 -> v19)", () => {
     // carries a warehouse key (e.g. a chained/hand-edited save, or a future re-run)
     // must keep its existing level, not have it reset to 0. Not reachable via a real
     // shipped-v18 save (none has these keys), but the guard makes the step safe if it
-    // ever is -- same posture as this file's other ??-guard tests.
+    // ever is, same posture as this file's other ??-guard tests.
     const legacyState: any = {
       gameTimeSeconds: 0,
       tickDurationSeconds: 1,
@@ -2186,7 +2186,7 @@ describe("migrate -- Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
     // (level 1), Research Task R2 added research (level 1), and Fabricator Task F1 added
-    // fabricator (level 1) to freshState -- the fresh shape now carries seven facilities
+    // fabricator (level 1) to freshState, the fresh shape now carries seven facilities
     // (old-save backfill of fuel/mission is Task 9's v20->v21 step; research is R6's
     // v21->v22 step, MIGRATIONS[21]; fabricator is F6's v22->v23 step, MIGRATIONS[22]).
     expect(migrated.facilities).toEqual({
@@ -2207,10 +2207,10 @@ describe("migrate -- Tiered Warehouse facility backfill (v18 -> v19)", () => {
   });
 });
 
-describe("migrate -- refine-order backfill (v19 -> v20)", () => {
+describe("migrate, refine-order backfill (v19 -> v20)", () => {
   it("seeds refineOrder: null on a genuine v19 save, leaving every other field untouched", () => {
     // A genuine v19 shape: every Phase 1 + Task B2 field present (notably all THREE
-    // facilities -- refinery + warehouseT1 + warehouseT2 -- which MIGRATIONS[18]
+    // facilities, refinery + warehouseT1 + warehouseT2, which MIGRATIONS[18]
     // seeded), but NO refineOrder key (Task D1 added it to freshState only on this
     // feature branch, so a real v19 save has none). Hand-written literal, same
     // reasoning as every other legacy fixture here: freshState() now always seeds
@@ -2238,7 +2238,7 @@ describe("migrate -- refine-order backfill (v19 -> v20)", () => {
       captains: [
         { id: 1, label: "Captain 1", xp: 150, level: 4, statPoints: 2, spec: null, unlockedCaptainTalents: [], mission: null },
       ],
-      // no refineOrder key -- the real pre-v20 shape
+      // no refineOrder key, the real pre-v20 shape
     };
 
     const save: SaveFile = { version: 19, created_at: 0, last_saved_at: 0, game_time_seconds: 9000, state: legacyState };
@@ -2256,12 +2256,12 @@ describe("migrate -- refine-order backfill (v19 -> v20)", () => {
     expect(migrated.nextCraftLineId).toBe(1);
 
     // Everything else rides through untouched (Decimal fields hydrated). Facilities,
-    // inventory, lifetimeStats, captains -- a spread bug or an accidental re-seed
+    // inventory, lifetimeStats, captains, a spread bug or an accidental re-seed
     // would show here. NOTE: the chain continues past v20 through MIGRATIONS[20]
     // (v20->v21, Mission Rework Task 9, seeds fuelStorage level 0 + missionControl level 1),
     // MIGRATIONS[21] (v21->v22, Research Task R6, seeds research level 1) AND MIGRATIONS[22]
     // (v22->v23, Fabricator Task F6, seeds fabricator level 1) AND MIGRATIONS[24] (v24->v25,
-    // Shipyard Task S6, seeds shipyard level 0) -- so the FINAL facilities map carries those five
+    // Shipyard Task S6, seeds shipyard level 0), so the FINAL facilities map carries those five
     // in addition to the three the pre-existing v19 shape held (all preserved value-for-value).
     expect(migrated.facilities).toEqual({ refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } });
     expect(migrated.inventory.commonOre.equals(750)).toBe(true);
@@ -2276,13 +2276,13 @@ describe("migrate -- refine-order backfill (v19 -> v20)", () => {
     expect(migrated.gameTimeSeconds).toBe(9000);
   });
 
-  it("drops a legacy refineOrder carried on the save -- C6's v23->v24 retires the single-order model", () => {
+  it("drops a legacy refineOrder carried on the save, C6's v23->v24 retires the single-order model", () => {
     // MIGRATIONS[19]'s `?? null` guard preserves an already-present refineOrder at the
     // v19->v20 step, but the chain now continues to v24 through MIGRATIONS[23] (Task C6),
-    // which retires the single-order model entirely -- so even a save that STILL carries a
+    // which retires the single-order model entirely, so even a save that STILL carries a
     // legacy standing order comes out CLEAN at the current version: no refineOrder key, and
     // the new empty per-slot line fields instead. This is the whole point of C6's drop-key
-    // rest-destructure -- dead legacy order state can't ride along into the line model.
+    // rest-destructure, dead legacy order state can't ride along into the line model.
     const existingOrder = { recipeKey: "refineCommonOre", mode: { kind: "batch", remaining: 7 } };
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
@@ -2311,7 +2311,7 @@ describe("migrate -- refine-order backfill (v19 -> v20)", () => {
   it("round-trips a state carrying an ACTIVE order through serialize -> deserialize -> migrate intact (no Decimal-hydration hazard)", () => {
     // refineOrder carries NO Decimal, so it must survive the JSON round-trip verbatim.
     // A batch order with a live remaining count is the strongest case (a plain number
-    // that JSON preserves, and a pausedReason string) -- proving hydrateDecimals needs
+    // that JSON preserves, and a pausedReason string), proving hydrateDecimals needs
     // no per-field revival for the new field.
     const original = { ...freshState(), refineOrder: { recipeKey: "refineCommonOre", mode: { kind: "batch" as const, remaining: 4 }, pausedReason: "noInput" as const } };
     const raw = serialize(original, Date.now());
@@ -2332,10 +2332,10 @@ describe("migrate -- refine-order backfill (v19 -> v20)", () => {
   });
 });
 
-describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
+describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
   it("seeds fuel:FUEL_TANK_BASE_CAP (full tank), fuelStorage level 0, and missionControl level 1 on a genuine v20 save, leaving every other field untouched", () => {
     // A genuine v20 shape: every Phase-2 field present (all THREE facilities that
-    // MIGRATIONS[17]/[18] seed -- refinery + warehouseT1 + warehouseT2 -- plus the
+    // MIGRATIONS[17]/[18] seed, refinery + warehouseT1 + warehouseT2, plus the
     // refineOrder:null MIGRATIONS[19] seeds), but NO `fuel` field and NO fuelStorage/
     // missionControl facility keys (Mission Rework Tasks 3/4/6 added those to freshState
     // only on this feature branch, so a real shipped-v20 save has none). Hand-written
@@ -2367,7 +2367,7 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
       captains: [
         { id: 1, label: "Captain 1", xp: 600, level: 6, statPoints: 2, spec: null, unlockedCaptainTalents: [], mission: null },
       ],
-      // no `fuel` field, no facilities.fuelStorage / facilities.missionControl -- the real pre-v21 shape
+      // no `fuel` field, no facilities.fuelStorage / facilities.missionControl, the real pre-v21 shape
     };
 
     const save: SaveFile = { version: 20, created_at: 0, last_saved_at: 0, game_time_seconds: 12000, state: legacyState };
@@ -2377,14 +2377,14 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
     // fuel seeded to a FULL tank (FUEL_TANK_BASE_CAP) AND hydrated to a real Decimal
     // (hydrateDecimals' fuel branch). Soft-lock fix (2026-07-14): a pre-fuel v20 save has
     // NO fuel field, no ice, and maybe no credits, so seeding an EMPTY tank would soft-lock
-    // a returning player just like a new one -- the full-tank grant is the one-time bootstrap.
+    // a returning player just like a new one, the full-tank grant is the one-time bootstrap.
     // .equals(), not .toBe() (Decimal is an object, reference-compared by toBe).
     expect(migrated.fuel instanceof Decimal).toBe(true);
     expect(migrated.fuel.equals(FUEL_TANK_BASE_CAP)).toBe(true);
-    // fuelStorage seeded at level 0 -- the base tank's live starting state (cap
+    // fuelStorage seeded at level 0, the base tank's live starting state (cap
     // FUEL_TANK_BASE_CAP; usable immediately, no soft-lock).
     expect(migrated.facilities.fuelStorage).toEqual({ level: 0 });
-    // missionControl seeded at level 1 (NOT 0) -- LOAD-BEARING: ore runs are unlockLevel
+    // missionControl seeded at level 1 (NOT 0), LOAD-BEARING: ore runs are unlockLevel
     // 1, so a level-0 seed would LOCK them on every existing save. See the no-soft-lock
     // asserts below for the behavioral proof.
     expect(migrated.facilities.missionControl).toEqual({ level: 1 });
@@ -2399,7 +2399,7 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
     expect(migrated.inventory.commonOre.equals(1200)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
     // The refineOrder:null MIGRATIONS[19] seeds is DROPPED by MIGRATIONS[23] (Task C6, v23->v24),
-    // which retires the single-order model -- the final v24 shape carries no order key, only the
+    // which retires the single-order model, the final v24 shape carries no order key, only the
     // new empty line fields.
     expect("refineOrder" in migrated).toBe(false);
     expect(migrated.refineLines).toEqual([]);
@@ -2411,9 +2411,9 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
 
     // --- NO SOFT-LOCK (behavioral): ALL FOUR missions are UNLOCKED post-migration.
     // USER REVISION 2026-07-14: every mission is unlockLevel 1, and missionControl seeds
-    // at level 1 on migration -- so a returning player lands with the full default mission
+    // at level 1 on migration, so a returning player lands with the full default mission
     // set (not just the ore runs). A level-0 seed would make missionUnlocked() return
-    // false for all four, silently locking missions -- the regression this guards against. ---
+    // false for all four, silently locking missions, the regression this guards against. ---
     for (const key of ["shortOreRun", "longOreRun", "salvageWreckage", "forageFlora"] as const) {
       expect(missionUnlocked(migrated, key)).toBe(true);
     }
@@ -2421,7 +2421,7 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
     // --- FULL PLAYABILITY: a captain can immediately dispatch an ore mission after
     // migration with NO player setup. Soft-lock fix (2026-07-14): the migrated tank now
     // starts FULL (FUEL_TANK_BASE_CAP), so canDispatch must return ok:true directly
-    // (unlock + captain-level + cargo + fuel-range + fuel-resource gates all pass) -- the
+    // (unlock + captain-level + cargo + fuel-range + fuel-resource gates all pass), the
     // returning-player half of the no-soft-lock guarantee, mirroring the fresh-game half. ---
     expect(migrated.fuel.gte(50)).toBe(true); // full tank comfortably covers the shortOreRun round trip
     expect(canDispatch(migrated, 1, "shortOreRun")).toEqual({ ok: true });
@@ -2429,7 +2429,7 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
 
   it("matches freshState() exactly for the new fields (a migrated v20 save and a fresh v21 game have the SAME fuel/facility shape)", () => {
     // Anti-regression parity: whatever freshState() seeds for fuel / fuelStorage /
-    // missionControl, the migration must produce the IDENTICAL shape -- otherwise a
+    // missionControl, the migration must produce the IDENTICAL shape, otherwise a
     // returning player and a new player diverge on these fields. Builds a minimal v20
     // save and compares its migrated result against a live freshState().
     const fresh = freshState();
@@ -2452,17 +2452,17 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
     // The two new facilities: byte-identical structural shape to freshState's.
     expect(migrated.facilities.fuelStorage).toEqual(fresh.facilities.fuelStorage);
     expect(migrated.facilities.missionControl).toEqual(fresh.facilities.missionControl);
-    // The FULL facilities map matches freshState's shape -- proves the migrated old save
+    // The FULL facilities map matches freshState's shape, proves the migrated old save
     // and a brand-new game are indistinguishable on facilities. R6 UPDATE (2026-07-15):
     // the chain now continues through MIGRATIONS[21] (v21->v22, Research Task R6), which
-    // seeds `research: { level: 1 }` -- so a v20 save migrated to the CURRENT version now
+    // seeds `research: { level: 1 }`, so a v20 save migrated to the CURRENT version now
     // carries `research` too.
     // F6 UPDATE (2026-07-16): the chain now ALSO continues through MIGRATIONS[22] (v22->v23,
-    // Fabricator Task F6), which seeds `fabricator: { level: 1 }` -- so a v20 save migrated to
+    // Fabricator Task F6), which seeds `fabricator: { level: 1 }`, so a v20 save migrated to
     // the CURRENT version now carries `fabricator` too. This restores the full-parity
     // assertion F1 temporarily stripped while MIGRATIONS[22] did not yet exist.
     // S6 UPDATE (2026-07-16): the chain now ALSO continues through MIGRATIONS[24] (v24->v25,
-    // Shipyard Task S6), which seeds `shipyard: { level: 0 }` -- so a v20 save migrated to the
+    // Shipyard Task S6), which seeds `shipyard: { level: 0 }`, so a v20 save migrated to the
     // CURRENT version now carries `shipyard` too. This RESTORES the full-parity assertion S1
     // temporarily stripped while MIGRATIONS[24] did not yet exist: a migrated old save and a
     // brand-new game are once again indistinguishable across the ENTIRE facilities map.
@@ -2473,7 +2473,7 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
     // Defense-in-depth for the `??` seeds: a chained/hand-edited/partially-migrated save
     // that already carries any of the three must keep its existing value, not have it
     // reset to the seed. Not reachable via a real shipped-v20 save (none has these keys),
-    // but the guard makes a re-run safe -- same posture as MIGRATIONS[18]/[19]'s ?? tests.
+    // but the guard makes a re-run safe, same posture as MIGRATIONS[18]/[19]'s ?? tests.
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
@@ -2483,7 +2483,7 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
       activeProcesses: [], nextProcessId: 1,
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8, nextShipId: 2, refineOrder: null,
-      fuel: 275, // already-present tank (plain number -- pre-hydration shape); must survive
+      fuel: 275, // already-present tank (plain number, pre-hydration shape); must survive
       lifetimeStats: { itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {}, creditsEarned: 0, captainXpAwarded: 0, fleetAdminXpAwarded: 0 },
       captains: [{ id: 1, label: "Captain 1", xp: 0, level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
     };
@@ -2500,7 +2500,7 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
 });
 
 // Research (Task R6): the v21 -> v22 backfill. Research Tasks R1/R2 added two new persistent
-// fields to freshState that a shipped-v21 save predates entirely -- GameState.researchedBlueprints
+// fields to freshState that a shipped-v21 save predates entirely, GameState.researchedBlueprints
 // (R1, the fleet-wide unlocked-blueprint list) and facilities.research (R2, the Research Lab at
 // level 1). MIGRATIONS[21] seeds both, mirroring the additive single-purpose shape MIGRATIONS[18]/
 // [19]/[20] set the template for. NO hydration change is needed: researchedBlueprints is a plain
@@ -2508,7 +2508,7 @@ describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
 // researchProject timed processes ride activeProcesses, which is already migrated + hydrated. These
 // tests mirror the v20->v21 block above (genuine-old-save seed / freshState parity / idempotent
 // guard / round-trip), swapping in the research fields.
-describe("migrate -- research state backfill (v21 -> v22)", () => {
+describe("migrate, research state backfill (v21 -> v22)", () => {
   it("seeds researchedBlueprints:[] and research facility level 1 on a genuine v21 save, leaving every other field untouched", () => {
     // A genuine v21 shape: every Mission-Rework/Fuel field present (fuel + fuelStorage +
     // missionControl, seeded by MIGRATIONS[20]) but NO researchedBlueprints array and NO
@@ -2542,7 +2542,7 @@ describe("migrate -- research state backfill (v21 -> v22)", () => {
       captains: [
         { id: 1, label: "Captain 1", xp: 600, level: 6, statPoints: 2, spec: null, unlockedCaptainTalents: [], mission: null },
       ],
-      // no researchedBlueprints, no facilities.research -- the real pre-v22 shape
+      // no researchedBlueprints, no facilities.research, the real pre-v22 shape
     };
 
     const save: SaveFile = { version: 21, created_at: 0, last_saved_at: 0, game_time_seconds: 12000, state: legacyState };
@@ -2551,7 +2551,7 @@ describe("migrate -- research state backfill (v21 -> v22)", () => {
     // --- The two jobs of MIGRATIONS[21]. ---
     // researchedBlueprints seeded to an empty array (nothing researched yet).
     expect(migrated.researchedBlueprints).toEqual([]);
-    // research facility seeded at level 1 (NOT 0) -- LOAD-BEARING: tier-1 blueprints gate on
+    // research facility seeded at level 1 (NOT 0), LOAD-BEARING: tier-1 blueprints gate on
     // research-facility level >= tier, so a level-0 seed would lock ALL research on every
     // returning player's save. See the behavioral asserts below.
     expect(migrated.facilities.research).toEqual({ level: 1 });
@@ -2587,12 +2587,12 @@ describe("migrate -- research state backfill (v21 -> v22)", () => {
     // structuralAssemblyBp is tier 2, so it stays correctly gated until the lab is upgraded. ---
     expect(blueprintResearchable(migrated, "frameSegmentBp")).toBe(true);
     expect(blueprintResearchable(migrated, "powerCouplingBp")).toBe(true);
-    expect(blueprintResearchable(migrated, "structuralAssemblyBp")).toBe(false); // tier 2 -- still gated
+    expect(blueprintResearchable(migrated, "structuralAssemblyBp")).toBe(false); // tier 2, still gated
   });
 
   it("matches freshState() exactly for the new fields (a migrated v21 save and a fresh v22 game have the SAME research shape)", () => {
     // Anti-regression parity: whatever freshState() seeds for researchedBlueprints and the
-    // research facility, the migration must produce the IDENTICAL shape -- otherwise a
+    // research facility, the migration must produce the IDENTICAL shape, otherwise a
     // returning player and a new player diverge on these fields. Builds a minimal v21 save
     // and compares its migrated result against a live freshState(). This is the full-parity
     // facilities assertion the v20->v21 "matches freshState()" test deferred to R6 (it
@@ -2616,14 +2616,14 @@ describe("migrate -- research state backfill (v21 -> v22)", () => {
     expect(migrated.researchedBlueprints).toEqual(fresh.researchedBlueprints);
     // research facility: byte-identical structural shape to freshState's.
     expect(migrated.facilities.research).toEqual(fresh.facilities.research);
-    // The FULL facilities map now matches freshState's shape (research included) -- proves the
+    // The FULL facilities map now matches freshState's shape (research included), proves the
     // migrated old save and a brand-new game are indistinguishable on facilities.
     // F6 UPDATE (2026-07-16): the chain now continues through MIGRATIONS[22] (v22->v23,
-    // Fabricator Task F6), which seeds `fabricator: { level: 1 }` -- so a v21 save migrated to
+    // Fabricator Task F6), which seeds `fabricator: { level: 1 }`, so a v21 save migrated to
     // the CURRENT version now carries `fabricator` too. This restores the full-parity assertion
     // F1 temporarily stripped while MIGRATIONS[22] did not yet exist.
     // S6 UPDATE (2026-07-16): the chain now ALSO continues through MIGRATIONS[24] (v24->v25,
-    // Shipyard Task S6), which seeds `shipyard: { level: 0 }` -- so a v21 save migrated to the
+    // Shipyard Task S6), which seeds `shipyard: { level: 0 }`, so a v21 save migrated to the
     // CURRENT version now carries `shipyard` too. This RESTORES the full-parity assertion S1
     // temporarily stripped while MIGRATIONS[24] did not yet exist.
     expect(migrated.facilities).toEqual(fresh.facilities);
@@ -2633,7 +2633,7 @@ describe("migrate -- research state backfill (v21 -> v22)", () => {
     // Defense-in-depth for the `??` seeds: a chained/hand-edited/partially-migrated save that
     // already carries either field must keep its existing value, not have it reset to the
     // seed. Not reachable via a real shipped-v21 save (none has these keys), but the guard
-    // makes a re-run safe -- same posture as MIGRATIONS[18]/[19]/[20]'s ?? tests.
+    // makes a re-run safe, same posture as MIGRATIONS[18]/[19]/[20]'s ?? tests.
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
@@ -2643,7 +2643,7 @@ describe("migrate -- research state backfill (v21 -> v22)", () => {
       activeProcesses: [], nextProcessId: 1,
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8, nextShipId: 2, refineOrder: null, fuel: 500,
-      researchedBlueprints: ["frameSegmentBp"], // already unlocked -- must survive
+      researchedBlueprints: ["frameSegmentBp"], // already unlocked, must survive
       lifetimeStats: { itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {}, creditsEarned: 0, captainXpAwarded: 0, fleetAdminXpAwarded: 0 },
       captains: [{ id: 1, label: "Captain 1", xp: 0, level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
     };
@@ -2659,7 +2659,7 @@ describe("migrate -- research state backfill (v21 -> v22)", () => {
     // already current) and confirm researchedBlueprints and the research facility survive a
     // normal save/load verbatim, and the state is still PLAYABLE (tier-1 blueprints stay
     // researchable). researchedBlueprints/research carry NO Decimal, so they ride the JSON
-    // round-trip and the `...state` spread in hydrateDecimals untouched -- no revival needed.
+    // round-trip and the `...state` spread in hydrateDecimals untouched, no revival needed.
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 5000, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
@@ -2691,7 +2691,7 @@ describe("migrate -- research state backfill (v21 -> v22)", () => {
 });
 
 // Fabricator (Task F6): the v22 -> v23 backfill. Fabricator Tasks F1/F2 added two new persistent
-// fields to freshState that a shipped-v22 save predates entirely -- facilities.fabricator (F1, the
+// fields to freshState that a shipped-v22 save predates entirely, facilities.fabricator (F1, the
 // Fabricator at level 1) and GameState.fabricateOrder (F2, the standing fabricate order, fresh idle
 // = null). MIGRATIONS[22] seeds both, mirroring the additive single-purpose shape MIGRATIONS[18]/
 // [19]/[20]/[21] set the template for. NO hydration change is needed: the fabricator facility is
@@ -2700,7 +2700,7 @@ describe("migrate -- research state backfill (v21 -> v22)", () => {
 // processes ride activeProcesses, which is already migrated + hydrated. These tests mirror the
 // v21->v22 (research) block above (genuine-old-save seed / freshState parity / idempotent guard /
 // round-trip), swapping in the fabricator fields.
-describe("migrate -- fabricator state backfill (v22 -> v23)", () => {
+describe("migrate, fabricator state backfill (v22 -> v23)", () => {
   it("seeds fabricator facility level 1 and fabricateOrder:null on a genuine v22 save, leaving every other field untouched", () => {
     // A genuine v22 shape: every Research field present (researchedBlueprints + facilities.research,
     // seeded by MIGRATIONS[21]) but NO facilities.fabricator key and NO fabricateOrder field
@@ -2734,17 +2734,17 @@ describe("migrate -- fabricator state backfill (v22 -> v23)", () => {
       captains: [
         { id: 1, label: "Captain 1", xp: 600, level: 6, statPoints: 2, spec: null, unlockedCaptainTalents: [], mission: null },
       ],
-      // no facilities.fabricator, no fabricateOrder -- the real pre-v23 shape
+      // no facilities.fabricator, no fabricateOrder, the real pre-v23 shape
     };
 
     const save: SaveFile = { version: 22, created_at: 0, last_saved_at: 0, game_time_seconds: 12000, state: legacyState };
     const migrated: any = migrate(save);
 
     // --- The two jobs of MIGRATIONS[22]. ---
-    // fabricator facility seeded at level 1 (NOT 0) -- LOAD-BEARING, the same reasoning research /
+    // fabricator facility seeded at level 1 (NOT 0), LOAD-BEARING, the same reasoning research /
     // missionControl carry (MIGRATIONS[21]/[20]): canFabricate gates blueprint.tier > fabricator
     // level (tierLocked), so a level-0 seed would lock ALL tier-1 fabrication on every returning
-    // player's save -- a soft-lock/regression.
+    // player's save, a soft-lock/regression.
     expect(migrated.facilities.fabricator).toEqual({ level: 1 });
     // MIGRATIONS[22] seeds fabricateOrder null, but the chain now continues through MIGRATIONS[23]
     // (Task C6, v23->v24), which retires the single-order model: it DROPS the refineOrder/
@@ -2780,11 +2780,11 @@ describe("migrate -- fabricator state backfill (v22 -> v23)", () => {
 
   it("matches freshState() exactly for the new fields (a migrated v22 save and a fresh v23 game have the SAME fabricator shape)", () => {
     // Anti-regression parity: whatever freshState() seeds for the fabricator facility and
-    // fabricateOrder, the migration must produce the IDENTICAL shape -- otherwise a returning
+    // fabricateOrder, the migration must produce the IDENTICAL shape, otherwise a returning
     // player and a new player diverge on these fields. Builds a minimal v22 save and compares its
     // migrated result against a live freshState(). This is the full-parity facilities assertion the
     // v20->v21 and v21->v22 "matches freshState()" tests deferred to F6 (they stripped `fabricator`
-    // from the comparison because this migration did not exist yet -- now restored there too).
+    // from the comparison because this migration did not exist yet, now restored there too).
     const fresh = freshState();
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
@@ -2803,14 +2803,14 @@ describe("migrate -- fabricator state backfill (v22 -> v23)", () => {
     // fabricator facility: byte-identical structural shape to freshState's.
     expect(migrated.facilities.fabricator).toEqual(fresh.facilities.fabricator);
     // NOTE (Task C4): the `fabricateOrder` parity assertion was removed here. The single-order
-    // model is retired -- freshState no longer carries `fabricateOrder`, while the SHIPPED
+    // model is retired, freshState no longer carries `fabricateOrder`, while the SHIPPED
     // MIGRATIONS[22] still seeds `fabricateOrder: null` onto a v23 shape. That transient extra
     // key is harmless (ignored by the line engine) and is dropped by C6's v23->v24 migration;
     // the facility-shape parity below is the part that still holds in C4.
-    // The FULL facilities map now matches freshState's shape (fabricator included) -- proves the
+    // The FULL facilities map now matches freshState's shape (fabricator included), proves the
     // migrated old save and a brand-new game are indistinguishable on facilities.
     // S6 UPDATE (2026-07-16): the chain now ALSO continues through MIGRATIONS[24] (v24->v25,
-    // Shipyard Task S6), which seeds `shipyard: { level: 0 }` -- so a v22 save migrated to the
+    // Shipyard Task S6), which seeds `shipyard: { level: 0 }`, so a v22 save migrated to the
     // CURRENT version now carries `shipyard` too. This RESTORES the full-parity assertion S1
     // temporarily stripped while MIGRATIONS[24] did not yet exist.
     expect(migrated.facilities).toEqual(fresh.facilities);
@@ -2818,10 +2818,10 @@ describe("migrate -- fabricator state backfill (v22 -> v23)", () => {
 
   it("preserves an already-present fabricator facility (idempotent ?? guard) but DROPS a legacy fabricateOrder (C6 v23->v24)", () => {
     // Two behaviors on one fixture: (1) MIGRATIONS[22]'s `??` guard preserves an already-present
-    // fabricator facility level (not reset to the seed) -- the idempotent-guard property, same
+    // fabricator facility level (not reset to the seed), the idempotent-guard property, same
     // posture as MIGRATIONS[18]/[19]/[20]/[21]'s ?? tests. (2) A legacy fabricateOrder standing on
     // the save is DROPPED by MIGRATIONS[23] (Task C6, v23->v24), which retires the single-order
-    // model -- so unlike the facility, the order does NOT survive the chain to the current version.
+    // model, so unlike the facility, the order does NOT survive the chain to the current version.
     const standingOrder = { blueprintKey: "frameSegmentBp", mode: { kind: "batch", remaining: 3 } };
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
@@ -2832,7 +2832,7 @@ describe("migrate -- fabricator state backfill (v22 -> v23)", () => {
       activeProcesses: [], nextProcessId: 1,
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8, nextShipId: 2, refineOrder: null, fuel: 500, researchedBlueprints: [],
-      fabricateOrder: standingOrder, // already-active order -- must survive
+      fabricateOrder: standingOrder, // already-active order, must survive
       lifetimeStats: { itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {}, creditsEarned: 0, captainXpAwarded: 0, fleetAdminXpAwarded: 0 },
       captains: [{ id: 1, label: "Captain 1", xp: 0, level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
     };
@@ -2848,9 +2848,9 @@ describe("migrate -- fabricator state backfill (v22 -> v23)", () => {
     // stamped SAVE_VERSION), then deserialize + migrate again (zero migration steps this time --
     // already current) and confirm the fabricator facility survives a normal save/load verbatim. It
     // carries NO Decimal, so it rides the JSON round-trip and the `...state` spread in
-    // hydrateDecimals untouched -- no revival needed. The transient fabricateOrder:null that
+    // hydrateDecimals untouched, no revival needed. The transient fabricateOrder:null that
     // MIGRATIONS[22] seeds is dropped by MIGRATIONS[23] (Task C6, v23->v24), so it is absent on both
-    // passes -- verified below.
+    // passes, verified below.
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 5000, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
@@ -2886,7 +2886,7 @@ describe("migrate -- fabricator state backfill (v22 -> v23)", () => {
 // it with independent per-slot production LINES: freshState now seeds refineLines/fabricateLines
 // (CraftLine[], both []) plus nextCraftLineId (1). MIGRATIONS[23] does TWO things a shipped-v23 save
 // needs: (a) seed those three new line fields, and (b) DROP the two now-removed order keys via a
-// rest-destructure -- so even a v23 save still carrying a legacy standing order comes out CLEAN. This
+// rest-destructure, so even a v23 save still carrying a legacy standing order comes out CLEAN. This
 // is the FIRST migration in this file that removes keys as well as adding them (v4->v5 and v10->v11
 // moved fields, but did not strip a retired top-level nullable). NO hydration change is needed:
 // CraftLine carries NO Decimal (id/kind/recipeKey strings, remaining a plain number, mode a plain
@@ -2895,10 +2895,10 @@ describe("migrate -- fabricator state backfill (v22 -> v23)", () => {
 // (already migrated + hydrated). These tests mirror the v22->v23 (fabricator) block above (genuine-
 // old-save seed+drop / freshState parity / idempotent-defensive guard / round-trip), swapping in the
 // line fields and the dropped order keys.
-describe("migrate -- production-lines backfill + legacy-order drop (v23 -> v24)", () => {
+describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", () => {
   it("seeds empty refineLines/fabricateLines + nextCraftLineId 1 and DROPS legacy refineOrder/fabricateOrder on a genuine v23 save, leaving every other field untouched", () => {
     // A genuine v23 shape: every Fabricator field present (facilities.fabricator + fabricateOrder,
-    // seeded by MIGRATIONS[22]) plus the refineOrder MIGRATIONS[19] seeds -- but NO refineLines/
+    // seeded by MIGRATIONS[22]) plus the refineOrder MIGRATIONS[19] seeds, but NO refineLines/
     // fabricateLines/nextCraftLineId (Crafting Allocation Redesign added those to freshState only on
     // this feature branch, so a real shipped-v23 save has none). CRUCIALLY this fixture carries
     // NON-NULL standing orders on BOTH refineOrder and fabricateOrder, to prove the drop clears real
@@ -2922,8 +2922,8 @@ describe("migrate -- production-lines backfill + legacy-order drop (v23 -> v24)"
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8,
       nextShipId: 2,
-      refineOrder: legacyRefineOrder, // legacy standing order -- must be DROPPED
-      fabricateOrder: legacyFabricateOrder, // legacy standing order -- must be DROPPED
+      refineOrder: legacyRefineOrder, // legacy standing order, must be DROPPED
+      fabricateOrder: legacyFabricateOrder, // legacy standing order, must be DROPPED
       fuel: 500,
       researchedBlueprints: ["frameSegmentBp"],
       lifetimeStats: {
@@ -2933,7 +2933,7 @@ describe("migrate -- production-lines backfill + legacy-order drop (v23 -> v24)"
       captains: [
         { id: 1, label: "Captain 1", xp: 600, level: 6, statPoints: 2, spec: null, unlockedCaptainTalents: [], mission: null },
       ],
-      // no refineLines / fabricateLines / nextCraftLineId -- the real pre-v24 shape
+      // no refineLines / fabricateLines / nextCraftLineId, the real pre-v24 shape
     };
 
     const save: SaveFile = { version: 23, created_at: 0, last_saved_at: 0, game_time_seconds: 12000, state: legacyState };
@@ -2944,7 +2944,7 @@ describe("migrate -- production-lines backfill + legacy-order drop (v23 -> v24)"
     expect(migrated.refineLines).toEqual([]);
     expect(migrated.fabricateLines).toEqual([]);
     expect(migrated.nextCraftLineId).toBe(1);
-    // (2) BOTH legacy order keys DROPPED entirely -- the rest-destructure removes them, so the
+    // (2) BOTH legacy order keys DROPPED entirely, the rest-destructure removes them, so the
     // final v24 shape does not carry them even though the v23 fixture held non-null orders. This
     // is the core C6 guarantee: retired single-order state cannot ride along into the line model.
     expect("refineOrder" in migrated).toBe(false);
@@ -2974,7 +2974,7 @@ describe("migrate -- production-lines backfill + legacy-order drop (v23 -> v24)"
 
   it("matches freshState() exactly for the new fields (a migrated v23 save and a fresh v24 game have the SAME line shape)", () => {
     // Anti-regression parity: whatever freshState() seeds for refineLines / fabricateLines /
-    // nextCraftLineId, the migration must produce the IDENTICAL shape -- otherwise a returning
+    // nextCraftLineId, the migration must produce the IDENTICAL shape, otherwise a returning
     // player and a new player diverge on these fields. Builds a minimal v23 save (with the null
     // orders a fresh shipped-v23 carried) and compares its migrated result against a live
     // freshState().
@@ -3009,7 +3009,7 @@ describe("migrate -- production-lines backfill + legacy-order drop (v23 -> v24)"
     // Defense-in-depth for the `?? []` / `?? 1` seeds: a chained/hand-edited/partially-migrated save
     // that already carries configured lines or a bumped id must keep them, not have them reset to the
     // empty seed. Not reachable via a real shipped-v23 save (none has these keys), but the guard makes
-    // a re-run safe -- same posture as MIGRATIONS[18]/[19]/[20]/[21]/[22]'s ?? tests. The legacy order
+    // a re-run safe, same posture as MIGRATIONS[18]/[19]/[20]/[21]/[22]'s ?? tests. The legacy order
     // keys, even if still present here, are STILL dropped (the drop is unconditional).
     const existingRefineLines = [{ id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 4, mode: { kind: "batch", remaining: 4 } }];
     const legacyState: any = {
@@ -3020,8 +3020,8 @@ describe("migrate -- production-lines backfill + legacy-order drop (v23 -> v24)"
       activeProcesses: [], nextProcessId: 1,
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8, nextShipId: 2, refineOrder: null, fabricateOrder: null, fuel: 500, researchedBlueprints: [],
-      refineLines: existingRefineLines, // already configured -- must survive
-      fabricateLines: [], nextCraftLineId: 7, // bumped id -- must survive
+      refineLines: existingRefineLines, // already configured, must survive
+      fabricateLines: [], nextCraftLineId: 7, // bumped id, must survive
       lifetimeStats: { itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {}, creditsEarned: 0, captainXpAwarded: 0, fleetAdminXpAwarded: 0 },
       captains: [{ id: 1, label: "Captain 1", xp: 0, level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
     };
@@ -3036,7 +3036,7 @@ describe("migrate -- production-lines backfill + legacy-order drop (v23 -> v24)"
     // stamped SAVE_VERSION), then deserialize + migrate again (zero migration steps this time --
     // already current) and confirm the line fields survive a normal save/load verbatim and the state
     // still PLAYS (economyTick advances without throwing). CraftLine carries NO Decimal, so it rides
-    // the JSON round-trip and the `...state` spread in hydrateDecimals untouched -- no revival needed.
+    // the JSON round-trip and the `...state` spread in hydrateDecimals untouched, no revival needed.
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 5000, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
@@ -3080,16 +3080,16 @@ describe("migrate -- production-lines backfill + legacy-order drop (v23 -> v24)"
 // pre-established). MIGRATIONS[24] backfills that same level-0 seed onto an existing v24 save, which
 // predates the field entirely. This is a PURELY additive facility seed (no key drop, unlike C6's
 // v23->v24 step): the shipBuild timed job S3 introduced rides activeProcesses (already migrated +
-// hydrated -- its addShip effect carries no Decimal, a ShipInstance is Decimal-free), so no hydration
-// change is needed -- shipyard rides the `...state` spread in hydrateDecimals untouched, exactly as
+// hydrated, its addShip effect carries no Decimal, a ShipInstance is Decimal-free), so no hydration
+// change is needed, shipyard rides the `...state` spread in hydrateDecimals untouched, exactly as
 // the Decimal-free refinery/warehouse/fuelStorage/missionControl/research/fabricator facilities do.
 // These tests mirror the v22->v23 (fabricator) / v23->v24 (lines) blocks above (genuine-old-save seed /
 // freshState parity / idempotent-defensive guard / round-trip), swapping in the shipyard facility.
-describe("migrate -- shipyard facility backfill (v24 -> v25)", () => {
+describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
   it("seeds facilities.shipyard level 0 on a genuine v24 save (no shipyard), leaving every other field untouched", () => {
     // A genuine v24 shape: every Crafting-Allocation-Redesign field present (refineLines/
     // fabricateLines/nextCraftLineId seeded by MIGRATIONS[23], NO legacy refineOrder/fabricateOrder
-    // which C6 dropped) and all SEVEN pre-Shipyard facilities -- but NO facilities.shipyard (Task S1
+    // which C6 dropped) and all SEVEN pre-Shipyard facilities, but NO facilities.shipyard (Task S1
     // added it to freshState only on this feature branch, so a real shipped-v24 save has none).
     // Hand-written literal, same reasoning as every other legacy fixture here; realistic non-fresh
     // progress (levelled facilities, credits, lifetime totals, configured lines) proves the seed
@@ -3122,7 +3122,7 @@ describe("migrate -- shipyard facility backfill (v24 -> v25)", () => {
       captains: [
         { id: 1, label: "Captain 1", xp: 900, level: 8, statPoints: 3, spec: null, unlockedCaptainTalents: [], mission: null },
       ],
-      // no facilities.shipyard -- the real pre-v25 shape
+      // no facilities.shipyard, the real pre-v25 shape
     };
 
     const save: SaveFile = { version: 24, created_at: 0, last_saved_at: 0, game_time_seconds: 15000, state: legacyState };
@@ -3162,7 +3162,7 @@ describe("migrate -- shipyard facility backfill (v24 -> v25)", () => {
 
   it("matches freshState() exactly for the shipyard field (a migrated v24 save and a fresh v25 game have the SAME facility shape)", () => {
     // Anti-regression parity: whatever freshState() seeds for facilities.shipyard, the migration must
-    // produce the IDENTICAL shape -- otherwise a returning player and a new player diverge on the
+    // produce the IDENTICAL shape, otherwise a returning player and a new player diverge on the
     // Shipyard. Builds a minimal v24 save (all seven pre-Shipyard facilities, C6 line fields, no
     // shipyard) and compares its migrated result against a live freshState().
     const fresh = freshState();
@@ -3184,7 +3184,7 @@ describe("migrate -- shipyard facility backfill (v24 -> v25)", () => {
     // The shipyard facility: byte-identical to freshState's seed (level 0, LOCKED).
     expect(migrated.facilities.shipyard).toEqual(fresh.facilities.shipyard);
     expect(migrated.facilities.shipyard).toEqual({ level: 0 });
-    // And the FULL facilities map matches freshState's shape -- proves the migrated old save and a
+    // And the FULL facilities map matches freshState's shape, proves the migrated old save and a
     // brand-new game are indistinguishable across the ENTIRE facilities map now shipyard is seeded.
     expect(migrated.facilities).toEqual(fresh.facilities);
   });
@@ -3193,7 +3193,7 @@ describe("migrate -- shipyard facility backfill (v24 -> v25)", () => {
     // Defense-in-depth for the `?? { level: 0 }` seed: a chained/hand-edited/partially-migrated save
     // that already carries a founded (level >= 1) shipyard must KEEP its level, not have it reset to
     // the level-0 (locked) seed. Not reachable via a real shipped-v24 save (none has the key), but the
-    // guard makes a re-run safe -- same posture as MIGRATIONS[18]/[20]/[21]/[22]'s ?? tests.
+    // guard makes a re-run safe, same posture as MIGRATIONS[18]/[20]/[21]/[22]'s ?? tests.
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
@@ -3216,8 +3216,8 @@ describe("migrate -- shipyard facility backfill (v24 -> v25)", () => {
     // stamped SAVE_VERSION), then deserialize + migrate again (zero migration steps this time --
     // already current) and confirm the shipyard facility survives a normal save/load verbatim and the
     // state still PLAYS (economyTick advances without throwing). shipyard facility state is
-    // { level: number } -- NO Decimal -- so it rides the JSON round-trip and the `...state` spread in
-    // hydrateDecimals untouched -- no revival needed.
+    // { level: number }, NO Decimal, so it rides the JSON round-trip and the `...state` spread in
+    // hydrateDecimals untouched, no revival needed.
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 5000, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
@@ -3255,22 +3255,22 @@ describe("migrate -- shipyard facility backfill (v24 -> v25)", () => {
 // state beyond what MIGRATIONS[20] (v20->v21) already seeds:
 //   - F1 renames are LABEL-ONLY (item/facility KEYS unchanged) -> nothing to migrate.
 //   - F2 Fuel Depot kept the facility KEY `fuelStorage` (label-only rename); its pipelines
-//     are ALWAYS-ON / STRUCTURAL (no order object / pausedReason to persist -- processFuelPipelines
+//     are ALWAYS-ON / STRUCTURAL (no order object / pausedReason to persist, processFuelPipelines
 //     re-derives every tick), and the batches it starts are ordinary "fuelRefineJob" TimedProcesses
 //     in activeProcesses that ride saves like any refine job.
-//   - F3 `refuelDelayTicks` on CaptainMissionState is OPTIONAL, read `?? 0` (model.ts) -- an
+//   - F3 `refuelDelayTicks` on CaptainMissionState is OPTIONAL, read `?? 0` (model.ts), an
 //     in-flight v21 mission that predates it reads as 0; a fresh cycle always sets it.
-//   - The rebalance (FUEL_PER_TICK, creditsPerCycle, refine magnitudes) is CONSTANTS -- no state.
-// So FUEL v2 (F5) itself added NO migration -- a no-op migration would be pure churn/risk. (The
+//   - The rebalance (FUEL_PER_TICK, creditsPerCycle, refine magnitudes) is CONSTANTS, no state.
+// So FUEL v2 (F5) itself added NO migration, a no-op migration would be pure churn/risk. (The
 // v21->v22 step that DOES exist was added later by Research Task R6 for UNRELATED new state --
-// researchedBlueprints / the research facility -- not for anything fuel-v2 introduced.) This test
+// researchedBlueprints / the research facility, not for anything fuel-v2 introduced.) This test
 // is the evidence for the fuel-v2 claim: a v21-era save carrying a mid-flight fuelRefineJob
-// round-trips through serialize/deserialize/migrate and still PLAYS -- fuel hydrates, the Fuel
+// round-trips through serialize/deserialize/migrate and still PLAYS, fuel hydrates, the Fuel
 // Depot refines the persisted batch to completion, and missions dispatch. NOTE: the fixture is
 // built from freshState(), which is now the CURRENT version (v23), so migrate() runs ZERO version
-// steps here (already-current, then hydrateDecimals) exactly as it did at v21 -- the fuel-v2
+// steps here (already-current, then hydrateDecimals) exactly as it did at v21, the fuel-v2
 // property this test locks in is unchanged by R6's/F6's additive research/fabricator seeds.
-describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 -- no new migration)", () => {
+describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, no new migration)", () => {
   it("hydrates + PLAYS at the CURRENT version: fuel present, Fuel Depot refines an in-flight batch, missions dispatch", () => {
     // Build a realistic mid-play v21 state: a stocked Fuel Depot (Deuterium Ice on hand) so a
     // fuelRefineJob is IN FLIGHT, plus credits to buy fuel and dispatch afterwards.
@@ -3278,11 +3278,11 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 -
     // Soft-lock fix (2026-07-14): freshState now starts with a FULL tank (= cap). Assertion
     // (b) below proves the Fuel Depot RAISES the tank, which needs headroom, so drain the
     // tank to 0 here. This test's SUBJECT is depot-refines-after-round-trip, NOT the starting
-    // fuel level -- the empty seed keeps that subject exercised (a full tank couldn't rise).
+    // fuel level, the empty seed keeps that subject exercised (a full tank couldn't rise).
     s.fuel = new Decimal(0);
     // Fuel-sourcing RESTRUCTURE (2026-07-15): the depot refines the dedicated `deuteriumIce`
     // item now (NOT commonOre), so seed the ice under its own key. A v21 save's Fuel Depot
-    // gets its ice by running the free localFuelRun -- here we seed a stock directly.
+    // gets its ice by running the free localFuelRun, here we seed a stock directly.
     s.inventory = { ...s.inventory, deuteriumIce: new Decimal(1000) };
     s.credits = new Decimal(1000);
     // One economyTick fills the depot's free pipeline slot with a fuel-refine batch. rng is
@@ -3322,30 +3322,30 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 -
   });
 });
 
-// NOTE: the pre-Task-5 "migrate -- chained v1 -> v9 migration" describe block
-// that used to live here was deleted, not just edited -- same deliberate,
+// NOTE: the pre-Task-5 "migrate, chained v1 -> v9 migration" describe block
+// that used to live here was deleted, not just edited, same deliberate,
 // authorized deviation from this task's own "keep every existing describe
 // block untouched" instruction as the v1->v5, v1->v6, v1->v7, and v1->v8
 // deletions noted above. It exercised the exact same legacyState literal and
-// is now strictly redundant with "migrate -- chained v1 -> v10 migration"
+// is now strictly redundant with "migrate, chained v1 -> v10 migration"
 // below, which covers the same "one genuine legacy save chained through
 // every migration step" property, correctly extended through v10's captain/
 // Fleet Admiral talent tree backfill.
 //
-// NOTE: the pre-Task-3 (UI Redesign) "migrate -- chained v1 -> v10 migration"
-// describe block that used to live here was deleted, not just edited -- same
+// NOTE: the pre-Task-3 (UI Redesign) "migrate, chained v1 -> v10 migration"
+// describe block that used to live here was deleted, not just edited, same
 // deliberate, authorized deviation from this task's own "keep every existing
 // describe block untouched" instruction as the v1->v5 through v1->v9
 // deletions noted above. It exercised the exact same legacyState literal and
-// is now strictly redundant with "migrate -- chained v1 -> v11 migration"
+// is now strictly redundant with "migrate, chained v1 -> v11 migration"
 // below, which covers the same "one genuine legacy save chained through
 // every migration step" property, correctly extended through v11's
 // fleet-wide tickDurationSeconds backfill.
 //
-// NOTE: this block was originally titled "migrate -- chained v1 -> v11
+// NOTE: this block was originally titled "migrate, chained v1 -> v11
 // migration" (pre-Task-3 of the Big-Number Migration), then renamed in place
-// to "migrate -- chained v1 -> v12 migration" (Task 3, Big-Number Migration)
-// without deleting+replacing, per that task's own instructions -- only the
+// to "migrate, chained v1 -> v12 migration" (Task 3, Big-Number Migration)
+// without deleting+replacing, per that task's own instructions, only the
 // title and the Decimal-designated field assertions changed at that time.
 // Renamed in place AGAIN here (v12 -> v13, this Task 4), same pattern: the
 // underlying legacyState literal is untouched (still the same real v1 shape),
@@ -3356,9 +3356,9 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 -
 // fixture's captains array doesn't exist until MIGRATIONS[4] (v4->v5)
 // synthesizes it (captains[0] from the flat legacy fields, captains[1] via a
 // LIVE freshCaptains() call), and neither captain ever has a non-null
-// `mission` at any point in this chain -- MIGRATIONS[7] (v7->v8) backfills
+// `mission` at any point in this chain, MIGRATIONS[7] (v7->v8) backfills
 // `mission: null` for captains[0], and freshCaptains() already produces
-// `mission: null` for captains[1] -- so MIGRATIONS[12]'s captain-remap branch
+// `mission: null` for captains[1], so MIGRATIONS[12]'s captain-remap branch
 // only ever exercises its early-return (`if (!c.mission) return c;`) on this
 // path, never the progressRatio/newRequired remap math. That math is
 // exercised instead by the hand-constructed mid-phase tests in the "migrate --
@@ -3367,16 +3367,16 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 -
 // mission needs no remap trace, only confirmation that it still ends up idle
 // and at the new tickDurationSeconds).
 
-describe("migrate -- chained v1 -> v13 migration", () => {
+describe("migrate, chained v1 -> v13 migration", () => {
   it("backfills every field across all twelve migration steps on a genuine v1 save missing all of them, ending with every Decimal-designated field hydrated and tickDurationSeconds at the new value", () => {
     // The real v1 shape: no tickDurationSeconds, no research, no
     // synthesizer/alloys fields, no captains array, no skill tree fields, no
     // homePlanet, no mission, no xp/level/statPoints, no refinedMaterial/
     // components, no unlockedCaptainTalents/unlockedHomeworldTalents/
-    // fleetAdminXp/fleetAdminLevel/adminPoints -- this exercises MIGRATIONS[1]
+    // fleetAdminXp/fleetAdminLevel/adminPoints, this exercises MIGRATIONS[1]
     // through [12] running back-to-back on the same object (MIGRATIONS[11] is
-    // a no-op on the state itself -- see save.ts's comment above the
-    // MIGRATIONS table -- but hydrateDecimals(), called unconditionally at
+    // a no-op on the state itself, see save.ts's comment above the
+    // MIGRATIONS table, but hydrateDecimals(), called unconditionally at
     // the end of migrate(), still converts every Decimal-designated field
     // below from plain number to a real Decimal instance). Same legacyState
     // literal the deleted v1->v10 block used (see the NOTEs above), extended
@@ -3404,7 +3404,7 @@ describe("migrate -- chained v1 -> v13 migration", () => {
     // there all the way through until MIGRATIONS[10] (v10->v11) collapses it
     // back to a single fleet-wide field and strips it from every captain,
     // then MIGRATIONS[12] (v12->v13, this task) unconditionally overwrites it
-    // to 1 (the new post-rebalance default) -- asserting the FINAL post-v13
+    // to 1 (the new post-rebalance default), asserting the FINAL post-v13
     // value here, not the intermediate post-v11 value (10) the pre-Task-4
     // version of this chained test asserted.
     expect(migrated.tickDurationSeconds).toBe(1);
@@ -3422,10 +3422,10 @@ describe("migrate -- chained v1 -> v13 migration", () => {
     // v1->v9 block this test replaces): captains[1] is MIGRATIONS[4]'s
     // fresh[1], built by a LIVE call to model.ts's freshCaptains(), and
     // CaptainState has not declared modules/resources/etc. since Task 2's
-    // Generator Stack removal -- fresh[1] genuinely has no .modules today, so
+    // Generator Stack removal, fresh[1] genuinely has no .modules today, so
     // asserting into it would fail, not verify anything. Pre-existing test/
     // model drift from Task 2 (the "v4 -> v5" block above had the identical
-    // problem -- already fixed; the "miner-floor hotfix" block is NOT
+    // problem, already fixed; the "miner-floor hotfix" block is NOT
     // affected, since its captains array is a fully hand-written fixture that
     // never calls freshCaptains()).
     expect(migrated.captains[1].id).toBe(2); // fresh second captain still present
@@ -3433,8 +3433,8 @@ describe("migrate -- chained v1 -> v13 migration", () => {
     expect(migrated.skillPoints).toBe(0);
     expect(migrated.gameTimeSeconds).toBe(100); // fleet-wide field survives the whole chain
     // The 5 material balances end up in `inventory` (MIGRATIONS[17] builds it 1:1
-    // from storage, then strips homePlanet -- Task 7). Their values are Decimal-
-    // designated -- hydrated by hydrateDecimals() (hydrateDecimalMap) at the end of
+    // from storage, then strips homePlanet, Task 7). Their values are Decimal-
+    // designated, hydrated by hydrateDecimals() (hydrateDecimalMap) at the end of
     // migrate(), regardless of which MIGRATIONS steps ran. Asserted via instanceof +
     // .equals(), never .toBe(), since Decimal is an object (reference-compared by
     // toBe, which would always fail here even though the VALUE is correct).
@@ -3449,14 +3449,14 @@ describe("migrate -- chained v1 -> v13 migration", () => {
     expect(migrated.captains[1].mission).toBe(null);
     // v8->v9's fields. captains[0] gets them from MIGRATIONS[8]'s ??
     // backfill (it has no xp/level/statPoints until that step runs).
-    // captains[1] is MIGRATIONS[4]'s fresh[1] -- freshCaptains() is the LIVE
+    // captains[1] is MIGRATIONS[4]'s fresh[1], freshCaptains() is the LIVE
     // model.ts function, so by the time this chain reaches MIGRATIONS[4] it
     // already returns captains with xp/level/statPoints baked in (today's
     // freshCaptainStack() sets them); MIGRATIONS[8]'s ?? is then a no-op for
     // captains[1], same value either way. xp itself is Decimal-designated
-    // (Task 3) -- hydrated the same way as inventory above, regardless of whether
+    // (Task 3), hydrated the same way as inventory above, regardless of whether
     // it arrived as a plain 0 (MIGRATIONS[8]'s ?? backfill) or as a live Decimal(0)
-    // (freshCaptainStack(), Task 2) -- toDecimal()'s instanceof check makes both
+    // (freshCaptainStack(), Task 2), toDecimal()'s instanceof check makes both
     // paths converge on the same real Decimal instance, which is exactly the
     // idempotency this task's hand-trace (Step 7c) is about.
     expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
@@ -3472,15 +3472,15 @@ describe("migrate -- chained v1 -> v13 migration", () => {
     expect(migrated.inventory.components instanceof Decimal).toBe(true);
     expect(migrated.inventory.components.equals(0)).toBe(true);
     // v9->v10's new fields. captains[0] and captains[1] both get
-    // unlockedCaptainTalents from MIGRATIONS[9]'s ?? backfill -- captains[1]
+    // unlockedCaptainTalents from MIGRATIONS[9]'s ?? backfill, captains[1]
     // is MIGRATIONS[4]'s fresh[1] (a LIVE freshCaptains() call), which by
     // Task 1 of this same feature already bakes unlockedCaptainTalents: []
     // onto brand-new captains, so MIGRATIONS[9]'s ?? is a no-op there, same
-    // value either way -- same pattern as the xp/level/statPoints note above.
+    // value either way, same pattern as the xp/level/statPoints note above.
     expect(migrated.captains[0].unlockedCaptainTalents).toEqual([]);
     expect(migrated.captains[1].unlockedCaptainTalents).toEqual([]);
     expect(migrated.unlockedHomeworldTalents).toEqual([]);
-    // fleetAdminXp is Decimal-designated (Task 3) -- same hydration story as
+    // fleetAdminXp is Decimal-designated (Task 3), same hydration story as
     // xp/homePlanet.storage above.
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(0)).toBe(true);
@@ -3497,18 +3497,18 @@ describe("migrate -- chained v1 -> v13 migration", () => {
     // the other version-step comments in this chain call out where a field
     // enters and leaves.
     // v11->v12's Big-Number Migration: MIGRATIONS[11] itself is a no-op (see
-    // save.ts's comment above the MIGRATIONS table) -- every Decimal
+    // save.ts's comment above the MIGRATIONS table), every Decimal
     // instanceof/.equals() assertion above is what actually proves
     // hydrateDecimals(), called unconditionally at the end of migrate(),
     // did its job on this chained-from-v1 save.
     // v12->v13's Tick Granularity Rebalance (this task): MIGRATIONS[12] sets
     // tickDurationSeconds: 1 unconditionally (asserted above, replacing the
     // pre-Task-4 assertion of 10) and would remap phaseProgressTicks for any
-    // captain with an in-progress mission -- neither captain here has one
+    // captain with an in-progress mission, neither captain here has one
     // (captains[0] gets `mission: null` from MIGRATIONS[7], captains[1] is
     // MIGRATIONS[4]'s fresh[1], which freshCaptains() also gives
     // `mission: null`), so the remap math itself is never exercised by this
-    // chained test, only MIGRATIONS[12]'s early-return branch -- asserted
+    // chained test, only MIGRATIONS[12]'s early-return branch, asserted
     // explicitly below, same reasoning as the "Tick Granularity Rebalance
     // (v12 -> v13)" describe block's own idle-captain test above.
     expect(migrated.captains[0].mission).toBe(null);
@@ -3521,7 +3521,7 @@ describe("importRawSave", () => {
   // `localStorage`. This project has no test-DOM environment configured (vite.config.ts
   // registers no vitest `environment`, so tests run under the default `node`
   // environment, and neither jsdom nor happy-dom is installed), so `localStorage`
-  // is simply not defined -- the reason these two tests threw `ReferenceError:
+  // is simply not defined, the reason these two tests threw `ReferenceError:
   // localStorage is not defined` the first time the suite was ever run. Rather than
   // pull in a whole DOM env (a heavy new dependency) for two tests, install a
   // minimal in-memory localStorage shim on globalThis for THIS block only, then
@@ -3562,7 +3562,7 @@ describe("importRawSave", () => {
     try {
       const success = importRawSave("not a valid save at all");
       expect(success).toBe(false);
-      // The existing content must survive completely untouched -- importRawSave
+      // The existing content must survive completely untouched, importRawSave
       // must return false BEFORE ever calling localStorage.setItem, since
       // deserialize() fails first and short-circuits the function.
       expect(localStorage.getItem(SAVE_KEY)).toBe("some-existing-valid-save-string-placeholder");
@@ -3577,7 +3577,7 @@ describe("importRawSave", () => {
     try {
       const success = importRawSave(raw);
       expect(success).toBe(true);
-      // Byte-identical to the input string -- importRawSave writes the RAW
+      // Byte-identical to the input string, importRawSave writes the RAW
       // string as-is, not a re-serialized/mutated copy produced by running it
       // back through migrate()/serialize().
       expect(localStorage.getItem(SAVE_KEY)).toBe(raw);
@@ -3588,7 +3588,7 @@ describe("importRawSave", () => {
   });
 });
 
-describe("deserialize -- whitespace tolerance (import robustness hardening)", () => {
+describe("deserialize, whitespace tolerance (import robustness hardening)", () => {
   // Regression guard for the real-world import failure this hardening fixes:
   // a save exported to a .json file and re-imported often picks up a trailing
   // newline (editors / downloads append one). Before the .trim() inside
@@ -3604,7 +3604,7 @@ describe("deserialize -- whitespace tolerance (import robustness hardening)", ()
     const padded = deserialize(withNewline);
 
     // The padded decode must succeed (not null) and must produce the SAME
-    // payload the clean decode does -- the trim only strips outer whitespace,
+    // payload the clean decode does, the trim only strips outer whitespace,
     // it never alters the save's actual content.
     expect(padded).not.toBeNull();
     expect(clean).not.toBeNull();
@@ -3624,7 +3624,7 @@ describe("deserialize -- whitespace tolerance (import robustness hardening)", ()
     expect(deserialize("")).toBeNull();
     expect(deserialize("   \n\t ")).toBeNull();
     // Defensive: a null slipping in (typed as string in callers, but guarded)
-    // must not throw -- the `raw?.trim()` optional chain returns undefined,
+    // must not throw, the `raw?.trim()` optional chain returns undefined,
     // which the `if (!trimmed)` guard rejects as null.
     expect(deserialize(null as unknown as string)).toBeNull();
   });

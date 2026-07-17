@@ -1,4 +1,4 @@
-// Theme persistence -- a display preference, deliberately separate from
+// Theme persistence, a display preference, deliberately separate from
 // src/lib/game/save.ts's save-file contract so it survives a "delete save."
 
 export const THEME_NAMES = ["cyan", "green", "blue", "red", "white", "gray"] as const;
@@ -8,7 +8,7 @@ export const DEFAULT_THEME: ThemeName = "cyan";
 
 const THEME_KEY = "fleet_admiral_theme";
 
-// Swatch preview colors for the options menu -- intentionally duplicated
+// Swatch preview colors for the options menu, intentionally duplicated
 // from app.css's [data-theme="..."] blocks rather than read back from
 // computed styles, since that would require a DOM measurement trick for
 // no real benefit in a 6-entry hobby-scope lookup table. Keep these in

@@ -11,7 +11,7 @@
       class:active={active === tab.key}
       class:locked={tab.locked}
       disabled={tab.locked}
-      title={tab.locked ? "Coming soon -- not yet available" : undefined}
+      title={tab.locked ? "Coming soon, not yet available" : undefined}
       on:click={() => {
         if (!tab.locked) onSelect(tab.key);
       }}
@@ -23,7 +23,7 @@
 
 <style>
   /* flex-wrap changed to nowrap + overflow-x: auto (2026-07-07, mobile pass)
-     -- on a narrow screen a row with several tabs plus 2 locked "Coming
+    , on a narrow screen a row with several tabs plus 2 locked "Coming
      Soon!" slots no longer wraps to a second line (which fought with
      .tab-body's fixed-height flex column), it scrolls horizontally instead,
      like a native mobile segmented-tab strip. Scrollbar hidden across
@@ -40,7 +40,7 @@
     -ms-overflow-style: none; /* old Edge/IE */
   }
   .sub-tabs::-webkit-scrollbar { display: none; } /* Chrome/Safari/most mobile browsers */
-  /* Lighter/smaller variant of App.svelte's .captain-list-item -- same flat,
+  /* Lighter/smaller variant of App.svelte's .captain-list-item, same flat,
      square-cornered "panel" look (2026-07-07 button-style pass), scaled down
      since this can appear multiple times per screen (unlike the single
      top-level bottom nav). The thin 2px gap above reveals the background
@@ -65,10 +65,10 @@
   }
   /* Locked tabs: grayed (same opacity:0.5 convention App.svelte's own
      .skill-node.locked/.module-card.locked already use), non-clickable
-     (native `disabled` on the <button> -- the `if (!tab.locked)` guard in
+     (native `disabled` on the <button>, the `if (!tab.locked)` guard in
      the click handler above is redundant belt-and-suspenders, since a
      disabled button never fires click at all, kept for clarity/defense in
-     depth). Still hoverable -- disabled buttons keep responding to :hover
+     depth). Still hoverable, disabled buttons keep responding to :hover
      and `title` tooltips in every real browser, so the subtle border
      brighten below acknowledges the hover without implying it's clickable. */
   .sub-tab.locked {

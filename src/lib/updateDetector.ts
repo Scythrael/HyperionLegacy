@@ -1,4 +1,4 @@
-// updateDetector.ts -- client-side "a newer build is deployed" detector.
+// updateDetector.ts, client-side "a newer build is deployed" detector.
 //
 // WHAT: exposes a `updateAvailable` svelte store that flips to true when the build
 // currently DEPLOYED (its id read from /version.json, emitted at build time by
@@ -39,7 +39,7 @@ const SNOOZE_MS = 3 * 60 * 60 * 1000; // 3 hours
 let started = false;
 
 // True while a dismiss is in effect. While snoozed, polling checks must NOT re-raise
-// the banner -- the user already said "not now".
+// the banner, the user already said "not now".
 let snoozed = false;
 
 // Handle for the pending snooze timer so it can be cleared on reset. Null when no
@@ -52,14 +52,14 @@ let pollInterval: ReturnType<typeof setInterval> | null = null;
 // --- pure comparison ---------------------------------------------------------
 
 /**
- * isNewer -- PURE decision: does the fetched (deployed) id represent a build newer
+ * isNewer, PURE decision: does the fetched (deployed) id represent a build newer
  * than the one we booted with?
  *
  * Returns true ONLY when BOTH ids are non-empty AND they differ. A null / undefined
  * / empty fetchedId (offline, a dev 404, or HTML returned by a misconfigured rewrite
  * that we failed to parse as a build id) MUST return false: we never nag the user on
- * a bad or ambiguous fetch. An empty bootId (should never happen -- buildId.ts
- * guarantees non-empty -- but defended anyway) also returns false.
+ * a bad or ambiguous fetch. An empty bootId (should never happen, buildId.ts
+ * guarantees non-empty, but defended anyway) also returns false.
  *
  * Note: "newer" here means "different". Deploy ids only move forward (a new deploy
  * never serves a previously-booted id), so difference is a sound proxy for newer and
@@ -77,7 +77,7 @@ export function isNewer(
 // --- fetch + check -----------------------------------------------------------
 
 /**
- * fetchDeployedBuildId -- read the currently-deployed build id from version.json,
+ * fetchDeployedBuildId, read the currently-deployed build id from version.json,
  * or return null on ANY failure (offline, non-2xx, unparseable body, non-string
  * buildId). Errors are swallowed intentionally: a failed version check is a normal,
  * expected event (the user may be offline) and must never spam the console or nag.
@@ -100,8 +100,8 @@ async function fetchDeployedBuildId(): Promise<string | null> {
 }
 
 /**
- * checkForUpdate -- one poll cycle: if snoozed, do nothing (respect the user's
- * dismiss -- and skip the fetch entirely to avoid pointless network cost). Otherwise
+ * checkForUpdate, one poll cycle: if snoozed, do nothing (respect the user's
+ * dismiss, and skip the fetch entirely to avoid pointless network cost). Otherwise
  * fetch the deployed id and, if it is genuinely newer, raise the banner.
  */
 async function checkForUpdate(bootId: string): Promise<void> {
@@ -120,7 +120,7 @@ async function checkForUpdate(bootId: string): Promise<void> {
 // --- public API --------------------------------------------------------------
 
 /**
- * startUpdatePolling -- begin watching for fresh deploys. Wires:
+ * startUpdatePolling, begin watching for fresh deploys. Wires:
  *   1. an immediate check (so a deploy that landed before load is caught at once),
  *   2. a recurring poll every POLL_MS,
  *   3. a check on tab refocus (visibilitychange -> visible, and window focus),
@@ -156,7 +156,7 @@ export function startUpdatePolling(bootId: string = __BUILD_ID__): void {
 }
 
 /**
- * dismissUpdate -- user chose "not now". Hide the banner and suppress it for
+ * dismissUpdate, user chose "not now". Hide the banner and suppress it for
  * SNOOZE_MS, then re-raise it DIRECTLY (no re-fetch).
  *
  * Re-raising without re-fetching is deliberate and correct: once a newer build is
@@ -178,7 +178,7 @@ export function dismissUpdate(): void {
 }
 
 /**
- * resetUpdateDetectorForTests -- TEST-ONLY. Clears every module singleton (the
+ * resetUpdateDetectorForTests, TEST-ONLY. Clears every module singleton (the
  * started guard, the snooze flag, the pending snooze timer, the poll interval) and
  * resets the store to false.
  *

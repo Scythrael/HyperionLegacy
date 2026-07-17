@@ -1,4 +1,4 @@
-// buildId.ts -- pure resolution of the per-build id used by the update detector.
+// buildId.ts, pure resolution of the per-build id used by the update detector.
 // Prefers Vercel's commit SHA (set on every deploy) so the id is meaningful;
 // falls back to a timestamp for local/off-Vercel builds so it is NEVER empty
 // (an empty id would make the client's "did the build change?" compare useless).

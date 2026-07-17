@@ -1,5 +1,5 @@
 <script lang="ts">
-  // --- RadialWeb.svelte -- static render of one branch's visible subgraph -----
+  // --- RadialWeb.svelte, static render of one branch's visible subgraph -----
   // Author: Radial Skill Web feature (Task 8)
   // Created: 2026-07-08 (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 8)
   //
@@ -9,28 +9,28 @@
   //   set of absolutely-positioned square nodes inside a pannable world
   //   container. This task is the STATIC render only:
   //     - Task 9 adds the SVG connectors behind the nodes (reworked to straight
-  //       glowing links at Device Checkpoint A -- see the Task 9 note below).
+  //       glowing links at Device Checkpoint A, see the Task 9 note below).
   //     - Task 10 adds Pointer-Events pan + tap/drag disambiguation (the
   //       `.web-viewport`'s `touch-action: none` and the `.web-world` translate
   //       placeholder below exist now so that task is a pure addition).
   //     - Task 11 adds the node tooltip + Learn overlay.
   //   So here every node is drawn at its hand-authored (x, y) web-space
   //   coordinate, tagged with exactly one of owned / learnable / locked, plus
-  //   the orthogonal `.hub` flag, and fires a node-tap on click (gated -- see
-  //   Task 10 below). No layout/feel tuning is attempted here -- that is deferred
+  //   the orthogonal `.hub` flag, and fires a node-tap on click (gated, see
+  //   Task 10 below). No layout/feel tuning is attempted here, that is deferred
   //   to the Task 12 device checkpoint (Checkpoint A). Tunables are marked
   //   TUNABLE below.
   //
   //   Task 9 (reworked at Device Checkpoint A): an SVG connector layer is drawn
   //   INSIDE .web-world, BEHIND the nodes. It uses a REAL, non-zero SVG canvas
   //   centered on the world origin (the old 0×0 + overflow-visible SVG didn't
-  //   paint on device -- root-cause fixed via the HALF offset const). Each edge is
+  //   paint on device, root-cause fixed via the HALF offset const). Each edge is
   //   an L-SHAPED ORTHOGONAL ELBOW <path> (a horizontal run then a vertical run
-  //   meeting at a 90° corner -- NOT a diagonal line), per the Checkpoint-A
+  //   meeting at a 90° corner, NOT a diagonal line), per the Checkpoint-A
   //   feedback correction. Lighting is classified by BOTH endpoints' ownership:
   //   an edge with BOTH endpoints owned is "powered" (a steady outer glow on the
   //   whole L PLUS a travelling pulse flowing hub-outward); every other edge is
-  //   "dormant" (a dim dark line -- topology only, no glow, no pulse). Pulse
+  //   "dormant" (a dim dark line, topology only, no glow, no pulse). Pulse
   //   direction is hub-outward: a per-node BFS depth from the branch hub
   //   (`depthFromHub`) orders each edge shallow→deep so the elbow starts hub-side
   //   and the pulse flows away from the hub. See the `HALF` const, the
@@ -42,26 +42,26 @@
   //   near-stationary press is a TAP that (on a node) opens that node's tooltip.
   //   The two are told apart by movedDistance vs TAP_THRESHOLD_PX. Tap resolution
   //   happens in the viewport's OWN pointerup by reading the EVENT TARGET
-  //   (`e.target.closest("[data-node-key]")`) -- the node/child actually under the
+  //   (`e.target.closest("[data-node-key]")`), the node/child actually under the
   //   finger, bubbled up to the viewport handler by event delegation. (Checkpoint-A
   //   device fix: capture is now taken ONLY once a drag crosses the threshold, so a
-  //   clean TAP never captures -- `e.target` stays the real node, no coordinate math.
+  //   clean TAP never captures, `e.target` stays the real node, no coordinate math.
   //   The earlier build captured on every pointerdown and hit-tested the release
   //   point with document.elementFromPoint, which was unreliable on mobile under
-  //   capture + the transform-panned world -- it only resolved near the viewport
+  //   capture + the transform-panned world, it only resolved near the viewport
   //   center, so off-center taps silently failed to open.) Keyboard Enter/Space on
   //   a focused node is a separate, capture-free path handled by the button's
   //   on:keydown. See the "Pan + tap/drag disambiguation" block for the lifecycle.
   //
   //   Task 11 (this addition): node tooltip overlay + Learn action. A node tap
-  //   now opens an INTERNAL tooltip (RadialWeb owns it -- one component serves
+  //   now opens an INTERNAL tooltip (RadialWeb owns it, one component serves
   //   both the captain and homeworld panels, so owning the tooltip once here
   //   avoids duplicating it in the parent). The tooltip shows the node's label,
-  //   a human-readable effect line (via the `describeEffect` PROP -- see below),
+  //   a human-readable effect line (via the `describeEffect` PROP, see below),
   //   cost + affordability, and flavor, with a Learn button that calls
   //   `onLearn(key)` only when the node is learnable AND affordable. The overlay
   //   is PORTALED to <body> to escape a future Panel's backdrop-filter containing
-  //   block (the known trap -- see the `portal` action's comment). See the
+  //   block (the known trap, see the `portal` action's comment). See the
   //   "Tooltip (Task 11)" state/handler block and the tooltip markup at the end.
 
   import { computeVisibleTalents } from "./game/talentWeb";
@@ -72,11 +72,11 @@
   // genuine top-level child of <body>, NOT a descendant of this component's
   // DOM subtree.
   //
-  // WHY this exists (the known trap -- do NOT remove without understanding it):
+  // WHY this exists (the known trap, do NOT remove without understanding it):
   //   In a later task RadialWeb is mounted INSIDE a <Panel> whose `.panel` sets
   //   `backdrop-filter`. Per the CSS spec, an element with `backdrop-filter`
   //   (like transform/filter/perspective) becomes the CONTAINING BLOCK for any
-  //   `position: fixed` descendant -- so a `position: fixed; inset: 0` "full
+  //   `position: fixed` descendant, so a `position: fixed; inset: 0` "full
   //   screen" backdrop rendered inside that Panel would only ever cover the
   //   Panel's box, not the real viewport. This project already hit this exact
   //   bug once: App.svelte's `.tooltip-backdrop` was first nested inside the
@@ -89,7 +89,7 @@
   //   `document.body` exist, and destroy() only removes the node if it is still
   //   attached (so a double-teardown or an SSR no-mount is a harmless no-op).
   function portal(node: HTMLElement) {
-    // SSR guard: no document at build/prerender time -- do nothing, no crash.
+    // SSR guard: no document at build/prerender time, do nothing, no crash.
     if (typeof document !== "undefined" && document.body) {
       document.body.appendChild(node);
     }
@@ -114,7 +114,7 @@
   // computeVisibleTalents needs (neighbors/isHub).
   //
   // Task 11 additions: the tooltip also reads `effect` and `flavor`. `effect`
-  // is typed `unknown` ON PURPOSE -- RadialWeb must stay generic over BOTH the
+  // is typed `unknown` ON PURPOSE, RadialWeb must stay generic over BOTH the
   // captain and homeworld tables (whose effect unions differ), so it never
   // interprets `effect` itself. Instead the PARENT supplies a `describeEffect`
   // prop (the correct describe*TalentEffect for its table), and RadialWeb just
@@ -140,29 +140,29 @@
   };
 
   // --- Props ----------------------------------------------------------------
-  // `table`  -- a whole talent table (captain or homeworld). Typed structurally
+  // `table` , a whole talent table (captain or homeworld). Typed structurally
   //            (see RadialNode) so one component renders either.
-  // `branch` -- which branch/category of `table` to render (e.g.
+  // `branch`, which branch/category of `table` to render (e.g.
   //            "resourcefulness" for a captain, "fleetLogistics" for homeworld).
-  // `owned`  -- the keys the player currently owns for this branch (a captain's
+  // `owned` , the keys the player currently owns for this branch (a captain's
   //            unlockedCaptainTalents or state.unlockedHomeworldTalents).
-  // `points` -- available currency for affordability styling (a captain's
+  // `points`, available currency for affordability styling (a captain's
   //            statPoints, or the fleet's adminPoints).
-  // `pointsLabel` -- human label for that currency ("Stat Points"/"Admin Points"),
+  // `pointsLabel`, human label for that currency ("Stat Points"/"Admin Points"),
   //            shown in the corner readout.
-  // `onLearn`   -- parent-supplied buy callback. Wired (Task 11) to the tooltip's
+  // `onLearn`  , parent-supplied buy callback. Wired (Task 11) to the tooltip's
   //            Learn button: the parent points it at buyCaptainTalent /
   //            buyHomeworldTalent. Called with the node key on a committed learn.
-  // `onNodeTap` -- OPTIONAL parent-supplied node-tap passthrough. The tooltip is
+  // `onNodeTap`, OPTIONAL parent-supplied node-tap passthrough. The tooltip is
   //            now INTERNAL (Task 11 opens it locally on tap), so this is no
   //            longer required for the tooltip to work; it's kept as an optional
   //            notification hook (defaults to a no-op) in case a parent wants to
   //            observe taps. Node taps open the internal tooltip regardless.
-  // `describeEffect` -- parent-supplied effect describer (Task 11). The parent
+  // `describeEffect`, parent-supplied effect describer (Task 11). The parent
   //            passes describeCaptainTalentEffect (captain) or
   //            describeHomeworldTalentEffect (homeworld) from tick.ts, so
   //            RadialWeb renders the right human-readable effect line WITHOUT
-  //            importing either concrete function -- keeping it generic over both
+  //            importing either concrete function, keeping it generic over both
   //            tables. Defaulted to a safe stub so an un-wired parent doesn't
   //            crash the tooltip (it just shows no effect line).
   export let table: Record<string, RadialNode>;
@@ -173,18 +173,18 @@
   export let onLearn: (key: string) => void = () => {};
   export let onNodeTap: (key: string) => void = () => {};
   export let describeEffect: (effect: any) => string = () => "";
-  // `fleetAdminLevel` -- the fleet's CURRENT Fleet Admiral level (Task 10). Read
+  // `fleetAdminLevel`, the fleet's CURRENT Fleet Admiral level (Task 10). Read
   // ONLY to surface a node's `requiresFleetAdminLevel` wall in the tooltip:
   // met when fleetAdminLevel >= the node's required level, unmet (red) below it.
   // Defaulted to 0 so a parent that mounts a table WITHOUT level walls (the
-  // captain talents -- none carry requiresFleetAdminLevel) needn't pass it; the
+  // captain talents, none carry requiresFleetAdminLevel) needn't pass it; the
   // requirement branch never evaluates for such nodes, so the default is inert
   // there. The homeworld mount passes state.fleetAdminLevel (see App.svelte).
   export let fleetAdminLevel: number = 0;
 
   // --- Pan offset (Task 10) -------------------------------------------------
   // The world is translated by (panX, panY). Task 10 drives these from a
-  // Pointer-Events drag on .web-viewport. They start at 0 (hub centered -- see
+  // Pointer-Events drag on .web-viewport. They start at 0 (hub centered, see
   // the `.web-world` centering note in the style block) and accumulate pointer deltas.
   let panX = 0;
   let panY = 0;
@@ -196,7 +196,7 @@
   // them apart by how far the pointer moved during the gesture (movedDistance vs
   // TAP_THRESHOLD_PX).
   //
-  // CAPTURE-ONLY-ON-DRAG (Checkpoint-A device fix -- the crux of this component):
+  // CAPTURE-ONLY-ON-DRAG (Checkpoint-A device fix, the crux of this component):
   // setPointerCapture is NOT called on pointerdown. It is taken lazily in
   // handlePointerMove the moment movedDistance first crosses TAP_THRESHOLD_PX --
   // i.e. only once the gesture has become a real DRAG. Consequences:
@@ -206,7 +206,7 @@
   //     the node's event up to this viewport handler). No coordinate math, works
   //     off-center. This FIXES the Checkpoint-A mobile bug where the old build
   //     captured on every pointerdown and hit-tested the release point with
-  //     document.elementFromPoint -- unreliable on mobile under capture + the
+  //     document.elementFromPoint, unreliable on mobile under capture + the
   //     transform-panned world (only resolved near the viewport center, so
   //     off-center taps silently failed).
   //   * A DRAG captures as soon as it crosses the threshold, so panning keeps
@@ -215,13 +215,13 @@
   //     threshold the finger is within ~8px of its start, still over the viewport,
   //     so its events fire normally; at/after the threshold capture is engaged.
   // Keyboard activation is a separate path (each node button's on:keydown handles
-  // Enter/Space) -- no pointer capture is involved there, so it reliably opens the
+  // Enter/Space), no pointer capture is involved there, so it reliably opens the
   // tooltip for accessibility.
 
-  // TAP_THRESHOLD_PX -- a gesture whose total pointer travel stays under this many
+  // TAP_THRESHOLD_PX, a gesture whose total pointer travel stays under this many
   // CSS px is treated as a TAP; at or beyond it, it's a PAN (and any trailing
   // node `click` is swallowed). TUNABLE: feel-tune constant; verify on device
-  // (Checkpoint A) -- too small = drags misfire as taps, too large = deliberate
+  // (Checkpoint A), too small = drags misfire as taps, too large = deliberate
   // short drags get eaten / taps feel mushy.
   const TAP_THRESHOLD_PX = 8;
 
@@ -229,14 +229,14 @@
   // startX/startY are the pointerdown origin; panX0/panY0 snapshot the pan offset
   // at gesture start so move deltas are absolute-from-start (not incremental),
   // which avoids drift. movedDistance is the running straight-line distance from
-  // the start point -- the tap-vs-pan discriminator.
+  // the start point, the tap-vs-pan discriminator.
   let dragging = false;
   let startX = 0;
   let startY = 0;
   let panX0 = 0;
   let panY0 = 0;
   let movedDistance = 0;
-  // `captured` -- true once this gesture has crossed TAP_THRESHOLD_PX and taken
+  // `captured`, true once this gesture has crossed TAP_THRESHOLD_PX and taken
   // pointer capture (see handlePointerMove). It stays false for a pure TAP, which
   // is exactly why a tap's `e.target` remains the real node (no capture retarget).
   // handlePointerUp releases capture only when this is set, then resets it.
@@ -245,14 +245,14 @@
   // --- Gesture handlers -----------------------------------------------------
 
   /**
-   * pointerdown -- begin a gesture. Snapshots the start point and current pan,
+   * pointerdown, begin a gesture. Snapshots the start point and current pan,
    * arms `dragging`, zeroes the movement accumulator, and clears `captured`.
    *
    * NB: pointer capture is deliberately NOT taken here. Capturing on every
    * pointerdown retargets a clean tap's `e.target` (and the compatibility click)
    * to the viewport, which broke off-center taps on mobile (the Checkpoint-A bug).
    * Instead capture is taken lazily in handlePointerMove only once the gesture
-   * crosses TAP_THRESHOLD_PX (i.e. becomes a real drag) -- so a TAP never captures
+   * crosses TAP_THRESHOLD_PX (i.e. becomes a real drag), so a TAP never captures
    * and its `e.target` stays the actual node under the finger.
    */
   function handlePointerDown(e: PointerEvent) {
@@ -266,7 +266,7 @@
   }
 
   /**
-   * pointermove -- while a gesture is active, translate the world by the pointer
+   * pointermove, while a gesture is active, translate the world by the pointer
    * delta from the start point (absolute-from-start via panX0/panY0, so it never
    * accumulates rounding drift) and update movedDistance. movedDistance is the
    * sole tap-vs-pan discriminator, read once at pointerup: a release with
@@ -274,7 +274,7 @@
    * beyond it is a PAN (no node opens). Ignored when not dragging (nothing held).
    *
    * CAPTURE-ON-DRAG: the first move that pushes movedDistance to/over
-   * TAP_THRESHOLD_PX takes pointer capture (once -- guarded by `captured`). That
+   * TAP_THRESHOLD_PX takes pointer capture (once, guarded by `captured`). That
    * makes this gesture a real drag: capture routes subsequent move/up back to the
    * viewport even after the finger leaves it, so an off-viewport pan keeps
    * tracking. A gesture that never crosses the threshold (a TAP) never captures,
@@ -290,7 +290,7 @@
 
     // Cross the tap/pan threshold → this is a drag → capture the pointer so pan
     // keeps tracking off-viewport. Done once (`!captured`). Guarded: capture is
-    // best-effort -- a failed capture only degrades off-element tracking, so it
+    // best-effort, a failed capture only degrades off-element tracking, so it
     // must never break the pan (handled explicitly per Omega 14, not swallowed
     // invisibly). A TAP (below threshold) reaches neither branch, so it stays
     // capture-free and its e.target remains the tapped node.
@@ -309,20 +309,20 @@
   }
 
   /**
-   * pointerup / pointercancel -- end the gesture. Clears `dragging`, releases
-   * pointer capture (only if this gesture actually took it), and -- for a TAP --
+   * pointerup / pointercancel, end the gesture. Clears `dragging`, releases
+   * pointer capture (only if this gesture actually took it), and, for a TAP --
    * resolves which node was tapped and opens its tooltip.
    *
    * Tap resolution reads the EVENT TARGET: `e.target.closest("[data-node-key]")`.
    * Because a tap never captured the pointer (capture is taken only once a drag
-   * crosses the threshold -- see handlePointerMove), `e.target` is the ACTUAL node
+   * crosses the threshold, see handlePointerMove), `e.target` is the ACTUAL node
    * button (or a child span) under the finger, delivered here by event delegation
    * (the node's pointerup bubbles up to this viewport handler). So `.closest`
-   * walks up to the owning node and yields its key with NO coordinate math -- which
+   * walks up to the owning node and yields its key with NO coordinate math, which
    * is what makes off-center taps work reliably on mobile AND desktop. This
    * replaced the old document.elementFromPoint hit-test, which was unreliable on
    * mobile under pointer capture + the transform-panned world (it only resolved
-   * correctly near the viewport center -- the Checkpoint-A bug).
+   * correctly near the viewport center, the Checkpoint-A bug).
    *
    * A pan (movedDistance >= TAP_THRESHOLD_PX) skips the resolution entirely, so no
    * node opens at the end of a drag. A tap on empty space has an e.target with no
@@ -335,12 +335,12 @@
 
     // A near-stationary gesture is a TAP. Resolve the tapped node in TWO steps:
     //
-    //   1. Fast path -- the EVENT TARGET. No capture happens on a tap (capture is
+    //   1. Fast path, the EVENT TARGET. No capture happens on a tap (capture is
     //      taken only when a drag crosses the threshold), so e.target is normally
     //      the real node/child under the finger, bubbled here by event delegation.
     //      .closest walks up to the owning node button and yields its data-node-key.
     //
-    //   2. Fallback -- elementsFromPoint STACK-SEARCH. On mobile a transparent
+    //   2. Fallback, elementsFromPoint STACK-SEARCH. On mobile a transparent
     //      element with pointer-events:auto can sit OVER the nodes in the bottom
     //      band of the panel: pointer events still reach the viewport (so drag/pan
     //      works), but the tap's e.target is that overlay, whose .closest finds no
@@ -348,7 +348,7 @@
     //      elements at the tap point top-to-bottom (skipping pointer-events:none
     //      ones), so we scan that stack for the first that resolves to a node,
     //      seeing PAST the overlay. This is reliable precisely because a tap never
-    //      captured the pointer -- the client coords map straight to the real
+    //      captured the pointer, the client coords map straight to the real
     //      hit-stack (the earlier capture-time elementFromPoint approach was flaky
     //      for exactly the opposite reason: capture distorts the resolve).
     //
@@ -380,7 +380,7 @@
 
     // Release capture ONLY if this gesture took it (a drag that crossed the
     // threshold). A tap never captured, so there's nothing to release. Guarded by
-    // hasPointerCapture too, and wrapped in try/catch -- releasing is best-effort
+    // hasPointerCapture too, and wrapped in try/catch, releasing is best-effort
     // and must never break gesture teardown. Reset `captured` for the next
     // gesture.
     if (captured) {
@@ -399,18 +399,18 @@
   // --- Tooltip (Task 11) ----------------------------------------------------
   // `openTooltipKey` is the single piece of tooltip state: the key of the node
   // whose tooltip is open, or null for "no tooltip". Kept as the KEY (not a
-  // resolved snapshot) so the tooltip's contents stay reactive -- if `points` or
+  // resolved snapshot) so the tooltip's contents stay reactive, if `points` or
   // `owned` change while it's open (e.g. the player learns the node), the Learn
   // gate and affordability line update live off the same nodeState logic the
   // nodes use, rather than showing a stale snapshot.
   let openTooltipKey: string | null = null;
 
   // Resolved tooltip view-model, derived reactively from the open key. Null when
-  // nothing is open OR the key somehow doesn't resolve to a def (defensive -- a
+  // nothing is open OR the key somehow doesn't resolve to a def (defensive, a
   // dangling key just closes the tooltip by rendering nothing).
   //
   // Reactivity note (deliberate): Svelte builds a reactive statement's
-  // dependency list from the top-level variables it DIRECTLY references -- it does
+  // dependency list from the top-level variables it DIRECTLY references, it does
   // NOT trace into called functions. nodeState() reads `ownedSet` and `points`
   // internally, so to make this block re-run when EITHER changes we reference
   // both directly below (`points` in the shortfall math; `ownedSet` via the
@@ -434,11 +434,11 @@
           void ownedSet;
           void fleetAdminLevel;
           const st = nodeState(key, def);
-          // shortfall -- how many more points are needed when unaffordable (>0
+          // shortfall, how many more points are needed when unaffordable (>0
           // only for a not-owned, not-affordable node). Drives the "need N more"
           // hint on the disabled Learn button / cost line.
           const shortfall = st.owned ? 0 : Math.max(0, def.cost - points);
-          // Task 10 -- Fleet-Admiral-level wall, for the requirement line below.
+          // Task 10, Fleet-Admiral-level wall, for the requirement line below.
           // `requiresLevel` is this node's required FA level (undefined => no
           // wall). `levelMet` reuses the SAME fleetAdminLevelMet helper nodeState
           // uses, so the square's .locked tint and this tooltip's red/neutral
@@ -502,7 +502,7 @@
   // --- Derived: the visible subgraph ----------------------------------------
   // Reactive so the render follows ownership/branch/table changes (learning a
   // node reveals its neighbors on the next tick). computeVisibleTalents is the
-  // single source of truth for fog-of-war -- we render ONLY its members, never
+  // single source of truth for fog-of-war, we render ONLY its members, never
   // the whole table.
   $: visible = computeVisibleTalents(table, branch, owned);
 
@@ -530,7 +530,7 @@
   // the hub don't change when the player learns a node, so depth is stable across
   // ownership changes. Svelte re-runs this block only when `table` or `branch`
   // change (the two vars it references directly), so the BFS is not recomputed on
-  // every learn -- just when the rendered branch/table actually changes.
+  // every learn, just when the rendered branch/table actually changes.
   //
   // Scope: the BFS walks the WHOLE branch subgraph (every def with branch ===
   // branch), not just the currently-visible subset, so depths are correct even
@@ -585,7 +585,7 @@
   //
   // WHY a named const (root-cause fix): the previous connector SVG was 0×0 with
   // overflow:visible and relied on strokes painting OUTSIDE a zero-size viewport.
-  // That "overflow-visible on a 0×0 SVG" trick is unreliable -- several real
+  // That "overflow-visible on a 0×0 SVG" trick is unreliable, several real
   // browsers (confirmed on device at Checkpoint A) simply do NOT paint anything
   // outside a zero-area SVG viewport, so the connectors vanished. The robust fix
   // is a genuine, large, non-zero SVG canvas centered on .web-world's origin (see
@@ -593,28 +593,28 @@
   // shifted by +HALF to compensate for the SVG element itself being shifted by
   // −HALF. No overflow trick remains.
   //
-  // ALIGNMENT ARITHMETIC (must be exactly right -- this is what makes the lines
+  // ALIGNMENT ARITHMETIC (must be exactly right, this is what makes the lines
   // both appear AND land on node centers):
   //   * The SVG element is positioned at left:−HALF; top:−HALF relative to
-  //     .web-world's origin, and is 2*HALF wide/tall -- so its internal (0,0) sits
+  //     .web-world's origin, and is 2*HALF wide/tall, so its internal (0,0) sits
   //     at world-origin + (−HALF, −HALF), and its internal (2*HALF, 2*HALF) sits
   //     at world-origin + (+HALF, +HALF). The origin is dead-center of the canvas.
   //   * A node at web-coord (x, y) has its CENTER at world-origin + (x, y)
-  //     (left:{x}; top:{y} + translate(-50%,-50%) -- node layer is UNCHANGED).
+  //     (left:{x}; top:{y} + translate(-50%,-50%), node layer is UNCHANGED).
   //   * We draw that endpoint at SVG-internal point (x+HALF, y+HALF). Its absolute
   //     position is:  world-origin + (−HALF, −HALF) + (x+HALF, y+HALF)
-  //                 = world-origin + (x, y)  ✓  -- exactly the node center.
+  //                 = world-origin + (x, y)  ✓ , exactly the node center.
   //   Negative web-coords land inside the canvas too, e.g. x=−320 → internal
   //   −320+5000 = 4680, comfortably within [0, 2*HALF]. No overflow needed.
   //
-  // TUNABLE: 5000 gives a 10000×10000 px surface -- ±5000 px from center each way,
+  // TUNABLE: 5000 gives a 10000×10000 px surface, ±5000 px from center each way,
   // generous for the current webs. If a future web authors nodes beyond ±5000 px
   // from the hub, their connectors would clip; bump HALF then (Checkpoint B).
   const HALF = 5000;
 
   // --- Derived: the visible edge list (connector layer) ----------------------
   // One L-SHAPED ORTHOGONAL ELBOW is drawn per UNDIRECTED edge whose BOTH
-  // endpoints are visible -- a horizontal run from the shallow (hub-side) endpoint
+  // endpoints are visible, a horizontal run from the shallow (hub-side) endpoint
   // then a vertical run up to the deep endpoint, meeting at a 90° corner (NOT a
   // diagonal). Derivation rules:
   //
@@ -622,7 +622,7 @@
   //     `visible`. An elbow into a hidden node would leak fog-of-war info, so
   //     those are skipped entirely (never drawn).
   //   * Dedupe: `neighbors` is bidirectional by convention (A lists B and B lists
-  //     A -- see plan line 87), so every undirected edge shows up twice. We emit it
+  //     A, see plan line 87), so every undirected edge shows up twice. We emit it
   //     exactly once by only taking the direction where `key < neighborKey`
   //     (lexicographic string compare). That single inequality both dedupes AND
   //     drops self-loops (key === key fails `<`), with no auxiliary Set needed.
@@ -637,14 +637,14 @@
   //     e.g. a hub-less branch) are broken DETERMINISTICALLY by key string so the
   //     orientation is stable across renders (the smaller key starts).
   //
-  //   * POWERED vs DORMANT LIGHTING (drives the look -- see the markup / CSS).
+  //   * POWERED vs DORMANT LIGHTING (drives the look, see the markup / CSS).
   //     Classified purely by whether BOTH endpoints are owned:
-  //       - "powered" (BOTH endpoints owned): the whole L is "engaged" -- a soft
+  //       - "powered" (BOTH endpoints owned): the whole L is "engaged", a soft
   //         STEADY outer glow on a base rail PLUS a bright travelling pulse
   //         flowing start→end (shallow→deep = hub-outward). This is the ONLY
   //         lit/animated state.
-  //       - "dormant" (NOT both owned -- one or both endpoints unlearned): a DIM,
-  //         DARK line -- low opacity, no glow, no pulse -- just enough to show the
+  //       - "dormant" (NOT both owned, one or both endpoints unlearned): a DIM,
+  //         DARK line, low opacity, no glow, no pulse, just enough to show the
   //         connection topology.
   //     (This INVERTS the earlier owned↔learnable pulse behaviour: only a
   //     fully-learned link now lights up.)
@@ -663,7 +663,7 @@
     // A fast membership set of visible keys so the neighbor scan is O(1) per
     // lookup instead of re-scanning visibleNodes. Built from visibleNodes (not
     // the raw `visible` set) so it already respects the branch filter applied
-    // there -- an edge is only drawn when both ends survive that same filter.
+    // there, an edge is only drawn when both ends survive that same filter.
     const visibleKeys = new Set(visibleNodes.map((n) => n.key));
 
     // Depth lookup: a node absent from the BFS (unreachable / hub-less branch)
@@ -697,7 +697,7 @@
 
         // Orient shallow→deep so the pulse flows hub-outward. Compare BFS depth;
         // on a tie (equal depth or both +Infinity), the smaller key string starts
-        // -- a deterministic, render-stable tie-break.
+        //, a deterministic, render-stable tie-break.
         const keyDepth = depthOf(key);
         const neighborDepth = depthOf(neighborKey);
         let start = def;
@@ -723,7 +723,7 @@
     return edges;
   })();
 
-  // --- Fleet-Admiral-level wall (Task 10) -- single source of truth -----------
+  // --- Fleet-Admiral-level wall (Task 10), single source of truth -----------
   // Returns whether THIS node's FA-level wall is satisfied. undefined field =>
   // no wall => always met; otherwise the fleet must have reached the required
   // level. This is the ONE place the wall is evaluated: BOTH the node-square
@@ -749,23 +749,23 @@
   // Exactly ONE of owned / learnable / locked applies to any visible node;
   // `.hub` is an ORTHOGONAL flag layered on top (a hub can itself be owned,
   // learnable, or locked). Rules (design §2.1 / §3.4, extended by Task 10):
-  //   owned     -- key ∈ owned.
-  //   learnable -- visible, NOT owned, affordable (cost <= points), AND its
+  //   owned    , key ∈ owned.
+  //   learnable, visible, NOT owned, affordable (cost <= points), AND its
   //               FA-level wall is met.
-  //   locked    -- visible, NOT owned, and NOT buyable -- i.e. unaffordable
+  //   locked   , visible, NOT owned, and NOT buyable, i.e. unaffordable
   //               (cost > points) OR wall-blocked (FA level too low).
   // "visible" is a given here (we only iterate visible nodes). Task 10 folds the
   // FA-level wall into this split so an affordable-but-walled slot renders
   // `.locked` (dimmed, cursor:not-allowed) exactly like an unaffordable one,
   // instead of the misleading bright `.learnable` accent that invited a tap the
   // buy would silently reject. INERT for the captain table (fleetAdminLevelMet is
-  // always true there -- no captain def carries the wall), so captain squares
+  // always true there, no captain def carries the wall), so captain squares
   // render exactly as before. Returned as a plain object so the markup can spread
   // the boolean flags into class: directives.
   function nodeState(key: string, def: RadialNode) {
     const isOwned = ownedSet.has(key);
     const affordable = def.cost <= points; // TUNABLE: affordability is a pure cost<=points gate (no partial states)
-    // buyable -- not owned, cost met, AND FA-level wall met. learnable == buyable;
+    // buyable, not owned, cost met, AND FA-level wall met. learnable == buyable;
     // locked is its not-owned complement. This keeps the owned/learnable/locked
     // trichotomy exact (one and only one holds) while layering the wall on.
     const buyable = !isOwned && affordable && fleetAdminLevelMet(def);
@@ -798,19 +798,19 @@
   on:pointercancel={handlePointerUp}
 >
   <!-- World: the pan-transformed coordinate space. Anchored at the viewport's
-       CENTER (left/top 50%), so web-space (0,0) -- the hub -- lands mid-viewport.
+       CENTER (left/top 50%), so web-space (0,0), the hub, lands mid-viewport.
        Each node then re-centers ITSELF on its own (x,y) via translate(-50%,-50%)
        (see .web-node). The translate(panX,panY) here is the Task 10 pan hook;
        at panX=panY=0 the world sits exactly centered. -->
   <div class="web-world" style="transform: translate({panX}px, {panY}px);">
     <!-- Connector layer. Placed FIRST inside .web-world so it paints BEHIND every
          .web-node that follows. DOM order already stacks later siblings on top;
-         an explicit z-index (SVG z-index:0, .web-node z-index:1 -- see the style block)
+         an explicit z-index (SVG z-index:0, .web-node z-index:1, see the style block)
          makes that reliable so each opaque node covers its elbow's inner portion.
          pointer-events:none (set in the style block) so it never intercepts a node tap or
          a pan drag.
 
-         COORDINATE ALIGNMENT -- the one part that must be exactly right (Device
+         COORDINATE ALIGNMENT, the one part that must be exactly right (Device
          Checkpoint A rework; see the HALF const in the script block for the full rationale
          and the .web-connectors CSS for the box geometry):
          The <svg> is a REAL, non-zero 2*HALF × 2*HALF canvas positioned at
@@ -821,12 +821,12 @@
              world-origin + (−HALF,−HALF) + (x+HALF, y+HALF) = world-origin + (x,y)
          which is exactly where a node with left:{x}; top:{y} (+translate(-50%,-50%))
          centers itself. So a line endpoint at (x,y) lands dead-on that node's
-         center -- for negative coords too (e.g. x=−320 → internal 4680, inside the
+         center, for negative coords too (e.g. x=−320 → internal 4680, inside the
          canvas). The node layer is UNCHANGED; only these internal SVG coords carry
          the +HALF offset.
 
          Each edge is an L-SHAPED ORTHOGONAL ELBOW <path> (a horizontal run then a
-         vertical run meeting at a 90° corner -- NOT a diagonal). The path is
+         vertical run meeting at a 90° corner, NOT a diagonal). The path is
          "M {startX} {startY} H {cornerX} V {endY}": it starts at the SHALLOW
          (hub-side) endpoint (ax,ay), runs horizontally to the corner at
          (endX, startY) = (bx, ay), then runs vertically up to the DEEP endpoint
@@ -835,13 +835,13 @@
          +HALF (see the HALF const) so they land on node centers.
 
          The per-edge `lighting` class drives the look (see CSS):
-           .powered  -- TWO stacked <path>s (both owned): (1) a base RAIL with a
+           .powered , TWO stacked <path>s (both owned): (1) a base RAIL with a
                        soft STEADY outer glow so the whole L reads as "engaged",
                        then (2) a bright glowing OVERLAY that travels along it
                        start→end (shallow→deep = hub-outward). This is the ONLY
                        lit/animated state.
-           (default) -- DORMANT (not both owned): a single dim, DARK path -- no glow,
-                       no pulse -- just enough to show the connection topology. NO
+           (default), DORMANT (not both owned): a single dim, DARK path, no glow,
+                       no pulse, just enough to show the connection topology. NO
                        overlay emitted.
          Only powered edges get the second (overlay) path, so dormant edges are
          never doubled. No fill; stroke only; no arrowheads. The node layer that
@@ -876,17 +876,17 @@
       {@const st = nodeState(key, def)}
       <!-- Locked (unaffordable) nodes stay tappable ON PURPOSE: Task 11's tooltip
            shows the node's cost/effect so the player learns WHY it's locked. Only
-           the Learn action (Task 11) is affordability-gated -- do NOT add
+           the Learn action (Task 11) is affordability-gated, do NOT add
            `disabled` here, which would swallow the tap and hide that tooltip.
 
            data-node-key is the tap-resolution anchor: handlePointerUp resolves a
            tap by e.target.closest("[data-node-key]") and reads this attribute to
            know which node was tapped. That works because a tap never captures the
-           pointer (capture is taken only once a drag starts -- see
+           pointer (capture is taken only once a drag starts, see
            handlePointerMove), so e.target is the real node/child under the finger,
            bubbled to the viewport handler by event delegation. That pointerup path
            (not a click handler) opens the tooltip. on:keydown is the SEPARATE
-           keyboard path (Enter/Space on a focused node) -- no pointer capture is
+           keyboard path (Enter/Space on a focused node), no pointer capture is
            involved there either, so it opens the tooltip reliably, preserving
            accessibility. -->
       <button
@@ -923,7 +923,7 @@
 <!-- Node tooltip overlay (Task 11). PORTALED to <body> via use:portal so it is a
      genuine top-level, viewport-fixed overlay even when RadialWeb is later
      mounted inside a <Panel> whose backdrop-filter would otherwise contain a
-     position:fixed descendant (the known trap -- see the `portal` action comment
+     position:fixed descendant (the known trap, see the `portal` action comment
      in the script block). The backdrop's flex centering places the card; the card has no
      position of its own.
 
@@ -933,12 +933,12 @@
          pointerup, NOT click: a node tap opens the tooltip on its OWN pointerup,
          and the tap's trailing compatibility `click` then lands on the just-
          appeared backdrop. With on:click that trailing click closed the tooltip
-         instantly -- but ONLY for taps toward the edges, where the click missed the
+         instantly, but ONLY for taps toward the edges, where the click missed the
          centered card and hit the backdrop (a center tap's click hit the card and
          survived). That was the mobile "edge/bottom taps don't register" bug: the
          tooltip opened and immediately self-closed. pointerup fixes it because the
          opening tap's pointerup fired on the NODE (before this backdrop existed),
-         and the trailing compat `click` is not a pointerup -- so it can't dismiss.
+         and the trailing compat `click` is not a pointerup, so it can't dismiss.
          A genuine dismiss tap (a fresh pointer press+release on the backdrop) still
          closes normally. This overlay is a body-level element over the whole
          viewport, so a backdrop release is intercepted here and can't leak to a
@@ -988,7 +988,7 @@
            wall is already behind them), matching how the cost line hides once
            owned. Styling: the base line is the same neutral secondary look as
            .web-tooltip-cost (requirement MET). `class:unmet` flips it to the
-           app's --color-danger red below the required level -- a deliberately
+           app's --color-danger red below the required level, a deliberately
            HARDER-gate signal than the cost line. Note both an unaffordable cost
            and an unmet wall disable the Learn button, but ONLY the wall turns
            red: the cost line NEVER reddens because adminPoints simply accumulate
@@ -1049,7 +1049,7 @@
     touch-action: none;
     background: var(--color-panel-bg-strong);
     border: 1px solid var(--color-border);
-    cursor: grab; /* Task 10: desktop affordance -- the viewport is draggable. */
+    cursor: grab; /* Task 10: desktop affordance, the viewport is draggable. */
   }
   /* While a pan drag is live (class:grabbing bound to `dragging`), show the
      closed-hand cursor. Touch/stylus ignore cursor, so this is desktop-only. */
@@ -1060,7 +1060,7 @@
   /* --- World ------------------------------------------------------------
      Zero-size anchor at the viewport center. Because it has no dimensions,
      "left:50%; top:50%" places its origin (0,0) at the viewport's center
-     WITHOUT any JS measurement -- nodes position relative to that origin, so
+     WITHOUT any JS measurement, nodes position relative to that origin, so
      the hub at web (0,0) renders dead-center. transform is Task 10's pan
      handle. */
   .web-world {
@@ -1073,13 +1073,13 @@
   }
 
   /* --- Connector layer (Device Checkpoint A rework) ---------------------
-     A REAL, non-zero SVG canvas centered on .web-world's origin -- NOT the old
+     A REAL, non-zero SVG canvas centered on .web-world's origin, NOT the old
      0×0 + overflow:visible trick, which real browsers refused to paint (that
      was the root cause of the connectors not rendering on device). The box is
      2*HALF × 2*HALF px, offset by −HALF on each axis, so its INTERNAL origin
      (0,0) sits at world-origin + (−HALF,−HALF) and its center (HALF,HALF) sits
      exactly on world-origin. Endpoints are drawn at (x+HALF, y+HALF) in the
-     markup, which -- combined with this −HALF element shift -- lands them on the
+     markup, which, combined with this −HALF element shift, lands them on the
      node centers (see the HALF const in the script block for the arithmetic). NO
      viewBox → user units == CSS px, 1:1, un-scaled. pointer-events:none so taps
      and pan drags pass straight through to the nodes / world beneath.
@@ -1095,7 +1095,7 @@
     pointer-events: none;
     overflow: visible; /* harmless belt-and-suspenders; canvas already spans the web */
   }
-  /* Base elbow (DORMANT: not both endpoints owned): a dim, DARK line -- visible
+  /* Base elbow (DORMANT: not both endpoints owned): a dim, DARK line, visible
      just enough to show the connection topology, with NO glow and NO pulse. This
      is the resting look for every not-fully-learned link. It is ALSO the base
      RAIL under a powered edge's steady glow + travelling overlay (see
@@ -1104,8 +1104,8 @@
      interior). */
   .web-edge {
     fill: none;
-    stroke: rgba(var(--color-accent-rgb), 0.14); /* TUNABLE: dormant-edge opacity (dim + dark) -- Checkpoint B */
-    stroke-width: 2; /* TUNABLE: dormant connector thickness (thin -- topology only) -- Checkpoint B */
+    stroke: rgba(var(--color-accent-rgb), 0.14); /* TUNABLE: dormant-edge opacity (dim + dark), Checkpoint B */
+    stroke-width: 2; /* TUNABLE: dormant connector thickness (thin, topology only), Checkpoint B */
     stroke-linecap: round;
     stroke-linejoin: round; /* soften the 90° elbow corner */
   }
@@ -1118,45 +1118,45 @@
      dimmer than the overlay so the travelling segment clearly "pops" above the
      resting rail (base vs pulse contrast). */
   .web-edge.powered {
-    stroke: rgba(var(--color-accent-rgb), 0.4); /* TUNABLE: powered base-rail opacity (dimmer than the overlay) -- Checkpoint B */
-    stroke-width: 3; /* TUNABLE: powered base-rail thickness -- Checkpoint B */
-    filter: drop-shadow(0 0 3px rgba(var(--color-accent-rgb), 0.5)); /* TUNABLE: powered steady-glow strength -- Checkpoint B */
+    stroke: rgba(var(--color-accent-rgb), 0.4); /* TUNABLE: powered base-rail opacity (dimmer than the overlay), Checkpoint B */
+    stroke-width: 3; /* TUNABLE: powered base-rail thickness, Checkpoint B */
+    filter: drop-shadow(0 0 3px rgba(var(--color-accent-rgb), 0.5)); /* TUNABLE: powered steady-glow strength, Checkpoint B */
   }
 
   /* Powered pathway TRAVELLING OVERLAY (powered edges only): the bright, glowing
      "energy" segment that flows FROM (ax,ay)=SHALLOW/hub-side end TOWARD
-     (bx,by)=DEEP end -- i.e. OUTWARD from the hub. Technique: a dashed stroke (one
+     (bx,by)=DEEP end, i.e. OUTWARD from the hub. Technique: a dashed stroke (one
      short bright dash + a long gap = a single lit segment on an otherwise-empty
      path) whose stroke-dashoffset is animated so that lit segment marches
      start→end along the elbow. Shallow→deep order is baked into ax,ay/bx,by in
      visibleEdges, so a NEGATIVE dashoffset ramp moves the segment hub-outward.
      A drop-shadow gives the glow that makes the motion pop above the base rail.
-     Kept ambient (single travelling segment, long gap, ~2.4s loop) -- bright but
+     Kept ambient (single travelling segment, long gap, ~2.4s loop), bright but
      not seizure-y. Sits on top of the .web-edge.powered base rail at the same
      elbow, so it reads as "a lit rail with a pulse flowing along it". */
   .web-edge-pulse-overlay {
     fill: none;
-    stroke: var(--color-accent-bright); /* TUNABLE: pulse color -- Checkpoint B */
-    stroke-width: 4; /* TUNABLE: pulse thickness (slightly heavier than the base rail so it pops) -- Checkpoint B */
+    stroke: var(--color-accent-bright); /* TUNABLE: pulse color, Checkpoint B */
+    stroke-width: 4; /* TUNABLE: pulse thickness (slightly heavier than the base rail so it pops), Checkpoint B */
     stroke-linecap: round;
     stroke-linejoin: round; /* keep the pulse continuous around the 90° corner */
     /* Short bright dash + long gap = one travelling lit segment on a mostly-empty
        overlay. Measured along the ELBOW path length (H run + V run), so it works
        identically on the L as on a straight line. TUNABLE: dash size / gap (pulse
-       length + spacing) -- Checkpoint B. */
+       length + spacing), Checkpoint B. */
     stroke-dasharray: 18 130;
-    filter: drop-shadow(0 0 5px rgba(var(--color-accent-rgb), 0.85)); /* TUNABLE: pulse glow strength -- Checkpoint B */
+    filter: drop-shadow(0 0 5px rgba(var(--color-accent-rgb), 0.85)); /* TUNABLE: pulse glow strength, Checkpoint B */
     /* Ramp the offset by one full dash+gap period (18+130=148) per cycle so the
        motion is seamless (pattern repeats identically each period). A negative ramp
        moves the segment start→end (ax,ay → bx,by = shallow→deep = hub-outward).
-       TUNABLE: pulse speed (cycle duration) -- Checkpoint B. */
+       TUNABLE: pulse speed (cycle duration), Checkpoint B. */
     animation: web-edge-pulse 2.4s linear infinite;
   }
 
   /* One pulse period: shift the dash pattern by a full period (148px) in the
      negative direction, which visually moves the lit segment from the start point
      (ax,ay = shallow/hub-side) toward the end point (bx,by = deep) along the elbow
-     -- hub-outward. Keep -148 in sync with the overlay's stroke-dasharray
+    , hub-outward. Keep -148 in sync with the overlay's stroke-dasharray
      (18 + 130). */
   @keyframes web-edge-pulse {
     from {
@@ -1188,17 +1188,17 @@
   .web-node {
     position: absolute;
     /* Nodes paint ABOVE the .web-connectors SVG so each elbow's inner portion --
-       from the node's edge to its center, where the path endpoint sits -- is
+       from the node's edge to its center, where the path endpoint sits, is
        HIDDEN behind the OPAQUE node body. That makes a link visually connect at
        the node's EDGE, not pierce into its center. Two things make this reliable:
        (1) an explicit z-index above the connectors (which get z-index:0), belt-
        and-suspenders on top of the DOM order (nodes already follow the SVG), and
-       (2) an OPAQUE background -- --color-bg-deep is a solid theme colour, NOT the
+       (2) an OPAQUE background, --color-bg-deep is a solid theme colour, NOT the
        translucent --color-panel-bg-strong (6% alpha) used before, which would let
        the link bleed through the node body. */
     z-index: 1;
     transform: translate(-50%, -50%); /* node's own center lands on (x,y) */
-    width: 76px; /* TUNABLE: node size -- verify legibility on phone at Checkpoint A */
+    width: 76px; /* TUNABLE: node size, verify legibility on phone at Checkpoint A */
     height: 76px;
     display: flex;
     flex-direction: column;
@@ -1217,7 +1217,7 @@
     border-radius: 0;
   }
   .web-node-label {
-    font-size: 11px; /* TUNABLE: label size -- Checkpoint A */
+    font-size: 11px; /* TUNABLE: label size, Checkpoint A */
     font-weight: 600;
     line-height: 1.15;
     /* Long labels are simply clipped for now so a node stays square-ish; a real
@@ -1234,7 +1234,7 @@
      Same theme-var conventions App.svelte's .skill-node already uses:
        owned     -> success-tinted + the prominent "powered" border/glow (see the
                     shared .web-node.owned, .web-node.hub rule below) so every
-                    LEARNED node -- not just the hub -- reads as energized.
+                    LEARNED node, not just the hub, reads as energized.
        learnable -> accent border (affordable, invites the click). NO big border.
        locked    -> dimmed (matches .skill-node.locked's opacity:0.5). NO big border.
        hub       -> the shared prominent border PLUS extra size, so it still reads
@@ -1245,26 +1245,26 @@
      hub already had, WITHOUT duplicating the declarations. The box-shadow ring
      gives the "double border" read without changing the node's box size, so a
      node's center stays exactly on its (x,y). Learnable/locked nodes are excluded
-     on purpose -- they are NOT learned yet, so they keep the plain 1px border. */
+     on purpose, they are NOT learned yet, so they keep the plain 1px border. */
   .web-node.owned,
   .web-node.hub {
-    border-width: 2px; /* TUNABLE: prominent border thickness for learned/hub nodes -- Checkpoint B */
+    border-width: 2px; /* TUNABLE: prominent border thickness for learned/hub nodes, Checkpoint B */
     /* Inner panel-bg ring + outer accent ring = the "double border" read. */
     box-shadow: 0 0 0 3px var(--color-panel-bg-strong), 0 0 0 4px rgba(var(--color-accent-rgb), 0.45);
   }
 
-  /* Owned (learned) node: success-tinted, and -- layered on the shared prominent
-     border above -- an accent GLOW so it looks "powered", complementing the link
+  /* Owned (learned) node: success-tinted, and, layered on the shared prominent
+     border above, an accent GLOW so it looks "powered", complementing the link
      pulse (node glow + link glow together read as power flowing node→node). The
      glow is a second, outer drop of the box-shadow ring; note box-shadow here
      REPLACES the shared rule's shadow for .owned (more specific match by cascade
-     order -- this rule comes AFTER the shared one), so it re-declares the same
+     order, this rule comes AFTER the shared one), so it re-declares the same
      double-ring and APPENDS the outer accent bloom. */
   .web-node.owned {
     border-color: var(--color-success);
     color: var(--color-success);
     /* Double-ring (as shared) + an outer accent bloom = the powered glow.
-       TUNABLE: owned-node glow strength/spread -- Checkpoint B. */
+       TUNABLE: owned-node glow strength/spread, Checkpoint B. */
     box-shadow:
       0 0 0 3px var(--color-panel-bg-strong),
       0 0 0 4px rgba(var(--color-accent-rgb), 0.45),
@@ -1275,14 +1275,14 @@
     color: var(--color-accent-bright);
   }
   .web-node.locked {
-    opacity: 0.5; /* affordability gate -- cost > points */
+    opacity: 0.5; /* affordability gate, cost > points */
     cursor: not-allowed;
     border-color: rgba(var(--color-accent-rgb), 0.2);
   }
   /* Hub: the shared prominent border (above) PLUS extra SIZE so the seed/center
      node still stands out even among learned nodes now sharing that border. */
   .web-node.hub {
-    width: 92px; /* TUNABLE: hub is larger than a normal node -- Checkpoint A */
+    width: 92px; /* TUNABLE: hub is larger than a normal node, Checkpoint A */
     height: 92px;
   }
   /* An OWNED HUB is both learned and the center: give it the owned success tint +
@@ -1316,7 +1316,7 @@
      .modal-backdrop idiom (same fixed/inset/blur/flex-center/z-index recipe).
      Rendered as a <body> child via use:portal (see the `portal` action) so this
      position:fixed backdrop is truly viewport-fixed even inside a future Panel's
-     backdrop-filter -- the known trap this whole overlay is portaled to avoid.
+     backdrop-filter, the known trap this whole overlay is portaled to avoid.
      The scrim's rgba(0,0,0,...) is a deliberate neutral black, the ONE literal
      colour here (matching the existing backdrops); everything else is theme
      vars so the 6 themes reskin the card. */
@@ -1332,12 +1332,12 @@
     padding: 20px;
   }
   /* The centered content card. Modestly larger than the prior placeholder
-     (280px/85vw) per design §4.4 -- the mockup-1 feedback asked for a bump.
+     (280px/85vw) per design §4.4, the mockup-1 feedback asked for a bump.
      TUNABLE: final size is a Checkpoint A item. */
   .web-tooltip {
-    width: 340px; /* TUNABLE: tooltip width -- was 280px placeholder; verify on phone at Checkpoint A */
-    max-width: 88vw; /* TUNABLE: cap on narrow screens -- Checkpoint A */
-    padding: 16px 18px; /* TUNABLE: tooltip padding -- Checkpoint A */
+    width: 340px; /* TUNABLE: tooltip width, was 280px placeholder; verify on phone at Checkpoint A */
+    max-width: 88vw; /* TUNABLE: cap on narrow screens, Checkpoint A */
+    padding: 16px 18px; /* TUNABLE: tooltip padding, Checkpoint A */
     background: var(--color-panel-bg-strong);
     border: 1px solid rgba(var(--color-accent-rgb), 0.35);
     border-radius: 8px;
@@ -1352,7 +1352,7 @@
   }
   .web-tooltip-title {
     font-family: var(--font-body);
-    font-size: 15px; /* TUNABLE: title size -- Checkpoint A */
+    font-size: 15px; /* TUNABLE: title size, Checkpoint A */
     font-weight: 600;
     color: var(--color-text-primary);
     margin: 0;
@@ -1373,7 +1373,7 @@
     color: var(--color-text-primary);
   }
   .web-tooltip-effect {
-    font-size: 13px; /* TUNABLE: effect line size -- Checkpoint A */
+    font-size: 13px; /* TUNABLE: effect line size, Checkpoint A */
     font-weight: 600;
     color: var(--color-success);
     margin: 0 0 8px;
@@ -1386,10 +1386,10 @@
   }
   /* FA-level requirement line (Task 10). Base look intentionally MATCHES
      .web-tooltip-cost (neutral secondary) so a MET requirement reads as calm,
-     informational context -- the same idiom as the cost line. The `.unmet`
+     informational context, the same idiom as the cost line. The `.unmet`
      modifier is the ONLY visual escalation: it recolors to --color-danger, the
      app's existing cross-theme-stable red semantic token (app.css; constant
-     across all 6 themes) -- NOT a new colour. Weight bumps to 600 so the red
+     across all 6 themes), NOT a new colour. Weight bumps to 600 so the red
      "you can't buy this yet" state is unmissable, matching the emphasis the
      effect line already uses. */
   .web-tooltip-requirement {
@@ -1415,7 +1415,7 @@
   /* Learn button: accent-bordered primary action (matches the learnable-node
      accent look). Disabled → dimmed + not-allowed (unaffordable/locked). */
   .web-tooltip-learn {
-    padding: 8px 16px; /* TUNABLE: Learn button size -- Checkpoint A */
+    padding: 8px 16px; /* TUNABLE: Learn button size, Checkpoint A */
     background: rgba(var(--color-accent-rgb), 0.12);
     border: 1px solid var(--color-accent);
     color: var(--color-accent-bright);

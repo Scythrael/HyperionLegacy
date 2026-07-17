@@ -1,4 +1,4 @@
-// Tick-count readout visibility persistence -- a display preference, deliberately
+// Tick-count readout visibility persistence, a display preference, deliberately
 // separate from src/lib/game/save.ts's save-file contract so it survives a
 // "delete save" (same rationale as src/lib/theme.ts and
 // src/lib/tickBarPreference.ts, whose shape this file mirrors exactly).

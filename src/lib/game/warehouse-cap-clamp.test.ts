@@ -1,9 +1,9 @@
 // ============================================================================
-// Warehouse cap clamp -- producer deposits are clamped at the item's storage cap
+// Warehouse cap clamp, producer deposits are clamped at the item's storage cap
 // (fix/warehouse-cap-clamp, 2026-07-16).
 //
 // THE BUG: a material could OVERSHOOT its warehouse cap. The `materialAtCap`
-// auto-stop only prevents a producer from STARTING when already at cap -- it does
+// auto-stop only prevents a producer from STARTING when already at cap, it does
 // NOT clamp the DEPOSIT itself, so a mission cycle (or a producer job) completing
 // while just UNDER cap dumps its whole haul PAST the cap (user saw Deuterium Ice at
 // 1.3M against a 1M cap).
@@ -19,7 +19,7 @@
 // (2) an uncapped (sentinel) item is never clamped; (3) a below-cap deposit is
 // byte-identical to the old plain `.plus()`; (4) itemCap returns the tier cap for a
 // capped item and the sentinel for unknown/uncapped; (5) ⚠️ OFFLINE PARITY across a
-// cap-crossing mission span -- tick(bigSpan) bit-identical to looping
+// cap-crossing mission span, tick(bigSpan) bit-identical to looping
 // economyTick(_,1), material ends EXACTLY at cap on both paths (non-vacuous: the
 // haul genuinely exceeds the gap left below the cap, so it really overshoots).
 // ============================================================================
@@ -29,7 +29,7 @@ import { freshState, type CaptainMissionState, type MissionKey } from "./model";
 import Decimal from "break_infinity.js";
 
 // The sentinel value tierCap/itemCap return for an un-warehoused tier or an unknown
-// item id -- kept in sync with tick.ts's WAREHOUSE_UNCAPPED_SENTINEL (not exported;
+// item id, kept in sync with tick.ts's WAREHOUSE_UNCAPPED_SENTINEL (not exported;
 // re-declared here so the test pins the exact fail-open magnitude).
 const UNCAPPED_SENTINEL = new Decimal("1e1000");
 
@@ -49,7 +49,7 @@ function missionCaptain(missionKey: MissionKey = "shortOreRun"): CaptainMissionS
   };
 }
 
-describe("warehouse cap clamp -- addToInventory clamps producer deposits at the item's cap", () => {
+describe("warehouse cap clamp, addToInventory clamps producer deposits at the item's cap", () => {
   // (1) An over-cap deposit lands EXACTLY at the cap; the overflow is discarded.
   it("clamps a deposit that would exceed the cap to EXACTLY the cap (overflow discarded)", () => {
     const state = freshState();
@@ -62,25 +62,25 @@ describe("warehouse cap clamp -- addToInventory clamps producer deposits at the 
     expect(next.commonOre.gt(cap)).toBe(false);
   });
 
-  // (2) An UNCAPPED item (its cap is the sentinel) is never clamped -- deposits
+  // (2) An UNCAPPED item (its cap is the sentinel) is never clamped, deposits
   //     accumulate freely, because no reachable quantity approaches 1e1000.
-  it("never clamps an uncapped (sentinel-cap) item -- deposits accumulate freely", () => {
+  it("never clamps an uncapped (sentinel-cap) item, deposits accumulate freely", () => {
     const cap = UNCAPPED_SENTINEL;
     let inventory: Record<string, Decimal> = { unknownRaw: new Decimal(0) };
     const disc: string[] = [];
     // A huge single deposit is untouched (1e50 << 1e1000).
     ({ inventory } = addToInventory(inventory, disc, "unknownRaw", new Decimal("1e50"), cap));
     expect(inventory.unknownRaw.equals(new Decimal("1e50"))).toBe(true);
-    // A second huge deposit keeps accumulating -- min never bites.
+    // A second huge deposit keeps accumulating, min never bites.
     ({ inventory } = addToInventory(inventory, disc, "unknownRaw", new Decimal("1e50"), cap));
     expect(inventory.unknownRaw.equals(new Decimal("2e50"))).toBe(true);
   });
 
-  // (3) A below-cap deposit is byte-identical to the old plain `.plus()` -- the clamp
+  // (3) A below-cap deposit is byte-identical to the old plain `.plus()`, the clamp
   //     only bites AT/OVER the cap, so ordinary play is completely unaffected.
   it("leaves a below-cap deposit byte-identical to have+amount", () => {
     const state = freshState();
-    const cap = itemCap(state, "commonOre"); // 1,000,000 -- far above these values
+    const cap = itemCap(state, "commonOre"); // 1,000,000, far above these values
     const inventory: Record<string, Decimal> = { commonOre: new Decimal(100) };
     const { inventory: next } = addToInventory(inventory, ["commonOre"], "commonOre", new Decimal(50), cap);
     expect(next.commonOre.equals(new Decimal(150))).toBe(true);
@@ -97,12 +97,12 @@ describe("warehouse cap clamp -- addToInventory clamps producer deposits at the 
   });
 });
 
-describe("warehouse cap clamp -- ⚠️ offline parity across a cap-crossing mission span", () => {
+describe("warehouse cap clamp, ⚠️ offline parity across a cap-crossing mission span", () => {
   // (5) The load-bearing parity proof. A captain mines commonOre on shortOreRun with
   //     inventory seeded just below the cap, so a completing cycle CROSSES the cap
   //     mid-span. tick(bigSpan) (which internally loops economyTick(_,1)) must be
   //     bit-identical to a hand loop of economyTick(_,1) over the same span, and the
-  //     material must end EXACTLY at the cap on both paths -- never over.
+  //     material must end EXACTLY at the cap on both paths, never over.
   //
   //     Non-vacuity is proven by a CONTROL run from 0: over the same span the haul is
   //     far larger than the tiny gap left below the cap, so the crossing genuinely
@@ -121,7 +121,7 @@ describe("warehouse cap clamp -- ⚠️ offline parity across a cap-crossing mis
       return s;
     };
 
-    // The tier-1 cap (same for every fixture -- freshState warehouse level is identical).
+    // The tier-1 cap (same for every fixture, freshState warehouse level is identical).
     const cap = itemCap(freshState(), "commonOre");
 
     // --- CONTROL: from 0, how much commonOre does this span actually deliver? ---

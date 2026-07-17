@@ -1,5 +1,5 @@
 // ============================================================================
-// Per-slot production LINE engine tests -- Crafting Allocation Redesign, Task C2
+// Per-slot production LINE engine tests, Crafting Allocation Redesign, Task C2
 // (docs/plans/2026-07-16-crafting-allocation-redesign-design.md §2).
 //
 // Covers the per-slot line data model + engine that REPLACES the retired single-order
@@ -18,7 +18,7 @@
 //   - refineCommonOre  : commonOre x100 -> refinedMaterial x1 over 10 ticks (1 refine slot @ refinery level 1).
 //   - frameSegmentBp   : titaniumIngot x4 -> frameSegment x1 over 120 ticks (1 fabricate slot @ fabricator level 1).
 // The captain stays IDLE (freshState's captain has mission: null), so no mission
-// economy / rng runs -- these tests isolate the line engine.
+// economy / rng runs, these tests isolate the line engine.
 // ============================================================================
 
 import { describe, it, expect } from "vitest";
@@ -41,7 +41,7 @@ import { freshState, type GameState } from "./model";
 // afford / cap gates run against known numbers. Refinery level 1 => 1 refine slot;
 // fabricator level 1 => 1 fabricate slot (freshState seeds refinery at level 0, so we
 // MUST bump it for any refine line to start). frameSegmentBp is researched by default
-// (realistic; the C2 line engine itself does not gate on research -- that is C3).
+// (realistic; the C2 line engine itself does not gate on research, that is C3).
 function linesState(opts: {
   commonOre?: number;
   refinedMaterial?: number;
@@ -74,7 +74,7 @@ function linesState(opts: {
   };
 }
 
-// Runs economyTick(state, 1) `n` times -- the SAME per-tick stepping tick()'s offline
+// Runs economyTick(state, 1) `n` times, the SAME per-tick stepping tick()'s offline
 // catch-up loop performs.
 function stepTicks(state: GameState, n: number): GameState {
   let s = state;
@@ -104,7 +104,7 @@ function lineSnapshot(state: GameState) {
 }
 
 // --- startLine ---------------------------------------------------------------
-describe("startLine -- appends a line + mints a monotonic id", () => {
+describe("startLine, appends a line + mints a monotonic id", () => {
   it("appends a batch refine line, mints craft-1, bumps nextCraftLineId, does not mutate the input", () => {
     const state = linesState({ commonOre: 1000 });
     // C3: startLine now returns { next, started, reason? }; destructure the resulting state.
@@ -152,7 +152,7 @@ describe("startLine -- appends a line + mints a monotonic id", () => {
     expect(refineSlotCount(state)).toBe(1);
     // C3: on a block startLine returns the SAME state ref, started:false, and a typed reason.
     const res = startLine(state, "refine", "refineCommonOre", { kind: "continuous" });
-    expect(res.next).toBe(state); // same reference -- slot cap held
+    expect(res.next).toBe(state); // same reference, slot cap held
     expect(res.started).toBe(false);
     expect(res.reason).toBe("noSlot");
   });
@@ -173,7 +173,7 @@ describe("startLine -- appends a line + mints a monotonic id", () => {
 });
 
 // --- cancelLine --------------------------------------------------------------
-describe("cancelLine -- drains a running line (finishes the in-flight iteration) or removes an idle one", () => {
+describe("cancelLine, drains a running line (finishes the in-flight iteration) or removes an idle one", () => {
   it("removing a line drops allocated back to 0 / free back to full stock (derived, no ledger)", () => {
     // A batch line of 10 reserves 10 x 100 = 1000 commonOre.
     const line: CraftLine = { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 10, mode: { kind: "batch", remaining: 10 } };
@@ -215,13 +215,13 @@ describe("cancelLine -- drains a running line (finishes the in-flight iteration)
     // The line is DRAINED, not deleted: it stays (so its in-flight iteration shows) but is
     // stopped (remaining 0), and its UNSTARTED reservation is already released.
     expect(cancelled.refineLines).toHaveLength(1); // line still visible (draining)
-    expect(cancelled.refineLines[0].remaining).toBe(0); // stopped -- no more iterations queue
+    expect(cancelled.refineLines[0].remaining).toBe(0); // stopped, no more iterations queue
     expect(cancelled.refineLines[0].mode).toEqual({ kind: "batch", remaining: 0 });
     expect(allocatedItem(cancelled.refineLines, "commonOre").toNumber()).toBe(0); // reservation released now
     expect(cancelled.activeProcesses.filter((p) => p.kind === "refineJob")).toHaveLength(1); // in-flight job still committed
 
     const settled = stepTicks(cancelled, 30); // well past the committed job's completion
-    expect(settled.inventory.refinedMaterial.toString()).toBe("1"); // exactly the committed job -- no 2nd
+    expect(settled.inventory.refinedMaterial.toString()).toBe("1"); // exactly the committed job, no 2nd
     expect(settled.inventory.commonOre.toString()).toBe("1900"); // no further ore consumed (reservation released)
     expect(settled.activeProcesses).toHaveLength(0);
     expect(settled.refineLines).toHaveLength(0); // line cleared itself once the in-flight iteration finished
@@ -245,7 +245,7 @@ describe("cancelLine -- drains a running line (finishes the in-flight iteration)
 });
 
 // --- batch line lifecycle ----------------------------------------------------
-describe("processRefineLines -- a batch line produces exactly N, then the line clears", () => {
+describe("processRefineLines, a batch line produces exactly N, then the line clears", () => {
   it("a batch of 3 on a single-slot refinery completes 3 jobs across ticks, then removes the line", () => {
     const line: CraftLine = { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 3, mode: { kind: "batch", remaining: 3 } };
     const state = linesState({ commonOre: 1000, refineLines: [line], nextCraftLineId: 2 });
@@ -283,7 +283,7 @@ describe("two concurrent lines (different recipes) progress independently", () =
     expect(run.inventory.frameSegment.toString()).toBe("1");
 
     // BOTH lines still present (continuous never clears) and EACH owns exactly one
-    // in-flight job tied to it by lineId -- one slot per line, no cross-blocking.
+    // in-flight job tied to it by lineId, one slot per line, no cross-blocking.
     expect(run.refineLines).toHaveLength(1);
     expect(run.fabricateLines).toHaveLength(1);
     const refineJobs = run.activeProcesses.filter((p) => p.lineId === "craft-1");
@@ -306,12 +306,12 @@ describe("line processors are same-reference no-ops with no lines", () => {
 
 // --- ⚠️ MULTI-LINE offline == live parity (the high-risk seam) ----------------
 describe("⚠️ multi-line offline == live parity (controller re-verifies)", () => {
-  it("tick(bigSpan) equals looping economyTick(_,1) across TWO different-recipe lines -- NON-VACUOUS", () => {
+  it("tick(bigSpan) equals looping economyTick(_,1) across TWO different-recipe lines, NON-VACUOUS", () => {
     // Line A (REFINE, batch 2): commonOre 200 = exactly 2 jobs. It FINISHES mid-span
-    // (both jobs done @11/@21, then the line is removed) -- proves a line completing
+    // (both jobs done @11/@21, then the line is removed), proves a line completing
     // mid-span parity-matches.
     // Line B (FABRICATE, continuous): titaniumIngot 12 = exactly 3 crafts. craft1 done
-    // @121, craft2 done @241, craft3 STILL IN FLIGHT at 250 -- proves an in-flight job +
+    // @121, craft2 done @241, craft3 STILL IN FLIGHT at 250, proves an in-flight job +
     // a mid-span completion parity-match. Two DIFFERENT recipes on two facilities,
     // exercising BOTH processRefineLines and processFabricateLines.
     const refineLine: CraftLine = { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 2, mode: { kind: "batch", remaining: 2 } };
@@ -349,12 +349,12 @@ describe("⚠️ multi-line offline == live parity (controller re-verifies)", ()
   });
 });
 
-// --- maxAffordableIterations -- the affordable-NOW quantity cap (Task C3) ------
+// --- maxAffordableIterations, the affordable-NOW quantity cap (Task C3) ------
 // The largest whole iteration count reservable from FREE stock right now =
 //   min over inputs of floor(free[item] / perIteration[item]).
 // The KEY allocation property: it reads FREE (inventory - already-reserved), NOT raw stock,
 // so a second line cannot double-book units an existing line already reserved.
-describe("maxAffordableIterations -- affordable-now cap reads FREE, not raw stock", () => {
+describe("maxAffordableIterations, affordable-now cap reads FREE, not raw stock", () => {
   it("with NO lines, the cap is floor(rawStock / perIteration)", () => {
     // refineCommonOre = commonOre x100 -> 1. 1000 / 100 = 10.
     const state = linesState({ commonOre: 1000 });
@@ -403,11 +403,11 @@ describe("maxAffordableIterations -- affordable-now cap reads FREE, not raw stoc
   });
 });
 
-// --- canStartLine -- the typed-reason line-start gate (Task C3) ----------------
+// --- canStartLine, the typed-reason line-start gate (Task C3) ----------------
 // Mirrors canFabricate: a pure predicate returning { ok:true } or { ok:false, reason }.
 // Gate order: notFound -> notResearched(fabricate) -> tierLocked(fabricate) -> noSlot ->
 // invalidCount -> materials -> storageFull.
-describe("canStartLine -- typed-reason gate (each reason + ok)", () => {
+describe("canStartLine, typed-reason gate (each reason + ok)", () => {
   it("notFound: the key names no recipe/blueprint in the kind's registry", () => {
     const state = linesState({ commonOre: 1000 });
     expect(canStartLine(state, "refine", "notARealRecipe", 1)).toEqual({ ok: false, reason: "notFound" });
@@ -474,7 +474,7 @@ describe("canStartLine -- typed-reason gate (each reason + ok)", () => {
 });
 
 // --- startLine delegation to canStartLine (Task C3) ---------------------------
-describe("startLine delegates to canStartLine -- appends on ok, same-ref + reason on block", () => {
+describe("startLine delegates to canStartLine, appends on ok, same-ref + reason on block", () => {
   it("appends the line and reports started:true on ok", () => {
     const state = linesState({ commonOre: 1000 });
     const res = startLine(state, "refine", "refineCommonOre", { kind: "batch", remaining: 5 });
@@ -491,7 +491,7 @@ describe("startLine delegates to canStartLine -- appends on ok, same-ref + reaso
     const res = startLine(state, "refine", "refineCommonOre", { kind: "batch", remaining: 5 });
     expect(res.started).toBe(false);
     expect(res.reason).toBe("materials");
-    expect(res.next).toBe(state); // same reference -- true no-op
+    expect(res.next).toBe(state); // same reference, true no-op
   });
 
   it("blocks a fabricate line with notResearched (delegated fabricate-only reason)", () => {

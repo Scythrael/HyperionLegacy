@@ -1,4 +1,4 @@
-// Tick-bar visibility persistence -- a display preference, deliberately
+// Tick-bar visibility persistence, a display preference, deliberately
 // separate from src/lib/game/save.ts's save-file contract so it survives a
 // "delete save" (same rationale as src/lib/theme.ts).
 

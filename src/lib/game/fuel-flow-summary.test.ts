@@ -6,7 +6,7 @@
 // added to tick.ts. This helper exists to fix a UI bug: the top-bar fuel chip
 // and Fuel Depot "REFINING" panel were subtracting mission burn from the
 // refinery's THEORETICAL MAX throughput (a ceiling) UNCONDITIONALLY, so when the
-// player was OUT of Deuterium Ice -- when the refinery actually produces 0 -- the
+// player was OUT of Deuterium Ice, when the refinery actually produces 0, the
 // Net still read POSITIVE. The player reported: "even when I'm out of deuterium
 // ice, it's still showing a net positive."
 //
@@ -16,7 +16,7 @@
 //     OR iceOnHand < fuelBatchInput (ice out).
 // so `effectiveProductionPerTick` is 0 exactly when the real refinery makes 0.
 //
-// It is a PURE read-only helper (no state mutation) -- it does NOT touch the tick
+// It is a PURE read-only helper (no state mutation), it does NOT touch the tick
 // engine. These tests pin the gate + net-sign + sufficiency contract the UI reads.
 // ============================================================================
 
@@ -32,7 +32,7 @@ import {
 } from "./model";
 
 // A fresh state with a chosen Fuel Depot (fuelStorage) level, ice reserve, and
-// starting fuel -- the SAME construction idiom fuel-depot.test.ts uses so the
+// starting fuel, the SAME construction idiom fuel-depot.test.ts uses so the
 // pipeline / cap / ice gates are exercised against known level-0 numbers. Its
 // single seeded captain (id 1) stays IDLE (mission: null) unless burnStates
 // below re-assigns it, so burnPerTick is 0 in the base case.
@@ -49,7 +49,7 @@ function depotState(opts: { deuteriumIce?: number; fuel?: number; fuelStorageLev
 }
 
 // depotState, but with the seeded captain (id 1, flying the seeded "ship-1"
-// General Freighter) put ON a fuel-burning mission (shortOreRun -- transitOut/back
+// General Freighter) put ON a fuel-burning mission (shortOreRun, transitOut/back
 // 25 ticks each, so fuelNeeded > 0). This drives burnPerTick > 0, which is what
 // makes the ICE-OUT net strictly NEGATIVE (the bug's proof). cargo carries the
 // three loot-material keys at 0 (fuelFlowSummary never reads cargo, but a real
@@ -79,7 +79,7 @@ const MAX_PROD = 10;
 const ICE_INPUT = 5;
 const ONE_BATCH_ICE = 50;
 
-describe("fuelFlowSummary -- production ceiling vs effective (ice gate)", () => {
+describe("fuelFlowSummary, production ceiling vs effective (ice gate)", () => {
   it("(a) ice present + tank not full: effectiveProduction == max, net == max - burn", () => {
     // Idle captain -> burn 0, so net == effectiveProduction == max.
     const summary = fuelFlowSummary(depotState({ deuteriumIce: 100, fuel: 0 }));
@@ -104,7 +104,7 @@ describe("fuelFlowSummary -- production ceiling vs effective (ice gate)", () => 
 
   it("(b) THE BUG: ice OUT (deuteriumIce = 0) -> effectiveProduction 0, net == -burn (NEGATIVE), hasIce false", () => {
     const summary = fuelFlowSummary(burningState({ deuteriumIce: 0, fuel: 0 }));
-    // The refinery makes NOTHING with no ice -- the fix.
+    // The refinery makes NOTHING with no ice, the fix.
     expect(summary.effectiveProductionPerTick).toBe(0);
     // max ceiling is still reported (informational "Production (max)" line).
     expect(summary.maxProductionPerTick).toBe(MAX_PROD);

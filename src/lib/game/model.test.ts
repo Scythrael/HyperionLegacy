@@ -25,7 +25,7 @@ import {
 import type { CaptainTalentKey, HomeworldTalentKey } from "./model";
 import { fuelNeeded } from "./fuel";
 
-describe("freshState -- captain roster shape", () => {
+describe("freshState, captain roster shape", () => {
   it("starts with exactly 1 captain (Command branch is how the roster grows now)", () => {
     const state = freshState();
     expect(state.captains).toHaveLength(1);
@@ -41,7 +41,7 @@ describe("freshState -- captain roster shape", () => {
   it("starts with xp:0, level:1, statPoints:0 per captain, and fleet-wide tickDurationSeconds 1", () => {
     const state = freshState();
     for (const c of state.captains) {
-      // Decimal isn't a primitive -- .toBe()/.toEqual() won't match a plain-number
+      // Decimal isn't a primitive, .toBe()/.toEqual() won't match a plain-number
       // literal even when equal in value, so every Decimal-field assertion in this
       // file compares via .equals() instead (this pattern repeats below without
       // re-explaining it each time; see the inventory zero-init test further down
@@ -73,7 +73,7 @@ describe("freshState ships seeding", () => {
   });
 });
 
-describe("freshCaptains(count) -- parameterized roster generation", () => {
+describe("freshCaptains(count), parameterized roster generation", () => {
   it("generates exactly `count` captains with sequential ids/labels, all sharing the fresh baseline", () => {
     const captains = freshCaptains(3);
     expect(captains).toHaveLength(3);
@@ -94,8 +94,8 @@ describe("freshCaptains(count) -- parameterized roster generation", () => {
   });
 });
 
-describe("freshCaptainStack -- shared reset baseline", () => {
-  it("returns the baseline a brand-new captain slot starts with (no tickDurationSeconds -- that's fleet-wide now)", () => {
+describe("freshCaptainStack, shared reset baseline", () => {
+  it("returns the baseline a brand-new captain slot starts with (no tickDurationSeconds, that's fleet-wide now)", () => {
     const stack = freshCaptainStack();
     expect(stack.mission).toBe(null);
     expect(stack.xp.equals(0)).toBe(true);
@@ -105,7 +105,7 @@ describe("freshCaptainStack -- shared reset baseline", () => {
   });
 });
 
-describe("freshState / freshCaptainStack -- mission and Home Planet fields", () => {
+describe("freshState / freshCaptainStack, mission and Home Planet fields", () => {
   it("a fresh captain starts with no active mission", () => {
     const captain = freshCaptains(1)[0];
     expect(captain.mission).toBe(null);
@@ -117,7 +117,7 @@ describe("freshState / freshCaptainStack -- mission and Home Planet fields", () 
     // .toEqual does a deep structural comparison, and a Decimal instance's
     // internal shape (mantissa/exponent) will NOT structurally match a plain
     // number literal even when the represented value is equal.
-    // (Converted from homePlanet.storage to the keyed inventory -- Task 6; this is
+    // (Converted from homePlanet.storage to the keyed inventory, Task 6; this is
     // CURRENT freshState, and Task 7 removes the storage field, so it must read
     // inventory, now the canonical material balance.)
     expect(state.inventory.commonOre.equals(0)).toBe(true);
@@ -135,16 +135,16 @@ describe("freshState / freshCaptainStack -- mission and Home Planet fields", () 
 // Ship Production Economy (Phase 1): the keyed `inventory` + `discovered`
 // fields. Introduced ALONGSIDE homePlanet.storage in Task 2, they are now the
 // LIVE material model (Tasks 4-5 wired tick.ts/App.svelte onto inventory; Task 6
-// -- this pass -- converted the remaining test fixtures; Task 7 removes
+//, this pass, converted the remaining test fixtures; Task 7 removes
 // homePlanet.storage entirely). freshState must seed `inventory` with the 5
 // launch material keys at Decimal(0), and `discovered` as an empty array (no
 // itemId has been seen on a brand-new save). This test guards ONLY that
 // freshState seed.
-describe("Phase 1 -- keyed inventory + discovered (additive)", () => {
+describe("Phase 1, keyed inventory + discovered (additive)", () => {
   it("freshState().inventory seeds exactly the 5 launch material keys, all Decimal(0)", () => {
     const state = freshState();
     const inventoryKeys = Object.keys(state.inventory);
-    // Exact seed key SET -- freshState seeds inventory with precisely the 5 launch
+    // Exact seed key SET, freshState seeds inventory with precisely the 5 launch
     // materials (no missing, no extra). Hardcoded against the same canonical launch
     // set save.ts's v17->v18 migration test pins; this REPLACES the old "mirror
     // homePlanet.storage's keys" comparison (Task 6), which becomes a tautology
@@ -152,7 +152,7 @@ describe("Phase 1 -- keyed inventory + discovered (additive)", () => {
     expect(inventoryKeys.sort()).toEqual(
       ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"],
     );
-    // Every seeded inventory entry starts at Decimal(0) -- compared via .equals()
+    // Every seeded inventory entry starts at Decimal(0), compared via .equals()
     // (not .toEqual against a plain number), same Decimal convention as every
     // other Decimal-field assertion in this file (see the inventory zero-init
     // test above for the full rationale).
@@ -170,10 +170,10 @@ describe("Phase 1 -- keyed inventory + discovered (additive)", () => {
 // reservation fields are ADDED to GameState this pass (DEFINITIONS + state only;
 // the engine that reads/writes them is Task 8). freshState must seed the one
 // facility Phase 1 ships (refinery) at level 0 = not built, no active processes,
-// and the next process id at 1 -- the SAME clean-slate baseline the v17->v18 save
+// and the next process id at 1, the SAME clean-slate baseline the v17->v18 save
 // migration (save.ts, MIGRATIONS[17]) backfills onto old saves. This test guards
 // only that additive freshState seed.
-describe("Phase 1 -- facility/process reservation fields (additive)", () => {
+describe("Phase 1, facility/process reservation fields (additive)", () => {
   // Phase 2, Task B2: the two tiered Warehouses join the refinery in freshState.
   // warehouseT1 level 0 = the base tier's live starting state (cap 1M, no unlock);
   // warehouseT2 level 0 = locked (its rung 0 is the unlock). A NEW game must seed
@@ -183,21 +183,21 @@ describe("Phase 1 -- facility/process reservation fields (additive)", () => {
     const state = freshState();
     // Mission Rework Task 4 (additive): fuelStorage joins the seed at level 0 = the
     // base tank's live starting state (cap FUEL_TANK_BASE_CAP, no unlock, usable from
-    // game start so missions can be fueled -- no soft-lock). Same posture as
+    // game start so missions can be fueled, no soft-lock). Same posture as
     // warehouseT1's live level-0 base.
     // Mission Rework Task 6 (additive): missionControl joins the seed at level 1 (NOT
-    // level 0) -- level 0 is "not built", so seeding at 1 keeps the facility
+    // level 0), level 0 is "not built", so seeding at 1 keeps the facility
     // ESTABLISHED from game start and the 2 ore runs (unlockLevel 1) dispatchable
     // immediately (no soft-lock / no regression). Its level-1 -> 2 completion-gated
     // upgrade unlocks Salvage + Forage.
     // Research Task R2 (additive): the Research Lab joins the seed at level 1 (NOT
-    // level 0) -- same seeded-founding posture as missionControl, so tier-1 blueprints
+    // level 0), same seeded-founding posture as missionControl, so tier-1 blueprints
     // are researchable from game start (no soft-lock) and researchSlotCount reads 1.
     // Fabricator Task F1 (additive): the Fabricator joins the seed at level 1 (NOT
-    // level 0) -- same seeded-founding posture as the Research Lab, so tier-1 blueprints
+    // level 0), same seeded-founding posture as the Research Lab, so tier-1 blueprints
     // are FABRICABLE from game start once researched (no soft-lock) and fabricateSlotCount
     // reads 1.
-    // Shipyard Task S1 (additive): the Shipyard joins the seed at level 0 -- LOCKED /
+    // Shipyard Task S1 (additive): the Shipyard joins the seed at level 0, LOCKED /
     // unfounded (NOT level 1 like research/fabricator). Its founding rung (level 0->1)
     // is a real credits + FA-level unlock, so it must start locked for founding to mean
     // something. shipBuildSlotCount is a const 1 regardless; building a hull is gated on
@@ -221,7 +221,7 @@ describe("Phase 1 -- facility/process reservation fields (additive)", () => {
   });
 });
 
-describe("MISSIONS -- launch set", () => {
+describe("MISSIONS, launch set", () => {
   // Mission Rework (Task 1): the launch set grew from 2 ore runs to 4 missions
   // (the 2 ore runs, keys unchanged, + salvageWreckage + forageFlora). This test's
   // per-field assertions on the 2 ore runs are unchanged (anti-regression); the
@@ -278,9 +278,9 @@ describe("MISSIONS -- launch set", () => {
 // rare ITEM keys it deposits), replacing the old hard-coded commonOre/uncommon
 // Material/rareMaterial the extraction roll used for EVERY mission. The abstract
 // rarity roll is unchanged; only WHICH item key each tier deposits is now
-// per-mission (remapped at delivery -- see tick.ts). primaryMaterial (the auto-stop
+// per-mission (remapped at delivery, see tick.ts). primaryMaterial (the auto-stop
 // gate material) is each mission's COMMON item.
-describe("MISSIONS -- per-mission loot triads (Mission Rework Task 1)", () => {
+describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
   // The authoritative triad per mission (design §1). Common / uncommon / rare
   // ITEM keys, all of which already exist as scaffolded ITEMS placeholders.
   const EXPECTED_TRIADS: Record<
@@ -340,7 +340,7 @@ describe("MISSIONS -- per-mission loot triads (Mission Rework Task 1)", () => {
 
   // ANTI-REGRESSION: the Local Asteroid run (shortOreRun) must still deposit the
   // ORIGINAL Titanium/Polysilicate/Iridium triad under the ORIGINAL storage keys,
-  // and keep its original occurrence chances -- its lootTable is the identity map
+  // and keep its original occurrence chances, its lootTable is the identity map
   // (tier key == item key), so its delivery is byte-identical to pre-rework.
   it("shortOreRun (Local Asteroid) is unchanged: identity triad + original chances", () => {
     expect(MISSIONS.shortOreRun.lootTable).toEqual({
@@ -361,7 +361,7 @@ describe("MISSIONS -- per-mission loot triads (Mission Rework Task 1)", () => {
       expect(m.unloadTicks).toBeGreaterThan(0);
       expect(m.extractionRatePerTick).toBeGreaterThan(0);
       // cargoCapacity must divide evenly by extractionRatePerTick (requiredTicksForPhase
-      // has no partial-final-tick path -- see model.ts).
+      // has no partial-final-tick path, see model.ts).
       expect(m.cargoCapacity % m.extractionRatePerTick).toBe(0);
       expect(m.uncommonChance).toBeGreaterThan(0);
       expect(m.uncommonChance).toBeLessThanOrEqual(1);
@@ -377,7 +377,7 @@ describe("MISSIONS -- per-mission loot triads (Mission Rework Task 1)", () => {
 // Fuel-sourcing RESTRUCTURE (2026-07-15): Deuterium Ice becomes its OWN dedicated
 // fuel-ore item; the F1 label relabels are reverted; a free local fuel-only mission
 // is the bootstrap; credit auto-buy gets expensive. See project_fleet_admiral memory.
-describe("Fuel-sourcing restructure -- label reverts + dedicated Deuterium Ice item", () => {
+describe("Fuel-sourcing restructure, label reverts + dedicated Deuterium Ice item", () => {
   it("reverts commonOre back to 'Titanium Ore' (Local Asteroid common; F1's 'Deuterium Ice' undone)", () => {
     expect(ITEMS.commonOre.label).toBe("Titanium Ore");
     expect(ITEMS.commonOre.rarity).toBe("common");
@@ -407,7 +407,7 @@ describe("Fuel-sourcing restructure -- label reverts + dedicated Deuterium Ice i
   });
 });
 
-describe("Fuel-sourcing restructure -- the free localFuelRun bootstrap mission", () => {
+describe("Fuel-sourcing restructure, the free localFuelRun bootstrap mission", () => {
   it("is FIRST in mission display order (the starter)", () => {
     expect(Object.keys(MISSIONS)[0]).toBe("localFuelRun");
   });
@@ -455,14 +455,14 @@ describe("requiredTicksForPhase", () => {
   });
 
   it("extracting is cargoCapacity / extractionRatePerTick, rounded up", () => {
-    // 90 / 1 = exactly 90 -- both cargoCapacity and extractionRatePerTick were
+    // 90 / 1 = exactly 90, both cargoCapacity and extractionRatePerTick were
     // rescaled 10x down together (Extraction Rework regression fix), keeping the
     // resulting phase length unchanged at 90 ticks.
     expect(requiredTicksForPhase("extracting", MISSIONS.shortOreRun)).toBe(90);
   });
 });
 
-// (The "RECIPES -- launch set" block was REMOVED in Phase 4, Task F5 with the
+// (The "RECIPES, launch set" block was REMOVED in Phase 4, Task F5 with the
 //  legacy instant-craft table it covered. Timed-craft coverage: fabricator.test.ts.)
 
 describe("xpForNextLevel", () => {
@@ -478,12 +478,12 @@ describe("xpForNextLevel", () => {
 
 describe("xpForNextFleetAdminLevel", () => {
   // Progression Pacing Rework: the curve was rescaled from 2500*level^2 to
-  // 375000*level^2. The factor (150) is the PARITY factor -- same method the
+  // 375000*level^2. The factor (150) is the PARITY factor, same method the
   // captain curve used (cycle ticks / old XP-per-cycle): old FA income was 1 per
   // cycle over the 149-tick short cycle, so 149/1 = 149 -> 2500*149 = 372,500,
   // rounded to a clean 375000. The curve is scaled to PRESERVE the old FA pace,
   // NOT to absorb the new income as a boost (that boost is deferred to other
-  // planned FA XP sources). These are DEVICE-TUNED STARTING VALUES -- the
+  // planned FA XP sources). These are DEVICE-TUNED STARTING VALUES, the
   // assertions below pin the chosen scale/shape, not a final balance.
 
   // Concrete sanity values at the chosen parity scale (quadratic: 375000*level^2).
@@ -523,10 +523,10 @@ describe("xpForNextFleetAdminLevel", () => {
     ).toBe(1_875_000); // 375000*(2*2+1)
   });
 
-  // Rough pacing sanity (ballpark, NOT exact -- kept loose to avoid brittleness):
+  // Rough pacing sanity (ballpark, NOT exact, kept loose to avoid brittleness):
   // FA XP now accrues at ~1/tick per ACTIVE captain (Task 5). At a single active
   // captain (~1 FA XP/tick) reaching level 2 must cost the L1 threshold in ticks,
-  // which should land "on the order of" hundreds of thousands of ticks -- slower
+  // which should land "on the order of" hundreds of thousands of ticks, slower
   // than a trivial grind but reachable in a session with a few active captains
   // (N captains ≈ divide the tick count by N). This encodes the parity scale
   // intent (375k at L1) without pinning a fragile exact wall-clock number.
@@ -537,10 +537,10 @@ describe("xpForNextFleetAdminLevel", () => {
   });
 });
 
-describe("CAPTAIN_TALENTS -- launch set", () => {
+describe("CAPTAIN_TALENTS, launch set", () => {
   // Radial Skill Web (Task 2) rewrote this table: the old five-column
   // (command/tactical/science/resourcefulness/diplomacy) linear model is gone.
-  // Only the three radial branches remain -- resourcefulness ("Prospector") is
+  // Only the three radial branches remain, resourcefulness ("Prospector") is
   // the rich tree; tactical ("Tactician") and science ("Explorer") ship as a
   // single gateway hub each until their combat/science systems exist. The old
   // ex-command extraction talents were re-homed under resourcefulness.
@@ -548,7 +548,7 @@ describe("CAPTAIN_TALENTS -- launch set", () => {
     const branches = Object.values(CAPTAIN_TALENTS).map((t) => t.branch);
     // resourcefulness carries the hub + 6 content nodes = 7 total.
     expect(branches.filter((b) => b === "resourcefulness").length).toBe(7);
-    // tactical/science are just their hub (1 each) -- lean stub, not empty.
+    // tactical/science are just their hub (1 each), lean stub, not empty.
     expect(branches.filter((b) => b === "tactical").length).toBe(1);
     expect(branches.filter((b) => b === "science").length).toBe(1);
   });
@@ -570,7 +570,7 @@ describe("CAPTAIN_TALENTS -- launch set", () => {
   });
 
   it("Lucky Strike I/II have the expected cost, adjacency chain, and effect values", () => {
-    // Prerequisite chains are gone -- ordering is now expressed via `neighbors`
+    // Prerequisite chains are gone, ordering is now expressed via `neighbors`
     // adjacency (the fog-of-war/buy-gate walks this instead of a `requires` link).
     expect(CAPTAIN_TALENTS.prospectorLuckyStrikeI.cost).toBe(6);
     expect(CAPTAIN_TALENTS.prospectorLuckyStrikeI.neighbors).toContain("prospectorKeenEyeII");
@@ -588,7 +588,7 @@ describe("CAPTAIN_TALENTS -- launch set", () => {
   });
 });
 
-describe("HOMEWORLD_TALENTS -- launch set", () => {
+describe("HOMEWORLD_TALENTS, launch set", () => {
   // Radial Skill Web (Task 3) rewrote this table into a radial graph: every
   // category now has at least its hub, so no category is literally empty
   // anymore. Homeland Defense / Citizenry are HUB-ONLY (a "learn me first"
@@ -602,7 +602,7 @@ describe("HOMEWORLD_TALENTS -- launch set", () => {
     // economy/industry: hub + 1 content node each = 2 total.
     expect(branches.filter((b) => b === "economy").length).toBe(2);
     expect(branches.filter((b) => b === "industry").length).toBe(2);
-    // homelandDefense/citizenry: just their hub (1 each) -- lean stub, not empty.
+    // homelandDefense/citizenry: just their hub (1 each), lean stub, not empty.
     expect(branches.filter((b) => b === "homelandDefense").length).toBe(1);
     expect(branches.filter((b) => b === "citizenry").length).toBe(1);
   });
@@ -615,7 +615,7 @@ describe("HOMEWORLD_TALENTS -- launch set", () => {
   // Progression Pacing Rework (Task 11): MAX_UNLOCKABLE_CAPTAINS is the derived
   // ceiling the captain-list UI uses to split empty slots into "Locked" (exists,
   // gated) vs "Coming Soon" (no unlock path). It must equal 1 base captain plus
-  // the number of unlockCaptainSlot nodes -- i.e. 4 today. This pins the
+  // the number of unlockCaptainSlot nodes, i.e. 4 today. This pins the
   // derivation so a stray hardcode or an accidental extra slot node is caught.
   it("MAX_UNLOCKABLE_CAPTAINS = 1 base captain + the unlockCaptainSlot node count (4 today)", () => {
     const slotNodeCount = Object.values(HOMEWORLD_TALENTS).filter(
@@ -633,12 +633,12 @@ describe("HOMEWORLD_TALENTS -- launch set", () => {
 });
 
 // Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 1):
-// the talent def shape moves from a linear `requires` chain to a graph -- each
+// the talent def shape moves from a linear `requires` chain to a graph, each
 // def now carries web-space coordinates (x/y) and an adjacency list
 // (neighbors), and the old `requires` field is gone. This structural test is
 // the durable spec for that shape change; the data tables that satisfy it are
 // rewritten in Tasks 2-3, so this test is intentionally red until then.
-describe("Radial Skill Web -- talent def graph shape", () => {
+describe("Radial Skill Web, talent def graph shape", () => {
   it("every talent def carries graph fields (x, y, neighbors) and no requires", () => {
     for (const def of Object.values(CAPTAIN_TALENTS)) {
       expect(typeof def.x).toBe("number");
@@ -658,17 +658,17 @@ describe("Radial Skill Web -- talent def graph shape", () => {
 // Radial Skill Web (Task 2): graph-integrity invariants for the CAPTAIN_TALENTS
 // table specifically. These are the four structural rules the fog-of-war
 // reveal (Task 4) and adjacency buy-gating (Task 5) depend on being true:
-//   1. Exactly ONE hub per branch -- the always-visible seed each branch's
+//   1. Exactly ONE hub per branch, the always-visible seed each branch's
 //      reveal starts from (a branch with zero hubs would render blank; two
 //      would give an ambiguous seed).
 //   2. Every `neighbors` entry RESOLVES to a real key (no dangling adjacency).
 //   3. Adjacency is SAME-BRANCH (the web never draws a connector across
-//      branches -- each spec is its own isolated graph).
-//   4. Adjacency is SYMMETRIC (if A lists B, B lists A) -- connectors are
+//      branches, each spec is its own isolated graph).
+//   4. Adjacency is SYMMETRIC (if A lists B, B lists A), connectors are
 //      undirected and the reveal walks both directions, so a one-way link
 //      would render/behave inconsistently.
 // This is the durable spec for the Task 2 data rewrite.
-describe("Radial Skill Web -- CAPTAIN_TALENTS graph integrity", () => {
+describe("Radial Skill Web, CAPTAIN_TALENTS graph integrity", () => {
   it("exactly one hub per branch, symmetric adjacency, all neighbors resolve same-branch", () => {
     const keys = Object.keys(CAPTAIN_TALENTS) as CaptainTalentKey[];
     const branches = new Set(Object.values(CAPTAIN_TALENTS).map((d) => d.branch));
@@ -687,15 +687,15 @@ describe("Radial Skill Web -- CAPTAIN_TALENTS graph integrity", () => {
 });
 
 // Radial Skill Web (Task 3): the same graph-integrity invariants as the captain
-// test above, now for HOMEWORLD_TALENTS -- PLUS the Task 3 preservation rule.
+// test above, now for HOMEWORLD_TALENTS, PLUS the Task 3 preservation rule.
 // The four structural rules (one hub per category, neighbors resolve, same
 // category, symmetric) are what the fog-of-war reveal (Task 4) and adjacency
 // buy-gating (Task 5) depend on. The extra assertion here guards the CRITICAL
 // constraint that every pre-existing (v14) homeworld key string survives the
-// rewrite UNCHANGED -- existing saves' unlockedHomeworldTalents reference these
+// rewrite UNCHANGED, existing saves' unlockedHomeworldTalents reference these
 // strings and Task 6's migration deliberately does NOT refund homeworld talents
 // because they survive by key, so a rename here would silently break real saves.
-describe("Radial Skill Web -- HOMEWORLD_TALENTS graph integrity", () => {
+describe("Radial Skill Web, HOMEWORLD_TALENTS graph integrity", () => {
   it("all v14 keys preserved + one hub per category, symmetric adjacency, all neighbors resolve same-category", () => {
     // 1. Every pre-existing key string still defined (the preservation rule).
     for (const k of [
@@ -731,7 +731,7 @@ describe("Radial Skill Web -- HOMEWORLD_TALENTS graph integrity", () => {
   });
 });
 
-describe("freshState / freshCaptainStack -- talent and Fleet Admiral fields", () => {
+describe("freshState / freshCaptainStack, talent and Fleet Admiral fields", () => {
   it("a fresh captain has no unlocked talents", () => {
     expect(freshCaptains(1)[0].unlockedCaptainTalents).toEqual([]);
   });
@@ -751,24 +751,24 @@ describe("freshState / freshCaptainStack -- talent and Fleet Admiral fields", ()
 
 // Progression Pacing Rework (Task 1, docs/plans/2026-07-11-progression-pacing-rework-*):
 // lifetimeStats is a forward-compat schema reserved NOW so future systems
-// (Completions/Achievements) have monotonic lifetime totals to read -- these
+// (Completions/Achievements) have monotonic lifetime totals to read, these
 // totals CANNOT be back-derived from spent inventory (a player who mined 1000
 // ore and crafted it all away still shows 0 in storage), so the counters must
 // accrue from a clean-slate zero on a brand-new save. This task ONLY guards the
 // freshState zero-init of the schema; nothing increments these counters yet
 // (that wiring, and the save migration that backfills old saves, are later
-// tasks). The maps start EMPTY ({}) -- a material/mission key only appears once
-// it's first recorded -- while the scalar totals start at Decimal(0).
-describe("Progression Pacing -- freshState.lifetimeStats zero-init", () => {
+// tasks). The maps start EMPTY ({}), a material/mission key only appears once
+// it's first recorded, while the scalar totals start at Decimal(0).
+describe("Progression Pacing, freshState.lifetimeStats zero-init", () => {
   it("freshState seeds lifetimeStats with empty maps and Decimal(0) scalar totals", () => {
     const state = freshState();
-    // The four per-key tally maps start EMPTY -- no material or mission key is
+    // The four per-key tally maps start EMPTY, no material or mission key is
     // present until the first time it's recorded (a later task's increment).
     expect(state.lifetimeStats.itemsGathered).toEqual({});
     expect(state.lifetimeStats.itemsRefined).toEqual({});
     expect(state.lifetimeStats.itemsCrafted).toEqual({});
     expect(state.lifetimeStats.missionsCompleted).toEqual({});
-    // The three scalar lifetime totals start at Decimal(0) -- compared via
+    // The three scalar lifetime totals start at Decimal(0), compared via
     // .equals() (not .toEqual against a plain number), same Decimal convention
     // as every other Decimal-field assertion in this file (see the inventory
     // zero-init test above for the full rationale).
@@ -778,7 +778,7 @@ describe("Progression Pacing -- freshState.lifetimeStats zero-init", () => {
   });
 });
 
-describe("Captain Specialization -- CaptainState.spec and CAPTAIN_SPEC_BONUS", () => {
+describe("Captain Specialization, CaptainState.spec and CAPTAIN_SPEC_BONUS", () => {
   it("a fresh captain has no spec chosen", () => {
     expect(freshCaptains(1)[0].spec).toBeNull();
   });
@@ -800,9 +800,9 @@ describe("Captain Specialization -- CaptainState.spec and CAPTAIN_SPEC_BONUS", (
 // Tasks 14/15 map a focused card straight onto a CaptainTalentBranch /
 // HomeworldTalentBranch. A drifted/typo'd key would silently break that
 // card->branch mapping, so these tests derive the expected key SETS from the
-// real talent tables (not hard-coded literals) -- if a branch/category is ever
+// real talent tables (not hard-coded literals), if a branch/category is ever
 // added or renamed, this test forces the card tables to keep pace.
-describe("Selector cards -- specCards / categoryCards (Task 13)", () => {
+describe("Selector cards, specCards / categoryCards (Task 13)", () => {
   it("specCards has exactly 3 entries keyed to the 3 captain branches", () => {
     expect(specCards).toHaveLength(3);
     // The real captain branches, derived from the talent table itself.
@@ -839,9 +839,9 @@ describe("Selector cards -- specCards / categoryCards (Task 13)", () => {
   });
 });
 
-// Ships -- Stats Foundation (Task 1): the SHIP_TYPES table is the durable spec
+// Ships, Stats Foundation (Task 1): the SHIP_TYPES table is the durable spec
 // for the 4 real hulls this feature introduces. It only ADDS declarations this
-// pass -- nothing consumes SHIP_TYPES yet (GameState wiring, mission math, and
+// pass, nothing consumes SHIP_TYPES yet (GameState wiring, mission math, and
 // UI land in later tasks), so this test guards the stat profiles in isolation.
 // The three forward buckets (tactician/explorer hull families) are deliberately
 // NOT built yet and therefore intentionally NOT asserted here.
@@ -888,16 +888,16 @@ describe("effectiveMissionDef", () => {
 
 // Ship Production Economy (Phase 1, Task 1): ITEMS is the forward-compat item
 // registry the whole epic reads. Phase 1 seeds ONLY the 5 items that exist today
-// (the HomePlanetMaterialKey storage keys) -- 3 raw loot tiers + 2 crafted goods.
+// (the HomePlanetMaterialKey storage keys), 3 raw loot tiers + 2 crafted goods.
 // Nothing consumes ITEMS yet (inventory migration and discovery land in later
 // tasks), so this test guards the seed table in isolation. Later phases grow the
-// table with the minor/major-component/module/system tiers -- do NOT add those
+// table with the minor/major-component/module/system tiers, do NOT add those
 // forward entries here until their phase (no placeholders).
-describe("ITEMS -- Phase 1 seed registry", () => {
+describe("ITEMS, Phase 1 seed registry", () => {
   it("has the full scaffolded catalog: 14 raw, 6 refined, 2 minor + 1 major component", () => {
     // Phase 2 Warehouse catalog scaffold grew the registry to 22. The Fuel-sourcing
-    // RESTRUCTURE (2026-07-15) adds ONE more raw item -- the dedicated `deuteriumIce`
-    // fuel ore (a real, obtainable item via localFuelRun) -- bringing the total to 23.
+    // RESTRUCTURE (2026-07-15) adds ONE more raw item, the dedicated `deuteriumIce`
+    // fuel ore (a real, obtainable item via localFuelRun), bringing the total to 23.
     // Breakdown of the 23:
     //   raw (14): commonOre, uncommonMaterial, rareMaterial (the 3 live ore tiers),
     //     deuteriumIce (the live fuel ore), denseOre (T2 stub), + 9 future ore/salvage/
@@ -939,7 +939,7 @@ describe("ITEMS -- Phase 1 seed registry", () => {
 
   // Phase 2, Task B2: the T2 stub ore is the FIRST tier-2 item in the registry. It
   // must be a real, fully-described catalog entry (so it shows as ❓ + hint in the
-  // Warehouse) but produced by NOTHING this phase -- the honest "future content"
+  // Warehouse) but produced by NOTHING this phase, the honest "future content"
   // wall gating warehouseT2's first real upgrade. The generic standing-rule test
   // below already checks its metadata is complete; this pins its tier + stub role.
   it("denseOre is a tier-2 raw ore stub with a 'no source yet' unlockHint", () => {
@@ -947,10 +947,10 @@ describe("ITEMS -- Phase 1 seed registry", () => {
     expect(ITEMS.denseOre.tier).toBe(2);
     expect(ITEMS.denseOre.category).toBe("raw");
     expect(ITEMS.denseOre.unlockHint.length).toBeGreaterThan(0);
-    // It is unobtainable this phase -- the "naturally gated" stub. The timed refine
+    // It is unobtainable this phase, the "naturally gated" stub. The timed refine
     // path (REFINE_RECIPES) keys its output by a forward-loose plain string, so a
     // future recipe COULD target denseOre; guard that none does today, which would
-    // break the T2 wall. (The instant RECIPES path can't -- its output.key is the
+    // break the T2 wall. (The instant RECIPES path can't, its output.key is the
     // narrow HomePlanetMaterialKey union, which structurally excludes denseOre.)
     for (const recipe of Object.values(REFINE_RECIPES)) {
       expect(recipe.output.itemId).not.toBe("denseOre");
@@ -960,9 +960,9 @@ describe("ITEMS -- Phase 1 seed registry", () => {
   // DRIFT GUARD: every live inventory material key MUST have a matching ITEMS
   // entry, so the registry can't silently fall out of sync with the balances it's
   // meant to describe. We derive the key list from the REAL inventory object
-  // (freshState().inventory) rather than hard-coding it -- so if a later task adds
+  // (freshState().inventory) rather than hard-coding it, so if a later task adds
   // an inventory material key without a corresponding ITEMS entry, this test fails.
-  // (Converted from freshState().homePlanet.storage -- Task 6; storage is removed
+  // (Converted from freshState().homePlanet.storage, Task 6; storage is removed
   // in Task 7. ITEMS is a forward-compat SUPERSET of inventory's seed keys, so this
   // stays a one-directional subset guard: every inventory key must be registered,
   // NOT that every ITEMS key appears in inventory.)
@@ -975,7 +975,7 @@ describe("ITEMS -- Phase 1 seed registry", () => {
 
   it("every ITEMS entry has a non-empty label and flavor, and a tier >= 1", () => {
     // Phase 2, Task B2 introduced the first tier-2 item (denseOre), so items are no
-    // longer all tier 1 -- the invariant is now "a real tier at or above 1" (tier 1
+    // longer all tier 1, the invariant is now "a real tier at or above 1" (tier 1
     // is the lowest warehouse tier). The exact tier split is pinned per-item in the
     // registry tests above / the denseOre test.
     for (const item of Object.values(ITEMS)) {
@@ -985,13 +985,13 @@ describe("ITEMS -- Phase 1 seed registry", () => {
     }
   });
 
-  // STANDING RULE (Phase 2, Task B1 -- design §3.2 "master catalog"): the
-  // Warehouse renders EVERY item as a slot -- ❓ + an unlockHint until discovered,
-  // then name/count/rarity-color once seen -- so every item MUST carry the full
+  // STANDING RULE (Phase 2, Task B1, design §3.2 "master catalog"): the
+  // Warehouse renders EVERY item as a slot, ❓ + an unlockHint until discovered,
+  // then name/count/rarity-color once seen, so every item MUST carry the full
   // catalog metadata (tier, category, rarity, unlockHint). This test guards that
   // constraint registry-wide: a future item added WITHOUT complete metadata (e.g.
   // a missing/blank unlockHint, so its ❓ slot would have no how-to-get clue) fails
-  // here. Derived by iterating the live ITEMS registry -- no hard-coded key list --
+  // here. Derived by iterating the live ITEMS registry, no hard-coded key list --
   // so it automatically covers any item added later.
   it("every ITEMS entry carries complete Warehouse catalog metadata (tier/category/rarity/unlockHint)", () => {
     const validCategories = ["raw", "refined", "minorComponent", "majorComponent", "shipModule", "shipSystem"];
@@ -1003,7 +1003,7 @@ describe("ITEMS -- Phase 1 seed registry", () => {
       // category + rarity: present and a valid member of their respective unions.
       expect(validCategories, `${key}.category is a valid ItemCategory`).toContain(item.category);
       expect(validRarities, `${key}.rarity is a valid ItemRarity`).toContain(item.rarity);
-      // unlockHint: a non-empty string -- the ❓-state "how to get this" clue.
+      // unlockHint: a non-empty string, the ❓-state "how to get this" clue.
       expect(typeof item.unlockHint, `${key}.unlockHint is a string`).toBe("string");
       expect(item.unlockHint.length, `${key}.unlockHint is non-empty`).toBeGreaterThan(0);
     }
@@ -1012,19 +1012,19 @@ describe("ITEMS -- Phase 1 seed registry", () => {
 
 // Phase 2, Task B2 (design §3.1-§3.3): the tiered Warehouse facilities join the
 // FACILITIES table on the SAME Phase 1 framework the Refinery uses. These guard the
-// DATA table shape -- the generated rung counts, the derived material costs (75% of
+// DATA table shape, the generated rung counts, the derived material costs (75% of
 // the cap at each level), the storageCapMult effect on every rung, and the T2 stub's
 // unlock cost + denseOre-gated first upgrade. The cap-VALUE derivation (tierCap) and
 // the T2 buildability GATE (canBuildFacilityUpgrade) are exercised in tick.test.ts,
 // where those functions live.
-describe("FACILITIES -- tiered Warehouses (Task B2)", () => {
+describe("FACILITIES, tiered Warehouses (Task B2)", () => {
   it("warehouseT1 exists with ~25 generated doubling rungs, all { storageCapMult: 2 } and ungated", () => {
     const wh = FACILITIES.warehouseT1;
     expect(wh).toBeDefined();
     // ~25 rungs (the "effectively infinite / repeatable" doubling track, design §3.3).
     expect(wh.upgrades.length).toBe(25);
     for (const rung of wh.upgrades) {
-      // Every rung doubles the tier cap -- the effect tierCap multiplies on read.
+      // Every rung doubles the tier cap, the effect tierCap multiplies on read.
       expect(rung.effect).toEqual({ storageCapMult: 2 });
       // T1 is the base tier: every rung is pure cost + time, NO prereq gates.
       expect(rung.requiresFleetAdminLevel).toBeUndefined();

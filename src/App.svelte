@@ -4,7 +4,7 @@
   import Starfield from "./lib/Starfield.svelte";
   import Panel from "./lib/Panel.svelte";
   import SubTabs from "./lib/SubTabs.svelte";
-  // Radial Skill Web (Task 11b, minimal buildable integration) -- the pannable
+  // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
   // own tooltip + Learn button internally (see RadialWeb.svelte), so App.svelte
@@ -13,7 +13,7 @@
   // Prospector, homeworld -> "fleetLogistics"); Tasks 14/15 layer the spec/
   // category selection UX in front of this.
   import RadialWeb from "./lib/RadialWeb.svelte";
-  // Radial Skill Web (Task 14) -- the card spec-picker shown in the Captain
+  // Radial Skill Web (Task 14), the card spec-picker shown in the Captain
   // Talents panel when a captain has NOT yet chosen a spec (activeCaptain.spec
   // === null). Picking a card commits that spec for free (chooseCaptainSpec);
   // once chosen, the panel renders that spec's RadialWeb instead (see the
@@ -25,7 +25,7 @@
   import {
     freshState,
     specCards,
-    // Radial Skill Web (Task 15) -- the 5 homeworld-category cards shown by the
+    // Radial Skill Web (Task 15), the 5 homeworld-category cards shown by the
     // Homeworld Talents TreeSelector (keys ARE the HomeworldTalentBranch
     // literals). Unlike specCards these do NOT lock in; picking one is pure
     // navigation into that category's web (see selectedCategory/viewCategory).
@@ -34,19 +34,19 @@
     requiredTicksForPhase,
     // Fuel Economy v2 (F4 UI): effectiveMissionDef rescales a base mission's transit
     // by the flying hull's speed, so the fuel-chip expenditure math can measure a burn
-    // rate against the REAL (ship-adjusted) cycle length -- not the un-adjusted base.
+    // rate against the REAL (ship-adjusted) cycle length, not the un-adjusted base.
     effectiveMissionDef,
     xpForNextLevel,
     xpForNextFleetAdminLevel,
     CAPTAIN_TALENTS,
     HOMEWORLD_TALENTS,
-    // Progression Pacing Rework (Task 11) -- live ceiling of captain slots the
+    // Progression Pacing Rework (Task 11), live ceiling of captain slots the
     // current content can actually unlock (1 base + the 3 fleetLogisticsSlot
     // nodes = 4 today). The captain-list below uses it to split empty slots into
     // "Locked" (exists, gated by a Fleet Logistics talent) vs "Coming Soon" (a
     // roadmap slot past 4 with no unlock path built yet). See model.ts.
     MAX_UNLOCKABLE_CAPTAINS,
-    // Ships -- Stats Foundation (Task 11 UI) -- the shared, immutable hull-stat
+    // Ships, Stats Foundation (Task 11 UI), the shared, immutable hull-stat
     // table (SHIP_TYPES) plus the per-instance stat projection
     // (shipDerivedStats) drive the Sector Space > Starbase > Docks/Requisition
     // panels below. SHIP_TYPES is iterated for the Requisition buy list AND read
@@ -55,7 +55,7 @@
     // transitSpeedMult/extractionYieldMult) for the Docks ship rows.
     SHIP_TYPES,
     shipDerivedStats,
-    // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the static data
+    // Facility Framework + Refinery (Phase 1, Task 12 UI), the static data
     // tables the Facilities tab reads. FACILITIES drives the Refinery's upgrade
     // track (next-rung materials/prereqs); REFINE_RECIPES drives the Production
     // sub-tab's per-slot line configurator (recipe dropdown + REQUIRES preview);
@@ -66,7 +66,7 @@
     FACILITIES,
     REFINE_RECIPES,
     ITEMS,
-    // Research (Task R5 UI) -- the static blueprint table + the pure "is it
+    // Research (Task R5 UI), the static blueprint table + the pure "is it
     // researched?" reader the Research Lab panel below iterates/reads. BLUEPRINTS
     // is the SINGLE source the Research sub-tab groups by tier (label / tier /
     // recipe / cost / duration); blueprintUnlocked(state, key) marks a researched
@@ -78,26 +78,26 @@
     BLUEPRINTS,
     blueprintUnlocked,
     RESEARCH_FACILITY_KEY,
-    // Fabricator (Phase 4, Task F4 UI) -- the stable "fabricator" facility key the
+    // Fabricator (Phase 4, Task F4 UI), the stable "fabricator" facility key the
     // Fabricator rail entry + panel + upgrade wiring reference (never the raw
     // string), mirroring RESEARCH_FACILITY_KEY. Drives the Overview slot/level
     // reads, the Craft-tab canFabricate gate, and the Upgrades tab's
     // canBuildFacilityUpgrade/doStartFacilityUpgrade(FABRICATOR_FACILITY_KEY) calls.
     FABRICATOR_FACILITY_KEY,
-    // Shipyard (Phase 5, Task S5 UI) -- the stable "shipyard" facility key the Shipyard
+    // Shipyard (Phase 5, Task S5 UI), the stable "shipyard" facility key the Shipyard
     // rail entry + Build/Upgrades panel + founding/upgrade wiring reference (never the raw
     // string), mirroring RESEARCH_FACILITY_KEY / FABRICATOR_FACILITY_KEY. Drives the
     // founded-vs-unfounded Build split (facilities[SHIPYARD_FACILITY_KEY].level >= 1), the
     // per-hull canBuildShip gate, and the Upgrades tab's canBuildFacilityUpgrade/
     // doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY) calls (the founding rung is level 0->1).
     SHIPYARD_FACILITY_KEY,
-    // Shipyard (Task S5 UI): the hull-type key type -- types the per-hull loop var + the
+    // Shipyard (Task S5 UI): the hull-type key type, types the per-hull loop var + the
     // doStartShipBuild param, so SHIP_TYPES lookups (label/cargoCapacity/spec/buildRecipe)
     // and the canBuildShip/shipBuildDurationTicks calls are key-checked at compile time.
     type ShipTypeKey,
     // Mission Rework (Task 8 UI): the buy-fuel price per unit, shown on the Fuel
     // Storage facility's buy control so the credits cost of +10/+100/Fill reads
-    // straight off the SAME constant buyFuel (tick.ts) charges -- price shown can
+    // straight off the SAME constant buyFuel (tick.ts) charges, price shown can
     // never drift from price charged.
     FUEL_CREDITS_PER_UNIT,
     // FUEL_REFINE_DURATION_TICKS import removed in the net-display fix (2026-07-16):
@@ -118,7 +118,7 @@
     type CaptainTalentKey,
     type HomeworldTalentKey,
     type HomeworldTalentBranch,
-    // (ShipTypeKey -- Task 11 UI -- was dropped in S4 with the Requisition buy
+    // (ShipTypeKey, Task 11 UI, was dropped in S4 with the Requisition buy
     //  handler that was its only consumer. The Docks ship-row loop var and
     //  parked-ship picker list are all inferred from state.ships
     //  (ShipInstance[]), so no ship-type key type is imported here anymore.)
@@ -127,7 +127,7 @@
     // metadata (rarity/tier/unlockHint/label) the fill-tiles + tooltip read.
     type ItemCategory,
     type ItemDef,
-    // Research (Task R5 UI): the blueprint def shape -- types the reason→text
+    // Research (Task R5 UI): the blueprint def shape, types the reason→text
     // helper's `bp` param (so tierLocked can read bp.tier for its "Requires
     // Research Lab level N" message) and the per-blueprint markup loop var.
     type BlueprintDef,
@@ -135,39 +135,39 @@
   import {
     tick,
     // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
-    // economy body. The live poll loop below now calls THIS -- the exact same
-    // function tick()'s offline catch-up runs -- instead of hand-mirroring the
+    // economy body. The live poll loop below now calls THIS, the exact same
+    // function tick()'s offline catch-up runs, instead of hand-mirroring the
     // per-captain mission / passiveTrickle / loot / resolveProcesses / credits /
     // applyFleetAdminXp math inline, which is precisely the surface that used to
-    // drift between the two paths (ship stats, bonus-roll, credits -- all logged).
+    // drift between the two paths (ship stats, bonus-roll, credits, all logged).
     economyTick,
     tickCaptainMission,
     dispatchCaptainOnMission,
     recallCaptain,
     applyFleetAdminXp,
-    // Ships -- Stats Foundation (Task 11 UI) -- the remaining pure ship action
+    // Ships, Stats Foundation (Task 11 UI), the remaining pure ship action
     // wired into the Sector Space > Starbase Docks panel below.
     // assignShipToCaptain(state, captainId, shipId) backs BOTH Docks pickers
     // (assign-parked-to-captain AND swap-captain-to-parked-ship both resolve to
-    // this one call -- see doAssignShip's header). Returns { next, success },
+    // this one call, see doAssignShip's header). Returns { next, success },
     // wired exactly like every other do* handler in this file.
-    // (buyShip -- the instant Requisition credit-buy -- was RETIRED in S4.)
+    // (buyShip, the instant Requisition credit-buy, was RETIRED in S4.)
     assignShipToCaptain,
-    // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the pure backend fns
+    // Facility Framework + Refinery (Phase 1, Task 12 UI), the pure backend fns
     // wired into the Facilities tab below. refineSlotCount(state) => how many
     // parallel refine jobs the refinery can run right now (derived from its
     // upgrade level); canBuildFacilityUpgrade(state, facilityKey) is the PURE
     // readiness predicate ({ ok, reason? }) the Upgrades sub-tab reads for its
     // Build-button gate + red "missing" reason; startFacilityUpgrade(state,
     // facilityKey) starts the next upgrade, returning { next, started } (NOT
-    // { next, success } like the other actions) -- see doStartFacilityUpgrade
+    // { next, success } like the other actions), see doStartFacilityUpgrade
     // below, which destructures `started`.
-    // (startRefineJob -- the one-shot manual refine start -- was RETIRED in S4;
+    // (startRefineJob, the one-shot manual refine start, was RETIRED in S4;
     //  the per-slot Production configurator drives refining now, via startLine.)
     refineSlotCount,
     canBuildFacilityUpgrade,
     startFacilityUpgrade,
-    // Crafting Allocation Redesign (Task C3/C4) -- the per-slot production LINE seams the
+    // Crafting Allocation Redesign (Task C3/C4), the per-slot production LINE seams the
     // Refinery + Fabricator configurators wire up (replacing the retired standing-order
     // actions). startLine(state, kind, recipeKey, mode) appends a configured line (gated by
     // canStartLine, returns { next, started, reason? }); cancelLine(state, lineId) removes a
@@ -180,7 +180,7 @@
     canStartLine,
     maxAffordableIterations,
     type StartLineBlockReason,
-    // Phase 2 (Warehouse UI, Group C) -- the two PURE cap-reader fns the
+    // Phase 2 (Warehouse UI, Group C), the two PURE cap-reader fns the
     // Warehouse fill-tiles + Overview read. tierCap(state, tier) => the CURRENT
     // per-item storage cap for a warehouse tier (derived from its facility
     // level); materialAtCap(state, itemId) => whether an item's stock has
@@ -204,8 +204,8 @@
     captainRareChanceMult,
     captainBonusRollChance,
     captainBonusRollChanceMult,
-    captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does -- enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
-    xpPerTick, // Mission Rework (Task 2): the SHARED per-tick XP RATE helper -- consumed by the Operations mission cards to show each mission's exp/tick (captain-independent today, so the fleet's representative captain is passed)
+    captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does, enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
+    xpPerTick, // Mission Rework (Task 2): the SHARED per-tick XP RATE helper, consumed by the Operations mission cards to show each mission's exp/tick (captain-independent today, so the fleet's representative captain is passed)
     // Mission Rework (Task 8 UI): the consolidated dispatch gate + the mission-
     // unlock/fuel-cap/buy-fuel backend seams the Operations dispatch + the two new
     // Facilities panels wire up. canDispatch(state, captainId, missionKey) is the
@@ -229,40 +229,40 @@
     fuelBatchInput,
     // Fuel net-display fix (2026-07-16): the PURE, read-only fuel-economy summary.
     // Mirrors processFuelPipelines' ice/tank/pipeline gates so the DISPLAYED net
-    // matches what the refinery actually does -- effectiveProductionPerTick is 0
+    // matches what the refinery actually does, effectiveProductionPerTick is 0
     // when out of Deuterium Ice (fixing the "net positive while out of ice" bug).
     // The per-tick mission-burn sum (formerly computed inline in the fuel reactive
     // block below) now lives inside this helper: ONE source of truth in the engine.
     fuelFlowSummary,
-    // Fuel-runway readout (Wave 2) -- PURE two-phase "ticks until fuel-empty"
+    // Fuel-runway readout (Wave 2), PURE two-phase "ticks until fuel-empty"
     // projection over the live-measured net fuel & ice rates (see the EMA in the
     // poll loop). Full-sustainability model: credits mission-mined Deuterium Ice.
     fuelRunwayProjection,
-    // Research (Task R5 UI) -- the three PURE research seams the Research Lab panel
+    // Research (Task R5 UI), the three PURE research seams the Research Lab panel
     // wires up. researchSlotCount(state) => how many parallel research projects the
     // lab can run right now (derived from its upgrade level, parallels refineSlotCount);
     // canResearch(state, key) is the ONE consolidated gate ({ ok } | { ok, reason }) the
     // Research button reads for its enabled/blocked+reason state; startResearch(state, key)
     // starts one project (deduct-at-start credits + a timed unlock process). startResearch
-    // returns { next, started, reason? } -- doStartResearch below destructures `started`
+    // returns { next, started, reason? }, doStartResearch below destructures `started`
     // and bails on a same-ref no-op, exactly like doStartFacilityUpgrade/doStartRefineJob.
     researchSlotCount,
     canResearch,
     startResearch,
     type ResearchBlockReason,
-    // Fabricator (Phase 4, Task F4 UI) -- fabricateSlotCount(state) => how many parallel
+    // Fabricator (Phase 4, Task F4 UI), fabricateSlotCount(state) => how many parallel
     // fabricate jobs the fabricator can run right now (derived from its upgrade level,
     // parallels researchSlotCount/refineSlotCount, and the number of Fabricator production-
     // line slots). The standing fabricate-order seams (startFabricateOrder/stopFabricateOrder)
-    // AND canFabricate/FabricateBlockReason were RETIRED from the UI in C4 -- the Craft tab now
+    // AND canFabricate/FabricateBlockReason were RETIRED from the UI in C4, the Craft tab now
     // uses the shared startLine/canStartLine + startLineBlockText seams above.
     fabricateSlotCount,
-    // Shipyard (Phase 5, Task S5 UI) -- the three PURE ship-build seams the Shipyard
+    // Shipyard (Phase 5, Task S5 UI), the three PURE ship-build seams the Shipyard
     // Build panel wires up. canBuildShip(state, typeKey) is the ONE consolidated gate
     // ({ ok } | { ok, reason }) each hull's Build button reads for its enabled/blocked+
     // reason state; startShipBuild(state, typeKey) starts ONE build (deduct-at-start
     // BOM + credits + a timed shipBuild process), returning { next, started, reason? }
-    // -- doStartShipBuild below destructures `started` and bails on a same-ref no-op,
+    //, doStartShipBuild below destructures `started` and bails on a same-ref no-op,
     // exactly like doStartFacilityUpgrade/doStartResearch. shipBuildDurationTicks(state,
     // typeKey) is the effective (build-speed-adjusted) build time the hull card's ⏱
     // readout formats. ShipBuildBlockReason types the reason→text map. All read the SAME
@@ -280,12 +280,12 @@
     describeHomeworldTalentEffect,
   } from "./lib/game/tick";
   // Mission Rework (Task 8 UI): the PURE fuel-cost math. fuelNeeded(mission, shipDef)
-  // returns the round-trip fuel a hull burns for a mission -- shown per mission on the
+  // returns the round-trip fuel a hull burns for a mission, shown per mission on the
   // Operations dispatch surface (list card = representative captain's hull; popup =
   // the SELECTED captain's hull, the authoritative dispatching cost). Imported from
   // fuel.ts directly (its own module; tick.ts does not re-export it).
   import { fuelNeeded } from "./lib/game/fuel";
-  // Crafting Allocation Redesign (Task C1/C4) -- the DERIVED material-allocation helpers the
+  // Crafting Allocation Redesign (Task C1/C4), the DERIVED material-allocation helpers the
   // per-line configurator's REQUIRES preview reads: lineInputsPerIteration(line) => a recipe's
   // per-iteration input map (for the "per/ea" column); allocatedItem(lines, item) => units
   // reserved by all active lines; freeItem(inventory, lines, item) => usable stock (inventory −
@@ -297,7 +297,7 @@
     freeItem,
     // Shipyard (Task S5 UI): the reservation-aware FREE-stock reader for the hull-card
     // REQUIRES box. freeItemForState(state, itemId) = inventory MINUS what active craft
-    // lines reserve -- the SAME pool canBuildShip gates a build's BOM against, so the "free
+    // lines reserve, the SAME pool canBuildShip gates a build's BOM against, so the "free
     // {n}" the card shows (red when free < need) matches exactly what the build can spend.
     freeItemForState,
     type CraftLine,
@@ -311,22 +311,22 @@
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
 
-  // DEV_MODE -- Vercel §9.5.3: true on Preview, false on Production. Locally,
+  // DEV_MODE, Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
   const DEV_MODE_ENV = import.meta.env.VITE_DEV_MODE === "true";
 
-  // The Debug tab + [DEV] grant controls gate on build-time DEV_MODE only -- so
+  // The Debug tab + [DEV] grant controls gate on build-time DEV_MODE only, so
   // they show on preview/local dev builds but NEVER on production.
   //
   // DEV_MODE is true when EITHER:
   //   - VITE_DEV_MODE=true (local .env.local, per the note above), OR
-  //   - __IS_PREVIEW_BUILD__ -- injected by vite.config.ts from Vercel's build-time
+  //   - __IS_PREVIEW_BUILD__, injected by vite.config.ts from Vercel's build-time
   //     VERCEL_ENV, true ONLY on Preview deployments. This auto-enables the dev
   //     panel on every preview deploy (e.g. devpreview.crystalisoft.com) with NO
   //     Vercel-dashboard env config, and stays HARD-OFF on the Production build
   //     (VERCEL_ENV==='production' => __IS_PREVIEW_BUILD__ false) no matter which
   //     URL serves it. This is the security boundary (Omega 6): the [DEV] grants
-  //     -- free FA levels / admin / stat points / CREDITS -- must never be reachable
+  //    , free FA levels / admin / stat points / CREDITS, must never be reachable
   //     by real players, especially once leaderboards/multiplayer exist.
   //
   // A `?dev` URL bypass was added during Progression-Pacing-Rework device testing,
@@ -341,9 +341,9 @@
   // sub-tab (APP_VERSION) and the Patch Notes sub-tab (PATCH_NOTES) below.
 
   // Display-only phase labels for the MISSIONS panel's phase readout. Purely
-  // a UI concern -- nothing outside this file needs to map a MissionPhase to
+  // a UI concern, nothing outside this file needs to map a MissionPhase to
   // display text, so it lives here rather than in model.ts. Must stay in
-  // sync with MissionPhase's literal union -- a new phase added there
+  // sync with MissionPhase's literal union, a new phase added there
   // without a matching entry here would silently render "undefined" instead
   // of a label.
   const MISSION_PHASE_LABEL: Record<MissionPhase, string> = {
@@ -367,31 +367,31 @@
   let tickBarEnabled = true;
   // Whether the raw tick numbers are shown next to the human-readable clock
   // timers on every "N remaining" / "Duration" readout. Persisted in
-  // localStorage (loadShowTickCounts), NOT on GameState -- exactly like
+  // localStorage (loadShowTickCounts), NOT on GameState, exactly like
   // tickBarEnabled above, so it survives a delete-save and needs no save
   // migration. Loaded in onMount alongside tickBarEnabled; default FALSE
   // (players see just the clock; tick counts are an opt-in power-user detail).
   let showTickCounts = false;
   // Phase 2 (Task D3): whether the "are you sure you wish to refine this item?"
   // confirmation modal is shown before starting a refine order. Persisted in
-  // localStorage (loadRefineConfirmEnabled), NOT on GameState -- exactly like
+  // localStorage (loadRefineConfirmEnabled), NOT on GameState, exactly like
   // tickBarEnabled above, so it survives a delete-save and needs no save
   // migration. Loaded in onMount alongside tickBarEnabled; default TRUE.
   let refineConfirmEnabled = true;
   let deleteModalOpen = false;
   let deleteConfirmText = "";
 
-  // Homeworld Talents "Reset" confirmation modal (Task 13) -- same
+  // Homeworld Talents "Reset" confirmation modal (Task 13), same
   // "state near deleteModalOpen, markup near the delete modal" pattern as
   // deleteModalOpen/deleteConfirmText above. Fleet-wide, no per-captain
   // scoping (mirrors respecHomeworldTalents itself, which takes no
   // captainId). No typed-confirmation-word gate here (unlike Delete
-  // Save) -- the cost + irreversibility warning text inside the modal is
+  // Save), the cost + irreversibility warning text inside the modal is
   // the friction, same level as the Import Save modal's plain Cancel/
   // Import pair.
   let homeworldRespecModalOpen = false;
 
-  // Captain Talents "Reset" confirmation modal (Task 13) -- per-captain,
+  // Captain Talents "Reset" confirmation modal (Task 13), per-captain,
   // scoped to activeCaptain (mirrors respecCaptainTalents, which takes a
   // captainId). Task 14 (Radial Skill Web) removed the old selectedSpecInModal
   // "keep the current spec" state entirely: Reset now always CLEARS the spec to
@@ -401,12 +401,12 @@
   // needed.
   let captainRespecModalOpen = false;
 
-  // Import Save modal (Task 7, Loot Tier Rework -- see
-  // docs/plans/2026-07-07-loot-tier-rework-plan.md) -- same
+  // Import Save modal (Task 7, Loot Tier Rework, see
+  // docs/plans/2026-07-07-loot-tier-rework-plan.md), same
   // "state near deleteModalOpen, markup near the delete modal" pattern as
   // that existing flow. pendingImportRaw holds the SELECTED file's raw text
   // (already read off disk by the time the modal opens) so confirmImport has
-  // no async work left to do -- only the file input's on:change handler
+  // no async work left to do, only the file input's on:change handler
   // touches the filesystem/File API. importError surfaces a rejected
   // (corrupt/non-save) file inline in the modal without closing it, so the
   // user can immediately try a different file.
@@ -415,14 +415,14 @@
   let importError: string | null = null;
 
   // Fleet Operations captain-selection popup (2026-07-07 Fleet Operations
-  // Mission UI) -- null missionPopupKey means the popup is closed. Selecting a
+  // Mission UI), null missionPopupKey means the popup is closed. Selecting a
   // mission card opens it with no captain chosen yet (missionPopupCaptainId
   // null); picking a captain inside the popup recalculates the preview stats
-  // but does NOT dispatch -- only the Dispatch button does that.
+  // but does NOT dispatch, only the Dispatch button does that.
   let missionPopupKey: MissionKey | null = null;
   let missionPopupCaptainId: number | null = null;
 
-  // Radial Skill Web (Task 11b) -- the old shared talent-tooltip mechanism
+  // Radial Skill Web (Task 11b), the old shared talent-tooltip mechanism
   // (openTooltipKey + the talentTooltipInfo lookup + the activeTooltipInfo
   // reactive) was removed here. It resolved a talent key into tooltip content
   // by reading each def's now-removed `.requires` field, so it no longer
@@ -437,13 +437,13 @@
   let paused = false;
 
   // Outer bottom nav (Task 1, Phase 4; split from 5 to 6 tabs in the UI
-  // Redesign, Task 7 -- see docs/plans/2026-07-07-ui-redesign-plan.md), no
+  // Redesign, Task 7, see docs/plans/2026-07-07-ui-redesign-plan.md), no
   // router library (see design doc: single-page idle game, no deep-linking/
   // history need). Default lands on Fleet Captain's since captains/missions
   // are the core loop today.
-  // "facilities" added (Phase 1, Facility Framework + Refinery -- Task 12 UI):
+  // "facilities" added (Phase 1, Facility Framework + Refinery, Task 12 UI):
   // a NEW top-level bottom-nav tab that MIRRORS the Sector Space (starbase) tab's
-  // structure exactly -- a LEFT rail of homeworld facilities + a right content
+  // structure exactly, a LEFT rail of homeworld facilities + a right content
   // pane driven by SubTabs for the selected facility. Placed alongside the other
   // homeworld-adjacent tabs (see the .nav-tabs row below). Only the Refinery is
   // real this pass; Warehouse/Fabricator/Shipyard are locked "Coming Soon" rail
@@ -451,7 +451,7 @@
   type TabKey = "locations" | "facilities" | "fleetCaptains" | "fleetOperations" | "battlespace" | "system";
   let activeTab: TabKey = "fleetCaptains";
 
-  // Fleet Captain's tab sub-tabs (UI Redesign, Task 8 -- see
+  // Fleet Captain's tab sub-tabs (UI Redesign, Task 8, see
   // docs/plans/2026-07-07-ui-redesign-plan.md). Overview holds the relocated
   // CAPTAIN LEVELING content; Talents holds the relocated CAPTAIN TALENTS
   // content. Defaults to Overview since level/XP is the more commonly
@@ -459,18 +459,18 @@
   type FleetCaptainSubTab = "overview" | "talents";
   let activeFleetCaptainSubTab: FleetCaptainSubTab = "overview";
 
-  // Starbase's sub-tab: Docks (ship management -- capacity + per-ship rows +
+  // Starbase's sub-tab: Docks (ship management, capacity + per-ship rows +
   // assign/swap). The old Requisition (instant credit-buy) sub-tab was RETIRED
-  // in S4 -- hulls now come from the Shipyard build panel, so only Docks
+  // in S4, hulls now come from the Shipyard build panel, so only Docks
   // remains. Kept as a (single-member) union so re-adding a sub-tab later is a
   // one-line change and the SubTabs `key as StarbaseSubTab` cast stays typed.
   type StarbaseSubTab = "docks";
   let activeStarbaseSubTab: StarbaseSubTab = "docks";
 
-  // ---- Facilities tab (Phase 1, Facility Framework + Refinery -- Task 12 UI) --
+  // ---- Facilities tab (Phase 1, Facility Framework + Refinery, Task 12 UI) --
   // DIRECTLY mirrors the Sector Space (starbase) tab above: a LEFT rail of
   // facilities (like the Starbase/Shipyard/Warehouse rail) + a right content pane
-  // driven by SubTabs. Only "refinery" is real this pass -- Warehouse/Fabricator/
+  // driven by SubTabs. Only "refinery" is real this pass, Warehouse/Fabricator/
   // Shipyard render as locked "Coming Soon" rail items (the exact
   // .captain-list-item.locked idiom Sector Space's locked structures use). Kept as
   // a typed literal union (not a free string) so a future real facility is added
@@ -513,7 +513,7 @@
 
   // The 8 category SubTabs, in display order. SubTabs is already horizontally
   // scrollable (nowrap + overflow-x:auto), so 8 entries scroll on a narrow
-  // screen with no extra work -- exactly the mockup's scrollable category strip.
+  // screen with no extra work, exactly the mockup's scrollable category strip.
   const WAREHOUSE_CAT_TABS: { key: WarehouseCat; label: string }[] = [
     { key: "overview", label: "Overview" },
     { key: "upgrade", label: "Upgrade" },
@@ -527,7 +527,7 @@
 
   // Which ItemCategory value(s) each CATALOG tab shows (design §3.1 grouping).
   // The management tabs (overview/upgrade) and the future stub tabs
-  // (troopEquipment/consumables -- no ItemCategory exists for them yet) are
+  // (troopEquipment/consumables, no ItemCategory exists for them yet) are
   // ABSENT here on purpose: a tab absent from this map is NOT a catalog grid.
   // "Components" folds minor+major; "Ship Equipment" folds module+system.
   const WAREHOUSE_CAT_CATEGORIES: Partial<Record<WarehouseCat, ItemCategory[]>> = {
@@ -547,7 +547,7 @@
   ];
 
   // A tier's storage is "unlocked" when its warehouse facility is built. T1 is
-  // the base tier -- always unlocked (cap active at level 0, no unlock rung). A
+  // the base tier, always unlocked (cap active at level 0, no unlock rung). A
   // higher tier (T2+) is locked until its unlock rung (level 0 -> 1) completes,
   // i.e. facility level > 0. A tier with NO warehouse facility at all (none
   // today beyond T2) is treated as unlocked so its items still show (fail-open,
@@ -561,7 +561,7 @@
 
   // Per-category placeholder glyph for a discovered tile (real icons land later,
   // per the mockup's "icons are placeholders" note). A generic emoji per
-  // category group -- deliberately simple; the fill + count + rarity ring carry
+  // category group, deliberately simple; the fill + count + rarity ring carry
   // the real at-a-glance information, not the glyph.
   function warehouseCategoryGlyph(category: ItemCategory): string {
     switch (category) {
@@ -597,7 +597,7 @@
     }
   }
 
-  // Mission DROP icon row (2026-07-15 UI) -- the tiers a mission ACTUALLY drops,
+  // Mission DROP icon row (2026-07-15 UI), the tiers a mission ACTUALLY drops,
   // as {key, chancePct} descriptors driving both the icon row and each icon's
   // tooltip. common ALWAYS drops; uncommon/rare are INCLUDED ONLY when their
   // chance is > 0 (so Local Deuterium Skim, whose uncommon/rare chances are both
@@ -628,12 +628,12 @@
   // and tooltip mini-bar. cap is always >= the tier base (>= 1M), never 0, so
   // the divide is safe. An at-cap item reads 100 exactly (materialAtCap's >=).
   function warehouseFillPct(count: Decimal, cap: Decimal): number {
-    if (cap.lte(0)) return 0; // defensive -- no real tier cap is ever <= 0
+    if (cap.lte(0)) return 0; // defensive, no real tier cap is ever <= 0
     const pct = count.div(cap).times(100).toNumber();
     return Math.max(0, Math.min(100, pct));
   }
 
-  // Warehouse tile tooltip (Phase 2, Group C) -- a single fleet-positioned
+  // Warehouse tile tooltip (Phase 2, Group C), a single fleet-positioned
   // element (not one-per-tile), the SAME pattern the currency-chip tooltip uses,
   // so it escapes the scroll container's clipping. Holds only the hovered/tapped
   // itemId + a viewport position; the tooltip MARKUP re-derives name/count/cap/
@@ -643,12 +643,12 @@
   // serves (mission drops UI, 2026-07-15): null = a Warehouse TILE tooltip
   // (stored/cap/fill%/flavor, the original behavior); a number = a mission DROP
   // ICON tooltip (rarity-colored name + stored qty + flavor + THIS number as the
-  // per-tick drop chance). One open-tooltip model either way -- opening one kind
+  // per-tick drop chance). One open-tooltip model either way, opening one kind
   // replaces the other, and only one tab/popup surfaces its icons at a time.
   let warehouseTooltip: { itemId: string; x: number; y: number; dropChancePct: number | null } | null = null;
 
   // Approximate tooltip footprint, used only to keep it on-screen (clamp +
-  // flip-above). A slight over-estimate is fine -- it just biases toward
+  // flip-above). A slight over-estimate is fine, it just biases toward
   // flipping above / nudging left a touch early, never clips.
   const WAREHOUSE_TOOLTIP_W = 220;
   const WAREHOUSE_TOOLTIP_H = 190;
@@ -681,7 +681,7 @@
   // again to hide. On desktop the pointer-hover handlers below drive it; this
   // makes tap work too. This is the SOLE show/hide path on touch (hover is
   // mouse-gated), so a first tap can no longer be undone by the synthetic
-  // pointerenter that a tap also fires -- see hoverEnterWarehouseTooltip.
+  // pointerenter that a tap also fires, see hoverEnterWarehouseTooltip.
   function toggleWarehouseTooltip(event: Event, itemId: string, dropChancePct: number | null = null) {
     if (warehouseTooltip && warehouseTooltip.itemId === itemId) {
       hideWarehouseTooltip();
@@ -690,7 +690,7 @@
     }
   }
 
-  // Hover is MOUSE-ONLY -- the SAME fix the currency chip uses (see
+  // Hover is MOUSE-ONLY, the SAME fix the currency chip uses (see
   // hoverEnterCurrency/hoverLeaveCurrency). A touch tap ALSO fires synthetic
   // pointerenter/pointerleave (pointerType "touch") plus focus/blur; before
   // this, that synthetic pointerenter showed the tooltip and the tap's on:click
@@ -711,7 +711,7 @@
 
   // Focus shows the tooltip for KEYBOARD users ONLY. A touch tap (and a mouse
   // click) also fires `focus` on the <button>; before this gate, focus showed
-  // the tooltip and then the SAME tap's on:click toggled it right back OFF -- so
+  // the tooltip and then the SAME tap's on:click toggled it right back OFF, so
   // on mobile the first tap flashed nothing and it took a SECOND tap to actually
   // show it (the reported two-tap bug). `:focus-visible` matches ONLY
   // keyboard-driven focus (browsers deliberately suppress it for pointer/touch
@@ -723,7 +723,7 @@
     if (el && el.matches(":focus-visible")) showWarehouseTooltip(event, itemId, dropChancePct);
   }
 
-  // Touch/click dismissal -- mirrors handleCurrencyOutsidePointer. Hide the
+  // Touch/click dismissal, mirrors handleCurrencyOutsidePointer. Hide the
   // warehouse tooltip on any pointer-down that isn't on a warehouse tile.
   // pointerdown fires for mouse AND touch (RadialWeb mobile lesson);
   // .closest(".warehouse-tile") keeps a tap on a tile from self-dismissing here
@@ -733,7 +733,7 @@
     if (warehouseTooltip === null) return;
     const target = event.target as Element | null;
     // Spare BOTH trigger kinds: a warehouse tile (its own on:click toggles) and a
-    // mission drop icon (.drop-icon, added 2026-07-15) -- a tap landing on either
+    // mission drop icon (.drop-icon, added 2026-07-15), a tap landing on either
     // must not self-dismiss here before that element's toggle runs.
     if (target && target.closest(".warehouse-tile, .drop-icon")) return;
     warehouseTooltip = null;
@@ -747,18 +747,18 @@
   $: activeWarehouseCat, activeFacility, hideWarehouseTooltip();
 
   // The Refinery's three sub-tabs: Overview (level + refine slots + active jobs +
-  // one-shot Start Refine Job), Orders (Phase 2 Task D4 -- the batch/continuous
+  // one-shot Start Refine Job), Orders (Phase 2 Task D4, the batch/continuous
   // ORDER management view, design §4.4's dedicated refinery management view), and
   // Upgrades (the next upgrade rung's material/prereq readiness + Build). Defaults
   // to Overview since running refine jobs is the more common day-to-day action
-  // than buying the occasional upgrade -- the same "default to the commonly-checked
+  // than buying the occasional upgrade, the same "default to the commonly-checked
   // view" reasoning the other sub-tab groups use.
   type RefinerySubTab = "overview" | "orders" | "upgrades";
   let activeRefinerySubTab: RefinerySubTab = "overview";
 
   // Mission Rework (Task 8 UI): the two new facilities' sub-tab axes. Both mirror
-  // the Refinery/Warehouse pattern EXACTLY -- an Overview (the at-a-glance state)
-  // and an Upgrades (the next-rung readiness + Build) view -- so their content
+  // the Refinery/Warehouse pattern EXACTLY, an Overview (the at-a-glance state)
+  // and an Upgrades (the next-rung readiness + Build) view, so their content
   // panes reuse the same SubTabs + Panel + upgrade-rung idiom. Kept as their own
   // typed literal unions + let state (not shared with RefinerySubTab) so each
   // facility's tab selection is independent, same discipline as the others.
@@ -766,7 +766,7 @@
   let activeMissionControlSubTab: MissionControlSubTab = "overview";
   type FuelStorageSubTab = "overview" | "upgrades";
   let activeFuelStorageSubTab: FuelStorageSubTab = "overview";
-  // Research (Task R5 UI): the Research Lab's THREE-tab axis -- Overview (slots in
+  // Research (Task R5 UI): the Research Lab's THREE-tab axis, Overview (slots in
   // use + in-progress projects + researched/available counts + the Fabricator
   // signpost), Research (the tier-grouped blueprint list with per-blueprint
   // Research buttons), and Upgrades (the lab's tier/slot track). Same independent
@@ -775,7 +775,7 @@
   type ResearchSubTab = "overview" | "research" | "upgrades";
   let activeResearchSubTab: ResearchSubTab = "overview";
 
-  // Fabricator (Task F4 UI): the Fabricator's THREE-tab axis -- Overview (slots in use +
+  // Fabricator (Task F4 UI): the Fabricator's THREE-tab axis, Overview (slots in use +
   // in-flight craft jobs + researched/fabricable counts + the Shipyard signpost), Craft
   // (the tier-grouped RESEARCHED-blueprint list with per-blueprint order controls), and
   // Upgrades (the fabricator's tier/slot track). Same independent typed-union + let-state
@@ -783,19 +783,19 @@
   type FabricatorSubTab = "overview" | "craft" | "upgrades";
   let activeFabricatorSubTab: FabricatorSubTab = "overview";
 
-  // Shipyard (Task S5 UI): the Shipyard's TWO-tab axis -- Build (the founded-vs-unfounded
+  // Shipyard (Task S5 UI): the Shipyard's TWO-tab axis, Build (the founded-vs-unfounded
   // hull-build surface: the "Found the Shipyard" prompt when unfounded, else the in-flight
   // build card + one card per SHIP_TYPES hull with its BOM/cost/time + Build button) and
   // Upgrades (the shipyard's founding + build-speed track, wired to the SHARED facility-
   // upgrade seams exactly like the Fabricator/Research Upgrades tabs). Same independent
   // typed-union + let-state discipline as FabricatorSubTab above; defaults to Build (the
-  // primary "make a ship" view -- the Shipyard has no at-a-glance Overview, unlike the
+  // primary "make a ship" view, the Shipyard has no at-a-glance Overview, unlike the
   // producer facilities, because its single build slot's status lives on the Build tab).
   type ShipyardSubTab = "build" | "upgrades";
   let activeShipyardSubTab: ShipyardSubTab = "build";
 
   // Crafting Allocation Redesign (Task C4): the per-line CONFIGURATOR's local form state.
-  // A configured craft becomes a real line ONLY on Start (via startLine) -- until then the
+  // A configured craft becomes a real line ONLY on Start (via startLine), until then the
   // selections live here, in COMPONENT-LOCAL state, never on GameState. Only ONE configurator
   // is expanded at a time (the mockup's "one open form"), so a single shared form suffices:
   //   - openConfig: which idle slot's form is expanded ({ kind, slotIndex }), or null (all
@@ -821,7 +821,7 @@
   let refineConfirmDontShowAgain = false;
   let pendingLineStart: { kind: CraftLineKind; recipeKey: string; mode: CraftLineMode } | null = null;
 
-  // Ship assign/swap picker modals (Ships -- Stats Foundation, Task 11 UI) --
+  // Ship assign/swap picker modals (Ships, Stats Foundation, Task 11 UI) --
   // mirrors the Fleet Operations mission popup's missionPopupKey/
   // missionPopupCaptainId state pair: a null id means the modal is closed. Both
   // pickers ultimately call assignShipToCaptain(state, captainId, parkedShipId)
@@ -837,10 +837,10 @@
   //   to give that captain instead. The current hull parks; the picked parked
   //   ship becomes assigned. We track the CAPTAIN id (not the ship id) because
   //   that's assignShipToCaptain's first arg, and the current hull auto-parks
-  //   purely as a side effect of assigning the captain a different hull -- we
+  //   purely as a side effect of assigning the captain a different hull, we
   //   never need the current ship's id for the call itself.
   //
-  // Both are plain component-local UI state (never persisted) -- the same
+  // Both are plain component-local UI state (never persisted), the same
   // treatment as missionPopupKey.
   let assignPickerShipId: string | null = null;
   let swapPickerCaptainId: number | null = null;
@@ -848,8 +848,8 @@
   // ---- Currency HUD (2026-07-09) ------------------------------------------
   // Drives the .top-bar-currencies strip in the template. Every currency shown
   // in the top bar is described ONCE here, so adding a future currency (admin
-  // points, etc.) means adding one CURRENCY_META entry -- glyph + name + its
-  // info-tooltip text all in the same object -- not editing markup. This is the
+  // points, etc.) means adding one CURRENCY_META entry, glyph + name + its
+  // info-tooltip text all in the same object, not editing markup. This is the
   // "each currency needs a tooltip with what it is + flavor text" requirement
   // baked into the data model rather than bolted on per chip.
   type CurrencyDescriptor = {
@@ -863,14 +863,14 @@
       key: "credits",
       glyph: "◈",
       label: "Credits",
-      // FLAVOR DRAFT (2026-07-09): credits are the game's BASE currency -- the
+      // FLAVOR DRAFT (2026-07-09): credits are the game's BASE currency, the
       // intended sink for most transactions (buying/selling commodities, etc.),
       // per the user. Wired in code TODAY: earned from captain mission cycles
       // (creditsPerCycle, tick.ts), spent on talent respecs (RESPEC_COST_
       // CREDITS); commodity trading is planned, not yet implemented. The lore
       // half is a placeholder for the user to wordsmith to taste.
       description:
-        "The Admiralty's base currency -- earned from captain mission payouts and spent on nearly everything: trading commodities, retraining talents, and the day-to-day business of running a fleet. Every credit is a favor called in, a cargo sold, a risk that paid off.",
+        "The Admiralty's base currency, earned from captain mission payouts and spent on nearly everything: trading commodities, retraining talents, and the day-to-day business of running a fleet. Every credit is a favor called in, a cargo sold, a risk that paid off.",
     },
   ];
   // Live formatted values, keyed by currency id. Kept separate from the static
@@ -882,7 +882,7 @@
   // (desktop), tap (touch), or keyboard focus, and HIDES when the mouse leaves,
   // focus leaves, the user taps elsewhere, or Escape is pressed. Open and close
   // are driven by SEPARATE activate/deactivate events (not one toggle) so that
-  // hover, tap, and focus never fight each other -- important on touch, where a
+  // hover, tap, and focus never fight each other, important on touch, where a
   // single tap also fires synthetic pointerenter + focus events.
   let openCurrencyKey: string | null = null;
   function showCurrency(key: string) {
@@ -922,9 +922,9 @@
   // The Locations tab uses a LEFT rail of "places" (.captain-list /
   // .captain-list-item, reused verbatim) + a right content pane; the selected
   // place then drives its OWN SubTabs. This replaces the two former top-level
-  // tabs -- Fleet Homeworld (Overview / Administration, still tracked by
+  // tabs, Fleet Homeworld (Overview / Administration, still tracked by
   // activeHomeworldSubTab; the old Fabrication sub-tab was retired in Phase 4
-  // Task F5 -- crafting moved to the Facilities -> Fabricator) and Fleet Sector (Docks / Requisition,
+  // Task F5, crafting moved to the Facilities -> Fabricator) and Fleet Sector (Docks / Requisition,
   // still tracked by activeStarbaseSubTab). Alliance Sector / Colony Registry
   // are locked "Coming soon" rail items with no content behind them yet. Kept
   // as a typed literal union (not a free string) so a future real place (e.g.
@@ -932,29 +932,29 @@
   type LocationPlace = "homeworld" | "sector";
   let activeLocationPlace: LocationPlace = "homeworld";
 
-  // Homeworld tab sub-tabs (UI Redesign, Task 10 -- see
+  // Homeworld tab sub-tabs (UI Redesign, Task 10, see
   // docs/plans/2026-07-07-ui-redesign-plan.md). Resources is the Overview
-  // (a minimal placeholder this pass -- fleshed out later); Talents holds the
+  // (a minimal placeholder this pass, fleshed out later); Talents holds the
   // relocated HOMEWORLD TALENTS content. Defaults to Resources as the most
   // commonly checked view.
   //
   // The former "refinery" sub-tab (the legacy RECIPES instant-craft/"Fabrication"
-  // panel) was RETIRED in Phase 4, Task F5 -- crafting now lives in the dedicated
+  // panel) was RETIRED in Phase 4, Task F5, crafting now lives in the dedicated
   // Fabricator facility panel (under Facilities), not a Homeworld sub-tab.
   type HomeworldSubTab = "resources" | "talents";
   let activeHomeworldSubTab: HomeworldSubTab = "resources";
 
   // System tab sub-tabs (UI Redesign, Task 10; gained About in the layout-
-  // width/panel-style fix -- see SESSION_LOG.md). Options holds the relocated
+  // width/panel-style fix, see SESSION_LOG.md). Options holds the relocated
   // theme picker + Export/Delete Save content; Log holds the relocated LOG
   // panel; Debug holds the relocated dev debug panel (only reachable when
-  // DEV_MODE is true -- see the <SubTabs> usage under the System tab below,
+  // DEV_MODE is true, see the <SubTabs> usage under the System tab below,
   // which omits the "debug" entry from its tabs array entirely when DEV_MODE
   // is false, so ordinary players never see a Debug button at all. DEV_MODE is
-  // DEV_MODE_ENV OR a `?dev` URL param -- see the DEV_MODE declaration near the
+  // DEV_MODE_ENV OR a `?dev` URL param, see the DEV_MODE declaration near the
   // top of this script for the deployed-preview test-affordance note); About
   // holds the app title/branding that used to be its own
-  // always-visible header panel above the top bar -- retired in favor of
+  // always-visible header panel above the top bar, retired in favor of
   // this out-of-the-way spot, per the user's own request, since the level/
   // XP/tick bar and the bottom nav ARE the header/footer now. Defaults to
   // Options since theme/save actions are the most commonly checked view.
@@ -962,7 +962,7 @@
   let activeSystemSubTab: SystemSubTab = "options";
 
   // Fleet Operations mission-category buttons (2026-07-07 Fleet Operations
-  // Mission UI). Only "resourceGathering" has real content today -- the other
+  // Mission UI). Only "resourceGathering" has real content today, the other
   // 3 render locked/"Coming Soon", same pattern as locked captain-list slots
   // and locked sub-tabs. Confirmed with the user: Patrol needs combat
   // (Battlespace is still a stub), Surveying/Long-Term Exploration have no
@@ -972,7 +972,7 @@
 
   // Difficulty tiers within Resource-Gathering, reusing the SubTabs component's
   // existing locked-tab support. Tier I is real and contains BOTH launch
-  // missions (see model.ts's MissionDef.tier field) -- confirmed with the
+  // missions (see model.ts's MissionDef.tier field), confirmed with the
   // user neither shortOreRun nor longOreRun is meant to be a separate tier.
   // Tiers II-V are locked placeholders for future mission content.
   type MissionTierKey = "tierI" | "tierII" | "tierIII" | "tierIV" | "tierV";
@@ -983,18 +983,18 @@
   let lastPollTime = Date.now();
 
   // Fleet-wide tick cycle (collapsed from a per-captain-id-keyed map during
-  // the UI Redesign, Task 4 -- see docs/plans/2026-07-07-ui-redesign-plan.md
+  // the UI Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md
   // and docs/plans/2026-07-07-ui-redesign-design.md). tickDurationSeconds is
   // now a single field on GameState (Task 1 of this same plan), so every
   // captain advances in lockstep on ONE shared cycle instead of each
   // captain owning its own independent barCycleStart/nowTick pair.
   let cycle: { barCycleStart: number; nowTick: number } = { barCycleStart: Date.now(), nowTick: Date.now() };
 
-  // Fuel-runway measurement (Wave 2, 2026-07-16) -- MEASURED, not modelled. Mission
+  // Fuel-runway measurement (Wave 2, 2026-07-16), MEASURED, not modelled. Mission
   // ice output is a stochastic loot roll, so instead of modelling it we sample the
   // ACTUAL per-tick net fuel & ice deltas out of the live economy loop and smooth
   // them with an EMA. fuelRunwayProjection(...) (tick.ts) then projects a runway
-  // from these rates. These are UI-local bookkeeping ONLY -- they never feed back
+  // from these rates. These are UI-local bookkeeping ONLY, they never feed back
   // into the economy (the loop's read of them is strictly read-only); assigning
   // them inside the poll callback is what re-triggers the `$: fuelRunway` reactive.
   // EMA_ALPHA 0.1 -> ~10-sample smoothing horizon: responsive enough to track a
@@ -1030,7 +1030,7 @@
     // absolute pixel offset from the LAST time this page was open). This
     // page's height changes as content is added (more captain tabs, new
     // panels like Skill Tree), so an old offset can land well below the top
-    // on a reload -- confirmed live in production after the Skill Tree
+    // on a reload, confirmed live in production after the Skill Tree
     // panel shipped. This is a single-page app with no in-page anchors to
     // preserve, so we take control of scroll position ourselves instead of
     // trusting the browser's restoration.
@@ -1057,21 +1057,21 @@
     lastPollTime = Date.now();
     cycle = { barCycleStart: lastPollTime, nowTick: lastPollTime };
 
-    // Tick-bar loop -- checks the ONE shared fleet-wide cycle's progress every
+    // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every
     // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
     // in lockstep whenever that shared cycle completes on this poll (Task 4
     // of the UI Redesign plan collapsed this from a per-captain-cycle loop --
-    // see docs/plans/2026-07-07-ui-redesign-plan.md -- since
+    // see docs/plans/2026-07-07-ui-redesign-plan.md, since
     // tickDurationSeconds is fleet-wide now, per Task 1 of that same plan).
-    // Idle captains (mission === null) have no passive economy anymore -- see
-    // the Phase 4 comment on tick()'s loop body below -- so only mission
+    // Idle captains (mission === null) have no passive economy anymore, see
+    // the Phase 4 comment on tick()'s loop body below, so only mission
     // captains ever have anything to fire here. Fleet-wide gameTimeSeconds
     // advances continuously off real elapsed time every poll, decoupled from
     // the shared cycle's cadence (gameTimeSeconds is fleet bookkeeping; it
     // is never read by tickCaptainMission's production math, so this
     // decoupling cannot desync production from time).
     // barSeconds is floored at 1 real second so dev-speed presets never make
-    // the shared bar flicker unreadably -- multiple game-ticks just batch
+    // the shared bar flicker unreadably, multiple game-ticks just batch
     // into one visual cycle, which is still correct because
     // tickCaptainMission is closed-form.
     tickHandle = setInterval(() => {
@@ -1098,41 +1098,41 @@
       state = { ...state, gameTimeSeconds: state.gameTimeSeconds + realElapsedSeconds * speed };
 
       // barSeconds/progress computed ONCE per poll now, from the fleet-wide
-      // state.tickDurationSeconds -- not per-captain (there's only one cycle
+      // state.tickDurationSeconds, not per-captain (there's only one cycle
       // to check now, not a map keyed by captain id).
       const barSeconds = Math.max(1, state.tickDurationSeconds / speed);
       cycle.nowTick = now;
       const progress = (now - cycle.barCycleStart) / 1000 / barSeconds;
 
       // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the live poll's economy
-      // is now a SINGLE call to the shared economyTick -- the EXACT same per-span
+      // is now a SINGLE call to the shared economyTick, the EXACT same per-span
       // body offline catch-up (tick()) runs. This REPLACES the hand-mirrored
       // economy that used to live inline right here: the per-captain mission loop
       // (its 8-field `bonuses` build + ship-stat resolution + tickCaptainMission +
       // accumulate), the passiveTrickle loop, the loot -> addToInventory fold, the
       // mission/lifetimeStats fold, resolveProcesses, the credits award, and the
       // final applyFleetAdminXp pass. Centralizing ALL of it in economyTick is what
-      // makes live play and offline catch-up drift-proof BY CONSTRUCTION -- those
+      // makes live play and offline catch-up drift-proof BY CONSTRUCTION, those
       // were two hand-mirrored copies of the same math and historically drifted
-      // (ship stats, bonus-roll, credits -- every incident logged). economyTick
+      // (ship stats, bonus-roll, credits, every incident logged). economyTick
       // internally does loot-THEN-process where this loop used to do
       // process-then-loot, but per the A1 map those are commutative (pure Decimal
-      // addition), so the economy RESULT is identical -- we are NOT preserving the
+      // addition), so the economy RESULT is identical, we are NOT preserving the
       // old internal order, we are replacing it with economyTick's.
       if (progress >= 1) {
         const gameSecondsThisCycle = barSeconds * speed;
         // Same deltaSeconds -> ticksElapsed conversion tick() uses (divide by the
         // fleet's shared tickDurationSeconds), so the live loop's mission cadence
-        // stays identical to the offline catch-up path's -- the whole point of
+        // stays identical to the offline catch-up path's, the whole point of
         // routing both through economyTick.
         const ticksElapsed = gameSecondsThisCycle / state.tickDurationSeconds;
 
         // ⚠️ ticksElapsed > 0 GUARD (REQUIRED): economyTick has NO internal
-        // non-positive guard -- that guard lived in tick() (`if (deltaSeconds <= 0)
+        // non-positive guard, that guard lived in tick() (`if (deltaSeconds <= 0)
         // return state;`), the function economyTick was extracted out of. Inside
         // this `progress >= 1` block ticksElapsed is always strictly positive today
-        // (barSeconds is floored at 1, speed is non-zero here -- speed === 0 returns
-        // early at the top of this callback -- and tickDurationSeconds > 0), so this
+        // (barSeconds is floored at 1, speed is non-zero here, speed === 0 returns
+        // early at the top of this callback, and tickDurationSeconds > 0), so this
         // guard is belt-and-suspenders. It is kept as hard insurance regardless:
         // economyTick would otherwise happily advance a zero/negative span, and any
         // future change to the cycle gating must not be able to silently feed it one.
@@ -1142,26 +1142,26 @@
           // time on EVERY poll (the `gameTimeSeconds: state.gameTimeSeconds +
           // realElapsedSeconds * speed` reassignment near the top of this callback),
           // deliberately decoupled from the cycle cadence for a smooth fleet clock.
-          // economyTick, HOWEVER, ALSO advances gameTimeSeconds -- by this cycle's
-          // deltaSeconds -- because it owns that increment on the offline path. The
+          // economyTick, HOWEVER, ALSO advances gameTimeSeconds, by this cycle's
+          // deltaSeconds, because it owns that increment on the offline path. The
           // OLD inline economy here never touched gameTimeSeconds, so letting
           // economyTick's bump through would DOUBLE-count the fleet clock (once at
-          // the top of this poll, once inside economyTick) -- a regression. So we
+          // the top of this poll, once inside economyTick), a regression. So we
           // capture the live value BEFORE the call and restore it AFTER: economyTick's
           // full economy result is kept, its gameTimeSeconds bump alone is discarded.
-          // This is a pure no-op for the economy -- gameTimeSeconds is display-only
+          // This is a pure no-op for the economy, gameTimeSeconds is display-only
           // bookkeeping that NOTHING in economyTick's math reads (see economyTick's
           // own header in tick.ts).
           const liveGameTimeSeconds = state.gameTimeSeconds;
 
-          // Fuel-runway measurement (Wave 2) -- READ-ONLY snapshot of the PRE-step
+          // Fuel-runway measurement (Wave 2), READ-ONLY snapshot of the PRE-step
           // fuel & ice, captured here while `state` is still the pre-economy value.
           // These reads do NOT touch `state`/`stepped` or the economy; they only
           // feed the UI-local EMA updated after the stepping completes below.
           const preFuel = state.fuel.toNumber();
           const preIce = state.inventory["deuteriumIce"]?.toNumber() ?? 0;
 
-          // ⚠️ STEP per whole tick, exactly like the offline tick() path -- do NOT hand
+          // ⚠️ STEP per whole tick, exactly like the offline tick() path, do NOT hand
           // economyTick one big multi-tick span. economyTick's auto-stop cap-check and
           // refine-order refill each run ONCE per call, so a single economyTick(state, N)
           // for N>1 would evaluate the storage cap only once across the whole span --
@@ -1186,13 +1186,13 @@
           // (top of the poll). Discard economyTick's bumps, keep its full economy result.
           state = { ...stepped, gameTimeSeconds: liveGameTimeSeconds };
 
-          // Fuel-runway EMA update (Wave 2) -- runs AFTER the economy is fully
+          // Fuel-runway EMA update (Wave 2), runs AFTER the economy is fully
           // stepped, comparing the post-step fuel & ice (read off `stepped`) to the
           // pre-step snapshot captured above. Per-tick instantaneous rate = total
           // delta over this poll / ticksElapsed (so DEV fast-forward polls that
           // batch multiple ticks still contribute a per-TICK rate, not a per-poll
           // one). The first sample seeds the EMA directly; thereafter it blends.
-          // This is pure UI bookkeeping -- it writes only these three locals and
+          // This is pure UI bookkeeping, it writes only these three locals and
           // never mutates `state`/`stepped` or the economy.
           const postIce = stepped.inventory["deuteriumIce"]?.toNumber() ?? 0;
           const instDFuel = (stepped.fuel.toNumber() - preFuel) / ticksElapsed;
@@ -1204,14 +1204,14 @@
           runwaySamples++;
         }
 
-        // Reset once for the whole fleet, not per-captain -- there's only one
+        // Reset once for the whole fleet, not per-captain, there's only one
         // shared cycle now. (Poll-lag overshoot past the boundary is discarded --
         // same as always.)
         cycle.barCycleStart = now;
       }
     }, 100);
 
-    // Autosave every 30s -- tech spec §6.
+    // Autosave every 30s, tech spec §6.
     saveHandle = setInterval(doSave, 30000);
 
     const onUnload = () => doSave();
@@ -1239,12 +1239,12 @@
     const { next, success } = recallCaptain(state, captainId);
     if (!success) return;
     state = next;
-    pushLog(`[${captain.label}] Recall ordered -- returning to base from: ${missionLabel}.`);
+    pushLog(`[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
     doSave();
   }
 
   // Fleet Operations captain-selection popup handlers (2026-07-07 Fleet
-  // Operations Mission UI) -- open/close just manage missionPopupKey/
+  // Operations Mission UI), open/close just manage missionPopupKey/
   // missionPopupCaptainId (declared above near deleteModalOpen); the actual
   // dispatch is delegated to the existing doDispatchCaptainOnMission so this
   // popup can't drift from the flow the non-popup dispatch path already uses.
@@ -1275,14 +1275,14 @@
   // points; Captain Talents cost per-captain statPoints) WITHOUT grinding.
   // They mirror simulateOffline's shape exactly: mutate `state` immutably via
   // { ...state, ... } and pushLog a "[DEV] ..." line. They are RAW test grants,
-  // NOT a model of real leveling -- they intentionally bypass applyFleetAdminXp
+  // NOT a model of real leveling, they intentionally bypass applyFleetAdminXp
   // / xp curves and just hand out the resources the walls check.
 
   // +5 Fleet Admiral Levels AND +5 admin points. Raising fleetAdminLevel by 5
   // clears the L5/L25 captain-slot-3/4 walls; granting adminPoints alongside it
   // mirrors natural leveling (which yields admin points) so the user can also
   // AFFORD the slot-unlock / homeworld talents, not just satisfy the level gate.
-  // fleetAdminXp is reset to 0 -- a raw test grant, so we don't bother computing
+  // fleetAdminXp is reset to 0, a raw test grant, so we don't bother computing
   // the xp-toward-next-level for the new level; it simply starts the new level's
   // bar empty. Harmless: leveling only ever ADDS from here.
   function devGrantFleetAdminLevels() {
@@ -1295,7 +1295,7 @@
     pushLog(`[DEV] +5 Fleet Admiral levels (now L${state.fleetAdminLevel}) and +5 admin points.`);
   }
 
-  // +100 admin points only -- lets the user afford homeworld talents / slot
+  // +100 admin points only, lets the user afford homeworld talents / slot
   // unlocks in bulk without touching fleetAdminLevel (i.e. test the talent
   // PURCHASE flow independently of the level walls).
   function devGrantAdminPoints() {
@@ -1307,7 +1307,7 @@
   }
 
   // +10 statPoints to the CURRENTLY-ACTIVE captain (state.captains[activeCaptainIndex],
-  // the same reference the Captain Talents panel spends from) -- for testing
+  // the same reference the Captain Talents panel spends from), for testing
   // Captain Talents. Rebuilds the captains array immutably: only the active
   // captain object is replaced, every other captain reference is preserved.
   function devGrantStatPoints() {
@@ -1321,7 +1321,7 @@
     pushLog(`[DEV] +10 stat points to ${captain.label} (now ${captain.statPoints + 10}).`);
   }
 
-  // +`amount` credits -- the base currency (a Decimal), so Refinery/Research/
+  // +`amount` credits, the base currency (a Decimal), so Refinery/Research/
   // Fabricator upgrades + fuel top-ups can be tested without grinding mission
   // payouts first. Raw test grant, same immutable { ...state } shape as the
   // grants above; credits only ever ADD here.
@@ -1331,7 +1331,7 @@
   }
 
   // Grant a stack of the craft-chain materials so the mine -> refine -> fabricate flow
-  // can be tested without grinding the (scarce) upstream drops -- especially the UNCOMMON
+  // can be tested without grinding the (scarce) upstream drops, especially the UNCOMMON
   // Polysilicate Ore. Adds raw ores + the refined mats + marks them discovered so they
   // render in the Warehouse. Same immutable { ...state } shape as the other dev grants.
   function devGrantMaterials() {
@@ -1353,19 +1353,19 @@
     pushLog(`[DEV] Granted testing materials (raw ores + refined) for the craft chain.`);
   }
 
-  // (doCraftRecipe -- the legacy instant Homeworld craft-button handler -- was
+  // (doCraftRecipe, the legacy instant Homeworld craft-button handler, was
   //  RETIRED in Phase 4, Task F5 along with the RECIPES panel it drove. Crafting
   //  is now the Fabricator facility panel's timed order controls.)
 
-  // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the Facilities-tab
+  // Facility Framework + Refinery (Phase 1, Task 12 UI), the Facilities-tab
   // action wrapper. Follows the SAME reassign-`state` + pushLog + doSave idiom
   // every other do* handler uses, with ONE difference: startFacilityUpgrade
   // returns { next, started } (not { next, success }), so we destructure
   // `started` and bail on a same-reference no-op exactly as the backend's reject
-  // convention intends -- no duplicate gate logic in the UI layer (the button's
+  // convention intends, no duplicate gate logic in the UI layer (the button's
   // `disabled` already mirrors the backend gate for the common case; this bail
   // covers the race/edge where state changed since render).
-  // (doStartRefineJob -- the one-shot manual refine start -- was RETIRED in S4;
+  // (doStartRefineJob, the one-shot manual refine start, was RETIRED in S4;
   //  the per-slot Production configurator drives refining now, via startLine /
   //  doStartLine below.)
 
@@ -1420,7 +1420,7 @@
     }
   }
 
-  // Actually appends the line via the pure backend fn, logs it, saves -- the EXACT sibling
+  // Actually appends the line via the pure backend fn, logs it, saves, the EXACT sibling
   // commit idiom (const { next, started } = fn(...); if (!started) return; state = next; log;
   // save). startLine gates on canStartLine and returns { next, started, reason? }; on any block
   // it returns the SAME state ref + started:false, so the bail is a clean no-op (the Start
@@ -1467,7 +1467,7 @@
   // Cancel (remove) an active line. cancelLine drops the line + releases its UNSTARTED
   // reservation (allocation is derived, so fewer lines = less allocated, no ledger to unwind);
   // any in-flight timed job it already started commits + completes normally (design §2). PURE
-  // backend fn, same-ref no-op when the id doesn't match -- so we always reassign + log + save.
+  // backend fn, same-ref no-op when the id doesn't match, so we always reassign + log + save.
   function doCancelLine(lineId: string) {
     state = cancelLine(state, lineId);
     pushLog("Production line canceled; remaining reservation released.");
@@ -1515,7 +1515,7 @@
   // (startResearch -> canResearch) gates on notFound/alreadyResearched/inProgress/
   // tierLocked/noSlot/credits AND deducts the credit cost at start; on ANY block it
   // returns the SAME state reference + started:false, so the identity bail below is
-  // a no-op (no spurious log/save) -- the SAME reassign-`state` + pushLog + doSave
+  // a no-op (no spurious log/save), the SAME reassign-`state` + pushLog + doSave
   // idiom (destructuring `started`) doStartFacilityUpgrade/doStartRefineJob use.
   // The button's `disabled` already mirrors canResearch, so this bail only covers a
   // race where state changed between render and click. The log names the blueprint's
@@ -1534,7 +1534,7 @@
   // canBuildShip) gates on notFound/notFounded/noSlot/storageFull/materials/credits AND
   // deducts the whole component BOM + credits at start (deduct-at-start, atomic); on ANY
   // block it returns the SAME state reference + started:false, so the identity bail below is
-  // a no-op (no spurious log/save) -- the SAME reassign-`state` + pushLog + doSave idiom
+  // a no-op (no spurious log/save), the SAME reassign-`state` + pushLog + doSave idiom
   // (destructuring `started`) doStartFacilityUpgrade/doStartResearch use. The hull card's
   // Build button is ALREADY disabled per canBuildShip, so this bail only covers a race where
   // state changed between render and click. NO confirm modal (design/mockup: a build is
@@ -1552,7 +1552,7 @@
   // Maps a canBuildShip BLOCK reason to the human sentence a disabled hull Build button
   // shows. Named + shaped parallel to startLineBlockText / the retired fabricateBlockText;
   // the switch covers EVERY ShipBuildBlockReason so a new reason is a compile error here
-  // (exhaustive). `typeKey` is the hull the button is for -- reserved for a future
+  // (exhaustive). `typeKey` is the hull the button is for, reserved for a future
   // per-component "Need N [Item]" message; unused today (the generic materials text reads
   // fine against the card's own red per-component free/need rows), but threaded so the
   // signature is ready without touching call sites.
@@ -1561,7 +1561,7 @@
       case "notFounded":
         return "Found the Shipyard first (Upgrades).";
       case "noSlot":
-        return "Shipyard busy -- a build is in progress.";
+        return "Shipyard busy, a build is in progress.";
       case "storageFull":
         return "Ship storage full.";
       case "materials":
@@ -1579,7 +1579,7 @@
   // backend buyFuel (which clamps the amount to the MIN of requested / tank room /
   // affordable credits, so it can never overfill or overspend). buyFuel returns the
   // SAME state reference on a zero/failed buy (broke or tank full), so an identity
-  // check bails without a spurious log/save -- same "same-ref no-op" convention the
+  // check bails without a spurious log/save, same "same-ref no-op" convention the
   // other do* handlers use. `units` is a plain number (fuel is human-scale, not
   // Decimal); the +10/+100 buttons pass a literal, Fill passes the live tank room.
   function doBuyFuel(units: number) {
@@ -1597,7 +1597,7 @@
   // player-facing message for the dispatch button's disabled title + the popup's
   // blocked-reason line. Reads the mission's OWN requirement values (requiresCaptain
   // Level / requiresCargoCapacity) so the level/cargo messages name the actual number
-  // the gate checks -- never a hardcoded guess. Exhaustive over the union (every
+  // the gate checks, never a hardcoded guess. Exhaustive over the union (every
   // DispatchBlockReason has a case); the default is belt-and-suspenders only.
   function dispatchBlockMessage(reason: DispatchBlockReason, missionKey: MissionKey): string {
     const mission = MISSIONS[missionKey];
@@ -1625,10 +1625,10 @@
     }
   }
 
-  // Captain Talents (Task 6) -- per-captain-scoped, like doDispatchCaptainOnMission
+  // Captain Talents (Task 6), per-captain-scoped, like doDispatchCaptainOnMission
   // above (reads activeCaptain.id, spends THIS captain's own statPoints).
   // Same "same state reference on failure" convention as buyCaptainTalent
-  // itself -- success is just checked and bailed on here, no extra validation
+  // itself, success is just checked and bailed on here, no extra validation
   // duplicated in the UI layer.
   function doBuyCaptainTalent(talentKey: CaptainTalentKey) {
     const captain = activeCaptain;
@@ -1643,7 +1643,7 @@
   // chooseSpec below can defensively validate the incoming key. specCards'
   // keys ARE these same branch strings (model.ts guarantees this), so this is
   // a belt-and-suspenders guard against an unexpected value reaching
-  // chooseCaptainSpec, NOT a translation layer -- a matched key passes
+  // chooseCaptainSpec, NOT a translation layer, a matched key passes
   // straight through unchanged. If CaptainTalentBranch ever grows a 4th
   // literal, this list (and specCards) must grow with it; there is no compiler
   // in this environment to catch a stale entry, so it's kept as a small,
@@ -1655,17 +1655,17 @@
   // titles by key so the panel readout can never drift from the card titles
   // the player picked from. Built once (specCards is a static import), not per
   // render. A branch with no matching card falls back to the raw key at the
-  // call site below (defensive -- every real branch has a card today).
+  // call site below (defensive, every real branch has a card today).
   const SPEC_DISPLAY_NAME: Record<string, string> = Object.fromEntries(
     specCards.map((card) => [card.key, card.title])
   );
 
-  // Radial Skill Web (Task 14) -- the FREE first-pick spec commit, fired by
+  // Radial Skill Web (Task 14), the FREE first-pick spec commit, fired by
   // the TreeSelector's "Choose this spec" button in the Captain Talents panel
   // when activeCaptain.spec is still null. Same { next, success } -> reassign
   // `state` + pushLog + doSave idiom as doBuyCaptainTalent above. `key` comes
   // from a specCards card key (typed `string`), so it is defensively narrowed
-  // to a real CaptainTalentBranch before use -- an unexpected value simply
+  // to a real CaptainTalentBranch before use, an unexpected value simply
   // does nothing (no throw, no state change) rather than being forced through.
   // chooseCaptainSpec itself only succeeds from spec === null (the free pick);
   // CHANGING an established spec goes through the Reset flow (respec to null),
@@ -1681,10 +1681,10 @@
     doSave();
   }
 
-  // Homeworld Talents (Task 6) -- fleet-wide, spends the shared adminPoints
+  // Homeworld Talents (Task 6), fleet-wide, spends the shared adminPoints
   // pool. Unlike doBuyCaptainTalent above, this never touches state.captains
   // directly here (buyHomeworldTalent itself appends a new captain internally
-  // for unlockCaptainSlot-effect nodes -- see tick.ts) -- App.svelte just
+  // for unlockCaptainSlot-effect nodes, see tick.ts), App.svelte just
   // swaps in whatever `next` comes back, same as every other do* handler.
   function doBuyHomeworldTalent(talentKey: HomeworldTalentKey) {
     const { next, success } = buyHomeworldTalent(state, talentKey);
@@ -1694,13 +1694,13 @@
     doSave();
   }
 
-  // ---- Ship actions (Ships -- Stats Foundation, Task 11 UI) ----------------
+  // ---- Ship actions (Ships, Stats Foundation, Task 11 UI) ----------------
   // The remaining ship handler (doAssignShip) wraps a pure { next, success }
   // action and applies the SAME reassign-state + pushLog + doSave pattern every
   // other do* handler in this file uses (see doBuyHomeworldTalent above, or the
-  // mission handlers near the top). No validation is duplicated here -- the pure
+  // mission handlers near the top). No validation is duplicated here, the pure
   // function owns every fail-guard; the UI just checks `success` and bails.
-  // (doBuyShip -- the instant Requisition credit-buy -- was RETIRED in S4;
+  // (doBuyShip, the instant Requisition credit-buy, was RETIRED in S4;
   //  hulls now come from the Shipyard build panel, not an instant credit spend.)
 
   // Both Docks pickers funnel through this ONE handler, because the pure
@@ -1726,7 +1726,7 @@
     if (captain && ship) {
       pushLog(`[${captain.label}] Now flying: ${SHIP_TYPES[ship.typeKey].label}.`);
     }
-    // Close BOTH pickers unconditionally -- whichever one drove this call is
+    // Close BOTH pickers unconditionally, whichever one drove this call is
     // now done, and the other is already null. Cheap and keeps this handler
     // from needing to know which picker opened it.
     assignPickerShipId = null;
@@ -1734,7 +1734,7 @@
     doSave();
   }
 
-  // Picker open/close helpers -- pure UI state toggles, mirroring
+  // Picker open/close helpers, pure UI state toggles, mirroring
   // openMissionPopup/closeMissionPopup above. The Assign picker keys off the
   // parked ship's id; the Swap picker keys off the assigned ship's captain id
   // (see the swapPickerCaptainId declaration above for why captain, not
@@ -1752,9 +1752,9 @@
     swapPickerCaptainId = null;
   }
 
-  // Radial Skill Web (Task 15) -- the currently-viewed Homeworld talent
+  // Radial Skill Web (Task 15), the currently-viewed Homeworld talent
   // category, or null when the category card-picker (TreeSelector) is showing.
-  // This is COMPONENT-LOCAL, VIEW-ONLY navigation state -- it is deliberately
+  // This is COMPONENT-LOCAL, VIEW-ONLY navigation state, it is deliberately
   // NOT part of GameState and is NEVER persisted (no doSave on change). Unlike
   // the captain spec (a committed, costed lock-in stored on CaptainState.spec),
   // choosing a homeworld category is free and freely reversible: picking a card
@@ -1767,7 +1767,7 @@
   // exact mirror of CAPTAIN_SPEC_BRANCHES above. categoryCards' keys ARE these
   // same branch strings (model.ts guarantees this), so this is a
   // belt-and-suspenders guard against an unexpected value, NOT a translation
-  // layer -- a matched key passes straight through unchanged. If
+  // layer, a matched key passes straight through unchanged. If
   // HomeworldTalentBranch ever grows/shrinks, this list (and categoryCards)
   // must change with it; there is no compiler in this environment to catch a
   // stale entry, so it is kept as a small, obvious, hand-maintained list.
@@ -1779,20 +1779,20 @@
     "industry",
   ];
 
-  // Radial Skill Web (Task 15) -- navigate INTO a homeworld category's web,
+  // Radial Skill Web (Task 15), navigate INTO a homeworld category's web,
   // fired by the TreeSelector's "View Tree" button. Purely view-only: it
   // validates the key is a real branch then points selectedCategory at it.
-  // There is NO cost and NO save write -- this is navigation, not a commit
+  // There is NO cost and NO save write, this is navigation, not a commit
   // (contrast chooseSpec above, which commits a captain spec and calls doSave).
   // `key` comes from a categoryCards card key (typed `string`), so it is
-  // defensively narrowed to a real HomeworldTalentBranch before use -- an
+  // defensively narrowed to a real HomeworldTalentBranch before use, an
   // unexpected value simply does nothing rather than being forced through.
   function viewCategory(key: string) {
     if (!(HOMEWORLD_CATEGORY_BRANCHES as string[]).includes(key)) return;
     selectedCategory = key as HomeworldTalentBranch;
   }
 
-  // Homeworld Talents Reset (Task 13) -- opens the confirmation modal. No
+  // Homeworld Talents Reset (Task 13), opens the confirmation modal. No
   // captured pre-swap state needed (unlike doDispatchCaptainOnMission's
   // captain.label capture) since the confirmation happens in the modal
   // itself, not in this open handler.
@@ -1808,7 +1808,7 @@
   // `state` pattern every other do* handler in this file uses (see
   // doBuyHomeworldTalent immediately above for the closest analog). Closes
   // the modal only on success, mirroring confirmDelete/confirmImport's own
-  // "stay open on failure" convention -- though in practice the Confirm
+  // "stay open on failure" convention, though in practice the Confirm
   // button is already disabled below RESPEC_COST_CREDITS, so failure here
   // should only happen if credits changed out from under the open modal.
   function doRespecHomeworldTalents() {
@@ -1820,7 +1820,7 @@
     doSave();
   }
 
-  // Captain Talents Reset (Task 13) -- opens the confirmation modal. Task 14
+  // Captain Talents Reset (Task 13), opens the confirmation modal. Task 14
   // removed the selectedSpecInModal seeding that used to live here: Reset now
   // unconditionally clears the spec to null (Confirm passes `null` directly),
   // so there is no per-open pending-spec state left to seed.
@@ -1874,11 +1874,11 @@
     deleteConfirmText = "";
   }
 
-  // Import Save handlers (Task 7, Loot Tier Rework) -- mirror the
+  // Import Save handlers (Task 7, Loot Tier Rework), mirror the
   // cancelDelete/confirmDelete pair above in shape, but there's no
   // typed-confirmation-word gate here: picking a file from the OS file
   // picker is already a deliberate action, so Cancel/Import buttons alone
-  // are enough friction (confirmed against the plan doc -- Import
+  // are enough friction (confirmed against the plan doc, Import
   // deliberately does NOT need a "type DELETE"-style gate).
   function onImportFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
@@ -1887,21 +1887,21 @@
     // `file` is captured into this local const BEFORE input.value is reset
     // below, so the reset (which only clears the <input> element's OWN
     // value) cannot affect the File object or the .text() promise already
-    // in flight against it -- they're independent references.
+    // in flight against it, they're independent references.
     file.text().then((text) => {
       pendingImportRaw = text;
       importError = null;
       importModalOpen = true;
     }).catch(() => {
       // File.text() can reject (e.g. the file was deleted/became unreadable
-      // between selection and read) -- surface this the same way a rejected
+      // between selection and read), surface this the same way a rejected
       // save would be, rather than silently doing nothing and leaving the
       // user with no feedback at all.
       pendingImportRaw = null;
       importError = "Couldn't read that file. Please try again.";
       importModalOpen = true;
     });
-    input.value = ""; // allow re-selecting the same file later -- browsers don't fire `change` on an unchanged value otherwise
+    input.value = ""; // allow re-selecting the same file later, browsers don't fire `change` on an unchanged value otherwise
   }
 
   function cancelImport() {
@@ -1915,16 +1915,16 @@
     const success = importRawSave(pendingImportRaw);
     if (!success) {
       importError = "That file isn't a valid Fleet Admiral save.";
-      return; // modal stays open -- importError renders inline, user can pick a different file
+      return; // modal stays open, importError renders inline, user can pick a different file
     }
     // Simplest way to get every derived/init-time value (in-memory state,
     // createdAt, tick-loop timers) to reset cleanly from the just-imported
-    // save -- matches the existing "load happens once, at mount" pattern
+    // save, matches the existing "load happens once, at mount" pattern
     // (see onMount above) rather than adding a second "hot-swap state
     // mid-session" code path.
     // MUST suppress teardown autosaves first: window.location.reload() fires
     // beforeunload + onDestroy, both of which doSave() the OLD in-memory state
-    // -- without this, that write clobbers the just-imported save (the import bug).
+    //, without this, that write clobbers the just-imported save (the import bug).
     suppressSave = true;
     window.location.reload();
   }
@@ -1938,16 +1938,16 @@
   $: activeCaptain = state.captains[activeCaptainIndex];
   // Fleet-wide tick readout (collapsed from per-captain activeCycle/
   // activeBarSeconds/activeTickProgress/activeTickRemaining during the UI
-  // Redesign, Task 4 -- see docs/plans/2026-07-07-ui-redesign-plan.md).
+  // Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md).
   // There's only ONE cycle to read now (the shared `cycle` object above), so
-  // these are no longer scoped to activeCaptain at all -- consumed by the new
+  // these are no longer scoped to activeCaptain at all, consumed by the new
   // global header bar landing in Task 6 of that same plan.
   $: globalBarSeconds = Math.max(1, state.tickDurationSeconds / (speed || 1));
   $: globalTickProgress = Math.min(1, Math.max(0, (cycle.nowTick - cycle.barCycleStart) / 1000 / globalBarSeconds));
   $: globalTickRemaining = Math.max(0, globalBarSeconds * (1 - globalTickProgress));
-  // Header redesign (2026-07-07) -- single source for the Fleet Admiral XP
+  // Header redesign (2026-07-07), single source for the Fleet Admiral XP
   // ratio, consumed by both the bar-fill width (clamped to 100) and the
-  // readout percentage below (unclamped, .toFixed(1)) -- avoids the same
+  // readout percentage below (unclamped, .toFixed(1)), avoids the same
   // division appearing twice and drifting if the formula ever changes,
   // matching the globalTickProgress/globalTickRemaining pattern above.
   $: fleetAdminXpRatio = state.fleetAdminXp.dividedBy(xpForNextFleetAdminLevel(state.fleetAdminLevel)).toNumber();
@@ -1955,7 +1955,7 @@
   // ---- Facilities tab reactive derivations (Phase 1, Task 12 UI) ------------
   // All recompute whenever `state` changes (inventory gathered, refinery levelled,
   // a process started/completed), so the panel's slot counts, affordability, and
-  // upgrade readiness update LIVE as the game ticks -- the "$: derivations for
+  // upgrade readiness update LIVE as the game ticks, the "$: derivations for
   // readiness so the UI updates as inventory/level change" the task calls for.
   // These read the SAME backend fns/tables the actions call, so the displayed
   // gates can never drift from what startRefineJob/startFacilityUpgrade enforce.
@@ -1968,8 +1968,8 @@
   // Their count vs refinerySlots is the free-slot gate; each also renders a
   // progress row in the Overview sub-tab.
   $: activeRefineJobs = state.activeProcesses.filter((p) => p.kind === "refineJob");
-  // (The one-shot Start-Refine-Job derivations -- refineRecipe / refineHasFreeSlot
-  //  / refineAffordable / refineCanStart -- were RETIRED in S4 with the manual
+  // (The one-shot Start-Refine-Job derivations, refineRecipe / refineHasFreeSlot
+  //  / refineAffordable / refineCanStart, were RETIRED in S4 with the manual
   //  Overview start button they exclusively drove. Refining is now configured
   //  per-slot in the Production sub-tab; its gates read canStartLine, not these.)
 
@@ -1977,7 +1977,7 @@
   // Whether the refinery is built at all (>= 1 slot). Below 1 slot there are no line
   // slots to render, so the Production sub-tab shows a "build it first" empty state.
   $: refineryBuilt = refinerySlots > 0;
-  // ALL active lines across BOTH facilities -- the allocation basis every configurator's
+  // ALL active lines across BOTH facilities, the allocation basis every configurator's
   // REQUIRES preview reads (allocatedItem/freeItem take this array). Derived off state so
   // the free/allocated numbers update LIVE as lines start, drain, and cancel. `?? []`
   // guards a pre-C2 save shape defensively (C6's migration seeds the arrays).
@@ -1991,14 +1991,14 @@
   // FacilityUpgradeDef, so an `=== undefined` check would trip svelte-check's
   // TS2367 ("no overlap"). Gating the template on refineryMaxed instead keeps
   // nextRefineryUpgrade's non-undefined type in the {:else} branch (real at
-  // runtime there -- level < upgrades.length guarantees a defined rung).
+  // runtime there, level < upgrades.length guarantees a defined rung).
   $: refineryMaxed = refineryLevel >= FACILITIES.refinery.upgrades.length;
   $: nextRefineryUpgrade = FACILITIES.refinery.upgrades[refineryLevel];
-  // The PURE build-readiness predicate ({ ok, reason? }) -- drives both the Build
+  // The PURE build-readiness predicate ({ ok, reason? }), drives both the Build
   // button's disabled state AND (via .reason) its "why not" title. Same fn
   // startFacilityUpgrade calls internally, so the button and the action agree.
   $: refineryUpgradeCheck = canBuildFacilityUpgrade(state, "refinery");
-  // The in-flight refinery upgrade process, if any (at most ONE -- upgrades are
+  // The in-flight refinery upgrade process, if any (at most ONE, upgrades are
   // sequential-per-facility). Narrowed on effect.type + effect.facility so a
   // future OTHER-facility upgrade wouldn't be mistaken for the refinery's.
   // Drives the Upgrades sub-tab's "Currently upgrading" progress row.
@@ -2014,7 +2014,7 @@
   // Builds the tier-panel groups for a catalog category tab: every ITEMS entry
   // whose category is in that tab's category set, grouped by `tier`, tiers
   // ascending. PURE over the static ITEMS table (independent of live state), so
-  // it only re-runs when the active tab changes -- the per-tile fill/count/cap
+  // it only re-runs when the active tab changes, the per-tile fill/count/cap
   // read live `state` in the markup instead. A management/stub tab (absent from
   // WAREHOUSE_CAT_CATEGORIES) yields [] -> the markup shows its stub/panel.
   function warehouseTierGroups(cat: WarehouseCat): { tier: number; items: (ItemDef & { id: string })[] }[] {
@@ -2041,7 +2041,7 @@
   // T1 level + its live per-item cap (the primary, always-available tier).
   $: warehouseT1Level = state.facilities.warehouseT1?.level ?? 0;
   $: warehouseT1Cap = tierCap(state, 1);
-  // Every DISCOVERED catalog item currently AT its cap -- the auto-stop "full,
+  // Every DISCOVERED catalog item currently AT its cap, the auto-stop "full,
   // expand storage" set. Drives the Overview's "items at cap" count + the
   // Attention card's per-item FULL list. materialAtCap is the same fn the
   // backend auto-stop uses, so this can't disagree with what actually idles.
@@ -2056,7 +2056,7 @@
   // ---- Mission Rework (Task 8 UI) reactive derivations ------------------------
   // All read live `state`, so every readout below (dispatch gate, fuel gauge,
   // completion progress, unlock lists, upgrade readiness) updates automatically as
-  // fuel is spent/bought, missions complete, and upgrades finish -- no manual
+  // fuel is spent/bought, missions complete, and upgrades finish, no manual
   // refresh, same reactive contract the Warehouse/Refinery derivations above use.
 
   // --- Operations dispatch surface ---
@@ -2072,7 +2072,7 @@
     ? state.ships.find((s) => s.assignedCaptainId === representativeCaptain.id) ?? null
     : null;
   // The dispatch gate for the OPEN mission popup (null when no popup / no captain
-  // picked yet). canDispatch is the ONE source of truth -- the popup's Dispatch
+  // picked yet). canDispatch is the ONE source of truth, the popup's Dispatch
   // button reads .ok for its disabled state and .reason (via dispatchBlockMessage)
   // for its title + the blocked-reason line. Reactive so it re-evaluates the moment
   // fuel/level/etc. change while the popup is open.
@@ -2097,7 +2097,7 @@
       p.effect.facility === "missionControl"
   );
   // Which missions are currently dispatchable vs still locked (derived from the
-  // facility level via missionUnlocked -- the SAME gate canDispatch uses). Drives
+  // facility level via missionUnlocked, the SAME gate canDispatch uses). Drives
   // Mission Control's Overview "unlocked / locked" lists.
   $: unlockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => missionUnlocked(state, k));
   $: lockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => !missionUnlocked(state, k));
@@ -2106,7 +2106,7 @@
   // The live tank cap (fuelCap derives it from the fuelStorage level) + the tank's
   // headroom + fill % (reusing warehouseFillPct, the shared clamp helper). The buy
   // gate opens only when the player can afford at least one unit AND the tank has
-  // room -- buyFuel clamps partials, but this keeps the buttons honestly disabled
+  // room, buyFuel clamps partials, but this keeps the buttons honestly disabled
   // when NOTHING can be bought (broke or full).
   $: fuelStorageLevel = state.facilities.fuelStorage?.level ?? 0;
   $: fuelStorageMaxed = fuelStorageLevel >= FACILITIES.fuelStorage.upgrades.length;
@@ -2128,7 +2128,7 @@
   // (researchSlotCount / canResearch / startResearch / FACILITIES.research /
   // BLUEPRINTS), so every readout below (slots-in-use, in-flight projects, the
   // per-blueprint gate, researched counts, upgrade readiness) updates automatically
-  // as projects complete + the lab is upgraded -- the SAME reactive-off-state
+  // as projects complete + the lab is upgraded, the SAME reactive-off-state
   // contract the Refinery/Mission-Control/Fuel-Depot derivations above use.
 
   // Lab level (0 = not built; freshState seeds 1) + its parallel-project slot count
@@ -2164,7 +2164,7 @@
   // ── Fabricator status (Fabricator Task F4 UI) ─────────────────────────────
   // All derive off state (facilities / activeProcesses / fabricateOrder), so the
   // Fabricator panel's counts, slot gauge, in-flight bars, order status, and button
-  // gates update LIVE as jobs start/finish + the order drains/pauses/clears -- the SAME
+  // gates update LIVE as jobs start/finish + the order drains/pauses/clears, the SAME
   // reactive-off-state contract the Research/Refinery derivations above use.
 
   // Fabricator level (0 = not built; freshState seeds 1) + its parallel-craft slot count
@@ -2204,24 +2204,24 @@
   $: fabricatorBuilt = fabricateSlots > 0;
 
   // The blueprints a Fabricator line can currently configure: RESEARCHED (blueprintUnlocked)
-  // AND tier-available (tier <= fabricator level) -- the SAME two stable gates the fabricable
+  // AND tier-available (tier <= fabricator level), the SAME two stable gates the fabricable
   // count uses. These populate the configurator's tier + item dropdowns. Derived off state so
   // researching/upgrading updates the dropdowns LIVE. An empty list -> the Research-Lab signpost.
   $: availableFabricateBlueprints = Object.keys(BLUEPRINTS)
     .map((k) => BLUEPRINTS[k])
     .filter((bp) => blueprintUnlocked(state, bp.key) && bp.tier <= fabricatorLevel);
-  // The DISTINCT tiers among those blueprints, ascending -- the tier dropdown's options.
+  // The DISTINCT tiers among those blueprints, ascending, the tier dropdown's options.
   $: availableFabricateTiers = [...new Set(availableFabricateBlueprints.map((bp) => bp.tier))].sort(
     (a, b) => a - b
   );
 
   // ============================================================================
-  // Shipyard (Phase 5, Task S5 UI) -- the reactive reads the Build/Upgrades panel below
+  // Shipyard (Phase 5, Task S5 UI), the reactive reads the Build/Upgrades panel below
   // consumes. Structurally the DIRECT clone of the Fabricator's upgrade-derivation block
   // above (level / maxed / next-rung / upgrade-check / in-flight-upgrade), plus the
   // Shipyard-specific founded flag and the single in-flight ship BUILD (distinct from an
   // in-flight facility upgrade). All derive off `state`, so founding/upgrading/starting a
-  // build updates the panel LIVE. No engine logic here -- these only READ the S1-S3 seams.
+  // build updates the panel LIVE. No engine logic here, these only READ the S1-S3 seams.
   // ============================================================================
   // The Shipyard's LEVEL, read DEFENSIVELY (absent facility -> 0), the SAME idiom
   // fabricatorLevel uses. Level 0 = LOCKED/unfounded (freshState seeds it at 0); the
@@ -2248,13 +2248,13 @@
   );
 
   // The SINGLE in-flight ship BUILD, if any (the Shipyard has one build slot this pass, so
-  // find -- not filter -- suffices). This is the "shipBuild" TimedProcess, DISTINCT from the
+  // find, not filter, suffices). This is the "shipBuild" TimedProcess, DISTINCT from the
   // facilityUpgrade above: it renders the "BUILDING · {hull}" progress card at the TOP of a
   // founded Build tab. Its completion effect { type: "addShip", typeKey } carries the hull
   // being built, read below for the card's label (narrowed on effect.type === "addShip").
   $: activeShipBuild = state.activeProcesses.find((p) => p.kind === "shipBuild");
 
-  // The available blueprint KEYS in a given tier -- the item dropdown's options for that tier,
+  // The available blueprint KEYS in a given tier, the item dropdown's options for that tier,
   // and the seed the tier-change/open handlers use to reset cfgRecipeKey. Reads the reactive
   // availableFabricateBlueprints at call time, so it always reflects the current research/level.
   function fabricateKeysForTier(tier: number): string[] {
@@ -2262,7 +2262,7 @@
   }
 
   // Blueprints grouped by TIER for the Research list (tiers ascending). PURE over
-  // the STATIC BLUEPRINTS table (independent of live state -- the per-blueprint
+  // the STATIC BLUEPRINTS table (independent of live state, the per-blueprint
   // researched/gate reads happen in the markup), so this is a plain const computed
   // once at script init, mirroring warehouseTierGroups' by-tier bucketing. Each
   // group renders as a tier heading + its blueprint cards in the Research sub-tab.
@@ -2285,7 +2285,7 @@
   // the "Show tick counts" Options toggle. They are PURE and take showTicks +
   // secPerTick as EXPLICIT params (not closed-over state) so Svelte's legacy
   // `$:`/template reactivity re-invokes them whenever showTickCounts or
-  // state.tickDurationSeconds changes -- a helper that read those off the
+  // state.tickDurationSeconds changes, a helper that read those off the
   // enclosing scope would not re-run when the toggle flips.
   //
   // remainingReadout: live countdown. off -> "01:39 remaining";
@@ -2329,7 +2329,7 @@
     }
   }
 
-  // (Task C4) fabricateBlockText was RETIRED here with the Craft-tab order controls -- the
+  // (Task C4) fabricateBlockText was RETIRED here with the Craft-tab order controls, the
   // per-line configurator's disabled Start now reads startLineBlockText (above), which maps the
   // shared StartLineBlockReason. canFabricate is no longer called from the UI either (the
   // Overview's fabricable count derives from blueprintUnlocked + tier directly).
@@ -2339,31 +2339,31 @@
   // Drives BOTH the top-bar fuel chip's tooltip AND the Fuel Depot Overview's refining-
   // status readout, so the two can never disagree (single derivation, shown twice).
   //
-  // The player's core question is "is my fuel self-sustaining?" -- answered by netting
+  // The player's core question is "is my fuel self-sustaining?", answered by netting
   // the Fuel Depot's refining PRODUCTION against the active missions' EXPENDITURE, both
   // expressed as fuel/tick (a tick is state.tickDurationSeconds seconds; default 1).
   //
   // NET-DISPLAY FIX (2026-07-16): all of this now derives from fuelFlowSummary(state)
-  // (tick.ts) -- a PURE helper that mirrors processFuelPipelines' ice/tank/pipeline
+  // (tick.ts), a PURE helper that mirrors processFuelPipelines' ice/tank/pipeline
   // gates. It replaced an inline block that subtracted burn from the refinery's MAX
   // (ceiling) throughput UNCONDITIONALLY, which showed a false NET POSITIVE while the
   // player was OUT of Deuterium Ice (the refinery really makes 0 then). The burn sum
-  // that used to live inline here moved INTO the helper -- ONE source of truth in the
+  // that used to live inline here moved INTO the helper, ONE source of truth in the
   // engine. Var names are preserved so the rest of the template is untouched.
   $: fuelFlow = fuelFlowSummary(state);
 
-  // MAX refining throughput (the CEILING) -- concurrent pipelines * fuel-per-batch /
+  // MAX refining throughput (the CEILING), concurrent pipelines * fuel-per-batch /
   // batch-length-ticks. Still shown verbatim as the informational "Production (max)" /
   // "Refining (max)" line: it is the cap, NOT the guaranteed inflow (the pipelines
   // auto-throttle to nothing when the tank is full or Deuterium Ice runs out).
   $: fuelProductionPerTick = fuelFlow.maxProductionPerTick;
-  // Deuterium Ice consumed at that full throughput (ice/tick) -- the input cost line.
+  // Deuterium Ice consumed at that full throughput (ice/tick), the input cost line.
   $: fuelIceInputPerTick = fuelFlow.iceInputPerTick;
   // EXPENDITURE (fuel/tick): steady-state mission burn, summed across active missions
   // (the sum now lives inside fuelFlowSummary; this just surfaces it under its old name).
   $: fuelExpenditurePerTick = fuelFlow.burnPerTick;
 
-  // FUEL RUNWAY (Wave 2) -- "how long until the tank runs dry?" under a full-
+  // FUEL RUNWAY (Wave 2), "how long until the tank runs dry?" under a full-
   // sustainability model that credits mission-mined Deuterium Ice. The rates are
   // MEASURED, not modelled: emaDFuelPerTick/emaDIcePerTick are smoothed samples of
   // the live economy loop's actual per-tick deltas (updated in the poll callback,
@@ -2384,7 +2384,7 @@
         });
 
   // NET (fuel/tick) now derives from EFFECTIVE production (0 when out of ice / no depot),
-  // so it reads NEGATIVE when the refinery is idle for lack of ice -- THE FIX. hasIce /
+  // so it reads NEGATIVE when the refinery is idle for lack of ice, THE FIX. hasIce /
   // tankFull feed the chip's + panel's status lines; sufficient = net >= 0 || tankFull
   // (a topped-off tank is fine even while throttled to 0).
   $: fuelNetPerTick = fuelFlow.netPerTick;
@@ -2394,7 +2394,7 @@
 
   // Friendlier per-minute magnitudes. Ticks/minute = 60 / tickDurationSeconds (default
   // cadence 1s -> 60). NOTE: the dev speed multiplier scales production and expenditure
-  // EQUALLY, so it never flips the sufficiency SIGN -- only the displayed magnitude.
+  // EQUALLY, so it never flips the sufficiency SIGN, only the displayed magnitude.
   $: fuelTicksPerMinute = 60 / Math.max(1, state.tickDurationSeconds);
   $: fuelProductionPerMinute = fuelProductionPerTick * fuelTicksPerMinute;
   $: fuelExpenditurePerMinute = fuelExpenditurePerTick * fuelTicksPerMinute;
@@ -2438,7 +2438,7 @@
         </div>
       </div>
 
-      <!-- Currency strip (2026-07-09) -- fleet-wide resource readout in the top
+      <!-- Currency strip (2026-07-09), fleet-wide resource readout in the top
            bar, sitting between the Fleet Admiral identity block above and the
            tick timer below. Data-driven: it renders one tappable chip per
            CURRENCY_META entry (see the script block), so adding a future
@@ -2481,13 +2481,13 @@
           </div>
         {/each}
 
-        <!-- Fuel chip (Fuel Economy v2 F4, design §5) -- a fuel indicator sitting
+        <!-- Fuel chip (Fuel Economy v2 F4, design §5), a fuel indicator sitting
              beside the credits chip so tank level is visible AT A GLANCE. It is NOT a
              spendable currency (so it is deliberately NOT a CURRENCY_META entry, whose
              tooltip is a static flavor string); instead it MIRRORS the currency chip's
              markup + CSS + the full mouse-hover/tap/outside-tap mobile idiom, sharing
              the SAME openCurrencyKey token (key "fuel") so handleCurrencyOutsidePointer /
-             handleCurrencyKeydown / hoverEnter/LeaveCurrency drive it verbatim -- the
+             handleCurrencyKeydown / hoverEnter/LeaveCurrency drive it verbatim, the
              ONLY difference is a richer, reactive tooltip body (production vs
              expenditure vs net) computed in the script block above. -->
         <div class="currency-chip-wrap">
@@ -2539,13 +2539,13 @@
                      is a pure drain), then the normal fuel-positive / draining split. -->
                 <div class="fuel-tt-note">
                   {#if fuelTankFull}
-                    Idle -- tank full (topped off).
+                    Idle, tank full (topped off).
                   {:else if !fuelHasIce}
-                    Refinery idle -- out of Deuterium Ice (mine more via Operations).
+                    Refinery idle, out of Deuterium Ice (mine more via Operations).
                   {:else if fuelSufficient}
-                    Fuel-positive -- refining outpaces your missions.
+                    Fuel-positive, refining outpaces your missions.
                   {:else}
-                    Draining -- shortfalls auto-buy fuel with credits (+2-tick delay).
+                    Draining, shortfalls auto-buy fuel with credits (+2-tick delay).
                   {/if}
                 </div>
                 <!-- FUEL RUNWAY (Wave 2): measured full-sustainability countdown to
@@ -2630,12 +2630,12 @@
           >
             Fleet Sector
           </button>
-          <!-- Locked places -- no content behind them yet (same honest
+          <!-- Locked places, no content behind them yet (same honest
                "future signal" role as Facilities' locked facilities). Plain
                non-button divs, so they're inert; the title attr is the "Coming
                soon" affordance. -->
-          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Alliance Sector</div>
-          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Colony Registry</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Alliance Sector</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Colony Registry</div>
         </div>
 
         <div class="fleet-captains-content">
@@ -2651,19 +2651,19 @@
 
       {#if activeHomeworldSubTab === "resources"}
       <!-- Homeworld Overview (Phase 4, Task F5): minimal placeholder. The old
-           hardcoded "HOME PLANET" 3-material panel was retired here -- full
+           hardcoded "HOME PLANET" 3-material panel was retired here, full
            material inventory now lives in the Warehouse, and this Overview is
            to be fleshed out later (per the design's "fleshed out later" note).
            The sub-tab shell is kept so navigation still renders. -->
       <Panel>
         <div class="panel-title">HOME PLANET</div>
-        <p class="research-status">Homeworld overview coming soon -- check the Warehouse for your full material inventory.</p>
+        <p class="research-status">Homeworld overview coming soon, check the Warehouse for your full material inventory.</p>
       </Panel>
       {/if}
 
       {#if activeHomeworldSubTab === "talents"}
       <!-- Homeworld Talents (Task 6, Captain & Homeworld Talent Trees) --
-           fleet-wide (not per-captain -- reads state.adminPoints /
+           fleet-wide (not per-captain, reads state.adminPoints /
            state.unlockedHomeworldTalents directly, never activeCaptain),
            placed after the Overview above. Same fixed-5-branch
            iteration pattern as the Captain Talents panel under Fleet Ops, so
@@ -2671,21 +2671,21 @@
            render as labeled, empty columns.
 
            Homeworld Talents are Fleet Admiral prestige, gated ENTIRELY on
-           adminPoints -- deliberately independent of any individual
+           adminPoints, deliberately independent of any individual
            captain's own level/statPoints (those only ever gate that
            captain's OWN Captain Talents, above under Fleet Ops). Confirmed
            with the user rather than inventing a captain-scoped gate for a
            fleet-wide purchase.
 
-           Talent Tree Visual Redesign (Task 11) -- reuses Task 10's
+           Talent Tree Visual Redesign (Task 11), reuses Task 10's
            talentDepth/TALENT_ROW_HEIGHT/depthRows/.talent-branch-tree/
            .talent-branch-connectors/.talent-node treatment verbatim (see the
            Captain Talents panel under Fleet Ops for the pattern this mirrors
-           -- not reinvented here). The one wrinkle Captain Talents never
+          , not reinvented here). The one wrinkle Captain Talents never
            exercised: the fleetLogistics branch has TWO independent depth-0
-           roots in the SAME row -- fleetLogisticsSlot1 (root of the
+           roots in the SAME row, fleetLogisticsSlot1 (root of the
            Slot1->Slot2->Slot3 chain) AND fleetLogisticsYield (its own
-           unrelated root, requires: null) -- both land in depthRows[0].
+           unrelated root, requires: null), both land in depthRows[0].
            Task 10's row rendering assumed one node per row (.talent-node was
            `left:0; right:0`, i.e. full-width) and would have silently
            overlapped two same-row siblings; this HOMEWORLD_TALENTS-side
@@ -2693,7 +2693,7 @@
            column index within its own row (columnIndex) and columnCount
            (row.length), then splitting the row's width evenly across
            columns via an inline left/width/right override on each node (see
-           the `style=` binding below) -- .talent-node's own CSS rule (App.svelte
+           the `style=` binding below), .talent-node's own CSS rule (App.svelte
            CSS block, near .talent-branch-tree) is left completely untouched;
            inline style always wins over it, and columnCount === 1 (every row
            except fleetLogistics' depth-0 row, see below) computes out to the
@@ -2729,14 +2729,14 @@
             Reset
           </button>
         </div>
-        <!-- Radial Skill Web (Task 15) -- the 5-category selector now sits in
+        <!-- Radial Skill Web (Task 15), the 5-category selector now sits in
              FRONT of the RadialWeb (Task 11b previously hardcoded branch to
              "fleetLogistics"). selectedCategory is component-local, view-only
-             NAVIGATION state (never persisted -- see its declaration above):
+             NAVIGATION state (never persisted, see its declaration above):
              null shows the TreeSelector category card-picker; a chosen category
              shows THAT category's RadialWeb plus a back button to the picker.
              This is deliberately UNLIKE the captain spec flow: there is no
-             lock-in, no cost, and no save write -- committing a card just
+             lock-in, no cost, and no save write, committing a card just
              navigates (viewCategory), and the back button just returns to the
              picker, both freely reversible. The Reset button above
              (respecHomeworldTalents) is orthogonal and unchanged. `owned` is
@@ -2747,7 +2747,7 @@
              describeEffect passes the homeworld effect describer through so
              RadialWeb's internal tooltip renders the right effect line without
              importing it. NOTE: keep Svelte block tokens (hash-if / colon-else
-             / slash-if) OUT of this comment -- they can trip the parser even
+             / slash-if) OUT of this comment, they can trip the parser even
              inside an HTML comment. -->
         {#if selectedCategory === null}
           <TreeSelector
@@ -2757,7 +2757,7 @@
           />
         {:else}
           <!-- Category selected: THAT category's RadialWeb. The "← Categories" back
-               button (pure navigation -- clears selectedCategory, no save write) now
+               button (pure navigation, clears selectedCategory, no save write) now
                lives in the shared button row above. selectedCategory is a plain local
                that TS narrows to non-null across the conditional, but the trailing !
                is kept for consistency with the captain mount's activeCaptain.spec!
@@ -2787,12 +2787,12 @@
             />
 
             {#if activeStarbaseSubTab === "docks"}
-              <!-- DOCKS -- one row per hull in state.ships. Capacity readout
+              <!-- DOCKS, one row per hull in state.ships. Capacity readout
                    uses the same "label: value" line style as the Homeworld
                    panels' "Admin Points: X" / "Credits: X" lines. Each ship row
                    shows: type label, the 3 mission stats (via shipDerivedStats),
                    inert module-slot pips (count = SHIP_TYPES[typeKey].moduleSlots
-                   -- display-only, no module system exists yet), an assignment
+                  , display-only, no module system exists yet), an assignment
                    badge (the flying captain's label, or "Parked"), and ONE
                    assign/swap control whose kind + disabled-state depends on the
                    ship's assignment + that captain's mission status (see the
@@ -2814,7 +2814,7 @@
                     {@const stats = shipDerivedStats(ship)}
                     <!-- assignedCaptain: the captain flying THIS hull, or null if
                          parked. assignedCaptainId is the SINGLE SOURCE OF TRUTH
-                         (model.ts) -- we look the captain up by it rather than
+                         (model.ts), we look the captain up by it rather than
                          trusting any duplicate field. onMission gates the Swap
                          control: you can't pull a hull out from under an active
                          mission, matching assignShipToCaptain's own block on the
@@ -2841,7 +2841,7 @@
                       </div>
 
                       <!-- Module slots: inert pips, one per moduleSlots. Purely
-                           decorative this pass (no module system) -- the quiet
+                           decorative this pass (no module system), the quiet
                            "unlock with Research" note sets the expectation
                            without implying they do anything yet. Array.from is
                            used (not a bare {length} object) since {#each} needs a
@@ -2849,7 +2849,7 @@
                       <div class="ship-modules">
                         <span class="ship-modules-label">Modules:</span>
                         {#each Array.from({ length: def.moduleSlots }) as _, mi}
-                          <span class="ship-module-pip" title="Module slot -- unlocks with Research"></span>
+                          <span class="ship-module-pip" title="Module slot, unlocks with Research"></span>
                         {/each}
                         <span class="ship-modules-note">unlock with Research</span>
                       </div>
@@ -2869,20 +2869,20 @@
                         <button
                           class="dev-btn ship-assign-btn"
                           disabled={idleCaptains.length === 0}
-                          title={idleCaptains.length === 0 ? "No idle captain -- recall one first" : undefined}
+                          title={idleCaptains.length === 0 ? "No idle captain, recall one first" : undefined}
                           on:click={() => openAssignPicker(ship.id)}
                         >
                           Assign ▾
                         </button>
                       {:else if onMission}
-                        <button class="dev-btn ship-assign-btn" disabled title="On a mission -- recall first">
+                        <button class="dev-btn ship-assign-btn" disabled title="On a mission, recall first">
                           Swap ▾
                         </button>
                       {:else}
                         <button
                           class="dev-btn ship-assign-btn"
                           disabled={parkedShips.length === 0}
-                          title={parkedShips.length === 0 ? "No spare ship -- buy or free one" : undefined}
+                          title={parkedShips.length === 0 ? "No spare ship, buy or free one" : undefined}
                           on:click={() => openSwapPicker(assignedCaptain.id)}
                         >
                           Swap ▾
@@ -2900,7 +2900,7 @@
       {/if}
 
       {#if activeTab === "facilities"}
-      <!-- Facilities (Phase 1, Facility Framework + Refinery -- Task 12 UI) --
+      <!-- Facilities (Phase 1, Facility Framework + Refinery, Task 12 UI) --
            deliberately MIRRORS the Sector Space (starbase) tab above, which
            itself mirrors the Fleet Captain's tab: a LEFT rail of facilities
            (.captain-list / .captain-list-item, reused verbatim, NOT a new class)
@@ -2908,7 +2908,7 @@
            Only the Refinery is real this pass; Fabricator/Warehouse/Shipyard are
            locked "Coming Soon" rail items using the exact .captain-list-item.locked
            idiom Sector Space's locked structures use. The Refinery has three
-           sub-tabs -- Overview (level + slots + active-jobs status readout),
+           sub-tabs, Overview (level + slots + active-jobs status readout),
            Production (the per-slot line configurator that drives refining), and
            Upgrades (the next rung's material/prereq readiness + Build). All
            actions/readiness read the tick.ts backend fns (canStartLine / startLine
@@ -2921,10 +2921,10 @@
                facility now sits under the "place" that owns it, with a small
                quiet .facility-owner-header label above the group. Purely a
                presentational regroup of the same reused .captain-list-item /
-               .captain-list-item.locked items -- activeFacility/FacilityKey
+               .captain-list-item.locked items, activeFacility/FacilityKey
                logic and the Refinery content pane are unchanged. -->
 
-          <!-- Homeworld group -- the Refinery (only real facility this pass)
+          <!-- Homeworld group, the Refinery (only real facility this pass)
                plus its two locked homeworld siblings. -->
           <div class="facility-owner-header">Homeworld</div>
           <button
@@ -2934,11 +2934,11 @@
           >
             Refinery
           </button>
-          <!-- Locked facilities -- no content behind them yet (same honest
+          <!-- Locked facilities, no content behind them yet (same honest
                "future signal" role as Sector Space's locked structures and the
                Fleet Captain's locked slots). Plain non-button divs, so they're
                inert; the title attr is the "Coming soon" affordance. -->
-          <!-- Fabricator -- REAL, selectable facility (Fabricator Task F4): CRAFTS the
+          <!-- Fabricator, REAL, selectable facility (Fabricator Task F4): CRAFTS the
                components the Research Lab unlocked. Same reused .captain-list-item /
                active idiom as the Refinery/Warehouse/Research buttons; replaced the
                locked placeholder that stood here through Phases 1-3. -->
@@ -2949,7 +2949,7 @@
           >
             Fabricator
           </button>
-          <!-- Warehouse -- REAL, selectable facility (Phase 2, Group C): the
+          <!-- Warehouse, REAL, selectable facility (Phase 2, Group C): the
                fill-tile inventory catalog. Same reused .captain-list-item /
                active idiom as the Refinery button above. -->
           <button
@@ -2959,7 +2959,7 @@
           >
             Warehouse
           </button>
-          <!-- Mission Control -- REAL, selectable facility (Mission Rework Task 8):
+          <!-- Mission Control, REAL, selectable facility (Mission Rework Task 8):
                the mission-unlock facility. Same reused .captain-list-item / active
                idiom as the Refinery/Warehouse buttons. -->
           <button
@@ -2969,7 +2969,7 @@
           >
             Mission Control
           </button>
-          <!-- Fuel Depot -- REAL, selectable facility (Mission Rework Task 8; relabeled
+          <!-- Fuel Depot, REAL, selectable facility (Mission Rework Task 8; relabeled
                "Fuel Depot" in Fuel Economy v2 F2, KEY still `fuelStorage`): the fuel tank
                (gauge + auto-refining status + optional manual top-up) + its mixed
                storage/processing upgrade track. -->
@@ -2980,7 +2980,7 @@
           >
             Fuel Depot
           </button>
-          <!-- Research Lab -- REAL, selectable facility (Research Task R5): the
+          <!-- Research Lab, REAL, selectable facility (Research Task R5): the
                blueprint-research facility. Same reused .captain-list-item / active
                idiom as the Refinery/Warehouse/Mission Control/Fuel Depot buttons. -->
           <button
@@ -2991,10 +2991,10 @@
             Research Lab
           </button>
 
-          <!-- Fleet Sector group -- the Shipyard belongs to the fleet's sector
+          <!-- Fleet Sector group, the Shipyard belongs to the fleet's sector
                presence, not the homeworld. -->
           <div class="facility-owner-header">Fleet Sector</div>
-          <!-- Shipyard -- REAL, selectable facility (Shipyard Task S5 UI): BUILDS hulls
+          <!-- Shipyard, REAL, selectable facility (Shipyard Task S5 UI): BUILDS hulls
                from fabricated components. Same reused .captain-list-item / active idiom as
                the Refinery/Fabricator/Research buttons; replaced the locked placeholder
                that stood here through Phases 1-4. NOTE: the Shipyard only BUILDS ships --
@@ -3010,10 +3010,10 @@
             Shipyard
           </button>
 
-          <!-- Ships group -- ship-borne facilities, a concept only (no backing
+          <!-- Ships group, ship-borne facilities, a concept only (no backing
                state yet); locked like the rest. -->
           <div class="facility-owner-header">Ships</div>
-          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Ship Facilities</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Ship Facilities</div>
         </div>
 
         <div class="fleet-captains-content">
@@ -3030,9 +3030,9 @@
             />
 
             {#if activeRefinerySubTab === "overview"}
-              <!-- OVERVIEW -- refinery level, slot usage, and any in-flight refine
+              <!-- OVERVIEW, refinery level, slot usage, and any in-flight refine
                    jobs (progress bar + ticks remaining). The one-shot recipe
-                   readout + Start Refine Job button were RETIRED in S4 -- refining
+                   readout + Start Refine Job button were RETIRED in S4, refining
                    is now configured per-slot in the Production sub-tab. This tab is
                    now a pure status readout (no start action). -->
               <Panel>
@@ -3040,7 +3040,7 @@
                 <div class="research-cost">Level: {refineryLevel}</div>
                 <div class="research-cost">Refine slots: {activeRefineJobs.length} / {refinerySlots} in use</div>
 
-                <!-- Active refine jobs -- one progress card each. remainingTicks /
+                <!-- Active refine jobs, one progress card each. remainingTicks /
                      durationTicks are read straight off the TimedProcess; progress
                      is how much of the duration has elapsed. Reuses the same
                      research-bar-track/fill/readout the mission + captain-XP bars
@@ -3064,7 +3064,7 @@
             {/if}
 
             {#if activeRefinerySubTab === "orders"}
-              <!-- PRODUCTION LINES (Crafting Allocation Redesign, Task C4) -- one panel
+              <!-- PRODUCTION LINES (Crafting Allocation Redesign, Task C4), one panel
                    per refinery slot. ACTIVE lines (state.refineLines) render first, each
                    as a card with a Cancel button (top-right, danger), its recipe, a
                    progress bar, and the tick readout (via remainingReadout, off the line's
@@ -3096,7 +3096,7 @@
                         <div class="research-name">LINE {li + 1} · REFINING</div>
                         <!-- Cancel is only offered while iterations remain to STOP. When
                              remaining is 0 the line is finishing its last/in-flight iteration
-                             (either naturally, or drained by a prior Cancel) -- nothing left to
+                             (either naturally, or drained by a prior Cancel), nothing left to
                              cancel, so it just shows "finishing" until it clears itself. -->
                         {#if line.remaining > 0}
                           <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
@@ -3113,7 +3113,7 @@
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
                       <div class="research-readout">
-                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued -- starts next tick{/if}
+                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
                       </div>
                     </div>
                   {/each}
@@ -3183,7 +3183,7 @@
                       </div>
                     {:else}
                       <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("refine", slotIndex)}>
-                        Line {slotIndex + 1} · idle -- configure a craft
+                        Line {slotIndex + 1} · idle, configure a craft
                       </button>
                     {/if}
                   {/each}
@@ -3192,7 +3192,7 @@
             {/if}
 
             {#if activeRefinerySubTab === "upgrades"}
-              <!-- UPGRADES -- the NEXT rung of the Refinery's finite upgrade track
+              <!-- UPGRADES, the NEXT rung of the Refinery's finite upgrade track
                    (FACILITIES.refinery.upgrades[level]; undefined = maxed). Shows
                    each required material as [Item]: have / need with a ✅/❌
                    readiness mark, the FA-level + Homeworld-talent prereqs (❌ when
@@ -3207,7 +3207,7 @@
                 <div class="research-cost">Level: {refineryLevel}</div>
 
                 {#if refineryMaxed}
-                  <!-- Finite track maxed -- no rung past the current level. -->
+                  <!-- Finite track maxed, no rung past the current level. -->
                   <p class="research-status">Fully upgraded.</p>
                 {:else}
                   {@const eff = nextRefineryUpgrade.effect}
@@ -3235,7 +3235,7 @@
                     </div>
                   {/if}
 
-                  <!-- Homeworld-talent prereqs -- each listed talent must be
+                  <!-- Homeworld-talent prereqs, each listed talent must be
                        unlocked fleet-wide. Named by HOMEWORLD_TALENTS[key].label
                        (the same label the talent tree shows), not the raw key. -->
                   {#if nextRefineryUpgrade.requiresHomeworldTalents}
@@ -3247,7 +3247,7 @@
                     {/each}
                   {/if}
 
-                  <!-- Build -- gated on the backend predicate; its .reason is the
+                  <!-- Build, gated on the backend predicate; its .reason is the
                        "why not" title when the button is disabled (covers the
                        "Upgrade already in progress" case below, plus any unmet
                        material/prereq the readiness rows above already show). -->
@@ -3277,7 +3277,7 @@
               </Panel>
             {/if}
           {:else if activeFacility === "warehouse"}
-            <!-- WAREHOUSE (Phase 2, Group C) -- the fill-tile inventory catalog.
+            <!-- WAREHOUSE (Phase 2, Group C), the fill-tile inventory catalog.
                  Mirrors the Refinery's SubTabs + content structure above, but the
                  SubTabs axis is CATEGORY: Overview + Upgrade (management views)
                  then one tab per item-category group. Each catalog tab groups its
@@ -3293,12 +3293,12 @@
             />
 
             {#if activeWarehouseCat === "overview"}
-              <!-- OVERVIEW -- at-a-glance warehouse state (design §3.1): T1 level +
+              <!-- OVERVIEW, at-a-glance warehouse state (design §3.1): T1 level +
                    cap, how many items are AT cap (the ⚠ auto-stop signal),
                    discovered/total catalog progress, and an Attention card listing
                    each FULL material when any producer is idled. -->
               <Panel>
-                <div class="panel-title">WAREHOUSE -- TIER 1</div>
+                <div class="panel-title">WAREHOUSE, TIER 1</div>
                 <div class="research-cost">Storage level: {warehouseT1Level}</div>
                 <div class="research-cost">Cap per item: {formatNumber(warehouseT1Cap)}</div>
                 <div
@@ -3315,7 +3315,7 @@
                   <div class="panel-title">⚠ ATTENTION</div>
                   {#each warehouseItemsAtCap as id (id)}
                     <div class="research-cost" style="color: var(--color-danger)">
-                      [{ITEMS[id]?.label ?? id}] -- FULL, producers auto-stopped
+                      [{ITEMS[id]?.label ?? id}], FULL, producers auto-stopped
                     </div>
                   {/each}
                   <p class="research-status" style="margin-top: 8px;">
@@ -3326,7 +3326,7 @@
             {/if}
 
             {#if activeWarehouseCat === "upgrade"}
-              <!-- UPGRADE -- one card per warehouse tier (design §3.3): current
+              <!-- UPGRADE, one card per warehouse tier (design §3.3): current
                    cap, next cap (doubles), the next rung's material cost +
                    duration, and a Build/Expand button gated on the SAME
                    canBuildFacilityUpgrade the backend enforces (so button and
@@ -3348,7 +3348,7 @@
                     p.effect.facility === wt.key
                 )}
                 <Panel>
-                  <div class="panel-title">{wt.label} -- {isUnlockRung ? "Unlock Storage" : "Expand Storage"}</div>
+                  <div class="panel-title">{wt.label}, {isUnlockRung ? "Unlock Storage" : "Expand Storage"}</div>
                   <div class="research-cost">Level: {level}</div>
 
                   {#if maxed}
@@ -3404,7 +3404,7 @@
             {/if}
 
             {#if activeWarehouseCat === "raw" || activeWarehouseCat === "refined" || activeWarehouseCat === "components" || activeWarehouseCat === "shipEquipment"}
-              <!-- CATALOG GRID -- tier-panels of fill-tiles for the active
+              <!-- CATALOG GRID, tier-panels of fill-tiles for the active
                    category (design §3.2). A category with NO items today (its
                    items don't exist yet) shows a "future content" stub instead of
                    an empty grid. -->
@@ -3412,7 +3412,7 @@
                 <Panel>
                   <div class="warehouse-stub">
                     <div class="warehouse-stub-glyph">🗄️</div>
-                    <p>No items in this category yet -- future content. Each will get its own fill-tile once it exists in the game.</p>
+                    <p>No items in this category yet, future content. Each will get its own fill-tile once it exists in the game.</p>
                   </div>
                 </Panel>
               {:else}
@@ -3464,7 +3464,7 @@
                         {@const unlockRung = FACILITIES[`warehouseT${group.tier}`].upgrades[0]}
                         {@const unlockIds = Object.keys(unlockRung.materials)}
                         <p class="warehouse-locked-note">
-                          Tier {group.tier} storage locked -- <b>unlock in the Upgrade tab</b>{#if unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
+                          Tier {group.tier} storage locked, <b>unlock in the Upgrade tab</b>{#if unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
                         </p>
                       {/if}
                     </div>
@@ -3474,27 +3474,27 @@
             {/if}
 
             {#if activeWarehouseCat === "troopEquipment"}
-              <!-- Future stub -- no ItemCategory exists for troop gear yet. -->
+              <!-- Future stub, no ItemCategory exists for troop gear yet. -->
               <Panel>
                 <div class="warehouse-stub">
                   <div class="warehouse-stub-glyph">🎖️</div>
-                  <p><b>Troop Equipment</b> (name TBD) -- non-stacking gear, each drop its own tile with rolled stats. Future content.</p>
+                  <p><b>Troop Equipment</b> (name TBD), non-stacking gear, each drop its own tile with rolled stats. Future content.</p>
                 </div>
               </Panel>
             {/if}
 
             {#if activeWarehouseCat === "consumables"}
-              <!-- Future stub -- no ItemCategory exists for consumables yet. -->
+              <!-- Future stub, no ItemCategory exists for consumables yet. -->
               <Panel>
                 <div class="warehouse-stub">
                   <div class="warehouse-stub-glyph">🧪</div>
-                  <p><b>Consumables</b> -- buffs & status restoration (stackable). Big for troops. Future content.</p>
+                  <p><b>Consumables</b>, buffs & status restoration (stackable). Big for troops. Future content.</p>
                 </div>
               </Panel>
             {/if}
 
           {:else if activeFacility === "missionControl"}
-            <!-- MISSION CONTROL (Mission Rework Task 8) -- the mission-unlock
+            <!-- MISSION CONTROL (Mission Rework Task 8), the mission-unlock
                  facility. Two sub-tabs mirroring the Refinery: Overview (unlocked /
                  locked missions + completion progress toward the next unlock) and
                  Upgrades (the next rung's material + completion-count readiness +
@@ -3515,7 +3515,7 @@
             {#if activeMissionControlSubTab === "overview"}
               <!-- USER REVISION 2026-07-14: all four current missions are default
                    (unlockLevel 1), so this Overview is a MISSION LOG of the available
-                   missions + each one's lifetime completion count -- NOT a "next
+                   missions + each one's lifetime completion count, NOT a "next
                    unlock" progress panel (that unlock upgrade is deferred until future
                    missions exist; see model.ts FACILITIES.missionControl). The locked-
                    mission list below is retained (guarded on lockedMissionKeys.length,
@@ -3529,14 +3529,14 @@
                 {#each unlockedMissionKeys as mKey (mKey)}
                   {@const completed = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
                   <div class="research-cost" style="color: var(--color-success)">
-                    ✅ {MISSIONS[mKey].label} -- {formatNumber(completed)} completed
+                    ✅ {MISSIONS[mKey].label}, {formatNumber(completed)} completed
                   </div>
                 {/each}
 
                 {#if lockedMissionKeys.length > 0}
                   <div class="research-name" style="margin-top: 10px;">Locked missions</div>
                   {#each lockedMissionKeys as mKey (mKey)}
-                    <div class="research-cost" style="color: var(--color-text-secondary)">🔒 {MISSIONS[mKey].label} -- unlocks at level {MISSIONS[mKey].unlockLevel}</div>
+                    <div class="research-cost" style="color: var(--color-text-secondary)">🔒 {MISSIONS[mKey].label}, unlocks at level {MISSIONS[mKey].unlockLevel}</div>
                   {/each}
                 {/if}
 
@@ -3555,7 +3555,7 @@
                 {#if missionControlMaxed}
                   <!-- USER REVISION 2026-07-14: Mission Control caps at its current
                        content (the unlock UPGRADE is deferred until future missions
-                       exist -- see model.ts FACILITIES.missionControl). This is the
+                       exist, see model.ts FACILITIES.missionControl). This is the
                        standard maxed state the Refinery/Warehouse tracks show; the note
                        flags that a future unlock rung re-appears here with new content. -->
                   <p class="research-status">Fully upgraded.</p>
@@ -3568,7 +3568,7 @@
                     Unlocks the missions gated at level {missionControlLevel + 1} · Duration: {durationReadout(nextMissionControlUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}
                   </div>
 
-                  <!-- Material readiness ([Item]: have / need, ✅/❌) -- same idiom as
+                  <!-- Material readiness ([Item]: have / need, ✅/❌), same idiom as
                        the Refinery/Warehouse upgrade tabs. -->
                   {#each Object.keys(nextMissionControlUpgrade.materials) as itemId}
                     {@const need = nextMissionControlUpgrade.materials[itemId]}
@@ -3579,7 +3579,7 @@
                     </div>
                   {/each}
 
-                  <!-- Completion-count prereqs -- THE mission-control-specific gate
+                  <!-- Completion-count prereqs, THE mission-control-specific gate
                        (Task 6): each listed mission's lifetime completions must reach
                        its threshold before this rung is buildable. -->
                   {#if nextMissionControlUpgrade.requiresMissionCompletions}
@@ -3594,7 +3594,7 @@
                     {/each}
                   {/if}
 
-                  <!-- Build -- gated on canBuildFacilityUpgrade (materials + the
+                  <!-- Build, gated on canBuildFacilityUpgrade (materials + the
                        completion gate + no in-flight upgrade); its .reason is the
                        "why not" title when disabled. -->
                   <button
@@ -3621,7 +3621,7 @@
             {/if}
 
           {:else if activeFacility === "fuelStorage"}
-            <!-- FUEL DEPOT (Mission Rework Task 8; reworked Fuel Economy v2 F4) -- the
+            <!-- FUEL DEPOT (Mission Rework Task 8; reworked Fuel Economy v2 F4), the
                  fuel tank + auto-refinery. Two sub-tabs: Overview (fuel/cap GAUGE +
                  auto-REFINING status + a DEMOTED optional manual top-up) and Upgrades
                  (the mixed storage/processing track). Since F2/F3 made refining +
@@ -3641,7 +3641,7 @@
                 <div class="panel-title">FUEL DEPOT</div>
                 <div class="research-cost">Depot level: {fuelStorageLevel}</div>
 
-                <!-- Fuel gauge -- current / cap with a horizontal fill bar (the shared
+                <!-- Fuel gauge, current / cap with a horizontal fill bar (the shared
                      research-bar fill idiom; fill % via warehouseFillPct, the same
                      clamp helper the Warehouse tiles use). -->
                 <div class="research-cost" style="margin-top: 8px;">Fuel: {formatNumber(state.fuel)} / {formatNumber(fuelCapValue)} ({Math.round(fuelFillPct)}%)</div>
@@ -3650,7 +3650,7 @@
                 </div>
               </Panel>
 
-              <!-- REFINING STATUS (Fuel Economy v2 F4) -- the auto-refinery readout. Same
+              <!-- REFINING STATUS (Fuel Economy v2 F4), the auto-refinery readout. Same
                    production/expenditure/net derivation the top-bar fuel chip uses (one
                    source, shown twice), plus the live per-batch pipeline progress. This
                    is now the PRIMARY Fuel Depot readout: it answers "is my fuel self-
@@ -3706,12 +3706,12 @@
                   {/each}
                 {:else}
                   <p class="research-status" style="margin-top: 8px;">
-                    Idle -- {fuelRoom.lte(0) ? "tank full" : "no Deuterium Ice (mine more via Operations)"}.
+                    Idle, {fuelRoom.lte(0) ? "tank full" : "no Deuterium Ice (mine more via Operations)"}.
                   </p>
                 {/if}
               </Panel>
 
-              <!-- MANUAL TOP-UP (Fuel Economy v2 F4) -- DEMOTED from the old primary
+              <!-- MANUAL TOP-UP (Fuel Economy v2 F4), DEMOTED from the old primary
                    "Buy Fuel". Auto-buy (F3) now covers mission shortfalls automatically,
                    so this is an OPTIONAL override for topping the tank early; the note
                    says so. Same canBuyFuel gate + buyFuel-clamped +10/+100/Fill controls
@@ -3719,12 +3719,12 @@
               <Panel>
                 <div class="panel-title">MANUAL TOP-UP <span style="opacity: 0.6; font-weight: 400;">(optional)</span></div>
                 <p class="research-status" style="margin-bottom: 6px;">
-                  Missions auto-buy any fuel shortfall from credits -- this is just an optional early top-up.
+                  Missions auto-buy any fuel shortfall from credits, this is just an optional early top-up.
                 </p>
                 <div class="research-cost">Price: ◈ {FUEL_CREDITS_PER_UNIT} / unit · Credits: {formatNumber(state.credits)}</div>
                 {#if fuelRoom.lte(0)}
                   <p class="research-status" style="color: var(--color-danger); margin-top: 6px;">
-                    Tank full -- expand the tank (Upgrades) to buy more.
+                    Tank full, expand the tank (Upgrades) to buy more.
                   </p>
                 {/if}
 
@@ -3762,14 +3762,14 @@
             {/if}
 
             {#if activeFuelStorageSubTab === "upgrades"}
-              <!-- UPGRADES -- the MIXED storage/processing track
+              <!-- UPGRADES, the MIXED storage/processing track
                    (FACILITIES.fuelStorage.upgrades): storage rungs expand the tank,
                    processing rungs scale the refinery (pipelines/yield/input). Each
                    next-rung type gets its own labeled current→next readout (below),
                    material readiness, Build gated on the shared canBuildFacilityUpgrade,
                    + in-flight progress. -->
               <Panel>
-                <div class="panel-title">FUEL DEPOT -- Upgrades</div>
+                <div class="panel-title">FUEL DEPOT, Upgrades</div>
                 <div class="research-cost">Level: {fuelStorageLevel}</div>
 
                 {#if fuelStorageMaxed}
@@ -3780,26 +3780,26 @@
                        processing rungs ({ addFuelPipelines } / { fuelYieldMult } /
                        { fuelInputMult }, scale the refinery). Each rung type gets its OWN
                        label + current→next readout so the player knows what they're buying
-                       -- unlike the old storage-only panel that mislabeled every rung
+                      , unlike the old storage-only panel that mislabeled every rung
                        "doubles capacity". The effect is a presence-tagged union, narrowed
                        with `"key" in nextEff` (the SAME idiom fuelCap/fuelPipelineCount
                        use). Build stays wired to the shared canBuildFacilityUpgrade /
-                       doStartFacilityUpgrade -- only the DESCRIPTION branches. -->
+                       doStartFacilityUpgrade, only the DESCRIPTION branches. -->
                   {@const nextEff = nextFuelStorageUpgrade.effect}
                   {#if "storageCapMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Expand Tank -- storage ×{nextEff.storageCapMult}</div>
+                    <div class="research-name" style="margin-top: 6px;">Expand Tank, storage ×{nextEff.storageCapMult}</div>
                     <div class="research-cost">Current cap: {formatNumber(fuelCapValue)}</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(fuelCapValue.times(nextEff.storageCapMult))}</div>
                   {:else if "addFuelPipelines" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Add Pipeline -- +{nextEff.addFuelPipelines} concurrent refining line{nextEff.addFuelPipelines === 1 ? "" : "s"}</div>
+                    <div class="research-name" style="margin-top: 6px;">Add Pipeline, +{nextEff.addFuelPipelines} concurrent refining line{nextEff.addFuelPipelines === 1 ? "" : "s"}</div>
                     <div class="research-cost">Current pipelines: {fuelPipelineCount(state)}</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next pipelines: {fuelPipelineCount(state) + nextEff.addFuelPipelines}</div>
                   {:else if "fuelYieldMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Boost Yield -- fuel per batch ×{nextEff.fuelYieldMult}</div>
+                    <div class="research-name" style="margin-top: 6px;">Boost Yield, fuel per batch ×{nextEff.fuelYieldMult}</div>
                     <div class="research-cost">Current: {formatNumber(fuelBatchOutput(state))} fuel/batch</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchOutput(state).times(nextEff.fuelYieldMult))} fuel/batch</div>
                   {:else if "fuelInputMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Efficient Intake -- Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
+                    <div class="research-name" style="margin-top: 6px;">Efficient Intake, Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
                     <div class="research-cost">Current: {formatNumber(fuelBatchInput(state))} ice/batch</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchInput(state).times(nextEff.fuelInputMult))} ice/batch</div>
                   {/if}
@@ -3842,7 +3842,7 @@
             {/if}
 
           {:else if activeFacility === "research"}
-            <!-- RESEARCH LAB (Research Task R5) -- the blueprint-research facility.
+            <!-- RESEARCH LAB (Research Task R5), the blueprint-research facility.
                  Three sub-tabs mirroring the other Homeworld facilities: Overview
                  (slots in use + in-flight projects with progress bars + researched/
                  available counts + the Fabricator signpost), Research (the tier-
@@ -3866,7 +3866,7 @@
             />
 
             {#if activeResearchSubTab === "overview"}
-              <!-- OVERVIEW -- lab level, slot usage, any in-flight research projects
+              <!-- OVERVIEW, lab level, slot usage, any in-flight research projects
                    (progress bar + ticks remaining, the SAME idiom the refine jobs +
                    facility upgrades use), the researched/available count, and the
                    forward SIGNPOST that crafting arrives with the Fabricator. -->
@@ -3876,10 +3876,10 @@
                 <div class="research-cost">Research slots: {activeResearchProjects.length} / {researchSlots} in use</div>
                 <div class="research-cost">Blueprints researched: {researchedBlueprintCount} / {totalBlueprintCount}</div>
 
-                <!-- In-flight research projects -- one progress card each. progress is
+                <!-- In-flight research projects, one progress card each. progress is
                      how much of the duration has elapsed (durationTicks - remainingTicks
                      over durationTicks), read straight off the researchProject
-                     TimedProcess -- the SAME derivation the refine/upgrade bars use. The
+                     TimedProcess, the SAME derivation the refine/upgrade bars use. The
                      project names the blueprint it is unlocking (effect.key -> label). -->
                 {#if activeResearchProjects.length > 0}
                   <div class="research-cost" style="margin-top: 10px;">In progress:</div>
@@ -3908,7 +3908,7 @@
             {/if}
 
             {#if activeResearchSubTab === "research"}
-              <!-- RESEARCH LIST -- blueprints grouped by TIER (ascending). Each card
+              <!-- RESEARCH LIST, blueprints grouped by TIER (ascending). Each card
                    shows the blueprint's future-Fabricator RECIPE (inputs → outputQty×
                    output, ITEM labels) + its cost/time, then ONE of three states:
                      - Researched (blueprintUnlocked): ✓ + "craftable once the Fabricator
@@ -3916,7 +3916,7 @@
                      - Researchable (canResearch ok): an enabled Research button →
                        doStartResearch(key).
                      - Blocked (canResearch !ok): a DISABLED button whose text/title is
-                       the human reason (researchBlockText) -- tierLocked names the
+                       the human reason (researchBlockText), tierLocked names the
                        required lab level, so higher-tier blueprints read "Requires
                        Research Lab level N". -->
               <Panel>
@@ -3947,7 +3947,7 @@
                       <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                       {#if unlocked}
-                        <div class="research-cost" style="color: var(--color-success)">✓ Researched -- craftable once the Fabricator is online</div>
+                        <div class="research-cost" style="color: var(--color-success)">✓ Researched, craftable once the Fabricator is online</div>
                       {:else if job}
                         {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                         <div class="research-bar-track">
@@ -3970,17 +3970,17 @@
             {/if}
 
             {#if activeResearchSubTab === "upgrades"}
-              <!-- UPGRADES -- the Research Lab's finite tier/slot track
+              <!-- UPGRADES, the Research Lab's finite tier/slot track
                    (FACILITIES.research.upgrades[level]; caps at length 2 today). Each
                    next rung grants a research slot AND unlocks the next blueprint tier.
                    Cost is CREDITS (the design's long-term sink), not materials, so the
                    credits gate leads the readiness rows; materials loop is kept (empty
                    today) to mirror the sibling upgrade tabs for future rungs. Build is
                    wired to the SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade
-                   -- NOT re-implemented. In-flight progress reuses the refine/upgrade
+                  , NOT re-implemented. In-flight progress reuses the refine/upgrade
                    bar idiom. -->
               <Panel>
-                <div class="panel-title">RESEARCH LAB -- Upgrades</div>
+                <div class="panel-title">RESEARCH LAB, Upgrades</div>
                 <div class="research-cost">Level: {researchLevel}</div>
 
                 {#if researchMaxed}
@@ -4006,7 +4006,7 @@
                     </div>
                   {/if}
 
-                  <!-- Material readiness ([Item]: have / need, ✅/❌) -- empty for the
+                  <!-- Material readiness ([Item]: have / need, ✅/❌), empty for the
                        research track today, kept for parity with the sibling tabs. -->
                   {#each Object.keys(nextResearchUpgrade.materials) as itemId}
                     {@const need = nextResearchUpgrade.materials[itemId]}
@@ -4048,7 +4048,7 @@
               </Panel>
             {/if}
           {:else if activeFacility === "fabricator"}
-            <!-- FABRICATOR (Fabricator Task F4; Craft tab reworked in Task C4) -- the
+            <!-- FABRICATOR (Fabricator Task F4; Craft tab reworked in Task C4), the
                  component-crafting facility. It CONSUMES the researched blueprints from the
                  Research Lab: three sub-tabs mirroring the Research Lab's STRUCTURE (Overview /
                  Craft / Upgrades). Overview = slots in use + in-flight craft jobs (progress bar
@@ -4073,7 +4073,7 @@
             />
 
             {#if activeFabricatorSubTab === "overview"}
-              <!-- OVERVIEW -- fabricator level, craft-slot usage, any in-flight craft
+              <!-- OVERVIEW, fabricator level, craft-slot usage, any in-flight craft
                    jobs (progress bar + real time remaining, the SAME idiom the refine/
                    research jobs use), the fabricable-vs-researched count, and the forward
                    SIGNPOST that components become usable with the Shipyard. -->
@@ -4083,9 +4083,9 @@
                 <div class="research-cost">Craft slots: {activeFabricateJobs.length} / {fabricateSlots} in use</div>
                 <div class="research-cost">Blueprints fabricable: {fabricableBlueprintCount} / {researchedBlueprintCount} researched</div>
 
-                <!-- In-flight fabricate jobs -- one progress card each. progress is how
+                <!-- In-flight fabricate jobs, one progress card each. progress is how
                      much of the duration has elapsed (durationTicks - remainingTicks over
-                     durationTicks), read straight off the fabricateJob TimedProcess -- the
+                     durationTicks), read straight off the fabricateJob TimedProcess, the
                      SAME derivation the refine/research bars use. The job names the
                      component it is crafting (effect.itemId -> label). -->
                 {#if activeFabricateJobs.length > 0}
@@ -4115,7 +4115,7 @@
             {/if}
 
             {#if activeFabricatorSubTab === "craft"}
-              <!-- CRAFT (Crafting Allocation Redesign, Task C4) -- the Fabricator's per-slot
+              <!-- CRAFT (Crafting Allocation Redesign, Task C4), the Fabricator's per-slot
                    PRODUCTION LINES view, the DIRECT mirror of the Refinery's Production tab:
                    active fabricate lines (state.fabricateLines) render first (card + Cancel +
                    recipe + progress + tick readout), then idle slots render the tier→item→
@@ -4160,7 +4160,7 @@
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
                       <div class="research-readout">
-                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued -- starts next tick{/if}
+                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
                       </div>
                     </div>
                   {/each}
@@ -4238,7 +4238,7 @@
                         </div>
                       {:else}
                         <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("fabricate", slotIndex)}>
-                          Line {slotIndex + 1} · idle -- configure a craft
+                          Line {slotIndex + 1} · idle, configure a craft
                         </button>
                       {/if}
                     {/each}
@@ -4248,19 +4248,19 @@
             {/if}
 
             {#if activeFabricatorSubTab === "upgrades"}
-              <!-- UPGRADES -- the Fabricator's finite tier/slot track
+              <!-- UPGRADES, the Fabricator's finite tier/slot track
                    (FACILITIES.fabricator.upgrades[level]; caps at length 2 today). Each
                    next rung grants a craft slot AND unlocks the next blueprint tier for
                    fabrication. Cost is CREDITS (materials are the per-craft cost, not the
                    upgrade cost), so the credits gate leads; the materials loop is kept
                    (empty today) to mirror the sibling upgrade tabs. Build is wired to the
-                   SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade -- NOT
+                   SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade, NOT
                    re-implemented. A LINE-FOR-LINE clone of the Research Lab's Upgrades
                    tab, swapping research→fabricator vars + addResearchSlots→
                    addFabricateSlots. In-flight progress reuses the refine/research bar
                    idiom. -->
               <Panel>
-                <div class="panel-title">FABRICATOR -- Upgrades</div>
+                <div class="panel-title">FABRICATOR, Upgrades</div>
                 <div class="research-cost">Level: {fabricatorLevel}</div>
 
                 {#if fabricatorMaxed}
@@ -4286,7 +4286,7 @@
                     </div>
                   {/if}
 
-                  <!-- Material readiness ([Item]: have / need, ✅/❌) -- empty for the
+                  <!-- Material readiness ([Item]: have / need, ✅/❌), empty for the
                        fabricator track today, kept for parity with the sibling tabs. -->
                   {#each Object.keys(nextFabricatorUpgrade.materials) as itemId}
                     {@const need = nextFabricatorUpgrade.materials[itemId]}
@@ -4328,7 +4328,7 @@
               </Panel>
             {/if}
           {:else if activeFacility === "shipyard"}
-            <!-- SHIPYARD (Phase 5, Task S5 UI) -- the hull-BUILD facility. It CONSUMES the
+            <!-- SHIPYARD (Phase 5, Task S5 UI), the hull-BUILD facility. It CONSUMES the
                  components the Fabricator crafts + credits to build a ship over time, then
                  parks the finished hull in the fleet. Two sub-tabs mirroring the sibling
                  facilities' STRUCTURE: Build (the founded-vs-unfounded build surface) and
@@ -4338,7 +4338,7 @@
                  (SHIP_TYPES / ITEMS / FACILITIES.shipyard), so the UI can't drift from what
                  the backend enforces. Reuses the research/fabricate progress-bar idiom + the
                  .mission-card / .buy-btn / .research-* classes (no new markup style). NOTE:
-                 the Shipyard only BUILDS -- assigning a hull to a captain stays at the Docks
+                 the Shipyard only BUILDS, assigning a hull to a captain stays at the Docks
                  (Sector Space > Starbase), which is SEPARATE and unchanged. -->
             <SubTabs
               tabs={[
@@ -4351,13 +4351,13 @@
 
             {#if activeShipyardSubTab === "build"}
               <Panel>
-                <div class="panel-title">SHIPYARD -- Build</div>
+                <div class="panel-title">SHIPYARD, Build</div>
 
                 {#if !shipyardFounded}
                   <!-- UNFOUNDED (level 0): the "establish the Shipyard" prompt. The founding
                        rung IS upgrades[0] (level 0->1), so the Found button wires to the
                        SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade seams exactly
-                       like every other facility's founding rung -- NOT a bespoke path. Shows
+                       like every other facility's founding rung, NOT a bespoke path. Shows
                        the credit cost + FA-level wall + (when a founding is already running)
                        the in-flight progress bar. nextShipyardUpgrade is the founding rung
                        here (shipyardMaxed can't be true at level 0 given the 3-rung track). -->
@@ -4398,7 +4398,7 @@
                   {/if}
                 {:else}
                   <!-- FOUNDED (level >= 1): the build surface. An in-flight ship BUILD (if any)
-                       renders as a committed progress card at the TOP -- NO cancel (a build is
+                       renders as a committed progress card at the TOP, NO cancel (a build is
                        committed once started; its BOM + credits are already spent). Then one
                        card per SHIP_TYPES hull: label + stat line + a REQUIRES box (each BOM
                        component as "{need}× [Item]" with its reservation-aware FREE stock, red
@@ -4430,7 +4430,7 @@
                       <div class="research-cost">{def.cargoCapacity} cargo · {def.spec}</div>
 
                       <!-- REQUIRES box: each BOM component + its reservation-aware FREE stock
-                           (freeItemForState -- inventory minus what craft lines reserve, the
+                           (freeItemForState, inventory minus what craft lines reserve, the
                            SAME pool canBuildShip's materials gate reads). Red when free < need. -->
                       <div class="research-cost" style="margin-top: 6px;">REQUIRES</div>
                       {#each Object.keys(recipe.components) as itemId}
@@ -4468,16 +4468,16 @@
             {/if}
 
             {#if activeShipyardSubTab === "upgrades"}
-              <!-- UPGRADES -- the Shipyard's finite founding + build-SPEED track
+              <!-- UPGRADES, the Shipyard's finite founding + build-SPEED track
                    (FACILITIES.shipyard.upgrades; founding rung [0] + two buildSpeedMult
                    rungs). A LINE-FOR-LINE clone of the Fabricator's Upgrades tab, swapping
                    fabricator→shipyard vars + the grant line (addFabricateSlots →
                    buildSpeedMult). Build is wired to the SHARED canBuildFacilityUpgrade /
-                   doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY) -- NOT re-implemented. This
+                   doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY), NOT re-implemented. This
                    is the SAME founding rung the Build tab's Found button drives, so founding
                    from either place is one code path. -->
               <Panel>
-                <div class="panel-title">SHIPYARD -- Upgrades</div>
+                <div class="panel-title">SHIPYARD, Upgrades</div>
                 <div class="research-cost">Level: {shipyardLevel}</div>
 
                 {#if shipyardMaxed}
@@ -4502,7 +4502,7 @@
                     </div>
                   {/if}
 
-                  <!-- Material readiness -- empty for the shipyard track today, kept for
+                  <!-- Material readiness, empty for the shipyard track today, kept for
                        parity with the sibling upgrade tabs. -->
                   {#each Object.keys(nextShipyardUpgrade.materials) as itemId}
                     {@const need = nextShipyardUpgrade.materials[itemId]}
@@ -4576,12 +4576,12 @@
                                    met. These EXIST today: captains 2/3/4, backed
                                    by HOMEWORLD_TALENTS fleetLogisticsSlot1/2/3.
                  - "Coming Soon" = a roadmap slot past captain 4 (slots 5-10) with
-                                   NO unlock path built yet -- only 3 slot-unlock
+                                   NO unlock path built yet, only 3 slot-unlock
                                    nodes exist; see KNOWN_ISSUES.md (Task 6).
                The captain number a slot represents is (owned count + j + 1); it's
                unlockable when that number is within MAX_UNLOCKABLE_CAPTAINS (the
                live 1+3=4 ceiling derived in model.ts, so this split shifts
-               automatically the day a fleetLogisticsSlot4 node lands -- no edit
+               automatically the day a fleetLogisticsSlot4 node lands, no edit
                here needed). Array.from({length: N}) is used (not a bare
                {length: N} object) since Svelte's {#each} needs a real iterable,
                not just an array-like object. -->
@@ -4591,8 +4591,8 @@
             <div
               class="captain-list-item locked"
               title={isUnlockable
-                ? "Locked -- recruit via Homeworld Talents → Fleet Logistics"
-                : "Coming soon -- not yet unlockable"}
+                ? "Locked, recruit via Homeworld Talents → Fleet Logistics"
+                : "Coming soon, not yet unlockable"}
             >
               {#if isUnlockable}🔒 Locked{:else}🔒 Coming Soon!{/if}
             </div>
@@ -4603,17 +4603,17 @@
           {#if activeFleetCaptainSubTab === "overview"}
             <!-- Captain Leveling (Task 8, Phase 4; relocated into the Fleet
                  Captain's tab's Overview sub-tab during the UI Redesign,
-                 Task 8 -- see docs/plans/2026-07-07-ui-redesign-plan.md) --
+                 Task 8, see docs/plans/2026-07-07-ui-redesign-plan.md) --
                  per-captain-scoped (reads activeCaptain, not the whole
                  fleet), replacing the spot Captain Prestige used to occupy.
                  The old Unlock section here (spending a captain's own
                  level/statPoints/Components to add a new captain slot) was
                  removed in Task 4 of
                  docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md
-                 -- captain slot growth is now purchased fleet-wide through
+                , captain slot growth is now purchased fleet-wide through
                  the Homeworld Talents panel's Fleet Logistics branch
                  instead. The "Currently: Idle" / "Currently on: ..." line
-                 below is new in the UI Redesign -- the MISSIONS panel itself
+                 below is new in the UI Redesign, the MISSIONS panel itself
                  (dispatch/recall UI) does NOT live here; it moved to the
                  Fleet Operations tab (Task 9) instead. -->
             <Panel>
@@ -4636,36 +4636,36 @@
           {:else if activeFleetCaptainSubTab === "talents"}
             <!-- Captain Talents (Task 6, Captain & Homeworld Talent Trees;
                  relocated into the Fleet Captain's tab's Talents sub-tab
-                 during the UI Redesign, Task 8) -- per-captain-scoped, like
+                 during the UI Redesign, Task 8), per-captain-scoped, like
                  Captain Leveling above (reads activeCaptain, not the whole
-                 fleet) -- spends THIS captain's own statPoints, records the
+                 fleet), spends THIS captain's own statPoints, records the
                  unlock on THIS captain only
                  (activeCaptain.unlockedCaptainTalents), never touches any
                  other captain's state. Iterates the FIXED 5-branch list, not
-                 Object.keys(CAPTAIN_TALENTS) -- so Tactical/Science/Diplomacy
+                 Object.keys(CAPTAIN_TALENTS), so Tactical/Science/Diplomacy
                  (currently zero entries, see model.ts) still render as
                  labeled, empty columns rather than not appearing at all. -->
             <Panel>
-              <div class="panel-title">CAPTAIN TALENTS -- {activeCaptain.label}</div>
+              <div class="panel-title">CAPTAIN TALENTS, {activeCaptain.label}</div>
               <div class="research-cost">
                 Spec: {activeCaptain.spec === null
                   ? "None chosen"
                   : (SPEC_DISPLAY_NAME[activeCaptain.spec] ?? activeCaptain.spec)}
               </div>
-              <!-- Radial Skill Web (Task 14) -- spec-gated captain Talents view.
+              <!-- Radial Skill Web (Task 14), spec-gated captain Talents view.
                    FIRST PICK IS FREE, CHANGING IT COSTS A RESPEC (confirmed
                    design decision):
                    - spec === null: the captain has not chosen a specialization
                      yet. Show the TreeSelector card-picker; committing a card
                      calls chooseSpec(key), which sets the spec for FREE (no
-                     cost, no point change -- chooseCaptainSpec only succeeds
+                     cost, no point change, chooseCaptainSpec only succeeds
                      from null). There is no Reset here: there's nothing to
                      reset until a spec exists.
                    - spec !== null: show THAT spec's RadialWeb (branch =
                      activeCaptain.spec, no longer hardcoded to
                      "resourcefulness"). To CHANGE the spec, the player uses
                      Reset, which respecs to null (refund points, charge 50
-                     credits) -- clearing the spec so the TreeSelector reappears
+                     credits), clearing the spec so the TreeSelector reappears
                      and a new spec can be picked free. So "changing spec" costs
                      exactly one respec, never chooseCaptainSpec.
                    `owned`/`points` are THIS captain's own unlockedCaptainTalents
@@ -4683,7 +4683,7 @@
                 />
               {:else}
                 <!-- Reset (Task 13, Talent Tree Visual Redesign; Task 14 repurposed
-                     it to CLEAR the spec) -- per-captain, scoped to activeCaptain,
+                     it to CLEAR the spec), per-captain, scoped to activeCaptain,
                      wraps respecCaptainTalents(..., null) via
                      doRespecCaptainTalents/the confirmation modal near DELETE
                      SAVE further down this file. Only shown once a spec is
@@ -4704,7 +4704,7 @@
                      selector above); the non-null assertion satisfies svelte-check/tsc, which does
                      not narrow a member expression across the conditional. RadialWeb's branch prop
                      is a string, so a nullable spec would otherwise be rejected. NOTE: keep Svelte
-                     block tokens (hash-if / colon-else / slash-if) OUT of this comment -- they break
+                     block tokens (hash-if / colon-else / slash-if) OUT of this comment, they break
                      the parser even inside an HTML comment. -->
                 <RadialWeb
                   table={CAPTAIN_TALENTS}
@@ -4732,10 +4732,10 @@
            .fleet-captains-layout/.captain-list/.captain-list-item's visual
            language directly above under the "fleetCaptains" tab. Only
            "resourceGathering" has real content today (Patrol/Surveying/
-           Long-Term Exploration are locked placeholders -- see
+           Long-Term Exploration are locked placeholders, see
            activeMissionCategory's declaration comment above). Within
            Resource-Gathering, only Tier I is real (both shortOreRun and
-           longOreRun -- see model.ts's MissionDef.tier field); Tiers II-V are
+           longOreRun, see model.ts's MissionDef.tier field); Tiers II-V are
            locked SubTabs entries. Dispatch no longer happens inline here --
            clicking an available mission card calls openMissionPopup, which
            sets missionPopupKey/missionPopupCaptainId (declared near
@@ -4752,13 +4752,13 @@
           >
             Resource-Gathering
           </button>
-          <div class="mission-category-item locked" title="Coming soon -- combat isn't built yet">
+          <div class="mission-category-item locked" title="Coming soon, combat isn't built yet">
             🔒 Patrol Missions
           </div>
-          <div class="mission-category-item locked" title="Coming soon -- not yet available">
+          <div class="mission-category-item locked" title="Coming soon, not yet available">
             🔒 Surveying
           </div>
-          <div class="mission-category-item locked" title="Coming soon -- not yet available">
+          <div class="mission-category-item locked" title="Coming soon, not yet available">
             🔒 Long-Term Exploration
           </div>
         </div>
@@ -4780,7 +4780,7 @@
             {#if activeMissionTier === "tierI"}
               <!-- tierIMissions/embarked mirror the OLD block's per-mission
                    embarked filter above, just scoped to Tier I's mission set
-                   instead of iterating ALL of MISSIONS -- the embarked-
+                   instead of iterating ALL of MISSIONS, the embarked-
                    captains display below (progress bar, phase label,
                    cargo-so-far, Recall button) is otherwise byte-identical to
                    what this replaced, only its position in the markup moved. -->
@@ -4796,7 +4796,7 @@
                   {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
                   {@const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks))}
                   <div class="mission-card">
-                    <div class="research-name">{captain.label} -- {missionDef.label}</div>
+                    <div class="research-name">{captain.label}, {missionDef.label}</div>
                     <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
                     <div class="research-bar-track">
                       <div class="research-bar-fill" style="width:{progress * 100}%"></div>
@@ -4807,7 +4807,7 @@
                       {formatNumber(mission.cargo.rareMaterial)} rare
                     </div>
                     {#if mission.recalled}
-                      <p class="prestige-text mission-recalled-text">Recall ordered -- returning to base once the current cycle's unloading completes.</p>
+                      <p class="prestige-text mission-recalled-text">Recall ordered, returning to base once the current cycle's unloading completes.</p>
                     {:else}
                       <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
                     {/if}
@@ -4822,7 +4822,7 @@
                        dispatch REQUIREMENTS (captain level / cargo, where the mission
                        declares them) + its round-trip FUEL cost, and LOCKED missions
                        (unlockLevel above the Mission Control level) render dimmed with
-                       an unlock hint instead of an openable button -- matching the
+                       an unlock hint instead of an openable button, matching the
                        game's consistent "show locked content" idiom (locked captain
                        slots, locked facilities, Battlespace). The player sees what's
                        coming AND what it will require. missionUnlocked is the SAME gate
@@ -4837,7 +4837,7 @@
                   <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
                        lootTable, so a hardcoded ore label would misreport Salvage/
                        Forage/Lunar Mine). Read the real common/uncommon/rare item keys
-                       here and label them via ITEMS -- Local Asteroid still shows
+                       here and label them via ITEMS, Local Asteroid still shows
                        Titanium/Polysilicate/Iridium, but the others show their own
                        triads. Same `?.label ?? key` fallback the rest of the file uses. -->
                   {@const loot = missionDef.lootTable}
@@ -4858,7 +4858,7 @@
                                representative captain (state.captains[0], always seeded) since the
                                rate is captain-independent today; when the XP-mult seam activates
                                this card should switch to the popup's selected captain.
-                               Value/formula UNCHANGED by the redesign -- only its position moved
+                               Value/formula UNCHANGED by the redesign, only its position moved
                                from a body text row to this header sub-line. -->
                           <div class="mission-xp-line">{xpPerTick(missionKey, state.captains[0])}/tick XP</div>
                         </div>
@@ -4868,13 +4868,13 @@
                       <div class="mission-card-columns">
                         <div class="mission-card-col">
                           <div class="mission-col-label">Mission Requirements:</div>
-                          <!-- Level gate (Task 7 requiresCaptainLevel) -- defaults to 1,
+                          <!-- Level gate (Task 7 requiresCaptainLevel), defaults to 1,
                                the baseline captain level, when the mission declares none. -->
                           <div class="mission-req-line">Level: {missionDef.requiresCaptainLevel ?? 1}</div>
-                          <!-- Cargo gate (Task 7 requiresCargoCapacity) -- "--" = the mission
+                          <!-- Cargo gate (Task 7 requiresCargoCapacity), "--" = the mission
                                has no cargo-capacity requirement (ore runs omit it). -->
                           <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "--"}</div>
-                          <!-- Round-trip FUEL cost (Task 8) -- 0 for the free local run;
+                          <!-- Round-trip FUEL cost (Task 8), 0 for the free local run;
                                "--" only if the representative captain somehow has no hull
                                (never in production). Same figure/formula as before, just
                                relabeled "Fuel Capacity" and moved into this column. -->
@@ -4882,7 +4882,7 @@
                         </div>
                         <div class="mission-card-col">
                           <div class="mission-col-label">Rewards</div>
-                          <!-- Drops icon row (2026-07-15) -- REPLACES the old three per-tier
+                          <!-- Drops icon row (2026-07-15), REPLACES the old three per-tier
                                text lines. One rarity-colored icon per tier that actually
                                drops (missionDropTiers filters out uncommon/rare when their
                                chance is 0, so Local Deuterium Skim shows a single icon).
@@ -4899,12 +4899,12 @@
                             {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
                               {@const dropItem = ITEMS[drop.key]}
                               {#if dropItem}
-                                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -- INTENTIONAL: this icon is a span, not a button, because it lives inside the card's own button (a button may not nest a button) and stopPropagation keeps a tap from opening the popup. Keyboard/AT users get the SAME drops as real, focusable buttons in the dispatch popup, so no interaction is lost. -->
+                                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions, INTENTIONAL: this icon is a span, not a button, because it lives inside the card's own button (a button may not nest a button) and stopPropagation keeps a tap from opening the popup. Keyboard/AT users get the SAME drops as real, focusable buttons in the dispatch popup, so no interaction is lost. -->
                                 <span
                                   class="drop-icon"
                                   role="img"
                                   style="--drop-rc: {warehouseRarityColor(dropItem.rarity)};"
-                                  aria-label="{dropItem.label} -- {drop.chancePct.toFixed(1)}% drop chance"
+                                  aria-label="{dropItem.label}, {drop.chancePct.toFixed(1)}% drop chance"
                                   on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
                                   on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
                                   on:click|stopPropagation={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
@@ -4916,13 +4916,13 @@
                       </div>
                     </button>
                   {:else}
-                    <!-- LOCKED mission -- non-openable, dimmed, with the unlock hint +
+                    <!-- LOCKED mission, non-openable, dimmed, with the unlock hint +
                          a requirements preview so the player can plan toward it. -->
                     <div class="mission-card mission-card-locked" title="Unlock via Mission Control (Facilities)">
                       <div class="mission-portrait-frame" aria-hidden="true">🔒</div>
                       <div class="mission-card-body">
                         <div class="research-name">🔒 {missionDef.label}</div>
-                        <div class="research-cost">Locked -- unlock via Mission Control (Facilities tab)</div>
+                        <div class="research-cost">Locked, unlock via Mission Control (Facilities tab)</div>
                         {#if missionDef.requiresCaptainLevel !== undefined}
                           <div class="research-cost">Will require captain level {missionDef.requiresCaptainLevel}</div>
                         {/if}
@@ -4948,42 +4948,42 @@
         <div class="panel-title">BATTLESPACE</div>
         <p class="prestige-text">PvP and PvE fleet operations will live here.</p>
         <!-- Expanded from a single generic "Coming Soon" line to 4 named
-             locked options (mid-plan extra task, 2026-07-07) -- reuses
+             locked options (mid-plan extra task, 2026-07-07), reuses
              .captain-list-item.locked as-is (same class/markup as the locked
              captain slots under Fleet Captain's, above) rather than
              introducing .mission-category-item, since that class belongs to
              the separate, still-in-flight Fleet Operations mission-category
              rebuild and doesn't exist in this file yet. .captain-list-item
-             has no standalone stacking/gap behavior of its own -- it normally
+             has no standalone stacking/gap behavior of its own, it normally
              relies on its usual parent .captain-list (display:flex;
-             flex-direction:column; gap:2px) for that -- so .battlespace-
+             flex-direction:column; gap:2px) for that, so .battlespace-
              locked-list below reproduces just that same flex/gap pairing
              as a tiny scoped class, without duplicating any of
              .captain-list-item's own visual rules. -->
         <div class="battlespace-locked-list">
-          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Fleet Skirmishes</div>
-          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Campaign</div>
-          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Fleet Exercises</div>
-          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Invasion</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Fleet Skirmishes</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Campaign</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Fleet Exercises</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Invasion</div>
         </div>
       </Panel>
       </div>
       {/if}
 
       {#if activeTab === "system"}
-      <!-- System (settings rail -- UI consistency pass) -- deliberately
+      <!-- System (settings rail, UI consistency pass), deliberately
            MIRRORS the Facilities / Homeworld tabs: a LEFT rail of system
            settings views (.captain-list / .captain-list-item, reused verbatim,
            NOT a new class) + a right content pane for the selected view.
            Replaces the previous top <SubTabs> bar; selection is STILL tracked
            by activeSystemSubTab (options / log / debug / about / patchNotes),
-           so the five content blocks below are byte-for-byte unchanged -- only
+           so the five content blocks below are byte-for-byte unchanged, only
            the navigation chrome around them changed. The Debug rail button is
            DEV_MODE-gated exactly as the old SubTabs array conditionally
            included it, matching the debug content block's own DEV_MODE guard.
            The two locked "Coming Soon" rail items use the exact
            .captain-list-item.locked idiom Facilities' / Homeworld's locked
-           slots use (neutral label -- no future view named by the user yet). -->
+           slots use (neutral label, no future view named by the user yet). -->
       <div class="tab-scroll-area">
       <div class="fleet-captains-layout">
         <div class="captain-list">
@@ -5001,7 +5001,7 @@
           >
             Log
           </button>
-          <!-- Debug rail button is dev-only -- wraps this SINGLE button in
+          <!-- Debug rail button is dev-only, wraps this SINGLE button in
                {#if DEV_MODE}, mirroring how the retired SubTabs array included
                the debug key only via ...(DEV_MODE ? [...] : []). Kept in the
                same visual order (after Log, before About) it had there, and
@@ -5030,12 +5030,12 @@
           >
             Patch Notes
           </button>
-          <!-- Locked views -- no content behind them yet (same honest
+          <!-- Locked views, no content behind them yet (same honest
                "future signal" role as Facilities' / Homeworld's locked slots).
                Plain inert non-button divs; the title attr is the "Coming soon"
                affordance. -->
-          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Coming Soon</div>
-          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Coming Soon</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Coming Soon</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Coming Soon</div>
         </div>
 
         <div class="fleet-captains-content">
@@ -5107,9 +5107,9 @@
           <button class="dev-btn" on:click={doExportSave}>Export Save</button>
           <!-- Label-wrapping-hidden-input is the standard way to skin a file
                input as a regular button (native file inputs can't be styled
-               directly) -- clicking the visible "Import Save" text triggers
+               directly), clicking the visible "Import Save" text triggers
                the hidden input beneath it. Reuses .dev-btn as-is (no new CSS
-               needed -- a <label> displays/cursors sensibly here the same as
+               needed, a <label> displays/cursors sensibly here the same as
                the <button> siblings either side of it). -->
           <label class="dev-btn">
             Import Save
@@ -5196,7 +5196,7 @@
         <div class="log-list">
           {#each PATCH_NOTES as note}
             <div class="log-entry">
-              <strong>{note.version}</strong> -- {note.summary}
+              <strong>{note.version}</strong>: {note.summary}
             </div>
           {/each}
         </div>
@@ -5220,7 +5220,7 @@
 
   {#if missionPopupKey !== null}
     <!-- Captain-selection popup (2026-07-07 Fleet Operations Mission UI,
-         Task 5) -- consumes missionPopupKey/missionPopupCaptainId (state) and
+         Task 5), consumes missionPopupKey/missionPopupCaptainId (state) and
          openMissionPopup/closeMissionPopup/doDispatchFromPopup (handlers),
          all declared/implemented earlier in this file (Task 3). Reuses the
          exact .modal-backdrop/Panel.modal-dialog pattern the DELETE SAVE
@@ -5234,7 +5234,7 @@
          replacing the old single-mult/weighted-lootTable shape) is
          hand-traced against tick.ts's own rollExtractionTick to use the
          IDENTICAL formula shape (same Math.min(1, missionDef.X * (1 + mult))
-         clamp, same which-mult-affects-which-tier mapping) -- so the numbers
+         clamp, same which-mult-affects-which-tier mapping), so the numbers
          shown here are never misleading about what the real dispatched
          mission will actually do. -->
     {@const missionDef = MISSIONS[missionPopupKey]}
@@ -5261,7 +5261,7 @@
                clamp on each tier's occurrence chance, so the drops icon row's
                tooltip shows the captain-EFFECTIVE chance the dispatched mission
                will really roll. (The old per-tier YIELD-mult consts --
-               commonYieldMult/uncommonYieldMult/rareYieldMult -- were dropped with
+               commonYieldMult/uncommonYieldMult/rareYieldMult, were dropped with
                the per-tick text rows the drops icon row replaced, 2026-07-15: the
                icon tooltip reports drop CHANCE + stored qty, not a per-tick yield,
                so those mults are no longer displayed anywhere here.) -->
@@ -5278,7 +5278,7 @@
           {@const bonusRollChanceMult = captainBonusRollChanceMult(selectedCaptain)}
           {@const effectiveBonusRollChance = Math.min(1, bonusRollChance * (1 + bonusRollChanceMult))}
           <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
-               lootTable) -- read the real item keys so the popup reports each
+               lootTable), read the real item keys so the popup reports each
                mission's own drops (Titanium/Cobalt/Osmium for Lunar Mine, Scrap
                Alloy/Salvaged Circuitry/Intact Reactor Core for Salvage, etc.), not
                the hardcoded ore labels. -->
@@ -5287,13 +5287,13 @@
           <div class="research-name">Captain: {selectedCaptain.label}</div>
 
           <div class="panel-title">DROP RATES</div>
-          <!-- Drops icon row (2026-07-15) -- REPLACES the three per-tier text lines.
+          <!-- Drops icon row (2026-07-15), REPLACES the three per-tier text lines.
                Same shared builder + tooltip as the AVAILABLE-MISSIONS card, but fed
                this captain's EFFECTIVE chances (effectiveUncommonChance /
-               effectiveRareChance -- the captain-modified, clamped values the popup
+               effectiveRareChance, the captain-modified, clamped values the popup
                already computed), so each icon's tooltip drop-chance matches what the
                dispatched mission will really roll. These are real <button>s (the
-               popup is a Panel, not a button, so nesting is fine) -- fully
+               popup is a Panel, not a button, so nesting is fine), fully
                keyboard-focusable, driving the SAME Warehouse-style tooltip. -->
           <div class="drops-row">
             <span class="drops-label">Drops:</span>
@@ -5304,7 +5304,7 @@
                   type="button"
                   class="drop-icon"
                   style="--drop-rc: {warehouseRarityColor(dropItem.rarity)};"
-                  aria-label="{dropItem.label} -- {drop.chancePct.toFixed(1)}% drop chance"
+                  aria-label="{dropItem.label}, {drop.chancePct.toFixed(1)}% drop chance"
                   on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
                   on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
                   on:focus={(e) => focusShowWarehouseTooltip(e, drop.key, drop.chancePct)}
@@ -5363,7 +5363,7 @@
   {/if}
 
   {#if assignPickerShipId !== null}
-    <!-- ASSIGN picker (Ships -- Stats Foundation, Task 11 UI) -- opened by a
+    <!-- ASSIGN picker (Ships, Stats Foundation, Task 11 UI), opened by a
          PARKED ship's "Assign ▾". Lists IDLE captains (mission === null);
          picking one calls doAssignShip(captainId, thisParkedShipId), which
          assigns this hull to that captain (their old hull auto-parks). Reuses
@@ -5377,10 +5377,10 @@
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
-        <div class="panel-title">ASSIGN HULL{pickerShip ? ` -- ${SHIP_TYPES[pickerShip.typeKey].label.toUpperCase()}` : ""}</div>
+        <div class="panel-title">ASSIGN HULL{pickerShip ? `, ${SHIP_TYPES[pickerShip.typeKey].label.toUpperCase()}` : ""}</div>
         <p class="modal-instruction">Assign this hull to a captain. Their current ship parks.</p>
         {#if idleCaptains.length === 0}
-          <p class="prestige-text">No idle captains available -- recall one first.</p>
+          <p class="prestige-text">No idle captains available, recall one first.</p>
         {:else}
           <div class="modal-captain-list">
             {#each idleCaptains as captain (captain.id)}
@@ -5401,12 +5401,12 @@
   {/if}
 
   {#if swapPickerCaptainId !== null}
-    <!-- SWAP picker (Ships -- Stats Foundation, Task 11 UI) -- opened by an
+    <!-- SWAP picker (Ships, Stats Foundation, Task 11 UI), opened by an
          ASSIGNED ship's "Swap ▾" when that ship's captain is IDLE. Because
          assignShipToCaptain can NEVER move a hull directly between two captains
          (its in-use guard rejects a target ship that's already assigned
          elsewhere), the only valid "change this captain's hull" is to give them
-         a PARKED ship -- so this picker lists PARKED SHIPS, not captains.
+         a PARKED ship, so this picker lists PARKED SHIPS, not captains.
          Picking parked ship P calls doAssignShip(thisCaptainId, P.id): the
          captain's current hull parks and P becomes assigned. Same modal idiom as
          the Assign picker above, just listing ships. -->
@@ -5414,10 +5414,10 @@
     {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
-        <div class="panel-title">SWAP HULL{swapCaptain ? ` -- ${swapCaptain.label.toUpperCase()}` : ""}</div>
+        <div class="panel-title">SWAP HULL{swapCaptain ? `, ${swapCaptain.label.toUpperCase()}` : ""}</div>
         <p class="modal-instruction">Choose a parked ship for this captain. Their current hull parks.</p>
         {#if parkedShips.length === 0}
-          <p class="prestige-text">No parked ships available -- buy or free one first.</p>
+          <p class="prestige-text">No parked ships available, buy or free one first.</p>
         {:else}
           <div class="modal-captain-list">
             {#each parkedShips as ship (ship.id)}
@@ -5436,7 +5436,7 @@
     </div>
   {/if}
 
-  <!-- Radial Skill Web (Task 11b) -- the shared talent-tooltip overlay that
+  <!-- Radial Skill Web (Task 11b), the shared talent-tooltip overlay that
        lived here (the old activeTooltipInfo / .tooltip-backdrop / .talent-tooltip
        block, driven by the now-removed openTooltipKey/talentTooltipInfo) was
        deleted. RadialWeb.svelte renders its OWN tooltip + Learn button internally
@@ -5460,7 +5460,7 @@
   {/if}
 
   {#if refineConfirmModalOpen}
-    <!-- Start-a-craft confirmation modal (Crafting Allocation Redesign, Task C4 -- reuses the
+    <!-- Start-a-craft confirmation modal (Crafting Allocation Redesign, Task C4, reuses the
          Phase-2 refine-confirm pref + modal). Same .modal-backdrop/Panel.modal-dialog/
          .modal-warning/.modal-row structure as the DELETE SAVE modal, so all modals share one
          visual language. The "Don't show this again" checkbox disables the refineConfirm pref on
@@ -5469,7 +5469,7 @@
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
         <div class="panel-title">CONFIRM CRAFT</div>
-        <p class="modal-warning">Start this production line? Its materials will be reserved -- you can cancel the line to refund the remainder.</p>
+        <p class="modal-warning">Start this production line? Its materials will be reserved, you can cancel the line to refund the remainder.</p>
         <label class="modal-row" style="justify-content: flex-start; gap: 6px; margin-bottom: 4px;">
           <input type="checkbox" bind:checked={refineConfirmDontShowAgain} />
           Don't show this again
@@ -5484,7 +5484,7 @@
 
   {#if homeworldRespecModalOpen}
     <!-- Homeworld Talents Reset confirmation modal (Task 13, Talent Tree
-         Visual Redesign) -- reuses the SAME .modal-backdrop/Panel.modal-
+         Visual Redesign), reuses the SAME .modal-backdrop/Panel.modal-
          dialog/.modal-warning/.modal-row structure as the DELETE SAVE modal
          above (and the Import Save modal below), so all of this app's
          modals keep one visual language. No typed-confirmation-word input,
@@ -5514,7 +5514,7 @@
   {/if}
 
   {#if captainRespecModalOpen}
-    <!-- Captain Talents Reset confirmation modal -- same .modal-backdrop/
+    <!-- Captain Talents Reset confirmation modal, same .modal-backdrop/
          Panel.modal-dialog/.modal-warning/.modal-row structure as the modals
          above. Refunds this captain's spent Stat Points and charges
          RESPEC_COST_CREDITS.
@@ -5524,15 +5524,15 @@
          button only renders in the spec-chosen branch of the Captain Talents
          panel above). Confirm passes an explicit `null` as newSpec, so
          respecCaptainTalents CLEARS the spec back to null (not "keep current"
-         -- the Task 11b stub kept it; changing that to clear is exactly what
+        , the Task 11b stub kept it; changing that to clear is exactly what
          makes the TreeSelector reappear afterward, letting the player pick a
          new spec for free). So one Reset = one 50-credit respec that both
-         refunds talent points AND frees up a new free spec pick -- the
+         refunds talent points AND frees up a new free spec pick, the
          confirmed "changing an established spec costs exactly one respec"
          design. -->
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
-        <div class="panel-title">RESET CAPTAIN TALENTS -- {activeCaptain.label}</div>
+        <div class="panel-title">RESET CAPTAIN TALENTS, {activeCaptain.label}</div>
         <p class="modal-warning">
           This will clear this captain's specialization and refund every Captain Talent's Stat Points they spent,
           and cost {RESPEC_COST_CREDITS} Credits. You'll choose a new specialization afterward. This can't be undone.
@@ -5552,7 +5552,7 @@
   {/if}
 
   {#if importModalOpen}
-    <!-- Import Save confirmation modal (Task 7, Loot Tier Rework) -- reuses
+    <!-- Import Save confirmation modal (Task 7, Loot Tier Rework), reuses
          the SAME .modal-backdrop/Panel.modal-dialog/.modal-warning/.modal-row
          structure as the DELETE SAVE modal directly above (and the
          mission-selection popup further up this file), so all 3 of this
@@ -5579,7 +5579,7 @@
     </div>
   {/if}
 
-  <!-- Warehouse tile tooltip (Phase 2, Group C) -- a SINGLE fleet-positioned
+  <!-- Warehouse tile tooltip (Phase 2, Group C), a SINGLE fleet-positioned
        element (position:fixed, so it escapes the scroll container's clipping),
        the same one-tooltip pattern the currency chips use. Its content re-derives
        from live `state` each render, so the readout stays live while hovering.
@@ -5590,12 +5590,12 @@
       {@const tipId = warehouseTooltip.itemId}
       {@const tipCount = state.inventory[tipId] ?? new Decimal(0)}
       {#if warehouseTooltip.dropChancePct !== null}
-        <!-- Mission DROP ICON tooltip (2026-07-15) -- the SAME positioned element,
+        <!-- Mission DROP ICON tooltip (2026-07-15), the SAME positioned element,
              styling, and one-open model as the warehouse tile tooltip, but with the
              drop-icon content: a rarity-colored item NAME, the live STORED quantity
              (re-derived from `state.inventory` each render, so it tracks fills), the
              per-mission DROP CHANCE this icon was opened with, and the item flavor.
-             Unlike the tile tooltip it never gates on discovery -- the mission cards
+             Unlike the tile tooltip it never gates on discovery, the mission cards
              already name their loot openly, so revealing the item here spoils
              nothing. -->
         <div class="warehouse-tooltip" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
@@ -5639,7 +5639,7 @@
                  reserved by active craft lines (state.refineLines + fabricateLines via
                  the `allLines` reactive); Free = usable stock. `allocatedItem` is
                  DISPLAY-CLAMPED to <= Total here (Decimal.min) so a reserve-ahead
-                 continuous line can never render "Allocated > Total" -- the freeItem
+                 continuous line can never render "Allocated > Total", the freeItem
                  helper already clamps Free >= 0, this keeps the tooltip coherent. -->
             {@const tipAllocated = Decimal.min(allocatedItem(allLines, tipId), tipCount)}
             <div class="warehouse-tt-row">
@@ -5652,7 +5652,7 @@
             </div>
             <div class="warehouse-tt-stat">{tip.flavor}</div>
             {#if tipAtCap}
-              <div class="warehouse-tt-warn">⚠ FULL -- producers auto-stopped. Expand storage.</div>
+              <div class="warehouse-tt-warn">⚠ FULL, producers auto-stopped. Expand storage.</div>
             {/if}
           {/if}
         </div>
@@ -5673,7 +5673,7 @@
        the page never grows past the viewport and the ONE scrollable region
        (.tab-scroll-area, per active tab) still absorbs all overflow. When no
        banner is showing it renders nothing, so .app-shell hands .root the full
-       viewport height exactly as before -- behavior is unchanged in that case.
+       viewport height exactly as before, behavior is unchanged in that case.
        flex:1 + min-height:0 is the same idiom .tab-body/.tab-scroll-area already
        use, so .frame's height:100% still resolves against a definite height. */
     flex: 1 1 auto;
@@ -5686,26 +5686,26 @@
     z-index: 1;
     height: 100%; /* fills .root's fixed viewport height exactly */
     /* Was 720px (a mobile-first cap dating back to Phase 1, long logged in
-       SUGGESTIONS.md as "full-width panels" -- a deferred idea until now),
+       SUGGESTIONS.md as "full-width panels", a deferred idea until now),
        then 98%, then 100% with a max-width: 2400px pixel ceiling for
        ultrawide monitors. That pixel ceiling turned out to have the exact
-       same problem TWICE now -- a fixed px value can never scale with an
+       same problem TWICE now, a fixed px value can never scale with an
        arbitrarily large screen, so on a real ultrawide monitor wider than
        2400px the app sat in a bounded box with black space on either side,
        the very thing the ceiling was trying to prevent at a smaller scale
        (this already happened once before with an even tighter 1400px
-       value). No max-width at all now -- width: 100% already IS a
+       value). No max-width at all now, width: 100% already IS a
        percentage, so it scales correctly on any monitor by definition; a
        pixel-based ceiling on top of it can only ever fight that scaling,
        never help it. No separate mobile handling needed. margin:auto
-       dropped -- it only centers when there's leftover space outside the
+       dropped, it only centers when there's leftover space outside the
        element, and at width:100% there is none. */
     width: 100%;
     display: flex;
     flex-direction: column;
     overflow: hidden; /* only .tab-scroll-area (nested inside) actually scrolls */
     /* No horizontal padding here anymore (2026-07-07: moved to .tab-body,
-       below) -- .top-bar and .nav-tabs are direct flex children of .frame
+       below), .top-bar and .nav-tabs are direct flex children of .frame
        with no horizontal padding of their own, so with .frame's own
        horizontal inset removed they now span the full 100% width edge to
        edge (their OWN internal padding still keeps their text/buttons off
@@ -5713,13 +5713,13 @@
        the sub-tabs row and every tab's panels) keeps a small inset, so
        header and footer read as full-bleed while the panels still render
        fully inset from the edge. Top padding is still the ONLY place
-       safe-area-inset-top is handled -- .top-bar is the very first element
+       safe-area-inset-top is handled, .top-bar is the very first element
        inside .frame now (the old standalone "FLEET ADMIRAL" title Panel
        above it was retired in favor of an About sub-tab under System, per
        the user's own request), so .frame's own top edge should sit flush
        against the real viewport edge on desktop, same as .nav-tabs already
        does at the bottom (bottom padding is 0 for the same reason). No
-       extra flat px on top of the safe-area inset -- env() alone resolves
+       extra flat px on top of the safe-area inset, env() alone resolves
        to 0px on any device without a notch/status-bar, so this is flush on
        desktop and still clears real notches on devices that have one. */
     padding: env(safe-area-inset-top, 0px) 0 0;
@@ -5751,27 +5751,27 @@
   }
   .tab-body {
     /* Replaces the old .main rule (same class removed from the <main> tag in
-       the template -- <main> becomes <main class="tab-body">). This is the
+       the template, <main> becomes <main class="tab-body">). This is the
        ONE flexible region between the fixed top-bar and the fixed bottom nav
-       -- flex:1 + min-height:0 is the standard flexbox idiom that lets a flex
+      , flex:1 + min-height:0 is the standard flexbox idiom that lets a flex
        child actually SHRINK below its content's natural height (without
        min-height:0, a flex child defaults to min-height:auto, which would let
        its content push .frame taller than the viewport instead of triggering
-       the inner scrollbar -- this is the single most common way this exact
+       the inner scrollbar, this is the single most common way this exact
        kind of layout silently breaks, so don't drop it). */
     flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    padding: 10px 11px 0; /* was 14px/16px, cut ~30% per the user's request for a slightly tighter inset. top: gap below .top-bar, whether the tab's first child is a <SubTabs> row or .tab-scroll-area directly. left/right: the horizontal inset moved here from .frame (2026-07-07) -- .top-bar/.nav-tabs are flush edge-to-edge now, only the middle content column (sub-tabs + panels) stays inset, so header/footer read as full-bleed while the panels still render fully inside their own margin. */
+    padding: 10px 11px 0; /* was 14px/16px, cut ~30% per the user's request for a slightly tighter inset. top: gap below .top-bar, whether the tab's first child is a <SubTabs> row or .tab-scroll-area directly. left/right: the horizontal inset moved here from .frame (2026-07-07), .top-bar/.nav-tabs are flush edge-to-edge now, only the middle content column (sub-tabs + panels) stays inset, so header/footer read as full-bleed while the panels still render fully inside their own margin. */
   }
   .tab-scroll-area {
-    /* THE scrollable region -- every tab wraps its actual panel content in
+    /* THE scrollable region, every tab wraps its actual panel content in
        exactly one of these. Same flex:1 + min-height:0 idiom as .tab-body
        above, but this time paired with overflow-y:auto so IT (not the page)
        is what actually scrolls. Scrollbar hidden across engines (2026-07-07
-       mobile pass) -- still fully scrollable via touch/wheel/drag, just no
+       mobile pass), still fully scrollable via touch/wheel/drag, just no
        visible track/thumb cluttering the view, matching the app's general
        "no chrome you didn't ask for" feel. */
     flex: 1;
@@ -5782,10 +5782,10 @@
     display: flex;
     flex-direction: column;
     gap: 14px; /* preserves the old .main's gap:14px spacing between stacked panels, now scoped to just the scrollable region */
-    padding-bottom: 10px; /* was 14px, cut ~30% to match .tab-body's tightened inset -- breathing room at the very bottom of scrolled content, above .nav-tabs */
+    padding-bottom: 10px; /* was 14px, cut ~30% to match .tab-body's tightened inset, breathing room at the very bottom of scrolled content, above .nav-tabs */
   }
   .tab-scroll-area::-webkit-scrollbar { display: none; } /* Chrome/Safari/most mobile browsers */
-  /* The very first element inside .frame now -- the old standalone "FLEET
+  /* The very first element inside .frame now, the old standalone "FLEET
      ADMIRAL" title Panel that used to sit above it was retired in favor of
      an About sub-tab under System (see the SystemSubTab comment above).
      Also a normal flex child now, not position:fixed (see .frame above). */
@@ -5804,7 +5804,7 @@
     z-index: 20;
   }
   /* Header redesign (2026-07-07, mid-plan addition unrelated to the loot/
-     talent rework -- portrait placeholder + inline XP bar + one-line tick
+     talent rework, portrait placeholder + inline XP bar + one-line tick
      bar, per the user's own ASCII mockup). Replaces the old stacked
      .top-bar-row/.research-bar-track/.tick-bar-track/.tick-bar-readout
      layout (each on its own full-width line) with: a left-hand portrait next
@@ -5812,7 +5812,7 @@
      .top-bar-header lays out the portrait + info column side by side. */
   .top-bar-header { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
   /* Descendant selector (specificity 0,2,0) rather than a bare .top-bar-portrait
-     class (0,1,0) -- this reliably overrides .mission-portrait-frame's own
+     class (0,1,0), this reliably overrides .mission-portrait-frame's own
      flex/height/font-size regardless of where either rule sits in this
      stylesheet, so there's no source-order dependency to accidentally break
      by moving/reordering rules later. Only overrides what needs shrinking for
@@ -5824,7 +5824,7 @@
   .top-bar-name { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
   .top-bar-xp-row { display: flex; align-items: center; gap: 8px; }
   .top-bar-xp-label { font-size: 10px; color: var(--color-text-secondary); flex-shrink: 0; }
-  .top-bar-xp-track { flex: 1; margin-bottom: 0; } /* overrides .research-bar-track's own margin-bottom:6px -- this copy sits inline, not stacked above other content */
+  .top-bar-xp-track { flex: 1; margin-bottom: 0; } /* overrides .research-bar-track's own margin-bottom:6px, this copy sits inline, not stacked above other content */
   .top-bar-xp-readout { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
   .top-bar-tick-row { display: flex; align-items: center; gap: 8px; }
   .top-bar-tick-label { font-size: 10px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
@@ -5875,7 +5875,7 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.4);
     border-radius: 6px;
     /* OPAQUE background (2026-07-09 fix). The panels' --color-panel-bg-strong is
-       only 6% alpha -- it reads as solid ONLY because panels add
+       only 6% alpha, it reads as solid ONLY because panels add
        backdrop-filter: blur(). This tooltip has no blur, so that variable let
        the busy tab content behind bleed straight through and made the text
        unreadable. Layer a faint themed accent wash over an OPAQUE dark base so
@@ -5895,7 +5895,7 @@
   .fuel-tt-row { display: flex; justify-content: space-between; gap: 16px; min-width: 190px; }
   .fuel-tt-note { font-size: 10px; color: var(--color-text-tertiary, var(--color-text-secondary)); margin: 1px 0 3px; opacity: 0.85; }
   .fuel-tt-sep { height: 1px; background: rgba(var(--color-accent-rgb), 0.25); margin: 5px 0; }
-  /* Outer nav (Task 1, Phase 4) -- now the LAST flex child inside .frame
+  /* Outer nav (Task 1, Phase 4), now the LAST flex child inside .frame
      (Task 1 of this plan moved it here from being the first child of the old
      <main>), so it's the bottom-most thing in the flex column, visually
      identical to today's "pinned to the bottom of the screen" look, just via
@@ -5905,12 +5905,12 @@
      than a second row of the same widget as the INNER captain switcher. */
   .nav-tabs {
     display: flex;
-    gap: 2px; /* thin seam between tabs, most visible on the active tab's tinted background -- part of the app-wide "flat panel, thin gap" button pass */
+    gap: 2px; /* thin seam between tabs, most visible on the active tab's tinted background, part of the app-wide "flat panel, thin gap" button pass */
     background: var(--color-panel-bg-strong);
     border-top: 1px solid rgba(var(--color-accent-rgb), 0.3);
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
     /* Devices with a gesture-nav home indicator reserve a safe area at the
-       bottom of the screen -- still the flush-bottom element (now via
+       bottom of the screen, still the flush-bottom element (now via
        document flow as .frame's last flex child, not position:fixed), still
        needs this. */
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -5949,19 +5949,19 @@
     color: var(--color-accent-bright);
     border-color: var(--color-accent);
   }
-  /* Fleet Captain's tab layout (UI Redesign, Task 8) -- left-hand vertical
+  /* Fleet Captain's tab layout (UI Redesign, Task 8), left-hand vertical
      captain list + right-hand content pane, replacing the old horizontal
      .captain-tabs row above (left in place for now; see this task's plan
      section and KNOWN_ISSUES.md re: whether it's still used anywhere once
      Task 11 does its final sweep). .captain-list-item now uses the flat,
      square-cornered "panel" look (2026-07-07 button-style pass) instead of
-     the old rounded pill -- a thin 2px gap between items reveals the
+     the old rounded pill, a thin 2px gap between items reveals the
      background behind, reading as a segmented banner rather than one solid
      strip, matching .nav-tabs/.sub-tab/etc. */
   .fleet-captains-layout { display: flex; gap: 12px; align-items: flex-start; }
   .captain-list { display: flex; flex-direction: column; gap: 2px; flex: 0 0 96px; }
   /* Quiet owner-group label in the Facilities rail (2026-07 Locations-merge
-     follow-up) -- a small uppercase muted caption, NOT a button. Extra top
+     follow-up), a small uppercase muted caption, NOT a button. Extra top
      margin on any header after the first opens a little air between groups
      without needing a wrapper element. */
   .facility-owner-header {
@@ -5995,13 +5995,13 @@
   }
   /* Battlespace's 4 locked placeholders (mid-plan extra task, 2026-07-07)
      reuse .captain-list-item.locked verbatim but sit inside a Panel, not
-     .captain-list -- this reproduces just that parent's flex/gap pairing so
+     .captain-list, this reproduces just that parent's flex/gap pairing so
      the reused items stack with the same thin 2px seam they'd get under
      .captain-list, without giving them .captain-list's fixed 96px width. */
   .battlespace-locked-list { display: flex; flex-direction: column; gap: 2px; }
   .fleet-captains-content { flex: 1; min-width: 0; }
   /* Fleet Operations tab layout (2026-07-07 Fleet Operations Mission UI,
-     Task 6) -- mirrors .fleet-captains-layout/.captain-list/
+     Task 6), mirrors .fleet-captains-layout/.captain-list/
      .captain-list-item directly above verbatim in spirit: flat,
      square-cornered panel look with a thin 2px gap between stacked items
      (2026-07-07 button-style pass), not a new visual language. Left-hand
@@ -6039,7 +6039,7 @@
     font-weight: 600;
   }
   /* The .resource-grid / .resource-grid-3 / .resource-card / .resource-label /
-     .resource-value(.locked) family was REMOVED in Phase 4, Task F5 -- its only
+     .resource-value(.locked) family was REMOVED in Phase 4, Task F5, its only
      user was the retired "HOME PLANET" 3-material Overview panel. */
   .tick-bar-track {
     height: 10px;
@@ -6088,7 +6088,7 @@
     transition: width 0.2s linear;
   }
   .research-readout { font-size: 11px; color: var(--color-text-secondary); text-align: right; }
-  /* AVAILABLE MISSIONS grid (2026-07-15 card redesign) -- was a single-column
+  /* AVAILABLE MISSIONS grid (2026-07-15 card redesign), was a single-column
      flex stack; now a responsive grid that fits ~3 cards across on a wide
      Operations panel and collapses to 2 then 1 column as the panel narrows.
      auto-fill + minmax(260px, 1fr) does the responsive reflow with NO media
@@ -6109,12 +6109,12 @@
   }
   .mission-recalled-text { margin-top: 10px; margin-bottom: 0; }
   /* Selectable mission card (2026-07-07 Fleet Operations Mission UI, Task 6)
-     -- an actual <button>, unlike the plain .mission-card div above (that one
+    , an actual <button>, unlike the plain .mission-card div above (that one
      is a static in-progress readout, this one opens the captain-selection
      popup on click), so it resets button-default text-align/font/color via
      `text-align:left; color:inherit; font:inherit;` before laying out its own
      flat/thin-border look. Theme-aware via --color-accent-rgb/--color-accent
-     only (no hardcoded hex) -- confirmed against app.css's 6
+     only (no hardcoded hex), confirmed against app.css's 6
      [data-theme="..."] blocks, which all redefine these same custom
      properties, so this card (and its portrait-frame placeholder below)
      repaint correctly on every theme switch, same as every other themed
@@ -6123,7 +6123,7 @@
      (header row on top, then the two-column body) instead of the old
      portrait-left / body-right single row. Its own inner .mission-card-header
      re-creates the portrait+name row, so the portrait still sits beside the
-     name -- only the exp/requirements/rewards moved into the columns below. */
+     name, only the exp/requirements/rewards moved into the columns below. */
   .mission-card-selectable {
     display: flex;
     flex-direction: column;
@@ -6144,7 +6144,7 @@
   .mission-card-header { display: flex; gap: 12px; align-items: center; }
   /* Descendant selector (specificity 0,2,0) shrinks the shared portrait for
      the card header WITHOUT touching .mission-portrait-frame's border/bg/
-     centering -- the SAME idiom .top-bar-header .top-bar-portrait uses above,
+     centering, the SAME idiom .top-bar-header .top-bar-portrait uses above,
      so there's no source-order dependency. ~48px reads as two text lines tall
      (name + exp), matching the sketch's two-line picture box. The LOCKED card
      keeps the full 64px frame (it isn't inside .mission-card-header). */
@@ -6157,11 +6157,11 @@
   /* Body: two equal columns (Requirements | Rewards), matching the sketch. */
   .mission-card-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .mission-card-col { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-  /* Column heading ("Mission Requirements:" / "Rewards") -- a touch stronger
+  /* Column heading ("Mission Requirements:" / "Rewards"), a touch stronger
      than the body rows so each column reads as a labelled group. */
   .mission-col-label { font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; }
   .mission-req-line { font-size: 12px; color: var(--color-text-secondary); }
-  /* Portrait-frame placeholder -- no ship/captain art asset exists yet (see
+  /* Portrait-frame placeholder, no ship/captain art asset exists yet (see
      the 🖼️ emoji placeholder in the template), so this is a dashed
      theme-tinted box rather than an <img>, sized to read clearly as "art
      goes here" without implying a real image failed to load. */
@@ -6177,7 +6177,7 @@
     background: rgba(var(--color-accent-rgb), 0.03);
   }
   .mission-card-body { flex: 1; min-width: 0; }
-  /* Locked mission card (Mission Rework Task 8) -- reuses .mission-card's box +
+  /* Locked mission card (Mission Rework Task 8), reuses .mission-card's box +
      borrows the .mission-card-selectable portrait+body flex ROW layout, but is a
      static (non-button) dimmed div: the game's consistent "show locked content"
      signal (cf. .module-card.locked's opacity dim, .captain-list-item.locked).
@@ -6189,7 +6189,7 @@
     text-align: left;
     opacity: 0.6;
   }
-  /* No existing non-dev-panel "danger" button style to reuse -- .dev-btn.danger
+  /* No existing non-dev-panel "danger" button style to reuse, .dev-btn.danger
      is scoped to the amber dev-panel look, and .prestige-btn's warning color
      is for a different semantic (fleet prestige), not "cancel an in-progress
      action." Shaped like .spec-btn (same padding/font-size, both flat-cornered
@@ -6302,8 +6302,8 @@
     font-family: var(--font-mono);
     font-size: 13px;
   }
-  /* A native <select> otherwise renders its closed control -- and especially its
-     OPENED option list -- with the browser's default WHITE background, which the
+  /* A native <select> otherwise renders its closed control, and especially its
+     OPENED option list, with the browser's default WHITE background, which the
      6%-opacity --color-panel-bg-strong above can't override; light theme text on
      white is unreadable (the crafting configurator's Tier/Item dropdowns). Force a
      SOLID dark background + themed text on the select and each <option> so the list
@@ -6315,13 +6315,13 @@
   }
   .modal-row { display: flex; justify-content: flex-end; gap: 2px; }
   /* Popup captain-picker list (2026-07-07 Fleet Operations Mission UI, Task 6)
-     -- stacks the idle-captain buttons inside the captain-selection popup
+    , stacks the idle-captain buttons inside the captain-selection popup
      (Task 5) with the same thin 2px gap as .captain-list/.mission-category-list
      above. Reuses .dev-btn as-is for each individual captain button (already
-     flat-cornered from the 2026-07-07 button-style pass) -- this class only
+     flat-cornered from the 2026-07-07 button-style pass), this class only
      supplies the container's flex/gap, no new button style needed. */
   .modal-captain-list { display: flex; flex-direction: column; gap: 2px; margin: 10px 0; }
-  /* Ships -- Stats Foundation (Task 11 UI) -- Docks/Requisition ship rows.
+  /* Ships, Stats Foundation (Task 11 UI), Docks/Requisition ship rows.
      .ship-list/.ship-card mirror .module-list/.mission-card's flat, thin-
      border, panel-strong look verbatim in spirit (NOT a new visual language) --
      same padding/radius/background/border tokens, just a distinct class so ship
@@ -6336,7 +6336,7 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.12);
   }
   .ship-card-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-  /* Assignment badge -- the flying captain's label (or "Parked"), and reused in
+  /* Assignment badge, the flying captain's label (or "Parked"), and reused in
      Requisition for the price chip. .parked dims it to read as the quieter,
      available state, same opacity convention as other .locked/dim elements. */
   .ship-badge {
@@ -6350,7 +6350,7 @@
   .ship-badge.parked { color: var(--color-text-secondary); opacity: 0.7; }
   .ship-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 8px; }
   .ship-stat { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
-  /* Inert module-slot pips -- display-only (no module system this pass). Small
+  /* Inert module-slot pips, display-only (no module system this pass). Small
      accent-tinted squares, one per moduleSlots; the quiet note sets the
      "unlocks later" expectation without implying they're interactive. */
   .ship-modules { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
@@ -6362,11 +6362,11 @@
     background: rgba(var(--color-accent-rgb), 0.1);
   }
   .ship-modules-note { font-size: 10px; color: var(--color-text-dim); font-style: italic; margin-left: 4px; }
-  /* Assign/Swap control -- reuses .dev-btn's flat look as-is (same as the
+  /* Assign/Swap control, reuses .dev-btn's flat look as-is (same as the
      mission popup's captain picker buttons); this modifier only nudges the top
      margin so it sits clear of the modules row above. */
   .ship-assign-btn { margin-top: 2px; }
-  /* (.ship-desc -- the Requisition hull blurb's margin tweak -- was removed in S4
+  /* (.ship-desc, the Requisition hull blurb's margin tweak, was removed in S4
      with the Requisition buy panel that was its only user.) */
 
   /* ============================================================
@@ -6391,8 +6391,8 @@
   .warehouse-tier-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--color-border), transparent); }
   .warehouse-tier-cap { font-family: var(--font-mono); font-size: 9px; color: var(--color-text-secondary); }
 
-  /* the fill-tile grid. MOBILE (default) stays 4-across -- the size confirmed
-     perfect on-device -- so mobile is deliberately left untouched. DESKTOP was
+  /* the fill-tile grid. MOBILE (default) stays 4-across, the size confirmed
+     perfect on-device, so mobile is deliberately left untouched. DESKTOP was
      the problem: the old fixed-5-across stretched each tile to ~1/4 of a wide
      panel (excessively chunky). On desktop we instead PACK small tiles via
      auto-fill at a ~60px floor, dropping desktop tiles to roughly a quarter of
@@ -6434,7 +6434,7 @@
     font-family: var(--font-mono); font-size: 8px; color: var(--color-text-secondary);
   }
 
-  /* at-cap: the danger pulse -- the visible auto-stop "expand storage" signal */
+  /* at-cap: the danger pulse, the visible auto-stop "expand storage" signal */
   .warehouse-tile.full {
     border-color: var(--color-danger);
     box-shadow: 0 0 10px -1px color-mix(in srgb, var(--color-danger) 60%, transparent);
@@ -6458,9 +6458,9 @@
   .warehouse-stub-glyph { font-size: 28px; opacity: 0.55; }
   .warehouse-stub p { font-size: 12px; line-height: 1.55; margin: 10px 0 0; }
 
-  /* tile tooltip -- position:fixed so it escapes the scroll container's
+  /* tile tooltip, position:fixed so it escapes the scroll container's
      clipping, the same approach the currency-chip tooltip uses */
-  /* Mission drops icon row (2026-07-15) -- a "Drops:" label + a compact,
+  /* Mission drops icon row (2026-07-15), a "Drops:" label + a compact,
      rarity-RINGED icon per dropping tier. The icons are the same size in both
      the AVAILABLE-MISSIONS card and the dispatch popup; --drop-rc is the item's
      rarity color (warehouseRarityColor), set inline per icon. Reset button/span

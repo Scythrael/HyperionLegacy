@@ -6,13 +6,13 @@
 // added to tick.ts (Wave 2, full-sustainability fuel readout).
 //
 // WHAT IT ANSWERS: "how many ticks until the player runs out of fuel?" under a
-// FULL-SUSTAINABILITY model -- it credits the Deuterium Ice that running missions
+// FULL-SUSTAINABILITY model, it credits the Deuterium Ice that running missions
 // keep mining. Because mission ice output is a stochastic loot roll, the LIVE
 // loop MEASURES the actual per-tick fuel & ice deltas (an EMA) and feeds them in
 // here; this function is the pure two-phase projection over those measured rates.
 //
 // PURE: plain numbers in, {sustainable, runwayTicks} out. No Decimal, no state,
-// no side effects -- so the whole decision matrix is pinned here directly.
+// no side effects, so the whole decision matrix is pinned here directly.
 //
 // DECISION MATRIX (EPS = 1e-9):
 //   1. No burn (burnPerTick <= EPS)            -> sustainable (fuel isn't spent)

@@ -1,18 +1,18 @@
-// Mission-control facility tests -- Mission Rework, Task 6
+// Mission-control facility tests, Mission Rework, Task 6
 // (docs/plans/2026-07-14-mission-rework-plan.md Task 6 + design §2),
 // REVISED 2026-07-14 (USER REVISION: all 4 missions default; unlock upgrade deferred).
 //
 // Covers the mission-unlock system after the revision:
 //   - missionUnlocked(state, key): PURE level-derived predicate (tick.ts). ALL FOUR
 //     current missions are unlockLevel 1, so every mission is dispatchable at the
-//     level-1 seed -- nothing is locked by default.
+//     level-1 seed, nothing is locked by default.
 //   - the mission-control track now CAPS at level 1 (a lone founding rung). The
 //     completion-gated level-1 -> 2 unlock UPGRADE is DEFERRED (removed) because
 //     Salvage/Forage are now default and there is no 5th+ mission for a live rung to
-//     unlock -- a live rung unlocking nothing would be a placeholder.
+//     unlock, a live rung unlocking nothing would be a placeholder.
 //   - the requiresMissionCompletions prereq MECHANISM is RETAINED and still enforced
-//     by the generic canBuildFacilityUpgrade gate -- proven here via a test-only
-//     fixture facility -- so re-adding an unlock rung when future missions land is a
+//     by the generic canBuildFacilityUpgrade gate, proven here via a test-only
+//     fixture facility, so re-adding an unlock rung when future missions land is a
 //     pure data change (no engine work).
 //   - the freshState seed (missionControl level 1) that keeps every mission available
 //     from game start (the no-soft-lock / no-regression guarantee).
@@ -21,7 +21,7 @@
 //
 // These exercise the REAL FACILITIES.missionControl table (its finite 1-level track),
 // not a synthetic def (except the reserved-mechanism fixture, which is clearly marked)
-// -- so the assertions double as a guard on that table.
+//, so the assertions double as a guard on that table.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Decimal from "break_infinity.js";
@@ -32,7 +32,7 @@ import {
 } from "./tick";
 import { freshState, FACILITIES } from "./model";
 
-describe("missionControl -- fresh state seed + level-derived unlocks (USER REVISION: all 4 default)", () => {
+describe("missionControl, fresh state seed + level-derived unlocks (USER REVISION: all 4 default)", () => {
   it("freshState seeds missionControl at level 1 (established from game start, no soft-lock)", () => {
     expect(freshState().facilities.missionControl).toEqual({ level: 1 });
   });
@@ -45,8 +45,8 @@ describe("missionControl -- fresh state seed + level-derived unlocks (USER REVIS
   });
 });
 
-describe("missionControl -- track caps at level 1 (unlock UPGRADE deferred, no placeholder rung)", () => {
-  it("FACILITIES.missionControl has exactly 1 rung (the lone founding rung -- no live unlock rung)", () => {
+describe("missionControl, track caps at level 1 (unlock UPGRADE deferred, no placeholder rung)", () => {
+  it("FACILITIES.missionControl has exactly 1 rung (the lone founding rung, no live unlock rung)", () => {
     expect(FACILITIES.missionControl.upgrades).toHaveLength(1);
   });
 
@@ -56,7 +56,7 @@ describe("missionControl -- track caps at level 1 (unlock UPGRADE deferred, no p
     }
   });
 
-  it("a level-1 missionControl is fully upgraded (no next rung -- caps at current content)", () => {
+  it("a level-1 missionControl is fully upgraded (no next rung, caps at current content)", () => {
     const state = freshState(); // level 1 == the seed
     const result = canBuildFacilityUpgrade(state, "missionControl");
     expect(result.ok).toBe(false);
@@ -64,7 +64,7 @@ describe("missionControl -- track caps at level 1 (unlock UPGRADE deferred, no p
   });
 });
 
-describe("requiresMissionCompletions -- RESERVED prereq mechanism stays enforced (for future unlock rungs)", () => {
+describe("requiresMissionCompletions, RESERVED prereq mechanism stays enforced (for future unlock rungs)", () => {
   // The mission-control unlock UPGRADE was deferred (USER REVISION 2026-07-14), so NO
   // production rung uses requiresMissionCompletions today. But the prereq TYPE
   // (FacilityUpgradeDef.requiresMissionCompletions) and its enforcement in the generic
@@ -83,7 +83,7 @@ describe("requiresMissionCompletions -- RESERVED prereq mechanism stays enforced
       label: "Test Completion Gate",
       upgrades: [
         {
-          materials: {}, // no material wall -- isolate the completion gate
+          materials: {}, // no material wall, isolate the completion gate
           durationTicks: 0,
           effect: { unlocksContent: true },
           requiresMissionCompletions: { shortOreRun: THRESHOLD },
@@ -117,17 +117,17 @@ describe("requiresMissionCompletions -- RESERVED prereq mechanism stays enforced
   });
 });
 
-describe("dispatchCaptainOnMission -- belt-and-suspenders unlock guard (retained for future locked missions)", () => {
+describe("dispatchCaptainOnMission, belt-and-suspenders unlock guard (retained for future locked missions)", () => {
   it("all four missions dispatch at the fresh level-1 seed (capability gates cleared)", () => {
     const state = freshState();
-    state.fuel = new Decimal(1_000_000); // rule out the fuel gate -- isolate the unlock gate
+    state.fuel = new Decimal(1_000_000); // rule out the fuel gate, isolate the unlock gate
     // Salvage/Forage carry CAPABILITY gates (captain level 2/3) that are SEPARATE from the
-    // unlock and deliberately kept -- bump the captain past them so this test isolates the
+    // unlock and deliberately kept, bump the captain past them so this test isolates the
     // UNLOCK behavior (that all four are unlockLevel 1). The Freighter's cargo 90 already
     // meets salvage/forage's requiresCargoCapacity 90.
     state.captains[0] = { ...state.captains[0], level: 5 };
     for (const key of ["shortOreRun", "longOreRun", "salvageWreckage", "forageFlora"] as const) {
-      // Each call reads the SAME idle `state` (dispatch is pure -- returns a new `next`,
+      // Each call reads the SAME idle `state` (dispatch is pure, returns a new `next`,
       // never mutates `state`), so the captain stays idle across the loop.
       const { success } = dispatchCaptainOnMission(state, state.captains[0].id, key);
       expect(success, key).toBe(true);

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // --- TreeSelector.svelte -- card selector + live description panel ----------
+  // --- TreeSelector.svelte, card selector + live description panel ----------
   // Author: Radial Skill Web feature (Task 13)
   // Created: 2026-07-08 (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 13)
   //
@@ -7,7 +7,7 @@
   //   The reusable "mockup A" card-selector front-end (design §5.1): a row of
   //   cards (each a title + a wireframe-art placeholder box) above a single live
   //   description panel that swaps to whichever card is currently FOCUSED, ending
-  //   in a commit button. It is PURELY PRESENTATIONAL -- it owns only its own
+  //   in a commit button. It is PURELY PRESENTATIONAL, it owns only its own
   //   focus state and never decides what "commit" means. The parent supplies the
   //   card list, the button label, and the onCommit callback; commit SEMANTICS
   //   (set a captain's spec vs. navigate into a homeworld category) live entirely
@@ -18,7 +18,7 @@
   //       spec", onCommit sets CaptainState.spec.
   //     - Homeworld Talents (Task 15): cards={categoryCards}, commitLabel="View
   //       Tree", onCommit navigates into that category's web.
-  //   Task 13 is JUST this component + its data; the WIRING is Tasks 14/15 -- this
+  //   Task 13 is JUST this component + its data; the WIRING is Tasks 14/15, this
   //   file does not touch App.svelte.
   //
   //   Interaction model (design §5.1):
@@ -27,30 +27,30 @@
   //     - Clicking/tapping a card FOCUSES it (click is authoritative). Desktop
   //       hover ALSO focuses as a convenience, but hover never commits and a real
   //       click always wins. Keyboard focus (Tab) + Enter/Space activate the card
-  //       button, which focuses it -- cards are real <button>s, so keyboard and
+  //       button, which focuses it, cards are real <button>s, so keyboard and
   //       screen-reader users reach every card and the commit action.
   //     - The description panel is bound to the focused card and swaps LIVE as
   //       focus changes. NOTHING commits until the commit button is pressed;
   //       focusing a card has no side effect beyond updating the description.
   //
   //   Theme: colors/fonts come entirely from app.css theme vars (the 6 themes
-  //   reskin it) -- no hardcoded hex, matching RadialWeb.svelte / SubTabs.svelte.
+  //   reskin it), no hardcoded hex, matching RadialWeb.svelte / SubTabs.svelte.
 
   import type { SelectorCard } from "./game/model";
 
   // --- Props ----------------------------------------------------------------
-  // `cards`           -- the card list to show (specCards | categoryCards, or any
+  // `cards`          , the card list to show (specCards | categoryCards, or any
   //                     SelectorCard[]). The row and description panel both read
   //                     from this. An empty list renders an empty row + no panel
   //                     (defensive; the real tables are never empty).
-  // `commitLabel`     -- the commit button's text ("Choose this spec" | "View
+  // `commitLabel`    , the commit button's text ("Choose this spec" | "View
   //                     Tree"). Purely a label; the button's ACTION is onCommit.
-  // `onCommit`        -- parent callback, called with the FOCUSED card's key when
+  // `onCommit`       , parent callback, called with the FOCUSED card's key when
   //                     the commit button is pressed. This is the only way the
   //                     component reports a decision outward; focus alone never
   //                     calls it. Defaulted to a no-op so an un-wired parent can
   //                     mount the component without crashing.
-  // `initialFocusKey` -- OPTIONAL key of the card focused first. Falls back to the
+  // `initialFocusKey`, OPTIONAL key of the card focused first. Falls back to the
   //                     first card's key when omitted or when it doesn't resolve
   //                     to a real card (defensive: a stale/typo'd key must not
   //                     leave the panel blank).
@@ -81,7 +81,7 @@
 
   // The resolved focused card (the description panel's data source). Reactive so
   // it follows focusedKey AND `cards` (if the parent swaps the list). Null when
-  // nothing is focused OR the key no longer resolves -- the panel then renders
+  // nothing is focused OR the key no longer resolves, the panel then renders
   // nothing rather than crashing on undefined fields.
   $: focusedCard = focusedKey !== null ? cards.find((c) => c.key === focusedKey) ?? null : null;
 
@@ -90,7 +90,7 @@
   /**
    * Focus a card (click/tap, or hover on desktop). This is the ONLY thing that
    * changes which card the description panel shows. It has NO commit side effect
-   * -- the player can browse every card freely before deciding. Click is the
+   *, the player can browse every card freely before deciding. Click is the
    * authoritative path; hover calls this too as a desktop convenience, but since
    * both funnel through here and neither commits, hover can never "accidentally"
    * choose anything.
@@ -104,7 +104,7 @@
    * onCommit. Guarded so it only fires when a card is actually focused (the
    * button is also hidden when focusedCard is null, so this is belt-and-
    * suspenders against a synthesized/stale click). The parent decides what
-   * committing MEANS (set spec / navigate) -- this component just names the card.
+   * committing MEANS (set spec / navigate), this component just names the card.
    */
   function commit() {
     if (focusedKey !== null) {
@@ -152,7 +152,7 @@
           <li>{bullet}</li>
         {/each}
       </ul>
-      <!-- Commit button -- its label is the commitLabel prop; its action is the
+      <!-- Commit button, its label is the commitLabel prop; its action is the
            parent's onCommit(focusedKey). This is the ONLY control that commits. -->
       <div class="commit-row">
         <button type="button" class="commit-button" on:click={commit}>
@@ -194,7 +194,7 @@
      ~1/N of the width (3 spec cards → 33% each) and align to the description
      panel below. Colors are all theme vars. */
   .selector-card {
-    flex: 1 1 0; /* TUNABLE: equal 1/N share -- verify fill/alignment on phone at Checkpoint B */
+    flex: 1 1 0; /* TUNABLE: equal 1/N share, verify fill/alignment on phone at Checkpoint B */
     min-width: 0; /* allow the equal slices to shrink below content width on narrow screens */
     display: flex;
     flex-direction: column;
@@ -210,10 +210,10 @@
     border-radius: 0; /* square, matching the node/panel/tab chamfer idiom */
   }
   /* Hover: "light up" the card (brighter border + a soft accent glow) as a desktop
-     affordance. PURELY visual -- hover no longer focuses/selects (that's on:click
+     affordance. PURELY visual, hover no longer focuses/selects (that's on:click
      only), so drifting across the row can't change the preview. Kept distinct from
      .focused below (no background fill) so a hovered card doesn't read as selected.
-     Touch ignores :hover. TUNABLE (glow strength) -- Checkpoint B. */
+     Touch ignores :hover. TUNABLE (glow strength), Checkpoint B. */
   .selector-card:hover {
     border-color: rgba(var(--color-accent-rgb), 0.55);
     box-shadow: 0 0 8px 0 rgba(var(--color-accent-rgb), 0.35);
@@ -235,7 +235,7 @@
     align-items: center;
     justify-content: center;
     width: 100%;
-    height: 64px; /* TUNABLE: art box height -- Checkpoint B */
+    height: 64px; /* TUNABLE: art box height, Checkpoint B */
     border: 1px dashed rgba(var(--color-accent-rgb), 0.3);
     color: var(--color-text-dim);
     font-size: 10px;
@@ -292,7 +292,7 @@
     justify-content: flex-end;
   }
   .commit-button {
-    padding: 8px 18px; /* TUNABLE: commit button size -- Checkpoint B */
+    padding: 8px 18px; /* TUNABLE: commit button size, Checkpoint B */
     background: rgba(var(--color-accent-rgb), 0.12);
     border: 1px solid var(--color-accent);
     color: var(--color-accent-bright);

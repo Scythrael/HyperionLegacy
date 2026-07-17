@@ -1,11 +1,11 @@
-// Shipyard (Phase 5) -- Task S1 data-model tests.
+// Shipyard (Phase 5), Task S1 data-model tests.
 //
 // SCOPE (S1 only, per docs/plans/2026-07-16-shipyard-plan.md): the DATA MODEL that
-// the later Shipyard tasks build on -- (1) every hull's `buildRecipe` BOM, (2) the
+// the later Shipyard tasks build on, (1) every hull's `buildRecipe` BOM, (2) the
 // `FACILITIES.shipyard` facility def (founding rung gated on credits + FA level, a
 // finite build-speed upgrade track), (3) `shipBuildSlotCount` = 1, and (4) the
 // fresh-state seed of `shipyard` at level 0 (LOCKED / unfounded). The build ENGINE
-// (S3), allocation unification (S2), and UI (S5) are NOT tested here -- they arrive
+// (S3), allocation unification (S2), and UI (S5) are NOT tested here, they arrive
 // in their own tasks.
 //
 // These assertions mirror the shape the sibling systems already lock down (see
@@ -35,7 +35,7 @@ import {
   tick,
 } from "./tick";
 
-// The exact hull keys S1 ships against -- an explicit list (not `Object.keys`) so a
+// The exact hull keys S1 ships against, an explicit list (not `Object.keys`) so a
 // hull silently dropped from SHIP_TYPES fails this test instead of being skipped.
 const HULL_KEYS: ShipTypeKey[] = [
   "generalFreighter",
@@ -74,7 +74,7 @@ describe("ShipTypeDef.buildRecipe (S1 BOM)", () => {
 
   it("uses the real component item ids (frameSegment / powerCoupling / structuralAssembly)", () => {
     // A guard that the BOMs draw ONLY from the fabricated component pool (design §6),
-    // not from raw ores or refined stock -- ships are assembled from components.
+    // not from raw ores or refined stock, ships are assembled from components.
     const allowed = new Set(["frameSegment", "powerCoupling", "structuralAssembly"]);
     for (const key of HULL_KEYS) {
       for (const itemId of Object.keys(SHIP_TYPES[key].buildRecipe.components)) {
@@ -144,7 +144,7 @@ describe("shipBuildSlotCount + fresh-state seed (S1)", () => {
 });
 
 // ============================================================================
-// S3: shipBuild engine -- canBuildShip / startShipBuild / addShip completion /
+// S3: shipBuild engine, canBuildShip / startShipBuild / addShip completion /
 //     build-speed duration scaling / ⚠️ offline parity.
 // ============================================================================
 
@@ -179,7 +179,7 @@ function yardState(opts: {
   };
 }
 
-// Runs economyTick(state, 1) `n` times -- the SAME per-tick stepping tick()'s offline
+// Runs economyTick(state, 1) `n` times, the SAME per-tick stepping tick()'s offline
 // catch-up loop performs (mirrors craft-lines.test.ts's stepTicks).
 function stepTicks(state: GameState, n: number): GameState {
   let s = state;
@@ -206,7 +206,7 @@ function buildSnapshot(state: GameState) {
   };
 }
 
-describe("canBuildShip -- typed reasons (S3)", () => {
+describe("canBuildShip, typed reasons (S3)", () => {
   it("ok: founded shipyard, a free slot, storage room, affordable BOM + credits", () => {
     // generalFreighter BOM: frameSegment 4, powerCoupling 2, credits 500.
     const res = canBuildShip(yardState({ frameSegment: 10, powerCoupling: 10, credits: 1000 }), "generalFreighter");
@@ -256,7 +256,7 @@ describe("canBuildShip -- typed reasons (S3)", () => {
     expect(res).toEqual({ ok: false, reason: "materials" });
   });
 
-  it("materials: respects FREE -- a craft-line reservation blocks a build with enough RAW stock", () => {
+  it("materials: respects FREE, a craft-line reservation blocks a build with enough RAW stock", () => {
     // RAW frameSegment 5 >= the 4 the freighter needs, BUT a fabricate line running
     // structuralAssemblyBp (inputs frameSegment 2, powerCoupling 1) reserves 2 of them ->
     // FREE frameSegment = 5 - 2 = 3 < 4. The build must block on `materials`, proving the
@@ -270,7 +270,7 @@ describe("canBuildShip -- typed reasons (S3)", () => {
     };
     const withLine = yardState({ frameSegment: 5, powerCoupling: 10, credits: 1000, fabricateLines: [reservingLine] });
     expect(canBuildShip(withLine, "generalFreighter")).toEqual({ ok: false, reason: "materials" });
-    // Control: the SAME stock with NO reserving line passes (non-vacuous -- the line is the cause).
+    // Control: the SAME stock with NO reserving line passes (non-vacuous, the line is the cause).
     const noLine = yardState({ frameSegment: 5, powerCoupling: 10, credits: 1000 });
     expect(canBuildShip(noLine, "generalFreighter").ok).toBe(true);
   });
@@ -307,7 +307,7 @@ describe("startShipBuild (S3)", () => {
 
   it("a started build creates NO ongoing reservation (a shipBuild is deduct-at-start, not time-spread)", () => {
     // After the BOM is consumed at start, freeItemForState never counts the in-flight build,
-    // so a SECOND build is limited only by the remaining RAW stock + the 1-slot cap -- never by
+    // so a SECOND build is limited only by the remaining RAW stock + the 1-slot cap, never by
     // a phantom reservation of the first build's BOM. We prove the reservation-free property by
     // showing the deducted stock IS the whole story: post-start free == post-start raw.
     const { next } = startShipBuild(yardState({ frameSegment: 10, powerCoupling: 10, credits: 5000 }), "generalFreighter");
@@ -372,7 +372,7 @@ describe("shipBuildDurationTicks scales with buildSpeedMult (S3)", () => {
 
 // --- ⚠️ offline == live parity (the high-risk seam; controller re-verifies) ------
 describe("⚠️ shipBuild offline == live parity (S3)", () => {
-  it("tick(bigSpan) equals looping economyTick(_,1) across a build completing mid-span -- NON-VACUOUS", () => {
+  it("tick(bigSpan) equals looping economyTick(_,1) across a build completing mid-span, NON-VACUOUS", () => {
     // Seed a FOUNDED shipyard + enough components + credits, then START the build so the
     // in-flight shipBuild process (duration 300) rides both paths from the same base.
     const seeded = yardState({ frameSegment: 10, powerCoupling: 10, credits: 5000 });
@@ -380,7 +380,7 @@ describe("⚠️ shipBuild offline == live parity (S3)", () => {
     const SPAN = 305; // past the 300-tick build so it COMPLETES mid-span
 
     // Pre-span sanity: the build is in flight (deduct-at-start already spent the BOM + credits),
-    // and no hull is parked yet -- so the parity below is over a real mid-span completion.
+    // and no hull is parked yet, so the parity below is over a real mid-span completion.
     expect(base.activeProcesses.filter((p) => p.kind === "shipBuild")).toHaveLength(1);
     expect(base.ships).toHaveLength(0);
     expect(base.inventory.frameSegment.toString()).toBe("6"); // 10 - 4 consumed at START
