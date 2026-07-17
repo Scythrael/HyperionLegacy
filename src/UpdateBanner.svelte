@@ -2,7 +2,7 @@
   // UpdateBanner.svelte -- dismissible "a new version is available" banner.
   //
   // Shows ONLY when the updateDetector poller flips `updateAvailable` to true
-  // (a newer build.json id was seen than the one this tab booted with). It sits
+  // (a newer version.json id was seen than the one this tab booted with). It sits
   // as a fixed overlay across the very top of the viewport (mounted once in
   // Root.svelte) so it never disturbs App.svelte's hard 100dvh flex-column
   // layout -- see Root.svelte's mount comment for why fixed (not in-flow).

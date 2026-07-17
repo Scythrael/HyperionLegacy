@@ -65,7 +65,7 @@
 
   onMount(() => {
     window.addEventListener("popstate", handlePopState);
-    // Begin polling build.json for a newer deploy; flips the `updateAvailable`
+    // Begin polling version.json for a newer deploy; flips the `updateAvailable`
     // store that UpdateBanner subscribes to. Idempotent -- safe to call once here.
     startUpdatePolling();
   });
