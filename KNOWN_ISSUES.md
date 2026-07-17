@@ -453,11 +453,12 @@ write it down so you don't relitigate it later.
   (previously wired for refine only) now also applies to FABRICATE starts, honoring the SAME existing
   `refineConfirmPreference` toggle (System -> Options) -- one shared preference gates both facilities' start confirms,
   by design, rather than a second per-facility toggle.
-- The Refinery currently has a SINGLE refine recipe (Crafting Allocation Redesign, Phase 4b), so its configurator
-  tier/item dropdowns are SPARSE -- effectively one tier with one item -- until more refine recipes land. The
-  per-slot configurator renders correctly with a one-entry dropdown (same component the Fabricator uses with its
-  fuller blueprint catalog); this is a content gap, not a UI bug. Add more `REFINE_RECIPES` entries to populate the
-  dropdowns. Same "provisional item catalog" posture as the earlier Phase 2 placeholder-scaffolding entry above.
+- [PARTLY RESOLVED 2026-07-16] The Refinery had only a SINGLE refine recipe, leaving its configurator dropdowns sparse
+  AND -- worse -- dead-ending the craft chain (the one recipe made generic `refinedMaterial`, which no blueprint uses).
+  Two recipes were added (`refineTitaniumIngot`: Titanium Ore -> Titanium Ingot; `refinePolysilicateWafer`: Polysilicate
+  Ore -> Polysilicate Wafer), so mine -> refine -> fabricate now connects end-to-end and the item dropdown has three
+  entries. Remaining: all still ONE synthetic tier (RefineRecipeDef has no `tier` field), and the ratios/durations are
+  first-pass device-check tunables; more recipes (and real tiers) land with future content.
 - COMPONENTS AREN'T CONSUMED BY ANYTHING until the SHIPYARD (Crafting Allocation Redesign, Phase 4b -- restating the
   standing forward-window). The allocation rework changes HOW you craft components (per-slot lines + reserved
   materials), not what they're FOR: fabricated components still land in the Warehouse Component tab with no sink
