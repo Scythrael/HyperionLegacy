@@ -1,4 +1,4 @@
-// Tick loop — tech spec §2 (Tick Loop and Time Semantics).
+// Tick loop -- tech spec §2 (Tick Loop and Time Semantics).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
 // the Generator Stack economy (tickCaptainStack) and everything built on top
 // of it (Research, both Prestige tiers, the Skill Tree) have been removed.
@@ -384,7 +384,7 @@ export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string
     // rather than a misleading "+0.0%" line -- this is the whole reason the
     // `none` member exists instead of a `mult: 0.0` placeholder.
     case "none":
-      return "No bonus yet — unlocks this branch";
+      return "No bonus yet -- unlocks this branch";
   }
 }
 
@@ -413,7 +413,7 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
     // rather than a misleading "+0.0%" line -- the whole reason the `none`
     // member exists instead of a `mult: 0.0` placeholder.
     case "none":
-      return "No bonus yet — unlocks this branch";
+      return "No bonus yet -- unlocks this branch";
   }
 }
 
@@ -1888,7 +1888,7 @@ export function recallCaptain(state: GameState, captainId: number): { next: Game
 }
 
 // Assigns a ship to a captain under the "captains always have a hull; swapping
-// is an ATOMIC REPLACE" model (Ships — Stats Foundation, Task 8). ShipInstance
+// is an ATOMIC REPLACE" model (Ships -- Stats Foundation, Task 8). ShipInstance
 // .assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies what -- this
 // function is the only supported way to move it, and it keeps the invariant
 // "no ship is assigned to two captains at once" intact by parking the captain's
@@ -1945,7 +1945,7 @@ export function assignShipToCaptain(
   return { next: { ...state, ships }, success: true };
 }
 
-// (buyShip -- the INSTANT Requisition credit-buy for a new hull (Ships — Stats
+// (buyShip -- the INSTANT Requisition credit-buy for a new hull (Ships -- Stats
 // Foundation, Task 9) -- was RETIRED in S4. Hulls are now BUILT at the Shipyard
 // from materials over time (startShipBuild + the shipBuild engine), so the
 // instant credit-spend path is obsolete. New hulls still arrive PARKED and are
@@ -1960,7 +1960,7 @@ export function assignShipToCaptain(
 // lifetimeStats.itemsCrafted tally on craft completion.)
 
 // ============================================================================
-// Timed-process engine — Phase 1, Task 8
+// Timed-process engine -- Phase 1, Task 8
 // (docs/plans/2026-07-11-facility-framework-refinery-design.md §3, §4).
 //
 // ONE deterministic, fixed-duration process shape backs BOTH refine jobs and
@@ -2060,7 +2060,7 @@ export function startProcess(
 }
 
 // ============================================================================
-// Facility framework — Phase 1, Task 10
+// Facility framework -- Phase 1, Task 10
 // (docs/plans/2026-07-11-facility-framework-refinery-design.md §5, §6).
 //
 // Two functions, built on the Task 8 startProcess engine above:
@@ -2315,7 +2315,7 @@ export function startFacilityUpgrade(
 }
 
 // ============================================================================
-// Refinery — single refine jobs (Phase 1, Task 11)
+// Refinery -- single refine jobs (Phase 1, Task 11)
 // (docs/plans/2026-07-11-facility-framework-refinery-design.md §6).
 //
 // Two functions, both built on the Task 8 startProcess engine + the Task 10
@@ -2428,7 +2428,7 @@ export function shipBuildSlotCount(state: GameState): number {
 }
 
 // ============================================================================
-// Shipyard build engine — Phase 5, Task S3
+// Shipyard build engine -- Phase 5, Task S3
 // (docs/plans/2026-07-16-shipyard-plan.md §S3, design §5). Three functions built on
 // the shared startProcess/resolveProcesses engine + the S1 buildRecipe/facility data
 // + the S2 freeItemForState reservation-aware pool:
@@ -2731,7 +2731,7 @@ export function startResearch(
 }
 
 // ============================================================================
-// Tiered Warehouse — per-item storage cap helper (Phase 2, Task B2)
+// Tiered Warehouse -- per-item storage cap helper (Phase 2, Task B2)
 // (docs/plans/2026-07-13-phase-2-warehouse-refine-economy-design.md §3.3).
 //
 // tierCap(state, tier) returns the CURRENT per-item storage cap for a warehouse

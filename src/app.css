@@ -1,4 +1,4 @@
-/* Theme tokens — tech spec §9.6.2. Change the palette here, never inline. */
+/* Theme tokens -- tech spec §9.6.2. Change the palette here, never inline. */
 :root {
   --color-bg-deep: #060a12;
   --color-bg-mid: #0a1120;

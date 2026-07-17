@@ -1,4 +1,4 @@
-// Mission recall-on-cap tests — bugfix "fix/mission-recall-on-cap".
+// Mission recall-on-cap tests -- bugfix "fix/mission-recall-on-cap".
 //
 // THE BUG (pre-fix): the auto-stop at economyTick's per-captain gate (tick.ts, the
 // `if (materialAtCap(...)) return captain;` branch) FROZE a captain in place when its
@@ -61,7 +61,7 @@ function withStock(s: GameState, itemId: string, amount: number): GameState {
   return { ...s, inventory: { ...s.inventory, [itemId]: new Decimal(amount) } };
 }
 
-describe("mission recall-on-cap — MID-CYCLE (ship OUT) recalls home + idles, never freezes", () => {
+describe("mission recall-on-cap -- MID-CYCLE (ship OUT) recalls home + idles, never freezes", () => {
   it("flags `recalled` (not freeze) when primary hits cap mid-extraction, then returns home and idles", () => {
     // Dispatch, then advance the ship OUT to the extracting phase (below cap the whole way).
     let s = dispatchCaptainOnMission(freshState(), 1, "shortOreRun").next;
@@ -92,7 +92,7 @@ describe("mission recall-on-cap — MID-CYCLE (ship OUT) recalls home + idles, n
   });
 });
 
-describe("mission recall-on-cap — AT BASE (ordersReceived) idles immediately, does NOT dispatch", () => {
+describe("mission recall-on-cap -- AT BASE (ordersReceived) idles immediately, does NOT dispatch", () => {
   it("ends the mission on the first capped tick without running an out-and-back loop", () => {
     // Freshly dispatched: phase is ordersReceived (pre-departure, still at base).
     let s = dispatchCaptainOnMission(freshState(), 1, "shortOreRun").next;
@@ -113,7 +113,7 @@ describe("mission recall-on-cap — AT BASE (ordersReceived) idles immediately, 
   });
 });
 
-describe("mission recall-on-cap — BELOW cap is unchanged (anti-regression guard)", () => {
+describe("mission recall-on-cap -- BELOW cap is unchanged (anti-regression guard)", () => {
   it("a below-cap captain is never recalled and runs its mission normally (deposits + auto-repeat)", () => {
     let s = dispatchCaptainOnMission(freshState(), 1, "shortOreRun").next;
     expect(materialAtCap(s, PRIMARY)).toBe(false); // fresh warehouse is empty -- well below cap
@@ -132,7 +132,7 @@ describe("mission recall-on-cap — BELOW cap is unchanged (anti-regression guar
   });
 });
 
-describe("mission recall-on-cap — does NOT auto-resume while still capped", () => {
+describe("mission recall-on-cap -- does NOT auto-resume while still capped", () => {
   it("once idled at base by the cap, the captain stays idle (mission stays null)", () => {
     // Drive a mid-cycle recall to completion (as in the first suite), material still at cap.
     let s = dispatchCaptainOnMission(freshState(), 1, "shortOreRun").next;
@@ -148,7 +148,7 @@ describe("mission recall-on-cap — does NOT auto-resume while still capped", ()
   });
 });
 
-describe("⚠️ mission recall-on-cap — REQUIRED offline==live PARITY (recall fires mid-span, ends idle)", () => {
+describe("⚠️ mission recall-on-cap -- REQUIRED offline==live PARITY (recall fires mid-span, ends idle)", () => {
   // The controller re-verifies this personally. A span that starts with the ship OUT
   // (extracting) and the primary material AT cap: the recall fires mid-span, the ship flies
   // home + unloads, and the mission ends (mission -> null). tick(bigSpan) (offline) must be

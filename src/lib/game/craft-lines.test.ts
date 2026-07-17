@@ -1,5 +1,5 @@
 // ============================================================================
-// Per-slot production LINE engine tests — Crafting Allocation Redesign, Task C2
+// Per-slot production LINE engine tests -- Crafting Allocation Redesign, Task C2
 // (docs/plans/2026-07-16-crafting-allocation-redesign-design.md §2).
 //
 // Covers the per-slot line data model + engine that REPLACES the retired single-order
@@ -104,7 +104,7 @@ function lineSnapshot(state: GameState) {
 }
 
 // --- startLine ---------------------------------------------------------------
-describe("startLine — appends a line + mints a monotonic id", () => {
+describe("startLine -- appends a line + mints a monotonic id", () => {
   it("appends a batch refine line, mints craft-1, bumps nextCraftLineId, does not mutate the input", () => {
     const state = linesState({ commonOre: 1000 });
     // C3: startLine now returns { next, started, reason? }; destructure the resulting state.
@@ -173,7 +173,7 @@ describe("startLine — appends a line + mints a monotonic id", () => {
 });
 
 // --- cancelLine --------------------------------------------------------------
-describe("cancelLine — drains a running line (finishes the in-flight iteration) or removes an idle one", () => {
+describe("cancelLine -- drains a running line (finishes the in-flight iteration) or removes an idle one", () => {
   it("removing a line drops allocated back to 0 / free back to full stock (derived, no ledger)", () => {
     // A batch line of 10 reserves 10 x 100 = 1000 commonOre.
     const line: CraftLine = { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 10, mode: { kind: "batch", remaining: 10 } };
@@ -245,7 +245,7 @@ describe("cancelLine — drains a running line (finishes the in-flight iteration
 });
 
 // --- batch line lifecycle ----------------------------------------------------
-describe("processRefineLines — a batch line produces exactly N, then the line clears", () => {
+describe("processRefineLines -- a batch line produces exactly N, then the line clears", () => {
   it("a batch of 3 on a single-slot refinery completes 3 jobs across ticks, then removes the line", () => {
     const line: CraftLine = { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 3, mode: { kind: "batch", remaining: 3 } };
     const state = linesState({ commonOre: 1000, refineLines: [line], nextCraftLineId: 2 });
@@ -306,7 +306,7 @@ describe("line processors are same-reference no-ops with no lines", () => {
 
 // --- ⚠️ MULTI-LINE offline == live parity (the high-risk seam) ----------------
 describe("⚠️ multi-line offline == live parity (controller re-verifies)", () => {
-  it("tick(bigSpan) equals looping economyTick(_,1) across TWO different-recipe lines — NON-VACUOUS", () => {
+  it("tick(bigSpan) equals looping economyTick(_,1) across TWO different-recipe lines -- NON-VACUOUS", () => {
     // Line A (REFINE, batch 2): commonOre 200 = exactly 2 jobs. It FINISHES mid-span
     // (both jobs done @11/@21, then the line is removed) -- proves a line completing
     // mid-span parity-matches.
@@ -349,12 +349,12 @@ describe("⚠️ multi-line offline == live parity (controller re-verifies)", ()
   });
 });
 
-// --- maxAffordableIterations — the affordable-NOW quantity cap (Task C3) ------
+// --- maxAffordableIterations -- the affordable-NOW quantity cap (Task C3) ------
 // The largest whole iteration count reservable from FREE stock right now =
 //   min over inputs of floor(free[item] / perIteration[item]).
 // The KEY allocation property: it reads FREE (inventory - already-reserved), NOT raw stock,
 // so a second line cannot double-book units an existing line already reserved.
-describe("maxAffordableIterations — affordable-now cap reads FREE, not raw stock", () => {
+describe("maxAffordableIterations -- affordable-now cap reads FREE, not raw stock", () => {
   it("with NO lines, the cap is floor(rawStock / perIteration)", () => {
     // refineCommonOre = commonOre x100 -> 1. 1000 / 100 = 10.
     const state = linesState({ commonOre: 1000 });
@@ -403,11 +403,11 @@ describe("maxAffordableIterations — affordable-now cap reads FREE, not raw sto
   });
 });
 
-// --- canStartLine — the typed-reason line-start gate (Task C3) ----------------
+// --- canStartLine -- the typed-reason line-start gate (Task C3) ----------------
 // Mirrors canFabricate: a pure predicate returning { ok:true } or { ok:false, reason }.
 // Gate order: notFound -> notResearched(fabricate) -> tierLocked(fabricate) -> noSlot ->
 // invalidCount -> materials -> storageFull.
-describe("canStartLine — typed-reason gate (each reason + ok)", () => {
+describe("canStartLine -- typed-reason gate (each reason + ok)", () => {
   it("notFound: the key names no recipe/blueprint in the kind's registry", () => {
     const state = linesState({ commonOre: 1000 });
     expect(canStartLine(state, "refine", "notARealRecipe", 1)).toEqual({ ok: false, reason: "notFound" });
@@ -474,7 +474,7 @@ describe("canStartLine — typed-reason gate (each reason + ok)", () => {
 });
 
 // --- startLine delegation to canStartLine (Task C3) ---------------------------
-describe("startLine delegates to canStartLine — appends on ok, same-ref + reason on block", () => {
+describe("startLine delegates to canStartLine -- appends on ok, same-ref + reason on block", () => {
   it("appends the line and reports started:true on ok", () => {
     const state = linesState({ commonOre: 1000 });
     const res = startLine(state, "refine", "refineCommonOre", { kind: "batch", remaining: 5 });

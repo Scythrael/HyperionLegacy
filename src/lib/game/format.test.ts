@@ -150,7 +150,7 @@ describe("formatNumber", () => {
 // formatNumber as the ONE place time-span formatting lives). Converts a tick
 // count to seconds (ticks * secondsPerTick) and renders a compact "~"-prefixed
 // span, dropping zero trailing units and rolling up on unit boundaries. Guards
-// 0 / negative / NaN -> "—" and +Infinity -> "∞". Fuel-runway (Wave 2) reuses
+// 0 / negative / NaN -> "--" and +Infinity -> "∞". Fuel-runway (Wave 2) reuses
 // this, so the tests pin the full s/m/h/d contract, not just the current caller.
 // ============================================================================
 describe("formatDuration", () => {
@@ -183,16 +183,16 @@ describe("formatDuration", () => {
     expect(formatDuration(30, 2)).toBe("~1m");
   });
 
-  it("returns \"—\" for 0 ticks", () => {
-    expect(formatDuration(0, 1)).toBe("—");
+  it("returns \"--\" for 0 ticks", () => {
+    expect(formatDuration(0, 1)).toBe("--");
   });
 
-  it("returns \"—\" for negative ticks", () => {
-    expect(formatDuration(-10, 1)).toBe("—");
+  it("returns \"--\" for negative ticks", () => {
+    expect(formatDuration(-10, 1)).toBe("--");
   });
 
-  it("returns \"—\" for NaN", () => {
-    expect(formatDuration(NaN, 1)).toBe("—");
+  it("returns \"--\" for NaN", () => {
+    expect(formatDuration(NaN, 1)).toBe("--");
   });
 
   it("returns \"∞\" for +Infinity ticks", () => {
@@ -215,7 +215,7 @@ describe("formatDuration", () => {
 // (Math.round(ticks * secondsPerTick), clamped at 0), then splits into
 // d/h/m/s and renders zero-padded. Days appear ONLY when present; the hours
 // segment is padded only inside a longer form. Non-finite (NaN/±Infinity)
-// guards to "—". Tests below are the authoritative contract (TDD, written
+// guards to "--". Tests below are the authoritative contract (TDD, written
 // before the implementation).
 // ============================================================================
 describe("formatClock", () => {
@@ -248,12 +248,12 @@ describe("formatClock", () => {
     expect(formatClock(-10, 1)).toBe("00:00");
   });
 
-  it("returns \"—\" for NaN", () => {
-    expect(formatClock(NaN, 1)).toBe("—");
+  it("returns \"--\" for NaN", () => {
+    expect(formatClock(NaN, 1)).toBe("--");
   });
 
-  it("returns \"—\" for +Infinity", () => {
-    expect(formatClock(Infinity, 1)).toBe("—");
+  it("returns \"--\" for +Infinity", () => {
+    expect(formatClock(Infinity, 1)).toBe("--");
   });
 
   it("scales by secondsPerTick, not just tick count (60 ticks @ 2s/tick = 120s -> 02:00)", () => {

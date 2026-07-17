@@ -11,7 +11,7 @@
       class:active={active === tab.key}
       class:locked={tab.locked}
       disabled={tab.locked}
-      title={tab.locked ? "Coming soon — not yet available" : undefined}
+      title={tab.locked ? "Coming soon -- not yet available" : undefined}
       on:click={() => {
         if (!tab.locked) onSelect(tab.key);
       }}

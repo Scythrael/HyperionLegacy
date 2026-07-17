@@ -1,4 +1,4 @@
-// Save file contract — tech spec §6. Versioned from commit one (Ops §8.E.1).
+// Save file contract -- tech spec §6. Versioned from commit one (Ops §8.E.1).
 // When the schema changes: bump SAVE_VERSION, add a migrate_vN_to_vN+1
 // function to MIGRATIONS, and never touch old migrations again.
 
@@ -373,7 +373,7 @@ const MIGRATIONS: Record<number, Migration> = {
     // second captain) is used, byte-for-byte identical to what a brand-new
     // save's Captain 2 looks like, since it's the same function call.
     const fresh = freshCaptains(2); // a v4 save is, by construction, always exactly the 2-captain Phase-1 shape
-    // historical shape — predates the current CaptainState; typed loose so this frozen body isn't coupled to the live interface.
+    // historical shape -- predates the current CaptainState; typed loose so this frozen body isn't coupled to the live interface.
     const captainOne: any = {
       id: 1,
       label: "Captain 1",
@@ -534,7 +534,7 @@ const MIGRATIONS: Record<number, Migration> = {
       }),
     };
   },
-  // v15 -> v16: Ships stats foundation. Captain/ship separation — every existing
+  // v15 -> v16: Ships stats foundation. Captain/ship separation -- every existing
   // captain is grandfathered a General Freighter (== today's implicit ship:
   // cargo 90 / 1.0x / 1.0x, so in-flight missions are unaffected). shipType is
   // dropped from captains; ships/shipStorageCapacity/nextShipId are added.
@@ -925,7 +925,7 @@ export function deserialize(raw: string): SaveFile | null {
     if (!json) return null;
     return JSON.parse(json) as SaveFile;
   } catch {
-    // Corrupt save — tech spec §6 says preserve raw data and surface it
+    // Corrupt save -- tech spec §6 says preserve raw data and surface it
     // rather than silently discarding. The caller decides what to show.
     return null;
   }

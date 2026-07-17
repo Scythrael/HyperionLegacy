@@ -1,4 +1,4 @@
-// Facility framework tests — Phase 1, Task 10
+// Facility framework tests -- Phase 1, Task 10
 // (docs/plans/2026-07-11-facility-framework-refinery-design.md §5, §6).
 //
 // Covers the two facility functions in tick.ts:
@@ -53,7 +53,7 @@ function stateWith(opts: {
   };
 }
 
-describe("canBuildFacilityUpgrade — fresh refinery (level 0, the build/unlock rung)", () => {
+describe("canBuildFacilityUpgrade -- fresh refinery (level 0, the build/unlock rung)", () => {
   it("is buildable with enough materials (level-0 build is ungated beyond its cost)", () => {
     // upgrades[0] = { materials: { commonOre: 100 }, ... } with no requires* gates.
     const state = stateWith({ inventory: { commonOre: 100 } });
@@ -71,7 +71,7 @@ describe("canBuildFacilityUpgrade — fresh refinery (level 0, the build/unlock 
   });
 });
 
-describe("canBuildFacilityUpgrade — prerequisite gates on the later rungs", () => {
+describe("canBuildFacilityUpgrade -- prerequisite gates on the later rungs", () => {
   it("blocks when below requiresFleetAdminLevel (rung 1 requires FA level 2)", () => {
     // Refinery at level 1 -> next rung is upgrades[1], which gates on FA level 2.
     // Materials are satisfied so the FA gate is unambiguously the failing one.
@@ -119,7 +119,7 @@ describe("canBuildFacilityUpgrade — prerequisite gates on the later rungs", ()
   });
 });
 
-describe("canBuildFacilityUpgrade — maxed track", () => {
+describe("canBuildFacilityUpgrade -- maxed track", () => {
   it("is NOT buildable once the level equals upgrades.length (no next rung)", () => {
     const maxLevel = FACILITIES.refinery.upgrades.length; // 4
     // Give it a mountain of every material -- being maxed must override affordability.
@@ -142,7 +142,7 @@ describe("canBuildFacilityUpgrade — maxed track", () => {
   });
 });
 
-describe("startFacilityUpgrade — delegates to startProcess (atomic deduct-at-start)", () => {
+describe("startFacilityUpgrade -- delegates to startProcess (atomic deduct-at-start)", () => {
   it("pushes a facilityUpgrade process, deducts materials atomically, and completes to level+1", () => {
     const state = stateWith({ inventory: { commonOre: 100 } });
     const started = startFacilityUpgrade(state, "refinery");
@@ -176,7 +176,7 @@ describe("startFacilityUpgrade — delegates to startProcess (atomic deduct-at-s
   });
 });
 
-describe("canBuildFacilityUpgrade — sequential-per-facility gate (one upgrade in flight at a time)", () => {
+describe("canBuildFacilityUpgrade -- sequential-per-facility gate (one upgrade in flight at a time)", () => {
   it("blocks a second upgrade of the SAME facility while one is in flight, then re-opens after it completes", () => {
     // Enough ore for TWO level-0->1 builds (100 each). Without the sequential gate,
     // both would start (level only bumps at completion, so canBuild keeps reading
@@ -237,7 +237,7 @@ describe("canBuildFacilityUpgrade — sequential-per-facility gate (one upgrade 
 // holds the material. refineCommonOre reserves commonOre; the refinery 0->1 rung
 // COSTS commonOre (100) -- so a single 1-iteration refine line (100 reserved) exactly
 // overlaps the upgrade cost, the cleanest possible leak repro.
-describe("canBuildFacilityUpgrade — reservation-aware (gates on craft-line `free`, not raw inventory)", () => {
+describe("canBuildFacilityUpgrade -- reservation-aware (gates on craft-line `free`, not raw inventory)", () => {
   it("BLOCKS an upgrade whose material a craft line has reserved (was affordable on raw -> leak closed)", () => {
     // 100 commonOre on hand = exactly the refinery 0->1 cost. With NO reservation the
     // raw inventory covers it, so the upgrade is affordable...
@@ -305,7 +305,7 @@ describe("canBuildFacilityUpgrade — reservation-aware (gates on craft-line `fr
   });
 });
 
-describe("canBuildFacilityUpgrade — distinct-facility concurrency (unchanged by S2)", () => {
+describe("canBuildFacilityUpgrade -- distinct-facility concurrency (unchanged by S2)", () => {
   it("does NOT block a facility when a DIFFERENT facility has an upgrade in flight (distinct-facility concurrency preserved)", () => {
     // An in-flight upgrade whose effect targets some OTHER facility ("warehouse")
     // must not block the refinery -- the gate keys strictly on effect.facility.

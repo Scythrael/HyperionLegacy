@@ -1,4 +1,4 @@
-// Fuel Depot pipeline tests — Fuel Economy v2 F2
+// Fuel Depot pipeline tests -- Fuel Economy v2 F2
 // (docs/plans/2026-07-14-fuel-economy-v2-design.md §2).
 //
 // Covers the Fuel Depot's continuous Deuterium-Ice -> fuel refining, built ON the
@@ -131,7 +131,7 @@ describe("derive-on-read helpers (pipelines / yield / input)", () => {
   });
 });
 
-describe("processFuelPipelines / economyTick — a batch refines 50 ice -> 100 fuel over durationTicks", () => {
+describe("processFuelPipelines / economyTick -- a batch refines 50 ice -> 100 fuel over durationTicks", () => {
   it("consumes 50 ice at start, deposits 100 fuel on completion (tank space available)", () => {
     const state = depotState({ deuteriumIce: 100, fuel: 0, fuelStorageLevel: 0 });
 
@@ -158,7 +158,7 @@ describe("processFuelPipelines / economyTick — a batch refines 50 ice -> 100 f
   });
 });
 
-describe("auto-stop — tank full (fuel >= fuelCap)", () => {
+describe("auto-stop -- tank full (fuel >= fuelCap)", () => {
   it("pauses (starts no batch, consumes no ice) when the tank is already at cap", () => {
     // fuel exactly at the level-0 cap (500), ample ice.
     const state = depotState({ deuteriumIce: 500, fuel: FUEL_TANK_BASE_CAP, fuelStorageLevel: 0 });
@@ -182,7 +182,7 @@ describe("auto-stop — tank full (fuel >= fuelCap)", () => {
   });
 });
 
-describe("auto-stop — ice out (Deuterium Ice < batch input); no ice stranded", () => {
+describe("auto-stop -- ice out (Deuterium Ice < batch input); no ice stranded", () => {
   it("pauses (starts no batch) when ice < the batch input, leaving the ice UNTOUCHED (not stranded)", () => {
     // 49 ice, batch needs 50 -> no batch can start; the 49 must remain (gate BEFORE consuming).
     const state = depotState({ deuteriumIce: 49, fuel: 0, fuelStorageLevel: 0 });

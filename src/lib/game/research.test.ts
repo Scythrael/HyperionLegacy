@@ -42,7 +42,7 @@ import {
 } from "./tick";
 import type { ResearchBlockReason } from "./tick";
 
-describe("Research R1 — BLUEPRINTS registry is well-formed", () => {
+describe("Research R1 -- BLUEPRINTS registry is well-formed", () => {
   it("is non-empty", () => {
     expect(Object.keys(BLUEPRINTS).length).toBeGreaterThan(0);
   });
@@ -91,13 +91,13 @@ describe("Research R1 — BLUEPRINTS registry is well-formed", () => {
   });
 });
 
-describe("Research R1 — GameState.researchedBlueprints seed", () => {
+describe("Research R1 -- GameState.researchedBlueprints seed", () => {
   it("fresh state seeds researchedBlueprints as an empty array", () => {
     expect(freshState().researchedBlueprints).toEqual([]);
   });
 });
 
-describe("Research R1 — blueprintUnlocked", () => {
+describe("Research R1 -- blueprintUnlocked", () => {
   it("is false for every blueprint on a fresh state", () => {
     const state = freshState();
     for (const key of Object.keys(BLUEPRINTS)) {
@@ -117,7 +117,7 @@ describe("Research R1 — blueprintUnlocked", () => {
   });
 });
 
-describe("Research R1 — blueprintResearchable (tier gated by research-facility level)", () => {
+describe("Research R1 -- blueprintResearchable (tier gated by research-facility level)", () => {
   // Helper: a fresh state with the research facility seeded at a chosen level. R2 will
   // add FACILITIES.research + seed it at level 1 in freshState; R1 has no facility yet,
   // so we inject the level directly here to prove the tier-gate logic works the moment
@@ -174,7 +174,7 @@ describe("Research R1 — blueprintResearchable (tier gated by research-facility
 // R2 adds an OPTIONAL `credits` field to FacilityUpgradeDef (inert for every existing
 // facility, none of which set it). These tests pin that credit gate + the deduct.
 // ============================================================================
-describe("Research R2 — Research Lab facility (tier + slot upgrade track)", () => {
+describe("Research R2 -- Research Lab facility (tier + slot upgrade track)", () => {
   it("FACILITIES.research exists, is labelled 'Research Lab', with a FINITE 2-level track", () => {
     const research = FACILITIES[RESEARCH_FACILITY_KEY];
     expect(research).toBeDefined();
@@ -291,7 +291,7 @@ describe("Research R2 — Research Lab facility (tier + slot upgrade track)", ()
 // no-op on any failed gate -- the basic gate R3 ships. R4 adds the full typed-reason
 // canResearch and refactors startResearch to use it.
 // ============================================================================
-describe("Research R3 — startResearch (start a timed research project)", () => {
+describe("Research R3 -- startResearch (start a timed research project)", () => {
   it("deducts researchCreditCost at start and pushes a researchProject process", () => {
     const cost = BLUEPRINTS.frameSegmentBp.researchCreditCost; // 500
     const state: GameState = { ...freshState(), credits: new Decimal(cost + 250) };
@@ -375,7 +375,7 @@ describe("Research R3 — startResearch (start a timed research project)", () =>
   });
 });
 
-describe("Research R3 — resolveProcesses completes a research project", () => {
+describe("Research R3 -- resolveProcesses completes a research project", () => {
   it("unlocks the blueprint on completion (idempotent add) and awards NO Fleet Admiral XP", () => {
     const cost = BLUEPRINTS.frameSegmentBp.researchCreditCost;
     const dur = BLUEPRINTS.frameSegmentBp.researchDurationTicks;
@@ -411,7 +411,7 @@ describe("Research R3 — resolveProcesses completes a research project", () => 
   });
 });
 
-describe("⚠️ Research R3 REQUIRED offline==live PARITY — a research project completes mid-span", () => {
+describe("⚠️ Research R3 REQUIRED offline==live PARITY -- a research project completes mid-span", () => {
   // Research runs as an ordinary timed process stepped inside economyTick, so a big
   // offline catch-up (tick(bigSpan), which internally steps economyTick(_,1)) must be
   // BIT-IDENTICAL to looping economyTick(_,1) live -- for researchedBlueprints, credits,
@@ -475,7 +475,7 @@ describe("⚠️ Research R3 REQUIRED offline==live PARITY — a research projec
 // several fail at once; ok itself is order-independent, all must pass):
 //   notFound -> alreadyResearched -> inProgress -> tierLocked -> noSlot -> credits
 // ============================================================================
-describe("Research R4 — canResearch (typed-reason availability gate)", () => {
+describe("Research R4 -- canResearch (typed-reason availability gate)", () => {
   // A fresh, funded state: research level 1 (tier-1 researchable), one free slot, and
   // plenty of credits -- so tier-1 blueprints pass EVERY gate unless a test unmeets one.
   const funded = (): GameState => ({ ...freshState(), credits: new Decimal(1_000_000) });
@@ -562,7 +562,7 @@ describe("Research R4 — canResearch (typed-reason availability gate)", () => {
 // undefined on success, the canResearch reason on each block -- and re-confirms the
 // same-REFERENCE no-op convention on every blocked path.
 // ============================================================================
-describe("Research R4 — startResearch exposes canResearch's reason", () => {
+describe("Research R4 -- startResearch exposes canResearch's reason", () => {
   it("on success: started true, reason undefined, credits deducted, process pushed", () => {
     const cost = BLUEPRINTS.frameSegmentBp.researchCreditCost; // 500
     const state: GameState = { ...freshState(), credits: new Decimal(cost + 250) };

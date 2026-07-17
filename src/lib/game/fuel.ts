@@ -1,5 +1,5 @@
 // ============================================================================
-// Fuel model — pure fuel math for the mission fuel economy.
+// Fuel model -- pure fuel math for the mission fuel economy.
 // Author: Mission Rework Task 3 (docs/plans/2026-07-14-mission-rework-plan.md),
 // design §3. Created 2026-07-14.
 //

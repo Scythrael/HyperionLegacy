@@ -9,7 +9,7 @@ import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintRe
 // round trip (the "no new migration needed" proof).
 import { canDispatch, missionUnlocked, buyFuel, economyTick } from "./tick";
 
-describe("migrate — tickDurationSeconds backfill", () => {
+describe("migrate -- tickDurationSeconds backfill", () => {
   it("defaults tickDurationSeconds to 10 on a v1 save that predates the field", () => {
     // A genuine pre-tick-bar v1 shape: flat (pre-Phase-1) fields, no
     // tickDurationSeconds, no research, no synthesizer/alloys keys at all --
@@ -51,7 +51,7 @@ describe("migrate — tickDurationSeconds backfill", () => {
   });
 });
 
-describe("migrate — research field backfill", () => {
+describe("migrate -- research field backfill", () => {
   it("defaults research to a fresh alloySynthesis entry on a v2 save that predates the field", () => {
     // A genuine v2 shape: tickDurationSeconds now present (MIGRATIONS[1]
     // already ran on real saves of this era), but research doesn't exist
@@ -90,7 +90,7 @@ describe("migrate — research field backfill", () => {
   });
 });
 
-describe("migrate — synthesizer/alloys field backfill (hotfix)", () => {
+describe("migrate -- synthesizer/alloys field backfill (hotfix)", () => {
   it("defaults modules.synthesizer and resources.alloys to 0 on a v3 save that predates the fields", () => {
     // A genuine v3 shape: tickDurationSeconds and research both present
     // (MIGRATIONS[1] and [2] already ran on real saves of this era), but
@@ -159,12 +159,12 @@ describe("migrate — synthesizer/alloys field backfill (hotfix)", () => {
   });
 });
 
-// NOTE: the pre-Task-3 "migrate — chained v1 -> v4 migration" describe block
+// NOTE: the pre-Task-3 "migrate -- chained v1 -> v4 migration" describe block
 // that used to live here was deleted, not just edited. It predated Task 1's
 // model.ts refactor (its freshState()-based fixture no longer matches the
 // real v1 shape and its assertions read top-level fields that MIGRATIONS[4]
 // now moves under captains[0]), and it is now strictly redundant with
-// "migrate — chained v1 -> v5 migration" below, which covers the same "one
+// "migrate -- chained v1 -> v5 migration" below, which covers the same "one
 // genuine legacy save chained through every migration step" property,
 // correctly extended through v5. Keeping both would mean maintaining two
 // overlapping tests of the same property, one of them broken -- removing the
@@ -172,7 +172,7 @@ describe("migrate — synthesizer/alloys field backfill (hotfix)", () => {
 // "keep every existing describe block untouched" instruction, not a silent
 // coverage drop (the new block is a strict superset).
 
-describe("migrate — captains roster backfill (v4 -> v5)", () => {
+describe("migrate -- captains roster backfill (v4 -> v5)", () => {
   it("moves the old flat shape into captains[0] and adds a fresh captains[1]", () => {
     // A genuine pre-Phase-1 save: resources/modules/research/lifetimeComponents/
     // tickDurationSeconds sitting directly on the state object, `captains`
@@ -264,7 +264,7 @@ describe("migrate — captains roster backfill (v4 -> v5)", () => {
   });
 });
 
-describe("migrate — captain miner-floor backfill (hotfix)", () => {
+describe("migrate -- captain miner-floor backfill (hotfix)", () => {
   it("repairs a captain permanently stuck at 0 miners, leaves an unaffected captain untouched", () => {
     // The real-world corrupted shape: a save that already migrated through
     // the unpatched v4->v5 step (or was otherwise created with the old
@@ -361,17 +361,17 @@ describe("migrate — captain miner-floor backfill (hotfix)", () => {
   });
 });
 
-// NOTE: the pre-Task-3 "migrate — chained v1 -> v6 migration" describe block
+// NOTE: the pre-Task-3 "migrate -- chained v1 -> v6 migration" describe block
 // that used to live here was deleted, not just edited -- same deliberate,
 // authorized deviation from this task's own "keep every existing describe
 // block untouched" instruction as the v1->v5 deletion noted above. It
 // exercised the exact same legacyState literal and is now strictly redundant
-// with "migrate — chained v1 -> v7 migration" below, which covers the same
+// with "migrate -- chained v1 -> v7 migration" below, which covers the same
 // "one genuine legacy save chained through every migration step" property,
 // correctly extended through v7's grandfathering. Keeping both would mean
 // maintaining two overlapping tests of the same property, one of them stale.
 
-describe("migrate — skill tree backfill (v6 -> v7)", () => {
+describe("migrate -- skill tree backfill (v6 -> v7)", () => {
   it("grandfathers an existing v6 save's 2nd captain as if commandRank1 were already bought", () => {
     // A genuine v6 save: 2 captains (Phase 1's fixed starting count), no
     // skill tree fields at all. Hand-written literal -- freshState() no
@@ -467,18 +467,18 @@ describe("migrate — skill tree backfill (v6 -> v7)", () => {
   });
 });
 
-// NOTE: the pre-Task-4 "migrate — chained v1 -> v7 migration" describe block
+// NOTE: the pre-Task-4 "migrate -- chained v1 -> v7 migration" describe block
 // that used to live here was deleted, not just edited -- same deliberate,
 // authorized deviation from this task's own "keep every existing describe
 // block untouched" instruction as the v1->v5 and v1->v6 deletions noted
 // above. It exercised the exact same legacyState literal and is now strictly
-// redundant with "migrate — chained v1 -> v8 migration" below, which covers
+// redundant with "migrate -- chained v1 -> v8 migration" below, which covers
 // the same "one genuine legacy save chained through every migration step"
 // property, correctly extended through v8's homePlanet/mission backfill.
 // Keeping both would mean maintaining two overlapping tests of the same
 // property, one of them stale.
 
-describe("migrate — home planet storage & captain mission backfill (v7 -> v8)", () => {
+describe("migrate -- home planet storage & captain mission backfill (v7 -> v8)", () => {
   it("backfills homePlanet.storage and mission: null on a genuine v7 save that predates both fields", () => {
     // A genuine v7 shape: skill tree fields present (MIGRATIONS[6] already ran
     // on real saves of this era), but `homePlanet` doesn't exist anywhere on
@@ -552,18 +552,18 @@ describe("migrate — home planet storage & captain mission backfill (v7 -> v8)"
   });
 });
 
-// NOTE: the pre-Task-7 "migrate — chained v1 -> v8 migration" describe block
+// NOTE: the pre-Task-7 "migrate -- chained v1 -> v8 migration" describe block
 // that used to live here was deleted, not just edited -- same deliberate,
 // authorized deviation from this task's own "keep every existing describe
 // block untouched" instruction as the v1->v5, v1->v6, and v1->v7 deletions
 // noted above. It exercised the exact same legacyState literal and is now
-// strictly redundant with "migrate — chained v1 -> v9 migration" below, which
+// strictly redundant with "migrate -- chained v1 -> v9 migration" below, which
 // covers the same "one genuine legacy save chained through every migration
 // step" property, correctly extended through v9's captain leveling/Homeworld
 // crafting backfill. Keeping both would mean maintaining two overlapping
 // tests of the same property, one of them stale.
 
-describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9)", () => {
+describe("migrate -- captain leveling and Homeworld crafting backfill (v8 -> v9)", () => {
   it("backfills xp/level/statPoints on every captain, and refinedMaterial/components on homePlanet storage", () => {
     // A genuine v8 shape: homePlanet.storage and mission both present
     // (MIGRATIONS[7] already ran on real saves of this era), but captains
@@ -622,7 +622,7 @@ describe("migrate — captain leveling and Homeworld crafting backfill (v8 -> v9
   });
 });
 
-describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)", () => {
+describe("migrate -- captain and Fleet Admiral talent tree backfill (v9 -> v10)", () => {
   it("backfills unlockedCaptainTalents on every captain, and the Fleet Admiral fields on GameState", () => {
     // A genuine v9 shape: xp/level/statPoints and homePlanet.storage's full
     // 5-key set both present (MIGRATIONS[8] already ran on real saves of this
@@ -681,7 +681,7 @@ describe("migrate — captain and Fleet Admiral talent tree backfill (v9 -> v10)
   });
 });
 
-describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => {
+describe("migrate -- fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => {
   it("reads tickDurationSeconds off the first captain and strips it from every captain", () => {
     // A genuine pre-v11 shape: every captain still carries its own
     // tickDurationSeconds (the per-captain era, before the UI Redesign
@@ -751,7 +751,7 @@ describe("migrate — fleet-wide tickDurationSeconds backfill (v10 -> v11)", () 
   });
 });
 
-describe("migrate — Big-Number (Decimal) hydration (v11 -> v12)", () => {
+describe("migrate -- Big-Number (Decimal) hydration (v11 -> v12)", () => {
   it("converts every Decimal-designated field from plain number to a real Decimal instance on a genuine pre-v12 save", () => {
     // A genuine v11 shape: every field this migration cares about is still a
     // plain JS number (mission.cargo's 3 keys, xp, homePlanet.storage's 5
@@ -934,7 +934,7 @@ describe("migrate — Big-Number (Decimal) hydration (v11 -> v12)", () => {
   });
 });
 
-describe("migrate — Tick Granularity Rebalance (v12 -> v13)", () => {
+describe("migrate -- Tick Granularity Rebalance (v12 -> v13)", () => {
   it("leaves an idle captain (mission: null) completely untouched", () => {
     // A genuine v12 shape: tickDurationSeconds still 10 (pre-rebalance),
     // idle captain -- confirms the migration's `if (!c.mission) return c;`
@@ -1108,7 +1108,7 @@ describe("migrate — Tick Granularity Rebalance (v12 -> v13)", () => {
   });
 });
 
-describe("migrate — credits and Captain Specialization backfill (v13 -> v14)", () => {
+describe("migrate -- credits and Captain Specialization backfill (v13 -> v14)", () => {
   it("backfills credits: 0 (fleet-wide) and spec: null (per captain) on a genuine v13 save that predates both fields", () => {
     // A genuine v13 shape: every field through MIGRATIONS[12] already present
     // (tickDurationSeconds collapsed fleet-wide at 1, homePlanet.storage's full
@@ -1191,7 +1191,7 @@ describe("migrate — credits and Captain Specialization backfill (v13 -> v14)",
   });
 });
 
-describe("migrate — Radial Skill Web talent restructure (v14 -> v15)", () => {
+describe("migrate -- Radial Skill Web talent restructure (v14 -> v15)", () => {
   it("refunds each captain's old captain-talent costs from a FROZEN v14 snapshot, clears the talent list, and nulls only the command spec", () => {
     // A genuine v14 shape: every field through MIGRATIONS[13] already present
     // (credits fleet-wide, per-captain spec, xp/level/statPoints/
@@ -1368,7 +1368,7 @@ describe("migrate — Radial Skill Web talent restructure (v14 -> v15)", () => {
   });
 });
 
-describe("migrate — Ships stats foundation: grandfather a Freighter per captain (v15 -> v16)", () => {
+describe("migrate -- Ships stats foundation: grandfather a Freighter per captain (v15 -> v16)", () => {
   it("gives every captain a generalFreighter ship, drops shipType, adds ships/shipStorageCapacity/nextShipId, and leaves an in-flight mission intact", () => {
     // A genuine v15 shape: every field through MIGRATIONS[14] already present
     // (credits fleet-wide, per-captain spec, xp/level/statPoints/
@@ -1540,7 +1540,7 @@ describe("migrate — Ships stats foundation: grandfather a Freighter per captai
   });
 });
 
-describe("migrate — lifetimeStats reservation backfill (v16 -> v17)", () => {
+describe("migrate -- lifetimeStats reservation backfill (v16 -> v17)", () => {
   it("backfills a fully-zeroed lifetimeStats on a genuine v16 save that predates the field, leaving every existing field untouched", () => {
     // A genuine v16 shape: every field through MIGRATIONS[15] already present
     // (ships/shipStorageCapacity/nextShipId, per-captain spec, no shipType,
@@ -1748,7 +1748,7 @@ describe("migrate — lifetimeStats reservation backfill (v16 -> v17)", () => {
   });
 });
 
-describe("migrate — Ship Production Economy Phase 1: inventory/discovered/facilities/processes backfill (v17 -> v18)", () => {
+describe("migrate -- Ship Production Economy Phase 1: inventory/discovered/facilities/processes backfill (v17 -> v18)", () => {
   it("builds inventory 1:1 from homePlanet.storage, discovers only >0 items, seeds facilities/activeProcesses/nextProcessId, DROPS the old homePlanet field, and leaves lifetimeStats intact", () => {
     // A genuine v17 shape: every field through MIGRATIONS[16] already present --
     // notably lifetimeStats (which SHIPPED live in v17, so a real returning
@@ -2024,7 +2024,7 @@ describe("migrate — Ship Production Economy Phase 1: inventory/discovered/faci
   });
 });
 
-describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
+describe("migrate -- Tiered Warehouse facility backfill (v18 -> v19)", () => {
   it("seeds warehouseT1/warehouseT2 at level 0 on a genuine v18 save, leaving refinery, inventory, and every other field untouched", () => {
     // A genuine v18 shape: every Phase 1 field already present -- notably
     // `facilities` seeded REFINERY-ONLY by MIGRATIONS[17], `inventory`,
@@ -2207,7 +2207,7 @@ describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
   });
 });
 
-describe("migrate — refine-order backfill (v19 -> v20)", () => {
+describe("migrate -- refine-order backfill (v19 -> v20)", () => {
   it("seeds refineOrder: null on a genuine v19 save, leaving every other field untouched", () => {
     // A genuine v19 shape: every Phase 1 + Task B2 field present (notably all THREE
     // facilities -- refinery + warehouseT1 + warehouseT2 -- which MIGRATIONS[18]
@@ -2332,7 +2332,7 @@ describe("migrate — refine-order backfill (v19 -> v20)", () => {
   });
 });
 
-describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
+describe("migrate -- fuel + mission facilities backfill (v20 -> v21)", () => {
   it("seeds fuel:FUEL_TANK_BASE_CAP (full tank), fuelStorage level 0, and missionControl level 1 on a genuine v20 save, leaving every other field untouched", () => {
     // A genuine v20 shape: every Phase-2 field present (all THREE facilities that
     // MIGRATIONS[17]/[18] seed -- refinery + warehouseT1 + warehouseT2 -- plus the
@@ -2508,7 +2508,7 @@ describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
 // researchProject timed processes ride activeProcesses, which is already migrated + hydrated. These
 // tests mirror the v20->v21 block above (genuine-old-save seed / freshState parity / idempotent
 // guard / round-trip), swapping in the research fields.
-describe("migrate — research state backfill (v21 -> v22)", () => {
+describe("migrate -- research state backfill (v21 -> v22)", () => {
   it("seeds researchedBlueprints:[] and research facility level 1 on a genuine v21 save, leaving every other field untouched", () => {
     // A genuine v21 shape: every Mission-Rework/Fuel field present (fuel + fuelStorage +
     // missionControl, seeded by MIGRATIONS[20]) but NO researchedBlueprints array and NO
@@ -2700,7 +2700,7 @@ describe("migrate — research state backfill (v21 -> v22)", () => {
 // processes ride activeProcesses, which is already migrated + hydrated. These tests mirror the
 // v21->v22 (research) block above (genuine-old-save seed / freshState parity / idempotent guard /
 // round-trip), swapping in the fabricator fields.
-describe("migrate — fabricator state backfill (v22 -> v23)", () => {
+describe("migrate -- fabricator state backfill (v22 -> v23)", () => {
   it("seeds fabricator facility level 1 and fabricateOrder:null on a genuine v22 save, leaving every other field untouched", () => {
     // A genuine v22 shape: every Research field present (researchedBlueprints + facilities.research,
     // seeded by MIGRATIONS[21]) but NO facilities.fabricator key and NO fabricateOrder field
@@ -2895,7 +2895,7 @@ describe("migrate — fabricator state backfill (v22 -> v23)", () => {
 // (already migrated + hydrated). These tests mirror the v22->v23 (fabricator) block above (genuine-
 // old-save seed+drop / freshState parity / idempotent-defensive guard / round-trip), swapping in the
 // line fields and the dropped order keys.
-describe("migrate — production-lines backfill + legacy-order drop (v23 -> v24)", () => {
+describe("migrate -- production-lines backfill + legacy-order drop (v23 -> v24)", () => {
   it("seeds empty refineLines/fabricateLines + nextCraftLineId 1 and DROPS legacy refineOrder/fabricateOrder on a genuine v23 save, leaving every other field untouched", () => {
     // A genuine v23 shape: every Fabricator field present (facilities.fabricator + fabricateOrder,
     // seeded by MIGRATIONS[22]) plus the refineOrder MIGRATIONS[19] seeds -- but NO refineLines/
@@ -3085,7 +3085,7 @@ describe("migrate — production-lines backfill + legacy-order drop (v23 -> v24)
 // the Decimal-free refinery/warehouse/fuelStorage/missionControl/research/fabricator facilities do.
 // These tests mirror the v22->v23 (fabricator) / v23->v24 (lines) blocks above (genuine-old-save seed /
 // freshState parity / idempotent-defensive guard / round-trip), swapping in the shipyard facility.
-describe("migrate — shipyard facility backfill (v24 -> v25)", () => {
+describe("migrate -- shipyard facility backfill (v24 -> v25)", () => {
   it("seeds facilities.shipyard level 0 on a genuine v24 save (no shipyard), leaving every other field untouched", () => {
     // A genuine v24 shape: every Crafting-Allocation-Redesign field present (refineLines/
     // fabricateLines/nextCraftLineId seeded by MIGRATIONS[23], NO legacy refineOrder/fabricateOrder
@@ -3270,7 +3270,7 @@ describe("migrate — shipyard facility backfill (v24 -> v25)", () => {
 // built from freshState(), which is now the CURRENT version (v23), so migrate() runs ZERO version
 // steps here (already-current, then hydrateDecimals) exactly as it did at v21 -- the fuel-v2
 // property this test locks in is unchanged by R6's/F6's additive research/fabricator seeds.
-describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 — no new migration)", () => {
+describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 -- no new migration)", () => {
   it("hydrates + PLAYS at the CURRENT version: fuel present, Fuel Depot refines an in-flight batch, missions dispatch", () => {
     // Build a realistic mid-play v21 state: a stocked Fuel Depot (Deuterium Ice on hand) so a
     // fuelRefineJob is IN FLIGHT, plus credits to buy fuel and dispatch afterwards.
@@ -3322,29 +3322,29 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 �
   });
 });
 
-// NOTE: the pre-Task-5 "migrate — chained v1 -> v9 migration" describe block
+// NOTE: the pre-Task-5 "migrate -- chained v1 -> v9 migration" describe block
 // that used to live here was deleted, not just edited -- same deliberate,
 // authorized deviation from this task's own "keep every existing describe
 // block untouched" instruction as the v1->v5, v1->v6, v1->v7, and v1->v8
 // deletions noted above. It exercised the exact same legacyState literal and
-// is now strictly redundant with "migrate — chained v1 -> v10 migration"
+// is now strictly redundant with "migrate -- chained v1 -> v10 migration"
 // below, which covers the same "one genuine legacy save chained through
 // every migration step" property, correctly extended through v10's captain/
 // Fleet Admiral talent tree backfill.
 //
-// NOTE: the pre-Task-3 (UI Redesign) "migrate — chained v1 -> v10 migration"
+// NOTE: the pre-Task-3 (UI Redesign) "migrate -- chained v1 -> v10 migration"
 // describe block that used to live here was deleted, not just edited -- same
 // deliberate, authorized deviation from this task's own "keep every existing
 // describe block untouched" instruction as the v1->v5 through v1->v9
 // deletions noted above. It exercised the exact same legacyState literal and
-// is now strictly redundant with "migrate — chained v1 -> v11 migration"
+// is now strictly redundant with "migrate -- chained v1 -> v11 migration"
 // below, which covers the same "one genuine legacy save chained through
 // every migration step" property, correctly extended through v11's
 // fleet-wide tickDurationSeconds backfill.
 //
-// NOTE: this block was originally titled "migrate — chained v1 -> v11
+// NOTE: this block was originally titled "migrate -- chained v1 -> v11
 // migration" (pre-Task-3 of the Big-Number Migration), then renamed in place
-// to "migrate — chained v1 -> v12 migration" (Task 3, Big-Number Migration)
+// to "migrate -- chained v1 -> v12 migration" (Task 3, Big-Number Migration)
 // without deleting+replacing, per that task's own instructions -- only the
 // title and the Decimal-designated field assertions changed at that time.
 // Renamed in place AGAIN here (v12 -> v13, this Task 4), same pattern: the
@@ -3361,13 +3361,13 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2 �
 // `mission: null` for captains[1] -- so MIGRATIONS[12]'s captain-remap branch
 // only ever exercises its early-return (`if (!c.mission) return c;`) on this
 // path, never the progressRatio/newRequired remap math. That math is
-// exercised instead by the hand-constructed mid-phase tests in the "migrate —
+// exercised instead by the hand-constructed mid-phase tests in the "migrate --
 // Tick Granularity Rebalance (v12 -> v13)" describe block above, per this
 // task's own instructions (a genuine v1 legacy save with no in-progress
 // mission needs no remap trace, only confirmation that it still ends up idle
 // and at the new tickDurationSeconds).
 
-describe("migrate — chained v1 -> v13 migration", () => {
+describe("migrate -- chained v1 -> v13 migration", () => {
   it("backfills every field across all twelve migration steps on a genuine v1 save missing all of them, ending with every Decimal-designated field hydrated and tickDurationSeconds at the new value", () => {
     // The real v1 shape: no tickDurationSeconds, no research, no
     // synthesizer/alloys fields, no captains array, no skill tree fields, no
@@ -3588,7 +3588,7 @@ describe("importRawSave", () => {
   });
 });
 
-describe("deserialize — whitespace tolerance (import robustness hardening)", () => {
+describe("deserialize -- whitespace tolerance (import robustness hardening)", () => {
   // Regression guard for the real-world import failure this hardening fixes:
   // a save exported to a .json file and re-imported often picks up a trailing
   // newline (editors / downloads append one). Before the .trim() inside

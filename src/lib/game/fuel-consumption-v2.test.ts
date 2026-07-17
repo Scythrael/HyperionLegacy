@@ -1,4 +1,4 @@
-// Fuel consumption rework tests — Fuel Economy v2 F3
+// Fuel consumption rework tests -- Fuel Economy v2 F3
 // (docs/plans/2026-07-14-fuel-economy-v2-design.md §3/§4/§"Offline"),
 // UPDATED for the 2026-07-15 fuel-sourcing RESTRUCTURE (see below).
 //
@@ -72,7 +72,7 @@ function step(state: GameState, n: number, rng = ALL_COMMON): GameState {
   return s;
 }
 
-describe("F3 retune — constants", () => {
+describe("F3 retune -- constants", () => {
   it("keeps FUEL_PER_TICK at 1 and makes credit auto-buy EXPENSIVE (FUEL_CREDITS_PER_UNIT 5 -> 20)", () => {
     expect(FUEL_PER_TICK).toBe(1);
     expect(FUEL_CREDITS_PER_UNIT).toBe(20); // restructure: expensive convenience, not a crutch
@@ -95,7 +95,7 @@ describe("F3 retune — constants", () => {
   });
 });
 
-describe("F3 — SUSTAINABILITY is the non-bricking guarantee (refining, not credit auto-buy)", () => {
+describe("F3 -- SUSTAINABILITY is the non-bricking guarantee (refining, not credit auto-buy)", () => {
   it("the Fuel Depot's production RATE far exceeds a mission's consumption RATE", () => {
     // Level-0 depot: one batch = FUEL_REFINE_OUTPUT (100) fuel over FUEL_REFINE_DURATION_TICKS
     // (10) ticks = 10 fuel/tick produced, vs shortOreRun's NEED (50) spread over CYCLE_TICKS
@@ -233,7 +233,7 @@ describe("F3 (c) truly broke -> hard-stop (dispatch blocked / auto-repeat ends)"
   });
 });
 
-describe("Fuel-sourcing restructure — the free localFuelRun bootstrap runs on 0 fuel + refines its ice", () => {
+describe("Fuel-sourcing restructure -- the free localFuelRun bootstrap runs on 0 fuel + refines its ice", () => {
   it("dispatches on an EMPTY tank with 0 credits (0 fuel cost) and never fuel-stops", () => {
     let s = freshState();
     s.fuel = new Decimal(0); // fully drained -- proves the local run needs NO fuel
@@ -268,7 +268,7 @@ describe("Fuel-sourcing restructure — the free localFuelRun bootstrap runs on 
   });
 });
 
-describe("⚠️ F3 REQUIRED offline==live PARITY — refining + consumption + auto-buy + penalty all fire", () => {
+describe("⚠️ F3 REQUIRED offline==live PARITY -- refining + consumption + auto-buy + penalty all fire", () => {
   // The controller re-verifies this personally. A multi-cycle span where the Fuel Depot refines
   // Deuterium Ice -> fuel, the mission burns fuel every cycle, the ice reserve RUNS OUT mid-span,
   // and once it does the drained tank forces an auto-buy + the +2-tick penalty. So all FOUR

@@ -1,4 +1,4 @@
-// Mission-control facility tests — Mission Rework, Task 6
+// Mission-control facility tests -- Mission Rework, Task 6
 // (docs/plans/2026-07-14-mission-rework-plan.md Task 6 + design §2),
 // REVISED 2026-07-14 (USER REVISION: all 4 missions default; unlock upgrade deferred).
 //
@@ -32,7 +32,7 @@ import {
 } from "./tick";
 import { freshState, FACILITIES } from "./model";
 
-describe("missionControl — fresh state seed + level-derived unlocks (USER REVISION: all 4 default)", () => {
+describe("missionControl -- fresh state seed + level-derived unlocks (USER REVISION: all 4 default)", () => {
   it("freshState seeds missionControl at level 1 (established from game start, no soft-lock)", () => {
     expect(freshState().facilities.missionControl).toEqual({ level: 1 });
   });
@@ -45,7 +45,7 @@ describe("missionControl — fresh state seed + level-derived unlocks (USER REVI
   });
 });
 
-describe("missionControl — track caps at level 1 (unlock UPGRADE deferred, no placeholder rung)", () => {
+describe("missionControl -- track caps at level 1 (unlock UPGRADE deferred, no placeholder rung)", () => {
   it("FACILITIES.missionControl has exactly 1 rung (the lone founding rung -- no live unlock rung)", () => {
     expect(FACILITIES.missionControl.upgrades).toHaveLength(1);
   });
@@ -64,7 +64,7 @@ describe("missionControl — track caps at level 1 (unlock UPGRADE deferred, no 
   });
 });
 
-describe("requiresMissionCompletions — RESERVED prereq mechanism stays enforced (for future unlock rungs)", () => {
+describe("requiresMissionCompletions -- RESERVED prereq mechanism stays enforced (for future unlock rungs)", () => {
   // The mission-control unlock UPGRADE was deferred (USER REVISION 2026-07-14), so NO
   // production rung uses requiresMissionCompletions today. But the prereq TYPE
   // (FacilityUpgradeDef.requiresMissionCompletions) and its enforcement in the generic
@@ -117,7 +117,7 @@ describe("requiresMissionCompletions — RESERVED prereq mechanism stays enforce
   });
 });
 
-describe("dispatchCaptainOnMission — belt-and-suspenders unlock guard (retained for future locked missions)", () => {
+describe("dispatchCaptainOnMission -- belt-and-suspenders unlock guard (retained for future locked missions)", () => {
   it("all four missions dispatch at the fresh level-1 seed (capability gates cleared)", () => {
     const state = freshState();
     state.fuel = new Decimal(1_000_000); // rule out the fuel gate -- isolate the unlock gate

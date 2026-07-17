@@ -10,7 +10,7 @@ import Decimal from "break_infinity.js";
 // (or a swap to a different big-number library) changing any of this should
 // fail here first, in isolation, rather than surfacing as a confusing failure
 // somewhere deep in tick.test.ts/save.test.ts.
-describe("break_infinity.js Decimal — smoke test", () => {
+describe("break_infinity.js Decimal -- smoke test", () => {
   it("constructs from a number and a string, both producing an equal value", () => {
     const fromNumber = new Decimal(12345);
     const fromString = new Decimal("12345");

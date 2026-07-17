@@ -1,7 +1,7 @@
-// Fuel data model tests — Mission Rework Task 3
+// Fuel data model tests -- Mission Rework Task 3
 // (docs/plans/2026-07-14-mission-rework-plan.md Task 3, design §3).
 //
-// Covers the fuel DATA MODEL only (no consumption / UI — those are Tasks 5/8):
+// Covers the fuel DATA MODEL only (no consumption / UI -- those are Tasks 5/8):
 //   - Every SHIP_TYPES hull carries the two new stats (fuelCapacity,
 //     engineEfficiency) so no hull can ship without them.
 //   - roundTripTransitTicks / fuelNeeded pure math: a known mission+hull value,
@@ -113,11 +113,11 @@ describe("GameState.fuel", () => {
 
 // --- Task 4: fuel-storage facility cap + buyFuel ----------------------------
 describe("fuelCap", () => {
-  it("returns a POSITIVE base cap on a fresh state (no soft-lock — fuel buyable from start)", () => {
+  it("returns a POSITIVE base cap on a fresh state (no soft-lock -- fuel buyable from start)", () => {
     // ⚠️ The critical no-soft-lock guarantee: missions are available from game
     // start and need fuel to dispatch, so the tank MUST hold fuel at facility
     // level 0. Unlike an un-built warehouse tier, fuelCap never returns a tiny /
-    // sentinel value — a fresh fleet's cap is exactly FUEL_TANK_BASE_CAP.
+    // sentinel value -- a fresh fleet's cap is exactly FUEL_TANK_BASE_CAP.
     const state = freshState();
     const cap = fuelCap(state);
     expect(cap).toBeInstanceOf(Decimal);

@@ -1,4 +1,4 @@
-// --- Radial Skill Web — fog-of-war visible-set tests -----------------------
+// --- Radial Skill Web -- fog-of-war visible-set tests -----------------------
 // Author: Radial Skill Web feature (Task 4)
 // Created: 2026-07-08 (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 4)
 //
@@ -19,7 +19,7 @@ import { describe, it, expect } from "vitest";
 import { computeVisibleTalents } from "./talentWeb";
 import { CAPTAIN_TALENTS } from "./model";
 
-describe("computeVisibleTalents — fog-of-war reveal", () => {
+describe("computeVisibleTalents -- fog-of-war reveal", () => {
   it("hub is visible with zero owned; nothing else is", () => {
     // Design §2.2: with an empty owned set the hub is the sole bootstrap seed.
     const vis = computeVisibleTalents(CAPTAIN_TALENTS, "resourcefulness", []);
@@ -56,8 +56,8 @@ describe("computeVisibleTalents — fog-of-war reveal", () => {
 
   it("a node in a DIFFERENT branch is never visible, even if owned is cross-branch", () => {
     // The `branch` filter must exclude other branches' nodes. Pass the tactical
-    // hub into a resourcefulness query: it must contribute nothing — neither
-    // itself nor (it has none anyway) its neighbors — and the resourcefulness
+    // hub into a resourcefulness query: it must contribute nothing -- neither
+    // itself nor (it has none anyway) its neighbors -- and the resourcefulness
     // hub must still be the visible seed.
     const vis = computeVisibleTalents(CAPTAIN_TALENTS, "resourcefulness", ["tacticianHub"]);
     expect(vis.has("tacticianHub")).toBe(false); // wrong branch, excluded

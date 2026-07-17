@@ -7,7 +7,7 @@ import Decimal from "break_infinity.js";
 // compile time, so there is no runtime import cycle.
 import type { CraftLine } from "./allocation";
 
-// Data model — tech spec §1 (Data Model).
+// Data model -- tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
 // the Generator Stack economy (and everything built on top of it -- Research,
 // Specializations, the Skill Tree, both Prestige tiers) has been retired in
@@ -26,7 +26,7 @@ import type { CraftLine } from "./allocation";
 // every existing call site that pattern-matches on this field.
 export type ShipType = "resourcer";
 
-// --- Ships — Stats Foundation (docs/plans/2026-07-09-ships-stats-foundation-*) ---
+// --- Ships -- Stats Foundation (docs/plans/2026-07-09-ships-stats-foundation-*) ---
 // A ship is a HULL with a stat profile, distinct from the captain flying it. The
 // type vocabulary + SHIP_TYPES table are below; the fleet's live hulls live on
 // GameState.ships, and a captain no longer carries a shipType -- a ShipInstance
@@ -52,8 +52,8 @@ export type ShipTypeKey =
   | "prospectorHauler"
   | "prospectorRunner"
   | "prospectorMiner";
-// FORWARD BUCKETS (documented in the design doc, NOT built this pass): tactician —
-// destroyer/battleship/carrier; explorer — cruiser/surveyor/medical (explorer hulls
+// FORWARD BUCKETS (documented in the design doc, NOT built this pass): tactician --
+// destroyer/battleship/carrier; explorer -- cruiser/surveyor/medical (explorer hulls
 // get MORE module slots). Add keys here only when actually built.
 
 export interface ShipTypeDef {
@@ -491,7 +491,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // MOST EXPENSIVE to build (double cargo): the biggest frame BOM + 2 major
     // assemblies + the longest build. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 8, powerCoupling: 5, structuralAssembly: 2 }, credits: 1400, durationTicks: 700 },
-    description: "Doubles cargo at the cost of speed — big hauls, longer runs.",
+    description: "Doubles cargo at the cost of speed -- big hauls, longer runs.",
   },
   prospectorRunner: {
     label: "Runner", spec: "prospector", tier: 1,
@@ -501,7 +501,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // MID build (fast but small hold): a lighter frame BOM than the extraction hulls +
     // 1 major assembly. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 4, structuralAssembly: 1 }, credits: 900, durationTicks: 450 },
-    description: "Fast transit, small hold — rapid short cycles.",
+    description: "Fast transit, small hold -- rapid short cycles.",
   },
   prospectorMiner: {
     label: "Prospector", spec: "prospector", tier: 1,
@@ -511,7 +511,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // ABOVE-MID build (specialized extraction rig): a heavier BOM than the Runner +
     // 1 major assembly, below the Hauler. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 4, structuralAssembly: 1 }, credits: 1100, durationTicks: 550 },
-    description: "Specialized extraction rig — more materials per tick.",
+    description: "Specialized extraction rig -- more materials per tick.",
   },
 };
 
@@ -1526,7 +1526,7 @@ export interface GameState {
   // saves is Task 9's job -- hydrateDecimals defaults an absent field to 0 defensively
   // until then, so a pre-migration save can't NaN/throw.
   fuel: Decimal;
-  // --- Ships — Stats Foundation ---
+  // --- Ships -- Stats Foundation ---
   // The fleet's hulls, distinct from the captains flying them. A ShipInstance's
   // assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies it -- the
   // invariant "every captain always has exactly one assigned ship" is enforced
@@ -1810,7 +1810,7 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "raw",
     tier: 2,
     rarity: "uncommon",
-    unlockHint: "Extracted from deep deposits — no mission reaches them yet.",
+    unlockHint: "Extracted from deep deposits -- no mission reaches them yet.",
     flavor: "Impossibly compacted rock from the deep seams. The fleet can't reach it -- yet.",
   },
   // --- Catalog scaffold (Phase 2 Warehouse) -- UNOBTAINABLE PLACEHOLDERS -------

@@ -34,7 +34,7 @@ import {
   economyTick,
 } from "./tick";
 
-describe("Fabricator F1 — BLUEPRINTS craftDurationTicks", () => {
+describe("Fabricator F1 -- BLUEPRINTS craftDurationTicks", () => {
   it("every blueprint has a positive, finite craftDurationTicks", () => {
     for (const key of Object.keys(BLUEPRINTS)) {
       const bp = BLUEPRINTS[key];
@@ -44,7 +44,7 @@ describe("Fabricator F1 — BLUEPRINTS craftDurationTicks", () => {
   });
 });
 
-describe("Fabricator F1 — FACILITIES.fabricator (tier + slot upgrade track)", () => {
+describe("Fabricator F1 -- FACILITIES.fabricator (tier + slot upgrade track)", () => {
   it("exists, is labelled 'Fabricator', with a FINITE track (one rung per blueprint tier)", () => {
     const fab = FACILITIES.fabricator;
     expect(fab).toBeDefined();
@@ -77,7 +77,7 @@ describe("Fabricator F1 — FACILITIES.fabricator (tier + slot upgrade track)", 
   });
 });
 
-describe("Fabricator F1 — fabricateSlotCount + fresh-state seed", () => {
+describe("Fabricator F1 -- fabricateSlotCount + fresh-state seed", () => {
   it("freshState seeds the fabricator facility at level 1", () => {
     expect(freshState().facilities[FABRICATOR_FACILITY_KEY]).toEqual({ level: 1 });
   });
@@ -153,7 +153,7 @@ function stepTicks(state: GameState, n: number): GameState {
   return s;
 }
 
-describe("Fabricator F2 — startFabricateJob (atomic deduct + timed craft push)", () => {
+describe("Fabricator F2 -- startFabricateJob (atomic deduct + timed craft push)", () => {
   it("deducts the recipe inputs once and pushes ONE fabricateJob on a valid craft", () => {
     const result = startFabricateJob(fabState({ titaniumIngot: 10 }), "frameSegmentBp");
     expect(result.started).toBe(true);
@@ -206,7 +206,7 @@ describe("Fabricator F2 — startFabricateJob (atomic deduct + timed craft push)
   });
 });
 
-describe("Fabricator F2 — completion adds output + increments itemsCrafted (idempotent)", () => {
+describe("Fabricator F2 -- completion adds output + increments itemsCrafted (idempotent)", () => {
   it("stepping a craft to done adds outputQty, bumps itemsCrafted, and never double-counts", () => {
     const started = startFabricateJob(fabState({ titaniumIngot: 4 }), "frameSegmentBp");
     expect(started.started).toBe(true);
@@ -266,20 +266,20 @@ describe("Fabricator F2 — completion adds output + increments itemsCrafted (id
 //     each block, and the UNCHANGED F2 deduct/start path (reason undefined) on ok.
 // ============================================================================
 
-describe("Fabricator F3 — canFabricate returns each reason for its unmet condition", () => {
-  it("notFound — no blueprint has that key (defensive)", () => {
+describe("Fabricator F3 -- canFabricate returns each reason for its unmet condition", () => {
+  it("notFound -- no blueprint has that key (defensive)", () => {
     expect(canFabricate(fabState({ titaniumIngot: 100 }), "notARealBlueprint")).toEqual({
       ok: false,
       reason: "notFound",
     });
   });
 
-  it("notResearched — the blueprint is not in researchedBlueprints", () => {
+  it("notResearched -- the blueprint is not in researchedBlueprints", () => {
     const s = fabState({ titaniumIngot: 100, researched: [] });
     expect(canFabricate(s, "frameSegmentBp")).toEqual({ ok: false, reason: "notResearched" });
   });
 
-  it("tierLocked — the blueprint's tier exceeds the fabricator level", () => {
+  it("tierLocked -- the blueprint's tier exceeds the fabricator level", () => {
     // structuralAssemblyBp is tier 2; a researched tier-2 blueprint on a level-1
     // fabricator is tier-locked even with ample materials.
     const s = fabState({
@@ -291,7 +291,7 @@ describe("Fabricator F3 — canFabricate returns each reason for its unmet condi
     expect(canFabricate(s, "structuralAssemblyBp")).toEqual({ ok: false, reason: "tierLocked" });
   });
 
-  it("noSlot — every fabricate slot is busy (active jobs >= fabricateSlotCount)", () => {
+  it("noSlot -- every fabricate slot is busy (active jobs >= fabricateSlotCount)", () => {
     // 1 slot on a fresh level-1 fabricator. Start one job to fill it, then the next
     // gate check sees no free slot (materials still ample, output not at cap).
     const s0 = fabState({ titaniumIngot: 100 });
@@ -300,13 +300,13 @@ describe("Fabricator F3 — canFabricate returns each reason for its unmet condi
     expect(canFabricate(busy.next, "frameSegmentBp")).toEqual({ ok: false, reason: "noSlot" });
   });
 
-  it("materials — a recipe input is unaffordable (on-hand < required)", () => {
+  it("materials -- a recipe input is unaffordable (on-hand < required)", () => {
     // frameSegmentBp needs titaniumIngot x4; on-hand 3 is short.
     const s = fabState({ titaniumIngot: 3 });
     expect(canFabricate(s, "frameSegmentBp")).toEqual({ ok: false, reason: "materials" });
   });
 
-  it("storageFull — the output component is at its warehouse cap", () => {
+  it("storageFull -- the output component is at its warehouse cap", () => {
     // frameSegment (tier 1) cap is 1,000,000 at warehouse level 0; AT the cap counts
     // as full (materialAtCap uses >=). Inputs ample so only the cap gate fails.
     const s = fabState({ titaniumIngot: 100, frameSegment: 1_000_000 });
@@ -318,7 +318,7 @@ describe("Fabricator F3 — canFabricate returns each reason for its unmet condi
   });
 });
 
-describe("Fabricator F3 — gate-order precedence (which reason surfaces when several fail)", () => {
+describe("Fabricator F3 -- gate-order precedence (which reason surfaces when several fail)", () => {
   it("notResearched wins over materials + storageFull when all three fail", () => {
     // Not researched AND no materials AND output at cap -> the most-fundamental
     // (identity/ownership) reason surfaces first.
@@ -347,7 +347,7 @@ describe("Fabricator F3 — gate-order precedence (which reason surfaces when se
   });
 });
 
-describe("Fabricator F3 — startFabricateJob delegates to canFabricate (reason + unchanged ok path)", () => {
+describe("Fabricator F3 -- startFabricateJob delegates to canFabricate (reason + unchanged ok path)", () => {
   it("on ok: still deducts inputs + pushes ONE job, reason undefined (F2 path unchanged)", () => {
     const s = fabState({ titaniumIngot: 10 });
     const r = startFabricateJob(s, "frameSegmentBp");

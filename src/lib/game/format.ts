@@ -1,5 +1,5 @@
 // The ONE number formatting function. Never call .toString() on a game
-// number for display anywhere else in the codebase — Ops §8.E.4. If the
+// number for display anywhere else in the codebase -- Ops §8.E.4. If the
 // format needs to change later (named tiers, scientific notation threshold,
 // etc.) this is the only place that changes.
 //
@@ -73,7 +73,7 @@ function formatDecimal(d: Decimal): string {
 //
 // GUARDS (why each): a non-finite or non-positive span has no sensible ladder
 // rendering, so:
-//   - NaN / <= 0 (includes 0, negatives, -Infinity) -> "—"  (nothing to show)
+//   - NaN / <= 0 (includes 0, negatives, -Infinity) -> "--"  (nothing to show)
 //   - +Infinity                                      -> "∞"  (never drains)
 // A positive span that rounds below one second still reads "~1s" so the readout
 // never shows a broken "~0s".
@@ -83,9 +83,9 @@ export function formatDuration(ticks: number, secondsPerTick: number): string {
   // Non-finite / non-positive guards FIRST, before any arithmetic. Order
   // matters: NaN fails every comparison, so test it explicitly; +Infinity is
   // the one "still finite work remaining is unbounded" case that reads "∞".
-  if (Number.isNaN(totalSeconds)) return "—";
+  if (Number.isNaN(totalSeconds)) return "--";
   if (totalSeconds === Infinity) return "∞";
-  if (totalSeconds <= 0) return "—"; // 0, negatives, and -Infinity all mean "nothing to show"
+  if (totalSeconds <= 0) return "--"; // 0, negatives, and -Infinity all mean "nothing to show"
 
   const SECONDS_PER_MINUTE = 60;
   const SECONDS_PER_HOUR = 3600;
@@ -145,8 +145,8 @@ export function formatDuration(ticks: number, secondsPerTick: number): string {
 // Days are shown ONLY when present (no "0d 00:..." noise).
 //
 // GUARD: a non-finite input (NaN, +Infinity, -Infinity) has no clock rendering
-// -> "—" (matches formatDuration's "nothing to show" sentinel). Note this is a
-// stricter guard than formatDuration's: +Infinity here is "—", not "∞", because
+// -> "--" (matches formatDuration's "nothing to show" sentinel). Note this is a
+// stricter guard than formatDuration's: +Infinity here is "--", not "∞", because
 // a fixed countdown is never legitimately infinite (an infinite remaining tick
 // count would signal bad data, not a never-draining tank).
 export function formatClock(ticks: number, secondsPerTick: number): string {
@@ -154,7 +154,7 @@ export function formatClock(ticks: number, secondsPerTick: number): string {
 
   // Non-finite guard FIRST, before any arithmetic. Number.isFinite is false for
   // NaN, +Infinity, and -Infinity alike -- all three have no sensible clock.
-  if (!Number.isFinite(rawSeconds)) return "—";
+  if (!Number.isFinite(rawSeconds)) return "--";
 
   // Clamp negatives to 0 (a countdown never shows negative time), then round to
   // whole seconds for a stable clock face.

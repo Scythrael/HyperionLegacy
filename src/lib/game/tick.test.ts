@@ -82,7 +82,7 @@ function missionCaptain(
 // every call, regardless of call count) is unaffected.
 const ALWAYS_MIN_ROLL = () => 0;
 
-describe("tickCaptainMission — closed-form requirement", () => {
+describe("tickCaptainMission -- closed-form requirement", () => {
   it("one big jump equals many small ticks, across multiple phase transitions", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain("shortOreRun");
@@ -231,7 +231,7 @@ describe("tickCaptainMission — closed-form requirement", () => {
   });
 });
 
-describe("tickCaptainMission — phase progression", () => {
+describe("tickCaptainMission -- phase progression", () => {
   it("advances phaseProgressTicks within ordersReceived without completing it", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain();
@@ -270,7 +270,7 @@ describe("tickCaptainMission — phase progression", () => {
   });
 });
 
-describe("tickCaptainMission — extraction loot rolls", () => {
+describe("tickCaptainMission -- extraction loot rolls", () => {
   // shortOreRun: extractionRatePerTick 1, uncommonChance 0.019, rareChance 0.001.
   // A constant rng of 0.5 fails BOTH occurrence checks every roll (hand-verify:
   // rare check first: 0.5 < 0.001? no. uncommon check second: 0.5 < 0.019? no.) --
@@ -435,7 +435,7 @@ describe("tickCaptainMission — extraction loot rolls", () => {
   });
 });
 
-describe("tickCaptainMission — bonus roll (Resourcefulness Lucky Strike)", () => {
+describe("tickCaptainMission -- bonus roll (Resourcefulness Lucky Strike)", () => {
   it("bonus trigger check fails: only the primary roll's delta is added, no extra rng() calls consumed", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
@@ -789,7 +789,7 @@ describe("captainCommonYieldMult / captainUncommonYieldMult / captainUncommonCha
 // xpPerTick's own comment in tick.ts for exactly where a future XP-mult plugs
 // in). Mirrors the "no unlocked talents" mult-helper tests directly above:
 // a fresh captain with an empty talent set must see the unmodified base rate.
-describe("xpPerTick — per-tick XP rate", () => {
+describe("xpPerTick -- per-tick XP rate", () => {
   // Mission Rework (Task 2, docs/plans/2026-07-14-mission-rework-plan.md §Part A):
   // each mission now carries its OWN first-pass per-tick XP rate (design §5:
   // 1 / 1.1 / 1.2 / 1.25). The last three are FRACTIONAL -- the exact condition
@@ -817,7 +817,7 @@ describe("xpPerTick — per-tick XP rate", () => {
   });
 });
 
-describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () => {
+describe("tickCaptainMission -- cycle completion, auto-repeat, and recall", () => {
   it("completing a full cycle (not recalled) delivers cargo to homePlanetDelta and restarts at ordersReceived", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "unloading", phaseProgressTicks: 0 };
@@ -948,7 +948,7 @@ describe("tickCaptainMission — cycle completion, auto-repeat, and recall", () 
   });
 });
 
-describe("tickCaptainMission — accrues captain XP per active tick", () => {
+describe("tickCaptainMission -- accrues captain XP per active tick", () => {
   // Task 4 replaced the old lump-per-completed-cycle award (xp += 50 on each
   // cycle) with PER-WHOLE-TICK accrual: the captain earns xpPerTick(missionKey)
   // (= BASE_XP_PER_TICK.shortOreRun = 1) for every whole tick the mission
@@ -1000,7 +1000,7 @@ describe("tickCaptainMission — accrues captain XP per active tick", () => {
   });
 });
 
-describe("tickCaptainMission — awards credits on cycle completion", () => {
+describe("tickCaptainMission -- awards credits on cycle completion", () => {
   it("awards creditsDelta 0 when no cycle completes (partial ticksElapsed)", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain(); // mid-cycle, phaseProgressTicks 0, far from completing
@@ -1037,7 +1037,7 @@ describe("tickCaptainMission — awards credits on cycle completion", () => {
   });
 });
 
-describe("tickCaptainMission — accrues Fleet Admiral XP per active tick (Task 5)", () => {
+describe("tickCaptainMission -- accrues Fleet Admiral XP per active tick (Task 5)", () => {
   // Task 5 replaced the old lump-per-completed-cycle FA award
   // (fleetAdminXpDelta += missionDef.fleetAdminXpPerCycle on each finished cycle)
   // with PER-WHOLE-TICK accrual, mirroring captain XP (Task 4): the fleet earns
@@ -1089,7 +1089,7 @@ describe("tickCaptainMission — accrues Fleet Admiral XP per active tick (Task 
   });
 });
 
-describe("tickCaptainMission / tick() — accrues mission-side lifetime stats (Task 6)", () => {
+describe("tickCaptainMission / tick() -- accrues mission-side lifetime stats (Task 6)", () => {
   // Task 6 (Progression Pacing Rework): tickCaptainMission now returns a
   // lifetimeStatsDelta (itemsGathered + missionsCompleted maps, plus 3 Decimal
   // scalars), and tick() folds it into state.lifetimeStats. This ADDS tracking
@@ -1239,7 +1239,7 @@ describe("tickCaptainMission / tick() — accrues mission-side lifetime stats (T
   });
 });
 
-describe("economyTick / tick() equivalence — the Task A2 mechanical extraction is behavior-preserving", () => {
+describe("economyTick / tick() equivalence -- the Task A2 mechanical extraction is behavior-preserving", () => {
   // Phase 2 (Task A2): tick()'s per-span economy body was lifted VERBATIM into the
   // new exported economyTick(state, ticksElapsed, rng), and tick() now just converts
   // deltaSeconds -> ticksElapsed and calls economyTick ONCE over the whole span. The
@@ -1337,7 +1337,7 @@ describe("economyTick / tick() equivalence — the Task A2 mechanical extraction
   });
 });
 
-describe("foldLifetimeStatsDelta / live-loop parity — lifetime stats accrue identically live and offline (Task 7)", () => {
+describe("foldLifetimeStatsDelta / live-loop parity -- lifetime stats accrue identically live and offline (Task 7)", () => {
   // Task 7 (Progression Pacing Rework): App.svelte's live poll loop is a SEPARATE
   // re-implementation of the tick math from tick(), and has historically dropped
   // ship-stats/credits when it diverged from tick(). To make lifetime-stat accrual
@@ -1483,7 +1483,7 @@ describe("foldLifetimeStatsDelta / live-loop parity — lifetime stats accrue id
   });
 });
 
-describe("tick() — Fleet Admiral XP stacks across active captains (Task 5)", () => {
+describe("tick() -- Fleet Admiral XP stacks across active captains (Task 5)", () => {
   // Stacking falls out for free: tick() already sums every captain's returned
   // fleetAdminXpDelta fleet-wide before handing the total to applyFleetAdminXp.
   // With FA now per-tick, N captains each on an active mission contribute N FA
@@ -1506,7 +1506,7 @@ describe("tick() — Fleet Admiral XP stacks across active captains (Task 5)", (
   });
 });
 
-describe("tick() — idle captains do nothing, mission captains route through tickCaptainMission", () => {
+describe("tick() -- idle captains do nothing, mission captains route through tickCaptainMission", () => {
   it("an idle captain (mission: null) is returned completely unchanged", () => {
     const state = freshState(); // captains[0].mission is null (idle) -- freshCaptainStack's baseline
     const before = state.captains[0];
@@ -1718,7 +1718,7 @@ describe("tick() — idle captains do nothing, mission captains route through ti
   });
 });
 
-describe("tick() — Homeworld/Captain Talent effects wired into extraction and passive production", () => {
+describe("tick() -- Homeworld/Captain Talent effects wired into extraction and passive production", () => {
   // IMPORTANT (2026-07-08 Extraction Rework): under the mechanism this replaces, the
   // uncommon/rare tiers were capped at small flat bucket amounts (1-3 units) regardless
   // of the mission's actual per-tick rate, and whatever those tiers rolled was SUBTRACTED
@@ -2483,7 +2483,7 @@ describe("applyFleetAdminXp", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Ships — Stats Foundation, Task 6: the assigned ship's three derived stats
+// Ships -- Stats Foundation, Task 6: the assigned ship's three derived stats
 // (cargoCapacity, transitSpeedMult, extractionYieldMult) threaded into
 // tickCaptainMission via its optional 5th param `shipStats`. Two invariants
 // under test:
@@ -2499,7 +2499,7 @@ describe("applyFleetAdminXp", () => {
 // A helper mirrors shipDerivedStats' real input shape (a ShipInstance) so these
 // tests exercise the production projection, not a hand-built stub.
 // ---------------------------------------------------------------------------
-describe("tickCaptainMission — assigned ship stats (Task 6)", () => {
+describe("tickCaptainMission -- assigned ship stats (Task 6)", () => {
   // Builds a ShipDerivedStats the same way production will: from a real
   // ShipInstance run through shipDerivedStats. assignedCaptainId is irrelevant
   // to tickCaptainMission (it never reads assignment -- Task 3 removed that);
@@ -2670,7 +2670,7 @@ describe("tickCaptainMission — assigned ship stats (Task 6)", () => {
 //     exclusivity comment), so a completed cycle delivers exactly cargoCapacity
 //     units regardless of how Math.random split them across tiers.
 // ---------------------------------------------------------------------------
-describe("tick() — applies each captain's assigned-ship stats to their mission", () => {
+describe("tick() -- applies each captain's assigned-ship stats to their mission", () => {
   // Sum of the three loot tiers in inventory -- the rng-independent
   // "total units delivered" quantity the traces below rely on.
   const totalHomeLoot = (state: ReturnType<typeof freshState>) => {
@@ -2879,7 +2879,7 @@ describe("assignShipToCaptain", () => {
 //  (startShipBuild + the shipBuild engine, covered by their own tests); the
 //  instant credit-buy path no longer exists to test.)
 
-describe("tick() — threads the timed-process resolver through the fleet loop (Phase 1, Task 9)", () => {
+describe("tick() -- threads the timed-process resolver through the fleet loop (Phase 1, Task 9)", () => {
   // Phase 1, Task 9 wired resolveProcesses into BOTH tick() (offline catch-up) AND
   // App.svelte's live poll loop, each calling the SAME exported resolver with the
   // SAME ticksElapsed and folding its lump FA XP into the SAME applyFleetAdminXp
@@ -3030,7 +3030,7 @@ describe("tick() — threads the timed-process resolver through the fleet loop (
   });
 });
 
-// Tiered Warehouse — Phase 2, Task B2 (design §3.3). Exercises the two tick.ts
+// Tiered Warehouse -- Phase 2, Task B2 (design §3.3). Exercises the two tick.ts
 // functions the warehouse cap economy adds/reuses:
 //   - tierCap(state, tier): the DERIVED per-item cap (base doubled per reached
 //     warehouse rung). DEFINITION only -- no enforcement yet (that's Task B3).
@@ -3038,7 +3038,7 @@ describe("tick() — threads the timed-process resolver through the fleet loop (
 //     the refinery uses, proving it works unchanged for the new warehouse keys and
 //     that the T2 stub's first real upgrade is naturally walled by its unobtainable
 //     denseOre input.
-describe("tierCap — per-tier per-item storage cap (Task B2)", () => {
+describe("tierCap -- per-tier per-item storage cap (Task B2)", () => {
   // Build a fresh state with a specific warehouse level, overriding freshState's
   // level-0 seed so the doubling is exercised against known levels.
   function withWarehouseLevel(key: string, level: number) {
@@ -3071,7 +3071,7 @@ describe("tierCap — per-tier per-item storage cap (Task B2)", () => {
   });
 });
 
-describe("canBuildFacilityUpgrade — warehouse keys work on the generic gate (Task B2)", () => {
+describe("canBuildFacilityUpgrade -- warehouse keys work on the generic gate (Task B2)", () => {
   it("warehouseT2 rung 0 (unlock) is buildable with 1,000,000 commonOre at level 0", () => {
     const base = freshState();
     const s = {
@@ -3101,13 +3101,13 @@ describe("canBuildFacilityUpgrade — warehouse keys work on the generic gate (T
 });
 
 // ============================================================================
-// Auto-stop + capped per-tick offline stepping — Phase 2, Task B3 (design §2 + §3.4).
+// Auto-stop + capped per-tick offline stepping -- Phase 2, Task B3 (design §2 + §3.4).
 // Exercises the three seams this task adds:
 //   - materialAtCap(state, itemId): the single "is this material full?" check.
 //   - economyTick mission auto-stop: a captain whose PRIMARY material is at cap idles.
 //   - tick(): offline catch-up now CLAMPS to offlineCapTicks and STEPS per tick.
 // ============================================================================
-describe("materialAtCap — the single warehouse cap-check seam (Task B3)", () => {
+describe("materialAtCap -- the single warehouse cap-check seam (Task B3)", () => {
   it("is false BELOW the tier cap, true AT and ABOVE it (commonOre, T1 cap 1M @ L0)", () => {
     const s = freshState(); // warehouseT1 level 0 -> tierCap(s,1) = 1,000,000; commonOre is a T1 item
     // One under the cap -> not full.
@@ -3141,7 +3141,7 @@ describe("materialAtCap — the single warehouse cap-check seam (Task B3)", () =
   });
 });
 
-describe("economyTick — mission auto-stop when the primary material is at cap (Task B3)", () => {
+describe("economyTick -- mission auto-stop when the primary material is at cap (Task B3)", () => {
   // shortOreRun's primaryMaterial is commonOre (model.ts); T1 cap @ L0 is 1M.
   function missionStateWithCommonOre(amount: number) {
     const s = freshState();
@@ -3192,7 +3192,7 @@ describe("economyTick — mission auto-stop when the primary material is at cap 
   });
 });
 
-describe("tick — offline catch-up is clamped to offlineCapTicks then stepped (Task B3)", () => {
+describe("tick -- offline catch-up is clamped to offlineCapTicks then stepped (Task B3)", () => {
   it("offlineCapTicks derives 2 days of ticks from the base days and the tick cadence", () => {
     const s = freshState(); // tickDurationSeconds 1
     expect(OFFLINE_CAP_DAYS_BASE).toBe(2);
@@ -3236,7 +3236,7 @@ describe("tick — offline catch-up is clamped to offlineCapTicks then stepped (
   });
 });
 
-describe("tick — per-tick stepping matches the single-call economy when no cap binds (Task B3)", () => {
+describe("tick -- per-tick stepping matches the single-call economy when no cap binds (Task B3)", () => {
   it("stepping 149 ticks equals one economyTick(149) for ALL fields (constant rng, single captain)", () => {
     // A modest span (149 = one full shortOreRun cycle) well under the 172,800-tick cap,
     // with commonOre far below its 1M cap, so NEITHER the clamp NOR auto-stop binds --

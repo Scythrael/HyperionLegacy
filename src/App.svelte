@@ -46,7 +46,7 @@
     // "Locked" (exists, gated by a Fleet Logistics talent) vs "Coming Soon" (a
     // roadmap slot past 4 with no unlock path built yet). See model.ts.
     MAX_UNLOCKABLE_CAPTAINS,
-    // Ships — Stats Foundation (Task 11 UI) -- the shared, immutable hull-stat
+    // Ships -- Stats Foundation (Task 11 UI) -- the shared, immutable hull-stat
     // table (SHIP_TYPES) plus the per-instance stat projection
     // (shipDerivedStats) drive the Sector Space > Starbase > Docks/Requisition
     // panels below. SHIP_TYPES is iterated for the Requisition buy list AND read
@@ -145,7 +145,7 @@
     dispatchCaptainOnMission,
     recallCaptain,
     applyFleetAdminXp,
-    // Ships — Stats Foundation (Task 11 UI) -- the remaining pure ship action
+    // Ships -- Stats Foundation (Task 11 UI) -- the remaining pure ship action
     // wired into the Sector Space > Starbase Docks panel below.
     // assignShipToCaptain(state, captainId, shipId) backs BOTH Docks pickers
     // (assign-parked-to-captain AND swap-captain-to-parked-ship both resolve to
@@ -311,7 +311,7 @@
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
 
-  // DEV_MODE — Vercel §9.5.3: true on Preview, false on Production. Locally,
+  // DEV_MODE -- Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
   const DEV_MODE_ENV = import.meta.env.VITE_DEV_MODE === "true";
 
@@ -821,7 +821,7 @@
   let refineConfirmDontShowAgain = false;
   let pendingLineStart: { kind: CraftLineKind; recipeKey: string; mode: CraftLineMode } | null = null;
 
-  // Ship assign/swap picker modals (Ships — Stats Foundation, Task 11 UI) --
+  // Ship assign/swap picker modals (Ships -- Stats Foundation, Task 11 UI) --
   // mirrors the Fleet Operations mission popup's missionPopupKey/
   // missionPopupCaptainId state pair: a null id means the modal is closed. Both
   // pickers ultimately call assignShipToCaptain(state, captainId, parkedShipId)
@@ -870,7 +870,7 @@
       // CREDITS); commodity trading is planned, not yet implemented. The lore
       // half is a placeholder for the user to wordsmith to taste.
       description:
-        "The Admiralty's base currency — earned from captain mission payouts and spent on nearly everything: trading commodities, retraining talents, and the day-to-day business of running a fleet. Every credit is a favor called in, a cargo sold, a risk that paid off.",
+        "The Admiralty's base currency -- earned from captain mission payouts and spent on nearly everything: trading commodities, retraining talents, and the day-to-day business of running a fleet. Every credit is a favor called in, a cargo sold, a risk that paid off.",
     },
   ];
   // Live formatted values, keyed by currency id. Kept separate from the static
@@ -1057,7 +1057,7 @@
     lastPollTime = Date.now();
     cycle = { barCycleStart: lastPollTime, nowTick: lastPollTime };
 
-    // Tick-bar loop — checks the ONE shared fleet-wide cycle's progress every
+    // Tick-bar loop -- checks the ONE shared fleet-wide cycle's progress every
     // 100ms, firing tickCaptainMission (Phase 3a) for EVERY mission captain
     // in lockstep whenever that shared cycle completes on this poll (Task 4
     // of the UI Redesign plan collapsed this from a per-captain-cycle loop --
@@ -1071,7 +1071,7 @@
     // is never read by tickCaptainMission's production math, so this
     // decoupling cannot desync production from time).
     // barSeconds is floored at 1 real second so dev-speed presets never make
-    // the shared bar flicker unreadably — multiple game-ticks just batch
+    // the shared bar flicker unreadably -- multiple game-ticks just batch
     // into one visual cycle, which is still correct because
     // tickCaptainMission is closed-form.
     tickHandle = setInterval(() => {
@@ -1211,7 +1211,7 @@
       }
     }, 100);
 
-    // Autosave every 30s — tech spec §6.
+    // Autosave every 30s -- tech spec §6.
     saveHandle = setInterval(doSave, 30000);
 
     const onUnload = () => doSave();
@@ -1239,7 +1239,7 @@
     const { next, success } = recallCaptain(state, captainId);
     if (!success) return;
     state = next;
-    pushLog(`[${captain.label}] Recall ordered — returning to base from: ${missionLabel}.`);
+    pushLog(`[${captain.label}] Recall ordered -- returning to base from: ${missionLabel}.`);
     doSave();
   }
 
@@ -1561,7 +1561,7 @@
       case "notFounded":
         return "Found the Shipyard first (Upgrades).";
       case "noSlot":
-        return "Shipyard busy — a build is in progress.";
+        return "Shipyard busy -- a build is in progress.";
       case "storageFull":
         return "Ship storage full.";
       case "materials":
@@ -1694,7 +1694,7 @@
     doSave();
   }
 
-  // ---- Ship actions (Ships — Stats Foundation, Task 11 UI) ----------------
+  // ---- Ship actions (Ships -- Stats Foundation, Task 11 UI) ----------------
   // The remaining ship handler (doAssignShip) wraps a pure { next, success }
   // action and applies the SAME reassign-state + pushLog + doSave pattern every
   // other do* handler in this file uses (see doBuyHomeworldTalent above, or the
@@ -2539,19 +2539,19 @@
                      is a pure drain), then the normal fuel-positive / draining split. -->
                 <div class="fuel-tt-note">
                   {#if fuelTankFull}
-                    Idle — tank full (topped off).
+                    Idle -- tank full (topped off).
                   {:else if !fuelHasIce}
-                    Refinery idle — out of Deuterium Ice (mine more via Operations).
+                    Refinery idle -- out of Deuterium Ice (mine more via Operations).
                   {:else if fuelSufficient}
-                    Fuel-positive — refining outpaces your missions.
+                    Fuel-positive -- refining outpaces your missions.
                   {:else}
-                    Draining — shortfalls auto-buy fuel with credits (+2-tick delay).
+                    Draining -- shortfalls auto-buy fuel with credits (+2-tick delay).
                   {/if}
                 </div>
                 <!-- FUEL RUNWAY (Wave 2): measured full-sustainability countdown to
                      fuel-empty. null=warming up ("measuring…"); sustainable=never
                      drains (∞, success green); finite=time left (warning, or danger
-                     when under a minute); guarded-null=unknown ("—"). -->
+                     when under a minute); guarded-null=unknown ("--"). -->
                 <div class="fuel-tt-sep"></div>
                 {#if fuelRunway === null}
                   <div class="fuel-tt-row">
@@ -2574,7 +2574,7 @@
                 {:else}
                   <div class="fuel-tt-row">
                     <span>Fuel runway</span>
-                    <span>—</span>
+                    <span>--</span>
                   </div>
                 {/if}
               </div>
@@ -2634,8 +2634,8 @@
                "future signal" role as Facilities' locked facilities). Plain
                non-button divs, so they're inert; the title attr is the "Coming
                soon" affordance. -->
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Alliance Sector</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Colony Registry</div>
+          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Alliance Sector</div>
+          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Colony Registry</div>
         </div>
 
         <div class="fleet-captains-content">
@@ -2657,7 +2657,7 @@
            The sub-tab shell is kept so navigation still renders. -->
       <Panel>
         <div class="panel-title">HOME PLANET</div>
-        <p class="research-status">Homeworld overview coming soon — check the Warehouse for your full material inventory.</p>
+        <p class="research-status">Homeworld overview coming soon -- check the Warehouse for your full material inventory.</p>
       </Panel>
       {/if}
 
@@ -2849,7 +2849,7 @@
                       <div class="ship-modules">
                         <span class="ship-modules-label">Modules:</span>
                         {#each Array.from({ length: def.moduleSlots }) as _, mi}
-                          <span class="ship-module-pip" title="Module slot — unlocks with Research"></span>
+                          <span class="ship-module-pip" title="Module slot -- unlocks with Research"></span>
                         {/each}
                         <span class="ship-modules-note">unlock with Research</span>
                       </div>
@@ -2869,20 +2869,20 @@
                         <button
                           class="dev-btn ship-assign-btn"
                           disabled={idleCaptains.length === 0}
-                          title={idleCaptains.length === 0 ? "No idle captain — recall one first" : undefined}
+                          title={idleCaptains.length === 0 ? "No idle captain -- recall one first" : undefined}
                           on:click={() => openAssignPicker(ship.id)}
                         >
                           Assign ▾
                         </button>
                       {:else if onMission}
-                        <button class="dev-btn ship-assign-btn" disabled title="On a mission — recall first">
+                        <button class="dev-btn ship-assign-btn" disabled title="On a mission -- recall first">
                           Swap ▾
                         </button>
                       {:else}
                         <button
                           class="dev-btn ship-assign-btn"
                           disabled={parkedShips.length === 0}
-                          title={parkedShips.length === 0 ? "No spare ship — buy or free one" : undefined}
+                          title={parkedShips.length === 0 ? "No spare ship -- buy or free one" : undefined}
                           on:click={() => openSwapPicker(assignedCaptain.id)}
                         >
                           Swap ▾
@@ -3013,7 +3013,7 @@
           <!-- Ships group -- ship-borne facilities, a concept only (no backing
                state yet); locked like the rest. -->
           <div class="facility-owner-header">Ships</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Ship Facilities</div>
+          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Ship Facilities</div>
         </div>
 
         <div class="fleet-captains-content">
@@ -3113,7 +3113,7 @@
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
                       <div class="research-readout">
-                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued — starts next tick{/if}
+                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued -- starts next tick{/if}
                       </div>
                     </div>
                   {/each}
@@ -3183,7 +3183,7 @@
                       </div>
                     {:else}
                       <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("refine", slotIndex)}>
-                        Line {slotIndex + 1} · idle — configure a craft
+                        Line {slotIndex + 1} · idle -- configure a craft
                       </button>
                     {/if}
                   {/each}
@@ -3298,7 +3298,7 @@
                    discovered/total catalog progress, and an Attention card listing
                    each FULL material when any producer is idled. -->
               <Panel>
-                <div class="panel-title">WAREHOUSE — TIER 1</div>
+                <div class="panel-title">WAREHOUSE -- TIER 1</div>
                 <div class="research-cost">Storage level: {warehouseT1Level}</div>
                 <div class="research-cost">Cap per item: {formatNumber(warehouseT1Cap)}</div>
                 <div
@@ -3315,7 +3315,7 @@
                   <div class="panel-title">⚠ ATTENTION</div>
                   {#each warehouseItemsAtCap as id (id)}
                     <div class="research-cost" style="color: var(--color-danger)">
-                      [{ITEMS[id]?.label ?? id}] — FULL, producers auto-stopped
+                      [{ITEMS[id]?.label ?? id}] -- FULL, producers auto-stopped
                     </div>
                   {/each}
                   <p class="research-status" style="margin-top: 8px;">
@@ -3348,7 +3348,7 @@
                     p.effect.facility === wt.key
                 )}
                 <Panel>
-                  <div class="panel-title">{wt.label} — {isUnlockRung ? "Unlock Storage" : "Expand Storage"}</div>
+                  <div class="panel-title">{wt.label} -- {isUnlockRung ? "Unlock Storage" : "Expand Storage"}</div>
                   <div class="research-cost">Level: {level}</div>
 
                   {#if maxed}
@@ -3412,7 +3412,7 @@
                 <Panel>
                   <div class="warehouse-stub">
                     <div class="warehouse-stub-glyph">🗄️</div>
-                    <p>No items in this category yet — future content. Each will get its own fill-tile once it exists in the game.</p>
+                    <p>No items in this category yet -- future content. Each will get its own fill-tile once it exists in the game.</p>
                   </div>
                 </Panel>
               {:else}
@@ -3464,7 +3464,7 @@
                         {@const unlockRung = FACILITIES[`warehouseT${group.tier}`].upgrades[0]}
                         {@const unlockIds = Object.keys(unlockRung.materials)}
                         <p class="warehouse-locked-note">
-                          Tier {group.tier} storage locked — <b>unlock in the Upgrade tab</b>{#if unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
+                          Tier {group.tier} storage locked -- <b>unlock in the Upgrade tab</b>{#if unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
                         </p>
                       {/if}
                     </div>
@@ -3478,7 +3478,7 @@
               <Panel>
                 <div class="warehouse-stub">
                   <div class="warehouse-stub-glyph">🎖️</div>
-                  <p><b>Troop Equipment</b> (name TBD) — non-stacking gear, each drop its own tile with rolled stats. Future content.</p>
+                  <p><b>Troop Equipment</b> (name TBD) -- non-stacking gear, each drop its own tile with rolled stats. Future content.</p>
                 </div>
               </Panel>
             {/if}
@@ -3488,7 +3488,7 @@
               <Panel>
                 <div class="warehouse-stub">
                   <div class="warehouse-stub-glyph">🧪</div>
-                  <p><b>Consumables</b> — buffs & status restoration (stackable). Big for troops. Future content.</p>
+                  <p><b>Consumables</b> -- buffs & status restoration (stackable). Big for troops. Future content.</p>
                 </div>
               </Panel>
             {/if}
@@ -3529,14 +3529,14 @@
                 {#each unlockedMissionKeys as mKey (mKey)}
                   {@const completed = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
                   <div class="research-cost" style="color: var(--color-success)">
-                    ✅ {MISSIONS[mKey].label} — {formatNumber(completed)} completed
+                    ✅ {MISSIONS[mKey].label} -- {formatNumber(completed)} completed
                   </div>
                 {/each}
 
                 {#if lockedMissionKeys.length > 0}
                   <div class="research-name" style="margin-top: 10px;">Locked missions</div>
                   {#each lockedMissionKeys as mKey (mKey)}
-                    <div class="research-cost" style="color: var(--color-text-secondary)">🔒 {MISSIONS[mKey].label} — unlocks at level {MISSIONS[mKey].unlockLevel}</div>
+                    <div class="research-cost" style="color: var(--color-text-secondary)">🔒 {MISSIONS[mKey].label} -- unlocks at level {MISSIONS[mKey].unlockLevel}</div>
                   {/each}
                 {/if}
 
@@ -3665,7 +3665,7 @@
                   class="research-cost"
                   style="margin-top: 4px; font-weight: 600; color: {fuelSufficient ? 'var(--color-success)' : 'var(--color-danger)'};"
                 >
-                  Net: {fuelNetPerMinute >= 0 ? "+" : "−"}{formatNumber(Math.abs(fuelNetPerMinute))} fuel/min —
+                  Net: {fuelNetPerMinute >= 0 ? "+" : "−"}{formatNumber(Math.abs(fuelNetPerMinute))} fuel/min --
                   <!-- Root-reason order matches the top-bar chip's note: tank full ->
                        out of ice (net-display fix) -> fuel-positive -> draining. -->
                   {#if fuelTankFull}tank full (topped off){:else if !fuelHasIce}refinery idle: out of Deuterium Ice{:else if fuelSufficient}fuel-positive{:else}draining, auto-buying with credits{/if}
@@ -3674,7 +3674,7 @@
                 <!-- FUEL RUNWAY (Wave 2): measured full-sustainability countdown to
                      fuel-empty (credits mission-mined Deuterium Ice). Mirrors the
                      top-bar chip's runway line. null=warming up; sustainable=∞ (never
-                     drains); finite=time left (warning/danger); guarded-null="—". -->
+                     drains); finite=time left (warning/danger); guarded-null="--". -->
                 {#if fuelRunway === null}
                   <div class="research-cost" style="margin-top: 4px;">Fuel runway: measuring…</div>
                 {:else if fuelRunway.sustainable}
@@ -3689,7 +3689,7 @@
                     Fuel runway: {formatDuration(fuelRunway.runwayTicks, state.tickDurationSeconds)} left
                   </div>
                 {:else}
-                  <div class="research-cost" style="margin-top: 4px;">Fuel runway: —</div>
+                  <div class="research-cost" style="margin-top: 4px;">Fuel runway: --</div>
                 {/if}
 
                 <!-- Live batch progress. Empty = depot idle: tank full, or Deuterium Ice
@@ -3706,7 +3706,7 @@
                   {/each}
                 {:else}
                   <p class="research-status" style="margin-top: 8px;">
-                    Idle — {fuelRoom.lte(0) ? "tank full" : "no Deuterium Ice (mine more via Operations)"}.
+                    Idle -- {fuelRoom.lte(0) ? "tank full" : "no Deuterium Ice (mine more via Operations)"}.
                   </p>
                 {/if}
               </Panel>
@@ -3719,12 +3719,12 @@
               <Panel>
                 <div class="panel-title">MANUAL TOP-UP <span style="opacity: 0.6; font-weight: 400;">(optional)</span></div>
                 <p class="research-status" style="margin-bottom: 6px;">
-                  Missions auto-buy any fuel shortfall from credits — this is just an optional early top-up.
+                  Missions auto-buy any fuel shortfall from credits -- this is just an optional early top-up.
                 </p>
                 <div class="research-cost">Price: ◈ {FUEL_CREDITS_PER_UNIT} / unit · Credits: {formatNumber(state.credits)}</div>
                 {#if fuelRoom.lte(0)}
                   <p class="research-status" style="color: var(--color-danger); margin-top: 6px;">
-                    Tank full — expand the tank (Upgrades) to buy more.
+                    Tank full -- expand the tank (Upgrades) to buy more.
                   </p>
                 {/if}
 
@@ -3769,7 +3769,7 @@
                    material readiness, Build gated on the shared canBuildFacilityUpgrade,
                    + in-flight progress. -->
               <Panel>
-                <div class="panel-title">FUEL DEPOT — Upgrades</div>
+                <div class="panel-title">FUEL DEPOT -- Upgrades</div>
                 <div class="research-cost">Level: {fuelStorageLevel}</div>
 
                 {#if fuelStorageMaxed}
@@ -3787,19 +3787,19 @@
                        doStartFacilityUpgrade -- only the DESCRIPTION branches. -->
                   {@const nextEff = nextFuelStorageUpgrade.effect}
                   {#if "storageCapMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Expand Tank — storage ×{nextEff.storageCapMult}</div>
+                    <div class="research-name" style="margin-top: 6px;">Expand Tank -- storage ×{nextEff.storageCapMult}</div>
                     <div class="research-cost">Current cap: {formatNumber(fuelCapValue)}</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(fuelCapValue.times(nextEff.storageCapMult))}</div>
                   {:else if "addFuelPipelines" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Add Pipeline — +{nextEff.addFuelPipelines} concurrent refining line{nextEff.addFuelPipelines === 1 ? "" : "s"}</div>
+                    <div class="research-name" style="margin-top: 6px;">Add Pipeline -- +{nextEff.addFuelPipelines} concurrent refining line{nextEff.addFuelPipelines === 1 ? "" : "s"}</div>
                     <div class="research-cost">Current pipelines: {fuelPipelineCount(state)}</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next pipelines: {fuelPipelineCount(state) + nextEff.addFuelPipelines}</div>
                   {:else if "fuelYieldMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Boost Yield — fuel per batch ×{nextEff.fuelYieldMult}</div>
+                    <div class="research-name" style="margin-top: 6px;">Boost Yield -- fuel per batch ×{nextEff.fuelYieldMult}</div>
                     <div class="research-cost">Current: {formatNumber(fuelBatchOutput(state))} fuel/batch</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchOutput(state).times(nextEff.fuelYieldMult))} fuel/batch</div>
                   {:else if "fuelInputMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Efficient Intake — Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
+                    <div class="research-name" style="margin-top: 6px;">Efficient Intake -- Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
                     <div class="research-cost">Current: {formatNumber(fuelBatchInput(state))} ice/batch</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchInput(state).times(nextEff.fuelInputMult))} ice/batch</div>
                   {/if}
@@ -3947,7 +3947,7 @@
                       <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                       {#if unlocked}
-                        <div class="research-cost" style="color: var(--color-success)">✓ Researched — craftable once the Fabricator is online</div>
+                        <div class="research-cost" style="color: var(--color-success)">✓ Researched -- craftable once the Fabricator is online</div>
                       {:else if job}
                         {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                         <div class="research-bar-track">
@@ -3980,7 +3980,7 @@
                    -- NOT re-implemented. In-flight progress reuses the refine/upgrade
                    bar idiom. -->
               <Panel>
-                <div class="panel-title">RESEARCH LAB — Upgrades</div>
+                <div class="panel-title">RESEARCH LAB -- Upgrades</div>
                 <div class="research-cost">Level: {researchLevel}</div>
 
                 {#if researchMaxed}
@@ -4160,7 +4160,7 @@
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
                       <div class="research-readout">
-                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued — starts next tick{/if}
+                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued -- starts next tick{/if}
                       </div>
                     </div>
                   {/each}
@@ -4238,7 +4238,7 @@
                         </div>
                       {:else}
                         <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("fabricate", slotIndex)}>
-                          Line {slotIndex + 1} · idle — configure a craft
+                          Line {slotIndex + 1} · idle -- configure a craft
                         </button>
                       {/if}
                     {/each}
@@ -4260,7 +4260,7 @@
                    addFabricateSlots. In-flight progress reuses the refine/research bar
                    idiom. -->
               <Panel>
-                <div class="panel-title">FABRICATOR — Upgrades</div>
+                <div class="panel-title">FABRICATOR -- Upgrades</div>
                 <div class="research-cost">Level: {fabricatorLevel}</div>
 
                 {#if fabricatorMaxed}
@@ -4351,7 +4351,7 @@
 
             {#if activeShipyardSubTab === "build"}
               <Panel>
-                <div class="panel-title">SHIPYARD — Build</div>
+                <div class="panel-title">SHIPYARD -- Build</div>
 
                 {#if !shipyardFounded}
                   <!-- UNFOUNDED (level 0): the "establish the Shipyard" prompt. The founding
@@ -4477,7 +4477,7 @@
                    is the SAME founding rung the Build tab's Found button drives, so founding
                    from either place is one code path. -->
               <Panel>
-                <div class="panel-title">SHIPYARD — Upgrades</div>
+                <div class="panel-title">SHIPYARD -- Upgrades</div>
                 <div class="research-cost">Level: {shipyardLevel}</div>
 
                 {#if shipyardMaxed}
@@ -4591,8 +4591,8 @@
             <div
               class="captain-list-item locked"
               title={isUnlockable
-                ? "Locked — recruit via Homeworld Talents → Fleet Logistics"
-                : "Coming soon — not yet unlockable"}
+                ? "Locked -- recruit via Homeworld Talents → Fleet Logistics"
+                : "Coming soon -- not yet unlockable"}
             >
               {#if isUnlockable}🔒 Locked{:else}🔒 Coming Soon!{/if}
             </div>
@@ -4646,7 +4646,7 @@
                  (currently zero entries, see model.ts) still render as
                  labeled, empty columns rather than not appearing at all. -->
             <Panel>
-              <div class="panel-title">CAPTAIN TALENTS — {activeCaptain.label}</div>
+              <div class="panel-title">CAPTAIN TALENTS -- {activeCaptain.label}</div>
               <div class="research-cost">
                 Spec: {activeCaptain.spec === null
                   ? "None chosen"
@@ -4752,13 +4752,13 @@
           >
             Resource-Gathering
           </button>
-          <div class="mission-category-item locked" title="Coming soon — combat isn't built yet">
+          <div class="mission-category-item locked" title="Coming soon -- combat isn't built yet">
             🔒 Patrol Missions
           </div>
-          <div class="mission-category-item locked" title="Coming soon — not yet available">
+          <div class="mission-category-item locked" title="Coming soon -- not yet available">
             🔒 Surveying
           </div>
-          <div class="mission-category-item locked" title="Coming soon — not yet available">
+          <div class="mission-category-item locked" title="Coming soon -- not yet available">
             🔒 Long-Term Exploration
           </div>
         </div>
@@ -4796,7 +4796,7 @@
                   {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
                   {@const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks))}
                   <div class="mission-card">
-                    <div class="research-name">{captain.label} — {missionDef.label}</div>
+                    <div class="research-name">{captain.label} -- {missionDef.label}</div>
                     <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
                     <div class="research-bar-track">
                       <div class="research-bar-fill" style="width:{progress * 100}%"></div>
@@ -4807,7 +4807,7 @@
                       {formatNumber(mission.cargo.rareMaterial)} rare
                     </div>
                     {#if mission.recalled}
-                      <p class="prestige-text mission-recalled-text">Recall ordered — returning to base once the current cycle's unloading completes.</p>
+                      <p class="prestige-text mission-recalled-text">Recall ordered -- returning to base once the current cycle's unloading completes.</p>
                     {:else}
                       <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
                     {/if}
@@ -4871,14 +4871,14 @@
                           <!-- Level gate (Task 7 requiresCaptainLevel) -- defaults to 1,
                                the baseline captain level, when the mission declares none. -->
                           <div class="mission-req-line">Level: {missionDef.requiresCaptainLevel ?? 1}</div>
-                          <!-- Cargo gate (Task 7 requiresCargoCapacity) -- "—" = the mission
+                          <!-- Cargo gate (Task 7 requiresCargoCapacity) -- "--" = the mission
                                has no cargo-capacity requirement (ore runs omit it). -->
-                          <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "—"}</div>
+                          <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "--"}</div>
                           <!-- Round-trip FUEL cost (Task 8) -- 0 for the free local run;
-                               "—" only if the representative captain somehow has no hull
+                               "--" only if the representative captain somehow has no hull
                                (never in production). Same figure/formula as before, just
                                relabeled "Fuel Capacity" and moved into this column. -->
-                          <div class="mission-req-line">Fuel Capacity: {fuelCost !== null ? formatNumber(fuelCost) : "—"}</div>
+                          <div class="mission-req-line">Fuel Capacity: {fuelCost !== null ? formatNumber(fuelCost) : "--"}</div>
                         </div>
                         <div class="mission-card-col">
                           <div class="mission-col-label">Rewards</div>
@@ -4904,7 +4904,7 @@
                                   class="drop-icon"
                                   role="img"
                                   style="--drop-rc: {warehouseRarityColor(dropItem.rarity)};"
-                                  aria-label="{dropItem.label} — {drop.chancePct.toFixed(1)}% drop chance"
+                                  aria-label="{dropItem.label} -- {drop.chancePct.toFixed(1)}% drop chance"
                                   on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
                                   on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
                                   on:click|stopPropagation={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
@@ -4922,14 +4922,14 @@
                       <div class="mission-portrait-frame" aria-hidden="true">🔒</div>
                       <div class="mission-card-body">
                         <div class="research-name">🔒 {missionDef.label}</div>
-                        <div class="research-cost">Locked — unlock via Mission Control (Facilities tab)</div>
+                        <div class="research-cost">Locked -- unlock via Mission Control (Facilities tab)</div>
                         {#if missionDef.requiresCaptainLevel !== undefined}
                           <div class="research-cost">Will require captain level {missionDef.requiresCaptainLevel}</div>
                         {/if}
                         {#if missionDef.requiresCargoCapacity !== undefined}
                           <div class="research-cost">Will require cargo capacity {missionDef.requiresCargoCapacity}</div>
                         {/if}
-                        <div class="research-cost">Fuel / trip: {fuelCost !== null ? formatNumber(fuelCost) : "—"}</div>
+                        <div class="research-cost">Fuel / trip: {fuelCost !== null ? formatNumber(fuelCost) : "--"}</div>
                       </div>
                     </div>
                   {/if}
@@ -4961,10 +4961,10 @@
              as a tiny scoped class, without duplicating any of
              .captain-list-item's own visual rules. -->
         <div class="battlespace-locked-list">
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Fleet Skirmishes</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Campaign</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Fleet Exercises</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Invasion</div>
+          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Fleet Skirmishes</div>
+          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Campaign</div>
+          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Fleet Exercises</div>
+          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Invasion</div>
         </div>
       </Panel>
       </div>
@@ -5034,8 +5034,8 @@
                "future signal" role as Facilities' / Homeworld's locked slots).
                Plain inert non-button divs; the title attr is the "Coming soon"
                affordance. -->
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Coming Soon</div>
-          <div class="captain-list-item locked" title="Coming soon — not yet available">🔒 Coming Soon</div>
+          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Coming Soon</div>
+          <div class="captain-list-item locked" title="Coming soon -- not yet available">🔒 Coming Soon</div>
         </div>
 
         <div class="fleet-captains-content">
@@ -5196,7 +5196,7 @@
         <div class="log-list">
           {#each PATCH_NOTES as note}
             <div class="log-entry">
-              <strong>{note.version}</strong> — {note.summary}
+              <strong>{note.version}</strong> -- {note.summary}
             </div>
           {/each}
         </div>
@@ -5304,7 +5304,7 @@
                   type="button"
                   class="drop-icon"
                   style="--drop-rc: {warehouseRarityColor(dropItem.rarity)};"
-                  aria-label="{dropItem.label} — {drop.chancePct.toFixed(1)}% drop chance"
+                  aria-label="{dropItem.label} -- {drop.chancePct.toFixed(1)}% drop chance"
                   on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
                   on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
                   on:focus={(e) => focusShowWarehouseTooltip(e, drop.key, drop.chancePct)}
@@ -5334,7 +5334,7 @@
           {@const selectedShip = state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null}
           {@const fuelCost = selectedShip ? fuelNeeded(missionDef, SHIP_TYPES[selectedShip.typeKey]) : null}
           <div class="panel-title">FUEL</div>
-          <div class="research-cost">Round-trip fuel: {fuelCost !== null ? formatNumber(fuelCost) : "—"}</div>
+          <div class="research-cost">Round-trip fuel: {fuelCost !== null ? formatNumber(fuelCost) : "--"}</div>
           <div class="research-cost">In tank: {formatNumber(state.fuel)} / {formatNumber(fuelCap(state))}</div>
           {#if missionPopupGate !== null && !missionPopupGate.ok}
             <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey)}</div>
@@ -5363,7 +5363,7 @@
   {/if}
 
   {#if assignPickerShipId !== null}
-    <!-- ASSIGN picker (Ships — Stats Foundation, Task 11 UI) -- opened by a
+    <!-- ASSIGN picker (Ships -- Stats Foundation, Task 11 UI) -- opened by a
          PARKED ship's "Assign ▾". Lists IDLE captains (mission === null);
          picking one calls doAssignShip(captainId, thisParkedShipId), which
          assigns this hull to that captain (their old hull auto-parks). Reuses
@@ -5377,10 +5377,10 @@
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
-        <div class="panel-title">ASSIGN HULL{pickerShip ? ` — ${SHIP_TYPES[pickerShip.typeKey].label.toUpperCase()}` : ""}</div>
+        <div class="panel-title">ASSIGN HULL{pickerShip ? ` -- ${SHIP_TYPES[pickerShip.typeKey].label.toUpperCase()}` : ""}</div>
         <p class="modal-instruction">Assign this hull to a captain. Their current ship parks.</p>
         {#if idleCaptains.length === 0}
-          <p class="prestige-text">No idle captains available — recall one first.</p>
+          <p class="prestige-text">No idle captains available -- recall one first.</p>
         {:else}
           <div class="modal-captain-list">
             {#each idleCaptains as captain (captain.id)}
@@ -5401,7 +5401,7 @@
   {/if}
 
   {#if swapPickerCaptainId !== null}
-    <!-- SWAP picker (Ships — Stats Foundation, Task 11 UI) -- opened by an
+    <!-- SWAP picker (Ships -- Stats Foundation, Task 11 UI) -- opened by an
          ASSIGNED ship's "Swap ▾" when that ship's captain is IDLE. Because
          assignShipToCaptain can NEVER move a hull directly between two captains
          (its in-use guard rejects a target ship that's already assigned
@@ -5414,10 +5414,10 @@
     {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
-        <div class="panel-title">SWAP HULL{swapCaptain ? ` — ${swapCaptain.label.toUpperCase()}` : ""}</div>
+        <div class="panel-title">SWAP HULL{swapCaptain ? ` -- ${swapCaptain.label.toUpperCase()}` : ""}</div>
         <p class="modal-instruction">Choose a parked ship for this captain. Their current hull parks.</p>
         {#if parkedShips.length === 0}
-          <p class="prestige-text">No parked ships available — buy or free one first.</p>
+          <p class="prestige-text">No parked ships available -- buy or free one first.</p>
         {:else}
           <div class="modal-captain-list">
             {#each parkedShips as ship (ship.id)}
@@ -5469,7 +5469,7 @@
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
         <div class="panel-title">CONFIRM CRAFT</div>
-        <p class="modal-warning">Start this production line? Its materials will be reserved — you can cancel the line to refund the remainder.</p>
+        <p class="modal-warning">Start this production line? Its materials will be reserved -- you can cancel the line to refund the remainder.</p>
         <label class="modal-row" style="justify-content: flex-start; gap: 6px; margin-bottom: 4px;">
           <input type="checkbox" bind:checked={refineConfirmDontShowAgain} />
           Don't show this again
@@ -5532,7 +5532,7 @@
          design. -->
     <div class="modal-backdrop">
       <Panel class="modal-dialog">
-        <div class="panel-title">RESET CAPTAIN TALENTS — {activeCaptain.label}</div>
+        <div class="panel-title">RESET CAPTAIN TALENTS -- {activeCaptain.label}</div>
         <p class="modal-warning">
           This will clear this captain's specialization and refund every Captain Talent's Stat Points they spent,
           and cost {RESPEC_COST_CREDITS} Credits. You'll choose a new specialization afterward. This can't be undone.
@@ -5652,7 +5652,7 @@
             </div>
             <div class="warehouse-tt-stat">{tip.flavor}</div>
             {#if tipAtCap}
-              <div class="warehouse-tt-warn">⚠ FULL — producers auto-stopped. Expand storage.</div>
+              <div class="warehouse-tt-warn">⚠ FULL -- producers auto-stopped. Expand storage.</div>
             {/if}
           {/if}
         </div>
@@ -6321,7 +6321,7 @@
      flat-cornered from the 2026-07-07 button-style pass) -- this class only
      supplies the container's flex/gap, no new button style needed. */
   .modal-captain-list { display: flex; flex-direction: column; gap: 2px; margin: 10px 0; }
-  /* Ships — Stats Foundation (Task 11 UI) -- Docks/Requisition ship rows.
+  /* Ships -- Stats Foundation (Task 11 UI) -- Docks/Requisition ship rows.
      .ship-list/.ship-card mirror .module-list/.mission-card's flat, thin-
      border, panel-strong look verbatim in spirit (NOT a new visual language) --
      same padding/radius/background/border tokens, just a distinct class so ship
