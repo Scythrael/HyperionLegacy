@@ -434,6 +434,18 @@ write it down so you don't relitigate it later.
   there is simply no UI control to CREATE one from the new configurator yet. Deliberate scope trim: the configurator
   ships batch-only to keep the per-slot panel simple, with continuous surfacing left for a later pass. Not a bug --
   the engine capability is intact and forward-compatible, only the UI affordance is deferred.
+- Facility upgrades (and any future material-costed research) consume RAW inventory, not FREE (Crafting Allocation
+  Redesign, Phase 4b -- flagged by the holistic review). The material-allocation `free = total − reserved` model is
+  currently honored by craft-LINE starts, the affordable-now quantity cap, the item tooltip, and (trivially) fuel;
+  it is NOT yet honored by `canBuildFacilityUpgrade`/`startFacilityUpgrade`, which read `state.inventory[item]`
+  directly. Facility upgrades consume `commonOre`/`refinedMaterial`, which OVERLAP refine-line inputs -- so
+  reserving ore in a refine batch and then buying an upgrade that spends that ore will succeed and leave the refine
+  line STALLED until ore replenishes. NOT a regression (the old order engine had no reservation at all), NO material
+  loss, NO negative inventory (startProcess's own gate), NO soft-lock (missions replenish ore; the line is
+  cancelable) -- but it is a leak in the "reserved materials are protected" promise. The clean fix is to gate every
+  material consumer on `freeItem` (a stricter check -- `free ≤ total`, so it can only make a spend HARDER when
+  materials are reserved, never easier). Deferred as its own decision: see the SUGGESTIONS.md entry on unifying all
+  material consumers on the `free` model, best revisited when the Shipyard (the next component consumer) lands.
 - No per-line RENAME or REORDER (Crafting Allocation Redesign, Phase 4b). Production lines are identified by slot
   and recipe only -- there is no way to name a line or drag it to a different slot position; a cancelled slot just
   becomes free to reconfigure. Deliberate: renaming/reordering is cosmetic polish with no bearing on the allocation

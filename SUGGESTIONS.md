@@ -770,3 +770,17 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   the game modules). Ties into: the device-checkpoint tuning notes scattered across KNOWN_ISSUES (craft
   durations, tier costs, slot rungs, FA-XP curve) — the sim is how those get calibrated coherently instead
   of one-at-a-time.
+
+- **Unify ALL material consumers on the `free` allocation model (2026-07-16, from the Crafting Allocation Redesign
+  holistic review).** The Phase-4b redesign introduced `free = total − reserved` (reserved = Σ active craft lines'
+  `remaining × inputs`, in `allocation.ts`), but deliberately scoped it to craft-LINE starts + the affordable-now
+  quantity cap + the item tooltip + fuel. Other material consumers still read RAW `inventory[item]`: notably
+  `canBuildFacilityUpgrade`/`startFacilityUpgrade` (consume `commonOre`/`refinedMaterial`, which overlap refine-line
+  inputs — see the KNOWN_ISSUES entry), and eventually the **Shipyard** (consumes components — which overlap
+  fabricate-line outputs, and once ship-builds reserve materials the same double-reserve question arises), and any
+  future material-costed Research. The clean unification: a single `spendGate(state, itemId, amount)` /
+  reserve-aware consume that every material spender routes through, checking `freeItem` (strictly ≤ raw, so it only
+  ever tightens). ⚠️ Do it as one coherent pass so the "reserved materials are protected" promise holds everywhere,
+  NOT piecemeal — and it's the natural thing to settle WHEN the Shipyard lands (the next new consumer), since that's
+  when the question stops being theoretical. Until then, facility upgrades can quietly spend reserved ore (no
+  corruption/softlock, just a stalled line — documented in KNOWN_ISSUES).
