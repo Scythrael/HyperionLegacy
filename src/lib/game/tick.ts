@@ -1884,51 +1884,14 @@ export function assignShipToCaptain(
   return { next: { ...state, ships }, success: true };
 }
 
-// Purchases a new hull for the fleet at the Sector Space construct (Ships —
-// Stats Foundation, Task 9). Pure: returns a new state, mutates nothing. Same
-// "same state reference on failure" convention as every other buy/action
-// function in this file (assignShipToCaptain above, craftRecipe/respec* below).
-// The Sector Space buy panel (Task 11 UI) is the caller.
-//
-// Three guards, checked in order (all return the SAME state reference,
-// success: false):
-//   1. !def.cost -- the hull is not purchasable. ShipTypeDef.cost is typed
-//      `{ credits: number } | null`; a null cost means "not for sale" (e.g. a
-//      future Research-gated hull). FORWARD-DEFENSIVE: all 4 current SHIP_TYPES
-//      hulls have a non-null cost, so this branch is unreachable with today's
-//      table -- but the guard both honors the type's own contract and protects
-//      the `def.cost.credits` deref below from a null. Kept intentionally.
-//   2. storage cap -- the fleet can hold at most shipStorageCapacity hulls
-//      (parked + assigned combined). At capacity, no purchase.
-//   3. affordability -- credits is a break_infinity.js Decimal, so the compare
-//      is `.lt(number)` (NOT `<`) and the deduction is `.minus(number)` (NOT
-//      `-`), matching respecCaptainTalents/craftRecipe's Decimal usage above.
-//
-// On success the new hull arrives PARKED (assignedCaptainId: null) -- the
-// player assigns it via assignShipToCaptain afterward. Its id is minted from
-// state.nextShipId as "ship-N" (the same "ship-N" scheme freshState seeds and
-// ShipInstance.id documents), and nextShipId is then bumped by 1 so the id
-// source stays monotonic and never reused.
-export function buyShip(
-  state: GameState,
-  typeKey: ShipTypeKey
-): { next: GameState; success: boolean } {
-  const def = SHIP_TYPES[typeKey];
-  if (!def.cost) return { next: state, success: false }; // not purchasable (forward-defensive; see header)
-  if (state.ships.length >= state.shipStorageCapacity) return { next: state, success: false }; // storage at capacity
-  if (state.credits.lt(def.cost.credits)) return { next: state, success: false }; // can't afford
-
-  const ship: ShipInstance = { id: `ship-${state.nextShipId}`, typeKey, assignedCaptainId: null };
-  return {
-    next: {
-      ...state,
-      credits: state.credits.minus(def.cost.credits),
-      ships: [...state.ships, ship],
-      nextShipId: state.nextShipId + 1,
-    },
-    success: true,
-  };
-}
+// (buyShip -- the INSTANT Requisition credit-buy for a new hull (Ships — Stats
+// Foundation, Task 9) -- was RETIRED in S4. Hulls are now BUILT at the Shipyard
+// from materials over time (startShipBuild + the shipBuild engine), so the
+// instant credit-spend path is obsolete. New hulls still arrive PARKED and are
+// assigned via assignShipToCaptain, and their ids are still minted from
+// state.nextShipId as "ship-N" -- the shipBuild completion reuses that exact
+// scheme. shipStorageCapacity still caps the fleet; only the credit-buy entry
+// point is gone.)
 
 // (craftRecipe -- the legacy INSTANT Homeworld craft action -- was RETIRED in
 // Phase 4, Task F5. The timed Fabricator engine (now the per-slot production-LINE
@@ -3037,54 +3000,15 @@ export function offlineCapTicks(state: GameState): number {
   return capSeconds / state.tickDurationSeconds;
 }
 
-// Starts ONE refine job for `recipeKey` IF (a) the recipe exists, (b) a refine
-// slot is free (active refineJob count < refineSlotCount), and (c) startProcess
-// can afford the recipe inputs. On any miss it is a same-reference no-op
-// ({ next: state, started: false }) -- the reject convention every action in this
-// file shares. On success it delegates to the Task 8 startProcess engine, which
-// deducts the inputs ATOMICALLY at start (design §4) and pushes a "refineJob"
-// TimedProcess whose completion effect adds the recipe output (resolveProcesses
-// grants it + marks it discovered + bumps lifetimeStats.itemsRefined).
-//
-// SINGLE MANUAL JOBS ONLY (Task 11 scope). Batch count-N + continuous auto-repeat
-// (a slot running an ORDER, not one job -- with per-iteration atomic deduct + the
-// closed-form offline-bulk formula, design §6) is a DEFERRED fast-follow: see the
-// "Refinery batch/continuous refine ORDERS" entry in SUGGESTIONS.md. Do NOT add
-// looping here -- each call starts exactly one job.
-//
-// SLOT GATE vs. FACILITY UPGRADES: refine jobs parallelize by SLOT COUNT (this
-// gate), NOT by the sequential-per-facility upgrade gate in canBuildFacilityUpgrade
-// -- the two are deliberately independent (a refinery can run N jobs while also
-// having an upgrade in flight). Only "refineJob" processes count against slots;
-// facilityUpgrade processes are ignored here (and vice versa).
-//
-// `recipeKey` is typed `string` (forward-loose, like startFacilityUpgrade's
-// facilityKey) with an explicit undefined guard, so an unknown key is a clean
-// rejection rather than a throw on `undefined.input`.
-export function startRefineJob(
-  state: GameState,
-  recipeKey: string
-): { next: GameState; started: boolean } {
-  const recipe = REFINE_RECIPES[recipeKey];
-  if (!recipe) return { next: state, started: false };
-
-  // Slot gate: count only the refine jobs already in flight (facility upgrades do
-  // not consume refine slots). A free slot exists iff that count is below the
-  // derived slot total. At 0 slots (unbuilt refinery) this is always false -> no
-  // job can start until the refinery is built.
-  const activeRefineJobs = state.activeProcesses.filter((p) => p.kind === "refineJob").length;
-  if (activeRefineJobs >= refineSlotCount(state)) return { next: state, started: false };
-
-  // A slot is free -> hand the recipe to startProcess, which applies the FINAL
-  // gate (affordability) and the atomic deduct. If the inputs are short,
-  // startProcess itself returns { next: state, started: false } (same reference),
-  // so an unaffordable job is rejected here too with no extra check needed.
-  return startProcess(state, "refineJob", recipe.input, recipe.durationTicks, {
-    type: "addItem",
-    itemId: recipe.output.itemId,
-    amount: recipe.output.amount,
-  });
-}
+// (startRefineJob -- the ONE-shot manual "start a single refine job" action
+// (Task 11 scope: slot gate + startProcess atomic deduct + a "refineJob"
+// TimedProcess) -- was RETIRED in S4. The per-slot production LINE engine below
+// (startLine + stepCraftLine, which calls startProcess DIRECTLY per iteration)
+// fully replaces the manual one-shot start: refining is now configured per slot
+// in the Production sub-tab, not launched by a single hardcoded-recipe button.
+// The "refineJob" process kind, refineSlotCount slot gate, and startProcess
+// atomic-deduct machinery it used all live on -- only this one-shot entry point
+// is gone.)
 
 // ============================================================================
 // Refine ORDER engine (Phase 2, Task D1)

@@ -1,25 +1,38 @@
-// Single refine-job tests — Phase 1, Task 11
+// Refinery slot + refine-completion tests — Phase 1, Task 11 (S4 update)
 // (docs/plans/2026-07-11-facility-framework-refinery-design.md §6).
 //
-// Covers the three Task 11 pieces, all built on the Task 8 timed-process engine
-// (startProcess / resolveProcesses, tick.ts) and the Task 10 FACILITIES table:
+// Covers the still-live Task 11 pieces, all built on the Task 8 timed-process
+// engine (startProcess / resolveProcesses, tick.ts) and the Task 10 FACILITIES table:
 //   - refineSlotCount(state): how many parallel refine jobs the refinery can run,
 //     derived by summing the `addRefineSlots` effects across every upgrade LEVEL
 //     the facility has actually reached (level 0 = unbuilt = 0 slots).
-//   - startRefineJob(state, recipeKey): start one manual refine job IF a slot is
-//     free AND the recipe inputs are affordable -- otherwise a same-reference
-//     no-op. Delegates the atomic input deduct + process push to startProcess.
 //   - the itemsRefined lifetime hook in resolveProcesses: completing a refineJob
 //     (and ONLY a refineJob) also increments lifetimeStats.itemsRefined[itemId].
 //
-// SCOPE: single manual jobs ONLY. Batch count-N / continuous auto-repeat is a
-// DEFERRED fast-follow (see SUGGESTIONS.md + the startRefineJob header comment) --
-// deliberately not exercised here because it does not exist yet.
+// S4 RETIREMENT: startRefineJob (the one-shot manual "start a single refine job"
+// action) and its slot/afford-gate tests were REMOVED in S4 -- the per-slot
+// production LINE engine (startLine + stepCraftLine, which calls startProcess
+// DIRECTLY) drives refining now. The completion-hook tests below therefore build
+// their "refineJob" process via startProcess directly -- the SAME seam the line
+// engine uses -- rather than through the retired startRefineJob wrapper.
 
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { refineSlotCount, startRefineJob, resolveProcesses } from "./tick";
+import { refineSlotCount, startProcess, resolveProcesses } from "./tick";
 import { freshState, REFINE_RECIPES, FACILITIES, type TimedProcess } from "./model";
+
+// Build a "refineJob" TimedProcess for the launch recipe the SAME way the line
+// engine does -- startProcess("refineJob", inputs, duration, addItem effect) --
+// so the completion-hook tests below exercise the real deduct-at-start + process
+// push without depending on the retired startRefineJob wrapper.
+function startRefineCommonOre(state: ReturnType<typeof freshState>) {
+  const recipe = REFINE_RECIPES.refineCommonOre;
+  return startProcess(state, "refineJob", recipe.input, recipe.durationTicks, {
+    type: "addItem",
+    itemId: recipe.output.itemId,
+    amount: recipe.output.amount,
+  });
+}
 
 // A fresh state with a specific inventory + refinery level, so the slot/afford
 // gates are exercised against known numbers rather than freshState's all-zero,
@@ -62,70 +75,17 @@ describe("refineSlotCount — sums addRefineSlots across levels reached", () => 
   });
 });
 
-describe("startRefineJob — single manual job (slot + afford gates)", () => {
-  it("starts a job with a free slot and affordable inputs: deducts inputs, pushes a refineJob process", () => {
-    // Level 1 => 1 slot; 100 commonOre => exactly enough for refineCommonOre.
-    const state = stateWith({ inventory: { commonOre: 100 }, refineryLevel: 1 });
-    const result = startRefineJob(state, "refineCommonOre");
+// (The "startRefineJob — single manual job (slot + afford gates)" describe was
+//  REMOVED in S4 with the startRefineJob wrapper it exercised. Its slot gate is
+//  now covered by refineSlotCount above + the line engine's own tests; the
+//  atomic deduct-at-start + affordability guard it delegated to is covered by
+//  startProcess's own tests. The completion-hook tests below build the refineJob
+//  process via startProcess directly, the same seam the line engine uses.)
 
-    expect(result.started).toBe(true);
-    // Inputs deducted AT START (atomic, via startProcess) -- 100 -> 0.
-    expect(result.next.inventory.commonOre.toString()).toBe("0");
-    expect(result.next.activeProcesses).toHaveLength(1);
-    const proc = result.next.activeProcesses[0];
-    expect(proc.kind).toBe("refineJob");
-    expect(proc.durationTicks).toBe(10); // REFINE_RECIPES.refineCommonOre.durationTicks
-    expect(proc.remainingTicks).toBe(10);
-    expect(proc.effect).toMatchObject({ type: "addItem", itemId: "refinedMaterial" });
-    // Original state untouched (immutability).
-    expect(state.inventory.commonOre.toString()).toBe("100");
-    expect(state.activeProcesses).toEqual([]);
-  });
-
-  it("is blocked with 0 slots (unbuilt refinery), even with materials on hand", () => {
-    const state = stateWith({ inventory: { commonOre: 100 }, refineryLevel: 0 });
-    const result = startRefineJob(state, "refineCommonOre");
-    expect(result.started).toBe(false);
-    expect(result.next).toBe(state); // same-reference no-op
-    expect(state.inventory.commonOre.toString()).toBe("100"); // nothing deducted
-  });
-
-  it("is blocked when every slot is already occupied (1 active job, 1 slot)", () => {
-    // Level 1 => 1 slot; 200 ore so affordability is NOT the blocker.
-    const state = stateWith({ inventory: { commonOre: 200 }, refineryLevel: 1 });
-    const first = startRefineJob(state, "refineCommonOre");
-    expect(first.started).toBe(true);
-    expect(first.next.inventory.commonOre.toString()).toBe("100"); // 200 - 100
-
-    // The one slot is now full -> the second start is refused (100 ore still on hand).
-    const second = startRefineJob(first.next, "refineCommonOre");
-    expect(second.started).toBe(false);
-    expect(second.next).toBe(first.next); // same-reference no-op
-    expect(second.next.activeProcesses).toHaveLength(1); // still just the first
-    expect(second.next.inventory.commonOre.toString()).toBe("100"); // not double-deducted
-  });
-
-  it("is blocked when the inputs are unaffordable (99 < 100 commonOre), free slot notwithstanding", () => {
-    const state = stateWith({ inventory: { commonOre: 99 }, refineryLevel: 1 });
-    const result = startRefineJob(state, "refineCommonOre");
-    expect(result.started).toBe(false);
-    expect(result.next).toBe(state); // startProcess returns the same ref on an afford failure
-    expect(state.inventory.commonOre.toString()).toBe("99"); // untouched
-    expect(state.activeProcesses).toEqual([]);
-  });
-
-  it("is a same-reference no-op for an unknown recipe key", () => {
-    const state = stateWith({ inventory: { commonOre: 1000 }, refineryLevel: 3 });
-    const result = startRefineJob(state, "notARealRecipe");
-    expect(result.started).toBe(false);
-    expect(result.next).toBe(state);
-  });
-});
-
-describe("startRefineJob — completion grants output + lifetime itemsRefined", () => {
+describe("refineJob completion grants output + lifetime itemsRefined", () => {
   it("completes past durationTicks: refinedMaterial +1, discovered, itemsRefined +1, FA XP += 10, process removed", () => {
     const state = stateWith({ inventory: { commonOre: 100 }, refineryLevel: 1 });
-    const { next: started } = startRefineJob(state, "refineCommonOre");
+    const { next: started } = startRefineCommonOre(state);
     expect(started.activeProcesses).toHaveLength(1);
 
     const { next, fleetAdminXpDelta } = resolveProcesses(started, 10); // exactly reaches 0
@@ -158,10 +118,10 @@ describe("startRefineJob — completion grants output + lifetime itemsRefined", 
   });
 });
 
-describe("startRefineJob — CLOSED-FORM parity for the itemsRefined hook", () => {
+describe("refineJob completion — CLOSED-FORM parity for the itemsRefined hook", () => {
   it("one big resolve == many small: refinedMaterial, itemsRefined, and FA XP all match", () => {
     const state = stateWith({ inventory: { commonOre: 100 }, refineryLevel: 1 });
-    const { next: started } = startRefineJob(state, "refineCommonOre");
+    const { next: started } = startRefineCommonOre(state);
 
     // Path A: one big jump past the 10-tick duration.
     const jumped = resolveProcesses(started, 40);

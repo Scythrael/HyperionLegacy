@@ -57,10 +57,10 @@
     shipDerivedStats,
     // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the static data
     // tables the Facilities tab reads. FACILITIES drives the Refinery's upgrade
-    // track (next-rung materials/prereqs); REFINE_RECIPES drives the Overview
-    // sub-tab's Start Refine Job action + its recipe/material readout; ITEMS
-    // supplies the [Bracketed Item] display labels for both. All three are the
-    // SAME tables the tick.ts backend fns below (startRefineJob /
+    // track (next-rung materials/prereqs); REFINE_RECIPES drives the Production
+    // sub-tab's per-slot line configurator (recipe dropdown + REQUIRES preview);
+    // ITEMS supplies the [Bracketed Item] display labels for both. All three are
+    // the SAME tables the tick.ts backend fns below (startLine / canStartLine /
     // canBuildFacilityUpgrade / startFacilityUpgrade) read, so the UI can never
     // show a recipe/upgrade the backend would reject on a data mismatch.
     FACILITIES,
@@ -107,11 +107,10 @@
     type CaptainTalentKey,
     type HomeworldTalentKey,
     type HomeworldTalentBranch,
-    // Ships — Stats Foundation (Task 11 UI) -- ShipTypeKey types the Requisition
-    // buy handler's arg (buyShip's typeKey param) and the doBuyShip cast. The
-    // Docks ship-row loop var and parked-ship picker list are all inferred from
-    // state.ships (ShipInstance[]), so ShipInstance itself isn't imported.
-    type ShipTypeKey,
+    // (ShipTypeKey -- Task 11 UI -- was dropped in S4 with the Requisition buy
+    //  handler that was its only consumer. The Docks ship-row loop var and
+    //  parked-ship picker list are all inferred from state.ships
+    //  (ShipInstance[]), so no ship-type key type is imported here anymore.)
     // Phase 2 (Warehouse UI, Group C): ItemCategory drives the category->tab
     // mapping (raw/refined/component/ship-equipment grids); ItemDef is the tile
     // metadata (rarity/tier/unlockHint/label) the fill-tiles + tooltip read.
@@ -135,27 +134,26 @@
     dispatchCaptainOnMission,
     recallCaptain,
     applyFleetAdminXp,
-    // Ships — Stats Foundation (Task 11 UI) -- the two pure ship actions wired
-    // into the Sector Space > Starbase panels below. buyShip(state, typeKey)
-    // backs the Requisition buy buttons; assignShipToCaptain(state, captainId,
-    // shipId) backs BOTH Docks pickers (assign-parked-to-captain AND
-    // swap-captain-to-parked-ship both resolve to this one call -- see
-    // doAssignShip's header). Both return { next, success }, wired exactly like
-    // every other do* handler in this file.
-    buyShip,
+    // Ships — Stats Foundation (Task 11 UI) -- the remaining pure ship action
+    // wired into the Sector Space > Starbase Docks panel below.
+    // assignShipToCaptain(state, captainId, shipId) backs BOTH Docks pickers
+    // (assign-parked-to-captain AND swap-captain-to-parked-ship both resolve to
+    // this one call -- see doAssignShip's header). Returns { next, success },
+    // wired exactly like every other do* handler in this file.
+    // (buyShip -- the instant Requisition credit-buy -- was RETIRED in S4.)
     assignShipToCaptain,
-    // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the four pure
-    // backend fns wired into the Facilities tab below. refineSlotCount(state) =>
-    // how many parallel refine jobs the refinery can run right now (derived from
-    // its upgrade level); startRefineJob(state, recipeKey) starts one job (slot +
-    // affordability gated); canBuildFacilityUpgrade(state, facilityKey) is the
-    // PURE readiness predicate ({ ok, reason? }) the Upgrades sub-tab reads for
-    // its Build-button gate + red "missing" reason; startFacilityUpgrade(state,
-    // facilityKey) starts the next upgrade. The two start* fns return
-    // { next, started } (NOT { next, success } like the other actions) -- see
-    // doStartRefineJob / doStartFacilityUpgrade below, which destructure `started`.
+    // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the pure backend fns
+    // wired into the Facilities tab below. refineSlotCount(state) => how many
+    // parallel refine jobs the refinery can run right now (derived from its
+    // upgrade level); canBuildFacilityUpgrade(state, facilityKey) is the PURE
+    // readiness predicate ({ ok, reason? }) the Upgrades sub-tab reads for its
+    // Build-button gate + red "missing" reason; startFacilityUpgrade(state,
+    // facilityKey) starts the next upgrade, returning { next, started } (NOT
+    // { next, success } like the other actions) -- see doStartFacilityUpgrade
+    // below, which destructures `started`.
+    // (startRefineJob -- the one-shot manual refine start -- was RETIRED in S4;
+    //  the per-slot Production configurator drives refining now, via startLine.)
     refineSlotCount,
-    startRefineJob,
     canBuildFacilityUpgrade,
     startFacilityUpgrade,
     // Crafting Allocation Redesign (Task C3/C4) -- the per-slot production LINE seams the
@@ -431,11 +429,12 @@
   type FleetCaptainSubTab = "overview" | "talents";
   let activeFleetCaptainSubTab: FleetCaptainSubTab = "overview";
 
-  // Starbase's two sub-tabs: Docks (ship management -- capacity + per-ship
-  // rows + assign/swap) and Requisition (buy hulls). No "Overview" this pass
-  // (per the approved layout). Defaults to Docks since managing existing hulls
-  // is the more common view than buying new ones.
-  type StarbaseSubTab = "docks" | "requisition";
+  // Starbase's sub-tab: Docks (ship management -- capacity + per-ship rows +
+  // assign/swap). The old Requisition (instant credit-buy) sub-tab was RETIRED
+  // in S4 -- hulls now come from the Shipyard build panel, so only Docks
+  // remains. Kept as a (single-member) union so re-adding a sub-tab later is a
+  // one-line change and the SubTabs `key as StarbaseSubTab` cast stays typed.
+  type StarbaseSubTab = "docks";
   let activeStarbaseSubTab: StarbaseSubTab = "docks";
 
   // ---- Facilities tab (Phase 1, Facility Framework + Refinery -- Task 12 UI) --
@@ -1317,28 +1316,17 @@
   //  RETIRED in Phase 4, Task F5 along with the RECIPES panel it drove. Crafting
   //  is now the Fabricator facility panel's timed order controls.)
 
-  // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the two Facilities-tab
-  // action wrappers. Both follow the SAME reassign-`state` + pushLog + doSave
-  // idiom every other do* handler uses, with ONE difference: startRefineJob /
-  // startFacilityUpgrade return { next, started } (not { next, success }), so we
-  // destructure `started` and bail on a same-reference no-op exactly as the
-  // backend's reject convention intends -- no duplicate gate logic in the UI
-  // layer (the button's `disabled` already mirrors the backend gate for the
-  // common case; this bail covers the race/edge where state changed since render).
-
-  // Start ONE refine job for `recipeKey`. Backend gates on a free slot AND
-  // affordable inputs; on any miss it is a no-op and we return without touching
-  // state/log. The log line names the recipe OUTPUT item (bracketed, per the
-  // [Item] convention) since a refine recipe is identified by what it produces.
-  function doStartRefineJob(recipeKey: string) {
-    const { next, started } = startRefineJob(state, recipeKey);
-    if (!started) return;
-    state = next;
-    const outputId = REFINE_RECIPES[recipeKey].output.itemId;
-    const outputLabel = ITEMS[outputId]?.label ?? outputId;
-    pushLog(`Refine job started → [${outputLabel}].`);
-    doSave();
-  }
+  // Facility Framework + Refinery (Phase 1, Task 12 UI) -- the Facilities-tab
+  // action wrapper. Follows the SAME reassign-`state` + pushLog + doSave idiom
+  // every other do* handler uses, with ONE difference: startFacilityUpgrade
+  // returns { next, started } (not { next, success }), so we destructure
+  // `started` and bail on a same-reference no-op exactly as the backend's reject
+  // convention intends -- no duplicate gate logic in the UI layer (the button's
+  // `disabled` already mirrors the backend gate for the common case; this bail
+  // covers the race/edge where state changed since render).
+  // (doStartRefineJob -- the one-shot manual refine start -- was RETIRED in S4;
+  //  the per-slot Production configurator drives refining now, via startLine /
+  //  doStartLine below.)
 
   // ── Production LINES (Crafting Allocation Redesign, Task C4) ───────────────
   // The per-slot configurator handlers shared by BOTH facilities (Refinery + Fabricator).
@@ -1621,24 +1609,13 @@
   }
 
   // ---- Ship actions (Ships — Stats Foundation, Task 11 UI) ----------------
-  // Both wrap a pure { next, success } action and apply the SAME
-  // reassign-state + pushLog + doSave pattern every other do* handler in this
-  // file uses (see doBuyHomeworldTalent immediately above, or the mission
-  // handlers near the top). No validation is duplicated here -- the pure
-  // functions own every fail-guard; the UI just checks `success` and bails.
-
-  // Requisition buy button -> buyShip(state, typeKey). buyShip's own guards
-  // (not-purchasable / at storage capacity / can't afford) return the same
-  // state reference on failure, so a click that somehow slipped past the
-  // disabled button (e.g. credits changed out from under it mid-tick) is a
-  // harmless no-op here.
-  function doBuyShip(typeKey: ShipTypeKey) {
-    const { next, success } = buyShip(state, typeKey);
-    if (!success) return;
-    state = next;
-    pushLog(`Requisitioned a new hull: ${SHIP_TYPES[typeKey].label}.`);
-    doSave();
-  }
+  // The remaining ship handler (doAssignShip) wraps a pure { next, success }
+  // action and applies the SAME reassign-state + pushLog + doSave pattern every
+  // other do* handler in this file uses (see doBuyHomeworldTalent above, or the
+  // mission handlers near the top). No validation is duplicated here -- the pure
+  // function owns every fail-guard; the UI just checks `success` and bails.
+  // (doBuyShip -- the instant Requisition credit-buy -- was RETIRED in S4;
+  //  hulls now come from the Shipyard build panel, not an instant credit spend.)
 
   // Both Docks pickers funnel through this ONE handler, because the pure
   // assignShipToCaptain(state, captainId, shipId) is the only valid path and
@@ -1911,19 +1888,10 @@
   // Their count vs refinerySlots is the free-slot gate; each also renders a
   // progress row in the Overview sub-tab.
   $: activeRefineJobs = state.activeProcesses.filter((p) => p.kind === "refineJob");
-  // The single launch recipe (commonOre -> refinedMaterial). Kept as a derived
-  // constant so the Overview markup reads it by one name; if a 2nd recipe lands,
-  // this becomes a loop over REFINE_RECIPES (same shape as the RECIPES loop).
-  $: refineRecipe = REFINE_RECIPES.refineCommonOre;
-  // Start-Refine-Job gate, split so the button can show WHICH gate failed:
-  //  - a free slot exists (active jobs < slots; also false at 0 slots / unbuilt), and
-  //  - every recipe input is affordable against live inventory.
-  // Mirrors startRefineJob's own two gates (slot, then startProcess affordability).
-  $: refineHasFreeSlot = activeRefineJobs.length < refinerySlots;
-  $: refineAffordable = Object.keys(refineRecipe.input).every((itemId) =>
-    (state.inventory[itemId] ?? new Decimal(0)).gte(refineRecipe.input[itemId])
-  );
-  $: refineCanStart = refineHasFreeSlot && refineAffordable;
+  // (The one-shot Start-Refine-Job derivations -- refineRecipe / refineHasFreeSlot
+  //  / refineAffordable / refineCanStart -- were RETIRED in S4 with the manual
+  //  Overview start button they exclusively drove. Refining is now configured
+  //  per-slot in the Production sub-tab; its gates read canStartLine, not these.)
 
   // ── Production LINES status (Crafting Allocation Redesign, Task C4) ────────
   // Whether the refinery is built at all (>= 1 slot). Below 1 slot there are no line
@@ -2694,7 +2662,6 @@
             <SubTabs
               tabs={[
                 { key: "docks", label: "Docks" },
-                { key: "requisition", label: "Requisition" },
               ]}
               active={activeStarbaseSubTab}
               onSelect={(key) => (activeStarbaseSubTab = key as StarbaseSubTab)}
@@ -2807,57 +2774,6 @@
                 </div>
               </Panel>
             {/if}
-
-            {#if activeStarbaseSubTab === "requisition"}
-              <!-- REQUISITION -- one card per PURCHASABLE hull (every SHIP_TYPES
-                   entry whose cost !== null; all 4 today). Credits balance shown
-                   at top (same "Credits: X" line style as the talent panels).
-                   Buy button disabled + reasoned when the fleet is at storage
-                   capacity OR credits < cost, matching buyShip's own two spend-
-                   side guards (the third guard, !def.cost, can't fire here since
-                   we only render cost-bearing hulls). Iterates SHIP_TYPES so a
-                   future hull added to that table picks up a card automatically,
-                   same data-driven spirit as the Requisition/RECIPES loops. -->
-              <Panel>
-                <!-- atCapacity declared first (valid {@const} child of <Panel>)
-                     -- mirrors buyShip's own storage-cap guard so every hull's
-                     Buy button disables together the moment the fleet fills up. -->
-                {@const atCapacity = state.ships.length >= state.shipStorageCapacity}
-                <div class="panel-title">REQUISITION</div>
-                <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
-                <div class="ship-list">
-                  {#each Object.entries(SHIP_TYPES) as [typeKey, def] (typeKey)}
-                    {#if def.cost !== null}
-                      {@const canAfford = state.credits.gte(def.cost.credits)}
-                      <div class="ship-card">
-                        <div class="ship-card-head">
-                          <div class="research-name">{def.label}</div>
-                          <span class="ship-badge">◈ {formatNumber(def.cost.credits)}</span>
-                        </div>
-                        <div class="ship-stats">
-                          <span class="ship-stat">Cargo: {formatNumber(def.cargoCapacity)}</span>
-                          <span class="ship-stat">Speed: {def.transitSpeedMult.toFixed(1)}×</span>
-                          <span class="ship-stat">Yield: {def.extractionYieldMult.toFixed(2)}×</span>
-                        </div>
-                        <p class="prestige-text ship-desc">{def.description}</p>
-                        <button
-                          class="buy-btn"
-                          disabled={atCapacity || !canAfford}
-                          title={atCapacity
-                            ? "All berths occupied"
-                            : !canAfford
-                              ? "Not enough credits"
-                              : undefined}
-                          on:click={() => doBuyShip(typeKey as ShipTypeKey)}
-                        >
-                          Buy · ◈ {formatNumber(def.cost.credits)}
-                        </button>
-                      </div>
-                    {/if}
-                  {/each}
-                </div>
-              </Panel>
-            {/if}
           {/if}
         </div>
       </div>
@@ -2872,11 +2788,12 @@
            + a right content pane driven by SubTabs for the selected facility.
            Only the Refinery is real this pass; Fabricator/Warehouse/Shipyard are
            locked "Coming Soon" rail items using the exact .captain-list-item.locked
-           idiom Sector Space's locked structures use. The Refinery has two
-           sub-tabs -- Overview (level + slots + active jobs + Start Refine Job)
-           and Upgrades (the next rung's material/prereq readiness + Build). All
-           actions/readiness read the tick.ts backend fns (startRefineJob /
-           canBuildFacilityUpgrade / startFacilityUpgrade / refineSlotCount) and
+           idiom Sector Space's locked structures use. The Refinery has three
+           sub-tabs -- Overview (level + slots + active-jobs status readout),
+           Production (the per-slot line configurator that drives refining), and
+           Upgrades (the next rung's material/prereq readiness + Build). All
+           actions/readiness read the tick.ts backend fns (canStartLine / startLine
+           / canBuildFacilityUpgrade / startFacilityUpgrade / refineSlotCount) and
            the model.ts data tables (FACILITIES / REFINE_RECIPES / ITEMS). -->
       <div class="tab-scroll-area">
       <div class="fleet-captains-layout">
@@ -2980,36 +2897,15 @@
             />
 
             {#if activeRefinerySubTab === "overview"}
-              <!-- OVERVIEW -- refinery level, slot usage, the recipe + its
-                   material balances (bracketed [Item] labels), any in-flight
-                   refine jobs (progress bar + ticks remaining), and the Start
-                   Refine Job action. The Start button's disabled state mirrors
-                   startRefineJob's own gates (free slot AND affordable inputs);
-                   its title names whichever gate is unmet. -->
+              <!-- OVERVIEW -- refinery level, slot usage, and any in-flight refine
+                   jobs (progress bar + ticks remaining). The one-shot recipe
+                   readout + Start Refine Job button were RETIRED in S4 -- refining
+                   is now configured per-slot in the Production sub-tab. This tab is
+                   now a pure status readout (no start action). -->
               <Panel>
-                <!-- The recipe's involved item ids (input keys + output), for the
-                     [Item]: balance material readout. {@const} lives directly in
-                     the <Panel> slot (valid), same as Sector Space's Docks panel. -->
-                {@const recipeItemIds = [...Object.keys(refineRecipe.input), refineRecipe.output.itemId]}
                 <div class="panel-title">REFINERY</div>
                 <div class="research-cost">Level: {refineryLevel}</div>
                 <div class="research-cost">Refine slots: {activeRefineJobs.length} / {refinerySlots} in use</div>
-
-                <!-- Recipe line + material balances (bracketed-label convention). -->
-                <div class="research-name">
-                  Refine [{ITEMS[Object.keys(refineRecipe.input)[0]]?.label ?? "?"}] → [{ITEMS[refineRecipe.output.itemId]?.label ?? refineRecipe.output.itemId}]
-                </div>
-                <div class="research-cost">
-                  Cost: {formatNumber(refineRecipe.input[Object.keys(refineRecipe.input)[0]])} [{ITEMS[Object.keys(refineRecipe.input)[0]]?.label ?? "?"}]
-                  · Output: {formatNumber(refineRecipe.output.amount)} [{ITEMS[refineRecipe.output.itemId]?.label ?? refineRecipe.output.itemId}]
-                  · {durationReadout(refineRecipe.durationTicks, showTickCounts, state.tickDurationSeconds)}
-                </div>
-                <div class="research-cost">
-                  Materials:
-                  {#each recipeItemIds as itemId, i}
-                    [{ITEMS[itemId]?.label ?? itemId}] {formatNumber(state.inventory[itemId] ?? new Decimal(0))}{i < recipeItemIds.length - 1 ? " · " : ""}
-                  {/each}
-                </div>
 
                 <!-- Active refine jobs -- one progress card each. remainingTicks /
                      durationTicks are read straight off the TimedProcess; progress
@@ -3031,25 +2927,6 @@
                     </div>
                   {/each}
                 {/if}
-
-                <!-- Start Refine Job -- disabled unless a slot is free AND inputs
-                     are affordable (mirrors startRefineJob's gates). At 0 slots
-                     (unbuilt refinery) refineHasFreeSlot is false, so the button
-                     stays disabled with the "build the refinery first" reason. -->
-                <button
-                  class="buy-btn"
-                  disabled={!refineCanStart}
-                  title={!refineHasFreeSlot
-                    ? (refinerySlots === 0
-                        ? "Build the Refinery first (see Upgrades)"
-                        : "All refine slots are busy")
-                    : !refineAffordable
-                      ? "Not enough materials"
-                      : undefined}
-                  on:click={() => doStartRefineJob("refineCommonOre")}
-                >
-                  Start Refine Job
-                </button>
               </Panel>
             {/if}
 
@@ -6142,9 +6019,8 @@
      mission popup's captain picker buttons); this modifier only nudges the top
      margin so it sits clear of the modules row above. */
   .ship-assign-btn { margin-top: 2px; }
-  /* Requisition hull blurb -- tightens .prestige-text's default bottom margin
-     so the description sits snug above the Buy button within the card. */
-  .ship-desc { margin-bottom: 10px; }
+  /* (.ship-desc -- the Requisition hull blurb's margin tweak -- was removed in S4
+     with the Requisition buy panel that was its only user.) */
 
   /* ============================================================
      Warehouse fill-tile catalog (Phase 2, Group C)
