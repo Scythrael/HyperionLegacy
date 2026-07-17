@@ -173,7 +173,7 @@ describe("startLine — appends a line + mints a monotonic id", () => {
 });
 
 // --- cancelLine --------------------------------------------------------------
-describe("cancelLine — removes the line, releasing its unstarted reservation", () => {
+describe("cancelLine — drains a running line (finishes the in-flight iteration) or removes an idle one", () => {
   it("removing a line drops allocated back to 0 / free back to full stock (derived, no ledger)", () => {
     // A batch line of 10 reserves 10 x 100 = 1000 commonOre.
     const line: CraftLine = { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 10, mode: { kind: "batch", remaining: 10 } };
@@ -198,9 +198,10 @@ describe("cancelLine — removes the line, releasing its unstarted reservation",
     expect(cancelled.refineLines).toEqual([rl]); // the refine line survives
   });
 
-  it("leaves an IN-FLIGHT job to complete normally (no refund of the started iteration)", () => {
+  it("DRAINS a running line: the in-flight iteration finishes VISIBLY, then the line clears", () => {
     // Batch of 5, 1 slot, ample ore. Step ONE tick so the first job starts (in flight);
-    // then cancel. The committed job must finish (1 output), and NO further job starts.
+    // then cancel. The committed job must finish (1 output) with its card still SHOWING,
+    // NO further job starts, and the line clears itself only AFTER the in-flight job completes.
     let s = linesState({ commonOre: 2000, refineLines: [] });
     s = startLine(s, "refine", "refineCommonOre", { kind: "batch", remaining: 5 }).next;
     const lineId = s.refineLines[0].id;
@@ -211,14 +212,30 @@ describe("cancelLine — removes the line, releasing its unstarted reservation",
     expect(afterOneTick.inventory.commonOre.toString()).toBe("1900"); // 2000 - 100 (one iteration started)
 
     const cancelled = cancelLine(afterOneTick, lineId);
-    expect(cancelled.refineLines).toHaveLength(0); // line gone
-    expect(cancelled.activeProcesses.filter((p) => p.kind === "refineJob")).toHaveLength(1); // job still committed
+    // The line is DRAINED, not deleted: it stays (so its in-flight iteration shows) but is
+    // stopped (remaining 0), and its UNSTARTED reservation is already released.
+    expect(cancelled.refineLines).toHaveLength(1); // line still visible (draining)
+    expect(cancelled.refineLines[0].remaining).toBe(0); // stopped -- no more iterations queue
+    expect(cancelled.refineLines[0].mode).toEqual({ kind: "batch", remaining: 0 });
+    expect(allocatedItem(cancelled.refineLines, "commonOre").toNumber()).toBe(0); // reservation released now
+    expect(cancelled.activeProcesses.filter((p) => p.kind === "refineJob")).toHaveLength(1); // in-flight job still committed
 
     const settled = stepTicks(cancelled, 30); // well past the committed job's completion
     expect(settled.inventory.refinedMaterial.toString()).toBe("1"); // exactly the committed job -- no 2nd
     expect(settled.inventory.commonOre.toString()).toBe("1900"); // no further ore consumed (reservation released)
     expect(settled.activeProcesses).toHaveLength(0);
-    expect(settled.refineLines).toHaveLength(0);
+    expect(settled.refineLines).toHaveLength(0); // line cleared itself once the in-flight iteration finished
+  });
+
+  it("REMOVES an idle line outright (nothing in flight to finish)", () => {
+    // A just-created batch line that has NOT been stepped has no in-flight job -> cancel
+    // deletes it immediately (no draining wait).
+    let s = linesState({ commonOre: 2000, refineLines: [] });
+    s = startLine(s, "refine", "refineCommonOre", { kind: "batch", remaining: 5 }).next;
+    const lineId = s.refineLines[0].id;
+    const cancelled = cancelLine(s, lineId); // never stepped -> no in-flight job
+    expect(cancelled.refineLines).toHaveLength(0); // gone immediately
+    expect(freeItem(cancelled.inventory, cancelled.refineLines, "commonOre").toNumber()).toBe(2000); // full refund
   });
 
   it("is a same-reference no-op for an unknown line id", () => {

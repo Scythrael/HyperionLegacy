@@ -3275,13 +3275,30 @@ export function cancelLine(state: GameState, lineId: string): GameState {
   const inRefine = refineLines.some((l) => l.id === lineId);
   const inFabricate = fabricateLines.some((l) => l.id === lineId);
   if (!inRefine && !inFabricate) return state; // no such line -> same-ref no-op
+
+  // Cancel = "stop after the CURRENT iteration finishes." If the line has an iteration
+  // already IN FLIGHT (a job stamped with this lineId), we DRAIN it rather than delete
+  // it: set remaining -> 0 (a stopped batch), which (a) immediately releases the UNSTARTED
+  // reservation via derived allocation, and (b) leaves the line in its array so stepCraftLine
+  // keeps it alive -- the in-flight iteration finishes VISIBLY, deposits its output, and
+  // THEN stepCraftLine removes the line (remaining 0, no in-flight job). Converting a
+  // CONTINUOUS line to `{ kind: "batch", remaining: 0 }` is what makes it stop too. If NO
+  // iteration is in flight (an idle/paused/just-created line), there is nothing to finish
+  // -> remove it outright for immediate feedback. (Before this fix, EVERY cancel deleted
+  // the line, so a mid-run cancel made the still-running iteration's card vanish instantly.)
+  const hasInFlightJob = state.activeProcesses.some((p) => p.lineId === lineId);
+  const rebuild = (lines: CraftLine[]): CraftLine[] =>
+    hasInFlightJob
+      ? lines.map((l) => (l.id === lineId ? { ...l, remaining: 0, mode: { kind: "batch", remaining: 0 } } : l))
+      : lines.filter((l) => l.id !== lineId);
+
   return {
     ...state,
     // Only the array that actually held the line is rebuilt; the other rides through
     // unchanged. (A line id is unique across both facilities via nextCraftLineId, so at
     // most one branch matches, but both are checked independently for robustness.)
-    refineLines: inRefine ? refineLines.filter((l) => l.id !== lineId) : refineLines,
-    fabricateLines: inFabricate ? fabricateLines.filter((l) => l.id !== lineId) : fabricateLines,
+    refineLines: inRefine ? rebuild(refineLines) : refineLines,
+    fabricateLines: inFabricate ? rebuild(fabricateLines) : fabricateLines,
   };
 }
 

@@ -3084,14 +3084,20 @@
                     <div class="mission-card" style="margin-top: 10px;">
                       <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                         <div class="research-name">LINE {li + 1} · REFINING</div>
-                        <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                        <!-- Cancel is only offered while iterations remain to STOP. When
+                             remaining is 0 the line is finishing its last/in-flight iteration
+                             (either naturally, or drained by a prior Cancel) -- nothing left to
+                             cancel, so it just shows "finishing" until it clears itself. -->
+                        {#if line.remaining > 0}
+                          <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                        {/if}
                       </div>
                       <div class="research-cost">
                         {#if recipe}
                           {#each Object.keys(recipe.input) as inId, i}{formatNumber(recipe.input[inId])}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(recipe.input).length - 1 ? " + " : ""}{/each}
                           → [{ITEMS[recipe.output.itemId]?.label ?? recipe.output.itemId}]
                         {:else}[{line.recipeKey}]{/if}
-                        · {line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous"}
+                        · {line.remaining > 0 ? (line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous") : "finishing current run"}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
@@ -4128,14 +4134,17 @@
                     <div class="mission-card" style="margin-top: 10px;">
                       <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
                         <div class="research-name">LINE {li + 1} · FABRICATING</div>
-                        <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                        <!-- Cancel only while iterations remain to stop (see the refine card above). -->
+                        {#if line.remaining > 0}
+                          <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                        {/if}
                       </div>
                       <div class="research-cost">
                         {#if bp}
                           {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each}
                           → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
                         {:else}[{line.recipeKey}]{/if}
-                        · {line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous"}
+                        · {line.remaining > 0 ? (line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous") : "finishing current run"}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
