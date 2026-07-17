@@ -806,3 +806,29 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
     a genuinely different interaction paradigm from the tick economy. Worth deciding early how an in-progress away
     mission interacts with the offline model (freeze/resume? abandon? a soft time limit?). Its own full brainstorm
     when the Crew system + a combat engine are on the table.
+
+- **Game Dashboard / Command Home -- the default landing screen (user 2026-07-16, LIVING entry -- update as
+  systems ship).** A single at-a-glance hub that is the DEFAULT tab the player lands on, aggregating "all the neat
+  stuff in one place." This likely SUPERSEDES / fills the emptied Homeworld Overview placeholder (the legacy
+  inventory panel was removed in Fabricator F5, leaving Overview as a deliberate "fleshed out later" shell), or
+  becomes its own top-level default tab. Sections the user named:
+  - **Current statuses** -- fleet/economy at a glance (credits, fuel + the fuel-runway readout, active missions,
+    active craft lines, FA level/XP, etc.).
+  - **Game news** -- the latest patch notes / what's-new strip (already sourced from `patchNotes.ts`).
+  - **Current situation with QUICK-NAV** -- surfaces what needs attention (e.g. which facilities are IDLE -- free
+    refine/fabricate slots, an unused research/fuel slot) and lets you CLICK straight through to that facility's
+    screen. Idle-detection is derivable from current state today (refineLines/fabricateLines vs slot counts,
+    research/fuel activity, captains not on missions); the click-through needs nav hooks into the tab/facility rail.
+  - **Player Score** -- a COMPOSITE number from achievements + % completion + other game stats. ⚠️ This section is
+    DOWNSTREAM of systems that don't exist yet (see the logged "Player Stats / Achievements / Completion panel",
+    "Completions + Achievements + Relics + 100% Completion tracker", "Stats page / total played time", and
+    "Library/Archive tab" entries -- all fed by the `lifetimeStats` layer already being reserved). Early dashboard
+    versions show the score sections that CAN be computed and grow the composite as those systems land.
+  - **Default-landing / layout change:** making this the tab you START on is a navigation + layout change (today the
+    game lands elsewhere), and a proper dashboard grid differs from the current facility-panel layout -- a QOL/UI
+    pass, explicitly "for later." MOCKUP-GATED when built ([[feedback_visual_ui_needs_mockup]]) -- a dashboard grid
+    is exactly the spatial-layout class of work that needs a sketch first.
+  - **Nature:** a LIVING aggregator -- each new system (Shipyard, Crew, Combat, achievements...) adds its own status
+    widget/quick-nav here, so this entry gets revisited/expanded as the roadmap progresses, not built once. Ties to:
+    the offline "welcome back" summary (current-situation deltas), the credits/stats economy, and the whole
+    stats/achievements/completion family above.
