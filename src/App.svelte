@@ -6273,7 +6273,7 @@
   .dev-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .log-list { display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; }
   .log-empty { font-size: 12px; color: var(--color-text-dim); }
-  .log-entry { font-size: 12px; color: #9fc4cc; font-family: var(--font-mono); }
+  .log-entry { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
   .modal-backdrop {
     position: fixed;
     inset: 0;

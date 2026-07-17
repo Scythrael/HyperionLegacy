@@ -26,7 +26,11 @@
   .star {
     position: absolute;
     border-radius: 50%;
-    background: #bfe9f5;
+    /* Default ambient starfield only: a subtle per-theme tint so the background
+       meshes with the chosen theme (see --color-starfield in app.css). Future
+       selectable background styles (sub-light streak, warp) must set their OWN
+       fixed colors here instead, not this token. */
+    background: var(--color-starfield);
     opacity: 0.5;
     animation-name: drift;
     animation-timing-function: linear;
