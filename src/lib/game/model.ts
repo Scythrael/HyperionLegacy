@@ -1530,6 +1530,27 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
     output: { itemId: "refinedMaterial", amount: new Decimal(1) },
     durationTicks: 10,
   },
+  // ⚠️ TUNABLE first-pass (2026-07-16) -- these two CONNECT the Refinery to the Fabricator:
+  // they produce the exact refined materials the tier-1 blueprints consume, so the production
+  // chain (mine -> refine -> fabricate) is playable end-to-end for the first time. Before this,
+  // the only recipe made the generic `refinedMaterial` (a facility-upgrade input), which NO
+  // blueprint uses -- the chain dead-ended.
+  //   - Titanium Ore (`commonOre`) is the common staple -> a higher input ratio (20:1).
+  //   - Polysilicate Ore (`uncommonMaterial`) is the UNCOMMON strike (scarcer drop) -> a cheaper
+  //     ratio (5:1) so the rarer feedstock isn't punishing.
+  // Ratios + durations are device-check tunables exactly like refineCommonOre above; the target
+  // item ids (`titaniumIngot`/`polysilicateWafer`) already exist in ITEMS with "Refined from ...
+  // at the Refinery" unlockHints written forward for this.
+  refineTitaniumIngot: {
+    input: { commonOre: new Decimal(20) },
+    output: { itemId: "titaniumIngot", amount: new Decimal(1) },
+    durationTicks: 12,
+  },
+  refinePolysilicateWafer: {
+    input: { uncommonMaterial: new Decimal(5) },
+    output: { itemId: "polysilicateWafer", amount: new Decimal(1) },
+    durationTicks: 20,
+  },
 };
 
 // Item taxonomy (Ship Production Economy epic -- 2026-07-11 facility-framework

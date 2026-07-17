@@ -1290,6 +1290,29 @@
     pushLog(`[DEV] +${formatNumber(new Decimal(amount))} credits (now ${formatNumber(state.credits)}).`);
   }
 
+  // Grant a stack of the craft-chain materials so the mine -> refine -> fabricate flow
+  // can be tested without grinding the (scarce) upstream drops -- especially the UNCOMMON
+  // Polysilicate Ore. Adds raw ores + the refined mats + marks them discovered so they
+  // render in the Warehouse. Same immutable { ...state } shape as the other dev grants.
+  function devGrantMaterials() {
+    const grants: Record<string, number> = {
+      commonOre: 10000, // Titanium Ore (refines -> Titanium Ingot; also the facility-upgrade ore)
+      uncommonMaterial: 10000, // Polysilicate Ore (refines -> Polysilicate Wafer)
+      rareMaterial: 2000, // Iridium Ore
+      deuteriumIce: 5000, // fuel feedstock
+      titaniumIngot: 1000, // refined -> Fabricator input (frameSegment / structuralAssembly)
+      polysilicateWafer: 1000, // refined -> Fabricator input (powerCoupling)
+      refinedMaterial: 1000, // generic refined (facility upgrades)
+    };
+    const inventory = { ...state.inventory };
+    for (const [itemId, amount] of Object.entries(grants)) {
+      inventory[itemId] = (inventory[itemId] ?? new Decimal(0)).plus(new Decimal(amount));
+    }
+    const discovered = [...new Set([...state.discovered, ...Object.keys(grants)])];
+    state = { ...state, inventory, discovered };
+    pushLog(`[DEV] Granted testing materials (raw ores + refined) for the craft chain.`);
+  }
+
   // (doCraftRecipe -- the legacy instant Homeworld craft-button handler -- was
   //  RETIRED in Phase 4, Task F5 along with the RECIPES panel it drove. Crafting
   //  is now the Fabricator facility panel's timed order controls.)
@@ -4894,6 +4917,10 @@
             <button class="dev-btn" on:click={() => devGrantCredits(10000)}>+10K</button>
             <button class="dev-btn" on:click={() => devGrantCredits(100000)}>+100K</button>
             <button class="dev-btn" on:click={() => devGrantCredits(1000000)}>+1M</button>
+          </div>
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Materials</span>
+            <button class="dev-btn" on:click={devGrantMaterials}>+ Craft materials (ores + refined)</button>
           </div>
           <div class="dev-row">
             <button class="dev-btn" on:click={doSave}>Save now</button>
