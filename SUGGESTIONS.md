@@ -847,6 +847,10 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   captains/admiral tab (would need renaming to reuse). Both moves are QOL/layout, MOCKUP-GATED
   ([[feedback_visual_ui_needs_mockup]]), and land whenever the Dashboard + (for the Battlespace fold) Combat are built.
 
+- **✅ SHIPPED in 0.10.1 (2026-07-17).** Built as the update-detector: per-build `__BUILD_ID__` + emitted
+  `version.json` (poller in `src/lib/updateDetector.ts`, banner `src/UpdateBanner.svelte`, mounted in Root).
+  Dismissible frosted banner with Export save / Refresh / snooze (~3h re-nag). See
+  `docs/plans/2026-07-17-update-detector-design.md`. Original entry kept below for the record.
 - **"New version available — refresh" detection (user 2026-07-16, candidate for early 0.11.0 or a quick
   standalone patch).** Detect a fresh deploy CLIENT-SIDE and prompt the player to refresh, so they get updates
   (and bug fixes) without manually reloading a stale build. Directly reinforces the "refresh to recover if stuck"
