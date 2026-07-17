@@ -832,3 +832,17 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
     widget/quick-nav here, so this entry gets revisited/expanded as the roadmap progresses, not built once. Ties to:
     the offline "welcome back" summary (current-situation deltas), the credits/stats economy, and the whole
     stats/achievements/completion family above.
+
+- **Tab restructure: fold Battlespace INTO Operations, and put the Dashboard first (user 2026-07-16).** Two connected
+  moves. (1) **Condense Battlespace into Operations** as its own SECTION, separate from the Missions section -- the 4
+  Battlespace modes (Fleet Skirmishes / Campaign / Fleet Exercises / Invasion -- see the "Battlespace's 4 real modes"
+  entry above) are genuinely "operations," just COMBAT ones vs resource missions, so Operations becomes "what your
+  fleet does = Missions | Battlespace." This retires the standalone Battlespace bottom-nav tab and FREES a tab slot.
+  ⚠️ When built: combat is a big system, so its section needs its own sub-nav for the 4 modes (a peer to the Missions
+  section), not a cramped afterthought. (2) **That freed slot → the Dashboard as the FRONT / DEFAULT tab** -- the
+  whole-game-state overview (see the "Game Dashboard / Command Home" entry directly above) becomes the first thing you
+  land on. **Tab NAME -- open (user unsure):** it's the whole-game-state overview / default landing. Candidates floated
+  2026-07-16: **Bridge** (recommended -- diegetic "oversee the fleet from the bridge," short, sci-fi), **Overview**
+  (plain/clear), **Flagship**, **Sitrep**/**Situation** (status-report flavor). ⚠️ AVOID "Command" -- already the
+  captains/admiral tab (would need renaming to reuse). Both moves are QOL/layout, MOCKUP-GATED
+  ([[feedback_visual_ui_needs_mockup]]), and land whenever the Dashboard + (for the Battlespace fold) Combat are built.
