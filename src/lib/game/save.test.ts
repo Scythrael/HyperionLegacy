@@ -1997,6 +1997,7 @@ describe("migrate — Ship Production Economy Phase 1: inventory/discovered/faci
       missionControl: { level: 1 },
       research: { level: 1 }, // Research Task R2 (fresh round-trip reflects freshState directly)
       fabricator: { level: 1 }, // Fabricator Task F1 (fresh round-trip reflects freshState directly)
+      shipyard: { level: 0 }, // Shipyard Task S1 (fresh round-trip reflects freshState directly; LOCKED/level 0; old-save backfill is S6's v24->v25 step)
     });
     expect(migrated.facilities).toEqual(original.facilities);
     expect(migrated.activeProcesses).toEqual([]);
@@ -2191,6 +2192,7 @@ describe("migrate — Tiered Warehouse facility backfill (v18 -> v19)", () => {
       missionControl: { level: 1 },
       research: { level: 1 }, // Research Task R2 (fresh round-trip reflects freshState directly)
       fabricator: { level: 1 }, // Fabricator Task F1 (fresh round-trip reflects freshState directly; old-save backfill is F6's v22->v23 step)
+      shipyard: { level: 0 }, // Shipyard Task S1 (fresh round-trip reflects freshState directly; LOCKED/level 0; old-save backfill is S6's v24->v25 step)
     });
     expect(migrated.facilities).toEqual(original.facilities);
   });
@@ -2454,7 +2456,15 @@ describe("migrate — fuel + mission facilities backfill (v20 -> v21)", () => {
     // Fabricator Task F6), which seeds `fabricator: { level: 1 }` -- so a v20 save migrated to
     // the CURRENT version now carries `fabricator` too. This restores the full-parity
     // assertion F1 temporarily stripped while MIGRATIONS[22] did not yet exist.
-    expect(migrated.facilities).toEqual(fresh.facilities);
+    // S1 UPDATE (2026-07-16): the Shipyard was added to freshState (level 0), but its
+    // old-save backfill is S6's v24->v25 step -- NOT YET WRITTEN. So a v20 save migrated
+    // to the CURRENT version (v24) does NOT carry `shipyard`, while freshState does.
+    // Per the SAME R2/F1 precedent, the full-parity assertion is TEMPORARILY relaxed to
+    // the shared facilities; S6 re-adds the shipyard backfill and restores
+    // `toEqual(fresh.facilities)` (confirm shipyard is the ONLY divergence here).
+    const { shipyard: _s1Shipyard, ...freshFacilitiesWithoutShipyard } = fresh.facilities as any;
+    expect(migrated.facilities).toEqual(freshFacilitiesWithoutShipyard);
+    expect(migrated.facilities.shipyard).toBeUndefined();
   });
 
   it("preserves an already-present fuel / fuelStorage / missionControl rather than reseeding (idempotent ?? guard)", () => {
@@ -2610,7 +2620,13 @@ describe("migrate — research state backfill (v21 -> v22)", () => {
     // Fabricator Task F6), which seeds `fabricator: { level: 1 }` -- so a v21 save migrated to
     // the CURRENT version now carries `fabricator` too. This restores the full-parity assertion
     // F1 temporarily stripped while MIGRATIONS[22] did not yet exist.
-    expect(migrated.facilities).toEqual(fresh.facilities);
+    // S1 UPDATE (2026-07-16): Shipyard added to freshState (level 0); its old-save backfill is
+    // S6's v24->v25 step (not yet written), so a migrated old save lacks `shipyard` while
+    // freshState has it. Full parity TEMPORARILY relaxed to the shared facilities (R2/F1
+    // precedent); S6 restores `toEqual(fresh.facilities)`.
+    const { shipyard: _s1Shipyard, ...freshFacilitiesWithoutShipyard } = fresh.facilities as any;
+    expect(migrated.facilities).toEqual(freshFacilitiesWithoutShipyard);
+    expect(migrated.facilities.shipyard).toBeUndefined();
   });
 
   it("preserves an already-present researchedBlueprints / research facility rather than reseeding (idempotent ?? guard)", () => {
@@ -2793,7 +2809,13 @@ describe("migrate — fabricator state backfill (v22 -> v23)", () => {
     // the facility-shape parity below is the part that still holds in C4.
     // The FULL facilities map now matches freshState's shape (fabricator included) -- proves the
     // migrated old save and a brand-new game are indistinguishable on facilities.
-    expect(migrated.facilities).toEqual(fresh.facilities);
+    // S1 UPDATE (2026-07-16): Shipyard added to freshState (level 0); its old-save backfill is
+    // S6's v24->v25 step (not yet written), so a migrated old save lacks `shipyard` while
+    // freshState has it. Full parity TEMPORARILY relaxed to the shared facilities (R2/F1
+    // precedent); S6 restores `toEqual(fresh.facilities)`.
+    const { shipyard: _s1Shipyard, ...freshFacilitiesWithoutShipyard } = fresh.facilities as any;
+    expect(migrated.facilities).toEqual(freshFacilitiesWithoutShipyard);
+    expect(migrated.facilities.shipyard).toBeUndefined();
   });
 
   it("preserves an already-present fabricator facility (idempotent ?? guard) but DROPS a legacy fabricateOrder (C6 v23->v24)", () => {

@@ -197,6 +197,11 @@ describe("Phase 1 — facility/process reservation fields (additive)", () => {
     // level 0) -- same seeded-founding posture as the Research Lab, so tier-1 blueprints
     // are FABRICABLE from game start once researched (no soft-lock) and fabricateSlotCount
     // reads 1.
+    // Shipyard Task S1 (additive): the Shipyard joins the seed at level 0 -- LOCKED /
+    // unfounded (NOT level 1 like research/fabricator). Its founding rung (level 0->1)
+    // is a real credits + FA-level unlock, so it must start locked for founding to mean
+    // something. shipBuildSlotCount is a const 1 regardless; building a hull is gated on
+    // level >= 1 by S3's canBuildShip.
     expect(state.facilities).toEqual({
       refinery: { level: 0 },
       warehouseT1: { level: 0 },
@@ -205,6 +210,7 @@ describe("Phase 1 — facility/process reservation fields (additive)", () => {
       missionControl: { level: 1 },
       research: { level: 1 },
       fabricator: { level: 1 },
+      shipyard: { level: 0 },
     });
   });
 

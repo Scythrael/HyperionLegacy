@@ -2367,6 +2367,29 @@ export function fabricateSlotCount(state: GameState): number {
   return slots;
 }
 
+// Ship-build SLOT count (Shipyard Task S1) -- how many concurrent ship builds the
+// Shipyard can run RIGHT NOW. A CONST 1 this pass: the Shipyard builds ONE ship at a
+// time (locked brainstorm decision #2). This DELIBERATELY does NOT read the facility
+// level or sum an effect off the upgrade track (unlike researchSlotCount /
+// fabricateSlotCount, whose rungs grant slots): the Shipyard's upgrade track buys build
+// SPEED, not parallel slots. It stays a function (not a bare constant) as a FORWARD HOOK
+// -- when DRONES land (design §7, mass-production), this becomes a real derivation
+// (e.g. 1 + a summed { addBuildSlots } grant), and every S3+ call site already routes
+// through it, so that upgrade is a pure body change here with no call-site churn.
+//
+// ⚠️ Returns 1 REGARDLESS of shipyard level -- even at level 0 (unfounded). Concurrency
+// is this slot cap; whether a build may START AT ALL (shipyard founded, i.e. level >= 1)
+// is a SEPARATE gate that S3's canBuildShip enforces (the `notFounded` reason). Keeping
+// the two orthogonal mirrors how slot-count and the tier/level gate are separate in the
+// research/fabricate systems.
+export function shipBuildSlotCount(state: GameState): number {
+  // `state` is intentionally unread this pass (const 1); named (not `_`) so the drone
+  // upgrade that starts reading it is a body-only change. Reference it to satisfy the
+  // no-unused-parameter lint without altering the return.
+  void state;
+  return 1;
+}
+
 // Research Task R4 (design §3): the typed reason canResearch returns when a research
 // project is BLOCKED. A string union (not a numeric enum) so it serializes/logs as a
 // readable token and the R5 Research Lab UI can switch on it exhaustively to render each

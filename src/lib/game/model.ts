@@ -80,6 +80,22 @@ export interface ShipTypeDef {
   moduleSlots: number;              // POPULATED but INERT this pass (no module system yet)
   equipmentSlots: number;           // forward bucket; counts finalized with equipment/reactor design
   cost: { credits: number } | null; // null = not purchasable
+  // Shipyard (Phase 5, Task S1 -- design §6): the BILL OF MATERIALS + credits + build
+  // TIME to CONSTRUCT this hull at the Shipyard. Acquisition now runs through timed
+  // construction (the instant credit-buy `cost`/`buyShip` is retired in S4), so every
+  // real hull carries one. Shape:
+  //   components   -- fabricated-component ITEM ids -> integer counts, RESERVED at build
+  //                   start (the derived-allocation model, S2) and consumed on completion.
+  //                   Keyed on `string` (the ITEMS registry key), same forward-loose
+  //                   posture as inventory / RECIPES inputs. Real component ids only
+  //                   (frameSegment / powerCoupling / structuralAssembly).
+  //   credits      -- a flat credit cost, deducted ATOMICALLY at build start (S3).
+  //   durationTicks-- base build length; the Shipyard's build-speed upgrades scale it (S3).
+  // ⚠️ FIRST-PASS TUNABLE -- these values are launch placeholders scaling roughly with the
+  // hull (bigger cargo / faster = more components + credits + time), the SAME device-check
+  // placeholder spirit as `cost` and every other economy constant in this file. Retune at
+  // the device checkpoint, NOT piecemeal.
+  buildRecipe: { components: Record<string, number>; credits: number; durationTicks: number };
   description: string;
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
@@ -462,6 +478,9 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.0,
     fuelCapacity: 200, engineEfficiency: 0, // range hull: big tank, baseline burn
     moduleSlots: 1, equipmentSlots: 0, cost: { credits: 25 },
+    // CHEAPEST hull to build (the starter/fallback): a small frame + coupling BOM, no
+    // major assembly. ⚠️ FIRST-PASS TUNABLE (see ShipTypeDef.buildRecipe).
+    buildRecipe: { components: { frameSegment: 4, powerCoupling: 2 }, credits: 500, durationTicks: 300 },
     description: "A no-frills hauler. Every captain's starter and emergency fallback.",
   },
   prospectorHauler: {
@@ -469,6 +488,9 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 180, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
     fuelCapacity: 160, engineEfficiency: 0.15, // between: mid tank, mild efficiency
     moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
+    // MOST EXPENSIVE to build (double cargo): the biggest frame BOM + 2 major
+    // assemblies + the longest build. ⚠️ FIRST-PASS TUNABLE.
+    buildRecipe: { components: { frameSegment: 8, powerCoupling: 5, structuralAssembly: 2 }, credits: 1400, durationTicks: 700 },
     description: "Doubles cargo at the cost of speed — big hauls, longer runs.",
   },
   prospectorRunner: {
@@ -476,6 +498,9 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 60, transitSpeedMult: 1.5, extractionYieldMult: 1.0,
     fuelCapacity: 100, engineEfficiency: 0.5, // efficiency hull: small tank, least burn
     moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
+    // MID build (fast but small hold): a lighter frame BOM than the extraction hulls +
+    // 1 major assembly. ⚠️ FIRST-PASS TUNABLE.
+    buildRecipe: { components: { frameSegment: 4, powerCoupling: 4, structuralAssembly: 1 }, credits: 900, durationTicks: 450 },
     description: "Fast transit, small hold — rapid short cycles.",
   },
   prospectorMiner: {
@@ -483,6 +508,9 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.35,
     fuelCapacity: 140, engineEfficiency: 0.25, // between: mid tank, moderate efficiency
     moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
+    // ABOVE-MID build (specialized extraction rig): a heavier BOM than the Runner +
+    // 1 major assembly, below the Hauler. ⚠️ FIRST-PASS TUNABLE.
+    buildRecipe: { components: { frameSegment: 6, powerCoupling: 4, structuralAssembly: 1 }, credits: 1100, durationTicks: 550 },
     description: "Specialized extraction rig — more materials per tick.",
   },
 };
@@ -854,7 +882,22 @@ export type FacilityUpgradeEffect =
   // member above), so a rung carrying this is inert to refineSlotCount / researchSlotCount
   // / tierCap / fuelCap, and -- critically -- NO existing facility rung sets it, so this
   // member changes NO existing behavior (anti-regression: Omega 15).
-  | { addFabricateSlots: number };
+  | { addFabricateSlots: number }
+  // --- Shipyard (Phase 5, Task S1 -- design §2): the build-SPEED multiplier ----------
+  // Multiplies the Shipyard's ship-build SPEED (>1 = FASTER, i.e. the build engine S3
+  // will DIVIDE a hull's buildRecipe.durationTicks by the PRODUCT of this across the
+  // reached rungs -- the SAME derive-on-read/reached-rungs idiom refineSpeedMult uses,
+  // a MULTIPLIED effect rather than a SUMMED slot grant). The Shipyard's founding rung
+  // establishes the facility (an inert `unlocksContent` level-bump, like Mission
+  // Control's founding); its LATER rungs carry this to cut build time. Refit + repairs
+  // are FUTURE rungs on this same track (design §2, hooked-not-built).
+  // ADDED ADDITIVELY + INERT (anti-regression, Omega 15): property-presence narrowing
+  // (same convention as every member above), so a rung carrying this is inert to
+  // refineSlotCount / researchSlotCount / fabricateSlotCount / tierCap / fuelCap, and --
+  // critically -- NO existing facility rung sets it (only FACILITIES.shipyard's later
+  // rungs do), so this member changes NO existing behavior. No consumer READS it yet
+  // either (the S3 build engine will); it is inert data this pass.
+  | { buildSpeedMult: number };
 
 // One rung of a facility's upgrade track = the requirements to reach the NEXT
 // level. `materials` are deducted ATOMICALLY at start by startProcess (design §4).
@@ -1361,6 +1404,66 @@ export const FACILITIES: Record<string, FacilityDef> = {
         durationTicks: 120, // tunable
         effect: { addFabricateSlots: 1 },
         requiresFleetAdminLevel: 3, // modest gate, mirrors the Research Lab's idiom (tunable)
+      },
+    ],
+  },
+  // --- Shipyard (Phase 5, Task S1 -- design §2) --------------------------------
+  // The Fleet-Sector facility that BUILDS hulls from a component BOM + credits over a
+  // timed construction (the build ENGINE lands in S3). Owner is FLEET-SECTOR, expressed
+  // the SAME way research/fabricator express it: there is NO `owner` field on FacilityDef
+  // (see the interface above -- only `label` + `upgrades`); the House/Sector grouping is
+  // a UI-SIDE concern (App.svelte's rails), so nothing is set here for it.
+  //
+  // ⚠️ DIFFERS from research/fabricator on ONE axis: those seed at level 1 (established
+  // from game start), but the Shipyard seeds at level 0 -- LOCKED / unfounded (freshState
+  // below). So its FOUNDING rung (level 0->1) is a REAL, BUILDABLE unlock, gated on
+  // credits + Fleet-Admiral level (NO materials) -- the SAME credits+FA-level gate shape
+  // research/fabricator put on their level 1->2 rung, just moved to the founding rung
+  // because establishing the Shipyard is the deliberate unlock (locked brainstorm #3).
+  //
+  // FINITE track: a founding rung + a first-pass build-SPEED track (two { buildSpeedMult }
+  // rungs). Refit + repairs are FUTURE rungs on this same track (hooked, not built --
+  // design §2/§7). ⚠️ FIRST-PASS TUNABLE values (credits/duration/FA-level/mult), same
+  // launch-placeholder spirit as the Research Lab / Fabricator tracks -- real balance at
+  // the device checkpoint.
+  shipyard: {
+    label: "Shipyard",
+    upgrades: [
+      // [0] Level 0 -> 1: the FOUNDING rung -- a REAL buildable unlock (NOT pre-granted;
+      // freshState seeds level 0). Gated on credits + an FA-level prereq, NO materials
+      // (mirrors the research/fabricator credit-rung shape). Its effect is the inert
+      // `unlocksContent` level-bump marker (like Mission Control's founding rung): what
+      // establishing the Shipyard enables (building hulls) derives from the LEVEL being
+      // >= 1, NOT from a summed/multiplied stat -- so the founding rung carries no
+      // buildSpeedMult (build-speed bonuses start on the LATER rungs). Reaching level 1
+      // gives the baseline 1.0x build speed (the S3 engine's product over zero mult rungs).
+      {
+        materials: {}, // NO materials on the founding rung this pass (mirrors research)
+        credits: new Decimal(2000), // founding credit sink (tunable)
+        durationTicks: 60, // founding build time (tunable)
+        effect: { unlocksContent: true },
+        requiresFleetAdminLevel: 3, // FA-level founding gate, mirrors research/fabricator (tunable)
+      },
+      // [1] Level 1 -> 2: first build-SPEED upgrade. Carries { buildSpeedMult } (the S3
+      // engine divides a hull's durationTicks by the product of reached rungs' mults ->
+      // faster builds). Gated on credits (the SAME long-term credit sink research/
+      // fabricator use) + a modest FA-level prereq. NO materials.
+      {
+        materials: {},
+        credits: new Decimal(8000), // tunable
+        durationTicks: 180, // tunable
+        effect: { buildSpeedMult: 1.5 }, // 1.5x build speed (tunable)
+        requiresFleetAdminLevel: 5, // tunable
+      },
+      // [2] Level 2 -> 3: second build-SPEED upgrade. Track ENDS here (finite; refit/
+      // repairs are future rungs). Stacks multiplicatively on rung [1] (1.5 * 2.0 = 3.0x
+      // at level 3, per the S3 product derivation).
+      {
+        materials: {},
+        credits: new Decimal(20000), // tunable
+        durationTicks: 300, // tunable
+        effect: { buildSpeedMult: 2.0 }, // tunable
+        requiresFleetAdminLevel: 8, // tunable
       },
     ],
   },
@@ -1960,6 +2063,13 @@ export const RESEARCH_FACILITY_KEY = "research";
 // + F2/F3/F4/F6 all reference ONE literal instead of scattering it. F1 adds FACILITIES.
 // fabricator and seeds it at level 1 in freshState.
 export const FABRICATOR_FACILITY_KEY = "fabricator";
+
+// The Shipyard facility's key in GameState.facilities. Mirrors RESEARCH_FACILITY_KEY /
+// FABRICATOR_FACILITY_KEY: the SINGLE SOURCE OF TRUTH for the raw "shipyard" string so
+// S1's shipBuildSlotCount (tick.ts) + the later S2-S6 tasks all reference ONE literal
+// instead of scattering it. ⚠️ Unlike research/fabricator, S1 seeds the shipyard at
+// level 0 (LOCKED / unfounded) in freshState -- the founding rung establishes it.
+export const SHIPYARD_FACILITY_KEY = "shipyard";
 
 // The Research facility's LEVEL, read DEFENSIVELY (absent facility -> 0). R1 has no
 // research facility, so this returns 0 until R2 seeds it at level 1 -- meaning tier-1
@@ -2835,7 +2945,13 @@ export function freshState(): GameState {
     // Existing saves get this same level-1 seed via the v21->v22 migration (Task R6,
     // save.ts) -- NOT this function's job. researchSlotCount tolerates an absent key
     // (?? 0) regardless, but seeding keeps the facility present for the R5 UI.
-    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 } },
+    // Shipyard (Task S1): seeded at level 0 -- LOCKED / UNFOUNDED. ⚠️ This DIFFERS from
+    // research/fabricator (level 1, established from start): the Shipyard's founding rung
+    // (level 0->1) is a REAL unlock the player buys with credits + FA level, so it MUST
+    // start at level 0 for founding to be meaningful. shipBuildSlotCount is a const 1
+    // regardless of level, but building a hull is gated on level >= 1 (S3's canBuildShip).
+    // Existing saves get this same level-0 seed via the v24->v25 migration (S6, save.ts).
+    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } },
     activeProcesses: [],
     nextProcessId: 1,
     // Crafting Allocation Redesign Task C2: no production lines on a fresh save; the
