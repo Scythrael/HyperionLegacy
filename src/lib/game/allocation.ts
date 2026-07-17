@@ -148,3 +148,46 @@ export function freeItem(
   const reserved = allocatedItem(lines, itemId);
   return Decimal.max(new Decimal(0), stock.minus(reserved));
 }
+
+// ============================================================================
+// Shipyard Task S2 -- state-taking convenience over freeItem.
+//
+// PURPOSE
+//   `freeItem(inventory, lines, itemId)` above is the PURE core: it takes the
+//   reservation `lines` array explicitly (so C1 could unit-test it before the
+//   lines lived on GameState). But every MATERIAL SPEND-GATE in the engine
+//   (canBuildFacilityUpgrade, and S3's canBuildShip) has the whole GameState in
+//   hand and just wants "usable stock of X". Re-threading the lines at each call
+//   site duplicates the "combine both facilities' line arrays" step (it already
+//   appears inline in tick.ts's canStartLine preview and in App.svelte). This
+//   convenience folds that step into ONE place so a spender writes
+//   `freeItemForState(state, itemId)` and nothing more.
+//
+//   The craft LINES are the SINGLE reservation source (Shipyard controller
+//   correction: a ship BUILD consumes its whole BOM at START -- deduct-at-start,
+//   never a time-spread reservation -- so it is NOT summed here; only refine +
+//   fabricate lines reserve over time). Both line arrays are concatenated and
+//   handed to the pure freeItem, so this inherits freeItem's clamp (free >= 0),
+//   its absent-key handling (missing inventory key -> 0), and its derived-not-
+//   stored guarantee with ZERO new math -- it is a thin wrapper, not a second
+//   implementation of the allocation formula.
+//
+// STRUCTURAL PARAM (not the GameState import): this module deliberately imports
+//   ONLY the recipe registries (see the header's SCOPE note). Typing the param as
+//   the minimal shape it actually reads -- inventory + the two OPTIONAL line
+//   arrays -- keeps that tiny dependency surface intact (no import cycle risk with
+//   model.ts's GameState) while still accepting a full GameState by structural
+//   compatibility (its required CraftLine[] arrays satisfy the optional fields).
+//   The `?? []` tolerates a pre-C2/pre-C6 save shape that predates either array.
+// ============================================================================
+export function freeItemForState(
+  state: {
+    inventory: Record<string, Decimal>;
+    refineLines?: CraftLine[];
+    fabricateLines?: CraftLine[];
+  },
+  itemId: string,
+): Decimal {
+  const lines = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
+  return freeItem(state.inventory, lines, itemId);
+}

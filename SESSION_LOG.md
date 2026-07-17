@@ -1630,3 +1630,61 @@ per-line offline-parity seam + the C3 free-aware-consumer completeness) + device
 pass Fabricator/Refinery values; then merge, and push only on explicit user confirmation (live Vercel
 production redeploy). The Shipyard (building ships from fabricated components -- the north-star toward
 combat) remains the intended next feature.
+
+**Session 36 — Shipyard (Phase 5), branch `feat/shipyard`.** Added the Shipyard: the CONSUMER at the end of the
+research -> fabricate -> BUILD-A-SHIP loop (the north-star toward Combat), a Fleet-Sector facility that spends
+fabricated components + credits over a timed construction to mint hulls. Built subagent-driven over seven tasks
+(two-stage review per task) plus this final version/docs task; STAGING-ONLY per the cadence change (production
+frozen at v0.10.0 until the roadmap reaches Combat ships). (**S1**) DATA MODEL: a `buildRecipe` field on
+`ShipTypeDef` (`{ components: Record<itemId, number>; credits; durationTicks }`, `model.ts`) giving each existing
+hull a first-pass bill of materials scaled to its stats (Freighter frameSegment×4+powerCoupling×2 / 500cr / 300t
+up through the bigger Hauler at 1400cr / 700t); `FACILITIES.shipyard` (Fleet-Sector owner, seeded at LEVEL 0 =
+locked/unfounded so the founding rung is a real credits + `requiresFleetAdminLevel` unlock, unlike the L1-seeded
+Research/Fabricator/Mission-Control facilities); and `shipBuildSlotCount` = a const 1 this pass (a derive-on-read
+forward hook for future drones/parallel builds). The Shipyard upgrade track improves build TIME only (a
+`buildSpeedMult`/duration-scale effect -- refit + repairs are hooked FUTURE rungs, not built). (**S2**) ALLOCATION
+UNIFICATION -- the standing KNOWN_ISSUES free-leak fix the crafting review deferred "for when the Shipyard lands":
+a single reserve-aware `freeItemForState(state, item)` helper (`allocation.ts`, strictly ≤ raw `inventory` so it
+can only ever TIGHTEN a spend when materials are reserved), and EVERY material spender routed through it --
+`canBuildFacilityUpgrade`/`startFacilityUpgrade` (the documented leak), plus the new ship-build gate -- alongside
+the craft-line starts / affordable-now cap / item tooltip / fuel that already honored it. A `shipBuild`'s reserved
+BOM now also counts toward `allocated`, so a build + a craft line can't double-spend the same stock. Grep-audited
+that no material spender still reads raw `inventory`. (**S3**) BUILD ENGINE: `TimedProcessKind` gained
+`"shipBuild"` and `ProcessEffect` gained `{ type: "addShip"; typeKey }` -- a NEW `resolveProcesses` branch (mints a
+parked `ShipInstance` from `nextShipId`, `assignedCaptainId: null`, respecting `shipStorageCapacity`), unlike the
+craft jobs' reuse of `addItem`. `startShipBuild` delegates to `canBuildShip` (typed reasons: `notFounded` / `noSlot`
+[a build already in flight] / `storageFull` / `materials` [BOM unaffordable from FREE] / `credits`), reserves the
+BOM + deducts credits at start, and pushes the `shipBuild` process with `durationTicks` scaled by the Shipyard's
+build-speed upgrades. ⚠️ Re-verified the standing closed-form parity invariant (offline `tick(bigSpan)` == looping
+the live path, "one big jump equals many small ticks") across a build completing mid-span -- the high-risk seam.
+(**S4**) RETIRED REQUISITION: removed the instant credit-only `buyShip` path + its Requisition sub-tab (grep-swept
+for stragglers); the Shipyard's build panel is now the sole hull SOURCE. Kept the Docks (capacity + per-ship rows +
+`assignShipToCaptain` assign/swap) exactly as-is -- build -> park -> assign at the Docks -- and the fresh-state
+starter Freighter stays seeded/free. (**S5**) The Shipyard UI panel (Build + Upgrades SubTabs), MOCKUP-APPROVED
+before coding per the visual-UI-needs-mockup practice: a hull list showing each BOM (component free/allocated/total)
++ credit cost + build time with a Build button gated by `canBuildShip` (disabled + typed reason), the in-flight
+build's progress bar + `formatClock` remaining, and the build-speed upgrade track -- reusing the crafting
+configurator idioms + tick-readout helpers. (**S6**) Save migration **v24->v25** seeding `FACILITIES.shipyard` at
+level 0 (locked/unfounded) onto existing saves (`MIGRATIONS[24]`); `ShipInstance` is Decimal-free and `shipBuild`
+jobs ride the already-migrated/hydrated `activeProcesses`, so no other backfill or hydration change was needed.
+`SAVE_VERSION` is now 25. (**S7**, this task) VERSION BUMP + docs.
+
+DOCS (S7): bumped `APP_VERSION` 0.12.0 -> **0.13.0** (Y-bump, new feature) and prepended a newest-first 0.13.0
+PATCH_NOTES entry describing the Shipyard / found-once-then-build-hulls / build->park->assign-at-Docks / faster-
+builds-via-upgrade / the retired Requisition instant-buy / the "reserved materials protected across ALL spenders"
+safety fix / and the refit-repairs-advanced-hulls-drones forward-note. No `package.json` sync (this project has
+never tracked `version` to `APP_VERSION` -- sits at the scaffold `0.0.0`, per existing convention). KNOWN_ISSUES.md:
+the Phase-4b facility-upgrade RAW-inventory / free-leak entry is marked **[RESOLVED 2026-07-16, Shipyard S2]** with
+a resolution note (every spender now on `freeItemForState`); and FOUR entries added -- first-pass Shipyard tunables
+(per-hull BOM + credits + durations, founding cost/FA-level, build-speed rungs) for the device checkpoint; ship
+builds are COMMITTED once started (no cancel/refund this pass, deliberate); the deferred Shipyard roadmap (refit /
+repairs / advanced research-gated hulls / drones->parallel slots, all hooked-not-built); and the harmless test-only
+dead code `canFabricate`/`startFabricateJob` (superseded in the UI by the C4 line engine) flagged for a later
+cleanup. No patchNotes test exists to update (no test references `APP_VERSION`/`PATCH_NOTES` -- grep-confirmed).
+
+Gate GREEN -- **`npm run check` = 0 errors (20 cosmetic unused-CSS/a11y warnings), `npm test` = 663 passing
+(23 files).** Next: final holistic review of the `feat/shipyard` branch (especially the S3 shipBuild offline-parity
+seam + the S2 free-unification completeness -- grep that no material spender still reads raw `inventory`) + device
+tuning of the first-pass Shipyard values; then merge to `staging`, and push only on explicit user confirmation.
+**Combat** (real ship battles -- the payoff for build-a-ship-from-scratch) remains the roadmap gate that unfreezes
+production from v0.10.0.

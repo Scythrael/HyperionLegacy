@@ -21,6 +21,14 @@ import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { canBuildFacilityUpgrade, startFacilityUpgrade, resolveProcesses } from "./tick";
 import { freshState, FACILITIES, type HomeworldTalentKey } from "./model";
+import type { CraftLine } from "./allocation";
+
+// A refine line reserving `remaining` iterations of refineCommonOre (100 commonOre
+// each). Used by the reservation-aware upgrade tests below to reserve the SAME
+// commonOre a facility upgrade costs, proving the upgrade gate now reads `free`.
+function refineCommonOreLine(id: string, remaining: number): CraftLine {
+  return { id, kind: "refine", recipeKey: "refineCommonOre", remaining, mode: { kind: "batch", remaining } };
+}
 
 // A fresh state with a specific inventory + optional refinery level + FA level,
 // so the gates are exercised against known numbers rather than freshState's
@@ -218,6 +226,86 @@ describe("canBuildFacilityUpgrade — sequential-per-facility gate (one upgrade 
     expect(canBuildFacilityUpgrade(readyForRung1, "refinery").ok).toBe(true);
   });
 
+});
+
+// ── Reservation-aware material gate (Shipyard Task S2) ───────────────────────
+// The leak S2 closes: canBuildFacilityUpgrade / startFacilityUpgrade used to gate
+// on RAW state.inventory, so a facility upgrade could spend ore/components a craft
+// LINE had already reserved (KNOWN_ISSUES). They now gate on `freeItem` (inventory
+// MINUS active-line reservations). Because free <= raw, this is a STRICT tightening:
+// identical behavior when nothing is reserved (free == raw), harder only when a line
+// holds the material. refineCommonOre reserves commonOre; the refinery 0->1 rung
+// COSTS commonOre (100) -- so a single 1-iteration refine line (100 reserved) exactly
+// overlaps the upgrade cost, the cleanest possible leak repro.
+describe("canBuildFacilityUpgrade — reservation-aware (gates on craft-line `free`, not raw inventory)", () => {
+  it("BLOCKS an upgrade whose material a craft line has reserved (was affordable on raw -> leak closed)", () => {
+    // 100 commonOre on hand = exactly the refinery 0->1 cost. With NO reservation the
+    // raw inventory covers it, so the upgrade is affordable...
+    const base = stateWith({ inventory: { commonOre: 100 } });
+    expect(canBuildFacilityUpgrade(base, "refinery").ok).toBe(true); // raw == free here
+
+    // ...but a refine line reserving all 100 (1 iteration x 100) drops free to 0,
+    // so the SAME upgrade is now blocked with the material reason.
+    const reserved = { ...base, refineLines: [refineCommonOreLine("line-1", 1)] };
+    const result = canBuildFacilityUpgrade(reserved, "refinery");
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/Titanium Ore/); // ITEMS.commonOre.label
+  });
+
+  it("RE-ALLOWS the same upgrade once the reserving line is cancelled (reservation released)", () => {
+    const reserved = {
+      ...stateWith({ inventory: { commonOre: 100 } }),
+      refineLines: [refineCommonOreLine("line-1", 1)],
+    };
+    expect(canBuildFacilityUpgrade(reserved, "refinery").ok).toBe(false); // reserved -> blocked
+
+    // Cancelling the line removes the reservation (allocation is derived from the
+    // live lines array), so free returns to 100 and the upgrade is buildable again.
+    const released = { ...reserved, refineLines: [] };
+    expect(canBuildFacilityUpgrade(released, "refinery").ok).toBe(true);
+  });
+
+  it("is UNAFFECTED when the reserved material does not overlap the upgrade cost (free == raw)", () => {
+    // A fabricate line reserving structuralAssembly inputs (frameSegment/powerCoupling/
+    // titaniumIngot) touches NO commonOre, so the commonOre-costed refinery upgrade sees
+    // free == raw and stays buildable -- proving the change is inert without overlap.
+    const line: CraftLine = {
+      id: "fab-1",
+      kind: "fabricate",
+      recipeKey: "structuralAssemblyBp",
+      remaining: 3,
+      mode: { kind: "batch", remaining: 3 },
+    };
+    const state = { ...stateWith({ inventory: { commonOre: 100 } }), fabricateLines: [line] };
+    expect(canBuildFacilityUpgrade(state, "refinery").ok).toBe(true);
+  });
+
+  it("startFacilityUpgrade inherits the tightened gate: same-ref no-op when the cost is reserved", () => {
+    const reserved = {
+      ...stateWith({ inventory: { commonOre: 100 } }),
+      refineLines: [refineCommonOreLine("line-1", 1)],
+    };
+    const result = startFacilityUpgrade(reserved, "refinery");
+    expect(result.started).toBe(false);
+    expect(result.next).toBe(reserved); // same reference -- rejected before any clone
+    // The reserved ore is untouched -- it stays available for the line's iteration.
+    expect(reserved.inventory.commonOre.toString()).toBe("100");
+    expect(reserved.activeProcesses).toEqual([]);
+  });
+
+  it("starts normally once the reservation is released (deduct still hits physical inventory)", () => {
+    // With the line gone, free == raw == 100 -> the upgrade starts and deducts the
+    // 100 commonOre from PHYSICAL inventory exactly as before (the deduct path is
+    // unchanged; only the affordability GATE moved to free).
+    const state = stateWith({ inventory: { commonOre: 100 } });
+    const started = startFacilityUpgrade(state, "refinery");
+    expect(started.started).toBe(true);
+    expect(started.next.inventory.commonOre.toString()).toBe("0"); // physical deduct
+    expect(started.next.activeProcesses).toHaveLength(1);
+  });
+});
+
+describe("canBuildFacilityUpgrade — distinct-facility concurrency (unchanged by S2)", () => {
   it("does NOT block a facility when a DIFFERENT facility has an upgrade in flight (distinct-facility concurrency preserved)", () => {
     // An in-flight upgrade whose effect targets some OTHER facility ("warehouse")
     // must not block the refinery -- the gate keys strictly on effect.facility.

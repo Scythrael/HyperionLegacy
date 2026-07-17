@@ -6,7 +6,6 @@ import {
   dispatchCaptainOnMission,
   recallCaptain,
   assignShipToCaptain,
-  buyShip,
   buyCaptainTalent,
   buyHomeworldTalent,
   respecCaptainTalents,
@@ -2874,63 +2873,11 @@ describe("assignShipToCaptain", () => {
   });
 });
 
-describe("buyShip", () => {
-  // Same "start from freshState(), then overwrite only the fields this test
-  // cares about" idiom every other action-function test in this file uses.
-  // freshState() seeds credits Decimal(0), one ship ("ship-1"),
-  // shipStorageCapacity 8, nextShipId 2 -- each test below overrides the
-  // subset it depends on. The `!def.cost` (not-purchasable) guard inside
-  // buyShip is NOT tested here: all 4 current SHIP_TYPES hulls have a non-null
-  // cost, so that branch is unreachable with any real ShipTypeKey. It is
-  // forward-defensive for future Research-gated non-purchasable hulls and
-  // cannot be exercised without hacking a fake null-cost type into the model,
-  // which the task explicitly forbids -- so it is left untested by design.
-  it("buys a hull when affordable and under storage cap: appends a PARKED ship, deducts credits, bumps nextShipId", () => {
-    // credits 500 seeded (freshState default is 0); prospectorHauler costs 150.
-    // freshState has 1 ship, cap 8 (under cap), nextShipId 2 -- so the new ship
-    // takes id "ship-2" and nextShipId advances to 3. New ship is parked
-    // (assignedCaptainId null); credits land at 500 - 150 = 350.
-    const state = freshState();
-    state.credits = new Decimal(500);
-
-    const { next, success } = buyShip(state, "prospectorHauler");
-
-    expect(success).toBe(true);
-    expect(next.ships.length).toBe(state.ships.length + 1); // one more hull than before
-    const bought = next.ships[next.ships.length - 1];
-    expect(bought).toEqual({ id: "ship-2", typeKey: "prospectorHauler", assignedCaptainId: null });
-    expect(next.credits.equals(350)).toBe(true); // 500 - 150, via Decimal .minus
-    expect(next.nextShipId).toBe(3); // 2 -> 3, monotonic id source bumped
-  });
-
-  it("fails (same state reference) when storage is at capacity", () => {
-    // Fill ships up to shipStorageCapacity so the cap guard fires BEFORE the
-    // affordability check -- credits are set high enough that only the cap can
-    // be the cause of failure.
-    const state = freshState();
-    state.credits = new Decimal(500);
-    state.shipStorageCapacity = 2;
-    state.ships = [
-      { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 },
-      { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null },
-    ]; // length 2 === shipStorageCapacity 2 -> full
-
-    const { next, success } = buyShip(state, "prospectorHauler");
-    expect(success).toBe(false);
-    expect(next).toBe(state); // same reference, unchanged
-  });
-
-  it("fails (same state reference) when credits are insufficient", () => {
-    // credits 10 < prospectorHauler cost 150; under cap, so the affordability
-    // guard is the sole cause of failure.
-    const state = freshState();
-    state.credits = new Decimal(10);
-
-    const { next, success } = buyShip(state, "prospectorHauler");
-    expect(success).toBe(false);
-    expect(next).toBe(state); // same reference, unchanged
-  });
-});
+// (The "buyShip" describe block -- covering the instant Requisition credit-buy's
+//  buy/at-capacity/insufficient-credits paths -- was REMOVED in S4 along with the
+//  buyShip function it exercised. Hulls are now BUILT at the Shipyard over time
+//  (startShipBuild + the shipBuild engine, covered by their own tests); the
+//  instant credit-buy path no longer exists to test.)
 
 describe("tick() — threads the timed-process resolver through the fleet loop (Phase 1, Task 9)", () => {
   // Phase 1, Task 9 wired resolveProcesses into BOTH tick() (offline catch-up) AND

@@ -434,8 +434,8 @@ write it down so you don't relitigate it later.
   there is simply no UI control to CREATE one from the new configurator yet. Deliberate scope trim: the configurator
   ships batch-only to keep the per-slot panel simple, with continuous surfacing left for a later pass. Not a bug --
   the engine capability is intact and forward-compatible, only the UI affordance is deferred.
-- Facility upgrades (and any future material-costed research) consume RAW inventory, not FREE (Crafting Allocation
-  Redesign, Phase 4b -- flagged by the holistic review). The material-allocation `free = total − reserved` model is
+- [RESOLVED 2026-07-16, Shipyard S2] Facility upgrades (and any future material-costed research) consume RAW inventory,
+  not FREE (Crafting Allocation Redesign, Phase 4b -- flagged by the holistic review). The material-allocation `free = total − reserved` model is
   currently honored by craft-LINE starts, the affordable-now quantity cap, the item tooltip, and (trivially) fuel;
   it is NOT yet honored by `canBuildFacilityUpgrade`/`startFacilityUpgrade`, which read `state.inventory[item]`
   directly. Facility upgrades consume `commonOre`/`refinedMaterial`, which OVERLAP refine-line inputs -- so
@@ -446,6 +446,14 @@ write it down so you don't relitigate it later.
   material consumer on `freeItem` (a stricter check -- `free ≤ total`, so it can only make a spend HARDER when
   materials are reserved, never easier). Deferred as its own decision: see the SUGGESTIONS.md entry on unifying all
   material consumers on the `free` model, best revisited when the Shipyard (the next component consumer) lands.
+  RESOLUTION (Shipyard S2): the Shipyard landed and did exactly this. Every material spender now routes through a
+  single reserve-aware `freeItemForState` check (strictly ≤ raw `inventory`, so it can only ever make a spend HARDER
+  when materials are reserved, never easier): `canBuildFacilityUpgrade`/`startFacilityUpgrade` (the documented leak),
+  the new `canBuildShip`/`startShipBuild` gate, alongside the craft-line starts / affordable-now cap / item tooltip /
+  fuel that already honored it. A ship-build's reserved BOM also now counts toward `allocated`, so a build and a craft
+  line can't double-spend the same stock. Reserving ore in a refine batch and then founding/upgrading a facility can no
+  longer succeed by spending that reserved ore -- the "reserved materials are protected" promise now holds across ALL
+  spenders. (Holistic-review grep confirmed no material spender still reads raw `inventory` directly.)
 - No per-line RENAME or REORDER (Crafting Allocation Redesign, Phase 4b). Production lines are identified by slot
   and recipe only -- there is no way to name a line or drag it to a different slot position; a cancelled slot just
   becomes free to reconfigure. Deliberate: renaming/reordering is cosmetic polish with no bearing on the allocation
@@ -472,3 +480,37 @@ write it down so you don't relitigate it later.
   all still the same first-pass placeholders flagged in the Fabricator and Refinery entries above, untouched here.
   Expect to retune them together with the FA XP curve, slot walls, and Mission/Fuel/Research balance during the
   same on-device pass. Not a bug -- deliberately-deferred tuning, unchanged by this redesign.
+- ALL first-pass Shipyard TUNABLES are subject to the device-checkpoint balance pass, not final numbers (Shipyard,
+  Phase 5): each hull's `buildRecipe` (the per-hull component BILL OF MATERIALS + credit cost + `durationTicks`,
+  `ShipTypeDef`, `model.ts` -- scaled roughly to hull stats, so bigger/faster hulls cost more); the Shipyard FOUNDING
+  cost (credits + the `requiresFleetAdminLevel` gate on the founding rung); and the build-SPEED upgrade rung values
+  (the `buildSpeedMult`/duration-scale magnitudes on `FACILITIES.shipyard`). All were picked to prove the build/
+  found/upgrade mechanics work end-to-end, NOT calibrated against real play -- expect to retune them together with the
+  still-unfinalized FA XP curve, slot walls, and Mission/Fuel/Research/Fabricator balance during the same on-device
+  pass (same "device-tuned starting value" posture as every prior first-pass economy value above).
+- Ship builds are COMMITTED once started (Shipyard, Phase 5 -- deliberate this pass). Unlike a craft LINE (which can
+  be cancelled to refund its unstarted materials), a `shipBuild` has no cancel/refund path: once you start a build,
+  its component BOM is reserved and its credits are deducted, and the only outcome is the finished parked hull when
+  the timer completes. Deliberate scope choice for the single-slot first cut -- a build is one atomic commitment, not
+  an order queue -- so "I can't cancel my build" isn't rediscovered as a missing feature. A cancel/refund affordance
+  (and parallel build slots) can come with the drones/mass-production work below. Not a bug -- an intentional
+  near-term limitation. NOTE: because a build reserves its BOM up front and the `free`-unification (S2) protects that
+  reservation from every other spender, a committed build can't be starved by an unrelated upgrade or craft line
+  either -- the commitment is safe, just not reversible.
+- Shipyard FUTURE work is HOOKED, not built (Shipyard, Phase 5 -- restating the deferred roadmap, logged to
+  SUGGESTIONS.md): (1) REFITTING (swapping a built hull's loadout) awaits the still-inert module/equipment slot
+  system; (2) REPAIRS await the not-yet-built combat/damage system; (3) more ADVANCED HULLS (the future hull
+  buckets) await RESEARCH-GATED ship blueprints (ship designs researched in the Research Lab, mirroring the
+  component-blueprint loop); (4) DRONES / mass-production await PARALLEL BUILD SLOTS (`shipBuildSlotCount` is a
+  derive-on-read forward hook fixed at 1 this pass, and the Shipyard upgrade track improves build TIME only, not
+  slot count -- both deliberately shaped to take these later without an engine rewrite). Refit and repairs are the
+  intended future homes of the upgrade track's later rungs. Written down so these aren't rediscovered as missing --
+  they're deliberately-deferred forward hooks awaiting their underlying systems, same posture as the Research ->
+  Fabricator -> Shipyard chain carried at every prior step.
+- Harmless DEAD CODE: `canFabricate` / `startFabricateJob` (`tick.ts`) are now TEST-ONLY (Crafting Allocation
+  Redesign, Phase 4b onward -- noted here Shipyard Phase 5). The C4 per-slot configurator replaced the old flat
+  fabricate-ORDER path in the UI with the shared line engine (`canStartLine` / `startLine` / `processFabricateLines`),
+  so nothing in `App.svelte` or the runtime calls `canFabricate` / `startFabricateJob` anymore -- they remain
+  exported and are exercised only by `fabricator.test.ts`. Inert (no broken references, no runtime path), left in
+  place rather than deleted piecemeal; safe to remove in a dedicated cleanup pass (and to drop the tests that pin
+  them), same "leave the orphan for a focused cleanup" posture as the orphaned-CSS entries above. Not a bug.
