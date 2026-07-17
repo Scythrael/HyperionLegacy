@@ -70,7 +70,11 @@ import { fuelNeeded } from "./fuel";
 // Crafting Allocation Redesign (Task C3): canStartLine's `materials` gate + the
 // maxAffordableIterations cap both read `freeItem` (inventory MINUS what active lines
 // already reserved) so a new line can only reserve from the currently-free pool.
-import { lineInputsPerIteration, freeItem, type CraftLine, type CraftLineKind, type CraftLineMode } from "./allocation";
+// Shipyard Task S2: `freeItemForState` is the state-taking convenience over freeItem
+// used by canBuildFacilityUpgrade's material gate (and S3's canBuildShip) to spend on
+// the reservation-aware `free` pool instead of raw inventory -- closing the facility-
+// upgrade leak documented in KNOWN_ISSUES (an upgrade could spend craft-line-reserved ore).
+import { lineInputsPerIteration, freeItem, freeItemForState, type CraftLine, type CraftLineKind, type CraftLineMode } from "./allocation";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
 // there's no compiler link between this array and the union type, so a 6th
@@ -2212,13 +2216,21 @@ export function canBuildFacilityUpgrade(
   }
 
   // Material gate (checked LAST -- see the ordering note on the function). EVERY
-  // material entry must be affordable against LIVE inventory. Because startProcess
-  // deducts every running process's inputs at ITS start, live inventory already
-  // reflects everything reserved -- no separate ledger (design §4). An absent
-  // inventory key reads as 0 (grow-on-demand), matching startProcess's own gate.
+  // material entry must be affordable against the reservation-aware FREE pool, NOT
+  // raw inventory (Shipyard Task S2 -- closes the KNOWN_ISSUES leak). `freeItemForState`
+  // = inventory MINUS what active craft LINES have reserved (their not-yet-started
+  // iterations' inputs). In-flight timed processes already had their inputs deducted
+  // at start (design §4), so those units already left inventory -- only the derived
+  // craft-line reservation is subtracted here. Gating on `free` means a facility
+  // upgrade can no longer spend ore/components a craft line is holding for a queued
+  // iteration. Because free <= raw, this is a STRICT tightening: when nothing is
+  // reserved, free == raw and this gate is byte-identical to the old raw check (no
+  // behavior change / no regression). An absent inventory key reads as 0 via freeItem's
+  // own defensive floor. The `have` surfaced in the reason is the FREE amount, so the
+  // "Need X (have Y)" message reflects what the player can actually spend right now.
   for (const itemId of Object.keys(upgrade.materials)) {
     const need = upgrade.materials[itemId];
-    const have = state.inventory[itemId] ?? new Decimal(0);
+    const have = freeItemForState(state, itemId);
     if (have.lt(need)) {
       const itemLabel = ITEMS[itemId]?.label ?? itemId;
       return { ok: false, reason: `Need ${need.toString()} ${itemLabel} (have ${have.toString()})` };

@@ -27,6 +27,7 @@ import {
   lineInputsPerIteration,
   allocatedItem,
   freeItem,
+  freeItemForState,
   type CraftLine,
 } from "./allocation";
 
@@ -189,5 +190,55 @@ describe("freeItem", () => {
     expect(freeItem(inventory, lines, "frameSegment").toNumber()).toBe(4); // 10 - 6
     expect(freeItem(inventory, lines, "powerCoupling").toNumber()).toBe(7); // 10 - 3
     expect(freeItem(inventory, lines, "titaniumIngot").toNumber()).toBe(4); // 10 - 6
+  });
+});
+
+// ── freeItemForState (Shipyard Task S2) ──────────────────────────────────────
+// The state-taking convenience over freeItem: it reads the craft-line reservation
+// off BOTH GameState line arrays (refineLines + fabricateLines) so material
+// spend-gates (canBuildFacilityUpgrade, S3 canBuildShip) don't re-thread the lines
+// themselves. It is a thin wrapper over the pure freeItem tested above -- these
+// tests pin (a) it sums BOTH arrays, (b) it tolerates absent arrays as empty, and
+// (c) it inherits freeItem's clamp/absent-key behavior.
+describe("freeItemForState (state convenience)", () => {
+  it("subtracts a refine line's reservation from inventory (single array)", () => {
+    const state = {
+      inventory: { commonOre: new Decimal(1000) },
+      refineLines: [refineLine("r1", 3)], // 3 x 100 = 300 reserved
+      fabricateLines: [],
+    };
+    expect(freeItemForState(state, "commonOre").toNumber()).toBe(700);
+  });
+
+  it("sums reservations across BOTH refine AND fabricate arrays", () => {
+    // A refine line reserves commonOre; a fabricate line reserves titaniumIngot.
+    // Each item's free reflects only its OWN array's reservation, but the helper
+    // must consult both arrays (a fabricate line reserving commonOre would count too).
+    const state = {
+      inventory: {
+        commonOre: new Decimal(1000),
+        titaniumIngot: new Decimal(10),
+      },
+      refineLines: [refineLine("r1", 4)], // 4 x 100 = 400 commonOre reserved
+      fabricateLines: [fabricateLine("f1", FAB_KEY, 2)], // 2 x 2 = 4 titaniumIngot reserved
+    };
+    expect(freeItemForState(state, "commonOre").toNumber()).toBe(600); // 1000 - 400
+    expect(freeItemForState(state, "titaniumIngot").toNumber()).toBe(6); // 10 - 4
+  });
+
+  it("treats absent line arrays as empty -> free == raw inventory", () => {
+    const state = { inventory: { commonOre: new Decimal(500) } };
+    expect(freeItemForState(state, "commonOre").toNumber()).toBe(500);
+  });
+
+  it("inherits freeItem's clamp: over-reserved / absent-key stock -> 0", () => {
+    const state = {
+      inventory: {},
+      refineLines: [refineLine("r1", 1)], // reserves 100 of an absent item
+      fabricateLines: [],
+    };
+    const free = freeItemForState(state, "commonOre");
+    expect(free.toNumber()).toBe(0);
+    expect(free.gte(0)).toBe(true);
   });
 });
