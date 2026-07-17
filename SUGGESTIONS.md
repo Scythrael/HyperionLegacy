@@ -846,3 +846,16 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   (plain/clear), **Flagship**, **Sitrep**/**Situation** (status-report flavor). ⚠️ AVOID "Command" -- already the
   captains/admiral tab (would need renaming to reuse). Both moves are QOL/layout, MOCKUP-GATED
   ([[feedback_visual_ui_needs_mockup]]), and land whenever the Dashboard + (for the Battlespace fold) Combat are built.
+
+- **"New version available — refresh" detection (user 2026-07-16, candidate for early 0.11.0 or a quick
+  standalone patch).** Detect a fresh deploy CLIENT-SIDE and prompt the player to refresh, so they get updates
+  (and bug fixes) without manually reloading a stale build. Directly reinforces the "refresh to recover if stuck"
+  safety net (the recall-on-cap fix + chained save migrations mean a reload recalls any stuck captain AND migrates
+  the save forward — a refresh is always safe + recovers). **Approach (simple, NO service worker):** emit a
+  build-version marker at build time (reuse `APP_VERSION`, or a build hash / small `version.json` written by the
+  build), have the running client POLL it every few minutes (cache-busted fetch), and when the fetched version
+  differs from the one the client BOOTED with → show a **dismissible banner "A new version is available — Refresh"**
+  (optionally auto-reload after a grace period). ⚠️ Prefer a friendly BANNER over a hard forced reload; the game
+  auto-saves so a reload is data-safe, but a prompt is nicer than yanking the page mid-action. Low-risk, high-value,
+  small — a good early pickup. Ties to the deploy cadence: every staging→prod (or staging) push produces a new build
+  the poll would catch.
