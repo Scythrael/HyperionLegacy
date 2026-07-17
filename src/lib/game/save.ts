@@ -953,6 +953,16 @@ export function exportRawSave(): string | null {
   return localStorage.getItem(SAVE_KEY);
 }
 
+// Distinguishes "no save exists" from "a save exists but failed to load".
+// loadFromLocalStorage() returns null in BOTH cases (missing key, or a present
+// but corrupt raw that deserialize() rejected), so the caller cannot tell them
+// apart on its own. This tiny, pure check lets the load path see that a raw save
+// IS present, and therefore treat a null load as CORRUPT (offer recovery) rather
+// than EMPTY (start fresh and let autosave overwrite the unloadable raw).
+export function hasRawSave(): boolean {
+  return localStorage.getItem(SAVE_KEY) !== null;
+}
+
 // Browser-side convenience: export the raw save AND trigger a file download.
 // Single source of truth for the download glue so both the in-game "Export Save"
 // button and the update-detector banner's "Export save" action produce identical

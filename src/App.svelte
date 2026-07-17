@@ -305,7 +305,7 @@
     type CraftLineKind,
   } from "./lib/game/allocation";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
-  import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, importRawSave } from "./lib/game/save";
+  import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
@@ -414,6 +414,18 @@
   let importModalOpen = false;
   let pendingImportRaw: string | null = null;
   let importError: string | null = null;
+
+  // Corrupt-save recovery modal (P4). Reached ONLY when loadFromLocalStorage()
+  // returned null AND hasRawSave() is true: a save raw exists on disk but could
+  // not be deserialized. Rather than silently starting a fresh game (which the
+  // next autosave would then write OVER the unloadable raw, destroying the only
+  // recovery material), we suppress autosave, stash the raw text here, and show
+  // this modal so the player can copy/download their backup BEFORE deciding to
+  // start fresh. Same "state near deleteModalOpen, markup near the modal" pattern
+  // as the flows above. corruptRawSave holds the raw string for the readonly
+  // textarea; it stays put until the player explicitly resolves the modal.
+  let saveCorruptModalOpen = false;
+  let corruptRawSave = "";
 
   // Fleet Operations captain-selection popup (2026-07-07 Fleet Operations
   // Mission UI), null missionPopupKey means the popup is closed. Selecting a
@@ -1052,6 +1064,14 @@
       const offlineSeconds = Math.max(0, (Date.now() - loadedSave.lastSavedAt) / 1000);
       state = offlineSeconds > 5 ? tick(offlineSeconds, loadedSave.state) : loadedSave.state;
       if (offlineSeconds > 5) pushLog(`Welcome back. Advanced ${formatNumber(offlineSeconds)}s offline.`);
+    } else if (hasRawSave()) {
+      // A save EXISTS but failed to load (corrupt). Do NOT let the game overwrite it:
+      // suppress autosave and show the recovery modal so the player can grab the raw
+      // text before choosing to start fresh. suppressSave stays true until they choose.
+      suppressSave = true;
+      corruptRawSave = exportRawSave() ?? "";
+      saveCorruptModalOpen = true;
+      pushLog("Your save could not be loaded. Recovery options are shown.");
     } else {
       pushLog("New save initialized.");
     }
@@ -1928,6 +1948,23 @@
     //, without this, that write clobbers the just-imported save (the import bug).
     suppressSave = true;
     window.location.reload();
+  }
+
+  // Corrupt-save recovery (P4). The ONLY resolving action for the recovery
+  // modal: the player has been shown the unloadable raw (and offered a download)
+  // and has explicitly chosen to abandon it. clearSave() removes the corrupt raw,
+  // freshState() gives a clean game, and clearing suppressSave (set true on the
+  // corrupt load branch) re-enables autosave, which the immediate doSave() then
+  // uses to write the fresh save OVER the corrupt raw. This overwrite is
+  // deliberate and player-initiated: it happens only here, after the backup was
+  // offered, never automatically.
+  function startFreshFromCorrupt() {
+    clearSave();
+    state = freshState();
+    createdAt = Date.now();
+    suppressSave = false;
+    saveCorruptModalOpen = false;
+    doSave();
   }
 
   function setTheme(name: ThemeName) {
@@ -5580,6 +5617,28 @@
     </div>
   {/if}
 
+  {#if saveCorruptModalOpen}
+    <!-- Corrupt-save recovery modal (P4), reuses the SAME .modal-backdrop/
+         Panel.modal-dialog/.modal-warning/.modal-row structure as the Import/
+         Delete modals above. Escape is a DELIBERATE no-op here: the focusTrap
+         action normally closes a modal on Escape, but there is nothing safe to
+         return to (the game cannot run on a corrupt save and autosave is
+         suppressed), so dismissing would strand the player on a blank no-save
+         screen. The ONLY exit is "Start fresh game" (optionally after grabbing
+         a backup first), so we pass a no-op close handler. -->
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Save could not be loaded" use:focusTrap={() => {}}>
+      <Panel class="modal-dialog">
+        <div class="panel-title">SAVE COULD NOT BE LOADED</div>
+        <p class="modal-warning">Your save exists but could not be loaded. It has NOT been deleted. Copy the text below as a backup before you continue.</p>
+        <textarea class="modal-textarea" readonly aria-label="Corrupt save backup text" rows="4">{corruptRawSave}</textarea>
+        <div class="modal-row">
+          <button class="dev-btn" on:click={downloadRawSave}>Download backup</button>
+          <button class="dev-btn danger" on:click={startFreshFromCorrupt}>Start fresh game</button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
   <!-- Warehouse tile tooltip (Phase 2, Group C), a SINGLE fleet-positioned
        element (position:fixed, so it escapes the scroll container's clipping),
        the same one-tooltip pattern the currency chips use. Its content re-derives
@@ -6244,6 +6303,26 @@
   select.modal-input option {
     background: var(--color-bg-mid);
     color: var(--color-text-primary);
+  }
+  /* Readonly backup textarea for the corrupt-save recovery modal (P4). Mirrors
+     .modal-input's themed surface, but as a multi-row, monospace, wrapping box
+     the player can select/copy from. overflow-wrap:anywhere keeps the long
+     unbroken base64 raw inside the box; vertical scroll handles overflow past
+     the fixed rows. resize:vertical lets the player enlarge it if they prefer. */
+  .modal-textarea {
+    width: 100%;
+    padding: 8px 10px;
+    margin-bottom: 14px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid var(--color-border-strong);
+    border-radius: 8px;
+    color: var(--color-text-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.4;
+    resize: vertical;
+    overflow-wrap: anywhere;
+    overflow-y: auto;
   }
   .modal-row { display: flex; justify-content: flex-end; gap: 2px; }
   /* Popup captain-picker list (2026-07-07 Fleet Operations Mission UI, Task 6)
