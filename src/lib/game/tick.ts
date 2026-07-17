@@ -1283,24 +1283,52 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   let totalCreditsSpentOnFuel = 0;
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
-    // Phase 2 (Task B3, design §3.4): AUTO-STOP. If this mission's PRIMARY material
-    // is already at its warehouse tier cap, the captain IDLES this call -- no
-    // tickCaptainMission run, so no loot, no XP, no credits, no phase advance. The
-    // captain object is returned UNCHANGED, exactly as an idle (mission === null)
-    // captain is, so a full-material captain contributes nothing this call. This
-    // check is the ONLY new gate on the per-captain path; when the primary material
-    // is BELOW cap (the universal case until 1M+ is stockpiled) it is false and the
-    // captain proceeds through the identical pre-B3 code below -- no behavior change.
+    // Capture the mission key ONCE, while `captain.mission` is still narrowed non-null by
+    // the guard above. The recall branch below reassigns `captain` (to flag `recalled`),
+    // which re-widens `captain.mission` to `... | null` for TS -- so downstream reads go
+    // through this const instead. missionKey is invariant across a recall (recall only
+    // flags intent; it never changes which mission runs), so this is exactly equivalent.
+    const missionKey = captain.mission.missionKey;
+    // Phase 2 (Task B3, design §3.4): AUTO-STOP, when this mission's PRIMARY material is
+    // already at its warehouse tier cap the run CANNOT usefully complete (its haul would
+    // land over an already-full warehouse). Rather than leave the captain FROZEN in place
+    // -- which stranded a ship mid-mission, forever if the cap persisted (e.g. a full fuel
+    // tank keeping mined Deuterium Ice pinned at cap) -- we route it to IDLE AT BASE
+    // (mission -> null), REUSING the existing recall mechanic (recallCaptain / the
+    // `if (mission.recalled) mission = null` cycle-completion branch above). Split by phase:
     //
-    // Placed here, inside economyTick, so it applies UNIFORMLY to live play (App.svelte
-    // calls economyTick per bar) AND offline catch-up (tick()'s per-tick step loop) --
-    // one seam, both paths. The check reads state.inventory as it stood at the START
-    // of this call; the offline loop steps ONE tick per economyTick call (below), so
-    // the cap is re-evaluated every tick and a run stops the moment its material fills
-    // (correct-by-construction across the cap breakpoint). Incidental secondary drops
-    // (uncommon/rare) stop WITH the run, per the design's whole-run-stop decision.
-    if (materialAtCap(state, MISSIONS[captain.mission.missionKey].primaryMaterial)) {
-      return captain;
+    //   AT BASE  -- phase `ordersReceived`, the pre-departure paperwork phase, the ONLY
+    //     phase where the ship hasn't left home. Do NOT dispatch a capped run at all: end
+    //     the mission immediately so the captain idles at base, available for re-dispatch.
+    //
+    //   MID-CYCLE / OUT -- phase transitOut | extracting | transitBack | unloading, the ship
+    //     is already away. Freezing it would strand it, so instead FLAG the mission
+    //     `recalled` (exactly what recallCaptain does) and fall through to the normal
+    //     tickCaptainMission advance below -- which carries it HOME, unloads, and ends the
+    //     mission (mission -> null) when this cycle's unloading phase completes. An already-
+    //     recalled mission just gets a no-op re-flag; either way it progresses home, never
+    //     sits unchanged.
+    //
+    // BELOW-cap behavior is byte-identical to before: materialAtCap is false (the universal
+    // case until 1M+ is stockpiled), this whole branch is skipped, and the captain proceeds
+    // through the identical downstream code -- no behavior change, no recall.
+    //
+    // Placed here, inside economyTick, so it applies UNIFORMLY to live play (App.svelte calls
+    // economyTick per bar) AND offline catch-up (tick()'s per-tick step loop) -- one seam,
+    // both paths. The check reads state.inventory as it stood at the START of this call; both
+    // paths step ONE tick per economyTick call (tick()'s loop below + the live poll), so the
+    // cap is re-evaluated every tick and the recall resolves IDENTICALLY live and offline
+    // (proven by the offline-parity test in mission-recall-on-cap.test.ts). The `recalled`
+    // flag is idempotent + persisted, so flagging it once (a big-span call) or re-flagging it
+    // every tick (the stepped path) reaches the same terminal idle state either way.
+    if (materialAtCap(state, MISSIONS[missionKey].primaryMaterial)) {
+      if (captain.mission.phase === "ordersReceived") {
+        // At base, pre-departure: idle immediately rather than launching a run it can't finish.
+        return { ...captain, mission: null };
+      }
+      // Mid-cycle / ship out: flag recalled and let the normal advance below fly it home + end.
+      // (No early return -- execution continues to the standard per-captain path.)
+      captain = { ...captain, mission: { ...captain.mission, recalled: true } };
     }
     // Resolve the hull this captain flies and project it to the three mission
     // stats tickCaptainMission consumes (transit/cargo/yield). GameState.ships[]
@@ -1319,7 +1347,7 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     // the raw MISSIONS def + the hull's static ShipTypeDef, NOT the ship-adjusted
     // shipStats. A ship-less captain (the null-ship freighter-baseline fallback above)
     // costs 0 -> never fuel-gated, matching that path's "no ship modifier" behavior.
-    const fuelPerCycle = ship ? fuelNeeded(MISSIONS[captain.mission.missionKey], SHIP_TYPES[ship.typeKey]) : 0;
+    const fuelPerCycle = ship ? fuelNeeded(MISSIONS[missionKey], SHIP_TYPES[ship.typeKey]) : 0;
     const bonuses = {
       commonYieldMult: captainCommonYieldMult(captain),
       uncommonYieldMult: captainUncommonYieldMult(captain),
