@@ -57,7 +57,9 @@ function snapshot(state: ReturnType<typeof freshState>) {
           ? { type: p.effect.type, amount: p.effect.amount.toString() } // Fuel Economy v2 (F2): fuelRefineJob effect
           : p.effect.type === "facilityLevelUp"
             ? { type: p.effect.type, facility: p.effect.facility }
-            : { type: p.effect.type, key: p.effect.key }, // Research (R3): unlockBlueprint effect
+            : p.effect.type === "unlockBlueprint"
+              ? { type: p.effect.type, key: p.effect.key } // Research (R3): unlockBlueprint effect
+              : { type: p.effect.type, typeKey: p.effect.typeKey }, // Shipyard (S3): addShip effect
   }));
   return {
     inventory,

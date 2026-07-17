@@ -59,6 +59,7 @@ import {
   FUEL_DEPOT_BASE_PIPELINES,
   RESEARCH_FACILITY_KEY,
   FABRICATOR_FACILITY_KEY,
+  SHIPYARD_FACILITY_KEY,
   BLUEPRINTS,
   blueprintUnlocked,
 } from "./model";
@@ -2402,6 +2403,179 @@ export function shipBuildSlotCount(state: GameState): number {
   return 1;
 }
 
+// ============================================================================
+// Shipyard build engine — Phase 5, Task S3
+// (docs/plans/2026-07-16-shipyard-plan.md §S3, design §5). Three functions built on
+// the shared startProcess/resolveProcesses engine + the S1 buildRecipe/facility data
+// + the S2 freeItemForState reservation-aware pool:
+//   - shipBuildDurationTicks : a hull's build time, SCALED FASTER by the Shipyard's
+//                              build-speed upgrade track.
+//   - canBuildShip           : the single typed-reason gate (mirrors canFabricate).
+//   - startShipBuild         : the action -- deduct BOM + credits at start, push a
+//                              "shipBuild" TimedProcess (mirrors startFacilityUpgrade).
+// ============================================================================
+
+// The Shipyard's effective build-SPEED multiplier = the PRODUCT of every { buildSpeedMult }
+// grant on the upgrade rungs the shipyard has ALREADY reached. This is the MULTIPLIED
+// analog of refineSlotCount's SUMMED reached-rungs loop (a speed track multiplies; a slot
+// track adds) -- the SAME derive-on-read/single-source-of-truth pattern, reading the
+// `shipyard` facility + the `buildSpeedMult` property. The founding rung [0] carries an
+// inert `unlocksContent` marker (no buildSpeedMult), so a level-1 (just-founded) shipyard
+// reaches ZERO speed rungs -> the empty product 1.0 (baseline speed). Each later rung
+// (1.5x, 2.0x) stacks multiplicatively (level 3 -> 1.5 * 2.0 = 3.0x). Level 0 (unfounded)
+// also yields 1.0 (the loop runs `i < level` = 0 iterations) -- but a build cannot START
+// at level 0 anyway (canBuildShip's `notFounded` gate), so that value is never consumed.
+// The `i < upgrades.length` guard is the same belt-and-suspenders bound the sibling
+// derive-on-read helpers carry.
+export function shipBuildSpeedMult(state: GameState): number {
+  const level = facilityLevel(state, SHIPYARD_FACILITY_KEY);
+  const upgrades = FACILITIES[SHIPYARD_FACILITY_KEY].upgrades;
+  let mult = 1;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    const effect = upgrades[i].effect;
+    if ("buildSpeedMult" in effect) {
+      mult *= effect.buildSpeedMult;
+    }
+  }
+  return mult;
+}
+
+// A hull's effective build time RIGHT NOW = its base buildRecipe.durationTicks DIVIDED by
+// the Shipyard's build-speed multiplier (higher mult -> shorter build). At a just-founded
+// shipyard (level 1, no speed rungs reached) the mult is 1.0, so this returns the base
+// durationTicks unchanged; each build-speed upgrade cuts it further. The result may be
+// FRACTIONAL (e.g. 300 / 1.5 = 200 here, but a future non-integer mult could yield 133.3)
+// -- that is PARITY-SAFE: durationTicks is FIXED once at process creation (startShipBuild
+// below) and resolveProcesses decrements the countdown by whole ticks, so one big offline
+// resolve and many small live steps cross zero at the identical point regardless of whether
+// the duration is integer (the closed-form countdown property, see resolveProcesses).
+export function shipBuildDurationTicks(state: GameState, typeKey: ShipTypeKey): number {
+  return SHIP_TYPES[typeKey].buildRecipe.durationTicks / shipBuildSpeedMult(state);
+}
+
+// Shipyard Task S3: the typed reason canBuildShip returns when a ship build is BLOCKED.
+// A string union (mirrors FabricateBlockReason / ResearchBlockReason) so it serializes/logs
+// as a readable token and the S5 Shipyard UI can switch on it exhaustively to render each
+// hull's disabled Build button with its cause. Member order mirrors canBuildShip's gate order:
+//   notFound    -- no SHIP_TYPES entry for that key (bad caller / stale UI reference)
+//   notFounded  -- the shipyard is still LOCKED (facilityLevel < 1); found it first
+//   noSlot      -- the single build slot is busy (a shipBuild already in activeProcesses)
+//   storageFull -- the ship store is at shipStorageCapacity (park/scrap a hull first)
+//   materials   -- some component BOM entry exceeds the reservation-aware FREE pool (S2)
+//   credits     -- state.credits < the recipe's credit cost
+export type ShipBuildBlockReason =
+  | "notFound"
+  | "notFounded"
+  | "noSlot"
+  | "storageFull"
+  | "materials"
+  | "credits";
+
+// THE single consolidated ship-build gate. PURE predicate -- reads state + the static
+// SHIP_TYPES table + the derived shipBuildSlotCount + the S2 freeItemForState, mutates
+// nothing, spends nothing. The ONE source of truth for "can this hull be built right now?",
+// MIRRORING canFabricate. startShipBuild (below) calls this first and does nothing else
+// gate-wise; the S5 UI calls it directly to render each hull's Build button.
+//
+// GATE ORDER is deliberate, cheapest/most-fundamental first, and determines WHICH reason
+// surfaces when several fail at once (ok itself is order-independent -- all must pass):
+// identity (notFound) -> facility founded (notFounded) -> concurrency (noSlot) -> storage
+// (storageFull) -> resource:materials -> resource:credits. The storage gate sits at START
+// (here) so a build never begins that could not be parked on completion -- resolveProcesses
+// can then park unconditionally (see its addShip branch).
+export function canBuildShip(
+  state: GameState,
+  typeKey: string
+): { ok: true } | { ok: false; reason: ShipBuildBlockReason } {
+  // --- Identity: the key must name a real hull. An absent def means "not a real ship type"
+  // (bad caller / stale UI reference) -- checked first so every later gate can read `def`.
+  const def = SHIP_TYPES[typeKey as ShipTypeKey];
+  if (!def) return { ok: false, reason: "notFound" };
+
+  // --- Founded: the Shipyard must have been established (level >= 1). Level 0 is LOCKED --
+  // the founding rung (canBuildFacilityUpgrade / startFacilityUpgrade) is the unlock. This
+  // is SEPARATE from the slot cap (shipBuildSlotCount returns 1 even at level 0): whether a
+  // build may start AT ALL is this gate; how many may run at once is the slot cap.
+  if (facilityLevel(state, SHIPYARD_FACILITY_KEY) < 1) return { ok: false, reason: "notFounded" };
+
+  // --- Concurrency: a free build slot -- count in-flight shipBuilds against the cap (1 this
+  // pass). At the cap, no new build starts. The EXACT slot accounting canFabricate uses.
+  const activeShipBuilds = state.activeProcesses.filter((p) => p.kind === "shipBuild").length;
+  if (activeShipBuilds >= shipBuildSlotCount(state)) return { ok: false, reason: "noSlot" };
+
+  // --- Storage: the fleet must have room for the finished hull. Gated HERE at start (not at
+  // completion) so a build never begins that could not be parked -- resolveProcesses parks
+  // unconditionally on the strength of this gate. AT capacity counts as full.
+  if (state.ships.length >= state.shipStorageCapacity) return { ok: false, reason: "storageFull" };
+
+  // --- Resource (materials): every component in the BOM must be affordable against the
+  // reservation-aware FREE pool (S2's freeItemForState = inventory MINUS what active craft
+  // LINES reserve), NOT raw inventory -- so a build cannot spend a component a craft line is
+  // holding for a queued iteration. (A ship build itself creates NO ongoing reservation: its
+  // whole BOM is deducted at START, so freeItemForState never counts an in-flight build.)
+  // Any single short component blocks the whole build.
+  const recipe = def.buildRecipe;
+  for (const itemId of Object.keys(recipe.components)) {
+    const have = freeItemForState(state, itemId);
+    if (have.lt(recipe.components[itemId])) return { ok: false, reason: "materials" };
+  }
+
+  // --- Resource (credits): the flat credit cost, checked LAST (after materials, mirroring
+  // canFabricate's materials-before-storage nuance / the facility-upgrade credits gate).
+  if (state.credits.lt(recipe.credits)) return { ok: false, reason: "credits" };
+
+  return { ok: true };
+}
+
+// The ACTION. Starts ONE ship build for `typeKey` IF canBuildShip approves it. DEDUCT-AT-
+// START, ATOMIC: a ship build consumes its WHOLE component BOM + credits IMMEDIATELY at
+// start (it does NOT reserve materials over time the way a craft line does) -- so there is
+// NO ongoing reservation for freeItemForState to count. The BOM is deducted by startProcess
+// (its atomic inventory consume); the credits are subtracted from a fresh state clone BEFORE
+// the handoff so the credit spend + the material deduct + the process push all land in the
+// SAME transition -- the identical pattern startFacilityUpgrade uses for its credit rungs.
+//
+// Returns the START family's { next, started } shape PLUS an OPTIONAL `reason` (undefined on
+// success), EXACTLY as startFabricateJob exposes canFabricate's reason. On any blocked gate
+// it is a same-reference no-op ({ next: state, started: false, reason }), the reject
+// convention every other start/action in this file shares.
+export function startShipBuild(
+  state: GameState,
+  typeKey: string
+): { next: GameState; started: boolean; reason?: ShipBuildBlockReason } {
+  // The single consolidated gate. On a block: same-ref no-op + the reason, so a blocked
+  // start can never be mistaken for a no-op change.
+  const gate = canBuildShip(state, typeKey);
+  if (!gate.ok) return { next: state, started: false, reason: gate.reason };
+
+  // gate.ok GUARANTEES a real, founded, slot-available, storage-roomed, affordable build, so
+  // the def lookup + cast below cannot fail (recomputed here rather than threaded out of
+  // canBuildShip, to keep canBuildShip a clean predicate).
+  const shipTypeKey = typeKey as ShipTypeKey;
+  const recipe = SHIP_TYPES[shipTypeKey].buildRecipe;
+
+  // Credits deduct-at-start: subtract from a fresh state clone BEFORE startProcess, so the
+  // credit spend rides the SAME atomic transition as the material deduct + process push.
+  // >= 0 is guaranteed by gate.ok (canBuildShip proved credits >= recipe.credits).
+  const afterCredits = { ...state, credits: state.credits.minus(recipe.credits) };
+
+  // Build the Decimal BOM inputs from the recipe's plain-number component counts (wrapped at
+  // the deduct site exactly as fabricate/fuel/research constants are). startProcess applies
+  // the FINAL affordability gate against RAW inventory + atomically deducts + pushes the
+  // "shipBuild" TimedProcess whose completion effect { type: "addShip", typeKey } mints the
+  // hull (resolveProcesses). Because canBuildShip gated on FREE (<= raw), the raw gate here
+  // cannot reject.
+  const inputs: Record<string, Decimal> = {};
+  for (const itemId of Object.keys(recipe.components)) {
+    inputs[itemId] = new Decimal(recipe.components[itemId]);
+  }
+
+  return startProcess(afterCredits, "shipBuild", inputs, shipBuildDurationTicks(state, shipTypeKey), {
+    type: "addShip",
+    typeKey: shipTypeKey,
+  });
+}
+
 // Research Task R4 (design §3): the typed reason canResearch returns when a research
 // project is BLOCKED. A string union (not a numeric enum) so it serializes/logs as a
 // readable token and the R5 Research Lab UI can switch on it exhaustively to render each
@@ -3862,6 +4036,13 @@ export function resolveProcesses(
   // === state.researchedBlueprints). Re-cloned only when a research project actually completes
   // below, and only when the key is not already present (idempotent -- no duplicate).
   let researchedBlueprints = state.researchedBlueprints;
+  // Shipyard (Task S3): threaded so a completing shipBuild can mint + append its parked
+  // ShipInstance and bump the monotonic id source. Seeded from the incoming state, so a
+  // call that completes no ship build returns them value-identical (the empty/no-completion
+  // early-out leaves ships exactly === state.ships and nextShipId === state.nextShipId).
+  // Re-cloned (ships) / incremented (nextShipId) only when a shipBuild actually completes.
+  let ships = state.ships;
+  let nextShipId = state.nextShipId;
   let fleetAdminXpDelta = 0;
   // Survivors are rebuilt in original order, so activeProcesses ordering is stable
   // across both chunkings (the parity test compares the arrays deep-equal).
@@ -3946,6 +4127,24 @@ export function resolveProcesses(
       if (!researchedBlueprints.includes(key)) {
         researchedBlueprints = [...researchedBlueprints, key];
       }
+    } else if (process.effect.type === "addShip") {
+      // Shipyard (Task S3): a completed shipBuild MINTS a parked hull. Its id is minted
+      // from nextShipId as "ship-N" (the SAME scheme freshState / buyShip use), then
+      // nextShipId is bumped so ids stay monotonic and are never reused. assignedCaptainId
+      // is null (PARKED -- the player assigns it via the Docks). Appended on a FRESH ships
+      // array (immutable, mirroring the accumulators above). Storage was gated at START
+      // (canBuildShip's storageFull reason), so a build that reached completion always has
+      // room -- we park UNCONDITIONALLY here rather than re-checking shipStorageCapacity
+      // (a completion-time drop would silently destroy a build the player already paid for).
+      // Closed-form: fires exactly ONCE on the completion that drops the process, so one big
+      // resolve and many small ones mint the identical hull with the identical id.
+      const minted: ShipInstance = {
+        id: `ship-${nextShipId}`,
+        typeKey: process.effect.typeKey,
+        assignedCaptainId: null,
+      };
+      ships = [...ships, minted];
+      nextShipId += 1;
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -3954,9 +4153,10 @@ export function resolveProcesses(
       const current = facilities[facility] ?? { level: 0 };
       facilities = { ...facilities, [facility]: { ...current, level: current.level + 1 } };
     }
-    // Fleet Admiral XP lump award -- EXCLUDES fuelRefineJob (F2), researchProject (R3), AND
-    // fabricateJob (Fabricator F2). All three are additive/automated economies that must NOT
-    // perturb the tuned FA-XP curve, so each completes with zero FA XP; every OTHER process
+    // Fleet Admiral XP lump award -- EXCLUDES fuelRefineJob (F2), researchProject (R3),
+    // fabricateJob (Fabricator F2), AND shipBuild (Shipyard S3). All four are additive/
+    // automated economies that must NOT perturb the tuned FA-XP curve, so each completes
+    // with zero FA XP; every OTHER process
     // kind (refineJob / facilityUpgrade) keeps the "durationTicks lumped on completion"
     // award. ⚠️ fabricateJob is a DESIGN DECISION flagged to the controller: unlike its
     // refine twin (a tiny-duration Phase-1 manual job that keeps the award), a fabricate
@@ -3969,7 +4169,8 @@ export function resolveProcesses(
     if (
       process.kind !== "fuelRefineJob" &&
       process.kind !== "researchProject" &&
-      process.kind !== "fabricateJob"
+      process.kind !== "fabricateJob" &&
+      process.kind !== "shipBuild"
     ) {
       fleetAdminXpDelta += process.durationTicks;
     }
@@ -3984,6 +4185,11 @@ export function resolveProcesses(
       lifetimeStats,
       fuel,
       researchedBlueprints,
+      // Shipyard (Task S3): the parked hull(s) minted by any completing shipBuild + the
+      // advanced id source. Value-identical to state.ships / state.nextShipId when no ship
+      // build completed this call (seeded from them, only touched in the addShip branch).
+      ships,
+      nextShipId,
       activeProcesses: stillActive,
     },
     fleetAdminXpDelta,

@@ -730,7 +730,13 @@ export interface CaptainState {
 // a large lump; the tiny-duration Phase-1 refineJob keeps its award). ⚠️ DESIGN DECISION
 // flagged to the controller -- flip the exclusion + this comment together if fabrication
 // should feed FA XP.
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob";
+// Shipyard (Phase 5, Task S3): "shipBuild" is a timed ship-construction job. Like
+// fabricateJob/researchProject it is EXCLUDED from the completion FA-XP lump award
+// (resolveProcesses) -- a hull build is a big blueprint-gated automated job, not a
+// tuned FA-XP source. Its completion effect is the NEW `addShip` ProcessEffect (a
+// ship is NOT an inventory item, so it cannot reuse addItem). One build slot this
+// pass (shipBuildSlotCount, tick.ts).
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -757,7 +763,15 @@ export type ProcessEffect =
   // Carries NO Decimal (unlike addItem/addFuel's `amount`), so hydrateDecimals (save.ts)
   // needs NO change: its `"amount" in effect` guard skips this effect, and it round-trips
   // through JSON as plain {type,key} strings.
-  | { type: "unlockBlueprint"; key: string };
+  | { type: "unlockBlueprint"; key: string }
+  // Shipyard (Task S3, design §5): a completed shipBuild MINTS a parked ShipInstance of
+  // `typeKey` (resolveProcesses appends it to state.ships + bumps nextShipId). This is a
+  // NEW effect (NOT a reuse of addItem) because a ship is a first-class fleet object, not
+  // an inventory item -- it has an id, a typeKey, and an assignment, none of which the
+  // itemId/amount inventory shape can carry. Like unlockBlueprint it carries NO Decimal
+  // (typeKey is a plain string union), so hydrateDecimals (save.ts) skips it via its
+  // `"amount" in effect` guard and it round-trips through JSON as {type,typeKey} strings.
+  | { type: "addShip"; typeKey: ShipTypeKey };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
