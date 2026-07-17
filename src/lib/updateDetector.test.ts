@@ -135,4 +135,39 @@ describe("update poller", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(get(updateAvailable)).toBe(true);
   });
+
+  it("a fetch in flight when the user dismisses must NOT re-raise (TOCTOU)", async () => {
+    // Regression guard for a time-of-check/time-of-use race: a poll (or focus/
+    // visibilitychange) fetch launched while NOT snoozed can resolve AFTER the user
+    // clicks dismiss. If the snooze guard is only read before the await, that late
+    // resolution wrongly re-raises the banner the user just dismissed. The check must
+    // therefore be re-read AFTER the await, before setting the store.
+
+    // Deferred (externally-resolvable) fetch: we hold its resolution so we can wedge a
+    // dismiss in between "fetch launched" and "fetch resolved".
+    let resolveFetch!: (value: {
+      ok: boolean;
+      json: () => Promise<{ buildId: string }>;
+    }) => void;
+    const inFlight = new Promise<{
+      ok: boolean;
+      json: () => Promise<{ buildId: string }>;
+    }>((resolve) => {
+      resolveFetch = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn(() => inFlight));
+
+    startUpdatePolling("boot"); // immediate check launches the fetch (snoozed === false)
+
+    // User dismisses WHILE the fetch is still in flight -> snoozed becomes true.
+    dismissUpdate();
+    expect(get(updateAvailable)).toBe(false);
+
+    // Now the in-flight fetch resolves with a genuinely newer build id.
+    resolveFetch({ ok: true, json: async () => ({ buildId: "new" }) });
+    await flushMicrotasks();
+
+    // The snooze must hold: the late resolution must not re-raise the banner.
+    expect(get(updateAvailable)).toBe(false);
+  });
 });

@@ -107,6 +107,11 @@ async function fetchDeployedBuildId(): Promise<string | null> {
 async function checkForUpdate(bootId: string): Promise<void> {
   if (snoozed) return; // dismiss in effect -> never re-raise until the snooze elapses
   const deployedId = await fetchDeployedBuildId();
+  // Re-check the guard AFTER the await: a dismiss may have landed while this fetch was
+  // in flight (poll/focus/visibilitychange fetches can outlive the pre-await check).
+  // Without this, a late resolution would re-raise the banner the user just dismissed
+  // (a time-of-check/time-of-use race). See the "TOCTOU" regression test.
+  if (snoozed) return;
   if (isNewer(bootId, deployedId)) {
     updateAvailable.set(true);
   }
