@@ -25,6 +25,10 @@ import {
   EQUIPMENT_SLOTS,
   LIVE_STAT_KEYS,
   RESERVED_STAT_KEYS,
+  plusToPercent,
+  equipmentStatMods,
+  PERCENT_STAT_CURVES,
+  MASS_SPEED_DRAG,
 } from "./model";
 import type {
   CaptainTalentKey,
@@ -893,6 +897,191 @@ describe("effectiveMissionDef", () => {
   it("does not mutate the base mission", () => {
     effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorHauler", assignedCaptainId: null }));
     expect(MISSIONS.shortOreRun.cargoCapacity).toBe(90);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Equipment 0.11.0 (Task 13): the stat-fold into shipDerivedStats. Three units:
+// plusToPercent (the curve), equipmentStatMods (the aggregator), and
+// shipDerivedStats(ship, pieces) (the fold). Magnitudes are FIRST-PASS TUNABLE,
+// so these tests pin BEHAVIOR (formula, monotonicity, direction, per-piece
+// difference, byte-identical-with-no-gear), not tuned numbers.
+// ---------------------------------------------------------------------------
+
+// Local EquipmentInstance builder (mirrors equipment.test.ts's makeEquip): only
+// the fields a fold test cares about are overridable; the rest are inert defaults.
+function makeEquip(over: Partial<EquipmentInstance> & { id: string }): EquipmentInstance {
+  return {
+    id: over.id,
+    slotType: over.slotType ?? "cargoBay",
+    rarity: over.rarity ?? "standard",
+    ascension: over.ascension ?? "none",
+    quality: over.quality ?? 0,
+    blueprintKey: over.blueprintKey ?? null,
+    implicitStats: over.implicitStats ?? {},
+    rolledStats: over.rolledStats ?? {},
+    mass: over.mass ?? 0,
+    powerDraw: over.powerDraw ?? 0,
+    durabilityMax: over.durabilityMax ?? 100,
+    durability: over.durability ?? 100,
+    fittedToShipId: over.fittedToShipId ?? null,
+  };
+}
+
+const freighter = { id: "s", typeKey: "generalFreighter" as const, assignedCaptainId: null };
+
+describe("plusToPercent (the plus-to-% curve)", () => {
+  it("matches the closed-form B*(1-r^plus)/(1-r) for arbitrary inputs", () => {
+    const B = 0.05;
+    const r = 0.9;
+    for (const plus of [1, 2, 3, 7, 20]) {
+      const expected = (B * (1 - Math.pow(r, plus))) / (1 - r);
+      expect(plusToPercent(plus, B, r)).toBeCloseTo(expected, 10);
+    }
+  });
+
+  it("is 0 at plus 0 (no equipment contributes nothing, the byte-identical guarantee)", () => {
+    expect(plusToPercent(0, 0.05, 0.9)).toBe(0);
+    expect(plusToPercent(-3, 0.05, 0.9)).toBe(0); // non-positive plus clamps to 0
+  });
+
+  it("is strictly MONOTONIC increasing in plus", () => {
+    const B = 0.04;
+    const r = 0.92;
+    let prev = plusToPercent(0, B, r);
+    for (let plus = 1; plus <= 50; plus++) {
+      const cur = plusToPercent(plus, B, r);
+      expect(cur).toBeGreaterThan(prev);
+      prev = cur;
+    }
+  });
+
+  it("is ASYMPTOTIC to B/(1-r): huge plus approaches the ceiling but never exceeds it", () => {
+    const B = 0.05;
+    const r = 0.9;
+    const asymptote = B / (1 - r); // 0.5
+    const huge = plusToPercent(10_000, B, r);
+    expect(huge).toBeLessThanOrEqual(asymptote);
+    expect(huge).toBeCloseTo(asymptote, 6);
+  });
+});
+
+describe("equipmentStatMods (the aggregator)", () => {
+  it("sums FLAT capacities directly and PERCENT stats as raw plus magnitudes", () => {
+    const pieces = [
+      makeEquip({ id: "a", slotType: "cargoBay", implicitStats: { cargoCapacity: 30 }, rolledStats: { cargoCapacity: 5, engineEfficiency: 2 } }),
+      makeEquip({ id: "b", slotType: "ftlDrive", implicitStats: { transitSpeedMult: 4, engineEfficiency: 4 }, rolledStats: { fuelCapacity: 40 } }),
+    ];
+    const mods = equipmentStatMods(pieces);
+    expect(mods.flat.cargoCapacity).toBe(35); // 30 + 5
+    expect(mods.flat.fuelCapacity).toBe(40);
+    expect(mods.percentPlus.transitSpeedMult).toBe(4);
+    expect(mods.percentPlus.engineEfficiency).toBe(6); // 2 + 4, from both pieces
+  });
+
+  it("sums mass + powerDraw, NETs massReduction / powerDrawReduction, and clamps at 0", () => {
+    const pieces = [
+      makeEquip({ id: "a", mass: 20, powerDraw: 10, rolledStats: { massReduction: 5, powerDrawReduction: 3 } }),
+      makeEquip({ id: "b", mass: 8, powerDraw: 4, rolledStats: { massReduction: 100 } }), // over-shaves mass
+    ];
+    const mods = equipmentStatMods(pieces);
+    expect(mods.totalMass).toBe(0); // 28 gross - 105 reduction, clamped at 0
+    expect(mods.totalPowerDraw).toBe(11); // 14 gross - 3 reduction
+  });
+
+  it("takes powerOutput from the reactor implicit and IGNORES reserved stats", () => {
+    const pieces = [
+      makeEquip({ id: "r", slotType: "reactorCore", implicitStats: { powerOutput: 50 } }),
+      makeEquip({ id: "u", slotType: "specUtility", implicitStats: { extractionYieldMult: 5 }, rolledStats: { sensors: 9, materialQualityChance: 9 } }),
+    ];
+    const mods = equipmentStatMods(pieces);
+    expect(mods.powerOutput).toBe(50);
+    expect(mods.percentPlus.extractionYieldMult).toBe(5);
+    // sensors / materialQualityChance are RESERVED: they must NOT leak into any folded bucket.
+    expect((mods.flat as Record<string, number>).sensors).toBeUndefined();
+    expect((mods.percentPlus as Record<string, number>).materialQualityChance).toBeUndefined();
+  });
+
+  it("returns all-zero mods for an empty loadout (the fold identity)", () => {
+    const mods = equipmentStatMods([]);
+    expect(mods.flat.cargoCapacity).toBe(0);
+    expect(mods.flat.fuelCapacity).toBe(0);
+    expect(mods.percentPlus.transitSpeedMult).toBe(0);
+    expect(mods.totalMass).toBe(0);
+    expect(mods.totalPowerDraw).toBe(0);
+    expect(mods.powerOutput).toBe(0);
+  });
+});
+
+describe("shipDerivedStats fold (Task 13)", () => {
+  it("with NO equipment is byte-identical to the bare-hull projection", () => {
+    const bare = shipDerivedStats(freighter);
+    const emptyFold = shipDerivedStats(freighter, []);
+    expect(emptyFold).toEqual(bare);
+    // And the bare hull's own fuel/cargo/transit stats are the SHIP_TYPES values.
+    expect(bare.cargoCapacity).toBe(SHIP_TYPES.generalFreighter.cargoCapacity);
+    expect(bare.engineEfficiency).toBe(SHIP_TYPES.generalFreighter.engineEfficiency);
+    expect(bare.fuelCapacity).toBe(SHIP_TYPES.generalFreighter.fuelCapacity);
+    expect(bare.mass).toBe(0);
+    expect(bare.powerOutput).toBe(0);
+  });
+
+  it("a fitted Cargo Bay RAISES effective cargo by the flat sum", () => {
+    const cargoBay = makeEquip({ id: "c", slotType: "cargoBay", implicitStats: { cargoCapacity: 40 } });
+    const stats = shipDerivedStats(freighter, [cargoBay]);
+    expect(stats.cargoCapacity).toBe(90 + 40);
+  });
+
+  it("a fitted FTL Drive RAISES transit speed and fuel efficiency (percent curve)", () => {
+    const base = shipDerivedStats(freighter);
+    const ftl = makeEquip({ id: "f", slotType: "ftlDrive", implicitStats: { transitSpeedMult: 8, engineEfficiency: 8 } });
+    const stats = shipDerivedStats(freighter, [ftl]);
+    expect(stats.transitSpeedMult).toBeGreaterThan(base.transitSpeedMult);
+    expect(stats.engineEfficiency).toBeGreaterThan(base.engineEfficiency);
+    // engineEfficiency is ADDITIVE on the 0-based bonus: base 0 + a positive curve boost.
+    expect(stats.engineEfficiency).toBeCloseTo(
+      base.engineEfficiency + plusToPercent(8, PERCENT_STAT_CURVES.engineEfficiency.B, PERCENT_STAT_CURVES.engineEfficiency.r),
+      10
+    );
+  });
+
+  it("a HEAVY loadout LOWERS effective transit speed and fuel efficiency via Mass", () => {
+    // Same FTL boost, but one piece is light and the other heavy. The heavy fit must
+    // end up SLOWER and LESS fuel-efficient than the light fit despite identical boosts.
+    const light = makeEquip({ id: "l", slotType: "ftlDrive", implicitStats: { transitSpeedMult: 8, engineEfficiency: 8 }, mass: 0 });
+    const heavy = makeEquip({ id: "h", slotType: "ftlDrive", implicitStats: { transitSpeedMult: 8, engineEfficiency: 8 }, mass: 60 });
+    const lightStats = shipDerivedStats(freighter, [light]);
+    const heavyStats = shipDerivedStats(freighter, [heavy]);
+    expect(heavyStats.transitSpeedMult).toBeLessThan(lightStats.transitSpeedMult);
+    expect(heavyStats.engineEfficiency).toBeLessThan(lightStats.engineEfficiency);
+    // Mass is surfaced on the derived stats.
+    expect(heavyStats.mass).toBe(60);
+    // Sanity: the multiplicative speed drag matches the tunable factor.
+    expect(heavyStats.transitSpeedMult).toBeCloseTo(lightStats.transitSpeedMult / (1 + MASS_SPEED_DRAG * 60), 10);
+  });
+
+  it("DIFFERENT varieties give DIFFERENT derived stats (the device-checkpoint requirement)", () => {
+    // Two Cargo Bays with the SAME total budget spread differently: a hauler-lean piece
+    // (almost all cargo) vs a balanced piece (cargo + efficiency). They must NOT produce
+    // identical derived stats.
+    const hauler = makeEquip({ id: "hh", slotType: "cargoBay", implicitStats: { cargoCapacity: 50 } });
+    const balanced = makeEquip({ id: "bb", slotType: "cargoBay", implicitStats: { cargoCapacity: 35 }, rolledStats: { engineEfficiency: 6, extractionYieldMult: 4 } });
+    const haulerStats = shipDerivedStats(freighter, [hauler]);
+    const balancedStats = shipDerivedStats(freighter, [balanced]);
+    expect(haulerStats.cargoCapacity).not.toBe(balancedStats.cargoCapacity);
+    expect(haulerStats.engineEfficiency).not.toBe(balancedStats.engineEfficiency);
+    expect(haulerStats.extractionYieldMult).not.toBe(balancedStats.extractionYieldMult);
+  });
+
+  it("surfaces the power budget (powerOutput vs powerDraw) NON-BINDING", () => {
+    const reactor = makeEquip({ id: "r", slotType: "reactorCore", implicitStats: { powerOutput: 60 }, powerDraw: 0 });
+    const drawer = makeEquip({ id: "d", slotType: "specUtility", implicitStats: { extractionYieldMult: 3 }, powerDraw: 15 });
+    const stats = shipDerivedStats(freighter, [reactor, drawer]);
+    expect(stats.powerOutput).toBe(60);
+    expect(stats.powerDraw).toBe(15);
+    // NON-BINDING: an over-draw (draw > output) does NOT throw or clamp the other stats.
+    const overDraw = shipDerivedStats(freighter, [makeEquip({ id: "x", slotType: "specUtility", implicitStats: { extractionYieldMult: 3 }, powerDraw: 999 })]);
+    expect(overDraw.extractionYieldMult).toBeGreaterThan(shipDerivedStats(freighter).extractionYieldMult);
   });
 });
 

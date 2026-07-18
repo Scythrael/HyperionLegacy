@@ -976,24 +976,293 @@ export function requiredTicksForPhase(phase: MissionPhase, missionDef: MissionDe
   }
 }
 
-// The three mission-relevant stats a hull contributes, lifted out of the shared
-// SHIP_TYPES template for a specific ShipInstance. A thin projection, it exists
-// so callers (effectiveMissionDef below, plus later assignment/UI tasks) depend
-// on a small, explicit shape rather than reaching into the full ShipTypeDef and
-// its inert forward fields (moduleSlots/equipmentSlots/cost/etc.). PURE: reads
-// the immutable table, returns a fresh object, mutates nothing.
+// The mission-relevant stats a hull contributes, lifted out of the shared
+// SHIP_TYPES template for a specific ShipInstance AND folded together with the
+// stats of any equipment fitted to that ship (Equipment 0.11.0, Task 13). A thin
+// projection, it exists so callers (effectiveMissionDef below, the fuel math,
+// plus assignment/UI tasks) depend on a small, explicit shape rather than
+// reaching into the full ShipTypeDef and its inert forward fields
+// (moduleSlots/equipmentSlots/cost/etc.). PURE: reads the immutable table + the
+// (already-resolved) fitted-piece list, returns a fresh object, mutates nothing.
+//
+// FIELD SET, and which are BINDING this patch:
+//   cargoCapacity / transitSpeedMult / extractionYieldMult , the original three,
+//       consumed by effectiveMissionDef (cargo + transit) and the extraction-yield
+//       seam in tick.ts. BINDING.
+//   engineEfficiency / fuelCapacity , lifted from the hull's fuel stats so the fuel
+//       math can read the EQUIPMENT-FOLDED value from one place. engineEfficiency
+//       BINDS (economyTick prices fuelPerCycle from it, canDispatch prices `need`
+//       from it); fuelCapacity BINDS the canDispatch RANGE gate.
+//   powerOutput / powerDraw / mass , SURFACED from the fold for the UI + the 0.12.0
+//       power budget. mass is consumed INTERNALLY by the fold's Mass penalty (it is
+//       surfaced too, for display). powerOutput/powerDraw are NON-BINDING this patch
+//       (nothing gates on the power balance yet, see the fold below); they BIND in
+//       0.12.0.
 export interface ShipDerivedStats {
   cargoCapacity: number;
   transitSpeedMult: number;
   extractionYieldMult: number;
+  engineEfficiency: number; // 0-based fuel-burn bonus (0 = baseline 1:1), see fuel.ts
+  fuelCapacity: number;     // max fuel for one round trip (the canDispatch RANGE gate)
+  mass: number;             // total equipped mass (0 for a bare hull); drives the Mass penalty below
+  powerOutput: number;      // reactor Power Output from fitted gear (0 with no reactor fitted)
+  powerDraw: number;        // total Power Draw of fitted gear (0 with no gear); must fit powerOutput in 0.12.0
 }
 
-export function shipDerivedStats(ship: ShipInstance): ShipDerivedStats {
+// ----------------------------------------------------------------------------
+// Equipment stat-fold TUNABLES (Task 13). Every constant here is a FIRST-PASS
+// launch placeholder, retuned at the device-check stage (same spirit as
+// SHIP_TYPES' numbers). They are chosen so a single fitted piece produces a
+// VISIBLE, piece-DEPENDENT change in the derived stats (different pieces/varieties
+// give visibly different stats), which the upcoming device checkpoint needs.
+// ----------------------------------------------------------------------------
+
+// Per-percent-stat curve parameters for plusToPercent (below). Each percent stat
+// converts its summed raw "plus" magnitude into a fractional boost via the curve
+// boost = B * (1 - r^plus) / (1 - r). B is the FIRST plus-point's contribution, r
+// is the per-point diminishing factor (0<r<1), and the boost ASYMPTOTES to
+// B/(1-r). plusDivisor scales the raw magnitude BEFORE the curve, the explicit
+// knob to pull if raw budget magnitudes ever grow large enough to saturate the
+// curve (all pieces would otherwise asymptote to the same boost, killing the
+// per-piece difference). r=0.92 keeps the curve visibly rising across plus ~1..30
+// at the current small launch magnitudes, so plusDivisor stays 1 for now.
+export interface PercentCurveParams {
+  B: number; // TUNABLE: first-point boost
+  r: number; // TUNABLE: 0<r<1 diminishing factor
+  plusDivisor: number; // TUNABLE: scales raw plus before the curve (1 = no scaling)
+}
+export const PERCENT_STAT_CURVES: Record<string, PercentCurveParams> = {
+  // +transit speed: asymptote 0.05/(1-0.92) = +62.5% at extreme plus; +5% at plus 1.
+  transitSpeedMult: { B: 0.05, r: 0.92, plusDivisor: 1 },
+  // +fuel efficiency (engineEfficiency is a 0-based bonus): asymptote +50%.
+  engineEfficiency: { B: 0.04, r: 0.92, plusDivisor: 1 },
+  // +extraction yield: asymptote +62.5%.
+  extractionYieldMult: { B: 0.05, r: 0.92, plusDivisor: 1 },
+};
+
+// Mass penalty (mass-vs-thrust). Heavier fitments drag the speed group:
+//   MASS_SPEED_DRAG  , multiplicative speed factor 1/(1 + drag*mass), always in
+//                      (0,1], so transitSpeedMult can never go non-positive (keeps
+//                      effectiveMissionDef's ceil-divide safe).
+//   MASS_EFF_DRAG    , SUBTRACTIVE penalty on engineEfficiency (drag*mass), so mass
+//                      bites even when base+boost efficiency is 0 (a bare Freighter),
+//                      and CAN push net efficiency below baseline (a real fuel penalty
+//                      for a heavy loadout). Clamped at ENGINE_EFF_FLOOR so the fuel
+//                      denominator (1+eff) never collapses toward 0.
+export const MASS_SPEED_DRAG = 0.02;   // TUNABLE
+export const MASS_EFF_DRAG = 0.005;    // TUNABLE
+export const ENGINE_EFF_FLOOR = -0.9;  // TUNABLE floor: 1+eff >= 0.1, fuel at most 10x
+
+// ----------------------------------------------------------------------------
+// plusToPercent
+// ----------------------------------------------------------------------------
+// The plus-to-percent curve (design §3/§8): converts a summed raw "plus" magnitude
+// into a fractional boost with DIMINISHING returns per point:
+//   plusToPercent(plus, B, r) = B * (1 - r^plus) / (1 - r)
+// For integer plus this is the geometric series B*(1 + r + r^2 + ... + r^(plus-1)),
+// i.e. each additional point adds B*r^(k), a shrinking increment. Monotonic
+// increasing in plus and asymptotic to B/(1-r). PURE.
+//   plus = 0 -> 0 (no equipment contributes nothing, the byte-identical guarantee).
+//   r in (0,1) required; r=1 would divide by zero (never configured, guarded here).
+export function plusToPercent(plus: number, B: number, r: number): number {
+  if (plus <= 0) return 0;
+  // Defensive: r must be in (0,1). r>=1 has no diminishing-returns meaning and
+  // r=1 divides by zero; fall back to the linear B*plus so a mis-tune is loud-ish
+  // (visibly wrong magnitude) rather than NaN-poisoning the whole derived stat.
+  if (r <= 0 || r >= 1) return B * plus;
+  return (B * (1 - Math.pow(r, plus))) / (1 - r);
+}
+
+// ----------------------------------------------------------------------------
+// equipmentStatMods
+// ----------------------------------------------------------------------------
+// Sum a ship's FITTED pieces into the raw contributions the derived-stat fold
+// (shipDerivedStats below) consumes. PURE: reads the passed piece list (already
+// resolved by the caller via equipment.ts's equippedFor), returns a fresh object,
+// mutates nothing. The caller passes ONLY the pieces fitted to one ship.
+//
+// SHAPE:
+//   flat        , FLAT capacity stats summed DIRECTLY (cargoCapacity, fuelCapacity).
+//   percentPlus , PERCENT stats summed as raw "plus" magnitudes to be curve-converted
+//                 later (transitSpeedMult, engineEfficiency, extractionYieldMult).
+//   totalMass   , sum of each piece's intrinsic mass, NET of any massReduction affix
+//                 (a "-Mass" roll), clamped at 0.
+//   totalPowerDraw, sum of each piece's intrinsic powerDraw, NET of any
+//                 powerDrawReduction affix, clamped at 0.
+//   powerOutput , sum of the powerOutput stat across pieces (the reactor implicit).
+//
+// Each piece contributes implicitStats + rolledStats (both raw "plus" magnitudes).
+// RESERVED stat keys (sensors, materialQualityChance) are deliberately NOT folded
+// this patch: their consumers are deferred (design §5/§11), so summing them here
+// would be dead data. massReduction / powerDrawReduction are folded into the mass /
+// power NET totals rather than surfaced as their own lines.
+export interface EquipmentStatMods {
+  flat: Record<string, number>;
+  percentPlus: Record<string, number>;
+  totalMass: number;
+  totalPowerDraw: number;
+  powerOutput: number;
+}
+export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMods {
+  const flat: Record<string, number> = { cargoCapacity: 0, fuelCapacity: 0 };
+  const percentPlus: Record<string, number> = {
+    transitSpeedMult: 0,
+    engineEfficiency: 0,
+    extractionYieldMult: 0,
+  };
+  let grossMass = 0;
+  let massReduction = 0;
+  let grossPowerDraw = 0;
+  let powerDrawReduction = 0;
+  let powerOutput = 0;
+
+  for (const piece of pieces) {
+    // Intrinsic per-piece fields (NOT stat lines): mass + powerDraw are summed gross,
+    // then netted by the reduction affixes below.
+    grossMass += piece.mass;
+    grossPowerDraw += piece.powerDraw;
+
+    // Every stat line the piece carries: implicit (slot-signature) + rolled (affixes).
+    // One loop over both records so a stat that appears in both accumulates.
+    for (const stats of [piece.implicitStats, piece.rolledStats]) {
+      for (const [key, value] of Object.entries(stats)) {
+        switch (key) {
+          // FLAT capacities: summed directly.
+          case "cargoCapacity":
+          case "fuelCapacity":
+            flat[key] += value;
+            break;
+          // PERCENT stats: summed as raw plus magnitudes (curve-converted later).
+          case "transitSpeedMult":
+          case "engineEfficiency":
+          case "extractionYieldMult":
+            percentPlus[key] += value;
+            break;
+          // Mass / power NET-reduction affixes: fold into the totals, not their own line.
+          case "massReduction":
+            massReduction += value;
+            break;
+          case "powerDrawReduction":
+            powerDrawReduction += value;
+            break;
+          case "powerOutput":
+            powerOutput += value;
+            break;
+          // RESERVED (sensors, materialQualityChance) + any unknown key: intentionally
+          // ignored this patch (their consumers are deferred). No silent surprise: the
+          // fold simply does not read them.
+          default:
+            break;
+        }
+      }
+    }
+  }
+
+  return {
+    flat,
+    percentPlus,
+    totalMass: Math.max(0, grossMass - massReduction),
+    totalPowerDraw: Math.max(0, grossPowerDraw - powerDrawReduction),
+    powerOutput,
+  };
+}
+
+// The hull-only mission stats, with NO equipment folded. shipDerivedStats(ship)
+// (the 1-arg call every pre-Task-13 site uses) resolves to exactly this, so those
+// sites are byte-identical to before this task. Kept as its own helper so the
+// "bare hull" projection has one name.
+function hullDerivedStats(ship: ShipInstance): ShipDerivedStats {
   const def = SHIP_TYPES[ship.typeKey];
   return {
     cargoCapacity: def.cargoCapacity,
     transitSpeedMult: def.transitSpeedMult,
     extractionYieldMult: def.extractionYieldMult,
+    engineEfficiency: def.engineEfficiency,
+    fuelCapacity: def.fuelCapacity,
+    // A bare hull carries no equipment mass/power: those are equipment concepts,
+    // so they are 0 until gear is fitted (below).
+    mass: 0,
+    powerOutput: 0,
+    powerDraw: 0,
+  };
+}
+
+// Project a ShipInstance to its mission-relevant derived stats, FOLDING IN the
+// stats of any equipment fitted to it (Task 13). PURE.
+//
+// FOLD ORDER (applied ONCE, here, BEFORE any closed-form machinery reads the
+// result, so the fold is a per-cycle CONSTANT and the one-big-call == many-small-
+// calls guarantee is preserved by construction, exactly as effectiveMissionDef's
+// per-cycle constancy is; fitment cannot change mid-mission, the on-mission lock
+// in equipment.ts guarantees it):
+//   1. Start from the bare hull stats.
+//   2. FLAT capacities add directly: cargoCapacity += flat cargo, fuelCapacity += flat fuel.
+//   3. PERCENT stats convert their summed plus through plusToPercent and apply as a
+//      (1 + boost) multiplier (transit, yield) or an ADDITIVE bonus (engineEfficiency,
+//      which is itself a 0-based additive bonus, so equipment efficiency ADDS to the
+//      hull's, rather than multiplying a possibly-0 base into nothing).
+//   4. MASS penalty (mass-vs-thrust): heavier fitments drag transitSpeedMult
+//      (multiplicative, stays positive) and engineEfficiency (subtractive, can go
+//      below baseline), clamped at ENGINE_EFF_FLOOR.
+//   5. POWER surfaced (powerOutput / powerDraw / mass) for the UI + 0.12.0 budget;
+//      NON-BINDING this patch (nothing here gates on the power balance).
+//
+// The optional `pieces` param DEFAULTS to [] so shipDerivedStats(ship) reproduces
+// the bare-hull projection EXACTLY (equipmentStatMods([]) is all-zero -> every
+// fold is an identity), keeping every existing 1-arg call site byte-identical.
+export function shipDerivedStats(
+  ship: ShipInstance,
+  pieces: EquipmentInstance[] = []
+): ShipDerivedStats {
+  const base = hullDerivedStats(ship);
+  if (pieces.length === 0) return base; // fast path + explicit byte-identical guarantee
+
+  const mods = equipmentStatMods(pieces);
+
+  // (2) FLAT capacities.
+  const cargoCapacity = base.cargoCapacity + mods.flat.cargoCapacity;
+  const fuelCapacity = base.fuelCapacity + mods.flat.fuelCapacity;
+
+  // (3) PERCENT boosts through the curve.
+  const transitCurve = PERCENT_STAT_CURVES.transitSpeedMult;
+  const engineCurve = PERCENT_STAT_CURVES.engineEfficiency;
+  const yieldCurve = PERCENT_STAT_CURVES.extractionYieldMult;
+  const transitBoost = plusToPercent(
+    mods.percentPlus.transitSpeedMult / transitCurve.plusDivisor,
+    transitCurve.B,
+    transitCurve.r
+  );
+  const engineBoost = plusToPercent(
+    mods.percentPlus.engineEfficiency / engineCurve.plusDivisor,
+    engineCurve.B,
+    engineCurve.r
+  );
+  const yieldBoost = plusToPercent(
+    mods.percentPlus.extractionYieldMult / yieldCurve.plusDivisor,
+    yieldCurve.B,
+    yieldCurve.r
+  );
+
+  let transitSpeedMult = base.transitSpeedMult * (1 + transitBoost);
+  const extractionYieldMult = base.extractionYieldMult * (1 + yieldBoost);
+  let engineEfficiency = base.engineEfficiency + engineBoost; // additive: 0-based bonus
+
+  // (4) MASS penalty.
+  const massSpeedFactor = 1 / (1 + MASS_SPEED_DRAG * mods.totalMass);
+  transitSpeedMult *= massSpeedFactor;
+  engineEfficiency -= MASS_EFF_DRAG * mods.totalMass;
+  if (engineEfficiency < ENGINE_EFF_FLOOR) engineEfficiency = ENGINE_EFF_FLOOR;
+
+  // (5) Power surfaced, non-binding.
+  return {
+    cargoCapacity,
+    transitSpeedMult,
+    extractionYieldMult,
+    engineEfficiency,
+    fuelCapacity,
+    mass: mods.totalMass,
+    powerOutput: mods.powerOutput,
+    powerDraw: mods.totalPowerDraw,
   };
 }
 

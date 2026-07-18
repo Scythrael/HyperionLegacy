@@ -67,6 +67,10 @@ import {
   blueprintUnlocked,
 } from "./model";
 import { fuelNeeded } from "./fuel";
+// Equipment 0.11.0 (Task 13/14): equippedFor resolves a ship's fitted pieces so both
+// the mission-resolution seam (economyTick) and the dispatch gate (canDispatch) can
+// fold equipment stats into shipDerivedStats from the SAME single source of truth.
+import { equippedFor } from "./equipment";
 // Crafting Allocation Redesign (Task C2): the per-slot line engine below reuses C1's
 // pure allocation core, `lineInputsPerIteration` builds a line's per-iteration input
 // map from the recipe registries (the SAME map startRefineJob/startFabricateJob build
@@ -1459,13 +1463,37 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     // which reproduces this loop's exact pre-ship-wiring behavior (the Freighter
     // baseline) rather than throwing on shipDerivedStats(undefined).
     const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
-    const shipStats = ship ? shipDerivedStats(ship) : null;
+    // Equipment 0.11.0 (Task 13/14): fold the ship's FITTED equipment into its derived
+    // stats HERE, at the single seam BOTH paths share (see the block comment at line
+    // ~1434: live play calls economyTick per bar, offline catch-up steps economyTick in
+    // tick()'s loop, one seam, both paths). equippedFor reads GameState.equipment (the
+    // fitment authority); shipDerivedStats(ship, pieces) applies the fold ONCE, before
+    // the closed-form machinery, so it is a per-cycle constant (fitment is locked mid-
+    // mission by the equipment.ts on-mission lock) and the one-big == many-small
+    // guarantee is preserved for the same reason effectiveMissionDef's constancy is. A
+    // ship-less captain keeps the pre-equipment null == "no modifier" fallback exactly.
+    // `state.equipment` presence guard: the equipment pool is seeded by freshState +
+    // the Task 20 migration; a save loaded on this in-progress branch BEFORE that
+    // migration lands has no pool yet, so treat "no pool" as "no fitted pieces" (an
+    // empty fold == the bare hull). Once Task 20 guarantees state.equipment always
+    // exists this guard is redundant but harmless.
+    const pieces = ship && state.equipment ? equippedFor(state, ship.id) : [];
+    const shipStats = ship ? shipDerivedStats(ship, pieces) : null;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
-    // THIS hull. fuelNeeded reads the BASE mission's transit legs (see fuel.ts), so pass
-    // the raw MISSIONS def + the hull's static ShipTypeDef, NOT the ship-adjusted
-    // shipStats. A ship-less captain (the null-ship freighter-baseline fallback above)
-    // costs 0 -> never fuel-gated, matching that path's "no ship modifier" behavior.
-    const fuelPerCycle = ship ? fuelNeeded(MISSIONS[missionKey], SHIP_TYPES[ship.typeKey]) : 0;
+    // THIS hull. fuelNeeded reads the BASE mission's transit legs (see fuel.ts) and the
+    // hull's engineEfficiency. Task 14: price it from the EQUIPMENT-FOLDED
+    // engineEfficiency (shipStats.engineEfficiency), so fitting an efficiency drive
+    // actually lowers per-cycle burn, consumed identically in both paths (this seam).
+    // fuelNeeded only reads engineEfficiency off its ship arg, so we overlay the folded
+    // value onto the static ShipTypeDef rather than widening fuelNeeded's contract. A
+    // ship-less captain costs 0 -> never fuel-gated, matching the "no modifier" path.
+    const fuelPerCycle =
+      ship && shipStats
+        ? fuelNeeded(MISSIONS[missionKey], {
+            ...SHIP_TYPES[ship.typeKey],
+            engineEfficiency: shipStats.engineEfficiency,
+          })
+        : 0;
     const bonuses = {
       commonYieldMult: captainCommonYieldMult(captain),
       uncommonYieldMult: captainUncommonYieldMult(captain),
@@ -1896,22 +1924,33 @@ export function canDispatch(
   const ship = state.ships.find((s) => s.assignedCaptainId === captainId);
   if (!ship) return { ok: false, reason: "noShip" };
   const shipDef = SHIP_TYPES[ship.typeKey];
+  // Equipment 0.11.0 (Task 13/14): the EQUIPMENT-FOLDED derived stats for this hull,
+  // resolved from the SAME seam economyTick uses (equippedFor + shipDerivedStats), so
+  // the dispatch gate prices fuel and range on the very numbers the mission loop will
+  // burn against. With no gear fitted the fold is an identity, so pre-equipment dispatch
+  // behavior is byte-identical.
+  // `state.equipment` presence guard (see the note at the economyTick fold): a
+  // pre-Task-20-migration state has no pool yet -> no fitted pieces -> bare-hull fold.
+  const stats = shipDerivedStats(ship, state.equipment ? equippedFor(state, ship.id) : []);
 
-  // --- Hull-capability gate (Task 7): the ship's cargoCapacity (from SHIP_TYPES, NOT the
-  // mission's own cargoCapacity field) must meet requiresCargoCapacity. OPTIONAL, same
-  // undefined-skips semantics as the captain-level gate above.
-  if (mission.requiresCargoCapacity !== undefined && shipDef.cargoCapacity < mission.requiresCargoCapacity) {
+  // --- Hull-capability gate (Task 7): the ship's cargoCapacity must meet
+  // requiresCargoCapacity. Task 13: read the EQUIPMENT-FOLDED cargoCapacity so a fitted
+  // Cargo Bay can genuinely satisfy a cargo requirement. OPTIONAL, same undefined-skips
+  // semantics as the captain-level gate above.
+  if (mission.requiresCargoCapacity !== undefined && stats.cargoCapacity < mission.requiresCargoCapacity) {
     return { ok: false, reason: "cargo" };
   }
 
   // --- Fuel gates (Task 5, folded in here). fuelNeeded reads the BASE mission's transit
-  // legs scaled by the hull's engineEfficiency (see fuel.ts), one round trip's cost.
-  const need = fuelNeeded(mission, shipDef);
+  // legs scaled by engineEfficiency (see fuel.ts). Task 14: price it from the FOLDED
+  // engineEfficiency (overlaid on the static ShipTypeDef, as economyTick does) so the
+  // dispatch estimate matches the loop's per-cycle burn exactly.
+  const need = fuelNeeded(mission, { ...shipDef, engineEfficiency: stats.engineEfficiency });
   // RANGE: the hull physically cannot carry enough fuel for the round trip. A HULL-
-  // capability check (independent of how much fuel is in the shared tank), so it reads
-  // the hull's static fuelCapacity, not state.fuel. Forward-defensive: no current hull+
-  // mission combo trips it, but it honors the design's stated dispatch contract.
-  if (shipDef.fuelCapacity < need) return { ok: false, reason: "fuelCapacity" };
+  // capability check (independent of how much fuel is in the shared tank). Task 13:
+  // read the FOLDED fuelCapacity so a fitted fuel tank extends range. Forward-defensive:
+  // no current hull+mission combo trips it, but it honors the dispatch contract.
+  if (stats.fuelCapacity < need) return { ok: false, reason: "fuelCapacity" };
   // RESOURCE (Fuel Economy v2 F3): a short tank NO LONGER hard-blocks dispatch by itself --
   // dispatchCaptainOnMission AUTO-BUYS the shortfall from credits (paying a +2-tick refuel
   // penalty) and flies anyway. So `fuelEmpty` now fires ONLY when the tank is short AND the
@@ -1951,7 +1990,15 @@ export function dispatchCaptainOnMission(
   // keep canDispatch a clean boolean predicate.
   const idx = state.captains.findIndex((c) => c.id === captainId);
   const ship = state.ships.find((s) => s.assignedCaptainId === captainId)!;
-  const need = fuelNeeded(MISSIONS[missionKey], SHIP_TYPES[ship.typeKey]);
+  // Equipment 0.11.0 (Task 14): price the first cycle's spend from the SAME folded
+  // engineEfficiency canDispatch and economyTick use, so the dispatch estimate, the
+  // actual spend here, and every subsequent loop cycle all burn the identical figure.
+  // No gear fitted -> fold is an identity -> byte-identical to the pre-equipment spend.
+  const dispatchStats = shipDerivedStats(ship, state.equipment ? equippedFor(state, ship.id) : []);
+  const need = fuelNeeded(MISSIONS[missionKey], {
+    ...SHIP_TYPES[ship.typeKey],
+    engineEfficiency: dispatchStats.engineEfficiency,
+  });
 
   // Fuel Economy v2 (F3): the first cycle's fuel-spend, mirroring the auto-repeat rule. If the
   // tank covers `need`, spend straight from it (no penalty). If the tank is SHORT, canDispatch's

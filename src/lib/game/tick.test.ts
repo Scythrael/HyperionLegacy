@@ -46,6 +46,7 @@ import {
   type MissionKey,
   type TimedProcess,
   type ProcessEffect,
+  type EquipmentInstance,
 } from "./model";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 
@@ -2885,6 +2886,143 @@ describe("tickCaptainMission, assigned ship stats (Task 6)", () => {
     // common AMOUNT should differ, uncommon/rare stay at 0 on both paths.
     expect(minerResult.captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
     expect(minerResult.captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Equipment 0.11.0 (Task 14): equipment stats fold into a ship's mission stats
+// through BOTH tick paths, and the fold preserves the closed-form guarantee.
+// Two proofs:
+//   1. CLOSED-FORM PARITY WITH EQUIPMENT, a mission cycle for a ship whose
+//      derived stats were EQUIPMENT-FOLDED resolves identically one-big-call vs
+//      many-small-calls (extends the Task-6 closed-form tests, which used bare-
+//      hull stats, to folded stats). This holds because shipDerivedStats(ship,
+//      pieces) is computed ONCE and is a per-cycle CONSTANT (fitment is locked
+//      mid-mission), exactly the property effectiveMissionDef relies on.
+//   2. OFFLINE == LIVE for a fitted ship, the offline tick() stepping and the
+//      live economyTick(1) loop deliver identical results for the SAME fitted
+//      ship, because BOTH resolve the fold at the ONE shared economyTick seam
+//      (equippedFor -> shipDerivedStats). This is the recurring "live loop
+//      drifted from tick()" crack (fixed in 9fc67a6); the fold rides that same
+//      single seam so it cannot re-open it. A companion assertion proves the
+//      fold is genuinely CONSUMED (a fitted ship diverges from an unfitted one).
+// ---------------------------------------------------------------------------
+describe("Equipment fold, closed-form + both-path parity (Task 14)", () => {
+  // Minimal EquipmentInstance builder (mirrors equipment.test.ts / model.test.ts):
+  // only the fold-relevant fields are overridable, the rest are inert defaults.
+  const makeEquip = (over: Partial<EquipmentInstance> & { id: string }): EquipmentInstance => ({
+    id: over.id,
+    slotType: over.slotType ?? "cargoBay",
+    rarity: over.rarity ?? "standard",
+    ascension: over.ascension ?? "none",
+    quality: over.quality ?? 0,
+    blueprintKey: over.blueprintKey ?? null,
+    implicitStats: over.implicitStats ?? {},
+    rolledStats: over.rolledStats ?? {},
+    mass: over.mass ?? 0,
+    powerDraw: over.powerDraw ?? 0,
+    durabilityMax: over.durabilityMax ?? 100,
+    durability: over.durability ?? 100,
+    fittedToShipId: over.fittedToShipId ?? null,
+  });
+
+  // PROOF 1: closed-form invariance with an EQUIPMENT-FOLDED shipStats. Mirrors the
+  // Task-6 closedFormForShip helper, but the shipStats come from the fold (a Cargo
+  // Bay that raises cargo to 120 + an FTL Drive that raises transit), so the phase
+  // geometry under test is the FOLDED geometry, not a bare hull's.
+  it("CLOSED-FORM holds with a fitted-ship (folded cargo/transit) shipStats", () => {
+    const pieces = [
+      makeEquip({ id: "e-cargo", slotType: "cargoBay", implicitStats: { cargoCapacity: 30 } }),
+      makeEquip({ id: "e-ftl", slotType: "ftlDrive", implicitStats: { transitSpeedMult: 6, engineEfficiency: 6 } }),
+    ];
+    // Fold onto a real Freighter instance, exactly as economyTick does in production.
+    const shipStats = shipDerivedStats({ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: null }, pieces);
+    // Sanity: the fold actually MOVED the stats (else the parity would be vacuous).
+    expect(shipStats.cargoCapacity).toBe(120);
+    expect(shipStats.transitSpeedMult).toBeGreaterThan(1.0);
+
+    const base = freshCaptains(1)[0];
+    base.mission = missionCaptain("shortOreRun");
+
+    const bigTicks = 500; // crosses more than one folded cycle
+    const steps = 4000; // 0.125 each -> sums to exactly 500 (IEEE-754 exact), no float drift
+    const bigJump = tickCaptainMission(bigTicks, base, ALWAYS_MIN_ROLL, {}, shipStats);
+
+    let steppedCaptain = base;
+    let steppedDelta = { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
+    const stepSize = bigTicks / steps;
+    for (let i = 0; i < steps; i++) {
+      const r = tickCaptainMission(stepSize, steppedCaptain, ALWAYS_MIN_ROLL, {}, shipStats);
+      steppedCaptain = r.captain;
+      steppedDelta = {
+        commonOre: steppedDelta.commonOre.plus(r.homePlanetDelta.commonOre),
+        uncommonMaterial: steppedDelta.uncommonMaterial.plus(r.homePlanetDelta.uncommonMaterial),
+        rareMaterial: steppedDelta.rareMaterial.plus(r.homePlanetDelta.rareMaterial),
+      };
+    }
+
+    expect(bigJump.captain.mission!.phase).toBe(steppedCaptain.mission!.phase);
+    expect(bigJump.captain.mission!.phaseProgressTicks).toBeCloseTo(steppedCaptain.mission!.phaseProgressTicks, 6);
+    expect(bigJump.captain.mission!.cargo.rareMaterial.equals(steppedCaptain.mission!.cargo.rareMaterial)).toBe(true);
+    expect(bigJump.captain.xp.equals(steppedCaptain.xp)).toBe(true);
+    expect(bigJump.captain.level).toBe(steppedCaptain.level);
+    expect(bigJump.homePlanetDelta.rareMaterial.equals(steppedDelta.rareMaterial)).toBe(true);
+  });
+
+  // Build freshState with captain 1 on a shortOreRun and a Cargo Bay FITTED to
+  // their seeded hull (ship-1). fuel-rich so the auto-repeat is never fuel-gated
+  // (this proof is about the stat fold, not the fuel gate).
+  const fittedState = () => {
+    const s = freshState();
+    s.fuel = new Decimal(1_000_000);
+    s.captains[0].mission = {
+      missionKey: "shortOreRun",
+      phase: "ordersReceived",
+      phaseProgressTicks: 0,
+      cargo: { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
+      recalled: false,
+    };
+    s.equipment = [makeEquip({ id: "equip-1", slotType: "cargoBay", implicitStats: { cargoCapacity: 30 }, fittedToShipId: "ship-1" })];
+    return s;
+  };
+
+  const totalLoot = (s: ReturnType<typeof freshState>) =>
+    itemTotal(s.inventory, "commonOre").plus(itemTotal(s.inventory, "uncommonMaterial")).plus(itemTotal(s.inventory, "rareMaterial"));
+
+  // PROOF 2a: the offline tick() stepping and the live economyTick(1) loop agree
+  // bit-for-bit for the SAME fitted ship. Constant rng()=0 on both keeps loot/phase
+  // progression identical, isolating "do both paths fold the equipment the same way".
+  it("OFFLINE tick() == LIVE economyTick(1) loop for a fitted ship", () => {
+    const bigSpan = 600; // crosses multiple folded cycles (folded cycle = 1+25+120+25+8 = 179 ticks)
+
+    const offline = tick(bigSpan, fittedState(), () => 0);
+
+    let live = fittedState();
+    for (let i = 0; i < bigSpan; i++) live = economyTick(live, 1, () => 0);
+
+    // Delivered loot, captain progression, and mission phase must all match across paths.
+    expect(offline.captains[0].xp.equals(live.captains[0].xp)).toBe(true);
+    expect(offline.captains[0].level).toBe(live.captains[0].level);
+    expect(totalLoot(offline).equals(totalLoot(live))).toBe(true);
+    expect(offline.captains[0].mission!.phase).toBe(live.captains[0].mission!.phase);
+    expect(offline.captains[0].mission!.phaseProgressTicks).toBeCloseTo(live.captains[0].mission!.phaseProgressTicks, 6);
+  });
+
+  // PROOF 2b: the fold is genuinely CONSUMED through the economyTick seam. A fitted
+  // Cargo Bay (cargo 120) lengthens the extract phase vs the bare hull (cargo 90),
+  // so at 149 ticks (EXACTLY one bare-Freighter cycle) the bare ship has delivered a
+  // full 90-unit haul while the fitted ship, still mid-cycle, has delivered nothing.
+  it("a fitted Cargo Bay changes mission outcome vs the bare hull (fold is read by economyTick)", () => {
+    const bareDelivered = (() => {
+      const s = fittedState();
+      s.equipment = []; // strip the fitment -> bare Freighter cargo 90
+      return totalLoot(tick(149, s, () => 0));
+    })();
+    const fittedDelivered = totalLoot(tick(149, fittedState(), () => 0));
+
+    expect(bareDelivered.equals(90)).toBe(true); // bare Freighter completes its 149-tick cycle
+    expect(fittedDelivered.equals(0)).toBe(true); // fitted (cargo 120) is still in-flight at 149
+    expect(fittedDelivered.equals(bareDelivered)).toBe(false); // the fold demonstrably changed the run
   });
 });
 
