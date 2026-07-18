@@ -698,6 +698,157 @@ export function rarityIndex(rarity: EquipmentRarity): number {
   }
 }
 
+// ============================================================================
+// Equipment 0.11.0 (Task 2): the LIVE equipment-slot DEFINITIONS. DATA/TABLE
+// ONLY, mirroring the SHIP_TYPES/MISSIONS/ITEMS posture: these describe what a
+// slot IS (its signature stats, the affix vocabulary it can roll, its variety
+// families, and any equip gate) so later tasks (generation, fitting, the stat
+// registry, UI) read a stable table instead of hard-coding slot facts. Nothing
+// consumes this yet. Only the FOUR live slots are in the table; the reserved
+// EquipmentSlotType members from Task 1 have no definition this patch (they are
+// added when 0.12.0's fitment grid actually reads them).
+// ============================================================================
+
+// One "variety" family within a slot: a flavor a rolled piece can belong to
+// (e.g. a Cargo Bay is a Prospector Hold / Balanced Hold / Hauler Hold). The
+// variety biases how a piece's stat BUDGET is spread across its stat lines, so
+// two same-rarity pieces in the same slot can feel distinct. Data only.
+export interface EquipmentVarietyDef {
+  key: string;                          // stable id within the slot (e.g. "prospectorHold")
+  label: string;                        // player-facing name (e.g. "Prospector Hold")
+  favorsSpec?: ShipSpec;                // the ship spec this variety leans toward; optional (a neutral/balanced variety omits it)
+  // Budget-distribution WEIGHTS across this variety's stat lines, summing ~1.0:
+  // a later generation task splits a rolled piece's stat budget by these ratios,
+  // so a cargo-leaning variety pushes most of its budget into cargoCapacity. Keys
+  // are stat-vocabulary strings (same set the affixPool draws from). FIRST-PASS
+  // TUNABLE launch placeholders, same device-check spirit as SHIP_TYPES' numbers.
+  statRatios: Record<string, number>;
+}
+
+// One equipment SLOT: the signature stats every piece in it carries, the affix
+// pool a piece can roll ON TOP of those, its three variety families, and an
+// optional equip gate. Comments on the shape explain intent; the table below is
+// the blessed content.
+export interface EquipmentSlotDef {
+  slotType: EquipmentSlotType;          // MUST equal this entry's key in EQUIPMENT_SLOTS (asserted in tests)
+  label: string;                        // player-facing slot name
+  implicitStats: string[];              // slot-signature stat keys, ALWAYS present on every piece in the slot
+  // The affixes a piece MAY roll on top of the implicits. `weight` biases which
+  // affixes are picked by the later weighted-roll step (higher = more likely); it
+  // is NOT the stat magnitude. Live-this-patch stat keys only. TUNABLE.
+  affixPool: { stat: string; weight: number }[];
+  varieties: EquipmentVarietyDef[];     // exactly 3 per slot (asserted in tests)
+  // Optional gate a captain/hull must satisfy to equip pieces of this slot. All
+  // fields optional and ANDed by the later fitting task; only the fields present
+  // are checked. specUtility is the one gated slot this patch.
+  equipRequirement?: {
+    captainSpec?: ShipSpec;
+    hullSpec?: ShipSpec;
+    minCaptainLevel?: number;
+    requiresResearch?: string;
+    requiresTalent?: string;
+  };
+}
+
+// The FOUR live slots. ⚠️ statRatios and affix WEIGHTS are FIRST-PASS TUNABLE
+// launch placeholders (retuned at the device-check stage, not piecemeal), same
+// spirit as every other economy constant in this file. Each variety's ratios
+// lean toward that variety's quirk; each slot's affix weights bias its signature
+// stat highest. Stat keys are constrained to the 10 live-this-patch keys (the
+// test fences this against an explicit allow-set).
+export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
+  // CARGO BAY: the hold. Signature stat is raw cargoCapacity; affixes lean cargo
+  // with efficiency / yield / mass-shaving as secondary rolls. Universal (no gate).
+  cargoBay: {
+    slotType: "cargoBay",
+    label: "Cargo Bay",
+    implicitStats: ["cargoCapacity"],
+    affixPool: [
+      { stat: "cargoCapacity", weight: 5 },     // signature affix: most likely to roll
+      { stat: "massReduction", weight: 2 },
+      { stat: "engineEfficiency", weight: 2 },
+      { stat: "extractionYieldMult", weight: 1 },
+    ],
+    varieties: [
+      // Prospector-leaning hold: heavy into cargo, a little mass relief.
+      { key: "prospectorHold", label: "Prospector Hold", favorsSpec: "prospector", statRatios: { cargoCapacity: 0.75, massReduction: 0.15, engineEfficiency: 0.1 } },
+      // The neutral middle option (no favored spec): a rounded spread.
+      { key: "balancedHold", label: "Balanced Hold", statRatios: { cargoCapacity: 0.55, massReduction: 0.2, engineEfficiency: 0.15, extractionYieldMult: 0.1 } },
+      // Max cargo, and it shows: almost all budget into capacity, none into mass.
+      { key: "haulerHold", label: "Hauler Hold", statRatios: { cargoCapacity: 0.9, engineEfficiency: 0.1 } },
+    ],
+  },
+  // FTL DRIVE: propulsion. TWO signature stats (transit speed + fuel efficiency);
+  // affixes trade between speed, efficiency, tank size, and mass. Universal.
+  ftlDrive: {
+    slotType: "ftlDrive",
+    label: "FTL Drive",
+    implicitStats: ["transitSpeedMult", "engineEfficiency"],
+    affixPool: [
+      { stat: "transitSpeedMult", weight: 4 },
+      { stat: "engineEfficiency", weight: 4 },
+      { stat: "fuelCapacity", weight: 2 },
+      { stat: "massReduction", weight: 1 },
+    ],
+    varieties: [
+      // Sprint: budget into raw FTL speed.
+      { key: "sprintDrive", label: "Sprint Drive", statRatios: { transitSpeedMult: 0.7, massReduction: 0.15, engineEfficiency: 0.15 } },
+      // Economy: budget into fuel efficiency + tank, the long-haul drive.
+      { key: "economyDrive", label: "Economy Drive", statRatios: { engineEfficiency: 0.65, fuelCapacity: 0.25, transitSpeedMult: 0.1 } },
+      // Balanced: an even split across speed and efficiency.
+      { key: "balancedDrive", label: "Balanced Drive", statRatios: { transitSpeedMult: 0.4, engineEfficiency: 0.4, fuelCapacity: 0.2 } },
+    ],
+  },
+  // REACTOR CORE: powers the fit. Signature stat is powerOutput (the budget every
+  // powered piece draws against, later task); affixes trade output vs mass vs the
+  // fit's power draw. Universal.
+  reactorCore: {
+    slotType: "reactorCore",
+    label: "Reactor Core",
+    implicitStats: ["powerOutput"],
+    affixPool: [
+      { stat: "powerOutput", weight: 5 },
+      { stat: "massReduction", weight: 2 },
+      { stat: "engineEfficiency", weight: 1 },
+      { stat: "powerDrawReduction", weight: 2 },
+    ],
+    varieties: [
+      // High-output: maximum powerOutput, and heavy (little mass relief) to match.
+      { key: "highOutputCore", label: "High-Output Core", statRatios: { powerOutput: 0.85, powerDrawReduction: 0.15 } },
+      // Efficient: light core, budget shifted into shaving mass + fit power draw.
+      { key: "efficientCore", label: "Efficient Core", statRatios: { powerOutput: 0.45, massReduction: 0.35, powerDrawReduction: 0.2 } },
+      // Balanced: a middle reactor.
+      { key: "balancedCore", label: "Balanced Core", statRatios: { powerOutput: 0.6, massReduction: 0.2, powerDrawReduction: 0.2 } },
+    ],
+  },
+  // SPEC UTILITY: the universal Spec Utility Slot. This patch it ships ONE family,
+  // the Prospecting Rig, gated to a prospecting captain flying a Prospector hull.
+  // Signature stat is extractionYieldMult; affixes add survey sensors + material
+  // quality on top.
+  specUtility: {
+    slotType: "specUtility",
+    label: "Prospecting Rig",
+    implicitStats: ["extractionYieldMult"],
+    affixPool: [
+      { stat: "extractionYieldMult", weight: 5 },
+      { stat: "sensors", weight: 2 },
+      { stat: "materialQualityChance", weight: 2 },
+      { stat: "massReduction", weight: 1 },
+    ],
+    varieties: [
+      // Yield: budget into raw extractor efficiency.
+      { key: "yieldRig", label: "Yield Rig", favorsSpec: "prospector", statRatios: { extractionYieldMult: 0.75, sensors: 0.15, materialQualityChance: 0.1 } },
+      // Survey: budget into sensors (find speed + rarity chance).
+      { key: "surveyRig", label: "Survey Rig", favorsSpec: "prospector", statRatios: { sensors: 0.65, extractionYieldMult: 0.25, materialQualityChance: 0.1 } },
+      // Refinery-Feed: budget into material quality, feeding the refining chain.
+      { key: "refineryFeedRig", label: "Refinery-Feed Rig", favorsSpec: "prospector", statRatios: { materialQualityChance: 0.65, extractionYieldMult: 0.25, sensors: 0.1 } },
+    ],
+    // Gated: the Prospecting Rig only fits a prospecting captain on a Prospector
+    // hull (both checked by the later fitting task).
+    equipRequirement: { captainSpec: "prospector", hullSpec: "prospector" },
+  },
+};
+
 export interface CaptainMissionState {
   missionKey: MissionKey;
   phase: MissionPhase;

@@ -22,6 +22,7 @@ import {
   BASE_XP_PER_TICK,
   FUEL_CREDITS_PER_UNIT,
   rarityIndex,
+  EQUIPMENT_SLOTS,
 } from "./model";
 import type {
   CaptainTalentKey,
@@ -1146,5 +1147,74 @@ describe("EquipmentInstance shape + rarityIndex ordering (0.11.0 Task 1)", () =>
     }
     // Explicit parallel-tier assertion (the contract the budget math relies on).
     expect(rarityIndex("luminous")).toBe(rarityIndex("constellar"));
+  });
+});
+
+// Equipment 0.11.0 Task 2: the 4 LIVE equipment-slot definitions. This is a
+// STANDING-RULE guard over the EQUIPMENT_SLOTS table: it pins the structural
+// invariants every slot must hold (exactly 3 varieties, signature + affix stats
+// present) and, critically, fences the stat vocabulary to the 10 keys live THIS
+// patch via an explicit allow-set, so a future task that folds a new stat key
+// into an affixPool or implicit line WITHOUT also registering it here trips this
+// suite instead of silently shipping an un-consumed stat. The reserved slots
+// from Task 1 are deliberately NOT in the table this patch, so the table is
+// asserted to hold exactly the four live slots.
+describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
+  // The complete stat vocabulary live THIS patch: the 5 live-mapped ship-derived
+  // stats plus the 5 new equipment-only keys. The affixPool and implicitStats of
+  // every slot must draw ONLY from this set (a later task formalizes it into a
+  // real registry; until then this frozen list is the contract).
+  const ALLOWED_STAT_KEYS = new Set<string>([
+    // live-mapped (align with existing ship-derived fields):
+    "cargoCapacity",
+    "transitSpeedMult",
+    "engineEfficiency",
+    "fuelCapacity",
+    "extractionYieldMult",
+    // new equipment-only keys:
+    "powerOutput",
+    "massReduction",
+    "powerDrawReduction",
+    "sensors",
+    "materialQualityChance",
+  ]);
+
+  it("holds exactly the four LIVE slots (reserved slots stay out this patch)", () => {
+    expect(Object.keys(EQUIPMENT_SLOTS).sort()).toEqual(
+      ["cargoBay", "ftlDrive", "reactorCore", "specUtility"].sort(),
+    );
+  });
+
+  it("every slot has exactly 3 varieties, non-empty implicit + affix stats, all in the allow-set", () => {
+    for (const [key, slot] of Object.entries(EQUIPMENT_SLOTS)) {
+      // The table key and the slotType field must agree (no copy-paste drift).
+      expect(slot.slotType).toBe(key);
+      // Exactly three varieties per slot (the design's fixed per-slot count).
+      expect(slot.varieties).toHaveLength(3);
+      // Both stat lists must be present (a slot with no signature or no roll pool
+      // is a data error, not a valid launch state).
+      expect(slot.implicitStats.length).toBeGreaterThan(0);
+      expect(slot.affixPool.length).toBeGreaterThan(0);
+      // Fence the vocabulary: every implicit stat key is live-this-patch.
+      for (const stat of slot.implicitStats) {
+        expect(ALLOWED_STAT_KEYS.has(stat)).toBe(true);
+      }
+      // Fence the vocabulary: every affix stat key is live-this-patch, and each
+      // affix carries a positive bias weight (0/negative weights are meaningless
+      // for the later weighted roll).
+      for (const affix of slot.affixPool) {
+        expect(ALLOWED_STAT_KEYS.has(affix.stat)).toBe(true);
+        expect(affix.weight).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("specUtility gates to a prospecting captain flying a prospector hull", () => {
+    // The Spec Utility Slot's one shipping family (the Prospecting Rig) is gated:
+    // both captainSpec and hullSpec must be "prospector" this patch.
+    const req = EQUIPMENT_SLOTS.specUtility.equipRequirement;
+    expect(req).toBeDefined();
+    expect(req?.captainSpec).toBe("prospector");
+    expect(req?.hullSpec).toBe("prospector");
   });
 });
