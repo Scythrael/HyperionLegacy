@@ -225,6 +225,44 @@ describe("rollDistinctAffixStats", () => {
     expect(rollDistinctAffixStats(cargoPool, neutralVariety(), 0, mulberry32(1))).toEqual([]);
   });
 
+  it("consumes exactly one rng draw per pick (draw-count contract)", () => {
+    // generateEquipment calls affixCount() and this picker on the SAME rng stream,
+    // so the picker MUST advance the stream by exactly one draw per pick (no hidden
+    // or skipped draws) or downstream reproducibility reasoning breaks.
+    let calls = 0;
+    const counting = () => {
+      calls++;
+      return 0.5;
+    };
+    // count 3 on the 4-stat cargo pool: 3 distinct picks => exactly 3 draws.
+    rollDistinctAffixStats(cargoPool, neutralVariety(), 3, counting);
+    expect(calls).toBe(3);
+  });
+
+  it("consumes zero rng draws for a zero count", () => {
+    let calls = 0;
+    const counting = () => {
+      calls++;
+      return 0.5;
+    };
+    rollDistinctAffixStats(cargoPool, neutralVariety(), 0, counting);
+    expect(calls).toBe(0);
+  });
+
+  it("returns [] and consumes zero rng draws for an empty pool", () => {
+    // Empty pool: the internal drawCount clamps to the pool size (0), so no picks
+    // and no draws even when a positive count is requested. A future slot that ships
+    // with no affixes must not advance the shared stream here.
+    let calls = 0;
+    const counting = () => {
+      calls++;
+      return 0.5;
+    };
+    const picks = rollDistinctAffixStats([], neutralVariety(), 1, counting);
+    expect(picks).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
   it("respects the affix weights over many single-pick draws (neutral variety)", () => {
     // cargoBay pool weights: cargoCapacity 5, massReduction 2, engineEfficiency 2,
     // extractionYieldMult 1 (total 10). With a neutral variety the pick frequency
@@ -417,6 +455,42 @@ describe("generateEquipment", () => {
         found = true;
         expect(item.rolledStats.massReduction).toBeUndefined();
         expect(item.mass).toBe(Math.max(0, baseMass - affixEach));
+      }
+    }
+    expect(found).toBe(true);
+  });
+
+  it("folds a rolled powerDrawReduction into powerDraw and removes it as a stat line", () => {
+    // reactorCore is the live slot whose affix pool carries powerDrawReduction.
+    // Radiant picks 3 of its 4 affixes, so powerDrawReduction is included on most
+    // seeds. Same scan-and-assert shape as the massReduction fold above: the affix
+    // is consumed into powerDraw and no powerDrawReduction stat line survives.
+    const iLevel = 40;
+    const quality = 0;
+    const rarity = "radiant" as const;
+    const budget = computeBudget(iLevel, quality, rarityIndex(rarity));
+    const { affixShare } = budgetShares(budget);
+    const affixEach = Math.round(affixShare / 3); // radiant => 3 affix lines, equal split
+    const basePowerDraw = SLOT_BASE_PHYSICALS.reactorCore.powerDraw;
+
+    let found = false;
+    for (let seed = 1; seed <= 200 && !found; seed++) {
+      const item = generateEquipment({
+        slotType: "reactorCore",
+        varietyKey: "balancedCore",
+        blueprintKey: null,
+        iLevel,
+        quality,
+        rarity,
+        ascension: "none",
+        rng: mulberry32(seed),
+        allocateId: idAllocator(),
+      });
+      // A seed that reduced powerDraw below base is one where powerDrawReduction rolled.
+      if (item.powerDraw < basePowerDraw) {
+        found = true;
+        expect(item.rolledStats.powerDrawReduction).toBeUndefined();
+        expect(item.powerDraw).toBe(Math.max(0, basePowerDraw - affixEach));
       }
     }
     expect(found).toBe(true);
