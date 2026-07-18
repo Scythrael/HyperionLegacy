@@ -55,6 +55,13 @@
     // transitSpeedMult/extractionYieldMult) for the Docks ship rows.
     SHIP_TYPES,
     shipDerivedStats,
+    // Equipment 0.11.0 DEV readout (Debug tab only): the live slot table drives
+    // the [DEV] grant selector's slot/variety options, and the three instance
+    // types annotate the dev handlers + template. NOT a shipped-UI dependency,
+    // it feeds only the DEV_MODE-gated Equipment debug panel added this task.
+    EQUIPMENT_SLOTS,
+    type EquipmentInstance,
+    type EquipmentSlotType,
     // Facility Framework + Refinery (Phase 1, Task 12 UI), the static data
     // tables the Facilities tab reads. FACILITIES drives the Refinery's upgrade
     // track (next-rung materials/prereqs); REFINE_RECIPES drives the Production
@@ -132,6 +139,22 @@
     // Research Lab level N" message) and the per-blueprint markup loop var.
     type BlueprintDef,
   } from "./lib/game/model";
+  // Equipment 0.11.0 DEV readout (Debug tab only). The fitment helpers
+  // (equippedFor / canFitEquipment / fitEquipment / unfitEquipment /
+  // fittedInSlot) and the pure generator (generateEquipment) are the SAME
+  // functions the real fitting UI will call later; the dev panel wires them
+  // so the equipment system can be device-tested now. See the devEquip*
+  // handlers in the script block and the Equipment debug Panel in the System
+  // tab. EquipFitBlockReason types the reason token surfaced on a blocked fit.
+  import {
+    equippedFor,
+    fittedInSlot,
+    canFitEquipment,
+    fitEquipment,
+    unfitEquipment,
+    type EquipFitBlockReason,
+  } from "./lib/game/equipment";
+  import { generateEquipment } from "./lib/game/itemgen";
   import {
     tick,
     // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
@@ -1382,6 +1405,146 @@
     const discovered = [...new Set([...state.discovered, ...Object.keys(grants)])];
     state = { ...state, inventory, discovered };
     pushLog(`[DEV] Granted testing materials (raw ores + refined) for the craft chain.`);
+  }
+
+  // --- [DEV] Equipment 0.11.0 test controls (Equipment debug panel) ---------
+  // A minimal, DEV_MODE-gated harness so the new ship-equipment system can be
+  // exercised on a real device BEFORE the mockup-gated fitting UI is built. It
+  // does NOT touch game logic: it only calls the real, already-tested helpers
+  // (generateEquipment / canFitEquipment / fitEquipment / unfitEquipment) and
+  // shows the real derived-stat projection. Three parts: a GRANT selector (mint
+  // a spare piece into the pool), per-ship FIT / UNFIT controls, and a per-ship
+  // BASE-vs-FITTED stats readout. All handlers mutate `state` immutably and then
+  // doSave(), matching the do* handler idiom (the older devGrant* handlers lean
+  // on the 30s autosave; we save eagerly so a device reload never loses a grant
+  // or fit mid-test).
+
+  // GRANT selector state: which live slot + variety the next [DEV] grant mints.
+  // Seeded to the first live slot and its first variety so the selector is never
+  // in an invalid state on first render.
+  let devEqSlot: EquipmentSlotType = "cargoBay";
+  let devEqVariety: string = EQUIPMENT_SLOTS.cargoBay.varieties[0].key;
+
+  // Slot picker click: switch the selected slot AND reset the variety to that
+  // slot's first variety, so devEqVariety can never dangle on a variety key that
+  // does not belong to the newly-selected slot (which would make generateEquipment
+  // throw). Explicit reset here instead of a reactive guard, to keep the data flow
+  // one-directional and obvious (Alpha: readable over clever).
+  function devSelectEqSlot(slot: EquipmentSlotType) {
+    devEqSlot = slot;
+    devEqVariety = EQUIPMENT_SLOTS[slot].varieties[0].key;
+  }
+
+  // Mint one spare EquipmentInstance for the selected slot/variety and add it to
+  // the pool as a spare (fittedToShipId null, which generateEquipment already
+  // sets). Defaults to a HIGH-VISIBILITY roll (rarity radiant, quality 5, iLevel
+  // 400) so the base-vs-fitted stat delta is unmistakable on device. allocateId
+  // mints "equip-N" from the GameState counter; we bump nextEquipmentId by one in
+  // the same immutable transition, mirroring how nextShipId is spent on a build.
+  // blueprintKey null = the craft-less baseline path; rng is Math.random (a live
+  // roll, not a seeded test stream). Persists eagerly via doSave().
+  function devGrantEquipment(slot: EquipmentSlotType, varietyKey: string) {
+    const mintedId = "equip-" + state.nextEquipmentId;
+    const piece = generateEquipment({
+      slotType: slot,
+      varietyKey,
+      blueprintKey: null,
+      iLevel: 400,
+      quality: 5,
+      rarity: "radiant",
+      ascension: "none",
+      rng: Math.random,
+      allocateId: () => mintedId,
+    });
+    state = {
+      ...state,
+      equipment: [...state.equipment, piece],
+      nextEquipmentId: state.nextEquipmentId + 1,
+    };
+    doSave();
+    pushLog(`[DEV] Granted spare ${piece.id}: ${EQUIPMENT_SLOTS[slot].label} / ${varietyKey} (${piece.rarity} q${piece.quality}).`);
+  }
+
+  // Human-readable text for a blocked-fit reason token, so the dev panel can SHOW
+  // why a fit is disabled instead of throwing or printing a bare enum. Total over
+  // EquipFitBlockReason (a switch, no default) so a new reason token surfaces as a
+  // compile error here rather than a silent "" (Omega 8 / 14).
+  function devFitReasonText(reason: EquipFitBlockReason): string {
+    switch (reason) {
+      case "noInstance":
+        return "piece no longer exists";
+      case "noShip":
+        return "ship no longer exists";
+      case "onMission":
+        return "captain is on a mission (fitment locked)";
+      case "hullSpec":
+        return "wrong hull type for this piece";
+      case "captainSpec":
+        return "captain spec does not match this piece";
+      case "captainSpecParked":
+        return "assign a matching captain first (hull is parked)";
+    }
+  }
+
+  // Compact one-line descriptor for a piece in the pool / a slot. The instance
+  // does NOT persist its variety key, so we surface what it DOES carry (id, rarity,
+  // quality, mass, power draw) plus the slot's signature implicit stat magnitude,
+  // enough to tell two spares apart in the dev list.
+  function devPieceDesc(p: EquipmentInstance): string {
+    const implicitKeys = Object.keys(p.implicitStats);
+    const sig = implicitKeys.length > 0 ? ` ${implicitKeys[0]}+${p.implicitStats[implicitKeys[0]].toFixed(1)}` : "";
+    return `${p.id} ${p.rarity} q${p.quality}${sig} (mass ${p.mass.toFixed(0)}, draw ${p.powerDraw.toFixed(0)})`;
+  }
+
+  // Safe hull label for a ship id (falls back to the raw id if the ship or its
+  // type def cannot be resolved), used only in the dev log messages below.
+  function devShipLabel(shipId: string): string {
+    const ship = state.ships.find((s) => s.id === shipId);
+    return ship ? (SHIP_TYPES[ship.typeKey]?.label ?? shipId) : shipId;
+  }
+
+  // FIT a spare piece to a ship. Checks canFitEquipment FIRST (fitEquipment THROWS
+  // on a blocked fit) and surfaces the reason to the log instead of throwing, then
+  // fits + persists. Mirrors the do* idiom: reassign state, doSave, pushLog.
+  function devFitEquipment(shipId: string, instanceId: string) {
+    const gate = canFitEquipment(state, shipId, instanceId);
+    if (!gate.ok) {
+      pushLog(`[DEV] Cannot fit ${instanceId}: ${devFitReasonText(gate.reason)}.`);
+      return;
+    }
+    state = fitEquipment(state, shipId, instanceId);
+    doSave();
+    pushLog(`[DEV] Fitted ${instanceId} to ${devShipLabel(shipId)}.`);
+  }
+
+  // UNFIT a ship's slot back to the pool. unfitEquipment THROWS on the on-mission
+  // lock and returns the SAME state reference when the slot is already empty, so we
+  // wrap in try/catch (surface the lock reason) and treat an unchanged reference as
+  // a no-op we simply report. Persists only on a real change.
+  function devUnfitEquipment(shipId: string, slotType: EquipmentSlotType) {
+    try {
+      const next = unfitEquipment(state, shipId, slotType);
+      if (next === state) {
+        pushLog(`[DEV] ${slotType} slot already empty on this ship.`);
+        return;
+      }
+      state = next;
+      doSave();
+      pushLog(`[DEV] Unfitted ${slotType} on ${devShipLabel(shipId)}.`);
+    } catch (e) {
+      pushLog(`[DEV] Cannot unfit ${slotType}: ${(e as Error).message}`);
+    }
+  }
+
+  // Readout formatting helpers (dev-only). shipDerivedStats returns PLAIN numbers
+  // (not Decimals), so we format locally rather than via formatNumber. devEqPct
+  // renders a multiplier / 0-based bonus as a percentage; devEqFlat renders a raw
+  // capacity / mass / power figure.
+  function devEqFlat(v: number): string {
+    return v.toFixed(1);
+  }
+  function devEqPct(v: number): string {
+    return (v * 100).toFixed(1) + "%";
   }
 
   // (doCraftRecipe, the legacy instant Homeworld craft-button handler, was
@@ -5210,6 +5373,131 @@
             <button class="dev-btn danger" on:click={resetSave}>Reset save</button>
           </div>
         </Panel>
+
+        <!-- [DEV] Equipment 0.11.0 test harness (device-check checkpoint). NOT the
+             shipped, mockup-gated fitting UI (that lands later with the user's
+             sketches). Functional over pretty: it wires the REAL equipment helpers
+             (generateEquipment / canFitEquipment / fitEquipment / unfitEquipment /
+             equippedFor / fittedInSlot) and the REAL derived-stat projection so the
+             equipment system can be exercised on-device. Sits inside the SAME
+             {#if DEV_MODE && activeSystemSubTab === "debug"} block as the DEBUG PANEL
+             above, so it is gated identically and flows inside the existing tab
+             scroll area (no new height / overflow container, per the scroll-
+             containment invariant). See the devEquip* / devGrantEquipment /
+             devFit* handlers in the script block. -->
+        <Panel class="dev-panel">
+          <div class="panel-title dev-title">EQUIPMENT (dev-only)</div>
+
+          <!-- GRANT: pick a live slot + one of its varieties, then mint a spare.
+               The roll is fixed at a high-visibility radiant / q5 / iLevel-400 so
+               the base-vs-fitted delta below is obvious. -->
+          <div class="dev-row">
+            <span class="dev-label">Grant slot</span>
+            {#each Object.keys(EQUIPMENT_SLOTS) as slotKey}
+              <button
+                class="dev-btn"
+                class:active={devEqSlot === slotKey}
+                on:click={() => devSelectEqSlot(slotKey as EquipmentSlotType)}
+              >{EQUIPMENT_SLOTS[slotKey].label}</button>
+            {/each}
+          </div>
+          <div class="dev-row">
+            <span class="dev-label">Variety</span>
+            <select class="dev-btn" bind:value={devEqVariety}>
+              {#each EQUIPMENT_SLOTS[devEqSlot].varieties as v}
+                <option value={v.key}>{v.label}</option>
+              {/each}
+            </select>
+            <button class="dev-btn" on:click={() => devGrantEquipment(devEqSlot, devEqVariety)}>
+              + Grant radiant q5 spare
+            </button>
+          </div>
+
+          <!-- Spare pool: every unfitted piece, grouped implicitly by the FIT rows
+               below (each ship-slot lists its own matching spares). Here we just
+               show the count + a flat list so the user can see what has been minted. -->
+          {@const sparePool = state.equipment.filter((e) => e.fittedToShipId === null)}
+          <div class="dev-row">
+            <span class="dev-label">Spares</span>
+            <span class="dev-readout-text">{sparePool.length} in pool</span>
+          </div>
+          {#each sparePool as spare (spare.id)}
+            <div class="dev-row">
+              <span class="dev-label"></span>
+              <span class="dev-readout-text">{devPieceDesc(spare)}</span>
+            </div>
+          {/each}
+
+          <!-- FIT / UNFIT + STATS, one block per ship in the fleet. -->
+          {#if state.ships.length === 0}
+            <div class="dev-row"><span class="dev-readout-text">No ships in the fleet yet.</span></div>
+          {/if}
+          {#each state.ships as ship (ship.id)}
+            {@const shipDef = SHIP_TYPES[ship.typeKey]}
+            {@const assignedCaptain = ship.assignedCaptainId !== null ? state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null : null}
+            {@const onMission = assignedCaptain !== null && assignedCaptain.mission !== null}
+            {@const baseStats = shipDerivedStats(ship, [])}
+            {@const fitStats = shipDerivedStats(ship, equippedFor(state, ship.id))}
+            {@const statRows = [
+              { label: "cargoCapacity", base: devEqFlat(baseStats.cargoCapacity), fit: devEqFlat(fitStats.cargoCapacity) },
+              { label: "transitSpeed", base: devEqPct(baseStats.transitSpeedMult), fit: devEqPct(fitStats.transitSpeedMult) },
+              { label: "engineEff", base: devEqPct(baseStats.engineEfficiency), fit: devEqPct(fitStats.engineEfficiency) },
+              { label: "fuelCapacity", base: devEqFlat(baseStats.fuelCapacity), fit: devEqFlat(fitStats.fuelCapacity) },
+              { label: "extractYield", base: devEqPct(baseStats.extractionYieldMult), fit: devEqPct(fitStats.extractionYieldMult) },
+              { label: "powerOutput", base: devEqFlat(baseStats.powerOutput), fit: devEqFlat(fitStats.powerOutput) },
+              { label: "powerDraw", base: devEqFlat(baseStats.powerDraw), fit: devEqFlat(fitStats.powerDraw) },
+              { label: "mass", base: devEqFlat(baseStats.mass), fit: devEqFlat(fitStats.mass) },
+            ]}
+            <div class="dev-ship-block">
+              <div class="dev-row">
+                <span class="dev-label">Ship</span>
+                <span class="dev-readout-text">
+                  {shipDef?.label ?? ship.typeKey} ({ship.id}) ·
+                  {assignedCaptain ? assignedCaptain.label : "parked"}
+                  {#if onMission}· ON MISSION (fitment locked){/if}
+                </span>
+              </div>
+
+              <!-- Per live slot: what is fitted (with Unfit), plus each matching
+                   spare as a Fit button (disabled + reasoned when canFit blocks). -->
+              {#each Object.keys(EQUIPMENT_SLOTS) as slotKey}
+                {@const slot = slotKey as EquipmentSlotType}
+                {@const fitted = fittedInSlot(state, ship.id, slot)}
+                {@const matchingSpares = state.equipment.filter((e) => e.fittedToShipId === null && e.slotType === slot)}
+                <div class="dev-row">
+                  <span class="dev-label">{EQUIPMENT_SLOTS[slot].label}</span>
+                  {#if fitted}
+                    <span class="dev-readout-text">{devPieceDesc(fitted)}</span>
+                    <button class="dev-btn danger" on:click={() => devUnfitEquipment(ship.id, slot)}>Unfit</button>
+                  {:else}
+                    <span class="dev-readout-text">(empty)</span>
+                  {/if}
+                  {#each matchingSpares as spare (spare.id)}
+                    {@const gate = canFitEquipment(state, ship.id, spare.id)}
+                    <button
+                      class="dev-btn"
+                      disabled={!gate.ok}
+                      title={gate.ok ? `Fit ${spare.id}` : devFitReasonText(gate.reason)}
+                      on:click={() => devFitEquipment(ship.id, spare.id)}
+                    >Fit {spare.id}{gate.ok ? "" : " (blocked)"}</button>
+                  {/each}
+                </div>
+              {/each}
+
+              <!-- STATS: BASE (bare hull) vs FITTED (equippedFor pieces folded in).
+                   Multipliers / 0-based bonuses shown as percents; capacities, mass,
+                   and power shown flat. (statRows is computed above, as a direct
+                   child of the {#each ship} block, since {@const} may not sit inside
+                   a plain <div>.) -->
+              {#each statRows as row}
+                <div class="dev-row">
+                  <span class="dev-label">{row.label}</span>
+                  <span class="dev-readout-text">{row.base} &rarr; {row.fit}</span>
+                </div>
+              {/each}
+            </div>
+          {/each}
+        </Panel>
       {/if}
 
       {#if activeSystemSubTab === "log"}
@@ -6276,6 +6564,11 @@
   .dev-btn.active { background: rgba(251, 191, 36, 0.3); color: #fff; }
   .dev-btn.danger { color: var(--color-danger); }
   .dev-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* [DEV] Equipment panel only (dev-gated). Monospace readout text so the
+     base -> fitted stat columns line up, and a subtle divider between per-ship
+     blocks. New classes, no existing panel restyled. */
+  .dev-readout-text { font-size: 11px; color: var(--color-text-secondary); font-family: monospace; }
+  .dev-ship-block { border-top: 1px solid rgba(251, 191, 36, 0.2); padding-top: 8px; margin-top: 8px; }
   .log-list { display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; }
   .log-empty { font-size: 12px; color: var(--color-text-dim); }
   .log-entry { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
