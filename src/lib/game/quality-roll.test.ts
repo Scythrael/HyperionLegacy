@@ -271,19 +271,26 @@ describe("⚠️ offline==live quality-bucket parity (tick(span) == looping econ
     expect(itemTotal(jumped.inventory, "commonOre").toString()).toBe("0"); // 400 consumed (4 x 100)
   });
 
-  it("parity holds under a SEEDED (non-constant) rng too: buckets deep-equal, totals exact", () => {
-    // A second parity pass driven by mulberry32 (a realistic non-constant stream) rather than
-    // a hand-scripted one, so the parity is not an artifact of the scripted draw pattern. At
-    // ~0.1% odds these 4 completions will almost certainly all be tier 0, so this pass proves
-    // parity (deep-equal) + totals, not a multi-bucket spread (the scripted test above owns
-    // the multi-bucket non-vacuity).
+  it("parity holds under a SEEDED (non-constant) rng with a genuine multi-bucket spread", () => {
+    // A second parity pass driven by mulberry32 (a realistic non-scripted stream) rather than
+    // a hand-crafted draw list, so the parity is not an artifact of the scripted pattern. The
+    // point is a NON-degenerate spread: at ~0.1% odds most seeds land all 4 completions on
+    // tier 0 (which would trivially compare ["4"] == ["4"] and exercise no bucket split), so
+    // seed 75 is chosen deliberately, its stream lands the 4 completions on tiers [0,0,0,1],
+    // spreading the output across TWO buckets (three units at tier 0, one at tier 1). Both
+    // paths draw the identical stream, so the two-bucket split must be byte-identical.
     const SPAN = 50;
-    const jumped = tick(SPAN, refineOnlyState(4), mulberry32(777));
+    const SEED = 75; // stream yields completion tiers [0,0,0,1] -> buckets [3, 1]
+    const jumped = tick(SPAN, refineOnlyState(4), mulberry32(SEED));
     let stepped = refineOnlyState(4);
-    const liveRng = mulberry32(777);
+    const liveRng = mulberry32(SEED);
     for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
 
+    // Parity: the multi-bucket split is identical across the two chunkings.
     expect(bucketStrings(jumped, "refinedMaterial")).toEqual(bucketStrings(stepped, "refinedMaterial"));
+    // NON-DEGENERATE: a genuine two-bucket spread, not the all-tier-0 single-bucket case.
+    expect(bucketStrings(jumped, "refinedMaterial")).toEqual(["3", "1"]);
+    // Totals still exact and quality-agnostic.
     expect(itemTotal(jumped.inventory, "refinedMaterial").toString()).toBe("4");
     expect(itemTotal(stepped.inventory, "refinedMaterial").toString()).toBe("4");
   });

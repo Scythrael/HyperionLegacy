@@ -1599,6 +1599,14 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     // ⚠️ parity test in quality-roll.test.ts). A coarse first pass: a whole cycle's cargo
     // shares ONE tier (rolled at delivery), NOT per-unit; per-unit grading is a later retune.
     const amount = homePlanetDelta[key];
+    // ⚠️ PARITY-CRITICAL, do NOT "optimize" this draw away: the roll is gated on the
+    // PRE-clamp `amount`, whereas the deposit inside addToInventory re-gates on the
+    // POST-clamp `delta`. So a delivery landing entirely on an ALREADY-CAPPED item still
+    // CONSUMES a quality roll here yet deposits nothing. That "wasted" draw is intentional
+    // and required: both offline tick() and live App.svelte step economyTick(_,1) per whole
+    // tick, so the draw is consumed at the identical point on both paths, keeping the seeded
+    // stream aligned. Re-gating this draw on the post-clamp delta would skip it only on the
+    // capped path and silently desync offline loot rng from live.
     const quality = amount.gt(0) ? rollQuality(rng) : 0;
     // Warehouse cap clamp: the deposit is bounded at this item's cap (itemCap), so a
     // cycle completing while just-under-cap lands AT the cap instead of overshooting.
