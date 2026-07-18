@@ -32,6 +32,7 @@ import {
   type GameState,
   type ShipTypeKey,
   type ShipInstance,
+  type EquipmentInstance,
   type CaptainState,
   type CaptainMissionState,
   type LootMaterialKey,
@@ -92,6 +93,18 @@ import { itemTotal, addItemQuality, removeItemLowestFirst } from "./inventory";
 // phase added to MissionPhase without a matching entry here would silently
 // wrap `.indexOf()` to -1 instead of erroring.
 const MISSION_PHASE_ORDER: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
+
+// Equipment 0.11.0 (Task 13/14): the pieces fitted to a ship, tolerant of a state
+// whose equipment pool has not been seeded yet. equippedFor assumes state.equipment
+// exists (freshState + the Task 20 migration guarantee it), but a save loaded on this
+// in-progress branch BEFORE that migration lands has no pool, so "no pool" reads as
+// "no fitted pieces" (an empty fold == the bare hull). The fold's three consumers
+// (economyTick / canDispatch / dispatchCaptainOnMission) all route through here so the
+// guard lives in ONE place. INTERIM: once Task 20 makes state.equipment always-present,
+// delete this helper and call equippedFor(state, shipId) directly at the three sites.
+function fittedPieces(state: GameState, shipId: string): EquipmentInstance[] {
+  return state.equipment ? equippedFor(state, shipId) : [];
+}
 
 function emptyLootTotals(): Record<LootMaterialKey, Decimal> {
   return { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
@@ -1472,12 +1485,9 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     // mission by the equipment.ts on-mission lock) and the one-big == many-small
     // guarantee is preserved for the same reason effectiveMissionDef's constancy is. A
     // ship-less captain keeps the pre-equipment null == "no modifier" fallback exactly.
-    // `state.equipment` presence guard: the equipment pool is seeded by freshState +
-    // the Task 20 migration; a save loaded on this in-progress branch BEFORE that
-    // migration lands has no pool yet, so treat "no pool" as "no fitted pieces" (an
-    // empty fold == the bare hull). Once Task 20 guarantees state.equipment always
-    // exists this guard is redundant but harmless.
-    const pieces = ship && state.equipment ? equippedFor(state, ship.id) : [];
+    // fittedPieces tolerates a pre-Task-20 state with no equipment pool (see its
+    // definition); a ship-less captain keeps the pre-equipment "no modifier" fallback.
+    const pieces = ship ? fittedPieces(state, ship.id) : [];
     const shipStats = ship ? shipDerivedStats(ship, pieces) : null;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
     // THIS hull. fuelNeeded reads the BASE mission's transit legs (see fuel.ts) and the
@@ -1929,9 +1939,7 @@ export function canDispatch(
   // the dispatch gate prices fuel and range on the very numbers the mission loop will
   // burn against. With no gear fitted the fold is an identity, so pre-equipment dispatch
   // behavior is byte-identical.
-  // `state.equipment` presence guard (see the note at the economyTick fold): a
-  // pre-Task-20-migration state has no pool yet -> no fitted pieces -> bare-hull fold.
-  const stats = shipDerivedStats(ship, state.equipment ? equippedFor(state, ship.id) : []);
+  const stats = shipDerivedStats(ship, fittedPieces(state, ship.id));
 
   // --- Hull-capability gate (Task 7): the ship's cargoCapacity must meet
   // requiresCargoCapacity. Task 13: read the EQUIPMENT-FOLDED cargoCapacity so a fitted
@@ -1994,7 +2002,7 @@ export function dispatchCaptainOnMission(
   // engineEfficiency canDispatch and economyTick use, so the dispatch estimate, the
   // actual spend here, and every subsequent loop cycle all burn the identical figure.
   // No gear fitted -> fold is an identity -> byte-identical to the pre-equipment spend.
-  const dispatchStats = shipDerivedStats(ship, state.equipment ? equippedFor(state, ship.id) : []);
+  const dispatchStats = shipDerivedStats(ship, fittedPieces(state, ship.id));
   const need = fuelNeeded(MISSIONS[missionKey], {
     ...SHIP_TYPES[ship.typeKey],
     engineEfficiency: dispatchStats.engineEfficiency,

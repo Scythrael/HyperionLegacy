@@ -46,8 +46,16 @@ export function roundTripTransitTicks(mission: MissionDef): number {
 //
 //   fuelNeeded = roundTripTransitTicks(mission) * FUEL_PER_TICK / (1 + engineEfficiency)
 //
-// engineEfficiency is a 0-based bonus (0 = baseline 1:1), so the denominator is >= 1
-// and a MORE efficient hull always needs STRICTLY LESS fuel for the same mission.
+// engineEfficiency is a 0-based bonus (0 = baseline 1:1). For a BARE hull it is >= 0,
+// so the denominator is >= 1 and a more efficient hull needs less fuel. That invariant
+// is NO LONGER universal as of Equipment 0.11.0 (Task 13): the equipment stat fold can
+// drive engineEfficiency BELOW 0 via the mass penalty (a heavy loadout), so 1 + eff can
+// be < 1 and a heavily fitted ship can need MORE fuel than the bare hull. fuelNeeded has
+// NO internal guard against this; it relies on the fold clamping engineEfficiency UPSTREAM
+// at ENGINE_EFF_FLOOR (= -0.9, model.ts's shipDerivedStats), which keeps the denominator
+// 1 + eff >= 0.1 (fuel at most 10x baseline, never zero/negative). Callers that overlay a
+// folded engineEfficiency onto a ShipTypeDef (economyTick / canDispatch, tick.ts) pass the
+// already-clamped value, so this function stays safe without duplicating the clamp.
 // Returns a plain number (see the file header on why fuel isn't Decimal-scale); the
 // result can be fractional and callers decide any rounding/clamping when they spend
 // from the Decimal stockpile (Task 5).
