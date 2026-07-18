@@ -1186,6 +1186,7 @@ export function applyCraftingXp(state: GameState, craftingXpDelta: number): Game
   // becomes a harmless no-op (a real Decimal passes through instanceof untouched). A fresh
   // in-memory state (freshState) already holds a real Decimal(0) / level 1, so this never
   // fires on the common live path.
+  // Task 20: DELETE this interim guard once hydrateDecimals revives craftingXp and the migration backfills it, then read state.craftingXp/craftingLevel directly (like applyFleetAdminXp) so a genuinely missing field throws loudly instead of silently defaulting.
   const currentXp = state.craftingXp instanceof Decimal ? state.craftingXp : new Decimal(state.craftingXp ?? 0);
   const currentLevel = state.craftingLevel ?? 1;
 

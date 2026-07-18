@@ -2659,6 +2659,63 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
     expect(folded.craftingXp.equals(CRAFTING_XP_PER_DURATION_TICK * durationTicks)).toBe(true);
     expect(folded.craftingLevel).toBe(1); // small job, no level-up
   });
+
+  // Empty-process early-out (Task 8): resolveProcesses' cheap same-reference no-op must
+  // report ZERO crafting XP and leave the crafting fields exactly as they were, the
+  // overwhelmingly common per-tick case (no job completing). Complements the FA-XP
+  // early-out already covered in process.test.ts, now for the crafting delta too.
+  it("resolveProcesses with NO active processes returns craftingXpDelta 0 and leaves craftingLevel/craftingXp untouched", () => {
+    const state = freshState(); // activeProcesses seeded empty
+    expect(state.activeProcesses.length).toBe(0); // precondition: this exercises the length===0 early-out
+    const { next, craftingXpDelta } = resolveProcesses(state, 100);
+    expect(craftingXpDelta).toBe(0);
+    expect(next).toBe(state); // same-reference no-op, nothing rebuilt
+    expect(next.craftingLevel).toBe(1);
+    expect(next.craftingXp.equals(0)).toBe(true);
+  });
+
+  // STEPPED-FOLD PARITY (Task 8, the offline==live cement at the FOLD level, not just the
+  // resolveProcesses delta): drive crafting XP through economyTick across enough completions
+  // to cross MULTIPLE crafting levels, and prove ONE big-span economyTick lands the SAME
+  // final craftingLevel AND craftingXp remainder as the equivalent many-single-tick stepping.
+  // This is what guarantees applyCraftingXp's multi-level subtract-and-carry is associative
+  // across chunking (a big offline catch-up vs live per-tick play), the same property the
+  // "economyTick == tick over a full cycle" FA-XP parity test proves for Fleet Admiral XP.
+  //
+  // Fixture: a fresh state (idle captains, no lines, no fuel pipeline, so the ONLY economy
+  // activity is resolveProcesses -> applyCraftingXp) seeded with three producing jobs that
+  // complete at ticks 300 / 400 / 700. With CRAFTING_XP_PER_DURATION_TICK = 2 and the
+  // craftingXpForNext quadratic, the cumulative award (2 * (300+400+700) = 2800) crosses two
+  // thresholds (f(1)=500, f(2)=2000 -> 2500 consumed), landing at craftingLevel 3 with a
+  // remainder of 300. The stepped path crosses those thresholds at DIFFERENT ticks than the
+  // one big fold, which is exactly the associativity under test. Derived from the curve so a
+  // retune of craftingXpForNext can't silently stop the scenario from crossing 2+ levels.
+  it("stepped-fold parity: one big-span economyTick lands the SAME final craftingLevel + craftingXp remainder as many single-tick steps (crosses 2+ levels)", () => {
+    const seededState = () => withProcesses([
+      { id: "proc-1", kind: "refineJob", remainingTicks: 300, durationTicks: 300, effect: addItem("refinedMaterial", 5) },
+      { id: "proc-2", kind: "shipBuild", remainingTicks: 400, durationTicks: 400, effect: addShip() },
+      { id: "proc-3", kind: "fabricateJob", remainingTicks: 700, durationTicks: 700, effect: addItem("alloy", 2) },
+    ]);
+    const span = 700; // completes all three producing jobs
+    const constRng = () => 0; // no missions active on a fresh state, so rng is never consumed; injected for determinism regardless
+
+    // One big-span resolution.
+    const jumped = economyTick(seededState(), span, constRng);
+
+    // Many single-tick steps summing to the same span.
+    let stepped = seededState();
+    for (let i = 0; i < span; i++) {
+      stepped = economyTick(stepped, 1, constRng);
+    }
+
+    // The paths agree on BOTH the level and the carried remainder (the whole point).
+    expect(jumped.craftingLevel).toBe(stepped.craftingLevel);
+    expect(jumped.craftingXp.equals(stepped.craftingXp)).toBe(true);
+    // Prove the scenario genuinely CROSSED at least two levels (else parity would be
+    // vacuous), and pin the exact curve-derived landing: 2800 XP - f(1) - f(2) = 300 at L3.
+    expect(jumped.craftingLevel).toBe(3);
+    expect(jumped.craftingXp.equals(300)).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
