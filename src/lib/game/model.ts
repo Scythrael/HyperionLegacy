@@ -85,6 +85,24 @@ export interface ShipTypeDef {
   engineEfficiency: number;
   moduleSlots: number;              // POPULATED but INERT this pass (no module system yet)
   equipmentSlots: number;           // forward bucket; counts finalized with equipment/reactor design
+  // --- Combat / defense base stats (Ship Systems UI, 0.11.0) ---------------------
+  // ⚠️ FIRST-PASS TUNABLE launch placeholders, and INERT this pass: combat behavior
+  // is deferred to 0.12.0. Carried NOW so the Ship Systems screen's Defensive section
+  // has real per-hull numbers to display from day one (base == fitted until defensive
+  // gear + a combat loop exist). Same POPULATED-but-INERT spirit as moduleSlots and
+  // the reserved EquipmentSlotType members: declared here so the table shape is stable
+  // when 0.12.0's combat system lands, rather than bolted on later. NOTHING reads these
+  // yet; the UI only prints them.
+  //   hullIntegrity   , the hull's structural HP pool.
+  //   shieldCapacity  , the deflector shield's absorb pool.
+  //   shieldRecharge  , shield points regenerated per combat tick.
+  //   weaponHardpoints, the number of weapon mounts this hull carries. Surfaced this
+  //                     pass ONLY as display-only empty slots in the Ship Systems
+  //                     weapons row (no weapon gear exists until 0.12.0).
+  hullIntegrity: number;
+  shieldCapacity: number;
+  shieldRecharge: number;
+  weaponHardpoints: number;
   cost: { credits: number } | null; // null = not purchasable
   // Shipyard (Phase 5, Task S1, design §6): the BILL OF MATERIALS + credits + build
   // TIME to CONSTRUCT this hull at the Shipyard. Acquisition now runs through timed
@@ -483,7 +501,10 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     label: "General Freighter", spec: "general", tier: 1,
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.0,
     fuelCapacity: 200, engineEfficiency: 0, // range hull: big tank, baseline burn
-    moduleSlots: 1, equipmentSlots: 0, cost: { credits: 25 },
+    moduleSlots: 1, equipmentSlots: 0,
+    // ⚠️ TUNABLE / INERT (0.12.0 combat): range hull, tough frame, modest shields, one hardpoint.
+    hullIntegrity: 500, shieldCapacity: 200, shieldRecharge: 5, weaponHardpoints: 2,
+    cost: { credits: 25 },
     // CHEAPEST hull to build (the starter/fallback): a small frame + coupling BOM, no
     // major assembly. ⚠️ FIRST-PASS TUNABLE (see ShipTypeDef.buildRecipe).
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 2 }, credits: 500, durationTicks: 300 },
@@ -493,7 +514,10 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     label: "Hauler", spec: "prospector", tier: 1,
     cargoCapacity: 180, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
     fuelCapacity: 160, engineEfficiency: 0.15, // between: mid tank, mild efficiency
-    moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
+    moduleSlots: 2, equipmentSlots: 0,
+    // ⚠️ TUNABLE / INERT (0.12.0 combat): biggest hull, most integrity + shields, slow regen.
+    hullIntegrity: 700, shieldCapacity: 250, shieldRecharge: 4, weaponHardpoints: 2,
+    cost: { credits: 150 },
     // MOST EXPENSIVE to build (double cargo): the biggest frame BOM + 2 major
     // assemblies + the longest build. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 8, powerCoupling: 5, structuralAssembly: 2 }, credits: 1400, durationTicks: 700 },
@@ -503,7 +527,10 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     label: "Runner", spec: "prospector", tier: 1,
     cargoCapacity: 60, transitSpeedMult: 1.5, extractionYieldMult: 1.0,
     fuelCapacity: 100, engineEfficiency: 0.5, // efficiency hull: small tank, least burn
-    moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
+    moduleSlots: 2, equipmentSlots: 0,
+    // ⚠️ TUNABLE / INERT (0.12.0 combat): fast + fragile, least integrity, quickest shield regen.
+    hullIntegrity: 300, shieldCapacity: 150, shieldRecharge: 8, weaponHardpoints: 1,
+    cost: { credits: 150 },
     // MID build (fast but small hold): a lighter frame BOM than the extraction hulls +
     // 1 major assembly. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 4, structuralAssembly: 1 }, credits: 900, durationTicks: 450 },
@@ -513,7 +540,10 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     label: "Prospector", spec: "prospector", tier: 1,
     cargoCapacity: 90, transitSpeedMult: 1.0, extractionYieldMult: 1.35,
     fuelCapacity: 140, engineEfficiency: 0.25, // between: mid tank, moderate efficiency
-    moduleSlots: 2, equipmentSlots: 0, cost: { credits: 150 },
+    moduleSlots: 2, equipmentSlots: 0,
+    // ⚠️ TUNABLE / INERT (0.12.0 combat): mid extraction rig, balanced defensive profile.
+    hullIntegrity: 450, shieldCapacity: 180, shieldRecharge: 6, weaponHardpoints: 1,
+    cost: { credits: 150 },
     // ABOVE-MID build (specialized extraction rig): a heavier BOM than the Runner +
     // 1 major assembly, below the Hauler. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 4, structuralAssembly: 1 }, credits: 1100, durationTicks: 550 },

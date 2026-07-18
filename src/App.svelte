@@ -4,6 +4,14 @@
   import Starfield from "./lib/Starfield.svelte";
   import Panel from "./lib/Panel.svelte";
   import SubTabs from "./lib/SubTabs.svelte";
+  // Ship Systems (0.11.0 equipment 0.11.0 fitting UI), the REAL, player-facing
+  // install/uninstall screen for one ship. A reusable modal-hosted panel opened
+  // from BOTH the Docks ship list and the Fleet Captain's Overview. It reads the
+  // equipment helpers + derived stats; its Install/Uninstall bubble back up to
+  // the installSystem/uninstallSystem handlers below (which own persistence), so
+  // the fit logic + doSave live in exactly one place. Distinct from the retained
+  // DEV_MODE equipment harness (System > Debug), which stays for testing.
+  import ShipSystemsPanel from "./lib/ShipSystemsPanel.svelte";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
@@ -1545,6 +1553,56 @@
   }
   function devEqPct(v: number): string {
     return (v * 100).toFixed(1) + "%";
+  }
+
+  // ── REAL Ship Systems screen (0.11.0 equipment fitting UI) ────────────────
+  // The player-facing install/uninstall panel (ShipSystemsPanel.svelte), opened
+  // as a modal over the current tab. Two entry points (the Docks ship list and
+  // the Fleet Captain's Overview) open the SAME panel for a target shipId; this
+  // one piece of state tracks which ship is open (null = closed). Unlike the
+  // DEV_MODE harness above, this is NOT dev-gated, it is the shipped screen.
+  let shipSystemsShipId: string | null = null;
+
+  function openShipSystems(shipId: string) {
+    shipSystemsShipId = shipId;
+  }
+  function closeShipSystems() {
+    shipSystemsShipId = null;
+  }
+
+  // INSTALL a spare system into a ship's slot. Same wiring idiom as the dev
+  // harness's devFitEquipment (and every other do* handler): check the gate
+  // FIRST (fitEquipment THROWS on a blocked fit), surface the reason to the log
+  // instead of throwing, then reassign state immutably + persist eagerly via
+  // doSave so a device reload never loses an install mid-session. The atomic
+  // swap (evicting any current occupant back to the pool) is handled inside
+  // fitEquipment. `installSystem`/`uninstallSystem` are the USER-FACING names;
+  // they wrap the unchanged fitEquipment/unfitEquipment code helpers.
+  function installSystem(shipId: string, instanceId: string) {
+    const gate = canFitEquipment(state, shipId, instanceId);
+    if (!gate.ok) {
+      pushLog(`Cannot install system: ${devFitReasonText(gate.reason)}.`);
+      return;
+    }
+    state = fitEquipment(state, shipId, instanceId);
+    doSave();
+    pushLog(`Installed system ${instanceId} on ${devShipLabel(shipId)}.`);
+  }
+
+  // UNINSTALL the system in a ship's slot back to storage. unfitEquipment THROWS
+  // on the on-mission lock and returns the SAME reference when the slot is
+  // already empty, so we mirror devUnfitEquipment: try/catch the lock, treat an
+  // unchanged reference as a no-op, and persist only on a real change.
+  function uninstallSystem(shipId: string, slotType: EquipmentSlotType) {
+    try {
+      const next = unfitEquipment(state, shipId, slotType);
+      if (next === state) return; // slot already empty, nothing to persist
+      state = next;
+      doSave();
+      pushLog(`Uninstalled ${slotType} system on ${devShipLabel(shipId)}.`);
+    } catch (e) {
+      pushLog(`Cannot uninstall system: ${(e as Error).message}`);
+    }
   }
 
   // (doCraftRecipe, the legacy instant Homeworld craft-button handler, was
@@ -3099,6 +3157,19 @@
                           Swap ▾
                         </button>
                       {/if}
+
+                      <!-- Ship Systems (0.11.0): opens the real install/uninstall
+                           screen for THIS hull. Always enabled, it works for a
+                           PARKED ship (no captain) too, since fitment only locks
+                           mid-mission (the on-mission gate is enforced inside the
+                           panel, not here). Same .ship-assign-btn look as the
+                           assign/swap control above so the row reads as one set. -->
+                      <button
+                        class="dev-btn ship-assign-btn"
+                        on:click={() => openShipSystems(ship.id)}
+                      >
+                        Ship Systems
+                      </button>
                     </div>
                   {/each}
                 </div>
@@ -4843,6 +4914,22 @@
                   Currently on: {MISSIONS[activeCaptain.mission.missionKey].label}
                 {/if}
               </div>
+              <!-- Ship Systems shortcut (0.11.0): opens the SAME install screen
+                   the Docks ship list opens, targeting THIS captain's assigned
+                   hull. assignedCaptainId is the single source of truth, so we
+                   resolve the ship by it; disabled with a reason when the captain
+                   is flying no hull (parked with no ship assigned). -->
+              {@const activeCaptainShip = state.ships.find((s) => s.assignedCaptainId === activeCaptain.id) ?? null}
+              <div class="dev-row" style="margin-top: 10px;">
+                <button
+                  class="dev-btn"
+                  disabled={activeCaptainShip === null}
+                  title={activeCaptainShip === null ? "This captain has no assigned ship" : undefined}
+                  on:click={() => activeCaptainShip && openShipSystems(activeCaptainShip.id)}
+                >
+                  Ship Systems
+                </button>
+              </div>
             </Panel>
           {:else if activeFleetCaptainSubTab === "talents"}
             <!-- Captain Talents (Task 6, Captain & Homeworld Talent Trees;
@@ -5779,6 +5866,27 @@
        on node tap, so App.svelte no longer needs a top-level talent tooltip. Its
        orphaned .tooltip-backdrop / .talent-tooltip CSS was removed in Task 17; the
        DELETE SAVE / respec / Import modals below are untouched. -->
+
+  {#if shipSystemsShipId !== null}
+    <!-- Ship Systems modal (0.11.0). Reuses the shared .modal-backdrop + focusTrap
+         pattern every other modal uses (Escape closes via closeShipSystems, focus
+         trapped + restored). The panel (ShipSystemsPanel.svelte) is NOT wrapped in
+         Panel.svelte: it renders its OWN opaque dialog surface so it stays legible
+         on Brave (which lacks backdrop-filter blur) and owns its internal scroll
+         (the right-hand stats column) WITHOUT a new hard 100vh/100dvh (scroll-
+         containment invariant, docs/plans/2026-07-07-scroll-containment-locked-
+         placeholders-design.md). `state` is passed in read-only; Install/Uninstall
+         route back to installSystem/uninstallSystem, where persistence lives. -->
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Ship Systems" use:focusTrap={closeShipSystems}>
+      <ShipSystemsPanel
+        {state}
+        shipId={shipSystemsShipId}
+        onInstall={installSystem}
+        onUninstall={uninstallSystem}
+        onClose={closeShipSystems}
+      />
+    </div>
+  {/if}
 
   {#if deleteModalOpen}
     <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete save confirmation" use:focusTrap={cancelDelete}>
