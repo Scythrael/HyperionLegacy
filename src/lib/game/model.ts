@@ -605,6 +605,99 @@ export interface ShipInstance {
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
 }
 
+// ============================================================================
+// Equipment 0.11.0 (Task 1): rarity / ascension / slot vocabulary + the
+// per-instance equipment record. DATA/TYPES ONLY this task, no generation,
+// fitting, GameState wiring, or stat fold-in yet (those are later tasks).
+// ============================================================================
+
+// The slot an equipment piece occupies. The first four are the LIVE slots this
+// patch actually fits and reads. The rest are DEFINED but have no consumer in
+// 0.11.0: they are forward hooks for 0.12.0's fuller fitment grid, populated
+// here so the union and any exhaustive switches over it are stable before their
+// system lands. Same POPULATED-but-INERT spirit as SHIP_TYPES.moduleSlots.
+export type EquipmentSlotType =
+  // LIVE this patch:
+  | "cargoBay"
+  | "ftlDrive"
+  | "reactorCore"
+  | "specUtility"
+  // RESERVED (defined, no consumer this patch, forward hooks for 0.12.0):
+  | "cockpit"
+  | "quarters"
+  | "thrusters"
+  | "sensor"
+  | "shieldEmitters"
+  | "hullPlating"
+  | "propellantTanks";
+
+// Rarity band of an equipment instance, ascending in power. 0.11.0 only ever
+// PRODUCES standard..radiant; derelict (a below-baseline salvage band) and the
+// luminous/constellar legendary flavors are defined now for the forward model
+// so the budget/loot pipeline can reference the full ladder without a later
+// type change. See rarityIndex below for the ordinal the budget math reads.
+export type EquipmentRarity =
+  | "derelict"
+  | "standard"
+  | "augmented"
+  | "stellar"
+  | "radiant"
+  | "luminous"
+  | "constellar";
+
+// An additional post-rarity power tier ("ascension"). 0.11.0 only ever produces
+// "none"; nova/celestial are defined now for the forward model (crafting-talent
+// procs mint them in a later task) but nothing raises an instance past "none"
+// this patch.
+export type EquipmentAscension = "none" | "nova" | "celestial";
+
+// A concrete piece of equipment. Mirrors ShipInstance's lightweight per-instance
+// posture: non-stacking (each piece is its own record with a stable id), and its
+// `fittedToShipId` is the SINGLE SOURCE OF TRUTH for where the piece lives (null =
+// spare in the pool), deliberately not duplicated onto the ship so the two never
+// disagree, exactly like ShipInstance.assignedCaptainId. Nothing generates, fits,
+// or reads these yet; this task only declares the shape.
+export interface EquipmentInstance {
+  id: string;                             // stable unique id, allocated from a GameState counter ("equip-N"), like nextShipId
+  slotType: EquipmentSlotType;
+  rarity: EquipmentRarity;
+  ascension: EquipmentAscension;          // "none" this patch (see EquipmentAscension)
+  quality: number;                        // 0..5 quality rung within the rarity band
+  blueprintKey: string | null;            // which blueprint crafted it; null for the Standard-Issue baseline (craft-less)
+  implicitStats: Record<string, number>;  // the slot-signature stat lines, always present for the slot
+  rolledStats: Record<string, number>;    // the varying affixes rolled on top of the implicits
+  mass: number;                           // intrinsic; drags speed stats, fought by propulsion (later fold-in task)
+  powerDraw: number;                      // intrinsic; must fit within the reactor's Power Output (later fitting task)
+  durabilityMax: number;
+  durability: number;                     // never drops this patch; combat drives loss in 0.12.0
+  fittedToShipId: string | null;          // null = spare in the pool. THE fitment authority (mirrors ShipInstance.assignedCaptainId)
+  integrity?: string;                     // RESERVED: server-minted anti-tamper token for the multiplayer era; unset this patch
+}
+
+// The 0-based rarity ordinal the budget pipeline (later task) reads. Ascends
+// derelict 0 .. radiant 4, then BOTH luminous and constellar return 5: they are
+// parallel legendary-class FLAVORS at the same power tier, not two more rungs, so
+// they deliberately share the ordinal. PURE: a total mapping over the union,
+// mutates nothing.
+export function rarityIndex(rarity: EquipmentRarity): number {
+  switch (rarity) {
+    case "derelict":
+      return 0;
+    case "standard":
+      return 1;
+    case "augmented":
+      return 2;
+    case "stellar":
+      return 3;
+    case "radiant":
+      return 4;
+    // luminous and constellar are parallel legendary flavors at the SAME tier:
+    case "luminous":
+    case "constellar":
+      return 5;
+  }
+}
+
 export interface CaptainMissionState {
   missionKey: MissionKey;
   phase: MissionPhase;

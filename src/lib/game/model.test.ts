@@ -21,8 +21,14 @@ import {
   ITEMS,
   BASE_XP_PER_TICK,
   FUEL_CREDITS_PER_UNIT,
+  rarityIndex,
 } from "./model";
-import type { CaptainTalentKey, HomeworldTalentKey } from "./model";
+import type {
+  CaptainTalentKey,
+  HomeworldTalentKey,
+  EquipmentInstance,
+  EquipmentRarity,
+} from "./model";
 import { fuelNeeded } from "./fuel";
 
 describe("freshState, captain roster shape", () => {
@@ -1057,5 +1063,88 @@ describe("FACILITIES, tiered Warehouses (Task B2)", () => {
     // wall (no explicit requires* gate; the missing input IS the gate).
     expect(Object.keys(wh.upgrades[1].materials)).toEqual(["denseOre"]);
     expect(wh.upgrades[1].materials.denseOre.gt(0)).toBe(true);
+  });
+});
+
+// Equipment 0.11.0 Task 1: the per-instance equipment record + the rarity-order
+// helper the later budget pipeline reads. These are DATA/TYPE guards only (no
+// generation, fitting, or GameState wiring exists yet), so the test hand-builds
+// an instance to prove the shape type-checks and reads back, and pins the exact
+// rarity ordinal contract the budget math depends on.
+describe("EquipmentInstance shape + rarityIndex ordering (0.11.0 Task 1)", () => {
+  it("a hand-built EquipmentInstance type-checks and its fields read back", () => {
+    // A plausible 0.11.0-legal instance: an Augmented cargo bay of quality 3,
+    // sitting spare in the pool (fittedToShipId null), ascension "none".
+    const gear: EquipmentInstance = {
+      id: "equip-1",
+      slotType: "cargoBay",
+      rarity: "augmented",
+      ascension: "none",
+      quality: 3,
+      blueprintKey: "expandedHold",
+      implicitStats: { cargoCapacity: 40 },
+      rolledStats: { cargoCapacity: 12, transitSpeedMult: 0.05 },
+      mass: 8,
+      powerDraw: 5,
+      durabilityMax: 100,
+      durability: 100,
+      fittedToShipId: null,
+      // `integrity` is the reserved anti-tamper token; omitted here since it is optional.
+    };
+
+    expect(gear.id).toBe("equip-1");
+    expect(gear.slotType).toBe("cargoBay");
+    expect(gear.rarity).toBe("augmented");
+    expect(gear.ascension).toBe("none");
+    expect(gear.quality).toBe(3);
+    expect(gear.blueprintKey).toBe("expandedHold");
+    expect(gear.implicitStats.cargoCapacity).toBe(40);
+    expect(gear.rolledStats.transitSpeedMult).toBeCloseTo(0.05);
+    expect(gear.mass).toBe(8);
+    expect(gear.powerDraw).toBe(5);
+    expect(gear.durabilityMax).toBe(100);
+    expect(gear.durability).toBe(100);
+    expect(gear.fittedToShipId).toBeNull();
+    expect(gear.integrity).toBeUndefined();
+  });
+
+  it("a null blueprintKey (Standard-Issue baseline) is accepted", () => {
+    // The Standard-Issue baseline item is craft-less, so its blueprintKey is null.
+    const baseline: EquipmentInstance = {
+      id: "equip-2",
+      slotType: "reactorCore",
+      rarity: "standard",
+      ascension: "none",
+      quality: 0,
+      blueprintKey: null,
+      implicitStats: {},
+      rolledStats: {},
+      mass: 0,
+      powerDraw: 0,
+      durabilityMax: 50,
+      durability: 50,
+      fittedToShipId: "ship-7",
+    };
+    expect(baseline.blueprintKey).toBeNull();
+    expect(baseline.fittedToShipId).toBe("ship-7");
+  });
+
+  it("rarityIndex maps derelict..radiant to 0..4 and luminous===constellar===5", () => {
+    // The budget pipeline (later task) reads this ordinal; luminous and constellar
+    // are parallel legendary-class flavors at the SAME power tier, hence both 5.
+    const expected: Array<[EquipmentRarity, number]> = [
+      ["derelict", 0],
+      ["standard", 1],
+      ["augmented", 2],
+      ["stellar", 3],
+      ["radiant", 4],
+      ["luminous", 5],
+      ["constellar", 5],
+    ];
+    for (const [rarity, index] of expected) {
+      expect(rarityIndex(rarity)).toBe(index);
+    }
+    // Explicit parallel-tier assertion (the contract the budget math relies on).
+    expect(rarityIndex("luminous")).toBe(rarityIndex("constellar"));
   });
 });
