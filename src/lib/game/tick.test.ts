@@ -12,6 +12,7 @@ import {
   respecHomeworldTalents,
   chooseCaptainSpec,
   applyFleetAdminXp,
+  applyCraftingXp,
   captainCommonYieldMult,
   captainUncommonYieldMult,
   captainUncommonChanceMult,
@@ -38,10 +39,13 @@ import {
   MISSIONS,
   shipDerivedStats,
   xpForNextFleetAdminLevel,
+  craftingXpForNext,
+  CRAFTING_XP_PER_DURATION_TICK,
   ITEMS,
   type CaptainMissionState,
   type MissionKey,
   type TimedProcess,
+  type ProcessEffect,
 } from "./model";
 
 function missionCaptain(
@@ -2479,6 +2483,181 @@ describe("applyFleetAdminXp", () => {
     // .toNumber() on both sides, toBeLessThan needs plain-number operands, and
     // backloggedXp is a captured Decimal reference from afterFirstCappedCall above.
     expect(afterSecondCall.fleetAdminXp.toNumber()).toBeLessThan(backloggedXp.toNumber());
+  });
+});
+
+// ===========================================================================
+// Equipment 0.11.0, Phase 3 (Task 8): CRAFTING LEVEL XP.
+//
+// A NEW progression axis, separate from Fleet Admiral XP: completed PRODUCTION
+// jobs (refine / fabricate / ship-build) grant crafting XP = CRAFTING_XP_PER_
+// DURATION_TICK * durationTicks, lumped once on completion (the SAME lump-on-
+// completion shape FA XP uses in resolveProcesses). craftingXpForNext(level) is
+// the level curve; applyCraftingXp folds an accumulated delta and rolls level-ups
+// with remainder carry, mirroring applyFleetAdminXp exactly (minus adminPoints,
+// crafting has no points system yet).
+//
+// Two things under test here:
+//   1. applyCraftingXp's fold/level-up/carry math (mirrors the applyFleetAdminXp
+//      suite above; thresholds are DERIVED from craftingXpForNext so a future
+//      curve rescale can't invalidate the premise).
+//   2. resolveProcesses awards crafting XP on EXACTLY the three producing kinds
+//      (refineJob/fabricateJob/shipBuild), NOT on facilityUpgrade / fuelRefineJob
+//      / researchProject, and does so CLOSED-FORM: one big resolve == many small
+//      (the key offline==live parity guarantee, modeled on the FA-XP / itemsRefined
+//      parity tests).
+// ===========================================================================
+describe("applyCraftingXp (Equipment 0.11.0, Phase 3)", () => {
+  it("is a no-op (same state reference) when the delta is zero or negative", () => {
+    const state = freshState();
+    expect(applyCraftingXp(state, 0)).toBe(state);
+    expect(applyCraftingXp(state, -5)).toBe(state);
+  });
+
+  it("adds the delta to craftingXp when no level-up threshold is crossed", () => {
+    // A delta one short of craftingXpForNext(1) crosses no threshold: xp just
+    // accumulates, level unchanged. Curve-derived so a rescale can't break it.
+    const subThresholdDelta = craftingXpForNext(1).minus(1).toNumber();
+    const result = applyCraftingXp(freshState(), subThresholdDelta);
+    expect(result.craftingXp.equals(subThresholdDelta)).toBe(true);
+    expect(result.craftingLevel).toBe(1);
+  });
+
+  it("resolves exactly one level-up and carries the remainder forward", () => {
+    // Pre-load craftingXp to just SHORT of the level-1 threshold, then apply a
+    // delta that carries it just PAST: proves existing xp + delta both count, that
+    // exactly ONE threshold is subtracted, and the leftover is carried.
+    //   startingXp = (threshold1 - remainder) + 2*remainder = threshold1 + remainder
+    const remainder = 7; // small carry, safely below craftingXpForNext(2)
+    const threshold1 = craftingXpForNext(1);
+    const state = freshState();
+    state.craftingXp = threshold1.minus(remainder); // craftingXp is Decimal
+    const result = applyCraftingXp(state, 2 * remainder);
+    expect(result.craftingLevel).toBe(2);
+    expect(result.craftingXp.equals(remainder)).toBe(true);
+  });
+
+  it("a large single delta resolves EVERY level-up crossed, not just one, and carries the leftover", () => {
+    // Feed EXACTLY the first three thresholds plus a small remainder, so one delta
+    // must resolve THREE level-ups (1->4). Curve-derived: asserts the LOOP logic
+    // independent of the curve's absolute scale. A big offline batch that crosses
+    // several levels in one award takes this path.
+    const remainder = 11; // safely below craftingXpForNext(4)
+    const delta = craftingXpForNext(1)
+      .plus(craftingXpForNext(2))
+      .plus(craftingXpForNext(3))
+      .plus(remainder)
+      .toNumber();
+    const result = applyCraftingXp(freshState(), delta);
+    expect(result.craftingLevel).toBe(4);
+    expect(result.craftingXp.equals(remainder)).toBe(true);
+  });
+});
+
+describe("resolveProcesses, crafting XP on completed production jobs (Equipment 0.11.0, Phase 3)", () => {
+  // Builds a state with a hand-seeded set of in-flight processes, all else fresh
+  // (craftingLevel 1, craftingXp 0). Mirrors process.test.ts's direct-construction
+  // style for exercising resolveProcesses without going through startProcess.
+  const withProcesses = (activeProcesses: TimedProcess[]) => ({
+    ...freshState(),
+    activeProcesses,
+  });
+  // Minimal effect builders (one per ProcessEffect variant the kinds below use).
+  const addItem = (itemId: string, amount: number): ProcessEffect => ({ type: "addItem", itemId, amount: new Decimal(amount) });
+  const addShip = (): ProcessEffect => ({ type: "addShip", typeKey: "prospectorMiner" });
+  const levelUp = (facility: string): ProcessEffect => ({ type: "facilityLevelUp", facility });
+  const addFuel = (amount: number): ProcessEffect => ({ type: "addFuel", amount: new Decimal(amount) });
+  const unlock = (key: string): ProcessEffect => ({ type: "unlockBlueprint", key });
+
+  it("a single completed refineJob awards craftingXpDelta = CRAFTING_XP_PER_DURATION_TICK * durationTicks, once", () => {
+    const durationTicks = 4;
+    const state = withProcesses([
+      { id: "proc-1", kind: "refineJob", remainingTicks: durationTicks, durationTicks, effect: addItem("refinedMaterial", 5) },
+    ]);
+    const { craftingXpDelta } = resolveProcesses(state, durationTicks); // exactly reaches 0
+    expect(craftingXpDelta).toBe(CRAFTING_XP_PER_DURATION_TICK * durationTicks);
+  });
+
+  it("fabricateJob and shipBuild ALSO award crafting XP (the three producing kinds)", () => {
+    const fab = 120;
+    const build = 300;
+    const state = withProcesses([
+      { id: "proc-1", kind: "fabricateJob", remainingTicks: fab, durationTicks: fab, effect: addItem("alloy", 1) },
+      { id: "proc-2", kind: "shipBuild", remainingTicks: build, durationTicks: build, effect: addShip() },
+    ]);
+    const { craftingXpDelta } = resolveProcesses(state, build); // big enough to complete both
+    expect(craftingXpDelta).toBe(CRAFTING_XP_PER_DURATION_TICK * (fab + build));
+  });
+
+  it("facilityUpgrade, fuelRefineJob, and researchProject award NO crafting XP (not production of an item/hull)", () => {
+    const state = withProcesses([
+      { id: "proc-1", kind: "facilityUpgrade", remainingTicks: 25, durationTicks: 25, effect: levelUp("refinery") },
+      { id: "proc-2", kind: "fuelRefineJob", remainingTicks: 10, durationTicks: 10, effect: addFuel(50) },
+      { id: "proc-3", kind: "researchProject", remainingTicks: 50, durationTicks: 50, effect: unlock("someBlueprint") },
+    ]);
+    const { craftingXpDelta } = resolveProcesses(state, 100); // completes all three
+    expect(craftingXpDelta).toBe(0);
+  });
+
+  it("an in-flight job that has NOT completed awards nothing yet", () => {
+    const state = withProcesses([
+      { id: "proc-1", kind: "refineJob", remainingTicks: 60, durationTicks: 60, effect: addItem("refinedMaterial", 1) },
+    ]);
+    const { craftingXpDelta } = resolveProcesses(state, 20); // 60 - 20 = 40 left, not done
+    expect(craftingXpDelta).toBe(0);
+  });
+
+  // THE KEY TEST: closed-form offline==live parity for crafting XP, modeled on the
+  // FA-XP / itemsRefined parity tests. One big resolve of N ticks must award the
+  // SAME total crafting XP as N single-tick resolves, so an offline catch-up batch
+  // and live play cannot diverge on crafting progression. Holds for the same reason
+  // FA XP's does: each process completes EXACTLY once (it is dropped on completion),
+  // contributing its lump whether resolved in one jump or many steps. The mix
+  // includes excluded kinds (facilityUpgrade/fuelRefineJob/researchProject) to prove
+  // they stay at 0 either way (parity trivially intact for them too).
+  it("closed-form parity: one big resolve's craftingXpDelta equals the sum of many single-tick resolves", () => {
+    const seed = (): TimedProcess[] => [
+      { id: "proc-1", kind: "refineJob", remainingTicks: 1, durationTicks: 1, effect: addItem("refinedMaterial", 5) },
+      { id: "proc-2", kind: "refineJob", remainingTicks: 10, durationTicks: 10, effect: addItem("refinedMaterial", 3) },
+      { id: "proc-3", kind: "fabricateJob", remainingTicks: 25, durationTicks: 25, effect: addItem("alloy", 2) },
+      { id: "proc-4", kind: "facilityUpgrade", remainingTicks: 40, durationTicks: 40, effect: levelUp("refinery") },
+      { id: "proc-5", kind: "shipBuild", remainingTicks: 60, durationTicks: 60, effect: addShip() },
+      { id: "proc-6", kind: "fuelRefineJob", remainingTicks: 80, durationTicks: 80, effect: addFuel(9) },
+      { id: "proc-7", kind: "researchProject", remainingTicks: 120, durationTicks: 120, effect: unlock("bp") },
+    ];
+    const span = 200; // completes every process above in the big jump
+
+    // One big jump.
+    const jumped = resolveProcesses(withProcesses(seed()), span);
+
+    // Many single-tick steps summing to the same span.
+    let stepped = withProcesses(seed());
+    let steppedCraftingXp = 0;
+    for (let i = 0; i < span; i++) {
+      const r = resolveProcesses(stepped, 1);
+      stepped = r.next;
+      steppedCraftingXp += r.craftingXpDelta;
+    }
+
+    expect(jumped.craftingXpDelta).toBe(steppedCraftingXp); // paths agree (the whole point)
+    // Pin the exact expected total: producing kinds are refine(1) + refine(10) +
+    // fabricate(25) + shipBuild(60) = 96 durationTicks; the three excluded kinds add 0.
+    expect(jumped.craftingXpDelta).toBe(CRAFTING_XP_PER_DURATION_TICK * 96);
+  });
+
+  it("end-to-end: a completed refineJob raises state.craftingXp via applyCraftingXp fold (delta actually reaches state)", () => {
+    // Ties the resolveProcesses award to the applyCraftingXp fold: the delta a
+    // completion produces, folded in, lands on state.craftingXp. (economyTick wires
+    // these two together; this asserts the seam directly with a sub-threshold job so
+    // no level-up muddies the xp assertion.)
+    const durationTicks = 4;
+    const state = withProcesses([
+      { id: "proc-1", kind: "refineJob", remainingTicks: durationTicks, durationTicks, effect: addItem("refinedMaterial", 5) },
+    ]);
+    const { craftingXpDelta } = resolveProcesses(state, durationTicks);
+    const folded = applyCraftingXp(state, craftingXpDelta);
+    expect(folded.craftingXp.equals(CRAFTING_XP_PER_DURATION_TICK * durationTicks)).toBe(true);
+    expect(folded.craftingLevel).toBe(1); // small job, no level-up
   });
 });
 

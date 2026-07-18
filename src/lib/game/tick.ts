@@ -14,6 +14,8 @@ import {
   effectiveMissionDef,
   xpForNextLevel,
   xpForNextFleetAdminLevel,
+  craftingXpForNext,
+  CRAFTING_XP_PER_DURATION_TICK,
   MISSIONS,
   BASE_XP_PER_TICK,
   SHIP_TYPES,
@@ -1146,6 +1148,63 @@ export function applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): 
   return { ...state, fleetAdminXp: xp, fleetAdminLevel: level, adminPoints };
 }
 
+// Crafting Level XP (Equipment 0.11.0, Phase 3, Task 8): the crafting-track twin of
+// applyFleetAdminXp. Folds an already-accumulated crafting-XP delta (summed across every
+// production job that COMPLETED this call, see resolveProcesses' craftingXpDelta) into
+// craftingXp and resolves level-ups by subtracting the per-level threshold each time,
+// carrying the remainder forward, the EXACT subtract-and-carry loop FA XP + captain XP
+// use. Kept structurally identical to applyFleetAdminXp on purpose (single-source
+// discipline): same cheap same-reference no-op, same backlog guard (a prior call capped
+// at MAX_LEVEL_UPS_PER_TICK leaves craftingXp at/above the next threshold, so a later
+// delta-0 call must still drain it), same MAX_LEVEL_UPS_PER_TICK guard against a huge
+// offline-catch-up delta. The ONE difference from applyFleetAdminXp: crafting has NO
+// "points" system yet (no adminPoints analog), so a level-up bumps craftingLevel alone.
+//
+// CLOSED-FORM / OFFLINE==LIVE: because the fold depends only on (craftingXp, craftingLevel)
+// and the delta, applying the delta in one big chunk lands the same (level, remainder) as
+// applying it in many small chunks across the offline economyTick loop, the same
+// associativity applyFleetAdminXp relies on (barring the astronomically-unreachable
+// MAX_LEVEL_UPS_PER_TICK cap). The delta itself is proven closed-form in resolveProcesses.
+//
+// Lives HERE (tick.ts) beside applyFleetAdminXp, NOT in model.ts with craftingXpForNext,
+// because it consumes MAX_LEVEL_UPS_PER_TICK (defined in this file); hoisting it to
+// model.ts would force model.ts to import from tick.ts, inverting the model<-tick
+// dependency direction. model.ts owns the pure curve + tunable rate; the state-folding
+// engine stays with its FA twin.
+export function applyCraftingXp(state: GameState, craftingXpDelta: number): GameState {
+  // ⚠️ NOT-YET-MIGRATED GUARD (interim, owner = Task 20). craftingLevel/craftingXp were
+  // ADDED to GameState in Task 3, but that task deliberately DEFERRED both the migration
+  // that backfills them onto pre-0.11.0 saves AND their hydrateDecimals() Decimal revival
+  // to Task 20 (see model.ts's craftingXp field comment). So a state reaching here can be
+  // in one of two not-yet-migrated shapes: craftingXp ABSENT (a pre-Task-3 save) or a
+  // plain STRING (a current save whose craftingXp round-tripped through JSON without a
+  // hydrateDecimals rule yet). Either would throw on .plus()/.gte() below. We coerce to
+  // the typed values HERE rather than editing save.ts, because (a) this task's scope is
+  // the XP-award engine, not migration, and (b) it mirrors save.ts's OWN precedent for the
+  // `fuel` field, which carried a defensive `?? new Decimal(0)` default while its real
+  // migration was a later task. Once Task 20 seeds + hydrates these fields, this guard
+  // becomes a harmless no-op (a real Decimal passes through instanceof untouched). A fresh
+  // in-memory state (freshState) already holds a real Decimal(0) / level 1, so this never
+  // fires on the common live path.
+  const currentXp = state.craftingXp instanceof Decimal ? state.craftingXp : new Decimal(state.craftingXp ?? 0);
+  const currentLevel = state.craftingLevel ?? 1;
+
+  const startingXp = craftingXpDelta > 0 ? currentXp.plus(craftingXpDelta) : currentXp;
+  const hasBacklog = startingXp.gte(craftingXpForNext(currentLevel));
+  if (craftingXpDelta <= 0 && !hasBacklog) return state; // cheap no-op: no new XP this call, and no leftover backlog from a prior capped call
+
+  let xp = startingXp;
+  let level = currentLevel;
+  let levelUpsThisCall = 0;
+  while (xp.gte(craftingXpForNext(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
+    xp = xp.minus(craftingXpForNext(level));
+    level += 1;
+    levelUpsThisCall += 1;
+  }
+
+  return { ...state, craftingXp: xp, craftingLevel: level };
+}
+
 // Ship Production Economy (Phase 1, Task 4): the SINGLE add-to-inventory seam.
 // Every code path that GRANTS an item, mission loot delivery + passiveTrickle
 // (tick(), below) and craft output (craftRecipe, further below), routes its
@@ -1565,10 +1624,11 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // until refine jobs / facility upgrades start (Task 10/11), so resolveProcesses
   // early-outs to a same-reference no-op today, inert but correct + drift-proof
   // for when processes exist.
-  const { next: postProcessState, fleetAdminXpDelta: processFleetAdminXpDelta } = resolveProcesses(
-    postMissionState,
-    ticksElapsed
-  );
+  const {
+    next: postProcessState,
+    fleetAdminXpDelta: processFleetAdminXpDelta,
+    craftingXpDelta: processCraftingXpDelta,
+  } = resolveProcesses(postMissionState, ticksElapsed);
   fleetAdminXpDelta += processFleetAdminXpDelta;
 
   // Crafting Allocation Redesign (Task C2): process the per-slot REFINE production LINES
@@ -1620,7 +1680,18 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // ride into the returned state; with no lines and no depot pipeline postFuelState ===
   // postProcessState, so this is byte-identical to before those features.
   // (Fuel batches + fabricate jobs award NO FA XP, see resolveProcesses.)
-  return applyFleetAdminXp(postFuelState, fleetAdminXpDelta);
+  const postFleetAdminXpState = applyFleetAdminXp(postFuelState, fleetAdminXpDelta);
+
+  // Crafting Level XP (Equipment 0.11.0, Phase 3, Task 8): fold the crafting XP that any
+  // producing job (refine / fabricate / ship-build) accrued in resolveProcesses through its
+  // own level-up pass, the crafting twin of the applyFleetAdminXp fold above. Crafting XP has
+  // exactly ONE source (completed production jobs), so unlike fleetAdminXpDelta there is no
+  // mission contribution to accumulate first, processCraftingXpDelta IS the whole delta.
+  // applyCraftingXp touches only craftingXp/craftingLevel, so it composes cleanly on top of
+  // the FA pass. A same-value no-op when no producing job completed (delta 0, no backlog).
+  // Living at the SAME per-tick seam as the FA fold is what keeps crafting XP identical live
+  // (App.svelte per bar) and offline (tick() steps economyTick(_,1) per tick).
+  return applyCraftingXp(postFleetAdminXpState, processCraftingXpDelta);
 }
 
 // Offline catch-up entry point, tech spec §2 (Tick Loop and Time Semantics).
@@ -4014,18 +4085,24 @@ export function fuelRunwayProjection(input: {
 // FA XP is LUMPED on completion: a completed process contributes its FULL
 // durationTicks to fleetAdminXpDelta, exactly once. Task 9 folds the returned
 // delta via applyFleetAdminXp (the same path mission FA XP takes). Facility
-// processes award NO captain XP (no captain pilots them), this resolver only
-// ever touches Fleet Admiral XP.
+// processes award NO captain XP (no captain pilots them).
+//
+// CRAFTING XP (Equipment 0.11.0, Phase 3) is lumped the SAME way, on a DIFFERENT
+// set of kinds: a completed PRODUCTION job (refineJob / fabricateJob / shipBuild)
+// contributes CRAFTING_XP_PER_DURATION_TICK * durationTicks to craftingXpDelta,
+// exactly once. economyTick folds it via applyCraftingXp. So this resolver returns
+// TWO independent XP deltas (Fleet Admiral + crafting), each closed-form for the
+// same "fires exactly once per completion" reason.
 export function resolveProcesses(
   state: GameState,
   ticksElapsed: number
-): { next: GameState; fleetAdminXpDelta: number } {
+): { next: GameState; fleetAdminXpDelta: number; craftingXpDelta: number } {
   // Cheap same-reference no-op: nothing in flight, or no time actually elapsed.
   // Mirrors applyFleetAdminXp's early-out. (Every SURVIVING process always has
   // remainingTicks > epsilon, so a <=0 ticksElapsed call can never leave a
   // ready-to-complete process unresolved by skipping here.)
   if (ticksElapsed <= 0 || state.activeProcesses.length === 0) {
-    return { next: state, fleetAdminXpDelta: 0 };
+    return { next: state, fleetAdminXpDelta: 0, craftingXpDelta: 0 };
   }
 
   // Threaded immutably through completions (each addToInventory returns fresh
@@ -4061,6 +4138,15 @@ export function resolveProcesses(
   let ships = state.ships;
   let nextShipId = state.nextShipId;
   let fleetAdminXpDelta = 0;
+  // Crafting Level XP (Equipment 0.11.0, Phase 3): accumulates CRAFTING_XP_PER_DURATION_TICK
+  // * durationTicks for every PRODUCTION job (refine / fabricate / ship-build) that completes
+  // this call, lumped once on completion exactly like fleetAdminXpDelta above. economyTick
+  // folds the returned total through applyCraftingXp (the crafting twin of applyFleetAdminXp).
+  // Seeded 0, so a call that completes no producing job returns 0 (a same-value no-op through
+  // the fold). Closed-form for the SAME reason fleetAdminXpDelta is: each producing process
+  // contributes its lump exactly ONCE (it is dropped on completion), so one big resolve and
+  // many small resolves accrue the identical total (see the parity test in tick.test.ts).
+  let craftingXpDelta = 0;
   // Survivors are rebuilt in original order, so activeProcesses ordering is stable
   // across both chunkings (the parity test compares the arrays deep-equal).
   const stillActive: TimedProcess[] = [];
@@ -4199,6 +4285,28 @@ export function resolveProcesses(
     ) {
       fleetAdminXpDelta += process.durationTicks;
     }
+    // Crafting Level XP (Equipment 0.11.0, Phase 3, Task 8): a completed PRODUCTION job
+    // ALSO grants crafting XP = CRAFTING_XP_PER_DURATION_TICK * durationTicks. This is a
+    // POSITIVE whitelist of the three "you crafted an item/hull" kinds (refineJob /
+    // fabricateJob / shipBuild), DELIBERATELY a DIFFERENT set than the FA-XP award above:
+    //   - It INCLUDES fabricateJob + shipBuild (the FA award EXCLUDES both, to protect the
+    //     tuned FA curve; crafting XP is the axis those producing jobs are MEANT to feed).
+    //   - It EXCLUDES facilityUpgrade (building infrastructure, not crafting an item), and
+    //     fuelRefineJob / researchProject (automated economies, not player crafting).
+    // A whitelist (not a blacklist) so a FUTURE producing kind must OPT IN explicitly rather
+    // than silently inheriting crafting XP. ⚠️ DESIGN DECISION flagged to the controller: the
+    // task text said "whichever award FA XP today" but ALSO explicitly enumerated "refine,
+    // fabricate/craft-line, ship-build"; those two don't match (fabricate/ship-build award no
+    // FA XP), so this follows the explicit enumeration, crafting XP tracks item/hull
+    // production. Closed-form: each producing process fires this exactly ONCE, on the
+    // completion that drops it, so one big resolve == many small (see the parity test).
+    if (
+      process.kind === "refineJob" ||
+      process.kind === "fabricateJob" ||
+      process.kind === "shipBuild"
+    ) {
+      craftingXpDelta += CRAFTING_XP_PER_DURATION_TICK * process.durationTicks;
+    }
   }
 
   return {
@@ -4218,6 +4326,7 @@ export function resolveProcesses(
       activeProcesses: stillActive,
     },
     fleetAdminXpDelta,
+    craftingXpDelta,
   };
 }
 

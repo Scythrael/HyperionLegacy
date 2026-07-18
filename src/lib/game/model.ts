@@ -2543,6 +2543,39 @@ export function xpForNextFleetAdminLevel(level: number): number {
   return 375000 * level * level;
 }
 
+// --- Crafting Level XP (Equipment 0.11.0, Phase 3, Task 8) -------------------
+// A SEPARATE progression axis from Fleet Admiral XP: the player's crafting skill,
+// earned by COMPLETING production jobs (refine / fabricate / ship-build) rather than
+// by running missions. The award engine lives in tick.ts (resolveProcesses grants the
+// XP on completion, applyCraftingXp folds + rolls level-ups); THIS file owns only the
+// two tunable knobs, the per-work XP rate and the level curve, so a playtest retune is
+// a one-line edit here with no engine change.
+
+// ⚠️ TUNABLE (launch placeholder). Crafting XP granted per durationTick of a COMPLETED
+// production job: a job's award is CRAFTING_XP_PER_DURATION_TICK * job.durationTicks,
+// lumped once on completion (the SAME "value scales with the job's time/cost" shape FA
+// XP's lump uses). Because the award scales with DURATION, a long/costly fabricate or
+// ship-build grants far more than a cheap 1-4 tick refine, so spamming trivial crafts
+// does NOT level crafting fast, expensive production does. Kept an INTEGER so the
+// closed-form parity stays exact (integer * integer durationTicks, no float drift):
+// see resolveProcesses' craftingXpDelta accumulation + its parity test. 2 (not 1) so a
+// dropped-multiplication bug is observable in tests (2*d != d) while leaving headroom.
+export const CRAFTING_XP_PER_DURATION_TICK = 2;
+
+// ⚠️ TUNABLE (launch placeholder). XP required to go from `level` to `level+1`. A gently
+// rising quadratic (polynomial in level): the per-level cost grows with level, so early
+// crafting levels come quickly and later ones cost progressively more, without any
+// per-level hand-tuning. Scale (500) is deliberately far smaller than the Fleet Admiral
+// curve's (375000) because crafting XP income is smaller + slower (only completed
+// production jobs feed it, not every mission tick fleet-wide). Decimal-typed to match
+// craftingXp's idle-scale Decimal accumulator (GameState.craftingXp) and to compose with
+// applyCraftingXp's Decimal fold; the caller compares/subtracts it against craftingXp
+// directly. Both the scale AND the quadratic shape are first-pass values to be tuned
+// against real on-device play, do NOT treat 500 or the exponent as final.
+export function craftingXpForNext(level: number): Decimal {
+  return new Decimal(500).times(level).times(level);
+}
+
 // --- Captain & Homeworld Talent Trees (docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) ---
 // Two new data-driven tables, mirroring the exact conventions the (now-deleted)
 // Skill Tree established, branch/label/cost/requires (same-branch
