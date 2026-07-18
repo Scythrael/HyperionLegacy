@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP } from "./model";
 
-export const SAVE_VERSION = 26;
+export const SAVE_VERSION = 27;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -110,6 +110,17 @@ function hydrateDecimals(state: any): GameState {
     // would produce a NaN Decimal, so default the absent field to 0. Idempotent and
     // harmless once Task 9's migration guarantees the field's presence.
     fuel: toDecimal(state.fuel ?? new Decimal(0)),
+    // craftingXp (Equipment 0.11.0, Task 3 / v26->v27 hotfix): the Crafting Level XP
+    // accumulator is Decimal-typed, so it round-trips through JSON as a plain string
+    // exactly like credits/fleetAdminXp/fuel above and MUST be toDecimal()'d back or
+    // applyCraftingXp's .plus()/.gte() (tick.ts) would throw/NaN on load. DEFENSIVE
+    // `?? new Decimal(0)`: MIGRATIONS[26] (v26->v27) backfills this field onto older
+    // saves, but default the absent field to 0 so a save that somehow reaches here
+    // without it (a partially-migrated / hand-edited shape) hydrates to a live Decimal(0)
+    // rather than a NaN, mirroring the `fuel` guard above. applyCraftingXp keeps its own
+    // interim coercion guard as belt-and-suspenders (do not remove it in this hotfix).
+    // Idempotent: toDecimal no-ops on an already-live Decimal (freshState seeds Decimal(0)).
+    craftingXp: toDecimal(state.craftingXp ?? new Decimal(0)),
     // Phase 1 (Ship Production Economy) keyed inventory, now QUALITY-BUCKETED
     // (Equipment 0.11.0, Task 9a): each item maps to a Decimal[] of quality-tier
     // buckets, and hydrateInventoryBuckets revives every bucket per-VALUE over this
@@ -961,6 +972,47 @@ const MIGRATIONS: Record<number, Migration> = {
     }
     return { ...state, inventory };
   },
+  // v26 -> v27: Equipment 0.11.0 GameState fields (docs/plans/2026-07-17-equipment-
+  // 0.11.0-plan.md, Task 3 state; CRASH HOTFIX). Task 3 added four fields to freshState:
+  // `equipment` (the fleet-wide EquipmentInstance pool, fitted + spare), `nextEquipmentId`
+  // (the monotonic id source, mirrors nextShipId/nextProcessId/nextCraftLineId),
+  // `craftingLevel` (the 1-based crafting skill track, parallels fleetAdminLevel) and
+  // `craftingXp` (its Decimal accumulator). BUT the migration that backfills them onto an
+  // existing save was DEFERRED to a later task (Task 20). MIGRATIONS[25] (v25->v26) bumped
+  // SAVE_VERSION to 26 for the quality-bucketed-inventory shape refactor ONLY, with NO
+  // equipment-field backfill, so a save migrated to v26 has `equipment === undefined`. The
+  // dev-only Equipment panel (App.svelte) reads `state.equipment.filter(...)` UNGUARDED and
+  // crashed on first render (Cannot read properties of undefined (reading 'filter')). This
+  // step seeds the four fields idempotently onto a v26 save that predates them, the same
+  // minimal additive-seed shape MIGRATIONS[19]/[20]/[21]/[22]/[24] set the template for.
+  //
+  // - equipment `?? []`: an empty pool (a returning player owns no equipment yet), the same
+  //   seed freshState gives. An EquipmentInstance carries NO top-level Decimal, so it rides
+  //   hydrateDecimals's `...state` spread untouched (equipment is not a Decimal field).
+  // - nextEquipmentId `?? 1`: byte-identical to freshState's seed (first minted id "equip-1").
+  // - craftingLevel `?? 1`: 1-based, matches freshState / the fleetAdminLevel baseline.
+  // - craftingXp: converted to a real Decimal here. A pre-Task-3 save has NO craftingXp key
+  //   (seed a fresh Decimal(0)); a chained / hand-edited save that already carries one (a live
+  //   Decimal, or a plain number/string) is CONVERTED rather than reset, so accumulated
+  //   progress survives. hydrateDecimals ALSO revives craftingXp unconditionally at the end of
+  //   migrate() (a re-saved v27 blob serializes it to a string), so this is belt-and-
+  //   suspenders and idempotent either way.
+  //
+  // All four `??` guards are idempotent + defensive: a genuine v26 save has none of the fields
+  // (so all are seeded), but a chained/re-run save that already carries them keeps them exactly
+  // (never reset). Every OTHER GameState field rides through untouched on the outer `...state`
+  // spread. This migration does the ONE job of seeding these four fields; the rest of Task 20
+  // (Standard-Issue seeding, etc.) is out of scope for this hotfix.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production, so
+  // it is still editable (the frozen-once-shipped rule applies only to production-released
+  // migrations).
+  26: (state: any): any => ({
+    ...state,
+    equipment: state.equipment ?? [],
+    nextEquipmentId: state.nextEquipmentId ?? 1,
+    craftingLevel: state.craftingLevel ?? 1,
+    craftingXp: state.craftingXp instanceof Decimal ? state.craftingXp : new Decimal(state.craftingXp ?? 0),
+  }),
 };
 
 export function migrate(save: SaveFile): GameState {

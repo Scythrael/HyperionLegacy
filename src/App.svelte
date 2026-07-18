@@ -1444,7 +1444,7 @@
   // blueprintKey null = the craft-less baseline path; rng is Math.random (a live
   // roll, not a seeded test stream). Persists eagerly via doSave().
   function devGrantEquipment(slot: EquipmentSlotType, varietyKey: string) {
-    const mintedId = "equip-" + state.nextEquipmentId;
+    const mintedId = "equip-" + (state.nextEquipmentId ?? 1);
     const piece = generateEquipment({
       slotType: slot,
       varietyKey,
@@ -1458,8 +1458,8 @@
     });
     state = {
       ...state,
-      equipment: [...state.equipment, piece],
-      nextEquipmentId: state.nextEquipmentId + 1,
+      equipment: [...(state.equipment ?? []), piece],
+      nextEquipmentId: (state.nextEquipmentId ?? 1) + 1,
     };
     doSave();
     pushLog(`[DEV] Granted spare ${piece.id}: ${EQUIPMENT_SLOTS[slot].label} / ${varietyKey} (${piece.rarity} q${piece.quality}).`);
@@ -5416,7 +5416,7 @@
           <!-- Spare pool: every unfitted piece, grouped implicitly by the FIT rows
                below (each ship-slot lists its own matching spares). Here we just
                show the count + a flat list so the user can see what has been minted. -->
-          {@const sparePool = state.equipment.filter((e) => e.fittedToShipId === null)}
+          {@const sparePool = (state.equipment ?? []).filter((e) => e.fittedToShipId === null)}
           <div class="dev-row">
             <span class="dev-label">Spares</span>
             <span class="dev-readout-text">{sparePool.length} in pool</span>
@@ -5437,7 +5437,7 @@
             {@const assignedCaptain = ship.assignedCaptainId !== null ? state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null : null}
             {@const onMission = assignedCaptain !== null && assignedCaptain.mission !== null}
             {@const baseStats = shipDerivedStats(ship, [])}
-            {@const fitStats = shipDerivedStats(ship, equippedFor(state, ship.id))}
+            {@const fitStats = shipDerivedStats(ship, equippedFor({ ...state, equipment: state.equipment ?? [] }, ship.id))}
             {@const statRows = [
               { label: "cargoCapacity", base: devEqFlat(baseStats.cargoCapacity), fit: devEqFlat(fitStats.cargoCapacity) },
               { label: "transitSpeed", base: devEqPct(baseStats.transitSpeedMult), fit: devEqPct(fitStats.transitSpeedMult) },
@@ -5463,7 +5463,7 @@
               {#each Object.keys(EQUIPMENT_SLOTS) as slotKey}
                 {@const slot = slotKey as EquipmentSlotType}
                 {@const fitted = fittedInSlot(state, ship.id, slot)}
-                {@const matchingSpares = state.equipment.filter((e) => e.fittedToShipId === null && e.slotType === slot)}
+                {@const matchingSpares = (state.equipment ?? []).filter((e) => e.fittedToShipId === null && e.slotType === slot)}
                 <div class="dev-row">
                   <span class="dev-label">{EQUIPMENT_SLOTS[slot].label}</span>
                   {#if fitted}
