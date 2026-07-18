@@ -23,6 +23,8 @@ import {
   FUEL_CREDITS_PER_UNIT,
   rarityIndex,
   EQUIPMENT_SLOTS,
+  LIVE_STAT_KEYS,
+  RESERVED_STAT_KEYS,
 } from "./model";
 import type {
   CaptainTalentKey,
@@ -1216,5 +1218,78 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     expect(req).toBeDefined();
     expect(req?.captainSpec).toBe("prospector");
     expect(req?.hullSpec).toBe("prospector");
+  });
+});
+
+// Equipment 0.11.0 Task 3: the GameState equipment/crafting fields + the STAT_KEYS
+// registry. Two guards. (1) freshState must seed the four additive fields at their
+// clean-slate values (empty pool, positive id allocator, crafting level 1 / 0 xp),
+// so a new game starts consistent with what later tasks (generation, fitting, the
+// crafting-XP engine) assume. (2) A DRIFT GUARD over EQUIPMENT_SLOTS: every stat key
+// the slot table references (implicit signature stats, affix-pool stats, AND every
+// variety's statRatios keys) MUST be a member of LIVE_STAT_KEYS. This is the same
+// fence the Task 2 test applies to implicits/affixes, EXTENDED to statRatios and
+// pointed at the EXPORTED registry, so a future stray/typo'd stat key folded into
+// the slot data trips this suite instead of silently shipping an un-consumed stat.
+describe("freshState equipment + crafting fields (0.11.0 Task 3)", () => {
+  it("seeds an empty equipment pool, a positive nextEquipmentId, crafting level 1, and 0 crafting xp", () => {
+    const state = freshState();
+    expect(state.equipment).toEqual([]); // no gear generated on a new save
+    expect(typeof state.nextEquipmentId).toBe("number");
+    expect(state.nextEquipmentId).toBeGreaterThan(0); // first minted id is "equip-1"
+    expect(state.craftingLevel).toBe(1); // 1-based, mirrors fleetAdminLevel
+    expect(state.craftingXp.equals(0)).toBe(true); // Decimal(0), idle-scale accumulator
+  });
+});
+
+describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)", () => {
+  const LIVE = new Set<string>(LIVE_STAT_KEYS);
+
+  it("every stat key referenced by any live slot is a member of LIVE_STAT_KEYS", () => {
+    for (const [key, slot] of Object.entries(EQUIPMENT_SLOTS)) {
+      // Signature (implicit) stats, always present on every piece in the slot.
+      for (const stat of slot.implicitStats) {
+        expect(LIVE.has(stat)).toBe(true);
+      }
+      // Affix-pool stats, the rolls a piece MAY draw on top of the implicits.
+      for (const affix of slot.affixPool) {
+        expect(LIVE.has(affix.stat)).toBe(true);
+      }
+      // Every variety's budget-distribution keys (NOT checked by the Task 2 test,
+      // this is the coverage this drift guard adds).
+      for (const variety of slot.varieties) {
+        for (const stat of Object.keys(variety.statRatios)) {
+          expect(LIVE.has(stat)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("LIVE_STAT_KEYS holds exactly the 10 live-this-patch keys", () => {
+    // Pins the LIVE vocabulary so a key added/removed here is a deliberate, tested
+    // change (the slot table draws only from this set).
+    expect([...LIVE_STAT_KEYS].sort()).toEqual(
+      [
+        "cargoCapacity",
+        "transitSpeedMult",
+        "engineEfficiency",
+        "fuelCapacity",
+        "extractionYieldMult",
+        "powerOutput",
+        "powerDrawReduction",
+        "massReduction",
+        "sensors",
+        "materialQualityChance",
+      ].sort(),
+    );
+  });
+
+  it("LIVE and RESERVED stat-key sets are disjoint (a key is live OR forward, never both)", () => {
+    // A key appearing in both lists would let a reserved (un-consumed) key sneak
+    // past the LIVE drift guard above, so pin the two vocabularies as disjoint.
+    const reserved = new Set<string>(RESERVED_STAT_KEYS);
+    for (const live of LIVE_STAT_KEYS) {
+      expect(reserved.has(live)).toBe(false);
+    }
   });
 });

@@ -849,6 +849,88 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   },
 };
 
+// ============================================================================
+// Equipment 0.11.0 (Task 3): the STAT-KEY REGISTRY. The single source of truth
+// for the stat VOCABULARY equipment stat lines draw from. DATA/VOCABULARY ONLY:
+// these are just the string keys, no magnitudes and no fold-in logic (a later
+// task maps the LIVE keys onto ship-derived stats). Split into two clearly
+// separated groups, LIVE and RESERVED, so the boundary between "consumed this
+// patch" and "forward vocabulary" is explicit rather than implied.
+// ============================================================================
+
+// LIVE this patch: the 10 stat keys the four live slots (EQUIPMENT_SLOTS above)
+// actually reference across their implicitStats, affixPool, and variety
+// statRatios. The model.test.ts drift guard asserts EVERY stat key in the slot
+// table is a member here, so a stray or typo'd key in the slot data fails the
+// suite instead of silently shipping an un-consumed stat. `as const` freezes the
+// tuple so the literals become the type (see LiveStatKey below), mirroring this
+// file's named-union convention.
+export const LIVE_STAT_KEYS = [
+  // Five that align with existing ship-derived fields (the later fold-in task
+  // maps equipment contributions onto these same ship stats):
+  "cargoCapacity",
+  "transitSpeedMult",
+  "engineEfficiency",
+  "fuelCapacity",
+  "extractionYieldMult",
+  // Five NEW equipment-only stat lines the slot table introduces (no ship field
+  // yet; the fold-in task defines how each resolves):
+  "powerOutput",
+  "powerDrawReduction",
+  "massReduction",
+  "sensors",
+  "materialQualityChance",
+] as const;
+
+// RESERVED forward vocabulary for 0.12.0 (combat / crew / sensor / defense).
+// Defined NOW so those systems plug in without a model change, but there is NO
+// CONSUMER this patch: no slot references any of these, and no fold-in reads
+// them. Same POPULATED-but-INERT posture as the reserved EquipmentSlotType
+// members and SHIP_TYPES.moduleSlots. Grouped by domain in comments for
+// readability; the array is flat because consumers only need membership /
+// enumeration, not the grouping.
+export const RESERVED_STAT_KEYS = [
+  // Logistics / crew / sensor:
+  "colonistCapacity",
+  "droneCapacity",
+  "crewStations",
+  "crewEfficiency",
+  "shortRangeSensors",
+  "longRangeSensors",
+  "sensorEfficiency",
+  // Propulsion / base attributes:
+  "movementSpeed",
+  "maneuverability",
+  "massBase",
+  "powerDrawBase",
+  // Weapons (the 9 first-pass weapons share this one stat shape):
+  "weaponYield",
+  "weaponAttackRate",
+  "weaponAccuracy",
+  "weaponProjectileCount",
+  // Defense:
+  "shieldCapacity",
+  "shieldRecharge",
+  "bleedthrough",
+  "bleedthroughResist",
+  "hullStrength",
+  "ablativeArmor",
+  "kineticDampening",
+] as const;
+
+// Grouped view of the SAME two arrays for a caller that wants the whole
+// vocabulary in one object (the design doc's "stat registry"). No new data, just
+// a convenience handle: import LIVE_STAT_KEYS / RESERVED_STAT_KEYS directly for a
+// Set-membership check, or STAT_KEYS.live / STAT_KEYS.reserved to enumerate.
+export const STAT_KEYS = { live: LIVE_STAT_KEYS, reserved: RESERVED_STAT_KEYS } as const;
+
+// Union types over the two vocabularies, for a future field/param that must hold
+// a KNOWN stat key. Forward convenience (no consumer this patch); derived from
+// the `as const` arrays so they can never drift from the runtime lists.
+export type LiveStatKey = (typeof LIVE_STAT_KEYS)[number];
+export type ReservedStatKey = (typeof RESERVED_STAT_KEYS)[number];
+export type StatKey = LiveStatKey | ReservedStatKey;
+
 export interface CaptainMissionState {
   missionKey: MissionKey;
   phase: MissionPhase;
@@ -1842,6 +1924,29 @@ export interface GameState {
   // unlockBlueprint effect) is Task R3; R1 only DEFINES + seeds the field and the two
   // pure read helpers below (blueprintUnlocked / blueprintResearchable).
   researchedBlueprints: string[];
+  // --- Equipment 0.11.0 (Task 3, docs/plans/2026-07-17-equipment-*.md) ----------
+  // The GLOBAL equipment POOL: every piece the fleet owns, fitted or spare. An
+  // EquipmentInstance.fittedToShipId is the SINGLE SOURCE OF TRUTH for where a
+  // piece lives (null = spare here in the pool), mirroring how ShipInstance
+  // .assignedCaptainId owns assignment rather than a duplicated flag, so the two
+  // can never disagree. Starts EMPTY on a fresh save; nothing generates or fits
+  // pieces yet (generation/fitting are later tasks). No Decimal on the instance,
+  // so hydrateDecimals (save.ts) needs no change, the array rides the `...state`
+  // spread verbatim, exactly like `ships`.
+  equipment: EquipmentInstance[];
+  // Monotonic id source for new EquipmentInstance.id ("equip-N"); never reused,
+  // mirrors nextShipId ("ship-N") / nextProcessId ("proc-N") / nextCraftLineId
+  // ("craft-N"). freshState seeds 1 so the first minted id is "equip-1".
+  nextEquipmentId: number;
+  // The crafting skill track that later tasks use to gate/boost equipment
+  // crafting. craftingLevel is 1-based (starts at 1, parallels fleetAdminLevel;
+  // level 0 is unused). craftingXp is the accumulator toward the next level,
+  // Decimal-typed because it is an idle-scale total like fleetAdminXp/credits
+  // (round-trips through JSON as a string, MUST be re-hydrated on load by
+  // save.ts's hydrateDecimals once the Task 20 migration seeds it). This pass
+  // only DEFINES + seeds them; the XP-award + level-up engine is a later task.
+  craftingLevel: number;
+  craftingXp: Decimal;
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -3224,5 +3329,15 @@ export function freshState(): GameState {
     // job. A string[] (no Decimal), so hydrateDecimals needs no change (see the field's
     // comment on GameState above).
     researchedBlueprints: [],
+    // Equipment 0.11.0 Task 3 (additive seed): an EMPTY equipment pool on a brand-
+    // new save, nextEquipmentId at 1 (first minted id "equip-1", mirrors nextShipId/
+    // nextProcessId/nextCraftLineId), and the crafting track at level 1 with 0 xp.
+    // Existing saves get these four fields via the Task 20 save migration, NOT this
+    // function's job (same split as researchedBlueprints/fuel: seeded here for new
+    // games, backfilled onto old saves by their own later migration task).
+    equipment: [],
+    nextEquipmentId: 1,
+    craftingLevel: 1,
+    craftingXp: new Decimal(0),
   };
 }
