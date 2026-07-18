@@ -6,6 +6,12 @@ import Decimal from "break_infinity.js";
 // runtime, and a value import back would create a cycle; `import type` is erased at
 // compile time, so there is no runtime import cycle.
 import type { CraftLine } from "./allocation";
+// Quality rolls (Equipment 0.11.0, Phase 4, Task 9b): rollQuality's tier ceiling is the
+// SAME quality-bucket range inventory.ts already owns (tiers 0..5, QUALITY_TIERS === 6).
+// Imported so the roll and the storage share ONE source of truth for the ceiling rather
+// than each hard-coding 5/6. inventory.ts imports nothing from this file, so this value
+// import creates NO cycle (unlike the CraftLine type-only import above).
+import { QUALITY_TIERS } from "./inventory";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -2585,6 +2591,74 @@ export const CRAFTING_XP_PER_DURATION_TICK = 2;
 // against real on-device play, do NOT treat 500 or the exponent as final.
 export function craftingXpForNext(level: number): Decimal {
   return new Decimal(500).times(level).times(level);
+}
+
+// ============================================================================
+// Quality roll at production (Equipment 0.11.0, Phase 4, Task 9b)
+// ============================================================================
+// When a producer (a mission delivery, a passive trickle, a completed refine /
+// fabricate job) deposits material, it now rolls ONE quality tier for that deposit and
+// the whole amount lands in that tier's bucket (inventory.ts addItemQuality), instead of
+// always bucket 0. This module owns ONLY the tunable ODDS + the pure roll; the DEPOSIT
+// wiring lives at the production seams in tick.ts (the loot fold in economyTick and the
+// addItem completion in resolveProcesses).
+//
+// ⚠️ FIRST-PASS TUNABLE ODDS, NOT balance-tested. QUALITY_STEP_CHANCE[i] is the chance to
+// advance FROM tier i TO tier i+1. The roll is COMPOUNDING: it starts at tier 0 and must
+// succeed at each step to climb, stopping at the first FAILURE (so reaching tier k costs k
+// consecutive successes). At ~0.1% per step the tiers are extremely rare and each higher
+// tier is ~1000x rarer than the one below, a deliberately steep curve so quality is a
+// long-tail reward. These odds MUST be re-balanced against real GATHER VOLUME later:
+// a fleet producing millions of units per hour will surface high tiers far more often than
+// these raw per-deposit odds suggest, so the final values depend on production throughput,
+// not just this table. The array LENGTH is the tier ceiling: it MUST equal QUALITY_TIERS-1
+// (5 steps -> max tier 5), so a deposit can never land above the highest bucket the storage
+// layer supports. Retuning is a one-line edit here with no engine change.
+export const QUALITY_STEP_CHANCE: readonly number[] = [
+  0.001, // tier 0 -> 1
+  0.001, // tier 1 -> 2
+  0.001, // tier 2 -> 3
+  0.001, // tier 3 -> 4
+  0.001, // tier 4 -> 5 (final step; success here reaches the QUALITY_TIERS-1 ceiling)
+];
+
+// Belt-and-suspenders: keep the odds table's length locked to the storage ceiling. If a
+// future edit adds/removes a bucket tier (QUALITY_TIERS) without updating this table, the
+// roll could either never reach the top tier or (with a mismatched loop bound) index past
+// the table; failing loudly at module-load surfaces that drift immediately rather than as a
+// silent mis-distribution deep in the economy. QUALITY_TIERS-1 = number of climb STEPS.
+if (QUALITY_STEP_CHANCE.length !== QUALITY_TIERS - 1) {
+  throw new Error(
+    `QUALITY_STEP_CHANCE length ${QUALITY_STEP_CHANCE.length} must equal QUALITY_TIERS-1 (${QUALITY_TIERS - 1})`
+  );
+}
+
+// rollQuality(rng): the pure, deterministic-given-rng quality roll for ONE production
+// deposit. Returns an integer tier 0..QUALITY_TIERS-1 (0..5). Compounding: climbs one tier
+// per SUCCESSIVE success and stops at the first failure, so tier 0 is overwhelmingly common
+// and each higher tier is progressively rarer (see QUALITY_STEP_CHANCE).
+//
+// RNG DRAW COUNT is VARIABLE: between 1 draw (immediate failure -> tier 0) and
+// QUALITY_STEP_CHANCE.length draws (all steps succeed -> the max tier). This mirrors the
+// early-return draw shape rollExtractionTick already uses, and is SAFE for offline==live
+// parity: both paths call rollQuality at the SAME deposit points off the SAME stepped rng
+// stream (tick() and App.svelte both drive economyTick one whole tick at a time), so the
+// sequence of rollQuality calls, and thus of draws, is identical regardless of how the span
+// was chunked. The variability only means a later draw's stream position depends on earlier
+// outcomes, which is true identically on both paths.
+export function rollQuality(rng: () => number): number {
+  let tier = 0;
+  // One climb attempt per step. `< chance` (not `<=`) matches every other rng gate in the
+  // engine (rollExtractionTick's `rng() < effectiveRareChance`), so a rng returning exactly
+  // the threshold does NOT advance, consistent across the codebase.
+  for (let step = 0; step < QUALITY_STEP_CHANCE.length; step++) {
+    if (rng() < QUALITY_STEP_CHANCE[step]) {
+      tier += 1; // this step succeeded, climb and try the next (compounding)
+    } else {
+      break; // first failure ends the climb; the tier reached so far is final
+    }
+  }
+  return tier;
 }
 
 // --- Captain & Homeworld Talent Trees (docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) ---

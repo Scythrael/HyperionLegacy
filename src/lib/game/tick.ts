@@ -16,6 +16,7 @@ import {
   xpForNextFleetAdminLevel,
   craftingXpForNext,
   CRAFTING_XP_PER_DURATION_TICK,
+  rollQuality,
   MISSIONS,
   BASE_XP_PER_TICK,
   SHIP_TYPES,
@@ -1270,23 +1271,35 @@ export function addToInventory(
   discovered: string[],
   itemId: string,
   amount: Decimal,
-  cap: Decimal
+  cap: Decimal,
+  quality: number = 0
 ): { inventory: Record<string, Decimal[]>; discovered: string[] } {
   // Quality-bucketed inventory (Task 9a): the cap is a TOTAL clamp (the whole item's
   // on-hand, summed across buckets, may not exceed `cap`). Compute the clamped total
   // exactly as the old scalar code did (raw = priorTotal + amount, then min against
   // cap; break_infinity.js's Decimal.min is BINARY), then deposit the DELTA into the
-  // QUALITY-0 bucket via addItemQuality. The delta equals the old scalar write's net
+  // rolled QUALITY bucket via addItemQuality. The delta equals the old scalar write's net
   // change: for a normal under-cap add it is just `amount`; when a prior over-cap
   // overshoot is being re-clamped it is NEGATIVE (cap - priorTotal), which pulls the
   // total back down to `cap`, byte-identical to the old `Decimal.min(raw, cap)` that
-  // also clamped an over-cap balance down. All deposits land at quality 0 in this
-  // refactor (nothing rolls a higher tier yet), so the single-bucket total IS the
-  // item total and this preserves the economy exactly.
+  // also clamped an over-cap balance down.
+  //
+  // QUALITY ROUTING (Task 9b): `quality` is the tier the CALLER already rolled for THIS
+  // deposit (rollQuality, model.ts); it defaults to 0 so every non-production caller (the
+  // warehouse-cap tests, any future non-rolled add) is byte-identical to before. The
+  // rolled tier is only honored for a POSITIVE delta (real produced material). A NON-
+  // positive delta is the defensive over-cap RE-CLAMP (or a zero no-op): it must drain the
+  // total back DOWN, so it stays on bucket 0 exactly as the Task-9a code did, never writing
+  // a NEGATIVE balance into a high (possibly empty) tier and never GROWING the bucket array
+  // for a no-op. Since a production add always has amount >= 0 and the clamp keeps the prior
+  // total <= cap, the delta is non-negative in every real deposit, so the rolled tier is
+  // what actually receives produced material; the bucket-0 branch is a guard, not a path
+  // normal play reaches.
   const priorTotal = itemTotal(inventory, itemId);
   const clampedTotal = Decimal.min(priorTotal.plus(amount), cap);
   const delta = clampedTotal.minus(priorTotal);
-  const nextInventory = addItemQuality(inventory, itemId, delta, 0);
+  const depositTier = delta.gt(0) ? quality : 0;
+  const nextInventory = addItemQuality(inventory, itemId, delta, depositTier);
   // DISCOVERY IS GATED ON THE REQUESTED amount (unchanged): receiving a positive
   // amount reveals the item even if the clamp discarded all of it.
   const nextDiscovered =
@@ -1574,10 +1587,23 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // gates discovery on a positive amount, so the seeded 0-delta ore tiers reveal
   // nothing and an ore-only fleet folds byte-identically to the old fixed loop.
   for (const key of Object.keys(homePlanetDelta)) {
+    // Quality roll at production (Task 9b): this fold is the single deposit seam for BOTH
+    // mission deliveries and passiveTrickle, so both roll a quality tier here and the whole
+    // per-key delta lands in that tier's bucket. The roll is GATED on a positive delta: the
+    // seeded ore tiers that delivered nothing this tick (a 0 delta) neither deposit nor
+    // consume an rng draw, so the stream stays meaningful and an ore-only fleet that
+    // delivered nothing rolls nothing. Because tick() (offline) and App.svelte (live) BOTH
+    // drive economyTick one whole tick at a time, this per-tick roll fires at the identical
+    // points off the identical stepped rng stream on both paths, so the per-bucket
+    // distribution of a big offline catch-up matches many small live steps exactly (the
+    // ⚠️ parity test in quality-roll.test.ts). A coarse first pass: a whole cycle's cargo
+    // shares ONE tier (rolled at delivery), NOT per-unit; per-unit grading is a later retune.
+    const amount = homePlanetDelta[key];
+    const quality = amount.gt(0) ? rollQuality(rng) : 0;
     // Warehouse cap clamp: the deposit is bounded at this item's cap (itemCap), so a
     // cycle completing while just-under-cap lands AT the cap instead of overshooting.
     // Below cap this is byte-identical to the old unclamped add (min is a no-op).
-    const added = addToInventory(inventory, discovered, key, homePlanetDelta[key], itemCap(state, key));
+    const added = addToInventory(inventory, discovered, key, amount, itemCap(state, key), quality);
     inventory = added.inventory;
     discovered = added.discovered;
   }
@@ -1644,7 +1670,7 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     next: postProcessState,
     fleetAdminXpDelta: processFleetAdminXpDelta,
     craftingXpDelta: processCraftingXpDelta,
-  } = resolveProcesses(postMissionState, ticksElapsed);
+  } = resolveProcesses(postMissionState, ticksElapsed, rng);
   fleetAdminXpDelta += processFleetAdminXpDelta;
 
   // Crafting Allocation Redesign (Task C2): process the per-slot REFINE production LINES
@@ -4093,12 +4119,26 @@ export function fuelRunwayProjection(input: {
 // single completion resolver (Task 9 calls it from BOTH tick() and the live loop).
 //
 // CLOSED-FORM: one resolveProcesses(state, N) must equal N resolveProcesses(_, 1)
-//, for the final inventory/facilities/activeProcesses AND the total FA XP. It
+//, for the final inventory TOTALS/facilities/activeProcesses AND the total FA XP. It
 // holds because each process's fate is a pure function of its remainingTicks vs
 // the elapsed total: decrementing by N once lands the same countdown as
 // decrementing by 1 N times, and a process that crosses zero completes exactly
 // ONCE either way (it is removed on completion, so a later/again call cannot
 // re-complete or re-award it). See the parity test in process.test.ts.
+//
+// ⚠️ QUALITY-BUCKET CAVEAT (Task 9b): the closed-form equality above is now stated over
+// inventory TOTALS (itemTotal), NOT the per-bucket split. Each completion rolls ONE quality
+// tier off `rng` (below), and a single big resolveProcesses(_,N) rolls all completions in
+// ARRAY order within one call, whereas N stepped resolveProcesses(_,1) rolls them in
+// per-TICK completion order; when several processes complete at different ticks in an order
+// differing from the array, the two chunkings draw the same rolls in a different order and
+// can split identical TOTALS across DIFFERENT buckets. This does NOT affect the game: the
+// real economy NEVER calls this with N>1, both offline (tick()) and live (App.svelte) step
+// economyTick ONE whole tick at a time, so every real resolveProcesses call sees
+// ticksElapsed ~= 1 and completes at most one tick's worth, making the offline==live
+// per-bucket parity that actually ships hold by construction (⚠️ parity test in
+// quality-roll.test.ts). The N>1 form is a unit-test convenience (process.test.ts) that
+// asserts TOTALS via itemTotal, which stay quality-agnostic and exact.
 //
 // FRACTIONAL-TICK ROBUSTNESS: Task 9 feeds ticksElapsed = deltaSeconds /
 // tickDurationSeconds, which can be fractional, so repeated decrements can leave
@@ -4124,7 +4164,15 @@ export function fuelRunwayProjection(input: {
 // same "fires exactly once per completion" reason.
 export function resolveProcesses(
   state: GameState,
-  ticksElapsed: number
+  ticksElapsed: number,
+  // Task 9b: the seeded rng a completing PRODUCTION job (addItem) draws its output's quality
+  // roll from. Threaded from economyTick (which owns the fleet's rng) so a job's tier is on
+  // the SAME stepped stream mission loot rolls from, making offline==live per-bucket parity
+  // structural. Defaults to Math.random so the many unit tests that call resolveProcesses
+  // directly with no rng keep working; those assert inventory TOTALS (itemTotal, quality-
+  // agnostic), which the roll never changes, so a nondeterministic default tier is harmless
+  // there. Non-addItem completions (fuel/blueprint/ship/facility) never touch it.
+  rng: () => number = Math.random
 ): { next: GameState; fleetAdminXpDelta: number; craftingXpDelta: number } {
   // Cheap same-reference no-op: nothing in flight, or no time actually elapsed.
   // Mirrors applyFleetAdminXp's early-out. (Every SURVIVING process always has
@@ -4193,6 +4241,16 @@ export function resolveProcesses(
     // COMPLETE. Apply the effect, award the lump FA XP, and DROP the process
     // (never pushed to stillActive) so it resolves exactly once.
     if (process.effect.type === "addItem") {
+      // Quality roll at production (Task 9b): a completed refine/fabricate job rolls ONE
+      // quality tier for its whole output amount, which then lands in that tier's bucket via
+      // the shared add seam (rather than always bucket 0). Rolled here, ONCE per completion,
+      // on the SAME rng stream mission loot uses; because the shipped economy always steps
+      // one whole tick at a time (tick() offline, App.svelte live), completions and their
+      // rolls occur in the identical order on both paths, so a big offline catch-up
+      // distributes crafted output across buckets identically to many small live steps
+      // (⚠️ parity test in quality-roll.test.ts). effect.amount is always > 0 for a real
+      // recipe, so this always contributes a genuine deposit.
+      const quality = rollQuality(rng);
       // Output granted through the shared add seam -> the item is marked
       // discovered (its amount is always > 0 for a real refine recipe). Warehouse cap
       // clamp: the deposit is bounded at the output item's cap (itemCap), so a job
@@ -4202,7 +4260,8 @@ export function resolveProcesses(
         discovered,
         process.effect.itemId,
         process.effect.amount,
-        itemCap(state, process.effect.itemId)
+        itemCap(state, process.effect.itemId),
+        quality
       );
       inventory = applied.inventory;
       discovered = applied.discovered;
