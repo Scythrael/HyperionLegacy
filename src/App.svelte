@@ -304,6 +304,11 @@
     type CraftLineMode,
     type CraftLineKind,
   } from "./lib/game/allocation";
+  // Quality-bucketed inventory helpers (Equipment 0.11.0, Task 9a): itemTotal(inv, item)
+  // reads an item's on-hand TOTAL across its quality buckets (absent -> 0), the bucketed
+  // twin of the old scalar `inventory[item] ?? new Decimal(0)`. addItemQuality deposits
+  // into a quality bucket (dev-grant handler uses quality 0). See src/lib/game/inventory.ts.
+  import { itemTotal, addItemQuality } from "./lib/game/inventory";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
@@ -1180,7 +1185,8 @@
           // These reads do NOT touch `state`/`stepped` or the economy; they only
           // feed the UI-local EMA updated after the stepping completes below.
           const preFuel = state.fuel.toNumber();
-          const preIce = state.inventory["deuteriumIce"]?.toNumber() ?? 0;
+          // Quality-bucketed (Task 9a): ice total across buckets via itemTotal (absent -> 0).
+          const preIce = itemTotal(state.inventory, "deuteriumIce").toNumber();
 
           // ⚠️ STEP per whole tick, exactly like the offline tick() path, do NOT hand
           // economyTick one big multi-tick span. economyTick's auto-stop cap-check and
@@ -1215,7 +1221,7 @@
           // one). The first sample seeds the EMA directly; thereafter it blends.
           // This is pure UI bookkeeping, it writes only these three locals and
           // never mutates `state`/`stepped` or the economy.
-          const postIce = stepped.inventory["deuteriumIce"]?.toNumber() ?? 0;
+          const postIce = itemTotal(stepped.inventory, "deuteriumIce").toNumber();
           const instDFuel = (stepped.fuel.toNumber() - preFuel) / ticksElapsed;
           const instDIce = (postIce - preIce) / ticksElapsed;
           emaDFuelPerTick =
@@ -1365,9 +1371,13 @@
       polysilicateWafer: 1000, // refined -> Fabricator input (powerCoupling)
       refinedMaterial: 1000, // generic refined (facility upgrades)
     };
-    const inventory = { ...state.inventory };
+    // Quality-bucketed (Task 9a): grant each material into its QUALITY-0 bucket via
+    // addItemQuality (threaded immutably, each call returns a fresh inventory), the
+    // bucketed twin of the old scalar clone + per-key `.plus()`. Dev grants land at
+    // quality 0 like every deposit in this refactor.
+    let inventory = state.inventory;
     for (const [itemId, amount] of Object.entries(grants)) {
-      inventory[itemId] = (inventory[itemId] ?? new Decimal(0)).plus(new Decimal(amount));
+      inventory = addItemQuality(inventory, itemId, new Decimal(amount), 0);
     }
     const discovered = [...new Set([...state.discovered, ...Object.keys(grants)])];
     state = { ...state, inventory, discovered };
@@ -2415,7 +2425,7 @@
       : fuelRunwayProjection({
           fuel: state.fuel.toNumber(),
           fuelCap: fuelCap(state).toNumber(),
-          ice: state.inventory["deuteriumIce"]?.toNumber() ?? 0,
+          ice: itemTotal(state.inventory, "deuteriumIce").toNumber(),
           dFuelPerTick: emaDFuelPerTick,
           dIcePerTick: emaDIcePerTick,
           burnPerTick: fuelFlow.burnPerTick,
@@ -3199,7 +3209,7 @@
                           {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
                           {@const free = freeItem(state.inventory, allLines, itemId)}
                           {@const allocated = allocatedItem(allLines, itemId)}
-                          {@const stock = state.inventory[itemId] ?? new Decimal(0)}
+                          {@const stock = itemTotal(state.inventory, itemId)}
                           <div class="mission-card" style="margin-top: 4px;">
                             <div class="research-cost">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
                             <div class="research-cost" style="color: var(--color-success);">Free {formatNumber(free)}</div>
@@ -3258,7 +3268,7 @@
                   <!-- Material readiness: [Item]: have / need, ✅ (have≥need) or ❌. -->
                   {#each Object.keys(nextRefineryUpgrade.materials) as itemId}
                     {@const need = nextRefineryUpgrade.materials[itemId]}
-                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const have = itemTotal(state.inventory, itemId)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
                       {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
@@ -3404,7 +3414,7 @@
                     <!-- Material readiness: [Item]: have / need, ✅/❌. -->
                     {#each Object.keys(nextRung.materials) as itemId}
                       {@const need = nextRung.materials[itemId]}
-                      {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                      {@const have = itemTotal(state.inventory, itemId)}
                       {@const met = have.gte(need)}
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
                         {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
@@ -3467,7 +3477,7 @@
                       <div class="warehouse-grid">
                         {#each group.items as item (item.id)}
                           {@const discovered = state.discovered.includes(item.id)}
-                          {@const count = state.inventory[item.id] ?? new Decimal(0)}
+                          {@const count = itemTotal(state.inventory, item.id)}
                           {@const atCap = discovered && materialAtCap(state, item.id)}
                           {@const pct = warehouseFillPct(count, cap)}
                           {@const rarityRing = item.rarity === "rare" || item.rarity === "epic" || item.rarity === "legendary"}
@@ -3610,7 +3620,7 @@
                        the Refinery/Warehouse upgrade tabs. -->
                   {#each Object.keys(nextMissionControlUpgrade.materials) as itemId}
                     {@const need = nextMissionControlUpgrade.materials[itemId]}
-                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const have = itemTotal(state.inventory, itemId)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
                       {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
@@ -3845,7 +3855,7 @@
 
                   {#each Object.keys(nextFuelStorageUpgrade.materials) as itemId}
                     {@const need = nextFuelStorageUpgrade.materials[itemId]}
-                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const have = itemTotal(state.inventory, itemId)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
                       {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
@@ -4048,7 +4058,7 @@
                        research track today, kept for parity with the sibling tabs. -->
                   {#each Object.keys(nextResearchUpgrade.materials) as itemId}
                     {@const need = nextResearchUpgrade.materials[itemId]}
-                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const have = itemTotal(state.inventory, itemId)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
                       {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
@@ -4254,7 +4264,7 @@
                             {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
                             {@const free = freeItem(state.inventory, allLines, itemId)}
                             {@const allocated = allocatedItem(allLines, itemId)}
-                            {@const stock = state.inventory[itemId] ?? new Decimal(0)}
+                            {@const stock = itemTotal(state.inventory, itemId)}
                             <div class="mission-card" style="margin-top: 4px;">
                               <div class="research-cost">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
                               <div class="research-cost" style="color: var(--color-success);">Free {formatNumber(free)}</div>
@@ -4328,7 +4338,7 @@
                        fabricator track today, kept for parity with the sibling tabs. -->
                   {#each Object.keys(nextFabricatorUpgrade.materials) as itemId}
                     {@const need = nextFabricatorUpgrade.materials[itemId]}
-                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const have = itemTotal(state.inventory, itemId)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
                       {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
@@ -4544,7 +4554,7 @@
                        parity with the sibling upgrade tabs. -->
                   {#each Object.keys(nextShipyardUpgrade.materials) as itemId}
                     {@const need = nextShipyardUpgrade.materials[itemId]}
-                    {@const have = state.inventory[itemId] ?? new Decimal(0)}
+                    {@const have = itemTotal(state.inventory, itemId)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
                       {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
@@ -5648,7 +5658,7 @@
     {@const tip = ITEMS[warehouseTooltip.itemId]}
     {#if tip}
       {@const tipId = warehouseTooltip.itemId}
-      {@const tipCount = state.inventory[tipId] ?? new Decimal(0)}
+      {@const tipCount = itemTotal(state.inventory, tipId)}
       {#if warehouseTooltip.dropChancePct !== null}
         <!-- Mission DROP ICON tooltip (2026-07-15), the SAME positioned element,
              styling, and one-open model as the warehouse tile tooltip, but with the

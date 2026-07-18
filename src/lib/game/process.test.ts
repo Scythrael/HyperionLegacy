@@ -21,6 +21,7 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { startProcess, resolveProcesses } from "./tick";
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { freshState, type TimedProcess, type ProcessEffect } from "./model";
 import { serialize, deserialize, migrate } from "./save";
 
@@ -29,9 +30,9 @@ import { serialize, deserialize, migrate } from "./save";
 // than freshState's all-zero seed.
 function stateWith(inventory: Record<string, number>) {
   const s = freshState();
-  const inv: Record<string, Decimal> = { ...s.inventory };
+  const inv: Record<string, Decimal[]> = { ...s.inventory };
   for (const key of Object.keys(inventory)) {
-    inv[key] = new Decimal(inventory[key]);
+    inv[key] = [new Decimal(inventory[key])];
   }
   return { ...s, inventory: inv };
 }
@@ -43,7 +44,7 @@ function stateWith(inventory: Record<string, number>) {
 function snapshot(state: ReturnType<typeof freshState>) {
   const inventory: Record<string, string> = {};
   for (const key of Object.keys(state.inventory)) {
-    inventory[key] = state.inventory[key].toString();
+    inventory[key] = itemTotal(state.inventory, key).toString();
   }
   const activeProcesses = state.activeProcesses.map((p) => ({
     id: p.id,
@@ -89,7 +90,7 @@ describe("startProcess, atomic deduct-at-start (Task 8)", () => {
     );
     expect(result.started).toBe(false);
     expect(result.next).toBe(state); // literally the same object, no clone on the reject path
-    expect(state.inventory.commonOre.toString()).toBe("5"); // untouched
+    expect(itemTotal(state.inventory, "commonOre").toString()).toBe("5"); // untouched
     expect(state.activeProcesses).toEqual([]);
     expect(state.nextProcessId).toBe(1);
   });
@@ -105,7 +106,7 @@ describe("startProcess, atomic deduct-at-start (Task 8)", () => {
     );
     expect(result.started).toBe(true);
     // Deducted at START (not at completion), inventory already reflects the reservation.
-    expect(result.next.inventory.commonOre.toString()).toBe("20");
+    expect(itemTotal(result.next.inventory, "commonOre").toString()).toBe("20");
     expect(result.next.activeProcesses).toHaveLength(1);
     const proc = result.next.activeProcesses[0];
     expect(proc).toMatchObject({
@@ -117,7 +118,7 @@ describe("startProcess, atomic deduct-at-start (Task 8)", () => {
     expect(proc.effect).toMatchObject({ type: "addItem", itemId: "refinedMaterial" });
     expect(result.next.nextProcessId).toBe(2); // monotonic bump
     // Immutability: the original state is untouched.
-    expect(state.inventory.commonOre.toString()).toBe("30");
+    expect(itemTotal(state.inventory, "commonOre").toString()).toBe("30");
     expect(state.activeProcesses).toEqual([]);
   });
 
@@ -133,8 +134,8 @@ describe("startProcess, atomic deduct-at-start (Task 8)", () => {
     expect(result.started).toBe(false);
     expect(result.next).toBe(state);
     // Neither input was touched, the whole start is atomic, no partial deduct.
-    expect(state.inventory.commonOre.toString()).toBe("100");
-    expect(state.inventory.rareMaterial.toString()).toBe("1");
+    expect(itemTotal(state.inventory, "commonOre").toString()).toBe("100");
+    expect(itemTotal(state.inventory, "rareMaterial").toString()).toBe("1");
   });
 });
 
@@ -147,7 +148,7 @@ describe("startProcess, double-consume guard (design §4)", () => {
     const state = stateWith({ commonOre: 10 });
     const first = startProcess(state, "refineJob", { commonOre: new Decimal(10) }, 10, addItem("refinedMaterial", 1));
     expect(first.started).toBe(true);
-    expect(first.next.inventory.commonOre.toString()).toBe("0");
+    expect(itemTotal(first.next.inventory, "commonOre").toString()).toBe("0");
 
     const second = startProcess(
       first.next, // threaded forward from the first start's result
@@ -158,7 +159,7 @@ describe("startProcess, double-consume guard (design §4)", () => {
     );
     expect(second.started).toBe(false);
     expect(second.next).toBe(first.next); // rejected, inventory never goes negative
-    expect(second.next.inventory.commonOre.toString()).toBe("0");
+    expect(itemTotal(second.next.inventory, "commonOre").toString()).toBe("0");
     expect(second.next.activeProcesses).toHaveLength(1); // still just the first job
   });
 });
@@ -177,7 +178,7 @@ describe("resolveProcesses, completion applies effects, lumps FA XP, removes the
 
     const { next, fleetAdminXpDelta } = resolveProcesses(state, 10); // exactly reaches 0
 
-    expect(next.inventory.refinedMaterial.toString()).toBe("3"); // output granted
+    expect(itemTotal(next.inventory, "refinedMaterial").toString()).toBe("3"); // output granted
     expect(next.discovered).toContain("refinedMaterial"); // routed through addToInventory -> discovered
     expect(next.activeProcesses).toEqual([]); // completed process removed
     expect(fleetAdminXpDelta).toBe(10); // lump FA XP == durationTicks, once
@@ -216,7 +217,7 @@ describe("resolveProcesses, completion applies effects, lumps FA XP, removes the
 
     expect(next.activeProcesses).toHaveLength(1);
     expect(next.activeProcesses[0].remainingTicks).toBe(40); // 60 - 20
-    expect(next.inventory.components.toString()).toBe("0"); // NOT granted yet
+    expect(itemTotal(next.inventory, "components").toString()).toBe("0"); // NOT granted yet
     expect(fleetAdminXpDelta).toBe(0);
   });
 
@@ -267,8 +268,8 @@ describe("resolveProcesses, CLOSED-FORM parity (critical): one big resolve == ma
     // Spot-check the concrete outcome so a silent double-count/omission is caught:
     // refinedMaterial += 5 + 3 (proc-5's +7 excluded), components += 2, refinery 0->1,
     // proc-5 survives with 500 - 320 == 180 remaining.
-    expect(jumped.next.inventory.refinedMaterial.toString()).toBe("8");
-    expect(jumped.next.inventory.components.toString()).toBe("2");
+    expect(itemTotal(jumped.next.inventory, "refinedMaterial").toString()).toBe("8");
+    expect(itemTotal(jumped.next.inventory, "components").toString()).toBe("2");
     expect(jumped.next.facilities.refinery.level).toBe(1);
     expect(jumped.next.activeProcesses).toHaveLength(1);
     expect(jumped.next.activeProcesses[0].id).toBe("proc-5");

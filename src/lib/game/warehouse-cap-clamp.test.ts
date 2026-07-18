@@ -26,7 +26,13 @@
 import { describe, it, expect } from "vitest";
 import { addToInventory, itemCap, tierCap, economyTick, tick } from "./tick";
 import { freshState, type CaptainMissionState, type MissionKey } from "./model";
+import { itemTotal } from "./inventory";
 import Decimal from "break_infinity.js";
+
+// Quality-bucketed inventory (Task 9a): storage is now Record<string, Decimal[]> (an
+// array of quality-tier buckets per item). These tests still assert the same TOTALS,
+// read here via itemTotal (sum across buckets), just stored in bucketed shape. A count
+// seeded as `new Decimal(N)` becomes a single quality-0 bucket `[new Decimal(N)]`.
 
 // The sentinel value tierCap/itemCap return for an un-warehoused tier or an unknown
 // item id, kept in sync with tick.ts's WAREHOUSE_UNCAPPED_SENTINEL (not exported;
@@ -55,25 +61,25 @@ describe("warehouse cap clamp, addToInventory clamps producer deposits at the it
     const state = freshState();
     const cap = itemCap(state, "commonOre"); // tier-1 cap (1,000,000 at level 0)
     // Start 100 below the cap, then deposit 500 -> naive would be cap+400.
-    const inventory: Record<string, Decimal> = { commonOre: cap.minus(100) };
+    const inventory: Record<string, Decimal[]> = { commonOre: [cap.minus(100)] };
     const { inventory: next } = addToInventory(inventory, ["commonOre"], "commonOre", new Decimal(500), cap);
     // Lands AT the cap, never past it.
-    expect(next.commonOre.equals(cap)).toBe(true);
-    expect(next.commonOre.gt(cap)).toBe(false);
+    expect(itemTotal(next, "commonOre").equals(cap)).toBe(true);
+    expect(itemTotal(next, "commonOre").gt(cap)).toBe(false);
   });
 
   // (2) An UNCAPPED item (its cap is the sentinel) is never clamped, deposits
   //     accumulate freely, because no reachable quantity approaches 1e1000.
   it("never clamps an uncapped (sentinel-cap) item, deposits accumulate freely", () => {
     const cap = UNCAPPED_SENTINEL;
-    let inventory: Record<string, Decimal> = { unknownRaw: new Decimal(0) };
+    let inventory: Record<string, Decimal[]> = { unknownRaw: [new Decimal(0)] };
     const disc: string[] = [];
     // A huge single deposit is untouched (1e50 << 1e1000).
     ({ inventory } = addToInventory(inventory, disc, "unknownRaw", new Decimal("1e50"), cap));
-    expect(inventory.unknownRaw.equals(new Decimal("1e50"))).toBe(true);
+    expect(itemTotal(inventory, "unknownRaw").equals(new Decimal("1e50"))).toBe(true);
     // A second huge deposit keeps accumulating, min never bites.
     ({ inventory } = addToInventory(inventory, disc, "unknownRaw", new Decimal("1e50"), cap));
-    expect(inventory.unknownRaw.equals(new Decimal("2e50"))).toBe(true);
+    expect(itemTotal(inventory, "unknownRaw").equals(new Decimal("2e50"))).toBe(true);
   });
 
   // (3) A below-cap deposit is byte-identical to the old plain `.plus()`, the clamp
@@ -81,9 +87,9 @@ describe("warehouse cap clamp, addToInventory clamps producer deposits at the it
   it("leaves a below-cap deposit byte-identical to have+amount", () => {
     const state = freshState();
     const cap = itemCap(state, "commonOre"); // 1,000,000, far above these values
-    const inventory: Record<string, Decimal> = { commonOre: new Decimal(100) };
+    const inventory: Record<string, Decimal[]> = { commonOre: [new Decimal(100)] };
     const { inventory: next } = addToInventory(inventory, ["commonOre"], "commonOre", new Decimal(50), cap);
-    expect(next.commonOre.equals(new Decimal(150))).toBe(true);
+    expect(itemTotal(next, "commonOre").equals(new Decimal(150))).toBe(true);
   });
 
   // (4) itemCap resolves the tier cap for a catalogued item and the fail-open sentinel
@@ -117,7 +123,7 @@ describe("warehouse cap clamp, ⚠️ offline parity across a cap-crossing missi
       const s = freshState();
       s.captains[0].mission = missionCaptain("shortOreRun");
       s.fuel = new Decimal(1_000_000);
-      s.inventory = { ...s.inventory, commonOre: startCommonOre };
+      s.inventory = { ...s.inventory, commonOre: [startCommonOre] };
       return s;
     };
 
@@ -127,7 +133,7 @@ describe("warehouse cap clamp, ⚠️ offline parity across a cap-crossing missi
     // --- CONTROL: from 0, how much commonOre does this span actually deliver? ---
     // Proves the haul is real and far exceeds GAP (so the crossing genuinely overshoots).
     const controlResult = tick(SPAN_TICKS, makeState(new Decimal(0)), () => 0.999);
-    const delivered = controlResult.inventory.commonOre;
+    const delivered = itemTotal(controlResult.inventory, "commonOre");
     expect(delivered.gt(GAP)).toBe(true); // haul > gap => the crossing is non-vacuous
 
     // --- OFFLINE path: one tick(bigSpan) call (internally loops economyTick(state,1)). ---
@@ -140,8 +146,8 @@ describe("warehouse cap clamp, ⚠️ offline parity across a cap-crossing missi
     }
 
     // Bit-identical across the two paths (parity), AND both land EXACTLY at the cap.
-    expect(viaTick.inventory.commonOre.equals(stepped.inventory.commonOre)).toBe(true);
-    expect(viaTick.inventory.commonOre.equals(cap)).toBe(true);
-    expect(viaTick.inventory.commonOre.gt(cap)).toBe(false); // never overshoots
+    expect(itemTotal(viaTick.inventory, "commonOre").equals(itemTotal(stepped.inventory, "commonOre"))).toBe(true);
+    expect(itemTotal(viaTick.inventory, "commonOre").equals(cap)).toBe(true);
+    expect(itemTotal(viaTick.inventory, "commonOre").gt(cap)).toBe(false); // never overshoots
   });
 });

@@ -21,7 +21,13 @@ import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { canBuildFacilityUpgrade, startFacilityUpgrade, resolveProcesses } from "./tick";
 import { freshState, FACILITIES, type HomeworldTalentKey } from "./model";
+import { itemTotal } from "./inventory";
 import type { CraftLine } from "./allocation";
+
+// Quality-bucketed inventory (Task 9a): storage is Record<string, Decimal[]> now. The
+// stateWith helper wraps each seeded count into a single quality-0 bucket, and reads go
+// through itemTotal (sum across buckets). Assertions are unchanged in MEANING (a total
+// of "0"/"100"/"750" is still asserted), only the storage shape differs.
 
 // A refine line reserving `remaining` iterations of refineCommonOre (100 commonOre
 // each). Used by the reservation-aware upgrade tests below to reserve the SAME
@@ -40,9 +46,10 @@ function stateWith(opts: {
   unlockedHomeworldTalents?: HomeworldTalentKey[];
 }) {
   const s = freshState();
-  const inventory: Record<string, Decimal> = { ...s.inventory };
+  const inventory: Record<string, Decimal[]> = { ...s.inventory };
   for (const key of Object.keys(opts.inventory ?? {})) {
-    inventory[key] = new Decimal(opts.inventory![key]);
+    // Wrap each seeded count into a single quality-0 bucket (Task 9a bucketed shape).
+    inventory[key] = [new Decimal(opts.inventory![key])];
   }
   return {
     ...s,
@@ -149,7 +156,7 @@ describe("startFacilityUpgrade, delegates to startProcess (atomic deduct-at-star
 
     expect(started.started).toBe(true);
     // Materials deducted AT START (not at completion), inventory already 0.
-    expect(started.next.inventory.commonOre.toString()).toBe("0");
+    expect(itemTotal(started.next.inventory, "commonOre").toString()).toBe("0");
     expect(started.next.activeProcesses).toHaveLength(1);
     const proc = started.next.activeProcesses[0];
     expect(proc.kind).toBe("facilityUpgrade");
@@ -171,7 +178,7 @@ describe("startFacilityUpgrade, delegates to startProcess (atomic deduct-at-star
     const result = startFacilityUpgrade(state, "refinery");
     expect(result.started).toBe(false);
     expect(result.next).toBe(state); // literally the same object, no clone on reject
-    expect(state.inventory.commonOre.toString()).toBe("50"); // untouched
+    expect(itemTotal(state.inventory, "commonOre").toString()).toBe("50"); // untouched
     expect(state.activeProcesses).toEqual([]);
   });
 });
@@ -188,7 +195,7 @@ describe("canBuildFacilityUpgrade, sequential-per-facility gate (one upgrade in 
     const first = startFacilityUpgrade(state, "refinery");
     expect(first.started).toBe(true);
     expect(first.next.activeProcesses).toHaveLength(1);
-    expect(first.next.inventory.commonOre.toString()).toBe("100"); // one build's cost deducted
+    expect(itemTotal(first.next.inventory, "commonOre").toString()).toBe("100"); // one build's cost deducted
 
     // The refinery now has an in-flight upgrade -> canBuild is blocked even though
     // 100 more ore is on hand and the rung is otherwise satisfiable.
@@ -202,7 +209,7 @@ describe("canBuildFacilityUpgrade, sequential-per-facility gate (one upgrade in 
     expect(second.started).toBe(false);
     expect(second.next).toBe(first.next);
     expect(second.next.activeProcesses).toHaveLength(1); // still just the first
-    expect(second.next.inventory.commonOre.toString()).toBe("100"); // not double-deducted
+    expect(itemTotal(second.next.inventory, "commonOre").toString()).toBe("100"); // not double-deducted
 
     // Complete the in-flight build -> level 0 -> 1, process removed. The NEXT rung
     // (upgrades[1]) is now the target. It requires FA level 2, so at fresh FA level
@@ -221,7 +228,7 @@ describe("canBuildFacilityUpgrade, sequential-per-facility gate (one upgrade in 
     const readyForRung1 = {
       ...resolved.next,
       fleetAdminLevel: 2,
-      inventory: { ...resolved.next.inventory, commonOre: new Decimal(750) },
+      inventory: { ...resolved.next.inventory, commonOre: [new Decimal(750)] },
     };
     expect(canBuildFacilityUpgrade(readyForRung1, "refinery").ok).toBe(true);
   });
@@ -289,7 +296,7 @@ describe("canBuildFacilityUpgrade, reservation-aware (gates on craft-line `free`
     expect(result.started).toBe(false);
     expect(result.next).toBe(reserved); // same reference, rejected before any clone
     // The reserved ore is untouched, it stays available for the line's iteration.
-    expect(reserved.inventory.commonOre.toString()).toBe("100");
+    expect(itemTotal(reserved.inventory, "commonOre").toString()).toBe("100");
     expect(reserved.activeProcesses).toEqual([]);
   });
 
@@ -300,7 +307,7 @@ describe("canBuildFacilityUpgrade, reservation-aware (gates on craft-line `free`
     const state = stateWith({ inventory: { commonOre: 100 } });
     const started = startFacilityUpgrade(state, "refinery");
     expect(started.started).toBe(true);
-    expect(started.next.inventory.commonOre.toString()).toBe("0"); // physical deduct
+    expect(itemTotal(started.next.inventory, "commonOre").toString()).toBe("0"); // physical deduct
     expect(started.next.activeProcesses).toHaveLength(1);
   });
 });

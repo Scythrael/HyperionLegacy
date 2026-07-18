@@ -33,6 +33,7 @@ import type {
   EquipmentRarity,
 } from "./model";
 import { fuelNeeded } from "./fuel";
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 
 describe("freshState, captain roster shape", () => {
   it("starts with exactly 1 captain (Command branch is how the roster grows now)", () => {
@@ -129,11 +130,11 @@ describe("freshState / freshCaptainStack, mission and Home Planet fields", () =>
     // (Converted from homePlanet.storage to the keyed inventory, Task 6; this is
     // CURRENT freshState, and Task 7 removes the storage field, so it must read
     // inventory, now the canonical material balance.)
-    expect(state.inventory.commonOre.equals(0)).toBe(true);
-    expect(state.inventory.uncommonMaterial.equals(0)).toBe(true);
-    expect(state.inventory.rareMaterial.equals(0)).toBe(true);
-    expect(state.inventory.refinedMaterial.equals(0)).toBe(true);
-    expect(state.inventory.components.equals(0)).toBe(true);
+    expect(itemTotal(state.inventory, "commonOre").equals(0)).toBe(true);
+    expect(itemTotal(state.inventory, "uncommonMaterial").equals(0)).toBe(true);
+    expect(itemTotal(state.inventory, "rareMaterial").equals(0)).toBe(true);
+    expect(itemTotal(state.inventory, "refinedMaterial").equals(0)).toBe(true);
+    expect(itemTotal(state.inventory, "components").equals(0)).toBe(true);
   });
 
   it("freshCaptainStack's mission field is null (a brand-new/unlocked captain slot starts idle)", () => {
@@ -166,7 +167,7 @@ describe("Phase 1, keyed inventory + discovered (additive)", () => {
     // other Decimal-field assertion in this file (see the inventory zero-init
     // test above for the full rationale).
     for (const key of inventoryKeys) {
-      expect(state.inventory[key].equals(0)).toBe(true);
+      expect(itemTotal(state.inventory, key).equals(0)).toBe(true);
     }
   });
 

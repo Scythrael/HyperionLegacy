@@ -47,7 +47,7 @@ import {
 } from "./model";
 import { fuelNeeded } from "./fuel";
 import { canDispatch, dispatchCaptainOnMission, economyTick, tick } from "./tick";
-
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 const NEED = fuelNeeded(MISSIONS.shortOreRun, SHIP_TYPES.generalFreighter); // 50
 const CYCLE_TICKS = 149; // 1 + 25 + 90 + 25 + 8
 const AUTOBUY_COST = NEED * FUEL_CREDITS_PER_UNIT; // 50 * 20 = 1000 (empty-tank top-up)
@@ -62,7 +62,7 @@ const ALL_COMMON = () => 0.5;
 // Seeds a Deuterium Ice reserve onto a state (immutably), standing in for the free
 // localFuelRun mission's ice output so the Fuel Depot's pipelines have something to refine.
 function withIce(s: GameState, amount: number): GameState {
-  return { ...s, inventory: { ...s.inventory, deuteriumIce: new Decimal(amount) } };
+  return { ...s, inventory: { ...s.inventory, deuteriumIce: [new Decimal(amount)] } };
 }
 
 // Step economyTick(state, 1) n times, the SAME per-tick stepping tick()'s offline loop does.
@@ -127,7 +127,7 @@ describe("F3, SUSTAINABILITY is the non-bricking guarantee (refining, not credit
     //     consumed (a pure drain would leave 450 - 250 = 200). Credit auto-buy is NOT the source
     //     (credits were 0 at dispatch), and the reserve was actually drawn down (proof below).
     expect(after.fuel.gte(450)).toBe(true);
-    expect(after.inventory.deuteriumIce.lt(5000)).toBe(true); // ice WAS consumed into fuel
+    expect(itemTotal(after.inventory, "deuteriumIce").lt(5000)).toBe(true); // ice WAS consumed into fuel
     // ...and mission rewards flowed (credits rose from the fresh 0), confirming cycles ran.
     expect(after.credits.gt(0)).toBe(true);
   });
@@ -256,9 +256,9 @@ describe("Fuel-sourcing restructure, the free localFuelRun bootstrap runs on 0 f
     const afterDelivery = step(s, 99);
     // Ice was delivered (a positive Deuterium Ice balance appeared), and ONLY Deuterium Ice:
     // the generic uncommon/rare tiers stayed 0 (uncommonChance/rareChance are 0).
-    expect((afterDelivery.inventory.deuteriumIce ?? new Decimal(0)).gt(0)).toBe(true);
-    expect((afterDelivery.inventory.uncommonMaterial ?? new Decimal(0)).eq(0)).toBe(true);
-    expect((afterDelivery.inventory.rareMaterial ?? new Decimal(0)).eq(0)).toBe(true);
+    expect(itemTotal(afterDelivery.inventory, "deuteriumIce").gt(0)).toBe(true);
+    expect(itemTotal(afterDelivery.inventory, "uncommonMaterial").eq(0)).toBe(true);
+    expect(itemTotal(afterDelivery.inventory, "rareMaterial").eq(0)).toBe(true);
 
     // Let the Depot refine that ice: fuel rises from 0, ice is consumed by the batch.
     const afterRefine = step(afterDelivery, 15);
@@ -299,7 +299,7 @@ describe("⚠️ F3 REQUIRED offline==live PARITY, refining + consumption + auto
     return {
       fuel: st.fuel.toString(),
       credits: st.credits.toString(),
-      ice: (st.inventory.deuteriumIce ?? new Decimal(0)).toString(),
+      ice: itemTotal(st.inventory, "deuteriumIce").toString(),
       mission: m
         ? { phase: m.phase, progress: m.phaseProgressTicks, delay: m.refuelDelayTicks ?? 0, key: m.missionKey, recalled: m.recalled }
         : null,
@@ -325,7 +325,7 @@ describe("⚠️ F3 REQUIRED offline==live PARITY, refining + consumption + auto
 
     // NON-VACUOUS proofs that all four mechanisms actually fired:
     //  - refining: the whole 100-ice reserve was consumed into fuel.
-    expect((offline.inventory.deuteriumIce ?? new Decimal(0)).eq(0)).toBe(true);
+    expect(itemTotal(offline.inventory, "deuteriumIce").eq(0)).toBe(true);
     //  - consumption + auto-buy + penalty: a +2-tick refuel penalty was observed (auto-buy path).
     expect(sawPenalty).toBe(true);
     //  - the mission is still alive at span end (ample credits kept auto-buy funded).

@@ -20,6 +20,7 @@ import {
   FUEL_CREDITS_PER_UNIT,
   FUEL_TANK_BASE_CAP,
 } from "./model";
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { roundTripTransitTicks, fuelNeeded } from "./fuel";
 import { fuelCap, buyFuel, dispatchCaptainOnMission, economyTick, tick } from "./tick";
 import { serialize, deserialize, migrate, SAVE_VERSION, type SaveFile } from "./save";
@@ -340,8 +341,8 @@ describe("⚠️ offline==live PARITY for a broke-stop run (mid-span hard-stop)"
     expect(offline.credits.eq(30)).toBe(true);
     // rng ()=>0 wins the rare tier every extraction tick (0 < rareChance 0.001), so all
     // loot lands in rareMaterial: 90 rolls/cycle x 1 delivered cycle = 90.
-    const offRare = offline.inventory.rareMaterial ?? new Decimal(0);
-    const liveRare = live.inventory.rareMaterial ?? new Decimal(0);
+    const offRare = itemTotal(offline.inventory, "rareMaterial");
+    const liveRare = itemTotal(live.inventory, "rareMaterial");
     expect(offRare.equals(liveRare)).toBe(true);
     expect(offRare.eq(90)).toBe(true); // non-vacuous: 1 cycle's worth actually delivered
     // Captain XP + level must also match across the two paths (whole-tick accrual).

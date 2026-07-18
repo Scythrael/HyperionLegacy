@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import { migrate, serialize, deserialize, importRawSave, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintResearchable } from "./model";
 // Mission Rework Task 9: the v20->v21 round-trip test proves no soft-lock by exercising
 // the LIVE mission-unlock + dispatch + buy-fuel path on the migrated state (not just a
@@ -46,8 +47,8 @@ describe("migrate, tickDurationSeconds backfill", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -85,8 +86,8 @@ describe("migrate, research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -259,8 +260,8 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -356,8 +357,8 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -462,8 +463,8 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -528,16 +529,16 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
     // never held loot. Per-key instanceof + .equals() checks (Decimal is an object,
     // never structurally equals a plain number).
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(0)).toBe(true);
-    expect(migrated.inventory.uncommonMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.uncommonMaterial.equals(0)).toBe(true);
-    expect(migrated.inventory.rareMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.rareMaterial.equals(0)).toBe(true);
-    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.refinedMaterial.equals(0)).toBe(true);
-    expect(migrated.inventory.components instanceof Decimal).toBe(true);
-    expect(migrated.inventory.components.equals(0)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(0)).toBe(true);
+    expect(migrated.inventory.uncommonMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(0)).toBe(true);
+    expect(migrated.inventory.rareMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "rareMaterial").equals(0)).toBe(true);
+    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(0)).toBe(true);
+    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "components").equals(0)).toBe(true);
     expect(migrated.captains[0].mission).toBe(null);
 
     // Unrelated pre-existing fields on the captain survive the backfill untouched.
@@ -547,8 +548,8 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -598,12 +599,12 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
     expect(migrated.captains[0].level).toBe(1);
     expect(migrated.captains[0].statPoints).toBe(0);
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.refinedMaterial.equals(0)).toBe(true);
-    expect(migrated.inventory.components instanceof Decimal).toBe(true);
-    expect(migrated.inventory.components.equals(0)).toBe(true);
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(200)).toBe(true); // untouched fields survive
+    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(0)).toBe(true);
+    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "components").equals(0)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(200)).toBe(true); // untouched fields survive
 
     // Unrelated pre-existing fields survive the v8->v9 backfill untouched...
     expect(migrated.captains[0].mission).toBe(null);
@@ -617,8 +618,8 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -670,14 +671,14 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
     expect(migrated.captains[0].level).toBe(3);
     expect(migrated.captains[0].statPoints).toBe(2);
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(300)).toBe(true);
-    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.refinedMaterial.equals(6)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(300)).toBe(true);
+    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -723,8 +724,8 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
     // 10. .equals(), not .toBe() (Decimal is an object, reference-compared by toBe,
     // which would always fail here).
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(10)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(10)).toBe(true);
   });
 
   it("defaults to 10 if the first captain has no tickDurationSeconds at all (defense in depth, not reachable today)", () => {
@@ -746,8 +747,8 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -817,16 +818,16 @@ describe("migrate, Big-Number (Decimal) hydration (v11 -> v12)", () => {
     // The 5 material balances end up in `inventory` (MIGRATIONS[17] builds it 1:1
     // from storage, then strips homePlanet, Task 7).
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(120)).toBe(true);
-    expect(migrated.inventory.uncommonMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.uncommonMaterial.equals(8)).toBe(true);
-    expect(migrated.inventory.rareMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.rareMaterial.equals(3)).toBe(true);
-    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.refinedMaterial.equals(15)).toBe(true);
-    expect(migrated.inventory.components instanceof Decimal).toBe(true);
-    expect(migrated.inventory.components.equals(4)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(120)).toBe(true);
+    expect(migrated.inventory.uncommonMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(8)).toBe(true);
+    expect(migrated.inventory.rareMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "rareMaterial").equals(3)).toBe(true);
+    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(15)).toBe(true);
+    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "components").equals(4)).toBe(true);
 
     // fleetAdminXp.
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
@@ -907,16 +908,16 @@ describe("migrate, Big-Number (Decimal) hydration (v11 -> v12)", () => {
     // state, not an old-save migration input, and Task 7 removes the storage
     // field, so these must read inventory. hydrateDecimals()'s per-value
     // hydrateDecimalMap(inventory) branch is what revives them here.)
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(original.inventory.commonOre)).toBe(true);
-    expect(migrated.inventory.uncommonMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.uncommonMaterial.equals(original.inventory.uncommonMaterial)).toBe(true);
-    expect(migrated.inventory.rareMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.rareMaterial.equals(original.inventory.rareMaterial)).toBe(true);
-    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.refinedMaterial.equals(original.inventory.refinedMaterial)).toBe(true);
-    expect(migrated.inventory.components instanceof Decimal).toBe(true);
-    expect(migrated.inventory.components.equals(original.inventory.components)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(itemTotal(original.inventory, "commonOre"))).toBe(true);
+    expect(migrated.inventory.uncommonMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(itemTotal(original.inventory, "uncommonMaterial"))).toBe(true);
+    expect(migrated.inventory.rareMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "rareMaterial").equals(itemTotal(original.inventory, "rareMaterial"))).toBe(true);
+    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(itemTotal(original.inventory, "refinedMaterial"))).toBe(true);
+    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "components").equals(itemTotal(original.inventory, "components"))).toBe(true);
 
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(original.fleetAdminXp)).toBe(true);
@@ -1183,8 +1184,8 @@ describe("migrate, credits and Captain Specialization backfill (v13 -> v14)", ()
     expect(migrated.captains[0].statPoints).toBe(1);
     expect(migrated.captains[1].id).toBe(2);
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(50)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(50)).toBe(true);
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(120)).toBe(true);
     expect(migrated.gameTimeSeconds).toBe(6000);
@@ -1317,8 +1318,8 @@ describe("migrate, Radial Skill Web talent restructure (v14 -> v15)", () => {
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(200)).toBe(true);
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(80)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(80)).toBe(true);
     expect(migrated.gameTimeSeconds).toBe(7000);
   });
 
@@ -1473,8 +1474,8 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
     expect(migrated.credits instanceof Decimal).toBe(true);
     expect(migrated.credits.equals(0)).toBe(true);
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(50)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(50)).toBe(true);
     expect(migrated.gameTimeSeconds).toBe(6000);
   });
 
@@ -1535,8 +1536,8 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
     expect(migrated.nextShipId).toBe(original.nextShipId);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -1629,8 +1630,8 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(0)).toBe(true);
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(50)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(50)).toBe(true);
     expect(migrated.ships).toHaveLength(2);
     expect(migrated.ships[0].typeKey).toBe("generalFreighter");
     expect(migrated.shipStorageCapacity).toBe(8);
@@ -1743,8 +1744,8 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.missionsCompleted.longOreRun.equals(3)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -1825,16 +1826,16 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     expect(Object.keys(migrated.inventory).sort()).toEqual(
       ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"]
     );
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(500)).toBe(true);
-    expect(migrated.inventory.uncommonMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.uncommonMaterial.equals(0)).toBe(true);
-    expect(migrated.inventory.rareMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.rareMaterial.equals(12)).toBe(true);
-    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.refinedMaterial.equals(0)).toBe(true);
-    expect(migrated.inventory.components instanceof Decimal).toBe(true);
-    expect(migrated.inventory.components.equals(3)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(500)).toBe(true);
+    expect(migrated.inventory.uncommonMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(0)).toBe(true);
+    expect(migrated.inventory.rareMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "rareMaterial").equals(12)).toBe(true);
+    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(0)).toBe(true);
+    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "components").equals(3)).toBe(true);
 
     // discovered contains EXACTLY the >0 items, no zero-balance key leaks in.
     expect(migrated.discovered.sort()).toEqual(["commonOre", "components", "rareMaterial"]);
@@ -1939,7 +1940,7 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     expect(Object.keys(migrated.inventory).sort()).toEqual(
       ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"]
     );
-    expect(migrated.inventory.commonOre.equals(0)).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(0)).toBe(true);
     expect(migrated.discovered).toEqual([]); // no owned items -> no discoveries
     // Eight facilities, MIGRATIONS[18] seeds the two Warehouses, MIGRATIONS[20] (Mission
     // Rework Task 9) seeds fuelStorage (level 0) + missionControl (level 1), MIGRATIONS[21]
@@ -2013,14 +2014,16 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     // rebuilds them fresh (never the same object reference as original's).
     expect(Object.keys(migrated.inventory).sort()).toEqual(Object.keys(original.inventory).sort());
     for (const key of Object.keys(original.inventory)) {
-      expect(migrated.inventory[key] instanceof Decimal).toBe(true);
-      expect(migrated.inventory[key].equals(original.inventory[key])).toBe(true);
+      // Quality-bucketed (Task 9a): each value is a Decimal[] of buckets; bucket 0 is a
+      // live hydrated Decimal, and the item TOTAL (via itemTotal) matches original's.
+      expect(migrated.inventory[key][0] instanceof Decimal).toBe(true);
+      expect(itemTotal(migrated.inventory, key).equals(itemTotal(original.inventory, key))).toBe(true);
     }
     expect(migrated.discovered).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -2103,12 +2106,12 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(Object.keys(migrated.inventory).sort()).toEqual(
       ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"]
     );
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(500)).toBe(true);
-    expect(migrated.inventory.rareMaterial.equals(12)).toBe(true);
-    expect(migrated.inventory.refinedMaterial.equals(4)).toBe(true);
-    expect(migrated.inventory.uncommonMaterial.equals(0)).toBe(true);
-    expect(migrated.inventory.components.equals(0)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(500)).toBe(true);
+    expect(itemTotal(migrated.inventory, "rareMaterial").equals(12)).toBe(true);
+    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(4)).toBe(true);
+    expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(0)).toBe(true);
+    expect(itemTotal(migrated.inventory, "components").equals(0)).toBe(true);
 
     // discovered / activeProcesses / nextProcessId all ride through untouched.
     expect(migrated.discovered.sort()).toEqual(["commonOre", "rareMaterial", "refinedMaterial"]);
@@ -2181,7 +2184,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(25);
+    expect(deserialized!.version).toBe(26);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2202,8 +2205,8 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(migrated.facilities).toEqual(original.facilities);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -2264,8 +2267,8 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     // Shipyard Task S6, seeds shipyard level 0), so the FINAL facilities map carries those five
     // in addition to the three the pre-existing v19 shape held (all preserved value-for-value).
     expect(migrated.facilities).toEqual({ refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } });
-    expect(migrated.inventory.commonOre.equals(750)).toBe(true);
-    expect(migrated.inventory.refinedMaterial.equals(20)).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(750)).toBe(true);
+    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(20)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial"]);
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(4);
@@ -2327,8 +2330,8 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     });
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -2396,7 +2399,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     expect(migrated.facilities.warehouseT2).toEqual({ level: 1 });
 
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
-    expect(migrated.inventory.commonOre.equals(1200)).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(1200)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
     // The refineOrder:null MIGRATIONS[19] seeds is DROPPED by MIGRATIONS[23] (Task C6, v23->v24),
     // which retires the single-order model, the final v24 shape carries no order key, only the
@@ -2494,8 +2497,8 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     expect(migrated.facilities.missionControl).toEqual({ level: 2 }); // preserved, NOT reset to level 1
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -2565,7 +2568,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
     expect(migrated.facilities.missionControl).toEqual({ level: 1 });
 
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
-    expect(migrated.inventory.commonOre.equals(1200)).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(1200)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
     // refineOrder (seeded null by MIGRATIONS[19]) is DROPPED by MIGRATIONS[23] (Task C6, v23->v24) --
     // the single-order model is retired, so the final v24 shape has no order key, only line fields.
@@ -2685,8 +2688,8 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
     expect(blueprintResearchable(migratedTwice, "frameSegmentBp")).toBe(true); // still playable
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -2765,7 +2768,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
     expect(migrated.facilities.research).toEqual({ level: 1 });
 
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
-    expect(migrated.inventory.commonOre.equals(1200)).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(1200)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
     expect("refineOrder" in migrated).toBe(false); // also dropped by C6's v23->v24 step (see above)
     expect(migrated.researchedBlueprints).toEqual([]);
@@ -2876,8 +2879,8 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
     expect(migratedTwice.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -2960,7 +2963,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
     expect(migrated.facilities.fabricator).toEqual({ level: 1 });
 
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
-    expect(migrated.inventory.commonOre.equals(1200)).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(1200)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp"]);
     expect(migrated.nextProcessId).toBe(5);
@@ -3069,8 +3072,8 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
     expect(played.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -3147,8 +3150,8 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
     expect(migrated.nextCraftLineId).toBe(2);
     expect("refineOrder" in migrated).toBe(false);
     expect("fabricateOrder" in migrated).toBe(false);
-    expect(migrated.inventory.commonOre.equals(2000)).toBe(true);
-    expect(migrated.inventory.frameSegment.equals(5)).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(2000)).toBe(true);
+    expect(itemTotal(migrated.inventory, "frameSegment").equals(5)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "components", "frameSegment", "refinedMaterial", "uncommonMaterial"]);
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp", "powerCouplingBp"]);
     expect(migrated.nextProcessId).toBe(9);
@@ -3246,8 +3249,8 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
     expect(played.facilities.shipyard).toEqual({ level: 0 });
   });
 
-  it("current SAVE_VERSION is 25", () => {
-    expect(SAVE_VERSION).toBe(25);
+  it("current SAVE_VERSION is 26", () => {
+    expect(SAVE_VERSION).toBe(26);
   });
 });
 
@@ -3283,7 +3286,8 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     // Fuel-sourcing RESTRUCTURE (2026-07-15): the depot refines the dedicated `deuteriumIce`
     // item now (NOT commonOre), so seed the ice under its own key. A v21 save's Fuel Depot
     // gets its ice by running the free localFuelRun, here we seed a stock directly.
-    s.inventory = { ...s.inventory, deuteriumIce: new Decimal(1000) };
+    // Quality-bucketed inventory (Task 9a): seed the ice into its quality-0 bucket.
+    s.inventory = { ...s.inventory, deuteriumIce: [new Decimal(1000)] };
     s.credits = new Decimal(1000);
     // One economyTick fills the depot's free pipeline slot with a fuel-refine batch. rng is
     // irrelevant here (the single captain is idle -> no mission economy runs), so pin it.
@@ -3291,12 +3295,12 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const inFlightBefore = s.activeProcesses.filter((p) => p.kind === "fuelRefineJob").length;
     expect(inFlightBefore).toBeGreaterThan(0); // a real fuelRefineJob is now persisted in activeProcesses
 
-    // Round-trip at the CURRENT version. serialize() stamps SAVE_VERSION (25); deserialize() +
-    // migrate() run NO version steps (already 25), then hydrateDecimals().
+    // Round-trip at the CURRENT version. serialize() stamps SAVE_VERSION (26); deserialize() +
+    // migrate() run NO version steps (already 26), then hydrateDecimals().
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(25);
+    expect(save!.version).toBe(26);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
@@ -3439,12 +3443,12 @@ describe("migrate, chained v1 -> v13 migration", () => {
     // .equals(), never .toBe(), since Decimal is an object (reference-compared by
     // toBe, which would always fail here even though the VALUE is correct).
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.commonOre instanceof Decimal).toBe(true);
-    expect(migrated.inventory.commonOre.equals(0)).toBe(true);
-    expect(migrated.inventory.uncommonMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.uncommonMaterial.equals(0)).toBe(true);
-    expect(migrated.inventory.rareMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.rareMaterial.equals(0)).toBe(true);
+    expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "commonOre").equals(0)).toBe(true);
+    expect(migrated.inventory.uncommonMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(0)).toBe(true);
+    expect(migrated.inventory.rareMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "rareMaterial").equals(0)).toBe(true);
     expect(migrated.captains[0].mission).toBe(null);
     expect(migrated.captains[1].mission).toBe(null);
     // v8->v9's fields. captains[0] gets them from MIGRATIONS[8]'s ??
@@ -3467,10 +3471,10 @@ describe("migrate, chained v1 -> v13 migration", () => {
     expect(migrated.captains[1].xp.equals(0)).toBe(true);
     expect(migrated.captains[1].level).toBe(1);
     expect(migrated.captains[1].statPoints).toBe(0);
-    expect(migrated.inventory.refinedMaterial instanceof Decimal).toBe(true);
-    expect(migrated.inventory.refinedMaterial.equals(0)).toBe(true);
-    expect(migrated.inventory.components instanceof Decimal).toBe(true);
-    expect(migrated.inventory.components.equals(0)).toBe(true);
+    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(0)).toBe(true);
+    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "components").equals(0)).toBe(true);
     // v9->v10's new fields. captains[0] and captains[1] both get
     // unlockedCaptainTalents from MIGRATIONS[9]'s ?? backfill, captains[1]
     // is MIGRATIONS[4]'s fresh[1] (a LIVE freshCaptains() call), which by

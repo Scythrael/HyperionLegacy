@@ -78,6 +78,9 @@ import { fuelNeeded } from "./fuel";
 // the reservation-aware `free` pool instead of raw inventory, closing the facility-
 // upgrade leak documented in KNOWN_ISSUES (an upgrade could spend craft-line-reserved ore).
 import { lineInputsPerIteration, freeItem, freeItemForState, type CraftLine, type CraftLineKind, type CraftLineMode } from "./allocation";
+// Quality-bucketed inventory helpers (Equipment 0.11.0, Task 9a): every inventory
+// read/write routes through these so the economy is identical to the old scalar shape.
+import { itemTotal, addItemQuality, removeItemLowestFirst } from "./inventory";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
 // there's no compiler link between this array and the union type, so a 6th
@@ -1263,17 +1266,29 @@ export function applyCraftingXp(state: GameState, craftingXpDelta: number): Game
 // practice; gating on the requested amount keeps the reveal rule unchanged from
 // before the clamp (drift-proof).
 export function addToInventory(
-  inventory: Record<string, Decimal>,
+  inventory: Record<string, Decimal[]>,
   discovered: string[],
   itemId: string,
   amount: Decimal,
   cap: Decimal
-): { inventory: Record<string, Decimal>; discovered: string[] } {
-  const nextInventory = { ...inventory };
-  // Clamp at the cap: raise up to `cap`, discard any overflow. break_infinity.js's
-  // Decimal.min is BINARY (see the fuel buyFuel clamp and decimal-smoke.test.ts).
-  const raw = (nextInventory[itemId] ?? new Decimal(0)).plus(amount);
-  nextInventory[itemId] = Decimal.min(raw, cap);
+): { inventory: Record<string, Decimal[]>; discovered: string[] } {
+  // Quality-bucketed inventory (Task 9a): the cap is a TOTAL clamp (the whole item's
+  // on-hand, summed across buckets, may not exceed `cap`). Compute the clamped total
+  // exactly as the old scalar code did (raw = priorTotal + amount, then min against
+  // cap; break_infinity.js's Decimal.min is BINARY), then deposit the DELTA into the
+  // QUALITY-0 bucket via addItemQuality. The delta equals the old scalar write's net
+  // change: for a normal under-cap add it is just `amount`; when a prior over-cap
+  // overshoot is being re-clamped it is NEGATIVE (cap - priorTotal), which pulls the
+  // total back down to `cap`, byte-identical to the old `Decimal.min(raw, cap)` that
+  // also clamped an over-cap balance down. All deposits land at quality 0 in this
+  // refactor (nothing rolls a higher tier yet), so the single-bucket total IS the
+  // item total and this preserves the economy exactly.
+  const priorTotal = itemTotal(inventory, itemId);
+  const clampedTotal = Decimal.min(priorTotal.plus(amount), cap);
+  const delta = clampedTotal.minus(priorTotal);
+  const nextInventory = addItemQuality(inventory, itemId, delta, 0);
+  // DISCOVERY IS GATED ON THE REQUESTED amount (unchanged): receiving a positive
+  // amount reveals the item even if the clamp discarded all of it.
   const nextDiscovered =
     amount.gt(0) && !discovered.includes(itemId) ? [...discovered, itemId] : discovered;
   return { inventory: nextInventory, discovered: nextDiscovered };
@@ -2090,17 +2105,22 @@ export function startProcess(
   // (grow-on-demand contract, same as addToInventory), so requiring a
   // never-held item is correctly rejected unless the required qty is <= 0.
   for (const itemId of Object.keys(inputs)) {
-    const have = state.inventory[itemId] ?? new Decimal(0);
+    // Quality-bucketed inventory (Task 9a): affordability gates on the item TOTAL
+    // (sum of buckets), read via itemTotal (absent key -> 0, same as the old scalar
+    // `state.inventory[itemId] ?? 0`).
+    const have = itemTotal(state.inventory, itemId);
     if (have.lt(inputs[itemId])) return { next: state, started: false };
   }
 
-  // Deduct every input from a FRESH inventory clone (immutable-update style), in
-  // the same transition that pushes the process below, this is the atomic
-  // consume. `?? new Decimal(0)` mirrors the gate's absent-key handling (the gate
-  // already proved qty <= 0 for any absent key, so this never goes negative).
-  const inventory = { ...state.inventory };
+  // Deduct every input via removeItemLowestFirst (Task 9a), the documented consume
+  // policy (drain the lowest quality bucket first). While all stock is quality 0 this
+  // only ever touches bucket 0, so it is byte-identical to the old scalar `.minus()`
+  // deduct; the gate above already proved every input is affordable, so no bucket goes
+  // negative. Threaded immutably (each call returns a fresh inventory), the bucketed
+  // twin of the old `{ ...state.inventory }` clone + per-key `.minus()`.
+  let inventory = state.inventory;
   for (const itemId of Object.keys(inputs)) {
-    inventory[itemId] = (inventory[itemId] ?? new Decimal(0)).minus(inputs[itemId]);
+    inventory = removeItemLowestFirst(inventory, itemId, inputs[itemId]);
   }
 
   // id minted from nextProcessId as "proc-N" (the scheme TimedProcess.id / this
@@ -2923,8 +2943,10 @@ export function materialAtCap(state: GameState, itemId: string): boolean {
   }
   const cap = tierCap(state, item.tier);
   // inventory is sparse for dynamically-acquired itemIds, so an absent key means 0
-  // held (matching addToInventory's own `?? new Decimal(0)` grow-on-demand shape).
-  const have = state.inventory[itemId] ?? new Decimal(0);
+  // held. Quality-bucketed (Task 9a): the "how full" check reads the item TOTAL
+  // (sum of buckets) via itemTotal, the bucketed twin of the old scalar
+  // `state.inventory[itemId] ?? 0`, so a per-item cap counts every quality tier.
+  const have = itemTotal(state.inventory, itemId);
   return have.gte(cap);
 }
 
@@ -3695,7 +3717,9 @@ export function canFabricate(
   // test startProcess applies, checked HERE so the `materials` reason surfaces BEFORE the
   // cap gate). Any single short input blocks the whole craft.
   for (const itemId of Object.keys(bp.recipe.inputs)) {
-    const have = state.inventory[itemId] ?? new Decimal(0);
+    // Quality-bucketed (Task 9a): affordability reads the item TOTAL via itemTotal
+    // (absent key -> 0), the bucketed twin of the old scalar `state.inventory[itemId] ?? 0`.
+    const have = itemTotal(state.inventory, itemId);
     if (have.lt(bp.recipe.inputs[itemId])) return { ok: false, reason: "materials" };
   }
 
@@ -3825,7 +3849,9 @@ export function processFuelPipelines(state: GameState): GameState {
     // Fuel-sourcing RESTRUCTURE (2026-07-15): the ice is now the dedicated `deuteriumIce`
     // item (mined on localFuelRun), NOT `commonOre`, commonOre feeds only the material
     // Refinery again. This is the ONLY input the Fuel Depot draws on.
-    const iceOnHand = working.inventory["deuteriumIce"] ?? new Decimal(0);
+    // Quality-bucketed (Task 9a): ice on hand is the item TOTAL via itemTotal (absent
+    // key -> 0), the bucketed twin of the old scalar `working.inventory["deuteriumIce"] ?? 0`.
+    const iceOnHand = itemTotal(working.inventory, "deuteriumIce");
     if (iceOnHand.lt(input)) break;
 
     // Gates pass -> start ONE batch via the SHARED startProcess engine: it deducts the
@@ -3920,7 +3946,9 @@ export function fuelFlowSummary(state: GameState): FuelFlowSummary {
   // 49-ice reserve against a 50-ice batch reads as NO ice, exactly like the
   // engine's `iceOnHand.lt(input)` stop. pipelines > 0 folds the "no depot" stop
   // into hasIce (no pipelines -> nothing can refine -> not "has usable ice").
-  const iceOnHand = state.inventory["deuteriumIce"] ?? new Decimal(0);
+  // Quality-bucketed (Task 9a): ice on hand is the item TOTAL via itemTotal (absent
+  // key -> 0), the bucketed twin of the old scalar `state.inventory["deuteriumIce"] ?? 0`.
+  const iceOnHand = itemTotal(state.inventory, "deuteriumIce");
   const hasIce = pipelines > 0 && iceOnHand.gte(batchInput);
   const tankFull = state.fuel.gte(fuelCap(state));
   const refiningActive = hasIce && !tankFull;

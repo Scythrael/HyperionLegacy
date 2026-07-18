@@ -32,6 +32,7 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshState, MISSIONS, WAREHOUSE_T1_BASE_CAP, type GameState } from "./model";
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { dispatchCaptainOnMission, economyTick, tick, materialAtCap } from "./tick";
 
 // shortOreRun cycle geometry (see fuel-consumption-v2.test.ts header): 1 orders + 25
@@ -58,7 +59,7 @@ function step(state: GameState, n: number, rng = ALL_COMMON): GameState {
 
 // Immutably force the fleet's stock of `itemId` to `amount` (a fresh Decimal).
 function withStock(s: GameState, itemId: string, amount: number): GameState {
-  return { ...s, inventory: { ...s.inventory, [itemId]: new Decimal(amount) } };
+  return { ...s, inventory: { ...s.inventory, [itemId]: [new Decimal(amount)] } };
 }
 
 describe("mission recall-on-cap, MID-CYCLE (ship OUT) recalls home + idles, never freezes", () => {
@@ -100,7 +101,7 @@ describe("mission recall-on-cap, AT BASE (ordersReceived) idles immediately, doe
 
     // Primary material at cap BEFORE it leaves base.
     s = withStock(s, PRIMARY, CAP);
-    const primaryBefore = s.inventory[PRIMARY];
+    const primaryBefore = itemTotal(s.inventory, PRIMARY);
     const creditsBefore = s.credits;
 
     // ONE tick idles it immediately (mission -> null), it never launched the capped run.
@@ -108,7 +109,7 @@ describe("mission recall-on-cap, AT BASE (ordersReceived) idles immediately, doe
     expect(t1.captains[0].mission).toBeNull();
     // Proof it did NOT run a cycle: no fresh haul deposited (primary unchanged) and no
     // cycle reward banked (credits unchanged). A dispatched-and-run loop would move both.
-    expect(t1.inventory[PRIMARY].eq(primaryBefore)).toBe(true);
+    expect(itemTotal(t1.inventory, PRIMARY).eq(primaryBefore)).toBe(true);
     expect(t1.credits.eq(creditsBefore)).toBe(true);
   });
 });
@@ -126,7 +127,7 @@ describe("mission recall-on-cap, BELOW cap is unchanged (anti-regression guard)"
     expect(m.recalled).toBe(false); // below cap never touches the recall path
     // shortOreRun with ALL_COMMON deposits its common fallback each of the 90 extract ticks
     // -> a positive commonOre haul landed at unloading (proves the normal loop ran).
-    expect((after.inventory[PRIMARY] ?? new Decimal(0)).gt(0)).toBe(true);
+    expect(itemTotal(after.inventory, PRIMARY).gt(0)).toBe(true);
     // Auto-repeat re-entered ordersReceived (the pre-departure phase of the NEXT cycle).
     expect(m.phase).toBe("ordersReceived");
   });
@@ -167,7 +168,7 @@ describe("⚠️ mission recall-on-cap, REQUIRED offline==live PARITY (recall fi
   const snap = (st: GameState) => {
     const m = st.captains[0].mission;
     return {
-      inventory: Object.fromEntries(Object.entries(st.inventory).map(([k, v]) => [k, v.toString()])),
+      inventory: Object.fromEntries(Object.keys(st.inventory).map((k) => [k, itemTotal(st.inventory, k).toString()])),
       fuel: st.fuel.toString(),
       credits: st.credits.toString(),
       ships: st.ships.map((sh) => ({ id: sh.id, assignedCaptainId: sh.assignedCaptainId, typeKey: sh.typeKey })),

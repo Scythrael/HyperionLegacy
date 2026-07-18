@@ -23,6 +23,7 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { fuelFlowSummary } from "./tick";
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import {
   freshState,
   FUEL_TANK_BASE_CAP,
@@ -38,8 +39,8 @@ import {
 // below re-assigns it, so burnPerTick is 0 in the base case.
 function depotState(opts: { deuteriumIce?: number; fuel?: number; fuelStorageLevel?: number }): GameState {
   const s = freshState();
-  const inventory: Record<string, Decimal> = { ...s.inventory };
-  if (opts.deuteriumIce !== undefined) inventory.deuteriumIce = new Decimal(opts.deuteriumIce);
+  const inventory: Record<string, Decimal[]> = { ...s.inventory };
+  if (opts.deuteriumIce !== undefined) inventory.deuteriumIce = [new Decimal(opts.deuteriumIce)];
   return {
     ...s,
     inventory,

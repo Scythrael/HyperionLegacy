@@ -36,7 +36,7 @@ import {
 } from "./tick";
 import { allocatedItem, freeItem, type CraftLine } from "./allocation";
 import { freshState, type GameState } from "./model";
-
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 // A fresh state with chosen facility levels + inventory + seeded lines, so the slot /
 // afford / cap gates run against known numbers. Refinery level 1 => 1 refine slot;
 // fabricator level 1 => 1 fabricate slot (freshState seeds refinery at level 0, so we
@@ -54,11 +54,11 @@ function linesState(opts: {
   nextCraftLineId?: number;
 }): GameState {
   const s = freshState();
-  const inventory: Record<string, Decimal> = { ...s.inventory };
-  if (opts.commonOre !== undefined) inventory.commonOre = new Decimal(opts.commonOre);
-  if (opts.refinedMaterial !== undefined) inventory.refinedMaterial = new Decimal(opts.refinedMaterial);
-  if (opts.titaniumIngot !== undefined) inventory.titaniumIngot = new Decimal(opts.titaniumIngot);
-  if (opts.frameSegment !== undefined) inventory.frameSegment = new Decimal(opts.frameSegment);
+  const inventory: Record<string, Decimal[]> = { ...s.inventory };
+  if (opts.commonOre !== undefined) inventory.commonOre = [new Decimal(opts.commonOre)];
+  if (opts.refinedMaterial !== undefined) inventory.refinedMaterial = [new Decimal(opts.refinedMaterial)];
+  if (opts.titaniumIngot !== undefined) inventory.titaniumIngot = [new Decimal(opts.titaniumIngot)];
+  if (opts.frameSegment !== undefined) inventory.frameSegment = [new Decimal(opts.frameSegment)];
   return {
     ...s,
     inventory,
@@ -87,10 +87,10 @@ function stepTicks(state: GameState, n: number): GameState {
 // paths identically); the line arrays are plain objects (no Decimal), compared as-is.
 function lineSnapshot(state: GameState) {
   return {
-    commonOre: (state.inventory.commonOre ?? new Decimal(0)).toString(),
-    refinedMaterial: (state.inventory.refinedMaterial ?? new Decimal(0)).toString(),
-    titaniumIngot: (state.inventory.titaniumIngot ?? new Decimal(0)).toString(),
-    frameSegment: (state.inventory.frameSegment ?? new Decimal(0)).toString(),
+    commonOre: itemTotal(state.inventory, "commonOre").toString(),
+    refinedMaterial: itemTotal(state.inventory, "refinedMaterial").toString(),
+    titaniumIngot: itemTotal(state.inventory, "titaniumIngot").toString(),
+    frameSegment: itemTotal(state.inventory, "frameSegment").toString(),
     processes: state.activeProcesses.map((p) => ({
       id: p.id,
       kind: p.kind,
@@ -209,7 +209,7 @@ describe("cancelLine, drains a running line (finishes the in-flight iteration) o
     const afterOneTick = economyTick(s, 1);
     expect(afterOneTick.activeProcesses.filter((p) => p.kind === "refineJob")).toHaveLength(1);
     expect(afterOneTick.activeProcesses[0].lineId).toBe(lineId); // job tied to its line
-    expect(afterOneTick.inventory.commonOre.toString()).toBe("1900"); // 2000 - 100 (one iteration started)
+    expect(itemTotal(afterOneTick.inventory, "commonOre").toString()).toBe("1900"); // 2000 - 100 (one iteration started)
 
     const cancelled = cancelLine(afterOneTick, lineId);
     // The line is DRAINED, not deleted: it stays (so its in-flight iteration shows) but is
@@ -221,8 +221,8 @@ describe("cancelLine, drains a running line (finishes the in-flight iteration) o
     expect(cancelled.activeProcesses.filter((p) => p.kind === "refineJob")).toHaveLength(1); // in-flight job still committed
 
     const settled = stepTicks(cancelled, 30); // well past the committed job's completion
-    expect(settled.inventory.refinedMaterial.toString()).toBe("1"); // exactly the committed job, no 2nd
-    expect(settled.inventory.commonOre.toString()).toBe("1900"); // no further ore consumed (reservation released)
+    expect(itemTotal(settled.inventory, "refinedMaterial").toString()).toBe("1"); // exactly the committed job, no 2nd
+    expect(itemTotal(settled.inventory, "commonOre").toString()).toBe("1900"); // no further ore consumed (reservation released)
     expect(settled.activeProcesses).toHaveLength(0);
     expect(settled.refineLines).toHaveLength(0); // line cleared itself once the in-flight iteration finished
   });
@@ -251,8 +251,8 @@ describe("processRefineLines, a batch line produces exactly N, then the line cle
     const state = linesState({ commonOre: 1000, refineLines: [line], nextCraftLineId: 2 });
 
     const done = stepTicks(state, 40); // past 3 sequential 10-tick jobs (job3 done@31)
-    expect(done.inventory.refinedMaterial.toString()).toBe("3"); // exactly N
-    expect(done.inventory.commonOre.toString()).toBe("700"); // 1000 - 3*100
+    expect(itemTotal(done.inventory, "refinedMaterial").toString()).toBe("3"); // exactly N
+    expect(itemTotal(done.inventory, "commonOre").toString()).toBe("700"); // 1000 - 3*100
     expect(done.activeProcesses).toHaveLength(0);
     expect(done.refineLines).toHaveLength(0); // line removed once remaining 0 + last job done
     expect(done.lifetimeStats.itemsRefined.refinedMaterial.toString()).toBe("3");
@@ -262,7 +262,7 @@ describe("processRefineLines, a batch line produces exactly N, then the line cle
     const line: CraftLine = { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 2, mode: { kind: "batch", remaining: 2 } };
     const state = linesState({ commonOre: 1000, refineLines: [line], nextCraftLineId: 2 });
     const done = stepTicks(state, 200);
-    expect(done.inventory.refinedMaterial.toString()).toBe("2"); // never a 3rd
+    expect(itemTotal(done.inventory, "refinedMaterial").toString()).toBe("2"); // never a 3rd
     expect(done.refineLines).toHaveLength(0);
     expect(done.activeProcesses).toHaveLength(0);
   });
@@ -279,8 +279,8 @@ describe("two concurrent lines (different recipes) progress independently", () =
 
     // BOTH lines produced (independent progress): refine (10-tick) completes many times,
     // fabricate (120-tick) completes once by tick 130.
-    expect(run.inventory.refinedMaterial.gt(0)).toBe(true);
-    expect(run.inventory.frameSegment.toString()).toBe("1");
+    expect(itemTotal(run.inventory, "refinedMaterial").gt(0)).toBe(true);
+    expect(itemTotal(run.inventory, "frameSegment").toString()).toBe("1");
 
     // BOTH lines still present (continuous never clears) and EACH owns exactly one
     // in-flight job tied to it by lineId, one slot per line, no cross-blocking.
@@ -334,13 +334,13 @@ describe("⚠️ multi-line offline == live parity (controller re-verifies)", ()
 
     // NON-VACUITY: assert real, DIFFERENTIATED work happened on each line across the span.
     // Refine line (finished mid-span):
-    expect(jumped.inventory.refinedMaterial.toString()).toBe("2"); // 2 refine jobs produced
-    expect(jumped.inventory.commonOre.toString()).toBe("0"); // 200 consumed (2 x 100)
+    expect(itemTotal(jumped.inventory, "refinedMaterial").toString()).toBe("2"); // 2 refine jobs produced
+    expect(itemTotal(jumped.inventory, "commonOre").toString()).toBe("0"); // 200 consumed (2 x 100)
     expect(jumped.refineLines).toHaveLength(0); // batch line CLEARED mid-span
     // Fabricate line (mid-span completion + one in flight):
-    expect(jumped.inventory.frameSegment.toString()).toBe("2"); // 2 crafts completed
+    expect(itemTotal(jumped.inventory, "frameSegment").toString()).toBe("2"); // 2 crafts completed
     expect(jumped.lifetimeStats.itemsCrafted.frameSegment.toString()).toBe("2"); // 2 processes resolved
-    expect(jumped.inventory.titaniumIngot.toString()).toBe("0"); // 12 consumed (3 crafts' inputs)
+    expect(itemTotal(jumped.inventory, "titaniumIngot").toString()).toBe("0"); // 12 consumed (3 crafts' inputs)
     expect(jumped.fabricateLines).toHaveLength(1); // continuous line still running
     const inFlight = jumped.activeProcesses.filter((p) => p.kind === "fabricateJob");
     expect(inFlight).toHaveLength(1); // craft3 in flight
@@ -383,8 +383,8 @@ describe("maxAffordableIterations, affordable-now cap reads FREE, not raw stock"
       ...base,
       inventory: {
         ...base.inventory,
-        frameSegment: new Decimal(10),
-        powerCoupling: new Decimal(3),
+        frameSegment: [new Decimal(10)],
+        powerCoupling: [new Decimal(3)],
       },
     };
     expect(maxAffordableIterations(state, "fabricate", "structuralAssemblyBp")).toBe(3);

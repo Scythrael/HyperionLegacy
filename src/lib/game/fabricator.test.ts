@@ -22,6 +22,7 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshState, BLUEPRINTS, FACILITIES, FABRICATOR_FACILITY_KEY, type GameState } from "./model";
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import {
   fabricateSlotCount,
   canFabricate,
@@ -132,9 +133,9 @@ function fabState(opts: {
   researched?: string[];
 }): GameState {
   const s = freshState();
-  const inventory: Record<string, Decimal> = { ...s.inventory };
-  if (opts.titaniumIngot !== undefined) inventory.titaniumIngot = new Decimal(opts.titaniumIngot);
-  if (opts.frameSegment !== undefined) inventory.frameSegment = new Decimal(opts.frameSegment);
+  const inventory: Record<string, Decimal[]> = { ...s.inventory };
+  if (opts.titaniumIngot !== undefined) inventory.titaniumIngot = [new Decimal(opts.titaniumIngot)];
+  if (opts.frameSegment !== undefined) inventory.frameSegment = [new Decimal(opts.frameSegment)];
   return {
     ...s,
     inventory,
@@ -157,7 +158,7 @@ describe("Fabricator F2, startFabricateJob (atomic deduct + timed craft push)", 
   it("deducts the recipe inputs once and pushes ONE fabricateJob on a valid craft", () => {
     const result = startFabricateJob(fabState({ titaniumIngot: 10 }), "frameSegmentBp");
     expect(result.started).toBe(true);
-    expect(result.next.inventory.titaniumIngot.toString()).toBe("6"); // 10 - 4 (atomic deduct)
+    expect(itemTotal(result.next.inventory, "titaniumIngot").toString()).toBe("6"); // 10 - 4 (atomic deduct)
 
     const jobs = result.next.activeProcesses.filter((p) => p.kind === "fabricateJob");
     expect(jobs).toHaveLength(1);
@@ -214,14 +215,14 @@ describe("Fabricator F2, completion adds output + increments itemsCrafted (idemp
     // Step past the 120-tick craft (completes at tick 121). No standing order, so
     // nothing new starts after, the one job resolves exactly once.
     const done = stepTicks(started.next, 121);
-    expect(done.inventory.frameSegment.toString()).toBe("1"); // recipe.outputQty granted
+    expect(itemTotal(done.inventory, "frameSegment").toString()).toBe("1"); // recipe.outputQty granted
     expect(done.discovered).toContain("frameSegment"); // shared addItem discovery seam
     expect(done.lifetimeStats.itemsCrafted.frameSegment.toString()).toBe("1"); // mirror of itemsRefined
     expect(done.activeProcesses).toHaveLength(0); // completed process dropped
 
     // Idempotent: stepping far past completion never re-applies the effect.
     const later = stepTicks(done, 200);
-    expect(later.inventory.frameSegment.toString()).toBe("1");
+    expect(itemTotal(later.inventory, "frameSegment").toString()).toBe("1");
     expect(later.lifetimeStats.itemsCrafted.frameSegment.toString()).toBe("1");
 
     // DESIGN DECISION (flagged to controller): a completed fabricateJob awards NO Fleet
@@ -353,7 +354,7 @@ describe("Fabricator F3, startFabricateJob delegates to canFabricate (reason + u
     const r = startFabricateJob(s, "frameSegmentBp");
     expect(r.started).toBe(true);
     expect(r.reason).toBeUndefined();
-    expect(r.next.inventory.titaniumIngot.toString()).toBe("6"); // 10 - 4 atomic deduct
+    expect(itemTotal(r.next.inventory, "titaniumIngot").toString()).toBe("6"); // 10 - 4 atomic deduct
     expect(r.next.activeProcesses.filter((p) => p.kind === "fabricateJob")).toHaveLength(1);
   });
 

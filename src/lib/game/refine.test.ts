@@ -19,6 +19,7 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { refineSlotCount, startProcess, resolveProcesses } from "./tick";
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { freshState, REFINE_RECIPES, FACILITIES, type TimedProcess } from "./model";
 
 // Build a "refineJob" TimedProcess for the launch recipe the SAME way the line
@@ -39,9 +40,9 @@ function startRefineCommonOre(state: ReturnType<typeof freshState>) {
 // level-0 seed. Mirrors facility.test.ts's own stateWith helper.
 function stateWith(opts: { inventory?: Record<string, number>; refineryLevel?: number }) {
   const s = freshState();
-  const inventory: Record<string, Decimal> = { ...s.inventory };
+  const inventory: Record<string, Decimal[]> = { ...s.inventory };
   for (const key of Object.keys(opts.inventory ?? {})) {
-    inventory[key] = new Decimal(opts.inventory![key]);
+    inventory[key] = [new Decimal(opts.inventory![key])];
   }
   return {
     ...s,
@@ -90,7 +91,7 @@ describe("refineJob completion grants output + lifetime itemsRefined", () => {
 
     const { next, fleetAdminXpDelta } = resolveProcesses(started, 10); // exactly reaches 0
 
-    expect(next.inventory.refinedMaterial.toString()).toBe("1"); // output granted
+    expect(itemTotal(next.inventory, "refinedMaterial").toString()).toBe("1"); // output granted
     expect(next.discovered).toContain("refinedMaterial"); // via the addToInventory seam
     expect(next.activeProcesses).toEqual([]); // completed process removed
     expect(fleetAdminXpDelta).toBe(10); // lump FA XP = durationTicks
@@ -136,8 +137,8 @@ describe("refineJob completion, CLOSED-FORM parity for the itemsRefined hook", (
     }
 
     // Inventory output identical.
-    expect(jumped.next.inventory.refinedMaterial.toString()).toBe("1");
-    expect(stepped.inventory.refinedMaterial.toString()).toBe("1");
+    expect(itemTotal(jumped.next.inventory, "refinedMaterial").toString()).toBe("1");
+    expect(itemTotal(stepped.inventory, "refinedMaterial").toString()).toBe("1");
     // Lifetime itemsRefined identical (the completion fires exactly once either way).
     expect(jumped.next.lifetimeStats.itemsRefined.refinedMaterial.toString()).toBe("1");
     expect(stepped.lifetimeStats.itemsRefined.refinedMaterial.toString()).toBe("1");

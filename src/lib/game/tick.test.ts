@@ -47,6 +47,7 @@ import {
   type TimedProcess,
   type ProcessEffect,
 } from "./model";
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 
 function missionCaptain(
   // Mission Rework (Task 1): widened from the 2 ore-run keys to the full MissionKey
@@ -902,12 +903,12 @@ describe("tickCaptainMission, cycle completion, auto-repeat, and recall", () => 
       MISSIONS.salvageWreckage.transitBackTicks +
       MISSIONS.salvageWreckage.unloadTicks;
     const result = tick(cycleTicks, state, () => 0.5);
-    const scrap = result.inventory.scrapAlloy ?? new Decimal(0);
+    const scrap = itemTotal(result.inventory, "scrapAlloy") ?? new Decimal(0);
     expect(scrap.gt(0)).toBe(true);
     expect(ITEMS.scrapAlloy.rarity).toBe("common");
     // The Titanium common key (commonOre) got nothing from this salvage run.
     // (freshState seeds commonOre at 0; a salvage-only run must not add to it.)
-    expect((result.inventory.commonOre ?? new Decimal(0)).equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "commonOre").equals(0)).toBe(true);
   });
 
   it("completing a full cycle WHILE recalled ends the mission (mission becomes null)", () => {
@@ -1130,10 +1131,10 @@ describe("tickCaptainMission / tick(), accrues mission-side lifetime stats (Task
       expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(90)).toBe(true);
       expect(result.lifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
       expect(result.lifetimeStats.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
-      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(result.inventory.rareMaterial)).toBe(true);
-      expect(result.lifetimeStats.itemsGathered.commonOre.equals(result.inventory.commonOre)).toBe(true);
+      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(itemTotal(result.inventory, "rareMaterial"))).toBe(true);
+      expect(result.lifetimeStats.itemsGathered.commonOre.equals(itemTotal(result.inventory, "commonOre"))).toBe(true);
       expect(
-        result.lifetimeStats.itemsGathered.uncommonMaterial.equals(result.inventory.uncommonMaterial)
+        result.lifetimeStats.itemsGathered.uncommonMaterial.equals(itemTotal(result.inventory, "uncommonMaterial"))
       ).toBe(true);
 
       // creditsEarned mirrors creditsDelta: one completed cycle == creditsPerCycle (10).
@@ -1232,7 +1233,7 @@ describe("tickCaptainMission / tick(), accrues mission-side lifetime stats (Task
       expect(result.lifetimeStats.itemsGathered.commonOre.equals(0)).toBe(true);
       expect(result.lifetimeStats.itemsGathered.uncommonMaterial.equals(0)).toBe(true);
       // itemsGathered still mirrors the fleet-wide loot delivered into inventory.
-      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(result.inventory.rareMaterial)).toBe(true);
+      expect(result.lifetimeStats.itemsGathered.rareMaterial.equals(itemTotal(result.inventory, "rareMaterial"))).toBe(true);
       // Scalars sum too: 2 cycles * 30 credits (F3 bump); 2 captains * 149 gross XP each.
       expect(result.lifetimeStats.creditsEarned.equals(60)).toBe(true);
       expect(result.lifetimeStats.captainXpAwarded.equals(298)).toBe(true); // 2 * 149
@@ -1298,10 +1299,10 @@ describe("economyTick / tick() equivalence, the Task A2 mechanical extraction is
     }
 
     // --- inventory + discovered (loot fold via addToInventory) ---
-    expect(viaEconomy.inventory.commonOre.equals(viaTick.inventory.commonOre)).toBe(true);
-    expect(viaEconomy.inventory.uncommonMaterial.equals(viaTick.inventory.uncommonMaterial)).toBe(true);
-    expect(viaEconomy.inventory.rareMaterial.equals(viaTick.inventory.rareMaterial)).toBe(true);
-    expect(viaEconomy.inventory.rareMaterial.equals(90)).toBe(true); // pins the deterministic loot, not just parity
+    expect(itemTotal(viaEconomy.inventory, "commonOre").equals(itemTotal(viaTick.inventory, "commonOre"))).toBe(true);
+    expect(itemTotal(viaEconomy.inventory, "uncommonMaterial").equals(itemTotal(viaTick.inventory, "uncommonMaterial"))).toBe(true);
+    expect(itemTotal(viaEconomy.inventory, "rareMaterial").equals(itemTotal(viaTick.inventory, "rareMaterial"))).toBe(true);
+    expect(itemTotal(viaEconomy.inventory, "rareMaterial").equals(90)).toBe(true); // pins the deterministic loot, not just parity
     expect(viaEconomy.discovered).toEqual(viaTick.discovered);
 
     // --- credits (flat .plus() of creditsDelta) ---
@@ -1630,11 +1631,11 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     // Full 5-key shape (freshState seeds inventory with the same crafted-good tiers)
     //, per-key .equals() (not .toEqual against a plain-number-literal object),
     // since inventory's values are real Decimal instances.
-    expect(result.inventory.commonOre.equals(0)).toBe(true);
-    expect(result.inventory.uncommonMaterial.equals(0)).toBe(true);
-    expect(result.inventory.rareMaterial.equals(0)).toBe(true);
-    expect(result.inventory.refinedMaterial.equals(0)).toBe(true);
-    expect(result.inventory.components.equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "commonOre").equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "uncommonMaterial").equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "rareMaterial").equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "refinedMaterial").equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "components").equals(0)).toBe(true);
     // Nothing delivered this tick -> no item flips to discovered (a 0-delta add
     // must NOT reveal anything). freshState starts discovered empty.
     expect(result.discovered).toEqual([]);
@@ -1656,11 +1657,11 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     const state = freshState();
     state.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so the cycle auto-repeats (this test asserts the repeat, not the fuel gate)
     state.inventory = {
-      commonOre: new Decimal(5),
-      uncommonMaterial: new Decimal(1),
-      rareMaterial: new Decimal(0),
-      refinedMaterial: new Decimal(0),
-      components: new Decimal(0),
+      commonOre: [new Decimal(5)],
+      uncommonMaterial: [new Decimal(1)],
+      rareMaterial: [new Decimal(0)],
+      refinedMaterial: [new Decimal(0)],
+      components: [new Decimal(0)],
     };
     state.captains[0].mission = {
       missionKey: "shortOreRun",
@@ -1674,11 +1675,11 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
 
     // Per-key .equals(), not .toEqual() against a plain-number-literal object, inventory
     // values are real Decimal instances.
-    expect(result.inventory.commonOre.equals(75)).toBe(true);
-    expect(result.inventory.uncommonMaterial.equals(21)).toBe(true);
-    expect(result.inventory.rareMaterial.equals(10)).toBe(true);
-    expect(result.inventory.refinedMaterial.equals(0)).toBe(true);
-    expect(result.inventory.components.equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "commonOre").equals(75)).toBe(true);
+    expect(itemTotal(result.inventory, "uncommonMaterial").equals(21)).toBe(true);
+    expect(itemTotal(result.inventory, "rareMaterial").equals(10)).toBe(true);
+    expect(itemTotal(result.inventory, "refinedMaterial").equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "components").equals(0)).toBe(true);
     // Discovery spot-check: all three loot tiers delivered a POSITIVE amount this
     // cycle (cargo {70,20,10}), so each flips to discovered (was empty on freshState).
     // refinedMaterial/components saw no delta and stay masked, proving the add seam
@@ -1832,7 +1833,7 @@ describe("tick(), Homeworld/Captain Talent effects wired into extraction and pas
 
     const result = tick(1, state); // ticksElapsed = 1/1 = 1 -> 1 * perTick(1) = 1
 
-    expect(result.inventory.commonOre.equals(1)).toBe(true);
+    expect(itemTotal(result.inventory, "commonOre").equals(1)).toBe(true);
     // Discovery spot-check: passiveTrickle routes through the same add seam, so a
     // POSITIVE trickle (+1 commonOre) reveals commonOre even with every captain idle.
     expect(result.discovered).toContain("commonOre");
@@ -1844,7 +1845,7 @@ describe("tick(), Homeworld/Captain Talent effects wired into extraction and pas
 
     const result = tick(3.5, state); // ticksElapsed = 3.5/1 = 3.5
 
-    expect(result.inventory.commonOre.toNumber()).toBeCloseTo(3.5, 6);
+    expect(itemTotal(result.inventory, "commonOre").toNumber()).toBeCloseTo(3.5, 6);
   });
 
   // Task B3 review item: passiveTrickle is a PRODUCER of commonOre, so it must
@@ -1869,15 +1870,15 @@ describe("tick(), Homeworld/Captain Talent effects wired into extraction and pas
 
     // AT cap: the trickle stops, commonOre stays EXACTLY at the cap, no overflow.
     const atCap = makeState();
-    atCap.inventory.commonOre = new Decimal(1_000_000); // exactly the T1 cap @ L0
+    atCap.inventory.commonOre = [new Decimal(1_000_000)]; // exactly the T1 cap @ L0
     const cappedResult = economyTick(atCap, 1, () => 0);
-    expect(cappedResult.inventory.commonOre.equals(1_000_000)).toBe(true); // gate skipped the +1 add
+    expect(itemTotal(cappedResult.inventory, "commonOre").equals(1_000_000)).toBe(true); // gate skipped the +1 add
 
     // BELOW cap: UNCHANGED behavior, the trickle still adds perTick * ticksElapsed.
     const belowCap = makeState();
-    belowCap.inventory.commonOre = new Decimal(500_000); // well under the cap
+    belowCap.inventory.commonOre = [new Decimal(500_000)]; // well under the cap
     const belowResult = economyTick(belowCap, 1, () => 0);
-    expect(belowResult.inventory.commonOre.equals(500_001)).toBe(true); // 500_000 + perTick(1) * ticks(1)
+    expect(itemTotal(belowResult.inventory, "commonOre").equals(500_001)).toBe(true); // 500_000 + perTick(1) * ticks(1)
   });
 
   it("with no unlocked Homeworld Talents, extraction and passive production are unaffected (regression guard)", () => {
@@ -1894,7 +1895,7 @@ describe("tick(), Homeworld/Captain Talent effects wired into extraction and pas
     // extractionRatePerTick (1), unscaled. The "total = rate * (1 + winning tier's own
     // yieldMult)" identity holds regardless of which tier wins when every mult is 0.
     expect(totalDelivered.equals(1)).toBe(true); // unmodified extractionRatePerTick, exactly one roll
-    expect(result.inventory.commonOre.equals(0)).toBe(true); // no passive trickle
+    expect(itemTotal(result.inventory, "commonOre").equals(0)).toBe(true); // no passive trickle
   });
 });
 
@@ -1926,13 +1927,13 @@ describe("dispatchCaptainOnMission", () => {
     state.captains[0].level = 4;
     state.captains[0].xp = new Decimal(250); // xp is Decimal, new Decimal(...), not a plain-number assignment
     state.captains[0].statPoints = 3;
-    state.inventory.commonOre = new Decimal(42); // inventory values are Decimal too
+    state.inventory.commonOre = [new Decimal(42)]; // inventory values are Decimal too
 
     const { next } = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(next.captains[0].level).toBe(4);
     expect(next.captains[0].xp.equals(250)).toBe(true);
     expect(next.captains[0].statPoints).toBe(3);
-    expect(next.inventory.commonOre.equals(42)).toBe(true);
+    expect(itemTotal(next.inventory, "commonOre").equals(42)).toBe(true);
   });
 
   it("fails if the captain is already on a mission (same state reference, unchanged)", () => {
@@ -2910,8 +2911,9 @@ describe("tick(), applies each captain's assigned-ship stats to their mission", 
   // Sum of the three loot tiers in inventory, the rng-independent
   // "total units delivered" quantity the traces below rely on.
   const totalHomeLoot = (state: ReturnType<typeof freshState>) => {
-    const s = state.inventory;
-    return s.commonOre.plus(s.uncommonMaterial).plus(s.rareMaterial);
+    return itemTotal(state.inventory, "commonOre")
+      .plus(itemTotal(state.inventory, "uncommonMaterial"))
+      .plus(itemTotal(state.inventory, "rareMaterial"));
   };
 
   // Put freshState()'s single captain (id 1) on a fresh shortOreRun, at the very
@@ -3173,13 +3175,13 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
     expect(result.fleetAdminLevel).toBe(1);
 
     // proc-1 completed: output granted through the shared add seam (-> discovered), removed.
-    expect(result.inventory.refinedMaterial.toString()).toBe("3");
+    expect(itemTotal(result.inventory, "refinedMaterial").toString()).toBe("3");
     expect(result.discovered).toContain("refinedMaterial");
     // proc-2 survived, countdown decremented by the same ticksElapsed the mission used.
     expect(result.activeProcesses).toHaveLength(1);
     expect(result.activeProcesses[0].id).toBe("proc-2");
     expect(result.activeProcesses[0].remainingTicks).toBe(400);
-    expect(result.inventory.components.toString()).toBe("0"); // proc-2 unfinished -> not granted
+    expect(itemTotal(result.inventory, "components").toString()).toBe("0"); // proc-2 unfinished -> not granted
   });
 
   it("the process portion of tick() equals a STANDALONE resolveProcesses call, same shared resolver, same ticksElapsed", () => {
@@ -3243,7 +3245,7 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
 
     const exact = tick(120, { ...base, activeProcesses: [proc()], nextProcessId: 2 });
     expect(exact.activeProcesses).toEqual([]); // 30 ticks elapsed -> completes
-    expect(exact.inventory.refinedMaterial.toString()).toBe("1"); // output granted
+    expect(itemTotal(exact.inventory, "refinedMaterial").toString()).toBe("1"); // output granted
     expect(exact.fleetAdminXp.equals(30)).toBe(true); // lump durationTicks 30
   });
 
@@ -3312,7 +3314,7 @@ describe("canBuildFacilityUpgrade, warehouse keys work on the generic gate (Task
     const base = freshState();
     const s = {
       ...base,
-      inventory: { ...base.inventory, commonOre: new Decimal(1_000_000) },
+      inventory: { ...base.inventory, commonOre: [new Decimal(1_000_000)] },
     };
     // warehouseT2 is seeded at level 0 -> next rung is upgrades[0] (the unlock),
     // priced at 1M commonOre with no other gate. Affordable -> ok.
@@ -3326,7 +3328,7 @@ describe("canBuildFacilityUpgrade, warehouse keys work on the generic gate (Task
     const s = {
       ...base,
       facilities: { ...base.facilities, warehouseT2: { level: 1 } },
-      inventory: { ...base.inventory, commonOre: new Decimal(1e12) },
+      inventory: { ...base.inventory, commonOre: [new Decimal(1e12)] },
     };
     const check = canBuildFacilityUpgrade(s, "warehouseT2");
     expect(check.ok).toBe(false);
@@ -3347,20 +3349,20 @@ describe("materialAtCap, the single warehouse cap-check seam (Task B3)", () => {
   it("is false BELOW the tier cap, true AT and ABOVE it (commonOre, T1 cap 1M @ L0)", () => {
     const s = freshState(); // warehouseT1 level 0 -> tierCap(s,1) = 1,000,000; commonOre is a T1 item
     // One under the cap -> not full.
-    s.inventory.commonOre = new Decimal(999_999);
+    s.inventory.commonOre = [new Decimal(999_999)];
     expect(materialAtCap(s, "commonOre")).toBe(false);
     // EXACTLY at the cap -> full (the .gte boundary: AT the cap counts as full).
-    s.inventory.commonOre = new Decimal(1_000_000);
+    s.inventory.commonOre = [new Decimal(1_000_000)];
     expect(materialAtCap(s, "commonOre")).toBe(true);
     // Above the cap -> still full.
-    s.inventory.commonOre = new Decimal(2_000_000);
+    s.inventory.commonOre = [new Decimal(2_000_000)];
     expect(materialAtCap(s, "commonOre")).toBe(true);
   });
 
   it("tracks the tier cap as the warehouse upgrades: 1M is full at L0 but NOT after a level-up (cap -> 2M)", () => {
     const base = freshState();
     // At L0 the cap is 1M, so exactly 1M reads as full.
-    const atL0 = { ...base, inventory: { ...base.inventory, commonOre: new Decimal(1_000_000) } };
+    const atL0 = { ...base, inventory: { ...base.inventory, commonOre: [new Decimal(1_000_000)] } };
     expect(materialAtCap(atL0, "commonOre")).toBe(true);
     // Upgrade warehouseT1 to L1 (cap doubles to 2M) -> the same 1M is now below cap.
     const atL1 = {
@@ -3382,7 +3384,7 @@ describe("economyTick, mission auto-stop when the primary material is at cap (Ta
   function missionStateWithCommonOre(amount: number) {
     const s = freshState();
     s.captains[0].mission = missionCaptain("shortOreRun");
-    s.inventory.commonOre = new Decimal(amount);
+    s.inventory.commonOre = [new Decimal(amount)];
     // Fuel Economy v2 (F2): fill the fuel tank so the always-on Fuel Depot pipelines
     // (which would ALSO drain commonOre -> fuel) are PAUSED (tank-full), isolating this
     // test to the MISSION auto-stop-at-warehouse-cap behavior alone.
@@ -3407,8 +3409,8 @@ describe("economyTick, mission auto-stop when the primary material is at cap (Ta
     expect(cap.level).toBe(1);
     // No production this call: commonOre is untouched at the cap (no overflow), and
     // no other material was gathered. No credits, no fleet XP.
-    expect(result.inventory.commonOre.equals(1_000_000)).toBe(true);
-    expect(result.inventory.rareMaterial.equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "commonOre").equals(1_000_000)).toBe(true);
+    expect(itemTotal(result.inventory, "rareMaterial").equals(0)).toBe(true);
     expect(result.credits.equals(0)).toBe(true);
     expect(result.fleetAdminXp.equals(0)).toBe(true);
   });
@@ -3461,7 +3463,7 @@ describe("tick, offline catch-up is clamped to offlineCapTicks then stepped (Tas
       twoDays.captains[0].mission!.phaseProgressTicks,
       9
     );
-    expect(fiveDays.inventory.commonOre.equals(twoDays.inventory.commonOre)).toBe(true);
+    expect(itemTotal(fiveDays.inventory, "commonOre").equals(itemTotal(twoDays.inventory, "commonOre"))).toBe(true);
     expect(fiveDays.credits.equals(twoDays.credits)).toBe(true);
     expect(fiveDays.fleetAdminXp.equals(twoDays.fleetAdminXp)).toBe(true);
 
@@ -3491,10 +3493,10 @@ describe("tick, per-tick stepping matches the single-call economy when no cap bi
     const viaSingle = economyTick(makeS(), 149, () => 0); // the pre-B3 single closed-form call
 
     // Loot (constant rng()=0 -> rare wins every extraction tick -> 90 rareMaterial/cycle).
-    expect(viaTick.inventory.commonOre.equals(viaSingle.inventory.commonOre)).toBe(true);
-    expect(viaTick.inventory.uncommonMaterial.equals(viaSingle.inventory.uncommonMaterial)).toBe(true);
-    expect(viaTick.inventory.rareMaterial.equals(viaSingle.inventory.rareMaterial)).toBe(true);
-    expect(viaTick.inventory.rareMaterial.equals(90)).toBe(true); // pins the deterministic loot
+    expect(itemTotal(viaTick.inventory, "commonOre").equals(itemTotal(viaSingle.inventory, "commonOre"))).toBe(true);
+    expect(itemTotal(viaTick.inventory, "uncommonMaterial").equals(itemTotal(viaSingle.inventory, "uncommonMaterial"))).toBe(true);
+    expect(itemTotal(viaTick.inventory, "rareMaterial").equals(itemTotal(viaSingle.inventory, "rareMaterial"))).toBe(true);
+    expect(itemTotal(viaTick.inventory, "rareMaterial").equals(90)).toBe(true); // pins the deterministic loot
     expect(viaTick.discovered).toEqual(viaSingle.discovered);
 
     // Credits: one completed cycle -> shortOreRun creditsPerCycle 30 (F3 bump).

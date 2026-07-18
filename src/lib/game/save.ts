@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP } from "./model";
 
-export const SAVE_VERSION = 25;
+export const SAVE_VERSION = 26;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -38,6 +38,35 @@ function hydrateDecimalMap(map: Record<string, Decimal | number | string>): Reco
   const hydrated: Record<string, Decimal> = {};
   for (const key of Object.keys(map)) {
     hydrated[key] = toDecimal(map[key]);
+  }
+  return hydrated;
+}
+
+// Revives the QUALITY-BUCKETED inventory (Equipment 0.11.0, Task 9a): each item
+// maps to a Decimal[] of quality-tier buckets, and every bucket round-trips through
+// JSON as a plain string (Decimal.toJSON()) exactly like the scalar values in
+// hydrateDecimalMap above, so each bucket must be toDecimal()'d back or the first
+// .plus()/.gte() an itemTotal/getBucket read does would throw/NaN on load. Returns a
+// NEW map with NEW bucket arrays; mutates nothing. Idempotent (toDecimal no-ops on a
+// live Decimal), so calling it on a fresh/already-hydrated state is safe.
+//
+// DEFENSIVE per-value shape guard: a value reaching here is normally an array (the
+// v26+ bucketed shape freshState seeds / MIGRATIONS[25] builds). A NON-array scalar
+// (a hand-edited or partially-migrated map) is wrapped into a single quality-0 bucket
+// so it becomes a valid Decimal[], never a runtime crash. This mirrors the fail-open,
+// defense-in-depth posture the rest of this file's hydration takes.
+function hydrateInventoryBuckets(
+  map: Record<string, Decimal[] | Array<Decimal | number | string> | Decimal | number | string>
+): Record<string, Decimal[]> {
+  const hydrated: Record<string, Decimal[]> = {};
+  for (const key of Object.keys(map)) {
+    const value = map[key];
+    if (Array.isArray(value)) {
+      hydrated[key] = value.map((bucket) => toDecimal(bucket)); // per-bucket revival
+    } else {
+      // Non-array scalar (defensive): treat as a single quality-0 bucket.
+      hydrated[key] = [toDecimal(value)];
+    }
   }
   return hydrated;
 }
@@ -81,17 +110,20 @@ function hydrateDecimals(state: any): GameState {
     // would produce a NaN Decimal, so default the absent field to 0. Idempotent and
     // harmless once Task 9's migration guarantees the field's presence.
     fuel: toDecimal(state.fuel ?? new Decimal(0)),
-    // Phase 1 (Ship Production Economy) keyed inventory: revive every per-VALUE
-    // Decimal over this map's DYNAMIC keys (inventory can hold any ITEMS-registry
-    // id, not a fixed union), the exact hydrateDecimalMap treatment lifetimeStats'
-    // tally maps already get. This REPLACED the old homePlanet.storage per-value
-    // hydration (storage removed in Task 7, a v18 save has NO homePlanet field, so
-    // hydrating it here would throw on the unguarded read). Reached unconditionally
-    // for the same reason every field here is: any save arriving at hydrateDecimals()
-    // has `inventory` guaranteed present, it was written at v18+ (freshState seeds
-    // it) or MIGRATIONS[17] built it from the old save's homePlanet.storage before
-    // this runs, so the unguarded read is safe, same posture as the lifetimeStats
-    // reads.
+    // Phase 1 (Ship Production Economy) keyed inventory, now QUALITY-BUCKETED
+    // (Equipment 0.11.0, Task 9a): each item maps to a Decimal[] of quality-tier
+    // buckets, and hydrateInventoryBuckets revives every bucket per-VALUE over this
+    // map's DYNAMIC keys (inventory can hold any ITEMS-registry id, not a fixed
+    // union). This REPLACED the old scalar hydrateDecimalMap treatment (the shape was
+    // `Record<string, Decimal>` before Task 9a), which in turn had replaced the even
+    // older homePlanet.storage per-value hydration (storage removed in Task 7, a v18
+    // save has NO homePlanet field, so hydrating it here would throw on the unguarded
+    // read). Reached unconditionally for the same reason every field here is: any save
+    // arriving at hydrateDecimals() has `inventory` guaranteed present, it was written
+    // at v18+ (freshState seeds it) or MIGRATIONS[17] built it from the old save's
+    // homePlanet.storage before this runs, and MIGRATIONS[25] (v25 -> v26) has already
+    // converted a pre-Task-9a scalar inventory into the bucketed shape by the time
+    // this runs, so the unguarded read is safe, same posture as the lifetimeStats reads.
     //
     // Task 8 / Fuel v2: a persisted mid-flight timed process (startProcess pushes them
     // into activeProcesses) can carry a Decimal on its effect's `amount`, an `addItem`
@@ -112,7 +144,7 @@ function hydrateDecimals(state: any): GameState {
         ? { ...p, effect: { ...p.effect, amount: toDecimal(p.effect.amount) } }
         : p
     ),
-    inventory: hydrateDecimalMap(state.inventory),
+    inventory: hydrateInventoryBuckets(state.inventory),
     // lifetimeStats' 3 scalar sums are Decimal-typed (Progression Pacing
     // Rework), so, exactly like credits/fleetAdminXp above, they round-trip
     // through JSON as plain strings (Decimal.toJSON()) and MUST be converted
@@ -888,6 +920,47 @@ const MIGRATIONS: Record<number, Migration> = {
       shipyard: state.facilities?.shipyard ?? { level: 0 },
     },
   }),
+  // v25 -> v26: Quality-bucketed inventory (Equipment 0.11.0, Phase 4, Task 9a,
+  // docs/plans/2026-07-17-equipment-0.11.0-plan.md). The fleet-wide `inventory`
+  // changed SHAPE from `Record<string, Decimal>` (one balance per item) to
+  // `Record<string, Decimal[]>` (a per-item array of quality-tier buckets, index =
+  // quality tier 0..5; an item's total is the sum of its buckets). This step converts
+  // an old scalar inventory into the bucketed shape by dropping EACH existing count
+  // into that item's QUALITY-0 bucket (`[count]`), so a returning player's totals are
+  // byte-identical after migration (a single q0 bucket holding exactly what the scalar
+  // held). This is a PURE shape refactor: nothing rolls a quality above 0 yet.
+  //
+  // Per-value handling:
+  // - A scalar value (the real v25 shape: a Decimal, or a plain number/string on a raw
+  //   pre-hydration save) is wrapped into a single-element array via toDecimal, so
+  //   `commonOre: "750"` becomes `commonOre: [Decimal(750)]`. The unconditional
+  //   hydrateDecimals() at the end of migrate() (hydrateInventoryBuckets) re-confirms
+  //   each bucket is a live Decimal afterward, idempotent.
+  // - An ALREADY-array value (a chained / hand-edited / re-run save that is already in
+  //   bucketed shape) is passed through UNTOUCHED (never re-wrapped into `[[...]]`), so
+  //   re-running this step on a v26-shaped inventory is a no-op beyond the copy. This is
+  //   the same idempotent, belt-and-suspenders posture every other migration here takes.
+  //
+  // `state.inventory ?? {}` guards the wholesale-absent case defensively (not reachable
+  // on a real v25 save, MIGRATIONS[17] always builds inventory and freshState seeds it),
+  // same defense-in-depth posture as this file's other ?? guards. Every OTHER GameState
+  // field rides through untouched on the outer `...state` spread. Timed refine/fabricate
+  // jobs ride `activeProcesses` (already migrated + hydrated), whose addItem effect
+  // carries a SCALAR Decimal `amount` (a single deposit quantity, NOT a bucket array),
+  // so that effect is unchanged by this shape migration and needs no touch here.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to
+  // production, so it is still editable (the frozen-once-shipped rule applies only to
+  // production-released migrations).
+  25: (state: any): any => {
+    const oldInventory = state.inventory ?? {};
+    const inventory: Record<string, any> = {};
+    for (const key of Object.keys(oldInventory)) {
+      const value = oldInventory[key];
+      // Already bucketed (array) -> pass through; scalar -> wrap into a q0 bucket.
+      inventory[key] = Array.isArray(value) ? value : [toDecimal(value)];
+    }
+    return { ...state, inventory };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {

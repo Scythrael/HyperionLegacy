@@ -138,36 +138,36 @@ describe("allocatedItem", () => {
 
 describe("freeItem", () => {
   it("no lines -> free == full stock", () => {
-    const inventory = { commonOre: new Decimal(1000) };
+    const inventory = { commonOre: [new Decimal(1000)] };
     expect(freeItem(inventory, [], "commonOre").toNumber()).toBe(1000);
   });
 
   it("worked example: stock 1000, allocated 1000 -> free 0", () => {
-    const inventory = { commonOre: new Decimal(1000) };
+    const inventory = { commonOre: [new Decimal(1000)] };
     const lines = [refineLine("l1", 10)]; // 10 x 100 = 1000 reserved
     expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(0);
   });
 
   it("worked example after crafts: stock 900, allocated 900 -> free 0", () => {
-    const inventory = { commonOre: new Decimal(900) };
+    const inventory = { commonOre: [new Decimal(900)] };
     const lines = [refineLine("l1", 9)]; // 9 x 100 = 900 reserved
     expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(0);
   });
 
   it("partial reservation leaves the remainder free", () => {
-    const inventory = { commonOre: new Decimal(1000) };
+    const inventory = { commonOre: [new Decimal(1000)] };
     const lines = [refineLine("l1", 3)]; // 3 x 100 = 300 reserved
     expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(700);
   });
 
   it("two lines on the same item: free reflects the SUMMED reservation", () => {
-    const inventory = { commonOre: new Decimal(1000) };
+    const inventory = { commonOre: [new Decimal(1000)] };
     const lines = [refineLine("l1", 5), refineLine("l2", 2)]; // (5+2) x 100 = 700
     expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(300);
   });
 
   it("free is NEVER negative: over-reserved stock clamps to 0", () => {
-    const inventory = { commonOre: new Decimal(500) };
+    const inventory = { commonOre: [new Decimal(500)] };
     const lines = [refineLine("l1", 10)]; // reserves 1000 > 500 stock
     const free = freeItem(inventory, lines, "commonOre");
     expect(free.toNumber()).toBe(0);
@@ -175,16 +175,16 @@ describe("freeItem", () => {
   });
 
   it("missing inventory key -> free 0 (defensive, not NaN/negative)", () => {
-    const inventory: Record<string, Decimal> = {};
+    const inventory: Record<string, Decimal[]> = {};
     const lines = [refineLine("l1", 1)]; // reserves 100 of an absent item
     expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(0);
   });
 
   it("multi-input fabricate: free tracks each input against its own reservation", () => {
     const inventory = {
-      frameSegment: new Decimal(10),
-      powerCoupling: new Decimal(10),
-      titaniumIngot: new Decimal(10),
+      frameSegment: [new Decimal(10)],
+      powerCoupling: [new Decimal(10)],
+      titaniumIngot: [new Decimal(10)],
     };
     const lines = [fabricateLine("l1", FAB_KEY, 3)]; // fs 6, pc 3, ti 6 reserved
     expect(freeItem(inventory, lines, "frameSegment").toNumber()).toBe(4); // 10 - 6
@@ -203,7 +203,7 @@ describe("freeItem", () => {
 describe("freeItemForState (state convenience)", () => {
   it("subtracts a refine line's reservation from inventory (single array)", () => {
     const state = {
-      inventory: { commonOre: new Decimal(1000) },
+      inventory: { commonOre: [new Decimal(1000)] },
       refineLines: [refineLine("r1", 3)], // 3 x 100 = 300 reserved
       fabricateLines: [],
     };
@@ -216,8 +216,8 @@ describe("freeItemForState (state convenience)", () => {
     // must consult both arrays (a fabricate line reserving commonOre would count too).
     const state = {
       inventory: {
-        commonOre: new Decimal(1000),
-        titaniumIngot: new Decimal(10),
+        commonOre: [new Decimal(1000)],
+        titaniumIngot: [new Decimal(10)],
       },
       refineLines: [refineLine("r1", 4)], // 4 x 100 = 400 commonOre reserved
       fabricateLines: [fabricateLine("f1", FAB_KEY, 2)], // 2 x 2 = 4 titaniumIngot reserved
@@ -227,7 +227,7 @@ describe("freeItemForState (state convenience)", () => {
   });
 
   it("treats absent line arrays as empty -> free == raw inventory", () => {
-    const state = { inventory: { commonOre: new Decimal(500) } };
+    const state = { inventory: { commonOre: [new Decimal(500)] } };
     expect(freeItemForState(state, "commonOre").toNumber()).toBe(500);
   });
 

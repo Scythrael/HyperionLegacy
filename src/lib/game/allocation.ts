@@ -33,6 +33,7 @@
 
 import Decimal from "break_infinity.js";
 import { REFINE_RECIPES, BLUEPRINTS } from "./model";
+import { itemTotal } from "./inventory";
 
 // --- Functions ---------------------------------------------------------------
 
@@ -140,11 +141,15 @@ export function allocatedItem(lines: CraftLine[], itemId: string): Decimal {
 // reserves what it could afford at start), but a missing inventory key or any future
 // edge must yield 0, never a negative "free" (design §1: free ≥ 0 always). PURE.
 export function freeItem(
-  inventory: Record<string, Decimal>,
+  inventory: Record<string, Decimal[]>,
   lines: CraftLine[],
   itemId: string,
 ): Decimal {
-  const stock = inventory[itemId] ?? new Decimal(0);
+  // Quality-bucketed inventory (Task 9a): usable stock is the item's TOTAL across all
+  // quality buckets, read via itemTotal (absent key -> 0, same as the old scalar
+  // `inventory[itemId] ?? 0`). Allocation reserves against the total; buckets are an
+  // internal storage detail the allocation math does not care about.
+  const stock = itemTotal(inventory, itemId);
   const reserved = allocatedItem(lines, itemId);
   return Decimal.max(new Decimal(0), stock.minus(reserved));
 }
@@ -182,7 +187,7 @@ export function freeItem(
 // ============================================================================
 export function freeItemForState(
   state: {
-    inventory: Record<string, Decimal>;
+    inventory: Record<string, Decimal[]>;
     refineLines?: CraftLine[];
     fabricateLines?: CraftLine[];
   },

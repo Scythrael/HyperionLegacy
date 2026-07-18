@@ -34,6 +34,7 @@ import {
   economyTick,
   tick,
 } from "./tick";
+import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 
 // The exact hull keys S1 ships against, an explicit list (not `Object.keys`) so a
 // hull silently dropped from SHIP_TYPES fails this test instead of being skipped.
@@ -163,10 +164,10 @@ function yardState(opts: {
   fabricateLines?: CraftLine[];
 } = {}): GameState {
   const s = freshState();
-  const inventory: Record<string, Decimal> = { ...s.inventory };
-  if (opts.frameSegment !== undefined) inventory.frameSegment = new Decimal(opts.frameSegment);
-  if (opts.powerCoupling !== undefined) inventory.powerCoupling = new Decimal(opts.powerCoupling);
-  if (opts.structuralAssembly !== undefined) inventory.structuralAssembly = new Decimal(opts.structuralAssembly);
+  const inventory: Record<string, Decimal[]> = { ...s.inventory };
+  if (opts.frameSegment !== undefined) inventory.frameSegment = [new Decimal(opts.frameSegment)];
+  if (opts.powerCoupling !== undefined) inventory.powerCoupling = [new Decimal(opts.powerCoupling)];
+  if (opts.structuralAssembly !== undefined) inventory.structuralAssembly = [new Decimal(opts.structuralAssembly)];
   return {
     ...s,
     inventory,
@@ -200,8 +201,8 @@ function buildSnapshot(state: GameState) {
       remainingTicks: p.remainingTicks,
       durationTicks: p.durationTicks,
     })),
-    frameSegment: (state.inventory.frameSegment ?? new Decimal(0)).toString(),
-    powerCoupling: (state.inventory.powerCoupling ?? new Decimal(0)).toString(),
+    frameSegment: itemTotal(state.inventory, "frameSegment").toString(),
+    powerCoupling: itemTotal(state.inventory, "powerCoupling").toString(),
     credits: state.credits.toString(),
   };
 }
@@ -290,8 +291,8 @@ describe("startShipBuild (S3)", () => {
     expect(started).toBe(true);
     expect(reason).toBeUndefined();
     // Deduct-at-start: the WHOLE BOM leaves inventory immediately (frameSegment 10-4, powerCoupling 10-2).
-    expect(next.inventory.frameSegment.toString()).toBe("6");
-    expect(next.inventory.powerCoupling.toString()).toBe("8");
+    expect(itemTotal(next.inventory, "frameSegment").toString()).toBe("6");
+    expect(itemTotal(next.inventory, "powerCoupling").toString()).toBe("8");
     // Credits deducted once (1000 - 500).
     expect(next.credits.toString()).toBe("500");
     // Exactly one shipBuild process, with the addShip effect + the scaled duration.
@@ -301,7 +302,7 @@ describe("startShipBuild (S3)", () => {
     expect(builds[0].durationTicks).toBe(shipBuildDurationTicks(state, "generalFreighter"));
     expect(builds[0].remainingTicks).toBe(builds[0].durationTicks);
     // Input untouched (immutability).
-    expect(state.inventory.frameSegment.toString()).toBe("10");
+    expect(itemTotal(state.inventory, "frameSegment").toString()).toBe("10");
     expect(state.activeProcesses).toHaveLength(0);
   });
 
@@ -383,7 +384,7 @@ describe("⚠️ shipBuild offline == live parity (S3)", () => {
     // and no hull is parked yet, so the parity below is over a real mid-span completion.
     expect(base.activeProcesses.filter((p) => p.kind === "shipBuild")).toHaveLength(1);
     expect(base.ships).toHaveLength(0);
-    expect(base.inventory.frameSegment.toString()).toBe("6"); // 10 - 4 consumed at START
+    expect(itemTotal(base.inventory, "frameSegment").toString()).toBe("6"); // 10 - 4 consumed at START
     expect(base.credits.toString()).toBe("4500"); // 5000 - 500 at START
 
     // Path A: one offline catch-up call. Path B: hand-stepped economyTick, one tick at a time.
@@ -396,8 +397,8 @@ describe("⚠️ shipBuild offline == live parity (S3)", () => {
     expect(jumped.ships).toHaveLength(1); // grew from 0
     expect(jumped.ships[0].typeKey).toBe("generalFreighter");
     expect(jumped.ships[0].assignedCaptainId).toBeNull(); // parked, unassigned
-    expect(jumped.inventory.frameSegment.toString()).toBe("6"); // BOM consumed once (at start)
-    expect(jumped.inventory.powerCoupling.toString()).toBe("8");
+    expect(itemTotal(jumped.inventory, "frameSegment").toString()).toBe("6"); // BOM consumed once (at start)
+    expect(itemTotal(jumped.inventory, "powerCoupling").toString()).toBe("8");
     expect(jumped.credits.toString()).toBe("4500"); // deducted ONCE, not per-tick
     expect(jumped.activeProcesses.filter((p) => p.kind === "shipBuild")).toHaveLength(0); // resolved + removed
     expect(jumped.nextShipId).toBe(base.nextShipId + 1);

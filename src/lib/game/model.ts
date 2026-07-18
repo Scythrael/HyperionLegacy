@@ -1830,7 +1830,18 @@ export interface GameState {
   // store as of Phase 1, Task 7, it fully REPLACED the old fixed-union
   // `homePlanet.storage` field, which has been removed (its keys migrate into
   // this map via MIGRATIONS[17]; freshState seeds the same 5 zero entries).
-  inventory: Record<string, Decimal>;
+  //
+  // QUALITY-BUCKETED SHAPE (Equipment 0.11.0, Phase 4, Task 9a): each item now maps
+  // to an ARRAY of quality-tier buckets (array index = quality tier 0..5), NOT a
+  // single Decimal. An item's TOTAL on-hand is the SUM of its buckets. Every access
+  // routes through src/lib/game/inventory.ts (itemTotal / getBucket / addItemQuality /
+  // removeItemLowestFirst / ...) so the economy behaves identically. Buckets grow
+  // LAZILY (commonly length 1, just bucket 0); a read past the array reads 0. Nothing
+  // writes a tier above 0 yet, quality ROLLS are a later task; this is a pure shape
+  // change so that later work needs no second storage migration. Persistence:
+  // save.ts hydrateDecimals revives each bucket array element-wise, and MIGRATIONS[25]
+  // (v25 -> v26) converts an old scalar `Record<string, Decimal>` save into buckets.
+  inventory: Record<string, Decimal[]>;
   // itemIds the player has held at least once, the persistent "seen" set that
   // drives the future ❓ -> reveal UI (an undiscovered item renders masked until
   // its id lands here). Starts empty on a fresh save; NOTHING appends to it yet
@@ -3274,12 +3285,15 @@ export function freshState(): GameState {
     // homePlanet.storage field entirely as of Task 7 (storage removed; its keys now
     // live here). The 5 keys below are the historical storage set, new itemIds
     // (refined/component tiers) are added dynamically on first acquire, no reseed.
+    // Quality-bucketed shape (Task 9a): each key seeds a SINGLE zero bucket
+    // (`[Decimal(0)]`, quality tier 0), the bucketed equivalent of the old scalar
+    // `new Decimal(0)`. Buckets grow lazily, no eager length-6 allocation.
     inventory: {
-      commonOre: new Decimal(0),
-      uncommonMaterial: new Decimal(0),
-      rareMaterial: new Decimal(0),
-      refinedMaterial: new Decimal(0),
-      components: new Decimal(0),
+      commonOre: [new Decimal(0)],
+      uncommonMaterial: [new Decimal(0)],
+      rareMaterial: [new Decimal(0)],
+      refinedMaterial: [new Decimal(0)],
+      components: [new Decimal(0)],
     },
     // No itemId has been seen on a brand-new save, the ❓ -> reveal set starts
     // empty (discovery wiring lands in a later task).
