@@ -4,13 +4,36 @@ Ideas raised during development that aren't being built right now. Captured here
 past the conversation they were mentioned in (Ops-style "write it down so you don't relitigate it" —
 see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future features).
 
-- **NEXT (0.11.0) — Ship equipment slots + T1 gear crafting (user 2026-07-17).** First step of the
-  equipment → ship systems/modules → Combat arc. Ships have equipment slots. Each ship ships with a
-  built-in BASELINE ("standard") gear grade already fitted, so a bare ship is functional; crafted **T1**
-  gear is a *slight* active upgrade over that baseline (deliberately small — the ladder climbs from there).
-  Craft at least T1 items to fit those slots. Design happens in its own brainstorm when picked up; recorded
-  here (and in `docs/plans/2026-07-17-update-detector-design.md` §8) so the intent survives. Prereqs already
-  built: research→fabricate→shipyard pipeline, allocation model, ShipInstance in fleet.
+- **NEXT (0.11.0) is DESIGNED (user 2026-07-17).** The equipment feature grew, during brainstorm, into a
+  full ship-equipment + combat + crew + exploration vision. It is captured in two docs:
+  `docs/plans/2026-07-17-ship-equipment-combat-epic-design.md` (the whole vocabulary) and
+  `docs/plans/2026-07-17-equipment-0.11.0-design.md` (the buildable non-combat slice that ships as 0.11.0).
+  0.11.0 = the equipment instance/affix/quality engine + 4 live slots (Cargo, FTL Drive, Reactor, Prospecting
+  Rig) + Standard-Issue + crafted Standard-to-Radiant gear + Crafting Level/iLevel + the 0-5 Quality axis +
+  cargo-as-true-cap + storage/salvage + Mass/Power budgets + migration + mockup-gated UI, with the full stat
+  vocabulary (including the 9 combat weapons) DEFINED so 0.12.0 plugs in cleanly. Next step: writing-plans.
+
+- **0.12.0 = COMBAT (user 2026-07-17), designed as vocabulary in the epic doc above.** Ships the weapon/shield/
+  hull/thruster/cockpit/quarters/sensor slots, the 3 weapon families (Particle / Kinetic / Electronic Warfare)
+  with a +10/0/-10 triangle, the 9 first-pass weapons (Particle: Plasma/Graviton/Voltaic; Kinetic: Railgun/
+  Autocannon/Concussion Torpedo; EW: Point-Defense/EMP Cannon/Tachyon Burst Emitter), the System Disruptions
+  pool (ranked, quality/rarity-scaled), range bands + phase-driven multi-ship encounters, two-tier combat
+  (Battle Power auto-resolve for mission combat, Battlespace for tactical), Battle Rating + Engagement Forecast,
+  difficulty Ranks I-X with the death/durability table, Dispatch Once/Repeat, and Battlespace folded into
+  Operations (freeing the leftmost tab for a Dashboard). HARD PREREQUISITE before captain death: migrate
+  captains to a monotonic id counter (see the captain-id entry below).
+
+- **0.12.0+ future bites (logged from the 2026-07-17 brainstorm; full detail in the epic doc):** the tabled
+  weapons (Ion, Laser, Neutron, Hyperon, Mass Driver + Breaching Lance, Seeker Torpedo, Flak Cannon, Microwave
+  Emitter, Signal Jammer, Proximity Cluster Mines, Viral Lance); rarities above Radiant (Luminous/Constellar
+  legendary + Nova/Celestial ascension + the ~18-set content pipeline); the **Crew & Command** epic (stats
+  Strength/Integrity/Cunning/Constitution, stations, Recruiter's Office, traits, Senior Staff, promotion ranks,
+  the prestige/retire loop); the **Exploration + discovery-gated Research** system (day-long Explorer missions,
+  study/translation facility, discovery-prerequisite research, artifact set bonuses); the **module** system
+  (stat-stick + active ability); **Wargames** async-ante PvP; the **play-simulator** for balancing the
+  compounding item-gen math; sci-fi system names (Kepler's Reach, Tycho Verge, Cygnus Gate, Erebus Deep,
+  Halcyon Drift, Meridian Cradle, Vesper Hollow, Oberon Span, Calliope Reach, Nyx Threshold, Sable Expanse,
+  Requiem Belt, Auric Shoals, Thessaly Run, Lyra's Wake, Cinder Marches, Ossuary Field, Dhole's Crossing).
 
 - **Sector Space (Shipyard/Starbase).** Shelved mid-brainstorm in favor of the Captain & Homeworld
   Talent Trees. Shipyard would plausibly center on upgrading a captain's existing Vector-Fall Engine
