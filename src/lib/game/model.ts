@@ -2670,6 +2670,33 @@ export interface BlueprintDef {
   // not idle-scale currency), the Fabricator wraps them in Decimal at its deduct site,
   // exactly as the fuel constants are plain numbers wrapped at their deduct site.
   recipe: { inputs: Record<string, number>; outputItem: string; outputQty: number };
+  // --- Equipment-output extension (0.11.0 Task 18) ---------------------------
+  // A blueprint produces ONE of two output SHAPES, and a BlueprintDef falls into
+  // exactly one of these two families:
+  //   (1) MATERIAL blueprint (the original R1 shape): `equipmentOutput` is ABSENT.
+  //       The Fabricator crafts a STACKABLE item, `recipe.outputItem` x `outputQty`
+  //       (frameSegment, powerCoupling, structuralAssembly). Behaviour unchanged.
+  //   (2) EQUIPMENT blueprint (this task): `equipmentOutput` is PRESENT. The
+  //       Fabricator (a LATER task, Task 19) mints a non-stacking EquipmentInstance
+  //       of `{ slotType, varietyKey }` instead of a stackable, rolling its stats at
+  //       craft completion. It consumes `recipe.inputs` exactly like a material
+  //       blueprint (that field is meaningful for BOTH shapes), but its
+  //       `recipe.outputItem`/`outputQty` are an INERT PLACEHOLDER, NOT the real
+  //       output. See the placeholder note on the equipment BLUEPRINTS entries.
+  //
+  // WHY `outputItem` stays a REQUIRED placeholder rather than becoming optional:
+  // making it optional would turn `bp.recipe.outputItem` into `string | undefined`
+  // at its two existing read sites in tick.ts (lineJobSpec's `outputItemId` and
+  // canFabricate's `materialAtCap`), forcing edits to the Fabricator engine (and a
+  // new FabricateBlockReason -> a UI switch), ALL of which this DATA-ONLY task is
+  // scoped OUT of. Keeping the field required leaves every existing material
+  // blueprint and every tick.ts read site byte-for-byte unchanged. ⚠️ HANDOFF: until
+  // Task 19 teaches the Fabricator to branch on `equipmentOutput`, the generic craft
+  // path would still grant the placeholder stackable if an equipment blueprint were
+  // researched + fabricated. Task 19 MUST gate on `equipmentOutput` (in canFabricate
+  // + lineJobSpec) BEFORE this shape is reachable in normal play. Documented, not
+  // silently shipped.
+  equipmentOutput?: { slotType: EquipmentSlotType; varietyKey: string };
   flavor?: string;      // narrative color (optional)
   unlockHint?: string;  // functional "how to unlock" clue for the UI (optional)
 }
@@ -2729,6 +2756,224 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     flavor: "The master plan for marrying frame segments and couplings into one rigid sub-structure.",
     unlockHint: "Researched at the Research Lab (requires a higher lab tier); crafted at the Fabricator later.",
   },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // EQUIPMENT BLUEPRINTS (0.11.0 Task 18): the 12 CRAFTABLE equipment recipes,
+  // one per (live slot × variety) across the four live EQUIPMENT_SLOTS. Each
+  // carries `equipmentOutput: { slotType, varietyKey }` (the piece it mints) and
+  // consumes REFINED materials + fabricated COMPONENTS via `recipe.inputs` (NEVER
+  // raw ore directly, design's "raw -> refine -> fabricate -> equip" ladder). The
+  // `recipe.outputItem`/`outputQty` are an INERT PLACEHOLDER on every equipment
+  // blueprint (set to `components` x1): the real output is the EquipmentInstance,
+  // minted by the Fabricator in Task 19, which will branch on `equipmentOutput`
+  // and ignore these two fields (see the BlueprintDef equipmentOutput note). The
+  // placeholder exists ONLY to satisfy the required `recipe` shape without editing
+  // tick.ts/UI (this task is data-only).
+  //
+  // MATERIAL-SPREAD / "no dead-end material" design rule (plan Task 18): across
+  // the 12, the inputs cover the FULL set of materials that are ACTUALLY
+  // PRODUCIBLE today, the three refine-recipe outputs (titaniumIngot,
+  // polysilicateWafer, refinedMaterial) and the three fabricated components
+  // (frameSegment, powerCoupling, structuralAssembly). ⚠️ JUDGMENT CALL: the plan's
+  // "full spread across the 4 mission triads" cannot yet reach the OTHER 10 raw
+  // ores (iridium/ferrite/cobalt/osmium/scrap/circuitry/reactorCore/biomass/resin/
+  // spore) because NO REFINE_RECIPE turns them into a refined item yet (only
+  // commonOre + uncommonMaterial have refine paths), and the refine-recipes.test
+  // FORBIDS a blueprint from consuming a refined item that nothing refines (a real
+  // dead end). Extending the sink to all four triads is a follow-up that must add
+  // the missing REFINE_RECIPES first, OUT of this data-only task's scope. So the
+  // spread here is "every PRODUCIBLE refined/component material feeds an equipment
+  // blueprint", the honest, testable form of the rule today.
+  //
+  // ⚠️ FIRST-PASS TUNABLE ⚠️ every tier / cost / duration / input amount below is a
+  // launch placeholder in the SAME spirit as the material blueprints above; real
+  // balance happens at the device-check stage. Tier-1 for the ten cheap varieties;
+  // the two that consume the tier-2 `structuralAssembly` component are tier-2 so
+  // their research/fabricator gate matches the tier of their heaviest input.
+  // Keys follow the `<varietyKey>Bp` convention (variety keys are unique across all
+  // four slots), mirroring the material blueprints' `<item>Bp` keys.
+
+  // --- CARGO BAY (structural holds: frame + titanium) ------------------------
+  prospectorHoldBp: {
+    key: "prospectorHoldBp",
+    label: "Prospector Hold Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "cargoBay", varietyKey: "prospectorHold" },
+    // Prospector-leaning hold: a light frame stuffed with titanium bracing for volume.
+    recipe: { inputs: { frameSegment: 2, titaniumIngot: 3 }, outputItem: "components", outputQty: 1 },
+    flavor: "A cavernous prospector's hold, all volume and light bracing, built to swallow a survey haul.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+  balancedHoldBp: {
+    key: "balancedHoldBp",
+    label: "Balanced Hold Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "cargoBay", varietyKey: "balancedHold" },
+    // The neutral middle hold (the cargo slot's DEFAULT variety): frame + titanium + refined filler.
+    recipe: { inputs: { frameSegment: 2, titaniumIngot: 2, refinedMaterial: 2 }, outputItem: "components", outputQty: 1 },
+    flavor: "A no-nonsense general hold, the shape most shipwrights stamp first and rarely regret.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+  haulerHoldBp: {
+    key: "haulerHoldBp",
+    label: "Hauler Hold Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "cargoBay", varietyKey: "haulerHold" },
+    // Max-capacity hold: a full structural assembly (tier-2 spine) reinforced with extra framing.
+    recipe: { inputs: { frameSegment: 3, structuralAssembly: 1 }, outputItem: "components", outputQty: 1 },
+    flavor: "A freighter-grade hold braced on a full sub-structure, heavy, and it hauls like it.",
+    unlockHint: "Researched at the Research Lab (needs a higher tier); crafted at the Fabricator later.",
+  },
+
+  // --- FTL DRIVE (propulsion: couplings + wafers) ----------------------------
+  sprintDriveBp: {
+    key: "sprintDriveBp",
+    label: "Sprint Drive Blueprint",
+    tier: 1,
+    researchDurationTicks: 70,
+    researchCreditCost: 800,
+    craftDurationTicks: 160,
+    equipmentOutput: { slotType: "ftlDrive", varietyKey: "sprintDrive" },
+    // Speed drive: power couplings feeding a wafer-dense control stack.
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 }, outputItem: "components", outputQty: 1 },
+    flavor: "A hair-trigger FTL drive tuned for the fastest transit the fleet can light off.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+  economyDriveBp: {
+    key: "economyDriveBp",
+    label: "Economy Drive Blueprint",
+    tier: 1,
+    researchDurationTicks: 70,
+    researchCreditCost: 800,
+    craftDurationTicks: 160,
+    equipmentOutput: { slotType: "ftlDrive", varietyKey: "economyDrive" },
+    // Long-haul drive: couplings + refined bulk for a fuel-sipping regulator.
+    recipe: { inputs: { powerCoupling: 2, refinedMaterial: 3 }, outputItem: "components", outputQty: 1 },
+    flavor: "A patient long-haul drive that sips fuel, the runabout's choice for the deep runs.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+  balancedDriveBp: {
+    key: "balancedDriveBp",
+    label: "Balanced Drive Blueprint",
+    tier: 1,
+    researchDurationTicks: 70,
+    researchCreditCost: 800,
+    craftDurationTicks: 160,
+    equipmentOutput: { slotType: "ftlDrive", varietyKey: "balancedDrive" },
+    // The even drive (the FTL slot's DEFAULT variety): couplings + wafers + a titanium brace.
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1 }, outputItem: "components", outputQty: 1 },
+    flavor: "An even-tempered drive splitting the difference between speed and thrift, the safe default.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+
+  // --- REACTOR CORE (power: couplings + wafers, top core on a structural spine) ---
+  highOutputCoreBp: {
+    key: "highOutputCoreBp",
+    label: "High-Output Core Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1700,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "reactorCore", varietyKey: "highOutputCore" },
+    // Max-output reactor: heavy couplings mounted on a full structural assembly.
+    recipe: { inputs: { powerCoupling: 3, structuralAssembly: 1 }, outputItem: "components", outputQty: 1 },
+    flavor: "A brute of a reactor wound for raw output, bolted to a sub-structure so it does not shake loose.",
+    unlockHint: "Researched at the Research Lab (needs a higher tier); crafted at the Fabricator later.",
+  },
+  efficientCoreBp: {
+    key: "efficientCoreBp",
+    label: "Efficient Core Blueprint",
+    tier: 1,
+    researchDurationTicks: 70,
+    researchCreditCost: 850,
+    craftDurationTicks: 160,
+    equipmentOutput: { slotType: "reactorCore", varietyKey: "efficientCore" },
+    // Light, low-draw core: couplings + a wafer-dense regulator stack.
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 }, outputItem: "components", outputQty: 1 },
+    flavor: "A lean, quiet core that gives up peak output for a featherweight, low-draw fit.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+  balancedCoreBp: {
+    key: "balancedCoreBp",
+    label: "Balanced Core Blueprint",
+    tier: 1,
+    researchDurationTicks: 70,
+    researchCreditCost: 850,
+    craftDurationTicks: 160,
+    equipmentOutput: { slotType: "reactorCore", varietyKey: "balancedCore" },
+    // The middle reactor (the reactor slot's DEFAULT variety): couplings + wafers + titanium brace.
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1 }, outputItem: "components", outputQty: 1 },
+    flavor: "A dependable middle-of-the-road core, enough output, sensible mass, nothing to prove.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+
+  // --- SPEC UTILITY (Prospecting Rig: sensors/electronics + framing) ----------
+  yieldRigBp: {
+    key: "yieldRigBp",
+    label: "Yield Rig Blueprint",
+    tier: 1,
+    researchDurationTicks: 80,
+    researchCreditCost: 900,
+    craftDurationTicks: 170,
+    equipmentOutput: { slotType: "specUtility", varietyKey: "yieldRig" },
+    // Extractor-efficiency rig (the spec slot's DEFAULT variety): a framed wafer sensor pack.
+    recipe: { inputs: { frameSegment: 2, polysilicateWafer: 2 }, outputItem: "components", outputQty: 1 },
+    flavor: "A prospecting rig tuned to squeeze every last gram out of a seam before moving on.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+  surveyRigBp: {
+    key: "surveyRigBp",
+    label: "Survey Rig Blueprint",
+    tier: 1,
+    researchDurationTicks: 80,
+    researchCreditCost: 900,
+    craftDurationTicks: 170,
+    equipmentOutput: { slotType: "specUtility", varietyKey: "surveyRig" },
+    // Sensor-heavy rig: couplings powering a dense wafer sensor array.
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2 }, outputItem: "components", outputQty: 1 },
+    flavor: "A wide-eyed survey rig that finds the rich seams faster, if not always the fullest.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+  refineryFeedRigBp: {
+    key: "refineryFeedRigBp",
+    label: "Refinery-Feed Rig Blueprint",
+    tier: 1,
+    researchDurationTicks: 80,
+    researchCreditCost: 900,
+    craftDurationTicks: 170,
+    equipmentOutput: { slotType: "specUtility", varietyKey: "refineryFeedRig" },
+    // Material-quality rig: refined bulk + titanium for a cleaner-feedstock sorter.
+    recipe: { inputs: { refinedMaterial: 3, titaniumIngot: 2 }, outputItem: "components", outputQty: 1 },
+    flavor: "A sorting rig that hand-picks the cleanest ore, so the Refinery gets a better feed.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+};
+
+// --- Default equipment variety per live slot (0.11.0 Task 18) ----------------
+// The Standard-Issue FLOOR: the ONE variety per live slot whose Standard-rarity,
+// quality-0 form is auto-seeded into every ship so a live slot is never empty
+// (design's "a live slot is never empty" rule). Deliberately the NEUTRAL variety
+// of each slot (no `favorsSpec`, or the yield rig for the single-family spec slot),
+// so the baseline favours no spec. ⚠️ Standard-Issue is GENERATED, not a separate
+// ITEMS def: a later task (Task 20 migration/seed) reads THIS map and mints the
+// quality-0 EquipmentInstance for each slot's default variety at seed time. Keyed
+// by the four LIVE EquipmentSlotType values only (the reserved slots have no
+// varieties this patch). Each value MUST name a real variety of its slot (asserted
+// in model.test.ts).
+export const DEFAULT_EQUIPMENT_VARIETY: Record<string, string> = {
+  cargoBay: "balancedHold",     // neutral, no favoredSpec
+  ftlDrive: "balancedDrive",    // even speed/efficiency split
+  reactorCore: "balancedCore",  // middle reactor
+  specUtility: "yieldRig",      // the spec slot's baseline prospecting rig
 };
 
 // The Research facility's key in GameState.facilities. R2 adds FACILITIES.research and

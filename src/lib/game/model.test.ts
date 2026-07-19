@@ -23,6 +23,8 @@ import {
   FUEL_CREDITS_PER_UNIT,
   rarityIndex,
   EQUIPMENT_SLOTS,
+  BLUEPRINTS,
+  DEFAULT_EQUIPMENT_VARIETY,
   LIVE_STAT_KEYS,
   RESERVED_STAT_KEYS,
   plusToPercent,
@@ -1408,6 +1410,105 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     expect(req).toBeDefined();
     expect(req?.captainSpec).toBe("prospector");
     expect(req?.hullSpec).toBe("prospector");
+  });
+});
+
+// Equipment 0.11.0 Task 18: the 12 EQUIPMENT BLUEPRINTS (one per live slot ×
+// variety) + the DEFAULT_EQUIPMENT_VARIETY map. These guard that: every equipment
+// blueprint points `equipmentOutput` at a REAL slot + a REAL variety of that slot,
+// consumes REAL, refine/fabricate-PRODUCIBLE materials, and that the union of their
+// inputs covers the full producible refined+component spread (so a future dead-end
+// material, one used by NO equipment blueprint, trips the coverage test). The
+// existing research.test.ts / refine-recipes.test.ts suites already fence the shared
+// BlueprintDef invariants (outputItem resolves, inputs resolve, no dead-end refined
+// input) over ALL of BLUEPRINTS, including these; this block adds the equipment-only
+// contract on top.
+describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
+  // The 12 (slot, variety) pairs the equipment blueprints must cover, derived
+  // straight from EQUIPMENT_SLOTS so this stays in lockstep with the slot table.
+  const EQUIP_BP_KEYS = [
+    "prospectorHoldBp", "balancedHoldBp", "haulerHoldBp",
+    "sprintDriveBp", "economyDriveBp", "balancedDriveBp",
+    "highOutputCoreBp", "efficientCoreBp", "balancedCoreBp",
+    "yieldRigBp", "surveyRigBp", "refineryFeedRigBp",
+  ];
+
+  // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`.
+  const equipmentBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.equipmentOutput);
+
+  it("defines exactly 12 equipment blueprints, one per (live slot × variety)", () => {
+    expect(equipmentBlueprints).toHaveLength(12);
+    // The named set matches the derived key list (no missing / extra entry).
+    const keys = equipmentBlueprints.map((bp) => bp.key).sort();
+    expect(keys).toEqual([...EQUIP_BP_KEYS].sort());
+    // And there is exactly one blueprint per (slotType, varietyKey) pair, covering
+    // every variety of every live slot with no duplicates.
+    const pairs = new Set(
+      equipmentBlueprints.map((bp) => `${bp.equipmentOutput!.slotType}/${bp.equipmentOutput!.varietyKey}`),
+    );
+    expect(pairs.size).toBe(12);
+    for (const [slotType, slot] of Object.entries(EQUIPMENT_SLOTS)) {
+      for (const variety of slot.varieties) {
+        expect(pairs.has(`${slotType}/${variety.key}`), `${slotType}/${variety.key} has a blueprint`).toBe(true);
+      }
+    }
+  });
+
+  it("every equipment blueprint's equipmentOutput names a real live slot + a real variety of it", () => {
+    for (const bp of equipmentBlueprints) {
+      const out = bp.equipmentOutput!;
+      const slot = EQUIPMENT_SLOTS[out.slotType];
+      expect(slot, `${bp.key} slotType ${out.slotType}`).toBeDefined();
+      const varietyKeys = slot.varieties.map((v) => v.key);
+      expect(varietyKeys, `${bp.key} varietyKey ${out.varietyKey}`).toContain(out.varietyKey);
+    }
+  });
+
+  it("every equipment blueprint has non-empty inputs, all real ITEMS keys with positive amounts", () => {
+    for (const bp of equipmentBlueprints) {
+      const inputKeys = Object.keys(bp.recipe.inputs);
+      expect(inputKeys.length, `${bp.key} has >=1 input`).toBeGreaterThan(0);
+      for (const inputKey of inputKeys) {
+        expect(ITEMS[inputKey], `${bp.key} input ${inputKey}`).toBeDefined();
+        expect(bp.recipe.inputs[inputKey], `${bp.key} input ${inputKey} amount`).toBeGreaterThan(0);
+      }
+      // No equipment blueprint consumes RAW ore directly (design: raw -> refine ->
+      // fabricate -> equip); every input is a refined material or a component.
+      for (const inputKey of inputKeys) {
+        expect(ITEMS[inputKey].category, `${bp.key} input ${inputKey} is not raw`).not.toBe("raw");
+      }
+    }
+  });
+
+  it("the union of equipment inputs covers the full producible refined+component spread (no dead-end material)", () => {
+    // The materials that are ACTUALLY producible today and therefore must each have
+    // an equipment sink: the three refine-recipe outputs + the three fabricated
+    // components. If a future edit stops using one of these, this fails (the plan's
+    // "every gathered material feeds something" rule, at the producible tier).
+    const INTENDED_SPREAD = [
+      "titaniumIngot", "polysilicateWafer", "refinedMaterial", // refined (refine-recipe outputs)
+      "frameSegment", "powerCoupling", "structuralAssembly",   // components (fabricated)
+    ];
+    const usedInputs = new Set<string>();
+    for (const bp of equipmentBlueprints) {
+      for (const inputKey of Object.keys(bp.recipe.inputs)) usedInputs.add(inputKey);
+    }
+    for (const material of INTENDED_SPREAD) {
+      expect(usedInputs.has(material), `${material} is consumed by some equipment blueprint`).toBe(true);
+    }
+  });
+
+  it("DEFAULT_EQUIPMENT_VARIETY names a real variety for each of the 4 live slots", () => {
+    // One default per live slot, and nothing for a non-live slot.
+    expect(Object.keys(DEFAULT_EQUIPMENT_VARIETY).sort()).toEqual(
+      ["cargoBay", "ftlDrive", "reactorCore", "specUtility"].sort(),
+    );
+    for (const [slotType, varietyKey] of Object.entries(DEFAULT_EQUIPMENT_VARIETY)) {
+      const slot = EQUIPMENT_SLOTS[slotType];
+      expect(slot, `default slot ${slotType}`).toBeDefined();
+      const varietyKeys = slot.varieties.map((v) => v.key);
+      expect(varietyKeys, `default variety ${varietyKey} of ${slotType}`).toContain(varietyKey);
+    }
   });
 });
 
