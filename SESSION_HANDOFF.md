@@ -1,16 +1,17 @@
 # Session Handoff — Hyperion Legacy (fleet-admiral)
 
-**Updated:** 2026-07-18, mid 0.11.0 build (very long session). Purpose: let the next session resume with zero context loss. Read this FIRST, then the memory files and the docs it points to.
+**Updated:** 2026-07-18, 0.11.0 COMPLETE and merged to staging (very long session). Purpose: let the next session resume with zero context loss. Read this FIRST, then the memory files and the docs it points to.
 
 ---
 
 ## 0. TL;DR (read this, then the sections you need)
 
 - **Production (crystalisoft.com) is at 0.10.2** (`origin/main` = `8e3b26b`). Stable, public, do NOT touch without explicit user go-ahead.
-- **Staging (devpreview.crystalisoft.com) is at `0c19ea2`** = **0.11.0 work-in-progress** (equipment engine, functionally complete through Task 20). The user tests here on their devices. Pushing vetted WIP to staging is standing-authorized; promoting to prod is NOT.
-- **0.11.0 = ship equipment (systems) + gear crafting. The ENGINE is done and on staging.** What remains before 0.11.0 can close: (1) two open USER DECISIONS (dead-end ores, crafting-quality source, see Section 6), (2) the version bump + patch notes (Task 23), (3) the holistic branch review + a clean final merge (Task 24). See Section 5.
-- Branch: `feat/ship-equipment-0.11.0` (= staging tip `0c19ea2`). `main` is a clean ancestor.
-- `SAVE_VERSION` is **28**. `APP_VERSION` is still **"0.10.2"** (bump to 0.11.0 is the deferred Task 23). Tests: **836 passing, 31 files**.
+- **Staging (devpreview.crystalisoft.com) is at `4485f10`** = **0.11.0 COMPLETE** (equipment engine, version-bumped, holistic-reviewed clean, merged). The user is doing final device testing here before promoting to prod. Pushing vetted work to staging is standing-authorized; promoting to prod is NOT (needs explicit user go each time).
+- **0.11.0 = ship equipment (systems) + gear crafting. DONE.** Holistic review passed with zero blocking issues; the only fix was 3 stray `--` comment separators. Two non-blocking follow-ups logged (see Section 6). The ONLY thing left for 0.11.0 is the user's explicit go-ahead to promote staging to prod.
+- **NEXT FEATURE is 0.11.1 "Material Lines"** (designed direction locked, doc not yet written). See Section 5.
+- Branch: `feat/ship-equipment-0.11.0` (= staging tip `4485f10`). `main` is a clean ancestor (promotion = `git checkout main; git merge --ff-only feat/ship-equipment-0.11.0; npm run check; git push origin main`).
+- `SAVE_VERSION` is **28**. `APP_VERSION` is **"0.11.0"**. Tests: **836 passing, 31 files**.
 - The user hates losing context across sessions. The memory files + this doc are the safety net. Trust them, but verify any file/line/flag still exists before acting on it.
 
 ---
@@ -68,14 +69,22 @@ Built and gate-green on the branch (see TaskList / git log for the per-task comm
 
 ---
 
-## 5. What REMAINS to close 0.11.0
+## 5. NEXT: 0.11.1 "Material Lines" (design direction LOCKED, doc not yet written)
 
-1. **Two open user decisions (Section 6) that may add scope.** Neither blocks the engine; both should be settled before the holistic review so the branch is reviewed as it will ship.
-2. **Task 23: version bump + patch notes.** `APP_VERSION` to "0.11.0" in `src/lib/patchNotes.ts` + a hand-written `PATCH_NOTES` entry (no markdown processor, no em dashes / "--"). Do this LAST, once scope is final.
-3. **Task 24: holistic review + clean final state on staging.** Full gate (`npm run check` 0 errors + `npm test` + `npm run build`). Controller re-verifies the flagged seams (fitting fold-in parity, quality-roll bulk parity, affix-roll offline parity, cargo clamp parity, migration on a real save). Consolidation candidate flagged in the plan: the subtract-and-carry level-up loop is duplicated 3 ways (captain XP, FA XP, crafting XP); consider a shared `foldXpLevelUps` helper, but as a DELIBERATE separately-tested refactor (it touches shipped code), not mid-feature. Also: FA XP uses a blacklist and crafting XP a whitelist in `resolveProcesses`, so a future `TimedProcessKind` inherits FA XP but not crafting XP by default; revisit when the next kind lands.
-4. **Prod promotion:** ONLY on explicit user go-ahead.
+The dead-end-ores question grew into a real feature. Current state: crafting is fully playable off just 2 ores (`commonOre` Titanium + `uncommonMaterial` Polysilicate); the other ~10 mission items (from the Lunar Mine / Salvage / Forage runs) have NO refine recipe and no sink. 0.11.1 gives all 12 mission items a purpose.
 
-**HARD PREREQ for 0.12.0 (combat), not 0.11.0:** migrate captain ids to a monotonic counter before any captain-death feature ships.
+USER-LOCKED design decisions (2026-07-18):
+- **Model: "themed by system."** Each ship system is crafted from its thematically-matched material lines, so every mission supplies different slots and all four missions matter. Structural ores feed holds; heavy metals + a salvaged core feed reactors; electronics/coils feed FTL drives; organics/exotics feed the spec-utility sensor rigs.
+- The 4 mission lines get identities: Local Asteroid (structural + electronic spine), Lunar Mine (heavy metals: Ferrite/Cobalt/Osmium), Salvage (recovered tech: Scrap/Circuitry/Reactor Cell), Forage (organic chemistry: Biomass/Resin/Spore).
+- **All 12 items get a use OR an honest "not used in any recipe yet, reserved for future" tooltip** (inverse of the existing "no source yet" masking). Bounds scope.
+- **The rare salvage item (`intactReactorCore`) is a CRAFTING INGREDIENT, never an installable system, and must be RENAMED** (it collides with the `reactorCore` slot name; e.g. "Derelict Reactor Cell").
+- Recipes must be **thematically coherent** ("do these inputs make sense for this system?"); items may be renamed/repurposed to make that true. Multi-input "chemical process" refines (compounds, e.g. resin + wafer to a "photonic gel" for survey sensors) are wanted.
+- **Design-critical check:** mission-unlock order == crafting access, so a themed requirement must not wall off a slot the player has no mission for yet. Verify the unlock progression lines up with the recipe requirements before finalizing.
+- Reclaimed targets ALREADY exist in ITEMS with broken-promise hints: `reclaimedAlloy` ("Refined from salvage"), `purifiedBiomass` ("Refined from foraged biomass"). No recipe wired yet.
+
+NEXT ACTION: write the 0.11.1 design doc (superpowers:brainstorming is effectively done; go to design doc then writing-plans then subagent-driven build). The concrete recipe rework of the 12 equipment blueprints + the compound refines is the core of it.
+
+**HARD PREREQ for 0.12.0 (combat), not 0.11.x:** migrate captain ids to a monotonic counter before any captain-death feature ships.
 
 ---
 
