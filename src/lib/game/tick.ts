@@ -4486,9 +4486,9 @@ export function resolveProcesses(
       // stream is drawn in a FIXED order every completion, so tick() (offline, looping
       // economyTick(_,1)) and App.svelte (live, one economyTick(_,1) per poll) advance it
       // identically and mint a BIT-IDENTICAL instance at the same seed:
-      //   (1) rollQuality(rng)        -- variable draw count (1..QUALITY tiers), FIRST
-      //   (2) rollCraftedRarity(rng)  -- EXACTLY one draw, SECOND
-      //   (3) generateEquipment(...)  -- its internal affixCount + affix-pick draws, LAST
+      //   (1) rollQuality(rng):       variable draw count (1..QUALITY tiers), FIRST
+      //   (2) rollCraftedRarity(rng): EXACTLY one draw, SECOND
+      //   (3) generateEquipment(...): its internal affixCount + affix-pick draws, LAST
       // Nothing here draws out of band, so parity holds by construction (the SAME argument the
       // addItem quality roll relies on, now extended to two more deterministic draws + the affix
       // rolls). ⚠️ TUNABLE: quality is ROLLED for now (Task 9c will derive it from the input
