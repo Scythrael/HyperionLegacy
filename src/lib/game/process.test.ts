@@ -60,7 +60,9 @@ function snapshot(state: ReturnType<typeof freshState>) {
             ? { type: p.effect.type, facility: p.effect.facility }
             : p.effect.type === "unlockBlueprint"
               ? { type: p.effect.type, key: p.effect.key } // Research (R3): unlockBlueprint effect
-              : { type: p.effect.type, typeKey: p.effect.typeKey }, // Shipyard (S3): addShip effect
+              : p.effect.type === "addShip"
+                ? { type: p.effect.type, typeKey: p.effect.typeKey } // Shipyard (S3): addShip effect
+                : { type: p.effect.type, blueprintKey: p.effect.blueprintKey }, // Equipment (Task 19): addEquipment effect
   }));
   return {
     inventory,

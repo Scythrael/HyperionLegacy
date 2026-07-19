@@ -1402,7 +1402,21 @@ export type ProcessEffect =
   // itemId/amount inventory shape can carry. Like unlockBlueprint it carries NO Decimal
   // (typeKey is a plain string union), so hydrateDecimals (save.ts) skips it via its
   // `"amount" in effect` guard and it round-trips through JSON as {type,typeKey} strings.
-  | { type: "addShip"; typeKey: ShipTypeKey };
+  | { type: "addShip"; typeKey: ShipTypeKey }
+  // Equipment 0.11.0 (Task 19): a completed EQUIPMENT fabricate job MINTS a non-stacking
+  // EquipmentInstance (resolveProcesses rolls its stats via generateEquipment, pushes it
+  // into state.equipment as a spare, and bumps nextEquipmentId). This is a NEW effect (NOT
+  // a reuse of addItem) for the EXACT reason addShip is: an EquipmentInstance is a first-
+  // class fleet object with its own id / stat rolls / fitment, none of which the
+  // itemId/amount inventory shape can carry. It carries the `blueprintKey` (not the rolled
+  // instance) so the ROLL happens at COMPLETION on the threaded seeded rng (offline==live
+  // parity, mirroring the quality roll addItem does), NOT at start; resolveProcesses reads
+  // BLUEPRINTS[blueprintKey].equipmentOutput for the slot/variety to mint. The equipment
+  // fabricate job's `recipe.outputItem` placeholder ("components") is deliberately IGNORED
+  // (never granted). Like unlockBlueprint/addShip it carries NO Decimal (blueprintKey is a
+  // plain string), so hydrateDecimals (save.ts) skips it via its `"amount" in effect` guard
+  // and it round-trips through JSON as {type,blueprintKey} strings.
+  | { type: "addEquipment"; blueprintKey: string };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
@@ -3203,6 +3217,32 @@ export function rollQuality(rng: () => number): number {
     }
   }
   return tier;
+}
+
+// rollCraftedRarity(rng): the BASE craftable-rarity roll for ONE freshly fabricated equipment
+// piece (Equipment 0.11.0, Task 19). Returns an EquipmentRarity in the CRAFTABLE band
+// Standard..Radiant, weighted heavily toward Standard, consuming EXACTLY ONE rng draw.
+//
+// DRAW-COUNT CONTRACT: exactly one draw, ALWAYS (a single `rng()` then a cumulative-threshold
+// walk). This fixed, tiny draw shape is what lets the Fabricator's mint stay offline==live
+// parity-identical, the mint draws quality (rollQuality) THEN this rarity THEN generateEquipment's
+// affix rolls, all off the SAME threaded stream in that fixed order, so a completion advances the
+// stream identically no matter how the elapsed span was chunked (see resolveProcesses / the
+// parity test in tick.test.ts).
+//
+// ⚠️ FIRST-PASS TUNABLE + a DELIBERATE FIRST-PASS SUBSET (see the mint site in tick.ts):
+//   - derelict is EXCLUDED: it is a decay state, not a craft output (a fresh piece is never a wreck).
+//   - luminous / constellar (and the nova/celestial ascensions) are EXCLUDED here: those are the
+//     talent-gated legendary procs a LATER refinement task mints; base crafting tops out at radiant.
+// The weights below (Standard-heavy) are launch placeholders, retuned at the device-check stage,
+// the SAME posture as QUALITY_STEP_CHANCE and every other economy constant in this file. Uses the
+// same strict `<` gate every rng gate in the engine uses (rollExtractionTick / rollQuality).
+export function rollCraftedRarity(rng: () => number): EquipmentRarity {
+  const r = rng();
+  if (r < 0.6) return "standard";   // 60% common craft
+  if (r < 0.85) return "augmented"; // 25%
+  if (r < 0.97) return "stellar";   // 12%
+  return "radiant";                 //  3% top-end base craft
 }
 
 // --- Captain & Homeworld Talent Trees (docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) ---

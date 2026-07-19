@@ -42,6 +42,8 @@ import {
   craftingXpForNext,
   CRAFTING_XP_PER_DURATION_TICK,
   ITEMS,
+  BLUEPRINTS,
+  type GameState,
   type CaptainMissionState,
   type MissionKey,
   type TimedProcess,
@@ -49,6 +51,7 @@ import {
   type EquipmentInstance,
 } from "./model";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
+import type { CraftLine } from "./allocation"; // Task 19: fabricate-line parity fixtures
 
 function missionCaptain(
   // Mission Rework (Task 1): widened from the 2 ore-run keys to the full MissionKey
@@ -3713,5 +3716,143 @@ describe("tick, per-tick stepping matches the single-call economy when no cap bi
     expect(viaTick.fleetAdminXp.equals(viaSingle.fleetAdminXp)).toBe(true);
     expect(viaTick.gameTimeSeconds).toBeCloseTo(viaSingle.gameTimeSeconds, 9);
     expect(viaTick.gameTimeSeconds).toBeCloseTo(149.7, 9);
+  });
+});
+
+// ============================================================================
+// Fabricator mints real equipment (Equipment 0.11.0, Task 19)
+// (docs/plans/2026-07-17-equipment-0.11.0-plan.md, Task 19).
+//
+// A completing fabricate job now BRANCHES on the blueprint's equipmentOutput:
+//   - EQUIPMENT blueprint -> mint a non-stacking EquipmentInstance into state.equipment
+//     (seeded stat roll off the threaded rng), bump nextEquipmentId, and DO NOT grant the
+//     inert "components" placeholder.
+//   - MATERIAL blueprint  -> unchanged: still adds its stackable outputItem.
+// The ⚠️ offline==live PARITY test is the load-bearing one: an equipment craft completing
+// during a big offline tick(span) must produce a BIT-IDENTICAL instance to the same craft
+// completing via many single live economyTick(_,1) steps at the same seed. Modeled on the
+// bucket-parity test in quality-roll.test.ts (same idle-captain, single-line, one-seeded-
+// stream construction, so the ONLY rng draws are the mint's quality/rarity/affix rolls).
+// ============================================================================
+
+// mulberry32: the SAME seeded PRNG quality-roll.test.ts / itemgen.test.ts use. A fresh
+// instance per seed replays an identical stream, which is what lets the two parity paths
+// (offline tick(span) vs stepped economyTick) draw the exact same sequence.
+function mulberry32Task19(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// A crafting-only state driving ONE batch FABRICATE line for `blueprintKey`. Idle captain
+// (freshState seeds mission: null) so NO mission-loot rng runs; the ONLY economyTick rng
+// draws are therefore the mint's rolls at the fabricate completion, making the parity test
+// exact. Funds each recipe input for exactly `iterations` crafts. Fabricator level 2 covers
+// both tier-1 and tier-2 blueprints (stepCraftLine does not re-gate on tier/research, but we
+// set them for realism). Mirrors refineOnlyState in quality-roll.test.ts.
+function equipLineState(blueprintKey: string, iterations: number): GameState {
+  const s = freshState();
+  const bp = BLUEPRINTS[blueprintKey];
+  const inventory: Record<string, Decimal[]> = { ...s.inventory };
+  for (const item of Object.keys(bp.recipe.inputs)) {
+    inventory[item] = [new Decimal(bp.recipe.inputs[item] * iterations)];
+  }
+  const line: CraftLine = {
+    id: "craft-1",
+    kind: "fabricate",
+    recipeKey: blueprintKey,
+    remaining: iterations,
+    mode: { kind: "batch", remaining: iterations },
+  };
+  return {
+    ...s,
+    inventory,
+    facilities: { ...s.facilities, fabricator: { level: 2 } },
+    researchedBlueprints: [blueprintKey],
+    fabricateLines: [line],
+    nextCraftLineId: 2,
+  };
+}
+
+const CRAFTABLE_RARITIES = ["standard", "augmented", "stellar", "radiant"];
+
+describe("Fabricator mints real equipment (Task 19)", () => {
+  it("a completed EQUIPMENT fabricate mints ONE EquipmentInstance (right slot/blueprint), NO placeholder components", () => {
+    // prospectorHoldBp: frameSegment×2 + titaniumIngot×3 -> cargoBay/prospectorHold, 150 ticks.
+    const state = equipLineState("prospectorHoldBp", 1);
+    let s = state;
+    const rng = mulberry32Task19(42); // ONE persistent stream across all ticks
+    for (let i = 0; i < 160; i++) s = economyTick(s, 1, rng); // > 150-tick duration -> completes
+
+    // Exactly one spare piece minted, with the blueprint's slot + a monotonic "equip-1" id.
+    expect(s.equipment.length).toBe(1);
+    const piece = s.equipment[0];
+    expect(piece.id).toBe("equip-1");
+    expect(piece.slotType).toBe("cargoBay"); // prospectorHoldBp.equipmentOutput.slotType
+    expect(piece.blueprintKey).toBe("prospectorHoldBp"); // variety is carried by the blueprintKey
+    expect(piece.fittedToShipId).toBeNull(); // spare in the pool
+    expect(piece.ascension).toBe("none");
+    // Seeded rolls land in their documented ranges.
+    expect(piece.quality).toBeGreaterThanOrEqual(0);
+    expect(piece.quality).toBeLessThanOrEqual(5);
+    expect(CRAFTABLE_RARITIES).toContain(piece.rarity);
+    // iLevel from craftingLevel (1) clamped by tier-1 cap (20) -> 1; a real budget was spent,
+    // so the slot's implicit signature line(s) are present and durability was rolled.
+    expect(Object.keys(piece.implicitStats).length).toBeGreaterThan(0);
+    expect(piece.durabilityMax).toBeGreaterThan(0);
+
+    // The id source advanced, and the INERT placeholder was NEVER granted.
+    expect(s.nextEquipmentId).toBe(2);
+    expect(itemTotal(s.inventory, "components").toString()).toBe("0");
+    // Inputs were consumed by the craft.
+    expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
+    expect(itemTotal(s.inventory, "titaniumIngot").toString()).toBe("0");
+  });
+
+  it("a completed MATERIAL fabricate is UNCHANGED: adds its output item, mints NO equipment", () => {
+    // frameSegmentBp: titaniumIngot×4 -> frameSegment×1, 120 ticks (a material blueprint).
+    const state = equipLineState("frameSegmentBp", 1);
+    let s = state;
+    const rng = mulberry32Task19(7);
+    for (let i = 0; i < 130; i++) s = economyTick(s, 1, rng); // > 120-tick duration
+
+    // The stackable output landed (the pre-Task-19 behavior), and NO equipment was minted.
+    expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("1");
+    expect(s.equipment.length).toBe(0);
+    expect(s.nextEquipmentId).toBe(1); // id source untouched by a material craft
+  });
+
+  it("⚠️ offline==live PARITY: an equipment craft completing during tick(span) is BIT-IDENTICAL to stepped economyTick", () => {
+    // Path A: ONE offline catch-up call (tick internally loops economyTick(_,1) per whole tick).
+    // Path B: hand-stepped economyTick, one tick at a time (the live poll shape). Each path gets
+    // its OWN fresh seeded rng over the SAME seed, so both replay the identical draw sequence; the
+    // whole point is that the minted instance is byte-for-byte identical regardless of chunking.
+    const SPAN = 200; // > the 150-tick craft duration (1 tick == 1 second at freshState)
+    const SEED = 123;
+
+    const jumped = tick(SPAN, equipLineState("prospectorHoldBp", 1), mulberry32Task19(SEED));
+    let stepped = equipLineState("prospectorHoldBp", 1);
+    const liveRng = mulberry32Task19(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    // Both paths minted exactly one piece and advanced the id source identically.
+    expect(jumped.equipment.length).toBe(1);
+    expect(stepped.equipment.length).toBe(1);
+    expect(jumped.nextEquipmentId).toBe(2);
+    expect(stepped.nextEquipmentId).toBe(2);
+
+    // THE PARITY ASSERTION: the minted EquipmentInstance is deep-equal (bit-identical) across the
+    // two chunkings, id, rarity, quality, every stat line, mass/powerDraw/durability, all of it.
+    expect(jumped.equipment[0]).toEqual(stepped.equipment[0]);
+
+    // NON-VACUITY: it is a real, well-formed piece (not two empty pools trivially matching).
+    expect(jumped.equipment[0].id).toBe("equip-1");
+    expect(jumped.equipment[0].slotType).toBe("cargoBay");
+    expect(CRAFTABLE_RARITIES).toContain(jumped.equipment[0].rarity);
   });
 });

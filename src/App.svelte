@@ -1679,15 +1679,28 @@
   // button's own disabled state already mirrors canStartLine, so a block here only covers a
   // race). On success we collapse the configurator (its work is done). The log names the
   // recipe's OUTPUT item (bracketed, per the [Item] convention).
+  // Equipment 0.11.0 (Task 19): the SYSTEM name a fabricate craft-line shows for an EQUIPMENT
+  // blueprint's output, its slot + variety label (e.g. "Cargo Bay · Prospector Hold"), NOT the
+  // inert "components" placeholder recipe.outputItem. Reads the SAME EQUIPMENT_SLOTS table the
+  // dev-grant readout uses; falls back to the raw keys if a variety key is ever unrecognized.
+  function equipmentOutputLabel(eq: { slotType: EquipmentSlotType; varietyKey: string }): string {
+    const slot = EQUIPMENT_SLOTS[eq.slotType];
+    const variety = slot?.varieties.find((v) => v.key === eq.varietyKey);
+    return `${slot?.label ?? eq.slotType} · ${variety?.label ?? eq.varietyKey}`;
+  }
+
   function commitStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode) {
     const { next, started } = startLine(state, kind, recipeKey, mode);
     if (!started) return;
     state = next;
+    // Task 19: an EQUIPMENT blueprint logs its minted piece's SYSTEM name (slot + variety), not
+    // the inert "components" placeholder; refine + material lines log the output item as before.
+    const eqOut = kind === "fabricate" ? BLUEPRINTS[recipeKey]?.equipmentOutput : undefined;
     const outputId =
       kind === "refine"
         ? REFINE_RECIPES[recipeKey]?.output.itemId ?? recipeKey
         : BLUEPRINTS[recipeKey]?.recipe.outputItem ?? recipeKey;
-    const outputLabel = ITEMS[outputId]?.label ?? outputId;
+    const outputLabel = eqOut ? equipmentOutputLabel(eqOut) : ITEMS[outputId]?.label ?? outputId;
     const verb = kind === "refine" ? "Refine" : "Fabricate";
     const desc = mode.kind === "batch" ? `×${mode.remaining}` : "continuous";
     pushLog(`${verb} line started (${desc}) → [${outputLabel}].`);
@@ -4376,7 +4389,7 @@
                     {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                     <div class="mission-card">
                       <div class="research-name">
-                        {#if job.effect.type === "addItem"}Fabricating → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else}Fabricate job{/if}
+                        {#if job.effect.type === "addItem"}Fabricating → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else if job.effect.type === "addEquipment" && BLUEPRINTS[job.effect.blueprintKey]?.equipmentOutput}Fabricating → [{equipmentOutputLabel(BLUEPRINTS[job.effect.blueprintKey].equipmentOutput!)}]{:else}Fabricate job{/if}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
@@ -4434,7 +4447,13 @@
                       <div class="research-cost">
                         {#if bp}
                           {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each}
-                          → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
+                          <!-- Task 19: an EQUIPMENT blueprint shows its minted piece's SYSTEM name
+                               (slot + variety), NOT the inert "components" placeholder outputItem. -->
+                          {#if bp.equipmentOutput}
+                            → [{equipmentOutputLabel(bp.equipmentOutput)}]
+                          {:else}
+                            → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
+                          {/if}
                         {:else}[{line.recipeKey}]{/if}
                         · {line.remaining > 0 ? (line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous") : "finishing current run"}
                       </div>

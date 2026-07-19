@@ -17,6 +17,10 @@ import {
   craftingXpForNext,
   CRAFTING_XP_PER_DURATION_TICK,
   rollQuality,
+  // Equipment 0.11.0 (Task 19): the base craftable-rarity roll for a freshly minted piece
+  // (one seeded draw, Standard..Radiant) + the rarity type generateEquipment consumes.
+  rollCraftedRarity,
+  type EquipmentRarity,
   MISSIONS,
   BASE_XP_PER_TICK,
   SHIP_TYPES,
@@ -68,6 +72,11 @@ import {
   blueprintUnlocked,
 } from "./model";
 import { fuelNeeded } from "./fuel";
+// Equipment 0.11.0 (Task 19): the Fabricator's equipment mint. computeItemLevel derives a
+// crafted piece's level (clamped by the blueprint-tier cap), generateEquipment rolls the whole
+// EquipmentInstance from an INJECTED seeded rng (so the mint is offline==live reproducible), and
+// EQUIPMENT_ILEVEL_CAP_PER_TIER is the first-pass per-tier level ceiling the mint feeds in.
+import { computeItemLevel, generateEquipment, EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
 // Equipment 0.11.0 (Task 13/14): equippedFor resolves a ship's fitted pieces so both
 // the mission-resolution seam (economyTick) and the dispatch gate (canDispatch) can
 // fold equipment stats into shipDerivedStats from the SAME single source of truth.
@@ -3333,6 +3342,16 @@ interface CraftLineJobSpec {
   outputAmount: Decimal;
   durationTicks: number;
   jobKind: TimedProcessKind;
+  // Equipment 0.11.0 (Task 19): the COMPLETION effect stepCraftLine hands to startProcess. For
+  // a refine line and a MATERIAL fabricate line this is the addItem the engine always used (so
+  // those lines are byte-identical to pre-Task-19). For an EQUIPMENT fabricate line (blueprint
+  // with `equipmentOutput`) it is the NEW addEquipment(blueprintKey), and the outputItemId /
+  // outputAmount above are then the INERT placeholder ("components" x1), still carried so the
+  // shared cap-check/plumbing shape is unchanged; `isEquipment` tells stepCraftLine to SKIP the
+  // placeholder warehouse-cap gate (an EquipmentInstance is not an inventory item, so a full
+  // "components" store must not stall equipment production).
+  effect: ProcessEffect;
+  isEquipment: boolean;
 }
 function lineJobSpec(line: CraftLine): CraftLineJobSpec | null {
   const inputs = lineInputsPerIteration(line); // C1 helper: {} for an unknown recipe
@@ -3345,17 +3364,29 @@ function lineJobSpec(line: CraftLine): CraftLineJobSpec | null {
       outputAmount: recipe.output.amount,
       durationTicks: recipe.durationTicks,
       jobKind: "refineJob",
+      // Refine always deposits an inventory item, byte-identical to the pre-Task-19 inline effect.
+      effect: { type: "addItem", itemId: recipe.output.itemId, amount: recipe.output.amount },
+      isEquipment: false,
     };
   }
   // kind === "fabricate"
   const bp = BLUEPRINTS[line.recipeKey];
   if (!bp) return null; // unknown blueprint -> inert line
+  // Task 19: branch on equipmentOutput. An EQUIPMENT blueprint mints an EquipmentInstance at
+  // completion (addEquipment); a MATERIAL blueprint deposits its stackable output (addItem,
+  // UNCHANGED). Both consume recipe.inputs identically (that map is meaningful for both shapes).
+  const isEquipment = bp.equipmentOutput !== undefined;
+  const outputAmount = new Decimal(bp.recipe.outputQty); // recipe.outputQty is a plain number
   return {
     inputs,
     outputItemId: bp.recipe.outputItem,
-    outputAmount: new Decimal(bp.recipe.outputQty), // recipe.outputQty is a plain number
+    outputAmount,
     durationTicks: bp.craftDurationTicks,
     jobKind: "fabricateJob",
+    effect: isEquipment
+      ? { type: "addEquipment", blueprintKey: line.recipeKey }
+      : { type: "addItem", itemId: bp.recipe.outputItem, amount: outputAmount },
+    isEquipment,
   };
 }
 
@@ -3394,7 +3425,10 @@ function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; li
   // stop on. startRefineJob does NOT itself check the cap (the retired order checked it
   // externally, as we do here); startFabricateJob's canFabricate would, but we check
   // here for BOTH kinds uniformly so refine + fabricate lines behave identically.
-  if (materialAtCap(state, spec.outputItemId)) {
+  // Equipment 0.11.0 (Task 19): an EQUIPMENT fabricate line is EXEMPT from this gate, its
+  // real output is a minted EquipmentInstance (not the "components" placeholder outputItemId),
+  // so a full components warehouse must NOT stall it. Material/refine lines are unaffected.
+  if (!spec.isEquipment && materialAtCap(state, spec.outputItemId)) {
     return { next: state, line };
   }
 
@@ -3411,7 +3445,10 @@ function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; li
     spec.jobKind,
     spec.inputs,
     spec.durationTicks,
-    { type: "addItem", itemId: spec.outputItemId, amount: spec.outputAmount },
+    // Task 19: the effect is spec-derived now (addItem for refine/material, addEquipment for an
+    // equipment blueprint). For refine + material lines this is byte-identical to the old inline
+    // addItem, so their deep-equal parity snapshots are unaffected.
+    spec.effect,
     line.id
   );
   if (!started) return { next: state, line }; // unaffordable right now -> line waits
@@ -3621,9 +3658,15 @@ export function canStartLine(
   // --- Storage: the OUTPUT item must not already be at its warehouse cap (AT the cap counts
   // as full, the SAME materialAtCap seam canFabricate/missions/trickle stop on). Refine
   // outputs a { itemId, amount } record (-> .itemId); a blueprint outputs recipe.outputItem.
-  const outputItem =
-    kind === "refine" ? REFINE_RECIPES[recipeKey].output.itemId : BLUEPRINTS[recipeKey].recipe.outputItem;
-  if (materialAtCap(state, outputItem)) return { ok: false, reason: "storageFull" };
+  // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT, it
+  // mints an EquipmentInstance, not the "components" placeholder, so a full components store must
+  // not block starting an equipment line. The SAME exemption stepCraftLine/canFabricate apply.
+  const isEquipmentBlueprint = kind === "fabricate" && BLUEPRINTS[recipeKey].equipmentOutput !== undefined;
+  if (!isEquipmentBlueprint) {
+    const outputItem =
+      kind === "refine" ? REFINE_RECIPES[recipeKey].output.itemId : BLUEPRINTS[recipeKey].recipe.outputItem;
+    if (materialAtCap(state, outputItem)) return { ok: false, reason: "storageFull" };
+  }
 
   return { ok: true };
 }
@@ -3815,7 +3858,12 @@ export function canFabricate(
   // --- Storage: the output component must not be at its warehouse cap. Reads the SAME
   // materialAtCap seam the refine order + missions/trickle auto-stop on (AT the cap counts
   // as full). A full component store cannot start new crafts.
-  if (materialAtCap(state, bp.recipe.outputItem)) return { ok: false, reason: "storageFull" };
+  // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT, it
+  // mints an EquipmentInstance into state.equipment, not the "components" placeholder, so a full
+  // components store must not block it. Same exemption canStartLine/stepCraftLine apply.
+  if (bp.equipmentOutput === undefined && materialAtCap(state, bp.recipe.outputItem)) {
+    return { ok: false, reason: "storageFull" };
+  }
 
   return { ok: true };
 }
@@ -3862,11 +3910,17 @@ export function startFabricateJob(
     inputs[itemId] = new Decimal(bp.recipe.inputs[itemId]);
   }
 
-  return startProcess(state, "fabricateJob", inputs, bp.craftDurationTicks, {
-    type: "addItem",
-    itemId: bp.recipe.outputItem,
-    amount: new Decimal(bp.recipe.outputQty),
-  });
+  // Equipment 0.11.0 (Task 19): branch on equipmentOutput. An EQUIPMENT blueprint hands off an
+  // addEquipment(blueprintKey) effect (resolveProcesses mints the EquipmentInstance at completion,
+  // rolling stats off the seeded rng, and IGNORES the "components" placeholder). A MATERIAL
+  // blueprint hands off the UNCHANGED addItem effect (byte-identical to pre-Task-19). The inputs
+  // deduct + startProcess call are otherwise identical for both shapes.
+  const effect: ProcessEffect =
+    bp.equipmentOutput !== undefined
+      ? { type: "addEquipment", blueprintKey }
+      : { type: "addItem", itemId: bp.recipe.outputItem, amount: new Decimal(bp.recipe.outputQty) };
+
+  return startProcess(state, "fabricateJob", inputs, bp.craftDurationTicks, effect);
 }
 
 // The standing single-order model for the Fabricator (startFabricateOrder /
@@ -4277,6 +4331,17 @@ export function resolveProcesses(
   // Re-cloned (ships) / incremented (nextShipId) only when a shipBuild actually completes.
   let ships = state.ships;
   let nextShipId = state.nextShipId;
+  // Equipment 0.11.0 (Task 19): threaded so a completing EQUIPMENT fabricateJob (addEquipment)
+  // can mint + append its EquipmentInstance and bump the monotonic id source, the EXACT mirror of
+  // ships/nextShipId. DEFENSIVELY seeded (`?? []` / `?? 1`) because the migration that guarantees
+  // these fields on every save is a LATER task, an older save reaching here mid-craft must not
+  // crash on an undefined pool. Seeded from the incoming state, so a call that completes no
+  // equipment craft returns them value-identical (only the addEquipment branch below re-clones /
+  // increments). ⚠️ the `?? []` means a completion on a field-less save starts a FRESH pool; that
+  // is the correct grow-on-demand posture (inventory/facilities use it), and the migration will
+  // have seeded `[]` before this is reachable in normal play anyway.
+  let equipment = state.equipment ?? [];
+  let nextEquipmentId = state.nextEquipmentId ?? 1;
   let fleetAdminXpDelta = 0;
   // Crafting Level XP (Equipment 0.11.0, Phase 3): accumulates CRAFTING_XP_PER_DURATION_TICK
   // * durationTicks for every PRODUCTION job (refine / fabricate / ship-build) that completes
@@ -4407,6 +4472,59 @@ export function resolveProcesses(
       };
       ships = [...ships, minted];
       nextShipId += 1;
+    } else if (process.effect.type === "addEquipment") {
+      // Equipment 0.11.0 (Task 19): a completed EQUIPMENT fabricate job MINTS a non-stacking
+      // EquipmentInstance (NOT an inventory item, NOT the "components" placeholder). We look up
+      // the blueprint's equipmentOutput for the slot/variety, roll the whole piece off the
+      // THREADED seeded rng, push it into the pool as a SPARE (fittedToShipId: null, set inside
+      // generateEquipment), and bump nextEquipmentId. Mirrors the addShip mint exactly (mint the
+      // object, append, advance the id source), the only extra is the seeded stat roll.
+      //
+      // ⚠️ RNG DRAW ORDER (the WHOLE parity contract, verified by the offline==live test): the
+      // stream is drawn in a FIXED order every completion, so tick() (offline, looping
+      // economyTick(_,1)) and App.svelte (live, one economyTick(_,1) per poll) advance it
+      // identically and mint a BIT-IDENTICAL instance at the same seed:
+      //   (1) rollQuality(rng)        -- variable draw count (1..QUALITY tiers), FIRST
+      //   (2) rollCraftedRarity(rng)  -- EXACTLY one draw, SECOND
+      //   (3) generateEquipment(...)  -- its internal affixCount + affix-pick draws, LAST
+      // Nothing here draws out of band, so parity holds by construction (the SAME argument the
+      // addItem quality roll relies on, now extended to two more deterministic draws + the affix
+      // rolls). ⚠️ TUNABLE: quality is ROLLED for now (Task 9c will derive it from the input
+      // materials' quality); rarity is the first-pass Standard..Radiant weighted base roll
+      // (talent-gated Constellar/Luminous/Nova procs are a later refinement); iLevel is clamped by
+      // a first-pass per-blueprint-tier cap.
+      const bp = BLUEPRINTS[process.effect.blueprintKey];
+      const eqOut = bp?.equipmentOutput;
+      if (bp !== undefined && eqOut !== undefined) {
+        const quality = rollQuality(rng); // draw #1 (see order note above)
+        const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
+        const iLevel = computeItemLevel({
+          craftingLevel: state.craftingLevel ?? 1, // ?? 1 = craftingLevel's 1-based seed (defensive, pre-migration saves)
+          achievementBoost: 0, // TUNABLE: achievement/FA-talent iLevel boosts are a later refinement
+          faTalentBonus: 0,
+          itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER, // first-pass per-tier cap (itemgen.ts)
+        });
+        // Capture the id NOW so the allocateId closure mints the SAME "equip-N" the counter names,
+        // then advance the counter (never reused), the id scheme freshState documents.
+        const mintedId = nextEquipmentId;
+        const minted = generateEquipment({
+          slotType: eqOut.slotType,
+          varietyKey: eqOut.varietyKey,
+          blueprintKey: process.effect.blueprintKey,
+          iLevel,
+          quality,
+          rarity,
+          ascension: "none", // base craft: never ascended this patch (see EquipmentAscension)
+          rng, // draws #3.. (affix rolls) off the SAME threaded stream
+          allocateId: () => `equip-${mintedId}`,
+        });
+        equipment = [...equipment, minted];
+        nextEquipmentId = mintedId + 1;
+      }
+      // (bp / equipmentOutput missing = a corrupt/hand-edited effect key: mint NOTHING and draw
+      // NOTHING, then drop the job. Mirrors lineJobSpec's "unknown recipe -> inert" guard; it can
+      // only arise from a tampered save, never a real play path, so parity is unaffected, both
+      // paths see the identical corrupt state and both no-op.)
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -4474,6 +4592,13 @@ export function resolveProcesses(
       // build completed this call (seeded from them, only touched in the addShip branch).
       ships,
       nextShipId,
+      // Equipment 0.11.0 (Task 19): the piece(s) minted by any completing equipment fabricateJob +
+      // the advanced id source. Value-identical to state.equipment / state.nextEquipmentId when no
+      // equipment craft completed this call (seeded from them, only touched in the addEquipment
+      // branch). ⚠️ if the incoming state lacked the fields (pre-migration save), these are the
+      // defensively-seeded [] / 1, which is the correct grow-on-demand result.
+      equipment,
+      nextEquipmentId,
       activeProcesses: stillActive,
     },
     fleetAdminXpDelta,

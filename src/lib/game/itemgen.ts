@@ -46,6 +46,14 @@ import {
 // power before the quality/rarity multipliers compound on top. TUNABLE.
 export const PER_LEVEL_BUDGET = 2;
 
+// Per-blueprint-TIER ceiling on a crafted piece's item level (Equipment 0.11.0, Task 19).
+// The Fabricator mint feeds computeItemLevel an `itemTierCap` of `blueprint.tier * this`, so a
+// tier-1 blueprint caps a piece at this level and a tier-2 blueprint at twice it, no matter how
+// high the crafter's craftingLevel climbs. Ties the piece's power ceiling to the CONTENT tier
+// the blueprint belongs to (a tier-1 recipe can never out-level tier-1 content). FIRST-PASS
+// TUNABLE launch placeholder, retuned at the device-check stage like every other constant here.
+export const EQUIPMENT_ILEVEL_CAP_PER_TIER = 20;
+
 // Compounding budget multiplier per QUALITY rung (quality is 0..5). At 1.1 a
 // quality-5 piece carries 1.1^5 (~1.61x) the budget of a quality-0 piece of the
 // same level/rarity. TUNABLE.
