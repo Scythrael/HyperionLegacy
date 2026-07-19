@@ -4235,9 +4235,11 @@
                     <div class="mission-card">
                       <div class="research-name">{bp.label}</div>
                       <!-- Recipe (what the Fabricator will craft): inputs → output.
-                           Plain-text [Item] labels (no icon tooltip needed). -->
+                           Plain-text [Item] labels (no icon tooltip needed). Task 19: an
+                           EQUIPMENT blueprint previews its minted piece's SYSTEM name (slot +
+                           variety), NOT the inert "components" placeholder outputItem. -->
                       <div class="research-cost">
-                        Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
+                        Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]{/if}
                       </div>
                       <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
