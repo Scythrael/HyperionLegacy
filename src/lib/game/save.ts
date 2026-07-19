@@ -4,9 +4,9 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP, seedStandardIssueForShip } from "./model";
 
-export const SAVE_VERSION = 27;
+export const SAVE_VERSION = 28;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -117,9 +117,11 @@ function hydrateDecimals(state: any): GameState {
     // `?? new Decimal(0)`: MIGRATIONS[26] (v26->v27) backfills this field onto older
     // saves, but default the absent field to 0 so a save that somehow reaches here
     // without it (a partially-migrated / hand-edited shape) hydrates to a live Decimal(0)
-    // rather than a NaN, mirroring the `fuel` guard above. applyCraftingXp keeps its own
-    // interim coercion guard as belt-and-suspenders (do not remove it in this hotfix).
-    // Idempotent: toDecimal no-ops on an already-live Decimal (freshState seeds Decimal(0)).
+    // rather than a NaN, mirroring the `fuel` guard above. THIS revive is now the SOLE
+    // guarantee applyCraftingXp (tick.ts) relies on: Task 20 RETIRED applyCraftingXp's
+    // own interim coercion guard, so it reads state.craftingXp directly and depends on
+    // this rule having produced a live Decimal. Idempotent: toDecimal no-ops on an
+    // already-live Decimal (freshState seeds Decimal(0)).
     craftingXp: toDecimal(state.craftingXp ?? new Decimal(0)),
     // Phase 1 (Ship Production Economy) keyed inventory, now QUALITY-BUCKETED
     // (Equipment 0.11.0, Task 9a): each item maps to a Decimal[] of quality-tier
@@ -1013,6 +1015,52 @@ const MIGRATIONS: Record<number, Migration> = {
     craftingLevel: state.craftingLevel ?? 1,
     craftingXp: state.craftingXp instanceof Decimal ? state.craftingXp : new Decimal(state.craftingXp ?? 0),
   }),
+  // v27 -> v28: Standard-Issue baseline SEED (Equipment 0.11.0, Task 20, docs/plans/
+  // 2026-07-17-equipment-0.11.0-plan.md Phase 9). MIGRATIONS[26] (the v26->v27 crash
+  // hotfix) backfilled the four equipment GameState FIELDS but left the pool EMPTY. This
+  // step fits every EXISTING ship out with its Standard-Issue baseline: a craft-less,
+  // quality-0, Standard-rarity piece per LIVE slot (cargoBay/ftlDrive/reactorCore/
+  // specUtility), all fitted to that ship, so a migrated ship's live slots are never
+  // empty and it stays dispatchable, exactly as the ships-foundation migration
+  // (MIGRATIONS[15]) grandfathered a Freighter onto every captain.
+  //
+  // - Uses the SHARED seedStandardIssueForShip helper (model.ts), the SAME one freshState
+  //   and the tick.ts new-ship / new-captain paths call, so a migrated save and a fresh
+  //   game (and a newly-built ship) land on the byte-identical fully-fitted shape and can
+  //   never drift apart (Omega 4, DRY). Ids are allocated from nextEquipmentId and the
+  //   counter is threaded forward across ships, so every minted id is unique and monotonic.
+  // - IDEMPOTENT per-ship: a ship that ALREADY has any fitted piece is SKIPPED (never
+  //   double-seeded). A genuine v27 save has an EMPTY pool (MIGRATIONS[26] seeded []), so
+  //   every ship is seeded; the skip only guards a re-run / chained / hand-edited save
+  //   that somehow already carries fitted gear, the same belt-and-suspenders posture this
+  //   file's other ?? guards take.
+  // - Standard-Issue is STAT-NEUTRAL this patch (model.ts STANDARD_ISSUE_IMPLICIT_MAGNITUDE
+  //   0, mass/powerDraw 0), so folding it into shipDerivedStats is bit-identical to the bare
+  //   hull: an in-flight mission resolves IDENTICALLY pre/post migration (no economy shift),
+  //   the never-empty invariant is established WITHOUT a balance change.
+  // - equipment / nextEquipmentId are read with defensive `?? []` / `?? 1`: MIGRATIONS[26]
+  //   guarantees both on any v27 save, but the guard keeps a partially-migrated / hand-edited
+  //   shape from crashing (same posture as the rest of this file). An EquipmentInstance carries
+  //   no top-level Decimal, so it rides hydrateDecimals's `...state` spread untouched; the
+  //   craftingXp revive rule (added in the v26->v27 hotfix) is unchanged. Every OTHER field
+  //   rides through untouched on the outer `...state` spread.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production, so
+  // it is still editable (the frozen-once-shipped rule applies only to production-released migrations).
+  27: (state: any): any => {
+    const ships = state.ships ?? [];
+    let equipment = [...(state.equipment ?? [])];
+    let nextEquipmentId = state.nextEquipmentId ?? 1;
+    for (const ship of ships) {
+      // Skip a ship that already carries fitted gear (idempotent re-run guard); a genuine
+      // v27 save's pool is empty, so this fits out every ship exactly once.
+      const alreadyFitted = equipment.some((e: any) => e.fittedToShipId === ship.id);
+      if (alreadyFitted) continue;
+      const seeded = seedStandardIssueForShip(ship.id, nextEquipmentId);
+      equipment = [...equipment, ...seeded.pieces];
+      nextEquipmentId = seeded.nextId;
+    }
+    return { ...state, equipment, nextEquipmentId };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {

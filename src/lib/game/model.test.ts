@@ -31,6 +31,10 @@ import {
   equipmentStatMods,
   PERCENT_STAT_CURVES,
   MASS_SPEED_DRAG,
+  generateStandardIssue,
+  seedStandardIssueForShip,
+  STANDARD_ISSUE_IMPLICIT_MAGNITUDE,
+  SLOT_BASE_PHYSICALS,
 } from "./model";
 import type {
   CaptainTalentKey,
@@ -1522,14 +1526,99 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
 // fence the Task 2 test applies to implicits/affixes, EXTENDED to statRatios and
 // pointed at the EXPORTED registry, so a future stray/typo'd stat key folded into
 // the slot data trips this suite instead of silently shipping an un-consumed stat.
-describe("freshState equipment + crafting fields (0.11.0 Task 3)", () => {
-  it("seeds an empty equipment pool, a positive nextEquipmentId, crafting level 1, and 0 crafting xp", () => {
+describe("freshState equipment + crafting fields (0.11.0 Task 3 + Task 20 seed)", () => {
+  it("seeds ship-1 with a Standard-Issue baseline on every live slot, advances nextEquipmentId, crafting level 1, 0 crafting xp", () => {
     const state = freshState();
-    expect(state.equipment).toEqual([]); // no gear generated on a new save
-    expect(typeof state.nextEquipmentId).toBe("number");
-    expect(state.nextEquipmentId).toBeGreaterThan(0); // first minted id is "equip-1"
+    // Task 20: the one starting hull is born fully fitted with Standard-Issue on all
+    // four live slots (no live slot is ever empty), so the pool holds exactly four
+    // pieces, all fitted to "ship-1", and nextEquipmentId has advanced past them.
+    expect(state.equipment).toHaveLength(4);
+    expect(state.equipment.every((e) => e.fittedToShipId === "ship-1")).toBe(true);
+    expect(state.equipment.every((e) => e.blueprintKey === null)).toBe(true); // craft-less baselines
+    expect(state.equipment.every((e) => e.rarity === "standard" && e.quality === 0)).toBe(true);
+    // One per live slot, ids monotonic from equip-1.
+    expect(state.equipment.map((e) => e.slotType).sort()).toEqual(
+      ["cargoBay", "ftlDrive", "reactorCore", "specUtility"].sort()
+    );
+    expect(state.equipment.map((e) => e.id)).toEqual(["equip-1", "equip-2", "equip-3", "equip-4"]);
+    expect(state.nextEquipmentId).toBe(5); // advanced past the four minted ids
     expect(state.craftingLevel).toBe(1); // 1-based, mirrors fleetAdminLevel
     expect(state.craftingXp.equals(0)).toBe(true); // Decimal(0), idle-scale accumulator
+  });
+});
+
+// The craft-less Standard-Issue baseline generator (0.11.0 Task 20). Deterministic (no
+// rng), stat-neutral this patch, one per live slot.
+describe("generateStandardIssue (0.11.0 Task 20)", () => {
+  const LIVE_SLOTS: EquipmentInstance["slotType"][] = ["cargoBay", "ftlDrive", "reactorCore", "specUtility"];
+
+  it("mints a well-formed Standard-Issue for each live slot (blueprintKey null, standard, quality 0, signature lines present)", () => {
+    for (const slot of LIVE_SLOTS) {
+      const piece = generateStandardIssue({ slotType: slot, fittedToShipId: "ship-1", allocateId: () => "equip-1" });
+      expect(piece.id).toBe("equip-1");
+      expect(piece.slotType).toBe(slot);
+      expect(piece.blueprintKey).toBeNull(); // craft-less baseline
+      expect(piece.rarity).toBe("standard");
+      expect(piece.quality).toBe(0);
+      expect(piece.ascension).toBe("none");
+      expect(piece.fittedToShipId).toBe("ship-1"); // caller sets fitment
+      // The slot's signature (implicit) line(s) are present as KEYS, at the floor magnitude.
+      expect(Object.keys(piece.implicitStats).sort()).toEqual([...EQUIPMENT_SLOTS[slot].implicitStats].sort());
+      for (const v of Object.values(piece.implicitStats)) expect(v).toBe(STANDARD_ISSUE_IMPLICIT_MAGNITUDE);
+      expect(piece.rolledStats).toEqual({}); // NO affixes on the baseline
+      // Durability is the slot base (reserved, never lost this patch).
+      expect(piece.durabilityMax).toBe(SLOT_BASE_PHYSICALS[slot as keyof typeof SLOT_BASE_PHYSICALS].durability);
+      expect(piece.durability).toBe(piece.durabilityMax);
+    }
+  });
+
+  it("is STAT-NEUTRAL this patch (magnitude 0, mass 0, powerDraw 0), so it drags/adds nothing", () => {
+    expect(STANDARD_ISSUE_IMPLICIT_MAGNITUDE).toBe(0);
+    for (const slot of LIVE_SLOTS) {
+      const piece = generateStandardIssue({ slotType: slot, fittedToShipId: null, allocateId: () => "equip-x" });
+      expect(piece.mass).toBe(0);
+      expect(piece.powerDraw).toBe(0);
+    }
+  });
+
+  it("is DETERMINISTIC: identical inputs mint an identical piece (safe to call inside a migration)", () => {
+    const a = generateStandardIssue({ slotType: "cargoBay", fittedToShipId: "ship-1", allocateId: () => "equip-1" });
+    const b = generateStandardIssue({ slotType: "cargoBay", fittedToShipId: "ship-1", allocateId: () => "equip-1" });
+    expect(a).toEqual(b);
+  });
+
+  it("folds bit-identically to the bare hull (a stat-neutral floor does not change ship-derived stats)", () => {
+    const ship = { id: "ship-1", typeKey: "generalFreighter" as const, assignedCaptainId: 1 };
+    const pieces = LIVE_SLOTS.map((slot, i) =>
+      generateStandardIssue({ slotType: slot, fittedToShipId: "ship-1", allocateId: () => `equip-${i + 1}` })
+    );
+    expect(shipDerivedStats(ship, pieces)).toEqual(shipDerivedStats(ship, []));
+  });
+
+  it("throws for a reserved (non-live) slot rather than minting a malformed piece", () => {
+    expect(() => generateStandardIssue({ slotType: "cockpit", fittedToShipId: null, allocateId: () => "equip-1" })).toThrow();
+  });
+});
+
+// The shared per-ship seeder (0.11.0 Task 20) freshState / the migration / the tick.ts
+// new-ship paths all call, so they cannot drift.
+describe("seedStandardIssueForShip (0.11.0 Task 20)", () => {
+  it("mints one Standard-Issue per live slot fitted to the ship, with monotonic ids and an advanced counter", () => {
+    const { pieces, nextId } = seedStandardIssueForShip("ship-7", 10);
+    expect(pieces).toHaveLength(4);
+    expect(pieces.every((p) => p.fittedToShipId === "ship-7")).toBe(true);
+    expect(pieces.map((p) => p.id)).toEqual(["equip-10", "equip-11", "equip-12", "equip-13"]);
+    // One per live slot, keyed off DEFAULT_EQUIPMENT_VARIETY's insertion order.
+    expect(pieces.map((p) => p.slotType)).toEqual(Object.keys(DEFAULT_EQUIPMENT_VARIETY));
+    expect(nextId).toBe(14); // advanced past the four minted ids
+  });
+
+  it("threads the id counter so two consecutive ships never collide", () => {
+    const first = seedStandardIssueForShip("ship-1", 1);
+    const second = seedStandardIssueForShip("ship-2", first.nextId);
+    const allIds = [...first.pieces, ...second.pieces].map((p) => p.id);
+    expect(new Set(allIds).size).toBe(8); // all unique across both ships
+    expect(second.nextId).toBe(9);
   });
 });
 

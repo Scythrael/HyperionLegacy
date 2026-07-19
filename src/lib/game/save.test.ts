@@ -2,7 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import { migrate, serialize, deserialize, importRawSave, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
-import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintResearchable } from "./model";
+import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY } from "./model";
+// Task 20 v27->v28: the Standard-Issue seed proves stat-neutrality by comparing a
+// migrated ship's derived stats WITH its seeded gear against the bare hull.
+import { equippedFor } from "./equipment";
 // Mission Rework Task 9: the v20->v21 round-trip test proves no soft-lock by exercising
 // the LIVE mission-unlock + dispatch + buy-fuel path on the migrated state (not just a
 // field read), so it imports those tick.ts helpers directly. Fuel Economy v2 (F5) adds
@@ -47,8 +50,8 @@ describe("migrate, tickDurationSeconds backfill", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -86,8 +89,8 @@ describe("migrate, research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -260,8 +263,8 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -357,8 +360,8 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -463,8 +466,8 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -548,8 +551,8 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -618,8 +621,8 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -677,8 +680,8 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
     expect(itemTotal(migrated.inventory, "refinedMaterial").equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -747,8 +750,8 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -1536,8 +1539,8 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
     expect(migrated.nextShipId).toBe(original.nextShipId);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -1744,8 +1747,8 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.missionsCompleted.longOreRun.equals(3)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -2022,8 +2025,8 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     expect(migrated.discovered).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -2184,7 +2187,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(27);
+    expect(deserialized!.version).toBe(28);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2205,8 +2208,8 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(migrated.facilities).toEqual(original.facilities);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -2330,8 +2333,8 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     });
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -2497,8 +2500,8 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     expect(migrated.facilities.missionControl).toEqual({ level: 2 }); // preserved, NOT reset to level 1
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -2688,8 +2691,8 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
     expect(blueprintResearchable(migratedTwice, "frameSegmentBp")).toBe(true); // still playable
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -2879,8 +2882,8 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
     expect(migratedTwice.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -3072,8 +3075,8 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
     expect(played.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -3249,8 +3252,8 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
     expect(played.facilities.shipyard).toEqual({ level: 0 });
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
   });
 });
 
@@ -3306,11 +3309,16 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     const save: SaveFile = { version: 26, created_at: 0, last_saved_at: 0, game_time_seconds: 15000, state: legacyState };
     const migrated: any = migrate(save);
 
-    // --- The sole job of MIGRATIONS[26]: seed the four equipment-feature fields. ---
-    expect(migrated.equipment).toEqual([]); // empty pool
+    // --- MIGRATIONS[26] seeds the four equipment-feature FIELDS; the full chain then runs
+    // MIGRATIONS[27], which SEEDS Standard-Issue onto this save's one ship. migrate() always
+    // runs the whole chain to SAVE_VERSION, so the observable end state carries the four
+    // Standard-Issue baselines for "ship-1" (equip-1..4, all fitted), nextEquipmentId at 5,
+    // and the crafting fields backfilled + hydrated. ---
+    expect(migrated.equipment).toHaveLength(4); // ship-1's Standard-Issue baseline, one per live slot
+    expect(migrated.equipment.every((e: any) => e.fittedToShipId === "ship-1")).toBe(true);
+    expect(migrated.equipment.every((e: any) => e.blueprintKey === null)).toBe(true);
     expect(typeof migrated.nextEquipmentId).toBe("number");
-    expect(migrated.nextEquipmentId).toBeGreaterThan(0); // a positive id source (1)
-    expect(migrated.nextEquipmentId).toBe(1);
+    expect(migrated.nextEquipmentId).toBe(5); // advanced past the four minted ids
     expect(migrated.craftingLevel).toBe(1);
     expect(migrated.craftingXp instanceof Decimal).toBe(true); // hydrated to a LIVE Decimal, not a string/NaN
     expect(migrated.craftingXp.equals(0)).toBe(true);
@@ -3394,8 +3402,135 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     expect(migrated.craftingXp.equals(150)).toBe(true); // the string is revived, not reset to 0
   });
 
-  it("current SAVE_VERSION is 27", () => {
-    expect(SAVE_VERSION).toBe(27);
+  it("current SAVE_VERSION is 28", () => {
+    expect(SAVE_VERSION).toBe(28);
+  });
+});
+
+// Standard-Issue baseline seed (v27 -> v28): MIGRATIONS[27] fits every existing ship out
+// with a craft-less Standard-Issue baseline on each live slot, so a migrated ship's live
+// slots are never empty and it stays dispatchable. The pool is EMPTY going in (MIGRATIONS[26]
+// seeded []), so every ship is seeded; the seed reuses the SAME shared helper freshState /
+// the new-ship paths use, and is stat-neutral (folds bit-identical to the bare hull).
+describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
+  // A realistic MULTI-ship pre-seed shape: a genuine v27 save (post crash-hotfix) has the
+  // four equipment FIELDS present with an EMPTY pool, plus more than one ship (a returning
+  // player who founded the Shipyard and built a second hull, and unlocked a third captain).
+  // Proves per-ship seeding AND monotonic id threading ACROSS ships.
+  function makeV27MultiShipSave(): SaveFile {
+    const state: any = {
+      gameTimeSeconds: 40000, tickDurationSeconds: 1, credits: 20000, unlockedHomeworldTalents: ["commandRank1"],
+      fleetAdminXp: 3000, fleetAdminLevel: 12, adminPoints: 2,
+      inventory: { commonOre: [500], uncommonMaterial: [0], rareMaterial: [0], refinedMaterial: [0], components: [0] },
+      discovered: ["commonOre"],
+      facilities: { refinery: { level: 2 }, warehouseT1: { level: 3 }, warehouseT2: { level: 1 }, fuelStorage: { level: 1 }, missionControl: { level: 1 }, research: { level: 2 }, fabricator: { level: 2 }, shipyard: { level: 2 } },
+      activeProcesses: [], nextProcessId: 5,
+      ships: [
+        { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 },
+        { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: 2 },
+        { id: "ship-3", typeKey: "generalFreighter", assignedCaptainId: null }, // a parked, built hull
+      ],
+      shipStorageCapacity: 8, nextShipId: 4, fuel: 900, researchedBlueprints: [],
+      refineLines: [], fabricateLines: [], nextCraftLineId: 1,
+      lifetimeStats: { itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {}, creditsEarned: 0, captainXpAwarded: 0, fleetAdminXpAwarded: 0 },
+      captains: [
+        { id: 1, label: "Captain 1", xp: 0, level: 3, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null },
+        { id: 2, label: "Captain 2", xp: 0, level: 2, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null },
+      ],
+      // v27 shape: the four equipment fields present (MIGRATIONS[26] backfill), pool EMPTY.
+      equipment: [],
+      nextEquipmentId: 1,
+      craftingLevel: 1,
+      craftingXp: 0,
+    };
+    return { version: 27, created_at: 0, last_saved_at: 0, game_time_seconds: 40000, state };
+  }
+
+  const LIVE_SLOTS = ["cargoBay", "ftlDrive", "reactorCore", "specUtility"];
+
+  it("fits EVERY existing ship out with a Standard-Issue baseline on all four live slots (never empty, ids unique + threaded)", () => {
+    const migrated: any = migrate(makeV27MultiShipSave());
+
+    // Three ships × four live slots = twelve baselines, ids equip-1..12 unique + monotonic.
+    expect(migrated.equipment).toHaveLength(12);
+    const ids = migrated.equipment.map((e: any) => e.id);
+    expect(new Set(ids).size).toBe(12); // all unique
+    expect(migrated.nextEquipmentId).toBe(13); // advanced past all twelve
+
+    for (const shipId of ["ship-1", "ship-2", "ship-3"]) {
+      const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === shipId);
+      // Exactly one piece per live slot, every one a craft-less quality-0 Standard baseline.
+      expect(fitted.map((e: any) => e.slotType).sort()).toEqual([...LIVE_SLOTS].sort());
+      for (const piece of fitted) {
+        expect(piece.blueprintKey).toBeNull();
+        expect(piece.rarity).toBe("standard");
+        expect(piece.quality).toBe(0);
+        expect(piece.ascension).toBe("none");
+        // The signature (implicit) line(s) for that slot are present (correct default-variety family).
+        expect(Object.keys(piece.implicitStats).length).toBeGreaterThan(0);
+        expect(Object.keys(piece.rolledStats).length).toBe(0); // no affixes on the baseline
+      }
+    }
+
+    // Sanity: the default variety map still names a real variety for every live slot (the
+    // seed reads it), so the "correct default variety per slot" contract is intact.
+    for (const slot of LIVE_SLOTS) {
+      expect(typeof DEFAULT_EQUIPMENT_VARIETY[slot]).toBe("string");
+    }
+
+    // Every OTHER field rides through untouched (a spread bug would surface here).
+    expect(migrated.ships).toHaveLength(3);
+    expect(migrated.credits.equals(20000)).toBe(true);
+    expect(migrated.facilities.shipyard).toEqual({ level: 2 });
+    expect(migrated.gameTimeSeconds).toBe(40000);
+  });
+
+  it("STAT-NEUTRAL: a migrated ship's Standard-Issue gear folds bit-identically to the bare hull (mission resolves identically pre/post migration)", () => {
+    const migrated: any = migrate(makeV27MultiShipSave());
+    // Requirement #3: seeding must not change how an in-flight mission resolves. Because
+    // effectiveMissionDef derives purely from shipDerivedStats, identical derived stats ->
+    // identical mission resolution. The Standard-Issue floor is stat-neutral, so a ship WITH
+    // its seeded gear derives the EXACT same stats as the bare hull (no gear).
+    for (const ship of migrated.ships) {
+      const withGear = shipDerivedStats(ship, equippedFor(migrated, ship.id));
+      const bareHull = shipDerivedStats(ship, []);
+      expect(withGear).toEqual(bareHull);
+    }
+  });
+
+  it("matches freshState() exactly for the single starting ship (a migrated v27 save and a fresh v28 game agree)", () => {
+    // Anti-regression parity: a returning single-ship player and a brand-new player must land
+    // on the byte-identical fully-fitted shape (both go through the SAME shared seeder).
+    const fresh = freshState();
+    const singleShip = makeV27MultiShipSave();
+    singleShip.state.ships = [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }];
+    const migrated: any = migrate(singleShip);
+    expect(migrated.equipment).toEqual(fresh.equipment); // same four baselines, same ids, same fitment
+    expect(migrated.nextEquipmentId).toBe(fresh.nextEquipmentId); // 5
+  });
+
+  it("is IDEMPOTENT per-ship: a ship that already carries fitted gear is not re-seeded", () => {
+    // Defense-in-depth for the per-ship skip guard: a genuine v27 save has an empty pool, but a
+    // chained / hand-edited save whose ship-1 already holds a piece must NOT get a duplicate
+    // baseline stacked on it, while a still-empty ship-2 IS fitted out.
+    const save = makeV27MultiShipSave();
+    save.state.ships = [
+      { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 },
+      { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: 2 },
+    ];
+    save.state.equipment = [
+      { id: "equip-99", slotType: "cargoBay", rarity: "standard", ascension: "none", quality: 0, blueprintKey: null, implicitStats: { cargoCapacity: 0 }, rolledStats: {}, mass: 0, powerDraw: 0, durabilityMax: 100, durability: 100, fittedToShipId: "ship-1" },
+    ];
+    save.state.nextEquipmentId = 100;
+    const migrated: any = migrate(save);
+
+    // ship-1 keeps its single pre-existing piece (NOT re-seeded to four); ship-2 gets four.
+    const ship1 = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
+    const ship2 = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-2");
+    expect(ship1).toHaveLength(1);
+    expect(ship1[0].id).toBe("equip-99");
+    expect(ship2).toHaveLength(4);
+    expect(migrated.nextEquipmentId).toBe(104); // four minted from 100
   });
 });
 
@@ -3445,7 +3580,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(27);
+    expect(save!.version).toBe(28);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the

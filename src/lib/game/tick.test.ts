@@ -3789,10 +3789,16 @@ describe("Fabricator mints real equipment (Task 19)", () => {
     const rng = mulberry32Task19(42); // ONE persistent stream across all ticks
     for (let i = 0; i < 160; i++) s = economyTick(s, 1, rng); // > 150-tick duration -> completes
 
-    // Exactly one spare piece minted, with the blueprint's slot + a monotonic "equip-1" id.
-    expect(s.equipment.length).toBe(1);
-    const piece = s.equipment[0];
-    expect(piece.id).toBe("equip-1");
+    // freshState (via equipLineState) now SEEDS ship-1 with four fitted Standard-Issue
+    // baselines (Task 20), so the pool holds those four PLUS the one fabricated SPARE.
+    // The fabricated piece is the ONLY spare (the baselines are all fitted to ship-1),
+    // so select it by fittedToShipId === null. Its id is "equip-5" (the four baselines
+    // took equip-1..4, so freshState's nextEquipmentId started at 5).
+    expect(s.equipment.length).toBe(5); // 4 Standard-Issue baselines + 1 fabricated spare
+    const spares = s.equipment.filter((e) => e.fittedToShipId === null);
+    expect(spares.length).toBe(1);
+    const piece = spares[0];
+    expect(piece.id).toBe("equip-5");
     expect(piece.slotType).toBe("cargoBay"); // prospectorHoldBp.equipmentOutput.slotType
     expect(piece.blueprintKey).toBe("prospectorHoldBp"); // variety is carried by the blueprintKey
     expect(piece.fittedToShipId).toBeNull(); // spare in the pool
@@ -3806,8 +3812,9 @@ describe("Fabricator mints real equipment (Task 19)", () => {
     expect(Object.keys(piece.implicitStats).length).toBeGreaterThan(0);
     expect(piece.durabilityMax).toBeGreaterThan(0);
 
-    // The id source advanced, and the INERT placeholder was NEVER granted.
-    expect(s.nextEquipmentId).toBe(2);
+    // The id source advanced past the fabricated piece (5 -> 6), and the INERT placeholder
+    // was NEVER granted.
+    expect(s.nextEquipmentId).toBe(6);
     expect(itemTotal(s.inventory, "components").toString()).toBe("0");
     // Inputs were consumed by the craft.
     expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
@@ -3822,9 +3829,13 @@ describe("Fabricator mints real equipment (Task 19)", () => {
     for (let i = 0; i < 130; i++) s = economyTick(s, 1, rng); // > 120-tick duration
 
     // The stackable output landed (the pre-Task-19 behavior), and NO equipment was minted.
+    // The pool still holds ONLY the four seeded Standard-Issue baselines (Task 20); a
+    // material craft mints no EquipmentInstance and does not advance the id source past
+    // freshState's post-seed value of 5.
     expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("1");
-    expect(s.equipment.length).toBe(0);
-    expect(s.nextEquipmentId).toBe(1); // id source untouched by a material craft
+    expect(s.equipment.length).toBe(4); // the four Standard-Issue baselines, unchanged
+    expect(s.equipment.every((e) => e.blueprintKey === null)).toBe(true); // all baselines, no crafted piece
+    expect(s.nextEquipmentId).toBe(5); // id source untouched by a material craft (still freshState's post-seed 5)
   });
 
   it("⚠️ offline==live PARITY: an equipment craft completing during tick(span) is BIT-IDENTICAL to stepped economyTick", () => {
@@ -3840,19 +3851,24 @@ describe("Fabricator mints real equipment (Task 19)", () => {
     const liveRng = mulberry32Task19(SEED);
     for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
 
-    // Both paths minted exactly one piece and advanced the id source identically.
-    expect(jumped.equipment.length).toBe(1);
-    expect(stepped.equipment.length).toBe(1);
-    expect(jumped.nextEquipmentId).toBe(2);
-    expect(stepped.nextEquipmentId).toBe(2);
+    // Both paths hold the four seeded Standard-Issue baselines (Task 20) PLUS the one
+    // fabricated spare, and advanced the id source identically (post-seed 5 -> 6).
+    expect(jumped.equipment.length).toBe(5);
+    expect(stepped.equipment.length).toBe(5);
+    expect(jumped.nextEquipmentId).toBe(6);
+    expect(stepped.nextEquipmentId).toBe(6);
+
+    // The fabricated piece is the ONLY spare on each path (baselines are all fitted).
+    const jumpedSpare = jumped.equipment.find((e) => e.fittedToShipId === null)!;
+    const steppedSpare = stepped.equipment.find((e) => e.fittedToShipId === null)!;
 
     // THE PARITY ASSERTION: the minted EquipmentInstance is deep-equal (bit-identical) across the
     // two chunkings, id, rarity, quality, every stat line, mass/powerDraw/durability, all of it.
-    expect(jumped.equipment[0]).toEqual(stepped.equipment[0]);
+    expect(jumpedSpare).toEqual(steppedSpare);
 
     // NON-VACUITY: it is a real, well-formed piece (not two empty pools trivially matching).
-    expect(jumped.equipment[0].id).toBe("equip-1");
-    expect(jumped.equipment[0].slotType).toBe("cargoBay");
-    expect(CRAFTABLE_RARITIES).toContain(jumped.equipment[0].rarity);
+    expect(jumpedSpare.id).toBe("equip-5");
+    expect(jumpedSpare.slotType).toBe("cargoBay");
+    expect(CRAFTABLE_RARITIES).toContain(jumpedSpare.rarity);
   });
 });

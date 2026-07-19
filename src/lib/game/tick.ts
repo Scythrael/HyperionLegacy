@@ -32,11 +32,14 @@ import {
   ITEMS,
   freshCaptainStack,
   shipDerivedStats,
+  // Equipment 0.11.0 (Task 20): the shared Standard-Issue seeder, so a ship minted by a
+  // shipBuild completion or a captain-slot unlock is born fully fitted on every live slot
+  // (never-empty invariant), the SAME helper freshState + the save migration use.
+  seedStandardIssueForShip,
   type ItemDef,
   type GameState,
   type ShipTypeKey,
   type ShipInstance,
-  type EquipmentInstance,
   type CaptainState,
   type CaptainMissionState,
   type LootMaterialKey,
@@ -103,17 +106,14 @@ import { itemTotal, addItemQuality, removeItemLowestFirst } from "./inventory";
 // wrap `.indexOf()` to -1 instead of erroring.
 const MISSION_PHASE_ORDER: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
 
-// Equipment 0.11.0 (Task 13/14): the pieces fitted to a ship, tolerant of a state
-// whose equipment pool has not been seeded yet. equippedFor assumes state.equipment
-// exists (freshState + the Task 20 migration guarantee it), but a save loaded on this
-// in-progress branch BEFORE that migration lands has no pool, so "no pool" reads as
-// "no fitted pieces" (an empty fold == the bare hull). The fold's three consumers
-// (economyTick / canDispatch / dispatchCaptainOnMission) all route through here so the
-// guard lives in ONE place. INTERIM: once Task 20 makes state.equipment always-present,
-// delete this helper and call equippedFor(state, shipId) directly at the three sites.
-function fittedPieces(state: GameState, shipId: string): EquipmentInstance[] {
-  return state.equipment ? equippedFor(state, shipId) : [];
-}
+// Equipment 0.11.0 (Task 13/14 -> RETIRED in Task 20): the interim `fittedPieces`
+// helper that used to guard `state.equipment ? equippedFor(...) : []` was DELETED here.
+// It existed only to tolerate a pre-migration save with no equipment pool; the v27->v28
+// Standard-Issue seed (save.ts MIGRATIONS[27]) now guarantees `state.equipment` on every
+// save, so the fold's three consumers (economyTick / canDispatch /
+// dispatchCaptainOnMission) call equippedFor(state, shipId) DIRECTLY. A genuinely missing
+// pool now throws loudly at equippedFor's `.filter` instead of silently reading as "no
+// gear" (Omega 6/10), which is the intended fail-loud posture once the field is guaranteed.
 
 function emptyLootTotals(): Record<LootMaterialKey, Decimal> {
   return { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
@@ -1202,23 +1202,16 @@ export function applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): 
 // dependency direction. model.ts owns the pure curve + tunable rate; the state-folding
 // engine stays with its FA twin.
 export function applyCraftingXp(state: GameState, craftingXpDelta: number): GameState {
-  // ⚠️ NOT-YET-MIGRATED GUARD (interim, owner = Task 20). craftingLevel/craftingXp were
-  // ADDED to GameState in Task 3, but that task deliberately DEFERRED both the migration
-  // that backfills them onto pre-0.11.0 saves AND their hydrateDecimals() Decimal revival
-  // to Task 20 (see model.ts's craftingXp field comment). So a state reaching here can be
-  // in one of two not-yet-migrated shapes: craftingXp ABSENT (a pre-Task-3 save) or a
-  // plain STRING (a current save whose craftingXp round-tripped through JSON without a
-  // hydrateDecimals rule yet). Either would throw on .plus()/.gte() below. We coerce to
-  // the typed values HERE rather than editing save.ts, because (a) this task's scope is
-  // the XP-award engine, not migration, and (b) it mirrors save.ts's OWN precedent for the
-  // `fuel` field, which carried a defensive `?? new Decimal(0)` default while its real
-  // migration was a later task. Once Task 20 seeds + hydrates these fields, this guard
-  // becomes a harmless no-op (a real Decimal passes through instanceof untouched). A fresh
-  // in-memory state (freshState) already holds a real Decimal(0) / level 1, so this never
-  // fires on the common live path.
-  // Task 20: DELETE this interim guard once hydrateDecimals revives craftingXp and the migration backfills it, then read state.craftingXp/craftingLevel directly (like applyFleetAdminXp) so a genuinely missing field throws loudly instead of silently defaulting.
-  const currentXp = state.craftingXp instanceof Decimal ? state.craftingXp : new Decimal(state.craftingXp ?? 0);
-  const currentLevel = state.craftingLevel ?? 1;
+  // craftingXp / craftingLevel are read DIRECTLY here, the interim NOT-YET-MIGRATED guard
+  // (Task 3) was RETIRED in Task 20. Both fields are now GUARANTEED on every save:
+  // MIGRATIONS[26] (v26->v27) backfills craftingLevel + craftingXp, hydrateDecimals
+  // (save.ts) revives craftingXp to a live Decimal on load, and freshState seeds level 1 /
+  // Decimal(0). So this reads state.craftingXp / state.craftingLevel with NO defaulting,
+  // exactly like applyFleetAdminXp reads state.fleetAdminXp / state.fleetAdminLevel, and a
+  // genuinely missing field now throws loudly (a corrupt/hand-edited save) rather than
+  // silently defaulting to 0 / level 1 (Omega 6/10).
+  const currentXp = state.craftingXp;
+  const currentLevel = state.craftingLevel;
 
   const startingXp = craftingXpDelta > 0 ? currentXp.plus(craftingXpDelta) : currentXp;
   const hasBacklog = startingXp.gte(craftingXpForNext(currentLevel));
@@ -1494,9 +1487,9 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     // mission by the equipment.ts on-mission lock) and the one-big == many-small
     // guarantee is preserved for the same reason effectiveMissionDef's constancy is. A
     // ship-less captain keeps the pre-equipment null == "no modifier" fallback exactly.
-    // fittedPieces tolerates a pre-Task-20 state with no equipment pool (see its
-    // definition); a ship-less captain keeps the pre-equipment "no modifier" fallback.
-    const pieces = ship ? fittedPieces(state, ship.id) : [];
+    // equippedFor reads the now-guaranteed equipment pool directly (Task 20 retired the
+    // interim fittedPieces guard); a ship-less captain keeps the "no modifier" fallback.
+    const pieces = ship ? equippedFor(state, ship.id) : [];
     const shipStats = ship ? shipDerivedStats(ship, pieces) : null;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
     // THIS hull. fuelNeeded reads the BASE mission's transit legs (see fuel.ts) and the
@@ -1948,7 +1941,7 @@ export function canDispatch(
   // the dispatch gate prices fuel and range on the very numbers the mission loop will
   // burn against. With no gear fitted the fold is an identity, so pre-equipment dispatch
   // behavior is byte-identical.
-  const stats = shipDerivedStats(ship, fittedPieces(state, ship.id));
+  const stats = shipDerivedStats(ship, equippedFor(state, ship.id));
 
   // --- Hull-capability gate (Task 7): the ship's cargoCapacity must meet
   // requiresCargoCapacity. Task 13: read the EQUIPMENT-FOLDED cargoCapacity so a fitted
@@ -2011,7 +2004,7 @@ export function dispatchCaptainOnMission(
   // engineEfficiency canDispatch and economyTick use, so the dispatch estimate, the
   // actual spend here, and every subsequent loop cycle all burn the identical figure.
   // No gear fitted -> fold is an identity -> byte-identical to the pre-equipment spend.
-  const dispatchStats = shipDerivedStats(ship, fittedPieces(state, ship.id));
+  const dispatchStats = shipDerivedStats(ship, equippedFor(state, ship.id));
   const need = fuelNeeded(MISSIONS[missionKey], {
     ...SHIP_TYPES[ship.typeKey],
     engineEfficiency: dispatchStats.engineEfficiency,
@@ -4333,15 +4326,15 @@ export function resolveProcesses(
   let nextShipId = state.nextShipId;
   // Equipment 0.11.0 (Task 19): threaded so a completing EQUIPMENT fabricateJob (addEquipment)
   // can mint + append its EquipmentInstance and bump the monotonic id source, the EXACT mirror of
-  // ships/nextShipId. DEFENSIVELY seeded (`?? []` / `?? 1`) because the migration that guarantees
-  // these fields on every save is a LATER task, an older save reaching here mid-craft must not
-  // crash on an undefined pool. Seeded from the incoming state, so a call that completes no
-  // equipment craft returns them value-identical (only the addEquipment branch below re-clones /
-  // increments). ⚠️ the `?? []` means a completion on a field-less save starts a FRESH pool; that
-  // is the correct grow-on-demand posture (inventory/facilities use it), and the migration will
-  // have seeded `[]` before this is reachable in normal play anyway.
-  let equipment = state.equipment ?? [];
-  let nextEquipmentId = state.nextEquipmentId ?? 1;
+  // ships/nextShipId. Also threaded through the addShip branch (Task 20) so a newly-built hull's
+  // Standard-Issue baseline mints from the SAME counter. Read DIRECTLY off the incoming state
+  // (Task 20 retired the interim `?? []` / `?? 1` guards): MIGRATIONS[26] backfills both fields
+  // and MIGRATIONS[27] seeds the pool, so every save reaching here has them, and a genuinely
+  // missing field now surfaces loudly rather than silently starting a fresh pool (Omega 6/10).
+  // Seeded from the incoming state, so a call that completes no equipment/ship job returns them
+  // value-identical (only the addEquipment / addShip branches below re-clone / increment).
+  let equipment = state.equipment;
+  let nextEquipmentId = state.nextEquipmentId;
   let fleetAdminXpDelta = 0;
   // Crafting Level XP (Equipment 0.11.0, Phase 3): accumulates CRAFTING_XP_PER_DURATION_TICK
   // * durationTicks for every PRODUCTION job (refine / fabricate / ship-build) that completes
@@ -4472,6 +4465,15 @@ export function resolveProcesses(
       };
       ships = [...ships, minted];
       nextShipId += 1;
+      // Equipment 0.11.0 (Task 20): a newly-built hull is born fully fitted with its
+      // Standard-Issue baseline on every live slot, so no live slot is ever empty and the
+      // hull is dispatchable the moment it is assigned a captain, exactly like freshState's
+      // starting hull and a migrated ship. Uses the SHARED seeder threaded through the SAME
+      // equipment / nextEquipmentId accumulators this resolver already advances for crafted
+      // gear (Task 19), so the ids stay monotonic across builds AND crafts in one resolve.
+      const seededHull = seedStandardIssueForShip(minted.id, nextEquipmentId);
+      equipment = [...equipment, ...seededHull.pieces];
+      nextEquipmentId = seededHull.nextId;
     } else if (process.effect.type === "addEquipment") {
       // Equipment 0.11.0 (Task 19): a completed EQUIPMENT fabricate job MINTS a non-stacking
       // EquipmentInstance (NOT an inventory item, NOT the "components" placeholder). We look up
@@ -4499,7 +4501,7 @@ export function resolveProcesses(
         const quality = rollQuality(rng); // draw #1 (see order note above)
         const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
         const iLevel = computeItemLevel({
-          craftingLevel: state.craftingLevel ?? 1, // ?? 1 = craftingLevel's 1-based seed (defensive, pre-migration saves)
+          craftingLevel: state.craftingLevel, // read directly: MIGRATIONS[26] guarantees the field (Task 20 retired the interim ?? 1 guard)
           achievementBoost: 0, // TUNABLE: achievement/FA-talent iLevel boosts are a later refinement
           faTalentBonus: 0,
           itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER, // first-pass per-tier cap (itemgen.ts)
@@ -4705,12 +4707,27 @@ export function buyHomeworldTalent(
     // General Freighter, assigned to them, REGARDLESS of shipStorageCapacity --
     // a captain must have a hull to be dispatchable (cap is 8 > the current 4-
     // captain ceiling, so this never conflicts today).
+    const newShipId = `ship-${state.nextShipId}`;
     const ships = [
       ...state.ships,
-      { id: `ship-${state.nextShipId}`, typeKey: "generalFreighter" as const, assignedCaptainId: nextId },
+      { id: newShipId, typeKey: "generalFreighter" as const, assignedCaptainId: nextId },
     ];
+    // Equipment 0.11.0 (Task 20): that granted hull is born fully fitted with its
+    // Standard-Issue baseline on every live slot (never-empty invariant), so the new
+    // captain is dispatchable immediately, the SAME shared seeder freshState / the save
+    // migration / the shipBuild completion use. nextEquipmentId is threaded forward.
+    const seededHull = seedStandardIssueForShip(newShipId, state.nextEquipmentId);
     return {
-      next: { ...state, captains, ships, nextShipId: state.nextShipId + 1, adminPoints, unlockedHomeworldTalents },
+      next: {
+        ...state,
+        captains,
+        ships,
+        nextShipId: state.nextShipId + 1,
+        equipment: [...state.equipment, ...seededHull.pieces],
+        nextEquipmentId: seededHull.nextId,
+        adminPoints,
+        unlockedHomeworldTalents,
+      },
       success: true,
     };
   }

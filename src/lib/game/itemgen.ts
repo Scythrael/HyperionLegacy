@@ -31,12 +31,20 @@
 import {
   EQUIPMENT_SLOTS,
   rarityIndex,
+  SLOT_BASE_PHYSICALS,
   type EquipmentInstance,
   type EquipmentRarity,
   type EquipmentAscension,
   type EquipmentSlotType,
   type EquipmentVarietyDef,
 } from "./model";
+
+// SLOT_BASE_PHYSICALS moved to model.ts (0.11.0 Task 20) so it sits with the other
+// slot DATA (EQUIPMENT_SLOTS / DEFAULT_EQUIPMENT_VARIETY) and can be read by model's
+// craft-less Standard-Issue generator WITHOUT a model -> itemgen import cycle. It is
+// re-exported here so generateEquipment's existing consumers (and itemgen.test.ts,
+// which imports it from this module) keep working unchanged.
+export { SLOT_BASE_PHYSICALS };
 
 // ----------------------------------------------------------------------------
 // Tunable constants (FIRST-PASS TUNABLE, see header)
@@ -73,23 +81,6 @@ export const IMPLICIT_BUDGET_SHARE = 0.5;
 // separate from the budget multipliers because durability is a survivability stat,
 // not part of the stat-point budget. TUNABLE.
 export const QUALITY_DURABILITY_BONUS = 0.2;
-
-// Per-slot BASE physical characteristics: intrinsic mass, intrinsic power draw, and
-// base durability BEFORE any roll or quality scaling. Only the four LIVE slots have
-// entries (the reserved EquipmentSlotType members have no generation this patch, so
-// generateEquipment rejects them). These are the values a rolled massReduction /
-// powerDrawReduction shaves DOWN from, and the base durability quality scales UP.
-// FIRST-PASS TUNABLE. (Note reactorCore's low powerDraw of 1: a reactor supplies
-// power rather than consuming it; the number is intentionally small, not a typo.)
-export const SLOT_BASE_PHYSICALS: Record<
-  "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility",
-  { mass: number; powerDraw: number; durability: number }
-> = {
-  cargoBay: { mass: 10, powerDraw: 2, durability: 100 },
-  ftlDrive: { mass: 8, powerDraw: 4, durability: 100 },
-  reactorCore: { mass: 12, powerDraw: 1, durability: 120 },
-  specUtility: { mass: 6, powerDraw: 2, durability: 90 },
-};
 
 // ============================================================================
 // Task 4: computeItemLevel

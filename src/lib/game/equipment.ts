@@ -12,15 +12,15 @@
 // So "fit a piece" == set its fittedToShipId, "unfit" == null it, and "what is on
 // ship Y" == filter by fittedToShipId === Y. There is no second bookkeeping list.
 //
-// SCOPE (matches the task, do NOT extend here):
-//   - Fit / unfit + the gate + queries ONLY.
-//   - This task does NOT fold equipment stats into ship-derived stats (next task).
-//   - This task does NOT seed the "a live slot is never empty / Standard-Issue
-//     auto-refit" invariant (that is the later migration task). Here, unfitting
-//     simply returns the piece to the pool and the slot becomes empty. The
-//     auto-refit-to-Standard-Issue behavior will LAYER ON unfitEquipment once the
-//     Standard-Issue baseline exists (see the note in unfitEquipment).
-//   - No item-gen / crafting / quality / migration / UI.
+// SCOPE:
+//   - Fit / unfit + the gate + queries.
+//   - Fold of equipment stats into ship-derived stats lives in model.ts (shipDerivedStats).
+//   - The "a live slot is never empty / Standard-Issue auto-refit" invariant is now
+//     IMPLEMENTED here (0.11.0 Task 20): unfitEquipment evicts the occupant to the pool
+//     and mints a fresh Standard-Issue into the slot so it is never left empty (this
+//     layered ON once the Standard-Issue baseline existed, see the note in unfitEquipment).
+//   - No item-gen internals / crafting / quality / migration / UI (unfit calls the shared
+//     model.ts generateStandardIssue rather than reimplementing minting).
 //
 // Contents (Functions -> types -> queries -> gate -> mutators):
 //   captainBranchToShipSpec  the CaptainTalentBranch -> ShipSpec bridge the gate needs
@@ -29,7 +29,7 @@
 //   fittedInSlot             query: the piece in one ship-slot, or null
 //   canFitEquipment          the fitment gate (pure predicate + typed reason)
 //   fitEquipment             ATOMIC single-slot swap
-//   unfitEquipment           return a slot's piece to the pool
+//   unfitEquipment           evict a slot's piece to the pool + auto-refit Standard-Issue
 // ============================================================================
 
 import type {
@@ -39,7 +39,7 @@ import type {
   ShipSpec,
   CaptainTalentBranch,
 } from "./model";
-import { EQUIPMENT_SLOTS, SHIP_TYPES } from "./model";
+import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue } from "./model";
 
 // ----------------------------------------------------------------------------
 // captainBranchToShipSpec
@@ -289,19 +289,25 @@ export function fitEquipment(state: GameState, shipId: string, instanceId: strin
 // ----------------------------------------------------------------------------
 // unfitEquipment
 // ----------------------------------------------------------------------------
-// Return the piece in a ship's slot (if any) to the spare pool: its fittedToShipId
-// is set to null. Guarded by the SAME on-mission lock as fitEquipment (via
-// onMissionLock), and THROWS with the reason token when that lock blocks (same WHY
-// THROW rationale as fitEquipment: bare-GameState signature -> a throw keeps the
-// failure observable). If the slot is already empty, this is a no-op that returns
-// the SAME state reference (nothing to unfit), matching the immutable same-ref
-// convention.
+// Return the piece in a ship's slot (if any) to the spare pool AND auto-refit the
+// slot with a fresh Standard-Issue baseline, so a LIVE SLOT IS NEVER EMPTY. Guarded
+// by the SAME on-mission lock as fitEquipment (via onMissionLock), and THROWS with the
+// reason token when that lock blocks (same WHY THROW rationale as fitEquipment: bare-
+// GameState signature -> a throw keeps the failure observable).
 //
-// FUTURE (NOT this task): once the Standard-Issue craft-less baseline exists (later
-// migration task), unfitEquipment will AUTO-REFIT the slot to a Standard-Issue piece
-// instead of leaving it empty, upholding the "a live slot is never empty" invariant
-// from the design. That behavior LAYERS ON here; this task deliberately just empties
-// the slot.
+// NEVER-EMPTY INVARIANT (0.11.0 Task 20, the behavior the design's "a live slot is
+// never empty, Standard-Issue re-fits if you unequip to nothing" pins): after the
+// current occupant is evicted to the pool (fittedToShipId -> null), the slot would be
+// empty, so a FRESH Standard-Issue is minted and fitted in its place, advancing
+// nextEquipmentId (the same monotonic "equip-N" counter every mint site spends).
+// - Unfitting a CRAFTED piece: the crafted piece returns to the pool as a spare, and
+//   a Standard-Issue takes the slot (the player keeps their gear, the slot stays live).
+// - Unfitting a STANDARD-ISSUE piece: the old baseline returns to the pool and a fresh
+//   baseline takes the slot, so the slot still holds a Standard-Issue afterward
+//   ("idempotent-ish": stat-identical result, a new id + one extra baseline spare).
+// If the slot is already EMPTY (nothing fitted), there is nothing to evict; the slot
+// is nonetheless brought into the never-empty invariant by minting a Standard-Issue
+// into it, so a same-ref no-op is NOT returned in that case (the slot gains a baseline).
 export function unfitEquipment(
   state: GameState,
   shipId: string,
@@ -312,13 +318,25 @@ export function unfitEquipment(
     throw new Error(`unfitEquipment blocked: ${lock.reason}`);
   }
 
-  // The piece currently in that ship-slot, if any.
+  // Evict the current occupant (if any) to the pool. The slot is now empty.
   const occupant = state.equipment.find((e) => e.fittedToShipId === shipId && e.slotType === slotType);
-  // Slot already empty: nothing to do, return the untouched reference.
-  if (!occupant) return state;
+  const evicted = occupant
+    ? state.equipment.map((e) => (e.id === occupant.id ? { ...e, fittedToShipId: null } : e))
+    : state.equipment;
 
-  const equipment = state.equipment.map((e) =>
-    e.id === occupant.id ? { ...e, fittedToShipId: null } : e
-  );
-  return { ...state, equipment };
+  // Mint + fit a fresh Standard-Issue so the slot is never left empty. The id is
+  // captured before advancing the counter, mirroring every other "equip-N" mint site
+  // (freshState / the migration / the tick.ts build + unlock paths).
+  const mintedId = state.nextEquipmentId;
+  const replacement = generateStandardIssue({
+    slotType,
+    fittedToShipId: shipId,
+    allocateId: () => `equip-${mintedId}`,
+  });
+
+  return {
+    ...state,
+    equipment: [...evicted, replacement],
+    nextEquipmentId: mintedId + 1,
+  };
 }

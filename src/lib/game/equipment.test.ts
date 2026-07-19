@@ -6,15 +6,17 @@
 //   - equippedFor / fittedInSlot  (queries over the fittedToShipId authority)
 //   - canFitEquipment             (the fitment gate + typed block reasons)
 //   - fitEquipment                (atomic single-slot swap)
-//   - unfitEquipment              (return a piece to the spare pool)
+//   - unfitEquipment              (evict to the pool + auto-refit Standard-Issue)
 //
 // The one thing every test here is really pinning: EquipmentInstance.fittedToShipId
 // is the SINGLE SOURCE OF TRUTH for fitment (mirrors ShipInstance.assignedCaptainId),
 // so "is X fitted to ship Y" is ALWAYS `fittedToShipId === Y` and nothing else.
 //
-// Scope note (matches the task): this task does NOT fold equipment stats into ship
-// stats (next task), and does NOT seed the Standard-Issue auto-refit invariant
-// (later migration). Unfitting here simply empties the slot.
+// Scope note: 0.11.0 Task 20 layered the "a live slot is never empty" invariant onto
+// unfitEquipment, it now evicts the occupant to the pool AND mints a fresh Standard-Issue
+// into the slot (see the unfitEquipment describe block below). Fixtures replace the pool
+// wholesale via withEquipment, so freshState's seeded baselines are not in play here
+// except that freshState's nextEquipmentId (5, post-seed) is the id the auto-refit mints.
 // ============================================================================
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
@@ -276,33 +278,72 @@ describe("missing-entity guards", () => {
 });
 
 // ----------------------------------------------------------------------------
-// unfitEquipment: returns the piece to the pool
+// unfitEquipment: evict to the pool + auto-refit Standard-Issue (never-empty)
 // ----------------------------------------------------------------------------
 describe("unfitEquipment", () => {
-  it("returns the piece in that slot to the pool (fittedToShipId null)", () => {
-    const fitted = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: "ship-1" });
-    const state = withEquipment(freshState(), fitted);
+  it("evicts a CRAFTED piece to the pool AND leaves a fresh Standard-Issue fitted (never empty)", () => {
+    // A crafted (blueprintKey non-null) cargoBay piece fitted to ship-1.
+    const crafted = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: "prospectorHoldBp", fittedToShipId: "ship-1" });
+    const state = { ...withEquipment(freshState(), crafted), nextEquipmentId: 42 };
 
     const next = unfitEquipment(state, "ship-1", "cargoBay");
 
-    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
-    expect(equippedFor(next, "ship-1")).toEqual([]); // slot now empty
+    // The crafted piece is returned to the pool as a spare (player keeps their gear).
+    const returned = next.equipment.find((e) => e.id === "equip-1");
+    expect(returned?.fittedToShipId).toBeNull();
+    expect(returned?.blueprintKey).toBe("prospectorHoldBp"); // unchanged, still the crafted piece
+
+    // The slot is NOT empty: a fresh Standard-Issue baseline now occupies it.
+    const fittedNow = equippedFor(next, "ship-1");
+    expect(fittedNow).toHaveLength(1);
+    expect(fittedNow[0].slotType).toBe("cargoBay");
+    expect(fittedNow[0].blueprintKey).toBeNull(); // craft-less Standard-Issue
+    expect(fittedNow[0].rarity).toBe("standard");
+    expect(fittedNow[0].quality).toBe(0);
+    expect(fittedNow[0].id).toBe("equip-42"); // minted from nextEquipmentId
+    expect(next.nextEquipmentId).toBe(43); // counter advanced
   });
 
-  it("is a no-op (same-ref) when the slot is already empty", () => {
-    const state = withEquipment(freshState()); // nothing fitted
+  it("unfitting a STANDARD-ISSUE slot leaves a Standard-Issue fitted (idempotent-ish: stat-identical, new id + spare)", () => {
+    // The occupant is itself a Standard-Issue baseline (blueprintKey null).
+    const baseline = makeEquip({ id: "equip-1", slotType: "ftlDrive", blueprintKey: null, fittedToShipId: "ship-1" });
+    const state = { ...withEquipment(freshState(), baseline), nextEquipmentId: 7 };
+
+    const next = unfitEquipment(state, "ship-1", "ftlDrive");
+
+    // The old baseline is in the pool; a fresh baseline (new id) holds the slot.
+    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
+    const fittedNow = equippedFor(next, "ship-1");
+    expect(fittedNow).toHaveLength(1);
+    expect(fittedNow[0].slotType).toBe("ftlDrive");
+    expect(fittedNow[0].blueprintKey).toBeNull();
+    expect(fittedNow[0].id).toBe("equip-7");
+    expect(next.nextEquipmentId).toBe(8);
+  });
+
+  it("brings an ALREADY-EMPTY slot into the never-empty invariant by minting a Standard-Issue", () => {
+    const state = { ...withEquipment(freshState()), nextEquipmentId: 3 }; // nothing fitted
     const next = unfitEquipment(state, "ship-1", "cargoBay");
-    expect(next).toBe(state); // unchanged reference, nothing to unfit
+    // No occupant to evict, but the slot must not be left empty -> a Standard-Issue is minted.
+    const fittedNow = equippedFor(next, "ship-1");
+    expect(fittedNow).toHaveLength(1);
+    expect(fittedNow[0].slotType).toBe("cargoBay");
+    expect(fittedNow[0].blueprintKey).toBeNull();
+    expect(fittedNow[0].id).toBe("equip-3");
+    expect(next.nextEquipmentId).toBe(4);
   });
 
   it("only unfits the named slot, leaving other fitted slots intact", () => {
     const cargo = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: "ship-1" });
     const drive = makeEquip({ id: "equip-2", slotType: "ftlDrive", fittedToShipId: "ship-1" });
-    const state = withEquipment(freshState(), cargo, drive);
+    const state = { ...withEquipment(freshState(), cargo, drive), nextEquipmentId: 50 };
 
     const next = unfitEquipment(state, "ship-1", "cargoBay");
 
-    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
+    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull(); // evicted
     expect(next.equipment.find((e) => e.id === "equip-2")?.fittedToShipId).toBe("ship-1"); // drive untouched
+    // The cargoBay slot is auto-refit; the ftlDrive slot still holds equip-2. Two pieces fitted.
+    expect(fittedInSlot(next, "ship-1", "cargoBay")?.blueprintKey).toBeNull(); // fresh Standard-Issue
+    expect(fittedInSlot(next, "ship-1", "ftlDrive")?.id).toBe("equip-2");
   });
 });

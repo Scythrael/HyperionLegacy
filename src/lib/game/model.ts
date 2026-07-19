@@ -2990,6 +2990,167 @@ export const DEFAULT_EQUIPMENT_VARIETY: Record<string, string> = {
   specUtility: "yieldRig",      // the spec slot's baseline prospecting rig
 };
 
+// --- Per-slot BASE physical characteristics (0.11.0) -------------------------
+// Intrinsic mass, intrinsic power draw, and base durability BEFORE any roll or
+// quality scaling. Only the four LIVE slots have entries (the reserved
+// EquipmentSlotType members have no generation this patch). These are the values a
+// rolled massReduction / powerDrawReduction shaves DOWN from (generateEquipment,
+// itemgen.ts), the base durability quality scales UP, and the mass the equipment
+// fold-in (shipDerivedStats) drags speed/efficiency against. FIRST-PASS TUNABLE.
+// (reactorCore's low powerDraw of 1 is intentional, not a typo: a reactor supplies
+// power rather than consuming it.)
+//
+// MOVED here (0.11.0 Task 20) from itemgen.ts so it sits with the other slot DATA
+// (EQUIPMENT_SLOTS / DEFAULT_EQUIPMENT_VARIETY) and can be read by generateStandardIssue
+// below WITHOUT a model -> itemgen import cycle (itemgen already imports FROM model, so
+// the reverse value import is forbidden, see the QUALITY_TIERS/CraftLine notes at the top
+// of this file). itemgen.ts re-exports it, so generateEquipment and itemgen.test.ts are
+// unaffected.
+export const SLOT_BASE_PHYSICALS: Record<
+  "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility",
+  { mass: number; powerDraw: number; durability: number }
+> = {
+  cargoBay: { mass: 10, powerDraw: 2, durability: 100 },
+  ftlDrive: { mass: 8, powerDraw: 4, durability: 100 },
+  reactorCore: { mass: 12, powerDraw: 1, durability: 120 },
+  specUtility: { mass: 6, powerDraw: 2, durability: 90 },
+};
+
+// --- Standard-Issue baseline generation (0.11.0 Task 20) ---------------------
+// The stat magnitude of every Standard-Issue implicit (signature) line, AND the
+// intent behind it. A Standard-Issue piece is the craft-less FLOOR that keeps a live
+// slot from ever being empty so a migrated / newly-built ship stays dispatchable
+// (design §2: "Standard-Issue = the quality-0 baseline version, auto-fitted, keeps a
+// bare ship dispatchable").
+//
+// ⚠️ STAT-NEUTRAL THIS PATCH (0), a deliberate, load-bearing decision, flagged in the
+// task report. The equipment-stat fold-in (shipDerivedStats) is ALREADY live on this
+// 0.11.0 branch: a fitted piece's implicit lines add to cargo/speed/efficiency and
+// its `mass` DRAGS speed/efficiency through the MASS_SPEED_DRAG / MASS_EFF_DRAG
+// curves. Those curves are FIRST-PASS TUNABLE and were balanced against the BARE
+// hull; folding a non-zero Standard-Issue (its slot base mass ~= 36 across the four
+// slots) into the STARTING ship would have silently dropped its transit speed by
+// ~40% and shifted every mission's timing/fuel/loot, an unrequested economy-wide
+// balance REGRESSION on every existing save (and it fails the design's own "keeps a
+// bare ship dispatchable" intent, a dragged ship is worse, not neutral). This task's
+// job is the never-empty invariant + migration, NOT rebalancing the economy, so the
+// floor contributes ZERO to derived stats this patch: shipDerivedStats(ship, [four
+// stat-neutral pieces]) is bit-identical to the bare hull (implicit magnitude 0 ->
+// plusToPercent(0)=0; mass 0 -> drag factor 1), so a migrated ship resolves missions
+// IDENTICALLY pre/post migration. The magnitude is a single TUNABLE knob: the actual
+// baseline power is a device-check-stage decision made WHEN the fold-in curves are
+// tuned and the (mockup-gated) equipment UI ships, deliberately deferred to here.
+export const STANDARD_ISSUE_IMPLICIT_MAGNITUDE = 0;
+
+// Mint ONE Standard-Issue baseline EquipmentInstance for a live slot. blueprintKey
+// null (craft-less), Standard rarity, quality 0, no ascension.
+//
+// DETERMINISM (load-bearing, because this runs inside a save migration where an rng
+// is neither available nor reproducible): generateStandardIssue takes NO rng and
+// rolls NO affixes. generateEquipment(rarity "standard") would roll TWO affix lines
+// (affixCount("standard") === 2, off an injected stream), so it is deliberately NOT
+// reused, even a constant rng would still ATTACH affixes, contradicting the design's
+// "minimal neutral form (implicits / floor stats, no random affixes)". Instead this
+// fills ONLY the slot's always-present implicit (signature) lines at the fixed floor
+// magnitude above (0 this patch, see the note), rolledStats is empty, and mass /
+// powerDraw contribute 0 (see the STAT-NEUTRAL note). The result is a pure function
+// of (slotType, id): identical inputs always mint an identical piece, exactly what a
+// re-runnable, reproducible migration requires.
+//
+// The slot's blessed default variety is resolved from DEFAULT_EQUIPMENT_VARIETY per
+// the design ("a later task reads THIS map") and VALIDATED (a bad slot / missing
+// variety throws loudly, mirroring generateEquipment's guards). Variety only biases
+// AFFIX distribution, which Standard-Issue omits, so it does not change the numbers
+// this patch; it is read to keep the baseline pinned to the neutral family and to
+// future-proof the piece if variety ever gains an implicit role.
+//
+// durabilityMax / durability are the slot's base durability (a real, reserved value,
+// durability is never lost in 0.11.0 and does NOT feed shipDerivedStats, so it is
+// stat-neutral to keep). mass / powerDraw are 0 by design (see the note), NOT the
+// slot base physicals, so the floor drags nothing.
+//
+// fittedToShipId is set by the caller (a seeded ship fits its baseline; a bare mint
+// could pass null), mirroring how generateEquipment leaves fitment to the fit layer.
+export function generateStandardIssue(a: {
+  slotType: EquipmentSlotType;
+  fittedToShipId: string | null;
+  allocateId: () => string;
+}): EquipmentInstance {
+  const slotDef = EQUIPMENT_SLOTS[a.slotType];
+  if (slotDef === undefined) {
+    // Reserved slots have no definition this patch; a Standard-Issue cannot exist for one.
+    throw new Error(`generateStandardIssue: no slot definition for "${a.slotType}" (not a live slot this patch)`);
+  }
+  const varietyKey = DEFAULT_EQUIPMENT_VARIETY[a.slotType];
+  if (varietyKey === undefined || slotDef.varieties.find((v) => v.key === varietyKey) === undefined) {
+    throw new Error(`generateStandardIssue: slot "${a.slotType}" has no default variety "${varietyKey}"`);
+  }
+  const basePhysicals = SLOT_BASE_PHYSICALS[a.slotType as keyof typeof SLOT_BASE_PHYSICALS];
+  if (basePhysicals === undefined) {
+    throw new Error(`generateStandardIssue: no base physicals for slot "${a.slotType}"`);
+  }
+
+  // Implicit (signature) lines ONLY, every one at the fixed floor magnitude (0 this
+  // patch, stat-neutral). The KEYS are still present (a well-formed piece carries its
+  // slot's signature lines), just at magnitude 0.
+  const implicitStats: Record<string, number> = {};
+  for (const stat of slotDef.implicitStats) {
+    implicitStats[stat] = STANDARD_ISSUE_IMPLICIT_MAGNITUDE;
+  }
+
+  return {
+    id: a.allocateId(),
+    slotType: a.slotType,
+    rarity: "standard",
+    ascension: "none",
+    quality: 0, // Standard-Issue is always the quality-0 floor
+    blueprintKey: null, // craft-less baseline (see EquipmentInstance.blueprintKey)
+    implicitStats,
+    rolledStats: {}, // NO affixes: the deliberate "minimal neutral form" (see the note above)
+    mass: 0, // stat-neutral floor (see STANDARD_ISSUE_IMPLICIT_MAGNITUDE note): drags nothing
+    powerDraw: 0, // stat-neutral floor: draws nothing against the reactor budget
+    durabilityMax: basePhysicals.durability, // reserved value; durability never lost in 0.11.0, does not feed shipDerivedStats
+    durability: basePhysicals.durability, // fresh piece starts at full durability
+    fittedToShipId: a.fittedToShipId,
+  };
+}
+
+// The ONE shared "fit a ship out with its baseline floor" helper (Omega 4, DRY):
+// mint a Standard-Issue piece for EVERY live slot, all fitted to the given ship, so
+// the ship is born fully equipped and no live slot is ever empty. Used by BOTH the
+// v27->v28 save migration (existing ships, save.ts) AND every live ship-creation
+// path (freshState below, the shipBuild completion + captain-slot-unlock hull grant
+// in tick.ts), so the migrated and live shapes can never drift apart, the same
+// single-source posture freshLifetimeStats already establishes.
+//
+// The live slots are enumerated from DEFAULT_EQUIPMENT_VARIETY's keys (its members
+// ARE the four live slots). Object key order is insertion order in ES2015+, so the
+// mint order (and therefore the id assignment) is DETERMINISTIC, which the migration
+// relies on for reproducibility. Ids are allocated from `startId` (normally the
+// ship's state.nextEquipmentId), one per minted piece, and the advanced next id is
+// returned so the caller threads the monotonic counter forward exactly like every
+// other id-minting site (nextShipId / nextEquipmentId). PURE: builds fresh records +
+// the advanced id, mutates nothing.
+export function seedStandardIssueForShip(
+  shipId: string,
+  startId: number
+): { pieces: EquipmentInstance[]; nextId: number } {
+  const pieces: EquipmentInstance[] = [];
+  let nextId = startId;
+  for (const slotType of Object.keys(DEFAULT_EQUIPMENT_VARIETY) as EquipmentSlotType[]) {
+    const mintedId = nextId; // capture before advancing so allocateId names THIS id
+    pieces.push(
+      generateStandardIssue({
+        slotType,
+        fittedToShipId: shipId,
+        allocateId: () => `equip-${mintedId}`,
+      })
+    );
+    nextId += 1;
+  }
+  return { pieces, nextId };
+}
+
 // The Research facility's key in GameState.facilities. R2 adds FACILITIES.research and
 // seeds it at level 1 in freshState; R1 has NO research facility yet. Named here as the
 // SINGLE SOURCE OF TRUTH so R1's tier-gate helper (and R2/R3/R5) all reference ONE
@@ -3933,6 +4094,13 @@ export function freshLifetimeStats(): GameState["lifetimeStats"] {
 }
 
 export function freshState(): GameState {
+  // Equipment 0.11.0 Task 20: the one starting hull ("ship-1", seeded below) is born
+  // fully fitted with Standard-Issue on every live slot, so no live slot is ever empty
+  // (the design's "a live slot is never empty" rule). Uses the SAME shared seeder the
+  // save migration and the tick.ts new-ship paths use, so a fresh game and a migrated
+  // save land on the identical fully-fitted shape. nextEquipmentId advances past the
+  // four minted ids (first minted is "equip-1", so the counter ends at 5).
+  const seededShip1 = seedStandardIssueForShip("ship-1", 1);
   return {
     captains: freshCaptains(1),
     tickDurationSeconds: 1,
@@ -4034,14 +4202,15 @@ export function freshState(): GameState {
     // job. A string[] (no Decimal), so hydrateDecimals needs no change (see the field's
     // comment on GameState above).
     researchedBlueprints: [],
-    // Equipment 0.11.0 Task 3 (additive seed): an EMPTY equipment pool on a brand-
-    // new save, nextEquipmentId at 1 (first minted id "equip-1", mirrors nextShipId/
-    // nextProcessId/nextCraftLineId), and the crafting track at level 1 with 0 xp.
-    // Existing saves get these four fields via the Task 20 save migration, NOT this
-    // function's job (same split as researchedBlueprints/fuel: seeded here for new
-    // games, backfilled onto old saves by their own later migration task).
-    equipment: [],
-    nextEquipmentId: 1,
+    // Equipment 0.11.0 Task 3 + Task 20: the equipment pool is SEEDED with ship-1's
+    // Standard-Issue baseline (four pieces, one per live slot, all fitted to "ship-1"),
+    // and nextEquipmentId advances past them (ends at 5). Task 3 originally seeded an
+    // EMPTY pool with nextEquipmentId 1; Task 20 makes the starting hull born-fitted so
+    // no live slot is ever empty. Existing saves reach the identical shape via the
+    // v27->v28 migration (save.ts). craftingLevel starts at 1 (mirrors fleetAdminLevel)
+    // with 0 xp.
+    equipment: seededShip1.pieces,
+    nextEquipmentId: seededShip1.nextId,
     craftingLevel: 1,
     craftingXp: new Decimal(0),
   };
