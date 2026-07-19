@@ -1528,19 +1528,15 @@
   }
 
   // UNFIT a ship's slot back to the pool. unfitEquipment THROWS on the on-mission
-  // lock and returns the SAME state reference when the slot is already empty, so we
-  // wrap in try/catch (surface the lock reason) and treat an unchanged reference as
-  // a no-op we simply report. Persists only on a real change.
+  // lock (caught here to surface the reason); otherwise it evicts the current
+  // occupant to the pool AND auto-refits a fresh Standard-Issue baseline (the
+  // never-empty invariant, Task 20), so it ALWAYS returns a new state, there is no
+  // empty-slot no-op to special-case. Persists the swap.
   function devUnfitEquipment(shipId: string, slotType: EquipmentSlotType) {
     try {
-      const next = unfitEquipment(state, shipId, slotType);
-      if (next === state) {
-        pushLog(`[DEV] ${slotType} slot already empty on this ship.`);
-        return;
-      }
-      state = next;
+      state = unfitEquipment(state, shipId, slotType);
       doSave();
-      pushLog(`[DEV] Unfitted ${slotType} on ${devShipLabel(shipId)}.`);
+      pushLog(`[DEV] Reset ${slotType} on ${devShipLabel(shipId)} to Standard-Issue.`);
     } catch (e) {
       pushLog(`[DEV] Cannot unfit ${slotType}: ${(e as Error).message}`);
     }
@@ -1592,14 +1588,13 @@
   }
 
   // UNINSTALL the system in a ship's slot back to storage. unfitEquipment THROWS
-  // on the on-mission lock and returns the SAME reference when the slot is
-  // already empty, so we mirror devUnfitEquipment: try/catch the lock, treat an
-  // unchanged reference as a no-op, and persist only on a real change.
+  // on the on-mission lock (caught here); otherwise it returns the current system
+  // to the pool AND auto-refits a fresh Standard-Issue baseline (the never-empty
+  // invariant, Task 20), so it ALWAYS returns a new state, there is no empty-slot
+  // no-op to special-case. Persists the swap.
   function uninstallSystem(shipId: string, slotType: EquipmentSlotType) {
     try {
-      const next = unfitEquipment(state, shipId, slotType);
-      if (next === state) return; // slot already empty, nothing to persist
-      state = next;
+      state = unfitEquipment(state, shipId, slotType);
       doSave();
       pushLog(`Uninstalled ${slotType} system on ${devShipLabel(shipId)}.`);
     } catch (e) {

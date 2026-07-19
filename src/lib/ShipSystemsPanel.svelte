@@ -121,8 +121,14 @@
   }
 
   // --- Derived reads ----------------------------------------------------------
-  // Belt-and-suspenders: treat a missing equipment array as empty (old saves are
-  // migrated, but the read sites stay defensive per the task guidance).
+  // DELIBERATE render-boundary defense, diverging from the engine's fail-loud posture
+  // ON PURPOSE. The equipment pool is guaranteed present (freshState seeds it + the
+  // v27->v28 migration backfills every save), so the ENGINE (tick.ts / save.ts) reads
+  // state.equipment directly and THROWS on a genuinely-missing pool, because a missing
+  // pool there is a real bug that would corrupt economy math. A UI RENDER is different:
+  // a malformed / partially-migrated state reaching this panel should degrade to an
+  // empty "no gear" view rather than white-screen the whole app, so this one surface
+  // keeps the `?? []` guard.
   $: equipmentPool = state.equipment ?? [];
   // A state view with a guaranteed-present equipment array for the helper calls
   // (equippedFor / fittedInSlot / canFitEquipment all read state.equipment).
