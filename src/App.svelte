@@ -1839,6 +1839,18 @@
     else doSalvageSalvagedMaterial(pending.id);
   }
 
+  // Ship salvage that would orphan a captain: only an on-mission ship is BLOCKED (onMissionLock),
+  // but salvaging a hull an IDLE captain is assigned to silently leaves that captain ship-less
+  // (device-test feedback). So the confirm modal names them, the destroy stays the player's
+  // informed choice, not a surprise. null for a non-ship target or a captain-less hull.
+  $: salvageShipCaptainWarning = (() => {
+    const sc = salvageConfirm;
+    if (sc === null || sc.kind !== "ship") return null;
+    const ship = state.ships.find((s) => s.id === sc.id);
+    if (!ship || ship.assignedCaptainId === null) return null;
+    return state.captains.find((c) => c.id === ship.assignedCaptainId)?.label ?? "its captain";
+  })();
+
   // Start the next Systems Bay storage rung. startEquipmentStorageUpgrade returns
   // { next, started } (like startFacilityUpgrade); on any failed gate it is a
   // same-ref no-op, so we destructure `started` and bail without a spurious log.
@@ -6477,6 +6489,9 @@
           Permanently break down <strong>{salvageConfirm.name}</strong> for parts? This destroys the
           {salvageConfirm.kind === "system" ? "system" : salvageConfirm.kind === "ship" ? "ship" : "material"} and can't be undone.
         </p>
+        {#if salvageShipCaptainWarning !== null}
+          <p class="modal-warning">This will leave <strong>{salvageShipCaptainWarning}</strong> without a ship until you assign them another. Any crafted systems return to your spares.</p>
+        {/if}
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelSalvageConfirm}>Cancel</button>
           <button class="dev-btn danger" on:click={confirmSalvage}>Salvage</button>
