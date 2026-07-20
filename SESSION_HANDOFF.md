@@ -1,4 +1,4 @@
-# Session Handoff — Hyperion Legacy (fleet-admiral)
+# Session Handoff: Hyperion Legacy (fleet-admiral)
 
 **Updated:** 2026-07-18, 0.11.0 EQUIPMENT ENGINE done + tested 10/10; 0.11.0 being EXPANDED to feature-complete before prod (design LOCKED, build not started). Very long session. Read this FIRST, then the memory files and the docs it points to.
 
@@ -74,9 +74,9 @@ Built and gate-green on the branch (see TaskList / git log for the per-task comm
 ### 5a. IMMEDIATE: finish 0.11.0 to feature-complete (design LOCKED, BUILD not started)
 
 This is the actual next build. Three committed design docs on branch `feat/ship-equipment-0.11.0` (on top of staging tip `4485f10`, not yet pushed) fully specify it:
-- `docs/plans/2026-07-18-ship-systems-legibility-0.11.0-design.md` — names (Titanium Ingot merge, remove dead `components`), Ship Systems visible in the Warehouse, slots show installed system + granted stats, Fabricator labels crafts by real name.
-- `docs/plans/2026-07-18-storage-salvage-0.11.0-design.md` — capped + upgradable Ship Systems storage (reuse the material-tab `storageCapMult` rung pattern); equipment recycle-salvage (consume a spare system, return a variable ~30-40% of its recipe inputs); salvaged-material loot salvage (Damaged Reactor Housing = renamed `intactReactorCore` reclassified to a new "salvaged material" category + own Warehouse tab; tiered rarity loot roll reusing the mission-loot machinery, progression-gated ceiling up to Radiant; exclusive salvage items DEFINED + droppable but RESERVED with honest tooltips; ONE FA salvage talent). ALL data changes under ONE migration + a SAVE_VERSION bump.
-- `docs/plans/2026-07-18-salvaging-design-notes.md` — the fuller/future salvage vision + BALANCE RULE: salvage supplements, never replaces, missions/refining/fabricating (super-rare refined/component drops; steep top-tier odds). Salvage-feeds-research is a LATER extension.
+- `docs/plans/2026-07-18-ship-systems-legibility-0.11.0-design.md`: names (Titanium Ingot merge, remove dead `components`), Ship Systems visible in the Warehouse, slots show installed system + granted stats, Fabricator labels crafts by real name.
+- `docs/plans/2026-07-18-storage-salvage-0.11.0-design.md`: capped + upgradable Ship Systems storage (reuse the material-tab `storageCapMult` rung pattern); equipment recycle-salvage (consume a spare system, return a variable ~30-40% of its recipe inputs); salvaged-material loot salvage (Damaged Reactor Housing = renamed `intactReactorCore` reclassified to a new "salvaged material" category + own Warehouse tab; tiered rarity loot roll reusing the mission-loot machinery, progression-gated ceiling up to Radiant; exclusive salvage items DEFINED + droppable but RESERVED with honest tooltips; ONE FA salvage talent). ALL data changes under ONE migration + a SAVE_VERSION bump.
+- `docs/plans/2026-07-18-salvaging-design-notes.md`: the fuller/future salvage vision + BALANCE RULE: salvage supplements, never replaces, missions/refining/fabricating (super-rare refined/component drops; steep top-tier odds). Salvage-feeds-research is a LATER extension.
 
 RESOLVED design calls (build to these): loot tiers map to gear rarity names (standard..radiant + reserved above); exclusive items reserved this patch; one combined FA salvage talent; storage cap base 25 via multiplier rungs. NEXT STEP: writing-plans for this whole scope, then subagent-driven build, gate green, push to staging, USER device-tests, THEN promote 0.11.0 to prod.
 
