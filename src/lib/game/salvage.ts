@@ -25,9 +25,11 @@
 //   - It uses Math.random directly (injectable ONLY so tests can pin the roll). A
 //     random INSTANT action is fine precisely because it never executes in the
 //     offline-catch-up seam, where a divergent RNG stream would break parity.
-//   - DO NOT wire salvageEquipment OR salvageSalvagedMaterial into any economy-tick
-//     path. salvage.test.ts greps tick.ts to prove BOTH stay out; that guard is
-//     load-bearing.
+//   - DO NOT wire salvageEquipment, salvageSalvagedMaterial, OR salvageShip into any
+//     economy-tick path. salvage.test.ts greps tick.ts to prove ALL THREE stay out; that
+//     guard is load-bearing. (salvageShip is INSTANT this patch but is slated to become a
+//     multi-tick TIMED teardown in a later task, at which point it moves into the tick path
+//     and takes on its OWN offline-parity obligation, see the salvageShip header.)
 //
 // IMMUTABILITY: like every equipment.ts / tick.ts state-transform, this returns a
 // NEW GameState and never mutates the input. On a rejected salvage it returns the
@@ -44,8 +46,12 @@
 
 import Decimal from "break_infinity.js";
 import type { GameState, EquipmentRarity, SalvagedMaterialItemId, SalvageLootTier } from "./model";
-import { BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS, HOMEWORLD_TALENTS } from "./model";
+import { BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS, HOMEWORLD_TALENTS, SHIP_TYPES } from "./model";
 import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
+// onMissionLock is the equipment fitment's shared "is this ship's captain out on a
+// mission?" guard. salvageShip (below) reuses it verbatim so a hull that is locked for
+// FITMENT mid-mission is locked for SALVAGE too, one source of truth for that lock.
+import { onMissionLock } from "./equipment";
 
 // ----------------------------------------------------------------------------
 // salvageTalentBonus (0.11.0 Storage/Salvage, Task C4)
@@ -134,12 +140,18 @@ export interface SalvageRoll {
 //     notSalvagedMaterial  the item id is not a `salvagedMaterial` category item (only
 //                          salvaged materials carry a loot pool)
 //     noneHeld             the player holds zero of that salvaged material
+//   Ship salvage (salvageShip), tearing a whole hull down for parts:
+//     shipNotFound         no ship in the fleet with that id
+//     shipOnMission        the ship's assigned captain is out on an active mission, so
+//                          the hull cannot be torn apart mid-flight (same lock fitment uses)
 export type SalvageRejectReason =
   | "notFound"
   | "fitted"
   | "notCraftable"
   | "notSalvagedMaterial"
-  | "noneHeld";
+  | "noneHeld"
+  | "shipNotFound"
+  | "shipOnMission";
 
 // ----------------------------------------------------------------------------
 // salvageEquipment
@@ -371,5 +383,149 @@ export function salvageSalvagedMaterial(
     next: { ...state, inventory },
     recovered: { [drop.itemId]: 1 },
     rolled: { itemId: drop.itemId, tier: tier.tier, quality: tier.quality },
+  };
+}
+
+// ============================================================================
+// Ship salvage (break down a hull you no longer need)
+// ============================================================================
+// salvageShip: a THIRD salvage entry point (a distinct code path again, per the design's
+// "each salvage model is its own path" posture), tearing a whole SHIP down for a fraction
+// of what the hull cost to build. It mirrors salvageEquipment's recycle band and its
+// LIVE-ONLY, INSTANT, same-ref-reject shape, but operates on a ShipInstance instead of a
+// spare EquipmentInstance and additionally refunds credits.
+//
+// ⚠️ DELIBERATELY INSTANT FOR NOW: unlike recycling one spare system, physically tearing an
+// entire hull apart is NOT a plausibly-instant act. This function is intentionally instant
+// THIS patch to ship the capability with the same simple, proven live-action shape as the
+// other two salvages; a FUTURE task converts it into a MULTI-TICK TIMED teardown process
+// (a TimedProcess / ProcessLine with a durationTicks, like a ship BUILD in reverse). Do NOT
+// treat this instant form as final. When the timed version lands it must move OUT of this
+// live-only file into the process engine, at which point the parity concerns below change,
+// so the conversion is not a trivial rename.
+//
+// SAME PARITY BOUNDARY as the other two salvages (see the file header): this is a LIVE-ONLY,
+// player-initiated INSTANT action. It uses Math.random (injectable ONLY for tests) and MUST
+// NOT be wired into economyTick / the offline tick() / resolveProcesses. salvage.test.ts
+// greps tick.ts to prove ALL THREE salvage functions stay out of the economy seam; that
+// guard is load-bearing. (Once salvageShip becomes a timed teardown it WILL live in the
+// tick path, and THAT change must carry its own offline==live parity proof.)
+
+// The result of a ship salvage. Discriminated union in the SAME posture as SalvageResult:
+// on SUCCESS a NEW state plus `recovered` (the per-component amounts deposited at quality 0)
+// and `creditsRecovered` (added to the balance); on REJECT the SAME-REFERENCE input state
+// plus a reason (no-op). Kept a SEPARATE type from SalvageResult because a ship salvage also
+// returns credits (a hull's build cost includes a flat credit price), which the equipment/
+// material salvages never do, so bolting `creditsRecovered` onto the shared union would give
+// every consumer a field only this path populates.
+export type SalvageShipResult =
+  | { ok: true; next: GameState; recovered: Record<string, number>; creditsRecovered: number }
+  | { ok: false; next: GameState; reason: SalvageRejectReason };
+
+// ----------------------------------------------------------------------------
+// salvageShip
+// ----------------------------------------------------------------------------
+// Break down a hull in the fleet: return its INSTALLED CRAFTED systems to the spare pool,
+// discard its free Standard-Issue baselines, unassign its captain, refund a rolled fraction
+// of the hull's build components (at quality 0) + build credits, and remove the ship from
+// the fleet (freeing a docks slot immediately).
+//
+// rng defaults to Math.random and is injectable ONLY for tests (see the PARITY BOUNDARY note
+// above: this is a live instant action, so a real random roll is correct here).
+//
+// REJECTS (same-ref no-op + reason): the ship id must resolve to a real hull (shipNotFound),
+// and its assigned captain must NOT be on an active mission (shipOnMission, via the shared
+// onMissionLock guard reused from the fitment system). Only then is a reward computed and a
+// new state built.
+export function salvageShip(
+  state: GameState,
+  shipId: string,
+  rng: () => number = Math.random
+): SalvageShipResult {
+  // --- Locate + validate the target -----------------------------------------
+  // Missing id: nothing to salvage.
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) {
+    return { ok: false, next: state, reason: "shipNotFound" };
+  }
+  // On-mission lock: reuse the fitment system's shared guard (Omega 4, DRY) so a hull whose
+  // captain is out flying cannot be torn apart mid-mission, the SAME rule that blocks changing
+  // its fitment. The ship is known to exist here (checked above), so any block onMissionLock
+  // reports is specifically the on-mission case; map it to this file's reason vocabulary.
+  const lock = onMissionLock(state, shipId);
+  if (!lock.ok) {
+    return { ok: false, next: state, reason: "shipOnMission" };
+  }
+
+  // --- Return crafted systems to the spare pool; discard baselines ----------
+  // fittedToShipId is the SINGLE SOURCE OF TRUTH for where a piece lives (model.ts). For the
+  // pieces fitted to THIS hull:
+  //   crafted   (blueprintKey !== null)  -> unfit to the spare pool (set fittedToShipId null),
+  //                                         so the player NEVER loses hard-crafted gear when a
+  //                                         hull is scrapped, it survives as a reusable spare.
+  //   baseline  (blueprintKey === null)  -> DISCARDED (dropped from the array). Standard-Issue
+  //                                         is free + craftless, so there is nothing to preserve;
+  //                                         the never-empty invariant mints a fresh one for any
+  //                                         OTHER hull that needs it, not this destroyed one.
+  // Pieces fitted to a DIFFERENT ship (or already spare) are untouched.
+  //
+  // NOTE (equipment-cap overflow, allowed): the returned crafted spares may push the spare
+  // pool OVER equipmentStorageCap. That is intentional and fine, the cap gates CRAFTING new
+  // systems (canFabricate), NOT returns from a scrapped hull. A player who overflows simply
+  // cannot craft more until they trim the pool (via salvageEquipment) back under the cap; no
+  // spare is ever destroyed by the cap here.
+  const equipment = state.equipment
+    // Drop this hull's free baselines.
+    .filter((e) => !(e.fittedToShipId === shipId && e.blueprintKey === null))
+    // Unfit this hull's crafted systems back to the spare pool.
+    .map((e) =>
+      e.fittedToShipId === shipId && e.blueprintKey !== null ? { ...e, fittedToShipId: null } : e
+    );
+
+  // --- Unassign the captain --------------------------------------------------
+  // The ship->captain link (ShipInstance.assignedCaptainId) is the ONLY link between a hull
+  // and its captain: CaptainState carries NO reciprocal assignedShipId (model.ts deliberately
+  // does not duplicate the reference so the two can never disagree). So removing the ship from
+  // state.ships (below) severs the ONLY link, there is no captain->ship field to also clear.
+  // The formerly-assigned captain simply becomes ship-less (idle, no hull) until reassigned,
+  // which is acceptable, no captain is ever left pointing at a destroyed hull.
+
+  // --- Recover build materials + credits ------------------------------------
+  // Mirror salvageEquipment's recovery band: recover a VARIABLE fraction, rolled uniformly in
+  // [MIN, MAX] with the injected rng, of what the hull cost to BUILD (its buildRecipe). No
+  // quality/talent bonus applies here: a hull has no quality rung, and the FA salvage talent
+  // buffs fine MATERIAL recycling, not a coarse hull teardown. So the fraction is the raw band.
+  const recipe = SHIP_TYPES[ship.typeKey].buildRecipe;
+  const fraction = SALVAGE_FRACTION_MIN + rng() * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
+
+  // Deposit floor(count * fraction) of each build component into the QUALITY-0 bucket (crude
+  // recovery, same as recycled scrap). Record every component's floored amount (including 0)
+  // so the caller sees the full breakdown; only touch inventory for a positive recovery.
+  const recovered: Record<string, number> = {};
+  let inventory = state.inventory;
+  for (const [itemId, count] of Object.entries(recipe.components)) {
+    const amount = Math.floor(count * fraction);
+    recovered[itemId] = amount;
+    if (amount > 0) {
+      inventory = addItemQuality(inventory, itemId, new Decimal(amount), 0);
+    }
+  }
+
+  // Refund floor(credits * fraction) of the hull's flat build-credit cost onto the balance.
+  // state.credits is a Decimal, so add via .plus (creditsRecovered is a plain number, which
+  // Decimal.plus accepts). The reported number is the same plain integer.
+  const creditsRecovered = Math.floor(recipe.credits * fraction);
+  const credits = state.credits.plus(creditsRecovered);
+
+  // --- Remove the hull + return the new state -------------------------------
+  // Drop the ship from state.ships (a plain array), freeing a docks slot IMMEDIATELY, since
+  // canStartShipBuild's storage gate reads state.ships.length. Fresh ships/equipment arrays +
+  // a fresh inventory + the updated credits keep the input state untouched (immutability).
+  const ships = state.ships.filter((s) => s.id !== shipId);
+  return {
+    ok: true,
+    next: { ...state, ships, equipment, inventory, credits },
+    recovered,
+    creditsRecovered,
   };
 }

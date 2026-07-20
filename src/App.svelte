@@ -189,7 +189,13 @@
   // rolls its tiered loot pool for a single drop. The SUCCESS branch additionally carries
   // `rolled` ({ itemId, tier, quality }) so doSalvageSalvagedMaterial below can narrate the
   // exact drop it produced. Same discriminated SalvageResult / reject convention.
-  import { salvageEquipment, salvageSalvagedMaterial, type SalvageRejectReason } from "./lib/game/salvage";
+  // salvageShip(state, shipId) is the THIRD salvage entry point: it breaks down a whole
+  // HULL from the Docks for a fraction of its build cost. Its SUCCESS branch carries a
+  // { next, recovered, creditsRecovered } shape (SalvageShipResult, credits are unique to
+  // the ship path), reject is the same same-ref + reason convention. doSalvageShip below
+  // reassigns state + logs the recovered materials, credits, and returned systems. It is
+  // INSTANT this patch and slated to become a timed teardown later (see salvage.ts).
+  import { salvageEquipment, salvageSalvagedMaterial, salvageShip, type SalvageRejectReason } from "./lib/game/salvage";
   import {
     tick,
     // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
@@ -1722,6 +1728,10 @@
         return "that item is not a salvaged material";
       case "noneHeld":
         return "none of that material is held";
+      case "shipNotFound":
+        return "that ship no longer exists";
+      case "shipOnMission":
+        return "the ship's captain is on a mission (recall first)";
     }
   }
 
@@ -1747,6 +1757,40 @@
     doSave();
   }
 
+  // SALVAGE a whole hull from the Docks. salvageShip returns a SalvageShipResult (same-ref
+  // no-op + reason on reject: shipNotFound / shipOnMission; new state + recovered map +
+  // creditsRecovered on success). On success: reassign state, log the recovered materials +
+  // credits + how many CRAFTED systems returned to the spare pool (baselines are discarded,
+  // so they are not counted), and persist, the standard do* idiom. This is INSTANT this patch
+  // (a future task makes hull teardown a timed process, see salvage.ts).
+  function doSalvageShip(shipId: string) {
+    // Snapshot the crafted systems fitted to this hull BEFORE the salvage so the log can
+    // report how many survive as spares (the result does not carry that count, and after the
+    // salvage they are no longer fitted to this ship). Baselines (blueprintKey null) are
+    // discarded, so they are excluded from the tally.
+    const returnedSystems = state.equipment.filter(
+      (e) => e.fittedToShipId === shipId && e.blueprintKey !== null
+    ).length;
+    const shipLabel = devShipLabel(shipId);
+
+    const result = salvageShip(state, shipId);
+    if (!result.ok) {
+      pushLog(`Cannot salvage ship: ${salvageRejectText(result.reason)}.`);
+      return;
+    }
+    state = result.next;
+    // Build the same "N [Item]" material summary the system salvage uses (0-amount
+    // components omitted so the log names only what was actually returned).
+    const parts = Object.entries(result.recovered)
+      .filter(([, amount]) => amount > 0)
+      .map(([itemId, amount]) => `${amount} [${ITEMS[itemId]?.label ?? itemId}]`);
+    if (result.creditsRecovered > 0) parts.push(`${formatNumber(new Decimal(result.creditsRecovered))} credits`);
+    const summary = parts.length > 0 ? parts.join(", ") : "no materials (recovery rounded to zero)";
+    const systemsNote = returnedSystems > 0 ? ` ${returnedSystems} crafted system(s) returned to spares.` : "";
+    pushLog(`Salvaged ${shipLabel} → recovered ${summary}.${systemsNote}`);
+    doSave();
+  }
+
   // ── Salvage confirmation guard (device-test feedback) ─────────────────────
   // A salvage PERMANENTLY destroys the item, so BOTH salvage entry points (the Ship
   // Systems tab's Salvage button and the Salvaged Materials tab's Salvage button) route
@@ -1761,7 +1805,11 @@
   // clearly and keeps the two id types (a system instanceId vs a salvaged-material itemId)
   // from ever being confused. `name` is captured at request time purely to name the item
   // in the warning line.
-  let salvageConfirm: { kind: "system" | "material"; id: string; name: string } | null = null;
+  // `kind` now also covers "ship" (0.11.0 ship-salvage): the Docks Salvage button breaks
+  // down a whole hull. The three kinds keep their three id vocabularies from being confused
+  // (a system instanceId vs a salvaged-material itemId vs a ship id) and route confirmSalvage
+  // to the matching handler.
+  let salvageConfirm: { kind: "system" | "material" | "ship"; id: string; name: string } | null = null;
 
   // The display name a spare system shows in the salvage-confirm dialog: its slot +
   // variety label (equipmentOutputLabel, the SAME label the fabricate readout uses).
@@ -1774,7 +1822,7 @@
 
   // Open the salvage-confirm modal for a target (replaces any open one). Nothing is
   // destroyed until Confirm; Cancel just clears the pending target.
-  function requestSalvage(kind: "system" | "material", id: string, name: string) {
+  function requestSalvage(kind: "system" | "material" | "ship", id: string, name: string) {
     salvageConfirm = { kind, id, name };
   }
   function cancelSalvageConfirm() {
@@ -1787,6 +1835,7 @@
     salvageConfirm = null;
     if (pending === null) return;
     if (pending.kind === "system") doSalvageEquipment(pending.id);
+    else if (pending.kind === "ship") doSalvageShip(pending.id);
     else doSalvageSalvagedMaterial(pending.id);
   }
 
@@ -3451,6 +3500,23 @@
                         on:click={() => openShipSystems(ship.id)}
                       >
                         Ship Systems
+                      </button>
+
+                      <!-- SALVAGE (0.11.0 ship-salvage): break this hull down for a fraction
+                           of its build cost (materials + credits back, crafted systems return
+                           to the spare pool). Routes through the SAME salvage confirmation
+                           modal as the system/material salvages (requestSalvage("ship", ...)).
+                           DISABLED for an on-mission ship (its captain is out flying, so the
+                           hull can't be torn down, salvageShip enforces the SAME lock), with
+                           the reason surfaced in the title. INSTANT this patch; a future task
+                           makes hull teardown a timed process (see salvage.ts). -->
+                      <button
+                        class="dev-btn ship-assign-btn danger"
+                        disabled={onMission}
+                        title={onMission ? "On a mission, recall first" : "Break down this hull for parts"}
+                        on:click={() => requestSalvage("ship", ship.id, def.label)}
+                      >
+                        Salvage
                       </button>
                     </div>
                   {/each}
@@ -6409,7 +6475,7 @@
         <div class="panel-title">CONFIRM SALVAGE</div>
         <p class="modal-warning">
           Permanently break down <strong>{salvageConfirm.name}</strong> for parts? This destroys the
-          {salvageConfirm.kind === "system" ? "system" : "material"} and can't be undone.
+          {salvageConfirm.kind === "system" ? "system" : salvageConfirm.kind === "ship" ? "ship" : "material"} and can't be undone.
         </p>
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelSalvageConfirm}>Cancel</button>

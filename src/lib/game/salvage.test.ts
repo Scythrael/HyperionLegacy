@@ -22,6 +22,7 @@ import tickSource from "./tick.ts?raw";
 import {
   salvageEquipment,
   salvageSalvagedMaterial,
+  salvageShip,
   salvageTalentBonus,
   SALVAGE_FRACTION_MIN,
   SALVAGE_FRACTION_MAX,
@@ -36,6 +37,7 @@ import {
   equipmentStorageCap,
   BLUEPRINTS,
   ITEMS,
+  SHIP_TYPES,
   SALVAGE_LOOT_POOLS,
   HOMEWORLD_TALENTS,
   SALVAGE_TALENT_YIELD_BONUS,
@@ -43,6 +45,7 @@ import {
   type GameState,
   type EquipmentInstance,
   type EquipmentSlotType,
+  type CaptainMissionState,
 } from "./model";
 import Decimal from "break_infinity.js";
 import { getBucket, itemTotal } from "./inventory";
@@ -205,6 +208,7 @@ describe("salvageEquipment: LIVE-ONLY, never wired into an economy-tick path (Ta
     // most direct, maintainable proof of the negative.
     expect(tickSource).not.toContain("salvageEquipment");
     expect(tickSource).not.toContain("salvageSalvagedMaterial");
+    expect(tickSource).not.toContain("salvageShip");
     expect(tickSource).not.toContain("./salvage");
   });
 });
@@ -516,5 +520,118 @@ describe("HOMEWORLD_TALENTS: the combined salvage talent exists with valid shape
     // because this node is the one Task C4 adds).
     expect(node.neighbors).toContain("fleetLogisticsYield");
     expect(HOMEWORLD_TALENTS.fleetLogisticsYield.neighbors).toContain("fleetLogisticsSalvage");
+  });
+});
+
+// ============================================================================
+// salvageShip (ship-salvage): break down a whole hull for a fraction of its
+// build cost. LIVE-ONLY, INSTANT this patch (a future task makes it a timed
+// teardown). Mirrors salvageEquipment's band + same-ref-reject shape, adds a
+// credit refund, returns crafted systems to spares, discards baselines, and
+// unassigns the captain.
+// ============================================================================
+
+// The starting hull's build recipe, read straight off SHIP_TYPES so the reward
+// math is pinned to the DATA (no hard-coded duplicate that could drift). freshState
+// seeds ship-1 as a generalFreighter assigned to captain 1.
+const FREIGHTER_RECIPE = SHIP_TYPES.generalFreighter.buildRecipe;
+
+// A minimal active mission, enough to make onMissionLock treat the captain as "out
+// flying" (mission !== null is the only thing the lock reads). cargo's required-key
+// Record is satisfied with an empty object via a cast, this fixture never reads it.
+function activeMission(): CaptainMissionState {
+  return {
+    missionKey: "shortOreRun",
+    phase: "transitOut",
+    phaseProgressTicks: 0,
+    cargo: {} as CaptainMissionState["cargo"],
+    recalled: false,
+  };
+}
+
+// A fresh state whose one seeded hull (ship-1, captain 1) carries a KNOWN equipment
+// set: one CRAFTED system fitted to it (survives salvage as a spare), one Standard-Issue
+// BASELINE fitted to it (discarded by salvage), and one unrelated SPARE crafted system
+// (must be left untouched). `captainMission` puts captain 1 on a mission when supplied
+// (to exercise the on-mission reject); default idle.
+function shipSalvageState(captainMission: CaptainMissionState | null = null): GameState {
+  const base = freshState();
+  const captains = base.captains.map((c) =>
+    c.id === 1 ? { ...c, mission: captainMission } : c
+  );
+  const equipment: EquipmentInstance[] = [
+    makePiece({ slotType: "cargoBay", fitted: true, crafted: true, quality: 2, id: "cr-1" }),
+    makePiece({ slotType: "ftlDrive", fitted: true, crafted: false, quality: 0, id: "bl-1" }),
+    makePiece({ slotType: "reactorCore", fitted: false, crafted: true, quality: 0, id: "sp-x" }),
+  ];
+  return { ...base, captains, equipment };
+}
+
+describe("salvageShip: breaks down an idle hull (Task ship-salvage)", () => {
+  it("removes the ship, returns crafted systems as spares, discards baselines, deposits ~% components at quality 0, refunds ~% credits, and unassigns the captain", () => {
+    const rngValue = 0.5; // fraction = 0.30 + 0.5*0.10 = 0.35 (band only, no quality/talent for a hull)
+    const state = shipSalvageState();
+    const startCredits = state.credits.toNumber();
+
+    const result = salvageShip(state, "ship-1", () => rngValue);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return; // narrow for the type checker
+
+    const fraction = SALVAGE_FRACTION_MIN + rngValue * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
+
+    // The hull is gone (frees a docks slot immediately), and the input state is untouched.
+    expect(result.next.ships.find((s) => s.id === "ship-1")).toBeUndefined();
+    expect(state.ships.find((s) => s.id === "ship-1")).toBeDefined(); // immutability
+
+    // Crafted system fitted to the hull SURVIVES as a spare (fittedToShipId nulled).
+    const craftedAfter = result.next.equipment.find((e) => e.id === "cr-1");
+    expect(craftedAfter).toBeDefined();
+    expect(craftedAfter?.fittedToShipId).toBeNull();
+    // Standard-Issue baseline fitted to the hull is DISCARDED.
+    expect(result.next.equipment.find((e) => e.id === "bl-1")).toBeUndefined();
+    // The unrelated spare crafted system is UNTOUCHED.
+    expect(result.next.equipment.find((e) => e.id === "sp-x")).toBeDefined();
+
+    // Each build component is reported with its floored recovered amount and deposited into
+    // the QUALITY-0 bucket specifically.
+    for (const [itemId, count] of Object.entries(FREIGHTER_RECIPE.components)) {
+      const expected = Math.floor(count * fraction);
+      expect(result.recovered[itemId]).toBe(expected);
+      expect(getBucket(result.next.inventory, itemId, 0).toNumber()).toBe(expected);
+    }
+    // At least one component recovered a positive amount, so the deposit is real.
+    expect(Object.values(result.recovered).some((n) => n > 0)).toBe(true);
+
+    // Credits refund: floor(recipe.credits * fraction), added onto the balance.
+    const expectedCredits = Math.floor(FREIGHTER_RECIPE.credits * fraction);
+    expect(result.creditsRecovered).toBe(expectedCredits);
+    expect(result.next.credits.toNumber()).toBe(startCredits + expectedCredits);
+
+    // Captain 1 still exists but no ship points at it any more (ship->captain link severed
+    // with the hull; there is no captain->ship field to leave dangling).
+    expect(result.next.captains.find((c) => c.id === 1)).toBeDefined();
+    expect(result.next.ships.some((s) => s.assignedCaptainId === 1)).toBe(false);
+  });
+});
+
+describe("salvageShip: rejects invalid targets as a same-ref no-op + reason (Task ship-salvage)", () => {
+  it("rejects an on-mission ship (its captain is out flying) without touching state", () => {
+    const state = shipSalvageState(activeMission());
+    const result = salvageShip(state, "ship-1", () => 0.5);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("shipOnMission");
+    expect(result.next).toBe(state); // SAME reference: no state change
+    // The hull is still present (not torn down).
+    expect(result.next.ships.find((s) => s.id === "ship-1")).toBeDefined();
+  });
+
+  it("rejects a missing ship id (same-ref state, reason)", () => {
+    const state = shipSalvageState();
+    const result = salvageShip(state, "ship-nope", () => 0.5);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toBe("shipNotFound");
+    expect(result.next).toBe(state);
   });
 });

@@ -129,10 +129,14 @@ export function fittedInSlot(
 }
 
 // ----------------------------------------------------------------------------
-// onMissionLock (internal)
+// onMissionLock (shared guard, exported)
 // ----------------------------------------------------------------------------
-// The shared "is this ship's fitment editable right now?" guard, factored out
+// The shared "is this ship editable / mutable right now?" guard, factored out
 // (Omega 4, DRY) so canFitEquipment and unfitEquipment apply the IDENTICAL lock.
+// EXPORTED as of ship-salvage (0.11.0): salvage.ts's salvageShip reuses this exact
+// on-mission guard to BLOCK tearing apart a hull whose captain is out on a mission,
+// so the fitment lock and the salvage lock can never drift apart (one source of truth
+// for "this ship's captain is busy in flight").
 // Two failure modes, in order: the ship must exist (noShip), and its assigned
 // captain must NOT be on an active mission (onMission).
 //
@@ -147,7 +151,7 @@ export function fittedInSlot(
 // captain remains locked here, exactly as it is for a ship swap.
 //
 // PURE: reads state, returns a verdict, mutates nothing.
-function onMissionLock(
+export function onMissionLock(
   state: GameState,
   shipId: string
 ): { ok: true } | { ok: false; reason: EquipFitBlockReason } {
