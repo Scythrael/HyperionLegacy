@@ -1,17 +1,18 @@
 # Session Handoff: Hyperion Legacy (fleet-admiral)
 
-**Updated:** 2026-07-18, 0.11.0 EQUIPMENT ENGINE done + tested 10/10; 0.11.0 being EXPANDED to feature-complete before prod (design LOCKED, build not started). Very long session. Read this FIRST, then the memory files and the docs it points to.
+**Updated:** 2026-07-18, FEATURE-COMPLETE 0.11.0 BUILT + holistic-reviewed clean + on staging (`dc7027e`), AWAITING the user's device-test then explicit go to promote to prod. Very long session. Read this FIRST, then the memory files and the docs it points to.
 
 ---
 
 ## 0. TL;DR (read this, then the sections you need)
 
 - **Production (crystalisoft.com) is at 0.10.2** (`origin/main` = `8e3b26b`). Stable, public, do NOT touch without explicit user go-ahead.
-- **Staging (devpreview.crystalisoft.com) is at `4485f10`** = the 0.11.0 EQUIPMENT ENGINE (version-bumped, holistic-reviewed clean, user-tested "10/10"). But 0.11.0 is NOT being promoted yet: the user chose to ship it FEATURE-COMPLETE, not in layers.
-- **0.11.0 scope EXPANDED (user decision, 2026-07-18).** Before promoting, 0.11.0 must also include: (1) item cleanup (merge `refinedMaterial` into `titaniumIngot` = "Titanium Ingot"; REMOVE the dead `components` item), (2) LEGIBILITY (proper names, Ship Systems visible in the Warehouse, slots showing installed system + granted stats), (3) capped + upgradable Ship Systems STORAGE, (4) full SALVAGE (equipment recycle for materials + salvaged-material loot rolls). Design is LOCKED in three docs (see Section 4); the BUILD has not started.
-- **Roadmap RESHUFFLED (user, 2026-07-18):** 0.11.0 = Ship Systems feature-complete (above). **0.11.1 = Help tab + UI/desk-OS restructure.** 0.11.2 = Material Lines (mission items to themed crafting; design done, on branch `feat/material-lines-0.11.1`, RENUMBER to 0.11.2). Later = full salvage economy extensions (salvage-feeds-research) + combat (0.12.0).
-- Branch: `feat/ship-equipment-0.11.0` (= staging tip `4485f10`), PLUS 4 design-doc commits on top (not yet pushed to staging): the legibility/storage-salvage/salvaging-notes docs. `main` is a clean ancestor.
-- `SAVE_VERSION` is **28** (will bump again for the 0.11.0-completion migration). `APP_VERSION` is **"0.11.0"**. Tests: **836 passing, 31 files**.
+- **Staging (devpreview.crystalisoft.com) is at `dc7027e`** = **FEATURE-COMPLETE 0.11.0**, holistic-reviewed clean, on devpreview for the user's device-test. The whole equipment feature: engine + item cleanup + capped/upgradable storage + full salvage + Warehouse legibility UI + iLevel/icons.
+- **NEXT ACTION: the user device-tests on devpreview; when happy, they give explicit go and you PROMOTE staging to prod** (`git checkout main; git merge --ff-only feat/ship-equipment-0.11.0; npm run check; git push origin main`). Do NOT promote without that explicit go.
+- **What feature-complete 0.11.0 shipped (2026-07-18):** item cleanup (`refinedMaterial` merged to `titaniumIngot`; dead `components` removed; `intactReactorCore` relabeled "Damaged Reactor Housing" + new `salvagedMaterial` category + reserved exotics; `cockpit` slot key renamed `bridge` = "Bridge Module"); capped Ship Systems storage (base 25) with a timed upgrade (25/50/100/200/400); FULL salvage (`salvage.ts`: `salvageEquipment` recycle + `salvageSalvagedMaterial` tiered loot roll, FA-level-gated ceiling, `fleetLogisticsSalvage` talent), all LIVE-ONLY (never in economyTick); Warehouse Ship Systems + Salvaged Materials tabs (tiled, icon + iLevel + rarity) + `EquipmentTooltip.svelte` + slot readouts; `iLevel` field on every item + per-variety icons.
+- **Roadmap:** 0.11.0 = above. **0.11.1 = UI restructure** (Quartermaster facility split, material recategorization, salvage-as-own-facility, Help tab, desk-OS lens; captured in `docs/plans/2026-07-18-0.11.1-ui-restructure-notes.md`, this was the user's CONDITION for leaving the tabs in the Warehouse now). 0.11.2 = Material Lines (design done, branch `feat/material-lines-0.11.1`, RENUMBER). 0.12.0 = combat (weapons/shields, per-slot implicits, tooltip weapon rows; HARD PREREQ: captain ids to a monotonic counter first).
+- Branch: `feat/ship-equipment-0.11.0` = staging tip `dc7027e`. `main` is a clean ancestor (promotion is a pure ff).
+- `SAVE_VERSION` is **30** (v28->v29 item-catalog reconcile + storage-level seed, v29->v30 iLevel backfill). `APP_VERSION` is **"0.11.0"** (patch note expanded for the completion features). Tests: **891 passing, 33 files**.
 - The user hates losing context across sessions AND ships feature-complete (no layered releases). The memory files + this doc are the safety net. Trust them, but verify any file/line/flag still exists before acting on it.
 
 ---
