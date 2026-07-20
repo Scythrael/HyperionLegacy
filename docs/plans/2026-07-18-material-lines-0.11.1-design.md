@@ -89,7 +89,7 @@ Each slot gets a thematic identity; its three varieties escalate from Asteroid-s
 |---|---|---|---|
 | balancedCore (default) | 1 | powerCoupling 2 + polysilicateWafer 2 + titaniumIngot 1 | unchanged, Asteroid, early |
 | efficientCore | 1 | powerCoupling 2 + cobaltCoil 2 | regulated coils, Lunar |
-| highOutputCore | 2 | powerCoupling 3 + derelictReactorCell 1 + osmiumPlate 1 | premium reactor, Salvage + Lunar rare, T2 |
+| highOutputCore | 2 | powerCoupling 3 + iridiumCatalyst 1 + osmiumPlate 1 | premium reactor, Iridium catalyst + Lunar rare, T2 |
 
 **SPEC UTILITY = sensors (electronics + organics):**
 
@@ -143,3 +143,32 @@ SOFT gates (intended progression, but worth aligning): several T1 premium variet
 3. **Compound set** (photonicGel, biocatalyst, cobaltCoil, osmiumPlate): right flavor and count, or trim/expand? Any naming preferences for the sci-fi compounds?
 4. **Soft-gate alignment** (§7): align premium-variety research availability with their mission's capability tier, or leave it as honest "you lack material X" feedback?
 5. **New refined-item count** (6 new: ferriteIngot, reclaimedCircuit, + 4 compounds): comfortable, or want it leaner (e.g. fold more raws into shared compounds)?
+
+---
+
+## 12. Feedback resolutions (2026-07-18, user reviewed after 0.11.0 tested 10/10)
+
+**Call 1 (Iridium) + Call 2 (reactor cell), RESOLVED as a SWAP.** Iridium is now WIRED, the rare Salvage item is now the RESERVED one:
+- **Iridium Ore** refines into `iridiumCatalyst` (new) and feeds `highOutputCore` (the premium reactor). It is no longer reserved. (Adds one refined item; count is now 7 new: ferriteIngot, reclaimedCircuit, iridiumCatalyst, + 4 compounds.)
+- The rare Salvage item is renamed **"Damaged Reactor Housing"** (not "Derelict Reactor Cell"; label-only, no migration) and becomes the ONE reserved item, with a tooltip pointing at a FUTURE mechanic.
+- **NEW FUTURE MECHANIC (logged, NOT 0.11.x): "salvaging."** Some items can be broken down for a CHANCE at very rare crafting materials. The Damaged Reactor Housing is the first candidate (salvage it for a shot at rare mats). This gives it a real future purpose and is a genuinely new system worth its own design pass later. For 0.11.1 the Housing is simply reserved with an honest "can be salvaged for rare materials in a future update" tooltip.
+
+**Call 3 (compounds): CONFIRMED.** Keep photonicGel, biocatalyst, cobaltCoil, osmiumPlate as designed.
+
+**Call 4 (soft-gate alignment): DEFERRED.** Do NOT engineer mission-gated blueprint availability in 0.11.1. Future content (explorer missions and the like) may itself be the unlock mechanism, so aligning now would be premature. For 0.11.1: leave honest "you lack material X" feedback; a blueprint is researchable when its research tier allows, and the Fabricator tells you what you are missing.
+
+**Call 5 (item count): CONFIRMED.** The set (now 7 new refined items) is fine.
+
+## 13. Companion scope: item + system LEGIBILITY (raised during 0.11.0 testing)
+
+Four legibility gaps surfaced. These are display/naming (low economy risk) and pair naturally with adding + naming new items. SEQUENCING (whether these ship as their own patch before Material Lines, or bundle in) is an OPEN user decision.
+
+1. **`refinedMaterial` needs a proper in-fiction name.** It is the generic refined bulk from Titanium Ore (label is the placeholder "Refined Material"). Candidates: "Machined Stock", "Alloy Billet", "Milled Alloy". NOTE for Material Lines: it overlaps thematically with `titaniumIngot` (both refine from Titanium Ore); worth deciding whether it stays a distinct generic or gets a clearer identity.
+2. **Crafted items / `components` need proper names.** `components` is a real placeholder ITEM (model.ts:2467) that every equipment blueprint nominally lists as `recipe.outputItem`. The Task 19 mint IGNORES it (it mints an `EquipmentInstance` instead), so a "Prospector Hold" craft likely DISPLAYS as producing "components" in the Fabricator. Fix: the Fabricator surface should show the blueprint's real ship-system output name; the vestigial `components` output on equipment blueprints should be corrected or the item given a real identity.
+3. **Ship Systems must appear in the Warehouse.** Crafted systems are `EquipmentInstance`s in `state.equipment`, a SEPARATE structure from the keyed inventory the Warehouse renders, so the Warehouse's shipModule/shipSystem grouping (App.svelte:586) shows nothing. Need a bridge so owned/spare systems are visible as items (with quality/rarity), so the player can SEE what they have.
+4. **Slot tooltips: name + granted stats.** `ShipSystemsPanel` slots have static hover labels (Cargo Bay, Reactor Core, ...) but do NOT show the INSTALLED system's name or the stats it grants. Add a per-slot tooltip/readout: what is fitted here + its stat contribution.
+
+## 14. Future mechanics logged (NOT 0.11.x)
+
+- **Salvaging:** break an item down for a chance at rare crafting materials (see §12). First candidate: Damaged Reactor Housing.
+- **Explorer missions (and similar)** as future unlock mechanisms for premium blueprints (see §7 deferral).
