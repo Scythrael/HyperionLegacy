@@ -50,8 +50,8 @@ describe("migrate, tickDurationSeconds backfill", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -89,8 +89,8 @@ describe("migrate, research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -263,8 +263,8 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -360,8 +360,8 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -466,8 +466,8 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -538,10 +538,14 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
     expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(0)).toBe(true);
     expect(migrated.inventory.rareMaterial[0] instanceof Decimal).toBe(true);
     expect(itemTotal(migrated.inventory, "rareMaterial").equals(0)).toBe(true);
-    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(0)).toBe(true);
-    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "components").equals(0)).toBe(true);
+    // ITEM-MERGE (0.11.0 Tasks A1/A2, v28->v29): the chain now reaches v29, which folds the
+    // retired `refinedMaterial` bucket into `titaniumIngot` and drops the removed `components`
+    // bucket. Both storage keys were 0 here, so titaniumIngot ends at 0 and the two retired
+    // keys are GONE.
+    expect(migrated.inventory.refinedMaterial).toBeUndefined();
+    expect(migrated.inventory.components).toBeUndefined();
+    expect(migrated.inventory.titaniumIngot[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "titaniumIngot").equals(0)).toBe(true);
     expect(migrated.captains[0].mission).toBe(null);
 
     // Unrelated pre-existing fields on the captain survive the backfill untouched.
@@ -551,8 +555,8 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -602,10 +606,13 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
     expect(migrated.captains[0].level).toBe(1);
     expect(migrated.captains[0].statPoints).toBe(0);
     expect(migrated.homePlanet).toBeUndefined();
-    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(0)).toBe(true);
-    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "components").equals(0)).toBe(true);
+    // ITEM-MERGE (0.11.0 Tasks A1/A2, v28->v29): MIGRATIONS[8] backfills refinedMaterial/
+    // components onto storage (both 0 here), but the chain now continues to v29, which folds
+    // refinedMaterial into titaniumIngot (ends at 0) and drops components. Both retired keys GONE.
+    expect(migrated.inventory.refinedMaterial).toBeUndefined();
+    expect(migrated.inventory.components).toBeUndefined();
+    expect(migrated.inventory.titaniumIngot[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "titaniumIngot").equals(0)).toBe(true);
     expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
     expect(itemTotal(migrated.inventory, "commonOre").equals(200)).toBe(true); // untouched fields survive
 
@@ -621,8 +628,8 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -676,12 +683,16 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
     expect(migrated.homePlanet).toBeUndefined();
     expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
     expect(itemTotal(migrated.inventory, "commonOre").equals(300)).toBe(true);
-    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(6)).toBe(true);
+    // ITEM-MERGE (0.11.0 Task A1, v28->v29): storage held refinedMaterial 6 (and components 2),
+    // which the chain now reconciles at v29, refinedMaterial folds into titaniumIngot (-> 6) and
+    // components is dropped, so titaniumIngot holds 6 and refinedMaterial is GONE.
+    expect(migrated.inventory.refinedMaterial).toBeUndefined();
+    expect(migrated.inventory.titaniumIngot[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "titaniumIngot").equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -750,8 +761,8 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -827,10 +838,12 @@ describe("migrate, Big-Number (Decimal) hydration (v11 -> v12)", () => {
     expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(8)).toBe(true);
     expect(migrated.inventory.rareMaterial[0] instanceof Decimal).toBe(true);
     expect(itemTotal(migrated.inventory, "rareMaterial").equals(3)).toBe(true);
-    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(15)).toBe(true);
-    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "components").equals(4)).toBe(true);
+    // ITEM-MERGE (0.11.0 Tasks A1/A2, v28->v29): storage held refinedMaterial 15 + components 4,
+    // reconciled at v29, refinedMaterial folds into titaniumIngot (-> 15) and components is dropped.
+    expect(migrated.inventory.refinedMaterial).toBeUndefined();
+    expect(migrated.inventory.components).toBeUndefined();
+    expect(migrated.inventory.titaniumIngot[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "titaniumIngot").equals(15)).toBe(true);
 
     // fleetAdminXp.
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
@@ -1540,8 +1553,8 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
     expect(migrated.nextShipId).toBe(original.nextShipId);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -1748,8 +1761,8 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.missionsCompleted.longOreRun.equals(3)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -1823,12 +1836,13 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     const save: SaveFile = { version: 17, created_at: 0, last_saved_at: 0, game_time_seconds: 6000, state: legacyState };
     const migrated: any = migrate(save);
 
-    // inventory is built 1:1 from storage, SAME 5 keys, each value copied across
-    // as a real Decimal (hydrateDecimals()'s hydrateDecimalMap re-confirms the
-    // Decimals MIGRATIONS[17] already produced). instanceof + .equals(), never
-    // .toBe() (Decimal is an object).
+    // inventory is built 1:1 from storage, then reconciled by the v28->v29 step
+    // (ITEM-MERGE 0.11.0 Tasks A1/A2): refinedMaterial (0) folds into titaniumIngot and
+    // components (3) is dropped, so the final key set is commonOre/rareMaterial/
+    // titaniumIngot/uncommonMaterial. Each surviving value is a real Decimal
+    // (hydrateInventoryBuckets re-confirms it). instanceof + .equals(), never .toBe().
     expect(Object.keys(migrated.inventory).sort()).toEqual(
-      ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"]
+      ["commonOre", "rareMaterial", "titaniumIngot", "uncommonMaterial"]
     );
     expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
     expect(itemTotal(migrated.inventory, "commonOre").equals(500)).toBe(true);
@@ -1836,12 +1850,14 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(0)).toBe(true);
     expect(migrated.inventory.rareMaterial[0] instanceof Decimal).toBe(true);
     expect(itemTotal(migrated.inventory, "rareMaterial").equals(12)).toBe(true);
-    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(0)).toBe(true);
-    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "components").equals(3)).toBe(true);
+    expect(migrated.inventory.refinedMaterial).toBeUndefined();
+    expect(migrated.inventory.components).toBeUndefined();
+    expect(migrated.inventory.titaniumIngot[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "titaniumIngot").equals(0)).toBe(true);
 
-    // discovered contains EXACTLY the >0 items, no zero-balance key leaks in.
+    // discovered is NOT reconciled by the v28->v29 step (inventory-only), so a now-retired
+    // key that was discovered on the old save harmlessly lingers here (nothing renders it).
+    // It still contains EXACTLY the >0 items MIGRATIONS[17] recorded, no zero-balance leak.
     expect(migrated.discovered.sort()).toEqual(["commonOre", "components", "rareMaterial"]);
     expect(migrated.discovered).not.toContain("uncommonMaterial");
     expect(migrated.discovered).not.toContain("refinedMaterial");
@@ -1941,8 +1957,11 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     const save: SaveFile = { version: 17, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
     const migrated: any = migrate(save);
 
+    // ITEM-MERGE (0.11.0 Tasks A1/A2, v28->v29): refinedMaterial (0) folds into titaniumIngot
+    // and components is dropped, so the final key set is commonOre/rareMaterial/titaniumIngot/
+    // uncommonMaterial.
     expect(Object.keys(migrated.inventory).sort()).toEqual(
-      ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"]
+      ["commonOre", "rareMaterial", "titaniumIngot", "uncommonMaterial"]
     );
     expect(itemTotal(migrated.inventory, "commonOre").equals(0)).toBe(true);
     expect(migrated.discovered).toEqual([]); // no owned items -> no discoveries
@@ -2026,8 +2045,8 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     expect(migrated.discovered).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -2105,17 +2124,20 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(migrated.facilities.research).toEqual({ level: 1 }); // seeded by MIGRATIONS[21]
     expect(migrated.facilities.fabricator).toEqual({ level: 1 }); // seeded by MIGRATIONS[22]
 
-    // inventory survives 1:1, every value a real Decimal (hydrateDecimalMap) with the
-    // same balance, the warehouse backfill touches ONLY facilities, never inventory.
+    // inventory survives the warehouse backfill (facilities-only) and is then reconciled
+    // by the v28->v29 step (ITEM-MERGE 0.11.0 Tasks A1/A2): refinedMaterial (4) folds into
+    // titaniumIngot (-> 4) and components (0) is dropped, so the final key set is commonOre/
+    // rareMaterial/titaniumIngot/uncommonMaterial, every value a real Decimal.
     expect(Object.keys(migrated.inventory).sort()).toEqual(
-      ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"]
+      ["commonOre", "rareMaterial", "titaniumIngot", "uncommonMaterial"]
     );
     expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
     expect(itemTotal(migrated.inventory, "commonOre").equals(500)).toBe(true);
     expect(itemTotal(migrated.inventory, "rareMaterial").equals(12)).toBe(true);
-    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(4)).toBe(true);
+    expect(migrated.inventory.refinedMaterial).toBeUndefined();
+    expect(migrated.inventory.components).toBeUndefined();
+    expect(itemTotal(migrated.inventory, "titaniumIngot").equals(4)).toBe(true);
     expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(0)).toBe(true);
-    expect(itemTotal(migrated.inventory, "components").equals(0)).toBe(true);
 
     // discovered / activeProcesses / nextProcessId all ride through untouched.
     expect(migrated.discovered.sort()).toEqual(["commonOre", "rareMaterial", "refinedMaterial"]);
@@ -2188,7 +2210,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(28);
+    expect(deserialized!.version).toBe(29);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2209,8 +2231,8 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(migrated.facilities).toEqual(original.facilities);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -2272,7 +2294,11 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     // in addition to the three the pre-existing v19 shape held (all preserved value-for-value).
     expect(migrated.facilities).toEqual({ refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } });
     expect(itemTotal(migrated.inventory, "commonOre").equals(750)).toBe(true);
-    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(20)).toBe(true);
+    // ITEM-MERGE (0.11.0 Tasks A1/A2, v28->v29): refinedMaterial (20) folds into titaniumIngot
+    // and components (2) is dropped; the itemsRefined lifetimeStats tally below is NOT touched.
+    expect(migrated.inventory.refinedMaterial).toBeUndefined();
+    expect(migrated.inventory.components).toBeUndefined();
+    expect(itemTotal(migrated.inventory, "titaniumIngot").equals(20)).toBe(true);
     expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial"]);
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(4);
@@ -2334,8 +2360,8 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     });
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -2501,8 +2527,8 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     expect(migrated.facilities.missionControl).toEqual({ level: 2 }); // preserved, NOT reset to level 1
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -2692,8 +2718,8 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
     expect(blueprintResearchable(migratedTwice, "frameSegmentBp")).toBe(true); // still playable
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -2883,8 +2909,8 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
     expect(migratedTwice.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -3076,8 +3102,8 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
     expect(played.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -3253,8 +3279,8 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
     expect(played.facilities.shipyard).toEqual({ level: 0 });
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -3403,8 +3429,8 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     expect(migrated.craftingXp.equals(150)).toBe(true); // the string is revived, not reset to 0
   });
 
-  it("current SAVE_VERSION is 28", () => {
-    expect(SAVE_VERSION).toBe(28);
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
   });
 });
 
@@ -3535,6 +3561,115 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
   });
 });
 
+describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
+  // A genuine v28 save with a QUALITY-BUCKETED inventory (Record<string, Decimal[]>). Bucket
+  // values are written as STRINGS, exactly as a serialized save carries them (Decimal.toJSON()
+  // -> string; JSON.parse never rebuilds Decimals), so these tests exercise the migration on the
+  // real pre-hydration shape (the merge must toDecimal() each bucket, not assume live Decimals).
+  // `inventoryOverride` lets each test supply just the inventory it cares about; every OTHER
+  // field is a minimal-but-valid v28 shape so hydrateDecimals() at the end of migrate() has the
+  // fields it reads (captains/lifetimeStats/credits/fuel/craftingXp/activeProcesses).
+  function makeV28Save(inventoryOverride: Record<string, string[]>): SaveFile {
+    const state: any = {
+      gameTimeSeconds: 12345, tickDurationSeconds: 1, credits: "500", unlockedHomeworldTalents: [],
+      fleetAdminXp: "0", fleetAdminLevel: 1, adminPoints: 0,
+      inventory: inventoryOverride,
+      discovered: ["commonOre"],
+      facilities: { refinery: { level: 1 }, warehouseT1: { level: 1 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } },
+      activeProcesses: [], nextProcessId: 1,
+      ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+      shipStorageCapacity: 8, nextShipId: 2, fuel: "900", researchedBlueprints: [],
+      refineLines: [], fabricateLines: [], nextCraftLineId: 1,
+      lifetimeStats: { itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {}, creditsEarned: "0", captainXpAwarded: "0", fleetAdminXpAwarded: "0" },
+      captains: [{ id: 1, label: "Captain 1", xp: "0", level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
+      equipment: [], nextEquipmentId: 1, craftingLevel: 1, craftingXp: "0",
+    };
+    return { version: 28, created_at: 0, last_saved_at: 0, game_time_seconds: 12345, state };
+  }
+
+  it("merges refinedMaterial element-wise into an EXISTING titaniumIngot, drops components, and lands at version 29", () => {
+    // Pre-migration: titaniumIngot holds tiers [10, 3, 1] (total 14); refinedMaterial holds
+    // tiers [20, 5] (total 25); components holds [7]; intactReactorCore holds [4, 2] (total 6).
+    const save = makeV28Save({
+      titaniumIngot: ["10", "3", "1"],
+      refinedMaterial: ["20", "5"],
+      components: ["7"],
+      intactReactorCore: ["4", "2"],
+    });
+    const migrated: any = migrate(save);
+
+    // refinedMaterial is GONE; components is GONE.
+    expect(migrated.inventory.refinedMaterial).toBeUndefined();
+    expect(migrated.inventory.components).toBeUndefined();
+
+    // titaniumIngot holds the per-tier SUM: [10+20, 3+5, 1] = [30, 8, 1], every bucket a live Decimal.
+    expect(migrated.inventory.titaniumIngot.map((d: Decimal) => d.toNumber())).toEqual([30, 8, 1]);
+    for (const bucket of migrated.inventory.titaniumIngot) {
+      expect(bucket instanceof Decimal).toBe(true);
+    }
+    // itemTotal equals pre-migration titaniumIngot (14) + refinedMaterial (25) = 39.
+    expect(itemTotal(migrated.inventory, "titaniumIngot").toNumber()).toBe(39);
+
+    // A re-serialize round-trip confirms the reconciled state now stamps version 29.
+    const roundTripped = deserialize(serialize(migrated, 0));
+    expect(roundTripped!.version).toBe(29);
+    expect(roundTripped!.version).toBe(SAVE_VERSION);
+  });
+
+  it("creates titaniumIngot from refinedMaterial when there was NO prior titaniumIngot bucket", () => {
+    // No titaniumIngot key at all pre-migration; refinedMaterial holds [12, 4] (total 16).
+    const save = makeV28Save({
+      commonOre: ["300"],
+      refinedMaterial: ["12", "4"],
+    });
+    const migrated: any = migrate(save);
+
+    expect(migrated.inventory.refinedMaterial).toBeUndefined();
+    // titaniumIngot is created straight from the merged (formerly refinedMaterial) buckets.
+    expect(migrated.inventory.titaniumIngot.map((d: Decimal) => d.toNumber())).toEqual([12, 4]);
+    expect(itemTotal(migrated.inventory, "titaniumIngot").toNumber()).toBe(16);
+    // Untouched item survives.
+    expect(itemTotal(migrated.inventory, "commonOre").toNumber()).toBe(300);
+  });
+
+  it("is idempotent: a save already at v29 (no retired keys) is untouched, and an older-version chain lands coherent through 29", () => {
+    // Already-v29 shape: titaniumIngot present, NO refinedMaterial / components. migrate() runs
+    // ZERO version steps (no MIGRATIONS[29]) and just hydrates; the inventory must be untouched.
+    const alreadyV29 = makeV28Save({ commonOre: ["50"], titaniumIngot: ["9", "2"] });
+    alreadyV29.version = 29;
+    const migratedV29: any = migrate(alreadyV29);
+    expect(migratedV29.inventory.refinedMaterial).toBeUndefined();
+    expect(migratedV29.inventory.components).toBeUndefined();
+    expect(migratedV29.inventory.titaniumIngot.map((d: Decimal) => d.toNumber())).toEqual([9, 2]);
+    expect(itemTotal(migratedV29.inventory, "titaniumIngot").toNumber()).toBe(11);
+
+    // A genuine older-version save (entering at v28) still chains cleanly to a coherent v29 shape.
+    const chained: any = migrate(makeV28Save({ titaniumIngot: ["1"], refinedMaterial: ["2"], components: ["3"] }));
+    expect(chained.inventory.refinedMaterial).toBeUndefined();
+    expect(chained.inventory.components).toBeUndefined();
+    expect(itemTotal(chained.inventory, "titaniumIngot").toNumber()).toBe(3); // 1 + 2
+  });
+
+  it("leaves intactReactorCore stacks untouched (id unchanged; the salvagedMaterial reclassification is display-only)", () => {
+    // A3 is a no-op for the save data: the id is UNCHANGED, so existing stacks ride through.
+    const save = makeV28Save({
+      intactReactorCore: ["4", "2"],
+      refinedMaterial: ["1"], // present so the migration body genuinely runs
+    });
+    const migrated: any = migrate(save);
+    // intactReactorCore is present with the SAME per-tier buckets and total (6).
+    expect(migrated.inventory.intactReactorCore.map((d: Decimal) => d.toNumber())).toEqual([4, 2]);
+    expect(itemTotal(migrated.inventory, "intactReactorCore").toNumber()).toBe(6);
+    for (const bucket of migrated.inventory.intactReactorCore) {
+      expect(bucket instanceof Decimal).toBe(true);
+    }
+  });
+
+  it("current SAVE_VERSION is 29", () => {
+    expect(SAVE_VERSION).toBe(29);
+  });
+});
+
 // Fuel Economy v2 (F5): the "no new migration needed" PROOF. F1-F4 added NO new persistent
 // state beyond what MIGRATIONS[20] (v20->v21) already seeds:
 //   - F1 renames are LABEL-ONLY (item/facility KEYS unchanged) -> nothing to migrate.
@@ -3581,7 +3716,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(28);
+    expect(save!.version).toBe(29);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
@@ -3752,10 +3887,12 @@ describe("migrate, chained v1 -> v13 migration", () => {
     expect(migrated.captains[1].xp.equals(0)).toBe(true);
     expect(migrated.captains[1].level).toBe(1);
     expect(migrated.captains[1].statPoints).toBe(0);
-    expect(migrated.inventory.refinedMaterial[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "refinedMaterial").equals(0)).toBe(true);
-    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "components").equals(0)).toBe(true);
+    // ITEM-MERGE (0.11.0 Tasks A1/A2, v28->v29): the chain reaches v29, which folds the
+    // retired refinedMaterial (0 here) into titaniumIngot and drops components. Both GONE.
+    expect(migrated.inventory.refinedMaterial).toBeUndefined();
+    expect(migrated.inventory.components).toBeUndefined();
+    expect(migrated.inventory.titaniumIngot[0] instanceof Decimal).toBe(true);
+    expect(itemTotal(migrated.inventory, "titaniumIngot").equals(0)).toBe(true);
     // v9->v10's new fields. captains[0] and captains[1] both get
     // unlockedCaptainTalents from MIGRATIONS[9]'s ?? backfill, captains[1]
     // is MIGRATIONS[4]'s fresh[1] (a LIVE freshCaptains() call), which by

@@ -175,9 +175,22 @@ describe("v25 -> v26 migration, scalar inventory converts to bucketed with IDENT
 
     const migrated = migrate(v25Save);
 
-    // Every old count now lives in a bucketed array, entirely at quality 0.
-    for (const [key, expected] of Object.entries(oldInventory)) {
-      // Total is byte-identical to the old scalar count.
+    // NOTE: migrate() runs the FULL chain, not just v25->v26. By the v28->v29 step
+    // (item-catalog reconciliation, 0.11.0 Tasks A1/A2/A3) the retired `refinedMaterial`
+    // is folded into `titaniumIngot` and the removed `components` is dropped, so assert
+    // the POST-chain shape: each SURVIVING scalar item lands in a single hydrated quality-0
+    // bucket, titaniumIngot carries the merged refinedMaterial total (20), and the two
+    // retired keys are GONE. (The pre-migration `oldInventory` fixture is kept as-is: it
+    // documents a real legacy save that still held the retired keys.)
+    const survivors: Record<string, string> = {
+      commonOre: "750",
+      uncommonMaterial: "3",
+      rareMaterial: "8",
+      deuteriumIce: "1000",
+      titaniumIngot: "20", // A1: merged from the old refinedMaterial bucket
+    };
+    for (const [key, expected] of Object.entries(survivors)) {
+      // Total is byte-identical to the old scalar count (titaniumIngot == old refinedMaterial).
       expect(itemTotal(migrated.inventory, key).toString()).toBe(expected);
       // Stored as a single quality-0 bucket, hydrated to a live Decimal instance.
       const bucketArray = (migrated.inventory as any)[key] as Decimal[];
@@ -187,6 +200,9 @@ describe("v25 -> v26 migration, scalar inventory converts to bucketed with IDENT
       // All higher quality tiers read as 0 (lazy-grow: nothing rolled above q0).
       expect(getBucket(migrated.inventory, key, 1).toNumber()).toBe(0);
     }
+    // A1/A2: the retired keys no longer exist in the reconciled inventory.
+    expect((migrated.inventory as any).refinedMaterial).toBeUndefined();
+    expect((migrated.inventory as any).components).toBeUndefined();
   });
 
   it("re-running the migration on an already-bucketed inventory is a no-op (idempotent pass-through)", () => {

@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP, seedStandardIssueForShip } from "./model";
 
-export const SAVE_VERSION = 28;
+export const SAVE_VERSION = 29;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1060,6 +1060,75 @@ const MIGRATIONS: Record<number, Migration> = {
       nextEquipmentId = seeded.nextId;
     }
     return { ...state, equipment, nextEquipmentId };
+  },
+  // v28 -> v29: Item-catalog reconciliation (0.11.0 Storage/Salvage, Tasks A1/A2/A3).
+  // Three prior tasks changed the item catalog; this step reconciles an old save's
+  // quality-bucketed inventory (Record<string, Decimal[]>, index = quality tier 0..N) so
+  // it no longer holds retired keys:
+  //
+  //   - A1 (MERGE): the duplicate `refinedMaterial` item was folded into `titaniumIngot`
+  //     (the sole refined-titanium item). An old save's orphan `refinedMaterial` buckets
+  //     are added into titaniumIngot ELEMENT-WISE by quality tier, then the
+  //     `refinedMaterial` key is DELETED. The two arrays are merged lazily to the LONGER
+  //     length (a tier one side lacks contributes 0), so a titaniumIngot of [10,3,1] and a
+  //     refinedMaterial of [20,5] merge to [30,8,1] with no truncation either way. When
+  //     titaniumIngot was absent entirely, it is CREATED straight from the merged buckets.
+  //   - A2 (DROP): the dead `components` item was removed from the catalog. Its bucket key
+  //     is DELETED and the quantity is DISCARDED, `components` was never craftable into
+  //     anything, so there is no target item to convert it to.
+  //   - A3 (NO-OP): `intactReactorCore` was reclassified to a `salvagedMaterial`, but its id
+  //     is UNCHANGED and the category/label change is display-only, so there is NOTHING to
+  //     migrate, existing stacks ride through untouched on the `...state` spread and will
+  //     render under the Salvaged Materials tab once that UI lands.
+  //
+  // DECIMAL-SAFETY: this step runs BEFORE the unconditional hydrateInventoryBuckets() at the
+  // end of migrate(), so a genuine (serialized) v28 save's bucket elements are still plain
+  // JSON strings here, not live Decimals. We therefore toDecimal() each element on BOTH
+  // sides of the merge (the inventory addItemQuality helper assumes already-live Decimal
+  // buckets, which do not exist yet at this point in the chain, which is why the merge is
+  // done manually rather than through that helper). toDecimal() no-ops on an already-live
+  // Decimal, so a chained / re-run save merges just as safely. The merged buckets are real
+  // Decimals; hydrateInventoryBuckets() re-confirms them afterward (idempotent), so
+  // hydrateDecimals needs NO change for this migration.
+  //
+  // Every OTHER GameState field (including `discovered`, which may still list a retired key
+  // harmlessly, nothing renders it once the item is gone) rides through untouched on the
+  // outer `...state` spread. Idempotent: re-running on an already-reconciled v29-shaped
+  // inventory (no refinedMaterial / components keys) is a no-op beyond the inventory copy.
+  //
+  // B1 HOOK: a later task (B1, equipment storage cap) will EXTEND this SAME v28->v29 body to
+  // ALSO seed `equipmentStorageCap`. This migration is on-branch and still editable, so B1
+  // adds its seed here rather than bumping the version again. Do NOT add the cap in this
+  // task, B1 owns it.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production,
+  // so it is still editable (the frozen-once-shipped rule applies only to production-released
+  // migrations).
+  28: (state: any): any => {
+    // Shallow-clone the inventory so the deletes/writes below never mutate the input map.
+    const inventory: Record<string, any> = { ...(state.inventory ?? {}) };
+
+    // A1: fold refinedMaterial buckets element-wise into titaniumIngot, then drop the key.
+    const refined = inventory.refinedMaterial;
+    if (Array.isArray(refined)) {
+      const target = Array.isArray(inventory.titaniumIngot) ? inventory.titaniumIngot : [];
+      const tiers = Math.max(target.length, refined.length); // lazy-grow to the LONGER array
+      const merged: Decimal[] = [];
+      for (let quality = 0; quality < tiers; quality++) {
+        // A tier one side lacks contributes 0; toDecimal() handles the pre-hydration
+        // string buckets AND any already-live Decimal (no number coercion, no NaN).
+        const existing = quality < target.length ? toDecimal(target[quality]) : new Decimal(0);
+        const addition = quality < refined.length ? toDecimal(refined[quality]) : new Decimal(0);
+        merged.push(existing.plus(addition));
+      }
+      inventory.titaniumIngot = merged;
+      delete inventory.refinedMaterial;
+    }
+
+    // A2: drop the removed `components` item; its quantity is discarded (never craftable).
+    delete inventory.components;
+
+    // A3: intactReactorCore is intentionally NOT touched (id unchanged; display-only).
+    return { ...state, inventory };
   },
 };
 
