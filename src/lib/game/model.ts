@@ -2716,6 +2716,125 @@ export const ITEMS: Record<string, ItemDef> = {
   },
 };
 
+// ============================================================================
+// Salvaged-material LOOT POOLS (0.11.0 Storage/Salvage, Task C3, design
+// 2026-07-18-storage-salvage-0.11.0-design.md §3 + the salvaging-design-notes).
+//
+// WHAT THIS IS: the TIERED, weighted loot table that salvaging a SALVAGED MATERIAL
+// rolls against (the roll itself is salvageSalvagedMaterial in salvage.ts, Task C2).
+// It is DATA ONLY here, structured as a per-salvaged-material record so future
+// salvaged materials slot in without touching the roll code.
+//
+// TIER NAMES map onto the gear rarity ladder (EquipmentRarity: standard, augmented,
+// stellar, radiant), with luminous/constellar deliberately RESERVED above and NOT
+// populated this patch (room for a taller ladder later, no type change needed). The
+// array is ORDERED low -> high; a tier's INDEX is what the progression-gated ceiling
+// (salvage.ts) caps against, so index order is load-bearing, keep it ascending.
+//
+// BALANCE (hard rules, design §3 "the reliable common outcome is modest; steep odds
+// on top tiers; super-rare odds on plain refined/components; exclusive exotics weight
+// the high tiers"; the user's load-bearing constraint that salvage SUPPLEMENTS, never
+// replaces, missions/refining/fabricating):
+//   - Tier-selection WEIGHT falls off STEEPLY up the ladder (1000 -> 300 -> 40 -> 5),
+//     so even a fully-unlocked ceiling still yields the low tier the vast majority of
+//     the time. The common outcome stays modest.
+//   - The EXCLUSIVE salvage-only exotics (anomalousAlloy / precursorCircuit /
+//     intactDataCore, the A3 reserved items) live ONLY in the high tiers (stellar,
+//     radiant) and DOMINATE those tiers' within-tier weight, they are the payoff for
+//     reaching the ceiling.
+//   - Plain REFINED materials + fabricated COMPONENTS (titaniumIngot, frameSegment,
+//     powerCoupling) may appear as a within-tier drop but at SUPER-RARE weights (2-3
+//     against a tier staple of ~1000), so salvage never becomes a sensible way to
+//     source them. This is the guardrail, not a suggestion.
+// Every number is a FIRST-PASS tunable, same spirit as MISSIONS/RECIPES constants.
+// ============================================================================
+
+// The set of salvaged-material item ids that HAVE a loot pool. A string-literal union
+// (only the Damaged Reactor Housing this patch) so the pool record is exhaustive and a
+// future salvaged material added without a pool is a compile error, not a silent gap.
+export type SalvagedMaterialItemId = "intactReactorCore";
+
+// One weighted DROP within a tier: which item, and its relative weight against the
+// other drops in the SAME tier. The staple (common outcome) carries a large weight;
+// super-rare refined/components carry tiny weights (see BALANCE above).
+export interface SalvageLootDrop {
+  itemId: string;
+  weight: number;
+}
+
+// One TIER of a salvaged-material loot pool. `tier` is the gear-rarity NAME (display +
+// forward mapping to the rarity ladder); `weight` is this tier's selection weight among
+// the ceiling-eligible tiers; `quality` (0..5) is the quality bucket the rolled drop is
+// deposited at (higher tier -> higher quality, reusing the existing 0-5 quality system);
+// `drops` is the within-tier weighted item pool.
+export interface SalvageLootTier {
+  tier: EquipmentRarity;
+  weight: number;
+  quality: number;
+  drops: SalvageLootDrop[];
+}
+
+// The per-salvaged-material loot pools. ORDERED low -> high; the ceiling gate indexes
+// into this array. Reserved room above radiant (luminous/constellar) is intentionally
+// left unpopulated this patch (see header).
+export const SALVAGE_LOOT_POOLS: Record<SalvagedMaterialItemId, SalvageLootTier[]> = {
+  // The Damaged Reactor Housing (rare Salvage-mission drop, reclassified in A3). Its
+  // whole purpose is to be salvaged for parts.
+  intactReactorCore: [
+    // STANDARD (index 0, quality 0): the dominant, reliable, modest outcome. A fresh
+    // player only ever reaches this tier. Staple = scrapAlloy (a common raw the player
+    // can already farm), with a SUPER-RARE sprinkle of refined titanium.
+    {
+      tier: "standard",
+      weight: 1000,
+      quality: 0,
+      drops: [
+        { itemId: "scrapAlloy", weight: 1000 }, // modest, reliable common staple
+        { itemId: "titaniumIngot", weight: 2 }, // super-rare refined (guardrail weight)
+      ],
+    },
+    // AUGMENTED (index 1, quality 1): uncommon staple = salvagedCircuitry, plus
+    // super-rare fabricated components.
+    {
+      tier: "augmented",
+      weight: 300,
+      quality: 1,
+      drops: [
+        { itemId: "salvagedCircuitry", weight: 1000 }, // uncommon staple
+        { itemId: "frameSegment", weight: 2 },         // super-rare component
+        { itemId: "powerCoupling", weight: 2 },        // super-rare component
+      ],
+    },
+    // STELLAR (index 2, quality 3): the first EXCLUSIVE-exotic tier. anomalousAlloy
+    // (salvage-only) dominates; refined/components remain super-rare.
+    {
+      tier: "stellar",
+      weight: 40,
+      quality: 3,
+      drops: [
+        { itemId: "anomalousAlloy", weight: 1000 }, // exclusive exotic, tier payoff
+        { itemId: "titaniumIngot", weight: 3 },     // super-rare refined
+        { itemId: "frameSegment", weight: 3 },      // super-rare component
+      ],
+    },
+    // RADIANT (index 3, quality 4): the top of this patch's ladder, steep odds. The
+    // rarest exclusive exotics dominate; one super-rare component keeps the guardrail
+    // consistent across tiers.
+    {
+      tier: "radiant",
+      weight: 5,
+      quality: 4,
+      drops: [
+        { itemId: "precursorCircuit", weight: 600 }, // exclusive exotic (epic)
+        { itemId: "intactDataCore", weight: 400 },   // exclusive exotic (legendary)
+        { itemId: "powerCoupling", weight: 2 },      // super-rare component
+      ],
+    },
+    // RESERVED above radiant: luminous / constellar tiers are intentionally NOT
+    // populated this patch (the EquipmentRarity ladder already carries the names).
+  ],
+};
+
 // --- Research: blueprints (Phase 3, Task R1, docs/plans/2026-07-15-research-
 // {design,plan}.md §2/§5) --------------------------------------------------------
 // A BLUEPRINT is a RECIPE the (next-feature) Fabricator will craft into a ship

@@ -1,6 +1,15 @@
 // ============================================================================
-// Equipment recycle-salvage, 0.11.0 Storage/Salvage Task C1.
+// Salvage engine, 0.11.0 Storage/Salvage Tasks C1 (equipment recycle) + C2/C3
+// (salvaged-material loot roll).
 // Author: Scythrael (via Claude) | 2026-07-20
+//
+// TWO DISTINCT salvage models, deliberately kept as two code paths (design's "two
+// models, two code paths" note):
+//   salvageEquipment         recycle a SPARE crafted system -> a % of its crafting
+//                            inputs back (Task C1).
+//   salvageSalvagedMaterial  consume one SALVAGED MATERIAL -> a weighted, tiered,
+//                            progression-gated LOOT roll for one material drop (C2/C3).
+// BOTH are LIVE-ONLY instant actions under the SAME parity boundary (see below).
 //
 // salvageEquipment: a LIVE-ONLY, player-initiated INSTANT action that consumes a
 // SPARE CRAFTED ship system and returns a fraction of the materials that crafted it
@@ -16,8 +25,9 @@
 //   - It uses Math.random directly (injectable ONLY so tests can pin the roll). A
 //     random INSTANT action is fine precisely because it never executes in the
 //     offline-catch-up seam, where a divergent RNG stream would break parity.
-//   - DO NOT wire salvageEquipment into any economy-tick path. salvage.test.ts greps
-//     tick.ts to prove it stays out; that guard is load-bearing.
+//   - DO NOT wire salvageEquipment OR salvageSalvagedMaterial into any economy-tick
+//     path. salvage.test.ts greps tick.ts to prove BOTH stay out; that guard is
+//     load-bearing.
 //
 // IMMUTABILITY: like every equipment.ts / tick.ts state-transform, this returns a
 // NEW GameState and never mutates the input. On a rejected salvage it returns the
@@ -32,9 +42,9 @@
 // ============================================================================
 
 import Decimal from "break_infinity.js";
-import type { GameState } from "./model";
-import { BLUEPRINTS } from "./model";
-import { addItemQuality } from "./inventory";
+import type { GameState, EquipmentRarity, SalvagedMaterialItemId, SalvageLootTier } from "./model";
+import { BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS } from "./model";
+import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
 
 // ----------------------------------------------------------------------------
 // Tunables (the salvage-yield knobs)
@@ -56,22 +66,47 @@ export const SALVAGE_QUALITY_BONUS_PER_TIER = 0.02;
 // ----------------------------------------------------------------------------
 // SalvageResult
 // ----------------------------------------------------------------------------
-// A discriminated union: on SUCCESS, `recovered` (the per-input floored amounts
-// deposited, keyed by itemId) is present and `next` is a NEW state; on REJECT,
-// `reason` is present and `next` is the SAME-REFERENCE input state (no-op). Both
-// branches carry `next` so a caller can uniformly read `result.next`, and the
-// presence of `recovered` vs `reason` (or the `ok` flag) discriminates the outcome.
+// A discriminated union: on SUCCESS, `recovered` (the per-item amounts deposited,
+// keyed by itemId) is present and `next` is a NEW state; on REJECT, `reason` is
+// present and `next` is the SAME-REFERENCE input state (no-op). Both branches carry
+// `next` so a caller can uniformly read `result.next`, and the presence of `recovered`
+// vs `reason` (or the `ok` flag) discriminates the outcome.
+//
+// `rolled` is present ONLY on the salvaged-material LOOT roll (salvageSalvagedMaterial):
+// it hands the UI the single item + its tier + its quality so it can narrate the drop
+// ("you salvaged a Stellar-tier Anomalous Alloy"). The equipment recycle path
+// (salvageEquipment) leaves it undefined, it deposits a spread of inputs, not one
+// tiered roll, so its `recovered` map already tells the whole story.
 export type SalvageResult =
-  | { ok: true; next: GameState; recovered: Record<string, number> }
+  | { ok: true; next: GameState; recovered: Record<string, number>; rolled?: SalvageRoll }
   | { ok: false; next: GameState; reason: SalvageRejectReason };
 
-// The reasons a salvage is refused. Only a SPARE CRAFTED system can be salvaged:
-//   notFound      no equipment piece with that id
-//   fitted        the piece is fitted to a ship (unfit it first; a live slot's piece
-//                 is not spare)
-//   notCraftable  a Standard-Issue baseline (blueprintKey null): free/craft-less, so
-//                 there are no crafting inputs to give back (and it auto-refits anyway)
-export type SalvageRejectReason = "notFound" | "fitted" | "notCraftable";
+// The single tiered drop a salvaged-material roll produced, for the UI. `itemId` is the
+// deposited item, `tier` its gear-rarity tier name, `quality` the 0..5 bucket it landed
+// in (the tier's quality). Amount is always exactly 1 (one salvaged material -> one
+// rolled drop), so it is implied, not repeated here.
+export interface SalvageRoll {
+  itemId: string;
+  tier: EquipmentRarity;
+  quality: number;
+}
+
+// The reasons a salvage is refused.
+//   Equipment recycle (salvageEquipment), only a SPARE CRAFTED system qualifies:
+//     notFound             no equipment piece with that id
+//     fitted               the piece is fitted to a ship (unfit it first)
+//     notCraftable         a Standard-Issue baseline (blueprintKey null): craft-less,
+//                          nothing to refund
+//   Salvaged-material loot roll (salvageSalvagedMaterial):
+//     notSalvagedMaterial  the item id is not a `salvagedMaterial` category item (only
+//                          salvaged materials carry a loot pool)
+//     noneHeld             the player holds zero of that salvaged material
+export type SalvageRejectReason =
+  | "notFound"
+  | "fitted"
+  | "notCraftable"
+  | "notSalvagedMaterial"
+  | "noneHeld";
 
 // ----------------------------------------------------------------------------
 // salvageEquipment
@@ -144,4 +179,137 @@ export function salvageEquipment(
   // untouched (immutability).
   const equipment = state.equipment.filter((e) => e.id !== instanceId);
   return { ok: true, next: { ...state, equipment, inventory }, recovered };
+}
+
+// ============================================================================
+// Salvaged-material loot roll (0.11.0 Storage/Salvage, Task C2, design §3)
+// ============================================================================
+// salvageSalvagedMaterial: the SECOND, distinct salvage model (kept a separate code
+// path from salvageEquipment on purpose, per the design's "two models, two code paths"
+// note). It consumes ONE unit of a SALVAGED MATERIAL (e.g. the Damaged Reactor Housing)
+// and rolls its weighted, TIERED loot pool (SALVAGE_LOOT_POOLS, model.ts) for a single
+// material drop, deposited at the rolled tier's quality.
+//
+// SAME PARITY BOUNDARY as salvageEquipment (see the file header): this is a LIVE-ONLY,
+// player-initiated INSTANT action. It uses Math.random (injectable ONLY for tests) and
+// MUST NOT be wired into economyTick / the offline tick() / resolveProcesses. A random
+// instant action is fine precisely because it never runs in the offline-catch-up seam.
+// salvage.test.ts greps tick.ts to prove BOTH salvage functions stay out; that guard is
+// load-bearing.
+
+// ----------------------------------------------------------------------------
+// Progression-gated ceiling (the tunable FA-level thresholds)
+// ----------------------------------------------------------------------------
+// The rarity CEILING is the highest loot tier INDEX (into a pool's ordered tier array)
+// the player can currently roll. It rises with Fleet Admiral level: a fresh player only
+// reaches the low tier; a developed one can hit the top (radiant this patch). This is
+// the design's "early salvage rolls low; the ceiling rises as you invest" made concrete.
+//
+// Each threshold: at fleetAdminLevel >= minLevel, tiers up to (and including) maxTierIndex
+// are eligible. Ordered ascending; the ceiling is the maxTierIndex of the HIGHEST
+// threshold the player meets. FIRST-PASS tunable values (same spirit as the loot weights).
+export const SALVAGE_CEILING_THRESHOLDS: { minFleetAdminLevel: number; maxTierIndex: number }[] = [
+  { minFleetAdminLevel: 1, maxTierIndex: 0 },  // fresh save: standard tier only
+  { minFleetAdminLevel: 5, maxTierIndex: 1 },  // augmented unlocks
+  { minFleetAdminLevel: 10, maxTierIndex: 2 }, // stellar unlocks (first exclusive exotics)
+  { minFleetAdminLevel: 15, maxTierIndex: 3 }, // radiant unlocks (top of this patch's ladder)
+];
+
+// Resolve the base ceiling (before any talent bonus) for a Fleet Admiral level: the
+// maxTierIndex of the highest threshold whose minFleetAdminLevel the player meets. A
+// level below the first threshold still yields index 0 (the floor is always the low
+// tier, never "nothing"). PURE.
+function baseCeilingForLevel(fleetAdminLevel: number): number {
+  let ceiling = 0;
+  for (const t of SALVAGE_CEILING_THRESHOLDS) {
+    if (fleetAdminLevel >= t.minFleetAdminLevel) {
+      ceiling = t.maxTierIndex;
+    }
+  }
+  return ceiling;
+}
+
+// Weighted pick over a list by each element's `.weight`, using ONE rng() draw. Returns
+// the chosen element. Walks the cumulative weight and picks the first bucket the scaled
+// roll falls into. Assumes a non-empty list with positive total weight (the loot pools
+// and their tiers both satisfy this by construction). PURE apart from the single rng()
+// call it is handed.
+function weightedPick<T extends { weight: number }>(items: T[], rng: () => number): T {
+  const total = items.reduce((sum, it) => sum + it.weight, 0);
+  let roll = rng() * total;
+  for (const it of items) {
+    roll -= it.weight;
+    if (roll < 0) {
+      return it;
+    }
+  }
+  // Floating-point edge (roll landed exactly on the total): fall back to the last item.
+  return items[items.length - 1];
+}
+
+// ----------------------------------------------------------------------------
+// salvageSalvagedMaterial
+// ----------------------------------------------------------------------------
+// Consume ONE unit of a salvaged material and roll its tiered loot pool for a single
+// drop, deposited at the rolled tier's quality bucket.
+//
+// rng defaults to Math.random, injectable ONLY for tests (see the parity note above).
+// It makes exactly TWO draws per successful roll: (1) pick the tier among the
+// ceiling-eligible tiers by tier weight, (2) pick the item within that tier by drop
+// weight. `ceilingBonus` is the extension point for the LATER FA salvage talent (Task
+// C4): it is ADDED onto the FA-level base ceiling (raising the reachable tier index)
+// and defaults to 0, so wiring the talent later is a one-argument change with no churn.
+//
+// REJECTS (same-ref no-op + reason):
+//   notSalvagedMaterial  itemId is not a `salvagedMaterial` category item (no loot pool)
+//   noneHeld             the player holds zero of that salvaged material
+export function salvageSalvagedMaterial(
+  state: GameState,
+  itemId: string,
+  rng: () => number = Math.random,
+  ceilingBonus = 0
+): SalvageResult {
+  // --- Validate the target is a salvaged material WITH a loot pool ----------
+  // Category gate first: only `salvagedMaterial` items are salvaged for loot. An
+  // unknown id (ITEMS[itemId] undefined) fails this same check.
+  if (ITEMS[itemId]?.category !== "salvagedMaterial") {
+    return { ok: false, next: state, reason: "notSalvagedMaterial" };
+  }
+  // A salvaged material without a pool entry would be a data gap; treat it as
+  // not-salvageable rather than throwing (fail-safe, mirrors the engine's loose lookups).
+  const pool = SALVAGE_LOOT_POOLS[itemId as SalvagedMaterialItemId];
+  if (!pool || pool.length === 0) {
+    return { ok: false, next: state, reason: "notSalvagedMaterial" };
+  }
+
+  // --- Require the player to actually hold one -----------------------------
+  if (itemTotal(state.inventory, itemId).lte(0)) {
+    return { ok: false, next: state, reason: "noneHeld" };
+  }
+
+  // --- Resolve the ceiling + the eligible tier slice -----------------------
+  // base ceiling (FA level) + talent bonus, clamped to the pool's real top index so a
+  // large bonus can never index past the defined tiers.
+  const rawCeiling = baseCeilingForLevel(state.fleetAdminLevel) + ceilingBonus;
+  const ceiling = Math.min(Math.max(rawCeiling, 0), pool.length - 1);
+  const eligibleTiers: SalvageLootTier[] = pool.slice(0, ceiling + 1);
+
+  // --- Roll: tier, then item within the tier -------------------------------
+  const tier = weightedPick(eligibleTiers, rng); // draw 1
+  const drop = weightedPick(tier.drops, rng);    // draw 2
+
+  // --- Consume one salvaged material + deposit the rolled drop --------------
+  // Consume ONE unit lowest-quality-first (salvaged materials live in bucket 0 today,
+  // so this drains bucket 0; lowest-first keeps it correct if they ever carry quality).
+  let inventory = removeItemLowestFirst(state.inventory, itemId, new Decimal(1));
+  // Deposit the single rolled drop at the tier's quality bucket (higher tier -> higher
+  // quality), reusing the 0-5 quality system.
+  inventory = addItemQuality(inventory, drop.itemId, new Decimal(1), tier.quality);
+
+  return {
+    ok: true,
+    next: { ...state, inventory },
+    recovered: { [drop.itemId]: 1 },
+    rolled: { itemId: drop.itemId, tier: tier.tier, quality: tier.quality },
+  };
 }

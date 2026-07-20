@@ -21,9 +21,11 @@ import { describe, it, expect } from "vitest";
 import tickSource from "./tick.ts?raw";
 import {
   salvageEquipment,
+  salvageSalvagedMaterial,
   SALVAGE_FRACTION_MIN,
   SALVAGE_FRACTION_MAX,
   SALVAGE_QUALITY_BONUS_PER_TIER,
+  SALVAGE_CEILING_THRESHOLDS,
 } from "./salvage";
 import {
   freshState,
@@ -32,11 +34,14 @@ import {
   equipmentAtCap,
   equipmentStorageCap,
   BLUEPRINTS,
+  ITEMS,
+  SALVAGE_LOOT_POOLS,
   type GameState,
   type EquipmentInstance,
   type EquipmentSlotType,
 } from "./model";
-import { getBucket } from "./inventory";
+import Decimal from "break_infinity.js";
+import { getBucket, itemTotal } from "./inventory";
 
 // The equipment blueprint the salvage fixtures recycle. Its recipe inputs
 // ({ frameSegment: 2, titaniumIngot: 3 }) are the exact amounts the reward math is
@@ -195,6 +200,223 @@ describe("salvageEquipment: LIVE-ONLY, never wired into an economy-tick path (Ta
     // ever appears there, the parity boundary has been breached. A source grep is the
     // most direct, maintainable proof of the negative.
     expect(tickSource).not.toContain("salvageEquipment");
+    expect(tickSource).not.toContain("salvageSalvagedMaterial");
     expect(tickSource).not.toContain("./salvage");
+  });
+});
+
+// ============================================================================
+// salvageSalvagedMaterial (Task C2/C3): the tiered, progression-gated loot roll.
+// ============================================================================
+
+// The salvaged material every loot-roll fixture salvages. Its id is deliberately the
+// legacy `intactReactorCore` (the Damaged Reactor Housing), reclassified to
+// `salvagedMaterial` in Task A3, so the tests read the id straight off the data.
+const HOUSING = "intactReactorCore";
+
+// A stub rng that returns a FIXED sequence of values, one per call, then repeats the
+// last value (so a caller that draws more than expected still gets a defined value
+// instead of NaN). salvageSalvagedMaterial makes exactly two draws (tier, then item),
+// so a two-element sequence pins one exact roll.
+function seqRng(values: number[]): () => number {
+  let i = 0;
+  return () => {
+    const v = values[Math.min(i, values.length - 1)];
+    i++;
+    return v;
+  };
+}
+
+// A fresh state that holds `count` of the Damaged Reactor Housing at quality 0, and a
+// chosen Fleet Admiral level (drives the progression ceiling). freshState seeds no
+// Housing, so this is the whole picture.
+function stateWithHousing(count: number, fleetAdminLevel: number): GameState {
+  const base = freshState();
+  return {
+    ...base,
+    fleetAdminLevel,
+    inventory: { ...base.inventory, [HOUSING]: [new Decimal(count)] },
+  };
+}
+
+// A deterministic PRNG (mulberry32) for the STATISTICAL balance/gating tests, so "over
+// many rolls" is reproducible run to run (no reliance on Math.random).
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// FA level that unlocks the FULL ladder (>= the highest threshold), for tests that need
+// the top tier reachable. Read off the data so it can never drift from the thresholds.
+const MAX_CEILING_LEVEL = Math.max(...SALVAGE_CEILING_THRESHOLDS.map((t) => t.minFleetAdminLevel));
+
+describe("salvageSalvagedMaterial: a seeded roll deposits the expected tier+item and consumes one unit (Task C2)", () => {
+  it("rng [0,0] rolls the LOW tier's staple at that tier's quality and consumes one Housing", () => {
+    const state = stateWithHousing(3, 1); // fresh FA level: only the standard tier eligible
+    const lowTier = SALVAGE_LOOT_POOLS[HOUSING][0];
+    const staple = lowTier.drops[0]; // first drop = the reliable staple
+
+    // rng()=0 picks the first eligible tier, then the first drop in it.
+    const result = salvageSalvagedMaterial(state, HOUSING, seqRng([0, 0]));
+    expect("rolled" in result).toBe(true);
+    if (!("rolled" in result) || !result.rolled) throw new Error("expected a roll");
+
+    // The rolled item is the low tier's staple, deposited at the tier's quality bucket.
+    expect(result.rolled.itemId).toBe(staple.itemId);
+    expect(result.rolled.tier).toBe(lowTier.tier);
+    expect(result.rolled.quality).toBe(lowTier.quality);
+    expect(getBucket(result.next.inventory, staple.itemId, lowTier.quality).toNumber()).toBe(1);
+    expect(result.recovered[staple.itemId]).toBe(1);
+
+    // Exactly ONE Housing consumed (3 -> 2), and the input state is untouched.
+    expect(itemTotal(result.next.inventory, HOUSING).toNumber()).toBe(2);
+    expect(itemTotal(state.inventory, HOUSING).toNumber()).toBe(3); // immutability
+  });
+
+  it("rng near 1 on the tier draw, with the full ladder unlocked, rolls the TOP tier's first exotic", () => {
+    const state = stateWithHousing(1, MAX_CEILING_LEVEL);
+    const pool = SALVAGE_LOOT_POOLS[HOUSING];
+    const topTier = pool[pool.length - 1]; // radiant this patch
+    const topDrop = topTier.drops[0];
+
+    // 0.999999 on the tier draw walks past every lower tier to the last eligible one;
+    // 0 on the item draw picks that tier's first drop (an exclusive exotic).
+    const result = salvageSalvagedMaterial(state, HOUSING, seqRng([0.999999, 0]));
+    if (!("rolled" in result) || !result.rolled) throw new Error("expected a roll");
+
+    expect(result.rolled.tier).toBe(topTier.tier);
+    expect(result.rolled.itemId).toBe(topDrop.itemId);
+    expect(result.rolled.quality).toBe(topTier.quality);
+    expect(getBucket(result.next.inventory, topDrop.itemId, topTier.quality).toNumber()).toBe(1);
+  });
+});
+
+describe("salvageSalvagedMaterial: rejects invalid targets as a same-ref no-op + reason (Task C2)", () => {
+  it("rejects a NON-salvagedMaterial item id", () => {
+    const state = stateWithHousing(1, 1);
+    // scrapAlloy is a raw item, not a salvaged material: no loot pool, not salvageable.
+    const result = salvageSalvagedMaterial(state, "scrapAlloy", seqRng([0, 0]));
+    expect("reason" in result).toBe(true);
+    if (!("reason" in result)) return;
+    expect(result.reason).toBe("notSalvagedMaterial");
+    expect(result.next).toBe(state); // SAME reference: no state change
+  });
+
+  it("rejects when the player holds ZERO of the salvaged material", () => {
+    const state = stateWithHousing(0, 1); // Housing present as a key but at 0
+    const result = salvageSalvagedMaterial(state, HOUSING, seqRng([0, 0]));
+    expect("reason" in result).toBe(true);
+    if (!("reason" in result)) return;
+    expect(result.reason).toBe("noneHeld");
+    expect(result.next).toBe(state);
+  });
+});
+
+describe("salvageSalvagedMaterial: progression gates the rarity ceiling (Task C2)", () => {
+  it("at a LOW FA level, only the low tier rolls, the high-tier exclusive exotic is UNREACHABLE", () => {
+    const state = stateWithHousing(2000, 1); // fresh FA level: ceiling = index 0
+    const rng = mulberry32(12345);
+    const lowTierQuality = SALVAGE_LOOT_POOLS[HOUSING][0].quality;
+
+    // The stellar tier's first drop is the first exclusive exotic (anomalousAlloy). At a
+    // fresh FA level that tier is out of reach, so it must NEVER be deposited, and no
+    // drop should ever land above the low tier's quality bucket.
+    const exoticId = SALVAGE_LOOT_POOLS[HOUSING][2].drops[0].itemId;
+    let next = state;
+    for (let i = 0; i < 2000; i++) {
+      const r = salvageSalvagedMaterial(next, HOUSING, rng);
+      if (!("rolled" in r) || !r.rolled) throw new Error("expected a roll");
+      // No roll ever exceeds the low tier's quality (nothing above the ceiling rolled).
+      expect(r.rolled.quality).toBeLessThanOrEqual(lowTierQuality);
+      next = r.next;
+    }
+    // The exclusive exotic never entered inventory at all.
+    expect(itemTotal(next.inventory, exoticId).toNumber()).toBe(0);
+  });
+
+  it("a ceilingBonus lifts the ceiling so the top tier becomes reachable (the FA-talent hook)", () => {
+    const state = stateWithHousing(1, 1); // fresh FA level, but...
+    const pool = SALVAGE_LOOT_POOLS[HOUSING];
+    const topTier = pool[pool.length - 1];
+    // ...a ceilingBonus large enough to unlock the whole ladder. rng near 1 forces the
+    // top eligible tier, proving the bonus (not FA level) opened it.
+    const result = salvageSalvagedMaterial(state, HOUSING, seqRng([0.999999, 0]), pool.length);
+    if (!("rolled" in result) || !result.rolled) throw new Error("expected a roll");
+    expect(result.rolled.tier).toBe(topTier.tier);
+  });
+});
+
+describe("salvageSalvagedMaterial: balance, exotics dominate the high tiers, refined/components are super-rare (Task C3)", () => {
+  it("over many top-ceiling rolls, exclusive exotics vastly outnumber plain refined/components", () => {
+    const state = stateWithHousing(20000, MAX_CEILING_LEVEL); // full ladder unlocked
+    const rng = mulberry32(99);
+
+    // The exclusive salvage-only exotics (from A3) vs the plain refined/fabricated items
+    // that may appear only at super-rare weights.
+    const exotics = new Set(["anomalousAlloy", "precursorCircuit", "intactDataCore"]);
+    const plainRefinedComponents = new Set(["titaniumIngot", "frameSegment", "powerCoupling"]);
+
+    let exoticCount = 0;
+    let refinedComponentCount = 0;
+    let total = 0;
+    let next = state;
+    const N = 20000;
+    for (let i = 0; i < N; i++) {
+      const r = salvageSalvagedMaterial(next, HOUSING, rng);
+      if (!("rolled" in r) || !r.rolled) throw new Error("expected a roll");
+      if (exotics.has(r.rolled.itemId)) exoticCount++;
+      if (plainRefinedComponents.has(r.rolled.itemId)) refinedComponentCount++;
+      total++;
+      next = r.next;
+    }
+
+    // Exotics dominate over plain refined/components (steep-but-reachable high tiers vs
+    // super-rare guardrail weights): a wide margin, asserted as a ratio so the exact
+    // seed does not make the test brittle.
+    expect(exoticCount).toBeGreaterThan(refinedComponentCount * 3);
+    // Plain refined/components stay genuinely RARE overall (< 2% of all rolls): salvage
+    // must never become a sensible way to source them.
+    expect(refinedComponentCount / total).toBeLessThan(0.02);
+    // Sanity: the common outcome is still the modest low-tier staple (the majority).
+    expect(exoticCount / total).toBeLessThan(0.5);
+  });
+});
+
+describe("SALVAGE_LOOT_POOLS: the pool data is well-formed (Task C3)", () => {
+  it("every referenced drop item exists in ITEMS, tiers ascend in quality, and exotics sit at the top", () => {
+    for (const [materialId, tiers] of Object.entries(SALVAGE_LOOT_POOLS)) {
+      // The keyed salvaged material itself is a real, salvagedMaterial-category item.
+      expect(ITEMS[materialId]?.category).toBe("salvagedMaterial");
+      expect(tiers.length).toBeGreaterThan(0);
+
+      let prevQuality = -1;
+      for (const tier of tiers) {
+        expect(tier.weight).toBeGreaterThan(0);
+        // Quality is a valid 0..5 rung and ascends (weakly) with tier index.
+        expect(tier.quality).toBeGreaterThanOrEqual(0);
+        expect(tier.quality).toBeLessThanOrEqual(5);
+        expect(tier.quality).toBeGreaterThanOrEqual(prevQuality);
+        prevQuality = tier.quality;
+        expect(tier.drops.length).toBeGreaterThan(0);
+        for (const drop of tier.drops) {
+          expect(ITEMS[drop.itemId]).toBeDefined(); // no dangling item reference
+          expect(drop.weight).toBeGreaterThan(0);
+        }
+      }
+
+      // The exclusive exotics appear ONLY in the upper half of the ladder, never the
+      // lowest tier (they are the high-tier payoff, not a common drop).
+      const exotics = new Set(["anomalousAlloy", "precursorCircuit", "intactDataCore"]);
+      const lowestTierItems = new Set(tiers[0].drops.map((d) => d.itemId));
+      for (const id of exotics) {
+        expect(lowestTierItems.has(id)).toBe(false);
+      }
+    }
   });
 });
