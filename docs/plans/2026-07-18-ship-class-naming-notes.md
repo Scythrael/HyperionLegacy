@@ -18,13 +18,14 @@ Each ship TYPE gets a naming THEME; the apex is the starting top-tier class of t
 | Cruiser (long-range explorer) | Constellations | **Andromeda** | Lyra, Cygnus, Orion |
 | Carrier | Mythic broods (mother of the swarm) | **Tiamat** | Echidna, Chimera, Hydra, Roc |
 | Medical | Healing gods | **Asclepius** | Eir, Hygieia, Panacea, Chiron |
-| Survey | Stellar phenomena | **Quasar** | Aurora, Corona, Flare, Pulsar (Nova dropped: too Star-Trek) |
+| Survey | Stellar phenomena | **Quasar** | Aurora, Corona, Magnetar, Pulsar (Nova dropped: too Star-Trek) |
 
 - **Dreadnought = the Fleet Admiral's ship** (the sole FA hull, OR the combat capital of a 3-ship FA set). Its own class-name theme is TBD. Ties to the "FA Flagship 2.0" idea in SUGGESTIONS.
-- **Old role labels retire into naval hull names** (the theme attaches to the hull, not the old role): `runner` -> **Corvette**, `prospector` -> **Frigate**, `hauler` -> **Freighter** (the big cargo hull). There is NO "prospector" naming theme; that hull just becomes the Frigate.
-  - Corvette = stinging insects / darts (Wasp, Hornet, Gadfly -> Dart). Leaning accepted.
-  - Freighter = titans / beasts of burden (Ox, Goliath, Titan -> Atlas). Leaning accepted.
-  - Frigate = PENDING a user choice: **birds of prey / seabirds** (Kestrel, Osprey, Petrel -> Falcon) OR a **miner / pioneer flavor** (since it is the ex-prospector surveyor-miner: famous pioneers, or gemstones). Awaiting the user's pick.
+- **Small / utility hull TYPE names are IN FLUX (2026-07-18).** The user REJECTED "Corvette" and "Frigate" (too bland). Current leanings, PENDING final user picks:
+  - **Starter craft:** keep **Freighter** (a freighter is a real humble first ship, not a shuttle, and keeping Hauler below avoids any name clash) OR, if the big-cargo hull takes the "Freighter" name instead, the starter becomes a **Clipper** / **Caravel**.
+  - **Big cargo hull:** keep **Hauler** (user likes it) with the titans / beasts-of-burden theme (Ox -> Goliath -> Atlas). Keeping "Hauler" is the tidy path (no starter-name conflict).
+  - **Fast / light hull** (ex-runner, NOT Corvette): leaning **Cutter** (alts: Scout, Courier, Interceptor). The insects / darts theme (Wasp -> Hornet -> Dart) attaches to whichever wins.
+  - **Miner hull** (ex-prospector, NOT Frigate): keep **Prospector** or go **Harvester** / **Excavator** / **Dredger** (lean into the mining identity, not a naval word). Theme: gemstones or famous prospectors.
 
 ## Signature weapon per combat hull (0.12.0 combat idea)
 
