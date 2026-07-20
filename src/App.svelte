@@ -624,6 +624,10 @@
       case "shipModule":
       case "shipSystem":
         return "🛡️";
+      // salvagedMaterial (0.11.0 Task A3): a broken-down item you strip for parts,
+      // not a raw resource or a finished part, so it gets its own recycle glyph.
+      case "salvagedMaterial":
+        return "♻️";
     }
   }
 

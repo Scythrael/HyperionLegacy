@@ -2364,8 +2364,17 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
 // climbs: raw loot -> refined -> minor/major components -> ship modules/systems.
 // Only "raw" and "refined" are populated at Phase 1 launch; the later buckets
 // exist in the union so the item table can grow WITHOUT a type change later.
+//
+// "salvagedMaterial" (0.11.0 Storage/Salvage, Task A3, design §3/§8): a broken-down
+// item you SALVAGE FOR parts (a future roll), as opposed to something you install or
+// refine directly. It is deliberately a CATEGORY (its own warehouse/taxonomy bucket),
+// not a per-item flag, because "things salvage consumes" is a distinct kind of stock.
+// Contrast with the exclusive salvage-PRODUCED exotics below (anomalousAlloy etc.):
+// those are things salvage OUTPUTS, so they keep normal raw/refined/component
+// categories, exclusivity there is a property of their source, not a category.
 export type ItemCategory =
-  | "raw" | "refined" | "minorComponent" | "majorComponent" | "shipModule" | "shipSystem";
+  | "raw" | "refined" | "minorComponent" | "majorComponent" | "shipModule" | "shipSystem"
+  | "salvagedMaterial";
 
 // Rarity is forward room for the UI's rarity-color reveal (design §7). Every
 // tier of the union is valid today; Phase 1's seeds only reach "rare".
@@ -2545,13 +2554,21 @@ export const ITEMS: Record<string, ItemDef> = {
     unlockHint: "An uncommon find on the Salvage Nearby Skirmish Wreckage run.",
     flavor: "Scorched boards with intact traces, worth pulling before the reclaimers arrive.",
   },
+  // RECLASSIFY + RENAME (0.11.0 Storage/Salvage, Task A3, design §3/§8): this rare
+  // Salvage-mission drop was "Intact Reactor Core", a raw item. It is re-cast as the
+  // "Damaged Reactor Housing", a `salvagedMaterial`, the item you SALVAGE FOR parts
+  // (a future roll wired in Task C2), NOT one you install. The id `intactReactorCore`
+  // is KEPT UNCHANGED on purpose: the Salvage mission's lootTable references it by id
+  // (rare slot, above) and existing inventory stacks are keyed by it, so this is a
+  // display + category change only, with NO save migration. The unlockHint is honest:
+  // it names the real drop source AND that salvaging-for-materials is a coming mechanic.
   intactReactorCore: {
-    label: "Intact Reactor Core",
-    category: "raw",
+    label: "Damaged Reactor Housing",
+    category: "salvagedMaterial",
     tier: 1,
     rarity: "rare",
-    unlockHint: "A rare find on the Salvage Nearby Skirmish Wreckage run.",
-    flavor: "A miraculously whole core still humming with charge, the salvage jackpot.",
+    unlockHint: "A rare drop from the Salvage Nearby Skirmish Wreckage run; salvage it for materials (a coming mechanic).",
+    flavor: "A cracked, burned-out reactor shell, dead weight to install, but a rich seam of parts to strip.",
   },
   fibrousBiomass: {
     label: "Fibrous Biomass",
@@ -2636,6 +2653,47 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: "rare",
     unlockHint: "Assembled from components at the Fabricator.",
     flavor: "Frame segments and couplings married into one rigid sub-structure, a hull's spine.",
+  },
+
+  // --- EXCLUSIVE salvage-PRODUCED exotics (0.11.0 Storage/Salvage, Task A3, design
+  // §3/§8), CATALOGUED + RESERVED, no producer or consumer yet ------------------
+  // "A wreck with tech you have never seen before": rare tech that ONLY the salvage
+  // loot pool will ever yield (Task C2 wires that pool; nothing produces these until
+  // then). Exclusivity is a PROPERTY OF THEIR SOURCE, not a category, so each keeps a
+  // NORMAL category matching its nature (a raw-ish exotic, a refined-ish exotic, a
+  // component-ish exotic), the mix deliberately spans types. They are DISTINCT from
+  // the `salvagedMaterial` Housing above: the Housing is a thing you salvage FROM;
+  // these are things salvage PRODUCES. Nothing consumes them this patch either, their
+  // recipes (combat / Material Lines / future gear) do not exist yet, so each carries
+  // an HONEST "reserved for a future recipe" unlockHint in the SAME no-invented-source
+  // spirit as denseOre. Because NOTHING produces them, they are NOT seeded into
+  // freshState/inventory/storage, they render as undiscovered ❓ catalog entries
+  // exactly like denseOre and the other unobtainable placeholders, and the storage
+  // drift guard (which only requires the reverse: every live inventory key has an ITEMS
+  // entry) is unaffected.
+  anomalousAlloy: {
+    label: "Anomalous Alloy",
+    category: "raw",
+    tier: 1,
+    rarity: "epic",
+    unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
+    flavor: "A slab of metal that shrugs off every assay, its lattice folded in ways the fleet's foundries can't read.",
+  },
+  precursorCircuit: {
+    label: "Precursor Circuit",
+    category: "refined",
+    tier: 1,
+    rarity: "epic",
+    unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
+    flavor: "An impossibly fine circuit lattice from a hull far older than the fleet, still faintly warm to the touch.",
+  },
+  intactDataCore: {
+    label: "Intact Data Core",
+    category: "minorComponent",
+    tier: 1,
+    rarity: "legendary",
+    unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
+    flavor: "A sealed memory core pulled whole from a dead ship, its archives locked behind a cipher no one alive can key.",
   },
 };
 

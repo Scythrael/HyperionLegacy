@@ -1105,7 +1105,7 @@ describe("shipDerivedStats fold (Task 13)", () => {
 // table with the minor/major-component/module/system tiers, do NOT add those
 // forward entries here until their phase (no placeholders).
 describe("ITEMS, Phase 1 seed registry", () => {
-  it("has the full scaffolded catalog: 14 raw, 4 refined, 2 minor + 1 major component", () => {
+  it("has the full scaffolded catalog: 14 raw, 5 refined, 3 minor + 1 major + 1 salvagedMaterial", () => {
     // Phase 2 Warehouse catalog scaffold grew the registry to 22. The Fuel-sourcing
     // RESTRUCTURE (2026-07-15) adds ONE more raw item, the dedicated `deuteriumIce`
     // fuel ore (a real, obtainable item via localFuelRun), bringing the total to 23.
@@ -1113,23 +1113,32 @@ describe("ITEMS, Phase 1 seed registry", () => {
     // item (folded into titaniumIngot), dropping the total to 22 and refined to 5.
     // 0.11.0 cleanup: the DEAD `components` refined item (nothing produced/consumed it)
     // was removed too, dropping the total to 21 and refined to 4.
-    // Breakdown of the 21:
+    // 0.11.0 Storage/Salvage (Task A3) then: (a) RECLASSIFIED intactReactorCore from
+    // raw -> salvagedMaterial (raw 14 -> 13, new salvagedMaterial bucket = 1), and
+    // (b) ADDED 3 exclusive salvage-PRODUCED exotics, anomalousAlloy (raw, +1 -> 14),
+    // precursorCircuit (refined, +1 -> 5), intactDataCore (minorComponent, +1 -> 3),
+    // bringing the total to 24.
+    // Breakdown of the 24:
     //   raw (14): commonOre, uncommonMaterial, rareMaterial (the 3 live ore tiers),
-    //     deuteriumIce (the live fuel ore), denseOre (T2 stub), + 9 future ore/salvage/
-    //     forage loot placeholders.
-    //   refined (4): titaniumIngot/polysilicateWafer (live refine outputs) + 2 remaining
-    //     future Refinery-output placeholders.
-    //   minorComponent (2) + majorComponent (1): future Fabricator-output placeholders.
+    //     deuteriumIce (the live fuel ore), denseOre (T2 stub), 8 future ore/salvage/
+    //     forage loot placeholders (intactReactorCore left this bucket), + anomalousAlloy.
+    //   refined (5): titaniumIngot/polysilicateWafer (live refine outputs), 2 remaining
+    //     future Refinery-output placeholders, + precursorCircuit.
+    //   minorComponent (3): 2 future Fabricator-output placeholders + intactDataCore.
+    //   majorComponent (1): future Fabricator-output placeholder.
+    //   salvagedMaterial (1): intactReactorCore (the "Damaged Reactor Housing").
     const keys = Object.keys(ITEMS);
-    expect(keys).toHaveLength(21);
+    expect(keys).toHaveLength(24);
     const raw = Object.values(ITEMS).filter((i) => i.category === "raw");
     const refined = Object.values(ITEMS).filter((i) => i.category === "refined");
     const minor = Object.values(ITEMS).filter((i) => i.category === "minorComponent");
     const major = Object.values(ITEMS).filter((i) => i.category === "majorComponent");
+    const salvaged = Object.values(ITEMS).filter((i) => i.category === "salvagedMaterial");
     expect(raw).toHaveLength(14);
-    expect(refined).toHaveLength(4);
-    expect(minor).toHaveLength(2);
+    expect(refined).toHaveLength(5);
+    expect(minor).toHaveLength(3);
     expect(major).toHaveLength(1);
+    expect(salvaged).toHaveLength(1);
 
     // Pin the original seed categories directly so a mis-categorized entry is caught.
     expect(ITEMS.commonOre.category).toBe("raw");
@@ -1209,7 +1218,7 @@ describe("ITEMS, Phase 1 seed registry", () => {
   // here. Derived by iterating the live ITEMS registry, no hard-coded key list --
   // so it automatically covers any item added later.
   it("every ITEMS entry carries complete Warehouse catalog metadata (tier/category/rarity/unlockHint)", () => {
-    const validCategories = ["raw", "refined", "minorComponent", "majorComponent", "shipModule", "shipSystem"];
+    const validCategories = ["raw", "refined", "minorComponent", "majorComponent", "shipModule", "shipSystem", "salvagedMaterial"];
     const validRarities = ["common", "uncommon", "rare", "epic", "legendary"];
     for (const [key, item] of Object.entries(ITEMS)) {
       // tier: a real number, at least tier 1 (T1 is the lowest warehouse tier).
@@ -1221,6 +1230,74 @@ describe("ITEMS, Phase 1 seed registry", () => {
       // unlockHint: a non-empty string, the ❓-state "how to get this" clue.
       expect(typeof item.unlockHint, `${key}.unlockHint is a string`).toBe("string");
       expect(item.unlockHint.length, `${key}.unlockHint is non-empty`).toBeGreaterThan(0);
+    }
+  });
+});
+
+// 0.11.0 Storage/Salvage (Task A3, design §3/§8): the item-catalog groundwork the
+// (later) salvage LOGIC will read. This task is DATA ONLY, it defines (a) the new
+// `salvagedMaterial` category, (b) the reclassified "Damaged Reactor Housing" (the
+// thing you salvage FROM), and (c) the exclusive salvage-PRODUCED exotics (the things
+// salvage OUTPUTS). Nothing produces or consumes any of these this patch, C1-C4 wire
+// the loot pool + roll. These tests pin the catalog contract so the later logic tasks
+// build on a fixed shape.
+describe("Task A3, salvaged-material category + exclusive salvage items", () => {
+  // The rare Salvage-mission drop was recast from raw "Intact Reactor Core" into the
+  // salvagedMaterial "Damaged Reactor Housing". The ID is deliberately UNCHANGED so
+  // the mission lootTable + existing inventory stacks keep resolving (no migration).
+  it("intactReactorCore is renamed to the Damaged Reactor Housing and recategorized salvagedMaterial (id unchanged)", () => {
+    expect(ITEMS.intactReactorCore).toBeDefined(); // id kept, so no re-key / migration
+    expect(ITEMS.intactReactorCore.label).toBe("Damaged Reactor Housing");
+    expect(ITEMS.intactReactorCore.category).toBe("salvagedMaterial");
+    // Honest hint: names the real drop source AND that salvaging it is a coming mechanic.
+    expect(ITEMS.intactReactorCore.unlockHint).toContain("Salvage");
+    expect(ITEMS.intactReactorCore.unlockHint.toLowerCase()).toContain("salvage it for materials");
+  });
+
+  // The Salvage mission's lootTable still points at the `intactReactorCore` id (rare
+  // slot); this proves that reference resolves to a real ITEMS entry post-rename, so
+  // the display/category change did NOT strand the loot pointer.
+  it("the Salvage mission's rare lootTable id (intactReactorCore) still resolves to an ITEMS entry", () => {
+    const salvage = MISSIONS.salvageWreckage;
+    expect(salvage.lootTable.rare).toBe("intactReactorCore");
+    expect(ITEMS[salvage.lootTable.rare]).toBeDefined();
+  });
+
+  // The 3 exclusive salvage-PRODUCED exotics are catalogued + reserved this patch.
+  // Exclusivity is a property of their SOURCE, not a category, so each keeps a normal
+  // category that fits its nature; the mix spans raw/refined/component types.
+  it("defines the exclusive salvage-produced exotics with normal, type-spanning categories", () => {
+    expect(ITEMS.anomalousAlloy).toBeDefined();
+    expect(ITEMS.anomalousAlloy.category).toBe("raw");
+    expect(ITEMS.precursorCircuit).toBeDefined();
+    expect(ITEMS.precursorCircuit.category).toBe("refined");
+    expect(ITEMS.intactDataCore).toBeDefined();
+    expect(ITEMS.intactDataCore.category).toBe("minorComponent");
+    // NOT salvagedMaterial: that category is for things you salvage FROM (the Housing),
+    // these are things salvage PRODUCES.
+    for (const id of ["anomalousAlloy", "precursorCircuit", "intactDataCore"]) {
+      expect(ITEMS[id].category).not.toBe("salvagedMaterial");
+    }
+  });
+
+  // Each exclusive exotic carries an HONEST reserved-tone hint (no invented source),
+  // in the same spirit as denseOre's "no source yet" placeholder.
+  it("each exclusive exotic has an honest 'recovered from salvage, reserved for a future recipe' hint", () => {
+    for (const id of ["anomalousAlloy", "precursorCircuit", "intactDataCore"]) {
+      const hint = ITEMS[id].unlockHint.toLowerCase();
+      expect(hint).toContain("salvage");
+      expect(hint).toContain("reserved for a future recipe");
+    }
+  });
+
+  // DRIFT GUARD (design §8): these new items are produced by NOTHING this patch, so
+  // they must NOT be seeded into freshState's inventory, exactly like denseOre and the
+  // other unobtainable-yet placeholders. They render as undiscovered ❓ catalog entries
+  // only. (The reverse guard, every inventory key has an ITEMS entry, is tested above.)
+  it("does NOT seed the reserved salvage exotics into freshState inventory", () => {
+    const inventoryKeys = Object.keys(freshState().inventory);
+    for (const id of ["anomalousAlloy", "precursorCircuit", "intactDataCore"]) {
+      expect(inventoryKeys).not.toContain(id);
     }
   });
 });
