@@ -661,7 +661,7 @@ export type EquipmentSlotType =
   | "reactorCore"
   | "specUtility"
   // RESERVED (defined, no consumer this patch, forward hooks for 0.12.0):
-  | "cockpit"
+  | "bridge"
   | "quarters"
   | "thrusters"
   | "sensor"

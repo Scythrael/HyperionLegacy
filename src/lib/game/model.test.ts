@@ -1606,7 +1606,7 @@ describe("generateStandardIssue (0.11.0 Task 20)", () => {
   });
 
   it("throws for a reserved (non-live) slot rather than minting a malformed piece", () => {
-    expect(() => generateStandardIssue({ slotType: "cockpit", fittedToShipId: null, allocateId: () => "equip-1" })).toThrow();
+    expect(() => generateStandardIssue({ slotType: "bridge", fittedToShipId: null, allocateId: () => "equip-1" })).toThrow();
   });
 });
 
