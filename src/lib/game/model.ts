@@ -149,8 +149,12 @@ export interface MissionLootTable {
 // (tick.ts's tick()) and crafting (tick.ts's craftRecipe()) read/write the
 // SAME storage object, just different subsets of its keys.
 // ITEM-MERGE (0.11.0 Task A1): `refinedMaterial` was retired from this union
-// (folded into the forward-loose `titaniumIngot` inventory key).
-export type HomePlanetMaterialKey = LootMaterialKey | "components";
+// (folded into the forward-loose `titaniumIngot` inventory key). 0.11.0 cleanup
+// (2026-07-20): the dead `components` ITEM was removed too (nothing produced or
+// consumed it), so this union is now exactly LootMaterialKey. It stays a distinct
+// alias because passiveTrickle's `material` field is typed on it and it documents
+// the historical Homeworld storage set.
+export type HomePlanetMaterialKey = LootMaterialKey;
 
 export type MissionPhase = "ordersReceived" | "transitOut" | "extracting" | "transitBack" | "unloading";
 
@@ -1413,9 +1417,9 @@ export type ProcessEffect =
   // itemId/amount inventory shape can carry. It carries the `blueprintKey` (not the rolled
   // instance) so the ROLL happens at COMPLETION on the threaded seeded rng (offline==live
   // parity, mirroring the quality roll addItem does), NOT at start; resolveProcesses reads
-  // BLUEPRINTS[blueprintKey].equipmentOutput for the slot/variety to mint. The equipment
-  // fabricate job's `recipe.outputItem` placeholder ("components") is deliberately IGNORED
-  // (never granted). Like unlockBlueprint/addShip it carries NO Decimal (blueprintKey is a
+  // BLUEPRINTS[blueprintKey].equipmentOutput for the slot/variety to mint. An equipment
+  // blueprint carries NO `recipe.outputItem` (the field is optional and omitted), so there
+  // is no stackable output to grant. Like unlockBlueprint/addShip it carries NO Decimal (blueprintKey is a
   // plain string), so hydrateDecimals (save.ts) skips it via its `"amount" in effect` guard
   // and it round-trips through JSON as {type,blueprintKey} strings.
   | { type: "addEquipment"; blueprintKey: string };
@@ -2320,39 +2324,30 @@ export interface RefineRecipeDef {
 // to match FACILITIES' forward-loose keying + let startRefineJob look up an
 // arbitrary recipeKey string with a runtime guard.
 //
-// ⚠️ TUNABLE LAUNCH PLACEHOLDERS ⚠️ commonOre 100 : titaniumIngot 1 is the
-// design §6 starting ratio (rebalanced up from the instant path's 10:1 toward the
-// 100-1000:1 scarcity target, NOT final, tuned at the device-check stage), and
-// durationTicks 10 is design §6's common-tier starting duration. Add entries here
-// (and nowhere else, the future Refinery panel iterates this object) as more
-// refine recipes land.
+// ⚠️ TUNABLE first-pass ⚠️ these recipes CONNECT the Refinery to the Fabricator: they
+// produce the exact refined materials the tier-1 blueprints consume, so the production
+// chain (mine -> refine -> fabricate) is playable end-to-end. Ratios + durations are
+// device-check tunables; the target item ids (`titaniumIngot`/`polysilicateWafer`) exist
+// in ITEMS with "Refined from ... at the Refinery" unlockHints written forward for this.
+//   - Titanium Ore (`commonOre`) is the common staple -> a 20:1 input ratio, 12-tick job.
+//   - Polysilicate Ore (`uncommonMaterial`) is the UNCOMMON strike (scarcer drop) -> a
+//     cheaper 5:1 ratio so the rarer feedstock isn't punishing.
+// Add entries here (and nowhere else, the future Refinery panel iterates this object) as
+// more refine recipes land.
 //
-// ITEM-MERGE (0.11.0 Task A1, 2026-07-18): the retired duplicate `refinedMaterial`
-// item was folded into `titaniumIngot` (the sole refined-titanium item). This recipe
-// used to output `refinedMaterial`; it is REPOINTED to `titaniumIngot` rather than
-// dropped, because dozens of tests use `refineCommonOre` as their canonical 100:1
-// fixture key (retiring it would break allocation/craft-lines/facility/refine tests
-// and force a ratio rewrite). ⚠️ KNOWN WART: this leaves TWO recipes producing
-// titaniumIngot from commonOre (this 100:1/10-tick one and refineTitaniumIngot's
-// 20:1/12-tick one, which strictly dominates). The Refinery dropdown labels options
-// by output-item, so both currently read "Titanium Ingot", to be disambiguated /
-// consolidated in a follow-up recipe-cleanup pass.
+// ITEM-MERGE (0.11.0 Task A1, 2026-07-18): the retired duplicate `refinedMaterial` item was
+// folded into `titaniumIngot` (the sole refined-titanium item).
+//
+// RECIPE-COLLAPSE (0.11.0 cleanup, 2026-07-20): there used to be TWO recipes making
+// titaniumIngot from commonOre, a wasteful `refineCommonOre` (100:1, 10 ticks) and a
+// player-friendly `refineTitaniumIngot` (20:1, 12 ticks). Because the Refinery dropdown
+// labels options by OUTPUT item, both rendered as "Titanium Ingot", a confusing duplicate.
+// They are collapsed into ONE: the surviving key is `refineCommonOre` (dozens of tests use
+// it as their canonical fixture key, so keeping it minimizes churn) but its NUMBERS are now
+// the player-friendly 20:1 / 12-tick values (so players are not stuck with the 100:1 waste).
+// `refineTitaniumIngot` was RETIRED; any reference to it repoints to `refineCommonOre`.
 export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
   refineCommonOre: {
-    input: { commonOre: new Decimal(100) },
-    output: { itemId: "titaniumIngot", amount: new Decimal(1) },
-    durationTicks: 10,
-  },
-  // ⚠️ TUNABLE first-pass (2026-07-16), these two CONNECT the Refinery to the Fabricator:
-  // they produce the exact refined materials the tier-1 blueprints consume, so the production
-  // chain (mine -> refine -> fabricate) is playable end-to-end for the first time.
-  //   - Titanium Ore (`commonOre`) is the common staple -> a higher input ratio (20:1).
-  //   - Polysilicate Ore (`uncommonMaterial`) is the UNCOMMON strike (scarcer drop) -> a cheaper
-  //     ratio (5:1) so the rarer feedstock isn't punishing.
-  // Ratios + durations are device-check tunables exactly like refineCommonOre above; the target
-  // item ids (`titaniumIngot`/`polysilicateWafer`) already exist in ITEMS with "Refined from ...
-  // at the Refinery" unlockHints written forward for this.
-  refineTitaniumIngot: {
     input: { commonOre: new Decimal(20) },
     output: { itemId: "titaniumIngot", amount: new Decimal(1) },
     durationTicks: 12,
@@ -2471,17 +2466,11 @@ export const ITEMS: Record<string, ItemDef> = {
   // into one, `titaniumIngot` is now the sole refined-titanium item. Old saves' orphan
   // `refinedMaterial` inventory buckets are inert until a later save-migration task
   // converts them to `titaniumIngot`.
-  components: {
-    label: "Components",
-    category: "refined",
-    tier: 1,
-    rarity: "rare",
-    // Output of the Fabricator (a researched blueprint crafted from Refined
-    // Material via the timed fabricate-order engine). Replaced the legacy instant
-    // RECIPES.fabricateComponents craft, retired in Phase 4, Task F5.
-    unlockHint: "Fabricated from Refined Material at the Homeworld.",
-    flavor: "Fabricated parts stamped from refined stock, the building blocks fleet production runs on.",
-  },
+  // 0.11.0 cleanup (2026-07-20): the `components` ITEM ("Components") was removed here.
+  // It was DEAD data left by the Phase 4 item-merge: NOTHING produced it (the legacy
+  // instant RECIPES.fabricateComponents craft was retired in Phase 4, Task F5) and
+  // NOTHING consumed it (the 12 equipment blueprints' vestigial `outputItem:
+  // "components"` placeholder was already overridden by their EquipmentInstance mint).
   // --- Tier 2 raw ore (Phase 2, Task B2), UNOBTAINABLE STUB -----------------
   // The first Tier-2 material, added ONLY to gate the T2 Warehouse's first real
   // upgrade (FACILITIES.warehouseT2, rung 1) behind honest "future content": NOTHING
@@ -2690,7 +2679,7 @@ export interface BlueprintDef {
   // so a recipe can target any registry item. Amounts are plain numbers (recipe QUANTITIES,
   // not idle-scale currency), the Fabricator wraps them in Decimal at its deduct site,
   // exactly as the fuel constants are plain numbers wrapped at their deduct site.
-  recipe: { inputs: Record<string, number>; outputItem: string; outputQty: number };
+  recipe: { inputs: Record<string, number>; outputItem?: string; outputQty?: number };
   // --- Equipment-output extension (0.11.0 Task 18) ---------------------------
   // A blueprint produces ONE of two output SHAPES, and a BlueprintDef falls into
   // exactly one of these two families:
@@ -2701,22 +2690,20 @@ export interface BlueprintDef {
   //       Fabricator (a LATER task, Task 19) mints a non-stacking EquipmentInstance
   //       of `{ slotType, varietyKey }` instead of a stackable, rolling its stats at
   //       craft completion. It consumes `recipe.inputs` exactly like a material
-  //       blueprint (that field is meaningful for BOTH shapes), but its
-  //       `recipe.outputItem`/`outputQty` are an INERT PLACEHOLDER, NOT the real
-  //       output. See the placeholder note on the equipment BLUEPRINTS entries.
+  //       blueprint (that field is meaningful for BOTH shapes), but it produces NO
+  //       stackable item, so it OMITS `recipe.outputItem`/`outputQty` entirely.
   //
-  // WHY `outputItem` stays a REQUIRED placeholder rather than becoming optional:
-  // making it optional would turn `bp.recipe.outputItem` into `string | undefined`
-  // at its two existing read sites in tick.ts (lineJobSpec's `outputItemId` and
-  // canFabricate's `materialAtCap`), forcing edits to the Fabricator engine (and a
-  // new FabricateBlockReason -> a UI switch), ALL of which this DATA-ONLY task is
-  // scoped OUT of. Keeping the field required leaves every existing material
-  // blueprint and every tick.ts read site byte-for-byte unchanged. ⚠️ HANDOFF: until
-  // Task 19 teaches the Fabricator to branch on `equipmentOutput`, the generic craft
-  // path would still grant the placeholder stackable if an equipment blueprint were
-  // researched + fabricated. Task 19 MUST gate on `equipmentOutput` (in canFabricate
-  // + lineJobSpec) BEFORE this shape is reachable in normal play. Documented, not
-  // silently shipped.
+  // WHY `outputItem`/`outputQty` are OPTIONAL (0.11.0 cleanup, 2026-07-20): they are
+  // meaningful ONLY for MATERIAL blueprints. Equipment blueprints used to carry a
+  // vestigial `outputItem: "components"` placeholder purely to satisfy a REQUIRED
+  // field; that placeholder pointed at the now-removed `components` ITEM (dead data
+  // from the Phase 4 item-merge) and was already IGNORED by the mint (which branches
+  // on `equipmentOutput` and hands off `addEquipment`). Making the two fields optional
+  // and dropping them from every equipment blueprint removes the dead reference. The
+  // three tick.ts read sites (lineJobSpec's `outputItemId`, canFabricate's/
+  // startFabricateJob's `materialAtCap` cap-gate) now guard for the absent field: an
+  // equipment blueprint never reaches the stackable-output path (all three already
+  // branch on `equipmentOutput`/`isEquipment` first), so the fallback value is inert.
   equipmentOutput?: { slotType: EquipmentSlotType; varietyKey: string };
   flavor?: string;      // narrative color (optional)
   unlockHint?: string;  // functional "how to unlock" clue for the UI (optional)
@@ -2783,13 +2770,13 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // one per (live slot × variety) across the four live EQUIPMENT_SLOTS. Each
   // carries `equipmentOutput: { slotType, varietyKey }` (the piece it mints) and
   // consumes REFINED materials + fabricated COMPONENTS via `recipe.inputs` (NEVER
-  // raw ore directly, design's "raw -> refine -> fabricate -> equip" ladder). The
-  // `recipe.outputItem`/`outputQty` are an INERT PLACEHOLDER on every equipment
-  // blueprint (set to `components` x1): the real output is the EquipmentInstance,
-  // minted by the Fabricator in Task 19, which will branch on `equipmentOutput`
-  // and ignore these two fields (see the BlueprintDef equipmentOutput note). The
-  // placeholder exists ONLY to satisfy the required `recipe` shape without editing
-  // tick.ts/UI (this task is data-only).
+  // raw ore directly, design's "raw -> refine -> fabricate -> equip" ladder). An
+  // equipment blueprint produces NO stackable item, so it OMITS
+  // `recipe.outputItem`/`outputQty` entirely (both are OPTIONAL on BlueprintDef): the
+  // real output is the EquipmentInstance, minted by the Fabricator (Task 19), which
+  // branches on `equipmentOutput`. (Before the 0.11.0 cleanup these carried a
+  // vestigial `outputItem: "components"` placeholder pointing at the since-removed
+  // `components` ITEM; see the BlueprintDef equipmentOutput note.)
   //
   // MATERIAL-SPREAD / "no dead-end material" design rule (plan Task 18): across
   // the 12, the inputs cover the FULL set of materials that are ACTUALLY
@@ -2825,7 +2812,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     craftDurationTicks: 150,
     equipmentOutput: { slotType: "cargoBay", varietyKey: "prospectorHold" },
     // Prospector-leaning hold: a light frame stuffed with titanium bracing for volume.
-    recipe: { inputs: { frameSegment: 2, titaniumIngot: 3 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { frameSegment: 2, titaniumIngot: 3 } },
     flavor: "A cavernous prospector's hold, all volume and light bracing, built to swallow a survey haul.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2841,7 +2828,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     // (ITEM-MERGE 0.11.0 Task A1: the old `refinedMaterial: 2` filler was folded into
     // this recipe's existing `titaniumIngot: 2`, so 2 + 2 = 4, preserving total input
     // units; effective cost drops as titaniumIngot refines cheaper, an accepted shift.)
-    recipe: { inputs: { frameSegment: 2, titaniumIngot: 4 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { frameSegment: 2, titaniumIngot: 4 } },
     flavor: "A no-nonsense general hold, the shape most shipwrights stamp first and rarely regret.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2854,7 +2841,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     craftDurationTicks: 320,
     equipmentOutput: { slotType: "cargoBay", varietyKey: "haulerHold" },
     // Max-capacity hold: a full structural assembly (tier-2 spine) reinforced with extra framing.
-    recipe: { inputs: { frameSegment: 3, structuralAssembly: 1 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { frameSegment: 3, structuralAssembly: 1 } },
     flavor: "A freighter-grade hold braced on a full sub-structure, heavy, and it hauls like it.",
     unlockHint: "Researched at the Research Lab (needs a higher tier); crafted at the Fabricator later.",
   },
@@ -2869,7 +2856,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "ftlDrive", varietyKey: "sprintDrive" },
     // Speed drive: power couplings feeding a wafer-dense control stack.
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 } },
     flavor: "A hair-trigger FTL drive tuned for the fastest transit the fleet can light off.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2883,7 +2870,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     equipmentOutput: { slotType: "ftlDrive", varietyKey: "economyDrive" },
     // Long-haul drive: couplings + titanium bulk for a fuel-sipping regulator.
     // (ITEM-MERGE 0.11.0 Task A1: `refinedMaterial: 3` repointed 1:1 to titaniumIngot.)
-    recipe: { inputs: { powerCoupling: 2, titaniumIngot: 3 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { powerCoupling: 2, titaniumIngot: 3 } },
     flavor: "A patient long-haul drive that sips fuel, the runabout's choice for the deep runs.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2896,7 +2883,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "ftlDrive", varietyKey: "balancedDrive" },
     // The even drive (the FTL slot's DEFAULT variety): couplings + wafers + a titanium brace.
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1 } },
     flavor: "An even-tempered drive splitting the difference between speed and thrift, the safe default.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2911,7 +2898,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     craftDurationTicks: 320,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "highOutputCore" },
     // Max-output reactor: heavy couplings mounted on a full structural assembly.
-    recipe: { inputs: { powerCoupling: 3, structuralAssembly: 1 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { powerCoupling: 3, structuralAssembly: 1 } },
     flavor: "A brute of a reactor wound for raw output, bolted to a sub-structure so it does not shake loose.",
     unlockHint: "Researched at the Research Lab (needs a higher tier); crafted at the Fabricator later.",
   },
@@ -2924,7 +2911,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "efficientCore" },
     // Light, low-draw core: couplings + a wafer-dense regulator stack.
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 } },
     flavor: "A lean, quiet core that gives up peak output for a featherweight, low-draw fit.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2937,7 +2924,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "reactorCore", varietyKey: "balancedCore" },
     // The middle reactor (the reactor slot's DEFAULT variety): couplings + wafers + titanium brace.
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1 } },
     flavor: "A dependable middle-of-the-road core, enough output, sensible mass, nothing to prove.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2952,7 +2939,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     craftDurationTicks: 170,
     equipmentOutput: { slotType: "specUtility", varietyKey: "yieldRig" },
     // Extractor-efficiency rig (the spec slot's DEFAULT variety): a framed wafer sensor pack.
-    recipe: { inputs: { frameSegment: 2, polysilicateWafer: 2 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { frameSegment: 2, polysilicateWafer: 2 } },
     flavor: "A prospecting rig tuned to squeeze every last gram out of a seam before moving on.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2965,7 +2952,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     craftDurationTicks: 170,
     equipmentOutput: { slotType: "specUtility", varietyKey: "surveyRig" },
     // Sensor-heavy rig: couplings powering a dense wafer sensor array.
-    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2 } },
     flavor: "A wide-eyed survey rig that finds the rich seams faster, if not always the fullest.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2980,7 +2967,7 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     // Material-quality rig: titanium bulk for a cleaner-feedstock sorter.
     // (ITEM-MERGE 0.11.0 Task A1: the old `refinedMaterial: 3` was folded into this
     // recipe's existing `titaniumIngot: 2`, so 3 + 2 = 5, preserving total input units.)
-    recipe: { inputs: { titaniumIngot: 5 }, outputItem: "components", outputQty: 1 },
+    recipe: { inputs: { titaniumIngot: 5 } },
     flavor: "A sorting rig that hand-picks the cleanest ore, so the Refinery gets a better feed.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -4125,9 +4112,10 @@ export function freshState(): GameState {
     // homePlanet.storage field entirely as of Task 7 (storage removed; its keys now
     // live here). The keys below are the historical storage set, new itemIds
     // (refined/component tiers, e.g. titaniumIngot) are added dynamically on first
-    // acquire, no reseed. (ITEM-MERGE 0.11.0 Task A1: the retired `refinedMaterial`
-    // seed was dropped, taking the seed set from 5 keys to 4; titaniumIngot is not
-    // seeded here, it lands lazily on first refine like every other crafted good.)
+    // acquire, no reseed. (ITEM-MERGE 0.11.0 Task A1 dropped the retired
+    // `refinedMaterial` seed; the 0.11.0 cleanup dropped the dead `components` seed
+    // too, taking the seed set from 5 keys to 3. titaniumIngot is not seeded here, it
+    // lands lazily on first refine like every other crafted good.)
     // Quality-bucketed shape (Task 9a): each key seeds a SINGLE zero bucket
     // (`[Decimal(0)]`, quality tier 0), the bucketed equivalent of the old scalar
     // `new Decimal(0)`. Buckets grow lazily, no eager length-6 allocation.
@@ -4135,7 +4123,6 @@ export function freshState(): GameState {
       commonOre: [new Decimal(0)],
       uncommonMaterial: [new Decimal(0)],
       rareMaterial: [new Decimal(0)],
-      components: [new Decimal(0)],
     },
     // No itemId has been seen on a brand-new save, the ❓ -> reveal set starts
     // empty (discovery wiring lands in a later task).

@@ -84,17 +84,19 @@ describe("refineSlotCount, sums addRefineSlots across levels reached", () => {
 //  process via startProcess directly, the same seam the line engine uses.)
 
 describe("refineJob completion grants output + lifetime itemsRefined", () => {
-  it("completes past durationTicks: titaniumIngot +1, discovered, itemsRefined +1, FA XP += 10, process removed", () => {
+  it("completes past durationTicks: titaniumIngot +1, discovered, itemsRefined +1, FA XP += 12, process removed", () => {
     const state = stateWith({ inventory: { commonOre: 100 }, refineryLevel: 1 });
     const { next: started } = startRefineCommonOre(state);
     expect(started.activeProcesses).toHaveLength(1);
 
-    const { next, fleetAdminXpDelta } = resolveProcesses(started, 10); // exactly reaches 0
+    // 0.11.0 recipe-collapse: refineCommonOre is now the 20:1 / 12-tick recipe, so 12 ticks
+    // (not the old 10) is the exact completion boundary; FA XP = durationTicks = 12.
+    const { next, fleetAdminXpDelta } = resolveProcesses(started, 12); // exactly reaches 0
 
     expect(itemTotal(next.inventory, "titaniumIngot").toString()).toBe("1"); // output granted
     expect(next.discovered).toContain("titaniumIngot"); // via the addToInventory seam
     expect(next.activeProcesses).toEqual([]); // completed process removed
-    expect(fleetAdminXpDelta).toBe(10); // lump FA XP = durationTicks
+    expect(fleetAdminXpDelta).toBe(12); // lump FA XP = durationTicks
     // The Task 11 lifetime hook: itemsRefined accrues the refined output.
     expect(next.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
     // The other lifetime maps stay untouched (only refine jobs feed itemsRefined).
@@ -124,7 +126,7 @@ describe("refineJob completion, CLOSED-FORM parity for the itemsRefined hook", (
     const state = stateWith({ inventory: { commonOre: 100 }, refineryLevel: 1 });
     const { next: started } = startRefineCommonOre(state);
 
-    // Path A: one big jump past the 10-tick duration.
+    // Path A: one big jump past the 12-tick duration (refineCommonOre, post-collapse).
     const jumped = resolveProcesses(started, 40);
 
     // Path B: 40 single-tick steps, summing the FA XP the way tick() folds it.
@@ -142,9 +144,9 @@ describe("refineJob completion, CLOSED-FORM parity for the itemsRefined hook", (
     // Lifetime itemsRefined identical (the completion fires exactly once either way).
     expect(jumped.next.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
     expect(stepped.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
-    // FA XP identical.
-    expect(jumped.fleetAdminXpDelta).toBe(10);
-    expect(steppedFaXp).toBe(10);
+    // FA XP identical (lump FA XP = durationTicks = 12 after the 0.11.0 collapse).
+    expect(jumped.fleetAdminXpDelta).toBe(12);
+    expect(steppedFaXp).toBe(12);
     // Process removed in both paths.
     expect(jumped.next.activeProcesses).toEqual([]);
     expect(stepped.activeProcesses).toEqual([]);
@@ -152,12 +154,14 @@ describe("refineJob completion, CLOSED-FORM parity for the itemsRefined hook", (
 });
 
 describe("REFINE_RECIPES table shape (launch placeholder)", () => {
-  it("seeds the one Phase 1 recipe: commonOre x100 -> titaniumIngot x1 over 10 ticks", () => {
+  it("seeds the refineCommonOre recipe: commonOre x20 -> titaniumIngot x1 over 12 ticks", () => {
+    // 0.11.0 recipe-collapse: refineCommonOre now carries the player-friendly 20:1 / 12-tick
+    // numbers (the wasteful 100:1 / 10-tick twin was retired).
     const recipe = REFINE_RECIPES.refineCommonOre;
-    expect(recipe.input.commonOre.toString()).toBe("100");
+    expect(recipe.input.commonOre.toString()).toBe("20");
     expect(recipe.output.itemId).toBe("titaniumIngot");
     expect(recipe.output.amount.toString()).toBe("1");
-    expect(recipe.durationTicks).toBe(10);
+    expect(recipe.durationTicks).toBe(12);
   });
 
   it("upgrades[0] of the refinery grants the first refine slot (keeps refineSlotCount honest)", () => {

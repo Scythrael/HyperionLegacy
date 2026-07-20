@@ -919,9 +919,9 @@ describe("migrate, Big-Number (Decimal) hydration (v11 -> v12)", () => {
     expect(itemTotal(migrated.inventory, "rareMaterial").equals(itemTotal(original.inventory, "rareMaterial"))).toBe(true);
     // (ITEM-MERGE 0.11.0 Task A1: freshState no longer seeds `refinedMaterial`, so this
     // CURRENT-shape round-trip no longer carries that key. titaniumIngot seeds lazily on
-    // first refine, so it is absent from a pristine freshState too, nothing to assert here.)
-    expect(migrated.inventory.components[0] instanceof Decimal).toBe(true);
-    expect(itemTotal(migrated.inventory, "components").equals(itemTotal(original.inventory, "components"))).toBe(true);
+    // first refine, so it is absent from a pristine freshState too, nothing to assert here.
+    // 0.11.0 cleanup: the dead `components` seed was removed too, so its assertions were
+    // dropped, freshState now seeds exactly commonOre/uncommonMaterial/rareMaterial.)
 
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(original.fleetAdminXp)).toBe(true);

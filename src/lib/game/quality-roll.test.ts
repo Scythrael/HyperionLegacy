@@ -91,12 +91,13 @@ function bucketStrings(state: GameState, item: string): string[] {
 // loot / passiveTrickle rng runs, and a single batch REFINE line. The ONLY rng draws in
 // economyTick are therefore the quality rolls at refine-job completions, which makes the
 // scripted-draw parity test exact and hand-traceable. Mirrors craft-lines.test.ts.
-//   refineCommonOre = commonOre x100 -> titaniumIngot x1 over 10 ticks, refinery level 1
-//   (1 slot). commonOre = 100 * iterations funds exactly `iterations` jobs and no more.
+//   refineCommonOre = commonOre x20 -> titaniumIngot x1 over 12 ticks, refinery level 1
+//   (1 slot, 0.11.0 collapse ratio). commonOre = 20 * iterations funds exactly `iterations`
+//   jobs and no more.
 function refineOnlyState(iterations: number): GameState {
   const s = freshState();
   const inventory: Record<string, Decimal[]> = { ...s.inventory };
-  inventory.commonOre = [new Decimal(100 * iterations)];
+  inventory.commonOre = [new Decimal(20 * iterations)];
   const line: CraftLine = {
     id: "craft-1",
     kind: "refine",
@@ -236,8 +237,8 @@ describe("production deposit lands in the rolled quality bucket (resolveProcesse
 describe("⚠️ offline==live quality-bucket parity (tick(span) == looping economyTick(_,1))", () => {
   it("a 4-iteration offline batch distributes output across buckets IDENTICALLY to 4 live steps, NON-VACUOUS", () => {
     // A SCRIPTED rng engineered so the 4 refine completions roll tiers [0, 1, 3, 5], in
-    // that order (completions happen one-at-a-time at ticks 11/21/31/41, so completion
-    // order == draw order on BOTH paths). Draw pattern per completion (compounding, strict
+    // that order (completions happen one-at-a-time at ticks 13/25/37/49 with the 12-tick
+    // job, so completion order == draw order on BOTH paths). Draw pattern per completion (compounding, strict
     // `<` on 0.001 odds): fail=0.9 (1 draw), 1-success=0.0005 then fail (2), 3-success then
     // fail (4), 5-success (5, hits the cap). 1+2+4+5 = 12 scripted draws total.
     const VALUES = [
@@ -246,7 +247,7 @@ describe("⚠️ offline==live quality-bucket parity (tick(span) == looping econ
       0.0005, 0.0005, 0.0005, 0.9, //               completion 3 -> tier 3
       0.0005, 0.0005, 0.0005, 0.0005, 0.0005, //    completion 4 -> tier 5 (all steps hit)
     ];
-    const SPAN = 50; // > tick 41, so all 4 jobs complete; commonOre=400 caps it at 4 anyway
+    const SPAN = 60; // > tick 49, so all 4 twelve-tick jobs complete; commonOre=80 caps it at 4 anyway
 
     // Path A: ONE offline catch-up call. tick() internally steps economyTick(_,1) per whole
     // tick. Path B: hand-stepped economyTick, one tick at a time (the live poll shape). Each
@@ -268,7 +269,7 @@ describe("⚠️ offline==live quality-bucket parity (tick(span) == looping econ
     // Totals still exact and quality-agnostic: sum of buckets == units produced == 4.
     expect(itemTotal(jumped.inventory, "titaniumIngot").toString()).toBe("4");
     expect(itemTotal(stepped.inventory, "titaniumIngot").toString()).toBe("4");
-    expect(itemTotal(jumped.inventory, "commonOre").toString()).toBe("0"); // 400 consumed (4 x 100)
+    expect(itemTotal(jumped.inventory, "commonOre").toString()).toBe("0"); // 80 consumed (4 x 20)
   });
 
   it("parity holds under a SEEDED (non-constant) rng with a genuine multi-bucket spread", () => {

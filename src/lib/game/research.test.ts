@@ -61,9 +61,18 @@ describe("Research R1, BLUEPRINTS registry is well-formed", () => {
 
   it("every recipe resolves to REAL ITEMS keys, with positive quantities", () => {
     for (const [key, bp] of Object.entries(BLUEPRINTS)) {
-      // outputItem must be a real registry item, output quantity positive.
-      expect(ITEMS[bp.recipe.outputItem], `${key} outputItem`).toBeDefined();
-      expect(bp.recipe.outputQty).toBeGreaterThan(0);
+      // 0.11.0 cleanup: recipe.outputItem/outputQty are OPTIONAL. Only a MATERIAL blueprint
+      // (equipmentOutput absent) produces a stackable item, so only it asserts a real output
+      // item + positive quantity. An EQUIPMENT blueprint mints an EquipmentInstance and OMITS
+      // both fields entirely, assert that omission as the cleanup invariant.
+      if (bp.equipmentOutput === undefined) {
+        expect(bp.recipe.outputItem, `${key} outputItem present`).toBeDefined();
+        expect(ITEMS[bp.recipe.outputItem ?? ""], `${key} outputItem`).toBeDefined();
+        expect(bp.recipe.outputQty).toBeGreaterThan(0);
+      } else {
+        expect(bp.recipe.outputItem, `${key} equipment outputItem omitted`).toBeUndefined();
+        expect(bp.recipe.outputQty, `${key} equipment outputQty omitted`).toBeUndefined();
+      }
       // Every recipe INPUT key must be a real registry item with a positive amount.
       const inputKeys = Object.keys(bp.recipe.inputs);
       expect(inputKeys.length, `${key} has >=1 input`).toBeGreaterThan(0);

@@ -1676,8 +1676,8 @@
   // race). On success we collapse the configurator (its work is done). The log names the
   // recipe's OUTPUT item (bracketed, per the [Item] convention).
   // Equipment 0.11.0 (Task 19): the SYSTEM name a fabricate craft-line shows for an EQUIPMENT
-  // blueprint's output, its slot + variety label (e.g. "Cargo Bay · Prospector Hold"), NOT the
-  // inert "components" placeholder recipe.outputItem. Reads the SAME EQUIPMENT_SLOTS table the
+  // blueprint's output, its slot + variety label (e.g. "Cargo Bay · Prospector Hold"). An
+  // equipment blueprint carries no recipe.outputItem (optional, omitted). Reads the SAME EQUIPMENT_SLOTS table the
   // dev-grant readout uses; falls back to the raw keys if a variety key is ever unrecognized.
   function equipmentOutputLabel(eq: { slotType: EquipmentSlotType; varietyKey: string }): string {
     const slot = EQUIPMENT_SLOTS[eq.slotType];
@@ -1689,8 +1689,8 @@
     const { next, started } = startLine(state, kind, recipeKey, mode);
     if (!started) return;
     state = next;
-    // Task 19: an EQUIPMENT blueprint logs its minted piece's SYSTEM name (slot + variety), not
-    // the inert "components" placeholder; refine + material lines log the output item as before.
+    // Task 19: an EQUIPMENT blueprint logs its minted piece's SYSTEM name (slot + variety); it
+    // carries no output item. Refine + material lines log the output item as before.
     const eqOut = kind === "fabricate" ? BLUEPRINTS[recipeKey]?.equipmentOutput : undefined;
     const outputId =
       kind === "refine"
@@ -4233,9 +4233,9 @@
                       <!-- Recipe (what the Fabricator will craft): inputs → output.
                            Plain-text [Item] labels (no icon tooltip needed). Task 19: an
                            EQUIPMENT blueprint previews its minted piece's SYSTEM name (slot +
-                           variety), NOT the inert "components" placeholder outputItem. -->
+                           variety); it carries no recipe.outputItem (optional, omitted). -->
                       <div class="research-cost">
-                        Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]{/if}
+                        Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]{/if}
                       </div>
                       <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
@@ -4446,11 +4446,12 @@
                         {#if bp}
                           {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each}
                           <!-- Task 19: an EQUIPMENT blueprint shows its minted piece's SYSTEM name
-                               (slot + variety), NOT the inert "components" placeholder outputItem. -->
+                               (slot + variety); it carries no recipe.outputItem (optional, omitted).
+                               Only a MATERIAL blueprint has a stackable output to render. -->
                           {#if bp.equipmentOutput}
                             → [{equipmentOutputLabel(bp.equipmentOutput)}]
                           {:else}
-                            → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem]?.label ?? bp.recipe.outputItem}]
+                            → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]
                           {/if}
                         {:else}[{line.recipeKey}]{/if}
                         · {line.remaining > 0 ? (line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous") : "finishing current run"}

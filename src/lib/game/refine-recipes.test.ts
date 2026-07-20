@@ -20,7 +20,7 @@ describe("Refinery produces the Fabricator's blueprint inputs (chain connects)",
   it("their inputs are real, mined raw ores", () => {
     expect(ITEMS.commonOre?.category).toBe("raw"); // Titanium Ore
     expect(ITEMS.uncommonMaterial?.category).toBe("raw"); // Polysilicate Ore
-    expect(REFINE_RECIPES.refineTitaniumIngot.input.commonOre.toNumber()).toBeGreaterThan(0);
+    expect(REFINE_RECIPES.refineCommonOre.input.commonOre.toNumber()).toBeGreaterThan(0);
     expect(REFINE_RECIPES.refinePolysilicateWafer.input.uncommonMaterial.toNumber()).toBeGreaterThan(0);
   });
 
@@ -65,8 +65,9 @@ describe("ITEM-MERGE, refinedMaterial fully retired into titaniumIngot", () => {
   });
 
   it("titaniumIngot is the SOLE refined-titanium item: it is the only refine output whose input is commonOre (Titanium Ore)", () => {
-    // Both refineCommonOre and refineTitaniumIngot consume commonOre and, post-merge,
-    // BOTH output titaniumIngot, no commonOre-fed recipe outputs anything else.
+    // After the 0.11.0 recipe-collapse there is exactly ONE commonOre-fed recipe
+    // (refineCommonOre, now at the 20:1 ratio); it outputs titaniumIngot and nothing
+    // else, so no commonOre-fed recipe outputs any other item.
     const titaniumFedOutputs = new Set(
       Object.values(REFINE_RECIPES)
         .filter((r) => Object.keys(r.input).includes("commonOre"))

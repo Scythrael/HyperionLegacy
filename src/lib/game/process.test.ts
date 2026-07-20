@@ -211,7 +211,7 @@ describe("resolveProcesses, completion applies effects, lumps FA XP, removes the
       kind: "refineJob",
       remainingTicks: 60,
       durationTicks: 60,
-      effect: addItem("components", 2),
+      effect: addItem("frameSegment", 2),
     };
     const state = { ...base, activeProcesses: [process], nextProcessId: 2 };
 
@@ -219,7 +219,7 @@ describe("resolveProcesses, completion applies effects, lumps FA XP, removes the
 
     expect(next.activeProcesses).toHaveLength(1);
     expect(next.activeProcesses[0].remainingTicks).toBe(40); // 60 - 20
-    expect(itemTotal(next.inventory, "components").toString()).toBe("0"); // NOT granted yet
+    expect(itemTotal(next.inventory, "frameSegment").toString()).toBe("0"); // NOT granted yet
     expect(fleetAdminXpDelta).toBe(0);
   });
 
@@ -241,7 +241,7 @@ describe("resolveProcesses, CLOSED-FORM parity (critical): one big resolve == ma
       { id: "proc-1", kind: "refineJob", remainingTicks: 1, durationTicks: 1, effect: addItem("titaniumIngot", 5) },
       { id: "proc-2", kind: "refineJob", remainingTicks: 10, durationTicks: 10, effect: addItem("titaniumIngot", 3) },
       { id: "proc-3", kind: "facilityUpgrade", remainingTicks: 25, durationTicks: 25, effect: levelUp("refinery") },
-      { id: "proc-4", kind: "refineJob", remainingTicks: 60, durationTicks: 60, effect: addItem("components", 2) },
+      { id: "proc-4", kind: "refineJob", remainingTicks: 60, durationTicks: 60, effect: addItem("frameSegment", 2) },
       { id: "proc-5", kind: "refineJob", remainingTicks: 500, durationTicks: 500, effect: addItem("titaniumIngot", 7) },
     ];
     const base = { ...freshState(), activeProcesses: processes, nextProcessId: 6 };
@@ -268,10 +268,10 @@ describe("resolveProcesses, CLOSED-FORM parity (critical): one big resolve == ma
     expect(jumped.fleetAdminXpDelta).toBe(96);
 
     // Spot-check the concrete outcome so a silent double-count/omission is caught:
-    // titaniumIngot += 5 + 3 (proc-5's +7 excluded), components += 2, refinery 0->1,
+    // titaniumIngot += 5 + 3 (proc-5's +7 excluded), frameSegment += 2, refinery 0->1,
     // proc-5 survives with 500 - 320 == 180 remaining.
     expect(itemTotal(jumped.next.inventory, "titaniumIngot").toString()).toBe("8");
-    expect(itemTotal(jumped.next.inventory, "components").toString()).toBe("2");
+    expect(itemTotal(jumped.next.inventory, "frameSegment").toString()).toBe("2");
     expect(jumped.next.facilities.refinery.level).toBe(1);
     expect(jumped.next.activeProcesses).toHaveLength(1);
     expect(jumped.next.activeProcesses[0].id).toBe("proc-5");

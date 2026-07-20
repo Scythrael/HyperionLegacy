@@ -206,7 +206,7 @@ export function foldLifetimeStatsDelta(
 // but homePlanetDelta is keyed on the narrower LootMaterialKey, this list
 // narrows one to the other at runtime. Today's only passiveTrickle entry
 // (economyTrickle) targets "commonOre", which is in this list; a future
-// trickle entry targeting "titaniumIngot"/"components" would need
+// trickle entry targeting a crafted good (e.g. "titaniumIngot") would need
 // homePlanetDelta's shape (and this list) widened first, not silently work.
 export const LOOT_MATERIAL_KEYS: LootMaterialKey[] = ["commonOre", "uncommonMaterial", "rareMaterial"];
 
@@ -3339,10 +3339,10 @@ interface CraftLineJobSpec {
   // a refine line and a MATERIAL fabricate line this is the addItem the engine always used (so
   // those lines are byte-identical to pre-Task-19). For an EQUIPMENT fabricate line (blueprint
   // with `equipmentOutput`) it is the NEW addEquipment(blueprintKey), and the outputItemId /
-  // outputAmount above are then the INERT placeholder ("components" x1), still carried so the
-  // shared cap-check/plumbing shape is unchanged; `isEquipment` tells stepCraftLine to SKIP the
-  // placeholder warehouse-cap gate (an EquipmentInstance is not an inventory item, so a full
-  // "components" store must not stall equipment production).
+  // outputAmount above are then INERT (empty-string / 1 fallbacks, since an equipment blueprint
+  // carries no recipe.outputItem), still carried so the shared cap-check/plumbing shape is
+  // unchanged; `isEquipment` tells stepCraftLine to SKIP the warehouse-cap gate (an
+  // EquipmentInstance is not an inventory item, so it has no stackable output to cap).
   effect: ProcessEffect;
   isEquipment: boolean;
 }
@@ -3369,16 +3369,22 @@ function lineJobSpec(line: CraftLine): CraftLineJobSpec | null {
   // completion (addEquipment); a MATERIAL blueprint deposits its stackable output (addItem,
   // UNCHANGED). Both consume recipe.inputs identically (that map is meaningful for both shapes).
   const isEquipment = bp.equipmentOutput !== undefined;
-  const outputAmount = new Decimal(bp.recipe.outputQty); // recipe.outputQty is a plain number
+  // recipe.outputItem/outputQty are OPTIONAL (model.ts): a MATERIAL blueprint always carries
+  // them, an EQUIPMENT blueprint OMITS them (its real output is the minted EquipmentInstance).
+  // These two locals are INERT on the equipment path (isEquipment skips the cap gate below and
+  // uses the addEquipment effect), so an absent field falls back to a harmless placeholder that
+  // is never read for equipment. For a material blueprint the fields are always present.
+  const outputItemId = bp.recipe.outputItem ?? ""; // "" is inert: only the equipment path lacks it
+  const outputAmount = new Decimal(bp.recipe.outputQty ?? 1); // 1 is inert: only the equipment path lacks it
   return {
     inputs,
-    outputItemId: bp.recipe.outputItem,
+    outputItemId,
     outputAmount,
     durationTicks: bp.craftDurationTicks,
     jobKind: "fabricateJob",
     effect: isEquipment
       ? { type: "addEquipment", blueprintKey: line.recipeKey }
-      : { type: "addItem", itemId: bp.recipe.outputItem, amount: outputAmount },
+      : { type: "addItem", itemId: outputItemId, amount: outputAmount },
     isEquipment,
   };
 }
@@ -3419,8 +3425,8 @@ function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; li
   // externally, as we do here); startFabricateJob's canFabricate would, but we check
   // here for BOTH kinds uniformly so refine + fabricate lines behave identically.
   // Equipment 0.11.0 (Task 19): an EQUIPMENT fabricate line is EXEMPT from this gate, its
-  // real output is a minted EquipmentInstance (not the "components" placeholder outputItemId),
-  // so a full components warehouse must NOT stall it. Material/refine lines are unaffected.
+  // real output is a minted EquipmentInstance (it has no stackable outputItemId at all),
+  // so the warehouse cap must NOT stall it. Material/refine lines are unaffected.
   if (!spec.isEquipment && materialAtCap(state, spec.outputItemId)) {
     return { next: state, line };
   }
@@ -3652,13 +3658,16 @@ export function canStartLine(
   // as full, the SAME materialAtCap seam canFabricate/missions/trickle stop on). Refine
   // outputs a { itemId, amount } record (-> .itemId); a blueprint outputs recipe.outputItem.
   // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT, it
-  // mints an EquipmentInstance, not the "components" placeholder, so a full components store must
-  // not block starting an equipment line. The SAME exemption stepCraftLine/canFabricate apply.
+  // mints an EquipmentInstance and has no stackable output, so the warehouse cap must not block
+  // starting an equipment line. The SAME exemption stepCraftLine/canFabricate apply.
   const isEquipmentBlueprint = kind === "fabricate" && BLUEPRINTS[recipeKey].equipmentOutput !== undefined;
   if (!isEquipmentBlueprint) {
+    // A non-equipment fabricate line is a MATERIAL blueprint, which always carries recipe.outputItem;
+    // the `?? undefined` guard only exists because outputItem is now an optional field (a corrupt/
+    // absent value simply skips the cap check rather than throwing).
     const outputItem =
       kind === "refine" ? REFINE_RECIPES[recipeKey].output.itemId : BLUEPRINTS[recipeKey].recipe.outputItem;
-    if (materialAtCap(state, outputItem)) return { ok: false, reason: "storageFull" };
+    if (outputItem !== undefined && materialAtCap(state, outputItem)) return { ok: false, reason: "storageFull" };
   }
 
   return { ok: true };
@@ -3852,9 +3861,11 @@ export function canFabricate(
   // materialAtCap seam the refine order + missions/trickle auto-stop on (AT the cap counts
   // as full). A full component store cannot start new crafts.
   // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT, it
-  // mints an EquipmentInstance into state.equipment, not the "components" placeholder, so a full
-  // components store must not block it. Same exemption canStartLine/stepCraftLine apply.
-  if (bp.equipmentOutput === undefined && materialAtCap(state, bp.recipe.outputItem)) {
+  // mints an EquipmentInstance into state.equipment and has no stackable output, so the warehouse
+  // cap must not block it. Same exemption canStartLine/stepCraftLine apply.
+  // equipmentOutput === undefined narrows this to a MATERIAL blueprint, which always carries
+  // recipe.outputItem; the extra `!== undefined` guard only satisfies the now-optional field type.
+  if (bp.equipmentOutput === undefined && bp.recipe.outputItem !== undefined && materialAtCap(state, bp.recipe.outputItem)) {
     return { ok: false, reason: "storageFull" };
   }
 
@@ -3905,13 +3916,15 @@ export function startFabricateJob(
 
   // Equipment 0.11.0 (Task 19): branch on equipmentOutput. An EQUIPMENT blueprint hands off an
   // addEquipment(blueprintKey) effect (resolveProcesses mints the EquipmentInstance at completion,
-  // rolling stats off the seeded rng, and IGNORES the "components" placeholder). A MATERIAL
+  // rolling stats off the seeded rng, and grants no stackable output). A MATERIAL
   // blueprint hands off the UNCHANGED addItem effect (byte-identical to pre-Task-19). The inputs
   // deduct + startProcess call are otherwise identical for both shapes.
+  // The material branch always has recipe.outputItem/outputQty (only equipment blueprints omit
+  // them); the `?? ""` / `?? 1` fallbacks are inert there and only satisfy the optional field type.
   const effect: ProcessEffect =
     bp.equipmentOutput !== undefined
       ? { type: "addEquipment", blueprintKey }
-      : { type: "addItem", itemId: bp.recipe.outputItem, amount: new Decimal(bp.recipe.outputQty) };
+      : { type: "addItem", itemId: bp.recipe.outputItem ?? "", amount: new Decimal(bp.recipe.outputQty ?? 1) };
 
   return startProcess(state, "fabricateJob", inputs, bp.craftDurationTicks, effect);
 }
@@ -4476,7 +4489,7 @@ export function resolveProcesses(
       nextEquipmentId = seededHull.nextId;
     } else if (process.effect.type === "addEquipment") {
       // Equipment 0.11.0 (Task 19): a completed EQUIPMENT fabricate job MINTS a non-stacking
-      // EquipmentInstance (NOT an inventory item, NOT the "components" placeholder). We look up
+      // EquipmentInstance (NOT an inventory item, and no stackable output). We look up
       // the blueprint's equipmentOutput for the slot/variety, roll the whole piece off the
       // THREADED seeded rng, push it into the pool as a SPARE (fittedToShipId: null, set inside
       // generateEquipment), and bump nextEquipmentId. Mirrors the addShip mint exactly (mint the

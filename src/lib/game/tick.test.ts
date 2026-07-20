@@ -1632,14 +1632,13 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     expect(result.captains[1].mission!.phaseProgressTicks).toBe(0);
 
     // Neither captain reached "unloading" this tick, nothing delivered home yet.
-    // Full 5-key shape (freshState seeds inventory with the same crafted-good tiers)
-    //, per-key .equals() (not .toEqual against a plain-number-literal object),
-    // since inventory's values are real Decimal instances.
+    // Per-key .equals() (not .toEqual against a plain-number-literal object), since
+    // inventory's values are real Decimal instances. titaniumIngot is the lazily-seeded
+    // crafted good (absent -> itemTotal 0) standing in for "a non-loot tier saw no delta".
     expect(itemTotal(result.inventory, "commonOre").equals(0)).toBe(true);
     expect(itemTotal(result.inventory, "uncommonMaterial").equals(0)).toBe(true);
     expect(itemTotal(result.inventory, "rareMaterial").equals(0)).toBe(true);
     expect(itemTotal(result.inventory, "titaniumIngot").equals(0)).toBe(true);
-    expect(itemTotal(result.inventory, "components").equals(0)).toBe(true);
     // Nothing delivered this tick -> no item flips to discovered (a 0-delta add
     // must NOT reveal anything). freshState starts discovered empty.
     expect(result.discovered).toEqual([]);
@@ -1665,7 +1664,6 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
       uncommonMaterial: [new Decimal(1)],
       rareMaterial: [new Decimal(0)],
       titaniumIngot: [new Decimal(0)],
-      components: [new Decimal(0)],
     };
     state.captains[0].mission = {
       missionKey: "shortOreRun",
@@ -1683,16 +1681,14 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     expect(itemTotal(result.inventory, "uncommonMaterial").equals(21)).toBe(true);
     expect(itemTotal(result.inventory, "rareMaterial").equals(10)).toBe(true);
     expect(itemTotal(result.inventory, "titaniumIngot").equals(0)).toBe(true);
-    expect(itemTotal(result.inventory, "components").equals(0)).toBe(true);
     // Discovery spot-check: all three loot tiers delivered a POSITIVE amount this
     // cycle (cargo {70,20,10}), so each flips to discovered (was empty on freshState).
-    // titaniumIngot/components saw no delta and stay masked, proving the add seam
-    // only reveals tiers that actually arrived.
+    // titaniumIngot saw no delta and stays masked, proving the add seam only reveals
+    // tiers that actually arrived.
     expect(result.discovered).toContain("commonOre");
     expect(result.discovered).toContain("uncommonMaterial");
     expect(result.discovered).toContain("rareMaterial");
     expect(result.discovered).not.toContain("titaniumIngot");
-    expect(result.discovered).not.toContain("components");
     expect(result.captains[0].mission!.phase).toBe("ordersReceived"); // auto-repeated
     expect(result.captains[0].mission!.phaseProgressTicks).toBe(0);
     expect(result.captains[0].mission!.cargo.commonOre.equals(0)).toBe(true);
@@ -3273,7 +3269,7 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
   // freshState (tickDurationSeconds default 1 -> ticksElapsed == deltaSeconds) + the
   // given in-flight processes seeded onto activeProcesses. The single captain stays
   // idle unless a caller sets a mission, so process outputs (titaniumIngot /
-  // components / facilities) never overlap the mission loot tiers (commonOre /
+  // frameSegment / facilities) never overlap the mission loot tiers (commonOre /
   // uncommonMaterial / rareMaterial), keeping the process contribution cleanly
   // isolated for assertion regardless of the internal Math.random loot rolls.
   function stateWithProcesses(processes: TimedProcess[]) {
@@ -3297,7 +3293,7 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
         kind: "refineJob",
         remainingTicks: 500,
         durationTicks: 500,
-        effect: { type: "addItem", itemId: "components", amount: new Decimal(2) },
+        effect: { type: "addItem", itemId: "frameSegment", amount: new Decimal(2) },
       },
     ];
     const state = stateWithProcesses(processes);
@@ -3322,7 +3318,7 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
     expect(result.activeProcesses).toHaveLength(1);
     expect(result.activeProcesses[0].id).toBe("proc-2");
     expect(result.activeProcesses[0].remainingTicks).toBe(400);
-    expect(itemTotal(result.inventory, "components").toString()).toBe("0"); // proc-2 unfinished -> not granted
+    expect(itemTotal(result.inventory, "frameSegment").toString()).toBe("0"); // proc-2 unfinished -> not granted
   });
 
   it("the process portion of tick() equals a STANDALONE resolveProcesses call, same shared resolver, same ticksElapsed", () => {
@@ -3725,8 +3721,8 @@ describe("tick, per-tick stepping matches the single-call economy when no cap bi
 //
 // A completing fabricate job now BRANCHES on the blueprint's equipmentOutput:
 //   - EQUIPMENT blueprint -> mint a non-stacking EquipmentInstance into state.equipment
-//     (seeded stat roll off the threaded rng), bump nextEquipmentId, and DO NOT grant the
-//     inert "components" placeholder.
+//     (seeded stat roll off the threaded rng), bump nextEquipmentId, and grant NO stackable
+//     output (an equipment blueprint carries no recipe.outputItem).
 //   - MATERIAL blueprint  -> unchanged: still adds its stackable outputItem.
 // The ⚠️ offline==live PARITY test is the load-bearing one: an equipment craft completing
 // during a big offline tick(span) must produce a BIT-IDENTICAL instance to the same craft
@@ -3782,7 +3778,7 @@ function equipLineState(blueprintKey: string, iterations: number): GameState {
 const CRAFTABLE_RARITIES = ["standard", "augmented", "stellar", "radiant"];
 
 describe("Fabricator mints real equipment (Task 19)", () => {
-  it("a completed EQUIPMENT fabricate mints ONE EquipmentInstance (right slot/blueprint), NO placeholder components", () => {
+  it("a completed EQUIPMENT fabricate mints ONE EquipmentInstance (right slot/blueprint), NO stackable output", () => {
     // prospectorHoldBp: frameSegment×2 + titaniumIngot×3 -> cargoBay/prospectorHold, 150 ticks.
     const state = equipLineState("prospectorHoldBp", 1);
     let s = state;
@@ -3812,10 +3808,9 @@ describe("Fabricator mints real equipment (Task 19)", () => {
     expect(Object.keys(piece.implicitStats).length).toBeGreaterThan(0);
     expect(piece.durabilityMax).toBeGreaterThan(0);
 
-    // The id source advanced past the fabricated piece (5 -> 6), and the INERT placeholder
-    // was NEVER granted.
+    // The id source advanced past the fabricated piece (5 -> 6). An equipment blueprint has
+    // no recipe.outputItem, so NO stackable was granted, only the inputs were consumed.
     expect(s.nextEquipmentId).toBe(6);
-    expect(itemTotal(s.inventory, "components").toString()).toBe("0");
     // Inputs were consumed by the craft.
     expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
     expect(itemTotal(s.inventory, "titaniumIngot").toString()).toBe("0");

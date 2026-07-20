@@ -144,8 +144,8 @@ describe("freshState / freshCaptainStack, mission and Home Planet fields", () =>
     expect(itemTotal(state.inventory, "uncommonMaterial").equals(0)).toBe(true);
     expect(itemTotal(state.inventory, "rareMaterial").equals(0)).toBe(true);
     // (ITEM-MERGE 0.11.0 Task A1: the retired `refinedMaterial` seed assertion was
-    // dropped; titaniumIngot is not seeded here, it lands lazily on first refine.)
-    expect(itemTotal(state.inventory, "components").equals(0)).toBe(true);
+    // dropped; titaniumIngot is not seeded here, it lands lazily on first refine.
+    // 0.11.0 cleanup: the dead `components` seed assertion was dropped too.)
   });
 
   it("freshCaptainStack's mission field is null (a brand-new/unlocked captain slot starts idle)", () => {
@@ -162,18 +162,19 @@ describe("freshState / freshCaptainStack, mission and Home Planet fields", () =>
 // itemId has been seen on a brand-new save). This test guards ONLY that
 // freshState seed.
 describe("Phase 1, keyed inventory + discovered (additive)", () => {
-  it("freshState().inventory seeds exactly the 4 launch material keys, all Decimal(0)", () => {
+  it("freshState().inventory seeds exactly the 3 launch material keys, all Decimal(0)", () => {
     const state = freshState();
     const inventoryKeys = Object.keys(state.inventory);
-    // Exact seed key SET, freshState seeds inventory with precisely the 4 launch
+    // Exact seed key SET, freshState seeds inventory with precisely the 3 launch
     // materials (no missing, no extra). Hardcoded against the same canonical launch
     // set save.ts's v17->v18 migration test pins; this REPLACES the old "mirror
     // homePlanet.storage's keys" comparison (Task 6), which becomes a tautology
     // once storage is removed in Task 7. Sorted so order can't cause a false fail.
-    // (ITEM-MERGE 0.11.0 Task A1: the retired `refinedMaterial` key was dropped,
-    // taking the seed set from 5 to 4; titaniumIngot seeds lazily, not here.)
+    // (ITEM-MERGE 0.11.0 Task A1 dropped the retired `refinedMaterial` key; the 0.11.0
+    // cleanup dropped the dead `components` key, taking the seed set from 5 to 3.
+    // titaniumIngot seeds lazily, not here.)
     expect(inventoryKeys.sort()).toEqual(
-      ["commonOre", "components", "rareMaterial", "uncommonMaterial"],
+      ["commonOre", "rareMaterial", "uncommonMaterial"],
     );
     // Every seeded inventory entry starts at Decimal(0), compared via .equals()
     // (not .toEqual against a plain number), same Decimal convention as every
@@ -1104,27 +1105,29 @@ describe("shipDerivedStats fold (Task 13)", () => {
 // table with the minor/major-component/module/system tiers, do NOT add those
 // forward entries here until their phase (no placeholders).
 describe("ITEMS, Phase 1 seed registry", () => {
-  it("has the full scaffolded catalog: 14 raw, 5 refined, 2 minor + 1 major component", () => {
+  it("has the full scaffolded catalog: 14 raw, 4 refined, 2 minor + 1 major component", () => {
     // Phase 2 Warehouse catalog scaffold grew the registry to 22. The Fuel-sourcing
     // RESTRUCTURE (2026-07-15) adds ONE more raw item, the dedicated `deuteriumIce`
     // fuel ore (a real, obtainable item via localFuelRun), bringing the total to 23.
     // ITEM-MERGE (0.11.0 Task A1) retired the duplicate `refinedMaterial` refined
     // item (folded into titaniumIngot), dropping the total to 22 and refined to 5.
-    // Breakdown of the 22:
+    // 0.11.0 cleanup: the DEAD `components` refined item (nothing produced/consumed it)
+    // was removed too, dropping the total to 21 and refined to 4.
+    // Breakdown of the 21:
     //   raw (14): commonOre, uncommonMaterial, rareMaterial (the 3 live ore tiers),
     //     deuteriumIce (the live fuel ore), denseOre (T2 stub), + 9 future ore/salvage/
     //     forage loot placeholders.
-    //   refined (5): the 1 live crafted good (components) + titaniumIngot/polysilicateWafer
-    //     (live refine outputs) + 2 remaining future Refinery-output placeholders.
+    //   refined (4): titaniumIngot/polysilicateWafer (live refine outputs) + 2 remaining
+    //     future Refinery-output placeholders.
     //   minorComponent (2) + majorComponent (1): future Fabricator-output placeholders.
     const keys = Object.keys(ITEMS);
-    expect(keys).toHaveLength(22);
+    expect(keys).toHaveLength(21);
     const raw = Object.values(ITEMS).filter((i) => i.category === "raw");
     const refined = Object.values(ITEMS).filter((i) => i.category === "refined");
     const minor = Object.values(ITEMS).filter((i) => i.category === "minorComponent");
     const major = Object.values(ITEMS).filter((i) => i.category === "majorComponent");
     expect(raw).toHaveLength(14);
-    expect(refined).toHaveLength(5);
+    expect(refined).toHaveLength(4);
     expect(minor).toHaveLength(2);
     expect(major).toHaveLength(1);
 
@@ -1134,7 +1137,6 @@ describe("ITEMS, Phase 1 seed registry", () => {
     expect(ITEMS.rareMaterial.category).toBe("raw");
     expect(ITEMS.denseOre.category).toBe("raw");
     expect(ITEMS.titaniumIngot.category).toBe("refined");
-    expect(ITEMS.components.category).toBe("refined");
   });
 
   // Fuel-sourcing RESTRUCTURE (2026-07-15): F1's LABEL-ONLY renames of commonOre ->

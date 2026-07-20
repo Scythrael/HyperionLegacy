@@ -10,14 +10,14 @@
 // never stored, the lines are the single source of truth, so these pure
 // helpers take a `lines` array as a parameter (C2 wires them to GameState).
 //
-// ⚠️ WORKED-EXAMPLE RECONCILIATION: the design §1 table illustrates with a
-// hypothetical 1:1 recipe (remaining 1000 -> allocated 1000 -> free 0; after
-// crafts remaining 900 -> allocated 900 -> free 0). The ONLY real REFINE_RECIPES
-// entry, `refineCommonOre`, is 100:1 (100 commonOre per iteration). So we
-// reproduce the exact allocated/free VALUES from the table (1000/0, then 900/0)
-// with the REAL recipe by using remaining = 10 and 9 respectively
-// (10 x 100 = 1000, 9 x 100 = 900). Real keys, real math, same worked-example
-// numbers in the allocated/free columns.
+// ⚠️ WORKED-EXAMPLE RECONCILIATION: the design §1 table illustrates the
+// allocated/free RELATIONSHIPS (allocated == stock -> free 0; partial -> remainder;
+// over-reserved -> clamp 0). We reproduce those relationships with the REAL
+// `refineCommonOre` recipe. Its per-iteration input is REFINE_PER_ITER, so every
+// worked-example number below is expressed as a multiple of that constant, the
+// examples are RATIO-AGNOSTIC and won't drift if the recipe is retuned.
+// (0.11.0 recipe-collapse: refineCommonOre is now 20:1, down from the old 100:1;
+// the examples followed the constant automatically.)
 // ============================================================================
 
 import { describe, it, expect } from "vitest";
@@ -32,11 +32,11 @@ import {
 } from "./allocation";
 
 // --- Fixtures: REAL registry keys (confirmed present in model.ts) ------------
-// refineCommonOre.input = { commonOre: Decimal(100) }            -> 100:1
+// refineCommonOre.input = { commonOre: Decimal(20) }             -> 20:1 (post-collapse)
 // structuralAssemblyBp.recipe.inputs = { frameSegment: 2, powerCoupling: 1, titaniumIngot: 2 }
 const REFINE_KEY = "refineCommonOre";
 const REFINE_INPUT_ITEM = "commonOre";
-const REFINE_PER_ITER = 100; // REFINE_RECIPES.refineCommonOre.input.commonOre
+const REFINE_PER_ITER = 20; // REFINE_RECIPES.refineCommonOre.input.commonOre
 
 const FAB_KEY = "structuralAssemblyBp";
 
@@ -97,20 +97,19 @@ describe("allocatedItem", () => {
     expect(allocatedItem([], "commonOre").toNumber()).toBe(0);
   });
 
-  it("worked example: refine line, remaining 10 (x100) -> allocated 1000", () => {
+  it("worked example: refine line, remaining 10 -> allocated 10 x per-iteration", () => {
     const lines = [refineLine("l1", 10)];
-    expect(allocatedItem(lines, REFINE_INPUT_ITEM).toNumber()).toBe(1000);
+    expect(allocatedItem(lines, REFINE_INPUT_ITEM).toNumber()).toBe(10 * REFINE_PER_ITER);
   });
 
-  it("worked example after crafts: remaining 9 (x100) -> allocated 900", () => {
+  it("worked example after crafts: remaining 9 -> allocated 9 x per-iteration", () => {
     const lines = [refineLine("l1", 9)];
-    expect(allocatedItem(lines, REFINE_INPUT_ITEM).toNumber()).toBe(900);
+    expect(allocatedItem(lines, REFINE_INPUT_ITEM).toNumber()).toBe(9 * REFINE_PER_ITER);
   });
 
   it("two lines reserving the SAME item sum their allocations", () => {
     const lines = [refineLine("l1", 10), refineLine("l2", 4)];
-    // (10 + 4) x 100 = 1400
-    expect(allocatedItem(lines, REFINE_INPUT_ITEM).toNumber()).toBe(1400);
+    expect(allocatedItem(lines, REFINE_INPUT_ITEM).toNumber()).toBe((10 + 4) * REFINE_PER_ITER);
   });
 
   it("multi-INPUT fabricate recipe allocates each input independently", () => {
@@ -142,33 +141,33 @@ describe("freeItem", () => {
     expect(freeItem(inventory, [], "commonOre").toNumber()).toBe(1000);
   });
 
-  it("worked example: stock 1000, allocated 1000 -> free 0", () => {
-    const inventory = { commonOre: [new Decimal(1000)] };
-    const lines = [refineLine("l1", 10)]; // 10 x 100 = 1000 reserved
+  it("worked example: stock == allocated -> free 0", () => {
+    const inventory = { commonOre: [new Decimal(10 * REFINE_PER_ITER)] };
+    const lines = [refineLine("l1", 10)]; // 10 x per-iteration reserved
     expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(0);
   });
 
-  it("worked example after crafts: stock 900, allocated 900 -> free 0", () => {
-    const inventory = { commonOre: [new Decimal(900)] };
-    const lines = [refineLine("l1", 9)]; // 9 x 100 = 900 reserved
+  it("worked example after crafts: reduced stock == reduced allocation -> free 0", () => {
+    const inventory = { commonOre: [new Decimal(9 * REFINE_PER_ITER)] };
+    const lines = [refineLine("l1", 9)]; // 9 x per-iteration reserved
     expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(0);
   });
 
   it("partial reservation leaves the remainder free", () => {
-    const inventory = { commonOre: [new Decimal(1000)] };
-    const lines = [refineLine("l1", 3)]; // 3 x 100 = 300 reserved
-    expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(700);
+    const inventory = { commonOre: [new Decimal(10 * REFINE_PER_ITER)] };
+    const lines = [refineLine("l1", 3)]; // 3 x per-iteration reserved
+    expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe((10 - 3) * REFINE_PER_ITER);
   });
 
   it("two lines on the same item: free reflects the SUMMED reservation", () => {
-    const inventory = { commonOre: [new Decimal(1000)] };
-    const lines = [refineLine("l1", 5), refineLine("l2", 2)]; // (5+2) x 100 = 700
-    expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(300);
+    const inventory = { commonOre: [new Decimal(10 * REFINE_PER_ITER)] };
+    const lines = [refineLine("l1", 5), refineLine("l2", 2)]; // (5+2) x per-iteration reserved
+    expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe((10 - 5 - 2) * REFINE_PER_ITER);
   });
 
   it("free is NEVER negative: over-reserved stock clamps to 0", () => {
-    const inventory = { commonOre: [new Decimal(500)] };
-    const lines = [refineLine("l1", 10)]; // reserves 1000 > 500 stock
+    const inventory = { commonOre: [new Decimal(5 * REFINE_PER_ITER)] };
+    const lines = [refineLine("l1", 10)]; // reserves 10 x per-iteration > 5 x per-iteration stock
     const free = freeItem(inventory, lines, "commonOre");
     expect(free.toNumber()).toBe(0);
     expect(free.gte(0)).toBe(true);
@@ -176,7 +175,7 @@ describe("freeItem", () => {
 
   it("missing inventory key -> free 0 (defensive, not NaN/negative)", () => {
     const inventory: Record<string, Decimal[]> = {};
-    const lines = [refineLine("l1", 1)]; // reserves 100 of an absent item
+    const lines = [refineLine("l1", 1)]; // reserves one iteration of an absent item
     expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(0);
   });
 
@@ -203,11 +202,11 @@ describe("freeItem", () => {
 describe("freeItemForState (state convenience)", () => {
   it("subtracts a refine line's reservation from inventory (single array)", () => {
     const state = {
-      inventory: { commonOre: [new Decimal(1000)] },
-      refineLines: [refineLine("r1", 3)], // 3 x 100 = 300 reserved
+      inventory: { commonOre: [new Decimal(10 * REFINE_PER_ITER)] },
+      refineLines: [refineLine("r1", 3)], // 3 x per-iteration reserved
       fabricateLines: [],
     };
-    expect(freeItemForState(state, "commonOre").toNumber()).toBe(700);
+    expect(freeItemForState(state, "commonOre").toNumber()).toBe((10 - 3) * REFINE_PER_ITER);
   });
 
   it("sums reservations across BOTH refine AND fabricate arrays", () => {
@@ -216,13 +215,13 @@ describe("freeItemForState (state convenience)", () => {
     // must consult both arrays (a fabricate line reserving commonOre would count too).
     const state = {
       inventory: {
-        commonOre: [new Decimal(1000)],
+        commonOre: [new Decimal(10 * REFINE_PER_ITER)],
         titaniumIngot: [new Decimal(10)],
       },
-      refineLines: [refineLine("r1", 4)], // 4 x 100 = 400 commonOre reserved
+      refineLines: [refineLine("r1", 4)], // 4 x per-iteration commonOre reserved
       fabricateLines: [fabricateLine("f1", FAB_KEY, 2)], // 2 x 2 = 4 titaniumIngot reserved
     };
-    expect(freeItemForState(state, "commonOre").toNumber()).toBe(600); // 1000 - 400
+    expect(freeItemForState(state, "commonOre").toNumber()).toBe((10 - 4) * REFINE_PER_ITER);
     expect(freeItemForState(state, "titaniumIngot").toNumber()).toBe(6); // 10 - 4
   });
 
@@ -234,7 +233,7 @@ describe("freeItemForState (state convenience)", () => {
   it("inherits freeItem's clamp: over-reserved / absent-key stock -> 0", () => {
     const state = {
       inventory: {},
-      refineLines: [refineLine("r1", 1)], // reserves 100 of an absent item
+      refineLines: [refineLine("r1", 1)], // reserves one iteration of an absent item
       fabricateLines: [],
     };
     const free = freeItemForState(state, "commonOre");
