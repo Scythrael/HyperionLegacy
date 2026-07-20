@@ -38,6 +38,11 @@
   import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats } from "./game/model";
   import type { EquipFitBlockReason } from "./game/equipment";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
+  // The SAME reusable rarity-bordered card the Warehouse Ship Systems bay uses (D1).
+  // Reused here so a fitted slot's readout shows the piece's identity + granted stats
+  // in EXACTLY the format the bay does, one card component, no second stat renderer to
+  // drift. The Uninstall control is injected into its footer <slot>.
+  import EquipmentTooltip from "./EquipmentTooltip.svelte";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship
@@ -371,21 +376,24 @@
             {#if !selectedMeta.live}
               <p class="ss-note">Reserved for the 0.12.0 combat update. No system to install yet.</p>
             {:else}
-              <!-- Currently installed system (if any) + Uninstall. -->
+              <!-- Currently installed system (if any): the reusable EquipmentTooltip
+                   surfaces its full identity + granted stats INLINE (D1's inline
+                   approach, not a fragile floating hover), with the Uninstall control
+                   injected into the card's footer <slot>. The spare-install list below
+                   is the swap path (install a different spare into this slot). -->
               {#if selectedFitted}
-                <div class="ss-fitted-row">
-                  <div class="ss-fitted-info">
-                    <div class="ss-fitted-name">{pieceDesc(selectedFitted)}</div>
-                    <div class="ss-fitted-sub">{pieceSubline(selectedFitted)}</div>
-                  </div>
-                  <button
-                    class="ss-btn ss-btn-uninstall"
-                    disabled={onMission}
-                    title={onMission ? "Recall the captain first, fitment is locked on mission" : undefined}
-                    on:click={() => handleUninstall(selectedMeta.slotType)}
-                  >
-                    Uninstall
-                  </button>
+                {@const fitted = selectedFitted}
+                <div class="ss-fitted-tt">
+                  <EquipmentTooltip piece={fitted}>
+                    <button
+                      class="ss-btn ss-btn-uninstall"
+                      disabled={onMission}
+                      title={onMission ? "Recall the captain first, fitment is locked on mission" : undefined}
+                      on:click={() => handleUninstall(selectedMeta.slotType)}
+                    >
+                      Uninstall
+                    </button>
+                  </EquipmentTooltip>
                 </div>
               {:else}
                 <p class="ss-note">Slot empty. Install a spare system from storage below.</p>
@@ -731,7 +739,13 @@
     text-align: center;
     padding: 10px 0 2px;
   }
-  .ss-fitted-row,
+  /* Inline fitted-system tooltip wrapper: a little breathing room below the control
+     title. The card supplies its own border/padding, so only margin is needed here. */
+  .ss-fitted-tt {
+    margin: 4px 0 2px;
+  }
+  /* (.ss-fitted-row was retired when the fitted-system readout became the inline
+     EquipmentTooltip; .ss-spare-row keeps this shared row layout for the spares list.) */
   .ss-spare-row {
     display: flex;
     align-items: center;

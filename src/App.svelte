@@ -183,7 +183,13 @@
   // carries { next: <same ref>, reason }). doSalvageEquipment below reassigns state +
   // logs the recovered materials on success, mirroring the do* handler idiom.
   // SalvageRejectReason types the reason->text mapper.
-  import { salvageEquipment, type SalvageRejectReason } from "./lib/game/salvage";
+  //
+  // salvageSalvagedMaterial(state, itemId) is the SECOND salvage model (0.11.0 Task C2):
+  // it consumes ONE unit of a `salvagedMaterial` item (the Damaged Reactor Housing) and
+  // rolls its tiered loot pool for a single drop. The SUCCESS branch additionally carries
+  // `rolled` ({ itemId, tier, quality }) so doSalvageSalvagedMaterial below can narrate the
+  // exact drop it produced. Same discriminated SalvageResult / reject convention.
+  import { salvageEquipment, salvageSalvagedMaterial, type SalvageRejectReason } from "./lib/game/salvage";
   import {
     tick,
     // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
@@ -586,6 +592,11 @@
     // Equipment 0.11.0 Phase D: the NON-stacking ship-system inventory (state.equipment,
     // EquipmentInstance[]), distinct from the stackable "shipEquipment" catalog tab below.
     | "shipSystems"
+    // Salvaged Materials 0.11.0 (Task C2 UI, interim home): the `salvagedMaterial`
+    // inventory category (currently just the Damaged Reactor Housing), tiled like the
+    // Raw/Refined/Components tabs but each tile SELECTS to expose a Salvage-for-loot
+    // action. 0.11.1 relocates this to the Quartermaster facility.
+    | "salvagedMaterials"
     | "shipEquipment"
     | "troopEquipment"
     | "consumables";
@@ -604,6 +615,9 @@
     // renders state.equipment, NOT an ItemCategory grid, so it is absent from
     // WAREHOUSE_CAT_CATEGORIES below on purpose).
     { key: "shipSystems", label: "Ship Systems" },
+    // Salvaged Materials 0.11.0: placed right after Ship Systems (its natural
+    // neighbor, both are equipment-adjacent), before the future stub tabs.
+    { key: "salvagedMaterials", label: "Salvaged Materials" },
     { key: "shipEquipment", label: "Ship Equipment" },
     { key: "troopEquipment", label: "Troop Equipment" },
     { key: "consumables", label: "Consumables" },
@@ -619,6 +633,11 @@
     refined: ["refined"],
     components: ["minorComponent", "majorComponent"],
     shipEquipment: ["shipModule", "shipSystem"],
+    // Salvaged Materials 0.11.0: one category (`salvagedMaterial`). Listing it here lets
+    // warehouseTierGroups build this tab's tier-split tiles through the SAME path the
+    // catalog tabs use; the dedicated render block below (which adds the Salvage action)
+    // reads the resulting warehouseGroups.
+    salvagedMaterials: ["salvagedMaterial"],
   };
 
   // The warehouse TIERS that have their own facility + cap system today (design
@@ -1729,6 +1748,48 @@
     if (!started) return;
     state = next;
     pushLog("Systems Bay expansion started.");
+    doSave();
+  }
+
+  // ── Salvaged Materials tab (0.11.0 Task C2 UI) ────────────────────────────
+  // The currently-selected salvaged-material item id (the tile whose Salvage action
+  // is shown), or null. Distinct from selectedSystemId (that selects a non-stacking
+  // EquipmentInstance; this selects a stackable ITEM id from the quality-bucketed
+  // inventory), so the two tabs never fight over one selection variable.
+  let selectedSalvagedId: string | null = null;
+
+  // Toggle a salvaged-material tile's selection (click the open tile to close it),
+  // the SAME toggle idiom selectSystemTile uses.
+  function selectSalvagedTile(itemId: string) {
+    selectedSalvagedId = selectedSalvagedId === itemId ? null : itemId;
+  }
+
+  // SALVAGE one unit of a salvaged material for a tiered loot roll. salvageSalvagedMaterial
+  // returns a SalvageResult: on reject a same-ref no-op + reason (noneHeld / notSalvagedMaterial),
+  // on success a new state + `recovered` (the deposited amount) + `rolled` (the drop's
+  // item/tier/quality). On success: reassign state, log the roll ("Salvaged <source>:
+  // <drop> xN (<Tier>)"), and persist, the standard do* idiom. Reuses salvageRejectText for
+  // the reject sentence (it already covers both salvaged-material reasons).
+  function doSalvageSalvagedMaterial(itemId: string) {
+    const result = salvageSalvagedMaterial(state, itemId);
+    if (!result.ok) {
+      pushLog(`Cannot salvage material: ${salvageRejectText(result.reason)}.`);
+      return;
+    }
+    state = result.next;
+    // `rolled` is present on this (salvaged-material) path; guard for totality since the
+    // SalvageResult type marks it optional (the equipment-recycle path omits it).
+    const roll = result.rolled;
+    if (roll) {
+      const srcLabel = ITEMS[itemId]?.label ?? itemId;
+      const dropLabel = ITEMS[roll.itemId]?.label ?? roll.itemId;
+      // Amount deposited (always 1 today) read from `recovered` so the log can't drift
+      // from what actually entered inventory.
+      const amount = result.recovered[roll.itemId] ?? 1;
+      // Title-case the raw rarity token ("stellar" -> "Stellar") for the readout.
+      const tierLabel = roll.tier.charAt(0).toUpperCase() + roll.tier.slice(1);
+      pushLog(`Salvaged ${srcLabel}: ${dropLabel} x${amount} (${tierLabel}).`);
+    }
     doSave();
   }
 
@@ -3986,6 +4047,89 @@
                       <span class="systems-salvage-none">Standard-Issue baseline, nothing to salvage.</span>
                     {/if}
                   </EquipmentTooltip>
+                </Panel>
+              {/if}
+            {/if}
+
+            {#if activeWarehouseCat === "salvagedMaterials"}
+              <!-- SALVAGED MATERIALS (0.11.0 Task C2 UI, interim Warehouse home;
+                   0.11.1 moves this to the Quartermaster). The `salvagedMaterial`
+                   category tiled by tier exactly like the catalog tabs (reusing
+                   warehouse-tier / warehouse-grid + warehouseGroups), but each tile
+                   SELECTS to expose a Salvage-for-loot action instead of a hover
+                   tooltip. All rolls go through salvageSalvagedMaterial, so the UI
+                   can't drift from the loot-pool engine. -->
+              {#if warehouseGroups.length === 0}
+                <Panel>
+                  <div class="warehouse-stub">
+                    <div class="warehouse-stub-glyph">♻️</div>
+                    <p>No salvaged materials yet, future content. Broken-down items you strip for parts land here.</p>
+                  </div>
+                </Panel>
+              {:else}
+                <Panel>
+                  {#each warehouseGroups as group (group.tier)}
+                    <div class="warehouse-tier">
+                      <div class="warehouse-tier-head">
+                        <span class="warehouse-tier-label">Tier {group.tier}</span>
+                        <span class="warehouse-tier-line"></span>
+                        <span class="warehouse-tier-cap">{group.items.length} material{group.items.length === 1 ? "" : "s"}</span>
+                      </div>
+                      <div class="warehouse-grid">
+                        {#each group.items as item (item.id)}
+                          {@const count = itemTotal(state.inventory, item.id)}
+                          <!-- Reuse the systems-tile visual (rarity dot + code + corner
+                               value), painting the count in the corner where a system's
+                               quality would sit. Rarity color via warehouseRarityColor
+                               (item rarity, not equipment rarity). -->
+                          <button
+                            type="button"
+                            class="systems-tile"
+                            class:selected={selectedSalvagedId === item.id}
+                            style="--sys-rc: {warehouseRarityColor(item.rarity)};"
+                            title={`${item.label} · ${item.rarity}`}
+                            on:click={() => selectSalvagedTile(item.id)}
+                          >
+                            <span class="systems-tile-dot"></span>
+                            <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
+                            <span class="systems-tile-q">{formatNumber(count)}</span>
+                          </button>
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                </Panel>
+              {/if}
+
+              <!-- SELECTED MATERIAL: the Salvage action + a short readout, mirroring
+                   the Ship Systems tab's inline selected-piece Panel. The Salvage
+                   button disables when none is held (the engine also rejects noneHeld
+                   for safety); the roll result is narrated to the event log. -->
+              {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId]}
+                <!-- Capture the narrowed id into a const so the click closure below
+                     receives a plain `string` (Svelte narrows the template guard, but
+                     an arrow-function callback would otherwise see `string | null`). -->
+                {@const salvageTargetId = selectedSalvagedId}
+                {@const selItem = ITEMS[selectedSalvagedId]}
+                {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
+                {@const selHeld = selCount.gt(0)}
+                <Panel>
+                  <div class="salvaged-action">
+                    <div class="salvaged-action-info">
+                      <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
+                      <div class="salvaged-action-hint">
+                        Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
+                      </div>
+                    </div>
+                    <button
+                      class="buy-btn systems-salvage-btn"
+                      disabled={!selHeld}
+                      title={selHeld ? undefined : "None of this material is held"}
+                      on:click={() => doSalvageSalvagedMaterial(salvageTargetId)}
+                    >
+                      Salvage
+                    </button>
+                  </div>
                 </Panel>
               {/if}
             {/if}
@@ -7195,6 +7339,18 @@
     color: var(--color-danger);
   }
   .systems-salvage-none { font-size: 11px; color: var(--color-text-dim); font-style: italic; }
+
+  /* Salvaged Materials selected-item action row (0.11.0 Task C2 UI): the item name +
+     hint on the left, the Salvage button (danger, a recycle is destructive) on the
+     right. Mirrors the systems-bay-head layout so the two equipment tabs read alike. */
+  .salvaged-action {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .salvaged-action-info { min-width: 0; }
+  .salvaged-action-name { font-size: 14px; font-weight: 700; }
+  .salvaged-action-hint {
+    font-size: 11px; color: var(--color-text-secondary); line-height: 1.45; margin-top: 3px;
+  }
 
   /* tile tooltip, position:fixed so it escapes the scroll container's
      clipping, the same approach the currency-chip tooltip uses */
