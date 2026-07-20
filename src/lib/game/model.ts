@@ -3802,6 +3802,18 @@ export type HomeworldTalentEffect =
   //  placeholder, below, their real mechanic is the Fabricator facility, a
   //  future re-wire.)
   | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number }
+  // 0.11.0 Storage/Salvage (Task C4): the combined Fleet-Admiral salvage talent.
+  // ONE learned node improves BOTH salvage models at once (salvage.ts):
+  //   yieldBonus   is added FLAT onto salvageEquipment's recovery fraction, so a
+  //                recycled spare crafted system returns more of its inputs.
+  //   ceilingBonus is added onto salvageSalvagedMaterial's loot ceiling INDEX, so
+  //                the tiered loot roll can reach a higher rarity tier than the
+  //                player's Fleet Admiral level alone would allow.
+  // Both live on this ONE effect payload (the design's "one combined talent" note),
+  // and salvage.ts reads them straight off this payload via salvageTalentBonus(),
+  // so the tunable values (SALVAGE_TALENT_* consts below) are the single source of
+  // truth, no second copy of the numbers in the salvage engine.
+  | { type: "salvageBoost"; yieldBonus: number; ceilingBonus: number }
   // Radial Skill Web (Task 3): a genuinely-null gateway effect, added to mirror
   // CaptainTalentEffect's own `none` member (Task 2) exactly. Used by the
   // Homeland Defense and Citizenry hubs, which are "learn me first" seeds for
@@ -4066,9 +4078,25 @@ export type HomeworldTalentKey =
   // economy, hub + one existing content node
   | "economyHub"
   | "economyTrickle"
+  // fleetLogistics: the combined Fleet-Admiral salvage talent (0.11.0 Task C4)
+  | "fleetLogisticsSalvage"
   // industry, hub + one existing content node
   | "industryHub"
   | "industryBonusOutput";
+
+// 0.11.0 Storage/Salvage (Task C4): the tunable knobs for the combined salvage
+// talent (fleetLogisticsSalvage below). FIRST-PASS values, TUNABLE here, they are
+// the SINGLE source of truth: the talent def embeds them in its `salvageBoost`
+// effect payload, and salvage.ts reads that payload back (never re-declaring the
+// numbers), so changing them here changes the live bonus with no second edit.
+//   YIELD_BONUS   +0.10 flat onto salvageEquipment's recovery fraction (~10 pts
+//                 more of every recycled system's crafting inputs come back).
+//   CEILING_BONUS +1 loot-tier INDEX onto salvageSalvagedMaterial's roll ceiling
+//                 (unlocks one rarity tier above what the player's Fleet Admiral
+//                 level alone reaches, and clamps to the pool's real top in
+//                 salvage.ts so it can never index past the defined tiers).
+export const SALVAGE_TALENT_YIELD_BONUS = 0.1;
+export const SALVAGE_TALENT_CEILING_BONUS = 1;
 
 export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & { effect: HomeworldTalentEffect }> = {
   // --- fleetLogistics, the rich category ------------------------------
@@ -4143,10 +4171,34 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     cost: 4,
     x: 180,
     y: -120,
-    neighbors: ["fleetLogisticsHub"],
+    // Now ALSO neighbors the salvage node (below): the requisitions node is the
+    // thematic on-ramp to salvage (both turn recovered/redirected material into
+    // fleet reserves), so Salvage Operations hangs one hop past it.
+    neighbors: ["fleetLogisticsHub", "fleetLogisticsSalvage"],
     effect: { type: "rareYieldMult", mult: 0.05 }, // was fleetExtractionYieldMult
     flavor:
       "Standing orders redirect a share of every rare find straight back to the fleet's reserves.",
+  },
+  // 0.11.0 Storage/Salvage (Task C4): the ONE combined Fleet-Admiral salvage
+  // talent. Placed in fleetLogistics (the fleet/requisitions category) one hop
+  // past Fleet Requisitions, both are about routing recovered material back to
+  // the fleet. Its `salvageBoost` effect carries BOTH bumps (recycle yield +
+  // loot ceiling); salvage.ts (salvageTalentBonus) reads them off this payload,
+  // so the SALVAGE_TALENT_* consts above are the only place the values live.
+  fleetLogisticsSalvage: {
+    branch: "fleetLogistics",
+    label: "Salvage Operations",
+    cost: 6,
+    x: 320,
+    y: -200,
+    neighbors: ["fleetLogisticsYield"],
+    effect: {
+      type: "salvageBoost",
+      yieldBonus: SALVAGE_TALENT_YIELD_BONUS,
+      ceilingBonus: SALVAGE_TALENT_CEILING_BONUS,
+    },
+    flavor:
+      "A dedicated salvage corps strips every wreck and spare hull to the bolt, and knows where the rare tech hides.",
   },
   // --- homelandDefense, hub-only gateway stub -------------------------
   homelandDefenseHub: {

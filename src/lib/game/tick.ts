@@ -446,6 +446,11 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
       return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.rareMaterial.label} yield (fleet-wide)`;
     case "passiveTrickle":
       return `+${effect.perTick}/tick passive ${effect.material}`;
+    // 0.11.0 Storage/Salvage (Task C4): the combined salvage talent. Surfaces
+    // BOTH bumps in one tooltip line, the yield as a percentage-point add onto
+    // the recycle recovery, the ceiling as a "+N tier" reach on the loot roll.
+    case "salvageBoost":
+      return `+${(effect.yieldBonus * 100).toFixed(0)}% salvage recovery, +${effect.ceilingBonus} loot tier reach`;
     // Radial Skill Web (Task 3): the gateway-hub effect, mirroring the captain
     // side's `none` case above. Homeland Defense / Citizenry hubs carry
     // `{ type: "none" }` because their categories' real mechanics (a defense /

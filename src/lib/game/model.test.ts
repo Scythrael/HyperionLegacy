@@ -623,8 +623,8 @@ describe("HOMEWORLD_TALENTS, launch set", () => {
   // and Industry carry hub + one content node each.
   it("Fleet Logistics is the rich category; Homeland Defense/Citizenry are hub-only stubs", () => {
     const branches = Object.values(HOMEWORLD_TALENTS).map((t) => t.branch);
-    // fleetLogistics: hub + Slot1/2/3 + Yield = 5 total.
-    expect(branches.filter((b) => b === "fleetLogistics").length).toBe(5);
+    // fleetLogistics: hub + Slot1/2/3 + Yield + Salvage (0.11.0 Task C4) = 6 total.
+    expect(branches.filter((b) => b === "fleetLogistics").length).toBe(6);
     // economy/industry: hub + 1 content node each = 2 total.
     expect(branches.filter((b) => b === "economy").length).toBe(2);
     expect(branches.filter((b) => b === "industry").length).toBe(2);

@@ -35,6 +35,7 @@
 // used across the codebase), so a no-op is unambiguously a no-op.
 //
 // Contents (Functions -> tunables -> types -> action):
+//   salvageTalentBonus                   auto-read FA salvage-talent bonus from state
 //   SALVAGE_FRACTION_MIN / _MAX          the recovery-rate band (rolled per salvage)
 //   SALVAGE_QUALITY_BONUS_PER_TIER       small per-quality-tier yield bonus
 //   SalvageResult                        the discriminated success | reject union
@@ -43,8 +44,40 @@
 
 import Decimal from "break_infinity.js";
 import type { GameState, EquipmentRarity, SalvagedMaterialItemId, SalvageLootTier } from "./model";
-import { BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS } from "./model";
+import { BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS, HOMEWORLD_TALENTS } from "./model";
 import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
+
+// ----------------------------------------------------------------------------
+// salvageTalentBonus (0.11.0 Storage/Salvage, Task C4)
+// ----------------------------------------------------------------------------
+// Resolve the combined Fleet-Admiral salvage talent's live bonus from state.
+// Reads state.unlockedHomeworldTalents the SAME way tick.ts's fleetRareYieldMult
+// does (reduce over the learned keys, discriminate on the effect `type`), so this
+// stays consistent with every other Homeworld-talent-effect read in the codebase.
+//
+// Returns the effect payload's own numbers when the `salvageBoost` node is learned,
+// and {0, 0} otherwise. The values are NOT re-declared here, they are read straight
+// off HOMEWORLD_TALENTS' effect payload (model.ts, seeded by the SALVAGE_TALENT_*
+// consts), so there is exactly ONE source of truth for the tunables. Summing over
+// all learned talents (rather than short-circuiting on the first) is future-proof:
+// if a second salvage-boosting node is ever added, both stack additively with no
+// change here. PURE: reads state, allocates a fresh object, mutates nothing.
+export function salvageTalentBonus(state: GameState): {
+  yieldBonus: number;
+  ceilingBonus: number;
+} {
+  return state.unlockedHomeworldTalents.reduce(
+    (acc, key) => {
+      const effect = HOMEWORLD_TALENTS[key].effect;
+      if (effect.type === "salvageBoost") {
+        acc.yieldBonus += effect.yieldBonus;
+        acc.ceilingBonus += effect.ceilingBonus;
+      }
+      return acc;
+    },
+    { yieldBonus: 0, ceilingBonus: 0 }
+  );
+}
 
 // ----------------------------------------------------------------------------
 // Tunables (the salvage-yield knobs)
@@ -117,9 +150,17 @@ export type SalvageRejectReason =
 //
 // rng defaults to Math.random and is injectable ONLY for tests (see the PARITY
 // BOUNDARY note at the top: this is a live instant action, so a real random roll is
-// correct here). `talentBonus` is the extension point for the LATER FA salvage-yield
-// talent (Task C4): it is added flat onto the fraction and defaults to 0, so wiring
-// the talent later is a one-argument change with no shape churn.
+// correct here).
+//
+// TALENT AUTO-APPLY (Task C4): the combined FA salvage talent's yield bump is folded
+// in INTERNALLY via salvageTalentBonus(state), so the talent ALWAYS takes effect in
+// real play, no UI caller has to remember to pass it. `talentBonus` remains an
+// EXPLICIT ADDITIVE override (defaults to 0) layered ON TOP of the auto-read bonus:
+// real callers pass nothing and get exactly the talent bonus, while tests stay
+// deterministic (they control the talent purely through the state they build, and
+// can still pass an extra flat amount when a test needs one). This is the "add it to
+// whatever the caller passed" option from the task, chosen over making the param the
+// sole hook because it guarantees auto-apply without any caller-side wiring.
 //
 // REJECTS (same-ref no-op + reason) when the target is not a spare crafted system:
 // missing id, fitted piece, or Standard-Issue baseline. Only then does it compute a
@@ -148,10 +189,16 @@ export function salvageEquipment(
 
   // --- Compute the recovery fraction ----------------------------------------
   // band = MIN + rng()*(MAX-MIN)  ->  the uniform roll in [MIN, MAX].
-  // fraction = band + quality bonus + talent bonus. The quality bonus rewards
-  // recycling a better system; the talent bonus is the reserved FA-talent hook.
+  // fraction = band + quality bonus + auto-read talent bonus + explicit override.
+  // The quality bonus rewards recycling a better system; salvageTalentBonus(state)
+  // folds in the learned FA salvage talent automatically (so it always applies in
+  // real play); `talentBonus` is the extra test-override layered on top.
   const band = SALVAGE_FRACTION_MIN + rng() * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
-  const fraction = band + piece.quality * SALVAGE_QUALITY_BONUS_PER_TIER + talentBonus;
+  const fraction =
+    band +
+    piece.quality * SALVAGE_QUALITY_BONUS_PER_TIER +
+    salvageTalentBonus(state).yieldBonus +
+    talentBonus;
 
   // --- Deposit the recovered inputs at quality 0 ----------------------------
   // The blueprint that crafted this piece is guaranteed to exist (a crafted piece
@@ -256,9 +303,16 @@ function weightedPick<T extends { weight: number }>(items: T[], rng: () => numbe
 // rng defaults to Math.random, injectable ONLY for tests (see the parity note above).
 // It makes exactly TWO draws per successful roll: (1) pick the tier among the
 // ceiling-eligible tiers by tier weight, (2) pick the item within that tier by drop
-// weight. `ceilingBonus` is the extension point for the LATER FA salvage talent (Task
-// C4): it is ADDED onto the FA-level base ceiling (raising the reachable tier index)
-// and defaults to 0, so wiring the talent later is a one-argument change with no churn.
+// weight.
+//
+// TALENT AUTO-APPLY (Task C4): the combined FA salvage talent's ceiling bump is folded
+// in INTERNALLY via salvageTalentBonus(state), so the talent ALWAYS raises the loot
+// ceiling in real play, no UI caller has to remember to pass it. `ceilingBonus` remains
+// an EXPLICIT ADDITIVE override (defaults to 0) layered ON TOP of the auto-read bonus
+// (same pattern as salvageEquipment's talentBonus): real callers pass nothing and get
+// exactly the talent's reach, tests control the talent through the state they build and
+// may still pass an extra index. The sum is clamped to the pool's real top index below,
+// so no override or bonus can ever index past the defined tiers.
 //
 // REJECTS (same-ref no-op + reason):
 //   notSalvagedMaterial  itemId is not a `salvagedMaterial` category item (no loot pool)
@@ -288,9 +342,15 @@ export function salvageSalvagedMaterial(
   }
 
   // --- Resolve the ceiling + the eligible tier slice -----------------------
-  // base ceiling (FA level) + talent bonus, clamped to the pool's real top index so a
-  // large bonus can never index past the defined tiers.
-  const rawCeiling = baseCeilingForLevel(state.fleetAdminLevel) + ceilingBonus;
+  // base ceiling (FA level) + auto-read talent ceiling bonus + explicit override,
+  // clamped to the pool's real top index below so a large bonus can never index past
+  // the defined tiers. salvageTalentBonus(state) folds in the learned FA salvage
+  // talent automatically (always applies in real play); `ceilingBonus` is the extra
+  // test-override on top.
+  const rawCeiling =
+    baseCeilingForLevel(state.fleetAdminLevel) +
+    salvageTalentBonus(state).ceilingBonus +
+    ceilingBonus;
   const ceiling = Math.min(Math.max(rawCeiling, 0), pool.length - 1);
   const eligibleTiers: SalvageLootTier[] = pool.slice(0, ceiling + 1);
 

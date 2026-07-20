@@ -22,6 +22,7 @@ import tickSource from "./tick.ts?raw";
 import {
   salvageEquipment,
   salvageSalvagedMaterial,
+  salvageTalentBonus,
   SALVAGE_FRACTION_MIN,
   SALVAGE_FRACTION_MAX,
   SALVAGE_QUALITY_BONUS_PER_TIER,
@@ -36,6 +37,9 @@ import {
   BLUEPRINTS,
   ITEMS,
   SALVAGE_LOOT_POOLS,
+  HOMEWORLD_TALENTS,
+  SALVAGE_TALENT_YIELD_BONUS,
+  SALVAGE_TALENT_CEILING_BONUS,
   type GameState,
   type EquipmentInstance,
   type EquipmentSlotType,
@@ -418,5 +422,99 @@ describe("SALVAGE_LOOT_POOLS: the pool data is well-formed (Task C3)", () => {
         expect(lowestTierItems.has(id)).toBe(false);
       }
     }
+  });
+});
+
+// ============================================================================
+// The combined Fleet-Admiral salvage talent (Task C4)
+// ============================================================================
+// ONE Homeworld talent (fleetLogisticsSalvage) that improves BOTH salvage models:
+// it raises the equipment recycle YIELD and lifts the salvaged-material loot CEILING.
+// salvageTalentBonus(state) reads it from state.unlockedHomeworldTalents, and BOTH
+// salvage functions fold that bonus in INTERNALLY, so the talent applies automatically
+// in real play (no UI caller has to pass anything). These tests pin: the helper's
+// zero/bump contract, the auto-applied recycle-yield increase, the auto-applied
+// ceiling lift, and the talent's presence + shape in the tree.
+
+// A state with the salvage talent learned (injected straight into the unlocked list,
+// bypassing the graph buy-gating the UI enforces, which is irrelevant to the effect read).
+function withSalvageTalent(state: GameState): GameState {
+  return { ...state, unlockedHomeworldTalents: [...state.unlockedHomeworldTalents, "fleetLogisticsSalvage"] };
+}
+
+describe("salvageTalentBonus: zero without the talent, the tuned bumps with it (Task C4)", () => {
+  it("returns {0, 0} when the salvage talent is not learned", () => {
+    const bonus = salvageTalentBonus(freshState()); // freshState has no unlocked talents
+    expect(bonus.yieldBonus).toBe(0);
+    expect(bonus.ceilingBonus).toBe(0);
+  });
+
+  it("returns the SALVAGE_TALENT_* consts when the salvage talent is learned", () => {
+    const bonus = salvageTalentBonus(withSalvageTalent(freshState()));
+    expect(bonus.yieldBonus).toBe(SALVAGE_TALENT_YIELD_BONUS);
+    expect(bonus.ceilingBonus).toBe(SALVAGE_TALENT_CEILING_BONUS);
+  });
+});
+
+describe("salvageEquipment: the learned talent auto-raises recycle yield (Task C4)", () => {
+  it("with the talent learned, the same piece + same rng recovers strictly MORE", () => {
+    // rng()=0 pins the band at its MIN, quality 0 removes the quality bonus, so the
+    // ONLY difference between the two runs is the auto-applied talent yield bonus.
+    // titaniumIngot (input qty 3) floors to 0 at the base fraction but crosses to >=1
+    // once the +yieldBonus is folded in, so the total recovered strictly increases.
+    const piece = makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality: 0, id: "c4-eq" });
+    const baseState = stateWith([piece]);
+
+    const without = salvageEquipment(baseState, "c4-eq", () => 0);
+    const withT = salvageEquipment(withSalvageTalent(baseState), "c4-eq", () => 0);
+    if (!("recovered" in without) || !("recovered" in withT)) throw new Error("expected successful salvages");
+
+    const sum = (rec: Record<string, number>) => Object.values(rec).reduce((a, b) => a + b, 0);
+    expect(sum(withT.recovered)).toBeGreaterThan(sum(without.recovered));
+  });
+});
+
+describe("salvageSalvagedMaterial: the learned talent auto-lifts the loot ceiling (Task C4)", () => {
+  it("at an FA level whose base ceiling stops short of the top, the talent makes the top tier reachable", () => {
+    // FA level 10 reaches base ceiling index 2 (stellar), NOT the index-3 top tier
+    // (radiant) per SALVAGE_CEILING_THRESHOLDS. rng near 1 forces the highest ELIGIBLE
+    // tier, so the rolled tier is a direct read of the current ceiling.
+    const pool = SALVAGE_LOOT_POOLS[HOUSING];
+    const topTier = pool[pool.length - 1];
+    const stellarTier = pool[2];
+    const level = 10;
+
+    // Without the talent: the ceiling caps at stellar, the top tier is unreachable.
+    const without = salvageSalvagedMaterial(stateWithHousing(1, level), HOUSING, seqRng([0.999999, 0]));
+    if (!("rolled" in without) || !without.rolled) throw new Error("expected a roll");
+    expect(without.rolled.tier).toBe(stellarTier.tier);
+
+    // With the talent learned: +ceilingBonus lifts the ceiling to the top tier, and the
+    // bump is applied AUTOMATICALLY (no ceilingBonus argument is passed here).
+    const withT = salvageSalvagedMaterial(withSalvageTalent(stateWithHousing(1, level)), HOUSING, seqRng([0.999999, 0]));
+    if (!("rolled" in withT) || !withT.rolled) throw new Error("expected a roll");
+    expect(withT.rolled.tier).toBe(topTier.tier);
+  });
+});
+
+describe("HOMEWORLD_TALENTS: the combined salvage talent exists with valid shape (Task C4)", () => {
+  it("fleetLogisticsSalvage is a fleetLogistics node with a positive cost and the tuned salvageBoost effect", () => {
+    const node = HOMEWORLD_TALENTS.fleetLogisticsSalvage;
+    expect(node).toBeDefined();
+    expect(node.branch).toBe("fleetLogistics");
+    expect(node.cost).toBeGreaterThan(0);
+    expect(node.isHub ?? false).toBe(false); // a content node, not the branch seed
+    expect(node.flavor.length).toBeGreaterThan(0);
+    // The effect carries BOTH bumps, sourced from the tunable consts (single source of truth).
+    expect(node.effect).toEqual({
+      type: "salvageBoost",
+      yieldBonus: SALVAGE_TALENT_YIELD_BONUS,
+      ceilingBonus: SALVAGE_TALENT_CEILING_BONUS,
+    });
+    // Graph integrity: it neighbors Fleet Requisitions, and that adjacency is symmetric
+    // (the model.test.ts graph-integrity suite proves this table-wide; pinned here too
+    // because this node is the one Task C4 adds).
+    expect(node.neighbors).toContain("fleetLogisticsYield");
+    expect(HOMEWORLD_TALENTS.fleetLogisticsYield.neighbors).toContain("fleetLogisticsSalvage");
   });
 });
