@@ -501,6 +501,52 @@ const MISSION_TICK_EPSILON = 1e-9;
 // hand-duplicated-copy rationale as RESPEC_COST_CREDITS just below.
 export const MAX_LEVEL_UPS_PER_TICK = 10_000;
 
+// foldXpLevelUps: the ONE shared subtract-and-carry level-up loop behind all
+// three XP tracks (captain XP inside tickCaptainMission, Fleet Admiral XP inside
+// applyFleetAdminXp, Crafting XP inside applyCraftingXp). Each track used to
+// inline its OWN byte-for-byte copy of this same while-loop; they are
+// consolidated here so the carry-forward + MAX_LEVEL_UPS_PER_TICK cap semantics
+// live in exactly ONE place and cannot drift apart between tracks.
+//
+// Given a starting xp (Decimal) and level (number), plus a thresholdFor(level)
+// curve (one of xpForNextLevel / xpForNextFleetAdminLevel / craftingXpForNext),
+// it subtracts each crossed threshold and climbs one level per crossing, bounded
+// by MAX_LEVEL_UPS_PER_TICK. Any xp beyond the cap is LEFT in the returned xp to
+// carry forward to a later call (see that constant's comment above for why the
+// cap + carry exist). It returns the drained xp, the new level, and the COUNT of
+// level-ups, so each caller applies its own per-level award at the call site
+// (captain: statPoints += levelUps; FA: adminPoints += levelUps; crafting: no
+// points award). thresholdFor returns Decimal OR number because the three curves
+// differ (the captain/FA curves return number, the crafting curve returns
+// Decimal); Decimal.gte / Decimal.minus accept either, so this is exact for all
+// three, no coercion.
+//
+// BEHAVIOR IS BIT-IDENTICAL to the three former inline loops: thresholdFor is
+// still evaluated twice per iteration (once in the gte condition, once in the
+// minus), the cap counts crossings the same way, and the leftover-xp carry is
+// unchanged. This is pure fold arithmetic over (xp, level): it does NOT touch the
+// closed-form offline==live guarantee each track already has (what must be
+// closed-form is the DELTA each caller feeds in, which is unchanged, see the
+// CLOSED-FORM PARITY TRAP comments at the captain + FA accrual sites).
+//
+// Exported so tick.test.ts can lock the helper's contract directly, the same
+// export-for-tests rationale as applyFleetAdminXp / MAX_LEVEL_UPS_PER_TICK.
+export function foldXpLevelUps(
+  startingXp: Decimal,
+  startingLevel: number,
+  thresholdFor: (level: number) => Decimal | number,
+): { xp: Decimal; level: number; levelUps: number } {
+  let xp = startingXp;
+  let level = startingLevel;
+  let levelUps = 0;
+  while (xp.gte(thresholdFor(level)) && levelUps < MAX_LEVEL_UPS_PER_TICK) {
+    xp = xp.minus(thresholdFor(level));
+    level += 1;
+    levelUps += 1;
+  }
+  return { xp, level, levelUps };
+}
+
 // Exported so App.svelte can display/gate on this exact value (Reset button
 // affordability, modal copy) without a hand-duplicated second copy of the
 // number that could silently drift out of sync with this one.
@@ -1078,13 +1124,13 @@ export function tickCaptainMission(
   // (which the level-up loop then drains by subtracting thresholds).
   const captainXpAwardedThisCall = new Decimal(xpRate).times(wholeTicksElapsed);
   xp = xp.plus(captainXpAwardedThisCall);
-  let levelUpsThisCall = 0;
-  while (xp.gte(xpForNextLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
-    xp = xp.minus(xpForNextLevel(level));
-    level += 1;
-    statPoints += 1;
-    levelUpsThisCall += 1;
-  }
+  // Captain level-ups via the shared fold helper (was an inline subtract-and-carry
+  // loop). Captain XP awards ONE stat point per level, so statPoints climbs by the
+  // level-up count. Behavior-identical to the old loop.
+  const captainLevelUps = foldXpLevelUps(xp, level, xpForNextLevel);
+  xp = captainLevelUps.xp;
+  level = captainLevelUps.level;
+  statPoints += captainLevelUps.levelUps;
 
   // Task 5: award Fleet Admiral XP ONCE per call, for the total whole ticks the
   // mission advanced above, the SAME wholeTicksElapsed counter captain XP uses
@@ -1184,16 +1230,11 @@ export function applyFleetAdminXp(state: GameState, fleetAdminXpDelta: number): 
   const hasBacklog = startingXp.gte(xpForNextFleetAdminLevel(state.fleetAdminLevel));
   if (fleetAdminXpDelta <= 0 && !hasBacklog) return state; // cheap no-op: no new XP this call, and nothing left over from a prior capped call to resolve
 
-  let xp = startingXp;
-  let level = state.fleetAdminLevel;
-  let adminPoints = state.adminPoints;
-  let levelUpsThisCall = 0;
-  while (xp.gte(xpForNextFleetAdminLevel(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
-    xp = xp.minus(xpForNextFleetAdminLevel(level));
-    level += 1;
-    adminPoints += 1;
-    levelUpsThisCall += 1;
-  }
+  // Fleet Admiral level-ups via the shared fold helper (was an inline
+  // subtract-and-carry loop). FA XP awards ONE admin point per level, so
+  // adminPoints climbs by the level-up count. Behavior-identical to the old loop.
+  const { xp, level, levelUps } = foldXpLevelUps(startingXp, state.fleetAdminLevel, xpForNextFleetAdminLevel);
+  const adminPoints = state.adminPoints + levelUps;
 
   return { ...state, fleetAdminXp: xp, fleetAdminLevel: level, adminPoints };
 }
@@ -1237,14 +1278,11 @@ export function applyCraftingXp(state: GameState, craftingXpDelta: number): Game
   const hasBacklog = startingXp.gte(craftingXpForNext(currentLevel));
   if (craftingXpDelta <= 0 && !hasBacklog) return state; // cheap no-op: no new XP this call, and no leftover backlog from a prior capped call
 
-  let xp = startingXp;
-  let level = currentLevel;
-  let levelUpsThisCall = 0;
-  while (xp.gte(craftingXpForNext(level)) && levelUpsThisCall < MAX_LEVEL_UPS_PER_TICK) {
-    xp = xp.minus(craftingXpForNext(level));
-    level += 1;
-    levelUpsThisCall += 1;
-  }
+  // Crafting level-ups via the shared fold helper (was an inline subtract-and-carry
+  // loop). Crafting has NO points system yet, so a level-up bumps craftingLevel
+  // alone (the level-up count is intentionally unused here). Behavior-identical to
+  // the old loop.
+  const { xp, level } = foldXpLevelUps(startingXp, currentLevel, craftingXpForNext);
 
   return { ...state, craftingXp: xp, craftingLevel: level };
 }

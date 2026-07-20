@@ -30,6 +30,7 @@ import {
   OFFLINE_CAP_DAYS_BASE,
   canBuildFacilityUpgrade,
   MAX_LEVEL_UPS_PER_TICK,
+  foldXpLevelUps,
 } from "./tick";
 import Decimal from "break_infinity.js";
 import {
@@ -2350,6 +2351,58 @@ describe("chooseCaptainSpec", () => {
     const { next, success } = chooseCaptainSpec(state, 999, "resourcefulness");
     expect(success).toBe(false);
     expect(next).toBe(state);
+  });
+});
+
+// foldXpLevelUps is the ONE shared subtract-and-carry level-up loop that captain
+// XP (tickCaptainMission), Fleet Admiral XP (applyFleetAdminXp), and crafting XP
+// (applyCraftingXp) all now route through. These tests lock the helper's contract
+// directly (the three call-site behaviors are additionally covered by their own
+// describe blocks below and the captain-XP tests above). A synthetic threshold
+// curve is used so the assertions do not depend on any real XP curve's tuning.
+describe("foldXpLevelUps (shared XP level-up fold)", () => {
+  it("returns the input xp/level unchanged with zero level-ups when xp is below the threshold", () => {
+    const result = foldXpLevelUps(new Decimal(40), 3, () => 100);
+    expect(result.xp.equals(40)).toBe(true);
+    expect(result.level).toBe(3);
+    expect(result.levelUps).toBe(0);
+  });
+
+  it("climbs multiple levels on a flat threshold, subtracting each crossing and carrying the remainder", () => {
+    // 250 xp against a flat 100/level curve = 2 level-ups (100 + 100), 50 carried.
+    const result = foldXpLevelUps(new Decimal(250), 1, () => 100);
+    expect(result.levelUps).toBe(2);
+    expect(result.level).toBe(3); // 1 + 2
+    expect(result.xp.equals(50)).toBe(true); // 250 - 100 - 100
+  });
+
+  it("evaluates the threshold PER LEVEL, so a rising curve consumes the correct amount at each step", () => {
+    // Rising curve thresholdFor(level) = 100 * level. From level 1 with 650 xp:
+    // level 1 needs 100 (550 left), level 2 needs 200 (350 left), level 3 needs
+    // 300 (50 left), level 4 needs 400 > 50 -> stop. 3 level-ups, 50 carried.
+    const result = foldXpLevelUps(new Decimal(650), 1, (level) => 100 * level);
+    expect(result.levelUps).toBe(3);
+    expect(result.level).toBe(4);
+    expect(result.xp.equals(50)).toBe(true);
+  });
+
+  it("caps at MAX_LEVEL_UPS_PER_TICK level-ups, leaving the excess xp to carry forward", () => {
+    // Flat 1/level curve: xp far exceeds the cap's worth of thresholds, so exactly
+    // MAX_LEVEL_UPS_PER_TICK levels resolve and the rest stays in xp (the carry the
+    // cap exists to protect, see MAX_LEVEL_UPS_PER_TICK's comment).
+    const excess = 500;
+    const startingXp = new Decimal(MAX_LEVEL_UPS_PER_TICK + excess);
+    const result = foldXpLevelUps(startingXp, 1, () => 1);
+    expect(result.levelUps).toBe(MAX_LEVEL_UPS_PER_TICK);
+    expect(result.level).toBe(1 + MAX_LEVEL_UPS_PER_TICK);
+    expect(result.xp.equals(excess)).toBe(true); // MAX_LEVEL_UPS_PER_TICK subtracted, remainder carried
+  });
+
+  it("treats xp exactly equal to the threshold as a level-up (gte, not gt)", () => {
+    const result = foldXpLevelUps(new Decimal(100), 1, () => 100);
+    expect(result.levelUps).toBe(1);
+    expect(result.level).toBe(2);
+    expect(result.xp.equals(0)).toBe(true);
   });
 });
 
