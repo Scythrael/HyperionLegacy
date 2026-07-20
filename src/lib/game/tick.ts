@@ -77,6 +77,10 @@ import {
   // equipment twin of materialAtCap, consulted by both fabricate gates below to refuse
   // STARTING a new equipment craft when the spare pool is full.
   equipmentAtCap,
+  // Equipment 0.11.0 Task B2: the equipment-storage upgrade track. The cap-raising
+  // action (canUpgradeEquipmentStorage / startEquipmentStorageUpgrade, below) reads
+  // the NEXT rung's cost/duration off this to spend + start a timed upgrade process.
+  EQUIPMENT_STORAGE_RUNGS,
 } from "./model";
 import { fuelNeeded } from "./fuel";
 // Equipment 0.11.0 (Task 19): the Fabricator's equipment mint. computeItemLevel derives a
@@ -2502,6 +2506,94 @@ export function startFacilityUpgrade(
 }
 
 // ============================================================================
+// Equipment storage upgrade (Equipment 0.11.0, Storage/Salvage Task B2)
+// (docs/plans/2026-07-18-storage-salvage-0.11.0-design.md §1;
+//  docs/plans/2026-07-18-0.11.0-completion-plan.md Task B2.)
+//
+// Raises the SPARE Ship Systems storage cap by ONE rung. MIRRORS the material-
+// warehouse cap upgrade (a TIMED process that spends materials at start and bumps a
+// stored LEVEL at completion), but drives the STANDALONE GameState.equipmentStorageLevel
+// B1 chose over a facility, so it cannot reuse startFacilityUpgrade (that bumps
+// facilities[key].level). It instead follows this file's own "process-driven action"
+// convention (the SAME pair-of-functions shape startResearch / startFabricateJob /
+// startShipBuild use): a pure predicate + an action that delegates to startProcess with
+// the dedicated "equipmentStorageUpgrade" kind and the "equipmentStorageLevelUp" effect
+// (resolveProcesses applies the +1). NO UI here (the X / max readout + the upgrade button
+// are Task D2's Warehouse tab); this is the DATA + LOGIC only.
+//
+// The rung's cap MULTIPLIER is applied by equipmentStorageCap (model.ts) on read, NOT
+// here, so the cap stays COMPUTED from the level and can never drift (the B1/B2 anti-
+// drift invariant).
+// ============================================================================
+
+// PURE predicate: could the player start the NEXT equipment-storage upgrade RIGHT NOW?
+// `ok: true` means startEquipmentStorageUpgrade would succeed; `ok: false` carries a
+// `reason` naming the FIRST failing gate. Gate order mirrors canBuildFacilityUpgrade:
+// cheap structural gates (track maxed / an upgrade already in flight) first, then the
+// material affordability gate LAST (the gate most likely to be transiently unmet).
+export function canUpgradeEquipmentStorage(state: GameState): { ok: boolean; reason?: string } {
+  const level = state.equipmentStorageLevel ?? 0; // defensive ?? 0, same as equipmentStorageCap
+  const rung = EQUIPMENT_STORAGE_RUNGS[level]; // the NEXT rung (undefined = fully upgraded)
+  // Track maxed: no rung defined past the current level, so the cap cannot climb further.
+  if (!rung) {
+    return { ok: false, reason: "Equipment storage is fully upgraded" };
+  }
+
+  // SEQUENTIAL gate: at most ONE equipment-storage upgrade in flight at a time. This is
+  // the equipment-storage twin of canBuildFacilityUpgrade's "Upgrade already in progress"
+  // gate, and it closes the SAME rung-skip exploit: because the level only bumps at
+  // process COMPLETION, EQUIPMENT_STORAGE_RUNGS[level] stays the SAME (cheaper) rung while
+  // an upgrade is mid-flight, so without this gate a player could start the cheap rung 0
+  // twice and land at level 2, skipping rung 1's higher cost. Keyed on the effect type
+  // (not a facility id, since this is not a facility), so a facility upgrade in flight
+  // never matches here and vice versa.
+  const upgradeInFlight = state.activeProcesses.some(
+    (p) => p.effect.type === "equipmentStorageLevelUp"
+  );
+  if (upgradeInFlight) {
+    return { ok: false, reason: "Upgrade already in progress" };
+  }
+
+  // Material gate (LAST): every material must be affordable against the reservation-aware
+  // FREE pool (inventory MINUS what active craft lines have reserved), the SAME
+  // freeItemForState gate canBuildFacilityUpgrade uses so an upgrade can never spend
+  // ore/ingots a craft line is holding. An absent inventory key reads as 0 via freeItem's
+  // own floor. The surfaced `have` is the FREE amount, so "Need X (have Y)" reflects what
+  // the player can actually spend right now.
+  for (const itemId of Object.keys(rung.materials)) {
+    const need = rung.materials[itemId];
+    const have = freeItemForState(state, itemId);
+    if (have.lt(need)) {
+      const itemLabel = ITEMS[itemId]?.label ?? itemId;
+      return { ok: false, reason: `Need ${need.toString()} ${itemLabel} (have ${have.toString()})` };
+    }
+  }
+
+  return { ok: true };
+}
+
+// The ACTION. Starts the next equipment-storage upgrade IF canUpgradeEquipmentStorage
+// approves it, by delegating to startProcess: the rung's materials are deducted
+// ATOMICALLY at start and an "equipmentStorageUpgrade" TimedProcess is pushed whose
+// completion effect { type: "equipmentStorageLevelUp" } bumps the level by 1
+// (resolveProcesses applies it). Returns { next, started }, the SAME shape/naming
+// startFacilityUpgrade uses. On any failed gate it is a same-reference no-op
+// ({ next: state, started: false }), matching startProcess's own reject convention.
+export function startEquipmentStorageUpgrade(state: GameState): { next: GameState; started: boolean } {
+  const check = canUpgradeEquipmentStorage(state);
+  if (!check.ok) {
+    return { next: state, started: false };
+  }
+  // Safe: canUpgradeEquipmentStorage.ok guarantees the rung is in range (it returns a
+  // reason otherwise). No credits gate (unlike a facility rung); equipment storage is
+  // priced purely in materials this pass.
+  const rung = EQUIPMENT_STORAGE_RUNGS[state.equipmentStorageLevel ?? 0];
+  return startProcess(state, "equipmentStorageUpgrade", rung.materials, rung.durationTicks, {
+    type: "equipmentStorageLevelUp",
+  });
+}
+
+// ============================================================================
 // Refinery, single refine jobs (Phase 1, Task 11)
 // (docs/plans/2026-07-11-facility-framework-refinery-design.md §6).
 //
@@ -4374,6 +4466,11 @@ export function resolveProcesses(
   // value-identical (only the addEquipment / addShip branches below re-clone / increment).
   let equipment = state.equipment;
   let nextEquipmentId = state.nextEquipmentId;
+  // Equipment 0.11.0 (Task B2): the spare-storage LEVEL, bumped by a completing
+  // equipmentStorageUpgrade process (the equipmentStorageLevelUp branch below). Seeded
+  // from the incoming state, so a call that completes no storage upgrade returns it
+  // value-identical (only that one branch increments it).
+  let equipmentStorageLevel = state.equipmentStorageLevel;
   let fleetAdminXpDelta = 0;
   // Crafting Level XP (Equipment 0.11.0, Phase 3): accumulates CRAFTING_XP_PER_DURATION_TICK
   // * durationTicks for every PRODUCTION job (refine / fabricate / ship-build) that completes
@@ -4566,6 +4663,15 @@ export function resolveProcesses(
       // NOTHING, then drop the job. Mirrors lineJobSpec's "unknown recipe -> inert" guard; it can
       // only arise from a tampered save, never a real play path, so parity is unaffected, both
       // paths see the identical corrupt state and both no-op.)
+    } else if (process.effect.type === "equipmentStorageLevelUp") {
+      // Equipment 0.11.0 (Task B2): a completed equipment-storage upgrade bumps the
+      // spare-storage LEVEL by 1, so equipmentStorageCap (model.ts) derives the NEXT
+      // rung's higher cap on read. The cap is NEVER stored, only the level, so it can
+      // never drift (the anti-drift invariant). Deterministic (no rng), fires exactly
+      // ONCE on the completion that drops the process, so it is closed-form like
+      // facilityLevelUp: one big offline resolve and many small live steps land the
+      // identical level (see the offline==live parity test).
+      equipmentStorageLevel += 1;
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -4640,6 +4746,11 @@ export function resolveProcesses(
       // defensively-seeded [] / 1, which is the correct grow-on-demand result.
       equipment,
       nextEquipmentId,
+      // Equipment 0.11.0 (Task B2): the spare-storage level, raised by any completing
+      // equipmentStorageUpgrade this call. Value-identical to state.equipmentStorageLevel
+      // when no storage upgrade completed (seeded from it, only the equipmentStorageLevelUp
+      // branch increments it).
+      equipmentStorageLevel,
       activeProcesses: stillActive,
     },
     fleetAdminXpDelta,

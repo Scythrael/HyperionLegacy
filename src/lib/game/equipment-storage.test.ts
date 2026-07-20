@@ -21,7 +21,13 @@
 // here. This suite only proves the cap BLOCKS and the exclusions are exact.
 // ============================================================================
 import { describe, it, expect } from "vitest";
-import { canFabricate, canStartLine } from "./tick";
+import {
+  canFabricate,
+  canStartLine,
+  canUpgradeEquipmentStorage,
+  startEquipmentStorageUpgrade,
+  resolveProcesses,
+} from "./tick";
 import {
   freshState,
   generateStandardIssue,
@@ -29,10 +35,12 @@ import {
   spareEquipmentCount,
   equipmentAtCap,
   EQUIPMENT_STORAGE_CAP_BASE,
+  EQUIPMENT_STORAGE_RUNGS,
   type GameState,
   type EquipmentInstance,
   type EquipmentSlotType,
 } from "./model";
+import { serialize, deserialize, migrate } from "./save";
 import Decimal from "break_infinity.js";
 
 // A tier-1 EQUIPMENT blueprint whose output is a system (equipmentOutput present),
@@ -154,5 +162,164 @@ describe("fabricate gates enforce the equipment storage cap (Task B1)", () => {
     };
     expect(canFabricate(s, "frameSegmentBp")).toEqual({ ok: true });
     expect(canStartLine(s, "fabricate", "frameSegmentBp", 1)).toEqual({ ok: true });
+  });
+});
+
+// ============================================================================
+// Task B2: the storage cap is UPGRADABLE (rungs + the timed purchase mechanism).
+// (docs/plans/2026-07-18-0.11.0-completion-plan.md Task B2.)
+//
+// B1 shipped an EMPTY rung table (base 25 at every level). B2 fills it with a
+// first-pass DOUBLING track and adds the upgrade action: a TIMED process (mirroring
+// the material-warehouse cap upgrade) that spends the rung's materials at start and
+// bumps equipmentStorageLevel by one at completion, so equipmentStorageCap derives a
+// higher cap on read. These tests cover: (1) each REACHED rung multiplies the base
+// cap; (2) the action spends + queues when affordable, resolves to a level bump + a
+// higher cap, is a no-op when unaffordable, is sequential (one in flight), and cannot
+// exceed the max rung; (3) a save at an upgraded level round-trips to the raised cap.
+// ============================================================================
+
+// The FULL cost of the NEXT rung for a state at `level`, as a plain-number map, so a
+// fixture can stock EXACTLY (or one short of) what the upgrade needs. Reads the real
+// rung table so the test tracks any retune of the first-pass costs automatically.
+function rungCostAt(level: number): Record<string, number> {
+  const rung = EQUIPMENT_STORAGE_RUNGS[level];
+  const out: Record<string, number> = {};
+  for (const itemId of Object.keys(rung.materials)) {
+    out[itemId] = rung.materials[itemId].toNumber();
+  }
+  return out;
+}
+
+// A fresh state stocked with the given per-item amounts (quality-0 buckets), everything
+// else default. Used to make the NEXT storage upgrade exactly affordable / unaffordable.
+function stockedState(stock: Record<string, number>): GameState {
+  const s = freshState();
+  const inventory: Record<string, Decimal[]> = { ...s.inventory };
+  for (const itemId of Object.keys(stock)) {
+    inventory[itemId] = [new Decimal(stock[itemId])];
+  }
+  return { ...s, inventory };
+}
+
+describe("equipmentStorageCap: each reached rung multiplies the base cap (Task B2)", () => {
+  it("climbs base -> base*mult0 -> base*mult0*mult1 ... as the level rises, and never past the max rung", () => {
+    // Expected cap at a level = base folded through one storageCapMult per REACHED rung
+    // (index < level), the SAME reached-rungs loop equipmentStorageCap itself runs. Built
+    // independently here from the rung table so it verifies the helper, not just restates it.
+    const expectedCapAt = (level: number): number => {
+      let cap = EQUIPMENT_STORAGE_CAP_BASE;
+      for (let i = 0; i < level && i < EQUIPMENT_STORAGE_RUNGS.length; i++) {
+        cap *= EQUIPMENT_STORAGE_RUNGS[i].storageCapMult;
+      }
+      return cap;
+    };
+
+    // Level 0 is the base (mirrors the material-cap "base at level 0" test).
+    expect(equipmentStorageCap({ ...freshState(), equipmentStorageLevel: 0 })).toBe(EQUIPMENT_STORAGE_CAP_BASE);
+
+    // Every reachable level climbs by exactly its rung's multiplier.
+    for (let level = 1; level <= EQUIPMENT_STORAGE_RUNGS.length; level++) {
+      const s: GameState = { ...freshState(), equipmentStorageLevel: level };
+      expect(equipmentStorageCap(s)).toBe(expectedCapAt(level));
+      // Sanity: the cap strictly rose from the previous level (mult > 1 on every rung).
+      expect(equipmentStorageCap(s)).toBeGreaterThan(equipmentStorageCap({ ...freshState(), equipmentStorageLevel: level - 1 }));
+    }
+
+    // First-pass shape guard: the shipped track doubles 25 -> 50 -> 100 -> 200 -> 400.
+    expect(EQUIPMENT_STORAGE_RUNGS.length).toBe(4);
+    expect(equipmentStorageCap({ ...freshState(), equipmentStorageLevel: 4 })).toBe(400);
+
+    // Over-max level cannot read past the finite track (guarded loop): cap stays at the max.
+    expect(equipmentStorageCap({ ...freshState(), equipmentStorageLevel: 99 })).toBe(400);
+  });
+});
+
+describe("startEquipmentStorageUpgrade: timed purchase raises the level + cap (Task B2)", () => {
+  it("when affordable, spends the rung materials at start, queues the timed process, and resolves to level+1 with a higher cap", () => {
+    const cost = rungCostAt(0); // { titaniumIngot, commonOre } for rung 0
+    const s = stockedState(cost);
+    expect(canUpgradeEquipmentStorage(s)).toEqual({ ok: true });
+    expect(equipmentStorageCap(s)).toBe(EQUIPMENT_STORAGE_CAP_BASE); // level 0 before
+
+    const started = startEquipmentStorageUpgrade(s);
+    expect(started.started).toBe(true);
+    // Materials deducted ATOMICALLY at start (spent from the stocked buckets to 0).
+    for (const itemId of Object.keys(cost)) {
+      expect(started.next.inventory[itemId]?.[0]?.toNumber() ?? 0).toBe(0);
+    }
+    // One equipmentStorageUpgrade process queued; the level has NOT bumped yet (bumps at completion).
+    const proc = started.next.activeProcesses.find((p) => p.kind === "equipmentStorageUpgrade");
+    expect(proc).toBeTruthy();
+    expect(proc!.effect.type).toBe("equipmentStorageLevelUp");
+    expect(proc!.durationTicks).toBe(EQUIPMENT_STORAGE_RUNGS[0].durationTicks);
+    expect(started.next.equipmentStorageLevel).toBe(0);
+    expect(equipmentStorageCap(started.next)).toBe(EQUIPMENT_STORAGE_CAP_BASE);
+
+    // Resolve to completion: the level bumps 0 -> 1 and the cap climbs to the rung-0 cap.
+    const resolved = resolveProcesses(started.next, EQUIPMENT_STORAGE_RUNGS[0].durationTicks);
+    expect(resolved.next.equipmentStorageLevel).toBe(1);
+    expect(equipmentStorageCap(resolved.next)).toBe(EQUIPMENT_STORAGE_CAP_BASE * EQUIPMENT_STORAGE_RUNGS[0].storageCapMult);
+    // No storage-upgrade process left in flight after completion.
+    expect(resolved.next.activeProcesses.some((p) => p.kind === "equipmentStorageUpgrade")).toBe(false);
+  });
+
+  it("blocks (same-ref no-op) when the materials are unaffordable, with a clear reason", () => {
+    const cost = rungCostAt(0);
+    // Stock ONE short on the first material so the affordability gate fails.
+    const firstItem = Object.keys(cost)[0];
+    const shortStock = { ...cost, [firstItem]: cost[firstItem] - 1 };
+    const s = stockedState(shortStock);
+
+    const check = canUpgradeEquipmentStorage(s);
+    expect(check.ok).toBe(false);
+    expect(check.reason).toContain("Need");
+
+    const started = startEquipmentStorageUpgrade(s);
+    expect(started.started).toBe(false);
+    expect(started.next).toBe(s); // same reference (no-op), matching startProcess's reject convention
+  });
+
+  it("is SEQUENTIAL: with an upgrade already in flight, a second is refused (guards the rung-skip exploit)", () => {
+    // Stock DOUBLE rung-0's cost so affordability alone would allow a second start; the
+    // in-flight gate (not affordability) must be what refuses it.
+    const cost = rungCostAt(0);
+    const doubled: Record<string, number> = {};
+    for (const itemId of Object.keys(cost)) doubled[itemId] = cost[itemId] * 2;
+    const s = stockedState(doubled);
+
+    const first = startEquipmentStorageUpgrade(s);
+    expect(first.started).toBe(true);
+
+    expect(canUpgradeEquipmentStorage(first.next)).toEqual({ ok: false, reason: "Upgrade already in progress" });
+    const second = startEquipmentStorageUpgrade(first.next);
+    expect(second.started).toBe(false);
+    expect(second.next).toBe(first.next);
+  });
+
+  it("cannot exceed the max rung: at the top level the action is a no-op with a fully-upgraded reason", () => {
+    const maxLevel = EQUIPMENT_STORAGE_RUNGS.length;
+    // Stock plenty of everything the rungs ever cost, so ONLY the maxed gate can refuse.
+    const s: GameState = { ...stockedState({ titaniumIngot: 100000, commonOre: 1000000 }), equipmentStorageLevel: maxLevel };
+    expect(canUpgradeEquipmentStorage(s)).toEqual({ ok: false, reason: "Equipment storage is fully upgraded" });
+    const started = startEquipmentStorageUpgrade(s);
+    expect(started.started).toBe(false);
+    expect(started.next).toBe(s);
+  });
+});
+
+describe("equipment storage level round-trips through serialize/migrate (Task B2)", () => {
+  it("a save at an upgraded level loads back to the SAME level and the raised cap", () => {
+    const upgraded: GameState = { ...freshState(), equipmentStorageLevel: 2 };
+    const expectedCap = equipmentStorageCap(upgraded); // 25 * 2 * 2 = 100
+
+    const raw = serialize(upgraded, Date.now());
+    const save = deserialize(raw);
+    expect(save).not.toBeNull();
+    const loaded = migrate(save!);
+
+    expect(loaded.equipmentStorageLevel).toBe(2);
+    expect(equipmentStorageCap(loaded)).toBe(expectedCap);
+    expect(expectedCap).toBe(100); // first-pass shape guard (doubling track)
   });
 });

@@ -1373,7 +1373,7 @@ export interface CaptainState {
 // tuned FA-XP source. Its completion effect is the NEW `addShip` ProcessEffect (a
 // ship is NOT an inventory item, so it cannot reuse addItem). One build slot this
 // pass (shipBuildSlotCount, tick.ts).
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild";
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -1422,7 +1422,15 @@ export type ProcessEffect =
   // is no stackable output to grant. Like unlockBlueprint/addShip it carries NO Decimal (blueprintKey is a
   // plain string), so hydrateDecimals (save.ts) skips it via its `"amount" in effect` guard
   // and it round-trips through JSON as {type,blueprintKey} strings.
-  | { type: "addEquipment"; blueprintKey: string };
+  | { type: "addEquipment"; blueprintKey: string }
+  // Equipment 0.11.0 (Task B2, Storage/Salvage): a completed EQUIPMENT-STORAGE upgrade
+  // process bumps state.equipmentStorageLevel by ONE, so equipmentStorageCap derives the
+  // NEXT rung's higher cap on read. This is the equipment-storage twin of facilityLevelUp:
+  // that effect bumps a FACILITY's level; this one bumps the STANDALONE equipmentStorageLevel
+  // field B1 deliberately chose over a facility (see EQUIPMENT_STORAGE_RUNGS). It carries NO
+  // payload (the single target field is fixed), so like facilityLevelUp it holds NO Decimal
+  // and round-trips through JSON as {type} only (hydrateDecimals skips it, no "amount" key).
+  | { type: "equipmentStorageLevelUp" };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
@@ -3247,16 +3255,80 @@ export function seedStandardIssueForShip(
 // the effective cap.
 export const EQUIPMENT_STORAGE_CAP_BASE = 25;
 
+// One rung of the equipment-storage upgrade track = the requirements to reach the
+// NEXT storage level. Shape MIRRORS the material warehouse's FacilityUpgradeDef
+// (materials + durationTicks + a storageCapMult), so an equipment-storage upgrade
+// reads like every other storage-cap upgrade in the game:
+//   - storageCapMult : multiplies the base cap ONCE when this rung is REACHED
+//     (equipmentStorageCap folds one per reached rung, EXACTLY like tierCap folds a
+//     warehouse rung's { storageCapMult }). Flat here (not nested in an `effect`)
+//     because this standalone track carries ONLY a cap effect, so B1 kept the field
+//     top-level rather than reproduce FacilityUpgradeEffect's union.
+//   - materials    : spent ATOMICALLY at upgrade START (startEquipmentStorageUpgrade
+//     delegates to startProcess, the SAME deduct-at-start the warehouse upgrade uses).
+//   - durationTicks: the upgrade is TIMED (a TimedProcess), mirroring the warehouse /
+//     fuel-depot cap upgrades, NOT an instant buy. See EQUIPMENT_STORAGE_RUNGS below.
+export interface EquipmentStorageRung {
+  storageCapMult: number;
+  materials: Record<string, Decimal>;
+  durationTicks: number;
+}
+
 // The equipment-storage upgrade RUNGS: each reached rung multiplies the base cap by
 // its storageCapMult, EXACTLY like a material warehouse track's { storageCapMult }
-// rungs (which tick.ts tierCap reads off the facility level). STUB / EMPTY this task:
-// Task B2 fills this array with the real rung data (mults, and its own cost/label
-// surface). An empty table means NO rung can be reached, so equipmentStorageCap
-// returns the base at EVERY level, i.e. exactly 25 until B2 lands. The stored
-// GameState.equipmentStorageLevel is the 0-based count of PURCHASED rungs;
-// equipmentStorageCap multiplies in ONE mult per reached rung (index < level), so
-// Task B2 only has to APPEND rung objects here, no consumer changes.
-export const EQUIPMENT_STORAGE_RUNGS: { storageCapMult: number }[] = [];
+// rungs (which tick.ts tierCap reads off the facility level). B1 shipped this EMPTY
+// (base 25 at every level); Task B2 (this task) fills it with the first-pass track.
+//
+// MECHANISM MIRRORED (documented design choice, task B2 §2): the material warehouse
+// raises its cap via a TIMED facility-upgrade process (startFacilityUpgrade pushes a
+// facilityUpgrade TimedProcess whose completion bumps the facility LEVEL). B1
+// deliberately stored equipment storage as a STANDALONE GameState.equipmentStorageLevel
+// (NOT a facility, so the frozen v29 migration already seeds it), so this track cannot
+// literally reuse startFacilityUpgrade (that bumps facilities[key].level). Instead it
+// follows THIS codebase's established "add a process-driven action" convention (the
+// SAME shape researchProject / fabricateJob / shipBuild each used): a dedicated
+// TimedProcessKind ("equipmentStorageUpgrade") + a ProcessEffect ("equipmentStorageLevelUp")
+// + a canX/startX pair (tick.ts) that delegate to the shared startProcess engine. The
+// player experience is therefore IDENTICAL to a warehouse cap upgrade (spend materials,
+// wait durationTicks, level rises, cap climbs), which is why the upgrade is TIMED, not an
+// instant buy. A DIFFERENT choice (instant credits-purchase) was rejected because every
+// existing storage-cap upgrade in the game is timed; matching them keeps the feel
+// consistent (task B2 self-review: "matches the existing storage-upgrade pattern").
+//
+// FIRST-PASS TUNABLE (device-check stage does real balance): a SHORT finite 4-rung
+// track that DOUBLES the cap each rung (mult 2, mirroring the warehouse doubling), so
+// the cap climbs 25 -> 50 -> 100 -> 200 -> 400. Cost = titaniumIngot (the equipment-tier
+// refined material equipment itself is built from, so the storage bay closes an
+// equipment-economy loop the way the refinery track closes an ore loop) + a commonOre
+// base, BOTH escalating with the level, and an escalating durationTicks in the
+// warehouse/fuel-depot ballpark. GENERATED by a loop so every rung is pure formula (no
+// hand-tuned magic numbers to drift), exactly like buildWarehouseT1Upgrades.
+export const EQUIPMENT_STORAGE_RUNGS: EquipmentStorageRung[] = buildEquipmentStorageRungs();
+
+// Builds the finite equipment-storage upgrade track. Rung i (level i -> i+1):
+//   - storageCapMult 2 : doubles the cap (25 * 2^(i+1) after reaching rung i).
+//   - materials        : titaniumIngot 20 * 2^i + commonOre 500 * 2^i, so the cost
+//     roughly tracks the cap being unlocked (steeper gear the higher you climb),
+//     the SAME "cost scales with the cap" posture warehouseT1CapAtLevel encodes.
+//   - durationTicks    : 60 + 30*i (60, 90, 120, 150), escalating, TUNABLE placeholder.
+// Kept as a named builder (not an inline literal) so the formula is the single source
+// of truth and extending the track is a one-line COUNT bump, mirroring the warehouse.
+function buildEquipmentStorageRungs(): EquipmentStorageRung[] {
+  const RUNG_COUNT = 4; // first-pass; a doubling track needs few rungs to matter
+  const rungs: EquipmentStorageRung[] = [];
+  for (let i = 0; i < RUNG_COUNT; i++) {
+    const scale = 2 ** i; // 1, 2, 4, 8: cost grows with the cap being unlocked
+    rungs.push({
+      storageCapMult: 2, // doubles the cap, like every warehouse/fuel-depot storage rung
+      materials: {
+        titaniumIngot: new Decimal(20 * scale),
+        commonOre: new Decimal(500 * scale),
+      },
+      durationTicks: 60 + 30 * i, // 60, 90, 120, 150 (warehouse/fuel-depot ballpark)
+    });
+  }
+  return rungs;
+}
 
 // equipmentStorageCap(state): the CURRENT spare-storage cap, DERIVED (never stored)
 // from EQUIPMENT_STORAGE_CAP_BASE times each REACHED rung's storageCapMult, the SAME
