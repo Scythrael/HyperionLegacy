@@ -44,6 +44,10 @@ Salvage items you no longer need for parts. NOT a flat percentage refund (boring
 - Rarity mapping: do salvaged materials carry the gear rarity ladder (Derelict..Radiant), or their own scale?
 - Where does the salvage ACTION live: on each item in the Warehouse view (see the 0.11.0 Warehouse Ship Systems view, which is the surface it would attach to), a dedicated Salvage facility, or both?
 
+## Future extension (NOT 0.11.0): salvage feeds research
+
+Salvage will eventually yield items/tech that REQUIRE research and help UNLOCK research options (recover an unknown device from a wreck, research it, unlock a new branch). That research-unlock layer is a LATER feature. For 0.11.0, exclusive salvage items are simply "reserved for a future recipe" drops; the research-unlock hook comes later.
+
 ## Ties to other work
 
 - **Material Lines (0.11.1):** the Damaged Reactor Housing is reserved with a "salvageable for rare materials in a future update" tooltip. Salvaging activates it.

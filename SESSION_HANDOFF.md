@@ -1,18 +1,18 @@
 # Session Handoff — Hyperion Legacy (fleet-admiral)
 
-**Updated:** 2026-07-18, 0.11.0 COMPLETE and merged to staging (very long session). Purpose: let the next session resume with zero context loss. Read this FIRST, then the memory files and the docs it points to.
+**Updated:** 2026-07-18, 0.11.0 EQUIPMENT ENGINE done + tested 10/10; 0.11.0 being EXPANDED to feature-complete before prod (design LOCKED, build not started). Very long session. Read this FIRST, then the memory files and the docs it points to.
 
 ---
 
 ## 0. TL;DR (read this, then the sections you need)
 
 - **Production (crystalisoft.com) is at 0.10.2** (`origin/main` = `8e3b26b`). Stable, public, do NOT touch without explicit user go-ahead.
-- **Staging (devpreview.crystalisoft.com) is at `4485f10`** = **0.11.0 COMPLETE** (equipment engine, version-bumped, holistic-reviewed clean, merged). The user is doing final device testing here before promoting to prod. Pushing vetted work to staging is standing-authorized; promoting to prod is NOT (needs explicit user go each time).
-- **0.11.0 = ship equipment (systems) + gear crafting. DONE.** Holistic review passed with zero blocking issues; the only fix was 3 stray `--` comment separators. Two non-blocking follow-ups logged (see Section 6). The ONLY thing left for 0.11.0 is the user's explicit go-ahead to promote staging to prod.
-- **NEXT FEATURE is 0.11.1 "Material Lines"** (designed direction locked, doc not yet written). See Section 5.
-- Branch: `feat/ship-equipment-0.11.0` (= staging tip `4485f10`). `main` is a clean ancestor (promotion = `git checkout main; git merge --ff-only feat/ship-equipment-0.11.0; npm run check; git push origin main`).
-- `SAVE_VERSION` is **28**. `APP_VERSION` is **"0.11.0"**. Tests: **836 passing, 31 files**.
-- The user hates losing context across sessions. The memory files + this doc are the safety net. Trust them, but verify any file/line/flag still exists before acting on it.
+- **Staging (devpreview.crystalisoft.com) is at `4485f10`** = the 0.11.0 EQUIPMENT ENGINE (version-bumped, holistic-reviewed clean, user-tested "10/10"). But 0.11.0 is NOT being promoted yet: the user chose to ship it FEATURE-COMPLETE, not in layers.
+- **0.11.0 scope EXPANDED (user decision, 2026-07-18).** Before promoting, 0.11.0 must also include: (1) item cleanup (merge `refinedMaterial` into `titaniumIngot` = "Titanium Ingot"; REMOVE the dead `components` item), (2) LEGIBILITY (proper names, Ship Systems visible in the Warehouse, slots showing installed system + granted stats), (3) capped + upgradable Ship Systems STORAGE, (4) full SALVAGE (equipment recycle for materials + salvaged-material loot rolls). Design is LOCKED in three docs (see Section 4); the BUILD has not started.
+- **Roadmap RESHUFFLED (user, 2026-07-18):** 0.11.0 = Ship Systems feature-complete (above). **0.11.1 = Help tab + UI/desk-OS restructure.** 0.11.2 = Material Lines (mission items to themed crafting; design done, on branch `feat/material-lines-0.11.1`, RENUMBER to 0.11.2). Later = full salvage economy extensions (salvage-feeds-research) + combat (0.12.0).
+- Branch: `feat/ship-equipment-0.11.0` (= staging tip `4485f10`), PLUS 4 design-doc commits on top (not yet pushed to staging): the legibility/storage-salvage/salvaging-notes docs. `main` is a clean ancestor.
+- `SAVE_VERSION` is **28** (will bump again for the 0.11.0-completion migration). `APP_VERSION` is **"0.11.0"**. Tests: **836 passing, 31 files**.
+- The user hates losing context across sessions AND ships feature-complete (no layered releases). The memory files + this doc are the safety net. Trust them, but verify any file/line/flag still exists before acting on it.
 
 ---
 
@@ -69,9 +69,20 @@ Built and gate-green on the branch (see TaskList / git log for the per-task comm
 
 ---
 
-## 5. NEXT: 0.11.1 "Material Lines" (design direction LOCKED, doc not yet written)
+## 5. NEXT
 
-The dead-end-ores question grew into a real feature. Current state: crafting is fully playable off just 2 ores (`commonOre` Titanium + `uncommonMaterial` Polysilicate); the other ~10 mission items (from the Lunar Mine / Salvage / Forage runs) have NO refine recipe and no sink. 0.11.1 gives all 12 mission items a purpose.
+### 5a. IMMEDIATE: finish 0.11.0 to feature-complete (design LOCKED, BUILD not started)
+
+This is the actual next build. Three committed design docs on branch `feat/ship-equipment-0.11.0` (on top of staging tip `4485f10`, not yet pushed) fully specify it:
+- `docs/plans/2026-07-18-ship-systems-legibility-0.11.0-design.md` — names (Titanium Ingot merge, remove dead `components`), Ship Systems visible in the Warehouse, slots show installed system + granted stats, Fabricator labels crafts by real name.
+- `docs/plans/2026-07-18-storage-salvage-0.11.0-design.md` — capped + upgradable Ship Systems storage (reuse the material-tab `storageCapMult` rung pattern); equipment recycle-salvage (consume a spare system, return a variable ~30-40% of its recipe inputs); salvaged-material loot salvage (Damaged Reactor Housing = renamed `intactReactorCore` reclassified to a new "salvaged material" category + own Warehouse tab; tiered rarity loot roll reusing the mission-loot machinery, progression-gated ceiling up to Radiant; exclusive salvage items DEFINED + droppable but RESERVED with honest tooltips; ONE FA salvage talent). ALL data changes under ONE migration + a SAVE_VERSION bump.
+- `docs/plans/2026-07-18-salvaging-design-notes.md` — the fuller/future salvage vision + BALANCE RULE: salvage supplements, never replaces, missions/refining/fabricating (super-rare refined/component drops; steep top-tier odds). Salvage-feeds-research is a LATER extension.
+
+RESOLVED design calls (build to these): loot tiers map to gear rarity names (standard..radiant + reserved above); exclusive items reserved this patch; one combined FA salvage talent; storage cap base 25 via multiplier rungs. NEXT STEP: writing-plans for this whole scope, then subagent-driven build, gate green, push to staging, USER device-tests, THEN promote 0.11.0 to prod.
+
+### 5b. THEN 0.11.1 = Help + UI/desk-OS restructure. THEN 0.11.2 = "Material Lines" (below; design LOCKED, doc written on branch `feat/material-lines-0.11.1`, RENUMBER to 0.11.2)
+
+The dead-end-ores question grew into a real feature. Current state: crafting is fully playable off just 2 ores (`commonOre` Titanium + `uncommonMaterial` Polysilicate); the other ~10 mission items (from the Lunar Mine / Salvage / Forage runs) have NO refine recipe and no sink. Material Lines gives all 12 mission items a purpose. NOTE: the Damaged Reactor Housing is now handled by 0.11.0 salvage (not reserved by Material Lines), and `refinedMaterial` is merged into `titaniumIngot` by 0.11.0, so the Material Lines doc's references to those need reconciling when it is built.
 
 USER-LOCKED design decisions (2026-07-18):
 - **Model: "themed by system."** Each ship system is crafted from its thematically-matched material lines, so every mission supplies different slots and all four missions matter. Structural ores feed holds; heavy metals + a salvaged core feed reactors; electronics/coils feed FTL drives; organics/exotics feed the spec-utility sensor rigs.
