@@ -48,6 +48,7 @@ import {
   type CaptainMissionState,
   type MissionKey,
   type TimedProcess,
+  type TimedProcessKind,
   type ProcessEffect,
   type EquipmentInstance,
 } from "./model";
@@ -2606,6 +2607,60 @@ describe("applyCraftingXp (Equipment 0.11.0, Phase 3)", () => {
     expect(result.craftingLevel).toBe(4);
     expect(result.craftingXp.equals(remainder)).toBe(true);
   });
+});
+
+// Characterization lock for the per-kind XP routing in resolveProcesses. Both XP
+// axes (Fleet Admiral XP and crafting XP) are decided per TimedProcessKind, and
+// this table pins the EXACT contribution of a single completed process of EVERY
+// kind on BOTH axes. It exists so the blacklist->Record convergence (and any
+// future change to which kinds award which XP) cannot silently flip a kind: if a
+// row here disagrees with the code, this test fails loudly. Keep one row per
+// TimedProcessKind member; a new kind should be added here with an explicit
+// expectation the same tick it is added to the union.
+describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), characterization lock", () => {
+  const withProcesses = (activeProcesses: TimedProcess[]) => ({
+    ...freshState(),
+    activeProcesses,
+  });
+  // One effect per kind (payload is irrelevant to the XP routing, which keys only
+  // off process.kind, but each kind is paired with a shape its completion accepts).
+  const effectForKind: Record<TimedProcessKind, ProcessEffect> = {
+    refineJob: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(1) },
+    facilityUpgrade: { type: "facilityLevelUp", facility: "refinery" },
+    fuelRefineJob: { type: "addFuel", amount: new Decimal(50) },
+    researchProject: { type: "unlockBlueprint", key: "someBlueprint" },
+    fabricateJob: { type: "addItem", itemId: "alloy", amount: new Decimal(1) },
+    shipBuild: { type: "addShip", typeKey: "prospectorMiner" },
+    equipmentStorageUpgrade: { type: "equipmentStorageLevelUp" },
+    docksExpansion: { type: "docksCapacityUp" },
+  };
+  // Expected contribution of ONE completed process of each kind. FA XP lumps the
+  // full durationTicks; crafting XP lumps CRAFTING_XP_PER_DURATION_TICK * duration.
+  // `fa` / `crafting` here are booleans (does this kind feed that axis today).
+  const expectations: Record<TimedProcessKind, { fa: boolean; crafting: boolean }> = {
+    refineJob: { fa: true, crafting: true },
+    facilityUpgrade: { fa: true, crafting: false },
+    fuelRefineJob: { fa: false, crafting: false },
+    researchProject: { fa: false, crafting: false },
+    fabricateJob: { fa: false, crafting: true },
+    shipBuild: { fa: false, crafting: true },
+    equipmentStorageUpgrade: { fa: true, crafting: false },
+    docksExpansion: { fa: true, crafting: false },
+  };
+
+  const D = 30; // durationTicks used for every single-process case
+
+  for (const kind of Object.keys(expectations) as TimedProcessKind[]) {
+    const { fa, crafting } = expectations[kind];
+    it(`${kind}: FA XP ${fa ? "awarded" : "none"}, crafting XP ${crafting ? "awarded" : "none"} on completion`, () => {
+      const state = withProcesses([
+        { id: "proc-1", kind, remainingTicks: D, durationTicks: D, effect: effectForKind[kind] },
+      ]);
+      const { fleetAdminXpDelta, craftingXpDelta } = resolveProcesses(state, D); // exactly completes it
+      expect(fleetAdminXpDelta).toBe(fa ? D : 0);
+      expect(craftingXpDelta).toBe(crafting ? CRAFTING_XP_PER_DURATION_TICK * D : 0);
+    });
+  }
 });
 
 describe("resolveProcesses, crafting XP on completed production jobs (Equipment 0.11.0, Phase 3)", () => {

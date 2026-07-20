@@ -547,6 +547,49 @@ export function foldXpLevelUps(
   return { xp, level, levelUps };
 }
 
+// PROCESS_XP_AWARDS: the SINGLE source of truth for which TimedProcessKind feeds
+// which XP axis when a process COMPLETES. This previously lived as TWO separate
+// inline conditionals in resolveProcesses of OPPOSITE polarity: a BLACKLIST for
+// Fleet Admiral XP (award unless the kind was one of four) and a WHITELIST for
+// crafting XP (award only if the kind was one of three). That pairing was a trap:
+// adding a NEW TimedProcessKind would SILENTLY inherit FA XP (it is not on the
+// blacklist) while SILENTLY getting no crafting XP (it is not on the whitelist),
+// with nothing forcing a deliberate decision on either axis.
+//
+// This exhaustive Record removes the trap. Because it is typed
+// Record<TimedProcessKind, ...>, adding a kind to the union WITHOUT adding its row
+// here is a COMPILE ERROR, so every new kind must declare, on the spot, whether it
+// grants Fleet Admiral XP and whether it grants crafting XP. The values below
+// reproduce the two former conditionals EXACTLY (locked by the per-kind
+// characterization test in tick.test.ts):
+//   - fleetAdmin: the old FA blacklist EXCLUDED fuelRefineJob / researchProject /
+//     fabricateJob / shipBuild (additive / automated / blueprint-gated economies
+//     that must not perturb the tuned FA-XP curve), so those four are false and
+//     every other kind is true.
+//   - crafting: the old whitelist INCLUDED only refineJob / fabricateJob /
+//     shipBuild (the "you produced an item or hull" kinds), so only those three
+//     are true. This DELIBERATELY differs from the FA set: fabricateJob + shipBuild
+//     feed crafting but NOT FA (crafting is the axis those producing jobs are meant
+//     to feed), while facilityUpgrade feeds FA but NOT crafting (building
+//     infrastructure is not crafting an item).
+// Closed-form parity is unaffected: each award still fires exactly once, on the
+// completion tick that drops the process (see the parity tests).
+//
+// ⚠️ DESIGN NOTE (carried over): fabricateJob granting NO FA XP is a deliberate
+// call (a blueprint-gated 120-300-tick automated craft would be a large FA-XP
+// injection that skews progression, matching researchProject more than refineJob).
+// If fabrication should ever feed FA XP, flip fabricateJob.fleetAdmin here.
+const PROCESS_XP_AWARDS: Record<TimedProcessKind, { fleetAdmin: boolean; crafting: boolean }> = {
+  refineJob:               { fleetAdmin: true,  crafting: true },
+  facilityUpgrade:         { fleetAdmin: true,  crafting: false },
+  fuelRefineJob:           { fleetAdmin: false, crafting: false },
+  researchProject:         { fleetAdmin: false, crafting: false },
+  fabricateJob:            { fleetAdmin: false, crafting: true },
+  shipBuild:               { fleetAdmin: false, crafting: true },
+  equipmentStorageUpgrade: { fleetAdmin: true,  crafting: false },
+  docksExpansion:          { fleetAdmin: true,  crafting: false },
+};
+
 // Exported so App.svelte can display/gate on this exact value (Reset button
 // affordability, modal copy) without a hand-duplicated second copy of the
 // number that could silently drift out of sync with this one.
@@ -4842,47 +4885,17 @@ export function resolveProcesses(
       const current = facilities[facility] ?? { level: 0 };
       facilities = { ...facilities, [facility]: { ...current, level: current.level + 1 } };
     }
-    // Fleet Admiral XP lump award, EXCLUDES fuelRefineJob (F2), researchProject (R3),
-    // fabricateJob (Fabricator F2), AND shipBuild (Shipyard S3). All four are additive/
-    // automated economies that must NOT perturb the tuned FA-XP curve, so each completes
-    // with zero FA XP; every OTHER process
-    // kind (refineJob / facilityUpgrade) keeps the "durationTicks lumped on completion"
-    // award. ⚠️ fabricateJob is a DESIGN DECISION flagged to the controller: unlike its
-    // refine twin (a tiny-duration Phase-1 manual job that keeps the award), a fabricate
-    // craft is a blueprint-gated 120-300-tick automated-order job, lumping its full
-    // durationTicks would be a large FA-XP injection that skews progression, and it matches
-    // researchProject (also blueprint-gated) more than refineJob. Flip this (drop the
-    // fabricateJob clause) + the TimedProcessKind comment together if fabrication should feed
-    // FA XP. Excluding them also keeps the closed-form FA-XP parity trivially intact (they
-    // contribute 0 either way).
-    if (
-      process.kind !== "fuelRefineJob" &&
-      process.kind !== "researchProject" &&
-      process.kind !== "fabricateJob" &&
-      process.kind !== "shipBuild"
-    ) {
+    // Fleet Admiral XP + crafting XP lump awards on completion, both decided by the
+    // ONE per-kind policy table PROCESS_XP_AWARDS (see its comment above for why the
+    // two axes differ, and why a single exhaustive Record replaced the former
+    // opposite-polarity blacklist + whitelist so a new kind cannot silently inherit
+    // one axis but not the other). Each award lumps the full durationTicks once, on
+    // the completion tick, closed-form exactly as before (see the parity tests).
+    const xpAward = PROCESS_XP_AWARDS[process.kind];
+    if (xpAward.fleetAdmin) {
       fleetAdminXpDelta += process.durationTicks;
     }
-    // Crafting Level XP (Equipment 0.11.0, Phase 3, Task 8): a completed PRODUCTION job
-    // ALSO grants crafting XP = CRAFTING_XP_PER_DURATION_TICK * durationTicks. This is a
-    // POSITIVE whitelist of the three "you crafted an item/hull" kinds (refineJob /
-    // fabricateJob / shipBuild), DELIBERATELY a DIFFERENT set than the FA-XP award above:
-    //   - It INCLUDES fabricateJob + shipBuild (the FA award EXCLUDES both, to protect the
-    //     tuned FA curve; crafting XP is the axis those producing jobs are MEANT to feed).
-    //   - It EXCLUDES facilityUpgrade (building infrastructure, not crafting an item), and
-    //     fuelRefineJob / researchProject (automated economies, not player crafting).
-    // A whitelist (not a blacklist) so a FUTURE producing kind must OPT IN explicitly rather
-    // than silently inheriting crafting XP. ⚠️ DESIGN DECISION flagged to the controller: the
-    // task text said "whichever award FA XP today" but ALSO explicitly enumerated "refine,
-    // fabricate/craft-line, ship-build"; those two don't match (fabricate/ship-build award no
-    // FA XP), so this follows the explicit enumeration, crafting XP tracks item/hull
-    // production. Closed-form: each producing process fires this exactly ONCE, on the
-    // completion that drops it, so one big resolve == many small (see the parity test).
-    if (
-      process.kind === "refineJob" ||
-      process.kind === "fabricateJob" ||
-      process.kind === "shipBuild"
-    ) {
+    if (xpAward.crafting) {
       craftingXpDelta += CRAFTING_XP_PER_DURATION_TICK * process.durationTicks;
     }
   }
