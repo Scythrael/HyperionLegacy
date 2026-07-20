@@ -17,7 +17,11 @@
   // app.css), so they are safe stable tokens; the remaining rungs use fixed hex,
   // matching App.svelte's existing warehouseRarityColor posture.
   // ============================================================================
-  import type { EquipmentRarity } from "./game/model";
+  // Imported in the MODULE script (runs before the instance script), so the instance
+  // script below reuses these same bindings instead of re-importing them (a duplicate
+  // import across the two scripts is a compile error).
+  import type { EquipmentRarity, EquipmentInstance } from "./game/model";
+  import { EQUIPMENT_SLOTS, BLUEPRINTS, DEFAULT_EQUIPMENT_VARIETY } from "./game/model";
 
   export function equipmentRarityColor(rarity: EquipmentRarity): string {
     switch (rarity) {
@@ -36,6 +40,63 @@
       case "constellar":
         return "#f472b6"; // rose: the PARALLEL legendary flavor (shares the tier, distinct color)
     }
+  }
+
+  // ============================================================================
+  // equipmentIcon: the SINGLE source of truth for a system's display glyph, keyed
+  // by its VARIETY (the flavor family within a slot), so both the Ship Systems
+  // tiles (App.svelte) and this tooltip render ONE mapping instead of two that
+  // could drift, exactly like equipmentRarityColor above.
+  //
+  // WHY emoji placeholders: final art is a later polish pass. These are chosen to
+  // differentiate at a GLANCE, distinct silhouettes across the four live slots
+  // (holds vs drives vs cores vs rigs) AND within each slot (the three varieties).
+  // ============================================================================
+
+  // Per-VARIETY glyphs. The 12 keys are every variety across the 4 live slots
+  // (cargoBay / ftlDrive / reactorCore / specUtility). Grouped by slot for review.
+  const EQUIPMENT_VARIETY_ICON: Record<string, string> = {
+    // Cargo Bay holds (storage silhouettes):
+    prospectorHold: "⛏️", // prospecting-leaning hold
+    balancedHold: "📦",   // the neutral box (the slot's default variety)
+    haulerHold: "🏗️",    // heavy-hauler frame
+    // FTL Drives (propulsion):
+    sprintDrive: "🚀",   // speed-first
+    economyDrive: "⛽",  // fuel-efficiency-first
+    balancedDrive: "🧭", // even split
+    // Reactor Cores (power):
+    highOutputCore: "⚛️", // raw output
+    efficientCore: "🔋",  // efficiency / low draw
+    balancedCore: "⚖️",  // the balanced middle (the slot's default variety)
+    // Spec Utility rigs (prospecting tools):
+    yieldRig: "💎",        // extraction yield
+    surveyRig: "📡",       // sensors / survey
+    refineryFeedRig: "🧪", // material-quality feed
+  };
+
+  // Fallback glyph per SLOT, used only if a variety is somehow unmapped (a hand-
+  // edited save, or a future variety added before its icon). Keeps a tile from
+  // ever rendering blank.
+  const SLOT_ICON_FALLBACK: Record<string, string> = {
+    cargoBay: "📦",
+    ftlDrive: "🚀",
+    reactorCore: "⚛️",
+    specUtility: "🛠️",
+  };
+
+  // Resolve a piece's VARIETY key: a crafted piece derives it from the blueprint
+  // that minted it (equipmentOutput.varietyKey); a Standard-Issue baseline (no
+  // blueprint) uses the slot's blessed default variety, the SAME derivation the
+  // tooltip's `name` and App.svelte's equipmentOutputLabel use.
+  function resolveVarietyKey(piece: EquipmentInstance): string | null {
+    if (piece.blueprintKey === null) return DEFAULT_EQUIPMENT_VARIETY[piece.slotType] ?? null;
+    return BLUEPRINTS[piece.blueprintKey]?.equipmentOutput?.varietyKey ?? null;
+  }
+
+  export function equipmentIcon(piece: EquipmentInstance): string {
+    const variety = resolveVarietyKey(piece);
+    if (variety !== null && EQUIPMENT_VARIETY_ICON[variety] !== undefined) return EQUIPMENT_VARIETY_ICON[variety];
+    return SLOT_ICON_FALLBACK[piece.slotType] ?? "🛰️"; // final fallback: a generic system glyph
   }
 </script>
 
@@ -60,8 +121,9 @@
   // rows slot in, so combat gear reuses this exact card without a rewrite. No
   // weapon/secondary content is invented now (current systems carry none).
   // ============================================================================
-  import type { EquipmentInstance } from "./game/model";
-  import { EQUIPMENT_SLOTS, BLUEPRINTS } from "./game/model";
+  // EquipmentInstance, EQUIPMENT_SLOTS and BLUEPRINTS are imported in the MODULE
+  // script above and are in scope here (Svelte module-context bindings are visible
+  // to the instance script), so they are not re-imported (that would be a duplicate).
 
   // The piece to render. Required, the whole component is a function of it.
   export let piece: EquipmentInstance;
@@ -140,11 +202,12 @@
   <!-- HEADER: name + quality badge (left); rarity grade + slot system (right). -->
   <div class="et-hd">
     <div class="et-nm">
+      <span class="et-icon">{equipmentIcon(piece)}</span>
       <span class="et-name-text">{name}</span>
       <span class="et-q">Q{piece.quality}</span>
     </div>
     <div class="et-type">
-      {rarityLabel} Grade<b>{slotLabel} System</b>
+      {rarityLabel} Grade · iL {piece.iLevel}<b>{slotLabel} System</b>
     </div>
   </div>
 
@@ -215,6 +278,12 @@
     align-items: center;
     gap: 7px;
     min-width: 0;
+  }
+  /* The per-variety glyph, sat just before the name (identity cue mirroring the tile). */
+  .et-icon {
+    flex: 0 0 auto;
+    font-size: 15px;
+    line-height: 1;
   }
   /* Name tinted the rarity color (the mockup's centerpiece cue). */
   .et-name-text {

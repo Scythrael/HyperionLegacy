@@ -50,8 +50,8 @@ describe("migrate, tickDurationSeconds backfill", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -89,8 +89,8 @@ describe("migrate, research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -263,8 +263,8 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -360,8 +360,8 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -466,8 +466,8 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -555,8 +555,8 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -628,8 +628,8 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -691,8 +691,8 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
     expect(itemTotal(migrated.inventory, "titaniumIngot").equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -761,8 +761,8 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -1553,8 +1553,8 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
     expect(migrated.nextShipId).toBe(original.nextShipId);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -1761,8 +1761,8 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.missionsCompleted.longOreRun.equals(3)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -2045,8 +2045,8 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     expect(migrated.discovered).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -2210,7 +2210,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(29);
+    expect(deserialized!.version).toBe(30);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2231,8 +2231,8 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(migrated.facilities).toEqual(original.facilities);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -2360,8 +2360,8 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     });
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -2527,8 +2527,8 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     expect(migrated.facilities.missionControl).toEqual({ level: 2 }); // preserved, NOT reset to level 1
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -2718,8 +2718,8 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
     expect(blueprintResearchable(migratedTwice, "frameSegmentBp")).toBe(true); // still playable
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -2909,8 +2909,8 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
     expect(migratedTwice.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -3102,8 +3102,8 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
     expect(played.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -3279,8 +3279,8 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
     expect(played.facilities.shipyard).toEqual({ level: 0 });
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -3422,15 +3422,17 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     const save: SaveFile = { version: 26, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
     const migrated: any = migrate(save);
 
-    expect(migrated.equipment).toEqual([{ id: "equip-1", slotType: "reactor", fittedToShipId: null }]); // preserved
+    // Preserved through the chain; the v29->v30 step backfills the new iLevel field (floor 1) onto
+    // this pre-iLevel piece, every other field rides through untouched.
+    expect(migrated.equipment).toEqual([{ id: "equip-1", slotType: "reactor", fittedToShipId: null, iLevel: 1 }]);
     expect(migrated.nextEquipmentId).toBe(2); // NOT reset to 1
     expect(migrated.craftingLevel).toBe(3); // NOT reset to 1
     expect(migrated.craftingXp instanceof Decimal).toBe(true);
     expect(migrated.craftingXp.equals(150)).toBe(true); // the string is revived, not reset to 0
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 });
 
@@ -3546,7 +3548,7 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
       { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: 2 },
     ];
     save.state.equipment = [
-      { id: "equip-99", slotType: "cargoBay", rarity: "standard", ascension: "none", quality: 0, blueprintKey: null, implicitStats: { cargoCapacity: 0 }, rolledStats: {}, mass: 0, powerDraw: 0, durabilityMax: 100, durability: 100, fittedToShipId: "ship-1" },
+      { id: "equip-99", slotType: "cargoBay", rarity: "standard", ascension: "none", quality: 0, iLevel: 1, blueprintKey: null, implicitStats: { cargoCapacity: 0 }, rolledStats: {}, mass: 0, powerDraw: 0, durabilityMax: 100, durability: 100, fittedToShipId: "ship-1" },
     ];
     save.state.nextEquipmentId = 100;
     const migrated: any = migrate(save);
@@ -3610,9 +3612,10 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     // itemTotal equals pre-migration titaniumIngot (14) + refinedMaterial (25) = 39.
     expect(itemTotal(migrated.inventory, "titaniumIngot").toNumber()).toBe(39);
 
-    // A re-serialize round-trip confirms the reconciled state now stamps version 29.
+    // A re-serialize round-trip confirms the reconciled state now stamps the CURRENT version
+    // (a v28 save chains all the way through the iLevel backfill at v29->v30).
     const roundTripped = deserialize(serialize(migrated, 0));
-    expect(roundTripped!.version).toBe(29);
+    expect(roundTripped!.version).toBe(30);
     expect(roundTripped!.version).toBe(SAVE_VERSION);
 
     // Task B1 (equipment storage cap): the SAME v28->v29 body seeds the new
@@ -3670,8 +3673,8 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     }
   });
 
-  it("current SAVE_VERSION is 29", () => {
-    expect(SAVE_VERSION).toBe(29);
+  it("current SAVE_VERSION is 30", () => {
+    expect(SAVE_VERSION).toBe(30);
   });
 
   it("freshState seeds equipmentStorageLevel 0 (Task B1), matching the migration's seed on old saves", () => {
@@ -3679,6 +3682,78 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     // This is the freshState twin of the migration seed asserted above, so a new save
     // and a migrated old save reach the IDENTICAL level-0 shape.
     expect(freshState().equipmentStorageLevel).toBe(0);
+  });
+});
+
+describe("migrate, equipment iLevel backfill (v29 -> v30)", () => {
+  // A genuine v29 save whose equipment pieces LACK the new `iLevel` field (it was computed at
+  // generation then discarded before this feature). `equipmentOverride` lets each test supply the
+  // pieces it cares about; every OTHER field is a minimal-but-valid shape so hydrateDecimals() at
+  // the end of migrate() has the fields it reads.
+  function makeV29Save(equipmentOverride: any[]): SaveFile {
+    const state: any = {
+      gameTimeSeconds: 12345, tickDurationSeconds: 1, credits: "500", unlockedHomeworldTalents: [],
+      fleetAdminXp: "0", fleetAdminLevel: 1, adminPoints: 0,
+      inventory: { commonOre: ["10"] },
+      discovered: ["commonOre"],
+      facilities: { refinery: { level: 1 }, warehouseT1: { level: 1 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } },
+      activeProcesses: [], nextProcessId: 1,
+      ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+      shipStorageCapacity: 8, nextShipId: 2, fuel: "900", researchedBlueprints: [],
+      refineLines: [], fabricateLines: [], nextCraftLineId: 1,
+      lifetimeStats: { itemsGathered: {}, itemsRefined: {}, itemsCrafted: {}, missionsCompleted: {}, creditsEarned: "0", captainXpAwarded: "0", fleetAdminXpAwarded: "0" },
+      captains: [{ id: 1, label: "Captain 1", xp: "0", level: 1, statPoints: 0, spec: null, unlockedCaptainTalents: [], mission: null }],
+      equipment: equipmentOverride, nextEquipmentId: 99, craftingLevel: 1, craftingXp: "0",
+      equipmentStorageLevel: 0,
+    };
+    return { version: 29, created_at: 0, last_saved_at: 0, game_time_seconds: 12345, state };
+  }
+
+  // A well-formed pre-iLevel EquipmentInstance (NO iLevel field) for the given blueprintKey.
+  function pieceNoILevel(id: string, blueprintKey: string | null): any {
+    return {
+      id, slotType: "cargoBay", rarity: blueprintKey === null ? "standard" : "radiant",
+      ascension: "none", quality: blueprintKey === null ? 0 : 4, blueprintKey,
+      implicitStats: { cargoCapacity: 0 }, rolledStats: {}, mass: 0, powerDraw: 0,
+      durabilityMax: 100, durability: 100, fittedToShipId: "ship-1",
+    };
+  }
+
+  it("backfills a baseline (blueprintKey null) to the Standard-Issue iLevel floor (1)", () => {
+    const save = makeV29Save([pieceNoILevel("equip-1", null)]);
+    const migrated: any = migrate(save);
+    expect(migrated.equipment[0].iLevel).toBe(1); // STANDARD_ISSUE_ILEVEL floor
+  });
+
+  it("backfills a crafted piece (blueprintKey set, true iLevel unrecoverable) to the documented modest floor (1)", () => {
+    const save = makeV29Save([pieceNoILevel("equip-2", "haulerHoldBp")]);
+    const migrated: any = migrate(save);
+    expect(migrated.equipment[0].iLevel).toBe(1); // CRAFTED backfill floor (dev-preview test items)
+  });
+
+  it("PRESERVES an iLevel that is already present (idempotent: never clobbers a stored value)", () => {
+    const piece = pieceNoILevel("equip-3", "haulerHoldBp");
+    piece.iLevel = 84; // a piece minted AFTER the feature already carries its true iLevel
+    const save = makeV29Save([piece]);
+    const migrated: any = migrate(save);
+    expect(migrated.equipment[0].iLevel).toBe(84);
+  });
+
+  it("backfills a MIXED pool coherently and lands at the current version", () => {
+    const save = makeV29Save([
+      pieceNoILevel("equip-1", null),          // baseline -> 1
+      pieceNoILevel("equip-2", "haulerHoldBp"), // crafted  -> 1
+    ]);
+    const migrated: any = migrate(save);
+    expect(migrated.equipment.map((e: any) => e.iLevel)).toEqual([1, 1]);
+    const roundTripped = deserialize(serialize(migrated, 0));
+    expect(roundTripped!.version).toBe(SAVE_VERSION);
+  });
+
+  it("is a no-op for an empty equipment pool", () => {
+    const save = makeV29Save([]);
+    const migrated: any = migrate(save);
+    expect(migrated.equipment).toEqual([]);
   });
 });
 
@@ -3728,7 +3803,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(29);
+    expect(save!.version).toBe(30);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the

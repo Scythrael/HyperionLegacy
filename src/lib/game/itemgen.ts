@@ -314,6 +314,10 @@ export function generateEquipment(a: {
     rarity: a.rarity,
     ascension: a.ascension,
     quality: a.quality,
+    // Persist the level this piece was generated at (previously consumed by computeBudget then
+    // discarded). The Fabricator mint path (tick.ts) feeds the REAL computeItemLevel(...) value in,
+    // so a crafted piece stores its TRUE mint iLevel, which the UI renders as "iL N".
+    iLevel: a.iLevel,
     blueprintKey: a.blueprintKey,
     implicitStats,
     rolledStats,

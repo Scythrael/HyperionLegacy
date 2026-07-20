@@ -48,6 +48,7 @@ function makeEquip(over: Partial<EquipmentInstance> & { id: string }): Equipment
     rarity: over.rarity ?? "standard",
     ascension: over.ascension ?? "none",
     quality: over.quality ?? 0,
+    iLevel: over.iLevel ?? 1,
     blueprintKey: over.blueprintKey ?? null,
     implicitStats: over.implicitStats ?? {},
     rolledStats: over.rolledStats ?? {},

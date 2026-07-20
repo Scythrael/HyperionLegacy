@@ -34,6 +34,7 @@ import {
   generateStandardIssue,
   seedStandardIssueForShip,
   STANDARD_ISSUE_IMPLICIT_MAGNITUDE,
+  STANDARD_ISSUE_ILEVEL,
   SLOT_BASE_PHYSICALS,
 } from "./model";
 import type {
@@ -929,6 +930,7 @@ function makeEquip(over: Partial<EquipmentInstance> & { id: string }): Equipment
     rarity: over.rarity ?? "standard",
     ascension: over.ascension ?? "none",
     quality: over.quality ?? 0,
+    iLevel: over.iLevel ?? 1,
     blueprintKey: over.blueprintKey ?? null,
     implicitStats: over.implicitStats ?? {},
     rolledStats: over.rolledStats ?? {},
@@ -1367,6 +1369,7 @@ describe("EquipmentInstance shape + rarityIndex ordering (0.11.0 Task 1)", () =>
       rarity: "augmented",
       ascension: "none",
       quality: 3,
+      iLevel: 40,
       blueprintKey: "expandedHold",
       implicitStats: { cargoCapacity: 40 },
       rolledStats: { cargoCapacity: 12, transitSpeedMult: 0.05 },
@@ -1402,6 +1405,7 @@ describe("EquipmentInstance shape + rarityIndex ordering (0.11.0 Task 1)", () =>
       rarity: "standard",
       ascension: "none",
       quality: 0,
+      iLevel: 1,
       blueprintKey: null,
       implicitStats: {},
       rolledStats: {},
@@ -1658,6 +1662,17 @@ describe("generateStandardIssue (0.11.0 Task 20)", () => {
       // Durability is the slot base (reserved, never lost this patch).
       expect(piece.durabilityMax).toBe(SLOT_BASE_PHYSICALS[slot as keyof typeof SLOT_BASE_PHYSICALS].durability);
       expect(piece.durability).toBe(piece.durabilityMax);
+    }
+  });
+
+  it("stamps the fixed Standard-Issue iLevel floor on every baseline (matches a fresh baseline exactly)", () => {
+    // A baseline has no roll, so its iLevel is a fixed FLOOR const (not a computed value). Persisting
+    // it lets the UI show "iL N" on baseline tiles, and pins migrated baselines to the SAME floor a
+    // freshly-seeded baseline gets, so the two shapes can never drift.
+    expect(STANDARD_ISSUE_ILEVEL).toBe(1);
+    for (const slot of LIVE_SLOTS) {
+      const piece = generateStandardIssue({ slotType: slot, fittedToShipId: "ship-1", allocateId: () => "equip-1" });
+      expect(piece.iLevel).toBe(STANDARD_ISSUE_ILEVEL);
     }
   });
 

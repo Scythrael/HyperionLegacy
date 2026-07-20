@@ -335,6 +335,23 @@ describe("generateEquipment", () => {
     expect(item.durability).toBe(item.durabilityMax);
   });
 
+  it("stores the input iLevel on the instance (persisted so the UI can show item power at a glance)", () => {
+    // iLevel was previously consumed by computeBudget then DISCARDED. It is now stored on the
+    // instance verbatim so the Ship Systems tiles / tooltip can render "iL N" without recomputing.
+    const item = generateEquipment({
+      slotType: "reactorCore",
+      varietyKey: "highOutputCore",
+      blueprintKey: "bp-x",
+      iLevel: 84,
+      quality: 3,
+      rarity: "radiant",
+      ascension: "none",
+      rng: mulberry32(7),
+      allocateId: idAllocator(),
+    });
+    expect(item.iLevel).toBe(84);
+  });
+
   it("a Radiant/quality-5 cargoBay carries a larger implicit than a Standard/quality-0 one", () => {
     const common = {
       slotType: "cargoBay" as const,

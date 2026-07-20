@@ -4,9 +4,9 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP, seedStandardIssueForShip } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL } from "./model";
 
-export const SAVE_VERSION = 29;
+export const SAVE_VERSION = 30;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1135,6 +1135,41 @@ const MIGRATIONS: Record<number, Migration> = {
     // level intact (idempotent), while a genuine v28 save (no such field) gets 0. Seeding the
     // stored LEVEL, not a cap value, keeps the cap COMPUTED (equipmentStorageCap derives it).
     return { ...state, inventory, equipmentStorageLevel: state.equipmentStorageLevel ?? 0 };
+  },
+  // v29 -> v30: equipment iLevel BACKFILL (0.11.0 Phase D UI). EquipmentInstance gained a stored
+  // `iLevel` field (model.ts) so the Ship Systems tiles / tooltip can show item power ("iL N")
+  // without recomputing it. Existing pieces were minted BEFORE the field existed, so their iLevel
+  // is absent; this step stamps a coherent value on every piece that lacks one.
+  //
+  // BACKFILL VALUES (documented choice):
+  //   - Baseline (blueprintKey === null): the authoritative STANDARD_ISSUE_ILEVEL floor (model.ts).
+  //     This is the EXACT value generateStandardIssue stamps on a fresh baseline, so a migrated
+  //     baseline and a freshly seeded one land on the identical iLevel (no drift), the same
+  //     single-source posture MIGRATIONS[27] took for the Standard-Issue seed itself.
+  //   - Crafted (blueprintKey set): a piece's TRUE mint iLevel was computed at generation
+  //     (computeItemLevel) then DISCARDED before this feature, so it is UNRECOVERABLE from the
+  //     stored shape. Rather than fabricate a fake power number, we stamp the same modest floor
+  //     (STANDARD_ISSUE_ILEVEL). This is honest: the feature is NOT in production (dev-preview test
+  //     items only), so a clean floor is acceptable, and any piece the player cares about can be
+  //     re-fabricated to mint a real, stored iLevel. Pieces minted AFTER the feature already carry
+  //     their true iLevel and are left untouched (the `?? floor` guard below), so this never
+  //     clobbers a real value, it only fills a genuinely missing one (idempotent).
+  //
+  // An EquipmentInstance carries no top-level Decimal (iLevel is a PLAIN number), so it rides
+  // hydrateDecimals's `...state` spread untouched, hydrateDecimals needs NO change. Every OTHER
+  // field rides through on the outer `...state` spread. `?? []` guards a hand-edited/partial save.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production, so it
+  // is still editable (the frozen-once-shipped rule applies only to production-released migrations).
+  29: (state: any): any => {
+    const equipment = (state.equipment ?? []).map((piece: any) => {
+      // Already has a stored iLevel (minted after the feature): leave it exactly as-is.
+      if (typeof piece.iLevel === "number") return piece;
+      // Baseline vs crafted both backfill to the STANDARD_ISSUE_ILEVEL floor (see the note above):
+      // the baseline floor is authoritative; the crafted floor is an honest, documented default for
+      // an unrecoverable value.
+      return { ...piece, iLevel: STANDARD_ISSUE_ILEVEL };
+    });
+    return { ...state, equipment };
   },
 };
 

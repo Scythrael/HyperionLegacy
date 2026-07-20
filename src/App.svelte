@@ -16,7 +16,7 @@
   // card, rendered inline below the Ship Systems bay grid when a tile is selected.
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
-  import EquipmentTooltip, { equipmentRarityColor } from "./lib/EquipmentTooltip.svelte";
+  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon } from "./lib/EquipmentTooltip.svelte";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
@@ -4018,8 +4018,8 @@
                             on:click={() => selectSystemTile(piece.id)}
                           >
                             <span class="systems-tile-dot"></span>
-                            <span class="systems-tile-code">{isBaseline ? "Std" : group.label.split(" ")[0]}</span>
-                            <span class="systems-tile-q">Q{piece.quality}</span>
+                            <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
+                            <span class="systems-tile-il">iL {piece.iLevel}</span>
                           </button>
                         {/each}
                       </div>
@@ -7324,12 +7324,13 @@
     background: var(--sys-rc, var(--color-text-dim));
   }
   .systems-tile.baseline .systems-tile-dot { display: none; }
-  .systems-tile-code {
-    font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase;
+  /* The per-variety GLYPH (prominent) + the item level (small). Quality no longer
+     sits on the tile face, it lives in the tooltip (matches the Phase D mockup). */
+  .systems-tile-ic { font-size: 24px; line-height: 1; }
+  .systems-tile-il {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
     color: var(--color-text-secondary);
   }
-  .systems-tile-q { font-size: 11px; font-weight: 700; color: var(--sys-rc, var(--color-text-primary)); }
-  .systems-tile.baseline .systems-tile-q { color: var(--color-text-dim); }
 
   /* Salvage button in the tooltip action slot: the danger variant (a recycle is
      destructive), matching the app's danger control convention. */

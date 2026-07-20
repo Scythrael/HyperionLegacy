@@ -705,6 +705,11 @@ export interface EquipmentInstance {
   rarity: EquipmentRarity;
   ascension: EquipmentAscension;          // "none" this patch (see EquipmentAscension)
   quality: number;                        // 0..5 quality rung within the rarity band
+  // The item level the piece was generated at. WHY stored: iLevel is computed at generation
+  // (computeItemLevel, feeds computeBudget) and used to be DISCARDED once the budget was spent.
+  // It is now persisted verbatim so the UI can show item power at a glance ("iL N" on the Ship
+  // Systems tile + in the tooltip header) without recomputing it from a lost input.
+  iLevel: number;
   blueprintKey: string | null;            // which blueprint crafted it; null for the Standard-Issue baseline (craft-less)
   implicitStats: Record<string, number>;  // the slot-signature stat lines, always present for the slot
   rolledStats: Record<string, number>;    // the varying affixes rolled on top of the implicits
@@ -3239,6 +3244,15 @@ export const SLOT_BASE_PHYSICALS: Record<
 // tuned and the (mockup-gated) equipment UI ships, deliberately deferred to here.
 export const STANDARD_ISSUE_IMPLICIT_MAGNITUDE = 0;
 
+// The fixed item level stamped on every Standard-Issue baseline. WHY a floor CONST (not a
+// computed value): a baseline rolls nothing, so it has no craft-derived level; it is the
+// quality-0, iLevel-floor version of a system. Persisting a stable floor lets the UI render
+// "iL N" on baseline tiles AND pins a migrated baseline to the EXACT same iLevel a freshly
+// seeded baseline gets, so the migrated and fresh shapes can never drift (the same single-source
+// posture STANDARD_ISSUE_IMPLICIT_MAGNITUDE takes for the stat floor). 1, not 0: item levels are
+// 1-based (the lowest real system level), so a baseline reads as a genuine level-1 floor.
+export const STANDARD_ISSUE_ILEVEL = 1;
+
 // Mint ONE Standard-Issue baseline EquipmentInstance for a live slot. blueprintKey
 // null (craft-less), Standard rarity, quality 0, no ascension.
 //
@@ -3301,6 +3315,7 @@ export function generateStandardIssue(a: {
     rarity: "standard",
     ascension: "none",
     quality: 0, // Standard-Issue is always the quality-0 floor
+    iLevel: STANDARD_ISSUE_ILEVEL, // the fixed item-level floor (see the const note above)
     blueprintKey: null, // craft-less baseline (see EquipmentInstance.blueprintKey)
     implicitStats,
     rolledStats: {}, // NO affixes: the deliberate "minimal neutral form" (see the note above)
