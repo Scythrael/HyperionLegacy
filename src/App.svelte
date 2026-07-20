@@ -12,6 +12,11 @@
   // the fit logic + doSave live in exactly one place. Distinct from the retained
   // DEV_MODE equipment harness (System > Debug), which stays for testing.
   import ShipSystemsPanel from "./lib/ShipSystemsPanel.svelte";
+  // Equipment 0.11.0 Phase D (2026-07-20): the reusable rarity-bordered equipment
+  // card, rendered inline below the Ship Systems bay grid when a tile is selected.
+  // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
+  // source the bay TILES also read, so tile border/dot and the tooltip never drift.
+  import EquipmentTooltip, { equipmentRarityColor } from "./lib/EquipmentTooltip.svelte";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
@@ -70,6 +75,15 @@
     EQUIPMENT_SLOTS,
     type EquipmentInstance,
     type EquipmentSlotType,
+    // Equipment 0.11.0 Phase D (2026-07-20): the two PURE derived readers the Ship
+    // Systems bay header shows, spareEquipmentCount(state) = how many spare CRAFTED
+    // systems occupy storage (the numerator), equipmentStorageCap(state) = the current
+    // spare cap (the denominator). The SAME fns the fabricate gate + storage-upgrade
+    // engine consult, so the displayed "X / cap" can never drift from the real limit.
+    // EquipmentRarity types the rarity->tile-color loop var below.
+    equipmentStorageCap,
+    spareEquipmentCount,
+    type EquipmentRarity,
     // Facility Framework + Refinery (Phase 1, Task 12 UI), the static data
     // tables the Facilities tab reads. FACILITIES drives the Refinery's upgrade
     // track (next-rung materials/prereqs); REFINE_RECIPES drives the Production
@@ -163,6 +177,13 @@
     type EquipFitBlockReason,
   } from "./lib/game/equipment";
   import { generateEquipment } from "./lib/game/itemgen";
+  // Equipment 0.11.0 Phase D (2026-07-20): salvageEquipment(state, id) recycles ONE
+  // spare CRAFTED system back into a fraction of its crafting inputs, returning a
+  // SalvageResult (discriminated on `ok`: success carries { next, recovered }, reject
+  // carries { next: <same ref>, reason }). doSalvageEquipment below reassigns state +
+  // logs the recovered materials on success, mirroring the do* handler idiom.
+  // SalvageRejectReason types the reason->text mapper.
+  import { salvageEquipment, type SalvageRejectReason } from "./lib/game/salvage";
   import {
     tick,
     // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
@@ -198,6 +219,13 @@
     refineSlotCount,
     canBuildFacilityUpgrade,
     startFacilityUpgrade,
+    // Equipment 0.11.0 Phase D (2026-07-20): the Systems Bay "Upgrade Bay" seams.
+    // canUpgradeEquipmentStorage(state) is the ONE gate ({ ok, reason? }) the button
+    // reads for its enabled/blocked+reason state (next-rung cost / in-flight / maxed);
+    // startEquipmentStorageUpgrade(state) starts the next rung, returning { next, started }
+    // like startFacilityUpgrade, so doUpgradeEquipmentBay below destructures `started`.
+    canUpgradeEquipmentStorage,
+    startEquipmentStorageUpgrade,
     // Crafting Allocation Redesign (Task C3/C4), the per-slot production LINE seams the
     // Refinery + Fabricator configurators wire up (replacing the retired standing-order
     // actions). startLine(state, kind, recipeKey, mode) appends a configured line (gated by
@@ -555,6 +583,9 @@
     | "raw"
     | "refined"
     | "components"
+    // Equipment 0.11.0 Phase D: the NON-stacking ship-system inventory (state.equipment,
+    // EquipmentInstance[]), distinct from the stackable "shipEquipment" catalog tab below.
+    | "shipSystems"
     | "shipEquipment"
     | "troopEquipment"
     | "consumables";
@@ -569,6 +600,10 @@
     { key: "raw", label: "Raw Materials" },
     { key: "refined", label: "Refined" },
     { key: "components", label: "Components" },
+    // Equipment 0.11.0 Phase D: the tiled, non-stacking Ship Systems bay (this tab
+    // renders state.equipment, NOT an ItemCategory grid, so it is absent from
+    // WAREHOUSE_CAT_CATEGORIES below on purpose).
+    { key: "shipSystems", label: "Ship Systems" },
     { key: "shipEquipment", label: "Ship Equipment" },
     { key: "troopEquipment", label: "Troop Equipment" },
     { key: "consumables", label: "Consumables" },
@@ -1603,6 +1638,98 @@
     } catch (e) {
       pushLog(`Cannot uninstall system: ${(e as Error).message}`);
     }
+  }
+
+  // ── Ship Systems bay (Equipment 0.11.0 Phase D, Warehouse "Ship Systems" tab) ──
+  // The bay shows the SPARE pool (fittedToShipId === null): spare crafted systems
+  // plus any Standard-Issue baselines (dimmed). Fitted systems live on their ships
+  // (managed in ShipSystemsPanel), so they are deliberately NOT listed here. The
+  // four LIVE slots are shown in a fixed order so the grouped grid is stable.
+  const BAY_SLOT_ORDER: EquipmentSlotType[] = ["cargoBay", "ftlDrive", "reactorCore", "specUtility"];
+
+  // The tile the player has selected -> its EquipmentTooltip is surfaced inline
+  // below the grid. null = nothing selected (grid only). Cleared whenever the
+  // selected piece leaves the pool (salvaged) or the tab changes.
+  let selectedSystemId: string | null = null;
+
+  // The spare pool, guarded like ShipSystemsPanel's render-boundary `?? []` (a
+  // partially-migrated state should degrade to an empty bay, not white-screen).
+  $: baySpareSystems = (state.equipment ?? []).filter((e) => e.fittedToShipId === null);
+
+  // The spare pool grouped by slot type, in BAY_SLOT_ORDER; empty groups dropped
+  // so a slot with no spare systems shows no header. Each group carries the slot's
+  // display label (single source: EQUIPMENT_SLOTS) for its section heading.
+  $: baySystemGroups = BAY_SLOT_ORDER.map((slot) => ({
+    slot,
+    label: EQUIPMENT_SLOTS[slot]?.label ?? slot,
+    pieces: baySpareSystems.filter((p) => p.slotType === slot),
+  })).filter((g) => g.pieces.length > 0);
+
+  // The resolved selected piece (or null). Reactive on the pool, so if the
+  // selected piece is salvaged the tooltip auto-hides even without an explicit
+  // clear. A crafted spare (blueprintKey !== null) is the ONLY thing salvageable,
+  // baselines and (absent here) fitted pieces are excluded, so this predicate
+  // gates the Salvage button too.
+  $: selectedSystem =
+    selectedSystemId !== null ? baySpareSystems.find((p) => p.id === selectedSystemId) ?? null : null;
+  $: selectedIsSalvageable = selectedSystem !== null && selectedSystem.blueprintKey !== null;
+
+  // Toggle a tile's selection (clicking the open tile closes it), matching the
+  // slot-select toggle idiom ShipSystemsPanel uses.
+  function selectSystemTile(instanceId: string) {
+    selectedSystemId = selectedSystemId === instanceId ? null : instanceId;
+  }
+
+  // Human sentence for a salvage REJECT reason. Exhaustive over SalvageRejectReason
+  // (a switch, no default) so a new reason is a compile error here. Only notFound /
+  // fitted / notCraftable are reachable from the bay (it salvages spare systems),
+  // but the salvaged-material reasons are covered for totality.
+  function salvageRejectText(reason: SalvageRejectReason): string {
+    switch (reason) {
+      case "notFound":
+        return "that system no longer exists";
+      case "fitted":
+        return "the system is installed on a ship (uninstall it first)";
+      case "notCraftable":
+        return "a Standard-Issue baseline has no recipe to refund";
+      case "notSalvagedMaterial":
+        return "that item is not a salvaged material";
+      case "noneHeld":
+        return "none of that material is held";
+    }
+  }
+
+  // SALVAGE a spare crafted system. salvageEquipment returns a SalvageResult
+  // (same-ref no-op + reason on reject; new state + recovered map on success).
+  // On success: reassign state, clear the selection if it was this piece, log the
+  // recovered materials ([Item] convention), and persist, the standard do* idiom.
+  function doSalvageEquipment(instanceId: string) {
+    const result = salvageEquipment(state, instanceId);
+    if (!result.ok) {
+      pushLog(`Cannot salvage system: ${salvageRejectText(result.reason)}.`);
+      return;
+    }
+    state = result.next;
+    if (selectedSystemId === instanceId) selectedSystemId = null;
+    // Build a "N [Item], M [Item]" summary of the positive recoveries (0-amount
+    // inputs are omitted so the log names only what was actually returned).
+    const parts = Object.entries(result.recovered)
+      .filter(([, amount]) => amount > 0)
+      .map(([itemId, amount]) => `${amount} [${ITEMS[itemId]?.label ?? itemId}]`);
+    const summary = parts.length > 0 ? parts.join(", ") : "no materials (recovery rounded to zero)";
+    pushLog(`Salvaged system ${instanceId} → recovered ${summary}.`);
+    doSave();
+  }
+
+  // Start the next Systems Bay storage rung. startEquipmentStorageUpgrade returns
+  // { next, started } (like startFacilityUpgrade); on any failed gate it is a
+  // same-ref no-op, so we destructure `started` and bail without a spurious log.
+  function doUpgradeEquipmentBay() {
+    const { next, started } = startEquipmentStorageUpgrade(state);
+    if (!started) return;
+    state = next;
+    pushLog("Systems Bay expansion started.");
+    doSave();
   }
 
   // (doCraftRecipe, the legacy instant Homeworld craft-button handler, was
@@ -3764,6 +3891,101 @@
                       {/if}
                     </div>
                   {/each}
+                </Panel>
+              {/if}
+            {/if}
+
+            {#if activeWarehouseCat === "shipSystems"}
+              <!-- SHIP SYSTEMS BAY (Equipment 0.11.0 Phase D). The tiled,
+                   non-stacking equipment inventory: one tile per spare
+                   EquipmentInstance, grouped by slot type, plus the Systems Bay
+                   capacity header + "Upgrade Bay" action. Selecting a tile
+                   surfaces the reusable EquipmentTooltip inline below the grid; a
+                   spare CRAFTED system's tooltip carries a Salvage action. All
+                   reads/actions go through the SAME engine helpers the fabricate
+                   gate + storage engine use (spareEquipmentCount / equipmentStorageCap
+                   / canUpgradeEquipmentStorage / startEquipmentStorageUpgrade /
+                   salvageEquipment), so the UI can't drift from the backend. -->
+              {@const bayCap = equipmentStorageCap(state)}
+              {@const baySpare = spareEquipmentCount(state)}
+              {@const upgradeCheck = canUpgradeEquipmentStorage(state)}
+              <Panel>
+                <!-- CAPACITY HEADER: spare / cap + the Upgrade Bay button
+                     (disabled + reasoned exactly like the warehouse-tier Build
+                     buttons, mirroring canUpgradeEquipmentStorage). -->
+                <div class="systems-bay-head">
+                  <div class="systems-bay-cap">
+                    <span class="systems-bay-cap-label">Systems Bay</span>
+                    <span class="systems-bay-cap-val">{baySpare} <small>/ {bayCap} spare</small></span>
+                  </div>
+                  <button
+                    class="buy-btn systems-bay-upgrade"
+                    disabled={!upgradeCheck.ok}
+                    title={upgradeCheck.ok ? undefined : upgradeCheck.reason}
+                    on:click={doUpgradeEquipmentBay}
+                  >
+                    Upgrade Bay
+                  </button>
+                </div>
+                {#if !upgradeCheck.ok}
+                  <div class="systems-bay-upgrade-note">{upgradeCheck.reason}</div>
+                {/if}
+
+                {#if baySystemGroups.length === 0}
+                  <div class="warehouse-stub">
+                    <div class="warehouse-stub-glyph">🛰️</div>
+                    <p>No spare systems in the bay. Fabricate ship systems at the Fabricator, or uninstall a fitted system to store it here.</p>
+                  </div>
+                {:else}
+                  {#each baySystemGroups as group (group.slot)}
+                    <div class="warehouse-tier">
+                      <div class="warehouse-tier-head">
+                        <span class="warehouse-tier-label">{group.label}</span>
+                        <span class="warehouse-tier-line"></span>
+                        <span class="warehouse-tier-cap">{group.pieces.length} system{group.pieces.length === 1 ? "" : "s"}</span>
+                      </div>
+                      <div class="warehouse-grid">
+                        {#each group.pieces as piece (piece.id)}
+                          {@const isBaseline = piece.blueprintKey === null}
+                          <button
+                            type="button"
+                            class="systems-tile"
+                            class:baseline={isBaseline}
+                            class:selected={selectedSystemId === piece.id}
+                            style="--sys-rc: {equipmentRarityColor(piece.rarity)};"
+                            title={isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
+                            on:click={() => selectSystemTile(piece.id)}
+                          >
+                            <span class="systems-tile-dot"></span>
+                            <span class="systems-tile-code">{isBaseline ? "Std" : group.label.split(" ")[0]}</span>
+                            <span class="systems-tile-q">Q{piece.quality}</span>
+                          </button>
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                {/if}
+              </Panel>
+
+              <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
+                   inline (not a floating layer) so it is scroll-safe on device. A
+                   spare crafted system gets a Salvage button in the tooltip's action
+                   slot; baselines get NONE (nothing to refund). -->
+              {#if selectedSystem}
+                {@const sys = selectedSystem}
+                <Panel>
+                  <EquipmentTooltip piece={sys}>
+                    {#if selectedIsSalvageable}
+                      <button
+                        class="buy-btn systems-salvage-btn"
+                        on:click={() => doSalvageEquipment(sys.id)}
+                      >
+                        Salvage
+                      </button>
+                    {:else}
+                      <span class="systems-salvage-none">Standard-Issue baseline, nothing to salvage.</span>
+                    {/if}
+                  </EquipmentTooltip>
                 </Panel>
               {/if}
             {/if}
@@ -6901,6 +7123,78 @@
   .warehouse-stub { padding: 30px 16px; text-align: center; color: var(--color-text-secondary); }
   .warehouse-stub-glyph { font-size: 28px; opacity: 0.55; }
   .warehouse-stub p { font-size: 12px; line-height: 1.55; margin: 10px 0 0; }
+
+  /* ── Ship Systems bay (Equipment 0.11.0 Phase D) ─────────────────────────
+     The capacity header mirrors the mockup's caphdr: label + big value on the
+     left, the Upgrade Bay button on the right. Opaque panel-inset background
+     (no blur) so it reads solid on Brave. */
+  .systems-bay-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding: 9px 12px;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid var(--color-border);
+  }
+  .systems-bay-cap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .systems-bay-cap-label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--color-text-secondary);
+  }
+  .systems-bay-cap-val { font-size: 18px; font-weight: 600; color: var(--color-text-primary); }
+  .systems-bay-cap-val small { color: var(--color-text-secondary); font-weight: 400; font-size: 12px; }
+  .systems-bay-upgrade { flex: 0 0 auto; }
+  .systems-bay-upgrade-note {
+    font-size: 11px; color: var(--color-text-dim); font-style: italic;
+    margin: -4px 0 10px;
+  }
+
+  /* One system TILE, reusing the warehouse-grid layout but painted per rarity via
+     --sys-rc (the module-exported equipmentRarityColor): a thick top border + a
+     corner dot carry the rarity, the Q badge the quality. Baselines are dimmed
+     (they are the free floor). Selected tile gets an accent ring. */
+  .systems-tile {
+    position: relative;
+    aspect-ratio: 1;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid var(--color-border);
+    border-top: 3px solid var(--sys-rc, var(--color-border));
+    overflow: hidden;
+    cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; padding: 4px;
+    font-family: var(--font-body);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .systems-tile:hover, .systems-tile:focus-visible { border-color: var(--color-border-strong); outline: none; }
+  .systems-tile.baseline { opacity: 0.5; }
+  .systems-tile.selected {
+    box-shadow: 0 0 0 2px var(--color-accent);
+    border-color: var(--color-accent);
+  }
+  .systems-tile-dot {
+    position: absolute; top: 5px; right: 6px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--sys-rc, var(--color-text-dim));
+  }
+  .systems-tile.baseline .systems-tile-dot { display: none; }
+  .systems-tile-code {
+    font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--color-text-secondary);
+  }
+  .systems-tile-q { font-size: 11px; font-weight: 700; color: var(--sys-rc, var(--color-text-primary)); }
+  .systems-tile.baseline .systems-tile-q { color: var(--color-text-dim); }
+
+  /* Salvage button in the tooltip action slot: the danger variant (a recycle is
+     destructive), matching the app's danger control convention. */
+  .systems-salvage-btn {
+    border-color: rgba(248, 113, 113, 0.5);
+    background: rgba(248, 113, 113, 0.1);
+    color: var(--color-danger);
+  }
+  .systems-salvage-none { font-size: 11px; color: var(--color-text-dim); font-style: italic; }
 
   /* tile tooltip, position:fixed so it escapes the scroll container's
      clipping, the same approach the currency-chip tooltip uses */
