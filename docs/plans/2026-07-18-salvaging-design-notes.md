@@ -44,6 +44,15 @@ Salvage items you no longer need for parts. NOT a flat percentage refund (boring
 - Rarity mapping: do salvaged materials carry the gear rarity ladder (Derelict..Radiant), or their own scale?
 - Where does the salvage ACTION live: on each item in the Warehouse view (see the 0.11.0 Warehouse Ship Systems view, which is the surface it would attach to), a dedicated Salvage facility, or both?
 
+## Future extension (NOT 0.11.0): salvage as a "shitty loot crate" + junk vendor economy (user, 2026-07-18)
+
+Reframes salvage so material gains are not the only draw and every roll has a thrill:
+- **Refined materials / components become CHANCE drops** (not guaranteed), sitting in the same weighted pool as everything else, so a good material hit feels like a find, not a given.
+- **Junk-tier salvage items** that exist mainly to be **vendored for credits** (a credits-earning path from otherwise-useless salvage). They accumulate in the salvage tab.
+- **Collectibles / novelty drops:** a tiny chance (e.g. 1 in 1,000,000) at a joke collectible like an "Old Boot" from a common salvage. Later these could form a "craptastic" SET BONUS (small silly gains). A "Junk King" ACHIEVEMENT for hoarding a trillion junk items.
+- Net feel: salvage becomes a loot crate, mostly junk, occasionally a diamond in the rough. Keeps salvage fun without letting it flood the real economy (still bound by the "supplements, never replaces" rule).
+- Pairs with the salvage-RESULT indication (0.11.0 adds a clear "here is what you got" readout; the loot-crate reveal builds on that surface later).
+
 ## Future extension (NOT 0.11.0): salvage feeds research
 
 Salvage will eventually yield items/tech that REQUIRE research and help UNLOCK research options (recover an unknown device from a wreck, research it, unlock a new branch). That research-unlock layer is a LATER feature. For 0.11.0, exclusive salvage items are simply "reserved for a future recipe" drops; the research-unlock hook comes later.
