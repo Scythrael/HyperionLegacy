@@ -71,7 +71,7 @@
   };
   const SLOT_LAYOUT: SlotMeta[] = [
     { slotType: "sensor", code: "SNS", label: "Sensor Array", live: false, top: 5, left: 50 },
-    { slotType: "cockpit", code: "COK", label: "Cockpit", live: false, top: 24, left: 50 },
+    { slotType: "cockpit", code: "BRG", label: "Bridge Module", live: false, top: 24, left: 50 },
     { slotType: "quarters", code: "QTR", label: "Crew Quarters", live: false, top: 25, left: 32 },
     { slotType: "thrusters", code: "THR", label: "Thrusters", live: false, top: 25, left: 68 },
     { slotType: "cargoBay", code: "CRG", label: "Cargo Bay", live: true, top: 41, left: 50 },
