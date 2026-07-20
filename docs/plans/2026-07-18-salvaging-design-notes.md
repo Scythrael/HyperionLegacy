@@ -21,13 +21,14 @@ Salvage items you no longer need for parts. NOT a flat percentage refund (boring
 
 ## The salvage output pool can yield
 
-- Refined materials
-- Fabricated components
-- EXCLUSIVE salvage-only materials: unique tech not obtainable anywhere else ("a wreck with tech you have never seen before"). These become ingredients for special / future recipes, which is what makes salvaging a MATERIAL SOURCE, not just a recycling bin.
+- **Refined materials and fabricated components, but at SUPER-RARE rates** (user, 2026-07-18): salvage MAY drop these, but rarely enough that it never becomes the go-to way to get them. This is the guardrail that keeps salvage from replacing refining/fabricating.
+- **EXCLUSIVE salvage-only items** ("a wreck with tech you have never seen before"). Exclusivity is a PROPERTY, not a separate category: an exclusive salvage drop can itself be a raw material, a refined material, or a component, just one that is only obtainable via salvage. These are ingredients for special / future recipes and are what make salvaging a MATERIAL SOURCE, not just a recycling bin.
 
-## Progression
+## Rarity + progression
 
-Fleet Admiral talents upgrade salvage yield percentage and/or the rarity odds of the roll.
+- Salvage rolls can reach up to **Radiant (and possibly higher)**, but the high tiers only appear at HIGHER PROGRESSION and with upgrades / Fleet Admiral talents. Early salvage rolls low; the ceiling rises as you invest.
+- Fleet Admiral talents upgrade salvage yield percentage and/or the rarity odds / ceiling of the roll.
+- **HARD CONSTRAINT (user, 2026-07-18): salvage must NEVER replace prospecting missions, refining, or fabricating.** It supplements them (a sink for junk gear + a niche source of exclusives), with steep odds on the top tiers and super-rare odds on plain refined-mats/components. This is a load-bearing balance rule, not a suggestion.
 
 ## Controller design notes (to weigh at design time)
 
