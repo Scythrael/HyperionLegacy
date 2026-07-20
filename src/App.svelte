@@ -232,6 +232,13 @@
     // like startFacilityUpgrade, so doUpgradeEquipmentBay below destructures `started`.
     canUpgradeEquipmentStorage,
     startEquipmentStorageUpgrade,
+    // Fleet Management (Docks Expansion): the Docks "Expand Docks" seams. canUpgradeDocks(state)
+    // is the ONE gate ({ ok, reason? }) the button reads for its enabled/blocked+reason state
+    // (next-rung cost / in-flight / maxed); startDocksExpansion(state) starts the next rung,
+    // returning { next, started } like startEquipmentStorageUpgrade, so doExpandDocks below
+    // destructures `started`.
+    canUpgradeDocks,
+    startDocksExpansion,
     // Crafting Allocation Redesign (Task C3/C4), the per-slot production LINE seams the
     // Refinery + Fabricator configurators wire up (replacing the retired standing-order
     // actions). startLine(state, kind, recipeKey, mode) appends a configured line (gated by
@@ -1794,6 +1801,17 @@
     doSave();
   }
 
+  // Start the next Docks expansion rung. startDocksExpansion returns { next, started }
+  // (like startEquipmentStorageUpgrade); on any failed gate it is a same-ref no-op, so
+  // we destructure `started` and bail without a spurious log.
+  function doExpandDocks() {
+    const { next, started } = startDocksExpansion(state);
+    if (!started) return;
+    state = next;
+    pushLog("Docks expansion started.");
+    doSave();
+  }
+
   // ── Salvaged Materials tab (0.11.0 Task C2 UI) ────────────────────────────
   // The currently-selected salvaged-material item id (the tile whose Salvage action
   // is shown), or null. Distinct from selectedSystemId (that selects a non-stacking
@@ -3320,7 +3338,27 @@
                 {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
                 {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
                 <div class="panel-title">DOCKS</div>
-                <div class="research-cost">Berths: {state.ships.length} / {state.shipStorageCapacity}</div>
+                <!-- Berth capacity + the "Expand Docks" action (Fleet Management,
+                     Docks Expansion). The button is disabled + reasoned exactly like
+                     the Systems-Bay "Upgrade Bay" button / the facility Build buttons,
+                     reading the SAME canUpgradeDocks gate startDocksExpansion enforces,
+                     so the UI can't drift from the backend. shipStorageCapacity is the
+                     single source: the readout and the +1 both use it directly. -->
+                {@const docksCheck = canUpgradeDocks(state)}
+                <div class="docks-cap-head">
+                  <div class="research-cost">Berths: {state.ships.length} / {state.shipStorageCapacity}</div>
+                  <button
+                    class="buy-btn docks-expand-btn"
+                    disabled={!docksCheck.ok}
+                    title={docksCheck.ok ? undefined : docksCheck.reason}
+                    on:click={doExpandDocks}
+                  >
+                    Expand Docks
+                  </button>
+                </div>
+                {#if !docksCheck.ok}
+                  <div class="docks-expand-note">{docksCheck.reason}</div>
+                {/if}
                 <div class="ship-list">
                   {#each state.ships as ship (ship.id)}
                     {@const def = SHIP_TYPES[ship.typeKey]}
@@ -7358,6 +7396,22 @@
   .systems-bay-cap-val small { color: var(--color-text-secondary); font-weight: 400; font-size: 12px; }
   .systems-bay-upgrade { flex: 0 0 auto; }
   .systems-bay-upgrade-note {
+    font-size: 11px; color: var(--color-text-dim); font-style: italic;
+    margin: -4px 0 10px;
+  }
+
+  /* Docks "Expand Docks" header (Fleet Management): the Berths readout on the left,
+     the Expand Docks button on the right. Mirrors the systems-bay-head layout so the
+     Docks cap control reads like the Systems-Bay one. */
+  .docks-cap-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .docks-expand-btn { flex: 0 0 auto; }
+  .docks-expand-note {
     font-size: 11px; color: var(--color-text-dim); font-style: italic;
     margin: -4px 0 10px;
   }

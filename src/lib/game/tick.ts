@@ -81,6 +81,13 @@ import {
   // action (canUpgradeEquipmentStorage / startEquipmentStorageUpgrade, below) reads
   // the NEXT rung's cost/duration off this to spend + start a timed upgrade process.
   EQUIPMENT_STORAGE_RUNGS,
+  // Fleet Management (Docks Expansion): the docks-capacity upgrade track. The
+  // cap-raising action (canUpgradeDocks / startDocksExpansion, below) reads the NEXT
+  // rung's cost/duration off SHIP_DOCKS_RUNGS to spend + start a timed process, and
+  // SHIP_DOCKS_BASE lets it derive the current rung INDEX from shipStorageCapacity
+  // (the single source) rather than a separate stored level.
+  SHIP_DOCKS_BASE,
+  SHIP_DOCKS_RUNGS,
 } from "./model";
 import { fuelNeeded } from "./fuel";
 // Equipment 0.11.0 (Task 19): the Fabricator's equipment mint. computeItemLevel derives a
@@ -2599,6 +2606,102 @@ export function startEquipmentStorageUpgrade(state: GameState): { next: GameStat
 }
 
 // ============================================================================
+// Docks capacity upgrade (Fleet Management): raise the max ships at the docks.
+//
+// Raises GameState.shipStorageCapacity (base 8) by ONE rung. MIRRORS the equipment
+// Systems-Bay upgrade (a TIMED process that spends at start and bumps a stored value
+// at completion), following this file's own "process-driven action" convention (the
+// SAME pair-of-functions shape startEquipmentStorageUpgrade / startFacilityUpgrade
+// use): a pure predicate + an action that delegates to startProcess with the
+// dedicated "docksExpansion" kind and the "docksCapacityUp" effect (resolveProcesses
+// applies the +1).
+//
+// DELIBERATE DIVERGENCE from the equipment track: equipment stores a LEVEL and
+// DERIVES its cap. The docks cap has no such indirection, shipStorageCapacity IS the
+// single source (canStartShipBuild reads it directly), so the current rung INDEX is
+// DERIVED from the field (shipStorageCapacity - SHIP_DOCKS_BASE) and the completion
+// effect mutates that field in place. No separate level field, so no drift is possible.
+// ============================================================================
+
+// PURE predicate: could the player start the NEXT docks expansion RIGHT NOW? `ok:
+// true` means startDocksExpansion would succeed; `ok: false` carries a `reason`
+// naming the FIRST failing gate. Gate order mirrors canUpgradeEquipmentStorage /
+// canBuildFacilityUpgrade: cheap structural gates (track maxed / an expansion already
+// in flight) first, then credits, then the material affordability gate LAST.
+export function canUpgradeDocks(state: GameState): { ok: boolean; reason?: string } {
+  // Current rung INDEX derived from the single-source field: capacity 8 = rung 0,
+  // capacity 9 = rung 1, etc. A hand-edited save below the base floors at 0 (never
+  // negative), matching the defensive posture the rest of the file uses.
+  const rungIndex = Math.max(0, state.shipStorageCapacity - SHIP_DOCKS_BASE);
+  const rung = SHIP_DOCKS_RUNGS[rungIndex]; // the NEXT rung (undefined = fully expanded)
+  // Track maxed: no rung defined past the current capacity, so it cannot climb further.
+  if (!rung) {
+    return { ok: false, reason: "Docks are fully expanded" };
+  }
+
+  // SEQUENTIAL gate: at most ONE docks expansion in flight at a time. This is the
+  // docks twin of canUpgradeEquipmentStorage's "Upgrade already in progress" gate, and
+  // it closes the SAME rung-skip exploit: because shipStorageCapacity only bumps at
+  // process COMPLETION, SHIP_DOCKS_RUNGS[rungIndex] stays the SAME (cheaper) rung while
+  // an expansion is mid-flight, so without this gate a player could start the cheap
+  // rung 0 twice and land at capacity 10, skipping rung 1's higher cost. Keyed on the
+  // effect type, so a facility / equipment upgrade in flight never matches here.
+  const upgradeInFlight = state.activeProcesses.some((p) => p.effect.type === "docksCapacityUp");
+  if (upgradeInFlight) {
+    return { ok: false, reason: "Expansion already in progress" };
+  }
+
+  // Credits gate (before materials, both are affordability gates). Deducted atomically
+  // at start by startDocksExpansion.
+  if (state.credits.lt(rung.credits)) {
+    return {
+      ok: false,
+      reason: `Need ${rung.credits.toString()} credits (have ${state.credits.toString()})`,
+    };
+  }
+
+  // Material gate (LAST): every material must be affordable against the reservation-
+  // aware FREE pool (inventory MINUS what active craft lines have reserved), the SAME
+  // freeItemForState gate the facility / equipment upgrades use, so an expansion can
+  // never spend components a craft line is holding. An absent inventory key reads as 0
+  // via freeItem's own floor. The surfaced `have` is the FREE amount.
+  for (const itemId of Object.keys(rung.materials)) {
+    const need = rung.materials[itemId];
+    const have = freeItemForState(state, itemId);
+    if (have.lt(need)) {
+      const itemLabel = ITEMS[itemId]?.label ?? itemId;
+      return { ok: false, reason: `Need ${need.toString()} ${itemLabel} (have ${have.toString()})` };
+    }
+  }
+
+  return { ok: true };
+}
+
+// The ACTION. Starts the next docks expansion IF canUpgradeDocks approves it, by
+// delegating to startProcess: the rung's credits are deducted from a fresh state clone
+// FIRST (so the credit spend + the material deduct + the process push land in the SAME
+// atomic transition, the posture startFacilityUpgrade uses for its credit rungs), then
+// a "docksExpansion" TimedProcess is pushed whose completion effect
+// { type: "docksCapacityUp" } bumps shipStorageCapacity by 1 (resolveProcesses applies
+// it). Returns { next, started }, the SAME shape/naming startFacilityUpgrade uses. On
+// any failed gate it is a same-reference no-op ({ next: state, started: false }).
+export function startDocksExpansion(state: GameState): { next: GameState; started: boolean } {
+  const check = canUpgradeDocks(state);
+  if (!check.ok) {
+    return { next: state, started: false };
+  }
+  // Safe: canUpgradeDocks.ok guarantees the rung is in range AND credits >= rung.credits
+  // (it returns a reason otherwise), so the derived index + the credit subtraction below
+  // are both in-bounds.
+  const rungIndex = Math.max(0, state.shipStorageCapacity - SHIP_DOCKS_BASE);
+  const rung = SHIP_DOCKS_RUNGS[rungIndex];
+  const afterCredits = { ...state, credits: state.credits.minus(rung.credits) };
+  return startProcess(afterCredits, "docksExpansion", rung.materials, rung.durationTicks, {
+    type: "docksCapacityUp",
+  });
+}
+
+// ============================================================================
 // Refinery, single refine jobs (Phase 1, Task 11)
 // (docs/plans/2026-07-11-facility-framework-refinery-design.md §6).
 //
@@ -4476,6 +4579,12 @@ export function resolveProcesses(
   // from the incoming state, so a call that completes no storage upgrade returns it
   // value-identical (only that one branch increments it).
   let equipmentStorageLevel = state.equipmentStorageLevel;
+  // Fleet Management (Docks Expansion): the docks capacity, bumped by a completing
+  // docksExpansion process (the docksCapacityUp branch below). Seeded from the incoming
+  // state, so a call that completes no expansion returns it value-identical (only that
+  // one branch increments it). Unlike equipmentStorageLevel (a stored LEVEL a derived
+  // cap reads), this IS the cap itself, so the +1 lands here directly.
+  let shipStorageCapacity = state.shipStorageCapacity;
   let fleetAdminXpDelta = 0;
   // Crafting Level XP (Equipment 0.11.0, Phase 3): accumulates CRAFTING_XP_PER_DURATION_TICK
   // * durationTicks for every PRODUCTION job (refine / fabricate / ship-build) that completes
@@ -4677,6 +4786,16 @@ export function resolveProcesses(
       // facilityLevelUp: one big offline resolve and many small live steps land the
       // identical level (see the offline==live parity test).
       equipmentStorageLevel += 1;
+    } else if (process.effect.type === "docksCapacityUp") {
+      // Fleet Management (Docks Expansion): a completed docks expansion raises the
+      // docks capacity by 1, so canStartShipBuild (which reads shipStorageCapacity
+      // directly) immediately allows one more hull. shipStorageCapacity IS the single
+      // source (no derived cap, unlike equipment), so the +1 lands on the field here.
+      // Deterministic (no rng), fires exactly ONCE on the completion that drops the
+      // process, so it is closed-form like equipmentStorageLevelUp / facilityLevelUp:
+      // one big offline resolve and many small live steps land the identical capacity
+      // (see the offline==live parity test in docks-expansion.test.ts).
+      shipStorageCapacity += 1;
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -4756,6 +4875,10 @@ export function resolveProcesses(
       // when no storage upgrade completed (seeded from it, only the equipmentStorageLevelUp
       // branch increments it).
       equipmentStorageLevel,
+      // Fleet Management (Docks Expansion): the docks capacity, raised by any completing
+      // docksExpansion this call. Value-identical to state.shipStorageCapacity when no
+      // expansion completed (seeded from it, only the docksCapacityUp branch increments it).
+      shipStorageCapacity,
       activeProcesses: stillActive,
     },
     fleetAdminXpDelta,
