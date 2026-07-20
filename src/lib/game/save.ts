@@ -1096,10 +1096,11 @@ const MIGRATIONS: Record<number, Migration> = {
   // outer `...state` spread. Idempotent: re-running on an already-reconciled v29-shaped
   // inventory (no refinedMaterial / components keys) is a no-op beyond the inventory copy.
   //
-  // B1 HOOK: a later task (B1, equipment storage cap) will EXTEND this SAME v28->v29 body to
-  // ALSO seed `equipmentStorageCap`. This migration is on-branch and still editable, so B1
-  // adds its seed here rather than bumping the version again. Do NOT add the cap in this
-  // task, B1 owns it.
+  // B1 (equipment storage cap, DONE): this SAME v28->v29 body ALSO seeds the new GameState
+  // field `equipmentStorageLevel` to 0 on an old save (see the return below). Note it seeds the
+  // stored LEVEL, not a stored cap value: equipmentStorageCap (model.ts) DERIVES the cap from the
+  // level times the reached-rung mults, so nothing here stores a cap that could drift. B1 folded
+  // its seed into this step rather than bumping the version again (the version was already at 29).
   // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production,
   // so it is still editable (the frozen-once-shipped rule applies only to production-released
   // migrations).
@@ -1128,7 +1129,12 @@ const MIGRATIONS: Record<number, Migration> = {
     delete inventory.components;
 
     // A3: intactReactorCore is intentionally NOT touched (id unchanged; display-only).
-    return { ...state, inventory };
+    //
+    // B1 (equipment storage cap): seed the new `equipmentStorageLevel` GameState field to 0
+    // (base cap, no upgrade rung purchased). `?? 0` keeps a chained / re-run save's existing
+    // level intact (idempotent), while a genuine v28 save (no such field) gets 0. Seeding the
+    // stored LEVEL, not a cap value, keeps the cap COMPUTED (equipmentStorageCap derives it).
+    return { ...state, inventory, equipmentStorageLevel: state.equipmentStorageLevel ?? 0 };
   },
 };
 

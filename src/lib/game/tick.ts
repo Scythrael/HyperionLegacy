@@ -73,6 +73,10 @@ import {
   SHIPYARD_FACILITY_KEY,
   BLUEPRINTS,
   blueprintUnlocked,
+  // Equipment 0.11.0 Task B1: the spare-storage-cap seam. equipmentAtCap is the
+  // equipment twin of materialAtCap, consulted by both fabricate gates below to refuse
+  // STARTING a new equipment craft when the spare pool is full.
+  equipmentAtCap,
 } from "./model";
 import { fuelNeeded } from "./fuel";
 // Equipment 0.11.0 (Task 19): the Fabricator's equipment mint. computeItemLevel derives a
@@ -3587,9 +3591,12 @@ export function maxAffordableIterations(
 //   invalidCount , the requested count is not a positive integer
 //   materials    , count exceeds maxAffordableIterations (can't reserve that many from free)
 //   storageFull  , the output item is at its warehouse storage cap (materialAtCap)
+//   equipmentStorageFull, EQUIPMENT fabricate only: the SPARE-system pool is at its cap
+//                  (equipmentAtCap), the equipment twin of storageFull (Task B1)
 // notResearched + tierLocked are a FABRICATE-ONLY subset: refine recipes carry no research
 // or tier gate (a refine recipe is always available once the refinery is built), so a refine
-// line can never surface those two reasons.
+// line can never surface those two reasons. equipmentStorageFull is likewise fabricate-only
+// (only an equipment BLUEPRINT mints a spare system), so a refine line never surfaces it.
 export type StartLineBlockReason =
   | "notFound"
   | "notResearched"
@@ -3597,7 +3604,8 @@ export type StartLineBlockReason =
   | "noSlot"
   | "invalidCount"
   | "materials"
-  | "storageFull";
+  | "storageFull"
+  | "equipmentStorageFull";
 
 // canStartLine(state, kind, recipeKey, count): THE single consolidated line-start gate.
 // Pure predicate mirroring canFabricate, reads state + the static registries + the derived
@@ -3657,9 +3665,9 @@ export function canStartLine(
   // --- Storage: the OUTPUT item must not already be at its warehouse cap (AT the cap counts
   // as full, the SAME materialAtCap seam canFabricate/missions/trickle stop on). Refine
   // outputs a { itemId, amount } record (-> .itemId); a blueprint outputs recipe.outputItem.
-  // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT, it
-  // mints an EquipmentInstance and has no stackable output, so the warehouse cap must not block
-  // starting an equipment line. The SAME exemption stepCraftLine/canFabricate apply.
+  // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT from
+  // the WAREHOUSE cap, it mints an EquipmentInstance and has no stackable output, so the material
+  // storage cap must not block it. The SAME exemption stepCraftLine/canFabricate apply.
   const isEquipmentBlueprint = kind === "fabricate" && BLUEPRINTS[recipeKey].equipmentOutput !== undefined;
   if (!isEquipmentBlueprint) {
     // A non-equipment fabricate line is a MATERIAL blueprint, which always carries recipe.outputItem;
@@ -3668,6 +3676,13 @@ export function canStartLine(
     const outputItem =
       kind === "refine" ? REFINE_RECIPES[recipeKey].output.itemId : BLUEPRINTS[recipeKey].recipe.outputItem;
     if (outputItem !== undefined && materialAtCap(state, outputItem)) return { ok: false, reason: "storageFull" };
+  } else if (equipmentAtCap(state)) {
+    // Equipment 0.11.0 (Task B1): an equipment fabricate mints a SPARE crafted system into the
+    // CAPPED pool. When spare storage is already full, refuse to START, the equipment twin of the
+    // material storageFull stop above (same posture, distinct reason so the UI can surface the
+    // equipment cap explicitly). Relieved by salvage (C1) / the storage upgrade (B2). Fitting,
+    // salvaging, and non-equipment jobs never reach this branch.
+    return { ok: false, reason: "equipmentStorageFull" };
   }
 
   return { ok: true };
@@ -3794,13 +3809,16 @@ export function cancelLine(state: GameState, lineId: string): GameState {
 //   noSlot        , every fabricate slot is busy (active fabricateJobs >= fabricateSlotCount)
 //   materials     , a recipe input is unaffordable (any input: on-hand < required)
 //   storageFull   , the output component is at its warehouse storage cap (materialAtCap)
+//   equipmentStorageFull, EQUIPMENT blueprint only: the SPARE-system pool is at its cap
+//                   (equipmentAtCap), the equipment twin of storageFull (Task B1)
 export type FabricateBlockReason =
   | "notFound"
   | "notResearched"
   | "tierLocked"
   | "noSlot"
   | "materials"
-  | "storageFull";
+  | "storageFull"
+  | "equipmentStorageFull";
 
 // Fabricator Task F3: THE single consolidated fabricate gate. Pure predicate, reads state
 // + the static BLUEPRINTS/ITEMS tables + the derived fabricateSlotCount, mutates nothing,
@@ -3860,13 +3878,21 @@ export function canFabricate(
   // --- Storage: the output component must not be at its warehouse cap. Reads the SAME
   // materialAtCap seam the refine order + missions/trickle auto-stop on (AT the cap counts
   // as full). A full component store cannot start new crafts.
-  // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT, it
-  // mints an EquipmentInstance into state.equipment and has no stackable output, so the warehouse
-  // cap must not block it. Same exemption canStartLine/stepCraftLine apply.
-  // equipmentOutput === undefined narrows this to a MATERIAL blueprint, which always carries
+  // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT from
+  // the WAREHOUSE cap, it mints an EquipmentInstance into state.equipment and has no stackable
+  // output, so the material storage cap must not block it. Same exemption canStartLine/stepCraftLine
+  // apply. equipmentOutput === undefined narrows this to a MATERIAL blueprint, which always carries
   // recipe.outputItem; the extra `!== undefined` guard only satisfies the now-optional field type.
-  if (bp.equipmentOutput === undefined && bp.recipe.outputItem !== undefined && materialAtCap(state, bp.recipe.outputItem)) {
-    return { ok: false, reason: "storageFull" };
+  if (bp.equipmentOutput === undefined) {
+    if (bp.recipe.outputItem !== undefined && materialAtCap(state, bp.recipe.outputItem)) {
+      return { ok: false, reason: "storageFull" };
+    }
+  } else if (equipmentAtCap(state)) {
+    // Equipment 0.11.0 (Task B1): an equipment blueprint mints a SPARE crafted system into the
+    // CAPPED pool. A full spare store refuses the START, the equipment twin of the storageFull stop
+    // above (distinct reason so the F4 UI can surface the equipment cap). Relieved by salvage (C1) /
+    // the storage upgrade (B2). Non-equipment crafts never reach this branch.
+    return { ok: false, reason: "equipmentStorageFull" };
   }
 
   return { ok: true };

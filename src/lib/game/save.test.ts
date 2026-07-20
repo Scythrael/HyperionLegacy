@@ -3614,6 +3614,11 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(29);
     expect(roundTripped!.version).toBe(SAVE_VERSION);
+
+    // Task B1 (equipment storage cap): the SAME v28->v29 body seeds the new
+    // `equipmentStorageLevel` field to 0 on an old save that lacks it (the makeV28Save
+    // fixture omits it). Seeding the LEVEL, not a cap value, keeps the cap COMPUTED.
+    expect(migrated.equipmentStorageLevel).toBe(0);
   });
 
   it("creates titaniumIngot from refinedMaterial when there was NO prior titaniumIngot bucket", () => {
@@ -3667,6 +3672,13 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
 
   it("current SAVE_VERSION is 29", () => {
     expect(SAVE_VERSION).toBe(29);
+  });
+
+  it("freshState seeds equipmentStorageLevel 0 (Task B1), matching the migration's seed on old saves", () => {
+    // A brand-new save starts at the base cap: no storage-upgrade rung purchased yet.
+    // This is the freshState twin of the migration seed asserted above, so a new save
+    // and a migrated old save reach the IDENTICAL level-0 shape.
+    expect(freshState().equipmentStorageLevel).toBe(0);
   });
 });
 

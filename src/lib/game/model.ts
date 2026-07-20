@@ -2287,6 +2287,17 @@ export interface GameState {
   // only DEFINES + seeds them; the XP-award + level-up engine is a later task.
   craftingLevel: number;
   craftingXp: Decimal;
+  // --- Equipment storage cap (0.11.0 Storage/Salvage Task B1) -------------------
+  // The 0-based count of PURCHASED equipment-storage upgrade rungs, the STORED input
+  // to equipmentStorageCap (which multiplies EQUIPMENT_STORAGE_CAP_BASE by one
+  // EQUIPMENT_STORAGE_RUNGS[i].storageCapMult per reached rung). Mirrors how a material
+  // warehouse stores its LEVEL (state.facilities[warehouseKey].level) and DERIVES the
+  // cap on read, so the cap is never a stored value that could drift. freshState seeds
+  // 0 (base cap, no rung bought); the v28->v29 migration seeds 0 on old saves. A plain
+  // number (no Decimal), so hydrateDecimals needs no change, it rides the `...state`
+  // spread. Task B2 fills the rung table; this field's engine (the purchase action) is
+  // Task B2's job, B1 only DEFINES + seeds it and reads it in equipmentStorageCap.
+  equipmentStorageLevel: number;
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -3208,6 +3219,86 @@ export function seedStandardIssueForShip(
     nextId += 1;
   }
   return { pieces, nextId };
+}
+
+// ============================================================================
+// Equipment storage cap (spare systems only), 0.11.0 Storage/Salvage Task B1.
+// (docs/plans/2026-07-18-storage-salvage-0.11.0-design.md §1.)
+//
+// state.equipment is otherwise UNBOUNDED. This caps how many SPARE (unfitted,
+// crafted) systems the fleet may hold, MIRRORING the material-warehouse storage
+// cap (tick.ts tierCap): a BASE cap multiplied by every REACHED upgrade rung's
+// storageCapMult, DERIVED on read from a stored LEVEL. The cap is COMPUTED, never
+// a stored number, so the surfaced "spare X / cap" can never drift from the real
+// limit (Task B1 self-review criterion).
+//
+// WHY spares only (design §1): a FITTED system lives on its ship and is "in use";
+// a Standard-Issue baseline (blueprintKey null) is auto-managed by the never-empty
+// invariant. Neither consumes storage, so ONLY unfitted CRAFTED systems count.
+//
+// SOFTLOCK RELIEF (design §1): a full store is never a dead end. Task C1's SALVAGE
+// (consume any spare system, no cap check) always frees a slot, and Task B2's
+// storage UPGRADE raises the cap; both relieve this. Their softlock-guard tests
+// belong to C1/B2 (salvage does not exist yet), not to this task.
+// ============================================================================
+
+// The level-0 spare-storage cap (design §1: "a first-pass number, e.g. 25,
+// device-check tunable"). Multiplied UP by reached upgrade rungs; at level 0 it IS
+// the effective cap.
+export const EQUIPMENT_STORAGE_CAP_BASE = 25;
+
+// The equipment-storage upgrade RUNGS: each reached rung multiplies the base cap by
+// its storageCapMult, EXACTLY like a material warehouse track's { storageCapMult }
+// rungs (which tick.ts tierCap reads off the facility level). STUB / EMPTY this task:
+// Task B2 fills this array with the real rung data (mults, and its own cost/label
+// surface). An empty table means NO rung can be reached, so equipmentStorageCap
+// returns the base at EVERY level, i.e. exactly 25 until B2 lands. The stored
+// GameState.equipmentStorageLevel is the 0-based count of PURCHASED rungs;
+// equipmentStorageCap multiplies in ONE mult per reached rung (index < level), so
+// Task B2 only has to APPEND rung objects here, no consumer changes.
+export const EQUIPMENT_STORAGE_RUNGS: { storageCapMult: number }[] = [];
+
+// equipmentStorageCap(state): the CURRENT spare-storage cap, DERIVED (never stored)
+// from EQUIPMENT_STORAGE_CAP_BASE times each REACHED rung's storageCapMult, the SAME
+// reached-rungs loop tierCap (tick.ts) uses for material warehouses. Reading the cap
+// off the stored LEVEL (not a stored cap number) is the deliberate anti-drift choice:
+// the displayed "X / cap" can never diverge from the real limit. With the STUB rung
+// table empty, this is EQUIPMENT_STORAGE_CAP_BASE at every level until Task B2.
+export function equipmentStorageCap(state: GameState): number {
+  // Defensive `?? 0`: a pre-B1 / hand-edited save may lack the field. The v28->v29
+  // migration seeds 0, but the guard keeps a partial shape from reading NaN, matching
+  // the codebase's grow-on-demand `?? 0` convention (e.g. tierCap's facility level).
+  const level = state.equipmentStorageLevel ?? 0;
+  let cap = EQUIPMENT_STORAGE_CAP_BASE;
+  // Multiply in one storageCapMult per REACHED rung (i < level), guarded against an
+  // over-level read past the finite (currently empty) track, mirroring tierCap's
+  // `i < upgrades.length`. Empty table -> loop never runs -> cap stays the base.
+  for (let i = 0; i < level && i < EQUIPMENT_STORAGE_RUNGS.length; i++) {
+    cap *= EQUIPMENT_STORAGE_RUNGS[i].storageCapMult;
+  }
+  return cap;
+}
+
+// spareEquipmentCount(state): how many systems currently OCCUPY spare storage, the
+// numerator of the "spare X / cap" display and the denominator of the cap enforcement.
+// The cap counts ONLY spare CRAFTED systems: fittedToShipId === null (unfitted, in the
+// pool) AND blueprintKey !== null (crafted, NOT a Standard-Issue baseline). A fitted
+// crafted system (lives on its ship), a spare baseline, and a fitted baseline are ALL
+// excluded (see the section header's WHY). This exact predicate is the storage-cap set.
+export function spareEquipmentCount(state: GameState): number {
+  return state.equipment.filter(
+    (piece) => piece.fittedToShipId === null && piece.blueprintKey !== null
+  ).length;
+}
+
+// equipmentAtCap(state): whether spare storage is FULL, the single seam the fabricate
+// gates (canFabricate / canStartLine, tick.ts) consult to refuse STARTING a new
+// equipment craft, MIRRORING materialAtCap for material producers. `>=` (AT the cap
+// counts as full) matches materialAtCap's `.gte`. Blocks ONLY equipment fabrication;
+// fitting, salvaging, and non-equipment jobs never consult this (they cannot grow the
+// spare-crafted pool, or in salvage's case they SHRINK it).
+export function equipmentAtCap(state: GameState): boolean {
+  return spareEquipmentCount(state) >= equipmentStorageCap(state);
 }
 
 // The Research facility's key in GameState.facilities. R2 adds FACILITIES.research and
@@ -4274,5 +4365,9 @@ export function freshState(): GameState {
     nextEquipmentId: seededShip1.nextId,
     craftingLevel: 1,
     craftingXp: new Decimal(0),
+    // Equipment 0.11.0 Task B1: a new save starts at the base equipment-storage cap,
+    // no upgrade rung purchased (level 0). Old saves reach the same shape via the
+    // v28->v29 migration (save.ts). See the field comment on GameState above.
+    equipmentStorageLevel: 0,
   };
 }
