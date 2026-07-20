@@ -105,7 +105,7 @@ describe("canBuildFacilityUpgrade, prerequisite gates on the later rungs", () =>
     // Refinery at level 2 -> next rung is upgrades[2]: FA level 5 + industryHub.
     // FA level + materials satisfied, so the missing talent is the failing gate.
     const state = stateWith({
-      inventory: { commonOre: 3000, refinedMaterial: 25 },
+      inventory: { commonOre: 3000, titaniumIngot: 25 },
       refineryLevel: 2,
       fleetAdminLevel: 5,
       unlockedHomeworldTalents: [], // industryHub NOT unlocked
@@ -117,7 +117,7 @@ describe("canBuildFacilityUpgrade, prerequisite gates on the later rungs", () =>
 
   it("passes rung 2 once FA level, talent, AND materials are all satisfied", () => {
     const state = stateWith({
-      inventory: { commonOre: 3000, refinedMaterial: 25 },
+      inventory: { commonOre: 3000, titaniumIngot: 25 },
       refineryLevel: 2,
       fleetAdminLevel: 5,
       unlockedHomeworldTalents: ["industryHub"],
@@ -131,7 +131,7 @@ describe("canBuildFacilityUpgrade, maxed track", () => {
     const maxLevel = FACILITIES.refinery.upgrades.length; // 4
     // Give it a mountain of every material, being maxed must override affordability.
     const state = stateWith({
-      inventory: { commonOre: 1e9, refinedMaterial: 1e9 },
+      inventory: { commonOre: 1e9, titaniumIngot: 1e9 },
       refineryLevel: maxLevel,
       fleetAdminLevel: 999,
       unlockedHomeworldTalents: ["industryHub"],

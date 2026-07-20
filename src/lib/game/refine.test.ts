@@ -84,19 +84,19 @@ describe("refineSlotCount, sums addRefineSlots across levels reached", () => {
 //  process via startProcess directly, the same seam the line engine uses.)
 
 describe("refineJob completion grants output + lifetime itemsRefined", () => {
-  it("completes past durationTicks: refinedMaterial +1, discovered, itemsRefined +1, FA XP += 10, process removed", () => {
+  it("completes past durationTicks: titaniumIngot +1, discovered, itemsRefined +1, FA XP += 10, process removed", () => {
     const state = stateWith({ inventory: { commonOre: 100 }, refineryLevel: 1 });
     const { next: started } = startRefineCommonOre(state);
     expect(started.activeProcesses).toHaveLength(1);
 
     const { next, fleetAdminXpDelta } = resolveProcesses(started, 10); // exactly reaches 0
 
-    expect(itemTotal(next.inventory, "refinedMaterial").toString()).toBe("1"); // output granted
-    expect(next.discovered).toContain("refinedMaterial"); // via the addToInventory seam
+    expect(itemTotal(next.inventory, "titaniumIngot").toString()).toBe("1"); // output granted
+    expect(next.discovered).toContain("titaniumIngot"); // via the addToInventory seam
     expect(next.activeProcesses).toEqual([]); // completed process removed
     expect(fleetAdminXpDelta).toBe(10); // lump FA XP = durationTicks
     // The Task 11 lifetime hook: itemsRefined accrues the refined output.
-    expect(next.lifetimeStats.itemsRefined.refinedMaterial.toString()).toBe("1");
+    expect(next.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
     // The other lifetime maps stay untouched (only refine jobs feed itemsRefined).
     expect(next.lifetimeStats.itemsCrafted).toEqual({});
   });
@@ -120,7 +120,7 @@ describe("refineJob completion grants output + lifetime itemsRefined", () => {
 });
 
 describe("refineJob completion, CLOSED-FORM parity for the itemsRefined hook", () => {
-  it("one big resolve == many small: refinedMaterial, itemsRefined, and FA XP all match", () => {
+  it("one big resolve == many small: titaniumIngot, itemsRefined, and FA XP all match", () => {
     const state = stateWith({ inventory: { commonOre: 100 }, refineryLevel: 1 });
     const { next: started } = startRefineCommonOre(state);
 
@@ -137,11 +137,11 @@ describe("refineJob completion, CLOSED-FORM parity for the itemsRefined hook", (
     }
 
     // Inventory output identical.
-    expect(itemTotal(jumped.next.inventory, "refinedMaterial").toString()).toBe("1");
-    expect(itemTotal(stepped.inventory, "refinedMaterial").toString()).toBe("1");
+    expect(itemTotal(jumped.next.inventory, "titaniumIngot").toString()).toBe("1");
+    expect(itemTotal(stepped.inventory, "titaniumIngot").toString()).toBe("1");
     // Lifetime itemsRefined identical (the completion fires exactly once either way).
-    expect(jumped.next.lifetimeStats.itemsRefined.refinedMaterial.toString()).toBe("1");
-    expect(stepped.lifetimeStats.itemsRefined.refinedMaterial.toString()).toBe("1");
+    expect(jumped.next.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
+    expect(stepped.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
     // FA XP identical.
     expect(jumped.fleetAdminXpDelta).toBe(10);
     expect(steppedFaXp).toBe(10);
@@ -152,10 +152,10 @@ describe("refineJob completion, CLOSED-FORM parity for the itemsRefined hook", (
 });
 
 describe("REFINE_RECIPES table shape (launch placeholder)", () => {
-  it("seeds the one Phase 1 recipe: commonOre x100 -> refinedMaterial x1 over 10 ticks", () => {
+  it("seeds the one Phase 1 recipe: commonOre x100 -> titaniumIngot x1 over 10 ticks", () => {
     const recipe = REFINE_RECIPES.refineCommonOre;
     expect(recipe.input.commonOre.toString()).toBe("100");
-    expect(recipe.output.itemId).toBe("refinedMaterial");
+    expect(recipe.output.itemId).toBe("titaniumIngot");
     expect(recipe.output.amount.toString()).toBe("1");
     expect(recipe.durationTicks).toBe(10);
   });

@@ -206,7 +206,7 @@ export function foldLifetimeStatsDelta(
 // but homePlanetDelta is keyed on the narrower LootMaterialKey, this list
 // narrows one to the other at runtime. Today's only passiveTrickle entry
 // (economyTrickle) targets "commonOre", which is in this list; a future
-// trickle entry targeting "refinedMaterial"/"components" would need
+// trickle entry targeting "titaniumIngot"/"components" would need
 // homePlanetDelta's shape (and this list) widened first, not silently work.
 export const LOOT_MATERIAL_KEYS: LootMaterialKey[] = ["commonOre", "uncommonMaterial", "rareMaterial"];
 

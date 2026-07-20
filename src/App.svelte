@@ -1398,9 +1398,8 @@
       uncommonMaterial: 10000, // Polysilicate Ore (refines -> Polysilicate Wafer)
       rareMaterial: 2000, // Iridium Ore
       deuteriumIce: 5000, // fuel feedstock
-      titaniumIngot: 1000, // refined -> Fabricator input (frameSegment / structuralAssembly)
+      titaniumIngot: 1000, // refined -> Fabricator input (frameSegment / structuralAssembly) + refinery upgrades
       polysilicateWafer: 1000, // refined -> Fabricator input (powerCoupling)
-      refinedMaterial: 1000, // generic refined (facility upgrades)
     };
     // Quality-bucketed (Task 9a): grant each material into its QUALITY-0 bucket via
     // addItemQuality (threaded immutably, each call returns a fresh inventory), the

@@ -88,7 +88,7 @@ describe("startProcess, atomic deduct-at-start (Task 8)", () => {
       "refineJob",
       { commonOre: new Decimal(10) }, // needs 10, only 5 on hand
       10,
-      addItem("refinedMaterial", 1)
+      addItem("titaniumIngot", 1)
     );
     expect(result.started).toBe(false);
     expect(result.next).toBe(state); // literally the same object, no clone on the reject path
@@ -104,7 +104,7 @@ describe("startProcess, atomic deduct-at-start (Task 8)", () => {
       "refineJob",
       { commonOre: new Decimal(10) },
       10,
-      addItem("refinedMaterial", 1)
+      addItem("titaniumIngot", 1)
     );
     expect(result.started).toBe(true);
     // Deducted at START (not at completion), inventory already reflects the reservation.
@@ -117,7 +117,7 @@ describe("startProcess, atomic deduct-at-start (Task 8)", () => {
       remainingTicks: 10, // seeded from durationTicks
       durationTicks: 10,
     });
-    expect(proc.effect).toMatchObject({ type: "addItem", itemId: "refinedMaterial" });
+    expect(proc.effect).toMatchObject({ type: "addItem", itemId: "titaniumIngot" });
     expect(result.next.nextProcessId).toBe(2); // monotonic bump
     // Immutability: the original state is untouched.
     expect(itemTotal(state.inventory, "commonOre").toString()).toBe("30");
@@ -148,7 +148,7 @@ describe("startProcess, double-consume guard (design §4)", () => {
     // deduct-at-start makes that structurally impossible: the first start removes
     // the ore, so the second's gate reads the already-drawn-down balance.
     const state = stateWith({ commonOre: 10 });
-    const first = startProcess(state, "refineJob", { commonOre: new Decimal(10) }, 10, addItem("refinedMaterial", 1));
+    const first = startProcess(state, "refineJob", { commonOre: new Decimal(10) }, 10, addItem("titaniumIngot", 1));
     expect(first.started).toBe(true);
     expect(itemTotal(first.next.inventory, "commonOre").toString()).toBe("0");
 
@@ -157,7 +157,7 @@ describe("startProcess, double-consume guard (design §4)", () => {
       "refineJob",
       { commonOre: new Decimal(10) },
       10,
-      addItem("refinedMaterial", 1)
+      addItem("titaniumIngot", 1)
     );
     expect(second.started).toBe(false);
     expect(second.next).toBe(first.next); // rejected, inventory never goes negative
@@ -174,14 +174,14 @@ describe("resolveProcesses, completion applies effects, lumps FA XP, removes the
       kind: "refineJob",
       remainingTicks: 10,
       durationTicks: 10,
-      effect: addItem("refinedMaterial", 3),
+      effect: addItem("titaniumIngot", 3),
     };
     const state = { ...base, activeProcesses: [process], nextProcessId: 2 };
 
     const { next, fleetAdminXpDelta } = resolveProcesses(state, 10); // exactly reaches 0
 
-    expect(itemTotal(next.inventory, "refinedMaterial").toString()).toBe("3"); // output granted
-    expect(next.discovered).toContain("refinedMaterial"); // routed through addToInventory -> discovered
+    expect(itemTotal(next.inventory, "titaniumIngot").toString()).toBe("3"); // output granted
+    expect(next.discovered).toContain("titaniumIngot"); // routed through addToInventory -> discovered
     expect(next.activeProcesses).toEqual([]); // completed process removed
     expect(fleetAdminXpDelta).toBe(10); // lump FA XP == durationTicks, once
   });
@@ -238,11 +238,11 @@ describe("resolveProcesses, CLOSED-FORM parity (critical): one big resolve == ma
     // long-runner that does NOT complete within the window so it must SURVIVE
     // identically in both paths).
     const processes: TimedProcess[] = [
-      { id: "proc-1", kind: "refineJob", remainingTicks: 1, durationTicks: 1, effect: addItem("refinedMaterial", 5) },
-      { id: "proc-2", kind: "refineJob", remainingTicks: 10, durationTicks: 10, effect: addItem("refinedMaterial", 3) },
+      { id: "proc-1", kind: "refineJob", remainingTicks: 1, durationTicks: 1, effect: addItem("titaniumIngot", 5) },
+      { id: "proc-2", kind: "refineJob", remainingTicks: 10, durationTicks: 10, effect: addItem("titaniumIngot", 3) },
       { id: "proc-3", kind: "facilityUpgrade", remainingTicks: 25, durationTicks: 25, effect: levelUp("refinery") },
       { id: "proc-4", kind: "refineJob", remainingTicks: 60, durationTicks: 60, effect: addItem("components", 2) },
-      { id: "proc-5", kind: "refineJob", remainingTicks: 500, durationTicks: 500, effect: addItem("refinedMaterial", 7) },
+      { id: "proc-5", kind: "refineJob", remainingTicks: 500, durationTicks: 500, effect: addItem("titaniumIngot", 7) },
     ];
     const base = { ...freshState(), activeProcesses: processes, nextProcessId: 6 };
 
@@ -268,9 +268,9 @@ describe("resolveProcesses, CLOSED-FORM parity (critical): one big resolve == ma
     expect(jumped.fleetAdminXpDelta).toBe(96);
 
     // Spot-check the concrete outcome so a silent double-count/omission is caught:
-    // refinedMaterial += 5 + 3 (proc-5's +7 excluded), components += 2, refinery 0->1,
+    // titaniumIngot += 5 + 3 (proc-5's +7 excluded), components += 2, refinery 0->1,
     // proc-5 survives with 500 - 320 == 180 remaining.
-    expect(itemTotal(jumped.next.inventory, "refinedMaterial").toString()).toBe("8");
+    expect(itemTotal(jumped.next.inventory, "titaniumIngot").toString()).toBe("8");
     expect(itemTotal(jumped.next.inventory, "components").toString()).toBe("2");
     expect(jumped.next.facilities.refinery.level).toBe(1);
     expect(jumped.next.activeProcesses).toHaveLength(1);
@@ -287,7 +287,7 @@ describe("save round-trip, a persisted addItem process revives effect.amount as 
       kind: "refineJob",
       remainingTicks: 7,
       durationTicks: 10,
-      effect: addItem("refinedMaterial", 42),
+      effect: addItem("titaniumIngot", 42),
     };
     const state = { ...base, activeProcesses: [process], nextProcessId: 2 };
 

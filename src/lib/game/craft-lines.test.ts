@@ -15,7 +15,7 @@
 //                 recipes, one finishing mid-span + another in flight. NON-VACUOUS.
 //
 // Known-numbers fixtures (real registry keys):
-//   - refineCommonOre  : commonOre x100 -> refinedMaterial x1 over 10 ticks (1 refine slot @ refinery level 1).
+//   - refineCommonOre  : commonOre x100 -> titaniumIngot x1 over 10 ticks (1 refine slot @ refinery level 1).
 //   - frameSegmentBp   : titaniumIngot x4 -> frameSegment x1 over 120 ticks (1 fabricate slot @ fabricator level 1).
 // The captain stays IDLE (freshState's captain has mission: null), so no mission
 // economy / rng runs, these tests isolate the line engine.
@@ -44,7 +44,8 @@ import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across qual
 // (realistic; the C2 line engine itself does not gate on research, that is C3).
 function linesState(opts: {
   commonOre?: number;
-  refinedMaterial?: number;
+  // (ITEM-MERGE 0.11.0 Task A1: the `refinedMaterial` option was dropped; the refine
+  // line now outputs titaniumIngot, which already had its own option below.)
   titaniumIngot?: number;
   frameSegment?: number;
   refineryLevel?: number;
@@ -56,7 +57,6 @@ function linesState(opts: {
   const s = freshState();
   const inventory: Record<string, Decimal[]> = { ...s.inventory };
   if (opts.commonOre !== undefined) inventory.commonOre = [new Decimal(opts.commonOre)];
-  if (opts.refinedMaterial !== undefined) inventory.refinedMaterial = [new Decimal(opts.refinedMaterial)];
   if (opts.titaniumIngot !== undefined) inventory.titaniumIngot = [new Decimal(opts.titaniumIngot)];
   if (opts.frameSegment !== undefined) inventory.frameSegment = [new Decimal(opts.frameSegment)];
   return {
@@ -88,7 +88,6 @@ function stepTicks(state: GameState, n: number): GameState {
 function lineSnapshot(state: GameState) {
   return {
     commonOre: itemTotal(state.inventory, "commonOre").toString(),
-    refinedMaterial: itemTotal(state.inventory, "refinedMaterial").toString(),
     titaniumIngot: itemTotal(state.inventory, "titaniumIngot").toString(),
     frameSegment: itemTotal(state.inventory, "frameSegment").toString(),
     processes: state.activeProcesses.map((p) => ({
@@ -221,7 +220,7 @@ describe("cancelLine, drains a running line (finishes the in-flight iteration) o
     expect(cancelled.activeProcesses.filter((p) => p.kind === "refineJob")).toHaveLength(1); // in-flight job still committed
 
     const settled = stepTicks(cancelled, 30); // well past the committed job's completion
-    expect(itemTotal(settled.inventory, "refinedMaterial").toString()).toBe("1"); // exactly the committed job, no 2nd
+    expect(itemTotal(settled.inventory, "titaniumIngot").toString()).toBe("1"); // exactly the committed job, no 2nd
     expect(itemTotal(settled.inventory, "commonOre").toString()).toBe("1900"); // no further ore consumed (reservation released)
     expect(settled.activeProcesses).toHaveLength(0);
     expect(settled.refineLines).toHaveLength(0); // line cleared itself once the in-flight iteration finished
@@ -251,18 +250,18 @@ describe("processRefineLines, a batch line produces exactly N, then the line cle
     const state = linesState({ commonOre: 1000, refineLines: [line], nextCraftLineId: 2 });
 
     const done = stepTicks(state, 40); // past 3 sequential 10-tick jobs (job3 done@31)
-    expect(itemTotal(done.inventory, "refinedMaterial").toString()).toBe("3"); // exactly N
+    expect(itemTotal(done.inventory, "titaniumIngot").toString()).toBe("3"); // exactly N
     expect(itemTotal(done.inventory, "commonOre").toString()).toBe("700"); // 1000 - 3*100
     expect(done.activeProcesses).toHaveLength(0);
     expect(done.refineLines).toHaveLength(0); // line removed once remaining 0 + last job done
-    expect(done.lifetimeStats.itemsRefined.refinedMaterial.toString()).toBe("3");
+    expect(done.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("3");
   });
 
   it("a batch never over-produces: exactly N even after many extra ticks", () => {
     const line: CraftLine = { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 2, mode: { kind: "batch", remaining: 2 } };
     const state = linesState({ commonOre: 1000, refineLines: [line], nextCraftLineId: 2 });
     const done = stepTicks(state, 200);
-    expect(itemTotal(done.inventory, "refinedMaterial").toString()).toBe("2"); // never a 3rd
+    expect(itemTotal(done.inventory, "titaniumIngot").toString()).toBe("2"); // never a 3rd
     expect(done.refineLines).toHaveLength(0);
     expect(done.activeProcesses).toHaveLength(0);
   });
@@ -279,7 +278,11 @@ describe("two concurrent lines (different recipes) progress independently", () =
 
     // BOTH lines produced (independent progress): refine (10-tick) completes many times,
     // fabricate (120-tick) completes once by tick 130.
-    expect(itemTotal(run.inventory, "refinedMaterial").gt(0)).toBe(true);
+    // (ITEM-MERGE 0.11.0 Task A1: the refine line now outputs titaniumIngot, which the
+    // fabricate line ALSO consumes and which is pre-seeded here, so the raw inventory
+    // total no longer cleanly isolates refine output. Prove refine production via the
+    // consumption-immune lifetime itemsRefined counter instead.)
+    expect(run.lifetimeStats.itemsRefined.titaniumIngot.gt(0)).toBe(true);
     expect(itemTotal(run.inventory, "frameSegment").toString()).toBe("1");
 
     // BOTH lines still present (continuous never clears) and EACH owns exactly one
@@ -333,14 +336,21 @@ describe("⚠️ multi-line offline == live parity (controller re-verifies)", ()
     expect(lineSnapshot(jumped)).toEqual(lineSnapshot(stepped));
 
     // NON-VACUITY: assert real, DIFFERENTIATED work happened on each line across the span.
-    // Refine line (finished mid-span):
-    expect(itemTotal(jumped.inventory, "refinedMaterial").toString()).toBe("2"); // 2 refine jobs produced
+    // Refine line (finished mid-span). (ITEM-MERGE 0.11.0 Task A1: refine now outputs
+    // titaniumIngot, which the fabricate line consumes and which is pre-seeded, so prove
+    // the 2 refine jobs via the consumption-immune itemsRefined counter, not inventory.)
+    expect(jumped.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("2"); // 2 refine jobs produced
     expect(itemTotal(jumped.inventory, "commonOre").toString()).toBe("0"); // 200 consumed (2 x 100)
     expect(jumped.refineLines).toHaveLength(0); // batch line CLEARED mid-span
     // Fabricate line (mid-span completion + one in flight):
     expect(itemTotal(jumped.inventory, "frameSegment").toString()).toBe("2"); // 2 crafts completed
     expect(jumped.lifetimeStats.itemsCrafted.frameSegment.toString()).toBe("2"); // 2 processes resolved
-    expect(itemTotal(jumped.inventory, "titaniumIngot").toString()).toBe("0"); // 12 consumed (3 crafts' inputs)
+    // titaniumIngot net = 12 seeded + 2 produced by the refine line - 12 consumed by the
+    // 3 started fabricate crafts (4 each) = 2. (ITEM-MERGE 0.11.0 Task A1: the two lines now
+    // share the titaniumIngot pool since refineCommonOre outputs it; this residual proves the
+    // fabricate consumption AND the refine contribution both landed, and the parity snapshot
+    // above already confirms both chunkings agree on it.)
+    expect(itemTotal(jumped.inventory, "titaniumIngot").toString()).toBe("2");
     expect(jumped.fabricateLines).toHaveLength(1); // continuous line still running
     const inFlight = jumped.activeProcesses.filter((p) => p.kind === "fabricateJob");
     expect(inFlight).toHaveLength(1); // craft3 in flight
@@ -461,9 +471,9 @@ describe("canStartLine, typed-reason gate (each reason + ok)", () => {
   });
 
   it("storageFull: the OUTPUT item is at its warehouse cap (checked after materials)", () => {
-    // Inputs are affordable (commonOre 1000, count 1), but refinedMaterial (the output) is
+    // Inputs are affordable (commonOre 1000, count 1), but titaniumIngot (the output) is
     // pinned way above its cap, so materialAtCap fires -> storageFull.
-    const state = linesState({ commonOre: 1000, refinedMaterial: 1e9 });
+    const state = linesState({ commonOre: 1000, titaniumIngot: 1e9 });
     expect(canStartLine(state, "refine", "refineCommonOre", 1)).toEqual({ ok: false, reason: "storageFull" });
   });
 

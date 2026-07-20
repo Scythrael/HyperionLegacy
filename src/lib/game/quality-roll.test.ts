@@ -91,7 +91,7 @@ function bucketStrings(state: GameState, item: string): string[] {
 // loot / passiveTrickle rng runs, and a single batch REFINE line. The ONLY rng draws in
 // economyTick are therefore the quality rolls at refine-job completions, which makes the
 // scripted-draw parity test exact and hand-traceable. Mirrors craft-lines.test.ts.
-//   refineCommonOre = commonOre x100 -> refinedMaterial x1 over 10 ticks, refinery level 1
+//   refineCommonOre = commonOre x100 -> titaniumIngot x1 over 10 ticks, refinery level 1
 //   (1 slot). commonOre = 100 * iterations funds exactly `iterations` jobs and no more.
 function refineOnlyState(iterations: number): GameState {
   const s = freshState();
@@ -210,23 +210,23 @@ describe("production deposit lands in the rolled quality bucket (resolveProcesse
       kind: "refineJob",
       remainingTicks: 10,
       durationTicks: 10,
-      effect: addItem("refinedMaterial", amount),
+      effect: addItem("titaniumIngot", amount),
     };
     return { ...base, activeProcesses: [process], nextProcessId: 2 };
   }
 
   it("rng=0 rolls the max tier: the full output lands in bucket 5, bucket 0 stays empty", () => {
     const { next } = resolveProcesses(withRefineJob(3), 10, () => 0);
-    expect(getBucket(next.inventory, "refinedMaterial", 5).toString()).toBe("3"); // rolled tier
-    expect(getBucket(next.inventory, "refinedMaterial", 0).toString()).toBe("0"); // NOT bucket 0
-    expect(itemTotal(next.inventory, "refinedMaterial").toString()).toBe("3"); // total preserved
+    expect(getBucket(next.inventory, "titaniumIngot", 5).toString()).toBe("3"); // rolled tier
+    expect(getBucket(next.inventory, "titaniumIngot", 0).toString()).toBe("0"); // NOT bucket 0
+    expect(itemTotal(next.inventory, "titaniumIngot").toString()).toBe("3"); // total preserved
   });
 
   it("rng=0.9 rolls tier 0: the output lands in bucket 0 (byte-identical to pre-9b)", () => {
     const { next } = resolveProcesses(withRefineJob(3), 10, () => 0.9);
-    expect(getBucket(next.inventory, "refinedMaterial", 0).toString()).toBe("3");
-    expect(getBucket(next.inventory, "refinedMaterial", 5).toString()).toBe("0");
-    expect(itemTotal(next.inventory, "refinedMaterial").toString()).toBe("3");
+    expect(getBucket(next.inventory, "titaniumIngot", 0).toString()).toBe("3");
+    expect(getBucket(next.inventory, "titaniumIngot", 5).toString()).toBe("0");
+    expect(itemTotal(next.inventory, "titaniumIngot").toString()).toBe("3");
   });
 });
 
@@ -259,15 +259,15 @@ describe("⚠️ offline==live quality-bucket parity (tick(span) == looping econ
 
     // THE PARITY ASSERTION: the per-BUCKET split is identical across the two chunkings, not
     // merely the total. This is the whole point of Task 9b's parity requirement.
-    expect(bucketStrings(jumped, "refinedMaterial")).toEqual(bucketStrings(stepped, "refinedMaterial"));
+    expect(bucketStrings(jumped, "titaniumIngot")).toEqual(bucketStrings(stepped, "titaniumIngot"));
 
     // NON-VACUITY + CORRECTNESS: the 4 outputs landed in the ROLLED tiers [0,1,3,5], one
     // unit each. Tier 5 populated forces the array to full length 6 (zero-filled gaps).
-    expect(bucketStrings(jumped, "refinedMaterial")).toEqual(["1", "1", "0", "1", "0", "1"]);
+    expect(bucketStrings(jumped, "titaniumIngot")).toEqual(["1", "1", "0", "1", "0", "1"]);
 
     // Totals still exact and quality-agnostic: sum of buckets == units produced == 4.
-    expect(itemTotal(jumped.inventory, "refinedMaterial").toString()).toBe("4");
-    expect(itemTotal(stepped.inventory, "refinedMaterial").toString()).toBe("4");
+    expect(itemTotal(jumped.inventory, "titaniumIngot").toString()).toBe("4");
+    expect(itemTotal(stepped.inventory, "titaniumIngot").toString()).toBe("4");
     expect(itemTotal(jumped.inventory, "commonOre").toString()).toBe("0"); // 400 consumed (4 x 100)
   });
 
@@ -287,11 +287,11 @@ describe("⚠️ offline==live quality-bucket parity (tick(span) == looping econ
     for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
 
     // Parity: the multi-bucket split is identical across the two chunkings.
-    expect(bucketStrings(jumped, "refinedMaterial")).toEqual(bucketStrings(stepped, "refinedMaterial"));
+    expect(bucketStrings(jumped, "titaniumIngot")).toEqual(bucketStrings(stepped, "titaniumIngot"));
     // NON-DEGENERATE: a genuine two-bucket spread, not the all-tier-0 single-bucket case.
-    expect(bucketStrings(jumped, "refinedMaterial")).toEqual(["3", "1"]);
+    expect(bucketStrings(jumped, "titaniumIngot")).toEqual(["3", "1"]);
     // Totals still exact and quality-agnostic.
-    expect(itemTotal(jumped.inventory, "refinedMaterial").toString()).toBe("4");
-    expect(itemTotal(stepped.inventory, "refinedMaterial").toString()).toBe("4");
+    expect(itemTotal(jumped.inventory, "titaniumIngot").toString()).toBe("4");
+    expect(itemTotal(stepped.inventory, "titaniumIngot").toString()).toBe("4");
   });
 });

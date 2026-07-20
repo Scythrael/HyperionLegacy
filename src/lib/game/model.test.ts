@@ -143,7 +143,8 @@ describe("freshState / freshCaptainStack, mission and Home Planet fields", () =>
     expect(itemTotal(state.inventory, "commonOre").equals(0)).toBe(true);
     expect(itemTotal(state.inventory, "uncommonMaterial").equals(0)).toBe(true);
     expect(itemTotal(state.inventory, "rareMaterial").equals(0)).toBe(true);
-    expect(itemTotal(state.inventory, "refinedMaterial").equals(0)).toBe(true);
+    // (ITEM-MERGE 0.11.0 Task A1: the retired `refinedMaterial` seed assertion was
+    // dropped; titaniumIngot is not seeded here, it lands lazily on first refine.)
     expect(itemTotal(state.inventory, "components").equals(0)).toBe(true);
   });
 
@@ -161,16 +162,18 @@ describe("freshState / freshCaptainStack, mission and Home Planet fields", () =>
 // itemId has been seen on a brand-new save). This test guards ONLY that
 // freshState seed.
 describe("Phase 1, keyed inventory + discovered (additive)", () => {
-  it("freshState().inventory seeds exactly the 5 launch material keys, all Decimal(0)", () => {
+  it("freshState().inventory seeds exactly the 4 launch material keys, all Decimal(0)", () => {
     const state = freshState();
     const inventoryKeys = Object.keys(state.inventory);
-    // Exact seed key SET, freshState seeds inventory with precisely the 5 launch
+    // Exact seed key SET, freshState seeds inventory with precisely the 4 launch
     // materials (no missing, no extra). Hardcoded against the same canonical launch
     // set save.ts's v17->v18 migration test pins; this REPLACES the old "mirror
     // homePlanet.storage's keys" comparison (Task 6), which becomes a tautology
     // once storage is removed in Task 7. Sorted so order can't cause a false fail.
+    // (ITEM-MERGE 0.11.0 Task A1: the retired `refinedMaterial` key was dropped,
+    // taking the seed set from 5 to 4; titaniumIngot seeds lazily, not here.)
     expect(inventoryKeys.sort()).toEqual(
-      ["commonOre", "components", "rareMaterial", "refinedMaterial", "uncommonMaterial"],
+      ["commonOre", "components", "rareMaterial", "uncommonMaterial"],
     );
     // Every seeded inventory entry starts at Decimal(0), compared via .equals()
     // (not .toEqual against a plain number), same Decimal convention as every
@@ -402,8 +405,10 @@ describe("Fuel-sourcing restructure, label reverts + dedicated Deuterium Ice ite
     expect(ITEMS.commonOre.label).toBe("Titanium Ore");
     expect(ITEMS.commonOre.rarity).toBe("common");
     // The refinery-output flavor/hint were also reverted off the ice wording.
-    expect(ITEMS.refinedMaterial.unlockHint).toContain("Titanium Ore");
-    expect(ITEMS.refinedMaterial.flavor.toLowerCase()).not.toContain("deuterium");
+    // (ITEM-MERGE 0.11.0 Task A1: refinedMaterial retired; titaniumIngot is now the
+    // sole refined-titanium item and carries the reverted Titanium wording.)
+    expect(ITEMS.titaniumIngot.unlockHint).toContain("Titanium Ore");
+    expect(ITEMS.titaniumIngot.flavor.toLowerCase()).not.toContain("deuterium");
   });
 
   it("reverts ferriteOre back to 'Ferrite' (Lunar Mine common; F1's 'Titanium' undone)", () => {
@@ -1099,24 +1104,27 @@ describe("shipDerivedStats fold (Task 13)", () => {
 // table with the minor/major-component/module/system tiers, do NOT add those
 // forward entries here until their phase (no placeholders).
 describe("ITEMS, Phase 1 seed registry", () => {
-  it("has the full scaffolded catalog: 14 raw, 6 refined, 2 minor + 1 major component", () => {
+  it("has the full scaffolded catalog: 14 raw, 5 refined, 2 minor + 1 major component", () => {
     // Phase 2 Warehouse catalog scaffold grew the registry to 22. The Fuel-sourcing
     // RESTRUCTURE (2026-07-15) adds ONE more raw item, the dedicated `deuteriumIce`
     // fuel ore (a real, obtainable item via localFuelRun), bringing the total to 23.
-    // Breakdown of the 23:
+    // ITEM-MERGE (0.11.0 Task A1) retired the duplicate `refinedMaterial` refined
+    // item (folded into titaniumIngot), dropping the total to 22 and refined to 5.
+    // Breakdown of the 22:
     //   raw (14): commonOre, uncommonMaterial, rareMaterial (the 3 live ore tiers),
     //     deuteriumIce (the live fuel ore), denseOre (T2 stub), + 9 future ore/salvage/
     //     forage loot placeholders.
-    //   refined (6): the 2 live crafted goods + 4 future Refinery-output placeholders.
+    //   refined (5): the 1 live crafted good (components) + titaniumIngot/polysilicateWafer
+    //     (live refine outputs) + 2 remaining future Refinery-output placeholders.
     //   minorComponent (2) + majorComponent (1): future Fabricator-output placeholders.
     const keys = Object.keys(ITEMS);
-    expect(keys).toHaveLength(23);
+    expect(keys).toHaveLength(22);
     const raw = Object.values(ITEMS).filter((i) => i.category === "raw");
     const refined = Object.values(ITEMS).filter((i) => i.category === "refined");
     const minor = Object.values(ITEMS).filter((i) => i.category === "minorComponent");
     const major = Object.values(ITEMS).filter((i) => i.category === "majorComponent");
     expect(raw).toHaveLength(14);
-    expect(refined).toHaveLength(6);
+    expect(refined).toHaveLength(5);
     expect(minor).toHaveLength(2);
     expect(major).toHaveLength(1);
 
@@ -1125,7 +1133,7 @@ describe("ITEMS, Phase 1 seed registry", () => {
     expect(ITEMS.uncommonMaterial.category).toBe("raw");
     expect(ITEMS.rareMaterial.category).toBe("raw");
     expect(ITEMS.denseOre.category).toBe("raw");
-    expect(ITEMS.refinedMaterial.category).toBe("refined");
+    expect(ITEMS.titaniumIngot.category).toBe("refined");
     expect(ITEMS.components.category).toBe("refined");
   });
 
@@ -1486,11 +1494,13 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
 
   it("the union of equipment inputs covers the full producible refined+component spread (no dead-end material)", () => {
     // The materials that are ACTUALLY producible today and therefore must each have
-    // an equipment sink: the three refine-recipe outputs + the three fabricated
+    // an equipment sink: the two refine-recipe outputs + the three fabricated
     // components. If a future edit stops using one of these, this fails (the plan's
     // "every gathered material feeds something" rule, at the producible tier).
+    // (ITEM-MERGE 0.11.0 Task A1: refinedMaterial retired, its blueprint inputs folded
+    // into titaniumIngot, so the producible refined set is now titaniumIngot + wafer.)
     const INTENDED_SPREAD = [
-      "titaniumIngot", "polysilicateWafer", "refinedMaterial", // refined (refine-recipe outputs)
+      "titaniumIngot", "polysilicateWafer",                    // refined (refine-recipe outputs)
       "frameSegment", "powerCoupling", "structuralAssembly",   // components (fabricated)
     ];
     const usedInputs = new Set<string>();

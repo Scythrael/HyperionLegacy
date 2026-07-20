@@ -143,12 +143,14 @@ export interface MissionLootTable {
   rare: string;     // ITEM key deposited when the rare tier wins
 }
 
-// Superset of LootMaterialKey: the 3 mission-loot tiers plus the 2 new
-// crafted-good tiers the Homeworld crafting system (RECIPES, below) produces.
+// Superset of LootMaterialKey: the 3 mission-loot tiers plus the crafted-good
+// tier the Homeworld crafting system (RECIPES, below) produces.
 // homePlanet.storage is keyed on this wider type, both raw loot delivery
 // (tick.ts's tick()) and crafting (tick.ts's craftRecipe()) read/write the
 // SAME storage object, just different subsets of its keys.
-export type HomePlanetMaterialKey = LootMaterialKey | "refinedMaterial" | "components";
+// ITEM-MERGE (0.11.0 Task A1): `refinedMaterial` was retired from this union
+// (folded into the forward-loose `titaniumIngot` inventory key).
+export type HomePlanetMaterialKey = LootMaterialKey | "components";
 
 export type MissionPhase = "ordersReceived" | "transitOut" | "extracting" | "transitBack" | "unloading";
 
@@ -1628,7 +1630,7 @@ export interface FacilityDef {
 //     first facility must be buildable from a fresh save (a fresh fleet is at FA
 //     level 1 with no talents), so gating the initial build behind FA level /
 //     talents would soft-lock the whole system. Gates appear on LATER rungs only.
-//   - Escalating commonOre (and refinedMaterial on the higher rungs, closing a
+//   - Escalating commonOre (and titaniumIngot on the higher rungs, closing a
 //     loop: you must refine to upgrade the refinery) + escalating durations.
 //   - Levels 1->2, 2->3 each grant +1 refine slot (more parallel jobs); the final
 //     3->4 rung grants a refineSpeedMult instead, to exercise BOTH effect kinds.
@@ -1869,10 +1871,13 @@ export const FACILITIES: Record<string, FacilityDef> = {
         effect: { addRefineSlots: 1 },
         requiresFleetAdminLevel: 2,
       },
-      // [2] Level 2 -> 3: a third line. Costs refinedMaterial (the refinery's own
-      // output) + a higher FA gate + the Industry hub talent.
+      // [2] Level 2 -> 3: a third line. Costs titaniumIngot (the refinery's own
+      // output) + a higher FA gate + the Industry hub talent. (ITEM-MERGE 0.11.0
+      // Task A1: was refinedMaterial, repointed 1:1 to titaniumIngot when the two
+      // refined-titanium items were merged; effective cost drops because
+      // titaniumIngot refines cheaper per unit, an accepted first-pass balance shift.)
       {
-        materials: { commonOre: new Decimal(3000), refinedMaterial: new Decimal(25) },
+        materials: { commonOre: new Decimal(3000), titaniumIngot: new Decimal(25) },
         durationTicks: 90,
         effect: { addRefineSlots: 1 },
         requiresFleetAdminLevel: 5,
@@ -1880,8 +1885,9 @@ export const FACILITIES: Record<string, FacilityDef> = {
       },
       // [3] Level 3 -> 4: automation. Grants a refine SPEED multiplier (not a slot),
       // exercising the other FacilityUpgradeEffect kind. Track ENDS here (finite).
+      // (ITEM-MERGE 0.11.0 Task A1: refinedMaterial repointed 1:1 to titaniumIngot.)
       {
-        materials: { commonOre: new Decimal(8000), refinedMaterial: new Decimal(75) },
+        materials: { commonOre: new Decimal(8000), titaniumIngot: new Decimal(75) },
         durationTicks: 180,
         effect: { refineSpeedMult: 1.5 },
         requiresFleetAdminLevel: 8,
@@ -2314,23 +2320,32 @@ export interface RefineRecipeDef {
 // to match FACILITIES' forward-loose keying + let startRefineJob look up an
 // arbitrary recipeKey string with a runtime guard.
 //
-// ⚠️ TUNABLE LAUNCH PLACEHOLDERS ⚠️ commonOre 100 : refinedMaterial 1 is the
+// ⚠️ TUNABLE LAUNCH PLACEHOLDERS ⚠️ commonOre 100 : titaniumIngot 1 is the
 // design §6 starting ratio (rebalanced up from the instant path's 10:1 toward the
 // 100-1000:1 scarcity target, NOT final, tuned at the device-check stage), and
 // durationTicks 10 is design §6's common-tier starting duration. Add entries here
 // (and nowhere else, the future Refinery panel iterates this object) as more
 // refine recipes land.
+//
+// ITEM-MERGE (0.11.0 Task A1, 2026-07-18): the retired duplicate `refinedMaterial`
+// item was folded into `titaniumIngot` (the sole refined-titanium item). This recipe
+// used to output `refinedMaterial`; it is REPOINTED to `titaniumIngot` rather than
+// dropped, because dozens of tests use `refineCommonOre` as their canonical 100:1
+// fixture key (retiring it would break allocation/craft-lines/facility/refine tests
+// and force a ratio rewrite). ⚠️ KNOWN WART: this leaves TWO recipes producing
+// titaniumIngot from commonOre (this 100:1/10-tick one and refineTitaniumIngot's
+// 20:1/12-tick one, which strictly dominates). The Refinery dropdown labels options
+// by output-item, so both currently read "Titanium Ingot", to be disambiguated /
+// consolidated in a follow-up recipe-cleanup pass.
 export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
   refineCommonOre: {
     input: { commonOre: new Decimal(100) },
-    output: { itemId: "refinedMaterial", amount: new Decimal(1) },
+    output: { itemId: "titaniumIngot", amount: new Decimal(1) },
     durationTicks: 10,
   },
   // ⚠️ TUNABLE first-pass (2026-07-16), these two CONNECT the Refinery to the Fabricator:
   // they produce the exact refined materials the tier-1 blueprints consume, so the production
-  // chain (mine -> refine -> fabricate) is playable end-to-end for the first time. Before this,
-  // the only recipe made the generic `refinedMaterial` (a facility-upgrade input), which NO
-  // blueprint uses, the chain dead-ended.
+  // chain (mine -> refine -> fabricate) is playable end-to-end for the first time.
   //   - Titanium Ore (`commonOre`) is the common staple -> a higher input ratio (20:1).
   //   - Polysilicate Ore (`uncommonMaterial`) is the UNCOMMON strike (scarcer drop) -> a cheaper
   //     ratio (5:1) so the rarer feedstock isn't punishing.
@@ -2450,20 +2465,12 @@ export const ITEMS: Record<string, ItemDef> = {
     flavor: "Deuterium-laced water ice cracked from a local field. Cook it down at the Fuel Depot and it runs the FTL drives.",
   },
   // --- Refined / crafted goods (Refinery / Fabricator output) ---
-  refinedMaterial: {
-    label: "Refined Material",
-    category: "refined",
-    tier: 1,
-    rarity: "uncommon",
-    // Output of the timed REFINE_RECIPES.refineCommonOre job, consuming `commonOre`
-    // (Titanium Ore) at the Refinery. (The legacy instant RECIPES.refineUnobtainium
-    // craft that once also produced it was retired in Phase 4, Task F5.) (Fuel-sourcing
-    // RESTRUCTURE 2026-07-15: reverted F1's "Deuterium Ice" wording back to Titanium --
-    // the material Refinery consumes titanium ore, the Fuel Depot now refines the
-    // separate `deuteriumIce` item instead.)
-    unlockHint: "Refined from Titanium Ore at the Refinery.",
-    flavor: "Titanium ore cooked down to a workable ingot. The first rung of the production ladder.",
-  },
+  // ITEM-MERGE (0.11.0 Task A1): the duplicate `refinedMaterial` ("Refined Material")
+  // item was RETIRED here. It refined from the same Titanium Ore (`commonOre`) as
+  // `titaniumIngot` (see the ITEMS.titaniumIngot entry below), so the two were folded
+  // into one, `titaniumIngot` is now the sole refined-titanium item. Old saves' orphan
+  // `refinedMaterial` inventory buckets are inert until a later save-migration task
+  // converts them to `titaniumIngot`.
   components: {
     label: "Components",
     category: "refined",
@@ -2786,9 +2793,10 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   //
   // MATERIAL-SPREAD / "no dead-end material" design rule (plan Task 18): across
   // the 12, the inputs cover the FULL set of materials that are ACTUALLY
-  // PRODUCIBLE today, the three refine-recipe outputs (titaniumIngot,
-  // polysilicateWafer, refinedMaterial) and the three fabricated components
-  // (frameSegment, powerCoupling, structuralAssembly). ⚠️ JUDGMENT CALL: the plan's
+  // PRODUCIBLE today, the two refine-recipe outputs (titaniumIngot,
+  // polysilicateWafer, after the 0.11.0 Task A1 refinedMaterial merge) and the three
+  // fabricated components (frameSegment, powerCoupling, structuralAssembly).
+  // ⚠️ JUDGMENT CALL: the plan's
   // "full spread across the 4 mission triads" cannot yet reach the OTHER 10 raw
   // ores (iridium/ferrite/cobalt/osmium/scrap/circuitry/reactorCore/biomass/resin/
   // spore) because NO REFINE_RECIPE turns them into a refined item yet (only
@@ -2829,8 +2837,11 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 700,
     craftDurationTicks: 150,
     equipmentOutput: { slotType: "cargoBay", varietyKey: "balancedHold" },
-    // The neutral middle hold (the cargo slot's DEFAULT variety): frame + titanium + refined filler.
-    recipe: { inputs: { frameSegment: 2, titaniumIngot: 2, refinedMaterial: 2 }, outputItem: "components", outputQty: 1 },
+    // The neutral middle hold (the cargo slot's DEFAULT variety): frame + titanium.
+    // (ITEM-MERGE 0.11.0 Task A1: the old `refinedMaterial: 2` filler was folded into
+    // this recipe's existing `titaniumIngot: 2`, so 2 + 2 = 4, preserving total input
+    // units; effective cost drops as titaniumIngot refines cheaper, an accepted shift.)
+    recipe: { inputs: { frameSegment: 2, titaniumIngot: 4 }, outputItem: "components", outputQty: 1 },
     flavor: "A no-nonsense general hold, the shape most shipwrights stamp first and rarely regret.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2870,8 +2881,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 800,
     craftDurationTicks: 160,
     equipmentOutput: { slotType: "ftlDrive", varietyKey: "economyDrive" },
-    // Long-haul drive: couplings + refined bulk for a fuel-sipping regulator.
-    recipe: { inputs: { powerCoupling: 2, refinedMaterial: 3 }, outputItem: "components", outputQty: 1 },
+    // Long-haul drive: couplings + titanium bulk for a fuel-sipping regulator.
+    // (ITEM-MERGE 0.11.0 Task A1: `refinedMaterial: 3` repointed 1:1 to titaniumIngot.)
+    recipe: { inputs: { powerCoupling: 2, titaniumIngot: 3 }, outputItem: "components", outputQty: 1 },
     flavor: "A patient long-haul drive that sips fuel, the runabout's choice for the deep runs.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -2965,8 +2977,10 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     researchCreditCost: 900,
     craftDurationTicks: 170,
     equipmentOutput: { slotType: "specUtility", varietyKey: "refineryFeedRig" },
-    // Material-quality rig: refined bulk + titanium for a cleaner-feedstock sorter.
-    recipe: { inputs: { refinedMaterial: 3, titaniumIngot: 2 }, outputItem: "components", outputQty: 1 },
+    // Material-quality rig: titanium bulk for a cleaner-feedstock sorter.
+    // (ITEM-MERGE 0.11.0 Task A1: the old `refinedMaterial: 3` was folded into this
+    // recipe's existing `titaniumIngot: 2`, so 3 + 2 = 5, preserving total input units.)
+    recipe: { inputs: { titaniumIngot: 5 }, outputItem: "components", outputQty: 1 },
     flavor: "A sorting rig that hand-picks the cleanest ore, so the Refinery gets a better feed.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
   },
@@ -4105,12 +4119,15 @@ export function freshState(): GameState {
     captains: freshCaptains(1),
     tickDurationSeconds: 1,
     gameTimeSeconds: 0,
-    // Phase 1: seed `inventory` with the 5 baseline material keys at zero. This is
+    // Phase 1: seed `inventory` with the baseline material keys at zero. This is
     // the canonical, sole fleet-wide material balance, tick.ts and App.svelte
     // read/write it via the shared addToInventory helper. It replaced the old
     // homePlanet.storage field entirely as of Task 7 (storage removed; its keys now
-    // live here). The 5 keys below are the historical storage set, new itemIds
-    // (refined/component tiers) are added dynamically on first acquire, no reseed.
+    // live here). The keys below are the historical storage set, new itemIds
+    // (refined/component tiers, e.g. titaniumIngot) are added dynamically on first
+    // acquire, no reseed. (ITEM-MERGE 0.11.0 Task A1: the retired `refinedMaterial`
+    // seed was dropped, taking the seed set from 5 keys to 4; titaniumIngot is not
+    // seeded here, it lands lazily on first refine like every other crafted good.)
     // Quality-bucketed shape (Task 9a): each key seeds a SINGLE zero bucket
     // (`[Decimal(0)]`, quality tier 0), the bucketed equivalent of the old scalar
     // `new Decimal(0)`. Buckets grow lazily, no eager length-6 allocation.
@@ -4118,7 +4135,6 @@ export function freshState(): GameState {
       commonOre: [new Decimal(0)],
       uncommonMaterial: [new Decimal(0)],
       rareMaterial: [new Decimal(0)],
-      refinedMaterial: [new Decimal(0)],
       components: [new Decimal(0)],
     },
     // No itemId has been seen on a brand-new save, the ❓ -> reveal set starts

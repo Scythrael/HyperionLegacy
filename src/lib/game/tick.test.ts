@@ -1638,7 +1638,7 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     expect(itemTotal(result.inventory, "commonOre").equals(0)).toBe(true);
     expect(itemTotal(result.inventory, "uncommonMaterial").equals(0)).toBe(true);
     expect(itemTotal(result.inventory, "rareMaterial").equals(0)).toBe(true);
-    expect(itemTotal(result.inventory, "refinedMaterial").equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "titaniumIngot").equals(0)).toBe(true);
     expect(itemTotal(result.inventory, "components").equals(0)).toBe(true);
     // Nothing delivered this tick -> no item flips to discovered (a 0-delta add
     // must NOT reveal anything). freshState starts discovered empty.
@@ -1664,7 +1664,7 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
       commonOre: [new Decimal(5)],
       uncommonMaterial: [new Decimal(1)],
       rareMaterial: [new Decimal(0)],
-      refinedMaterial: [new Decimal(0)],
+      titaniumIngot: [new Decimal(0)],
       components: [new Decimal(0)],
     };
     state.captains[0].mission = {
@@ -1682,16 +1682,16 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     expect(itemTotal(result.inventory, "commonOre").equals(75)).toBe(true);
     expect(itemTotal(result.inventory, "uncommonMaterial").equals(21)).toBe(true);
     expect(itemTotal(result.inventory, "rareMaterial").equals(10)).toBe(true);
-    expect(itemTotal(result.inventory, "refinedMaterial").equals(0)).toBe(true);
+    expect(itemTotal(result.inventory, "titaniumIngot").equals(0)).toBe(true);
     expect(itemTotal(result.inventory, "components").equals(0)).toBe(true);
     // Discovery spot-check: all three loot tiers delivered a POSITIVE amount this
     // cycle (cargo {70,20,10}), so each flips to discovered (was empty on freshState).
-    // refinedMaterial/components saw no delta and stay masked, proving the add seam
+    // titaniumIngot/components saw no delta and stay masked, proving the add seam
     // only reveals tiers that actually arrived.
     expect(result.discovered).toContain("commonOre");
     expect(result.discovered).toContain("uncommonMaterial");
     expect(result.discovered).toContain("rareMaterial");
-    expect(result.discovered).not.toContain("refinedMaterial");
+    expect(result.discovered).not.toContain("titaniumIngot");
     expect(result.discovered).not.toContain("components");
     expect(result.captains[0].mission!.phase).toBe("ordersReceived"); // auto-repeated
     expect(result.captains[0].mission!.phaseProgressTicks).toBe(0);
@@ -2577,7 +2577,7 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
   it("a single completed refineJob awards craftingXpDelta = CRAFTING_XP_PER_DURATION_TICK * durationTicks, once", () => {
     const durationTicks = 4;
     const state = withProcesses([
-      { id: "proc-1", kind: "refineJob", remainingTicks: durationTicks, durationTicks, effect: addItem("refinedMaterial", 5) },
+      { id: "proc-1", kind: "refineJob", remainingTicks: durationTicks, durationTicks, effect: addItem("titaniumIngot", 5) },
     ]);
     const { craftingXpDelta } = resolveProcesses(state, durationTicks); // exactly reaches 0
     expect(craftingXpDelta).toBe(CRAFTING_XP_PER_DURATION_TICK * durationTicks);
@@ -2606,7 +2606,7 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
 
   it("an in-flight job that has NOT completed awards nothing yet", () => {
     const state = withProcesses([
-      { id: "proc-1", kind: "refineJob", remainingTicks: 60, durationTicks: 60, effect: addItem("refinedMaterial", 1) },
+      { id: "proc-1", kind: "refineJob", remainingTicks: 60, durationTicks: 60, effect: addItem("titaniumIngot", 1) },
     ]);
     const { craftingXpDelta } = resolveProcesses(state, 20); // 60 - 20 = 40 left, not done
     expect(craftingXpDelta).toBe(0);
@@ -2622,8 +2622,8 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
   // they stay at 0 either way (parity trivially intact for them too).
   it("closed-form parity: one big resolve's craftingXpDelta equals the sum of many single-tick resolves", () => {
     const seed = (): TimedProcess[] => [
-      { id: "proc-1", kind: "refineJob", remainingTicks: 1, durationTicks: 1, effect: addItem("refinedMaterial", 5) },
-      { id: "proc-2", kind: "refineJob", remainingTicks: 10, durationTicks: 10, effect: addItem("refinedMaterial", 3) },
+      { id: "proc-1", kind: "refineJob", remainingTicks: 1, durationTicks: 1, effect: addItem("titaniumIngot", 5) },
+      { id: "proc-2", kind: "refineJob", remainingTicks: 10, durationTicks: 10, effect: addItem("titaniumIngot", 3) },
       { id: "proc-3", kind: "fabricateJob", remainingTicks: 25, durationTicks: 25, effect: addItem("alloy", 2) },
       { id: "proc-4", kind: "facilityUpgrade", remainingTicks: 40, durationTicks: 40, effect: levelUp("refinery") },
       { id: "proc-5", kind: "shipBuild", remainingTicks: 60, durationTicks: 60, effect: addShip() },
@@ -2657,7 +2657,7 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
     // no level-up muddies the xp assertion.)
     const durationTicks = 4;
     const state = withProcesses([
-      { id: "proc-1", kind: "refineJob", remainingTicks: durationTicks, durationTicks, effect: addItem("refinedMaterial", 5) },
+      { id: "proc-1", kind: "refineJob", remainingTicks: durationTicks, durationTicks, effect: addItem("titaniumIngot", 5) },
     ]);
     const { craftingXpDelta } = resolveProcesses(state, durationTicks);
     const folded = applyCraftingXp(state, craftingXpDelta);
@@ -2697,7 +2697,7 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
   // retune of craftingXpForNext can't silently stop the scenario from crossing 2+ levels.
   it("stepped-fold parity: one big-span economyTick lands the SAME final craftingLevel + craftingXp remainder as many single-tick steps (crosses 2+ levels)", () => {
     const seededState = () => withProcesses([
-      { id: "proc-1", kind: "refineJob", remainingTicks: 300, durationTicks: 300, effect: addItem("refinedMaterial", 5) },
+      { id: "proc-1", kind: "refineJob", remainingTicks: 300, durationTicks: 300, effect: addItem("titaniumIngot", 5) },
       { id: "proc-2", kind: "shipBuild", remainingTicks: 400, durationTicks: 400, effect: addShip() },
       { id: "proc-3", kind: "fabricateJob", remainingTicks: 700, durationTicks: 700, effect: addItem("alloy", 2) },
     ]);
@@ -3272,7 +3272,7 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
 
   // freshState (tickDurationSeconds default 1 -> ticksElapsed == deltaSeconds) + the
   // given in-flight processes seeded onto activeProcesses. The single captain stays
-  // idle unless a caller sets a mission, so process outputs (refinedMaterial /
+  // idle unless a caller sets a mission, so process outputs (titaniumIngot /
   // components / facilities) never overlap the mission loot tiers (commonOre /
   // uncommonMaterial / rareMaterial), keeping the process contribution cleanly
   // isolated for assertion regardless of the internal Math.random loot rolls.
@@ -3283,13 +3283,13 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
 
   it("folds a completed process's output + lump FA XP into tick() ALONGSIDE the mission FA XP, in one applyFleetAdminXp pass", () => {
     const processes: TimedProcess[] = [
-      // Completes within 100 ticks -> +3 refinedMaterial (marked discovered), +10 FA XP.
+      // Completes within 100 ticks -> +3 titaniumIngot (marked discovered), +10 FA XP.
       {
         id: "proc-1",
         kind: "refineJob",
         remainingTicks: 10,
         durationTicks: 10,
-        effect: { type: "addItem", itemId: "refinedMaterial", amount: new Decimal(3) },
+        effect: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(3) },
       },
       // Survives 100 ticks -> stays active with 500 - 100 = 400 remaining, contributes 0 FA XP.
       {
@@ -3316,8 +3316,8 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
     expect(result.fleetAdminLevel).toBe(1);
 
     // proc-1 completed: output granted through the shared add seam (-> discovered), removed.
-    expect(itemTotal(result.inventory, "refinedMaterial").toString()).toBe("3");
-    expect(result.discovered).toContain("refinedMaterial");
+    expect(itemTotal(result.inventory, "titaniumIngot").toString()).toBe("3");
+    expect(result.discovered).toContain("titaniumIngot");
     // proc-2 survived, countdown decremented by the same ticksElapsed the mission used.
     expect(result.activeProcesses).toHaveLength(1);
     expect(result.activeProcesses[0].id).toBe("proc-2");
@@ -3339,7 +3339,7 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
         kind: "refineJob",
         remainingTicks: 500,
         durationTicks: 500,
-        effect: { type: "addItem", itemId: "refinedMaterial", amount: new Decimal(7) },
+        effect: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(7) },
       },
     ];
     // No mission captain (freshState's captain is idle), so tick()'s ONLY FA XP
@@ -3375,7 +3375,7 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
       kind: "refineJob",
       remainingTicks: 30,
       durationTicks: 30,
-      effect: { type: "addItem", itemId: "refinedMaterial", amount: new Decimal(1) },
+      effect: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(1) },
     });
     const base = { ...freshState(), tickDurationSeconds: 4 }; // captain idle -> no mission FA XP to mix in
 
@@ -3386,7 +3386,7 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
 
     const exact = tick(120, { ...base, activeProcesses: [proc()], nextProcessId: 2 });
     expect(exact.activeProcesses).toEqual([]); // 30 ticks elapsed -> completes
-    expect(itemTotal(exact.inventory, "refinedMaterial").toString()).toBe("1"); // output granted
+    expect(itemTotal(exact.inventory, "titaniumIngot").toString()).toBe("1"); // output granted
     expect(exact.fleetAdminXp.equals(30)).toBe(true); // lump durationTicks 30
   });
 
