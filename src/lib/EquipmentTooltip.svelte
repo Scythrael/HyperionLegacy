@@ -188,6 +188,24 @@
   // The accent color for the border + name tint (module-exported single source).
   $: accent = equipmentRarityColor(piece.rarity);
 
+  // The piece's FLAVOR: the italic narrative line under the header. A CRAFTED piece
+  // takes it straight from the blueprint that minted it (BLUEPRINTS[key].flavor). A
+  // Standard-Issue BASELINE (blueprintKey null) has no blueprint, so it borrows the
+  // flavor of its slot's DEFAULT variety, resolved by MATCHING equipmentOutput (slot +
+  // variety) across BLUEPRINTS rather than the `<variety>Bp` key convention, so a
+  // blueprint-key rename cannot silently break the lookup (root-cause-proof over a
+  // brittle string concat). Null when nothing resolves (a hand-edited piece, or a
+  // blueprint that carries no flavor), in which case the section is omitted cleanly.
+  $: flavor = (() => {
+    if (piece.blueprintKey !== null) return BLUEPRINTS[piece.blueprintKey]?.flavor ?? null;
+    const defaultVariety = DEFAULT_EQUIPMENT_VARIETY[piece.slotType];
+    if (defaultVariety === undefined) return null;
+    const bp = Object.values(BLUEPRINTS).find(
+      (b) => b.equipmentOutput?.slotType === piece.slotType && b.equipmentOutput?.varietyKey === defaultVariety
+    );
+    return bp?.flavor ?? null;
+  })();
+
   // Stat rows, split into the implicit (slot-signature) band and the rolled
   // primaries. Object insertion order is stable, so the rows render in the order
   // the engine stored them.
@@ -199,17 +217,31 @@
      whole card recolors with the rarity in one place. Opaque background (never a
      blur) so it reads solid on Brave, which lacks backdrop-filter. -->
 <div class="et" style="--et-accent: {accent};">
-  <!-- HEADER: name + quality badge (left); rarity grade + slot system (right). -->
+  <!-- HEADER: two STACKED rows (device-test rework) so the name never squishes against
+       the type block, the same one-layout-at-all-widths the approved mockup shows.
+       Row 1 = icon + name (takes the full width) + quality badge. Row 2 = a dim
+       middot-separated "{Rarity} Grade · iLevel {N} · {Slot}" sub-line. -->
   <div class="et-hd">
-    <div class="et-nm">
+    <div class="et-r1">
       <span class="et-icon">{equipmentIcon(piece)}</span>
       <span class="et-name-text">{name}</span>
       <span class="et-q">Q{piece.quality}</span>
     </div>
-    <div class="et-type">
-      {rarityLabel} Grade · iL {piece.iLevel}<b>{slotLabel} System</b>
+    <div class="et-r2">
+      <span class="et-grade">{rarityLabel} Grade</span>
+      <span class="et-sep">·</span>
+      <span>iLevel {piece.iLevel}</span>
+      <span class="et-sep">·</span>
+      <span>{slotLabel}</span>
     </div>
   </div>
+
+  <!-- FLAVOR: an italic dim narrative line, sourced from the piece's blueprint (or, for
+       a baseline, its slot's default-variety blueprint). Rendered ONLY when a flavor
+       resolves, so an item without one shows no empty box. -->
+  {#if flavor}
+    <div class="et-flavor">{flavor}</div>
+  {/if}
 
   <!-- IMPLICITS: the slot-signature line(s), tinted band. One row per implicit
        stat (FTL Drive carries two), with a single "slot signature" caption. -->
@@ -263,30 +295,32 @@
     font-family: var(--font-body);
   }
 
-  /* HEADER */
+  /* HEADER: two stacked rows (no side-by-side split), so the name row owns the full
+     width and can never be squeezed by the type block. */
   .et-hd {
-    display: flex;
-    justify-content: space-between;
-    gap: 14px;
-    padding: 11px 13px 9px;
+    padding: 11px 13px 10px;
     border-bottom: 1px solid var(--color-border);
   }
-  .et-nm {
-    font-weight: 700;
-    font-size: 14px;
+  /* Row 1: icon + name + quality badge, on one baseline. */
+  .et-r1 {
     display: flex;
     align-items: center;
-    gap: 7px;
-    min-width: 0;
+    gap: 8px;
   }
   /* The per-variety glyph, sat just before the name (identity cue mirroring the tile). */
   .et-icon {
     flex: 0 0 auto;
-    font-size: 15px;
+    font-size: 20px;
     line-height: 1;
   }
-  /* Name tinted the rarity color (the mockup's centerpiece cue). */
+  /* Name FLEXES to fill the row (flex: 1) so it reads on one line before the badge, and
+     tinted the rarity color (the mockup's centerpiece cue). Ellipsis only as a last
+     resort on an extreme name, it no longer competes with a side type block. */
   .et-name-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-weight: 700;
+    font-size: 15px;
     color: var(--et-accent);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -299,21 +333,35 @@
     background: rgba(var(--color-accent-rgb), 0.08);
     border: 1px solid var(--color-border);
     border-radius: 5px;
-    padding: 1px 6px;
+    padding: 1px 7px;
     color: var(--color-text-secondary);
   }
-  .et-type {
-    text-align: right;
+  /* Row 2: the dim rarity/iLevel/slot sub-line, middot-separated; wraps gracefully when
+     narrow (mobile) instead of overflowing. */
+  .et-r2 {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 5px;
     font-size: 11.5px;
     color: var(--color-text-secondary);
-    align-self: center;
-    flex: 0 0 auto;
   }
-  .et-type b {
-    display: block;
+  .et-grade {
     color: var(--color-text-primary);
+  }
+  .et-sep {
+    opacity: 0.5;
+  }
+
+  /* FLAVOR: an italic dim narrative line under the header (opaque bg, no blur, so it
+     stays legible on Brave). Present only when a flavor resolved (see the {#if}). */
+  .et-flavor {
+    padding: 9px 13px;
+    font-style: italic;
     font-size: 12px;
-    font-weight: 700;
+    color: var(--color-text-secondary);
+    border-bottom: 1px solid var(--color-border);
+    background: rgba(var(--color-accent-rgb), 0.02);
   }
 
   /* IMPLICITS band: tinted with the accent so the signature reads distinct. */

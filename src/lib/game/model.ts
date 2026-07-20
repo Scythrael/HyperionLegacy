@@ -2302,8 +2302,8 @@ export interface GameState {
   craftingXp: Decimal;
   // --- Equipment storage cap (0.11.0 Storage/Salvage Task B1) -------------------
   // The 0-based count of PURCHASED equipment-storage upgrade rungs, the STORED input
-  // to equipmentStorageCap (which multiplies EQUIPMENT_STORAGE_CAP_BASE by one
-  // EQUIPMENT_STORAGE_RUNGS[i].storageCapMult per reached rung). Mirrors how a material
+  // to equipmentStorageCap (which ADDS one EQUIPMENT_STORAGE_RUNGS[i].slotIncrement to
+  // EQUIPMENT_STORAGE_CAP_BASE per reached rung). Mirrors how a material
   // warehouse stores its LEVEL (state.facilities[warehouseKey].level) and DERIVES the
   // cap on read, so the cap is never a stored value that could drift. freshState seeds
   // 0 (base cap, no rung bought); the v28->v29 migration seeds 0 on old saves. A plain
@@ -3368,11 +3368,12 @@ export function seedStandardIssueForShip(
 // (docs/plans/2026-07-18-storage-salvage-0.11.0-design.md §1.)
 //
 // state.equipment is otherwise UNBOUNDED. This caps how many SPARE (unfitted,
-// crafted) systems the fleet may hold, MIRRORING the material-warehouse storage
-// cap (tick.ts tierCap): a BASE cap multiplied by every REACHED upgrade rung's
-// storageCapMult, DERIVED on read from a stored LEVEL. The cap is COMPUTED, never
-// a stored number, so the surfaced "spare X / cap" can never drift from the real
-// limit (Task B1 self-review criterion).
+// crafted) systems the fleet may hold. It is DERIVED on read from a stored LEVEL: a
+// BASE cap PLUS a flat slotIncrement for every REACHED upgrade rung (a LINEAR +25
+// track, not the doubling the material warehouse uses, chosen at the device-test
+// stage because a predictable "+25 per upgrade" reads far more clearly to the player
+// than an exponential cap). The cap is COMPUTED, never a stored number, so the
+// surfaced "spare X / cap" can never drift from the real limit.
 //
 // WHY spares only (design §1): a FITTED system lives on its ship and is "in use";
 // a Standard-Issue baseline (blueprintKey null) is auto-managed by the never-empty
@@ -3385,33 +3386,38 @@ export function seedStandardIssueForShip(
 // ============================================================================
 
 // The level-0 spare-storage cap (design §1: "a first-pass number, e.g. 25,
-// device-check tunable"). Multiplied UP by reached upgrade rungs; at level 0 it IS
-// the effective cap.
+// device-check tunable"). ADDED to by reached upgrade rungs; at level 0 it IS the
+// effective cap.
 export const EQUIPMENT_STORAGE_CAP_BASE = 25;
 
 // One rung of the equipment-storage upgrade track = the requirements to reach the
 // NEXT storage level. Shape MIRRORS the material warehouse's FacilityUpgradeDef
-// (materials + durationTicks + a storageCapMult), so an equipment-storage upgrade
-// reads like every other storage-cap upgrade in the game:
-//   - storageCapMult : multiplies the base cap ONCE when this rung is REACHED
-//     (equipmentStorageCap folds one per reached rung, EXACTLY like tierCap folds a
-//     warehouse rung's { storageCapMult }). Flat here (not nested in an `effect`)
-//     because this standalone track carries ONLY a cap effect, so B1 kept the field
-//     top-level rather than reproduce FacilityUpgradeEffect's union.
+// (materials + durationTicks + a cap effect), so an equipment-storage upgrade reads
+// like every other storage-cap upgrade in the game:
+//   - slotIncrement : the FLAT number of extra spare slots this rung adds when it is
+//     REACHED (equipmentStorageCap SUMS one per reached rung). WHY additive, not a
+//     multiplier: the device-test feedback asked for a LINEAR "+25 slots per upgrade"
+//     ladder (25 -> 50 -> 75 -> ...) instead of the warehouse's doubling, because a
+//     flat, predictable step is far easier for the player to reason about than an
+//     exponential cap. Flat field here (not nested in an `effect`) because this
+//     standalone track carries ONLY a cap effect, so it stays top-level rather than
+//     reproduce FacilityUpgradeEffect's union.
 //   - materials    : spent ATOMICALLY at upgrade START (startEquipmentStorageUpgrade
 //     delegates to startProcess, the SAME deduct-at-start the warehouse upgrade uses).
 //   - durationTicks: the upgrade is TIMED (a TimedProcess), mirroring the warehouse /
 //     fuel-depot cap upgrades, NOT an instant buy. See EQUIPMENT_STORAGE_RUNGS below.
 export interface EquipmentStorageRung {
-  storageCapMult: number;
+  slotIncrement: number;
   materials: Record<string, Decimal>;
   durationTicks: number;
 }
 
-// The equipment-storage upgrade RUNGS: each reached rung multiplies the base cap by
-// its storageCapMult, EXACTLY like a material warehouse track's { storageCapMult }
-// rungs (which tick.ts tierCap reads off the facility level). B1 shipped this EMPTY
-// (base 25 at every level); Task B2 (this task) fills it with the first-pass track.
+// The equipment-storage upgrade RUNGS: each reached rung ADDS its slotIncrement to the
+// base cap (a flat +25 per rung), so the cap climbs LINEARLY. This deliberately DIVERGES
+// from a material warehouse track's { storageCapMult } doubling: the device-test feedback
+// wanted a predictable "+25 slots per upgrade" ladder over an exponential one. B1 shipped
+// this EMPTY (base 25 at every level); B2 filled it with a doubling first-pass; this pass
+// (device-test rework) replaces that with the linear +25 track.
 //
 // MECHANISM MIRRORED (documented design choice, task B2 §2): the material warehouse
 // raises its cap via a TIMED facility-upgrade process (startFacilityUpgrade pushes a
@@ -3429,9 +3435,9 @@ export interface EquipmentStorageRung {
 // existing storage-cap upgrade in the game is timed; matching them keeps the feel
 // consistent (task B2 self-review: "matches the existing storage-upgrade pattern").
 //
-// FIRST-PASS TUNABLE (device-check stage does real balance): a SHORT finite 4-rung
-// track that DOUBLES the cap each rung (mult 2, mirroring the warehouse doubling), so
-// the cap climbs 25 -> 50 -> 100 -> 200 -> 400. Cost = titaniumIngot (the equipment-tier
+// FIRST-PASS TUNABLE (device-check stage does real balance): a finite 7-rung track that
+// ADDS a flat +25 slots each rung, so the cap climbs LINEARLY 25 -> 50 -> 75 -> 100 ->
+// 125 -> 150 -> 175 -> 200 (base + 7 rungs). Cost = titaniumIngot (the equipment-tier
 // refined material equipment itself is built from, so the storage bay closes an
 // equipment-economy loop the way the refinery track closes an ore loop) + a commonOre
 // base, BOTH escalating with the level, and an escalating durationTicks in the
@@ -3440,47 +3446,47 @@ export interface EquipmentStorageRung {
 export const EQUIPMENT_STORAGE_RUNGS: EquipmentStorageRung[] = buildEquipmentStorageRungs();
 
 // Builds the finite equipment-storage upgrade track. Rung i (level i -> i+1):
-//   - storageCapMult 2 : doubles the cap (25 * 2^(i+1) after reaching rung i).
-//   - materials        : titaniumIngot 20 * 2^i + commonOre 500 * 2^i, so the cost
-//     roughly tracks the cap being unlocked (steeper gear the higher you climb),
-//     the SAME "cost scales with the cap" posture warehouseT1CapAtLevel encodes.
-//   - durationTicks    : 60 + 30*i (60, 90, 120, 150), escalating, TUNABLE placeholder.
+//   - slotIncrement 25 : adds a flat 25 slots (base 25 + 25*(i+1) after reaching rung i).
+//   - materials        : titaniumIngot 20 * (i+1) + commonOre 500 * (i+1), a LINEAR cost
+//     escalation to match the now-linear cap (a 2^i doubling would explode across 7 rungs
+//     while the cap only steps +25), keeping the SAME "cost climbs with the level" posture
+//     the doubling track had, just on a gentler curve suited to more rungs.
+//   - durationTicks    : 60 + 30*i (60, 90, ... 240), escalating, TUNABLE placeholder.
 // Kept as a named builder (not an inline literal) so the formula is the single source
 // of truth and extending the track is a one-line COUNT bump, mirroring the warehouse.
 function buildEquipmentStorageRungs(): EquipmentStorageRung[] {
-  const RUNG_COUNT = 4; // first-pass; a doubling track needs few rungs to matter
+  const RUNG_COUNT = 7; // base 25 + 7 rungs of +25 -> a 25..200 linear ladder
   const rungs: EquipmentStorageRung[] = [];
   for (let i = 0; i < RUNG_COUNT; i++) {
-    const scale = 2 ** i; // 1, 2, 4, 8: cost grows with the cap being unlocked
+    const scale = i + 1; // 1, 2, 3, ...: cost grows LINEARLY with the level (matches the linear cap)
     rungs.push({
-      storageCapMult: 2, // doubles the cap, like every warehouse/fuel-depot storage rung
+      slotIncrement: 25, // flat +25 spare slots per rung (device-test rework: linear, not doubling)
       materials: {
         titaniumIngot: new Decimal(20 * scale),
         commonOre: new Decimal(500 * scale),
       },
-      durationTicks: 60 + 30 * i, // 60, 90, 120, 150 (warehouse/fuel-depot ballpark)
+      durationTicks: 60 + 30 * i, // 60, 90, ... 240 (warehouse/fuel-depot ballpark)
     });
   }
   return rungs;
 }
 
 // equipmentStorageCap(state): the CURRENT spare-storage cap, DERIVED (never stored)
-// from EQUIPMENT_STORAGE_CAP_BASE times each REACHED rung's storageCapMult, the SAME
-// reached-rungs loop tierCap (tick.ts) uses for material warehouses. Reading the cap
-// off the stored LEVEL (not a stored cap number) is the deliberate anti-drift choice:
-// the displayed "X / cap" can never diverge from the real limit. With the STUB rung
-// table empty, this is EQUIPMENT_STORAGE_CAP_BASE at every level until Task B2.
+// from EQUIPMENT_STORAGE_CAP_BASE PLUS each REACHED rung's slotIncrement, a reached-rungs
+// SUM (the linear +25 counterpart to the multiplicative loop tierCap runs for material
+// warehouses). Reading the cap off the stored LEVEL (not a stored cap number) is the
+// deliberate anti-drift choice: the displayed "X / cap" can never diverge from the real
+// limit.
 export function equipmentStorageCap(state: GameState): number {
   // Defensive `?? 0`: a pre-B1 / hand-edited save may lack the field. The v28->v29
   // migration seeds 0, but the guard keeps a partial shape from reading NaN, matching
   // the codebase's grow-on-demand `?? 0` convention (e.g. tierCap's facility level).
   const level = state.equipmentStorageLevel ?? 0;
   let cap = EQUIPMENT_STORAGE_CAP_BASE;
-  // Multiply in one storageCapMult per REACHED rung (i < level), guarded against an
-  // over-level read past the finite (currently empty) track, mirroring tierCap's
-  // `i < upgrades.length`. Empty table -> loop never runs -> cap stays the base.
+  // ADD one slotIncrement per REACHED rung (i < level), guarded against an over-level
+  // read past the finite track, mirroring tierCap's `i < upgrades.length`.
   for (let i = 0; i < level && i < EQUIPMENT_STORAGE_RUNGS.length; i++) {
-    cap *= EQUIPMENT_STORAGE_RUNGS[i].storageCapMult;
+    cap += EQUIPMENT_STORAGE_RUNGS[i].slotIncrement;
   }
   return cap;
 }

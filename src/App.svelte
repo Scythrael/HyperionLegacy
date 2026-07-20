@@ -1740,6 +1740,49 @@
     doSave();
   }
 
+  // ── Salvage confirmation guard (device-test feedback) ─────────────────────
+  // A salvage PERMANENTLY destroys the item, so BOTH salvage entry points (the Ship
+  // Systems tab's Salvage button and the Salvaged Materials tab's Salvage button) route
+  // through a plain Cancel/Confirm modal FIRST, reusing the exact DELETE-SAVE /
+  // homeworld-respec modal idiom (.modal-backdrop / Panel.modal-dialog / .modal-warning
+  // / .modal-row + focusTrap). This is deliberately a SIMPLE on/off guard: the tiered/
+  // configurable "don't ask again" variant and the post-salvage result readout are
+  // DEFERRED to 0.11.1, so no checkbox and no result panel here.
+  //
+  // The pending target is a small DISCRIMINATED record ({ kind, id, name }), NOT a stored
+  // closure: confirmSalvage switches on `kind` and calls the matching handler, which reads
+  // clearly and keeps the two id types (a system instanceId vs a salvaged-material itemId)
+  // from ever being confused. `name` is captured at request time purely to name the item
+  // in the warning line.
+  let salvageConfirm: { kind: "system" | "material"; id: string; name: string } | null = null;
+
+  // The display name a spare system shows in the salvage-confirm dialog: its slot +
+  // variety label (equipmentOutputLabel, the SAME label the fabricate readout uses).
+  // Only CRAFTED spares are salvageable, so equipmentOutput is always present; the guard
+  // keeps a hand-edited save from throwing (falls back to a generic word).
+  function systemSalvageName(piece: EquipmentInstance): string {
+    const eqOut = piece.blueprintKey !== null ? BLUEPRINTS[piece.blueprintKey]?.equipmentOutput : undefined;
+    return eqOut ? equipmentOutputLabel(eqOut) : "this system";
+  }
+
+  // Open the salvage-confirm modal for a target (replaces any open one). Nothing is
+  // destroyed until Confirm; Cancel just clears the pending target.
+  function requestSalvage(kind: "system" | "material", id: string, name: string) {
+    salvageConfirm = { kind, id, name };
+  }
+  function cancelSalvageConfirm() {
+    salvageConfirm = null;
+  }
+  // Confirm: dispatch to the matching existing handler by `kind`, then clear. Snapshot the
+  // pending target FIRST so clearing it can't race the dispatch.
+  function confirmSalvage() {
+    const pending = salvageConfirm;
+    salvageConfirm = null;
+    if (pending === null) return;
+    if (pending.kind === "system") doSalvageEquipment(pending.id);
+    else doSalvageSalvagedMaterial(pending.id);
+  }
+
   // Start the next Systems Bay storage rung. startEquipmentStorageUpgrade returns
   // { next, started } (like startFacilityUpgrade); on any failed gate it is a
   // same-ref no-op, so we destructure `started` and bail without a spurious log.
@@ -4039,7 +4082,7 @@
                     {#if selectedIsSalvageable}
                       <button
                         class="buy-btn systems-salvage-btn"
-                        on:click={() => doSalvageEquipment(sys.id)}
+                        on:click={() => requestSalvage("system", sys.id, systemSalvageName(sys))}
                       >
                         Salvage
                       </button>
@@ -4125,7 +4168,7 @@
                       class="buy-btn systems-salvage-btn"
                       disabled={!selHeld}
                       title={selHeld ? undefined : "None of this material is held"}
-                      on:click={() => doSalvageSalvagedMaterial(salvageTargetId)}
+                      on:click={() => requestSalvage("material", salvageTargetId, selItem.label)}
                     >
                       Salvage
                     </button>
@@ -6309,6 +6352,30 @@
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelLineStart}>Cancel</button>
           <button class="dev-btn" on:click={confirmLineStart}>Confirm</button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
+  {#if salvageConfirm !== null}
+    <!-- Salvage confirmation modal (device-test feedback): a salvage PERMANENTLY breaks
+         down the item, so both the Ship Systems tab and the Salvaged Materials tab route
+         their Salvage button through this guard first. Reuses the SAME .modal-backdrop /
+         Panel.modal-dialog / .modal-warning / .modal-row structure as the DELETE SAVE and
+         homeworld-respec modals, so every confirm shares one visual language. Plain
+         Cancel/Confirm (no typed word, no "don't ask again"): the tiered variant + the
+         post-salvage result readout are DEFERRED to 0.11.1. Confirm dispatches to the
+         matching handler by kind; Cancel destroys nothing. -->
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Confirm salvage" use:focusTrap={cancelSalvageConfirm}>
+      <Panel class="modal-dialog">
+        <div class="panel-title">CONFIRM SALVAGE</div>
+        <p class="modal-warning">
+          Permanently break down <strong>{salvageConfirm.name}</strong> for parts? This destroys the
+          {salvageConfirm.kind === "system" ? "system" : "material"} and can't be undone.
+        </p>
+        <div class="modal-row">
+          <button class="dev-btn" on:click={cancelSalvageConfirm}>Cancel</button>
+          <button class="dev-btn danger" on:click={confirmSalvage}>Salvage</button>
         </div>
       </Panel>
     </div>

@@ -169,12 +169,13 @@ describe("fabricate gates enforce the equipment storage cap (Task B1)", () => {
 // Task B2: the storage cap is UPGRADABLE (rungs + the timed purchase mechanism).
 // (docs/plans/2026-07-18-0.11.0-completion-plan.md Task B2.)
 //
-// B1 shipped an EMPTY rung table (base 25 at every level). B2 fills it with a
-// first-pass DOUBLING track and adds the upgrade action: a TIMED process (mirroring
-// the material-warehouse cap upgrade) that spends the rung's materials at start and
-// bumps equipmentStorageLevel by one at completion, so equipmentStorageCap derives a
-// higher cap on read. These tests cover: (1) each REACHED rung multiplies the base
-// cap; (2) the action spends + queues when affordable, resolves to a level bump + a
+// B1 shipped an EMPTY rung table (base 25 at every level). B2 filled it with a rung
+// table and the upgrade action: a TIMED process (mirroring the material-warehouse cap
+// upgrade) that spends the rung's materials at start and bumps equipmentStorageLevel by
+// one at completion, so equipmentStorageCap derives a higher cap on read. The device-test
+// rework then switched the cap from DOUBLING to a flat +25 slots per rung (a linear
+// 25 -> 50 -> 75 ... ladder). These tests cover: (1) each REACHED rung ADDS its flat
+// increment to the base cap; (2) the action spends + queues when affordable, resolves to a level bump + a
 // higher cap, is a no-op when unaffordable, is sequential (one in flight), and cannot
 // exceed the max rung; (3) a save at an upgraded level round-trips to the raised cap.
 // ============================================================================
@@ -202,15 +203,15 @@ function stockedState(stock: Record<string, number>): GameState {
   return { ...s, inventory };
 }
 
-describe("equipmentStorageCap: each reached rung multiplies the base cap (Task B2)", () => {
-  it("climbs base -> base*mult0 -> base*mult0*mult1 ... as the level rises, and never past the max rung", () => {
-    // Expected cap at a level = base folded through one storageCapMult per REACHED rung
-    // (index < level), the SAME reached-rungs loop equipmentStorageCap itself runs. Built
-    // independently here from the rung table so it verifies the helper, not just restates it.
+describe("equipmentStorageCap: each reached rung adds its flat increment to the base cap (Task B2)", () => {
+  it("climbs base -> base+inc0 -> base+inc0+inc1 ... as the level rises, and never past the max rung", () => {
+    // Expected cap at a level = base plus one slotIncrement per REACHED rung (index < level),
+    // the SAME reached-rungs SUM equipmentStorageCap itself runs. Built independently here
+    // from the rung table so it verifies the helper, not just restates it.
     const expectedCapAt = (level: number): number => {
       let cap = EQUIPMENT_STORAGE_CAP_BASE;
       for (let i = 0; i < level && i < EQUIPMENT_STORAGE_RUNGS.length; i++) {
-        cap *= EQUIPMENT_STORAGE_RUNGS[i].storageCapMult;
+        cap += EQUIPMENT_STORAGE_RUNGS[i].slotIncrement;
       }
       return cap;
     };
@@ -218,20 +219,22 @@ describe("equipmentStorageCap: each reached rung multiplies the base cap (Task B
     // Level 0 is the base (mirrors the material-cap "base at level 0" test).
     expect(equipmentStorageCap({ ...freshState(), equipmentStorageLevel: 0 })).toBe(EQUIPMENT_STORAGE_CAP_BASE);
 
-    // Every reachable level climbs by exactly its rung's multiplier.
+    // Every reachable level climbs by exactly its rung's flat increment.
     for (let level = 1; level <= EQUIPMENT_STORAGE_RUNGS.length; level++) {
       const s: GameState = { ...freshState(), equipmentStorageLevel: level };
       expect(equipmentStorageCap(s)).toBe(expectedCapAt(level));
-      // Sanity: the cap strictly rose from the previous level (mult > 1 on every rung).
+      // Sanity: the cap strictly rose from the previous level (every rung adds a positive increment).
       expect(equipmentStorageCap(s)).toBeGreaterThan(equipmentStorageCap({ ...freshState(), equipmentStorageLevel: level - 1 }));
     }
 
-    // First-pass shape guard: the shipped track doubles 25 -> 50 -> 100 -> 200 -> 400.
-    expect(EQUIPMENT_STORAGE_RUNGS.length).toBe(4);
-    expect(equipmentStorageCap({ ...freshState(), equipmentStorageLevel: 4 })).toBe(400);
+    // First-pass shape guard: the shipped track adds +25 per rung, 25 -> 50 -> 75 ... -> 200
+    // (base + 7 rungs of +25).
+    expect(EQUIPMENT_STORAGE_RUNGS.length).toBe(7);
+    expect(EQUIPMENT_STORAGE_RUNGS.every((rung) => rung.slotIncrement === 25)).toBe(true);
+    expect(equipmentStorageCap({ ...freshState(), equipmentStorageLevel: 7 })).toBe(200);
 
     // Over-max level cannot read past the finite track (guarded loop): cap stays at the max.
-    expect(equipmentStorageCap({ ...freshState(), equipmentStorageLevel: 99 })).toBe(400);
+    expect(equipmentStorageCap({ ...freshState(), equipmentStorageLevel: 99 })).toBe(200);
   });
 });
 
@@ -256,10 +259,10 @@ describe("startEquipmentStorageUpgrade: timed purchase raises the level + cap (T
     expect(started.next.equipmentStorageLevel).toBe(0);
     expect(equipmentStorageCap(started.next)).toBe(EQUIPMENT_STORAGE_CAP_BASE);
 
-    // Resolve to completion: the level bumps 0 -> 1 and the cap climbs to the rung-0 cap.
+    // Resolve to completion: the level bumps 0 -> 1 and the cap climbs by the rung-0 increment.
     const resolved = resolveProcesses(started.next, EQUIPMENT_STORAGE_RUNGS[0].durationTicks);
     expect(resolved.next.equipmentStorageLevel).toBe(1);
-    expect(equipmentStorageCap(resolved.next)).toBe(EQUIPMENT_STORAGE_CAP_BASE * EQUIPMENT_STORAGE_RUNGS[0].storageCapMult);
+    expect(equipmentStorageCap(resolved.next)).toBe(EQUIPMENT_STORAGE_CAP_BASE + EQUIPMENT_STORAGE_RUNGS[0].slotIncrement);
     // No storage-upgrade process left in flight after completion.
     expect(resolved.next.activeProcesses.some((p) => p.kind === "equipmentStorageUpgrade")).toBe(false);
   });
@@ -311,7 +314,7 @@ describe("startEquipmentStorageUpgrade: timed purchase raises the level + cap (T
 describe("equipment storage level round-trips through serialize/migrate (Task B2)", () => {
   it("a save at an upgraded level loads back to the SAME level and the raised cap", () => {
     const upgraded: GameState = { ...freshState(), equipmentStorageLevel: 2 };
-    const expectedCap = equipmentStorageCap(upgraded); // 25 * 2 * 2 = 100
+    const expectedCap = equipmentStorageCap(upgraded); // 25 + 25 + 25 = 75
 
     const raw = serialize(upgraded, Date.now());
     const save = deserialize(raw);
@@ -320,6 +323,6 @@ describe("equipment storage level round-trips through serialize/migrate (Task B2
 
     expect(loaded.equipmentStorageLevel).toBe(2);
     expect(equipmentStorageCap(loaded)).toBe(expectedCap);
-    expect(expectedCap).toBe(100); // first-pass shape guard (doubling track)
+    expect(expectedCap).toBe(75); // first-pass shape guard (linear +25 track)
   });
 });
