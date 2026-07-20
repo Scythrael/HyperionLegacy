@@ -7,10 +7,25 @@
 - Every ship TYPE gets its own graphic, class name, and naming THEME. The eventual roster is ~**9 ship types** (today only a few exist: generalFreighter, prospectorRunner, prospectorHauler; the roster grows).
 - Each vessel type's class names follow a themed set (so a player reads the class name and knows the type/lineage).
 
-## Decided themes (2 of 9 the user is confident on)
+## Locked class-name themes (2026-07-18 brainstorm)
 
-- **Destroyer types: SWORDS.** The starting top-tier destroyer = **"Excalibur-class"**.
-- **Battleship types: SHIELDS.** The starting top-tier battleship = **"Aegis-class"**.
+Each ship TYPE gets a naming THEME; the apex is the starting top-tier class of that line. A lower-to-higher tier ladder climbs to the apex.
+
+| Type | Theme | Apex class | Example lower-tier ladder |
+|---|---|---|---|
+| Destroyer | Legendary swords | **Excalibur** | Durendal, Kusanagi, Tizona |
+| Battleship | Legendary shields | **Aegis** | Ancile, Svalinn, Pavise |
+| Cruiser (long-range explorer) | Constellations | **Andromeda** | Lyra, Cygnus, Orion |
+| Carrier | Mythic broods (mother of the swarm) | **Tiamat** | Echidna, Chimera, Hydra, Roc |
+| Medical | Healing gods | **Asclepius** | Eir, Hygieia, Panacea, Chiron |
+| Survey | Stellar phenomena | **Quasar** | Aurora, Corona, Nova, Pulsar |
+
+- **Dreadnought = the Fleet Admiral's ship** (the sole FA hull, OR the combat capital of a 3-ship FA set). Its own class-name theme is TBD. Ties to the "FA Flagship 2.0" idea in SUGGESTIONS.
+- **Frigate / Freighter / Corvette** themes below are controller SUGGESTIONS, not user-locked yet: Frigate = birds of prey / seabirds (Falcon, Kestrel, Osprey; "frigatebird" is literal); Freighter = titans / beasts of burden (Atlas, Goliath, Ox); Corvette = stinging insects / darts (Wasp, Hornet, Dart).
+
+## Signature weapon per combat hull (0.12.0 combat idea)
+
+Each combat hull gets a signature weapon (identity + a natural rock-paper-scissors layer). User-seeded + controller-extended: Destroyer = particle lance, Battleship = torpedoes, Carrier = drones, Cruiser = missile salvos, Frigate = autocannons / point-defense, Corvette = light rapid guns, Dreadnought = a spinal superweapon. Utility hulls (Freighter, any Tanker) stay lightly / defensively armed, no signature weapon.
 
 ## Ship-type RENAMES the user is leaning toward
 
