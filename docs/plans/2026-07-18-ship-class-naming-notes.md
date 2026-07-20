@@ -18,10 +18,13 @@ Each ship TYPE gets a naming THEME; the apex is the starting top-tier class of t
 | Cruiser (long-range explorer) | Constellations | **Andromeda** | Lyra, Cygnus, Orion |
 | Carrier | Mythic broods (mother of the swarm) | **Tiamat** | Echidna, Chimera, Hydra, Roc |
 | Medical | Healing gods | **Asclepius** | Eir, Hygieia, Panacea, Chiron |
-| Survey | Stellar phenomena | **Quasar** | Aurora, Corona, Nova, Pulsar |
+| Survey | Stellar phenomena | **Quasar** | Aurora, Corona, Flare, Pulsar (Nova dropped: too Star-Trek) |
 
 - **Dreadnought = the Fleet Admiral's ship** (the sole FA hull, OR the combat capital of a 3-ship FA set). Its own class-name theme is TBD. Ties to the "FA Flagship 2.0" idea in SUGGESTIONS.
-- **Frigate / Freighter / Corvette** themes below are controller SUGGESTIONS, not user-locked yet: Frigate = birds of prey / seabirds (Falcon, Kestrel, Osprey; "frigatebird" is literal); Freighter = titans / beasts of burden (Atlas, Goliath, Ox); Corvette = stinging insects / darts (Wasp, Hornet, Dart).
+- **Old role labels retire into naval hull names** (the theme attaches to the hull, not the old role): `runner` -> **Corvette**, `prospector` -> **Frigate**, `hauler` -> **Freighter** (the big cargo hull). There is NO "prospector" naming theme; that hull just becomes the Frigate.
+  - Corvette = stinging insects / darts (Wasp, Hornet, Gadfly -> Dart). Leaning accepted.
+  - Freighter = titans / beasts of burden (Ox, Goliath, Titan -> Atlas). Leaning accepted.
+  - Frigate = PENDING a user choice: **birds of prey / seabirds** (Kestrel, Osprey, Petrel -> Falcon) OR a **miner / pioneer flavor** (since it is the ex-prospector surveyor-miner: famous pioneers, or gemstones). Awaiting the user's pick.
 
 ## Signature weapon per combat hull (0.12.0 combat idea)
 
