@@ -607,8 +607,11 @@
   // it uses its OWN rail-selection state, SEPARATE from activeFacility AND
   // activeLocationPlace, so the coexisting Facilities / Locations tabs never
   // cross-talk while all three render during the intermediate nav restructure.
-  // A dedicated two-key union keeps invalid selections unrepresentable.
-  let activeDrydockSection: "shipyard" | "docks" = "shipyard";
+  // A dedicated two-key union keeps invalid selections unrepresentable. Named
+  // (not an inline literal union) to match the sibling rail-state types
+  // (FoundryFacilityKey, LocationPlace, StarbaseSubTab, ShipyardSubTab).
+  type DrydockSection = "shipyard" | "docks";
+  let activeDrydockSection: DrydockSection = "shipyard";
 
   // ---- Warehouse facility view (Phase 2, Group C) -----------------------------
   // A tiered fill-tile inventory catalog. The top SubTabs axis is CATEGORY:
@@ -1061,17 +1064,17 @@
   }
   // -------------------------------------------------------------------------
 
-  // ---- Locations tab (UI restructure: merged Homeworld + Sector Space) -------
+  // ---- Locations tab (0.11.2 nav restructure, in transition) ------------------
   // The Locations tab uses a LEFT rail of "places" (.captain-list /
   // .captain-list-item, reused verbatim) + a right content pane; the selected
-  // place then drives its OWN SubTabs. This replaces the two former top-level
-  // tabs, Fleet Homeworld (Overview / Administration, still tracked by
-  // activeHomeworldSubTab; the old Fabrication sub-tab was retired in Phase 4
-  // Task F5, crafting moved to the Facilities -> Fabricator) and Fleet Sector (Docks / Requisition,
-  // still tracked by activeStarbaseSubTab). Alliance Sector / Colony Registry
-  // are locked "Coming soon" rail items with no content behind them yet. Kept
-  // as a typed literal union (not a free string) so a future real place (e.g.
-  // alliance / colony) is added deliberately, matching TabKey above.
+  // place then drives its OWN SubTabs. It currently holds ONLY the Fleet
+  // Homeworld place (Overview / Administration, tracked by activeHomeworldSubTab;
+  // the old Fabrication sub-tab was retired in Phase 4 Task F5, crafting moved to
+  // the Fabricator). The Fleet Sector place (Docks) was moved out to the DRYDOCK
+  // program in Task 2. Alliance Sector / Colony Registry are locked "Coming soon"
+  // rail items with no content behind them yet. A later task (Homeworld program)
+  // relocates the Homeworld place and retires this tab, at which point the dead
+  // "sector" union member below is pruned.
   type LocationPlace = "homeworld" | "sector";
   let activeLocationPlace: LocationPlace = "homeworld";
 
