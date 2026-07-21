@@ -544,7 +544,7 @@
   // homeworld-adjacent tabs (see the .nav-tabs row below). Only the Refinery is
   // real this pass; Warehouse/Fabricator/Shipyard are locked "Coming Soon" rail
   // items, same idiom Sector Space's locked structures use.
-  type TabKey = "locations" | "facilities" | "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "stores" | "system";
+  type TabKey = "facilities" | "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "stores" | "homeworld" | "system";
   let activeTab: TabKey = "fleetCaptains";
 
   // Fleet Captain's tab sub-tabs (UI Redesign, Task 8, see
@@ -1084,19 +1084,22 @@
   }
   // -------------------------------------------------------------------------
 
-  // ---- Locations tab (0.11.2 nav restructure, in transition) ------------------
-  // The Locations tab uses a LEFT rail of "places" (.captain-list /
-  // .captain-list-item, reused verbatim) + a right content pane; the selected
-  // place then drives its OWN SubTabs. It currently holds ONLY the Fleet
-  // Homeworld place (Overview / Administration, tracked by activeHomeworldSubTab;
-  // the old Fabrication sub-tab was retired in Phase 4 Task F5, crafting moved to
-  // the Fabricator). The Fleet Sector place (Docks) was moved out to the DRYDOCK
-  // program in Task 2. Alliance Sector / Colony Registry are locked "Coming soon"
-  // rail items with no content behind them yet. A later task (Homeworld program)
-  // relocates the Homeworld place and retires this tab, at which point the dead
-  // "sector" union member below is pruned.
-  type LocationPlace = "homeworld" | "sector";
-  let activeLocationPlace: LocationPlace = "homeworld";
+  // ---- Homeworld program rail state (0.11.2 nav restructure, Task 4) ----------
+  // The HOMEWORLD program holds the Fleet Homeworld place (Overview /
+  // Administration), moved VERBATIM out of the now-removed Locations tab. It uses
+  // a LEFT rail of "places" (.captain-list / .captain-list-item, reused verbatim)
+  // + a right content pane; the selected place then drives its OWN SubTabs
+  // (tracked by activeHomeworldSubTab; the old Fabrication sub-tab was retired in
+  // Phase 4 Task F5, crafting moved to the Fabricator). Like the Foundry's
+  // activeFoundryFacility, the Drydock's activeDrydockSection, and the Stores'
+  // activeStoresFacility, it uses its OWN dedicated rail-selection state (NOT the
+  // retired activeLocationPlace). A single-member union is fine for now (Alliance
+  // Sector / Colony Registry are locked, inert rail items with no content behind
+  // them yet); it is Named (not an inline literal union) to match the sibling
+  // rail-state types (StoresFacilityKey, DrydockSection, FoundryFacilityKey), so
+  // invalid selections stay unrepresentable.
+  type HomeworldPlaceKey = "homeworld";
+  let activeHomeworldPlace: HomeworldPlaceKey = "homeworld";
 
   // Homeworld tab sub-tabs (UI Redesign, Task 10, see
   // docs/plans/2026-07-07-ui-redesign-plan.md). Resources is the Overview
@@ -3233,29 +3236,31 @@
     </div>
 
     <main class="tab-body">
-      {#if activeTab === "locations"}
-      <!-- Locations (UI restructure: merged Homeworld + Sector Space) --
-           deliberately MIRRORS the Facilities / Fleet Captain's tabs: a LEFT
-           rail of "places" (.captain-list / .captain-list-item, reused
-           verbatim, NOT a new class) + a right content pane. The selected place
-           (activeLocationPlace: homeworld) drives its OWN <SubTabs>:
+      {#if activeTab === "homeworld"}
+      <!-- HOMEWORLD program (0.11.2 nav restructure, Task 4): the Fleet
+           Homeworld place (Overview / Administration), moved VERBATIM out of the
+           now-removed Locations tab. Same shell as the Foundry / Drydock / Stores
+           programs (tab-scroll-area > fleet-captains-layout > captain-list rail +
+           fleet-captains-content). The selected place (activeHomeworldPlace:
+           homeworld) drives its OWN <SubTabs>:
              - Fleet Homeworld -> Overview / Administration, tracked by
                activeHomeworldSubTab (resources / talents).
-           The former Fleet Sector place (Docks, tracked by activeStarbaseSubTab)
-           moved VERBATIM to the DRYDOCK program (0.11.2 Task 2): only its rail
-           button and content pane left this tab, the pane body is unchanged.
-           The remaining Homeworld content PANEL below moved VERBATIM from the
-           former Homeworld tab; only the navigation chrome around it changed.
-           Alliance Sector / Colony Registry are locked "Coming soon" rail items
-           using the exact .captain-list-item.locked idiom Facilities' locked
-           facilities use. -->
+           Uses a DEDICATED activeHomeworldPlace state (a named single-member
+           union, matching the sibling StoresFacilityKey), NOT the retired
+           activeLocationPlace, so invalid selections stay unrepresentable. This
+           is an information-architecture move, not a redesign: the Fleet
+           Homeworld content PANEL below is byte-identical, only the guard
+           variable and surrounding nav chrome changed. Alliance Sector / Colony
+           Registry are locked "Coming soon" rail items (re-homed here from the
+           Locations tab) using the exact .captain-list-item.locked idiom
+           Facilities' locked facilities use. -->
       <div class="tab-scroll-area">
       <div class="fleet-captains-layout">
         <div class="captain-list">
           <button
             class="captain-list-item"
-            class:active={activeLocationPlace === "homeworld"}
-            on:click={() => (activeLocationPlace = "homeworld")}
+            class:active={activeHomeworldPlace === "homeworld"}
+            on:click={() => (activeHomeworldPlace = "homeworld")}
           >
             Fleet Homeworld
           </button>
@@ -3268,7 +3273,7 @@
         </div>
 
         <div class="fleet-captains-content">
-          {#if activeLocationPlace === "homeworld"}
+          {#if activeHomeworldPlace === "homeworld"}
             <SubTabs
               tabs={[
                 { key: "resources", label: "Overview" },
@@ -6293,11 +6298,11 @@
     </main>
 
     <div class="nav-tabs">
-      <button class="nav-tab" class:active={activeTab === "locations"} on:click={() => (activeTab = "locations")}>Locations</button>
       <button class="nav-tab" class:active={activeTab === "facilities"} on:click={() => (activeTab = "facilities")}>Facilities</button>
       <button class="nav-tab" class:active={activeTab === "foundry"} on:click={() => (activeTab = "foundry")}>Foundry</button>
       <button class="nav-tab" class:active={activeTab === "drydock"} on:click={() => (activeTab = "drydock")}>Drydock</button>
       <button class="nav-tab" class:active={activeTab === "stores"} on:click={() => (activeTab = "stores")}>Stores</button>
+      <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
       <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Command</button>
       <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
       <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
