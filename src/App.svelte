@@ -892,19 +892,18 @@
   // tier's stock shows at a time, matching the Materials mockup.
   let activeMaterialsTier = 1;
 
-  // The standard (non-salvaged) sections for the selected tier, each with its
-  // resolved item list. Salvaged is kept OUT of this list because its tiles use
-  // the select-to-salvage variant, not the standard fill-tile; it is derived
-  // separately just below. Re-derives when the selected tier changes.
-  $: materialsStandardSections = MATERIALS_SECTIONS.filter((s) => s.key !== "salvaged").map((s) => ({
+  // ALL material sections for the selected tier, each with its resolved item list.
+  // Salvaged Materials is now INCLUDED here (user 2026-07-21) so it renders with the
+  // SAME fill-tile grid as Ores / Refined / Components, integrated with the rest of
+  // the materials rather than a separate select-to-salvage block. The salvage ACTION
+  // lives in the Foundry Salvage Bay facility now, so the Materials tiles are just
+  // browse-only stock, identical to any other material (same fill-tile + tooltip).
+  // Re-derives when the selected tier changes.
+  $: materialsStandardSections = MATERIALS_SECTIONS.map((s) => ({
     key: s.key,
     label: s.label,
     items: materialsSectionItems(s.key, activeMaterialsTier),
   }));
-  // Salvaged Materials items for the selected tier, shown in the Warehouse
-  // Materials tab as BROWSE-ONLY tiles (0.11.2 Task 11 moved the Salvage action
-  // itself into the Salvage Bay facility; these tiles no longer select-to-salvage).
-  $: materialsSalvagedItems = materialsSectionItems("salvaged", activeMaterialsTier);
 
   // Salvaged Materials for the SALVAGE BAY facility (0.11.2 Task 11): every
   // salvagedMaterial item ACROSS ALL tiers, in ITEMS registry order. The Salvage
@@ -923,8 +922,7 @@
   $: salvageBayHeldSalvaged = salvageBaySalvagedItems.filter((entry) => itemTotal(state.inventory, entry.id).gt(0));
   // Whole-tier empty check: drives a friendly stub when the selected tier holds
   // no materials at all (e.g. a higher tier before its items exist).
-  $: materialsTierEmpty =
-    materialsStandardSections.every((s) => s.items.length === 0) && materialsSalvagedItems.length === 0;
+  $: materialsTierEmpty = materialsStandardSections.every((s) => s.items.length === 0);
 
   // Per-category placeholder glyph for a discovered tile (real icons land later,
   // per the mockup's "icons are placeholders" note). A generic emoji per
@@ -5921,41 +5919,10 @@
               {/if}
             {/each}
 
-            <!-- SALVAGED MATERIALS section (final). BROWSE-ONLY (0.11.2
-                 Task 11): the tiles still SHOW held salvaged materials for
-                 reference, but the select-to-salvage interaction and its
-                 Salvage action panel live in the Foundry Salvage Bay facility. So
-                 each tile is a non-interactive <div> (no on:click / no
-                 class:selected), keeping
-                 the exact systems-tile visual (rarity dot + code + corner count). -->
-            {#if materialsSalvagedItems.length > 0}
-              <div class="warehouse-tier materials-section">
-                <div class="warehouse-tier-head">
-                  <span class="warehouse-tier-label">Salvaged Materials</span>
-                  <span class="warehouse-tier-line"></span>
-                  <span class="warehouse-tier-cap">{materialsSalvagedItems.length} material{materialsSalvagedItems.length === 1 ? "" : "s"}</span>
-                </div>
-                <div class="warehouse-grid">
-                  {#each materialsSalvagedItems as item (item.id)}
-                    {@const count = itemTotal(state.inventory, item.id)}
-                    <!-- Reuse the systems-tile visual (rarity dot + code + corner
-                         value), painting the count in the corner where a system's
-                         quality would sit. Rarity color via warehouseRarityColor
-                         (item rarity, not equipment rarity). Browse-only div,
-                         not a button: salvage lives in the Foundry Salvage Bay now. -->
-                    <div
-                      class="systems-tile readonly"
-                      style="--sys-rc: {warehouseRarityColor(item.rarity)};"
-                      title={`${item.label} · ${item.rarity}`}
-                    >
-                      <span class="systems-tile-dot"></span>
-                      <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
-                      <span class="systems-tile-q">{formatNumber(count)}</span>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            {/if}
+            <!-- Salvaged Materials no longer has a special block: it is the final
+                 entry in MATERIALS_SECTIONS, so it renders above in the standard
+                 fill-tile loop like every other material section (user 2026-07-21).
+                 The salvage ACTION lives in the Foundry Salvage Bay facility. -->
           </Panel>
         {/if}
       </div>
@@ -8925,8 +8892,6 @@
   /* A browse-only (non-interactive) tile: no clickable affordance. Used by the
      Warehouse salvaged-materials browse grid, where salvage moved to the Salvage
      Bay, so these tiles only display and must not imply a click does something. */
-  .systems-tile.readonly { cursor: default; }
-  .systems-tile.readonly:hover { border-color: var(--color-border); }
   .systems-tile.baseline { opacity: 0.5; }
   .systems-tile.selected {
     box-shadow: 0 0 0 2px var(--color-accent);
