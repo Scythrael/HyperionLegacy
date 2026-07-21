@@ -29,18 +29,24 @@ A new program, **first** in the nav order (before CREW). It is the player's land
 
 Rail layout matches the house pattern (left rail + content), same look.
 
-### 1b. SYSTEM as a header gear-button MODAL (not a nav program)
+### 1b. SYSTEM as a MODAL opened from the PLAYER PORTRAIT (not a nav program, not a header gear)
 
-**Remove SYSTEM from the top-level nav.** Instead, a **gear button in the top-right of the header** opens a **full-screen modal** (a box covering most of the screen), with options segregated into **tabs across the top**. This restores the modal idiom the user expects ("the way it used to pop up"). Tabs (from the SUGGESTIONS.md System-rail list, presented as top tabs in the modal):
+**Remove SYSTEM from the top-level nav.** It becomes a **full-screen modal** (a box covering most of the screen) with options segregated into **tabs across the top**, restoring the modal idiom the user expects ("the way it used to pop up").
 
-- **Options** (the existing settings/options content moves here verbatim)
-- **Save Data** (export/import/delete save, the existing controls)
-- **Appearance** (if there is existing theme/appearance content; otherwise reserved)
-- **Patch Notes** (the existing patch-notes view)
+**Entry point = the player portrait (user decision 2026-07-21).** An earlier idea was a top-right header gear button, but on mobile that button overlaps the exp bar (the header row is cramped). Instead the existing player PORTRAIT in the header becomes the entry point: tapping it opens the modal. The portrait gets a small **gear badge** in a corner as the affordance (so it reads as interactive, preserving the "settings" signal a bare portrait would lose) and a solid crimson border in place of its current decorative dashed one. This clears the header (no element fights the exp bar) and gives the portrait a real purpose. Rationale: Profile (name/portrait) and System (Options/Save Data/etc.) are both "meta / about me and my game," so one consolidated door is cleaner than two; the portrait is a large, familiar mobile tap target (Discord/most mobile games use avatar-as-menu).
+
+**Modal top tabs (Profile leads):**
+- **Profile** (NEW, first tab, what the portrait lands on): character name + portrait. Actions (Change Name, Change Portrait) are PLACEHOLDERS this patch (wired later); the tab exists and displays name/level now.
+- **Options** (the existing settings/options content, verbatim)
+- **Save Data** (export/import/delete save, existing controls)
+- **Patch Notes** (existing patch-notes view)
 - **Community** (see 1c)
-- **Debug** (the existing dev/debug tools, same gating as today)
+- **Debug** (existing dev/debug tools, same gating as today)
+- (**Appearance** only if there is existing theme content to fill it; otherwise omit, do not ship an empty tab. Confirm when reading the current System panel.)
 
-The modal reuses the existing `.modal-backdrop` / `Panel.modal-dialog` pattern and `focusTrap` (already the codebase idiom for modals: delete-save, import-confirm). No new modal machinery invented. Opaque background (Brave disables backdrop-filter). NOT locked/gated (settings are always available).
+**Modal title:** "System" (working default; the Profile tab makes the profile role self-evident). Trivial to rename.
+
+The modal reuses the existing `.modal-backdrop` / `Panel.modal-dialog` pattern and `focusTrap` (already the codebase idiom: delete-save, import-confirm). No new modal machinery. Opaque background (Brave disables backdrop-filter). NOT locked/gated (always available).
 
 ### 1c. COMMUNITY: a Discord button inside the System modal
 
@@ -70,22 +76,17 @@ Top-level program count goes from the built 7 programs + 2 utilities (SYSTEM, HE
 - **No em dashes, no "--"** in any new/changed string, comment, or doc.
 - **Save impact:** still expected NO SAVE_VERSION bump. Statistics reads existing state; the Discord URL and Help topics are static; the gear-modal is UI. Confirm during planning. APP_VERSION stays "0.11.2" (this is completing 0.11.2, not a new version).
 
-## 5. Mockup gate (mandatory)
+## 5. Mockup gate (SATISFIED 2026-07-21)
 
-Before any code: ONE mockup depicting the COMPLETE shell, every program, sent as an HTML file (inline widget does not render for this user):
-- The 7-program nav with HOME first.
-- HOME open, showing its rail (Overview / Help / Statistics / reserved entries) and a sketch of the Statistics panel.
-- The header gear button, and the System modal open with its top tabs (Options / Save Data / Appearance / Patch Notes / Community / Debug), including the Community Discord button.
-- OPERATIONS open, showing Dispatch with the Battlespace section below it.
-User signs off on THIS before build. Partial mockups are not acceptable (that is what caused the redo).
+A COMPLETE mockup (every program, mobile layout, crimson theme, tabs on the BOTTOM, left rail for categories, top subtabs) was iterated to v3 and APPROVED by the user 2026-07-21. Key layout lock learned during this gate: the existing layout is untouchable (bottom nav + left rail + top subtabs); this patch is a rearrange, not a redesign (see memory `project_fleet_admiral_layout_locked`). v3 established the portrait-entry decision (1b). The approved mockup showed: HOME first on the bottom bar with its rail + Statistics; the portrait gear-badge opening the modal on the Profile tab; the Community/Discord tab; Operations with Battlespace below Dispatch.
 
 ## 6. Build sequence (for the plan doc)
 
 Each step gated green (npm run check + npm test) before the next, content-verbatim moves:
 1. HOME program shell + move Help into it (Help already built, just re-homed).
 2. Statistics panel (new, reads existing save state; add tests for the derived stats).
-3. System header gear-button + modal with top tabs; move Options/Save-Data/Patch-Notes/Debug in verbatim; remove SYSTEM from nav.
-4. Community Discord button (SVG icon + invite constant) in the modal.
+3. System modal with top tabs (Profile / Options / Save Data / Patch Notes / Community / Debug); entry = the player portrait (gear badge + solid border + tap handler); move Options/Save-Data/Patch-Notes/Debug in verbatim; add the placeholder Profile tab; remove SYSTEM from nav.
+4. Community Discord button (SVG icon + invite constant) in the modal's Community tab.
 5. Merge Battlespace section into Operations (below dispatch); remove BATTLESPACE from nav.
 6. Nav-order + mobile pass (7 programs, no top-level utilities); smoke-assert each program renders its expected panels.
 7. Patch-note text update; final holistic review; push to staging; user device-test; explicit go before prod.
