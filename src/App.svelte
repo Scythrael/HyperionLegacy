@@ -782,6 +782,11 @@
   const salvageBaySalvagedItems: (ItemDef & { id: string })[] = Object.keys(ITEMS)
     .filter((id) => ITEMS[id].category === "salvagedMaterial")
     .map((id) => ({ id, ...ITEMS[id] }));
+  // The salvaged materials the player actually HOLDS (count > 0). The Salvage Bay
+  // salvaged section lists these only, mirroring the Ship Systems section (which
+  // lists only held spares), so an empty hold shows the friendly stub instead of
+  // an unactionable zero-count tile. Reactive: reads live inventory.
+  $: salvageBayHeldSalvaged = salvageBaySalvagedItems.filter((entry) => itemTotal(state.inventory, entry.id).gt(0));
   // Whole-tier empty check: drives a friendly stub when the selected tier holds
   // no materials at all (e.g. a higher tier before its items exist).
   $: materialsTierEmpty =
@@ -5227,7 +5232,7 @@
                              (item rarity, not equipment rarity). Browse-only div,
                              not a button: salvage lives in the Salvage Bay now. -->
                         <div
-                          class="systems-tile"
+                          class="systems-tile readonly"
                           style="--sys-rc: {warehouseRarityColor(item.rarity)};"
                           title={`${item.label} · ${item.rarity}`}
                         >
@@ -5483,16 +5488,16 @@
               <div class="warehouse-tier-head">
                 <span class="warehouse-tier-label">Salvaged Materials</span>
                 <span class="warehouse-tier-line"></span>
-                <span class="warehouse-tier-cap">{salvageBaySalvagedItems.length} material{salvageBaySalvagedItems.length === 1 ? "" : "s"}</span>
+                <span class="warehouse-tier-cap">{salvageBayHeldSalvaged.length} material{salvageBayHeldSalvaged.length === 1 ? "" : "s"}</span>
               </div>
-              {#if salvageBaySalvagedItems.length === 0}
+              {#if salvageBayHeldSalvaged.length === 0}
                 <div class="warehouse-stub">
                   <div class="warehouse-stub-glyph">♻️</div>
                   <p>No salvaged materials yet. Recover them from salvage missions, then break them down here for a loot roll.</p>
                 </div>
               {:else}
                 <div class="warehouse-grid">
-                  {#each salvageBaySalvagedItems as item (item.id)}
+                  {#each salvageBayHeldSalvaged as item (item.id)}
                     {@const count = itemTotal(state.inventory, item.id)}
                     <!-- Reuse the systems-tile visual (rarity dot + code + corner
                          value), painting the count where a system's quality sits.
@@ -5519,10 +5524,13 @@
                  rejects noneHeld for safety); the roll result is narrated to the
                  event log. SAME block the Warehouse Materials tab hosted before
                  Task 11 relocated it here. -->
-            {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId]}
+            {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId] && itemTotal(state.inventory, selectedSalvagedId).gt(0)}
               <!-- Capture the narrowed id into a const so the click closure below
                    receives a plain `string` (Svelte narrows the template guard, but
-                   an arrow-function callback would otherwise see `string | null`). -->
+                   an arrow-function callback would otherwise see `string | null`).
+                   Gated on a held count > 0 so that after salvaging the last unit,
+                   the tile leaves the held-only grid AND this action panel closes
+                   together (no lingering panel for an item you no longer hold). -->
               {@const salvageTargetId = selectedSalvagedId}
               {@const selItem = ITEMS[selectedSalvagedId]}
               {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
@@ -7886,6 +7894,11 @@
     transition: border-color 0.15s, box-shadow 0.15s;
   }
   .systems-tile:hover, .systems-tile:focus-visible { border-color: var(--color-border-strong); outline: none; }
+  /* A browse-only (non-interactive) tile: no clickable affordance. Used by the
+     Warehouse salvaged-materials browse grid, where salvage moved to the Salvage
+     Bay, so these tiles only display and must not imply a click does something. */
+  .systems-tile.readonly { cursor: default; }
+  .systems-tile.readonly:hover { border-color: var(--color-border); }
   .systems-tile.baseline { opacity: 0.5; }
   .systems-tile.selected {
     box-shadow: 0 0 0 2px var(--color-accent);
