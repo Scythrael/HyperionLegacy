@@ -5257,9 +5257,15 @@
                    populated family (the state.equipment spare-systems bay, moved
                    here in Task 9); Weapons / Modules / Consumables are RESERVED
                    roadmap slots (locked in FINISHED_GOODS_TABS, so SubTabs grays
-                   them and blocks selection), each showing only an honest reserved
-                   note, no real content. Salvaged Materials is intentionally NOT
-                   here, Task 9 moved it into the Materials tab; no duplication. -->
+                   them and blocks selection). Because they cannot be selected while
+                   locked, their reserved-note branches below are LATENT: not shown
+                   today, they surface automatically the day a family is unlocked
+                   (flip its locked flag to false) so combat can drop weapons/modules
+                   into a ready home without new markup. This deliberately differs
+                   from the mission-tier locked SubTabs (which render nothing when a
+                   locked tier is active); here the reserved note is worth pre-wiring.
+                   Salvaged Materials is intentionally NOT here, Task 9 moved it into
+                   the Materials tab; no duplication. -->
               <SubTabs
                 tabs={FINISHED_GOODS_TABS}
                 active={activeFinishedGoodsTab}
