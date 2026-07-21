@@ -552,7 +552,7 @@
   // Drydock; Warehouse to Stores; Mission Control to Operations), and the emptied
   // Facilities tab was then removed (Task 7). The union below is the resulting
   // program set (see the .nav-tabs row for their left-to-right order).
-  type TabKey = "home" | "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "stores" | "homeworld" | "system";
+  type TabKey = "home" | "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "stores" | "homeworld";
   let activeTab: TabKey = "home";
 
   // Home program (0.11.2 Shell Correction, Task 1): the landing program, first
@@ -1236,8 +1236,56 @@
   // this out-of-the-way spot, per the user's own request, since the level/
   // XP/tick bar and the bottom nav ARE the header/footer now. Defaults to
   // Options since theme/save actions are the most commonly checked view.
-  type SystemSubTab = "options" | "log" | "debug" | "about" | "patchNotes";
+  type SystemSubTab = "profile" | "options" | "log" | "debug" | "about" | "patchNotes";
   let activeSystemSubTab: SystemSubTab = "options";
+
+  // System settings modal (0.11.2 Shell Correction, Task 3). The System program
+  // left the bottom nav; its settings content now opens as a MODAL from the
+  // header portrait instead of a top-level tab. systemModalOpen gates the modal;
+  // activeSystemSubTab still selects which settings view is shown, but is now
+  // driven by a top <SubTabs> bar inside the modal instead of the old left rail.
+  let systemModalOpen = false;
+
+  // The modal's top-tab list, in display order. "profile" is the new first view
+  // (Task 3); the remaining keys map to the byte-for-byte-moved settings content
+  // blocks. The Debug tab is DEV-only: the spread injects its entry ONLY when
+  // DEV_MODE is true (the exact `...(DEV_MODE ? [...] : [])` idiom the retired
+  // rail/SubTabs arrays used), so ordinary players never see a Debug tab at all,
+  // matching the debug content block's own {#if DEV_MODE && ...} guard. DEV_MODE
+  // is a constant for the session, so this is a plain const, not a $: reactive.
+  const systemModalTabs = [
+    { key: "profile", label: "Profile" },
+    { key: "options", label: "Options" },
+    { key: "log", label: "Log" },
+    ...(DEV_MODE ? [{ key: "debug", label: "Debug" }] : []),
+    { key: "about", label: "About" },
+    { key: "patchNotes", label: "Patch Notes" },
+  ];
+
+  // openSystemModal / closeSystemModal / selectSystemSubTab / onSystemBackdropClick
+  // Task 3 (0.11.2 Shell Correction). The header portrait is the entry point: a
+  // click opens the settings modal on the Profile view. It can be closed by the
+  // header ✕ button, by Escape (handled by the shared focusTrap action, same as
+  // every other modal), or by clicking the backdrop outside the dialog surface.
+  function openSystemModal(): void {
+    activeSystemSubTab = "profile";
+    systemModalOpen = true;
+  }
+  function closeSystemModal(): void {
+    systemModalOpen = false;
+  }
+  // SubTabs' onSelect hands back the raw string key (its API is string-keyed);
+  // narrow it back to SystemSubTab here so activeSystemSubTab stays typed.
+  function selectSystemSubTab(key: string): void {
+    activeSystemSubTab = key as SystemSubTab;
+  }
+  // Backdrop-click-close: only when the click landed on the backdrop element
+  // itself, not on a click that bubbled up from the dialog surface inside it.
+  function onSystemBackdropClick(event: MouseEvent): void {
+    if (event.target === event.currentTarget) {
+      closeSystemModal();
+    }
+  }
 
   // Fleet Operations mission-category buttons (2026-07-07 Fleet Operations
   // Mission UI). Only "resourceGathering" has real content today, the other
@@ -3286,7 +3334,22 @@
   <div class="frame">
     <div class="top-bar">
       <div class="top-bar-header">
-        <div class="mission-portrait-frame top-bar-portrait" aria-hidden="true">🖼️</div>
+        <!-- Header portrait, now the System settings entry point (0.11.2 Shell
+             Correction, Task 3). A real <button> so Enter/Space activation and
+             focus come for free (no manual keydown handler needed); it keeps the
+             SAME .mission-portrait-frame/.top-bar-portrait classes (only its
+             border switches dashed->solid, scoped to the header instance below),
+             so the header's look is unchanged apart from a small ⚙ gear badge
+             marking it as interactive. -->
+        <button
+          type="button"
+          class="mission-portrait-frame top-bar-portrait"
+          aria-label="Open menu"
+          on:click={openSystemModal}
+        >
+          🖼️
+          <span class="portrait-gear-badge" aria-hidden="true">⚙</span>
+        </button>
         <div class="top-bar-info">
           <div class="top-bar-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
           <div class="top-bar-xp-row">
@@ -6509,75 +6572,69 @@
       </div>
       {/if}
 
-      {#if activeTab === "system"}
-      <!-- System (settings rail, UI consistency pass), deliberately
-           MIRRORS the Facilities / Homeworld tabs: a LEFT rail of system
-           settings views (.captain-list / .captain-list-item, reused verbatim,
-           NOT a new class) + a right content pane for the selected view.
-           Replaces the previous top <SubTabs> bar; selection is STILL tracked
-           by activeSystemSubTab (options / log / debug / about / patchNotes),
-           so the five content blocks below are byte-for-byte unchanged, only
-           the navigation chrome around them changed. The Debug rail button is
-           DEV_MODE-gated exactly as the old SubTabs array conditionally
-           included it, matching the debug content block's own DEV_MODE guard.
-           The two locked "Coming Soon" rail items use the exact
-           .captain-list-item.locked idiom Facilities' / Homeworld's locked
-           slots use (neutral label, no future view named by the user yet). -->
-      <div class="tab-scroll-area">
-      <div class="fleet-captains-layout">
-        <div class="captain-list">
-          <button
-            class="captain-list-item"
-            class:active={activeSystemSubTab === "options"}
-            on:click={() => (activeSystemSubTab = "options")}
-          >
-            Options
-          </button>
-          <button
-            class="captain-list-item"
-            class:active={activeSystemSubTab === "log"}
-            on:click={() => (activeSystemSubTab = "log")}
-          >
-            Log
-          </button>
-          <!-- Debug rail button is dev-only, wraps this SINGLE button in
-               {#if DEV_MODE}, mirroring how the retired SubTabs array included
-               the debug key only via ...(DEV_MODE ? [...] : []). Kept in the
-               same visual order (after Log, before About) it had there, and
-               matches the debug content block's own {#if DEV_MODE && ...} guard
-               so no Debug surface exists when DEV_MODE is false. -->
-          {#if DEV_MODE}
-          <button
-            class="captain-list-item"
-            class:active={activeSystemSubTab === "debug"}
-            on:click={() => (activeSystemSubTab = "debug")}
-          >
-            Debug
-          </button>
-          {/if}
-          <button
-            class="captain-list-item"
-            class:active={activeSystemSubTab === "about"}
-            on:click={() => (activeSystemSubTab = "about")}
-          >
-            About
-          </button>
-          <button
-            class="captain-list-item"
-            class:active={activeSystemSubTab === "patchNotes"}
-            on:click={() => (activeSystemSubTab = "patchNotes")}
-          >
-            Patch Notes
-          </button>
-          <!-- Locked views, no content behind them yet (same honest
-               "future signal" role as Facilities' / Homeworld's locked slots).
-               Plain inert non-button divs; the title attr is the "Coming soon"
-               affordance. -->
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Coming Soon</div>
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Coming Soon</div>
+      {#if systemModalOpen}
+      <!-- System settings MODAL (0.11.2 Shell Correction, Task 3). The System
+           program left the bottom nav; its settings now open HERE as a modal
+           triggered by the header portrait. Reuses the shared modal idiom the
+           DELETE SAVE / Ship Systems modals establish: a fixed .modal-backdrop +
+           the shared focusTrap action (Escape closes via closeSystemModal, focus
+           is trapped while open and restored to the portrait on close), plus a
+           backdrop click-close. The dialog SURFACE mirrors Ship Systems'
+           .ss-dialog approach (opaque background via existing tokens, NOT blur,
+           since Brave disables backdrop-filter; a bounded max-height with an
+           internally scrolling body, so NO new hard 100vh/100dvh is introduced,
+           per the scroll-containment invariant). This block sits inside <main>
+           only because position:fixed makes its DOM location irrelevant to
+           rendering (no transformed/filtered ancestor creates a containing block
+           here); keeping it in place left the five moved settings content blocks
+           below BYTE-FOR-BYTE identical to where they lived before, so only their
+           surrounding navigation chrome changed. The old left rail is replaced by
+           the top <SubTabs> bar below; selection is STILL tracked by
+           activeSystemSubTab. The Debug tab is DEV-only via systemModalTabs'
+           conditional spread, matching the debug content block's own
+           {#if DEV_MODE && ...} guard, so no Debug surface exists when DEV_MODE
+           is false. -->
+      <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_interactive_supports_focus, INTENTIONAL: the backdrop's click-to-close is a convenience shortcut, not the only close path. Escape (focusTrap) and the header ✕ button both close from the keyboard, and the dialog's real controls (SubTabs + body) are focusable and trapped inside, so keyboard/AT users lose no functionality by the backdrop element itself not being keyboard-operable. -->
+      <div
+        class="modal-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-label="System"
+        use:focusTrap={closeSystemModal}
+        on:click={onSystemBackdropClick}
+      >
+        <div class="system-modal-dialog">
+          <header class="system-modal-header">
+            <div class="system-modal-title">SYSTEM</div>
+            <button class="system-modal-close" on:click={closeSystemModal} aria-label="Close System">✕</button>
+          </header>
+          <SubTabs tabs={systemModalTabs} active={activeSystemSubTab} onSelect={selectSystemSubTab} />
+          <div class="system-modal-body">
+      {#if activeSystemSubTab === "profile"}
+      <!-- Profile view (0.11.2 Shell Correction, Task 3, NEW). Shows the same
+           portrait glyph + "Fleet Admiral · Level N" identity the header already
+           carries, then two PLACEHOLDER rows (Name / Portrait). Their "Change"
+           controls are deliberately inert this patch: a disabled button with a
+           "Coming soon" title, no handler and no new state (real profile editing
+           is a later feature). Reuses the Task 2 .stat-row idiom for the rows and
+           the existing .dev-btn for the controls, adding no new layout vocabulary. -->
+      <Panel>
+        <div class="panel-title">PROFILE</div>
+        <div class="profile-identity">
+          <div class="mission-portrait-frame profile-portrait" aria-hidden="true">🖼️</div>
+          <div class="profile-identity-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
         </div>
+        <div class="stat-row">
+          <span class="stat-row-label">Name</span>
+          <button class="dev-btn" disabled title="Coming soon">Change</button>
+        </div>
+        <div class="stat-row">
+          <span class="stat-row-label">Portrait</span>
+          <button class="dev-btn" disabled title="Coming soon">Change</button>
+        </div>
+      </Panel>
+      {/if}
 
-        <div class="fleet-captains-content">
       {#if activeSystemSubTab === "options"}
       <Panel>
         <div class="panel-title">OPTIONS</div>
@@ -6866,8 +6923,8 @@
         </div>
       </Panel>
       {/if}
+          </div>
         </div>
-      </div>
       </div>
       {/if}
     </main>
@@ -6881,7 +6938,6 @@
       <button class="nav-tab" class:active={activeTab === "stores"} on:click={() => (activeTab = "stores")}>Stores</button>
       <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
       <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
-      <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
     </div>
   </div>
 
@@ -7539,7 +7595,38 @@
      the header's smaller footprint; .mission-portrait-frame's border,
      background, and flex-centering apply untouched since this rule doesn't
      redeclare them. */
-  .top-bar-header .top-bar-portrait { flex: 0 0 40px; height: 40px; font-size: 16px; }
+  /* The header portrait became a <button> (0.11.2 Shell Correction, Task 3): it
+     opens the System settings modal. This same descendant-selector rule (which
+     already sizes the header instance) also carries the button-chrome reset, the
+     dashed->solid border switch, and position:relative for the gear badge, ALL
+     scoped to the header instance ONLY, so the shared .mission-portrait-frame
+     class (used by the mission cards) is never restyled. border-style:solid keeps
+     .mission-portrait-frame's own 1px width + accent-tinted color, only trading
+     the decorative dash for a solid edge that reads as an interactive control. */
+  .top-bar-header .top-bar-portrait {
+    flex: 0 0 40px;
+    height: 40px;
+    font-size: 16px;
+    border-style: solid;
+    position: relative;
+    padding: 0;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  /* Gear badge on the header portrait: a small ⚙ tucked into the bottom-right
+     corner, marking the portrait as the settings entry point. Absolute
+     positioning only; color reuses the existing --color-accent token (no new
+     palette). pointer-events:none so the whole portrait button stays one target. */
+  .portrait-gear-badge {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--color-accent);
+    pointer-events: none;
+  }
   .top-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .top-bar-name { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
   .top-bar-xp-row { display: flex; align-items: center; gap: 8px; }
@@ -7962,6 +8049,75 @@
     z-index: 100;
     padding: 20px;
   }
+  /* System settings modal surface (0.11.2 Shell Correction, Task 3). Unlike the
+     short confirm dialogs (which use Panel.modal-dialog and fit on screen), the
+     System modal carries the full settings content (Options / Log / Debug / About
+     / Patch Notes), so it needs its OWN bounded, internally scrolling surface, the
+     exact approach Ship Systems' .ss-dialog takes. It is a column flex box: an
+     OPAQUE background (an accent wash over --color-bg-mid, so it stays legible on
+     Brave where backdrop-filter blur is disabled, never relying on blur), a
+     max-height:100% bound (fits inside .modal-backdrop's 20px inset WITHOUT a new
+     hard 100vh/100dvh, per the scroll-containment invariant), and a fixed header +
+     SubTabs row with the scroll handed to .system-modal-body below. Colors and
+     borders reuse existing tokens only, no new palette or visual language. */
+  .system-modal-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(560px, 100%);
+    max-height: 100%;
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.06), rgba(var(--color-accent-rgb), 0.06)), var(--color-bg-mid);
+    border: 1px solid var(--color-border-strong);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    color: var(--color-text-primary);
+  }
+  /* Header row: title on the left, ✕ close on the right. Mirrors .ss-header /
+     .ss-title / .ss-close so the System modal reads identically to Ship Systems. */
+  .system-modal-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.25);
+    flex-shrink: 0;
+  }
+  .system-modal-title {
+    font-family: var(--font-display);
+    font-size: 15px;
+    letter-spacing: 1px;
+    color: var(--color-accent-bright);
+    text-transform: uppercase;
+    flex: 1;
+  }
+  .system-modal-close {
+    flex: 0 0 auto;
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    color: var(--color-text-secondary);
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  /* Scrolling content area: takes the remaining height and scrolls internally, so
+     tall settings views (Patch Notes, Log, the dev Debug harness) never push the
+     dialog past the viewport. min-height:0 lets a flex child actually shrink and
+     hand scrolling to its own overflow (the standard flex-scroll idiom). The 14px
+     padding matches the confirm dialogs' Panel inset so the moved content keeps
+     the same breathing room it had in the old rail layout. */
+  .system-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 14px;
+  }
+  /* Profile view identity block (Task 3): portrait glyph beside the "Fleet Admiral
+     · Level N" line. Reuses .mission-portrait-frame for the glyph box (a modifier
+     class sizes just this instance, like the header/mission-card instances do) and
+     existing text tokens; no new palette. */
+  .profile-identity { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .profile-portrait { flex: 0 0 48px; height: 48px; font-size: 22px; }
+  .profile-identity-name { font-size: 13px; color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; }
   .modal-warning { font-size: 13px; color: var(--color-danger); line-height: 1.5; margin: 0 0 10px; }
   .modal-instruction { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 8px; }
   .modal-input {
