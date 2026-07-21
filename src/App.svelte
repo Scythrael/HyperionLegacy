@@ -581,16 +581,16 @@
   type DrydockSection = "shipyard" | "docks";
   let activeDrydockSection: DrydockSection = "shipyard";
 
-  // Stores program rail state (0.11.2 nav restructure, Task 3).
-  // The STORES program holds the storage/inventory facilities. This pass it
-  // contains only the Warehouse (moved VERBATIM out of the Facilities tab); a
-  // Salvage Bay facility joins it in a later task. Like the Foundry's
-  // activeFoundryFacility and the Drydock's activeDrydockSection above, it uses
-  // its OWN dedicated rail-selection state. A single-member
-  // union is fine for now (a "salvageBay" member is added later); it is Named
-  // (not an inline literal union) to match the sibling rail-state types
-  // (FoundryFacilityKey, DrydockSection).
-  type StoresFacilityKey = "warehouse";
+  // Stores program rail state (0.11.2 nav restructure, Tasks 3 + 11).
+  // The STORES program holds the storage/inventory facilities. It now contains
+  // TWO facilities: the Warehouse (the fill-tile inventory catalog, moved
+  // VERBATIM out of the Facilities tab in Task 3) and the Salvage Bay (Task 11),
+  // the dedicated home for breaking spare ship systems and salvaged materials
+  // down for parts/loot. Like the Foundry's activeFoundryFacility and the
+  // Drydock's activeDrydockSection above, it uses its OWN dedicated rail-
+  // selection state. Named (not an inline literal union) to match the sibling
+  // rail-state types (FoundryFacilityKey, DrydockSection).
+  type StoresFacilityKey = "warehouse" | "salvageBay";
   let activeStoresFacility: StoresFacilityKey = "warehouse";
 
   // Operations program sub-tab state (0.11.2 nav restructure, Task 5).
@@ -767,10 +767,21 @@
     label: s.label,
     items: materialsSectionItems(s.key, activeMaterialsTier),
   }));
-  // Salvaged Materials items for the selected tier (rendered as select-to-salvage
-  // tiles; the Salvage action is preserved here until the Salvage Bay takes it in
-  // a later task).
+  // Salvaged Materials items for the selected tier, shown in the Warehouse
+  // Materials tab as BROWSE-ONLY tiles (0.11.2 Task 11 moved the Salvage action
+  // itself into the Salvage Bay facility; these tiles no longer select-to-salvage).
   $: materialsSalvagedItems = materialsSectionItems("salvaged", activeMaterialsTier);
+
+  // Salvaged Materials for the SALVAGE BAY facility (0.11.2 Task 11): every
+  // salvagedMaterial item ACROSS ALL tiers, in ITEMS registry order. The Salvage
+  // Bay has no tier selector (unlike the Warehouse Materials tab), so it gathers
+  // the whole salvaged catalog in one section. PURE over the static ITEMS table,
+  // so it is computed once as a const (the per-tile held count reads live `state`
+  // in the markup). Today this is the single Damaged Reactor Housing; more
+  // salvaged materials fold in automatically as they are added to ITEMS.
+  const salvageBaySalvagedItems: (ItemDef & { id: string })[] = Object.keys(ITEMS)
+    .filter((id) => ITEMS[id].category === "salvagedMaterial")
+    .map((id) => ({ id, ...ITEMS[id] }));
   // Whole-tier empty check: drives a friendly stub when the selected tier holds
   // no materials at all (e.g. a higher tier before its items exist).
   $: materialsTierEmpty =
@@ -1994,13 +2005,15 @@
     selectedSalvagedId = selectedSalvagedId === itemId ? null : itemId;
   }
 
-  // Switching the Materials tab's tier hides the previous tier's salvaged tiles,
-  // so clear any pending salvaged selection to avoid a stale inline Salvage action
-  // panel for an item that is no longer visible (0.11.2 Task 9). Referencing
-  // activeMaterialsTier makes this reactive; the initial run is a harmless null
-  // -> null. Placed AFTER the selectedSalvagedId declaration so it is never used
-  // before it is declared.
-  $: activeMaterialsTier, (selectedSalvagedId = null);
+  // The salvaged-material Salvage action now lives ONLY in the Salvage Bay
+  // facility (0.11.2 Task 11); the Warehouse Materials tab shows salvaged tiles
+  // for browsing but no longer selects them. So the clear is re-keyed from the
+  // Materials tier to the Stores rail: leaving (or switching away from) the
+  // Salvage Bay clears any pending salvaged selection, avoiding a stale inline
+  // Salvage action panel. Referencing activeStoresFacility makes this reactive;
+  // the initial run is a harmless null -> null. Placed AFTER the selectedSalvagedId
+  // declaration so it is never used before it is declared.
+  $: activeStoresFacility, (selectedSalvagedId = null);
 
   // SALVAGE one unit of a salvaged material for a tiered loot roll. salvageSalvagedMaterial
   // returns a SalvageResult: on reject a same-ref no-op + reason (noneHeld / notSalvagedMaterial),
@@ -4941,15 +4954,24 @@
       <div class="tab-scroll-area">
       <div class="fleet-captains-layout">
         <div class="captain-list">
-          <!-- Stores rail: Warehouse (the fill-tile inventory catalog), moved
-               from the Facilities tab; only class:active / on:click retarget to
-               activeStoresFacility. -->
+          <!-- Stores rail: Warehouse (the fill-tile inventory catalog, moved
+               from the Facilities tab) + Salvage Bay (0.11.2 Task 11, the
+               dedicated home for the ship-system + salvaged-material Salvage
+               actions relocated out of the Warehouse). Same .captain-list-item
+               idiom; only class:active / on:click drive activeStoresFacility. -->
           <button
             class="captain-list-item"
             class:active={activeStoresFacility === "warehouse"}
             on:click={() => (activeStoresFacility = "warehouse")}
           >
             Warehouse
+          </button>
+          <button
+            class="captain-list-item"
+            class:active={activeStoresFacility === "salvageBay"}
+            on:click={() => (activeStoresFacility = "salvageBay")}
+          >
+            Salvage Bay
           </button>
         </div>
 
@@ -5182,10 +5204,13 @@
                   {/if}
                 {/each}
 
-                <!-- SALVAGED MATERIALS section (final). Same shelf header, but its
-                     tiles SELECT to expose a Salvage-for-loot action (preserved
-                     from the old Salvaged Materials tab; the Salvage Bay facility
-                     takes this over in a later task). -->
+                <!-- SALVAGED MATERIALS section (final). BROWSE-ONLY (0.11.2
+                     Task 11): the tiles still SHOW held salvaged materials for
+                     reference, but the select-to-salvage interaction and its
+                     Salvage action panel were relocated to the Salvage Bay
+                     facility (Stores rail). So each tile is a non-interactive
+                     <div> now (no on:click / no class:selected), keeping the
+                     exact systems-tile visual (rarity dot + code + corner count). -->
                 {#if materialsSalvagedItems.length > 0}
                   <div class="warehouse-tier materials-section">
                     <div class="warehouse-tier-head">
@@ -5199,56 +5224,22 @@
                         <!-- Reuse the systems-tile visual (rarity dot + code + corner
                              value), painting the count in the corner where a system's
                              quality would sit. Rarity color via warehouseRarityColor
-                             (item rarity, not equipment rarity). -->
-                        <button
-                          type="button"
+                             (item rarity, not equipment rarity). Browse-only div,
+                             not a button: salvage lives in the Salvage Bay now. -->
+                        <div
                           class="systems-tile"
-                          class:selected={selectedSalvagedId === item.id}
                           style="--sys-rc: {warehouseRarityColor(item.rarity)};"
                           title={`${item.label} · ${item.rarity}`}
-                          on:click={() => selectSalvagedTile(item.id)}
                         >
                           <span class="systems-tile-dot"></span>
                           <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
                           <span class="systems-tile-q">{formatNumber(count)}</span>
-                        </button>
+                        </div>
                       {/each}
                     </div>
                   </div>
                 {/if}
               </Panel>
-
-              <!-- SELECTED MATERIAL: the Salvage action + a short readout, moved
-                   verbatim from the old Salvaged Materials tab. The Salvage button
-                   disables when none is held (the engine also rejects noneHeld for
-                   safety); the roll result is narrated to the event log. -->
-              {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId]}
-                <!-- Capture the narrowed id into a const so the click closure below
-                     receives a plain `string` (Svelte narrows the template guard, but
-                     an arrow-function callback would otherwise see `string | null`). -->
-                {@const salvageTargetId = selectedSalvagedId}
-                {@const selItem = ITEMS[selectedSalvagedId]}
-                {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
-                {@const selHeld = selCount.gt(0)}
-                <Panel>
-                  <div class="salvaged-action">
-                    <div class="salvaged-action-info">
-                      <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
-                      <div class="salvaged-action-hint">
-                        Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
-                      </div>
-                    </div>
-                    <button
-                      class="buy-btn systems-salvage-btn"
-                      disabled={!selHeld}
-                      title={selHeld ? undefined : "None of this material is held"}
-                      on:click={() => requestSalvage("material", salvageTargetId, selItem.label)}
-                    >
-                      Salvage
-                    </button>
-                  </div>
-                </Panel>
-              {/if}
             {/if}
 
             {#if activeWarehouseCat === "finishedGoods"}
@@ -5348,24 +5339,15 @@
               </Panel>
 
               <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
-                   inline (not a floating layer) so it is scroll-safe on device. A
-                   spare crafted system gets a Salvage button in the tooltip's action
-                   slot; baselines get NONE (nothing to refund). -->
+                   inline (not a floating layer) so it is scroll-safe on device.
+                   BROWSE-ONLY here (0.11.2 Task 11): the Warehouse shows a spare
+                   system's stats but hosts NO Salvage action. Breaking a spare
+                   system down now lives in the Salvage Bay facility (Stores rail),
+                   so no action children are passed to EquipmentTooltip here. -->
               {#if selectedSystem}
                 {@const sys = selectedSystem}
                 <Panel>
-                  <EquipmentTooltip piece={sys}>
-                    {#if selectedIsSalvageable}
-                      <button
-                        class="buy-btn systems-salvage-btn"
-                        on:click={() => requestSalvage("system", sys.id, systemSalvageName(sys))}
-                      >
-                        Salvage
-                      </button>
-                    {:else}
-                      <span class="systems-salvage-none">Standard-Issue baseline, nothing to salvage.</span>
-                    {/if}
-                  </EquipmentTooltip>
+                  <EquipmentTooltip piece={sys} />
                 </Panel>
               {/if}
               {:else if activeFinishedGoodsTab === "weapons"}
@@ -5395,6 +5377,174 @@
                   </div>
                 </Panel>
               {/if}
+            {/if}
+
+          {:else if activeStoresFacility === "salvageBay"}
+            <!-- SALVAGE BAY (0.11.2 Task 11): the dedicated home for the two
+                 Salvage actions relocated out of the Warehouse. NOTHING here is
+                 new machinery or new styling; it reuses the SAME tiles,
+                 EquipmentTooltip, select state, and requestSalvage/confirmSalvage
+                 flow the Warehouse hosted before. Two labeled sections:
+                   1. Ship Systems, the spare-systems bay tiles + the inline
+                      EquipmentTooltip whose action slot carries the Salvage
+                      button (requestSalvage("system", ...)). The Systems Bay
+                      CAPACITY readout + Upgrade Bay action stay in the Warehouse
+                      (Finished Goods), which remains the storage-management home;
+                      here it is salvage only.
+                   2. Salvaged Materials, the select-to-salvage tiles + the inline
+                      Salvage action panel (requestSalvage("material", ...)) over
+                      the whole salvaged catalog (salvageBaySalvagedItems, no tier
+                      selector). Ship teardown (requestSalvage("ship", ...)) is a
+                      Drydock action and deliberately NOT relocated here. -->
+            <Panel>
+              <div class="panel-title">SALVAGE BAY</div>
+              <p class="research-status">
+                Break spare ship systems and salvaged materials down for recovered parts and loot. Salvage permanently destroys the item; each break-down asks for confirmation first.
+              </p>
+            </Panel>
+
+            <!-- SHIP SYSTEMS salvage: the spare-systems bay tiles (SAME markup as
+                 the Warehouse Ship Systems bay). Selecting a tile surfaces the
+                 EquipmentTooltip below with a Salvage action for crafted spares.
+                 Reads baySystemGroups / selectedSystemId / selectSystemTile, the
+                 same shared state the Warehouse uses. -->
+            <Panel>
+              <div class="warehouse-tier-head">
+                <span class="warehouse-tier-label">Ship Systems</span>
+                <span class="warehouse-tier-line"></span>
+                <span class="warehouse-tier-cap">recycle spares</span>
+              </div>
+              {#if baySystemGroups.length === 0}
+                <div class="warehouse-stub">
+                  <div class="warehouse-stub-glyph">🛰️</div>
+                  <p>No spare systems to salvage. Fabricate ship systems at the Fabricator, or uninstall a fitted system to store it here first.</p>
+                </div>
+              {:else}
+                {#each baySystemGroups as group (group.slot)}
+                  <div class="warehouse-tier">
+                    <div class="warehouse-tier-head">
+                      <span class="warehouse-tier-label">{group.label}</span>
+                      <span class="warehouse-tier-line"></span>
+                      <span class="warehouse-tier-cap">{group.pieces.length} system{group.pieces.length === 1 ? "" : "s"}</span>
+                    </div>
+                    <div class="warehouse-grid">
+                      {#each group.pieces as piece (piece.id)}
+                        {@const isBaseline = piece.blueprintKey === null}
+                        <button
+                          type="button"
+                          class="systems-tile"
+                          class:baseline={isBaseline}
+                          class:selected={selectedSystemId === piece.id}
+                          style="--sys-rc: {equipmentRarityColor(piece.rarity)};"
+                          title={isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
+                          on:click={() => selectSystemTile(piece.id)}
+                        >
+                          <span class="systems-tile-dot"></span>
+                          <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
+                          <span class="systems-tile-il">iL {piece.iLevel}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/each}
+              {/if}
+            </Panel>
+
+            <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
+                 inline. A spare crafted system gets a Salvage button in the
+                 tooltip's action slot (routes through requestSalvage("system", ...)
+                 -> the shared confirm modal); baselines get NONE (nothing to
+                 refund). SAME block the Warehouse Ship Systems tab hosted before
+                 Task 11 relocated it here. -->
+            {#if selectedSystem}
+              {@const sys = selectedSystem}
+              <Panel>
+                <EquipmentTooltip piece={sys}>
+                  {#if selectedIsSalvageable}
+                    <button
+                      class="buy-btn systems-salvage-btn"
+                      on:click={() => requestSalvage("system", sys.id, systemSalvageName(sys))}
+                    >
+                      Salvage
+                    </button>
+                  {:else}
+                    <span class="systems-salvage-none">Standard-Issue baseline, nothing to salvage.</span>
+                  {/if}
+                </EquipmentTooltip>
+              </Panel>
+            {/if}
+
+            <!-- SALVAGED MATERIALS salvage: the select-to-salvage tiles over the
+                 whole salvaged catalog (salvageBaySalvagedItems, all tiers, no
+                 tier selector). SAME systems-tile visual + select idiom the
+                 Warehouse Materials tab used before Task 11 made those tiles
+                 browse-only. -->
+            <Panel>
+              <div class="warehouse-tier-head">
+                <span class="warehouse-tier-label">Salvaged Materials</span>
+                <span class="warehouse-tier-line"></span>
+                <span class="warehouse-tier-cap">{salvageBaySalvagedItems.length} material{salvageBaySalvagedItems.length === 1 ? "" : "s"}</span>
+              </div>
+              {#if salvageBaySalvagedItems.length === 0}
+                <div class="warehouse-stub">
+                  <div class="warehouse-stub-glyph">♻️</div>
+                  <p>No salvaged materials yet. Recover them from salvage missions, then break them down here for a loot roll.</p>
+                </div>
+              {:else}
+                <div class="warehouse-grid">
+                  {#each salvageBaySalvagedItems as item (item.id)}
+                    {@const count = itemTotal(state.inventory, item.id)}
+                    <!-- Reuse the systems-tile visual (rarity dot + code + corner
+                         value), painting the count where a system's quality sits.
+                         Rarity color via warehouseRarityColor (item rarity). -->
+                    <button
+                      type="button"
+                      class="systems-tile"
+                      class:selected={selectedSalvagedId === item.id}
+                      style="--sys-rc: {warehouseRarityColor(item.rarity)};"
+                      title={`${item.label} · ${item.rarity}`}
+                      on:click={() => selectSalvagedTile(item.id)}
+                    >
+                      <span class="systems-tile-dot"></span>
+                      <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
+                      <span class="systems-tile-q">{formatNumber(count)}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </Panel>
+
+            <!-- SELECTED MATERIAL: the Salvage action + a short readout. The
+                 Salvage button disables when none is held (the engine also
+                 rejects noneHeld for safety); the roll result is narrated to the
+                 event log. SAME block the Warehouse Materials tab hosted before
+                 Task 11 relocated it here. -->
+            {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId]}
+              <!-- Capture the narrowed id into a const so the click closure below
+                   receives a plain `string` (Svelte narrows the template guard, but
+                   an arrow-function callback would otherwise see `string | null`). -->
+              {@const salvageTargetId = selectedSalvagedId}
+              {@const selItem = ITEMS[selectedSalvagedId]}
+              {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
+              {@const selHeld = selCount.gt(0)}
+              <Panel>
+                <div class="salvaged-action">
+                  <div class="salvaged-action-info">
+                    <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
+                    <div class="salvaged-action-hint">
+                      Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
+                    </div>
+                  </div>
+                  <button
+                    class="buy-btn systems-salvage-btn"
+                    disabled={!selHeld}
+                    title={selHeld ? undefined : "None of this material is held"}
+                    on:click={() => requestSalvage("material", salvageTargetId, selItem.label)}
+                  >
+                    Salvage
+                  </button>
+                </div>
+              </Panel>
             {/if}
 
           {/if}
