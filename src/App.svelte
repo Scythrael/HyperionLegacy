@@ -35,6 +35,9 @@
   // Player-facing release marker + patch-note history. Extracted from this
   // file so src/Landing.svelte can render the same news strip from one source.
   import { APP_VERSION, PATCH_NOTES } from "./lib/patchNotes";
+  // Help program's core-systems manual (0.11.2 UI Restructure, Task 14). Static
+  // structured topics, rendered verbatim like PATCH_NOTES (no markdown).
+  import { HELP_TOPICS } from "./lib/helpTopics";
   import {
     freshState,
     specCards,
@@ -548,8 +551,15 @@
   // Drydock; Warehouse to Stores; Mission Control to Operations), and the emptied
   // Facilities tab was then removed (Task 7). The union below is the resulting
   // program set (see the .nav-tabs row for their left-to-right order).
-  type TabKey = "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "stores" | "homeworld" | "system";
+  type TabKey = "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "stores" | "homeworld" | "help" | "system";
   let activeTab: TabKey = "fleetCaptains";
+
+  // Help program (0.11.2 UI Restructure, Task 14): a left rail of topic titles
+  // (.captain-list, reused verbatim) + a content pane showing the selected
+  // topic. activeHelpTopic is a topic id from HELP_TOPICS (helpTopics.ts),
+  // defaulting to the first (missions), same rail-selection idiom as the System
+  // program's activeSystemSubTab.
+  let activeHelpTopic: string = "missions";
 
   // Fleet Captain's tab sub-tabs (UI Redesign, Task 8, see
   // docs/plans/2026-07-07-ui-redesign-plan.md). Overview holds the relocated
@@ -6328,6 +6338,43 @@
       </div>
       {/if}
 
+      {#if activeTab === "help"}
+      <!-- Help (0.11.2 UI Restructure, Task 14): a static core-systems manual,
+           deliberately MIRRORS the System / Facilities / Homeworld tabs. A LEFT
+           rail of topic titles (.captain-list / .captain-list-item, reused
+           verbatim, NOT a new class) drives the right content pane. Selection is
+           tracked by activeHelpTopic (a HELP_TOPICS id); the topics themselves
+           live in ./lib/helpTopics.ts and their bodies render as PLAIN text
+           (no markdown), same discipline as PATCH_NOTES. Existing tokens/classes
+           only, no restyle. -->
+      <div class="tab-scroll-area">
+      <div class="fleet-captains-layout">
+        <div class="captain-list">
+          {#each HELP_TOPICS as topic}
+            <button
+              class="captain-list-item"
+              class:active={activeHelpTopic === topic.id}
+              on:click={() => (activeHelpTopic = topic.id)}
+            >
+              {topic.title}
+            </button>
+          {/each}
+        </div>
+
+        <div class="fleet-captains-content">
+          {#each HELP_TOPICS as topic}
+            {#if activeHelpTopic === topic.id}
+            <Panel>
+              <div class="panel-title">{topic.title.toUpperCase()}</div>
+              <p class="prestige-text">{topic.body}</p>
+            </Panel>
+            {/if}
+          {/each}
+        </div>
+      </div>
+      </div>
+      {/if}
+
       {#if activeTab === "system"}
       <!-- System (settings rail, UI consistency pass), deliberately
            MIRRORS the Facilities / Homeworld tabs: a LEFT rail of system
@@ -6699,6 +6746,7 @@
       <button class="nav-tab" class:active={activeTab === "stores"} on:click={() => (activeTab = "stores")}>Stores</button>
       <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
       <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
+      <button class="nav-tab" class:active={activeTab === "help"} on:click={() => (activeTab = "help")}>Help</button>
       <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
     </div>
   </div>
