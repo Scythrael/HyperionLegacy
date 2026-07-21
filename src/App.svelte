@@ -8257,22 +8257,38 @@
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .dev-label { font-size: 11px; color: var(--color-text-secondary); width: 78px; }
+  /* .dev-btn: the flat action-button object used across the app (the dev panel AND
+     player-facing actions like Ship Systems / Assign Ship / Talents / back
+     controls). THEME-LINKED (user 2026-07-21): every color derives from the accent
+     token via --color-accent-rgb / --color-accent / --color-accent-bright, so the
+     button tracks the active theme instead of a hardcoded gold. Hover brightens;
+     disabled is a DARKENED version of the same themed button (dim accent border +
+     dimmed accent text), not just a faded one, so it still reads as this object. */
   .dev-btn {
-    background: rgba(251, 191, 36, 0.08);
-    border: 1px solid rgba(251, 191, 36, 0.3);
-    color: #fcd34d;
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    color: var(--color-accent-bright);
     padding: 6px 10px;
     font-size: 11px;
     cursor: pointer;
   }
-  .dev-btn.active { background: rgba(251, 191, 36, 0.3); color: #fff; }
+  .dev-btn:hover:not(:disabled):not(.active) {
+    background: rgba(var(--color-accent-rgb), 0.16);
+    border-color: var(--color-accent);
+  }
+  .dev-btn.active { background: rgba(var(--color-accent-rgb), 0.3); border-color: var(--color-accent); color: #fff; }
   .dev-btn.danger { color: var(--color-danger); }
-  .dev-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .dev-btn:disabled {
+    background: rgba(var(--color-accent-rgb), 0.03);
+    border-color: rgba(var(--color-accent-rgb), 0.15);
+    color: rgba(var(--color-accent-rgb), 0.4);
+    cursor: not-allowed;
+  }
   /* [DEV] Equipment panel only (dev-gated). Monospace readout text so the
      base -> fitted stat columns line up, and a subtle divider between per-ship
      blocks. New classes, no existing panel restyled. */
   .dev-readout-text { font-size: 11px; color: var(--color-text-secondary); font-family: monospace; }
-  .dev-ship-block { border-top: 1px solid rgba(251, 191, 36, 0.2); padding-top: 8px; margin-top: 8px; }
+  .dev-ship-block { border-top: 1px solid rgba(var(--color-accent-rgb), 0.2); padding-top: 8px; margin-top: 8px; }
   .log-list { display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; }
   .log-empty { font-size: 12px; color: var(--color-text-dim); }
   .log-entry { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
