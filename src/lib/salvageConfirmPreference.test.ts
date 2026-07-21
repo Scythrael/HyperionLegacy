@@ -58,4 +58,24 @@ describe("salvageConfirmPreference", () => {
     localStorage.setItem("fleet_admiral_salvage_confirm_qualities", "not json");
     expect(loadSalvageConfirmQualities()).toEqual([0, 1, 2, 3, 4, 5]);
   });
+
+  it("falls back to the safe default on valid JSON of the wrong shape", () => {
+    // An object, a bare string, and an array with a non-number are all valid JSON
+    // but not a number[]; each must be rejected in favor of the safe default.
+    for (const bad of ['{"a":1}', '"5"', "[1,\"x\"]"]) {
+      localStorage.setItem("fleet_admiral_salvage_confirm_qualities", bad);
+      expect(loadSalvageConfirmQualities()).toEqual([0, 1, 2, 3, 4, 5]);
+    }
+  });
+
+  it("treats an empty saved set as confirm-nothing (distinct from the unset default)", () => {
+    // Saving [] is a legitimate "opt out of every tier" state, and it must NOT be
+    // treated as the unset default (which returns all tiers). It round-trips as []
+    // and makes salvageNeedsConfirm false for every tier.
+    saveSalvageConfirmQualities([]);
+    expect(loadSalvageConfirmQualities()).toEqual([]);
+    for (const q of [0, 1, 2, 3, 4, 5]) {
+      expect(salvageNeedsConfirm(q)).toBe(false);
+    }
+  });
 });
