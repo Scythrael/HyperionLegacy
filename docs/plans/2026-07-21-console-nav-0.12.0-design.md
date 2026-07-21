@@ -46,7 +46,7 @@ Presentation shifts from nested navigation to a console the player drives with b
 
 - **Personnel to Captain:** select a captain; ONE page to assign their ship, set their name, spend talent points (the radial tree renders here), equip them. Everything about that captain on a single page.
 - **Logistics to Ship view:** pull up a ship; SEE its captain, who is at each station, installed systems, and the full stat breakdown. Outfit it in place: a slot, then "Ship Installs", then the equip interface. (The ship view composes reads from Personnel + Logistics, but is itself the ITEM perspective.)
-- **Operations to Mission:** tap a mission; the card shows the graphic + general info (level req, time per loop, drop icons, flavor text). "View Mission Info" swaps that region for richer, pleasingly-laid-out detail. "Assign Mission" opens the send-a-captain interface. Same engine, better layout.
+- **Operations to Mission:** tap a mission; the card shows the graphic + general info (level req, time per loop, drop icons, flavor text). "View Mission Info" swaps that region for richer, pleasingly-laid-out detail. "Assign Mission" opens the send-a-captain interface. Same engine, better layout. **Mission drop icons carry a hover/tap tooltip showing how many of that item the player currently holds AND its storage cap** (user 2026-07-21), so the player can judge a run's value at a glance (e.g. "Titanium Ore: 1,240 / 5,000").
 
 ## 5. Bottom nav (5 tabs)
 
