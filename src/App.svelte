@@ -1293,7 +1293,9 @@
     tickBarEnabled = loadTickBarEnabled();
     showTickCounts = loadShowTickCounts();
     refineConfirmEnabled = loadRefineConfirmEnabled();
-    salvageConfirmQualities = loadSalvageConfirmQualities();
+    // salvageConfirmQualities is already loaded at its declaration (it drives only
+    // the checkbox display, and the actual gating reads the persisted set directly
+    // via salvageNeedsConfirm), so it does not need a second load here.
 
     const loadedSave = loadFromLocalStorage();
     if (loadedSave) {
