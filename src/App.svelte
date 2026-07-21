@@ -5765,7 +5765,7 @@
             <div class="research-bar-fill" style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></div>
           </div>
           <div class="research-readout">{formatNumber(state.fleetAdminXp)} / {formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} XP</div>
-          <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
+          <div class="research-cost">Admiralty Points: {formatNumber(state.adminPoints)}</div>
           <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
         </Panel>
 
@@ -5775,7 +5775,7 @@
         <Panel>
           <div class="panel-title">ADMIRAL ACTIONS</div>
           <div class="dev-row">
-            <button class="dev-btn" on:click={() => (admiralPrestigeModalOpen = true)}>Prestige</button>
+            <button class="dev-btn" on:click={() => (admiralPrestigeModalOpen = true)}>Talents</button>
           </div>
         </Panel>
 
@@ -5794,14 +5794,14 @@
           class="modal-backdrop"
           role="dialog"
           aria-modal="true"
-          aria-label="Fleet Admiral Prestige"
+          aria-label="Fleet Admiral Talents"
           use:focusTrap={() => (admiralPrestigeModalOpen = false)}
           on:click={onAdmiralPrestigeBackdropClick}
         >
           <div class="system-modal-dialog">
             <header class="system-modal-header">
-              <div class="system-modal-title">Fleet Admiral, Prestige</div>
-              <button class="system-modal-close" on:click={() => (admiralPrestigeModalOpen = false)} aria-label="Close Fleet Admiral Prestige">✕</button>
+              <div class="system-modal-title">Fleet Admiral, Talents</div>
+              <button class="system-modal-close" on:click={() => (admiralPrestigeModalOpen = false)} aria-label="Close Fleet Admiral Talents">✕</button>
             </header>
             <div class="system-modal-body">
               <!-- Homeworld Talents (Task 6, Captain & Homeworld Talent Trees) --
@@ -5823,7 +5823,7 @@
                    wiring are UNCHANGED, only the host chrome moved. -->
               <Panel>
                 <div class="panel-title">ADMINISTRATION</div>
-                <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
+                <div class="research-cost">Admiralty Points: {formatNumber(state.adminPoints)}</div>
                 <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
                 <!-- Shared button row: the "← Categories" back button (left, shown ONLY
                      while viewing a category) and the fleet-wide Reset (right, always
@@ -5888,7 +5888,7 @@
                     branch={selectedCategory!}
                     owned={state.unlockedHomeworldTalents}
                     points={state.adminPoints}
-                    pointsLabel={"Admin Points"}
+                    pointsLabel={"Admiralty Points"}
                     fleetAdminLevel={state.fleetAdminLevel}
                     describeEffect={describeHomeworldTalentEffect}
                     onLearn={(key) => doBuyHomeworldTalent(key as HomeworldTalentKey)}
@@ -7450,7 +7450,7 @@
       <Panel class="modal-dialog">
         <div class="panel-title">RESET HOMEWORLD TALENTS</div>
         <p class="modal-warning">
-          This will refund every Homeworld Talent's Admin Points (except unlocked captain slots, which stay
+          This will refund every talent's Admiralty Points (except unlocked captain slots, which stay
           permanently unlocked) and cost {RESPEC_COST_CREDITS} Credits. This can't be undone.
         </p>
         <div class="modal-row">
