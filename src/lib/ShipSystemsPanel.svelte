@@ -258,7 +258,7 @@
       case "noShip":
         return "ship no longer exists";
       case "onMission":
-        return "captain is on a mission (fitment locked)";
+        return "captain is on a mission (install locked)";
       case "hullSpec":
         return "wrong hull type for this system";
       case "captainSpec":
@@ -311,7 +311,7 @@
             <div class="ss-captain-name">{assignedCaptain.label}</div>
             <div class="ss-captain-spec">
               {assignedCaptain.spec ? SPEC_LABEL[assignedCaptain.spec] ?? assignedCaptain.spec : "No specialization"}
-              {#if onMission}· on mission (fitment locked){/if}
+              {#if onMission}· on mission (install locked){/if}
             </div>
           {:else}
             <div class="ss-captain-name ss-parked">Unassigned / Parked</div>
@@ -388,7 +388,7 @@
                     <button
                       class="ss-btn ss-btn-uninstall"
                       disabled={onMission}
-                      title={onMission ? "Recall the captain first, fitment is locked on mission" : undefined}
+                      title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
                       on:click={() => handleUninstall(selectedMeta.slotType)}
                     >
                       Uninstall
@@ -439,7 +439,7 @@
         <div class="ss-stats-head">
           <span class="ss-stats-head-label"></span>
           <span class="ss-stats-head-col">Base</span>
-          <span class="ss-stats-head-col">Fitted</span>
+          <span class="ss-stats-head-col">Installed</span>
           <span class="ss-stats-head-col ss-delta-col">Δ</span>
         </div>
         {#each liveStatRows as row (row.label)}

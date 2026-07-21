@@ -14,4 +14,14 @@ describe("HELP_TOPICS", () => {
       expect(t.body.length).toBeGreaterThan(0);
     }
   });
+  // Task 15 (0.11.2): player-facing vocabulary is INSTALL ship systems, never the
+  // old fit/fitment/fitted/unfit wording. Word-boundary matches so this stays
+  // non-fragile (it never trips on unrelated words like "outfit" or "benefit").
+  it("uses install vocabulary, never fit/fitment/fitted/unfit", () => {
+    const banned = /\b(fitment|fitted|unfit|unfitted)\b/i;
+    for (const t of HELP_TOPICS) {
+      expect(banned.test(t.title), `stale fit-wording in title: ${t.id}`).toBe(false);
+      expect(banned.test(t.body), `stale fit-wording in body: ${t.id}`).toBe(false);
+    }
+  });
 });

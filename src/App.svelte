@@ -1698,7 +1698,7 @@
       case "noShip":
         return "ship no longer exists";
       case "onMission":
-        return "captain is on a mission (fitment locked)";
+        return "captain is on a mission (install locked)";
       case "hullSpec":
         return "wrong hull type for this piece";
       case "captainSpec":
@@ -1731,12 +1731,12 @@
   function devFitEquipment(shipId: string, instanceId: string) {
     const gate = canFitEquipment(state, shipId, instanceId);
     if (!gate.ok) {
-      pushLog(`[DEV] Cannot fit ${instanceId}: ${devFitReasonText(gate.reason)}.`);
+      pushLog(`[DEV] Cannot install ${instanceId}: ${devFitReasonText(gate.reason)}.`);
       return;
     }
     state = fitEquipment(state, shipId, instanceId);
     doSave();
-    pushLog(`[DEV] Fitted ${instanceId} to ${devShipLabel(shipId)}.`);
+    pushLog(`[DEV] Installed ${instanceId} on ${devShipLabel(shipId)}.`);
   }
 
   // UNFIT a ship's slot back to the pool. unfitEquipment THROWS on the on-mission
@@ -1750,7 +1750,7 @@
       doSave();
       pushLog(`[DEV] Reset ${slotType} on ${devShipLabel(shipId)} to Standard-Issue.`);
     } catch (e) {
-      pushLog(`[DEV] Cannot unfit ${slotType}: ${(e as Error).message}`);
+      pushLog(`[DEV] Cannot uninstall ${slotType}: ${(e as Error).message}`);
     }
   }
 
@@ -5441,7 +5441,7 @@
                 {#if baySystemGroups.length === 0}
                   <div class="warehouse-stub">
                     <div class="warehouse-stub-glyph">🛰️</div>
-                    <p>No spare systems in the bay. Fabricate ship systems at the Fabricator, or uninstall a fitted system to store it here.</p>
+                    <p>No spare systems in the bay. Fabricate ship systems at the Fabricator, or uninstall an installed system to store it here.</p>
                   </div>
                 {:else}
                   {#each baySystemGroups as group (group.slot)}
@@ -5606,7 +5606,7 @@
               {#if baySystemGroups.length === 0}
                 <div class="warehouse-stub">
                   <div class="warehouse-stub-glyph">🛰️</div>
-                  <p>No spare systems to salvage. Fabricate ship systems at the Fabricator, or uninstall a fitted system to store it here first.</p>
+                  <p>No spare systems to salvage. Fabricate ship systems at the Fabricator, or uninstall an installed system to store it here first.</p>
                 </div>
               {:else}
                 {#each baySystemGroups as group (group.slot)}
@@ -6648,7 +6648,7 @@
                 <span class="dev-readout-text">
                   {shipDef?.label ?? ship.typeKey} ({ship.id}) ·
                   {assignedCaptain ? assignedCaptain.label : "parked"}
-                  {#if onMission}· ON MISSION (fitment locked){/if}
+                  {#if onMission}· ON MISSION (install locked){/if}
                 </span>
               </div>
 
@@ -6662,7 +6662,7 @@
                   <span class="dev-label">{EQUIPMENT_SLOTS[slot].label}</span>
                   {#if fitted}
                     <span class="dev-readout-text">{devPieceDesc(fitted)}</span>
-                    <button class="dev-btn danger" on:click={() => devUnfitEquipment(ship.id, slot)}>Unfit</button>
+                    <button class="dev-btn danger" on:click={() => devUnfitEquipment(ship.id, slot)}>Uninstall</button>
                   {:else}
                     <span class="dev-readout-text">(empty)</span>
                   {/if}
@@ -6671,9 +6671,9 @@
                     <button
                       class="dev-btn"
                       disabled={!gate.ok}
-                      title={gate.ok ? `Fit ${spare.id}` : devFitReasonText(gate.reason)}
+                      title={gate.ok ? `Install ${spare.id}` : devFitReasonText(gate.reason)}
                       on:click={() => devFitEquipment(ship.id, spare.id)}
-                    >Fit {spare.id}{gate.ok ? "" : " (blocked)"}</button>
+                    >Install {spare.id}{gate.ok ? "" : " (blocked)"}</button>
                   {/each}
                 </div>
               {/each}

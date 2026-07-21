@@ -50,7 +50,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "research",
     title: "Research",
-    body: "The Research Lab, in the Foundry program, is where you unlock blueprints. Each research project takes time and credits and permanently unlocks something you can build, from component recipes to ship-system blueprints. Projects are organized in tiers gated by the lab's own level, so upgrading the lab opens deeper research. Research is the front of the whole production chain: research a blueprint here, craft it at the Fabricator, then use the result to build or fit ships.",
+    body: "The Research Lab, in the Foundry program, is where you unlock blueprints. Each research project takes time and credits and permanently unlocks something you can build, from component recipes to ship-system blueprints. Projects are organized in tiers gated by the lab's own level, so upgrading the lab opens deeper research. Research is the front of the whole production chain: research a blueprint here, craft it at the Fabricator, then use the result to build ships or install their systems.",
   },
   {
     id: "shipyard",
@@ -60,12 +60,12 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "docks",
     title: "Docks",
-    body: "The Docks, in the Drydock program, is where you manage your fleet of hulls: assign a ship to a captain so it can fly missions, and open a ship's Ship Systems screen to fit its equipment. Your docks have a capacity cap (it starts at 8 hulls) that a timed Expand Docks upgrade raises one ship at a time. When a docks slot is full and you no longer need a ship, salvaging one frees its slot immediately.",
+    body: "The Docks, in the Drydock program, is where you manage your fleet of hulls: assign a ship to a captain so it can fly missions, and open a ship's Ship Systems screen to install its ship systems. Your docks have a capacity cap (it starts at 8 hulls) that a timed Expand Docks upgrade raises one ship at a time. When a docks slot is full and you no longer need a ship, salvaging one frees its slot immediately.",
   },
   {
     id: "shipSystems",
     title: "Ship Systems",
-    body: "Every ship has four equipment slots (Cargo Bay, FTL Drive, Reactor Core, and a Spec Utility slot for the hull's specialization) and comes pre-fitted with a Standard-Issue baseline in each, so a bare ship is always ready to fly. Research ship-system blueprints at the Research Lab, craft them at the Fabricator, then open a ship's Ship Systems screen from the Docks to install them. Crafted systems are real upgrades over the baseline: each carries a quality grade (0 to 5), a rarity, and an item level that together set how much it boosts the ship. Install or uninstall in one tap and watch the ship's stats change; a live slot is never left empty, since uninstalling drops the baseline back into place.",
+    body: "Every ship has four equipment slots (Cargo Bay, FTL Drive, Reactor Core, and a Spec Utility slot for the hull's specialization) and comes pre-installed with a Standard-Issue baseline in each, so a bare ship is always ready to fly. Research ship-system blueprints at the Research Lab, craft them at the Fabricator, then open a ship's Ship Systems screen from the Docks to install them. Crafted systems are real upgrades over the baseline: each carries a quality grade (0 to 5), a rarity, and an item level that together set how much it boosts the ship. Install or uninstall in one tap and watch the ship's stats change; a live slot is never left empty, since uninstalling drops the baseline back into place.",
   },
   {
     id: "storage",
