@@ -3353,7 +3353,7 @@
         <button
           type="button"
           class="mission-portrait-frame top-bar-portrait"
-          aria-label="Open menu"
+          aria-label="Open admiral menu and settings"
           on:click={openSystemModal}
         >
           🖼️
