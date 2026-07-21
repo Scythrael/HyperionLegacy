@@ -606,71 +606,37 @@
   type OperationsSubTab = "dispatch" | "missionControl";
   let activeOperationsSubTab: OperationsSubTab = "dispatch";
 
-  // ---- Warehouse facility view (Phase 2, Group C) -----------------------------
-  // A tiered fill-tile inventory catalog. The top SubTabs axis is CATEGORY:
-  // Overview + Upgrade (the facility-management views, mirroring the Refinery's
-  // Overview/Upgrades) then one tab per item CATEGORY GROUP. Each catalog tab
-  // groups its ITEMS by tier into one tier-panel per tier, and renders a grid of
-  // fill-tiles (one per item) that read live inventory/discovered/cap state.
+  // ---- Warehouse facility view (Phase 2, Group C; 0.11.2 Task 9 restructure) --
+  // A tiered fill-tile inventory catalog. The top SubTabs axis is now just FOUR
+  // tabs: Overview + Upgrade (the facility-management views, mirroring the
+  // Refinery's Overview/Upgrades), then two content tabs, Materials and Finished
+  // Goods. The old flat per-category tabs (Raw/Refined/Components/Ship Systems/
+  // Salvaged/Ship Equipment/Troop Equipment/Consumables) collapse into these two:
+  //   - Materials: ONE scrollable pane with a Tier selector then themed labeled
+  //     sections (raw split by subCategory into Ores & Metals / Volatiles /
+  //     Organic Compounds / Recovered Tech, then Refined, Components, Salvaged
+  //     Materials), each rendering the SAME fill-tile grid.
+  //   - Finished Goods: the non-stacking Ship Systems bay (state.equipment),
+  //     relocated verbatim here as interim content until Task 10 builds out the
+  //     reserved Weapons/Modules/Consumables structure.
   //
-  // Kept a typed literal union (not a free string) so a future category tab is
-  // added deliberately, the same discipline RefinerySubTab/FoundryFacilityKey use.
+  // Kept a typed literal union (not a free string) so a future tab is added
+  // deliberately, the same discipline RefinerySubTab/FoundryFacilityKey use.
   type WarehouseCat =
     | "overview"
     | "upgrade"
-    | "raw"
-    | "refined"
-    | "components"
-    // Equipment 0.11.0 Phase D: the NON-stacking ship-system inventory (state.equipment,
-    // EquipmentInstance[]), distinct from the stackable "shipEquipment" catalog tab below.
-    | "shipSystems"
-    // Salvaged Materials 0.11.0 (Task C2 UI, interim home): the `salvagedMaterial`
-    // inventory category (currently just the Damaged Reactor Housing), tiled like the
-    // Raw/Refined/Components tabs but each tile SELECTS to expose a Salvage-for-loot
-    // action. 0.11.1 relocates this to the Quartermaster facility.
-    | "salvagedMaterials"
-    | "shipEquipment"
-    | "troopEquipment"
-    | "consumables";
+    | "materials"
+    | "finishedGoods";
   let activeWarehouseCat: WarehouseCat = "overview";
 
-  // The 8 category SubTabs, in display order. SubTabs is already horizontally
-  // scrollable (nowrap + overflow-x:auto), so 8 entries scroll on a narrow
-  // screen with no extra work, exactly the mockup's scrollable category strip.
+  // The 4 top-level SubTabs, in display order. Two management tabs then two
+  // content tabs, matching the 0.11.2 Warehouse restructure mockup.
   const WAREHOUSE_CAT_TABS: { key: WarehouseCat; label: string }[] = [
     { key: "overview", label: "Overview" },
     { key: "upgrade", label: "Upgrade" },
-    { key: "raw", label: "Raw Materials" },
-    { key: "refined", label: "Refined" },
-    { key: "components", label: "Components" },
-    // Equipment 0.11.0 Phase D: the tiled, non-stacking Ship Systems bay (this tab
-    // renders state.equipment, NOT an ItemCategory grid, so it is absent from
-    // WAREHOUSE_CAT_CATEGORIES below on purpose).
-    { key: "shipSystems", label: "Ship Systems" },
-    // Salvaged Materials 0.11.0: placed right after Ship Systems (its natural
-    // neighbor, both are equipment-adjacent), before the future stub tabs.
-    { key: "salvagedMaterials", label: "Salvaged Materials" },
-    { key: "shipEquipment", label: "Ship Equipment" },
-    { key: "troopEquipment", label: "Troop Equipment" },
-    { key: "consumables", label: "Consumables" },
+    { key: "materials", label: "Materials" },
+    { key: "finishedGoods", label: "Finished Goods" },
   ];
-
-  // Which ItemCategory value(s) each CATALOG tab shows (design §3.1 grouping).
-  // The management tabs (overview/upgrade) and the future stub tabs
-  // (troopEquipment/consumables, no ItemCategory exists for them yet) are
-  // ABSENT here on purpose: a tab absent from this map is NOT a catalog grid.
-  // "Components" folds minor+major; "Ship Equipment" folds module+system.
-  const WAREHOUSE_CAT_CATEGORIES: Partial<Record<WarehouseCat, ItemCategory[]>> = {
-    raw: ["raw"],
-    refined: ["refined"],
-    components: ["minorComponent", "majorComponent"],
-    shipEquipment: ["shipModule", "shipSystem"],
-    // Salvaged Materials 0.11.0: one category (`salvagedMaterial`). Listing it here lets
-    // warehouseTierGroups build this tab's tier-split tiles through the SAME path the
-    // catalog tabs use; the dedicated render block below (which adds the Salvage action)
-    // reads the resulting warehouseGroups.
-    salvagedMaterials: ["salvagedMaterial"],
-  };
 
   // The warehouse TIERS that have their own facility + cap system today (design
   // §3.1: each tier is its own facility). Drives the Upgrade tab's per-tier
@@ -693,6 +659,95 @@
     if (!FACILITIES[facilityKey]) return true; // no facility gate for this tier
     return (state.facilities[facilityKey]?.level ?? 0) > 0;
   }
+
+  // ---- Materials tab sections (0.11.2 Task 9) --------------------------------
+  // The Materials tab replaces the old flat Raw/Refined/Components/Salvaged
+  // catalog tabs with ONE scrollable pane: a Tier selector, then a FIXED series
+  // of themed labeled sections. Each section is defined by a membership predicate
+  // over the static ITEMS table and renders the SAME fill-tile grid the old
+  // catalog tabs used, for its items AT the selected tier. The four raw
+  // sub-category sections partition the raw items by their `subCategory` field
+  // (added in Task 8); refined/components/salvaged each match on ItemCategory.
+  type MaterialsSectionKey =
+    | "oresMetals"
+    | "volatiles"
+    | "organicCompounds"
+    | "recoveredTech"
+    | "refined"
+    | "components"
+    | "salvaged";
+
+  // Section display order (mockup order). The four raw sub-category sections
+  // first, then Refined, then Components, then Salvaged Materials last (salvaged
+  // is rendered with its own select-to-salvage tile, so it is handled separately
+  // in the markup, but it lives in this list to keep the ordering in one place).
+  const MATERIALS_SECTIONS: { key: MaterialsSectionKey; label: string }[] = [
+    { key: "oresMetals", label: "Ores & Metals" },
+    { key: "volatiles", label: "Volatiles" },
+    { key: "organicCompounds", label: "Organic Compounds" },
+    { key: "recoveredTech", label: "Recovered Tech" },
+    { key: "refined", label: "Refined" },
+    { key: "components", label: "Components" },
+    { key: "salvaged", label: "Salvaged Materials" },
+  ];
+
+  // SINGLE source of section membership. Raw sub-category sections match on the
+  // raw `subCategory` field (so the four of them partition the raw items with no
+  // overlap: every raw item has exactly one subCategory); the rest match on
+  // ItemCategory. Components folds minor+major, matching the old Components tab.
+  function itemInMaterialsSection(item: ItemDef, key: MaterialsSectionKey): boolean {
+    switch (key) {
+      case "oresMetals":
+      case "volatiles":
+      case "organicCompounds":
+      case "recoveredTech":
+        return item.category === "raw" && item.subCategory === key;
+      case "refined":
+        return item.category === "refined";
+      case "components":
+        return item.category === "minorComponent" || item.category === "majorComponent";
+      case "salvaged":
+        return item.category === "salvagedMaterial";
+    }
+  }
+
+  // Items in a section AT a given tier, in ITEMS registry order (deterministic,
+  // matching how the old catalog grid ordered its tiles). PURE over the static
+  // ITEMS table + tier; the per-tile fill/count/cap read live `state` in the
+  // markup instead, so this only re-runs when the selected tier changes.
+  function materialsSectionItems(key: MaterialsSectionKey, tier: number): (ItemDef & { id: string })[] {
+    const out: (ItemDef & { id: string })[] = [];
+    for (const id of Object.keys(ITEMS)) {
+      const item = ITEMS[id];
+      if (item.tier !== tier) continue;
+      if (!itemInMaterialsSection(item, key)) continue;
+      out.push({ id, ...item });
+    }
+    return out;
+  }
+
+  // Selected tier for the Materials tab's tier selector (T1 default). Distinct
+  // from the Upgrade tab (which shows ALL tiers as management cards); here one
+  // tier's stock shows at a time, matching the Materials mockup.
+  let activeMaterialsTier = 1;
+
+  // The standard (non-salvaged) sections for the selected tier, each with its
+  // resolved item list. Salvaged is kept OUT of this list because its tiles use
+  // the select-to-salvage variant, not the standard fill-tile; it is derived
+  // separately just below. Re-derives when the selected tier changes.
+  $: materialsStandardSections = MATERIALS_SECTIONS.filter((s) => s.key !== "salvaged").map((s) => ({
+    key: s.key,
+    label: s.label,
+    items: materialsSectionItems(s.key, activeMaterialsTier),
+  }));
+  // Salvaged Materials items for the selected tier (rendered as select-to-salvage
+  // tiles; the Salvage action is preserved here until the Salvage Bay takes it in
+  // a later task).
+  $: materialsSalvagedItems = materialsSectionItems("salvaged", activeMaterialsTier);
+  // Whole-tier empty check: drives a friendly stub when the selected tier holds
+  // no materials at all (e.g. a higher tier before its items exist).
+  $: materialsTierEmpty =
+    materialsStandardSections.every((s) => s.items.length === 0) && materialsSalvagedItems.length === 0;
 
   // Per-category placeholder glyph for a discovered tile (real icons land later,
   // per the mockup's "icons are placeholders" note). A generic emoji per
@@ -1912,6 +1967,14 @@
     selectedSalvagedId = selectedSalvagedId === itemId ? null : itemId;
   }
 
+  // Switching the Materials tab's tier hides the previous tier's salvaged tiles,
+  // so clear any pending salvaged selection to avoid a stale inline Salvage action
+  // panel for an item that is no longer visible (0.11.2 Task 9). Referencing
+  // activeMaterialsTier makes this reactive; the initial run is a harmless null
+  // -> null. Placed AFTER the selectedSalvagedId declaration so it is never used
+  // before it is declared.
+  $: activeMaterialsTier, (selectedSalvagedId = null);
+
   // SALVAGE one unit of a salvaged material for a tiered loot roll. salvageSalvagedMaterial
   // returns a SalvageResult: on reject a same-ref no-op + reason (noneHeld / notSalvagedMaterial),
   // on success a new state + `recovered` (the deposited amount) + `rolled` (the drop's
@@ -2628,32 +2691,11 @@
   );
 
   // ---- Warehouse reactive derivations (Phase 2, Group C) ----------------------
-
-  // Builds the tier-panel groups for a catalog category tab: every ITEMS entry
-  // whose category is in that tab's category set, grouped by `tier`, tiers
-  // ascending. PURE over the static ITEMS table (independent of live state), so
-  // it only re-runs when the active tab changes, the per-tile fill/count/cap
-  // read live `state` in the markup instead. A management/stub tab (absent from
-  // WAREHOUSE_CAT_CATEGORIES) yields [] -> the markup shows its stub/panel.
-  function warehouseTierGroups(cat: WarehouseCat): { tier: number; items: (ItemDef & { id: string })[] }[] {
-    const categories = WAREHOUSE_CAT_CATEGORIES[cat];
-    if (!categories) return [];
-    const byTier = new Map<number, (ItemDef & { id: string })[]>();
-    for (const id of Object.keys(ITEMS)) {
-      const item = ITEMS[id];
-      if (!categories.includes(item.category)) continue;
-      const bucket = byTier.get(item.tier) ?? [];
-      bucket.push({ id, ...item });
-      byTier.set(item.tier, bucket);
-    }
-    return [...byTier.keys()]
-      .sort((a, b) => a - b)
-      .map((tier) => ({ tier, items: byTier.get(tier) ?? [] }));
-  }
-
-  // The tier groups for the currently-selected catalog tab (empty for
-  // overview/upgrade/stub tabs). Re-derives when the active tab changes.
-  $: warehouseGroups = warehouseTierGroups(activeWarehouseCat);
+  // NOTE (0.11.2 Task 9): the old flat-catalog tier-group builder
+  // (warehouseTierGroups / warehouseGroups / WAREHOUSE_CAT_CATEGORIES) was
+  // removed with the flat Raw/Refined/Components/Salvaged tabs. The Materials tab
+  // now derives its themed sections through materialsSectionItems (above), which
+  // filters by tier + section membership directly.
 
   // Overview summary derivations (design §3.1: at-a-glance warehouse state).
   // T1 level + its live per-item cap (the primary, always-available tier).
@@ -2882,8 +2924,8 @@
   // Blueprints grouped by TIER for the Research list (tiers ascending). PURE over
   // the STATIC BLUEPRINTS table (independent of live state, the per-blueprint
   // researched/gate reads happen in the markup), so this is a plain const computed
-  // once at script init, mirroring warehouseTierGroups' by-tier bucketing. Each
-  // group renders as a tier heading + its blueprint cards in the Research sub-tab.
+  // once at script init, mirroring the by-tier bucketing pattern used elsewhere.
+  // Each group renders as a tier heading + its blueprint cards in the Research sub-tab.
   const blueprintTierGroups: { tier: number; blueprints: BlueprintDef[] }[] = (() => {
     const byTier = new Map<number, BlueprintDef[]>();
     for (const key of Object.keys(BLUEPRINTS)) {
@@ -5012,31 +5054,67 @@
               {/each}
             {/if}
 
-            {#if activeWarehouseCat === "raw" || activeWarehouseCat === "refined" || activeWarehouseCat === "components" || activeWarehouseCat === "shipEquipment"}
-              <!-- CATALOG GRID, tier-panels of fill-tiles for the active
-                   category (design §3.2). A category with NO items today (its
-                   items don't exist yet) shows a "future content" stub instead of
-                   an empty grid. -->
-              {#if warehouseGroups.length === 0}
-                <Panel>
+            {#if activeWarehouseCat === "materials"}
+              <!-- MATERIALS (0.11.2 Task 9). ONE scrollable pane: a Tier
+                   selector, then a fixed series of themed labeled sections. Each
+                   section reuses the SAME fill-tile grid the old flat catalog tabs
+                   used (fill / rarity color / ❓-mask / count / showWarehouseTooltip),
+                   rendering its items AT the selected tier. Raw items partition
+                   across the first four sections by their subCategory. Sections
+                   with no items at the selected tier are hidden. Salvaged Materials
+                   is the final section and keeps its select-to-salvage tiles. -->
+              {@const tierUnlocked = warehouseTierUnlocked(activeMaterialsTier)}
+              {@const cap = tierCap(state, activeMaterialsTier)}
+
+              <!-- TIER SELECTOR: pick which storage tier's stock to view. Reuses
+                   WAREHOUSE_TIERS + warehouseTierUnlocked. A locked tier is still
+                   selectable (its sections show, dimmed, with a locked note),
+                   matching the old per-tier locked banner. -->
+              <div class="materials-tier-select" role="group" aria-label="Storage tier">
+                {#each WAREHOUSE_TIERS as wt (wt.key)}
+                  <button
+                    type="button"
+                    class="materials-tier-btn"
+                    class:active={activeMaterialsTier === wt.tier}
+                    aria-pressed={activeMaterialsTier === wt.tier}
+                    on:click={() => (activeMaterialsTier = wt.tier)}
+                  >{wt.label}</button>
+                {/each}
+              </div>
+
+              <Panel>
+                <div class="materials-cap-line">
+                  {tierUnlocked ? `Cap ${formatNumber(cap)} / item` : "This tier's storage is locked."}
+                </div>
+
+                {#if !tierUnlocked}
+                  {@const unlockRung = FACILITIES[`warehouseT${activeMaterialsTier}`]?.upgrades[0]}
+                  {@const unlockIds = unlockRung ? Object.keys(unlockRung.materials) : []}
+                  <p class="warehouse-locked-note">
+                    Tier {activeMaterialsTier} storage locked, <b>unlock in the Upgrade tab</b>{#if unlockRung && unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
+                  </p>
+                {/if}
+
+                {#if materialsTierEmpty}
                   <div class="warehouse-stub">
                     <div class="warehouse-stub-glyph">🗄️</div>
-                    <p>No items in this category yet, future content. Each will get its own fill-tile once it exists in the game.</p>
+                    <p>No materials at this tier yet. Gather from missions and refine to fill these shelves.</p>
                   </div>
-                </Panel>
-              {:else}
-                <Panel>
-                  {#each warehouseGroups as group (group.tier)}
-                    {@const unlocked = warehouseTierUnlocked(group.tier)}
-                    {@const cap = tierCap(state, group.tier)}
-                    <div class="warehouse-tier" class:locked={!unlocked}>
+                {/if}
+
+                <!-- STANDARD SECTIONS: the four raw sub-categories, then Refined,
+                     then Components. Each renders the shared fill-tile grid; an
+                     empty section is hidden. -->
+                {#each materialsStandardSections as section (section.key)}
+                  {#if section.items.length > 0}
+                    <div class="warehouse-tier materials-section" class:locked={!tierUnlocked}>
                       <div class="warehouse-tier-head">
-                        <span class="warehouse-tier-label">Tier {group.tier}</span>
+                        <span class="warehouse-tier-label">{section.label}</span>
                         <span class="warehouse-tier-line"></span>
-                        <span class="warehouse-tier-cap">{unlocked ? `cap ${formatNumber(cap)} / item` : "locked"}</span>
+                        <span class="warehouse-tier-cap">{section.items.length} item{section.items.length === 1 ? "" : "s"}</span>
                       </div>
                       <div class="warehouse-grid">
-                        {#each group.items as item (item.id)}
+                        {#each section.items as item (item.id)}
                           {@const discovered = state.discovered.includes(item.id)}
                           {@const count = itemTotal(state.inventory, item.id)}
                           {@const atCap = discovered && materialAtCap(state, item.id)}
@@ -5069,21 +5147,87 @@
                           </button>
                         {/each}
                       </div>
-                      {#if !unlocked}
-                        {@const unlockRung = FACILITIES[`warehouseT${group.tier}`].upgrades[0]}
-                        {@const unlockIds = Object.keys(unlockRung.materials)}
-                        <p class="warehouse-locked-note">
-                          Tier {group.tier} storage locked, <b>unlock in the Upgrade tab</b>{#if unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
-                        </p>
-                      {/if}
                     </div>
-                  {/each}
+                  {/if}
+                {/each}
+
+                <!-- SALVAGED MATERIALS section (final). Same shelf header, but its
+                     tiles SELECT to expose a Salvage-for-loot action (preserved
+                     from the old Salvaged Materials tab; the Salvage Bay facility
+                     takes this over in a later task). -->
+                {#if materialsSalvagedItems.length > 0}
+                  <div class="warehouse-tier materials-section">
+                    <div class="warehouse-tier-head">
+                      <span class="warehouse-tier-label">Salvaged Materials</span>
+                      <span class="warehouse-tier-line"></span>
+                      <span class="warehouse-tier-cap">{materialsSalvagedItems.length} material{materialsSalvagedItems.length === 1 ? "" : "s"}</span>
+                    </div>
+                    <div class="warehouse-grid">
+                      {#each materialsSalvagedItems as item (item.id)}
+                        {@const count = itemTotal(state.inventory, item.id)}
+                        <!-- Reuse the systems-tile visual (rarity dot + code + corner
+                             value), painting the count in the corner where a system's
+                             quality would sit. Rarity color via warehouseRarityColor
+                             (item rarity, not equipment rarity). -->
+                        <button
+                          type="button"
+                          class="systems-tile"
+                          class:selected={selectedSalvagedId === item.id}
+                          style="--sys-rc: {warehouseRarityColor(item.rarity)};"
+                          title={`${item.label} · ${item.rarity}`}
+                          on:click={() => selectSalvagedTile(item.id)}
+                        >
+                          <span class="systems-tile-dot"></span>
+                          <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
+                          <span class="systems-tile-q">{formatNumber(count)}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+              </Panel>
+
+              <!-- SELECTED MATERIAL: the Salvage action + a short readout, moved
+                   verbatim from the old Salvaged Materials tab. The Salvage button
+                   disables when none is held (the engine also rejects noneHeld for
+                   safety); the roll result is narrated to the event log. -->
+              {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId]}
+                <!-- Capture the narrowed id into a const so the click closure below
+                     receives a plain `string` (Svelte narrows the template guard, but
+                     an arrow-function callback would otherwise see `string | null`). -->
+                {@const salvageTargetId = selectedSalvagedId}
+                {@const selItem = ITEMS[selectedSalvagedId]}
+                {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
+                {@const selHeld = selCount.gt(0)}
+                <Panel>
+                  <div class="salvaged-action">
+                    <div class="salvaged-action-info">
+                      <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
+                      <div class="salvaged-action-hint">
+                        Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
+                      </div>
+                    </div>
+                    <button
+                      class="buy-btn systems-salvage-btn"
+                      disabled={!selHeld}
+                      title={selHeld ? undefined : "None of this material is held"}
+                      on:click={() => requestSalvage("material", salvageTargetId, selItem.label)}
+                    >
+                      Salvage
+                    </button>
+                  </div>
                 </Panel>
               {/if}
             {/if}
 
-            {#if activeWarehouseCat === "shipSystems"}
-              <!-- SHIP SYSTEMS BAY (Equipment 0.11.0 Phase D). The tiled,
+            {#if activeWarehouseCat === "finishedGoods"}
+              <!-- FINISHED GOODS (0.11.2 Task 9, INTERIM). For now this tab holds
+                   the Ship Systems bay verbatim (relocated from the old dedicated
+                   Ship Systems tab); Task 10 builds out the proper Finished Goods
+                   structure (Ship Systems + reserved Weapons / Modules /
+                   Consumables). The bay is UNCHANGED below.
+
+                   SHIP SYSTEMS BAY (Equipment 0.11.0 Phase D). The tiled,
                    non-stacking equipment inventory: one tile per spare
                    EquipmentInstance, grouped by slot type, plus the Systems Bay
                    capacity header + "Upgrade Bay" action. Selecting a tile
@@ -5175,109 +5319,6 @@
                   </EquipmentTooltip>
                 </Panel>
               {/if}
-            {/if}
-
-            {#if activeWarehouseCat === "salvagedMaterials"}
-              <!-- SALVAGED MATERIALS (0.11.0 Task C2 UI, interim Warehouse home;
-                   0.11.1 moves this to the Quartermaster). The `salvagedMaterial`
-                   category tiled by tier exactly like the catalog tabs (reusing
-                   warehouse-tier / warehouse-grid + warehouseGroups), but each tile
-                   SELECTS to expose a Salvage-for-loot action instead of a hover
-                   tooltip. All rolls go through salvageSalvagedMaterial, so the UI
-                   can't drift from the loot-pool engine. -->
-              {#if warehouseGroups.length === 0}
-                <Panel>
-                  <div class="warehouse-stub">
-                    <div class="warehouse-stub-glyph">♻️</div>
-                    <p>No salvaged materials yet, future content. Broken-down items you strip for parts land here.</p>
-                  </div>
-                </Panel>
-              {:else}
-                <Panel>
-                  {#each warehouseGroups as group (group.tier)}
-                    <div class="warehouse-tier">
-                      <div class="warehouse-tier-head">
-                        <span class="warehouse-tier-label">Tier {group.tier}</span>
-                        <span class="warehouse-tier-line"></span>
-                        <span class="warehouse-tier-cap">{group.items.length} material{group.items.length === 1 ? "" : "s"}</span>
-                      </div>
-                      <div class="warehouse-grid">
-                        {#each group.items as item (item.id)}
-                          {@const count = itemTotal(state.inventory, item.id)}
-                          <!-- Reuse the systems-tile visual (rarity dot + code + corner
-                               value), painting the count in the corner where a system's
-                               quality would sit. Rarity color via warehouseRarityColor
-                               (item rarity, not equipment rarity). -->
-                          <button
-                            type="button"
-                            class="systems-tile"
-                            class:selected={selectedSalvagedId === item.id}
-                            style="--sys-rc: {warehouseRarityColor(item.rarity)};"
-                            title={`${item.label} · ${item.rarity}`}
-                            on:click={() => selectSalvagedTile(item.id)}
-                          >
-                            <span class="systems-tile-dot"></span>
-                            <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
-                            <span class="systems-tile-q">{formatNumber(count)}</span>
-                          </button>
-                        {/each}
-                      </div>
-                    </div>
-                  {/each}
-                </Panel>
-              {/if}
-
-              <!-- SELECTED MATERIAL: the Salvage action + a short readout, mirroring
-                   the Ship Systems tab's inline selected-piece Panel. The Salvage
-                   button disables when none is held (the engine also rejects noneHeld
-                   for safety); the roll result is narrated to the event log. -->
-              {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId]}
-                <!-- Capture the narrowed id into a const so the click closure below
-                     receives a plain `string` (Svelte narrows the template guard, but
-                     an arrow-function callback would otherwise see `string | null`). -->
-                {@const salvageTargetId = selectedSalvagedId}
-                {@const selItem = ITEMS[selectedSalvagedId]}
-                {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
-                {@const selHeld = selCount.gt(0)}
-                <Panel>
-                  <div class="salvaged-action">
-                    <div class="salvaged-action-info">
-                      <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
-                      <div class="salvaged-action-hint">
-                        Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
-                      </div>
-                    </div>
-                    <button
-                      class="buy-btn systems-salvage-btn"
-                      disabled={!selHeld}
-                      title={selHeld ? undefined : "None of this material is held"}
-                      on:click={() => requestSalvage("material", salvageTargetId, selItem.label)}
-                    >
-                      Salvage
-                    </button>
-                  </div>
-                </Panel>
-              {/if}
-            {/if}
-
-            {#if activeWarehouseCat === "troopEquipment"}
-              <!-- Future stub, no ItemCategory exists for troop gear yet. -->
-              <Panel>
-                <div class="warehouse-stub">
-                  <div class="warehouse-stub-glyph">🎖️</div>
-                  <p><b>Troop Equipment</b> (name TBD), non-stacking gear, each drop its own tile with rolled stats. Future content.</p>
-                </div>
-              </Panel>
-            {/if}
-
-            {#if activeWarehouseCat === "consumables"}
-              <!-- Future stub, no ItemCategory exists for consumables yet. -->
-              <Panel>
-                <div class="warehouse-stub">
-                  <div class="warehouse-stub-glyph">🧪</div>
-                  <p><b>Consumables</b>, buffs & status restoration (stackable). Big for troops. Future content.</p>
-                </div>
-              </Panel>
             {/if}
 
           {/if}
@@ -7440,6 +7481,44 @@
      via the inline --wh-rc custom property (and the fill color via
      --wh-fillc, which flips to danger at cap).
      ============================================================ */
+
+  /* Materials tab tier selector (0.11.2 Task 9): a small segmented pill row
+     that picks which storage tier's stock the sections below display. Opaque
+     backgrounds only (Brave disables backdrop-filter), reusing theme tokens. */
+  .materials-tier-select {
+    display: flex; gap: 6px; margin: 0 0 10px;
+  }
+  .materials-tier-btn {
+    flex: 0 0 auto;
+    padding: 5px 14px;
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    background: var(--color-panel-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .materials-tier-btn:hover { border-color: var(--color-border-strong); color: var(--color-text-primary); }
+  /* Selected tier mirrors the SubTabs active idiom (translucent accent wash +
+     bright accent text + accent border), so the selector reads as "selected"
+     the same way every other tab does. */
+  .materials-tier-btn.active {
+    color: var(--color-accent-bright);
+    background: rgba(var(--color-accent-rgb), 0.14);
+    border-color: var(--color-accent);
+    font-weight: 700;
+  }
+  /* Cap readout line above the Materials sections. */
+  .materials-cap-line {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--color-text-secondary);
+    margin: 0 2px 12px;
+  }
+  /* Each themed section reuses the .warehouse-tier shelf visual; give adjacent
+     sections a touch more separation than the old tier panels had. */
+  .materials-section { margin-bottom: 20px; }
+  .materials-section:last-child { margin-bottom: 0; }
 
   /* tier panel */
   .warehouse-tier { margin-bottom: 16px; }
