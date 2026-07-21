@@ -8,7 +8,7 @@
 // markdown processor, same discipline as patchNotes.ts): what you type here is
 // exactly what the player reads. Keep them accurate to the shipped game, keep
 // them concise, and use real punctuation only (colons, commas, periods,
-// parentheses); no em dashes and no "--" as em-dash-style punctuation.
+// parentheses); no em dashes and no doubled-hyphen em-dash substitutes.
 //
 // Test-guarded required ids (helpTopics.test.ts): missions, refining,
 // fabricating, research, shipyard, docks, storage, salvage, fuel. Additional
@@ -70,12 +70,12 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "storage",
     title: "Storage",
-    body: "The Warehouse, in the Stores program, holds your materials and systems. It is split into tabs (Raw, Refined, Component, Ship Systems, and Salvaged Materials), each with a fill-tile gauge showing how full it is. Storage has caps, so producers automatically pause when a material is full instead of wasting output, and you can raise a cap with a timed capacity upgrade. Your spare ship systems have their own storage cap you can raise with a timed Systems Bay upgrade.",
+    body: "The Warehouse, in the Stores program, holds your materials and finished goods across two inventory tabs. Materials holds your raw ores, refined goods, components, and salvaged materials, grouped into themed sections (Ores and Metals, Volatiles, Organic Compounds, Recovered Tech, Refined, Components, and Salvaged Materials) and split by tier. Finished Goods holds your spare Ship Systems, with Weapons, Modules, and Consumables reserved for later. Each item shows a fill gauge for how full its cap is. Storage has caps, so producers automatically pause when a material is full instead of wasting output, and you can raise a cap with a timed capacity upgrade. Your spare ship systems have their own storage cap you can raise with a timed Systems Bay upgrade.",
   },
   {
     id: "salvage",
     title: "Salvage",
-    body: "Salvage lets you break down what you no longer need to recover part of what it cost. You can salvage a whole ship at the Docks: its installed systems return to your spare pool first (so you never lose crafted gear), you recover a share of the materials and credits that built the hull, and the docks slot frees up right away (a ship on an active mission cannot be scrapped, and salvaging asks for confirmation). You can also salvage a spare ship system in the Stores program to reclaim a share of the materials that built it, so a full systems bay never blocks you. The rare Damaged Reactor Housing can be broken down for a tiered roll at rarer materials, with better odds as your Fleet Admiral levels and with the Salvage Operations talent.",
+    body: "Salvage lets you break down what you no longer need to recover part of what it cost. You can salvage a whole ship at the Docks (in the Drydock program): its installed systems return to your spare pool first (so you never lose crafted gear), you recover a share of the materials and credits that built the hull, and the docks slot frees up right away (a ship on an active mission cannot be scrapped, and salvaging asks for confirmation). The Salvage Bay, in the Stores program, is where you break down spare systems and salvaged materials: salvage a spare ship system to reclaim a share of the materials that built it (so a full systems bay never blocks you), or break down the rare Damaged Reactor Housing for a tiered roll at rarer materials, with better odds as your Fleet Admiral levels and with the Salvage Operations talent. You can choose which item qualities ask for confirmation first, so trivial salvage can go instantly.",
   },
   {
     id: "fuel",
@@ -85,7 +85,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "homeworld",
     title: "Homeworld",
-    body: "Homeworld is your home base program, where several core facilities live (the Refinery and the fuel and production infrastructure are grouped under your Homeworld and Fleet Sector). It is also where you spend talents that unlock and improve capabilities across the fleet, such as extra captain slots and better salvage odds. As you progress, more of your economy is anchored here.",
+    body: "Homeworld is your home base program, and today it is your administration hub. It is where you spend Homeworld talents that unlock and improve capabilities across the whole fleet, such as extra captain slots and better salvage odds. Your production facilities (the Refinery, Fabricator, Research Lab, and Fuel Depot) live in the Foundry program, not here. As the game grows, more of your empire management will be anchored at the Homeworld.",
   },
   {
     id: "combat",
