@@ -544,7 +544,7 @@
   // homeworld-adjacent tabs (see the .nav-tabs row below). Only the Refinery is
   // real this pass; Warehouse/Fabricator/Shipyard are locked "Coming Soon" rail
   // items, same idiom Sector Space's locked structures use.
-  type TabKey = "locations" | "facilities" | "fleetCaptains" | "fleetOperations" | "battlespace" | "system";
+  type TabKey = "locations" | "facilities" | "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "system";
   let activeTab: TabKey = "fleetCaptains";
 
   // Fleet Captain's tab sub-tabs (UI Redesign, Task 8, see
@@ -586,6 +586,15 @@
   // addition as "research" above.
   type FacilityKey = "refinery" | "warehouse" | "missionControl" | "fuelStorage" | "research" | "fabricator" | "shipyard";
   let activeFacility: FacilityKey = "refinery";
+
+  // Foundry program rail state (0.11.2 nav restructure, Task 1).
+  // The FOUNDRY program (Refinery/Fabricator/Research Lab/Fuel Depot) uses
+  // its OWN rail-selection state, SEPARATE from the Facilities tab's
+  // activeFacility, so the two coexisting tabs never cross-talk while both
+  // render during the intermediate nav restructure. A dedicated key union
+  // (the four moved facilities only) keeps invalid selections unrepresentable.
+  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage";
+  let activeFoundryFacility: FoundryFacilityKey = "refinery";
 
   // ---- Warehouse facility view (Phase 2, Group C) -----------------------------
   // A tiered fill-tile inventory catalog. The top SubTabs axis is CATEGORY:
@@ -3541,75 +3550,55 @@
       </div>
       {/if}
 
-      {#if activeTab === "facilities"}
-      <!-- Facilities (Phase 1, Facility Framework + Refinery, Task 12 UI) --
-           deliberately MIRRORS the Sector Space (starbase) tab above, which
-           itself mirrors the Fleet Captain's tab: a LEFT rail of facilities
-           (.captain-list / .captain-list-item, reused verbatim, NOT a new class)
-           + a right content pane driven by SubTabs for the selected facility.
-           Only the Refinery is real this pass; Fabricator/Warehouse/Shipyard are
-           locked "Coming Soon" rail items using the exact .captain-list-item.locked
-           idiom Sector Space's locked structures use. The Refinery has three
-           sub-tabs, Overview (level + slots + active-jobs status readout),
-           Production (the per-slot line configurator that drives refining), and
-           Upgrades (the next rung's material/prereq readiness + Build). All
-           actions/readiness read the tick.ts backend fns (canStartLine / startLine
-           / canBuildFacilityUpgrade / startFacilityUpgrade / refineSlotCount) and
-           the model.ts data tables (FACILITIES / REFINE_RECIPES / ITEMS). -->
+      {#if activeTab === "foundry"}
+      <!-- FOUNDRY program (0.11.2 nav restructure, Task 1): the four
+           "make-stuff" facilities (Refinery, Fabricator, Research Lab, Fuel
+           Depot), moved VERBATIM out of the Facilities tab. Same shell as the
+           Facilities tab (tab-scroll-area > fleet-captains-layout > captain-list
+           rail + fleet-captains-content). Uses a DEDICATED activeFoundryFacility
+           state (NOT activeFacility) so this program stays independent of the
+           still-present Facilities tab during the intentional coexistence period
+           (later tasks move the remaining facilities out; Task 7 deletes the
+           Facilities tab). This is an information-architecture move, not a
+           redesign: the moved rail buttons and content panes are unchanged
+           except that their guard variable is retargeted to
+           activeFoundryFacility. -->
       <div class="tab-scroll-area">
       <div class="fleet-captains-layout">
         <div class="captain-list">
-          <!-- Rail grouped by OWNER (2026-07 Locations-merge follow-up): each
-               facility now sits under the "place" that owns it, with a small
-               quiet .facility-owner-header label above the group. Purely a
-               presentational regroup of the same reused .captain-list-item /
-               .captain-list-item.locked items, activeFacility/FacilityKey
-               logic and the Refinery content pane are unchanged. -->
-
+          <!-- Foundry rail: the four make-stuff facilities. Rail buttons moved
+               verbatim from the Facilities rail; only class:active / on:click
+               retarget from activeFacility to activeFoundryFacility. -->
+          <div class="facility-owner-header">Homeworld</div>
           <!-- Homeworld group, the Refinery (only real facility this pass)
                plus its two locked homeworld siblings. -->
-          <div class="facility-owner-header">Homeworld</div>
           <button
             class="captain-list-item"
-            class:active={activeFacility === "refinery"}
-            on:click={() => (activeFacility = "refinery")}
+            class:active={activeFoundryFacility === "refinery"}
+            on:click={() => (activeFoundryFacility = "refinery")}
           >
             Refinery
           </button>
-          <!-- Locked facilities, no content behind them yet (same honest
-               "future signal" role as Sector Space's locked structures and the
-               Fleet Captain's locked slots). Plain non-button divs, so they're
-               inert; the title attr is the "Coming soon" affordance. -->
           <!-- Fabricator, REAL, selectable facility (Fabricator Task F4): CRAFTS the
                components the Research Lab unlocked. Same reused .captain-list-item /
                active idiom as the Refinery/Warehouse/Research buttons; replaced the
                locked placeholder that stood here through Phases 1-3. -->
           <button
             class="captain-list-item"
-            class:active={activeFacility === "fabricator"}
-            on:click={() => (activeFacility = "fabricator")}
+            class:active={activeFoundryFacility === "fabricator"}
+            on:click={() => (activeFoundryFacility = "fabricator")}
           >
             Fabricator
           </button>
-          <!-- Warehouse, REAL, selectable facility (Phase 2, Group C): the
-               fill-tile inventory catalog. Same reused .captain-list-item /
-               active idiom as the Refinery button above. -->
+          <!-- Research Lab, REAL, selectable facility (Research Task R5): the
+               blueprint-research facility. Same reused .captain-list-item / active
+               idiom as the Refinery/Warehouse/Mission Control/Fuel Depot buttons. -->
           <button
             class="captain-list-item"
-            class:active={activeFacility === "warehouse"}
-            on:click={() => (activeFacility = "warehouse")}
+            class:active={activeFoundryFacility === "research"}
+            on:click={() => (activeFoundryFacility = "research")}
           >
-            Warehouse
-          </button>
-          <!-- Mission Control, REAL, selectable facility (Mission Rework Task 8):
-               the mission-unlock facility. Same reused .captain-list-item / active
-               idiom as the Refinery/Warehouse buttons. -->
-          <button
-            class="captain-list-item"
-            class:active={activeFacility === "missionControl"}
-            on:click={() => (activeFacility = "missionControl")}
-          >
-            Mission Control
+            Research Lab
           </button>
           <!-- Fuel Depot, REAL, selectable facility (Mission Rework Task 8; relabeled
                "Fuel Depot" in Fuel Economy v2 F2, KEY still `fuelStorage`): the fuel tank
@@ -3617,49 +3606,15 @@
                storage/processing upgrade track. -->
           <button
             class="captain-list-item"
-            class:active={activeFacility === "fuelStorage"}
-            on:click={() => (activeFacility = "fuelStorage")}
+            class:active={activeFoundryFacility === "fuelStorage"}
+            on:click={() => (activeFoundryFacility = "fuelStorage")}
           >
             Fuel Depot
           </button>
-          <!-- Research Lab, REAL, selectable facility (Research Task R5): the
-               blueprint-research facility. Same reused .captain-list-item / active
-               idiom as the Refinery/Warehouse/Mission Control/Fuel Depot buttons. -->
-          <button
-            class="captain-list-item"
-            class:active={activeFacility === "research"}
-            on:click={() => (activeFacility = "research")}
-          >
-            Research Lab
-          </button>
-
-          <!-- Fleet Sector group, the Shipyard belongs to the fleet's sector
-               presence, not the homeworld. -->
-          <div class="facility-owner-header">Fleet Sector</div>
-          <!-- Shipyard, REAL, selectable facility (Shipyard Task S5 UI): BUILDS hulls
-               from fabricated components. Same reused .captain-list-item / active idiom as
-               the Refinery/Fabricator/Research buttons; replaced the locked placeholder
-               that stood here through Phases 1-4. NOTE: the Shipyard only BUILDS ships --
-               assigning a built hull to a captain still happens at the Docks (Sector Space
-               > Starbase), which is SEPARATE and unchanged. Selectable even when UNFOUNDED
-               (level 0): the Build tab then shows the "Found the Shipyard" prompt, whose
-               Found button establishes it via the shared facility-upgrade founding rung. -->
-          <button
-            class="captain-list-item"
-            class:active={activeFacility === "shipyard"}
-            on:click={() => (activeFacility = "shipyard")}
-          >
-            Shipyard
-          </button>
-
-          <!-- Ships group, ship-borne facilities, a concept only (no backing
-               state yet); locked like the rest. -->
-          <div class="facility-owner-header">Ships</div>
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Ship Facilities</div>
         </div>
 
         <div class="fleet-captains-content">
-          {#if activeFacility === "refinery"}
+          {#if activeFoundryFacility === "refinery"}
             <SubTabs
               tabs={[
                 { key: "overview", label: "Overview" },
@@ -3918,7 +3873,805 @@
                 {/if}
               </Panel>
             {/if}
-          {:else if activeFacility === "warehouse"}
+          {:else if activeFoundryFacility === "fabricator"}
+            <!-- FABRICATOR (Fabricator Task F4; Craft tab reworked in Task C4), the
+                 component-crafting facility. It CONSUMES the researched blueprints from the
+                 Research Lab: three sub-tabs mirroring the Research Lab's STRUCTURE (Overview /
+                 Craft / Upgrades). Overview = slots in use + in-flight craft jobs (progress bar
+                 + real time remaining) + researched-vs-fabricable counts + the Shipyard
+                 signpost. Craft = the per-slot PRODUCTION LINES view (active fabricate lines +
+                 the tier→item→qty→REQUIRES→Start configurator on idle slots), the direct mirror
+                 of the Refinery's Production tab, driven by the shared startLine / cancelLine /
+                 canStartLine / maxAffordableIterations seams. Upgrades = the fabricator's tier/
+                 slot track wired to the SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade.
+                 Readiness/actions read the SAME tick.ts fns + model.ts tables (FACILITIES.
+                 fabricator / BLUEPRINTS / ITEMS), so the UI can't drift from what the backend
+                 enforces. Reuses the research/refine progress-bar idiom + the .mission-card /
+                 .buy-btn / .dev-btn / .research-* classes (no new markup style). -->
+            <SubTabs
+              tabs={[
+                { key: "overview", label: "Overview" },
+                { key: "craft", label: "Craft" },
+                { key: "upgrades", label: "Upgrades" },
+              ]}
+              active={activeFabricatorSubTab}
+              onSelect={(key) => (activeFabricatorSubTab = key as FabricatorSubTab)}
+            />
+
+            {#if activeFabricatorSubTab === "overview"}
+              <!-- OVERVIEW, fabricator level, craft-slot usage, any in-flight craft
+                   jobs (progress bar + real time remaining, the SAME idiom the refine/
+                   research jobs use), the fabricable-vs-researched count, and the forward
+                   SIGNPOST that components become usable with the Shipyard. -->
+              <Panel>
+                <div class="panel-title">FABRICATOR</div>
+                <div class="research-cost">Level: {fabricatorLevel}</div>
+                <div class="research-cost">Craft slots: {activeFabricateJobs.length} / {fabricateSlots} in use</div>
+                <div class="research-cost">Blueprints fabricable: {fabricableBlueprintCount} / {researchedBlueprintCount} researched</div>
+
+                <!-- In-flight fabricate jobs, one progress card each. progress is how
+                     much of the duration has elapsed (durationTicks - remainingTicks over
+                     durationTicks), read straight off the fabricateJob TimedProcess, the
+                     SAME derivation the refine/research bars use. The job names the
+                     component it is crafting (effect.itemId -> label). -->
+                {#if activeFabricateJobs.length > 0}
+                  <div class="research-cost" style="margin-top: 10px;">In progress:</div>
+                  {#each activeFabricateJobs as job (job.id)}
+                    {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
+                    <div class="mission-card">
+                      <div class="research-name">
+                        {#if job.effect.type === "addItem"}Fabricating → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else if job.effect.type === "addEquipment" && BLUEPRINTS[job.effect.blueprintKey]?.equipmentOutput}Fabricating → [{equipmentOutputLabel(BLUEPRINTS[job.effect.blueprintKey].equipmentOutput!)}]{:else}Fabricate job{/if}
+                      </div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                      </div>
+                      <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                    </div>
+                  {/each}
+                {:else}
+                  <p class="research-status" style="margin-top: 10px;">No active fabricate jobs.</p>
+                {/if}
+
+                <!-- Forward signpost (design F4): fabricated components aren't usable until
+                     the Shipyard, the next feature. -->
+                <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
+                  Fabricated components become usable when the <strong>Shipyard</strong> comes online (next feature).
+                </p>
+              </Panel>
+            {/if}
+
+            {#if activeFabricatorSubTab === "craft"}
+              <!-- CRAFT (Crafting Allocation Redesign, Task C4), the Fabricator's per-slot
+                   PRODUCTION LINES view, the DIRECT mirror of the Refinery's Production tab:
+                   active fabricate lines (state.fabricateLines) render first (card + Cancel +
+                   recipe + progress + tick readout), then idle slots render the tier→item→
+                   qty→REQUIRES→Start configurator. The tier/item dropdowns list only RESEARCHED
+                   + tier-available blueprints (availableFabricateBlueprints); with none available
+                   the idle slots collapse to the Research-Lab signpost. All gates read the shared
+                   canStartLine / maxAffordableIterations; the REQUIRES preview reads the derived
+                   allocation helpers. Reuses .mission-card / .buy-btn / .dev-btn.danger. -->
+              <Panel>
+                <div class="panel-title">CRAFT</div>
+                <div class="research-cost">Craft slots: {(state.fabricateLines ?? []).length} / {fabricateSlots} in use</div>
+
+                {#if !fabricatorBuilt}
+                  <p class="research-status" style="margin-top: 10px;">
+                    Build the <strong>Fabricator</strong> first (see Upgrades) to run production lines.
+                  </p>
+                {:else}
+                  {@const fabricateLines = state.fabricateLines ?? []}
+                  {@const idleSlots = Math.max(0, fabricateSlots - fabricateLines.length)}
+
+                  <!-- Active fabricate lines (one card each). -->
+                  {#each fabricateLines as line, li (line.id)}
+                    {@const bp = BLUEPRINTS[line.recipeKey]}
+                    {@const job = state.activeProcesses.find((p) => p.lineId === line.id)}
+                    {@const progress = job && job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 0}
+                    <div class="mission-card" style="margin-top: 10px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                        <div class="research-name">LINE {li + 1} · FABRICATING</div>
+                        <!-- Cancel only while iterations remain to stop (see the refine card above). -->
+                        {#if line.remaining > 0}
+                          <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
+                        {/if}
+                      </div>
+                      <div class="research-cost">
+                        {#if bp}
+                          {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each}
+                          <!-- Task 19: an EQUIPMENT blueprint shows its minted piece's SYSTEM name
+                               (slot + variety); it carries no recipe.outputItem (optional, omitted).
+                               Only a MATERIAL blueprint has a stackable output to render. -->
+                          {#if bp.equipmentOutput}
+                            → [{equipmentOutputLabel(bp.equipmentOutput)}]
+                          {:else}
+                            → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]
+                          {/if}
+                        {:else}[{line.recipeKey}]{/if}
+                        · {line.remaining > 0 ? (line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous") : "finishing current run"}
+                      </div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                      </div>
+                      <div class="research-readout">
+                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
+                      </div>
+                    </div>
+                  {/each}
+
+                  <!-- Idle slots: the configurator, OR the Research-Lab signpost when nothing
+                       is researched + tier-available to configure. -->
+                  {#if idleSlots > 0 && availableFabricateBlueprints.length === 0}
+                    <p class="research-status" style="margin-top: 12px;">
+                      Research blueprints at the <strong>Research Lab</strong> to unlock things to fabricate.
+                    </p>
+                  {:else}
+                    {#each Array(idleSlots) as _, idx}
+                      {@const slotIndex = fabricateLines.length + idx}
+                      {@const isOpen = openConfig?.kind === "fabricate" && openConfig.slotIndex === slotIndex}
+                      {#if isOpen}
+                        {@const maxQty = maxAffordableIterations(state, "fabricate", cfgRecipeKey)}
+                        {@const gate = canStartLine(state, "fabricate", cfgRecipeKey, Math.floor(cfgQty))}
+                        {@const perIteration = lineInputsPerIteration({ id: "", kind: "fabricate", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
+                        <div class="mission-card" style="margin-top: 10px;">
+                          <div class="research-name">Line {slotIndex + 1} · configure a craft</div>
+
+                          <div class="dev-row" style="margin-top: 8px; align-items: center;">
+                            <!-- Tier dropdown: the researched + tier-available tiers. -->
+                            <label style="display: inline-flex; align-items: center; gap: 6px;">
+                              Tier
+                              <select class="modal-input" value={cfgTier} on:change={(e) => onFabricateTierChange(Number((e.target as HTMLSelectElement).value))} aria-label="Tier">
+                                {#each availableFabricateTiers as t}
+                                  <option value={t}>Tier {t}</option>
+                                {/each}
+                              </select>
+                            </label>
+                            <!-- Item dropdown: the blueprints in the selected tier. -->
+                            <label style="display: inline-flex; align-items: center; gap: 6px;">
+                              Item
+                              <select class="modal-input" bind:value={cfgRecipeKey} aria-label="Item">
+                                {#each fabricateKeysForTier(cfgTier) as bk}
+                                  <option value={bk}>{BLUEPRINTS[bk]?.label ?? bk}</option>
+                                {/each}
+                              </select>
+                            </label>
+                            <!-- Qty field, bounded 1..maxAffordableIterations. -->
+                            <label style="display: inline-flex; align-items: center; gap: 6px;">
+                              Qty
+                              <input class="modal-input" type="number" min="1" max={maxQty} step="1" style="width: 80px;" bind:value={cfgQty} aria-label="Quantity" />
+                              <span class="research-cost">(max {maxQty})</span>
+                            </label>
+                          </div>
+
+                          <!-- REQUIRES (×qty) preview: per input, per/ea → total, plus free / allocated / total. -->
+                          <div class="research-cost" style="margin-top: 8px;">REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</div>
+                          {#each Object.keys(perIteration) as itemId}
+                            {@const per = perIteration[itemId]}
+                            {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
+                            {@const free = freeItem(state.inventory, allLines, itemId)}
+                            {@const allocated = allocatedItem(allLines, itemId)}
+                            {@const stock = itemTotal(state.inventory, itemId)}
+                            <div class="mission-card" style="margin-top: 4px;">
+                              <div class="research-cost">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
+                              <div class="research-cost" style="color: var(--color-success);">Free {formatNumber(free)}</div>
+                              <div class="research-cost">Allocated {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
+                            </div>
+                          {/each}
+
+                          <div class="dev-row" style="margin-top: 8px;">
+                            <button
+                              class="buy-btn"
+                              disabled={!gate.ok}
+                              title={gate.ok ? undefined : startLineBlockText(gate.reason, BLUEPRINTS[cfgRecipeKey])}
+                              on:click={() => doStartLine("fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                            >
+                              Fabricate · ×{Math.max(1, Math.floor(cfgQty))}
+                            </button>
+                            <button class="dev-btn" on:click={closeConfigurator}>Close</button>
+                          </div>
+                        </div>
+                      {:else}
+                        <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("fabricate", slotIndex)}>
+                          Line {slotIndex + 1} · idle, configure a craft
+                        </button>
+                      {/if}
+                    {/each}
+                  {/if}
+                {/if}
+              </Panel>
+            {/if}
+
+            {#if activeFabricatorSubTab === "upgrades"}
+              <!-- UPGRADES, the Fabricator's finite tier/slot track
+                   (FACILITIES.fabricator.upgrades[level]; caps at length 2 today). Each
+                   next rung grants a craft slot AND unlocks the next blueprint tier for
+                   fabrication. Cost is CREDITS (materials are the per-craft cost, not the
+                   upgrade cost), so the credits gate leads; the materials loop is kept
+                   (empty today) to mirror the sibling upgrade tabs. Build is wired to the
+                   SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade, NOT
+                   re-implemented. A LINE-FOR-LINE clone of the Research Lab's Upgrades
+                   tab, swapping research→fabricator vars + addResearchSlots→
+                   addFabricateSlots. In-flight progress reuses the refine/research bar
+                   idiom. -->
+              <Panel>
+                <div class="panel-title">FABRICATOR, Upgrades</div>
+                <div class="research-cost">Level: {fabricatorLevel}</div>
+
+                {#if fabricatorMaxed}
+                  <p class="research-status">Fully upgraded.</p>
+                {:else}
+                  {@const eff = nextFabricatorUpgrade.effect}
+                  <div class="research-name">Next: Level {fabricatorLevel} → {fabricatorLevel + 1}</div>
+                  <!-- Grant line: each fabricator rung grants a craft slot AND unlocks the
+                       next tier. The slot text lives inside the narrow so eff.
+                       addFabricateSlots is typed; the whole phrase is kept contiguous
+                       WITHIN each branch (no whitespace-only text at a block boundary,
+                       which Svelte would trim) so the " · " separator renders. -->
+                  <div class="research-cost">
+                    {#if "addFabricateSlots" in eff}Grants: +{eff.addFabricateSlots} craft slot{eff.addFabricateSlots === 1 ? "" : "s"} · unlocks Tier {fabricatorLevel + 1} blueprints{:else}Grants: unlocks Tier {fabricatorLevel + 1} blueprints{/if}
+                  </div>
+                  <div class="research-cost">Duration: {durationReadout(nextFabricatorUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+
+                  <!-- Credits cost readiness (fabricator rungs cost credits, not materials). -->
+                  {#if nextFabricatorUpgrade.credits !== undefined}
+                    {@const met = state.credits.gte(nextFabricatorUpgrade.credits)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} Cost: ◈ {formatNumber(nextFabricatorUpgrade.credits)} (have {formatNumber(state.credits)})
+                    </div>
+                  {/if}
+
+                  <!-- Material readiness ([Item]: have / need, ✅/❌), empty for the
+                       fabricator track today, kept for parity with the sibling tabs. -->
+                  {#each Object.keys(nextFabricatorUpgrade.materials) as itemId}
+                    {@const need = nextFabricatorUpgrade.materials[itemId]}
+                    {@const have = itemTotal(state.inventory, itemId)}
+                    {@const met = have.gte(need)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                    </div>
+                  {/each}
+
+                  <!-- Fleet Admiral level prereq (absent field => no wall). -->
+                  {#if nextFabricatorUpgrade.requiresFleetAdminLevel !== undefined}
+                    {@const met = state.fleetAdminLevel >= nextFabricatorUpgrade.requiresFleetAdminLevel}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextFabricatorUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                    </div>
+                  {/if}
+
+                  <button
+                    class="buy-btn"
+                    disabled={!fabricatorUpgradeCheck.ok}
+                    title={fabricatorUpgradeCheck.ok ? undefined : fabricatorUpgradeCheck.reason}
+                    on:click={() => doStartFacilityUpgrade(FABRICATOR_FACILITY_KEY)}
+                  >
+                    Build · Level {fabricatorLevel} → {fabricatorLevel + 1}
+                  </button>
+                {/if}
+
+                {#if fabricatorUpgradeInFlight}
+                  {@const progress = fabricatorUpgradeInFlight.durationTicks > 0
+                    ? (fabricatorUpgradeInFlight.durationTicks - fabricatorUpgradeInFlight.remainingTicks) / fabricatorUpgradeInFlight.durationTicks
+                    : 1}
+                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remainingReadout(fabricatorUpgradeInFlight.remainingTicks, fabricatorUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                {/if}
+              </Panel>
+            {/if}
+          {:else if activeFoundryFacility === "research"}
+            <!-- RESEARCH LAB (Research Task R5), the blueprint-research facility.
+                 Three sub-tabs mirroring the other Homeworld facilities: Overview
+                 (slots in use + in-flight projects with progress bars + researched/
+                 available counts + the Fabricator signpost), Research (the tier-
+                 grouped blueprint list, each with its future-Fabricator recipe +
+                 cost/time and a Research button gated by canResearch), and Upgrades
+                 (the lab's tier/slot track, wired to the SHARED canBuildFacilityUpgrade
+                 / doStartFacilityUpgrade). All readiness/actions read the SAME tick.ts
+                 research fns (researchSlotCount / canResearch / startResearch) + the
+                 model.ts tables (FACILITIES.research / BLUEPRINTS / ITEMS), so the UI
+                 can't drift from what the backend enforces. Reuses the refine/upgrade
+                 progress-bar idiom + the .mission-card / .buy-btn / .research-* classes
+                 (no new markup style). -->
+            <SubTabs
+              tabs={[
+                { key: "overview", label: "Overview" },
+                { key: "research", label: "Research" },
+                { key: "upgrades", label: "Upgrades" },
+              ]}
+              active={activeResearchSubTab}
+              onSelect={(key) => (activeResearchSubTab = key as ResearchSubTab)}
+            />
+
+            {#if activeResearchSubTab === "overview"}
+              <!-- OVERVIEW, lab level, slot usage, any in-flight research projects
+                   (progress bar + ticks remaining, the SAME idiom the refine jobs +
+                   facility upgrades use), the researched/available count, and the
+                   forward SIGNPOST that crafting arrives with the Fabricator. -->
+              <Panel>
+                <div class="panel-title">RESEARCH LAB</div>
+                <div class="research-cost">Level: {researchLevel}</div>
+                <div class="research-cost">Research slots: {activeResearchProjects.length} / {researchSlots} in use</div>
+                <div class="research-cost">Blueprints researched: {researchedBlueprintCount} / {totalBlueprintCount}</div>
+
+                <!-- In-flight research projects, one progress card each. progress is
+                     how much of the duration has elapsed (durationTicks - remainingTicks
+                     over durationTicks), read straight off the researchProject
+                     TimedProcess, the SAME derivation the refine/upgrade bars use. The
+                     project names the blueprint it is unlocking (effect.key -> label). -->
+                {#if activeResearchProjects.length > 0}
+                  <div class="research-cost" style="margin-top: 10px;">In progress:</div>
+                  {#each activeResearchProjects as job (job.id)}
+                    {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
+                    <div class="mission-card">
+                      <div class="research-name">
+                        {#if job.effect.type === "unlockBlueprint"}Researching → [{BLUEPRINTS[job.effect.key]?.label ?? job.effect.key}]{:else}Research project{/if}
+                      </div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                      </div>
+                      <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                    </div>
+                  {/each}
+                {:else}
+                  <p class="research-status" style="margin-top: 10px;">No active research projects.</p>
+                {/if}
+
+                <!-- Forward signpost (design R5): researched blueprints aren't craftable
+                     until the Fabricator, the next feature. -->
+                <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
+                  Researched blueprints become craftable when the <strong>Fabricator</strong> comes online (next feature).
+                </p>
+              </Panel>
+            {/if}
+
+            {#if activeResearchSubTab === "research"}
+              <!-- RESEARCH LIST, blueprints grouped by TIER (ascending). Each card
+                   shows the blueprint's future-Fabricator RECIPE (inputs → outputQty×
+                   output, ITEM labels) + its cost/time, then ONE of three states:
+                     - Researched (blueprintUnlocked): ✓ + "craftable once the Fabricator
+                       is online".
+                     - Researchable (canResearch ok): an enabled Research button →
+                       doStartResearch(key).
+                     - Blocked (canResearch !ok): a DISABLED button whose text/title is
+                       the human reason (researchBlockText), tierLocked names the
+                       required lab level, so higher-tier blueprints read "Requires
+                       Research Lab level N". -->
+              <Panel>
+                <div class="panel-title">RESEARCH</div>
+                <div class="research-cost">Research slots: {activeResearchProjects.length} / {researchSlots} in use</div>
+
+                {#each blueprintTierGroups as group (group.tier)}
+                  <div class="research-name" style="margin-top: 12px;">Tier {group.tier}</div>
+                  {#each group.blueprints as bp (bp.key)}
+                    {@const unlocked = blueprintUnlocked(state, bp.key)}
+                    {@const gate = canResearch(state, bp.key)}
+                    <!-- In-flight lookup: the researchProject TimedProcess unlocking THIS
+                         blueprint (effect.key === bp.key). When present, canResearch
+                         returned `inProgress`, so the card renders a live progress bar +
+                         human time-remaining in place of the disabled "Researching…"
+                         button (same track/fill/readout idiom as the Overview card). Other
+                         blocked reasons (noSlot / tierLocked / credits) still fall through
+                         to their disabled buttons. Declared here (immediate {#each} child)
+                         because {@const} cannot be a child of a plain element. -->
+                    {@const job = activeResearchProjects.find((p) => p.effect.type === "unlockBlueprint" && p.effect.key === bp.key)}
+                    <div class="mission-card">
+                      <div class="research-name">{bp.label}</div>
+                      <!-- Recipe (what the Fabricator will craft): inputs → output.
+                           Plain-text [Item] labels (no icon tooltip needed). Task 19: an
+                           EQUIPMENT blueprint previews its minted piece's SYSTEM name (slot +
+                           variety); it carries no recipe.outputItem (optional, omitted). -->
+                      <div class="research-cost">
+                        Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]{/if}
+                      </div>
+                      <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+
+                      {#if unlocked}
+                        <div class="research-cost" style="color: var(--color-success)">✓ Researched, craftable once the Fabricator is online</div>
+                      {:else if job}
+                        {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
+                        <div class="research-bar-track">
+                          <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                        </div>
+                        <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                      {:else if gate.ok}
+                        <button class="buy-btn" on:click={() => doStartResearch(bp.key)}>
+                          Research · ◈ {formatNumber(bp.researchCreditCost)}
+                        </button>
+                      {:else}
+                        <button class="buy-btn" disabled title={researchBlockText(gate.reason, bp)}>
+                          {researchBlockText(gate.reason, bp)}
+                        </button>
+                      {/if}
+                    </div>
+                  {/each}
+                {/each}
+              </Panel>
+            {/if}
+
+            {#if activeResearchSubTab === "upgrades"}
+              <!-- UPGRADES, the Research Lab's finite tier/slot track
+                   (FACILITIES.research.upgrades[level]; caps at length 2 today). Each
+                   next rung grants a research slot AND unlocks the next blueprint tier.
+                   Cost is CREDITS (the design's long-term sink), not materials, so the
+                   credits gate leads the readiness rows; materials loop is kept (empty
+                   today) to mirror the sibling upgrade tabs for future rungs. Build is
+                   wired to the SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade
+                  , NOT re-implemented. In-flight progress reuses the refine/upgrade
+                   bar idiom. -->
+              <Panel>
+                <div class="panel-title">RESEARCH LAB, Upgrades</div>
+                <div class="research-cost">Level: {researchLevel}</div>
+
+                {#if researchMaxed}
+                  <p class="research-status">Fully upgraded.</p>
+                {:else}
+                  {@const eff = nextResearchUpgrade.effect}
+                  <div class="research-name">Next: Level {researchLevel} → {researchLevel + 1}</div>
+                  <!-- Grant line: each research rung grants a slot AND unlocks the next
+                       tier. The slot text lives inside the narrow so eff.addResearchSlots
+                       is typed; the whole phrase is kept contiguous WITHIN each branch (no
+                       whitespace-only text at a block boundary, which Svelte would trim) so
+                       the " · " separator renders. -->
+                  <div class="research-cost">
+                    {#if "addResearchSlots" in eff}Grants: +{eff.addResearchSlots} research slot{eff.addResearchSlots === 1 ? "" : "s"} · unlocks Tier {researchLevel + 1} blueprints{:else}Grants: unlocks Tier {researchLevel + 1} blueprints{/if}
+                  </div>
+                  <div class="research-cost">Duration: {durationReadout(nextResearchUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+
+                  <!-- Credits cost readiness (research rungs cost credits, not materials). -->
+                  {#if nextResearchUpgrade.credits !== undefined}
+                    {@const met = state.credits.gte(nextResearchUpgrade.credits)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} Cost: ◈ {formatNumber(nextResearchUpgrade.credits)} (have {formatNumber(state.credits)})
+                    </div>
+                  {/if}
+
+                  <!-- Material readiness ([Item]: have / need, ✅/❌), empty for the
+                       research track today, kept for parity with the sibling tabs. -->
+                  {#each Object.keys(nextResearchUpgrade.materials) as itemId}
+                    {@const need = nextResearchUpgrade.materials[itemId]}
+                    {@const have = itemTotal(state.inventory, itemId)}
+                    {@const met = have.gte(need)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                    </div>
+                  {/each}
+
+                  <!-- Fleet Admiral level prereq (absent field => no wall). -->
+                  {#if nextResearchUpgrade.requiresFleetAdminLevel !== undefined}
+                    {@const met = state.fleetAdminLevel >= nextResearchUpgrade.requiresFleetAdminLevel}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextResearchUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                    </div>
+                  {/if}
+
+                  <button
+                    class="buy-btn"
+                    disabled={!researchUpgradeCheck.ok}
+                    title={researchUpgradeCheck.ok ? undefined : researchUpgradeCheck.reason}
+                    on:click={() => doStartFacilityUpgrade(RESEARCH_FACILITY_KEY)}
+                  >
+                    Build · Level {researchLevel} → {researchLevel + 1}
+                  </button>
+                {/if}
+
+                {#if researchUpgradeInFlight}
+                  {@const progress = researchUpgradeInFlight.durationTicks > 0
+                    ? (researchUpgradeInFlight.durationTicks - researchUpgradeInFlight.remainingTicks) / researchUpgradeInFlight.durationTicks
+                    : 1}
+                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remainingReadout(researchUpgradeInFlight.remainingTicks, researchUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                {/if}
+              </Panel>
+            {/if}
+          {:else if activeFoundryFacility === "fuelStorage"}
+            <!-- FUEL DEPOT (Mission Rework Task 8; reworked Fuel Economy v2 F4), the
+                 fuel tank + auto-refinery. Two sub-tabs: Overview (fuel/cap GAUGE +
+                 auto-REFINING status + a DEMOTED optional manual top-up) and Upgrades
+                 (the mixed storage/processing track). Since F2/F3 made refining +
+                 auto-buy automatic, the Overview now LEADS with the sufficiency readout
+                 and the manual buy is a secondary override, not the primary action. -->
+            <SubTabs
+              tabs={[
+                { key: "overview", label: "Overview" },
+                { key: "upgrades", label: "Upgrades" },
+              ]}
+              active={activeFuelStorageSubTab}
+              onSelect={(key) => (activeFuelStorageSubTab = key as FuelStorageSubTab)}
+            />
+
+            {#if activeFuelStorageSubTab === "overview"}
+              <Panel>
+                <div class="panel-title">FUEL DEPOT</div>
+                <div class="research-cost">Depot level: {fuelStorageLevel}</div>
+
+                <!-- Fuel gauge, current / cap with a horizontal fill bar (the shared
+                     research-bar fill idiom; fill % via warehouseFillPct, the same
+                     clamp helper the Warehouse tiles use). -->
+                <div class="research-cost" style="margin-top: 8px;">Fuel: {formatNumber(state.fuel)} / {formatNumber(fuelCapValue)} ({Math.round(fuelFillPct)}%)</div>
+                <div class="research-bar-track">
+                  <div class="research-bar-fill" style="width:{fuelFillPct}%"></div>
+                </div>
+              </Panel>
+
+              <!-- REFINING STATUS (Fuel Economy v2 F4), the auto-refinery readout. Same
+                   production/expenditure/net derivation the top-bar fuel chip uses (one
+                   source, shown twice), plus the live per-batch pipeline progress. This
+                   is now the PRIMARY Fuel Depot readout: it answers "is my fuel self-
+                   sustaining?" without the player touching anything. -->
+              <Panel>
+                <div class="panel-title">REFINING</div>
+                <div class="research-cost">Pipelines: {fuelPipelineCount(state)} · refining [Deuterium Ice] → fuel</div>
+                <div class="research-cost" style="color: var(--color-success);">Production (max): +{formatNumber(fuelProductionPerMinute)} fuel/min</div>
+                <div class="research-cost">Ice cost: {formatNumber(fuelIceInputPerMinute)} [Deuterium Ice]/min</div>
+                <div class="research-cost" style="color: var(--color-danger);">Missions ({fuelActiveMissionCount}): −{formatNumber(fuelExpenditurePerMinute)} fuel/min</div>
+                <div
+                  class="research-cost"
+                  style="margin-top: 4px; font-weight: 600; color: {fuelSufficient ? 'var(--color-success)' : 'var(--color-danger)'};"
+                >
+                  Net: {fuelNetPerMinute >= 0 ? "+" : "−"}{formatNumber(Math.abs(fuelNetPerMinute))} fuel/min --
+                  <!-- Root-reason order matches the top-bar chip's note: tank full ->
+                       out of ice (net-display fix) -> fuel-positive -> draining. -->
+                  {#if fuelTankFull}tank full (topped off){:else if !fuelHasIce}refinery idle: out of Deuterium Ice{:else if fuelSufficient}fuel-positive{:else}draining, auto-buying with credits{/if}
+                </div>
+
+                <!-- FUEL RUNWAY (Wave 2): measured full-sustainability countdown to
+                     fuel-empty (credits mission-mined Deuterium Ice). Mirrors the
+                     top-bar chip's runway line. null=warming up; sustainable=∞ (never
+                     drains); finite=time left (warning/danger); guarded-null="--". -->
+                {#if fuelRunway === null}
+                  <div class="research-cost" style="margin-top: 4px;">Fuel runway: measuring…</div>
+                {:else if fuelRunway.sustainable}
+                  <div class="research-cost" style="margin-top: 4px; font-weight: 600; color: var(--color-success);">
+                    Fuel runway: ∞ self-sustaining
+                  </div>
+                {:else if fuelRunway.runwayTicks !== null}
+                  <div
+                    class="research-cost"
+                    style="margin-top: 4px; font-weight: 600; color: {fuelRunway.runwayTicks * state.tickDurationSeconds < 60 ? 'var(--color-danger)' : 'var(--color-warning)'};"
+                  >
+                    Fuel runway: {formatDuration(fuelRunway.runwayTicks, state.tickDurationSeconds)} left
+                  </div>
+                {:else}
+                  <div class="research-cost" style="margin-top: 4px;">Fuel runway: --</div>
+                {/if}
+
+                <!-- Live batch progress. Empty = depot idle: tank full, or Deuterium Ice
+                     ran out (mine more via Local Asteroid). Reuses the refinery job-card
+                     progress idiom (progress bar + ticks remaining). -->
+                {#if activeFuelRefineJobs.length > 0}
+                  <div class="research-cost" style="margin-top: 10px;">Refining now:</div>
+                  {#each activeFuelRefineJobs as job (job.id)}
+                    {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
+                    <div class="research-bar-track" style="margin-top: 4px;">
+                      <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                    </div>
+                    <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {/each}
+                {:else}
+                  <p class="research-status" style="margin-top: 8px;">
+                    Idle, {fuelRoom.lte(0) ? "tank full" : "no Deuterium Ice (mine more via Operations)"}.
+                  </p>
+                {/if}
+              </Panel>
+
+              <!-- MANUAL TOP-UP (Fuel Economy v2 F4), DEMOTED from the old primary
+                   "Buy Fuel". Auto-buy (F3) now covers mission shortfalls automatically,
+                   so this is an OPTIONAL override for topping the tank early; the note
+                   says so. Same canBuyFuel gate + buyFuel-clamped +10/+100/Fill controls
+                   as before (unchanged behavior), just reframed as secondary. -->
+              <Panel>
+                <div class="panel-title">MANUAL TOP-UP <span style="opacity: 0.6; font-weight: 400;">(optional)</span></div>
+                <p class="research-status" style="margin-bottom: 6px;">
+                  Missions auto-buy any fuel shortfall from credits, this is just an optional early top-up.
+                </p>
+                <div class="research-cost">Price: ◈ {FUEL_CREDITS_PER_UNIT} / unit · Credits: {formatNumber(state.credits)}</div>
+                {#if fuelRoom.lte(0)}
+                  <p class="research-status" style="color: var(--color-danger); margin-top: 6px;">
+                    Tank full, expand the tank (Upgrades) to buy more.
+                  </p>
+                {/if}
+
+                <!-- +10 / +100 / Fill. All share the canBuyFuel gate (affordable AND
+                     room); buyFuel clamps any partial, so a click never overspends or
+                     overfills. Fill passes the exact tank room -> buyFuel takes the min
+                     of room and affordable, topping the tank as far as credits allow. -->
+                <div class="dev-row" style="margin-top: 8px;">
+                  <button
+                    class="buy-btn"
+                    disabled={!canBuyFuel}
+                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
+                    on:click={() => doBuyFuel(10)}
+                  >
+                    +10 · ◈ {formatNumber(10 * FUEL_CREDITS_PER_UNIT)}
+                  </button>
+                  <button
+                    class="buy-btn"
+                    disabled={!canBuyFuel}
+                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
+                    on:click={() => doBuyFuel(100)}
+                  >
+                    +100 · ◈ {formatNumber(100 * FUEL_CREDITS_PER_UNIT)}
+                  </button>
+                  <button
+                    class="buy-btn"
+                    disabled={!canBuyFuel}
+                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
+                    on:click={() => doBuyFuel(fuelRoom.toNumber())}
+                  >
+                    Fill
+                  </button>
+                </div>
+              </Panel>
+            {/if}
+
+            {#if activeFuelStorageSubTab === "upgrades"}
+              <!-- UPGRADES, the MIXED storage/processing track
+                   (FACILITIES.fuelStorage.upgrades): storage rungs expand the tank,
+                   processing rungs scale the refinery (pipelines/yield/input). Each
+                   next-rung type gets its own labeled current→next readout (below),
+                   material readiness, Build gated on the shared canBuildFacilityUpgrade,
+                   + in-flight progress. -->
+              <Panel>
+                <div class="panel-title">FUEL DEPOT, Upgrades</div>
+                <div class="research-cost">Level: {fuelStorageLevel}</div>
+
+                {#if fuelStorageMaxed}
+                  <p class="research-status">Fully upgraded.</p>
+                {:else}
+                  <!-- The Fuel Depot track is MIXED (Fuel Economy v2 F2): storage rungs
+                       ({ storageCapMult }, expand the tank) interleaved with three
+                       processing rungs ({ addFuelPipelines } / { fuelYieldMult } /
+                       { fuelInputMult }, scale the refinery). Each rung type gets its OWN
+                       label + current→next readout so the player knows what they're buying
+                      , unlike the old storage-only panel that mislabeled every rung
+                       "doubles capacity". The effect is a presence-tagged union, narrowed
+                       with `"key" in nextEff` (the SAME idiom fuelCap/fuelPipelineCount
+                       use). Build stays wired to the shared canBuildFacilityUpgrade /
+                       doStartFacilityUpgrade, only the DESCRIPTION branches. -->
+                  {@const nextEff = nextFuelStorageUpgrade.effect}
+                  {#if "storageCapMult" in nextEff}
+                    <div class="research-name" style="margin-top: 6px;">Expand Tank, storage ×{nextEff.storageCapMult}</div>
+                    <div class="research-cost">Current cap: {formatNumber(fuelCapValue)}</div>
+                    <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(fuelCapValue.times(nextEff.storageCapMult))}</div>
+                  {:else if "addFuelPipelines" in nextEff}
+                    <div class="research-name" style="margin-top: 6px;">Add Pipeline, +{nextEff.addFuelPipelines} concurrent refining line{nextEff.addFuelPipelines === 1 ? "" : "s"}</div>
+                    <div class="research-cost">Current pipelines: {fuelPipelineCount(state)}</div>
+                    <div class="research-cost" style="color: var(--color-accent)">Next pipelines: {fuelPipelineCount(state) + nextEff.addFuelPipelines}</div>
+                  {:else if "fuelYieldMult" in nextEff}
+                    <div class="research-name" style="margin-top: 6px;">Boost Yield, fuel per batch ×{nextEff.fuelYieldMult}</div>
+                    <div class="research-cost">Current: {formatNumber(fuelBatchOutput(state))} fuel/batch</div>
+                    <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchOutput(state).times(nextEff.fuelYieldMult))} fuel/batch</div>
+                  {:else if "fuelInputMult" in nextEff}
+                    <div class="research-name" style="margin-top: 6px;">Efficient Intake, Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
+                    <div class="research-cost">Current: {formatNumber(fuelBatchInput(state))} ice/batch</div>
+                    <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchInput(state).times(nextEff.fuelInputMult))} ice/batch</div>
+                  {/if}
+                  <div class="research-cost">Duration: {durationReadout(nextFuelStorageUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+
+                  {#each Object.keys(nextFuelStorageUpgrade.materials) as itemId}
+                    {@const need = nextFuelStorageUpgrade.materials[itemId]}
+                    {@const have = itemTotal(state.inventory, itemId)}
+                    {@const met = have.gte(need)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                    </div>
+                  {/each}
+
+                  <button
+                    class="buy-btn"
+                    disabled={!fuelStorageUpgradeCheck.ok}
+                    title={fuelStorageUpgradeCheck.ok ? undefined : fuelStorageUpgradeCheck.reason}
+                    on:click={() => doStartFacilityUpgrade("fuelStorage")}
+                  >
+                    {#if "storageCapMult" in nextEff}Expand Tank
+                    {:else if "addFuelPipelines" in nextEff}Add Pipeline
+                    {:else if "fuelYieldMult" in nextEff}Boost Yield
+                    {:else if "fuelInputMult" in nextEff}Improve Intake
+                    {:else}Build{/if}
+                  </button>
+                {/if}
+
+                {#if fuelStorageUpgradeInFlight}
+                  {@const progress = fuelStorageUpgradeInFlight.durationTicks > 0
+                    ? (fuelStorageUpgradeInFlight.durationTicks - fuelStorageUpgradeInFlight.remainingTicks) / fuelStorageUpgradeInFlight.durationTicks
+                    : 1}
+                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remainingReadout(fuelStorageUpgradeInFlight.remainingTicks, fuelStorageUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                {/if}
+              </Panel>
+            {/if}
+
+          {/if}
+        </div>
+      </div>
+      </div>
+      {/if}
+
+      {#if activeTab === "facilities"}
+      <!-- Facilities (Phase 1, Facility Framework + Refinery, Task 12 UI) --
+           deliberately MIRRORS the Sector Space (starbase) tab above, which
+           itself mirrors the Fleet Captain's tab: a LEFT rail of facilities
+           (.captain-list / .captain-list-item, reused verbatim, NOT a new class)
+           + a right content pane driven by SubTabs for the selected facility.
+           Only the Refinery is real this pass; Fabricator/Warehouse/Shipyard are
+           locked "Coming Soon" rail items using the exact .captain-list-item.locked
+           idiom Sector Space's locked structures use. The Refinery has three
+           sub-tabs, Overview (level + slots + active-jobs status readout),
+           Production (the per-slot line configurator that drives refining), and
+           Upgrades (the next rung's material/prereq readiness + Build). All
+           actions/readiness read the tick.ts backend fns (canStartLine / startLine
+           / canBuildFacilityUpgrade / startFacilityUpgrade / refineSlotCount) and
+           the model.ts data tables (FACILITIES / REFINE_RECIPES / ITEMS). -->
+      <div class="tab-scroll-area">
+      <div class="fleet-captains-layout">
+        <div class="captain-list">
+          <!-- Rail grouped by OWNER (2026-07 Locations-merge follow-up): each
+               facility now sits under the "place" that owns it, with a small
+               quiet .facility-owner-header label above the group. Purely a
+               presentational regroup of the same reused .captain-list-item /
+               .captain-list-item.locked items, activeFacility/FacilityKey
+               logic and the Refinery content pane are unchanged. -->
+
+          <!-- Homeworld group. Refinery, Fabricator, Research Lab, and Fuel
+               Depot moved to the FOUNDRY program (0.11.2 Task 1); Warehouse and
+               Mission Control remain here until later restructure tasks. -->
+          <div class="facility-owner-header">Homeworld</div>
+          <!-- Warehouse, REAL, selectable facility (Phase 2, Group C): the
+               fill-tile inventory catalog. Same reused .captain-list-item /
+               active idiom as the Refinery button above. -->
+          <button
+            class="captain-list-item"
+            class:active={activeFacility === "warehouse"}
+            on:click={() => (activeFacility = "warehouse")}
+          >
+            Warehouse
+          </button>
+          <!-- Mission Control, REAL, selectable facility (Mission Rework Task 8):
+               the mission-unlock facility. Same reused .captain-list-item / active
+               idiom as the Refinery/Warehouse buttons. -->
+          <button
+            class="captain-list-item"
+            class:active={activeFacility === "missionControl"}
+            on:click={() => (activeFacility = "missionControl")}
+          >
+            Mission Control
+          </button>
+
+          <!-- Fleet Sector group, the Shipyard belongs to the fleet's sector
+               presence, not the homeworld. -->
+          <div class="facility-owner-header">Fleet Sector</div>
+          <!-- Shipyard, REAL, selectable facility (Shipyard Task S5 UI): BUILDS hulls
+               from fabricated components. Same reused .captain-list-item / active idiom as
+               the Refinery/Fabricator/Research buttons; replaced the locked placeholder
+               that stood here through Phases 1-4. NOTE: the Shipyard only BUILDS ships --
+               assigning a built hull to a captain still happens at the Docks (Sector Space
+               > Starbase), which is SEPARATE and unchanged. Selectable even when UNFOUNDED
+               (level 0): the Build tab then shows the "Found the Shipyard" prompt, whose
+               Found button establishes it via the shared facility-upgrade founding rung. -->
+          <button
+            class="captain-list-item"
+            class:active={activeFacility === "shipyard"}
+            on:click={() => (activeFacility = "shipyard")}
+          >
+            Shipyard
+          </button>
+
+          <!-- Ships group, ship-borne facilities, a concept only (no backing
+               state yet); locked like the rest. -->
+          <div class="facility-owner-header">Ships</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Ship Facilities</div>
+        </div>
+
+        <div class="fleet-captains-content">
+          {#if activeFacility === "warehouse"}
             <!-- WAREHOUSE (Phase 2, Group C), the fill-tile inventory catalog.
                  Mirrors the Refinery's SubTabs + content structure above, but the
                  SubTabs axis is CATEGORY: Overview + Upgrade (management views)
@@ -4440,722 +5193,6 @@
               </Panel>
             {/if}
 
-          {:else if activeFacility === "fuelStorage"}
-            <!-- FUEL DEPOT (Mission Rework Task 8; reworked Fuel Economy v2 F4), the
-                 fuel tank + auto-refinery. Two sub-tabs: Overview (fuel/cap GAUGE +
-                 auto-REFINING status + a DEMOTED optional manual top-up) and Upgrades
-                 (the mixed storage/processing track). Since F2/F3 made refining +
-                 auto-buy automatic, the Overview now LEADS with the sufficiency readout
-                 and the manual buy is a secondary override, not the primary action. -->
-            <SubTabs
-              tabs={[
-                { key: "overview", label: "Overview" },
-                { key: "upgrades", label: "Upgrades" },
-              ]}
-              active={activeFuelStorageSubTab}
-              onSelect={(key) => (activeFuelStorageSubTab = key as FuelStorageSubTab)}
-            />
-
-            {#if activeFuelStorageSubTab === "overview"}
-              <Panel>
-                <div class="panel-title">FUEL DEPOT</div>
-                <div class="research-cost">Depot level: {fuelStorageLevel}</div>
-
-                <!-- Fuel gauge, current / cap with a horizontal fill bar (the shared
-                     research-bar fill idiom; fill % via warehouseFillPct, the same
-                     clamp helper the Warehouse tiles use). -->
-                <div class="research-cost" style="margin-top: 8px;">Fuel: {formatNumber(state.fuel)} / {formatNumber(fuelCapValue)} ({Math.round(fuelFillPct)}%)</div>
-                <div class="research-bar-track">
-                  <div class="research-bar-fill" style="width:{fuelFillPct}%"></div>
-                </div>
-              </Panel>
-
-              <!-- REFINING STATUS (Fuel Economy v2 F4), the auto-refinery readout. Same
-                   production/expenditure/net derivation the top-bar fuel chip uses (one
-                   source, shown twice), plus the live per-batch pipeline progress. This
-                   is now the PRIMARY Fuel Depot readout: it answers "is my fuel self-
-                   sustaining?" without the player touching anything. -->
-              <Panel>
-                <div class="panel-title">REFINING</div>
-                <div class="research-cost">Pipelines: {fuelPipelineCount(state)} · refining [Deuterium Ice] → fuel</div>
-                <div class="research-cost" style="color: var(--color-success);">Production (max): +{formatNumber(fuelProductionPerMinute)} fuel/min</div>
-                <div class="research-cost">Ice cost: {formatNumber(fuelIceInputPerMinute)} [Deuterium Ice]/min</div>
-                <div class="research-cost" style="color: var(--color-danger);">Missions ({fuelActiveMissionCount}): −{formatNumber(fuelExpenditurePerMinute)} fuel/min</div>
-                <div
-                  class="research-cost"
-                  style="margin-top: 4px; font-weight: 600; color: {fuelSufficient ? 'var(--color-success)' : 'var(--color-danger)'};"
-                >
-                  Net: {fuelNetPerMinute >= 0 ? "+" : "−"}{formatNumber(Math.abs(fuelNetPerMinute))} fuel/min --
-                  <!-- Root-reason order matches the top-bar chip's note: tank full ->
-                       out of ice (net-display fix) -> fuel-positive -> draining. -->
-                  {#if fuelTankFull}tank full (topped off){:else if !fuelHasIce}refinery idle: out of Deuterium Ice{:else if fuelSufficient}fuel-positive{:else}draining, auto-buying with credits{/if}
-                </div>
-
-                <!-- FUEL RUNWAY (Wave 2): measured full-sustainability countdown to
-                     fuel-empty (credits mission-mined Deuterium Ice). Mirrors the
-                     top-bar chip's runway line. null=warming up; sustainable=∞ (never
-                     drains); finite=time left (warning/danger); guarded-null="--". -->
-                {#if fuelRunway === null}
-                  <div class="research-cost" style="margin-top: 4px;">Fuel runway: measuring…</div>
-                {:else if fuelRunway.sustainable}
-                  <div class="research-cost" style="margin-top: 4px; font-weight: 600; color: var(--color-success);">
-                    Fuel runway: ∞ self-sustaining
-                  </div>
-                {:else if fuelRunway.runwayTicks !== null}
-                  <div
-                    class="research-cost"
-                    style="margin-top: 4px; font-weight: 600; color: {fuelRunway.runwayTicks * state.tickDurationSeconds < 60 ? 'var(--color-danger)' : 'var(--color-warning)'};"
-                  >
-                    Fuel runway: {formatDuration(fuelRunway.runwayTicks, state.tickDurationSeconds)} left
-                  </div>
-                {:else}
-                  <div class="research-cost" style="margin-top: 4px;">Fuel runway: --</div>
-                {/if}
-
-                <!-- Live batch progress. Empty = depot idle: tank full, or Deuterium Ice
-                     ran out (mine more via Local Asteroid). Reuses the refinery job-card
-                     progress idiom (progress bar + ticks remaining). -->
-                {#if activeFuelRefineJobs.length > 0}
-                  <div class="research-cost" style="margin-top: 10px;">Refining now:</div>
-                  {#each activeFuelRefineJobs as job (job.id)}
-                    {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
-                    <div class="research-bar-track" style="margin-top: 4px;">
-                      <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                    </div>
-                    <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-                  {/each}
-                {:else}
-                  <p class="research-status" style="margin-top: 8px;">
-                    Idle, {fuelRoom.lte(0) ? "tank full" : "no Deuterium Ice (mine more via Operations)"}.
-                  </p>
-                {/if}
-              </Panel>
-
-              <!-- MANUAL TOP-UP (Fuel Economy v2 F4), DEMOTED from the old primary
-                   "Buy Fuel". Auto-buy (F3) now covers mission shortfalls automatically,
-                   so this is an OPTIONAL override for topping the tank early; the note
-                   says so. Same canBuyFuel gate + buyFuel-clamped +10/+100/Fill controls
-                   as before (unchanged behavior), just reframed as secondary. -->
-              <Panel>
-                <div class="panel-title">MANUAL TOP-UP <span style="opacity: 0.6; font-weight: 400;">(optional)</span></div>
-                <p class="research-status" style="margin-bottom: 6px;">
-                  Missions auto-buy any fuel shortfall from credits, this is just an optional early top-up.
-                </p>
-                <div class="research-cost">Price: ◈ {FUEL_CREDITS_PER_UNIT} / unit · Credits: {formatNumber(state.credits)}</div>
-                {#if fuelRoom.lte(0)}
-                  <p class="research-status" style="color: var(--color-danger); margin-top: 6px;">
-                    Tank full, expand the tank (Upgrades) to buy more.
-                  </p>
-                {/if}
-
-                <!-- +10 / +100 / Fill. All share the canBuyFuel gate (affordable AND
-                     room); buyFuel clamps any partial, so a click never overspends or
-                     overfills. Fill passes the exact tank room -> buyFuel takes the min
-                     of room and affordable, topping the tank as far as credits allow. -->
-                <div class="dev-row" style="margin-top: 8px;">
-                  <button
-                    class="buy-btn"
-                    disabled={!canBuyFuel}
-                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
-                    on:click={() => doBuyFuel(10)}
-                  >
-                    +10 · ◈ {formatNumber(10 * FUEL_CREDITS_PER_UNIT)}
-                  </button>
-                  <button
-                    class="buy-btn"
-                    disabled={!canBuyFuel}
-                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
-                    on:click={() => doBuyFuel(100)}
-                  >
-                    +100 · ◈ {formatNumber(100 * FUEL_CREDITS_PER_UNIT)}
-                  </button>
-                  <button
-                    class="buy-btn"
-                    disabled={!canBuyFuel}
-                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
-                    on:click={() => doBuyFuel(fuelRoom.toNumber())}
-                  >
-                    Fill
-                  </button>
-                </div>
-              </Panel>
-            {/if}
-
-            {#if activeFuelStorageSubTab === "upgrades"}
-              <!-- UPGRADES, the MIXED storage/processing track
-                   (FACILITIES.fuelStorage.upgrades): storage rungs expand the tank,
-                   processing rungs scale the refinery (pipelines/yield/input). Each
-                   next-rung type gets its own labeled current→next readout (below),
-                   material readiness, Build gated on the shared canBuildFacilityUpgrade,
-                   + in-flight progress. -->
-              <Panel>
-                <div class="panel-title">FUEL DEPOT, Upgrades</div>
-                <div class="research-cost">Level: {fuelStorageLevel}</div>
-
-                {#if fuelStorageMaxed}
-                  <p class="research-status">Fully upgraded.</p>
-                {:else}
-                  <!-- The Fuel Depot track is MIXED (Fuel Economy v2 F2): storage rungs
-                       ({ storageCapMult }, expand the tank) interleaved with three
-                       processing rungs ({ addFuelPipelines } / { fuelYieldMult } /
-                       { fuelInputMult }, scale the refinery). Each rung type gets its OWN
-                       label + current→next readout so the player knows what they're buying
-                      , unlike the old storage-only panel that mislabeled every rung
-                       "doubles capacity". The effect is a presence-tagged union, narrowed
-                       with `"key" in nextEff` (the SAME idiom fuelCap/fuelPipelineCount
-                       use). Build stays wired to the shared canBuildFacilityUpgrade /
-                       doStartFacilityUpgrade, only the DESCRIPTION branches. -->
-                  {@const nextEff = nextFuelStorageUpgrade.effect}
-                  {#if "storageCapMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Expand Tank, storage ×{nextEff.storageCapMult}</div>
-                    <div class="research-cost">Current cap: {formatNumber(fuelCapValue)}</div>
-                    <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(fuelCapValue.times(nextEff.storageCapMult))}</div>
-                  {:else if "addFuelPipelines" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Add Pipeline, +{nextEff.addFuelPipelines} concurrent refining line{nextEff.addFuelPipelines === 1 ? "" : "s"}</div>
-                    <div class="research-cost">Current pipelines: {fuelPipelineCount(state)}</div>
-                    <div class="research-cost" style="color: var(--color-accent)">Next pipelines: {fuelPipelineCount(state) + nextEff.addFuelPipelines}</div>
-                  {:else if "fuelYieldMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Boost Yield, fuel per batch ×{nextEff.fuelYieldMult}</div>
-                    <div class="research-cost">Current: {formatNumber(fuelBatchOutput(state))} fuel/batch</div>
-                    <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchOutput(state).times(nextEff.fuelYieldMult))} fuel/batch</div>
-                  {:else if "fuelInputMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Efficient Intake, Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
-                    <div class="research-cost">Current: {formatNumber(fuelBatchInput(state))} ice/batch</div>
-                    <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchInput(state).times(nextEff.fuelInputMult))} ice/batch</div>
-                  {/if}
-                  <div class="research-cost">Duration: {durationReadout(nextFuelStorageUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-
-                  {#each Object.keys(nextFuelStorageUpgrade.materials) as itemId}
-                    {@const need = nextFuelStorageUpgrade.materials[itemId]}
-                    {@const have = itemTotal(state.inventory, itemId)}
-                    {@const met = have.gte(need)}
-                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
-                    </div>
-                  {/each}
-
-                  <button
-                    class="buy-btn"
-                    disabled={!fuelStorageUpgradeCheck.ok}
-                    title={fuelStorageUpgradeCheck.ok ? undefined : fuelStorageUpgradeCheck.reason}
-                    on:click={() => doStartFacilityUpgrade("fuelStorage")}
-                  >
-                    {#if "storageCapMult" in nextEff}Expand Tank
-                    {:else if "addFuelPipelines" in nextEff}Add Pipeline
-                    {:else if "fuelYieldMult" in nextEff}Boost Yield
-                    {:else if "fuelInputMult" in nextEff}Improve Intake
-                    {:else}Build{/if}
-                  </button>
-                {/if}
-
-                {#if fuelStorageUpgradeInFlight}
-                  {@const progress = fuelStorageUpgradeInFlight.durationTicks > 0
-                    ? (fuelStorageUpgradeInFlight.durationTicks - fuelStorageUpgradeInFlight.remainingTicks) / fuelStorageUpgradeInFlight.durationTicks
-                    : 1}
-                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(fuelStorageUpgradeInFlight.remainingTicks, fuelStorageUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-                {/if}
-              </Panel>
-            {/if}
-
-          {:else if activeFacility === "research"}
-            <!-- RESEARCH LAB (Research Task R5), the blueprint-research facility.
-                 Three sub-tabs mirroring the other Homeworld facilities: Overview
-                 (slots in use + in-flight projects with progress bars + researched/
-                 available counts + the Fabricator signpost), Research (the tier-
-                 grouped blueprint list, each with its future-Fabricator recipe +
-                 cost/time and a Research button gated by canResearch), and Upgrades
-                 (the lab's tier/slot track, wired to the SHARED canBuildFacilityUpgrade
-                 / doStartFacilityUpgrade). All readiness/actions read the SAME tick.ts
-                 research fns (researchSlotCount / canResearch / startResearch) + the
-                 model.ts tables (FACILITIES.research / BLUEPRINTS / ITEMS), so the UI
-                 can't drift from what the backend enforces. Reuses the refine/upgrade
-                 progress-bar idiom + the .mission-card / .buy-btn / .research-* classes
-                 (no new markup style). -->
-            <SubTabs
-              tabs={[
-                { key: "overview", label: "Overview" },
-                { key: "research", label: "Research" },
-                { key: "upgrades", label: "Upgrades" },
-              ]}
-              active={activeResearchSubTab}
-              onSelect={(key) => (activeResearchSubTab = key as ResearchSubTab)}
-            />
-
-            {#if activeResearchSubTab === "overview"}
-              <!-- OVERVIEW, lab level, slot usage, any in-flight research projects
-                   (progress bar + ticks remaining, the SAME idiom the refine jobs +
-                   facility upgrades use), the researched/available count, and the
-                   forward SIGNPOST that crafting arrives with the Fabricator. -->
-              <Panel>
-                <div class="panel-title">RESEARCH LAB</div>
-                <div class="research-cost">Level: {researchLevel}</div>
-                <div class="research-cost">Research slots: {activeResearchProjects.length} / {researchSlots} in use</div>
-                <div class="research-cost">Blueprints researched: {researchedBlueprintCount} / {totalBlueprintCount}</div>
-
-                <!-- In-flight research projects, one progress card each. progress is
-                     how much of the duration has elapsed (durationTicks - remainingTicks
-                     over durationTicks), read straight off the researchProject
-                     TimedProcess, the SAME derivation the refine/upgrade bars use. The
-                     project names the blueprint it is unlocking (effect.key -> label). -->
-                {#if activeResearchProjects.length > 0}
-                  <div class="research-cost" style="margin-top: 10px;">In progress:</div>
-                  {#each activeResearchProjects as job (job.id)}
-                    {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
-                    <div class="mission-card">
-                      <div class="research-name">
-                        {#if job.effect.type === "unlockBlueprint"}Researching → [{BLUEPRINTS[job.effect.key]?.label ?? job.effect.key}]{:else}Research project{/if}
-                      </div>
-                      <div class="research-bar-track">
-                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                      </div>
-                      <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-                    </div>
-                  {/each}
-                {:else}
-                  <p class="research-status" style="margin-top: 10px;">No active research projects.</p>
-                {/if}
-
-                <!-- Forward signpost (design R5): researched blueprints aren't craftable
-                     until the Fabricator, the next feature. -->
-                <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
-                  Researched blueprints become craftable when the <strong>Fabricator</strong> comes online (next feature).
-                </p>
-              </Panel>
-            {/if}
-
-            {#if activeResearchSubTab === "research"}
-              <!-- RESEARCH LIST, blueprints grouped by TIER (ascending). Each card
-                   shows the blueprint's future-Fabricator RECIPE (inputs → outputQty×
-                   output, ITEM labels) + its cost/time, then ONE of three states:
-                     - Researched (blueprintUnlocked): ✓ + "craftable once the Fabricator
-                       is online".
-                     - Researchable (canResearch ok): an enabled Research button →
-                       doStartResearch(key).
-                     - Blocked (canResearch !ok): a DISABLED button whose text/title is
-                       the human reason (researchBlockText), tierLocked names the
-                       required lab level, so higher-tier blueprints read "Requires
-                       Research Lab level N". -->
-              <Panel>
-                <div class="panel-title">RESEARCH</div>
-                <div class="research-cost">Research slots: {activeResearchProjects.length} / {researchSlots} in use</div>
-
-                {#each blueprintTierGroups as group (group.tier)}
-                  <div class="research-name" style="margin-top: 12px;">Tier {group.tier}</div>
-                  {#each group.blueprints as bp (bp.key)}
-                    {@const unlocked = blueprintUnlocked(state, bp.key)}
-                    {@const gate = canResearch(state, bp.key)}
-                    <!-- In-flight lookup: the researchProject TimedProcess unlocking THIS
-                         blueprint (effect.key === bp.key). When present, canResearch
-                         returned `inProgress`, so the card renders a live progress bar +
-                         human time-remaining in place of the disabled "Researching…"
-                         button (same track/fill/readout idiom as the Overview card). Other
-                         blocked reasons (noSlot / tierLocked / credits) still fall through
-                         to their disabled buttons. Declared here (immediate {#each} child)
-                         because {@const} cannot be a child of a plain element. -->
-                    {@const job = activeResearchProjects.find((p) => p.effect.type === "unlockBlueprint" && p.effect.key === bp.key)}
-                    <div class="mission-card">
-                      <div class="research-name">{bp.label}</div>
-                      <!-- Recipe (what the Fabricator will craft): inputs → output.
-                           Plain-text [Item] labels (no icon tooltip needed). Task 19: an
-                           EQUIPMENT blueprint previews its minted piece's SYSTEM name (slot +
-                           variety); it carries no recipe.outputItem (optional, omitted). -->
-                      <div class="research-cost">
-                        Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]{/if}
-                      </div>
-                      <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-
-                      {#if unlocked}
-                        <div class="research-cost" style="color: var(--color-success)">✓ Researched, craftable once the Fabricator is online</div>
-                      {:else if job}
-                        {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
-                        <div class="research-bar-track">
-                          <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                        </div>
-                        <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-                      {:else if gate.ok}
-                        <button class="buy-btn" on:click={() => doStartResearch(bp.key)}>
-                          Research · ◈ {formatNumber(bp.researchCreditCost)}
-                        </button>
-                      {:else}
-                        <button class="buy-btn" disabled title={researchBlockText(gate.reason, bp)}>
-                          {researchBlockText(gate.reason, bp)}
-                        </button>
-                      {/if}
-                    </div>
-                  {/each}
-                {/each}
-              </Panel>
-            {/if}
-
-            {#if activeResearchSubTab === "upgrades"}
-              <!-- UPGRADES, the Research Lab's finite tier/slot track
-                   (FACILITIES.research.upgrades[level]; caps at length 2 today). Each
-                   next rung grants a research slot AND unlocks the next blueprint tier.
-                   Cost is CREDITS (the design's long-term sink), not materials, so the
-                   credits gate leads the readiness rows; materials loop is kept (empty
-                   today) to mirror the sibling upgrade tabs for future rungs. Build is
-                   wired to the SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade
-                  , NOT re-implemented. In-flight progress reuses the refine/upgrade
-                   bar idiom. -->
-              <Panel>
-                <div class="panel-title">RESEARCH LAB, Upgrades</div>
-                <div class="research-cost">Level: {researchLevel}</div>
-
-                {#if researchMaxed}
-                  <p class="research-status">Fully upgraded.</p>
-                {:else}
-                  {@const eff = nextResearchUpgrade.effect}
-                  <div class="research-name">Next: Level {researchLevel} → {researchLevel + 1}</div>
-                  <!-- Grant line: each research rung grants a slot AND unlocks the next
-                       tier. The slot text lives inside the narrow so eff.addResearchSlots
-                       is typed; the whole phrase is kept contiguous WITHIN each branch (no
-                       whitespace-only text at a block boundary, which Svelte would trim) so
-                       the " · " separator renders. -->
-                  <div class="research-cost">
-                    {#if "addResearchSlots" in eff}Grants: +{eff.addResearchSlots} research slot{eff.addResearchSlots === 1 ? "" : "s"} · unlocks Tier {researchLevel + 1} blueprints{:else}Grants: unlocks Tier {researchLevel + 1} blueprints{/if}
-                  </div>
-                  <div class="research-cost">Duration: {durationReadout(nextResearchUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-
-                  <!-- Credits cost readiness (research rungs cost credits, not materials). -->
-                  {#if nextResearchUpgrade.credits !== undefined}
-                    {@const met = state.credits.gte(nextResearchUpgrade.credits)}
-                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Cost: ◈ {formatNumber(nextResearchUpgrade.credits)} (have {formatNumber(state.credits)})
-                    </div>
-                  {/if}
-
-                  <!-- Material readiness ([Item]: have / need, ✅/❌), empty for the
-                       research track today, kept for parity with the sibling tabs. -->
-                  {#each Object.keys(nextResearchUpgrade.materials) as itemId}
-                    {@const need = nextResearchUpgrade.materials[itemId]}
-                    {@const have = itemTotal(state.inventory, itemId)}
-                    {@const met = have.gte(need)}
-                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
-                    </div>
-                  {/each}
-
-                  <!-- Fleet Admiral level prereq (absent field => no wall). -->
-                  {#if nextResearchUpgrade.requiresFleetAdminLevel !== undefined}
-                    {@const met = state.fleetAdminLevel >= nextResearchUpgrade.requiresFleetAdminLevel}
-                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextResearchUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
-                    </div>
-                  {/if}
-
-                  <button
-                    class="buy-btn"
-                    disabled={!researchUpgradeCheck.ok}
-                    title={researchUpgradeCheck.ok ? undefined : researchUpgradeCheck.reason}
-                    on:click={() => doStartFacilityUpgrade(RESEARCH_FACILITY_KEY)}
-                  >
-                    Build · Level {researchLevel} → {researchLevel + 1}
-                  </button>
-                {/if}
-
-                {#if researchUpgradeInFlight}
-                  {@const progress = researchUpgradeInFlight.durationTicks > 0
-                    ? (researchUpgradeInFlight.durationTicks - researchUpgradeInFlight.remainingTicks) / researchUpgradeInFlight.durationTicks
-                    : 1}
-                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(researchUpgradeInFlight.remainingTicks, researchUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-                {/if}
-              </Panel>
-            {/if}
-          {:else if activeFacility === "fabricator"}
-            <!-- FABRICATOR (Fabricator Task F4; Craft tab reworked in Task C4), the
-                 component-crafting facility. It CONSUMES the researched blueprints from the
-                 Research Lab: three sub-tabs mirroring the Research Lab's STRUCTURE (Overview /
-                 Craft / Upgrades). Overview = slots in use + in-flight craft jobs (progress bar
-                 + real time remaining) + researched-vs-fabricable counts + the Shipyard
-                 signpost. Craft = the per-slot PRODUCTION LINES view (active fabricate lines +
-                 the tier→item→qty→REQUIRES→Start configurator on idle slots), the direct mirror
-                 of the Refinery's Production tab, driven by the shared startLine / cancelLine /
-                 canStartLine / maxAffordableIterations seams. Upgrades = the fabricator's tier/
-                 slot track wired to the SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade.
-                 Readiness/actions read the SAME tick.ts fns + model.ts tables (FACILITIES.
-                 fabricator / BLUEPRINTS / ITEMS), so the UI can't drift from what the backend
-                 enforces. Reuses the research/refine progress-bar idiom + the .mission-card /
-                 .buy-btn / .dev-btn / .research-* classes (no new markup style). -->
-            <SubTabs
-              tabs={[
-                { key: "overview", label: "Overview" },
-                { key: "craft", label: "Craft" },
-                { key: "upgrades", label: "Upgrades" },
-              ]}
-              active={activeFabricatorSubTab}
-              onSelect={(key) => (activeFabricatorSubTab = key as FabricatorSubTab)}
-            />
-
-            {#if activeFabricatorSubTab === "overview"}
-              <!-- OVERVIEW, fabricator level, craft-slot usage, any in-flight craft
-                   jobs (progress bar + real time remaining, the SAME idiom the refine/
-                   research jobs use), the fabricable-vs-researched count, and the forward
-                   SIGNPOST that components become usable with the Shipyard. -->
-              <Panel>
-                <div class="panel-title">FABRICATOR</div>
-                <div class="research-cost">Level: {fabricatorLevel}</div>
-                <div class="research-cost">Craft slots: {activeFabricateJobs.length} / {fabricateSlots} in use</div>
-                <div class="research-cost">Blueprints fabricable: {fabricableBlueprintCount} / {researchedBlueprintCount} researched</div>
-
-                <!-- In-flight fabricate jobs, one progress card each. progress is how
-                     much of the duration has elapsed (durationTicks - remainingTicks over
-                     durationTicks), read straight off the fabricateJob TimedProcess, the
-                     SAME derivation the refine/research bars use. The job names the
-                     component it is crafting (effect.itemId -> label). -->
-                {#if activeFabricateJobs.length > 0}
-                  <div class="research-cost" style="margin-top: 10px;">In progress:</div>
-                  {#each activeFabricateJobs as job (job.id)}
-                    {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
-                    <div class="mission-card">
-                      <div class="research-name">
-                        {#if job.effect.type === "addItem"}Fabricating → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else if job.effect.type === "addEquipment" && BLUEPRINTS[job.effect.blueprintKey]?.equipmentOutput}Fabricating → [{equipmentOutputLabel(BLUEPRINTS[job.effect.blueprintKey].equipmentOutput!)}]{:else}Fabricate job{/if}
-                      </div>
-                      <div class="research-bar-track">
-                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                      </div>
-                      <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-                    </div>
-                  {/each}
-                {:else}
-                  <p class="research-status" style="margin-top: 10px;">No active fabricate jobs.</p>
-                {/if}
-
-                <!-- Forward signpost (design F4): fabricated components aren't usable until
-                     the Shipyard, the next feature. -->
-                <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
-                  Fabricated components become usable when the <strong>Shipyard</strong> comes online (next feature).
-                </p>
-              </Panel>
-            {/if}
-
-            {#if activeFabricatorSubTab === "craft"}
-              <!-- CRAFT (Crafting Allocation Redesign, Task C4), the Fabricator's per-slot
-                   PRODUCTION LINES view, the DIRECT mirror of the Refinery's Production tab:
-                   active fabricate lines (state.fabricateLines) render first (card + Cancel +
-                   recipe + progress + tick readout), then idle slots render the tier→item→
-                   qty→REQUIRES→Start configurator. The tier/item dropdowns list only RESEARCHED
-                   + tier-available blueprints (availableFabricateBlueprints); with none available
-                   the idle slots collapse to the Research-Lab signpost. All gates read the shared
-                   canStartLine / maxAffordableIterations; the REQUIRES preview reads the derived
-                   allocation helpers. Reuses .mission-card / .buy-btn / .dev-btn.danger. -->
-              <Panel>
-                <div class="panel-title">CRAFT</div>
-                <div class="research-cost">Craft slots: {(state.fabricateLines ?? []).length} / {fabricateSlots} in use</div>
-
-                {#if !fabricatorBuilt}
-                  <p class="research-status" style="margin-top: 10px;">
-                    Build the <strong>Fabricator</strong> first (see Upgrades) to run production lines.
-                  </p>
-                {:else}
-                  {@const fabricateLines = state.fabricateLines ?? []}
-                  {@const idleSlots = Math.max(0, fabricateSlots - fabricateLines.length)}
-
-                  <!-- Active fabricate lines (one card each). -->
-                  {#each fabricateLines as line, li (line.id)}
-                    {@const bp = BLUEPRINTS[line.recipeKey]}
-                    {@const job = state.activeProcesses.find((p) => p.lineId === line.id)}
-                    {@const progress = job && job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 0}
-                    <div class="mission-card" style="margin-top: 10px;">
-                      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                        <div class="research-name">LINE {li + 1} · FABRICATING</div>
-                        <!-- Cancel only while iterations remain to stop (see the refine card above). -->
-                        {#if line.remaining > 0}
-                          <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
-                        {/if}
-                      </div>
-                      <div class="research-cost">
-                        {#if bp}
-                          {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each}
-                          <!-- Task 19: an EQUIPMENT blueprint shows its minted piece's SYSTEM name
-                               (slot + variety); it carries no recipe.outputItem (optional, omitted).
-                               Only a MATERIAL blueprint has a stackable output to render. -->
-                          {#if bp.equipmentOutput}
-                            → [{equipmentOutputLabel(bp.equipmentOutput)}]
-                          {:else}
-                            → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]
-                          {/if}
-                        {:else}[{line.recipeKey}]{/if}
-                        · {line.remaining > 0 ? (line.mode.kind === "batch" ? `batch ${line.remaining}` : "continuous") : "finishing current run"}
-                      </div>
-                      <div class="research-bar-track">
-                        <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                      </div>
-                      <div class="research-readout">
-                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
-                      </div>
-                    </div>
-                  {/each}
-
-                  <!-- Idle slots: the configurator, OR the Research-Lab signpost when nothing
-                       is researched + tier-available to configure. -->
-                  {#if idleSlots > 0 && availableFabricateBlueprints.length === 0}
-                    <p class="research-status" style="margin-top: 12px;">
-                      Research blueprints at the <strong>Research Lab</strong> to unlock things to fabricate.
-                    </p>
-                  {:else}
-                    {#each Array(idleSlots) as _, idx}
-                      {@const slotIndex = fabricateLines.length + idx}
-                      {@const isOpen = openConfig?.kind === "fabricate" && openConfig.slotIndex === slotIndex}
-                      {#if isOpen}
-                        {@const maxQty = maxAffordableIterations(state, "fabricate", cfgRecipeKey)}
-                        {@const gate = canStartLine(state, "fabricate", cfgRecipeKey, Math.floor(cfgQty))}
-                        {@const perIteration = lineInputsPerIteration({ id: "", kind: "fabricate", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
-                        <div class="mission-card" style="margin-top: 10px;">
-                          <div class="research-name">Line {slotIndex + 1} · configure a craft</div>
-
-                          <div class="dev-row" style="margin-top: 8px; align-items: center;">
-                            <!-- Tier dropdown: the researched + tier-available tiers. -->
-                            <label style="display: inline-flex; align-items: center; gap: 6px;">
-                              Tier
-                              <select class="modal-input" value={cfgTier} on:change={(e) => onFabricateTierChange(Number((e.target as HTMLSelectElement).value))} aria-label="Tier">
-                                {#each availableFabricateTiers as t}
-                                  <option value={t}>Tier {t}</option>
-                                {/each}
-                              </select>
-                            </label>
-                            <!-- Item dropdown: the blueprints in the selected tier. -->
-                            <label style="display: inline-flex; align-items: center; gap: 6px;">
-                              Item
-                              <select class="modal-input" bind:value={cfgRecipeKey} aria-label="Item">
-                                {#each fabricateKeysForTier(cfgTier) as bk}
-                                  <option value={bk}>{BLUEPRINTS[bk]?.label ?? bk}</option>
-                                {/each}
-                              </select>
-                            </label>
-                            <!-- Qty field, bounded 1..maxAffordableIterations. -->
-                            <label style="display: inline-flex; align-items: center; gap: 6px;">
-                              Qty
-                              <input class="modal-input" type="number" min="1" max={maxQty} step="1" style="width: 80px;" bind:value={cfgQty} aria-label="Quantity" />
-                              <span class="research-cost">(max {maxQty})</span>
-                            </label>
-                          </div>
-
-                          <!-- REQUIRES (×qty) preview: per input, per/ea → total, plus free / allocated / total. -->
-                          <div class="research-cost" style="margin-top: 8px;">REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</div>
-                          {#each Object.keys(perIteration) as itemId}
-                            {@const per = perIteration[itemId]}
-                            {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
-                            {@const free = freeItem(state.inventory, allLines, itemId)}
-                            {@const allocated = allocatedItem(allLines, itemId)}
-                            {@const stock = itemTotal(state.inventory, itemId)}
-                            <div class="mission-card" style="margin-top: 4px;">
-                              <div class="research-cost">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
-                              <div class="research-cost" style="color: var(--color-success);">Free {formatNumber(free)}</div>
-                              <div class="research-cost">Allocated {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
-                            </div>
-                          {/each}
-
-                          <div class="dev-row" style="margin-top: 8px;">
-                            <button
-                              class="buy-btn"
-                              disabled={!gate.ok}
-                              title={gate.ok ? undefined : startLineBlockText(gate.reason, BLUEPRINTS[cfgRecipeKey])}
-                              on:click={() => doStartLine("fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
-                            >
-                              Fabricate · ×{Math.max(1, Math.floor(cfgQty))}
-                            </button>
-                            <button class="dev-btn" on:click={closeConfigurator}>Close</button>
-                          </div>
-                        </div>
-                      {:else}
-                        <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("fabricate", slotIndex)}>
-                          Line {slotIndex + 1} · idle, configure a craft
-                        </button>
-                      {/if}
-                    {/each}
-                  {/if}
-                {/if}
-              </Panel>
-            {/if}
-
-            {#if activeFabricatorSubTab === "upgrades"}
-              <!-- UPGRADES, the Fabricator's finite tier/slot track
-                   (FACILITIES.fabricator.upgrades[level]; caps at length 2 today). Each
-                   next rung grants a craft slot AND unlocks the next blueprint tier for
-                   fabrication. Cost is CREDITS (materials are the per-craft cost, not the
-                   upgrade cost), so the credits gate leads; the materials loop is kept
-                   (empty today) to mirror the sibling upgrade tabs. Build is wired to the
-                   SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade, NOT
-                   re-implemented. A LINE-FOR-LINE clone of the Research Lab's Upgrades
-                   tab, swapping research→fabricator vars + addResearchSlots→
-                   addFabricateSlots. In-flight progress reuses the refine/research bar
-                   idiom. -->
-              <Panel>
-                <div class="panel-title">FABRICATOR, Upgrades</div>
-                <div class="research-cost">Level: {fabricatorLevel}</div>
-
-                {#if fabricatorMaxed}
-                  <p class="research-status">Fully upgraded.</p>
-                {:else}
-                  {@const eff = nextFabricatorUpgrade.effect}
-                  <div class="research-name">Next: Level {fabricatorLevel} → {fabricatorLevel + 1}</div>
-                  <!-- Grant line: each fabricator rung grants a craft slot AND unlocks the
-                       next tier. The slot text lives inside the narrow so eff.
-                       addFabricateSlots is typed; the whole phrase is kept contiguous
-                       WITHIN each branch (no whitespace-only text at a block boundary,
-                       which Svelte would trim) so the " · " separator renders. -->
-                  <div class="research-cost">
-                    {#if "addFabricateSlots" in eff}Grants: +{eff.addFabricateSlots} craft slot{eff.addFabricateSlots === 1 ? "" : "s"} · unlocks Tier {fabricatorLevel + 1} blueprints{:else}Grants: unlocks Tier {fabricatorLevel + 1} blueprints{/if}
-                  </div>
-                  <div class="research-cost">Duration: {durationReadout(nextFabricatorUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-
-                  <!-- Credits cost readiness (fabricator rungs cost credits, not materials). -->
-                  {#if nextFabricatorUpgrade.credits !== undefined}
-                    {@const met = state.credits.gte(nextFabricatorUpgrade.credits)}
-                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Cost: ◈ {formatNumber(nextFabricatorUpgrade.credits)} (have {formatNumber(state.credits)})
-                    </div>
-                  {/if}
-
-                  <!-- Material readiness ([Item]: have / need, ✅/❌), empty for the
-                       fabricator track today, kept for parity with the sibling tabs. -->
-                  {#each Object.keys(nextFabricatorUpgrade.materials) as itemId}
-                    {@const need = nextFabricatorUpgrade.materials[itemId]}
-                    {@const have = itemTotal(state.inventory, itemId)}
-                    {@const met = have.gte(need)}
-                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
-                    </div>
-                  {/each}
-
-                  <!-- Fleet Admiral level prereq (absent field => no wall). -->
-                  {#if nextFabricatorUpgrade.requiresFleetAdminLevel !== undefined}
-                    {@const met = state.fleetAdminLevel >= nextFabricatorUpgrade.requiresFleetAdminLevel}
-                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextFabricatorUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
-                    </div>
-                  {/if}
-
-                  <button
-                    class="buy-btn"
-                    disabled={!fabricatorUpgradeCheck.ok}
-                    title={fabricatorUpgradeCheck.ok ? undefined : fabricatorUpgradeCheck.reason}
-                    on:click={() => doStartFacilityUpgrade(FABRICATOR_FACILITY_KEY)}
-                  >
-                    Build · Level {fabricatorLevel} → {fabricatorLevel + 1}
-                  </button>
-                {/if}
-
-                {#if fabricatorUpgradeInFlight}
-                  {@const progress = fabricatorUpgradeInFlight.durationTicks > 0
-                    ? (fabricatorUpgradeInFlight.durationTicks - fabricatorUpgradeInFlight.remainingTicks) / fabricatorUpgradeInFlight.durationTicks
-                    : 1}
-                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(fabricatorUpgradeInFlight.remainingTicks, fabricatorUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-                {/if}
-              </Panel>
-            {/if}
           {:else if activeFacility === "shipyard"}
             <!-- SHIPYARD (Phase 5, Task S5 UI), the hull-BUILD facility. It CONSUMES the
                  components the Fabricator crafts + credits to build a ship over time, then
@@ -6181,6 +6218,7 @@
     <div class="nav-tabs">
       <button class="nav-tab" class:active={activeTab === "locations"} on:click={() => (activeTab = "locations")}>Locations</button>
       <button class="nav-tab" class:active={activeTab === "facilities"} on:click={() => (activeTab = "facilities")}>Facilities</button>
+      <button class="nav-tab" class:active={activeTab === "foundry"} on:click={() => (activeTab = "foundry")}>Foundry</button>
       <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Command</button>
       <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
       <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
