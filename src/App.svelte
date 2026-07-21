@@ -386,13 +386,18 @@
   // reads an item's on-hand TOTAL across its quality buckets (absent -> 0), the bucketed
   // twin of the old scalar `inventory[item] ?? new Decimal(0)`. addItemQuality deposits
   // into a quality bucket (dev-grant handler uses quality 0). See src/lib/game/inventory.ts.
-  import { itemTotal, addItemQuality } from "./lib/game/inventory";
+  import { itemTotal, addItemQuality, QUALITY_TIERS } from "./lib/game/inventory";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
+  import {
+    loadSalvageConfirmQualities,
+    saveSalvageConfirmQualities,
+    salvageNeedsConfirm,
+  } from "./lib/salvageConfirmPreference";
   import { focusTrap } from "./lib/focusTrap";
 
   // DEV_MODE, Vercel §9.5.3: true on Preview, false on Production. Locally,
@@ -1288,6 +1293,7 @@
     tickBarEnabled = loadTickBarEnabled();
     showTickCounts = loadShowTickCounts();
     refineConfirmEnabled = loadRefineConfirmEnabled();
+    salvageConfirmQualities = loadSalvageConfirmQualities();
 
     const loadedSave = loadFromLocalStorage();
     if (loadedSave) {
@@ -1949,9 +1955,10 @@
   // Systems tab's Salvage button and the Salvaged Materials tab's Salvage button) route
   // through a plain Cancel/Confirm modal FIRST, reusing the exact DELETE-SAVE /
   // homeworld-respec modal idiom (.modal-backdrop / Panel.modal-dialog / .modal-warning
-  // / .modal-row + focusTrap). This is deliberately a SIMPLE on/off guard: the tiered/
-  // configurable "don't ask again" variant and the post-salvage result readout are
-  // DEFERRED to 0.11.1, so no checkbox and no result panel here.
+  // / .modal-row + focusTrap). The modal itself stays a plain Cancel/Confirm dialog (no
+  // in-modal checkbox); WHETHER it opens is now gated per quality tier by the Salvage Bay
+  // Options control (0.11.2 Task 13b, requestSalvage above): a tier the player has
+  // unchecked salvages instantly, skipping this modal. Ship teardown always confirms.
   //
   // The pending target is a small DISCRIMINATED record ({ kind, id, name }), NOT a stored
   // closure: confirmSalvage switches on `kind` and calls the matching handler, which reads
@@ -1973,10 +1980,76 @@
     return eqOut ? equipmentOutputLabel(eqOut) : "this system";
   }
 
-  // Open the salvage-confirm modal for a target (replaces any open one). Nothing is
-  // destroyed until Confirm; Cancel just clears the pending target.
+  // ── Per-quality confirm preference (0.11.2 Task 13b) ──────────────────────
+  // The set of quality tiers that REQUIRE a confirm before salvaging, loaded from
+  // localStorage (loadSalvageConfirmQualities), NOT on GameState, exactly like
+  // refineConfirmEnabled above. The default is ALL tiers (confirm everything). The
+  // Salvage Bay Options control below toggles individual tiers on/off; toggling
+  // persists immediately via saveSalvageConfirmQualities. Loaded on mount.
+  let salvageConfirmQualities: number[] = loadSalvageConfirmQualities();
+
+  // Map a salvaged material's ItemRarity (model.ts: "common" | "uncommon" | "rare" |
+  // "epic" | "legendary") to a quality-tier index so the per-quality confirm preference
+  // (which is keyed on the 0..QUALITY_TIERS-1 tiers spare SYSTEMS use) can gate material
+  // salvage too. Salvaged materials carry a `rarity` string, NOT a numeric quality, so
+  // this documented, order-preserving map bridges the two vocabularies:
+  //   common -> 0, uncommon -> 1, rare -> 2, epic -> 3, legendary -> 4
+  // (Materials top out at legendary -> tier 4; tier 5 is reachable only by systems, so a
+  // material never maps to it. An unrecognized rarity falls back to 0, the safest tier to
+  // treat as "confirm by default" under the all-tiers default.)
+  const RARITY_TO_QUALITY_TIER: Record<string, number> = {
+    common: 0,
+    uncommon: 1,
+    rare: 2,
+    epic: 3,
+    legendary: 4,
+  };
+
+  // Does salvaging THIS target need a confirm, given the player's per-quality preference?
+  //   - "system": look up the spare EquipmentInstance by its instanceId and read its
+  //     numeric `quality` (0..5); a missing piece (hand-edited save) is treated as needing
+  //     a confirm, the safe default.
+  //   - "material": map the salvaged material's rarity to a tier via RARITY_TO_QUALITY_TIER
+  //     (unknown rarity -> tier 0), then check that tier.
+  //   - "ship": ALWAYS true. Hull teardown is a large, captain-aboard-warned action; the
+  //     per-quality skip deliberately does NOT apply to it (unchanged behavior).
+  function salvageTargetNeedsConfirm(kind: "system" | "material" | "ship", id: string): boolean {
+    if (kind === "ship") return true;
+    if (kind === "system") {
+      const piece = state.equipment.find((e) => e.id === id);
+      if (!piece) return true; // safe default: confirm a target we cannot inspect
+      return salvageNeedsConfirm(piece.quality);
+    }
+    // material
+    const rarity = ITEMS[id]?.rarity;
+    const tier = rarity !== undefined ? (RARITY_TO_QUALITY_TIER[rarity] ?? 0) : 0;
+    return salvageNeedsConfirm(tier);
+  }
+
+  // Request a salvage. If the target's quality tier is in the player's confirm set, open
+  // the confirm modal (Nothing is destroyed until Confirm; Cancel clears the pending
+  // target). Otherwise EXECUTE IMMEDIATELY through the SAME do* handler the modal would
+  // dispatch to (so the result readout + event-log line still fire), skipping the modal.
+  // Ship teardown always confirms (salvageTargetNeedsConfirm returns true for "ship").
   function requestSalvage(kind: "system" | "material" | "ship", id: string, name: string) {
+    if (!salvageTargetNeedsConfirm(kind, id)) {
+      // Direct-execute path: route through the same handler confirmSalvage would call.
+      if (kind === "system") doSalvageEquipment(id);
+      else if (kind === "ship") doSalvageShip(id);
+      else doSalvageSalvagedMaterial(id);
+      return;
+    }
     salvageConfirm = { kind, id, name };
+  }
+
+  // Toggle one quality tier in the confirm set (checked = confirm required), then persist.
+  // Rebuilds the array (rather than mutating in place) so the `salvageConfirmQualities`
+  // reassignment triggers Svelte reactivity for the Options checkboxes.
+  function toggleSalvageConfirmTier(tier: number, needsConfirm: boolean) {
+    salvageConfirmQualities = needsConfirm
+      ? [...salvageConfirmQualities.filter((t) => t !== tier), tier]
+      : salvageConfirmQualities.filter((t) => t !== tier);
+    saveSalvageConfirmQualities(salvageConfirmQualities);
   }
   function cancelSalvageConfirm() {
     salvageConfirm = null;
@@ -5450,7 +5523,31 @@
             <Panel>
               <div class="panel-title">SALVAGE BAY</div>
               <p class="research-status">
-                Break spare ship systems and salvaged materials down for recovered parts and loot. Salvage permanently destroys the item; each break-down asks for confirmation first.
+                Break spare ship systems and salvaged materials down for recovered parts and loot. Salvage permanently destroys the item; checked quality tiers ask for confirmation first.
+              </p>
+              <!-- CONFIRM-BY-QUALITY options (0.11.2 Task 13b): one checkbox per
+                   quality tier (0..QUALITY_TIERS-1). A CHECKED tier requires a
+                   confirm before salvaging an item of that quality; unchecking a
+                   tier salvages it instantly. Persists to localStorage via
+                   toggleSalvageConfirmTier -> saveSalvageConfirmQualities. Reuses the
+                   .dev-row + inline-flex label + checkbox idiom from the System
+                   Options panel; no new styling or colors. Ship (hull) teardown
+                   always confirms regardless of these toggles. Tier labels use the
+                   Q0..Q5 convention the systems tiles already show. -->
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
+                {#each Array.from({ length: QUALITY_TIERS }, (_, i) => i) as tier (tier)}
+                  <label style="display: inline-flex; align-items: center; gap: 6px;">
+                    <input
+                      type="checkbox"
+                      checked={salvageConfirmQualities.includes(tier)}
+                      on:change={(e) => toggleSalvageConfirmTier(tier, (e.target as HTMLInputElement).checked)}
+                    />
+                    Q{tier}
+                  </label>
+                {/each}
+              </div>
+              <p class="research-status">
+                Salvaging an item of a checked quality asks for confirmation first. Uncheck a tier to salvage it instantly.
               </p>
             </Panel>
 
