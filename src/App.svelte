@@ -544,7 +544,7 @@
   // homeworld-adjacent tabs (see the .nav-tabs row below). Only the Refinery is
   // real this pass; Warehouse/Fabricator/Shipyard are locked "Coming Soon" rail
   // items, same idiom Sector Space's locked structures use.
-  type TabKey = "locations" | "facilities" | "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "system";
+  type TabKey = "locations" | "facilities" | "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "stores" | "system";
   let activeTab: TabKey = "fleetCaptains";
 
   // Fleet Captain's tab sub-tabs (UI Redesign, Task 8, see
@@ -612,6 +612,20 @@
   // (FoundryFacilityKey, LocationPlace, StarbaseSubTab, ShipyardSubTab).
   type DrydockSection = "shipyard" | "docks";
   let activeDrydockSection: DrydockSection = "shipyard";
+
+  // Stores program rail state (0.11.2 nav restructure, Task 3).
+  // The STORES program holds the storage/inventory facilities. This pass it
+  // contains only the Warehouse (moved VERBATIM out of the Facilities tab); a
+  // Salvage Bay facility joins it in a later task. Like the Foundry's
+  // activeFoundryFacility and the Drydock's activeDrydockSection above, it uses
+  // its OWN rail-selection state, SEPARATE from the Facilities tab's
+  // activeFacility, so the coexisting Facilities / Stores tabs never cross-talk
+  // while both render during the intermediate nav restructure. A single-member
+  // union is fine for now (a "salvageBay" member is added later); it is Named
+  // (not an inline literal union) to match the sibling rail-state types
+  // (FoundryFacilityKey, DrydockSection).
+  type StoresFacilityKey = "warehouse";
+  let activeStoresFacility: StoresFacilityKey = "warehouse";
 
   // ---- Warehouse facility view (Phase 2, Group C) -----------------------------
   // A tiered fill-tile inventory catalog. The top SubTabs axis is CATEGORY:
@@ -885,12 +899,16 @@
     warehouseTooltip = null;
   }
 
-  // Clear the warehouse tooltip whenever the category tab or the facility
-  // changes (review Minor): the tooltip is anchored to a specific tile's rect,
-  // so leaving that view would otherwise leave it hovering over unrelated
-  // content. Referencing both vars makes this reactive statement re-run on
-  // either change (the initial null -> null run is harmless).
-  $: activeWarehouseCat, activeFacility, hideWarehouseTooltip();
+  // Clear the warehouse tooltip whenever the category tab or the surrounding
+  // navigation changes (review Minor): the tooltip is anchored to a specific
+  // tile's rect, so leaving that view would otherwise leave it hovering over
+  // unrelated content. The Warehouse now lives in the STORES program (0.11.2
+  // Task 3), so nav within/away is tracked via activeStoresFacility (the Stores
+  // rail) and activeTab (leaving the Stores program entirely), replacing the
+  // old activeFacility tracker. Referencing all three vars makes this reactive
+  // statement re-run on any of those changes (the initial null -> null run is
+  // harmless).
+  $: activeWarehouseCat, activeStoresFacility, activeTab, hideWarehouseTooltip();
 
   // The Refinery's three sub-tabs: Overview (level + refine slots + active jobs +
   // one-shot Start Refine Job), Orders (Phase 2 Task D4, the batch/continuous
@@ -4861,64 +4879,36 @@
       </div>
       {/if}
 
-      {#if activeTab === "facilities"}
-      <!-- Facilities (Phase 1, Facility Framework + Refinery, Task 12 UI) --
-           deliberately MIRRORS the Sector Space (starbase) tab above, which
-           itself mirrors the Fleet Captain's tab: a LEFT rail of facilities
-           (.captain-list / .captain-list-item, reused verbatim, NOT a new class)
-           + a right content pane driven by SubTabs for the selected facility.
-           Only the Refinery is real this pass; Fabricator/Warehouse/Shipyard are
-           locked "Coming Soon" rail items using the exact .captain-list-item.locked
-           idiom Sector Space's locked structures use. The Refinery has three
-           sub-tabs, Overview (level + slots + active-jobs status readout),
-           Production (the per-slot line configurator that drives refining), and
-           Upgrades (the next rung's material/prereq readiness + Build). All
-           actions/readiness read the tick.ts backend fns (canStartLine / startLine
-           / canBuildFacilityUpgrade / startFacilityUpgrade / refineSlotCount) and
-           the model.ts data tables (FACILITIES / REFINE_RECIPES / ITEMS). -->
+      {#if activeTab === "stores"}
+      <!-- STORES program (0.11.2 nav restructure, Task 3): holds the
+           storage/inventory facilities. This pass it contains only the
+           Warehouse (moved VERBATIM out of the Facilities tab); a Salvage Bay
+           facility joins it in a later task. Same shell as the Foundry /
+           Drydock / Facilities tabs (tab-scroll-area > fleet-captains-layout >
+           captain-list rail + fleet-captains-content). Uses a DEDICATED
+           activeStoresFacility state (NOT activeFacility) so this program stays
+           independent of the still-present Facilities tab during the intentional
+           coexistence period (later tasks remove that tab). This is an
+           information-architecture move, not a redesign: the moved rail entry
+           and content pane are unchanged except that their guard variable is
+           retargeted to activeStoresFacility. -->
       <div class="tab-scroll-area">
       <div class="fleet-captains-layout">
         <div class="captain-list">
-          <!-- Rail grouped by OWNER (2026-07 Locations-merge follow-up): each
-               facility now sits under the "place" that owns it, with a small
-               quiet .facility-owner-header label above the group. Purely a
-               presentational regroup of the same reused .captain-list-item /
-               .captain-list-item.locked items, activeFacility/FacilityKey
-               logic and the Refinery content pane are unchanged. -->
-
-          <!-- Homeworld group. Refinery, Fabricator, Research Lab, and Fuel
-               Depot moved to the FOUNDRY program (0.11.2 Task 1); Warehouse and
-               Mission Control remain here until later restructure tasks. -->
-          <div class="facility-owner-header">Homeworld</div>
-          <!-- Warehouse, REAL, selectable facility (Phase 2, Group C): the
-               fill-tile inventory catalog. Same reused .captain-list-item /
-               active idiom as the Refinery button above. -->
+          <!-- Stores rail: Warehouse (the fill-tile inventory catalog), moved
+               from the Facilities tab; only class:active / on:click retarget to
+               activeStoresFacility. -->
           <button
             class="captain-list-item"
-            class:active={activeFacility === "warehouse"}
-            on:click={() => (activeFacility = "warehouse")}
+            class:active={activeStoresFacility === "warehouse"}
+            on:click={() => (activeStoresFacility = "warehouse")}
           >
             Warehouse
           </button>
-          <!-- Mission Control, REAL, selectable facility (Mission Rework Task 8):
-               the mission-unlock facility. Same reused .captain-list-item / active
-               idiom as the Refinery/Warehouse buttons. -->
-          <button
-            class="captain-list-item"
-            class:active={activeFacility === "missionControl"}
-            on:click={() => (activeFacility = "missionControl")}
-          >
-            Mission Control
-          </button>
-
-          <!-- Ships group, ship-borne facilities, a concept only (no backing
-               state yet); locked like the rest. -->
-          <div class="facility-owner-header">Ships</div>
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Ship Facilities</div>
         </div>
 
         <div class="fleet-captains-content">
-          {#if activeFacility === "warehouse"}
+          {#if activeStoresFacility === "warehouse"}
             <!-- WAREHOUSE (Phase 2, Group C), the fill-tile inventory catalog.
                  Mirrors the Refinery's SubTabs + content structure above, but the
                  SubTabs axis is CATEGORY: Overview + Upgrade (management views)
@@ -5313,7 +5303,61 @@
               </Panel>
             {/if}
 
-          {:else if activeFacility === "missionControl"}
+          {/if}
+        </div>
+      </div>
+      </div>
+      {/if}
+
+      {#if activeTab === "facilities"}
+      <!-- Facilities (Phase 1, Facility Framework + Refinery, Task 12 UI) --
+           deliberately MIRRORS the Sector Space (starbase) tab above, which
+           itself mirrors the Fleet Captain's tab: a LEFT rail of facilities
+           (.captain-list / .captain-list-item, reused verbatim, NOT a new class)
+           + a right content pane driven by SubTabs for the selected facility.
+           Only the Refinery is real this pass; Fabricator/Warehouse/Shipyard are
+           locked "Coming Soon" rail items using the exact .captain-list-item.locked
+           idiom Sector Space's locked structures use. The Refinery has three
+           sub-tabs, Overview (level + slots + active-jobs status readout),
+           Production (the per-slot line configurator that drives refining), and
+           Upgrades (the next rung's material/prereq readiness + Build). All
+           actions/readiness read the tick.ts backend fns (canStartLine / startLine
+           / canBuildFacilityUpgrade / startFacilityUpgrade / refineSlotCount) and
+           the model.ts data tables (FACILITIES / REFINE_RECIPES / ITEMS). -->
+      <div class="tab-scroll-area">
+      <div class="fleet-captains-layout">
+        <div class="captain-list">
+          <!-- Rail grouped by OWNER (2026-07 Locations-merge follow-up): each
+               facility now sits under the "place" that owns it, with a small
+               quiet .facility-owner-header label above the group. Purely a
+               presentational regroup of the same reused .captain-list-item /
+               .captain-list-item.locked items, activeFacility/FacilityKey
+               logic and the Refinery content pane are unchanged. -->
+
+          <!-- Homeworld group. Refinery, Fabricator, Research Lab, and Fuel
+               Depot moved to the FOUNDRY program (0.11.2 Task 1); the Warehouse
+               moved to the STORES program (0.11.2 Task 3). Only Mission Control
+               remains here until later restructure tasks relocate it too. -->
+          <div class="facility-owner-header">Homeworld</div>
+          <!-- Mission Control, REAL, selectable facility (Mission Rework Task 8):
+               the mission-unlock facility. Same reused .captain-list-item / active
+               idiom as the Refinery/Warehouse buttons. -->
+          <button
+            class="captain-list-item"
+            class:active={activeFacility === "missionControl"}
+            on:click={() => (activeFacility = "missionControl")}
+          >
+            Mission Control
+          </button>
+
+          <!-- Ships group, ship-borne facilities, a concept only (no backing
+               state yet); locked like the rest. -->
+          <div class="facility-owner-header">Ships</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Ship Facilities</div>
+        </div>
+
+        <div class="fleet-captains-content">
+          {#if activeFacility === "missionControl"}
             <!-- MISSION CONTROL (Mission Rework Task 8), the mission-unlock
                  facility. Two sub-tabs mirroring the Refinery: Overview (unlocked /
                  locked missions + completion progress toward the next unlock) and
@@ -6251,6 +6295,7 @@
       <button class="nav-tab" class:active={activeTab === "facilities"} on:click={() => (activeTab = "facilities")}>Facilities</button>
       <button class="nav-tab" class:active={activeTab === "foundry"} on:click={() => (activeTab = "foundry")}>Foundry</button>
       <button class="nav-tab" class:active={activeTab === "drydock"} on:click={() => (activeTab = "drydock")}>Drydock</button>
+      <button class="nav-tab" class:active={activeTab === "stores"} on:click={() => (activeTab = "stores")}>Stores</button>
       <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Command</button>
       <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
       <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
