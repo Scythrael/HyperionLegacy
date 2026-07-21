@@ -559,7 +559,7 @@
   // Drydock; Warehouse to Stores; Mission Control to Operations), and the emptied
   // Facilities tab was then removed (Task 7). The union below is the resulting
   // program set (see the .nav-tabs row for their left-to-right order).
-  type TabKey = "home" | "personnel" | "fleetOperations" | "foundry" | "drydock" | "logistics";
+  type TabKey = "home" | "personnel" | "fleetOperations" | "facilities" | "drydock" | "logistics";
   let activeTab: TabKey = "home";
 
   // Home program (0.11.2 Shell Correction, Task 1): the landing program, first
@@ -674,7 +674,30 @@
   // moved to Logistics > Materials. This keeps the ONLY material-storage-expansion
   // UI reachable through the transition.
   type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay";
+  // 0.12.0 "Console" nav (Facilities, CN4a): the LEFT RAIL that this key used to
+  // drive is RETIRED. Facilities is the BUILDING perspective and now lands on a
+  // DASHBOARD (a responsive grid of building cards, the SAME .roster-grid model
+  // the Personnel Captain Roster + Logistics Ships console use). facilitiesView
+  // is the grid-vs-console swap ("dashboard" = the card grid landing; "console" =
+  // one building's console, its existing content rendered VERBATIM below a
+  // back-to-dashboard control). activeFoundryFacility is REPURPOSED, unchanged
+  // name to avoid churn across its 20+ content-branch guards, as WHICH building's
+  // console is open; it is only meaningful while facilitiesView === "console".
+  // Tapping a dashboard card sets BOTH (activeFoundryFacility = the card's key,
+  // facilitiesView = "console"); the back control returns to "dashboard". This
+  // mirrors logisticsShipsView/selectedShipId and personnelRosterView/activeCaptainIndex.
   let activeFoundryFacility: FoundryFacilityKey = "refinery";
+  let facilitiesView: "dashboard" | "console" = "dashboard";
+  // Display labels for the six building cards + the console back-row heading.
+  // One source of truth so a card and its console name the building identically.
+  const FACILITY_LABELS: Record<FoundryFacilityKey, string> = {
+    refinery: "Refinery",
+    fabricator: "Fabricator",
+    research: "Research Lab",
+    fuelStorage: "Fuel Depot",
+    warehouse: "Warehouse",
+    salvageBay: "Salvage Bay",
+  };
 
   // Drydock program rail state (0.11.2 nav restructure, Task 2).
   // The DRYDOCK program unites ship BUILDING (the Shipyard, moved from the
@@ -2303,14 +2326,16 @@
   // Salvage action panel. Referencing activeFoundryFacility + activeTab makes this
   // reactive; the initial run is a harmless null -> null. Placed AFTER the
   // selectedSalvagedId declaration so it is never used before it is declared.
-  $: activeFoundryFacility, activeTab, (selectedSalvagedId = null);
+  // (0.12.0 Console, CN4a: also depend on facilitiesView so leaving the Salvage
+  //  Bay console back to the Facilities dashboard clears the selection too.)
+  $: activeFoundryFacility, activeTab, facilitiesView, (selectedSalvagedId = null);
 
   // Task 12: the salvage result readout is a per-visit status, so switching the
   // Foundry rail away from the Salvage Bay (or leaving the Foundry tab) clears it,
   // no stale "Last salvage" panel lingers elsewhere (or on a fresh return to the
   // facility). Same reactive idiom as the selection clear above; the initial run
   // is a harmless null -> null.
-  $: activeFoundryFacility, activeTab, (lastSalvageResult = null);
+  $: activeFoundryFacility, activeTab, facilitiesView, (lastSalvageResult = null);
 
   // SALVAGE one unit of a salvaged material for a tiered loot roll. salvageSalvagedMaterial
   // returns a SalvageResult: on reject a same-ref no-op + reason (noneHeld / notSalvagedMaterial),
@@ -3624,94 +3649,220 @@
     </div>
 
     <main class="tab-body">
-      {#if activeTab === "foundry"}
-      <!-- FOUNDRY program (0.11.2 nav restructure, Task 1): the four
-           "make-stuff" facilities (Refinery, Fabricator, Research Lab, Fuel
-           Depot), moved VERBATIM out of the (now removed) Facilities tab. Same
-           shell as the Crew tab (tab-scroll-area > fleet-captains-layout >
-           captain-list rail + fleet-captains-content). Uses a DEDICATED
-           activeFoundryFacility rail state. This is an information-architecture
-           move, not a redesign: the moved rail buttons and content panes are
-           unchanged except that their guard variable was retargeted to
-           activeFoundryFacility. -->
+      {#if activeTab === "facilities"}
+      <!-- FACILITIES program (0.12.0 "Console" nav, CN4a). The BUILDING
+           perspective: every building the player manages. Converted from the
+           transitional Foundry tab's LEFT RAIL to the console model, the SAME
+           grid-then-detail pattern the Personnel Captain Roster and the Logistics
+           Ships console use (no left rail anywhere, design doc section 4). The
+           landing is a DASHBOARD: a responsive .roster-grid of building cards (one
+           per facility), each showing the building name + its level (where it has
+           one) + a LIVE status line read from the SAME $: derivations the
+           building's own Overview shows, so a card can never drift from the panel.
+           Tapping a card opens that building's CONSOLE (facilitiesView =
+           "console", activeFoundryFacility = the card's key): a back-to-dashboard
+           control + the building's EXISTING content rendered VERBATIM (its own
+           SubTabs strip and panes UNCHANGED, only the surrounding nav changed from
+           rail to dashboard/back-row). This is a mechanical re-home, not a
+           redesign. Drydock (Shipyard + Docks) folds in a LATER task (CN4b) and is
+           untouched here. -->
       <div class="tab-scroll-area">
-      <div class="fleet-captains-layout">
-        <div class="captain-list">
-          <!-- Foundry rail: the four make-stuff facilities. Rail buttons moved
-               verbatim from the old Facilities rail; only class:active / on:click
-               were retargeted to activeFoundryFacility. -->
-          <div class="facility-owner-header">Foundry</div>
-          <button
-            class="captain-list-item"
-            class:active={activeFoundryFacility === "refinery"}
-            on:click={() => (activeFoundryFacility = "refinery")}
-          >
-            Refinery
-          </button>
-          <!-- Fabricator, REAL, selectable facility (Fabricator Task F4): CRAFTS the
-               components the Research Lab unlocked. Same reused .captain-list-item /
-               active idiom as the Refinery/Warehouse/Research buttons; replaced the
-               locked placeholder that stood here through Phases 1-3. -->
-          <button
-            class="captain-list-item"
-            class:active={activeFoundryFacility === "fabricator"}
-            on:click={() => (activeFoundryFacility = "fabricator")}
-          >
-            Fabricator
-          </button>
-          <!-- Research Lab, REAL, selectable facility (Research Task R5): the
-               blueprint-research facility. Same reused .captain-list-item / active
-               idiom as the Refinery/Warehouse/Mission Control/Fuel Depot buttons. -->
-          <button
-            class="captain-list-item"
-            class:active={activeFoundryFacility === "research"}
-            on:click={() => (activeFoundryFacility = "research")}
-          >
-            Research Lab
-          </button>
-          <!-- Fuel Depot, REAL, selectable facility (Mission Rework Task 8; relabeled
-               "Fuel Depot" in Fuel Economy v2 F2, KEY still `fuelStorage`): the fuel tank
-               (gauge + auto-refining status + optional manual top-up) + its mixed
-               storage/processing upgrade track. -->
-          <button
-            class="captain-list-item"
-            class:active={activeFoundryFacility === "fuelStorage"}
-            on:click={() => (activeFoundryFacility = "fuelStorage")}
-          >
-            Fuel Depot
-          </button>
-          <!-- Warehouse, the warehouse-as-a-BUILDING management (0.12.0 "Console"
-               nav, Logistics CN3a). Its two facility-management views (Overview +
-               Upgrade) moved here from the retired Stores program because the
-               Warehouse is a building the player manages, so under the perspective
-               model it belongs to Facilities (transitionally the Foundry tab), NOT
-               to Logistics. The material CATALOG itself lives in Logistics >
-               Materials. Same reused .captain-list-item / active idiom as the
-               sibling Foundry facilities; only class:active / on:click drive
-               activeFoundryFacility. -->
-          <button
-            class="captain-list-item"
-            class:active={activeFoundryFacility === "warehouse"}
-            on:click={() => (activeFoundryFacility = "warehouse")}
-          >
-            Warehouse
-          </button>
-          <!-- Salvage Bay, the break-down-for-parts facility (0.12.0 "Console"
-               nav; user decision 2026-07-21: salvaging is a FACILITY action, so
-               it lives here in the Foundry rail, NOT as a Logistics item tab).
-               Content moved VERBATIM from the Logistics Salvage tab. Same reused
-               .captain-list-item / active idiom as the sibling Foundry facilities;
-               only class:active / on:click drive activeFoundryFacility. -->
-          <button
-            class="captain-list-item"
-            class:active={activeFoundryFacility === "salvageBay"}
-            on:click={() => (activeFoundryFacility = "salvageBay")}
-          >
-            Salvage Bay
-          </button>
-        </div>
+        {#if facilitiesView === "dashboard"}
+          <!-- FACILITIES DASHBOARD. The SAME responsive card grid the Captain
+               Roster + Ships console use (.roster-grid: auto-fill, fills the
+               desktop width with more cards per row, collapses to one column on
+               mobile, NO media query). Each card is a button that opens the
+               building's console. Level + status come from EXISTING $: derivations
+               only (NO new state invented); each card names its source inline. -->
+          <div class="roster-grid">
+            <!-- Refinery card. Level = refineryLevel; status = live refine slots in
+                 use vs total (activeRefineJobs / refinerySlots), the SAME figures
+                 the Refinery Overview shows. Slots 0 = not built yet. -->
+            <button
+              class="roster-card"
+              on:click={() => {
+                activeFoundryFacility = "refinery";
+                facilitiesView = "console";
+              }}
+            >
+              <div class="roster-card-head">
+                <div class="roster-card-glyph" aria-hidden="true">⚗️</div>
+                <div class="roster-card-heading">
+                  <div class="research-name">{FACILITY_LABELS.refinery}</div>
+                  <div class="roster-card-sub">Level {refineryLevel}</div>
+                </div>
+              </div>
+              <div class="roster-card-lines">
+                <div class="roster-card-line">
+                  {#if refinerySlots === 0}
+                    Status: Not built
+                  {:else if activeRefineJobs.length === 0}
+                    Status: Idle, {refinerySlots} slot{refinerySlots === 1 ? "" : "s"} free
+                  {:else}
+                    Status: {activeRefineJobs.length} / {refinerySlots} slots refining
+                  {/if}
+                </div>
+              </div>
+            </button>
 
-        <div class="fleet-captains-content">
+            <!-- Fabricator card. Level = fabricatorLevel; status = live craft slots
+                 in use vs total (activeFabricateJobs / fabricateSlots). -->
+            <button
+              class="roster-card"
+              on:click={() => {
+                activeFoundryFacility = "fabricator";
+                facilitiesView = "console";
+              }}
+            >
+              <div class="roster-card-head">
+                <div class="roster-card-glyph" aria-hidden="true">🔧</div>
+                <div class="roster-card-heading">
+                  <div class="research-name">{FACILITY_LABELS.fabricator}</div>
+                  <div class="roster-card-sub">Level {fabricatorLevel}</div>
+                </div>
+              </div>
+              <div class="roster-card-lines">
+                <div class="roster-card-line">
+                  {#if fabricateSlots === 0}
+                    Status: Not built
+                  {:else if activeFabricateJobs.length === 0}
+                    Status: Idle, {fabricateSlots} slot{fabricateSlots === 1 ? "" : "s"} free
+                  {:else}
+                    Status: {activeFabricateJobs.length} / {fabricateSlots} slots crafting
+                  {/if}
+                </div>
+              </div>
+            </button>
+
+            <!-- Research Lab card. Level = researchLevel; status = live research
+                 slots in use vs total (activeResearchProjects / researchSlots). -->
+            <button
+              class="roster-card"
+              on:click={() => {
+                activeFoundryFacility = "research";
+                facilitiesView = "console";
+              }}
+            >
+              <div class="roster-card-head">
+                <div class="roster-card-glyph" aria-hidden="true">🔬</div>
+                <div class="roster-card-heading">
+                  <div class="research-name">{FACILITY_LABELS.research}</div>
+                  <div class="roster-card-sub">Level {researchLevel}</div>
+                </div>
+              </div>
+              <div class="roster-card-lines">
+                <div class="roster-card-line">
+                  {#if researchSlots === 0}
+                    Status: Not built
+                  {:else if activeResearchProjects.length === 0}
+                    Status: Idle, {researchSlots} slot{researchSlots === 1 ? "" : "s"} free
+                  {:else}
+                    Status: {activeResearchProjects.length} / {researchSlots} projects running
+                  {/if}
+                </div>
+              </div>
+            </button>
+
+            <!-- Fuel Depot card. Level = fuelStorageLevel; status = live refine
+                 batches (activeFuelRefineJobs = topping up) + tank fill %
+                 (fuelFillPct), the SAME figures the Fuel Depot Overview shows. -->
+            <button
+              class="roster-card"
+              on:click={() => {
+                activeFoundryFacility = "fuelStorage";
+                facilitiesView = "console";
+              }}
+            >
+              <div class="roster-card-head">
+                <div class="roster-card-glyph" aria-hidden="true">⛽</div>
+                <div class="roster-card-heading">
+                  <div class="research-name">{FACILITY_LABELS.fuelStorage}</div>
+                  <div class="roster-card-sub">Level {fuelStorageLevel}</div>
+                </div>
+              </div>
+              <div class="roster-card-lines">
+                <div class="roster-card-line">
+                  {#if activeFuelRefineJobs.length > 0}
+                    Status: Topping up
+                  {:else if fuelFillPct >= 100}
+                    Status: Tank full
+                  {:else}
+                    Status: Idle
+                  {/if}
+                </div>
+                <div class="roster-card-line">Fuel: {Math.round(fuelFillPct)}%</div>
+              </div>
+            </button>
+
+            <!-- Warehouse card. Level = warehouseT1Level; status = how many
+                 discovered items are AT cap (warehouseItemsAtCap), the auto-stop
+                 "expand storage" set the Warehouse Overview surfaces. -->
+            <button
+              class="roster-card"
+              on:click={() => {
+                activeFoundryFacility = "warehouse";
+                facilitiesView = "console";
+              }}
+            >
+              <div class="roster-card-head">
+                <div class="roster-card-glyph" aria-hidden="true">📦</div>
+                <div class="roster-card-heading">
+                  <div class="research-name">{FACILITY_LABELS.warehouse}</div>
+                  <div class="roster-card-sub">Level {warehouseT1Level}</div>
+                </div>
+              </div>
+              <div class="roster-card-lines">
+                <div class="roster-card-line">
+                  {#if warehouseItemsAtCap.length === 0}
+                    Status: No items at cap
+                  {:else}
+                    Status: {warehouseItemsAtCap.length} item{warehouseItemsAtCap.length === 1 ? "" : "s"} at cap
+                  {/if}
+                </div>
+              </div>
+            </button>
+
+            <!-- Salvage Bay card. No facility level (no build/upgrade track); the
+                 LIVE status reuses spareEquipmentCount(state), the SAME spare
+                 crafted-systems count the Ship Equipment bay header shows, which is
+                 exactly the pool salvageable here (every spare in the bay). -->
+            <button
+              class="roster-card"
+              on:click={() => {
+                activeFoundryFacility = "salvageBay";
+                facilitiesView = "console";
+              }}
+            >
+              <div class="roster-card-head">
+                <div class="roster-card-glyph" aria-hidden="true">♻️</div>
+                <div class="roster-card-heading">
+                  <div class="research-name">{FACILITY_LABELS.salvageBay}</div>
+                  <div class="roster-card-sub">Recycling bay</div>
+                </div>
+              </div>
+              <div class="roster-card-lines">
+                <div class="roster-card-line">
+                  Status: {spareEquipmentCount(state)} spare system{spareEquipmentCount(state) === 1 ? "" : "s"} to salvage
+                </div>
+              </div>
+            </button>
+          </div>
+        {:else}
+          <!-- BUILDING CONSOLE. A back-to-dashboard control + the selected
+               building's EXISTING content rendered VERBATIM below. The building is
+               activeFoundryFacility (set when the card was tapped); every content
+               branch below is UNCHANGED from the old rail, only its surrounding nav
+               moved from a left rail to this dashboard/back-row model, the SAME
+               back-row idiom the captain + ship consoles use. -->
+          <div class="roster-back-row">
+            <button
+              class="dev-btn"
+              on:click={() => (facilitiesView = "dashboard")}
+            >
+              ← Facilities
+            </button>
+            <div class="research-name roster-detail-name">{FACILITY_LABELS[activeFoundryFacility]}</div>
+          </div>
           {#if activeFoundryFacility === "refinery"}
             <SubTabs
               tabs={[
@@ -5046,8 +5197,7 @@
               </Panel>
             {/if}
           {/if}
-        </div>
-      </div>
+        {/if}
       </div>
       {/if}
       {#if activeTab === "drydock"}
@@ -7314,7 +7464,7 @@
       <button class="nav-tab" class:active={activeTab === "home"} on:click={() => (activeTab = "home")}>Home</button>
       <button class="nav-tab" class:active={activeTab === "personnel"} on:click={() => (activeTab = "personnel")}>Personnel</button>
       <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
-      <button class="nav-tab" class:active={activeTab === "foundry"} on:click={() => (activeTab = "foundry")}>Foundry</button>
+      <button class="nav-tab" class:active={activeTab === "facilities"} on:click={() => (activeTab = "facilities")}>Facilities</button>
       <button class="nav-tab" class:active={activeTab === "drydock"} on:click={() => (activeTab = "drydock")}>Drydock</button>
       <button class="nav-tab" class:active={activeTab === "logistics"} on:click={() => (activeTab = "logistics")}>Logistics</button>
     </div>
@@ -8137,18 +8287,6 @@
      removed in the 0.10.2 orphaned-CSS cleanup.) */
   .fleet-captains-layout { display: flex; gap: 12px; align-items: flex-start; }
   .captain-list { display: flex; flex-direction: column; gap: 2px; flex: 0 0 96px; }
-  /* Quiet owner-group label in the Facilities rail (2026-07 Locations-merge
-     follow-up), a small uppercase muted caption, NOT a button. Extra top
-     margin on any header after the first opens a little air between groups
-     without needing a wrapper element. */
-  .facility-owner-header {
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--color-text-dim);
-    padding: 2px;
-  }
-  .facility-owner-header:not(:first-child) { margin-top: 8px; }
   .captain-list-item {
     background: rgba(var(--color-accent-rgb), 0.06);
     border: 1px solid rgba(var(--color-accent-rgb), 0.2);
