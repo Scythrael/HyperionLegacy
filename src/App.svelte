@@ -563,19 +563,17 @@
 
   // Home program (0.11.2 Shell Correction, Task 1): the landing program, first
   // on the bottom nav. 0.12.0 "Console" nav (Home is the PATTERN-SETTER for the
-  // whole redesign): the old left rail is GONE. Home now lands on a console
-  // OVERVIEW (a welcome heading plus a grid of buttons); tapping a button
-  // SUMMONS its panel IN PLACE (the overview content is replaced by the panel),
-  // and a Back control returns to the overview. activeHomePanel drives that
-  // swap: null shows the overview, "help" / "statistics" show the summoned
-  // panel. This overview + summoned-panel idiom is the copyable template every
-  // other perspective (Personnel / Facilities / Logistics / Operations) reuses,
-  // so keep it clean: one nullable "active panel" state per perspective, an
-  // overview branch when it is null, one branch per panel otherwise, each panel
-  // opening with a .console-back control. The reserved meta buttons
+  // whole redesign, REVISED per user 2026-07-21): the old left rail is GONE. Home
+  // presents a horizontally-SCROLLING top-tab row; selecting a tab shows its page
+  // IN PLACE directly below the row, and the selected tab GLOWS to mark where you
+  // are. There is no Back control, you move by tapping another tab. activeHomeTab
+  // drives the swap. This scrolling-tabs + glow + page-below idiom is the copyable
+  // template every other perspective (Personnel / Facilities / Logistics /
+  // Operations) reuses, so keep it clean: one "active tab" state per perspective,
+  // a .console-tabs row, one content branch per tab. The reserved meta tabs
   // (Achievements / Completion / Leaderboards) stay honest "coming soon" locked
   // affordances, same crimson locked idiom the System / Battlespace slots use.
-  let activeHomePanel: "help" | "statistics" | null = null;
+  let activeHomeTab: "overview" | "help" | "statistics" = "overview";
 
   // Help program (0.11.2 UI Restructure, Task 14): a left rail of topic titles
   // (.captain-list, reused verbatim) + a content pane showing the selected
@@ -6464,52 +6462,44 @@
       {/if}
 
       {#if activeTab === "home"}
-      <!-- Home (0.12.0 "Console" nav, Task CN1, the PATTERN-SETTER). The old
-           left rail is removed. Home lands on a console OVERVIEW: a welcome
-           heading plus a grid of buttons. Tapping a button SUMMONS its panel IN
-           PLACE, activeHomePanel swaps the overview content for the panel and a
-           .console-back control returns to the overview (sets it back to null).
-           This overview + summoned-panel structure is the copyable template for
-           every other perspective; see the .console-* CSS block for the shared
-           layout (full-width on desktop, tight grid on mobile). The Help and
-           Statistics panel bodies below are the 0.11.2 content moved VERBATIM,
-           only their surrounding nav chrome changed. -->
+      <!-- Home (0.12.0 "Console" nav, CN1, PATTERN-SETTER, revised per user
+           2026-07-21). No left rail. A horizontally-SCROLLING top-tab row
+           (.console-tabs) sits at the top; the selected tab shows its page IN
+           PLACE below and GLOWS to mark position. No Back control, you switch by
+           tapping another tab. This scrolling-tabs + glow + page-below structure
+           is the copyable template every perspective reuses (see the
+           .console-tabs / .console-tab CSS). The Help and Statistics bodies are
+           the 0.11.2 content moved VERBATIM, only the surrounding chrome changed. -->
       <div class="tab-scroll-area">
 
-        {#if activeHomePanel === null}
-        <!-- OVERVIEW: the console landing. A welcome Panel plus the button grid.
-             Kept intentionally lean (the design warns against overloading an
-             overview into a new kind of clutter); at-a-glance readouts can be
-             added here later without touching the summon mechanism. -->
-        <div class="console-overview">
-          <Panel>
-            <div class="panel-title">COMMAND HOME</div>
-            <p class="prestige-text">Welcome, Admiral. This is your command home, the whole game at a glance. Open a console below.</p>
-          </Panel>
-
-          <!-- Button grid summons a panel in place. Live buttons flip
-               activeHomePanel; the reserved meta buttons stay inert locked
-               affordances (same honest "coming soon" crimson locked idiom the
-               System / Battlespace slots use), title attr is the affordance. -->
-          <div class="console-nav-grid">
-            <button class="console-nav-button" on:click={() => (activeHomePanel = "help")}>Help</button>
-            <button class="console-nav-button" on:click={() => (activeHomePanel = "statistics")}>Statistics</button>
-            <div class="console-nav-button locked" title="Coming soon, not yet available">🔒 Achievements</div>
-            <div class="console-nav-button locked" title="Coming soon, not yet available">🔒 Completion</div>
-            <div class="console-nav-button locked" title="Coming soon, not yet available">🔒 Leaderboards</div>
-          </div>
+        <!-- Scrolling top-tab row. Live tabs flip activeHomeTab; the active tab
+             GLOWS (.console-tab.active). Reserved meta tabs are inert locked
+             affordances (same crimson "coming soon" idiom the System / Battlespace
+             slots use), the title attr is the affordance. -->
+        <div class="console-tabs">
+          <button class="console-tab" class:active={activeHomeTab === "overview"} on:click={() => (activeHomeTab = "overview")}>Overview</button>
+          <button class="console-tab" class:active={activeHomeTab === "help"} on:click={() => (activeHomeTab = "help")}>Help</button>
+          <button class="console-tab" class:active={activeHomeTab === "statistics"} on:click={() => (activeHomeTab = "statistics")}>Statistics</button>
+          <div class="console-tab locked" title="Coming soon, not yet available">🔒 Achievements</div>
+          <div class="console-tab locked" title="Coming soon, not yet available">🔒 Completion</div>
+          <div class="console-tab locked" title="Coming soon, not yet available">🔒 Leaderboards</div>
         </div>
+
+        {#if activeHomeTab === "overview"}
+        <!-- Overview: the console landing, kept lean (the design warns against
+             overloading an overview); at-a-glance readouts can be added later. -->
+        <Panel>
+          <div class="panel-title">COMMAND HOME</div>
+          <p class="prestige-text">Welcome, Admiral. This is your command home, the whole game at a glance. Pick a tab above.</p>
+        </Panel>
         {/if}
 
-        {#if activeHomePanel === "help"}
-        <!-- HELP panel, summoned. Content moved VERBATIM from the 0.11.2 Home
-             Help section: its own nested topic rail (.fleet-captains-layout /
-             .captain-list, part of Help's OWN content, not the removed
-             perspective rail) drives the topic body from HELP_TOPICS
-             (helpTopics.ts), rendered as PLAIN text. Selection still tracked by
-             activeHelpTopic. Only the .console-back chrome around it is new. -->
-        <div class="console-panel">
-          <button class="console-back" on:click={() => (activeHomePanel = null)}>Back to Overview</button>
+        {#if activeHomeTab === "help"}
+        <!-- HELP page. The 0.11.2 Home Help content, its own nested topic rail
+             (.fleet-captains-layout / .captain-list, part of Help's OWN content,
+             not the removed perspective rail) driving HELP_TOPICS bodies as PLAIN
+             text, selection tracked by activeHelpTopic. Moved VERBATIM; only the
+             summoning chrome changed. -->
           <div class="fleet-captains-layout">
             <div class="captain-list">
               {#each HELP_TOPICS as topic}
@@ -6534,18 +6524,14 @@
               {/each}
             </div>
           </div>
-        </div>
         {/if}
 
-        {#if activeHomePanel === "statistics"}
-        <!-- STATISTICS panel, summoned. Content moved VERBATIM from the 0.11.2
-             Home Statistics section: a top <SubTabs> axis (Lifetime / Career /
-             Fleet) selects which group of deriveStatistics(state) rows to show,
-             a pure read over EXISTING save fields (no new counters, no economy
-             or tick changes). Selection still tracked by activeStatsSubTab.
-             Only the .console-back chrome around it is new. -->
-        <div class="console-panel">
-          <button class="console-back" on:click={() => (activeHomePanel = null)}>Back to Overview</button>
+        {#if activeHomeTab === "statistics"}
+        <!-- STATISTICS page. 0.11.2 content, a top <SubTabs> axis (Lifetime /
+             Career / Fleet) over deriveStatistics(state) rows, a pure read over
+             EXISTING save fields (no new counters, no economy/tick changes),
+             selection tracked by activeStatsSubTab. Moved VERBATIM; only the
+             summoning chrome changed. -->
           <SubTabs
             tabs={[
               { key: "lifetime", label: "Lifetime" },
@@ -6591,7 +6577,6 @@
             {/each}
           </Panel>
           {/if}
-        </div>
         {/if}
 
       </div>
@@ -7848,65 +7833,55 @@
   .battlespace-locked-list { display: flex; flex-direction: column; gap: 2px; }
   .fleet-captains-content { flex: 1; min-width: 0; }
   /* Console model (0.12.0 "Console" nav, established on Home as the
-     PATTERN-SETTER). Each perspective lands on a .console-overview; buttons in
-     .console-nav-grid SUMMON a panel in place; that panel opens with a
-     .console-back control returning to the overview. No left rail. These rules
-     are the copyable template the other four perspectives reuse verbatim, so
-     they carry no Home-specific assumptions. Colors are the existing accent
-     tokens only (no new colors), matching the crimson .captain-list-item look.
-     Full-width by default: the overview and every panel are plain block flow
-     inside .tab-body's own inset, so on desktop they fill the available width
-     (never a narrow centered mobile column), while the button grid's
-     auto-fill/minmax collapses to a tight 1-to-2-column layout on mobile to
-     minimize scrolling. */
-  .console-overview { display: flex; flex-direction: column; gap: 12px; }
-  .console-nav-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 8px;
+     PATTERN-SETTER, revised per user 2026-07-21). Each perspective presents a
+     horizontally SCROLLING top-tab row (.console-tabs); the selected tab
+     (.console-tab.active) GLOWS and its page renders in place BELOW the row.
+     No left rail, no Back control, you switch by tapping another tab. These rules
+     are the copyable template the other four perspectives reuse, so they carry no
+     Home-specific assumptions. Colors are the existing accent tokens only (no new
+     colors). Full-width by default: the tab row and each page are plain block flow
+     inside .tab-body's own inset, so desktop fills the available width; the tab
+     row scrolls sideways so a long set of tabs never wraps or cramps on mobile. */
+  .console-tabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+    -webkit-overflow-scrolling: touch;
   }
-  .console-nav-button {
+  .console-tab {
+    flex: 0 0 auto;
     background: rgba(var(--color-accent-rgb), 0.06);
     border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    padding: 16px 12px;
+    border-radius: 8px;
+    padding: 9px 16px;
     color: var(--color-text-secondary);
     font-size: 13px;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
     cursor: pointer;
-    text-align: left;
   }
-  .console-nav-button:hover:not(.locked) {
+  .console-tab:hover:not(.locked):not(.active) {
     background: rgba(var(--color-accent-rgb), 0.15);
     color: var(--color-accent-bright);
     border-color: var(--color-accent);
   }
-  /* Reserved meta buttons, inert (same honest "coming soon" role as the
-     System / Battlespace locked slots). */
-  .console-nav-button.locked {
+  /* The selected tab GLOWS to mark where you are (user 2026-07-21): accent border
+     and text plus a soft accent halo, all from the theme accent token so it
+     tracks whatever theme is active. */
+  .console-tab.active {
+    color: var(--color-accent-bright);
+    border-color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.15);
+    box-shadow: 0 0 10px rgba(var(--color-accent-rgb), 0.45), inset 0 0 7px rgba(var(--color-accent-rgb), 0.12);
+  }
+  /* Reserved meta tabs, inert (same honest "coming soon" role as the System /
+     Battlespace locked slots). */
+  .console-tab.locked {
     opacity: 0.5;
     cursor: not-allowed;
   }
-  .console-nav-button.locked:hover {
-    border-color: rgba(var(--color-accent-rgb), 0.3);
-  }
-  /* Back affordance opening every summoned panel, a slim left-aligned button
-     in the same accent idiom, returning the perspective to its overview. */
-  .console-back {
-    align-self: flex-start;
-    background: rgba(var(--color-accent-rgb), 0.06);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    padding: 8px 14px;
-    margin-bottom: 12px;
-    color: var(--color-text-secondary);
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .console-back:hover {
-    background: rgba(var(--color-accent-rgb), 0.15);
-    color: var(--color-accent-bright);
-    border-color: var(--color-accent);
-  }
-  .console-panel { display: flex; flex-direction: column; }
   /* Fleet Operations tab layout (2026-07-07 Fleet Operations Mission UI,
      Task 6), mirrors .fleet-captains-layout/.captain-list/
      .captain-list-item directly above verbatim in spirit: flat,
