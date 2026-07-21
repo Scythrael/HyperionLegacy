@@ -153,13 +153,22 @@ describe("salvageEquipment: rejects non-salvageable targets as a same-ref no-op 
     expect(result.next.equipment.find((e) => e.id === "fit-1")).toBeDefined();
   });
 
-  it("rejects a Standard-Issue baseline (blueprintKey null: free/craftless, nothing to recover)", () => {
+});
+
+describe("salvageEquipment: a spare Standard-Issue baseline salvages as a zero-reward declutter (2026-07-21)", () => {
+  it("removes the baseline and recovers NOTHING (no reject, no materials, inventory untouched)", () => {
     const piece = makePiece({ slotType: "cargoBay", fitted: false, crafted: false, quality: 0, id: "base-1" });
     const state = stateWith([piece]);
     const result = salvageEquipment(state, "base-1", () => 0.5);
-    expect("reason" in result).toBe(true);
-    expect(result.next).toBe(state);
-    expect(result.next.equipment.find((e) => e.id === "base-1")).toBeDefined();
+    // Succeeds as a declutter, it is NOT a reject.
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected a successful declutter");
+    // The baseline is gone from the spare pool.
+    expect(result.next.equipment.find((e) => e.id === "base-1")).toBeUndefined();
+    // Zero reward: an empty recovered map and the inventory reference is unchanged
+    // (deliberate, so a free baseline can never be a farmable material source).
+    expect(Object.keys(result.recovered)).toHaveLength(0);
+    expect(result.next.inventory).toBe(state.inventory);
   });
 });
 

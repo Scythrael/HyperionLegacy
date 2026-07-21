@@ -131,11 +131,11 @@ export interface SalvageRoll {
 }
 
 // The reasons a salvage is refused.
-//   Equipment recycle (salvageEquipment), only a SPARE CRAFTED system qualifies:
+//   Equipment recycle (salvageEquipment), a spare system (crafted OR baseline) qualifies:
 //     notFound             no equipment piece with that id
 //     fitted               the piece is fitted to a ship (unfit it first)
-//     notCraftable         a Standard-Issue baseline (blueprintKey null): craft-less,
-//                          nothing to refund
+//   (A Standard-Issue baseline is NOT refused: it salvages as a zero-reward declutter,
+//    see salvageEquipment below. So there is no baseline-specific reject reason.)
 //   Salvaged-material loot roll (salvageSalvagedMaterial):
 //     notSalvagedMaterial  the item id is not a `salvagedMaterial` category item (only
 //                          salvaged materials carry a loot pool)
@@ -147,7 +147,6 @@ export interface SalvageRoll {
 export type SalvageRejectReason =
   | "notFound"
   | "fitted"
-  | "notCraftable"
   | "notSalvagedMaterial"
   | "noneHeld"
   | "shipNotFound"
@@ -174,9 +173,10 @@ export type SalvageRejectReason =
 // whatever the caller passed" option from the task, chosen over making the param the
 // sole hook because it guarantees auto-apply without any caller-side wiring.
 //
-// REJECTS (same-ref no-op + reason) when the target is not a spare crafted system:
-// missing id, fitted piece, or Standard-Issue baseline. Only then does it compute a
-// reward and build a new state.
+// REJECTS (same-ref no-op + reason) only when the target is missing or fitted. A spare
+// piece is always salvageable: a CRAFTED spare recovers a rolled fraction of its recipe
+// inputs; a Standard-Issue BASELINE has no recipe, so it salvages as a zero-reward
+// DECLUTTER (removed, recovers nothing), see the baseline branch below.
 export function salvageEquipment(
   state: GameState,
   instanceId: string,
@@ -194,9 +194,18 @@ export function salvageEquipment(
     return { ok: false, next: state, reason: "fitted" };
   }
   // Standard-Issue baseline (blueprintKey null): free + craft-less, so there is no
-  // recipe to refund. These are managed by the never-empty invariant, not salvaged.
+  // recipe to refund. Rather than block it, salvage it as a pure DECLUTTER (user
+  // decision 2026-07-21): remove the spare baseline and recover NOTHING. The zero
+  // reward is deliberate and load-bearing: baselines are free (a spare one can be
+  // produced at no material cost), so ANY payout here would be a farmable resource
+  // source (Omega 6). An empty `recovered` map tells the caller to render a
+  // "discarded, no materials" outcome instead of a recovery summary. This only ever
+  // runs on a SPARE baseline: a fitted one is caught by the `fitted` guard above, and
+  // the live-slot never-empty invariant is untouched (this removes a pool spare, not
+  // a slot occupant).
   if (piece.blueprintKey === null) {
-    return { ok: false, next: state, reason: "notCraftable" };
+    const equipment = state.equipment.filter((e) => e.id !== instanceId);
+    return { ok: true, next: { ...state, equipment }, recovered: {} };
   }
 
   // --- Compute the recovery fraction ----------------------------------------

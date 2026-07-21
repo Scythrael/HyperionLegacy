@@ -1917,12 +1917,13 @@
 
   // The resolved selected piece (or null). Reactive on the pool, so if the
   // selected piece is salvaged the tooltip auto-hides even without an explicit
-  // clear. A crafted spare (blueprintKey !== null) is the ONLY thing salvageable,
-  // baselines and (absent here) fitted pieces are excluded, so this predicate
-  // gates the Salvage button too.
+  // clear. EVERY spare in this bay is salvageable now: a crafted spare recycles for
+  // materials, and a Standard-Issue baseline salvages as a zero-reward declutter
+  // (2026-07-21). Fitted pieces are absent from this list entirely, so any selected
+  // piece here is a valid target. This predicate gates the Salvage button.
   $: selectedSystem =
     selectedSystemId !== null ? baySpareSystems.find((p) => p.id === selectedSystemId) ?? null : null;
-  $: selectedIsSalvageable = selectedSystem !== null && selectedSystem.blueprintKey !== null;
+  $: selectedIsSalvageable = selectedSystem !== null;
 
   // Toggle a tile's selection (clicking the open tile closes it), matching the
   // slot-select toggle idiom ShipSystemsPanel uses.
@@ -1932,16 +1933,14 @@
 
   // Human sentence for a salvage REJECT reason. Exhaustive over SalvageRejectReason
   // (a switch, no default) so a new reason is a compile error here. Only notFound /
-  // fitted / notCraftable are reachable from the bay (it salvages spare systems),
-  // but the salvaged-material reasons are covered for totality.
+  // fitted are reachable from the bay's system salvage (a spare baseline no longer
+  // rejects, it declutters), but the salvaged-material reasons are covered for totality.
   function salvageRejectText(reason: SalvageRejectReason): string {
     switch (reason) {
       case "notFound":
         return "that system no longer exists";
       case "fitted":
         return "the system is installed on a ship (uninstall it first)";
-      case "notCraftable":
-        return "a Standard-Issue baseline has no recipe to refund";
       case "notSalvagedMaterial":
         return "that item is not a salvaged material";
       case "noneHeld":
@@ -1961,8 +1960,10 @@
   // salvaged-material loot roll (materials + a rolled tier). `recovered` is the
   // positive-amount entries only (the same filter the log summary uses). null when
   // nothing has been salvaged this visit; cleared on leaving the Salvage Bay.
+  // "baseline" is a Standard-Issue declutter (removed, zero reward); it renders a
+  // "discarded" readout distinct from a crafted recycle's "recovered nothing (rounded)".
   type LastSalvageResult = {
-    kind: "system" | "material";
+    kind: "system" | "material" | "baseline";
     sourceName: string;
     recovered: { itemId: string; amount: number }[];
     rolledTier?: string;
@@ -1979,6 +1980,11 @@
     // label the confirm modal shows) must be read now. Fall back to the raw id if the
     // piece is somehow absent (e.g. a hand-edited save).
     const salvagedPiece = state.equipment.find((e) => e.id === instanceId);
+    // A Standard-Issue baseline (blueprintKey null) salvages as a zero-reward declutter,
+    // so its readout/log say "discarded", not "recovered nothing". Read the flag BEFORE
+    // the salvage consumes the piece.
+    const wasBaseline = salvagedPiece?.blueprintKey === null;
+    const salvagedName = salvagedPiece ? systemSalvageName(salvagedPiece) : instanceId;
     const result = salvageEquipment(state, instanceId);
     if (!result.ok) {
       pushLog(`Cannot salvage system: ${salvageRejectText(result.reason)}.`);
@@ -1986,6 +1992,13 @@
     }
     state = result.next;
     if (selectedSystemId === instanceId) selectedSystemId = null;
+    if (wasBaseline) {
+      // Declutter: nothing recovered, so log + readout report a discard.
+      pushLog(`Discarded Standard-Issue ${salvagedName} (no materials recovered).`);
+      lastSalvageResult = { kind: "baseline", sourceName: salvagedName, recovered: [] };
+      doSave();
+      return;
+    }
     // The positive recoveries (0-amount inputs omitted) as structured entries, the
     // SINGLE source both the log summary and the Task 12 result panel read from.
     const positive = Object.entries(result.recovered)
@@ -1998,7 +2011,7 @@
     // Capture the outcome for the Salvage Bay result panel (in addition to the log).
     lastSalvageResult = {
       kind: "system",
-      sourceName: salvagedPiece ? systemSalvageName(salvagedPiece) : instanceId,
+      sourceName: salvagedName,
       recovered: positive,
     };
     doSave();
@@ -2059,12 +2072,16 @@
   // to the matching handler.
   let salvageConfirm: { kind: "system" | "material" | "ship"; id: string; name: string } | null = null;
 
-  // The display name a spare system shows in the salvage-confirm dialog: its slot +
-  // variety label (equipmentOutputLabel, the SAME label the fabricate readout uses).
-  // Only CRAFTED spares are salvageable, so equipmentOutput is always present; the guard
-  // keeps a hand-edited save from throwing (falls back to a generic word).
+  // The display name a spare system shows in the salvage-confirm dialog and result
+  // readout. A CRAFTED spare uses its slot + variety label (equipmentOutputLabel, the
+  // SAME label the fabricate readout uses). A Standard-Issue baseline has no blueprint,
+  // so it reads as "Standard-Issue <slot label>" (e.g. "Standard-Issue Cargo Bay"). The
+  // final fallback keeps a hand-edited save from throwing.
   function systemSalvageName(piece: EquipmentInstance): string {
-    const eqOut = piece.blueprintKey !== null ? BLUEPRINTS[piece.blueprintKey]?.equipmentOutput : undefined;
+    if (piece.blueprintKey === null) {
+      return `Standard-Issue ${EQUIPMENT_SLOTS[piece.slotType]?.label ?? piece.slotType}`;
+    }
+    const eqOut = BLUEPRINTS[piece.blueprintKey]?.equipmentOutput;
     return eqOut ? equipmentOutputLabel(eqOut) : "this system";
   }
 
@@ -5669,11 +5686,13 @@
                 <div class="warehouse-tier-head">
                   <span class="warehouse-tier-label">Last salvage</span>
                   <span class="warehouse-tier-line"></span>
-                  <span class="warehouse-tier-cap">{lastSalvageResult.kind === "system" ? "recycled" : "loot roll"}</span>
+                  <span class="warehouse-tier-cap">{lastSalvageResult.kind === "system" ? "recycled" : lastSalvageResult.kind === "baseline" ? "discarded" : "loot roll"}</span>
                 </div>
                 <p class="research-status">
-                  {lastSalvageResult.kind === "system" ? "Recycled" : "Broke down"} [{lastSalvageResult.sourceName}].
-                  {#if lastSalvageResult.recovered.length > 0}
+                  {lastSalvageResult.kind === "system" ? "Recycled" : lastSalvageResult.kind === "baseline" ? "Discarded" : "Broke down"} [{lastSalvageResult.sourceName}].
+                  {#if lastSalvageResult.kind === "baseline"}
+                    Standard-Issue systems carry no materials to recover.
+                  {:else if lastSalvageResult.recovered.length > 0}
                     Recovered: {lastSalvageResult.recovered
                       .map((r) => `${formatNumber(new Decimal(r.amount))} [${ITEMS[r.itemId]?.label ?? r.itemId}]`)
                       .join(", ")}.
@@ -7276,9 +7295,18 @@
     <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Confirm salvage" use:focusTrap={cancelSalvageConfirm}>
       <Panel class="modal-dialog">
         <div class="panel-title">CONFIRM SALVAGE</div>
+        <!-- A Standard-Issue baseline has no recipe, so it is a zero-reward DISCARD, not a
+             "break down for parts". Detect it (a system whose piece has no blueprintKey) so
+             the warning tells the truth rather than promising parts it will not yield. -->
+        {@const scId = salvageConfirm.id}
+        {@const scIsBaseline = salvageConfirm.kind === "system" && state.equipment.find((e) => e.id === scId)?.blueprintKey === null}
         <p class="modal-warning">
-          Permanently break down <strong>{salvageConfirm.name}</strong> for parts? This destroys the
-          {salvageConfirm.kind === "system" ? "system" : salvageConfirm.kind === "ship" ? "ship" : "material"} and can't be undone.
+          {#if scIsBaseline}
+            Permanently discard <strong>{salvageConfirm.name}</strong>? This removes the Standard-Issue system for nothing (it has no materials to recover) and can't be undone.
+          {:else}
+            Permanently break down <strong>{salvageConfirm.name}</strong> for parts? This destroys the
+            {salvageConfirm.kind === "system" ? "system" : salvageConfirm.kind === "ship" ? "ship" : "material"} and can't be undone.
+          {/if}
         </p>
         {#if salvageShipCaptainWarning !== null}
           <p class="modal-warning">This will leave <strong>{salvageShipCaptainWarning}</strong> without a ship until you assign them another. Any crafted systems return to your spares.</p>
