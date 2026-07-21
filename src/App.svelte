@@ -433,6 +433,12 @@
   // truth. Imported at the top of this <script>; used unchanged by the About
   // sub-tab (APP_VERSION) and the Patch Notes sub-tab (PATCH_NOTES) below.
 
+  // Public Discord invite for the community. Kept as a named constant here so the
+  // Community sub-tab (Task 4, 0.11.2) has a single, obvious source. Landing.svelte
+  // currently hardcodes the same invite inline (its link chip); this task does not
+  // refactor Landing, so the two references are intentionally kept in sync by hand.
+  const DISCORD_INVITE_URL = "https://discord.gg/rcY7uqchTC";
+
   // Display-only phase labels for the MISSIONS panel's phase readout. Purely
   // a UI concern, nothing outside this file needs to map a MissionPhase to
   // display text, so it lives here rather than in model.ts. Must stay in
@@ -1236,7 +1242,7 @@
   // this out-of-the-way spot, per the user's own request, since the level/
   // XP/tick bar and the bottom nav ARE the header/footer now. Defaults to
   // Options since theme/save actions are the most commonly checked view.
-  type SystemSubTab = "profile" | "options" | "log" | "debug" | "about" | "patchNotes";
+  type SystemSubTab = "profile" | "options" | "log" | "debug" | "about" | "patchNotes" | "community";
   let activeSystemSubTab: SystemSubTab = "options";
 
   // System settings modal (0.11.2 Shell Correction, Task 3). The System program
@@ -1248,18 +1254,21 @@
 
   // The modal's top-tab list, in display order. "profile" is the new first view
   // (Task 3); the remaining keys map to the byte-for-byte-moved settings content
-  // blocks. The Debug tab is DEV-only: the spread injects its entry ONLY when
-  // DEV_MODE is true (the exact `...(DEV_MODE ? [...] : [])` idiom the retired
+  // blocks. "community" (Task 4) is the last player-visible tab. The Debug tab is
+  // DEV-only and sits genuinely LAST via the spread, which injects its entry ONLY
+  // when DEV_MODE is true (the exact `...(DEV_MODE ? [...] : [])` idiom the retired
   // rail/SubTabs arrays used), so ordinary players never see a Debug tab at all,
-  // matching the debug content block's own {#if DEV_MODE && ...} guard. DEV_MODE
-  // is a constant for the session, so this is a plain const, not a $: reactive.
+  // matching the debug content block's own {#if DEV_MODE && ...} guard. Placing the
+  // dev-only tool after the user-facing tabs keeps the player tab strip clean.
+  // DEV_MODE is a constant for the session, so this is a plain const, not a $: reactive.
   const systemModalTabs = [
     { key: "profile", label: "Profile" },
     { key: "options", label: "Options" },
     { key: "log", label: "Log" },
-    ...(DEV_MODE ? [{ key: "debug", label: "Debug" }] : []),
     { key: "about", label: "About" },
     { key: "patchNotes", label: "Patch Notes" },
+    { key: "community", label: "Community" },
+    ...(DEV_MODE ? [{ key: "debug", label: "Debug" }] : []),
   ];
 
   // openSystemModal / closeSystemModal / selectSystemSubTab / onSystemBackdropClick
@@ -6923,6 +6932,31 @@
         </div>
       </Panel>
       {/if}
+
+      <!-- Community sub-tab (Task 4, 0.11.2 Shell Correction). A single call to
+           action: join the player Discord. The invite opens in a new tab via the
+           anchor's target/rel (rel="noopener noreferrer" so the opened page can't
+           reach back through window.opener). No iframe or embedded widget, just a
+           link styled as a button. The anchor reuses .buy-btn for the crimson-theme
+           shape/padding and layers the scoped .discord-btn on top ONLY to apply
+           Discord's brand blue (#5865f2) + white text + the icon/label gap. This
+           brand-blue one-off is the single sanctioned exception to the crimson UI
+           lock, justified because it is a recognizable brand mark. -->
+      {#if activeSystemSubTab === "community"}
+      <Panel>
+        <div class="panel-title">COMMUNITY</div>
+        <p class="prestige-text">Join the Fleet Admiral community on Discord to share strategies, report bugs, and hear about new updates first.</p>
+        <a
+          class="buy-btn discord-btn"
+          href={DISCORD_INVITE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.24.5a18.3 18.3 0 0 1 4.34 1.36 16.5 16.5 0 0 0-13-.02A18 18 0 0 1 10.87 3.5L10.6 3A19.8 19.8 0 0 0 5.7 4.4C2.6 9 1.75 13.5 2.17 17.9A20 20 0 0 0 8.3 21l.66-1.1c-.5-.19-.98-.42-1.44-.7l.36-.28a14.3 14.3 0 0 0 12.24 0l.36.28c-.46.28-.94.51-1.44.7L19.7 21a20 20 0 0 0 6.14-3.1c.5-5.1-.86-9.56-3.54-13.5zM9.5 15.3c-.98 0-1.79-.9-1.79-2s.79-2 1.79-2 1.8.9 1.79 2c0 1.1-.8 2-1.79 2zm5 0c-.98 0-1.79-.9-1.79-2s.79-2 1.79-2 1.8.9 1.79 2c0 1.1-.79 2-1.79 2z"/></svg>
+          Join the Discord
+        </a>
+      </Panel>
+      {/if}
           </div>
         </div>
       </div>
@@ -8003,6 +8037,21 @@
     cursor: pointer;
   }
   .buy-btn:disabled { cursor: not-allowed; }
+  /* Community sub-tab Discord button (Task 4, 0.11.2). Reuses .buy-btn for
+     shape/padding; this scoped rule ONLY applies Discord's brand blue + white
+     text and aligns the inline SVG icon with the label. This brand-blue one-off
+     is the single sanctioned exception to the crimson UI lock (recognizable
+     brand mark), deliberately kept self-contained to one class. */
+  .discord-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #5865f2;
+    border: 1px solid #5865f2;
+    color: #fff;
+    text-decoration: none;
+  }
+  .discord-btn:hover { background: #4752c4; border-color: #4752c4; }
   .prestige-text { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 12px; }
   .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
   .theme-swatch {
