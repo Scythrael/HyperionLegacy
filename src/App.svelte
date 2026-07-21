@@ -391,6 +391,7 @@
   // into a quality bucket (dev-grant handler uses quality 0). See src/lib/game/inventory.ts.
   import { itemTotal, addItemQuality, QUALITY_TIERS } from "./lib/game/inventory";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
+  import { deriveStatistics } from "./lib/game/statistics";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
@@ -570,6 +571,14 @@
   // defaulting to the first (missions), same rail-selection idiom as the System
   // program's activeSystemSubTab.
   let activeHelpTopic: string = "missions";
+
+  // Home > Statistics sub-tabs (0.11.2 Shell Correction, Task 2): the Statistics
+  // section splits into three top sub-tabs, rendered by the shared <SubTabs>
+  // component (same idiom as every other program's sub-tab axis). Lifetime holds
+  // the cumulative lifetimeStats totals, Career holds play time + the two levels,
+  // Fleet holds live roster counts. Defaults to Lifetime, the headline totals.
+  type StatsSubTab = "lifetime" | "career" | "fleet";
+  let activeStatsSubTab: StatsSubTab = "lifetime";
 
   // Fleet Captain's tab sub-tabs (UI Redesign, Task 8, see
   // docs/plans/2026-07-07-ui-redesign-plan.md). Overview holds the relocated
@@ -2803,6 +2812,12 @@
   }
 
   $: activeCaptain = state.captains[activeCaptainIndex];
+
+  // Home > Statistics derivation (0.11.2 Shell Correction, Task 2). Pure read of
+  // existing GameState fields, reshaped into grouped { label, value } rows by
+  // deriveStatistics (statistics.ts). Reactive on `state` so the readout refreshes
+  // each tick as lifetime totals, play time, and roster counts change.
+  $: stats = deriveStatistics(state);
   // Fleet-wide tick readout (collapsed from per-captain activeCycle/
   // activeBarSeconds/activeTickProgress/activeTickRemaining during the UI
   // Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md).
@@ -6406,13 +6421,60 @@
           {/if}
 
           {#if activeHomeSection === "statistics"}
-          <!-- Statistics placeholder (0.11.2 Shell Correction, Task 1). Task 2
-               replaces this with a real panel derived from existing save data;
-               kept minimal here so the rail item is not dead. -->
+          <!-- Statistics (0.11.2 Shell Correction, Task 2). A top <SubTabs> axis
+               (Lifetime / Career / Fleet, same shared component every other
+               program uses) selects which group of rows to show. The rows come
+               from deriveStatistics(state) (statistics.ts), a pure read/derive
+               over EXISTING save fields, no new tracked counters, no economy or
+               tick changes. Each group renders label/value rows in a Panel; the
+               .stat-row class is a minimal flex justify-between line (no colors,
+               no new visual language) since no existing panel row layout fit a
+               plain two-column readout cleanly. -->
+          <SubTabs
+            tabs={[
+              { key: "lifetime", label: "Lifetime" },
+              { key: "career", label: "Career" },
+              { key: "fleet", label: "Fleet" },
+            ]}
+            active={activeStatsSubTab}
+            onSelect={(key) => (activeStatsSubTab = key as StatsSubTab)}
+          />
+
+          {#if activeStatsSubTab === "lifetime"}
           <Panel>
-            <div class="panel-title">STATISTICS</div>
-            <p class="prestige-text">Coming in this update.</p>
+            <div class="panel-title">LIFETIME</div>
+            {#each stats.lifetime as row}
+              <div class="stat-row">
+                <span class="stat-row-label">{row.label}</span>
+                <span class="stat-row-value">{row.value}</span>
+              </div>
+            {/each}
           </Panel>
+          {/if}
+
+          {#if activeStatsSubTab === "career"}
+          <Panel>
+            <div class="panel-title">CAREER</div>
+            {#each stats.career as row}
+              <div class="stat-row">
+                <span class="stat-row-label">{row.label}</span>
+                <span class="stat-row-value">{row.value}</span>
+              </div>
+            {/each}
+          </Panel>
+          {/if}
+
+          {#if activeStatsSubTab === "fleet"}
+          <Panel>
+            <div class="panel-title">FLEET</div>
+            {#each stats.fleet as row}
+              <div class="stat-row">
+                <span class="stat-row-label">{row.label}</span>
+                <span class="stat-row-value">{row.value}</span>
+              </div>
+            {/each}
+          </Panel>
+          {/if}
           {/if}
         </div>
       </div>
@@ -8274,6 +8336,26 @@
   .warehouse-tt-name { font-size: 13px; font-weight: 700; color: var(--color-text-primary); }
   .warehouse-tt-rarity { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; margin-top: 1px; }
   .warehouse-tt-row { display: flex; justify-content: space-between; font-size: 11px; margin-top: 8px; color: var(--color-text-secondary); }
+
+  /* Home > Statistics label/value row (0.11.2 Shell Correction, Task 2). A minimal
+     two-column readout: dim label on the left, primary-color value on the right.
+     Reuses the existing token vocabulary only (text-secondary / text-primary /
+     border), adds NO new colors and NO new visual language, it is just a flex
+     justify-between line, the same layout .warehouse-tt-row above already uses.
+     The thin bottom rule reuses --color-border for row separation and is dropped
+     on the last row so the panel does not end on a stray divider. */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    padding: 7px 0;
+    font-size: 13px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-row-label { color: var(--color-text-secondary); }
+  .stat-row-value { color: var(--color-text-primary); font-family: var(--font-mono); font-weight: 600; }
   .warehouse-tt-v { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-primary); }
   .warehouse-tt-bar {
     height: 6px; border-radius: 3px; overflow: hidden; margin-top: 7px;
