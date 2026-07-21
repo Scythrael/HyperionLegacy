@@ -585,12 +585,14 @@
   // it CRAFTS the components the Research Lab unlocked. Same deliberate typed-union
   // addition as "research" above.
   type FacilityKey = "refinery" | "warehouse" | "missionControl" | "fuelStorage" | "research" | "fabricator" | "shipyard";
-  // Default to "missionControl": the Refinery/Fabricator/Research/Fuel Depot panes
-  // moved to the FOUNDRY program (0.11.2 Task 1) and the Warehouse pane moved to the
-  // STORES program (0.11.2 Task 3), so the Facilities content chain no longer has a
-  // "refinery" or "warehouse" branch. Defaulting there would open the Facilities tab
-  // to a blank pane. "missionControl" is the only REMAINING Facilities pane, so the
-  // tab opens populated.
+  // INERT as of 0.11.2 Task 5: every Facilities facility has now moved to its own
+  // program. Refinery/Fabricator/Research/Fuel Depot went to the FOUNDRY program
+  // (Task 1), the Warehouse to the STORES program (Task 3), and Mission Control to
+  // the OPERATIONS program (Task 5). The Facilities content chain therefore renders
+  // NO pane for any FacilityKey, so this default no longer selects anything (the
+  // Facilities tab shows only its locked Ships rail). The value is kept a valid
+  // FacilityKey purely so nothing references a dead literal; both this state and the
+  // whole Facilities tab are removed in a later nav task.
   let activeFacility: FacilityKey = "missionControl";
 
   // Foundry program rail state (0.11.2 nav restructure, Task 1).
