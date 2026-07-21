@@ -559,7 +559,7 @@
   // Drydock; Warehouse to Stores; Mission Control to Operations), and the emptied
   // Facilities tab was then removed (Task 7). The union below is the resulting
   // program set (see the .nav-tabs row for their left-to-right order).
-  type TabKey = "home" | "personnel" | "fleetOperations" | "foundry" | "drydock" | "stores";
+  type TabKey = "home" | "personnel" | "fleetOperations" | "foundry" | "drydock" | "logistics";
   let activeTab: TabKey = "home";
 
   // Home program (0.11.2 Shell Correction, Task 1): the landing program, first
@@ -664,7 +664,16 @@
   // The FOUNDRY program (Refinery/Fabricator/Research Lab/Fuel Depot) uses
   // its OWN dedicated rail-selection state. A dedicated key union
   // (the four moved facilities only) keeps invalid selections unrepresentable.
-  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage";
+  // 0.12.0 "Console" nav (Logistics, CN3a): the WAREHOUSE joins this rail. The
+  // Warehouse is a BUILDING the player manages (its storage state + per-tier
+  // storage-expansion), so under the perspective model its management belongs to
+  // Facilities, NOT to Logistics (which is the ITEM perspective, the material
+  // CATALOG). Facilities is not converted yet, so the Warehouse's transitional
+  // home is the Foundry tab (which becomes Facilities later). Only the warehouse-
+  // as-building views (Overview + Upgrade) live here; the material catalog itself
+  // moved to Logistics > Materials. This keeps the ONLY material-storage-expansion
+  // UI reachable through the transition.
+  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse";
   let activeFoundryFacility: FoundryFacilityKey = "refinery";
 
   // Drydock program rail state (0.11.2 nav restructure, Task 2).
@@ -674,22 +683,43 @@
   // it uses its OWN dedicated rail-selection state. (The Locations tab it also
   // drew from has since been removed in Task 4.) A dedicated two-key union keeps
   // invalid selections unrepresentable. Named (not an inline literal union) to match the sibling
-  // rail-state types (FoundryFacilityKey, StoresFacilityKey, StarbaseSubTab,
-  // ShipyardSubTab).
+  // rail-state types (FoundryFacilityKey, StarbaseSubTab, ShipyardSubTab).
   type DrydockSection = "shipyard" | "docks";
   let activeDrydockSection: DrydockSection = "shipyard";
 
-  // Stores program rail state (0.11.2 nav restructure, Tasks 3 + 11).
-  // The STORES program holds the storage/inventory facilities. It now contains
-  // TWO facilities: the Warehouse (the fill-tile inventory catalog, moved
-  // VERBATIM out of the Facilities tab in Task 3) and the Salvage Bay (Task 11),
-  // the dedicated home for breaking spare ship systems and salvaged materials
-  // down for parts/loot. Like the Foundry's activeFoundryFacility and the
-  // Drydock's activeDrydockSection above, it uses its OWN dedicated rail-
-  // selection state. Named (not an inline literal union) to match the sibling
-  // rail-state types (FoundryFacilityKey, DrydockSection).
-  type StoresFacilityKey = "warehouse" | "salvageBay";
-  let activeStoresFacility: StoresFacilityKey = "warehouse";
+  // Logistics program tab state (0.12.0 "Console" nav, Phase 3 / CN3a). Replaces
+  // the old Stores program (the activeStoresFacility Warehouse | Salvage Bay left
+  // rail, now RETIRED). Logistics is the ITEM perspective: everything at the item
+  // scope. A slim TOP rail (the shared <ConsoleTabs> primitive, same idiom Home
+  // and Personnel use) splits it into:
+  //   - "ships"         , the ship console (paper-doll + installs). STUB this
+  //                       task, built out in the next task (CN3b). Docks (ship
+  //                       storage/assignment) stays in the Drydock tab meanwhile,
+  //                       so ship management is still reachable during transition.
+  //   - "shipEquipment" , the spare Ship Systems bay (moved verbatim from the old
+  //                       Warehouse Finished Goods > Ship Systems), + compact
+  //                       locked markers for the reserved Weapons/Modules/Consumables.
+  //   - "crewEquipment" , reserved/locked (crew equipment does not exist yet).
+  //   - "materials"     , the material CATALOG (moved verbatim from the old
+  //                       Warehouse Materials tab: themed sub-categories, tier
+  //                       splits, masked undiscovered items). The DEFAULT (the
+  //                       most-used view).
+  //   - "salvage"       , the Salvage Bay (moved verbatim from the old Stores
+  //                       Salvage Bay: salvage actions + result readout + per-
+  //                       quality confirm).
+  // Defaults to "materials" so Logistics opens on the most-used inventory view.
+  let activeLogisticsTab: "ships" | "shipEquipment" | "crewEquipment" | "materials" | "salvage" = "materials";
+
+  // The Logistics top rail, in display order. Crew Equipment is a locked reserved
+  // slot (same honest "coming soon" affordance the System / Battlespace slots use);
+  // ConsoleTabs grays it and blocks selection.
+  const LOGISTICS_TABS: { key: string; label: string; locked?: boolean }[] = [
+    { key: "ships", label: "Ships" },
+    { key: "shipEquipment", label: "Ship Equipment" },
+    { key: "crewEquipment", label: "Crew Equipment", locked: true },
+    { key: "materials", label: "Materials" },
+    { key: "salvage", label: "Salvage" },
+  ];
 
   // Operations program sub-tab state (0.11.2 nav restructure, Task 5).
   // The OPERATIONS program now hosts two axes via a top-level <SubTabs>:
@@ -705,63 +735,39 @@
   let activeOperationsSubTab: OperationsSubTab = "dispatch";
 
   // ---- Warehouse facility view (Phase 2, Group C; 0.11.2 Task 9 restructure) --
-  // A tiered fill-tile inventory catalog. The top SubTabs axis is now just FOUR
-  // tabs: Overview + Upgrade (the facility-management views, mirroring the
-  // Refinery's Overview/Upgrades), then two content tabs, Materials and Finished
-  // Goods. The old flat per-category tabs (Raw/Refined/Components/Ship Systems/
-  // Salvaged/Ship Equipment/Troop Equipment/Consumables) collapse into these two:
-  //   - Materials: ONE scrollable pane with a Tier selector then themed labeled
-  //     sections (raw split by subCategory into Ores & Metals / Volatiles /
-  //     Organic Compounds / Recovered Tech, then Refined, Components, Salvaged
-  //     Materials), each rendering the SAME fill-tile grid.
-  //   - Finished Goods: the non-stacking Ship Systems bay (state.equipment),
-  //     relocated verbatim here as interim content until Task 10 builds out the
-  //     reserved Weapons/Modules/Consumables structure.
+  // 0.12.0 "Console" nav (Logistics, CN3a): the Warehouse's two CONTENT tabs left
+  // for Logistics (Materials -> Logistics > Materials; Finished Goods / Ship
+  // Systems -> Logistics > Ship Equipment). What remains here is the warehouse-as-
+  // a-BUILDING management, its two facility-management views, now hosted in the
+  // Foundry tab (Warehouse rail entry) since Facilities is not converted yet:
+  //   - Overview: at-a-glance storage state (T1 level + cap, items-at-cap ⚠, the
+  //     discovered/total catalog count, and the FULL-material attention card).
+  //   - Upgrade: the per-tier storage-expansion Build/Unlock cards (the ONLY UI
+  //     to expand material storage capacity).
   //
   // Kept a typed literal union (not a free string) so a future tab is added
   // deliberately, the same discipline RefinerySubTab/FoundryFacilityKey use.
   type WarehouseCat =
     | "overview"
-    | "upgrade"
-    | "materials"
-    | "finishedGoods";
+    | "upgrade";
   let activeWarehouseCat: WarehouseCat = "overview";
 
-  // The 4 top-level SubTabs, in display order. Two management tabs then two
-  // content tabs, matching the 0.11.2 Warehouse restructure mockup.
+  // The 2 warehouse management SubTabs, in display order (Overview then Upgrade),
+  // mirroring the Refinery's Overview/Upgrades management axis.
   const WAREHOUSE_CAT_TABS: { key: WarehouseCat; label: string }[] = [
     { key: "overview", label: "Overview" },
     { key: "upgrade", label: "Upgrade" },
-    { key: "materials", label: "Materials" },
-    { key: "finishedGoods", label: "Finished Goods" },
   ];
 
-  // FINISHED GOODS secondary tabs (0.11.2 Task 10). The Finished Goods tab is
-  // itself split into product families: Ship Systems is the ONE real, populated
-  // family today (the state.equipment spare-systems bay). Weapons / Modules /
-  // Consumables are RESERVED roadmap slots with no engine behind them yet, so
-  // they are marked locked (rendered grayed + non-clickable by SubTabs) and,
-  // when defaulted-into can't happen, they only ever show an honest reserved
-  // note. Named literal union (not a free string), same discipline as
-  // WarehouseCat above, so a family is only ever added deliberately.
-  type FinishedGoodsTab =
-    | "shipSystems"
-    | "weapons"
-    | "modules"
-    | "consumables";
-  let activeFinishedGoodsTab: FinishedGoodsTab = "shipSystems";
-
-  // The 4 Finished Goods families, in display order. Only Ship Systems is
-  // unlocked; the other three carry locked:true so SubTabs disables them and
-  // paints them with the same 🔒 + opacity:0.5 "coming soon" treatment the
-  // Fleet Captains and module locked slots already use. Keeping the reserved
-  // families visible (rather than hidden) advertises the combat roadmap.
-  const FINISHED_GOODS_TABS: { key: FinishedGoodsTab; label: string; locked?: boolean }[] = [
-    { key: "shipSystems", label: "Ship Systems" },
-    { key: "weapons", label: "Weapons", locked: true },
-    { key: "modules", label: "Modules", locked: true },
-    { key: "consumables", label: "Consumables", locked: true },
-  ];
+  // FINISHED GOODS secondary tabs (0.11.2 Task 10) were RETIRED in the 0.12.0
+  // "Console" nav (Logistics, CN3a). The old Finished Goods > Ship Systems bay
+  // became the Logistics > Ship Equipment tab, which shows the Ship Systems bay
+  // DIRECTLY (no inner SubTabs strip, per the console FLATTEN principle: an inner
+  // tab layer under ConsoleTabs collapses). The reserved Weapons / Modules /
+  // Consumables families are now compact locked "coming soon" markers inline in
+  // that tab, preserving the combat-roadmap signal without a nested tab layer.
+  // The reserved-slot chip labels live in LOGISTICS_RESERVED_GOODS below.
+  const LOGISTICS_RESERVED_GOODS: string[] = ["Weapons", "Modules", "Consumables"];
 
   // The warehouse TIERS that have their own facility + cap system today (design
   // §3.1: each tier is its own facility). Drives the Upgrade tab's per-tier
@@ -1074,16 +1080,15 @@
     warehouseTooltip = null;
   }
 
-  // Clear the warehouse tooltip whenever the category tab or the surrounding
-  // navigation changes (review Minor): the tooltip is anchored to a specific
-  // tile's rect, so leaving that view would otherwise leave it hovering over
-  // unrelated content. The Warehouse now lives in the STORES program (0.11.2
-  // Task 3), so nav within/away is tracked via activeStoresFacility (the Stores
-  // rail) and activeTab (leaving the Stores program entirely), replacing the
-  // old activeFacility tracker. Referencing all three vars makes this reactive
-  // statement re-run on any of those changes (the initial null -> null run is
-  // harmless).
-  $: activeWarehouseCat, activeStoresFacility, activeTab, hideWarehouseTooltip();
+  // Clear the warehouse tooltip whenever the surrounding navigation changes
+  // (review Minor): the tooltip is anchored to a specific tile's rect, so leaving
+  // that view would otherwise leave it hovering over unrelated content. The
+  // material fill-tiles (the only tiles that raise this tooltip) now live in the
+  // Logistics > Materials tab (0.12.0 "Console" nav, CN3a), so nav within/away is
+  // tracked via activeLogisticsTab (switching Logistics tabs) and activeTab
+  // (leaving Logistics entirely). Referencing both vars makes this reactive
+  // statement re-run on either change (the initial null -> null run is harmless).
+  $: activeLogisticsTab, activeTab, hideWarehouseTooltip();
 
   // The Refinery's three sub-tabs: Overview (level + refine slots + active jobs +
   // one-shot Start Refine Job), Orders (Phase 2 Task D4, the batch/continuous
@@ -2261,21 +2266,21 @@
     selectedSalvagedId = selectedSalvagedId === itemId ? null : itemId;
   }
 
-  // The salvaged-material Salvage action now lives ONLY in the Salvage Bay
-  // facility (0.11.2 Task 11); the Warehouse Materials tab shows salvaged tiles
-  // for browsing but no longer selects them. So the clear is re-keyed from the
-  // Materials tier to the Stores rail: leaving (or switching away from) the
-  // Salvage Bay clears any pending salvaged selection, avoiding a stale inline
-  // Salvage action panel. Referencing activeStoresFacility makes this reactive;
-  // the initial run is a harmless null -> null. Placed AFTER the selectedSalvagedId
-  // declaration so it is never used before it is declared.
-  $: activeStoresFacility, (selectedSalvagedId = null);
+  // The salvaged-material Salvage action lives ONLY in the Salvage surface (the
+  // Logistics > Salvage tab, 0.12.0 "Console" nav CN3a; the Warehouse Materials
+  // tab shows salvaged tiles for browsing but no longer selects them). So the
+  // clear is keyed to the Logistics tab: switching away from the Salvage tab (or
+  // leaving Logistics) clears any pending salvaged selection, avoiding a stale
+  // inline Salvage action panel. Referencing activeLogisticsTab makes this
+  // reactive; the initial run is a harmless null -> null. Placed AFTER the
+  // selectedSalvagedId declaration so it is never used before it is declared.
+  $: activeLogisticsTab, (selectedSalvagedId = null);
 
-  // Task 12: the salvage result readout is a per-visit status, so leaving (or
-  // switching away from) the Salvage Bay clears it, no stale "Last salvage" panel
-  // lingers on another facility (or on a fresh return to the bay). Same reactive
-  // idiom as the selection clear above; the initial run is a harmless null -> null.
-  $: activeStoresFacility, (lastSalvageResult = null);
+  // Task 12: the salvage result readout is a per-visit status, so switching away
+  // from the Salvage tab (or leaving Logistics) clears it, no stale "Last salvage"
+  // panel lingers elsewhere (or on a fresh return to the tab). Same reactive idiom
+  // as the selection clear above; the initial run is a harmless null -> null.
+  $: activeLogisticsTab, (lastSalvageResult = null);
 
   // SALVAGE one unit of a salvaged material for a tiered loot roll. salvageSalvagedMaterial
   // returns a SalvageResult: on reject a same-ref no-op + reason (noneHeld / notSalvagedMaterial),
@@ -3645,6 +3650,22 @@
           >
             Fuel Depot
           </button>
+          <!-- Warehouse, the warehouse-as-a-BUILDING management (0.12.0 "Console"
+               nav, Logistics CN3a). Its two facility-management views (Overview +
+               Upgrade) moved here from the retired Stores program because the
+               Warehouse is a building the player manages, so under the perspective
+               model it belongs to Facilities (transitionally the Foundry tab), NOT
+               to Logistics. The material CATALOG itself lives in Logistics >
+               Materials. Same reused .captain-list-item / active idiom as the
+               sibling Foundry facilities; only class:active / on:click drive
+               activeFoundryFacility. -->
+          <button
+            class="captain-list-item"
+            class:active={activeFoundryFacility === "warehouse"}
+            on:click={() => (activeFoundryFacility = "warehouse")}
+          >
+            Warehouse
+          </button>
         </div>
 
         <div class="fleet-captains-content">
@@ -4623,6 +4644,134 @@
               </Panel>
             {/if}
 
+          {:else if activeFoundryFacility === "warehouse"}
+            <!-- WAREHOUSE, warehouse-as-a-BUILDING management (0.12.0 "Console"
+                 nav, Logistics CN3a). The two facility-management views, Overview
+                 and Upgrade, MOVED VERBATIM here from the retired Stores program.
+                 The material CATALOG (the fill-tile tiers) and the Ship Systems bay
+                 left for Logistics; what remains is the building the player manages
+                 (its storage state + the ONLY UI to expand material storage). Same
+                 SubTabs + content structure the sibling Foundry facilities use. All
+                 upgrade actions/gates read the SAME tick.ts backend fns the Refinery
+                 uses (tierCap / materialAtCap / canBuildFacilityUpgrade /
+                 startFacilityUpgrade). -->
+            <SubTabs
+              tabs={WAREHOUSE_CAT_TABS}
+              active={activeWarehouseCat}
+              onSelect={(key) => (activeWarehouseCat = key as WarehouseCat)}
+            />
+
+            {#if activeWarehouseCat === "overview"}
+              <!-- OVERVIEW, at-a-glance warehouse state (design §3.1): T1 level +
+                   cap, how many items are AT cap (the ⚠ auto-stop signal),
+                   discovered/total catalog progress, and an Attention card listing
+                   each FULL material when any producer is idled. -->
+              <Panel>
+                <div class="panel-title">WAREHOUSE, TIER 1</div>
+                <div class="research-cost">Storage level: {warehouseT1Level}</div>
+                <div class="research-cost">Cap per item: {formatNumber(warehouseT1Cap)}</div>
+                <div
+                  class="research-cost"
+                  style="color: {warehouseItemsAtCap.length > 0 ? 'var(--color-danger)' : 'var(--color-text-secondary)'}"
+                >
+                  Items at cap: {warehouseItemsAtCap.length}{warehouseItemsAtCap.length > 0 ? " ⚠" : ""}
+                </div>
+                <div class="research-cost">Discovered: {warehouseDiscoveredCount} / {warehouseTotalCount} items</div>
+              </Panel>
+
+              {#if warehouseItemsAtCap.length > 0}
+                <Panel>
+                  <div class="panel-title">⚠ ATTENTION</div>
+                  {#each warehouseItemsAtCap as id (id)}
+                    <div class="research-cost" style="color: var(--color-danger)">
+                      [{ITEMS[id]?.label ?? id}], FULL, producers auto-stopped
+                    </div>
+                  {/each}
+                  <p class="research-status" style="margin-top: 8px;">
+                    A full material auto-stops the tasks feeding it. Expand storage (Upgrade tab) or consume it to resume.
+                  </p>
+                </Panel>
+              {/if}
+            {/if}
+
+            {#if activeWarehouseCat === "upgrade"}
+              <!-- UPGRADE, one card per warehouse tier (design §3.3): current
+                   cap, next cap (doubles), the next rung's material cost +
+                   duration, and a Build/Expand button gated on the SAME
+                   canBuildFacilityUpgrade the backend enforces (so button and
+                   action agree). T2 at level 0 reads as an UNLOCK; its later
+                   denseOre-gated rungs naturally show ❌ (unobtainable input =
+                   honest "future content" wall). In-flight progress mirrors the
+                   Refinery's. -->
+              {#each WAREHOUSE_TIERS as wt (wt.key)}
+                {@const level = state.facilities[wt.key]?.level ?? 0}
+                {@const upgrades = FACILITIES[wt.key].upgrades}
+                {@const maxed = level >= upgrades.length}
+                {@const currentCap = tierCap(state, wt.tier)}
+                {@const check = canBuildFacilityUpgrade(state, wt.key)}
+                {@const isUnlockRung = wt.tier > 1 && level === 0}
+                {@const inFlight = state.activeProcesses.find(
+                  (p) =>
+                    p.kind === "facilityUpgrade" &&
+                    p.effect.type === "facilityLevelUp" &&
+                    p.effect.facility === wt.key
+                )}
+                <Panel>
+                  <div class="panel-title">{wt.label}, {isUnlockRung ? "Unlock Storage" : "Expand Storage"}</div>
+                  <div class="research-cost">Level: {level}</div>
+
+                  {#if maxed}
+                    <p class="research-status">Fully upgraded.</p>
+                  {:else}
+                    {@const nextRung = upgrades[level]}
+                    {@const nextEff = nextRung.effect}
+                    {@const nextCap = "storageCapMult" in nextEff ? currentCap.times(nextEff.storageCapMult) : currentCap}
+                    <div class="research-cost">Current cap: {formatNumber(currentCap)} / item</div>
+                    {#if !isUnlockRung}
+                      <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(nextCap)} / item</div>
+                    {/if}
+                    <div class="research-cost">Duration: {durationReadout(nextRung.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+
+                    <!-- Material readiness: [Item]: have / need, ✅/❌. -->
+                    {#each Object.keys(nextRung.materials) as itemId}
+                      {@const need = nextRung.materials[itemId]}
+                      {@const have = itemTotal(state.inventory, itemId)}
+                      {@const met = have.gte(need)}
+                      <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                        {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                      </div>
+                    {/each}
+
+                    {#if isUnlockRung}
+                      <p class="research-status" style="margin-top: 6px;">
+                        Unlocks {wt.label} storage. Its first expansion needs a Tier-{wt.tier} material you can't reach yet.
+                      </p>
+                    {/if}
+
+                    <button
+                      class="buy-btn"
+                      disabled={!check.ok}
+                      title={check.ok ? undefined : check.reason}
+                      on:click={() => doStartFacilityUpgrade(wt.key)}
+                    >
+                      {isUnlockRung ? `Unlock ${wt.label}` : "Expand · doubles capacity"}
+                    </button>
+                  {/if}
+
+                  {#if inFlight}
+                    {@const progress = inFlight.durationTicks > 0
+                      ? (inFlight.durationTicks - inFlight.remainingTicks) / inFlight.durationTicks
+                      : 1}
+                    <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                    <div class="research-bar-track">
+                      <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                    </div>
+                    <div class="research-readout">{remainingReadout(inFlight.remainingTicks, inFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  {/if}
+                </Panel>
+              {/each}
+            {/if}
+
           {/if}
         </div>
       </div>
@@ -5052,674 +5201,531 @@
       </div>
       {/if}
 
-      {#if activeTab === "stores"}
-      <!-- STORES program (0.11.2 nav restructure, Task 3): holds the
-           storage/inventory facilities. This pass it contains only the
-           Warehouse (moved VERBATIM out of the now removed Facilities tab); a
-           Salvage Bay facility joins it in a later task. Same shell as the
-           Foundry / Drydock tabs (tab-scroll-area > fleet-captains-layout >
-           captain-list rail + fleet-captains-content). Uses a DEDICATED
-           activeStoresFacility rail state. This is an information-architecture
-           move, not a redesign: the moved rail entry and content pane are
-           unchanged except that their guard variable was retargeted to
-           activeStoresFacility. -->
+      {#if activeTab === "logistics"}
+      <!-- LOGISTICS program (0.12.0 "Console" nav, Phase 3 / CN3a). The ITEM
+           perspective: everything at the item scope. Replaces the retired Stores
+           program (its activeStoresFacility Warehouse | Salvage Bay LEFT RAIL is
+           gone). Structure mirrors Home's and Personnel's console idiom exactly:
+           the shared <ConsoleTabs> primitive is the slim TOP rail, and the
+           selected tab's page renders IN PLACE directly below it; NO left rail
+           anywhere. Tabs: Ships | Ship Equipment | Crew Equipment (locked) |
+           Materials | Salvage, driven by activeLogisticsTab (default Materials).
+             - Ships          , STUB this task; the ship console (paper-doll +
+                                installs) arrives in the next task (CN3b). Docks
+                                (ship storage/assignment) stays in the Drydock tab
+                                meanwhile, so ship management is still reachable.
+             - Ship Equipment , the spare Ship Systems bay, moved VERBATIM from the
+                                old Warehouse Finished Goods > Ship Systems (its
+                                inner product-family SubTabs strip FLATTENED away per
+                                the console principle; the reserved Weapons/Modules/
+                                Consumables families are compact locked markers now).
+             - Crew Equipment , a locked reserved rail slot (crew equipment does not
+                                exist yet); ConsoleTabs blocks its selection, so the
+                                locked tab IS the placeholder (no content branch).
+             - Materials      , the material CATALOG, moved VERBATIM from the old
+                                Warehouse Materials tab (themed sub-categories, tier
+                                splits, masked undiscovered items). The warehouse-as-
+                                a-building management (Overview + Upgrade) moved to
+                                the Foundry tab, NOT here.
+             - Salvage        , the Salvage Bay, moved VERBATIM from the old Stores
+                                Salvage Bay (salvage actions + result readout + per-
+                                quality confirm).
+           See docs/plans/2026-07-21-console-nav-0.12.0-design.md + -plan.md. -->
       <div class="tab-scroll-area">
-      <div class="fleet-captains-layout">
-        <div class="captain-list">
-          <!-- Stores rail: Warehouse (the fill-tile inventory catalog, moved
-               from the Facilities tab) + Salvage Bay (0.11.2 Task 11, the
-               dedicated home for the ship-system + salvaged-material Salvage
-               actions relocated out of the Warehouse). Same .captain-list-item
-               idiom; only class:active / on:click drive activeStoresFacility. -->
-          <button
-            class="captain-list-item"
-            class:active={activeStoresFacility === "warehouse"}
-            on:click={() => (activeStoresFacility = "warehouse")}
-          >
-            Warehouse
-          </button>
-          <button
-            class="captain-list-item"
-            class:active={activeStoresFacility === "salvageBay"}
-            on:click={() => (activeStoresFacility = "salvageBay")}
-          >
-            Salvage Bay
-          </button>
-        </div>
+        <ConsoleTabs
+          tabs={LOGISTICS_TABS}
+          active={activeLogisticsTab}
+          onSelect={(key) => (activeLogisticsTab = key as "ships" | "shipEquipment" | "crewEquipment" | "materials" | "salvage")}
+        />
 
-        <div class="fleet-captains-content">
-          {#if activeStoresFacility === "warehouse"}
-            <!-- WAREHOUSE (Phase 2, Group C), the fill-tile inventory catalog.
-                 Mirrors the Refinery's SubTabs + content structure above, but the
-                 SubTabs axis is CATEGORY: Overview + Upgrade (management views)
-                 then one tab per item-category group. Each catalog tab groups its
-                 ITEMS by tier into tier-panels of fill-tiles that read LIVE
-                 inventory/discovered/cap state (so fills move as you gather). All
-                 upgrade actions/gates read the SAME tick.ts backend fns the
-                 Refinery uses (tierCap / materialAtCap / canBuildFacilityUpgrade /
-                 startFacilityUpgrade). -->
-            <SubTabs
-              tabs={WAREHOUSE_CAT_TABS}
-              active={activeWarehouseCat}
-              onSelect={(key) => (activeWarehouseCat = key as WarehouseCat)}
-            />
+        {#if activeLogisticsTab === "ships"}
+          <!-- SHIPS, STUB (0.12.0 Console, CN3a). The ship console (the
+               ShipSystemsPanel paper-doll + the in-place install flow + the
+               composed captain/stat read) is the NEXT task (CN3b); it is
+               deliberately NOT built here. Until then, ship management stays
+               reachable in the Drydock tab (the Docks section: ship storage +
+               assignment), which this task does NOT touch. -->
+          <Panel>
+            <div class="panel-title">SHIPS</div>
+            <p class="research-status">
+              The ship console, the paper-doll outfit view and in-place system installs, arrives in the next update. For now, manage ship storage and captain assignments in the Drydock tab.
+            </p>
+          </Panel>
+        {/if}
 
-            {#if activeWarehouseCat === "overview"}
-              <!-- OVERVIEW, at-a-glance warehouse state (design §3.1): T1 level +
-                   cap, how many items are AT cap (the ⚠ auto-stop signal),
-                   discovered/total catalog progress, and an Attention card listing
-                   each FULL material when any producer is idled. -->
-              <Panel>
-                <div class="panel-title">WAREHOUSE, TIER 1</div>
-                <div class="research-cost">Storage level: {warehouseT1Level}</div>
-                <div class="research-cost">Cap per item: {formatNumber(warehouseT1Cap)}</div>
-                <div
-                  class="research-cost"
-                  style="color: {warehouseItemsAtCap.length > 0 ? 'var(--color-danger)' : 'var(--color-text-secondary)'}"
-                >
-                  Items at cap: {warehouseItemsAtCap.length}{warehouseItemsAtCap.length > 0 ? " ⚠" : ""}
-                </div>
-                <div class="research-cost">Discovered: {warehouseDiscoveredCount} / {warehouseTotalCount} items</div>
-              </Panel>
-
-              {#if warehouseItemsAtCap.length > 0}
-                <Panel>
-                  <div class="panel-title">⚠ ATTENTION</div>
-                  {#each warehouseItemsAtCap as id (id)}
-                    <div class="research-cost" style="color: var(--color-danger)">
-                      [{ITEMS[id]?.label ?? id}], FULL, producers auto-stopped
-                    </div>
-                  {/each}
-                  <p class="research-status" style="margin-top: 8px;">
-                    A full material auto-stops the tasks feeding it. Expand storage (Upgrade tab) or consume it to resume.
-                  </p>
-                </Panel>
-              {/if}
+        {#if activeLogisticsTab === "shipEquipment"}
+          <!-- SHIP EQUIPMENT (0.12.0 Console, CN3a). The spare Ship Systems bay,
+               moved VERBATIM from the old Warehouse Finished Goods > Ship Systems
+               tab. The old inner product-family SubTabs strip is FLATTENED away
+               (the console principle: an inner tab layer under ConsoleTabs
+               collapses); the bay renders DIRECTLY here. The reserved Weapons /
+               Modules / Consumables families become compact locked "coming soon"
+               markers below, preserving the combat-roadmap signal without a nested
+               tab layer. All reads/actions go through the SAME engine helpers the
+               fabricate gate + storage engine use (spareEquipmentCount /
+               equipmentStorageCap / canUpgradeEquipmentStorage /
+               startEquipmentStorageUpgrade / salvageEquipment), and the
+               EquipmentTooltip is reused unchanged. -->
+          {@const bayCap = equipmentStorageCap(state)}
+          {@const baySpare = spareEquipmentCount(state)}
+          {@const upgradeCheck = canUpgradeEquipmentStorage(state)}
+          <Panel>
+            <!-- CAPACITY HEADER: spare / cap + the Upgrade Bay button
+                 (disabled + reasoned exactly like the warehouse-tier Build
+                 buttons, mirroring canUpgradeEquipmentStorage). -->
+            <div class="systems-bay-head">
+              <div class="systems-bay-cap">
+                <span class="systems-bay-cap-label">Systems Bay</span>
+                <span class="systems-bay-cap-val">{baySpare} <small>/ {bayCap} spare</small></span>
+              </div>
+              <button
+                class="buy-btn systems-bay-upgrade"
+                disabled={!upgradeCheck.ok}
+                title={upgradeCheck.ok ? undefined : upgradeCheck.reason}
+                on:click={doUpgradeEquipmentBay}
+              >
+                Upgrade Bay
+              </button>
+            </div>
+            {#if !upgradeCheck.ok}
+              <div class="systems-bay-upgrade-note">{upgradeCheck.reason}</div>
             {/if}
 
-            {#if activeWarehouseCat === "upgrade"}
-              <!-- UPGRADE, one card per warehouse tier (design §3.3): current
-                   cap, next cap (doubles), the next rung's material cost +
-                   duration, and a Build/Expand button gated on the SAME
-                   canBuildFacilityUpgrade the backend enforces (so button and
-                   action agree). T2 at level 0 reads as an UNLOCK; its later
-                   denseOre-gated rungs naturally show ❌ (unobtainable input =
-                   honest "future content" wall). In-flight progress mirrors the
-                   Refinery's. -->
-              {#each WAREHOUSE_TIERS as wt (wt.key)}
-                {@const level = state.facilities[wt.key]?.level ?? 0}
-                {@const upgrades = FACILITIES[wt.key].upgrades}
-                {@const maxed = level >= upgrades.length}
-                {@const currentCap = tierCap(state, wt.tier)}
-                {@const check = canBuildFacilityUpgrade(state, wt.key)}
-                {@const isUnlockRung = wt.tier > 1 && level === 0}
-                {@const inFlight = state.activeProcesses.find(
-                  (p) =>
-                    p.kind === "facilityUpgrade" &&
-                    p.effect.type === "facilityLevelUp" &&
-                    p.effect.facility === wt.key
-                )}
-                <Panel>
-                  <div class="panel-title">{wt.label}, {isUnlockRung ? "Unlock Storage" : "Expand Storage"}</div>
-                  <div class="research-cost">Level: {level}</div>
-
-                  {#if maxed}
-                    <p class="research-status">Fully upgraded.</p>
-                  {:else}
-                    {@const nextRung = upgrades[level]}
-                    {@const nextEff = nextRung.effect}
-                    {@const nextCap = "storageCapMult" in nextEff ? currentCap.times(nextEff.storageCapMult) : currentCap}
-                    <div class="research-cost">Current cap: {formatNumber(currentCap)} / item</div>
-                    {#if !isUnlockRung}
-                      <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(nextCap)} / item</div>
-                    {/if}
-                    <div class="research-cost">Duration: {durationReadout(nextRung.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-
-                    <!-- Material readiness: [Item]: have / need, ✅/❌. -->
-                    {#each Object.keys(nextRung.materials) as itemId}
-                      {@const need = nextRung.materials[itemId]}
-                      {@const have = itemTotal(state.inventory, itemId)}
-                      {@const met = have.gte(need)}
-                      <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
-                      </div>
+            {#if baySystemGroups.length === 0}
+              <div class="warehouse-stub">
+                <div class="warehouse-stub-glyph">🛰️</div>
+                <p>No spare systems in the bay. Fabricate ship systems at the Fabricator, or uninstall an installed system to store it here.</p>
+              </div>
+            {:else}
+              {#each baySystemGroups as group (group.slot)}
+                <div class="warehouse-tier">
+                  <div class="warehouse-tier-head">
+                    <span class="warehouse-tier-label">{group.label}</span>
+                    <span class="warehouse-tier-line"></span>
+                    <span class="warehouse-tier-cap">{group.pieces.length} system{group.pieces.length === 1 ? "" : "s"}</span>
+                  </div>
+                  <div class="warehouse-grid">
+                    {#each group.pieces as piece (piece.id)}
+                      {@const isBaseline = piece.blueprintKey === null}
+                      <button
+                        type="button"
+                        class="systems-tile"
+                        class:baseline={isBaseline}
+                        class:selected={selectedSystemId === piece.id}
+                        style="--sys-rc: {equipmentRarityColor(piece.rarity)};"
+                        title={isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
+                        on:click={() => selectSystemTile(piece.id)}
+                      >
+                        <span class="systems-tile-dot"></span>
+                        <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
+                        <span class="systems-tile-il">iL {piece.iLevel}</span>
+                      </button>
                     {/each}
-
-                    {#if isUnlockRung}
-                      <p class="research-status" style="margin-top: 6px;">
-                        Unlocks {wt.label} storage. Its first expansion needs a Tier-{wt.tier} material you can't reach yet.
-                      </p>
-                    {/if}
-
-                    <button
-                      class="buy-btn"
-                      disabled={!check.ok}
-                      title={check.ok ? undefined : check.reason}
-                      on:click={() => doStartFacilityUpgrade(wt.key)}
-                    >
-                      {isUnlockRung ? `Unlock ${wt.label}` : "Expand · doubles capacity"}
-                    </button>
-                  {/if}
-
-                  {#if inFlight}
-                    {@const progress = inFlight.durationTicks > 0
-                      ? (inFlight.durationTicks - inFlight.remainingTicks) / inFlight.durationTicks
-                      : 1}
-                    <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
-                    <div class="research-bar-track">
-                      <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                    </div>
-                    <div class="research-readout">{remainingReadout(inFlight.remainingTicks, inFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-                  {/if}
-                </Panel>
+                  </div>
+                </div>
               {/each}
             {/if}
+          </Panel>
 
-            {#if activeWarehouseCat === "materials"}
-              <!-- MATERIALS (0.11.2 Task 9). ONE scrollable pane: a Tier
-                   selector, then a fixed series of themed labeled sections. Each
-                   section reuses the SAME fill-tile grid the old flat catalog tabs
-                   used (fill / rarity color / ❓-mask / count / showWarehouseTooltip),
-                   rendering its items AT the selected tier. Raw items partition
-                   across the first four sections by their subCategory. Sections
-                   with no items at the selected tier are hidden. Salvaged Materials
-                   is the final section and keeps its select-to-salvage tiles. -->
-              {@const tierUnlocked = warehouseTierUnlocked(activeMaterialsTier)}
-              {@const cap = tierCap(state, activeMaterialsTier)}
-
-              <!-- TIER SELECTOR: pick which storage tier's stock to view. Reuses
-                   WAREHOUSE_TIERS + warehouseTierUnlocked. A locked tier is still
-                   selectable (its sections show, dimmed, with a locked note),
-                   matching the old per-tier locked banner. -->
-              <div class="materials-tier-select" role="group" aria-label="Storage tier">
-                {#each WAREHOUSE_TIERS as wt (wt.key)}
-                  <button
-                    type="button"
-                    class="materials-tier-btn"
-                    class:active={activeMaterialsTier === wt.tier}
-                    aria-pressed={activeMaterialsTier === wt.tier}
-                    on:click={() => (activeMaterialsTier = wt.tier)}
-                  >{wt.label}</button>
-                {/each}
-              </div>
-
-              <Panel>
-                <div class="materials-cap-line">
-                  {tierUnlocked ? `Cap ${formatNumber(cap)} / item` : "This tier's storage is locked."}
-                </div>
-
-                {#if !tierUnlocked}
-                  {@const unlockRung = FACILITIES[`warehouseT${activeMaterialsTier}`]?.upgrades[0]}
-                  {@const unlockIds = unlockRung ? Object.keys(unlockRung.materials) : []}
-                  <p class="warehouse-locked-note">
-                    Tier {activeMaterialsTier} storage locked, <b>unlock in the Upgrade tab</b>{#if unlockRung && unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
-                  </p>
-                {/if}
-
-                {#if materialsTierEmpty && tierUnlocked}
-                  <!-- Only shown for an UNLOCKED but still-empty tier: a locked tier
-                       already explains itself via the locked note above, and telling
-                       the player to "gather and refine to fill these shelves" would be
-                       misleading when the shelves are not unlocked yet. -->
-                  <div class="warehouse-stub">
-                    <div class="warehouse-stub-glyph">🗄️</div>
-                    <p>No materials at this tier yet. Gather from missions and refine to fill these shelves.</p>
-                  </div>
-                {/if}
-
-                <!-- STANDARD SECTIONS: the four raw sub-categories, then Refined,
-                     then Components. Each renders the shared fill-tile grid; an
-                     empty section is hidden. -->
-                {#each materialsStandardSections as section (section.key)}
-                  {#if section.items.length > 0}
-                    <div class="warehouse-tier materials-section" class:locked={!tierUnlocked}>
-                      <div class="warehouse-tier-head">
-                        <span class="warehouse-tier-label">{section.label}</span>
-                        <span class="warehouse-tier-line"></span>
-                        <span class="warehouse-tier-cap">{section.items.length} item{section.items.length === 1 ? "" : "s"}</span>
-                      </div>
-                      <div class="warehouse-grid">
-                        {#each section.items as item (item.id)}
-                          {@const discovered = state.discovered.includes(item.id)}
-                          {@const count = itemTotal(state.inventory, item.id)}
-                          {@const atCap = discovered && materialAtCap(state, item.id)}
-                          {@const pct = warehouseFillPct(count, cap)}
-                          {@const rarityRing = item.rarity === "rare" || item.rarity === "epic" || item.rarity === "legendary"}
-                          <button
-                            type="button"
-                            class="warehouse-tile"
-                            class:unknown={!discovered}
-                            class:full={atCap}
-                            class:rare-ring={discovered && rarityRing}
-                            style="--wh-rc: {warehouseRarityColor(item.rarity)};"
-                            on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, item.id)}
-                            on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, item.id)}
-                            on:focus={(e) => focusShowWarehouseTooltip(e, item.id)}
-                            on:blur={hideWarehouseTooltip}
-                            on:click={(e) => toggleWarehouseTooltip(e, item.id)}
-                          >
-                            {#if discovered}
-                              <span
-                                class="warehouse-fill"
-                                style="height: {atCap ? 100 : pct}%; --wh-fillc: {atCap ? 'var(--color-danger)' : 'var(--wh-rc)'};"
-                              ></span>
-                              <span class="warehouse-pct">{Math.round(atCap ? 100 : pct)}%</span>
-                              <span class="warehouse-glyph">{warehouseCategoryGlyph(item.category)}</span>
-                              <span class="warehouse-ct">{formatNumber(count)}</span>
-                            {:else}
-                              <span class="warehouse-glyph warehouse-glyph-unknown">❓</span>
-                            {/if}
-                          </button>
-                        {/each}
-                      </div>
-                    </div>
-                  {/if}
-                {/each}
-
-                <!-- SALVAGED MATERIALS section (final). BROWSE-ONLY (0.11.2
-                     Task 11): the tiles still SHOW held salvaged materials for
-                     reference, but the select-to-salvage interaction and its
-                     Salvage action panel were relocated to the Salvage Bay
-                     facility (Stores rail). So each tile is a non-interactive
-                     <div> now (no on:click / no class:selected), keeping the
-                     exact systems-tile visual (rarity dot + code + corner count). -->
-                {#if materialsSalvagedItems.length > 0}
-                  <div class="warehouse-tier materials-section">
-                    <div class="warehouse-tier-head">
-                      <span class="warehouse-tier-label">Salvaged Materials</span>
-                      <span class="warehouse-tier-line"></span>
-                      <span class="warehouse-tier-cap">{materialsSalvagedItems.length} material{materialsSalvagedItems.length === 1 ? "" : "s"}</span>
-                    </div>
-                    <div class="warehouse-grid">
-                      {#each materialsSalvagedItems as item (item.id)}
-                        {@const count = itemTotal(state.inventory, item.id)}
-                        <!-- Reuse the systems-tile visual (rarity dot + code + corner
-                             value), painting the count in the corner where a system's
-                             quality would sit. Rarity color via warehouseRarityColor
-                             (item rarity, not equipment rarity). Browse-only div,
-                             not a button: salvage lives in the Salvage Bay now. -->
-                        <div
-                          class="systems-tile readonly"
-                          style="--sys-rc: {warehouseRarityColor(item.rarity)};"
-                          title={`${item.label} · ${item.rarity}`}
-                        >
-                          <span class="systems-tile-dot"></span>
-                          <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
-                          <span class="systems-tile-q">{formatNumber(count)}</span>
-                        </div>
-                      {/each}
-                    </div>
-                  </div>
-                {/if}
-              </Panel>
-            {/if}
-
-            {#if activeWarehouseCat === "finishedGoods"}
-              <!-- FINISHED GOODS (0.11.2 Task 10). Split into product families by
-                   a secondary SubTabs strip: Ship Systems is the ONE real,
-                   populated family (the state.equipment spare-systems bay, moved
-                   here in Task 9); Weapons / Modules / Consumables are RESERVED
-                   roadmap slots (locked in FINISHED_GOODS_TABS, so SubTabs grays
-                   them and blocks selection). Because they cannot be selected while
-                   locked, their reserved-note branches below are LATENT: not shown
-                   today, they surface automatically the day a family is unlocked
-                   (flip its locked flag to false) so combat can drop weapons/modules
-                   into a ready home without new markup. This deliberately differs
-                   from the mission-tier locked SubTabs (which render nothing when a
-                   locked tier is active); here the reserved note is worth pre-wiring.
-                   Salvaged Materials is intentionally NOT here, Task 9 moved it into
-                   the Materials tab; no duplication. -->
-              <SubTabs
-                tabs={FINISHED_GOODS_TABS}
-                active={activeFinishedGoodsTab}
-                onSelect={(key) => (activeFinishedGoodsTab = key as FinishedGoodsTab)}
-              />
-
-              {#if activeFinishedGoodsTab === "shipSystems"}
-              <!-- SHIP SYSTEMS BAY (Equipment 0.11.0 Phase D). The tiled,
-                   non-stacking equipment inventory: one tile per spare
-                   EquipmentInstance, grouped by slot type, plus the Systems Bay
-                   capacity header (spare / cap readout) + "Upgrade Bay" action.
-                   Selecting a tile surfaces the reusable EquipmentTooltip inline
-                   below the grid; a spare CRAFTED system's tooltip carries a
-                   Salvage action. All reads/actions go through the SAME engine
-                   helpers the fabricate gate + storage engine use
-                   (spareEquipmentCount / equipmentStorageCap /
-                   canUpgradeEquipmentStorage / startEquipmentStorageUpgrade /
-                   salvageEquipment), so the UI can't drift from the backend. The
-                   bay markup below is UNCHANGED from the Task 9 interim placement,
-                   only wrapped in the Ship Systems family conditional. -->
-              {@const bayCap = equipmentStorageCap(state)}
-              {@const baySpare = spareEquipmentCount(state)}
-              {@const upgradeCheck = canUpgradeEquipmentStorage(state)}
-              <Panel>
-                <!-- CAPACITY HEADER: spare / cap + the Upgrade Bay button
-                     (disabled + reasoned exactly like the warehouse-tier Build
-                     buttons, mirroring canUpgradeEquipmentStorage). -->
-                <div class="systems-bay-head">
-                  <div class="systems-bay-cap">
-                    <span class="systems-bay-cap-label">Systems Bay</span>
-                    <span class="systems-bay-cap-val">{baySpare} <small>/ {bayCap} spare</small></span>
-                  </div>
-                  <button
-                    class="buy-btn systems-bay-upgrade"
-                    disabled={!upgradeCheck.ok}
-                    title={upgradeCheck.ok ? undefined : upgradeCheck.reason}
-                    on:click={doUpgradeEquipmentBay}
-                  >
-                    Upgrade Bay
-                  </button>
-                </div>
-                {#if !upgradeCheck.ok}
-                  <div class="systems-bay-upgrade-note">{upgradeCheck.reason}</div>
-                {/if}
-
-                {#if baySystemGroups.length === 0}
-                  <div class="warehouse-stub">
-                    <div class="warehouse-stub-glyph">🛰️</div>
-                    <p>No spare systems in the bay. Fabricate ship systems at the Fabricator, or uninstall an installed system to store it here.</p>
-                  </div>
-                {:else}
-                  {#each baySystemGroups as group (group.slot)}
-                    <div class="warehouse-tier">
-                      <div class="warehouse-tier-head">
-                        <span class="warehouse-tier-label">{group.label}</span>
-                        <span class="warehouse-tier-line"></span>
-                        <span class="warehouse-tier-cap">{group.pieces.length} system{group.pieces.length === 1 ? "" : "s"}</span>
-                      </div>
-                      <div class="warehouse-grid">
-                        {#each group.pieces as piece (piece.id)}
-                          {@const isBaseline = piece.blueprintKey === null}
-                          <button
-                            type="button"
-                            class="systems-tile"
-                            class:baseline={isBaseline}
-                            class:selected={selectedSystemId === piece.id}
-                            style="--sys-rc: {equipmentRarityColor(piece.rarity)};"
-                            title={isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
-                            on:click={() => selectSystemTile(piece.id)}
-                          >
-                            <span class="systems-tile-dot"></span>
-                            <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
-                            <span class="systems-tile-il">iL {piece.iLevel}</span>
-                          </button>
-                        {/each}
-                      </div>
-                    </div>
-                  {/each}
-                {/if}
-              </Panel>
-
-              <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
-                   inline (not a floating layer) so it is scroll-safe on device.
-                   BROWSE-ONLY here (0.11.2 Task 11): the Warehouse shows a spare
-                   system's stats but hosts NO Salvage action. Breaking a spare
-                   system down now lives in the Salvage Bay facility (Stores rail),
-                   so no action children are passed to EquipmentTooltip here. -->
-              {#if selectedSystem}
-                {@const sys = selectedSystem}
-                <Panel>
-                  <EquipmentTooltip piece={sys} />
-                </Panel>
-              {/if}
-              {:else if activeFinishedGoodsTab === "weapons"}
-                <!-- RESERVED: Ship Weapons. No engine, no inventory yet; combat
-                     lands in a future update (0.12.0). Honest note only, styled
-                     with the same warehouse-stub glyph card the empty bay uses. -->
-                <Panel>
-                  <div class="warehouse-stub">
-                    <div class="warehouse-stub-glyph">🔒</div>
-                    <p>Ship Weapons: reserved for a future update (combat). Nothing to store here yet.</p>
-                  </div>
-                </Panel>
-              {:else if activeFinishedGoodsTab === "modules"}
-                <!-- RESERVED: Modules. Roadmap slot, no engine yet. -->
-                <Panel>
-                  <div class="warehouse-stub">
-                    <div class="warehouse-stub-glyph">🔒</div>
-                    <p>Modules: reserved for a future update. Nothing to store here yet.</p>
-                  </div>
-                </Panel>
-              {:else if activeFinishedGoodsTab === "consumables"}
-                <!-- RESERVED: Consumables. Roadmap slot, no engine yet. -->
-                <Panel>
-                  <div class="warehouse-stub">
-                    <div class="warehouse-stub-glyph">🔒</div>
-                    <p>Consumables: reserved for a future update. Nothing to store here yet.</p>
-                  </div>
-                </Panel>
-              {/if}
-            {/if}
-
-          {:else if activeStoresFacility === "salvageBay"}
-            <!-- SALVAGE BAY (0.11.2 Task 11): the dedicated home for the two
-                 Salvage actions relocated out of the Warehouse. NOTHING here is
-                 new machinery or new styling; it reuses the SAME tiles,
-                 EquipmentTooltip, select state, and requestSalvage/confirmSalvage
-                 flow the Warehouse hosted before. Two labeled sections:
-                   1. Ship Systems, the spare-systems bay tiles + the inline
-                      EquipmentTooltip whose action slot carries the Salvage
-                      button (requestSalvage("system", ...)). The Systems Bay
-                      CAPACITY readout + Upgrade Bay action stay in the Warehouse
-                      (Finished Goods), which remains the storage-management home;
-                      here it is salvage only.
-                   2. Salvaged Materials, the select-to-salvage tiles + the inline
-                      Salvage action panel (requestSalvage("material", ...)) over
-                      the whole salvaged catalog (salvageBaySalvagedItems, no tier
-                      selector). Ship teardown (requestSalvage("ship", ...)) is a
-                      Drydock action and deliberately NOT relocated here. -->
+          <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
+               inline (not a floating layer) so it is scroll-safe on device.
+               BROWSE-ONLY here: this tab shows a spare system's stats but hosts
+               NO Salvage action. Breaking a spare system down lives in the
+               Salvage tab, so no action children are passed to EquipmentTooltip
+               here. -->
+          {#if selectedSystem}
+            {@const sys = selectedSystem}
             <Panel>
-              <div class="panel-title">SALVAGE BAY</div>
-              <p class="research-status">
-                Break spare ship systems and salvaged materials down for recovered parts and loot. Salvage permanently destroys the item; checked quality tiers ask for confirmation first.
-              </p>
-              <!-- CONFIRM-BY-QUALITY options (0.11.2 Task 13b): one checkbox per
-                   quality tier (0..QUALITY_TIERS-1). A CHECKED tier requires a
-                   confirm before salvaging an item of that quality; unchecking a
-                   tier salvages it instantly. Persists to localStorage via
-                   toggleSalvageConfirmTier -> saveSalvageConfirmQualities. Reuses the
-                   .dev-row + inline-flex label + checkbox idiom from the System
-                   Options panel; no new styling or colors. Ship (hull) teardown
-                   always confirms regardless of these toggles. Tier labels use the
-                   Q0..Q5 convention the systems tiles already show. -->
-              <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
-                {#each Array.from({ length: QUALITY_TIERS }, (_, i) => i) as tier (tier)}
-                  <label style="display: inline-flex; align-items: center; gap: 6px;">
-                    <input
-                      type="checkbox"
-                      checked={salvageConfirmQualities.includes(tier)}
-                      on:change={(e) => toggleSalvageConfirmTier(tier, (e.target as HTMLInputElement).checked)}
-                    />
-                    Q{tier}
-                  </label>
-                {/each}
-              </div>
-              <p class="research-status">
-                Salvaging an item of a checked quality asks for confirmation first. Uncheck a tier to salvage it instantly.
-              </p>
+              <EquipmentTooltip piece={sys} />
             </Panel>
+          {/if}
 
-            <!-- LAST SALVAGE readout (0.11.2 Task 12): a "here is what you got"
-                 status shown after a break-down, in ADDITION to the event-log
-                 line. Fed by lastSalvageResult, which the two do* handlers set on
-                 success and the clear reactive resets when leaving the bay. Reuses
-                 the SAME Panel + warehouse-tier-head + research-status tokens as the
-                 surrounding sections; no new styling or colors. -->
-            {#if lastSalvageResult !== null}
-              <Panel>
+          <!-- RESERVED product families (0.12.0 Console, CN3a). The old locked
+               Finished Goods SubTabs (Weapons / Modules / Consumables) flatten to
+               a compact chip row of honest "coming soon" markers, no engine behind
+               them yet. Same locked visual language as the ConsoleTabs locked tab
+               (accent border + faint fill + opacity), expressed inline with the
+               existing accent/text tokens so no new class or color is introduced.
+               A family becomes real when combat lands (0.13.0), at which point it
+               graduates to its own top-level Logistics ConsoleTab. -->
+          <Panel>
+            <div class="warehouse-tier-head">
+              <span class="warehouse-tier-label">Reserved</span>
+              <span class="warehouse-tier-line"></span>
+              <span class="warehouse-tier-cap">coming soon</span>
+            </div>
+            <div class="dev-row" style="flex-wrap: wrap; gap: 8px;">
+              {#each LOGISTICS_RESERVED_GOODS as label (label)}
+                <span
+                  style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(var(--color-accent-rgb), 0.2); background: rgba(var(--color-accent-rgb), 0.06); color: var(--color-text-secondary); font-size: 13px; opacity: 0.5;"
+                  title="Reserved for a future update (combat)"
+                >🔒 {label}</span>
+              {/each}
+            </div>
+          </Panel>
+        {/if}
+
+        {#if activeLogisticsTab === "materials"}
+          <!-- MATERIALS (moved VERBATIM from the old Warehouse Materials tab,
+               0.11.2 Task 9). ONE scrollable pane: a Tier selector, then a fixed
+               series of themed labeled sections. Each section reuses the SAME
+               fill-tile grid the old flat catalog tabs used (fill / rarity color /
+               ❓-mask / count / showWarehouseTooltip), rendering its items AT the
+               selected tier. Raw items partition across the first four sections by
+               their subCategory. Sections with no items at the selected tier are
+               hidden. Salvaged Materials is the final section and stays browse-only
+               (select-to-salvage lives in the Salvage tab). -->
+          {@const tierUnlocked = warehouseTierUnlocked(activeMaterialsTier)}
+          {@const cap = tierCap(state, activeMaterialsTier)}
+
+          <!-- TIER SELECTOR: pick which storage tier's stock to view. Reuses
+               WAREHOUSE_TIERS + warehouseTierUnlocked. A locked tier is still
+               selectable (its sections show, dimmed, with a locked note),
+               matching the old per-tier locked banner. -->
+          <div class="materials-tier-select" role="group" aria-label="Storage tier">
+            {#each WAREHOUSE_TIERS as wt (wt.key)}
+              <button
+                type="button"
+                class="materials-tier-btn"
+                class:active={activeMaterialsTier === wt.tier}
+                aria-pressed={activeMaterialsTier === wt.tier}
+                on:click={() => (activeMaterialsTier = wt.tier)}
+              >{wt.label}</button>
+            {/each}
+          </div>
+
+          <Panel>
+            <div class="materials-cap-line">
+              {tierUnlocked ? `Cap ${formatNumber(cap)} / item` : "This tier's storage is locked."}
+            </div>
+
+            {#if !tierUnlocked}
+              {@const unlockRung = FACILITIES[`warehouseT${activeMaterialsTier}`]?.upgrades[0]}
+              {@const unlockIds = unlockRung ? Object.keys(unlockRung.materials) : []}
+              <p class="warehouse-locked-note">
+                Tier {activeMaterialsTier} storage locked, <b>unlock in the Warehouse (Foundry tab)</b>{#if unlockRung && unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
+              </p>
+            {/if}
+
+            {#if materialsTierEmpty && tierUnlocked}
+              <!-- Only shown for an UNLOCKED but still-empty tier: a locked tier
+                   already explains itself via the locked note above, and telling
+                   the player to "gather and refine to fill these shelves" would be
+                   misleading when the shelves are not unlocked yet. -->
+              <div class="warehouse-stub">
+                <div class="warehouse-stub-glyph">🗄️</div>
+                <p>No materials at this tier yet. Gather from missions and refine to fill these shelves.</p>
+              </div>
+            {/if}
+
+            <!-- STANDARD SECTIONS: the four raw sub-categories, then Refined,
+                 then Components. Each renders the shared fill-tile grid; an
+                 empty section is hidden. -->
+            {#each materialsStandardSections as section (section.key)}
+              {#if section.items.length > 0}
+                <div class="warehouse-tier materials-section" class:locked={!tierUnlocked}>
+                  <div class="warehouse-tier-head">
+                    <span class="warehouse-tier-label">{section.label}</span>
+                    <span class="warehouse-tier-line"></span>
+                    <span class="warehouse-tier-cap">{section.items.length} item{section.items.length === 1 ? "" : "s"}</span>
+                  </div>
+                  <div class="warehouse-grid">
+                    {#each section.items as item (item.id)}
+                      {@const discovered = state.discovered.includes(item.id)}
+                      {@const count = itemTotal(state.inventory, item.id)}
+                      {@const atCap = discovered && materialAtCap(state, item.id)}
+                      {@const pct = warehouseFillPct(count, cap)}
+                      {@const rarityRing = item.rarity === "rare" || item.rarity === "epic" || item.rarity === "legendary"}
+                      <button
+                        type="button"
+                        class="warehouse-tile"
+                        class:unknown={!discovered}
+                        class:full={atCap}
+                        class:rare-ring={discovered && rarityRing}
+                        style="--wh-rc: {warehouseRarityColor(item.rarity)};"
+                        on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, item.id)}
+                        on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, item.id)}
+                        on:focus={(e) => focusShowWarehouseTooltip(e, item.id)}
+                        on:blur={hideWarehouseTooltip}
+                        on:click={(e) => toggleWarehouseTooltip(e, item.id)}
+                      >
+                        {#if discovered}
+                          <span
+                            class="warehouse-fill"
+                            style="height: {atCap ? 100 : pct}%; --wh-fillc: {atCap ? 'var(--color-danger)' : 'var(--wh-rc)'};"
+                          ></span>
+                          <span class="warehouse-pct">{Math.round(atCap ? 100 : pct)}%</span>
+                          <span class="warehouse-glyph">{warehouseCategoryGlyph(item.category)}</span>
+                          <span class="warehouse-ct">{formatNumber(count)}</span>
+                        {:else}
+                          <span class="warehouse-glyph warehouse-glyph-unknown">❓</span>
+                        {/if}
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            {/each}
+
+            <!-- SALVAGED MATERIALS section (final). BROWSE-ONLY (0.11.2
+                 Task 11): the tiles still SHOW held salvaged materials for
+                 reference, but the select-to-salvage interaction and its
+                 Salvage action panel live in the Salvage tab. So each tile is a
+                 non-interactive <div> (no on:click / no class:selected), keeping
+                 the exact systems-tile visual (rarity dot + code + corner count). -->
+            {#if materialsSalvagedItems.length > 0}
+              <div class="warehouse-tier materials-section">
                 <div class="warehouse-tier-head">
-                  <span class="warehouse-tier-label">Last salvage</span>
+                  <span class="warehouse-tier-label">Salvaged Materials</span>
                   <span class="warehouse-tier-line"></span>
-                  <span class="warehouse-tier-cap">{lastSalvageResult.kind === "system" ? "recycled" : lastSalvageResult.kind === "baseline" ? "discarded" : "loot roll"}</span>
+                  <span class="warehouse-tier-cap">{materialsSalvagedItems.length} material{materialsSalvagedItems.length === 1 ? "" : "s"}</span>
                 </div>
-                <p class="research-status">
-                  {lastSalvageResult.kind === "system" ? "Recycled" : lastSalvageResult.kind === "baseline" ? "Discarded" : "Broke down"} [{lastSalvageResult.sourceName}].
-                  {#if lastSalvageResult.kind === "baseline"}
-                    Standard-Issue systems carry no materials to recover.
-                  {:else if lastSalvageResult.recovered.length > 0}
-                    Recovered: {lastSalvageResult.recovered
-                      .map((r) => `${formatNumber(new Decimal(r.amount))} [${ITEMS[r.itemId]?.label ?? r.itemId}]`)
-                      .join(", ")}.
-                  {:else}
-                    No materials recovered (recovery rounded to zero).
-                  {/if}
-                  {#if lastSalvageResult.rolledTier}
-                    Rolled tier: {lastSalvageResult.rolledTier}.
-                  {/if}
-                </p>
-              </Panel>
-            {/if}
-
-            <!-- SHIP SYSTEMS salvage: the spare-systems bay tiles (SAME markup as
-                 the Warehouse Ship Systems bay). Selecting a tile surfaces the
-                 EquipmentTooltip below with a Salvage action for crafted spares.
-                 Reads baySystemGroups / selectedSystemId / selectSystemTile, the
-                 same shared state the Warehouse uses. -->
-            <Panel>
-              <div class="warehouse-tier-head">
-                <span class="warehouse-tier-label">Ship Systems</span>
-                <span class="warehouse-tier-line"></span>
-                <span class="warehouse-tier-cap">recycle spares</span>
-              </div>
-              {#if baySystemGroups.length === 0}
-                <div class="warehouse-stub">
-                  <div class="warehouse-stub-glyph">🛰️</div>
-                  <p>No spare systems to salvage. Fabricate ship systems at the Fabricator, or uninstall an installed system to store it here first.</p>
-                </div>
-              {:else}
-                {#each baySystemGroups as group (group.slot)}
-                  <div class="warehouse-tier">
-                    <div class="warehouse-tier-head">
-                      <span class="warehouse-tier-label">{group.label}</span>
-                      <span class="warehouse-tier-line"></span>
-                      <span class="warehouse-tier-cap">{group.pieces.length} system{group.pieces.length === 1 ? "" : "s"}</span>
-                    </div>
-                    <div class="warehouse-grid">
-                      {#each group.pieces as piece (piece.id)}
-                        {@const isBaseline = piece.blueprintKey === null}
-                        <button
-                          type="button"
-                          class="systems-tile"
-                          class:baseline={isBaseline}
-                          class:selected={selectedSystemId === piece.id}
-                          style="--sys-rc: {equipmentRarityColor(piece.rarity)};"
-                          title={isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
-                          on:click={() => selectSystemTile(piece.id)}
-                        >
-                          <span class="systems-tile-dot"></span>
-                          <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
-                          <span class="systems-tile-il">iL {piece.iLevel}</span>
-                        </button>
-                      {/each}
-                    </div>
-                  </div>
-                {/each}
-              {/if}
-            </Panel>
-
-            <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
-                 inline. A spare crafted system gets a Salvage button in the
-                 tooltip's action slot (routes through requestSalvage("system", ...)
-                 -> the shared confirm modal); baselines get NONE (nothing to
-                 refund). SAME block the Warehouse Ship Systems tab hosted before
-                 Task 11 relocated it here. -->
-            {#if selectedSystem}
-              {@const sys = selectedSystem}
-              <Panel>
-                <EquipmentTooltip piece={sys}>
-                  {#if selectedIsSalvageable}
-                    <button
-                      class="buy-btn systems-salvage-btn"
-                      on:click={() => requestSalvage("system", sys.id, systemSalvageName(sys))}
-                    >
-                      Salvage
-                    </button>
-                  {:else}
-                    <span class="systems-salvage-none">Standard-Issue baseline, nothing to salvage.</span>
-                  {/if}
-                </EquipmentTooltip>
-              </Panel>
-            {/if}
-
-            <!-- SALVAGED MATERIALS salvage: the select-to-salvage tiles over the
-                 whole salvaged catalog (salvageBaySalvagedItems, all tiers, no
-                 tier selector). SAME systems-tile visual + select idiom the
-                 Warehouse Materials tab used before Task 11 made those tiles
-                 browse-only. -->
-            <Panel>
-              <div class="warehouse-tier-head">
-                <span class="warehouse-tier-label">Salvaged Materials</span>
-                <span class="warehouse-tier-line"></span>
-                <span class="warehouse-tier-cap">{salvageBayHeldSalvaged.length} material{salvageBayHeldSalvaged.length === 1 ? "" : "s"}</span>
-              </div>
-              {#if salvageBayHeldSalvaged.length === 0}
-                <div class="warehouse-stub">
-                  <div class="warehouse-stub-glyph">♻️</div>
-                  <p>No salvaged materials yet. Recover them from salvage missions, then break them down here for a loot roll.</p>
-                </div>
-              {:else}
                 <div class="warehouse-grid">
-                  {#each salvageBayHeldSalvaged as item (item.id)}
+                  {#each materialsSalvagedItems as item (item.id)}
                     {@const count = itemTotal(state.inventory, item.id)}
                     <!-- Reuse the systems-tile visual (rarity dot + code + corner
-                         value), painting the count where a system's quality sits.
-                         Rarity color via warehouseRarityColor (item rarity). -->
-                    <button
-                      type="button"
-                      class="systems-tile"
-                      class:selected={selectedSalvagedId === item.id}
+                         value), painting the count in the corner where a system's
+                         quality would sit. Rarity color via warehouseRarityColor
+                         (item rarity, not equipment rarity). Browse-only div,
+                         not a button: salvage lives in the Salvage tab now. -->
+                    <div
+                      class="systems-tile readonly"
                       style="--sys-rc: {warehouseRarityColor(item.rarity)};"
                       title={`${item.label} · ${item.rarity}`}
-                      on:click={() => selectSalvagedTile(item.id)}
                     >
                       <span class="systems-tile-dot"></span>
                       <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
                       <span class="systems-tile-q">{formatNumber(count)}</span>
-                    </button>
+                    </div>
                   {/each}
                 </div>
-              {/if}
-            </Panel>
+              </div>
+            {/if}
+          </Panel>
+        {/if}
 
-            <!-- SELECTED MATERIAL: the Salvage action + a short readout. The
-                 Salvage button disables when none is held (the engine also
-                 rejects noneHeld for safety); the roll result is narrated to the
-                 event log. SAME block the Warehouse Materials tab hosted before
-                 Task 11 relocated it here. -->
-            {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId] && itemTotal(state.inventory, selectedSalvagedId).gt(0)}
-              <!-- Capture the narrowed id into a const so the click closure below
-                   receives a plain `string` (Svelte narrows the template guard, but
-                   an arrow-function callback would otherwise see `string | null`).
-                   Gated on a held count > 0 so that after salvaging the last unit,
-                   the tile leaves the held-only grid AND this action panel closes
-                   together (no lingering panel for an item you no longer hold). -->
-              {@const salvageTargetId = selectedSalvagedId}
-              {@const selItem = ITEMS[selectedSalvagedId]}
-              {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
-              {@const selHeld = selCount.gt(0)}
-              <Panel>
-                <div class="salvaged-action">
-                  <div class="salvaged-action-info">
-                    <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
-                    <div class="salvaged-action-hint">
-                      Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
-                    </div>
+        {#if activeLogisticsTab === "salvage"}
+          <!-- SALVAGE (moved VERBATIM from the old Stores Salvage Bay, 0.11.2
+               Task 11): the dedicated home for the two Salvage actions. NOTHING
+               here is new machinery or new styling; it reuses the SAME tiles,
+               EquipmentTooltip, select state, and requestSalvage/confirmSalvage
+               flow the Salvage Bay hosted before. Two labeled sections:
+                 1. Ship Systems, the spare-systems bay tiles + the inline
+                    EquipmentTooltip whose action slot carries the Salvage button
+                    (requestSalvage("system", ...)). The Systems Bay CAPACITY
+                    readout + Upgrade Bay action stay in the Ship Equipment tab
+                    (the storage-management home); here it is salvage only.
+                 2. Salvaged Materials, the select-to-salvage tiles + the inline
+                    Salvage action panel (requestSalvage("material", ...)) over
+                    the whole salvaged catalog (salvageBaySalvagedItems, no tier
+                    selector). Ship teardown (requestSalvage("ship", ...)) is a
+                    Drydock action and deliberately NOT relocated here. -->
+          <Panel>
+            <div class="panel-title">SALVAGE BAY</div>
+            <p class="research-status">
+              Break spare ship systems and salvaged materials down for recovered parts and loot. Salvage permanently destroys the item; checked quality tiers ask for confirmation first.
+            </p>
+            <!-- CONFIRM-BY-QUALITY options (0.11.2 Task 13b): one checkbox per
+                 quality tier (0..QUALITY_TIERS-1). A CHECKED tier requires a
+                 confirm before salvaging an item of that quality; unchecking a
+                 tier salvages it instantly. Persists to localStorage via
+                 toggleSalvageConfirmTier -> saveSalvageConfirmQualities. Reuses the
+                 .dev-row + inline-flex label + checkbox idiom from the System
+                 Options panel; no new styling or colors. Ship (hull) teardown
+                 always confirms regardless of these toggles. Tier labels use the
+                 Q0..Q5 convention the systems tiles already show. -->
+            <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
+              {#each Array.from({ length: QUALITY_TIERS }, (_, i) => i) as tier (tier)}
+                <label style="display: inline-flex; align-items: center; gap: 6px;">
+                  <input
+                    type="checkbox"
+                    checked={salvageConfirmQualities.includes(tier)}
+                    on:change={(e) => toggleSalvageConfirmTier(tier, (e.target as HTMLInputElement).checked)}
+                  />
+                  Q{tier}
+                </label>
+              {/each}
+            </div>
+            <p class="research-status">
+              Salvaging an item of a checked quality asks for confirmation first. Uncheck a tier to salvage it instantly.
+            </p>
+          </Panel>
+
+          <!-- LAST SALVAGE readout (0.11.2 Task 12): a "here is what you got"
+               status shown after a break-down, in ADDITION to the event-log
+               line. Fed by lastSalvageResult, which the two do* handlers set on
+               success and the clear reactive resets when leaving the tab. Reuses
+               the SAME Panel + warehouse-tier-head + research-status tokens as the
+               surrounding sections; no new styling or colors. -->
+          {#if lastSalvageResult !== null}
+            <Panel>
+              <div class="warehouse-tier-head">
+                <span class="warehouse-tier-label">Last salvage</span>
+                <span class="warehouse-tier-line"></span>
+                <span class="warehouse-tier-cap">{lastSalvageResult.kind === "system" ? "recycled" : lastSalvageResult.kind === "baseline" ? "discarded" : "loot roll"}</span>
+              </div>
+              <p class="research-status">
+                {lastSalvageResult.kind === "system" ? "Recycled" : lastSalvageResult.kind === "baseline" ? "Discarded" : "Broke down"} [{lastSalvageResult.sourceName}].
+                {#if lastSalvageResult.kind === "baseline"}
+                  Standard-Issue systems carry no materials to recover.
+                {:else if lastSalvageResult.recovered.length > 0}
+                  Recovered: {lastSalvageResult.recovered
+                    .map((r) => `${formatNumber(new Decimal(r.amount))} [${ITEMS[r.itemId]?.label ?? r.itemId}]`)
+                    .join(", ")}.
+                {:else}
+                  No materials recovered (recovery rounded to zero).
+                {/if}
+                {#if lastSalvageResult.rolledTier}
+                  Rolled tier: {lastSalvageResult.rolledTier}.
+                {/if}
+              </p>
+            </Panel>
+          {/if}
+
+          <!-- SHIP SYSTEMS salvage: the spare-systems bay tiles (SAME markup as
+               the Ship Equipment bay). Selecting a tile surfaces the
+               EquipmentTooltip below with a Salvage action for crafted spares.
+               Reads baySystemGroups / selectedSystemId / selectSystemTile, the
+               same shared state the Ship Equipment tab uses. -->
+          <Panel>
+            <div class="warehouse-tier-head">
+              <span class="warehouse-tier-label">Ship Systems</span>
+              <span class="warehouse-tier-line"></span>
+              <span class="warehouse-tier-cap">recycle spares</span>
+            </div>
+            {#if baySystemGroups.length === 0}
+              <div class="warehouse-stub">
+                <div class="warehouse-stub-glyph">🛰️</div>
+                <p>No spare systems to salvage. Fabricate ship systems at the Fabricator, or uninstall an installed system to store it here first.</p>
+              </div>
+            {:else}
+              {#each baySystemGroups as group (group.slot)}
+                <div class="warehouse-tier">
+                  <div class="warehouse-tier-head">
+                    <span class="warehouse-tier-label">{group.label}</span>
+                    <span class="warehouse-tier-line"></span>
+                    <span class="warehouse-tier-cap">{group.pieces.length} system{group.pieces.length === 1 ? "" : "s"}</span>
                   </div>
+                  <div class="warehouse-grid">
+                    {#each group.pieces as piece (piece.id)}
+                      {@const isBaseline = piece.blueprintKey === null}
+                      <button
+                        type="button"
+                        class="systems-tile"
+                        class:baseline={isBaseline}
+                        class:selected={selectedSystemId === piece.id}
+                        style="--sys-rc: {equipmentRarityColor(piece.rarity)};"
+                        title={isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
+                        on:click={() => selectSystemTile(piece.id)}
+                      >
+                        <span class="systems-tile-dot"></span>
+                        <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
+                        <span class="systems-tile-il">iL {piece.iLevel}</span>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              {/each}
+            {/if}
+          </Panel>
+
+          <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
+               inline. A spare crafted system gets a Salvage button in the
+               tooltip's action slot (routes through requestSalvage("system", ...)
+               -> the shared confirm modal); baselines get NONE (nothing to
+               refund). -->
+          {#if selectedSystem}
+            {@const sys = selectedSystem}
+            <Panel>
+              <EquipmentTooltip piece={sys}>
+                {#if selectedIsSalvageable}
                   <button
                     class="buy-btn systems-salvage-btn"
-                    disabled={!selHeld}
-                    title={selHeld ? undefined : "None of this material is held"}
-                    on:click={() => requestSalvage("material", salvageTargetId, selItem.label)}
+                    on:click={() => requestSalvage("system", sys.id, systemSalvageName(sys))}
                   >
                     Salvage
                   </button>
-                </div>
-              </Panel>
-            {/if}
-
+                {:else}
+                  <span class="systems-salvage-none">Standard-Issue baseline, nothing to salvage.</span>
+                {/if}
+              </EquipmentTooltip>
+            </Panel>
           {/if}
-        </div>
-      </div>
+
+          <!-- SALVAGED MATERIALS salvage: the select-to-salvage tiles over the
+               whole salvaged catalog (salvageBaySalvagedItems, all tiers, no
+               tier selector). SAME systems-tile visual + select idiom the
+               Materials tab shows browse-only. -->
+          <Panel>
+            <div class="warehouse-tier-head">
+              <span class="warehouse-tier-label">Salvaged Materials</span>
+              <span class="warehouse-tier-line"></span>
+              <span class="warehouse-tier-cap">{salvageBayHeldSalvaged.length} material{salvageBayHeldSalvaged.length === 1 ? "" : "s"}</span>
+            </div>
+            {#if salvageBayHeldSalvaged.length === 0}
+              <div class="warehouse-stub">
+                <div class="warehouse-stub-glyph">♻️</div>
+                <p>No salvaged materials yet. Recover them from salvage missions, then break them down here for a loot roll.</p>
+              </div>
+            {:else}
+              <div class="warehouse-grid">
+                {#each salvageBayHeldSalvaged as item (item.id)}
+                  {@const count = itemTotal(state.inventory, item.id)}
+                  <!-- Reuse the systems-tile visual (rarity dot + code + corner
+                       value), painting the count where a system's quality sits.
+                       Rarity color via warehouseRarityColor (item rarity). -->
+                  <button
+                    type="button"
+                    class="systems-tile"
+                    class:selected={selectedSalvagedId === item.id}
+                    style="--sys-rc: {warehouseRarityColor(item.rarity)};"
+                    title={`${item.label} · ${item.rarity}`}
+                    on:click={() => selectSalvagedTile(item.id)}
+                  >
+                    <span class="systems-tile-dot"></span>
+                    <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
+                    <span class="systems-tile-q">{formatNumber(count)}</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </Panel>
+
+          <!-- SELECTED MATERIAL: the Salvage action + a short readout. The
+               Salvage button disables when none is held (the engine also
+               rejects noneHeld for safety); the roll result is narrated to the
+               event log. -->
+          {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId] && itemTotal(state.inventory, selectedSalvagedId).gt(0)}
+            <!-- Capture the narrowed id into a const so the click closure below
+                 receives a plain `string` (Svelte narrows the template guard, but
+                 an arrow-function callback would otherwise see `string | null`).
+                 Gated on a held count > 0 so that after salvaging the last unit,
+                 the tile leaves the held-only grid AND this action panel closes
+                 together (no lingering panel for an item you no longer hold). -->
+            {@const salvageTargetId = selectedSalvagedId}
+            {@const selItem = ITEMS[selectedSalvagedId]}
+            {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
+            {@const selHeld = selCount.gt(0)}
+            <Panel>
+              <div class="salvaged-action">
+                <div class="salvaged-action-info">
+                  <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
+                  <div class="salvaged-action-hint">
+                    Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
+                  </div>
+                </div>
+                <button
+                  class="buy-btn systems-salvage-btn"
+                  disabled={!selHeld}
+                  title={selHeld ? undefined : "None of this material is held"}
+                  on:click={() => requestSalvage("material", salvageTargetId, selItem.label)}
+                >
+                  Salvage
+                </button>
+              </div>
+            </Panel>
+          {/if}
+        {/if}
       </div>
       {/if}
 
@@ -7111,7 +7117,7 @@
       <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
       <button class="nav-tab" class:active={activeTab === "foundry"} on:click={() => (activeTab = "foundry")}>Foundry</button>
       <button class="nav-tab" class:active={activeTab === "drydock"} on:click={() => (activeTab = "drydock")}>Drydock</button>
-      <button class="nav-tab" class:active={activeTab === "stores"} on:click={() => (activeTab = "stores")}>Stores</button>
+      <button class="nav-tab" class:active={activeTab === "logistics"} on:click={() => (activeTab = "logistics")}>Logistics</button>
     </div>
   </div>
 
