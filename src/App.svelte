@@ -630,6 +630,20 @@
   type StoresFacilityKey = "warehouse";
   let activeStoresFacility: StoresFacilityKey = "warehouse";
 
+  // Operations program sub-tab state (0.11.2 nav restructure, Task 5).
+  // The OPERATIONS program now hosts two axes via a top-level <SubTabs>:
+  // "dispatch" (the existing mission dispatch UI: category rail + tier tabs +
+  // mission cards) and "missionControl" (the mission-UNLOCK facility moved
+  // VERBATIM out of the Facilities tab, since it is mission-related). Like the
+  // sibling program states above (activeFoundryFacility / activeDrydockSection /
+  // activeStoresFacility), it uses its OWN selection state so the Operations tab
+  // stays independent of the still-coexisting Facilities tab's activeFacility. It
+  // defaults to "dispatch" so the tab still opens on dispatch exactly as before
+  // the Mission Control pane joined it. Named (not an inline literal union) to
+  // match the sibling rail-state types.
+  type OperationsSubTab = "dispatch" | "missionControl";
+  let activeOperationsSubTab: OperationsSubTab = "dispatch";
+
   // ---- Warehouse facility view (Phase 2, Group C) -----------------------------
   // A tiered fill-tile inventory catalog. The top SubTabs axis is CATEGORY:
   // Overview + Upgrade (the facility-management views, mirroring the Refinery's
@@ -5343,21 +5357,12 @@
                .captain-list-item.locked items, activeFacility/FacilityKey
                logic and the Refinery content pane are unchanged. -->
 
-          <!-- Homeworld group. Refinery, Fabricator, Research Lab, and Fuel
-               Depot moved to the FOUNDRY program (0.11.2 Task 1); the Warehouse
-               moved to the STORES program (0.11.2 Task 3). Only Mission Control
-               remains here until later restructure tasks relocate it too. -->
-          <div class="facility-owner-header">Homeworld</div>
-          <!-- Mission Control, REAL, selectable facility (Mission Rework Task 8):
-               the mission-unlock facility. Same reused .captain-list-item / active
-               idiom as the Refinery/Warehouse buttons. -->
-          <button
-            class="captain-list-item"
-            class:active={activeFacility === "missionControl"}
-            on:click={() => (activeFacility = "missionControl")}
-          >
-            Mission Control
-          </button>
+          <!-- Homeworld group is now empty: Refinery, Fabricator, Research Lab,
+               and Fuel Depot moved to the FOUNDRY program (0.11.2 Task 1); the
+               Warehouse moved to the STORES program (0.11.2 Task 3); Mission
+               Control moved to the OPERATIONS program (0.11.2 Task 5). No real
+               Facilities panes remain; only the locked Ships group below is left
+               until a later nav task removes the Facilities tab entirely. -->
 
           <!-- Ships group, ship-borne facilities, a concept only (no backing
                state yet); locked like the rest. -->
@@ -5366,134 +5371,10 @@
         </div>
 
         <div class="fleet-captains-content">
-          {#if activeFacility === "missionControl"}
-            <!-- MISSION CONTROL (Mission Rework Task 8), the mission-unlock
-                 facility. Two sub-tabs mirroring the Refinery: Overview (unlocked /
-                 locked missions + completion progress toward the next unlock) and
-                 Upgrades (the next rung's material + completion-count readiness +
-                 Build). All readiness/actions read the SAME tick.ts backend fns
-                 (missionUnlocked / canBuildFacilityUpgrade / startFacilityUpgrade) +
-                 FACILITIES data, so the UI can't drift from what the backend enforces.
-                 The Upgrades tab adds the completion-count requirement rows that are
-                 unique to this facility (the "earn it by playing" gate, Task 6). -->
-            <SubTabs
-              tabs={[
-                { key: "overview", label: "Overview" },
-                { key: "upgrades", label: "Upgrades" },
-              ]}
-              active={activeMissionControlSubTab}
-              onSelect={(key) => (activeMissionControlSubTab = key as MissionControlSubTab)}
-            />
-
-            {#if activeMissionControlSubTab === "overview"}
-              <!-- USER REVISION 2026-07-14: all four current missions are default
-                   (unlockLevel 1), so this Overview is a MISSION LOG of the available
-                   missions + each one's lifetime completion count, NOT a "next
-                   unlock" progress panel (that unlock upgrade is deferred until future
-                   missions exist; see model.ts FACILITIES.missionControl). The locked-
-                   mission list below is retained (guarded on lockedMissionKeys.length,
-                   empty today) so it lights up automatically when a future mission
-                   ships at a higher unlockLevel. -->
-              <Panel>
-                <div class="panel-title">MISSION CONTROL</div>
-                <div class="research-cost">Level: {missionControlLevel}</div>
-
-                <div class="research-name" style="margin-top: 10px;">Available missions</div>
-                {#each unlockedMissionKeys as mKey (mKey)}
-                  {@const completed = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
-                  <div class="research-cost" style="color: var(--color-success)">
-                    ✅ {MISSIONS[mKey].label}, {formatNumber(completed)} completed
-                  </div>
-                {/each}
-
-                {#if lockedMissionKeys.length > 0}
-                  <div class="research-name" style="margin-top: 10px;">Locked missions</div>
-                  {#each lockedMissionKeys as mKey (mKey)}
-                    <div class="research-cost" style="color: var(--color-text-secondary)">🔒 {MISSIONS[mKey].label}, unlocks at level {MISSIONS[mKey].unlockLevel}</div>
-                  {/each}
-                {/if}
-
-                <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
-                  All current missions are available. Future missions will unlock here
-                  as new content is added.
-                </p>
-              </Panel>
-            {/if}
-
-            {#if activeMissionControlSubTab === "upgrades"}
-              <Panel>
-                <div class="panel-title">MISSION CONTROL UPGRADES</div>
-                <div class="research-cost">Level: {missionControlLevel}</div>
-
-                {#if missionControlMaxed}
-                  <!-- USER REVISION 2026-07-14: Mission Control caps at its current
-                       content (the unlock UPGRADE is deferred until future missions
-                       exist, see model.ts FACILITIES.missionControl). This is the
-                       standard maxed state the Refinery/Warehouse tracks show; the note
-                       flags that a future unlock rung re-appears here with new content. -->
-                  <p class="research-status">Fully upgraded.</p>
-                  <p class="research-status" style="margin-top: 6px; color: var(--color-text-secondary);">
-                    Future missions will unlock here as new content is added.
-                  </p>
-                {:else}
-                  <div class="research-name">Next: Level {missionControlLevel} → {missionControlLevel + 1}</div>
-                  <div class="research-cost">
-                    Unlocks the missions gated at level {missionControlLevel + 1} · Duration: {durationReadout(nextMissionControlUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}
-                  </div>
-
-                  <!-- Material readiness ([Item]: have / need, ✅/❌), same idiom as
-                       the Refinery/Warehouse upgrade tabs. -->
-                  {#each Object.keys(nextMissionControlUpgrade.materials) as itemId}
-                    {@const need = nextMissionControlUpgrade.materials[itemId]}
-                    {@const have = itemTotal(state.inventory, itemId)}
-                    {@const met = have.gte(need)}
-                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
-                    </div>
-                  {/each}
-
-                  <!-- Completion-count prereqs, THE mission-control-specific gate
-                       (Task 6): each listed mission's lifetime completions must reach
-                       its threshold before this rung is buildable. -->
-                  {#if nextMissionControlUpgrade.requiresMissionCompletions}
-                    {@const reqCompletions = nextMissionControlUpgrade.requiresMissionCompletions}
-                    {#each Object.keys(reqCompletions) as mKey (mKey)}
-                      {@const need = reqCompletions[mKey as MissionKey]!}
-                      {@const have = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
-                      {@const met = have.gte(need)}
-                      <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {met ? "✅" : "❌"} {MISSIONS[mKey as MissionKey].label} completions: {formatNumber(have)} / {need}
-                      </div>
-                    {/each}
-                  {/if}
-
-                  <!-- Build, gated on canBuildFacilityUpgrade (materials + the
-                       completion gate + no in-flight upgrade); its .reason is the
-                       "why not" title when disabled. -->
-                  <button
-                    class="buy-btn"
-                    disabled={!missionControlUpgradeCheck.ok}
-                    title={missionControlUpgradeCheck.ok ? undefined : missionControlUpgradeCheck.reason}
-                    on:click={() => doStartFacilityUpgrade("missionControl")}
-                  >
-                    Build · Level {missionControlLevel} → {missionControlLevel + 1}
-                  </button>
-                {/if}
-
-                {#if missionControlUpgradeInFlight}
-                  {@const progress = missionControlUpgradeInFlight.durationTicks > 0
-                    ? (missionControlUpgradeInFlight.durationTicks - missionControlUpgradeInFlight.remainingTicks) / missionControlUpgradeInFlight.durationTicks
-                    : 1}
-                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
-                  <div class="research-bar-track">
-                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                  </div>
-                  <div class="research-readout">{remainingReadout(missionControlUpgradeInFlight.remainingTicks, missionControlUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-                {/if}
-              </Panel>
-            {/if}
-
-          {/if}
+          <!-- Empty content pane: the only real Facilities facility (Mission
+               Control) moved to the OPERATIONS program (0.11.2 Task 5). Nothing
+               renders here now; the Facilities tab is removed in a later nav
+               task. -->
         </div>
       </div>
       </div>
@@ -5690,6 +5571,23 @@
       {/if}
 
       {#if activeTab === "fleetOperations"}
+      <!-- Operations program (0.11.2 nav restructure, Task 5): a top-level
+           <SubTabs> axis splits this tab into Dispatch (the existing mission
+           dispatch UI below) and Mission Control (the mission-unlock facility
+           moved VERBATIM out of the Facilities tab). Defaults to Dispatch via
+           activeOperationsSubTab so the tab opens on dispatch exactly as it did
+           before Mission Control joined it. Same <SubTabs> idiom as the Fleet
+           Captain's / Refinery axes. -->
+      <SubTabs
+        tabs={[
+          { key: "dispatch", label: "Dispatch" },
+          { key: "missionControl", label: "Mission Control" },
+        ]}
+        active={activeOperationsSubTab}
+        onSelect={(key) => (activeOperationsSubTab = key as OperationsSubTab)}
+      />
+
+      {#if activeOperationsSubTab === "dispatch"}
       <div class="tab-scroll-area">
       <!-- Fleet Operations Mission UI (2026-07-07 --
            docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md, Task 4) --
@@ -5906,6 +5804,145 @@
         </div>
       </div>
       </div>
+      {/if}
+
+      {#if activeOperationsSubTab === "missionControl"}
+      <!-- Mission Control (mission-unlock facility) moved VERBATIM here from the
+           Facilities tab (0.11.2 nav restructure, Task 5). Its inner Overview /
+           Upgrades <SubTabs> and both Panel bodies are unchanged; only the pane's
+           outer guard changed from activeFacility to activeOperationsSubTab, and
+           it now sits in its own .tab-scroll-area (every tab/sub-view wraps its
+           panel content in exactly one). The rail button it had in Facilities is
+           gone; the top-level Operations <SubTabs> entry selects it now. -->
+      <div class="tab-scroll-area">
+            <!-- MISSION CONTROL (Mission Rework Task 8), the mission-unlock
+                 facility. Two sub-tabs mirroring the Refinery: Overview (unlocked /
+                 locked missions + completion progress toward the next unlock) and
+                 Upgrades (the next rung's material + completion-count readiness +
+                 Build). All readiness/actions read the SAME tick.ts backend fns
+                 (missionUnlocked / canBuildFacilityUpgrade / startFacilityUpgrade) +
+                 FACILITIES data, so the UI can't drift from what the backend enforces.
+                 The Upgrades tab adds the completion-count requirement rows that are
+                 unique to this facility (the "earn it by playing" gate, Task 6). -->
+            <SubTabs
+              tabs={[
+                { key: "overview", label: "Overview" },
+                { key: "upgrades", label: "Upgrades" },
+              ]}
+              active={activeMissionControlSubTab}
+              onSelect={(key) => (activeMissionControlSubTab = key as MissionControlSubTab)}
+            />
+
+            {#if activeMissionControlSubTab === "overview"}
+              <!-- USER REVISION 2026-07-14: all four current missions are default
+                   (unlockLevel 1), so this Overview is a MISSION LOG of the available
+                   missions + each one's lifetime completion count, NOT a "next
+                   unlock" progress panel (that unlock upgrade is deferred until future
+                   missions exist; see model.ts FACILITIES.missionControl). The locked-
+                   mission list below is retained (guarded on lockedMissionKeys.length,
+                   empty today) so it lights up automatically when a future mission
+                   ships at a higher unlockLevel. -->
+              <Panel>
+                <div class="panel-title">MISSION CONTROL</div>
+                <div class="research-cost">Level: {missionControlLevel}</div>
+
+                <div class="research-name" style="margin-top: 10px;">Available missions</div>
+                {#each unlockedMissionKeys as mKey (mKey)}
+                  {@const completed = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
+                  <div class="research-cost" style="color: var(--color-success)">
+                    ✅ {MISSIONS[mKey].label}, {formatNumber(completed)} completed
+                  </div>
+                {/each}
+
+                {#if lockedMissionKeys.length > 0}
+                  <div class="research-name" style="margin-top: 10px;">Locked missions</div>
+                  {#each lockedMissionKeys as mKey (mKey)}
+                    <div class="research-cost" style="color: var(--color-text-secondary)">🔒 {MISSIONS[mKey].label}, unlocks at level {MISSIONS[mKey].unlockLevel}</div>
+                  {/each}
+                {/if}
+
+                <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
+                  All current missions are available. Future missions will unlock here
+                  as new content is added.
+                </p>
+              </Panel>
+            {/if}
+
+            {#if activeMissionControlSubTab === "upgrades"}
+              <Panel>
+                <div class="panel-title">MISSION CONTROL UPGRADES</div>
+                <div class="research-cost">Level: {missionControlLevel}</div>
+
+                {#if missionControlMaxed}
+                  <!-- USER REVISION 2026-07-14: Mission Control caps at its current
+                       content (the unlock UPGRADE is deferred until future missions
+                       exist, see model.ts FACILITIES.missionControl). This is the
+                       standard maxed state the Refinery/Warehouse tracks show; the note
+                       flags that a future unlock rung re-appears here with new content. -->
+                  <p class="research-status">Fully upgraded.</p>
+                  <p class="research-status" style="margin-top: 6px; color: var(--color-text-secondary);">
+                    Future missions will unlock here as new content is added.
+                  </p>
+                {:else}
+                  <div class="research-name">Next: Level {missionControlLevel} → {missionControlLevel + 1}</div>
+                  <div class="research-cost">
+                    Unlocks the missions gated at level {missionControlLevel + 1} · Duration: {durationReadout(nextMissionControlUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}
+                  </div>
+
+                  <!-- Material readiness ([Item]: have / need, ✅/❌), same idiom as
+                       the Refinery/Warehouse upgrade tabs. -->
+                  {#each Object.keys(nextMissionControlUpgrade.materials) as itemId}
+                    {@const need = nextMissionControlUpgrade.materials[itemId]}
+                    {@const have = itemTotal(state.inventory, itemId)}
+                    {@const met = have.gte(need)}
+                    <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                    </div>
+                  {/each}
+
+                  <!-- Completion-count prereqs, THE mission-control-specific gate
+                       (Task 6): each listed mission's lifetime completions must reach
+                       its threshold before this rung is buildable. -->
+                  {#if nextMissionControlUpgrade.requiresMissionCompletions}
+                    {@const reqCompletions = nextMissionControlUpgrade.requiresMissionCompletions}
+                    {#each Object.keys(reqCompletions) as mKey (mKey)}
+                      {@const need = reqCompletions[mKey as MissionKey]!}
+                      {@const have = state.lifetimeStats.missionsCompleted[mKey] ?? new Decimal(0)}
+                      {@const met = have.gte(need)}
+                      <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                        {met ? "✅" : "❌"} {MISSIONS[mKey as MissionKey].label} completions: {formatNumber(have)} / {need}
+                      </div>
+                    {/each}
+                  {/if}
+
+                  <!-- Build, gated on canBuildFacilityUpgrade (materials + the
+                       completion gate + no in-flight upgrade); its .reason is the
+                       "why not" title when disabled. -->
+                  <button
+                    class="buy-btn"
+                    disabled={!missionControlUpgradeCheck.ok}
+                    title={missionControlUpgradeCheck.ok ? undefined : missionControlUpgradeCheck.reason}
+                    on:click={() => doStartFacilityUpgrade("missionControl")}
+                  >
+                    Build · Level {missionControlLevel} → {missionControlLevel + 1}
+                  </button>
+                {/if}
+
+                {#if missionControlUpgradeInFlight}
+                  {@const progress = missionControlUpgradeInFlight.durationTicks > 0
+                    ? (missionControlUpgradeInFlight.durationTicks - missionControlUpgradeInFlight.remainingTicks) / missionControlUpgradeInFlight.durationTicks
+                    : 1}
+                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remainingReadout(missionControlUpgradeInFlight.remainingTicks, missionControlUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                {/if}
+              </Panel>
+            {/if}
+
+      </div>
+      {/if}
       {/if}
 
       {#if activeTab === "battlespace"}
