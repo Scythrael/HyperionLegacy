@@ -2414,6 +2414,12 @@ export type ItemCategory =
 // tier of the union is valid today; Phase 1's seeds only reach "rare".
 export type ItemRarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
 
+// Warehouse sub-grouping for raw items (0.11.2 Phase 2). Raw materials all share
+// one `category: "raw"`; this splits them into themed shelves so the Warehouse can
+// render them grouped instead of one flat "raw" wall. Static catalog data, NOT part
+// of saved GameState, so it is purely additive with no save migration.
+export type RawSubCategory = "oresMetals" | "volatiles" | "organicCompounds" | "recoveredTech";
+
 export interface ItemDef {
   label: string;        // display name (UI wraps it as [Bracketed Name] per convention)
   category: ItemCategory;
@@ -2427,6 +2433,10 @@ export interface ItemDef {
   // future item added without a Warehouse hint fails the suite.
   unlockHint: string;
   flavor: string;
+  // Warehouse sub-grouping for raw items (0.11.2). Present on EVERY `category: "raw"`
+  // item (enforced by model.test.ts), absent on all non-raw items. Static catalog
+  // data, not saved GameState, so it needs no migration.
+  subCategory?: RawSubCategory;
   // FORWARD (not populated this pass): only shipModule/shipSystem items ever
   // carry equip stats; every Phase 1 seed leaves this undefined.
   equipStats?: Record<string, number>;
@@ -2452,6 +2462,7 @@ export const ITEMS: Record<string, ItemDef> = {
     // save migration; its only consumer is now the material Refinery again.
     label: "Titanium Ore",
     category: "raw",
+    subCategory: "oresMetals",
     tier: 1,
     rarity: "common",
     // The guaranteed common-tier fallback drop on every extraction tick (see
@@ -2464,6 +2475,7 @@ export const ITEMS: Record<string, ItemDef> = {
     // `uncommonMaterial`, label is display-only, no save migration).
     label: "Polysilicate Ore",
     category: "raw",
+    subCategory: "oresMetals",
     tier: 1,
     rarity: "uncommon",
     // Won on the per-tick uncommonChance roll; the Long Ore Run's uncommonChance
@@ -2477,6 +2489,7 @@ export const ITEMS: Record<string, ItemDef> = {
     // name, NOT final, flagged provisional at scaffold time.
     label: "Iridium Ore",
     category: "raw",
+    subCategory: "oresMetals",
     tier: 1,
     rarity: "rare",
     // Won on the per-tick rareChance roll; the Long Ore Run's rareChance (0.02)
@@ -2496,6 +2509,7 @@ export const ITEMS: Record<string, ItemDef> = {
   deuteriumIce: {
     label: "Deuterium Ice",
     category: "raw",
+    subCategory: "volatiles",
     tier: 1,
     rarity: "common",
     // The guaranteed (and ONLY) drop of the localFuelRun mission, a common-tier ore.
@@ -2526,6 +2540,7 @@ export const ITEMS: Record<string, ItemDef> = {
   denseOre: {
     label: "Dense Ore",
     category: "raw",
+    subCategory: "oresMetals",
     tier: 2,
     rarity: "uncommon",
     unlockHint: "Extracted from deep deposits, no mission reaches them yet.",
@@ -2551,6 +2566,7 @@ export const ITEMS: Record<string, ItemDef> = {
     // obtainable via the longOreRun triad (Task 1) despite the older scaffold header above.
     label: "Ferrite",
     category: "raw",
+    subCategory: "oresMetals",
     tier: 1,
     rarity: "common",
     unlockHint: "Mined on the Lunar Mine Contract.",
@@ -2559,6 +2575,7 @@ export const ITEMS: Record<string, ItemDef> = {
   cobaltOre: {
     label: "Cobalt Ore",
     category: "raw",
+    subCategory: "oresMetals",
     tier: 1,
     rarity: "uncommon",
     unlockHint: "An uncommon strike on the Lunar Mine Contract.",
@@ -2567,6 +2584,7 @@ export const ITEMS: Record<string, ItemDef> = {
   osmiumOre: {
     label: "Osmium Ore",
     category: "raw",
+    subCategory: "oresMetals",
     tier: 1,
     rarity: "rare",
     unlockHint: "A rare strike on the Lunar Mine Contract.",
@@ -2575,6 +2593,7 @@ export const ITEMS: Record<string, ItemDef> = {
   scrapAlloy: {
     label: "Scrap Alloy",
     category: "raw",
+    subCategory: "recoveredTech",
     tier: 1,
     rarity: "common",
     unlockHint: "Recovered on the Salvage Nearby Skirmish Wreckage run.",
@@ -2583,6 +2602,7 @@ export const ITEMS: Record<string, ItemDef> = {
   salvagedCircuitry: {
     label: "Salvaged Circuitry",
     category: "raw",
+    subCategory: "recoveredTech",
     tier: 1,
     rarity: "uncommon",
     unlockHint: "An uncommon find on the Salvage Nearby Skirmish Wreckage run.",
@@ -2607,6 +2627,7 @@ export const ITEMS: Record<string, ItemDef> = {
   fibrousBiomass: {
     label: "Fibrous Biomass",
     category: "raw",
+    subCategory: "organicCompounds",
     tier: 1,
     rarity: "common",
     unlockHint: "Foraged on the Forage Minerals and Flora on Nearby Moon run.",
@@ -2615,6 +2636,7 @@ export const ITEMS: Record<string, ItemDef> = {
   volatileResin: {
     label: "Volatile Resin",
     category: "raw",
+    subCategory: "organicCompounds",
     tier: 1,
     rarity: "uncommon",
     unlockHint: "An uncommon forage on the Forage Minerals and Flora on Nearby Moon run.",
@@ -2623,6 +2645,7 @@ export const ITEMS: Record<string, ItemDef> = {
   exoticSporeCluster: {
     label: "Exotic Spore Cluster",
     category: "raw",
+    subCategory: "organicCompounds",
     tier: 1,
     rarity: "rare",
     unlockHint: "A rare forage on the Forage Minerals and Flora on Nearby Moon run.",
@@ -2708,6 +2731,9 @@ export const ITEMS: Record<string, ItemDef> = {
   anomalousAlloy: {
     label: "Anomalous Alloy",
     category: "raw",
+    // Reserved salvage-PRODUCED exotic (not mined), grouped under recoveredTech by
+    // salvage source, the same origin as Scrap Alloy / Salvaged Circuitry (0.11.2).
+    subCategory: "recoveredTech",
     tier: 1,
     rarity: "epic",
     unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",

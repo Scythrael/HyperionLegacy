@@ -1234,6 +1234,15 @@ describe("ITEMS, Phase 1 seed registry", () => {
       expect(item.unlockHint.length, `${key}.unlockHint is non-empty`).toBeGreaterThan(0);
     }
   });
+
+  // Every RAW item must declare a Warehouse subCategory so it cannot render ungrouped.
+  it("every raw item declares a subCategory", () => {
+    for (const [id, def] of Object.entries(ITEMS)) {
+      if (def.category === "raw") {
+        expect(def.subCategory, `raw item ${id} missing subCategory`).toBeDefined();
+      }
+    }
+  });
 });
 
 // 0.11.0 Storage/Salvage (Task A3, design §3/§8): the item-catalog groundwork the
