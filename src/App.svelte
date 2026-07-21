@@ -551,8 +551,18 @@
   // Drydock; Warehouse to Stores; Mission Control to Operations), and the emptied
   // Facilities tab was then removed (Task 7). The union below is the resulting
   // program set (see the .nav-tabs row for their left-to-right order).
-  type TabKey = "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "stores" | "homeworld" | "help" | "system";
-  let activeTab: TabKey = "fleetCaptains";
+  type TabKey = "home" | "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "stores" | "homeworld" | "system";
+  let activeTab: TabKey = "home";
+
+  // Home program (0.11.2 Shell Correction, Task 1): the landing program, first
+  // on the bottom nav. Its left rail (.captain-list, reused verbatim) selects
+  // between Overview (a welcome placeholder), Help (the re-homed HELP_TOPICS
+  // manual, formerly a standalone top-level tab), and Statistics (a placeholder
+  // this task, built out in Task 2). Reserved locked rail items (Achievements /
+  // Completion / Leaderboards) use the same honest "coming soon" locked idiom as
+  // the System / Battlespace rails. activeHomeSection tracks the selected
+  // section, same rail-selection idiom as activeSystemSubTab.
+  let activeHomeSection: "overview" | "help" | "statistics" = "overview";
 
   // Help program (0.11.2 UI Restructure, Task 14): a left rail of topic titles
   // (.captain-list, reused verbatim) + a content pane showing the selected
@@ -6308,6 +6318,107 @@
       {/if}
       {/if}
 
+      {#if activeTab === "home"}
+      <!-- Home (0.11.2 Shell Correction, Task 1): the landing program. Mirrors
+           the Help / System tab structure EXACTLY (.tab-scroll-area >
+           .fleet-captains-layout > .captain-list rail + .fleet-captains-content),
+           reusing those classes verbatim, no new visual language. The rail
+           selects Overview / Help / Statistics (via activeHomeSection) plus three
+           reserved locked items using the same .captain-list-item.locked idiom the
+           System / Battlespace rails use (inert div, 🔒 prefix, "Coming soon"
+           title). The Help section re-homes the former standalone Help tab: its
+           existing HELP_TOPICS rail+content layout is nested VERBATIM inside
+           Home's content pane, so the manual moves byte-for-byte and only its
+           navigation home changes. -->
+      <div class="tab-scroll-area">
+      <div class="fleet-captains-layout">
+        <div class="captain-list">
+          <button
+            class="captain-list-item"
+            class:active={activeHomeSection === "overview"}
+            on:click={() => (activeHomeSection = "overview")}
+          >
+            Overview
+          </button>
+          <button
+            class="captain-list-item"
+            class:active={activeHomeSection === "help"}
+            on:click={() => (activeHomeSection = "help")}
+          >
+            Help
+          </button>
+          <button
+            class="captain-list-item"
+            class:active={activeHomeSection === "statistics"}
+            on:click={() => (activeHomeSection = "statistics")}
+          >
+            Statistics
+          </button>
+          <!-- Reserved meta views, no engine behind them yet (same honest
+               "future signal" role as the System / Battlespace locked slots).
+               Plain inert non-button divs; the title attr is the affordance. -->
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Achievements</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Completion</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Leaderboards</div>
+        </div>
+
+        <div class="fleet-captains-content">
+          {#if activeHomeSection === "overview"}
+          <Panel>
+            <div class="panel-title">OVERVIEW</div>
+            <p class="prestige-text">Welcome, Admiral. This is your command home. More at-a-glance readouts arrive here in future updates.</p>
+          </Panel>
+          {/if}
+
+          {#if activeHomeSection === "help"}
+          <!-- Help re-homed VERBATIM (0.11.2 Shell Correction, Task 1): the
+               former standalone {#if activeTab === "help"} tab's inner layout,
+               moved byte-for-byte. A LEFT rail of topic titles (.captain-list /
+               .captain-list-item, reused verbatim) drives the content pane; the
+               topics live in ./lib/helpTopics.ts and render as PLAIN text, same
+               discipline as PATCH_NOTES. Nested inside Home's content pane so the
+               manual keeps its exact markup and only its navigation home changed.
+               Selection stays tracked by activeHelpTopic (a HELP_TOPICS id). -->
+          <div class="fleet-captains-layout">
+            <div class="captain-list">
+              {#each HELP_TOPICS as topic}
+                <button
+                  class="captain-list-item"
+                  class:active={activeHelpTopic === topic.id}
+                  on:click={() => (activeHelpTopic = topic.id)}
+                >
+                  {topic.title}
+                </button>
+              {/each}
+            </div>
+
+            <div class="fleet-captains-content">
+              {#each HELP_TOPICS as topic}
+                {#if activeHelpTopic === topic.id}
+                <Panel>
+                  <div class="panel-title">{topic.title.toUpperCase()}</div>
+                  <p class="prestige-text">{topic.body}</p>
+                </Panel>
+                {/if}
+              {/each}
+            </div>
+          </div>
+          {/if}
+
+          {#if activeHomeSection === "statistics"}
+          <!-- Statistics placeholder (0.11.2 Shell Correction, Task 1). Task 2
+               replaces this with a real panel derived from existing save data;
+               kept minimal here so the rail item is not dead. -->
+          <Panel>
+            <div class="panel-title">STATISTICS</div>
+            <p class="prestige-text">Coming in this update.</p>
+          </Panel>
+          {/if}
+        </div>
+      </div>
+      </div>
+      {/if}
+
       {#if activeTab === "battlespace"}
       <div class="tab-scroll-area">
       <Panel>
@@ -6333,43 +6444,6 @@
           <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Invasion</div>
         </div>
       </Panel>
-      </div>
-      {/if}
-
-      {#if activeTab === "help"}
-      <!-- Help (0.11.2 UI Restructure, Task 14): a static core-systems manual,
-           deliberately MIRRORS the System / Facilities / Homeworld tabs. A LEFT
-           rail of topic titles (.captain-list / .captain-list-item, reused
-           verbatim, NOT a new class) drives the right content pane. Selection is
-           tracked by activeHelpTopic (a HELP_TOPICS id); the topics themselves
-           live in ./lib/helpTopics.ts and their bodies render as PLAIN text
-           (no markdown), same discipline as PATCH_NOTES. Existing tokens/classes
-           only, no restyle. -->
-      <div class="tab-scroll-area">
-      <div class="fleet-captains-layout">
-        <div class="captain-list">
-          {#each HELP_TOPICS as topic}
-            <button
-              class="captain-list-item"
-              class:active={activeHelpTopic === topic.id}
-              on:click={() => (activeHelpTopic = topic.id)}
-            >
-              {topic.title}
-            </button>
-          {/each}
-        </div>
-
-        <div class="fleet-captains-content">
-          {#each HELP_TOPICS as topic}
-            {#if activeHelpTopic === topic.id}
-            <Panel>
-              <div class="panel-title">{topic.title.toUpperCase()}</div>
-              <p class="prestige-text">{topic.body}</p>
-            </Panel>
-            {/if}
-          {/each}
-        </div>
-      </div>
       </div>
       {/if}
 
@@ -6737,6 +6811,7 @@
     </main>
 
     <div class="nav-tabs">
+      <button class="nav-tab" class:active={activeTab === "home"} on:click={() => (activeTab = "home")}>Home</button>
       <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Crew</button>
       <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
       <button class="nav-tab" class:active={activeTab === "foundry"} on:click={() => (activeTab = "foundry")}>Foundry</button>
@@ -6744,7 +6819,6 @@
       <button class="nav-tab" class:active={activeTab === "stores"} on:click={() => (activeTab = "stores")}>Stores</button>
       <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
       <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
-      <button class="nav-tab" class:active={activeTab === "help"} on:click={() => (activeTab = "help")}>Help</button>
       <button class="nav-tab" class:active={activeTab === "system"} on:click={() => (activeTab = "system")}>System</button>
     </div>
   </div>
