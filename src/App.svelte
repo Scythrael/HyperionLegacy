@@ -582,13 +582,11 @@
   // program's activeSystemSubTab.
   let activeHelpTopic: string = "missions";
 
-  // Home > Statistics sub-tabs (0.11.2 Shell Correction, Task 2): the Statistics
-  // section splits into three top sub-tabs, rendered by the shared <SubTabs>
-  // component (same idiom as every other program's sub-tab axis). Lifetime holds
-  // the cumulative lifetimeStats totals, Career holds play time + the two levels,
-  // Fleet holds live roster counts. Defaults to Lifetime, the headline totals.
-  type StatsSubTab = "lifetime" | "career" | "fleet";
-  let activeStatsSubTab: StatsSubTab = "lifetime";
+  // Home > Statistics (0.12.0 Console): the three stat groups (Lifetime / Career /
+  // Fleet) render as stacked, always-visible sections rather than inner sub-tabs,
+  // so there is no third tab layer under the console tabs. The old activeStatsSubTab
+  // was retired with that flatten (2026-07-21). Rows still come from
+  // deriveStatistics(state), a pure read over existing save fields.
 
   // Fleet Captain's tab sub-tabs (UI Redesign, Task 8, see
   // docs/plans/2026-07-07-ui-redesign-plan.md). Overview holds the relocated
@@ -6527,22 +6525,13 @@
         {/if}
 
         {#if activeHomeTab === "statistics"}
-        <!-- STATISTICS page. 0.11.2 content, a top <SubTabs> axis (Lifetime /
-             Career / Fleet) over deriveStatistics(state) rows, a pure read over
-             EXISTING save fields (no new counters, no economy/tick changes),
-             selection tracked by activeStatsSubTab. Moved VERBATIM; only the
-             summoning chrome changed. -->
-          <SubTabs
-            tabs={[
-              { key: "lifetime", label: "Lifetime" },
-              { key: "career", label: "Career" },
-              { key: "fleet", label: "Fleet" },
-            ]}
-            active={activeStatsSubTab}
-            onSelect={(key) => (activeStatsSubTab = key as StatsSubTab)}
-          />
-
-          {#if activeStatsSubTab === "lifetime"}
+        <!-- STATISTICS page. FLATTENED per user 2026-07-21: no inner sub-tabs
+             (they would be a third tab layer under the console tabs and blur which
+             level you are on). The three groups render as stacked, always-visible
+             sections you scroll, compact enough to see together. Section headers
+             (.panel-title) are visually distinct from the glowing console tabs, so
+             the levels never blur. Rows come from deriveStatistics(state), a pure
+             read over EXISTING save fields (no new counters, no economy/tick). -->
           <Panel>
             <div class="panel-title">LIFETIME</div>
             {#each stats.lifetime as row}
@@ -6552,9 +6541,6 @@
               </div>
             {/each}
           </Panel>
-          {/if}
-
-          {#if activeStatsSubTab === "career"}
           <Panel>
             <div class="panel-title">CAREER</div>
             {#each stats.career as row}
@@ -6564,9 +6550,6 @@
               </div>
             {/each}
           </Panel>
-          {/if}
-
-          {#if activeStatsSubTab === "fleet"}
           <Panel>
             <div class="panel-title">FLEET</div>
             {#each stats.fleet as row}
@@ -6576,7 +6559,6 @@
               </div>
             {/each}
           </Panel>
-          {/if}
         {/if}
 
       </div>
