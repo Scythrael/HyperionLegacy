@@ -638,6 +638,33 @@
     { key: "finishedGoods", label: "Finished Goods" },
   ];
 
+  // FINISHED GOODS secondary tabs (0.11.2 Task 10). The Finished Goods tab is
+  // itself split into product families: Ship Systems is the ONE real, populated
+  // family today (the state.equipment spare-systems bay). Weapons / Modules /
+  // Consumables are RESERVED roadmap slots with no engine behind them yet, so
+  // they are marked locked (rendered grayed + non-clickable by SubTabs) and,
+  // when defaulted-into can't happen, they only ever show an honest reserved
+  // note. Named literal union (not a free string), same discipline as
+  // WarehouseCat above, so a family is only ever added deliberately.
+  type FinishedGoodsTab =
+    | "shipSystems"
+    | "weapons"
+    | "modules"
+    | "consumables";
+  let activeFinishedGoodsTab: FinishedGoodsTab = "shipSystems";
+
+  // The 4 Finished Goods families, in display order. Only Ship Systems is
+  // unlocked; the other three carry locked:true so SubTabs disables them and
+  // paints them with the same 🔒 + opacity:0.5 "coming soon" treatment the
+  // Fleet Captains and module locked slots already use. Keeping the reserved
+  // families visible (rather than hidden) advertises the combat roadmap.
+  const FINISHED_GOODS_TABS: { key: FinishedGoodsTab; label: string; locked?: boolean }[] = [
+    { key: "shipSystems", label: "Ship Systems" },
+    { key: "weapons", label: "Weapons", locked: true },
+    { key: "modules", label: "Modules", locked: true },
+    { key: "consumables", label: "Consumables", locked: true },
+  ];
+
   // The warehouse TIERS that have their own facility + cap system today (design
   // §3.1: each tier is its own facility). Drives the Upgrade tab's per-tier
   // cards AND the "is this tier's storage unlocked?" check for tier panels.
@@ -5225,22 +5252,34 @@
             {/if}
 
             {#if activeWarehouseCat === "finishedGoods"}
-              <!-- FINISHED GOODS (0.11.2 Task 9, INTERIM). For now this tab holds
-                   the Ship Systems bay verbatim (relocated from the old dedicated
-                   Ship Systems tab); Task 10 builds out the proper Finished Goods
-                   structure (Ship Systems + reserved Weapons / Modules /
-                   Consumables). The bay is UNCHANGED below.
+              <!-- FINISHED GOODS (0.11.2 Task 10). Split into product families by
+                   a secondary SubTabs strip: Ship Systems is the ONE real,
+                   populated family (the state.equipment spare-systems bay, moved
+                   here in Task 9); Weapons / Modules / Consumables are RESERVED
+                   roadmap slots (locked in FINISHED_GOODS_TABS, so SubTabs grays
+                   them and blocks selection), each showing only an honest reserved
+                   note, no real content. Salvaged Materials is intentionally NOT
+                   here, Task 9 moved it into the Materials tab; no duplication. -->
+              <SubTabs
+                tabs={FINISHED_GOODS_TABS}
+                active={activeFinishedGoodsTab}
+                onSelect={(key) => (activeFinishedGoodsTab = key as FinishedGoodsTab)}
+              />
 
-                   SHIP SYSTEMS BAY (Equipment 0.11.0 Phase D). The tiled,
+              {#if activeFinishedGoodsTab === "shipSystems"}
+              <!-- SHIP SYSTEMS BAY (Equipment 0.11.0 Phase D). The tiled,
                    non-stacking equipment inventory: one tile per spare
                    EquipmentInstance, grouped by slot type, plus the Systems Bay
-                   capacity header + "Upgrade Bay" action. Selecting a tile
-                   surfaces the reusable EquipmentTooltip inline below the grid; a
-                   spare CRAFTED system's tooltip carries a Salvage action. All
-                   reads/actions go through the SAME engine helpers the fabricate
-                   gate + storage engine use (spareEquipmentCount / equipmentStorageCap
-                   / canUpgradeEquipmentStorage / startEquipmentStorageUpgrade /
-                   salvageEquipment), so the UI can't drift from the backend. -->
+                   capacity header (spare / cap readout) + "Upgrade Bay" action.
+                   Selecting a tile surfaces the reusable EquipmentTooltip inline
+                   below the grid; a spare CRAFTED system's tooltip carries a
+                   Salvage action. All reads/actions go through the SAME engine
+                   helpers the fabricate gate + storage engine use
+                   (spareEquipmentCount / equipmentStorageCap /
+                   canUpgradeEquipmentStorage / startEquipmentStorageUpgrade /
+                   salvageEquipment), so the UI can't drift from the backend. The
+                   bay markup below is UNCHANGED from the Task 9 interim placement,
+                   only wrapped in the Ship Systems family conditional. -->
               {@const bayCap = equipmentStorageCap(state)}
               {@const baySpare = spareEquipmentCount(state)}
               {@const upgradeCheck = canUpgradeEquipmentStorage(state)}
@@ -5321,6 +5360,33 @@
                       <span class="systems-salvage-none">Standard-Issue baseline, nothing to salvage.</span>
                     {/if}
                   </EquipmentTooltip>
+                </Panel>
+              {/if}
+              {:else if activeFinishedGoodsTab === "weapons"}
+                <!-- RESERVED: Ship Weapons. No engine, no inventory yet; combat
+                     lands in a future update (0.12.0). Honest note only, styled
+                     with the same warehouse-stub glyph card the empty bay uses. -->
+                <Panel>
+                  <div class="warehouse-stub">
+                    <div class="warehouse-stub-glyph">🔒</div>
+                    <p>Ship Weapons: reserved for a future update (combat). Nothing to store here yet.</p>
+                  </div>
+                </Panel>
+              {:else if activeFinishedGoodsTab === "modules"}
+                <!-- RESERVED: Modules. Roadmap slot, no engine yet. -->
+                <Panel>
+                  <div class="warehouse-stub">
+                    <div class="warehouse-stub-glyph">🔒</div>
+                    <p>Modules: reserved for a future update. Nothing to store here yet.</p>
+                  </div>
+                </Panel>
+              {:else if activeFinishedGoodsTab === "consumables"}
+                <!-- RESERVED: Consumables. Roadmap slot, no engine yet. -->
+                <Panel>
+                  <div class="warehouse-stub">
+                    <div class="warehouse-stub-glyph">🔒</div>
+                    <p>Consumables: reserved for a future update. Nothing to store here yet.</p>
+                  </div>
                 </Panel>
               {/if}
             {/if}
