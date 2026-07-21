@@ -606,12 +606,13 @@
   // The DRYDOCK program unites ship BUILDING (the Shipyard, moved from the
   // Facilities tab) with ship ASSIGNMENT (the Docks, moved from the Locations
   // tab's Fleet Sector place). Like the Foundry's activeFoundryFacility above,
-  // it uses its OWN rail-selection state, SEPARATE from activeFacility AND
-  // activeLocationPlace, so the coexisting Facilities / Locations tabs never
-  // cross-talk while all three render during the intermediate nav restructure.
-  // A dedicated two-key union keeps invalid selections unrepresentable. Named
-  // (not an inline literal union) to match the sibling rail-state types
-  // (FoundryFacilityKey, LocationPlace, StarbaseSubTab, ShipyardSubTab).
+  // it uses its OWN rail-selection state, SEPARATE from activeFacility, so the
+  // still-coexisting Facilities tab never cross-talks with it during the
+  // intermediate nav restructure. (The Locations tab it also drew from has since
+  // been removed in Task 4.) A dedicated two-key union keeps invalid selections
+  // unrepresentable. Named (not an inline literal union) to match the sibling
+  // rail-state types (FoundryFacilityKey, StoresFacilityKey, StarbaseSubTab,
+  // ShipyardSubTab).
   type DrydockSection = "shipyard" | "docks";
   let activeDrydockSection: DrydockSection = "shipyard";
 
@@ -4467,9 +4468,10 @@
            tab's Fleet Sector place). Same shell as the Foundry / Facilities
            tabs (tab-scroll-area > fleet-captains-layout > captain-list rail +
            fleet-captains-content). Uses a DEDICATED activeDrydockSection state
-           (NOT activeFacility / activeLocationPlace) so this program stays
-           independent of the still-present Facilities / Locations tabs during
-           the intentional coexistence period (later tasks remove those tabs).
+           (NOT activeFacility) so this program stays independent of the
+           still-present Facilities tab during the intentional coexistence period
+           (a later task removes it; the Locations tab it also drew from was
+           removed in Task 4).
            This is an information-architecture move, not a redesign: the moved
            rail entries and content panes are unchanged except that their guard
            variable is retargeted to activeDrydockSection. -->
