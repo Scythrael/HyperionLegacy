@@ -1859,11 +1859,32 @@
     }
   }
 
+  // ── Salvage RESULT readout (0.11.2 Task 12) ───────────────────────────────
+  // The MOST RECENT Salvage Bay outcome, captured off the existing handler results
+  // so the Salvage Bay can render a "here is what you got" panel in ADDITION to the
+  // event-log line (which still fires). `kind` distinguishes the two surfaces:
+  // "system" is a spare-system recycle (materials only), "material" is a
+  // salvaged-material loot roll (materials + a rolled tier). `recovered` is the
+  // positive-amount entries only (the same filter the log summary uses). null when
+  // nothing has been salvaged this visit; cleared on leaving the Salvage Bay.
+  type LastSalvageResult = {
+    kind: "system" | "material";
+    sourceName: string;
+    recovered: { itemId: string; amount: number }[];
+    rolledTier?: string;
+  };
+  let lastSalvageResult: LastSalvageResult | null = null;
+
   // SALVAGE a spare crafted system. salvageEquipment returns a SalvageResult
   // (same-ref no-op + reason on reject; new state + recovered map on success).
   // On success: reassign state, clear the selection if it was this piece, log the
   // recovered materials ([Item] convention), and persist, the standard do* idiom.
   function doSalvageEquipment(instanceId: string) {
+    // Resolve a readable source name BEFORE the salvage consumes the spare: after
+    // state = result.next the piece is gone, so systemSalvageName (the slot + variety
+    // label the confirm modal shows) must be read now. Fall back to the raw id if the
+    // piece is somehow absent (e.g. a hand-edited save).
+    const salvagedPiece = state.equipment.find((e) => e.id === instanceId);
     const result = salvageEquipment(state, instanceId);
     if (!result.ok) {
       pushLog(`Cannot salvage system: ${salvageRejectText(result.reason)}.`);
@@ -1871,13 +1892,21 @@
     }
     state = result.next;
     if (selectedSystemId === instanceId) selectedSystemId = null;
-    // Build a "N [Item], M [Item]" summary of the positive recoveries (0-amount
-    // inputs are omitted so the log names only what was actually returned).
-    const parts = Object.entries(result.recovered)
+    // The positive recoveries (0-amount inputs omitted) as structured entries, the
+    // SINGLE source both the log summary and the Task 12 result panel read from.
+    const positive = Object.entries(result.recovered)
       .filter(([, amount]) => amount > 0)
-      .map(([itemId, amount]) => `${amount} [${ITEMS[itemId]?.label ?? itemId}]`);
+      .map(([itemId, amount]) => ({ itemId, amount }));
+    // Build a "N [Item], M [Item]" summary of the positive recoveries for the log.
+    const parts = positive.map(({ itemId, amount }) => `${amount} [${ITEMS[itemId]?.label ?? itemId}]`);
     const summary = parts.length > 0 ? parts.join(", ") : "no materials (recovery rounded to zero)";
     pushLog(`Salvaged system ${instanceId} → recovered ${summary}.`);
+    // Capture the outcome for the Salvage Bay result panel (in addition to the log).
+    lastSalvageResult = {
+      kind: "system",
+      sourceName: salvagedPiece ? systemSalvageName(salvagedPiece) : instanceId,
+      recovered: positive,
+    };
     doSave();
   }
 
@@ -2020,6 +2049,12 @@
   // declaration so it is never used before it is declared.
   $: activeStoresFacility, (selectedSalvagedId = null);
 
+  // Task 12: the salvage result readout is a per-visit status, so leaving (or
+  // switching away from) the Salvage Bay clears it, no stale "Last salvage" panel
+  // lingers on another facility (or on a fresh return to the bay). Same reactive
+  // idiom as the selection clear above; the initial run is a harmless null -> null.
+  $: activeStoresFacility, (lastSalvageResult = null);
+
   // SALVAGE one unit of a salvaged material for a tiered loot roll. salvageSalvagedMaterial
   // returns a SalvageResult: on reject a same-ref no-op + reason (noneHeld / notSalvagedMaterial),
   // on success a new state + `recovered` (the deposited amount) + `rolled` (the drop's
@@ -2045,6 +2080,17 @@
       // Title-case the raw rarity token ("stellar" -> "Stellar") for the readout.
       const tierLabel = roll.tier.charAt(0).toUpperCase() + roll.tier.slice(1);
       pushLog(`Salvaged ${srcLabel}: ${dropLabel} x${amount} (${tierLabel}).`);
+      // Capture the outcome for the Salvage Bay result panel (in addition to the log).
+      // `recovered` here is the single deposited drop; reuse the same positive-amount
+      // filter as the system path so the panel shows exactly what entered inventory.
+      lastSalvageResult = {
+        kind: "material",
+        sourceName: srcLabel,
+        recovered: Object.entries(result.recovered)
+          .filter(([, amt]) => amt > 0)
+          .map(([rid, amt]) => ({ itemId: rid, amount: amt })),
+        rolledTier: tierLabel,
+      };
     }
     doSave();
   }
@@ -5407,6 +5453,35 @@
                 Break spare ship systems and salvaged materials down for recovered parts and loot. Salvage permanently destroys the item; each break-down asks for confirmation first.
               </p>
             </Panel>
+
+            <!-- LAST SALVAGE readout (0.11.2 Task 12): a "here is what you got"
+                 status shown after a break-down, in ADDITION to the event-log
+                 line. Fed by lastSalvageResult, which the two do* handlers set on
+                 success and the clear reactive resets when leaving the bay. Reuses
+                 the SAME Panel + warehouse-tier-head + research-status tokens as the
+                 surrounding sections; no new styling or colors. -->
+            {#if lastSalvageResult !== null}
+              <Panel>
+                <div class="warehouse-tier-head">
+                  <span class="warehouse-tier-label">Last salvage</span>
+                  <span class="warehouse-tier-line"></span>
+                  <span class="warehouse-tier-cap">{lastSalvageResult.kind === "system" ? "recycled" : "loot roll"}</span>
+                </div>
+                <p class="research-status">
+                  {lastSalvageResult.kind === "system" ? "Recycled" : "Broke down"} [{lastSalvageResult.sourceName}].
+                  {#if lastSalvageResult.recovered.length > 0}
+                    Recovered: {lastSalvageResult.recovered
+                      .map((r) => `${formatNumber(new Decimal(r.amount))} [${ITEMS[r.itemId]?.label ?? r.itemId}]`)
+                      .join(", ")}.
+                  {:else}
+                    No materials recovered (recovery rounded to zero).
+                  {/if}
+                  {#if lastSalvageResult.rolledTier}
+                    Rolled tier: {lastSalvageResult.rolledTier}.
+                  {/if}
+                </p>
+              </Panel>
+            {/if}
 
             <!-- SHIP SYSTEMS salvage: the spare-systems bay tiles (SAME markup as
                  the Warehouse Ship Systems bay). Selecting a tile surfaces the
