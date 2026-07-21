@@ -3627,9 +3627,7 @@
           <!-- Foundry rail: the four make-stuff facilities. Rail buttons moved
                verbatim from the old Facilities rail; only class:active / on:click
                were retargeted to activeFoundryFacility. -->
-          <div class="facility-owner-header">Homeworld</div>
-          <!-- Homeworld group, the Refinery (only real facility this pass)
-               plus its two locked homeworld siblings. -->
+          <div class="facility-owner-header">Foundry</div>
           <button
             class="captain-list-item"
             class:active={activeFoundryFacility === "refinery"}
