@@ -905,3 +905,12 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   auto-saves so a reload is data-safe, but a prompt is nicer than yanking the page mid-action. Low-risk, high-value,
   small — a good early pickup. Ties to the deploy cadence: every staging→prod (or staging) push produces a new build
   the poll would catch.
+
+- **Shipyard: show a ship's default stats BEFORE building (user 2026-07-21).** In the Shipyard build
+  view, wherever a ship's Build button appears, show that ship's DEFAULT stats in the same section so the
+  player sees what they are getting before committing to build. Must apply to ALL ship types, present and
+  future, so it reads from the hull/ship stat definitions (already exist, ships/stats foundation) rather
+  than being hardcoded per ship. Purpose: informed build decisions before spending. Scope: a build-panel
+  presentation addition, no economy change; reuse the 0.11.0 Ship Systems stat vocabulary and the
+  EquipmentTooltip stat-display patterns for consistency. Likely small and lightly mockup-gated. Not
+  scheduled yet; a good candidate near a Shipyard or ship-stats pass.
