@@ -559,7 +559,7 @@
   // Drydock; Warehouse to Stores; Mission Control to Operations), and the emptied
   // Facilities tab was then removed (Task 7). The union below is the resulting
   // program set (see the .nav-tabs row for their left-to-right order).
-  type TabKey = "home" | "fleetCaptains" | "fleetOperations" | "foundry" | "drydock" | "stores" | "homeworld";
+  type TabKey = "home" | "personnel" | "fleetOperations" | "foundry" | "drydock" | "stores" | "homeworld";
   let activeTab: TabKey = "home";
 
   // Home program (0.11.2 Shell Correction, Task 1): the landing program, first
@@ -589,13 +589,33 @@
   // was retired with that flatten (2026-07-21). Rows still come from
   // deriveStatistics(state), a pure read over existing save fields.
 
-  // Fleet Captain's tab sub-tabs (UI Redesign, Task 8, see
-  // docs/plans/2026-07-07-ui-redesign-plan.md). Overview holds the relocated
-  // CAPTAIN LEVELING content; Talents holds the relocated CAPTAIN TALENTS
-  // content. Defaults to Overview since level/XP is the more commonly
-  // checked view.
-  type FleetCaptainSubTab = "overview" | "talents";
-  let activeFleetCaptainSubTab: FleetCaptainSubTab = "overview";
+  // Personnel program (0.12.0 "Console" nav, Phase 1, see
+  // docs/plans/2026-07-21-console-nav-0.12.0-design.md + -plan.md). Replaces the
+  // old "Crew" tab (fleetCaptains + its Overview/Talents SubTabs). The perspective
+  // is "through a PERSON": the Fleet Admiral and the Captains. A slim TOP rail
+  // (the shared <ConsoleTabs> primitive, same idiom Home uses) splits it into:
+  //   - "admiral"  , the Fleet Admiral (overview + the FA prestige tree). STUB
+  //                  this task, built out in a follow-up (CN2b); shows a
+  //                  placeholder Panel only.
+  //   - "roster"   , the Captain Roster. Built out now.
+  // Defaults to "roster" so Personnel opens on the captains (the FA view is the
+  // stub for now, so landing there would show nothing useful).
+  let activePersonnelTab: "admiral" | "roster" = "roster";
+
+  // Captain Roster inner view (0.12.0 Console, Phase 1). The roster is NOT a
+  // nested tab row (that would re-introduce the tab depth the console redesign
+  // removes, see the FLATTEN principle on Home Statistics). Instead it is a
+  // single console page that swaps IN PLACE between two views, the same
+  // overview-then-summoned-content model the console uses everywhere:
+  //   - "grid"     , the roster grid of captain cards (the landing view).
+  //   - "captain"  , the selected captain's flat console (identity + leveling +
+  //                  actions + talents), reached by tapping a card and left via a
+  //                  "Captains" back control. The selected captain is the existing
+  //                  activeCaptainIndex / activeCaptain (unchanged), so every
+  //                  per-captain read/write below keeps working verbatim; this
+  //                  flag only decides grid-vs-detail, not WHICH captain.
+  // Defaults to "grid" so Personnel > Captain Roster lands on the grid.
+  let personnelRosterView: "grid" | "captain" = "grid";
 
   // Starbase's sub-tab: Docks (ship management, capacity + per-ship rows +
   // assign/swap). The old Requisition (instant credit-buy) sub-tab was RETIRED
@@ -5862,193 +5882,291 @@
       </div>
       {/if}
 
-      {#if activeTab === "fleetCaptains"}
-      <SubTabs
-        tabs={[
-          { key: "overview", label: "Overview" },
-          { key: "talents", label: "Talents" },
-          { key: "fleetCaptainLocked1", label: "Coming Soon!", locked: true },
-          { key: "fleetCaptainLocked2", label: "Coming Soon!", locked: true },
-        ]}
-        active={activeFleetCaptainSubTab}
-        onSelect={(key) => (activeFleetCaptainSubTab = key as FleetCaptainSubTab)}
-      />
-
+      {#if activeTab === "personnel"}
+      <!-- PERSONNEL program (0.12.0 "Console" nav, Phase 1). The person
+           perspective: the Fleet Admiral and the Captains. Replaces the old
+           "Crew" tab (fleetCaptains + its Overview/Talents SubTabs + left-rail
+           captain list). Structure mirrors Home's console idiom exactly:
+             - the shared <ConsoleTabs> primitive is the slim TOP rail (Admiral |
+               Captain Roster), sticky + glowing-active + edge-scroll, driven by
+               activePersonnelTab; NO left rail anywhere.
+             - the selected tab's page renders IN PLACE below the rail.
+           Admiral is a STUB this task (built out in a follow-up, CN2b); Captain
+           Roster is built out here. See
+           docs/plans/2026-07-21-console-nav-0.12.0-design.md + -plan.md. -->
       <div class="tab-scroll-area">
-      <div class="fleet-captains-layout">
-        <div class="captain-list">
-          {#each state.captains as captain, i}
-            <button class="captain-list-item" class:active={i === activeCaptainIndex} on:click={() => (activeCaptainIndex = i)}>
-              {captain.label}
-            </button>
-          {/each}
-          <!-- Empty slots up to a roadmap max of 10 captains, split two ways
-               (Progression Pacing Rework, Task 11 relabel):
-                 - "Locked"      = a captain the CURRENT content can unlock once
-                                   its Fleet Logistics talent + FA-level wall are
-                                   met. These EXIST today: captains 2/3/4, backed
-                                   by HOMEWORLD_TALENTS fleetLogisticsSlot1/2/3.
-                 - "Coming Soon" = a roadmap slot past captain 4 (slots 5-10) with
-                                   NO unlock path built yet, only 3 slot-unlock
-                                   nodes exist; see KNOWN_ISSUES.md (Task 6).
-               The captain number a slot represents is (owned count + j + 1); it's
-               unlockable when that number is within MAX_UNLOCKABLE_CAPTAINS (the
-               live 1+3=4 ceiling derived in model.ts, so this split shifts
-               automatically the day a fleetLogisticsSlot4 node lands, no edit
-               here needed). Array.from({length: N}) is used (not a bare
-               {length: N} object) since Svelte's {#each} needs a real iterable,
-               not just an array-like object. -->
-          {#each Array.from({ length: Math.max(0, 10 - state.captains.length) }) as _, j}
-            {@const captainNumber = state.captains.length + j + 1}
-            {@const isUnlockable = captainNumber <= MAX_UNLOCKABLE_CAPTAINS}
-            <div
-              class="captain-list-item locked"
-              title={isUnlockable
-                ? "Locked, recruit via Homeworld Talents → Fleet Logistics"
-                : "Coming soon, not yet unlockable"}
-            >
-              {#if isUnlockable}🔒 Locked{:else}🔒 Coming Soon!{/if}
-            </div>
-          {/each}
-        </div>
+        <ConsoleTabs
+          tabs={[
+            { key: "admiral", label: "Admiral" },
+            { key: "roster", label: "Captain Roster" },
+          ]}
+          active={activePersonnelTab}
+          onSelect={(key) => (activePersonnelTab = key as "admiral" | "roster")}
+        />
 
-        <div class="fleet-captains-content">
-          {#if activeFleetCaptainSubTab === "overview"}
-            <!-- Captain Leveling (Task 8, Phase 4; relocated into the Fleet
-                 Captain's tab's Overview sub-tab during the UI Redesign,
-                 Task 8, see docs/plans/2026-07-07-ui-redesign-plan.md) --
-                 per-captain-scoped (reads activeCaptain, not the whole
-                 fleet), replacing the spot Captain Prestige used to occupy.
-                 The old Unlock section here (spending a captain's own
-                 level/statPoints/Components to add a new captain slot) was
-                 removed in Task 4 of
-                 docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md
-                , captain slot growth is now purchased fleet-wide through
-                 the Homeworld Talents panel's Fleet Logistics branch
-                 instead. The "Currently: Idle" / "Currently on: ..." line
-                 below is new in the UI Redesign, the MISSIONS panel itself
-                 (dispatch/recall UI) does NOT live here; it moved to the
-                 Fleet Operations tab (Task 9) instead. -->
-            <Panel>
-              <div class="panel-title">CAPTAIN LEVELING</div>
-              <div class="research-name">Level {activeCaptain.level}</div>
-              {@const activeCaptainXpRatio = activeCaptain.xp.dividedBy(xpForNextLevel(activeCaptain.level)).toNumber()}
-              <div class="research-bar-track">
-                <div class="research-bar-fill" style="width:{Math.min(100, activeCaptainXpRatio * 100)}%"></div>
+        {#if activePersonnelTab === "admiral"}
+        <!-- Admiral STUB. The Fleet Admiral overview + the FA prestige tree
+             (RadialWeb) re-home here in the CN2b follow-up (they currently live
+             under the Homeworld tab, which this task deliberately does NOT
+             touch). Honest placeholder Panel until then, same "coming soon"
+             discipline as the locked tabs elsewhere. -->
+        <Panel>
+          <div class="panel-title">ADMIRAL</div>
+          <p class="prestige-text">Admiral overview and the Fleet Admiral prestige tree move here in a follow-up.</p>
+        </Panel>
+        {/if}
+
+        {#if activePersonnelTab === "roster"}
+          {#if personnelRosterView === "grid"}
+          <!-- CAPTAIN ROSTER grid. A responsive card grid (auto-fill, so it
+               fills the desktop width with more cards per row and collapses to a
+               single column on mobile, NO media query, same reflow the mission
+               grid uses). Each card shows glyph + name + level + assigned ship +
+               idle/on-mission status; tapping a card selects that captain
+               (activeCaptainIndex) and swaps this page to that captain's console
+               (personnelRosterView = "captain"). The empty locked/coming-soon
+               slots below carry the SAME split logic verbatim from the old
+               left-rail list. -->
+          <div class="roster-grid">
+            {#each state.captains as captain, i}
+              <!-- The captain's current hull, resolved by assignedCaptainId (the
+                   single source of truth), or null when parked with no ship. -->
+              {@const rosterShip = state.ships.find((s) => s.assignedCaptainId === captain.id) ?? null}
+              <button
+                class="roster-card"
+                on:click={() => {
+                  activeCaptainIndex = i;
+                  personnelRosterView = "captain";
+                }}
+              >
+                <div class="roster-card-head">
+                  <div class="roster-card-glyph" aria-hidden="true">🎖️</div>
+                  <div class="roster-card-heading">
+                    <div class="research-name">{captain.label}</div>
+                    <div class="roster-card-sub">Level {captain.level}</div>
+                  </div>
+                </div>
+                <div class="roster-card-lines">
+                  <div class="roster-card-line">Ship: {rosterShip === null ? "None" : SHIP_TYPES[rosterShip.typeKey].label}</div>
+                  <div class="roster-card-line">
+                    {#if captain.mission === null}
+                      Status: Idle
+                    {:else}
+                      Status: On mission, {MISSIONS[captain.mission.missionKey].label}
+                    {/if}
+                  </div>
+                </div>
+              </button>
+            {/each}
+            <!-- Empty slots up to a roadmap max of 10 captains, split two ways
+                 (Progression Pacing Rework, Task 11 relabel), logic UNCHANGED
+                 from the old captain-list, only the presentation moved from
+                 list rows to grid cards:
+                   - "Locked"      = a captain the CURRENT content can unlock once
+                                     its Fleet Logistics talent + FA-level wall are
+                                     met. These EXIST today: captains 2/3/4, backed
+                                     by HOMEWORLD_TALENTS fleetLogisticsSlot1/2/3.
+                   - "Coming Soon" = a roadmap slot past captain 4 (slots 5-10) with
+                                     NO unlock path built yet, only 3 slot-unlock
+                                     nodes exist; see KNOWN_ISSUES.md (Task 6).
+                 The captain number a slot represents is (owned count + j + 1); it's
+                 unlockable when that number is within MAX_UNLOCKABLE_CAPTAINS (the
+                 live 1+3=4 ceiling derived in model.ts, so this split shifts
+                 automatically the day a fleetLogisticsSlot4 node lands, no edit
+                 here needed). Array.from({length: N}) is used (not a bare
+                 {length: N} object) since Svelte's {#each} needs a real iterable,
+                 not just an array-like object. -->
+            {#each Array.from({ length: Math.max(0, 10 - state.captains.length) }) as _, j}
+              {@const captainNumber = state.captains.length + j + 1}
+              {@const isUnlockable = captainNumber <= MAX_UNLOCKABLE_CAPTAINS}
+              <div
+                class="roster-card locked"
+                title={isUnlockable
+                  ? "Locked, recruit via Homeworld Talents → Fleet Logistics"
+                  : "Coming soon, not yet unlockable"}
+              >
+                <div class="roster-card-head">
+                  <div class="roster-card-glyph" aria-hidden="true">🔒</div>
+                  <div class="roster-card-heading">
+                    <div class="research-name">{#if isUnlockable}Locked{:else}Coming Soon!{/if}</div>
+                    <div class="roster-card-sub">{#if isUnlockable}Recruit via Homeworld Talents{:else}Not yet unlockable{/if}</div>
+                  </div>
+                </div>
               </div>
-              <div class="research-readout">{formatNumber(activeCaptain.xp)} / {formatNumber(xpForNextLevel(activeCaptain.level))} XP</div>
-              <div class="research-cost">Stat Points: {formatNumber(activeCaptain.statPoints)}</div>
-              <div class="research-cost">
-                {#if activeCaptain.mission === null}
-                  Currently: Idle
-                {:else}
-                  Currently on: {MISSIONS[activeCaptain.mission.missionKey].label}
-                {/if}
-              </div>
-              <!-- Ship Systems shortcut (0.11.0): opens the SAME install screen
-                   the Docks ship list opens, targeting THIS captain's assigned
-                   hull. assignedCaptainId is the single source of truth, so we
-                   resolve the ship by it; disabled with a reason when the captain
-                   is flying no hull (parked with no ship assigned). -->
-              {@const activeCaptainShip = state.ships.find((s) => s.assignedCaptainId === activeCaptain.id) ?? null}
-              <div class="dev-row" style="margin-top: 10px;">
+            {/each}
+          </div>
+          {:else}
+          <!-- CAPTAIN CONSOLE (selected captain, FLAT). Design doc 4a: "ONE page
+               to assign their ship, set their name, spend talent points (the
+               radial tree renders here), equip them. Everything about that
+               captain on a single page." So this is a flat stack (identity +
+               leveling, then actions, then talents shown directly), NOT a nested
+               inner tab row, honoring the FLATTEN principle that keeps the
+               console from re-growing tab depth. The captain is the existing
+               activeCaptain (activeCaptainIndex, set when the card was tapped);
+               every per-captain read/write below is UNCHANGED from the old
+               Overview/Talents sub-tabs. A back control returns to the grid. -->
+          <div class="roster-back-row">
+            <button class="dev-btn" on:click={() => (personnelRosterView = "grid")}>← Captains</button>
+            <div class="research-name roster-detail-name">{activeCaptain.label}</div>
+          </div>
+
+          <!-- Captain Leveling (Task 8, Phase 4; originally relocated into the
+               old Fleet Captain's tab's Overview sub-tab during the UI Redesign,
+               Task 8, see docs/plans/2026-07-07-ui-redesign-plan.md; re-homed
+               VERBATIM into the Personnel captain console, 0.12.0 Console Phase
+               1) -- per-captain-scoped (reads activeCaptain, not the whole
+               fleet). The "Currently: Idle" / "Currently on: ..." line and the
+               Ship Systems shortcut are preserved unchanged; the MISSIONS panel
+               (dispatch/recall UI) still lives on the Operations tab, not here. -->
+          <Panel>
+            <div class="panel-title">CAPTAIN LEVELING</div>
+            <div class="research-name">Level {activeCaptain.level}</div>
+            {@const activeCaptainXpRatio = activeCaptain.xp.dividedBy(xpForNextLevel(activeCaptain.level)).toNumber()}
+            <div class="research-bar-track">
+              <div class="research-bar-fill" style="width:{Math.min(100, activeCaptainXpRatio * 100)}%"></div>
+            </div>
+            <div class="research-readout">{formatNumber(activeCaptain.xp)} / {formatNumber(xpForNextLevel(activeCaptain.level))} XP</div>
+            <div class="research-cost">Stat Points: {formatNumber(activeCaptain.statPoints)}</div>
+            <div class="research-cost">
+              {#if activeCaptain.mission === null}
+                Currently: Idle
+              {:else}
+                Currently on: {MISSIONS[activeCaptain.mission.missionKey].label}
+              {/if}
+            </div>
+            <!-- Ship Systems shortcut (0.11.0): opens the SAME install screen
+                 the Docks ship list opens, targeting THIS captain's assigned
+                 hull. assignedCaptainId is the single source of truth, so we
+                 resolve the ship by it; disabled with a reason when the captain
+                 is flying no hull (parked with no ship assigned). -->
+            {@const activeCaptainShip = state.ships.find((s) => s.assignedCaptainId === activeCaptain.id) ?? null}
+            <div class="dev-row" style="margin-top: 10px;">
+              <button
+                class="dev-btn"
+                disabled={activeCaptainShip === null}
+                title={activeCaptainShip === null ? "This captain has no assigned ship" : undefined}
+                on:click={() => activeCaptainShip && openShipSystems(activeCaptainShip.id)}
+              >
+                Ship Systems
+              </button>
+            </div>
+          </Panel>
+
+          <!-- Captain actions (0.12.0 Console Phase 1). Cross-perspective
+               affordances that live ON the person (design doc 3: buckets are for
+               finding, actions bridge across perspectives):
+                 - Assign Ship: the EXISTING captain-centric picker,
+                   openSwapPicker(activeCaptain.id), routing through doAssignShip
+                   -> assignShipToCaptain (lists parked ships; the captain's
+                   current hull, if any, auto-parks). Honors the on-mission lock:
+                   disabled with the recall-first reason while the captain is out,
+                   exactly as the Docks Swap control does.
+                 - Rename / Equip: RESERVED. No captain rename and no crew-equipment
+                   system exist yet, so these are honest disabled "coming soon"
+                   affordances, NOT invented behavior. -->
+          <Panel>
+            <div class="panel-title">CAPTAIN ACTIONS</div>
+            <div class="dev-row">
+              <button
+                class="dev-btn"
+                disabled={activeCaptain.mission !== null}
+                title={activeCaptain.mission !== null ? "On a mission, recall first" : undefined}
+                on:click={() => openSwapPicker(activeCaptain.id)}
+              >
+                Assign Ship
+              </button>
+              <button class="dev-btn" disabled title="Coming soon, not yet available">Rename</button>
+              <button class="dev-btn" disabled title="Coming soon, not yet available">Equip</button>
+            </div>
+          </Panel>
+
+          <!-- Captain Talents (Task 6, Captain & Homeworld Talent Trees;
+               originally relocated into the old Fleet Captain's Talents sub-tab
+               during the UI Redesign, Task 8; re-homed VERBATIM into the
+               Personnel captain console, 0.12.0 Console Phase 1),
+               per-captain-scoped, like Captain Leveling above (reads
+               activeCaptain, not the whole fleet), spends THIS captain's own
+               statPoints, records the unlock on THIS captain only
+               (activeCaptain.unlockedCaptainTalents), never touches any other
+               captain's state. Iterates the FIXED 5-branch list, not
+               Object.keys(CAPTAIN_TALENTS), so Tactical/Science/Diplomacy
+               (currently zero entries, see model.ts) still render as labeled,
+               empty columns rather than not appearing at all. -->
+          <Panel>
+            <div class="panel-title">CAPTAIN TALENTS, {activeCaptain.label}</div>
+            <div class="research-cost">
+              Spec: {activeCaptain.spec === null
+                ? "None chosen"
+                : (SPEC_DISPLAY_NAME[activeCaptain.spec] ?? activeCaptain.spec)}
+            </div>
+            <!-- Radial Skill Web (Task 14), spec-gated captain Talents view.
+                 FIRST PICK IS FREE, CHANGING IT COSTS A RESPEC (confirmed
+                 design decision):
+                 - spec === null: the captain has not chosen a specialization
+                   yet. Show the TreeSelector card-picker; committing a card
+                   calls chooseSpec(key), which sets the spec for FREE (no
+                   cost, no point change, chooseCaptainSpec only succeeds
+                   from null). There is no Reset here: there's nothing to
+                   reset until a spec exists.
+                 - spec !== null: show THAT spec's RadialWeb (branch =
+                   activeCaptain.spec, no longer hardcoded to
+                   "resourcefulness"). To CHANGE the spec, the player uses
+                   Reset, which respecs to null (refund points, charge 50
+                   credits), clearing the spec so the TreeSelector reappears
+                   and a new spec can be picked free. So "changing spec" costs
+                   exactly one respec, never chooseCaptainSpec.
+                 `owned`/`points` are THIS captain's own unlockedCaptainTalents
+                 and statPoints (per-captain scoping preserved). onLearn routes
+                 the tooltip's Learn button into the EXISTING doBuyCaptainTalent
+                 wrapper (buyCaptainTalent for activeCaptain.id + pushLog +
+                 save), so learning still works exactly as before. describeEffect
+                 passes the captain effect describer through for the internal
+                 tooltip. -->
+            {#if activeCaptain.spec === null}
+              <TreeSelector
+                cards={specCards}
+                commitLabel={"Choose this spec"}
+                onCommit={(key) => chooseSpec(key)}
+              />
+            {:else}
+              <!-- Reset (Task 13, Talent Tree Visual Redesign; Task 14 repurposed
+                   it to CLEAR the spec), per-captain, scoped to activeCaptain,
+                   wraps respecCaptainTalents(..., null) via
+                   doRespecCaptainTalents/the confirmation modal near DELETE
+                   SAVE further down this file. Only shown once a spec is
+                   chosen (there's nothing to reset before that). Disabled
+                   up-front below the credit cost, same
+                   affordability-visible-before-opening-the-modal reasoning as
+                   the Homeworld Talents panel's own Reset button above. -->
+              <div class="dev-row">
                 <button
-                  class="dev-btn"
-                  disabled={activeCaptainShip === null}
-                  title={activeCaptainShip === null ? "This captain has no assigned ship" : undefined}
-                  on:click={() => activeCaptainShip && openShipSystems(activeCaptainShip.id)}
+                  class="dev-btn danger"
+                  disabled={state.credits.lt(RESPEC_COST_CREDITS)}
+                  on:click={openCaptainRespecModal}
                 >
-                  Ship Systems
+                  Reset
                 </button>
               </div>
-            </Panel>
-          {:else if activeFleetCaptainSubTab === "talents"}
-            <!-- Captain Talents (Task 6, Captain & Homeworld Talent Trees;
-                 relocated into the Fleet Captain's tab's Talents sub-tab
-                 during the UI Redesign, Task 8), per-captain-scoped, like
-                 Captain Leveling above (reads activeCaptain, not the whole
-                 fleet), spends THIS captain's own statPoints, records the
-                 unlock on THIS captain only
-                 (activeCaptain.unlockedCaptainTalents), never touches any
-                 other captain's state. Iterates the FIXED 5-branch list, not
-                 Object.keys(CAPTAIN_TALENTS), so Tactical/Science/Diplomacy
-                 (currently zero entries, see model.ts) still render as
-                 labeled, empty columns rather than not appearing at all. -->
-            <Panel>
-              <div class="panel-title">CAPTAIN TALENTS, {activeCaptain.label}</div>
-              <div class="research-cost">
-                Spec: {activeCaptain.spec === null
-                  ? "None chosen"
-                  : (SPEC_DISPLAY_NAME[activeCaptain.spec] ?? activeCaptain.spec)}
-              </div>
-              <!-- Radial Skill Web (Task 14), spec-gated captain Talents view.
-                   FIRST PICK IS FREE, CHANGING IT COSTS A RESPEC (confirmed
-                   design decision):
-                   - spec === null: the captain has not chosen a specialization
-                     yet. Show the TreeSelector card-picker; committing a card
-                     calls chooseSpec(key), which sets the spec for FREE (no
-                     cost, no point change, chooseCaptainSpec only succeeds
-                     from null). There is no Reset here: there's nothing to
-                     reset until a spec exists.
-                   - spec !== null: show THAT spec's RadialWeb (branch =
-                     activeCaptain.spec, no longer hardcoded to
-                     "resourcefulness"). To CHANGE the spec, the player uses
-                     Reset, which respecs to null (refund points, charge 50
-                     credits), clearing the spec so the TreeSelector reappears
-                     and a new spec can be picked free. So "changing spec" costs
-                     exactly one respec, never chooseCaptainSpec.
-                   `owned`/`points` are THIS captain's own unlockedCaptainTalents
-                   and statPoints (per-captain scoping preserved). onLearn routes
-                   the tooltip's Learn button into the EXISTING doBuyCaptainTalent
-                   wrapper (buyCaptainTalent for activeCaptain.id + pushLog +
-                   save), so learning still works exactly as before. describeEffect
-                   passes the captain effect describer through for the internal
-                   tooltip. -->
-              {#if activeCaptain.spec === null}
-                <TreeSelector
-                  cards={specCards}
-                  commitLabel={"Choose this spec"}
-                  onCommit={(key) => chooseSpec(key)}
-                />
-              {:else}
-                <!-- Reset (Task 13, Talent Tree Visual Redesign; Task 14 repurposed
-                     it to CLEAR the spec), per-captain, scoped to activeCaptain,
-                     wraps respecCaptainTalents(..., null) via
-                     doRespecCaptainTalents/the confirmation modal near DELETE
-                     SAVE further down this file. Only shown once a spec is
-                     chosen (there's nothing to reset before that). Disabled
-                     up-front below the credit cost, same
-                     affordability-visible-before-opening-the-modal reasoning as
-                     the Homeworld Talents panel's own Reset button above. -->
-                <div class="dev-row">
-                  <button
-                    class="dev-btn danger"
-                    disabled={state.credits.lt(RESPEC_COST_CREDITS)}
-                    on:click={openCaptainRespecModal}
-                  >
-                    Reset
-                  </button>
-                </div>
-                <!-- spec is non-null in this else-branch (the spec-is-null case is handled by the
-                     selector above); the non-null assertion satisfies svelte-check/tsc, which does
-                     not narrow a member expression across the conditional. RadialWeb's branch prop
-                     is a string, so a nullable spec would otherwise be rejected. NOTE: keep Svelte
-                     block tokens (hash-if / colon-else / slash-if) OUT of this comment, they break
-                     the parser even inside an HTML comment. -->
-                <RadialWeb
-                  table={CAPTAIN_TALENTS}
-                  branch={activeCaptain.spec!}
-                  owned={activeCaptain.unlockedCaptainTalents}
-                  points={activeCaptain.statPoints}
-                  pointsLabel={"Stat Points"}
-                  describeEffect={describeCaptainTalentEffect}
-                  onLearn={(key) => doBuyCaptainTalent(key as CaptainTalentKey)}
-                />
-              {/if}
-            </Panel>
+              <!-- spec is non-null in this else-branch (the spec-is-null case is handled by the
+                   selector above); the non-null assertion satisfies svelte-check/tsc, which does
+                   not narrow a member expression across the conditional. RadialWeb's branch prop
+                   is a string, so a nullable spec would otherwise be rejected. NOTE: keep Svelte
+                   block tokens (hash-if / colon-else / slash-if) OUT of this comment, they break
+                   the parser even inside an HTML comment. -->
+              <RadialWeb
+                table={CAPTAIN_TALENTS}
+                branch={activeCaptain.spec!}
+                owned={activeCaptain.unlockedCaptainTalents}
+                points={activeCaptain.statPoints}
+                pointsLabel={"Stat Points"}
+                describeEffect={describeCaptainTalentEffect}
+                onLearn={(key) => doBuyCaptainTalent(key as CaptainTalentKey)}
+              />
+            {/if}
+          </Panel>
           {/if}
-        </div>
-      </div>
+        {/if}
       </div>
       {/if}
 
@@ -6076,7 +6194,9 @@
            replaces the old flat one-Panel-per-mission loop (UI Redesign, Task
            9) with a category-list + tier-tabs + mission-card flow, mirroring
            .fleet-captains-layout/.captain-list/.captain-list-item's visual
-           language directly above under the "fleetCaptains" tab. Only
+           language (those shared classes still back the Home Help topic rail;
+           the old "Crew"/fleetCaptains tab that once used them here became the
+           Personnel console in 0.12.0). Only
            "resourceGathering" has real content today (Patrol/Surveying/
            Long-Term Exploration are locked placeholders, see
            activeMissionCategory's declaration comment above). Within
@@ -6952,7 +7072,7 @@
 
     <div class="nav-tabs">
       <button class="nav-tab" class:active={activeTab === "home"} on:click={() => (activeTab = "home")}>Home</button>
-      <button class="nav-tab" class:active={activeTab === "fleetCaptains"} on:click={() => (activeTab = "fleetCaptains")}>Crew</button>
+      <button class="nav-tab" class:active={activeTab === "personnel"} on:click={() => (activeTab = "personnel")}>Personnel</button>
       <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
       <button class="nav-tab" class:active={activeTab === "foundry"} on:click={() => (activeTab = "foundry")}>Foundry</button>
       <button class="nav-tab" class:active={activeTab === "drydock"} on:click={() => (activeTab = "drydock")}>Drydock</button>
@@ -8267,6 +8387,64 @@
   .ship-assign-btn { margin-top: 2px; }
   /* (.ship-desc, the Requisition hull blurb's margin tweak, was removed in S4
      with the Requisition buy panel that was its only user.) */
+
+  /* PERSONNEL Captain Roster (0.12.0 "Console" nav, Phase 1). The roster grid
+     reuses the mission grid's responsive reflow in spirit: auto-fill + minmax
+     so the browser packs as many equal cards as fit and stretches them to fill
+     the DESKTOP width, collapsing to a single column on mobile with NO media
+     query (the console's full-width-desktop / single-column-mobile rule). Cards
+     mirror .mission-card-selectable's flat, thin-border, accent-tinted look
+     (same theme tokens, no new colors), so the roster reads as the same visual
+     family rather than a new language, and repaints on every theme switch. */
+  .roster-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+    align-items: start; /* cards size to their own content, not the tallest sibling */
+  }
+  .roster-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    text-align: left;
+    width: 100%;
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+  }
+  .roster-card:hover:not(.locked) { border-color: var(--color-accent); }
+  /* Reserved empty slots, inert, same dim "coming soon" convention the locked
+     tabs and the old locked captain-list rows use. */
+  .roster-card.locked { opacity: 0.5; cursor: not-allowed; }
+  .roster-card-head { display: flex; gap: 12px; align-items: center; }
+  /* Framed glyph placeholder (no per-captain art asset exists yet), sized to
+     read as two text lines tall beside the name + level, same idiom as the
+     mission card portrait frame. */
+  .roster-card-glyph {
+    flex: 0 0 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border-radius: 8px;
+  }
+  .roster-card-heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .roster-card-heading .research-name { margin-bottom: 0; }
+  .roster-card-sub { font-size: 11px; color: var(--color-text-secondary); }
+  .roster-card-lines { display: flex; flex-direction: column; gap: 4px; }
+  .roster-card-line { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
+  /* Captain console back-to-grid row: the back button beside the captain name
+     as the detail heading (identity). Keeping the name here lets the leveling /
+     talents panels stay VERBATIM while the page still names who you are on. */
+  .roster-back-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  .roster-detail-name { margin-bottom: 0; }
 
   /* ============================================================
      Warehouse fill-tile catalog (Phase 2, Group C)
