@@ -558,7 +558,7 @@
   // Drydock; Warehouse to Stores; Mission Control to Operations), and the emptied
   // Facilities tab was then removed (Task 7). The union below is the resulting
   // program set (see the .nav-tabs row for their left-to-right order).
-  type TabKey = "home" | "fleetCaptains" | "fleetOperations" | "battlespace" | "foundry" | "drydock" | "stores" | "homeworld";
+  type TabKey = "home" | "fleetCaptains" | "fleetOperations" | "foundry" | "drydock" | "stores" | "homeworld";
   let activeTab: TabKey = "home";
 
   // Home program (0.11.2 Shell Correction, Task 1): the landing program, first
@@ -6263,6 +6263,39 @@
           {/if}
         </div>
       </div>
+      <!-- Battlespace section (0.11.2 Shell Correction, Task 5): the former
+           standalone Battlespace tab, MOVED VERBATIM to sit BELOW the mission
+           dispatch UI inside this same .tab-scroll-area, so it reads as a
+           separate section under the missions and scrolls with the Dispatch
+           view. No divider element is added: .tab-scroll-area's own flex-
+           column gap:14px already spaces this Panel off the .fleet-ops-layout
+           block above (the same idiom that spaces every stacked panel), and
+           the Panel's own "BATTLESPACE" panel-title labels the section. The
+           Battlespace nav-tab and its standalone {#if activeTab ===
+           "battlespace"} region are removed; Battlespace lives only here now. -->
+      <Panel>
+        <div class="panel-title">BATTLESPACE</div>
+        <p class="prestige-text">PvP and PvE fleet operations will live here.</p>
+        <!-- Expanded from a single generic "Coming Soon" line to 4 named
+             locked options (mid-plan extra task, 2026-07-07), reuses
+             .captain-list-item.locked as-is (same class/markup as the locked
+             captain slots under Fleet Captain's, above) rather than
+             introducing .mission-category-item, since that class belongs to
+             the separate, still-in-flight Fleet Operations mission-category
+             rebuild and doesn't exist in this file yet. .captain-list-item
+             has no standalone stacking/gap behavior of its own, it normally
+             relies on its usual parent .captain-list (display:flex;
+             flex-direction:column; gap:2px) for that, so .battlespace-
+             locked-list below reproduces just that same flex/gap pairing
+             as a tiny scoped class, without duplicating any of
+             .captain-list-item's own visual rules. -->
+        <div class="battlespace-locked-list">
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Fleet Skirmishes</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Campaign</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Fleet Exercises</div>
+          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Invasion</div>
+        </div>
+      </Panel>
       </div>
       {/if}
 
@@ -6550,34 +6583,6 @@
           {/if}
         </div>
       </div>
-      </div>
-      {/if}
-
-      {#if activeTab === "battlespace"}
-      <div class="tab-scroll-area">
-      <Panel>
-        <div class="panel-title">BATTLESPACE</div>
-        <p class="prestige-text">PvP and PvE fleet operations will live here.</p>
-        <!-- Expanded from a single generic "Coming Soon" line to 4 named
-             locked options (mid-plan extra task, 2026-07-07), reuses
-             .captain-list-item.locked as-is (same class/markup as the locked
-             captain slots under Fleet Captain's, above) rather than
-             introducing .mission-category-item, since that class belongs to
-             the separate, still-in-flight Fleet Operations mission-category
-             rebuild and doesn't exist in this file yet. .captain-list-item
-             has no standalone stacking/gap behavior of its own, it normally
-             relies on its usual parent .captain-list (display:flex;
-             flex-direction:column; gap:2px) for that, so .battlespace-
-             locked-list below reproduces just that same flex/gap pairing
-             as a tiny scoped class, without duplicating any of
-             .captain-list-item's own visual rules. -->
-        <div class="battlespace-locked-list">
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Fleet Skirmishes</div>
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Campaign</div>
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Fleet Exercises</div>
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Invasion</div>
-        </div>
-      </Panel>
       </div>
       {/if}
 
@@ -6971,7 +6976,6 @@
       <button class="nav-tab" class:active={activeTab === "drydock"} on:click={() => (activeTab = "drydock")}>Drydock</button>
       <button class="nav-tab" class:active={activeTab === "stores"} on:click={() => (activeTab = "stores")}>Stores</button>
       <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
-      <button class="nav-tab" class:active={activeTab === "battlespace"} on:click={() => (activeTab = "battlespace")}>Battlespace</button>
     </div>
   </div>
 
