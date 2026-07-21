@@ -85,7 +85,7 @@
     spareEquipmentCount,
     type EquipmentRarity,
     // Facility Framework + Refinery (Phase 1, Task 12 UI), the static data
-    // tables the Facilities tab reads. FACILITIES drives the Refinery's upgrade
+    // tables the Foundry program reads. FACILITIES drives the Refinery's upgrade
     // track (next-rung materials/prereqs); REFINE_RECIPES drives the Production
     // sub-tab's per-slot line configurator (recipe dropdown + REQUIRES preview);
     // ITEMS supplies the [Bracketed Item] display labels for both. All three are
@@ -218,7 +218,7 @@
     // (buyShip, the instant Requisition credit-buy, was RETIRED in S4.)
     assignShipToCaptain,
     // Facility Framework + Refinery (Phase 1, Task 12 UI), the pure backend fns
-    // wired into the Facilities tab below. refineSlotCount(state) => how many
+    // wired into the Foundry program below. refineSlotCount(state) => how many
     // parallel refine jobs the refinery can run right now (derived from its
     // upgrade level); canBuildFacilityUpgrade(state, facilityKey) is the PURE
     // readiness predicate ({ ok, reason? }) the Upgrades sub-tab reads for its
@@ -2570,7 +2570,7 @@
   // matching the globalTickProgress/globalTickRemaining pattern above.
   $: fleetAdminXpRatio = state.fleetAdminXp.dividedBy(xpForNextFleetAdminLevel(state.fleetAdminLevel)).toNumber();
 
-  // ---- Facilities tab reactive derivations (Phase 1, Task 12 UI) ------------
+  // ---- Foundry program reactive derivations (Phase 1, Task 12 UI) ------------
   // All recompute whenever `state` changes (inventory gathered, refinery levelled,
   // a process started/completed), so the panel's slot counts, affordability, and
   // upgrade readiness update LIVE as the game ticks, the "$: derivations for
@@ -5688,11 +5688,11 @@
                   {:else}
                     <!-- LOCKED mission, non-openable, dimmed, with the unlock hint +
                          a requirements preview so the player can plan toward it. -->
-                    <div class="mission-card mission-card-locked" title="Unlock via Mission Control (Facilities)">
+                    <div class="mission-card mission-card-locked" title="Unlock via Mission Control (Operations)">
                       <div class="mission-portrait-frame" aria-hidden="true">🔒</div>
                       <div class="mission-card-body">
                         <div class="research-name">🔒 {missionDef.label}</div>
-                        <div class="research-cost">Locked, unlock via Mission Control (Facilities tab)</div>
+                        <div class="research-cost">Locked, unlock via Mission Control (Operations tab)</div>
                         {#if missionDef.requiresCaptainLevel !== undefined}
                           <div class="research-cost">Will require captain level {missionDef.requiresCaptainLevel}</div>
                         {/if}
