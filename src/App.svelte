@@ -5095,7 +5095,11 @@
                   </p>
                 {/if}
 
-                {#if materialsTierEmpty}
+                {#if materialsTierEmpty && tierUnlocked}
+                  <!-- Only shown for an UNLOCKED but still-empty tier: a locked tier
+                       already explains itself via the locked note above, and telling
+                       the player to "gather and refine to fill these shelves" would be
+                       misleading when the shelves are not unlocked yet. -->
                   <div class="warehouse-stub">
                     <div class="warehouse-stub-glyph">🗄️</div>
                     <p>No materials at this tier yet. Gather from missions and refine to fill these shelves.</p>
