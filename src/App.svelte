@@ -559,7 +559,7 @@
   // Drydock; Warehouse to Stores; Mission Control to Operations), and the emptied
   // Facilities tab was then removed (Task 7). The union below is the resulting
   // program set (see the .nav-tabs row for their left-to-right order).
-  type TabKey = "home" | "personnel" | "fleetOperations" | "foundry" | "drydock" | "stores" | "homeworld";
+  type TabKey = "home" | "personnel" | "fleetOperations" | "foundry" | "drydock" | "stores";
   let activeTab: TabKey = "home";
 
   // Home program (0.11.2 Shell Correction, Task 1): the landing program, first
@@ -632,6 +632,23 @@
   function onCaptainTalentsBackdropClick(event: MouseEvent): void {
     if (event.target === event.currentTarget) {
       captainTalentsModalOpen = false;
+    }
+  }
+
+  // Admiral Prestige modal (0.12.0 Console, Phase 1 / CN2b). The Fleet Admiral
+  // prestige tree (the old Homeworld ADMINISTRATION RadialWeb) no longer has its
+  // own tab; the Personnel > Admiral page's "Prestige" button opens it HERE, in
+  // the EXACT same modal idiom as the captain-talents modal above (.modal-backdrop
+  // + focusTrap + .system-modal-dialog/header/body, Escape + ✕ + backdrop-click
+  // close, opaque surface for Brave). admiralPrestigeModalOpen gates it; it reads
+  // fleet-wide state (state.adminPoints / state.unlockedHomeworldTalents), so no
+  // per-captain scoping is involved. onAdmiralPrestigeBackdropClick mirrors the
+  // captain-modal + System-modal backdrop handlers (close only on a click that
+  // landed on the backdrop itself, not one bubbling up from the dialog surface).
+  let admiralPrestigeModalOpen = false;
+  function onAdmiralPrestigeBackdropClick(event: MouseEvent): void {
+    if (event.target === event.currentTarget) {
+      admiralPrestigeModalOpen = false;
     }
   }
 
@@ -1240,34 +1257,20 @@
   }
   // -------------------------------------------------------------------------
 
-  // ---- Homeworld program rail state (0.11.2 nav restructure, Task 4) ----------
-  // The HOMEWORLD program holds the Fleet Homeworld place (Overview /
-  // Administration), moved VERBATIM out of the now-removed Locations tab. It uses
-  // a LEFT rail of "places" (.captain-list / .captain-list-item, reused verbatim)
-  // + a right content pane; the selected place then drives its OWN SubTabs
-  // (tracked by activeHomeworldSubTab; the old Fabrication sub-tab was retired in
-  // Phase 4 Task F5, crafting moved to the Fabricator). Like the Foundry's
-  // activeFoundryFacility, the Drydock's activeDrydockSection, and the Stores'
-  // activeStoresFacility, it uses its OWN dedicated rail-selection state (NOT the
-  // retired activeLocationPlace). A single-member union is fine for now (Alliance
-  // Sector / Colony Registry are locked, inert rail items with no content behind
-  // them yet); it is Named (not an inline literal union) to match the sibling
-  // rail-state types (StoresFacilityKey, DrydockSection, FoundryFacilityKey), so
-  // invalid selections stay unrepresentable.
-  type HomeworldPlaceKey = "homeworld";
-  let activeHomeworldPlace: HomeworldPlaceKey = "homeworld";
-
-  // Homeworld tab sub-tabs (UI Redesign, Task 10, see
-  // docs/plans/2026-07-07-ui-redesign-plan.md). Resources is the Overview
-  // (a minimal placeholder this pass, fleshed out later); Talents holds the
-  // relocated HOMEWORLD TALENTS content. Defaults to Resources as the most
-  // commonly checked view.
-  //
-  // The former "refinery" sub-tab (the legacy RECIPES instant-craft/"Fabrication"
-  // panel) was RETIRED in Phase 4, Task F5, crafting now lives in the dedicated
-  // Fabricator facility panel (under Facilities), not a Homeworld sub-tab.
-  type HomeworldSubTab = "resources" | "talents";
-  let activeHomeworldSubTab: HomeworldSubTab = "resources";
+  // ---- Homeworld program rail state ----------------------------------------
+  // RETIRED (0.12.0 "Console" nav, Phase 1 / CN2b). The Homeworld tab is gone:
+  // its ADMINISTRATION prestige tree (the Fleet Admiral prestige RadialWeb) moved
+  // VERBATIM into the Personnel > Admiral page's Prestige modal (the FA is a
+  // PERSON, so it belongs in the person perspective), and its empty HOME PLANET
+  // overview placeholder was dropped (material inventory already lives in the
+  // Warehouse). The old rail-selection state (activeHomeworldPlace /
+  // activeHomeworldSubTab, and the HomeworldPlaceKey / HomeworldSubTab types)
+  // was removed with the tab; the two locked "place" stubs (Alliance Sector /
+  // Colony Registry) were content-less "coming soon" items that do not fit the
+  // person perspective and were PARKED (removed), pending re-homing to a future
+  // perspective. The prestige tree's own wiring (HOMEWORLD_TALENTS, adminPoints,
+  // doBuyHomeworldTalent, selectedCategory/categoryCards/viewCategory, the
+  // respec flow) is UNCHANGED and still lives in the script; only its host moved.
 
   // System tab sub-tabs (UI Redesign, Task 10; gained About in the layout-
   // width/panel-style fix, see SESSION_LOG.md). Options holds the relocated
@@ -3586,186 +3589,6 @@
     </div>
 
     <main class="tab-body">
-      {#if activeTab === "homeworld"}
-      <!-- HOMEWORLD program (0.11.2 nav restructure, Task 4): the Fleet
-           Homeworld place (Overview / Administration), moved VERBATIM out of the
-           now-removed Locations tab. Same shell as the Foundry / Drydock / Stores
-           programs (tab-scroll-area > fleet-captains-layout > captain-list rail +
-           fleet-captains-content). The selected place (activeHomeworldPlace:
-           homeworld) drives its OWN <SubTabs>:
-             - Fleet Homeworld -> Overview / Administration, tracked by
-               activeHomeworldSubTab (resources / talents).
-           Uses a DEDICATED activeHomeworldPlace state (a named single-member
-           union, matching the sibling StoresFacilityKey), NOT the retired
-           activeLocationPlace, so invalid selections stay unrepresentable. This
-           is an information-architecture move, not a redesign: the Fleet
-           Homeworld content PANEL below is byte-identical, only the guard
-           variable and surrounding nav chrome changed. Alliance Sector / Colony
-           Registry are locked "Coming soon" rail items (re-homed here from the
-           Locations tab) using the exact .captain-list-item.locked idiom
-           Facilities' locked facilities use. -->
-      <div class="tab-scroll-area">
-      <div class="fleet-captains-layout">
-        <div class="captain-list">
-          <button
-            class="captain-list-item"
-            class:active={activeHomeworldPlace === "homeworld"}
-            on:click={() => (activeHomeworldPlace = "homeworld")}
-          >
-            Fleet Homeworld
-          </button>
-          <!-- Locked places, no content behind them yet (same honest
-               "future signal" role as Facilities' locked facilities). Plain
-               non-button divs, so they're inert; the title attr is the "Coming
-               soon" affordance. -->
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Alliance Sector</div>
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Colony Registry</div>
-        </div>
-
-        <div class="fleet-captains-content">
-          {#if activeHomeworldPlace === "homeworld"}
-            <SubTabs
-              tabs={[
-                { key: "resources", label: "Overview" },
-                { key: "talents", label: "Administration" },
-              ]}
-              active={activeHomeworldSubTab}
-              onSelect={(key) => (activeHomeworldSubTab = key as HomeworldSubTab)}
-            />
-
-      {#if activeHomeworldSubTab === "resources"}
-      <!-- Homeworld Overview (Phase 4, Task F5): minimal placeholder. The old
-           hardcoded "HOME PLANET" 3-material panel was retired here, full
-           material inventory now lives in the Warehouse, and this Overview is
-           to be fleshed out later (per the design's "fleshed out later" note).
-           The sub-tab shell is kept so navigation still renders. -->
-      <Panel>
-        <div class="panel-title">HOME PLANET</div>
-        <p class="research-status">Homeworld overview coming soon, check the Warehouse for your full material inventory.</p>
-      </Panel>
-      {/if}
-
-      {#if activeHomeworldSubTab === "talents"}
-      <!-- Homeworld Talents (Task 6, Captain & Homeworld Talent Trees) --
-           fleet-wide (not per-captain, reads state.adminPoints /
-           state.unlockedHomeworldTalents directly, never activeCaptain),
-           placed after the Overview above. Same fixed-5-branch
-           iteration pattern as the Captain Talents panel under Fleet Ops, so
-           Homeland Defense/Citizenry (zero entries today, see model.ts)
-           render as labeled, empty columns.
-
-           Homeworld Talents are Fleet Admiral prestige, gated ENTIRELY on
-           adminPoints, deliberately independent of any individual
-           captain's own level/statPoints (those only ever gate that
-           captain's OWN Captain Talents, above under Fleet Ops). Confirmed
-           with the user rather than inventing a captain-scoped gate for a
-           fleet-wide purchase.
-
-           Talent Tree Visual Redesign (Task 11), reuses Task 10's
-           talentDepth/TALENT_ROW_HEIGHT/depthRows/.talent-branch-tree/
-           .talent-branch-connectors/.talent-node treatment verbatim (see the
-           Captain Talents panel under Fleet Ops for the pattern this mirrors
-          , not reinvented here). The one wrinkle Captain Talents never
-           exercised: the fleetLogistics branch has TWO independent depth-0
-           roots in the SAME row, fleetLogisticsSlot1 (root of the
-           Slot1->Slot2->Slot3 chain) AND fleetLogisticsYield (its own
-           unrelated root, requires: null), both land in depthRows[0].
-           Task 10's row rendering assumed one node per row (.talent-node was
-           `left:0; right:0`, i.e. full-width) and would have silently
-           overlapped two same-row siblings; this HOMEWORLD_TALENTS-side
-           template guards against exactly that by computing a per-node
-           column index within its own row (columnIndex) and columnCount
-           (row.length), then splitting the row's width evenly across
-           columns via an inline left/width/right override on each node (see
-           the `style=` binding below), .talent-node's own CSS rule (App.svelte
-           CSS block, near .talent-branch-tree) is left completely untouched;
-           inline style always wins over it, and columnCount === 1 (every row
-           except fleetLogistics' depth-0 row, see below) computes out to the
-           exact same left:0%/width:100% that rule already provides, so no
-           other branch's rendering changes. -->
-      <Panel>
-        <div class="panel-title">ADMINISTRATION</div>
-        <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
-        <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
-        <!-- Shared button row: the "← Categories" back button (left, shown ONLY
-             while viewing a category) and the fleet-wide Reset (right, always
-             available) sit on ONE row, so it reads clean and parallels the captain
-             panel's single button row. Reset wraps respecHomeworldTalents via the
-             confirmation modal near DELETE SAVE; disabled up-front so affordability
-             shows before opening the flow. margin-left:auto pins Reset to the right
-             whether or not the back button is present. -->
-        <div class="dev-row">
-          {#if selectedCategory !== null}
-            <button
-              type="button"
-              class="dev-btn"
-              on:click={() => (selectedCategory = null)}
-            >
-              ← Categories
-            </button>
-          {/if}
-          <button
-            class="dev-btn danger"
-            style="margin-left: auto;"
-            disabled={state.credits.lt(RESPEC_COST_CREDITS)}
-            on:click={openHomeworldRespecModal}
-          >
-            Reset
-          </button>
-        </div>
-        <!-- Radial Skill Web (Task 15), the 5-category selector now sits in
-             FRONT of the RadialWeb (Task 11b previously hardcoded branch to
-             "fleetLogistics"). selectedCategory is component-local, view-only
-             NAVIGATION state (never persisted, see its declaration above):
-             null shows the TreeSelector category card-picker; a chosen category
-             shows THAT category's RadialWeb plus a back button to the picker.
-             This is deliberately UNLIKE the captain spec flow: there is no
-             lock-in, no cost, and no save write, committing a card just
-             navigates (viewCategory), and the back button just returns to the
-             picker, both freely reversible. The Reset button above
-             (respecHomeworldTalents) is orthogonal and unchanged. `owned` is
-             the fleet-wide state.unlockedHomeworldTalents, `points` the shared
-             adminPoints pool; onLearn routes the tooltip's Learn button into
-             the EXISTING doBuyHomeworldTalent wrapper (buyHomeworldTalent +
-             pushLog + save), so learning still works exactly as before.
-             describeEffect passes the homeworld effect describer through so
-             RadialWeb's internal tooltip renders the right effect line without
-             importing it. NOTE: keep Svelte block tokens (hash-if / colon-else
-             / slash-if) OUT of this comment, they can trip the parser even
-             inside an HTML comment. -->
-        {#if selectedCategory === null}
-          <TreeSelector
-            cards={categoryCards}
-            commitLabel={"View Tree"}
-            onCommit={(key) => viewCategory(key)}
-          />
-        {:else}
-          <!-- Category selected: THAT category's RadialWeb. The "← Categories" back
-               button (pure navigation, clears selectedCategory, no save write) now
-               lives in the shared button row above. selectedCategory is a plain local
-               that TS narrows to non-null across the conditional, but the trailing !
-               is kept for consistency with the captain mount's activeCaptain.spec!
-               (and it is genuinely non-null here). -->
-          <RadialWeb
-            table={HOMEWORLD_TALENTS}
-            branch={selectedCategory!}
-            owned={state.unlockedHomeworldTalents}
-            points={state.adminPoints}
-            pointsLabel={"Admin Points"}
-            fleetAdminLevel={state.fleetAdminLevel}
-            describeEffect={describeHomeworldTalentEffect}
-            onLearn={(key) => doBuyHomeworldTalent(key as HomeworldTalentKey)}
-          />
-        {/if}
-      </Panel>
-      {/if}
-          {/if}
-
-        </div>
-      </div>
-      </div>
-      {/if}
-
       {#if activeTab === "foundry"}
       <!-- FOUNDRY program (0.11.2 nav restructure, Task 1): the four
            "make-stuff" facilities (Refinery, Fabricator, Research Lab, Fuel
@@ -5923,15 +5746,159 @@
         />
 
         {#if activePersonnelTab === "admiral"}
-        <!-- Admiral STUB. The Fleet Admiral overview + the FA prestige tree
-             (RadialWeb) re-home here in the CN2b follow-up (they currently live
-             under the Homeworld tab, which this task deliberately does NOT
-             touch). Honest placeholder Panel until then, same "coming soon"
-             discipline as the locked tabs elsewhere. -->
+        <!-- ADMIRAL page (0.12.0 Console, Phase 1 / CN2b). The Fleet Admiral is a
+             PERSON, so it lives in the person perspective: a lean FA OVERVIEW
+             (identity + level/XP + the admin-point + credit readouts, all from
+             EXISTING state, mirroring the captain leveling panel) plus an ACTIONS
+             area whose live "Prestige" button opens the FA prestige tree in a
+             modal. This replaced the old Admiral stub and re-homed the retired
+             Homeworld tab's ADMINISTRATION tree (see the Prestige modal below). -->
+        <!-- FA OVERVIEW. fleetAdminXpRatio is the SAME reactive the header XP bar
+             uses (declared once via $:), so this bar and the header stay in lock
+             step. Admin Points is the prestige currency the tree spends; Credits
+             is shown because the prestige Reset is priced in credits. No new
+             tracked state is introduced. -->
         <Panel>
-          <div class="panel-title">ADMIRAL</div>
-          <p class="prestige-text">Admiral overview and the Fleet Admiral prestige tree move here in a follow-up.</p>
+          <div class="panel-title">FLEET ADMIRAL</div>
+          <div class="research-name">Level {state.fleetAdminLevel}</div>
+          <div class="research-bar-track">
+            <div class="research-bar-fill" style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></div>
+          </div>
+          <div class="research-readout">{formatNumber(state.fleetAdminXp)} / {formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} XP</div>
+          <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
+          <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
         </Panel>
+
+        <!-- ADMIRAL ACTIONS. The Prestige button opens the FA prestige tree in its
+             own modal (same idiom as the captain Talents button/modal); always
+             enabled, the tree's own affordability/gating lives inside the modal. -->
+        <Panel>
+          <div class="panel-title">ADMIRAL ACTIONS</div>
+          <div class="dev-row">
+            <button class="dev-btn" on:click={() => (admiralPrestigeModalOpen = true)}>Prestige</button>
+          </div>
+        </Panel>
+
+        <!-- Admiral Prestige MODAL (0.12.0 Console, Phase 1 / CN2b). Built on the
+             SAME shared idiom as the captain Talents modal and the System modal:
+             the fixed .modal-backdrop + the shared focusTrap action (Escape
+             closes, focus trapped + restored), the .system-modal-dialog surface
+             (OPAQUE, since Brave disables backdrop-filter), its header (title +
+             ✕) and its internally-scrolling .system-modal-body. The ENTIRE
+             ADMINISTRATION panel below (the category TreeSelector-or-RadialWeb +
+             the ← Categories / Reset button row and ALL its wiring) is the old
+             Homeworld tab's Administration panel moved VERBATIM. -->
+        {#if admiralPrestigeModalOpen}
+        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_interactive_supports_focus, INTENTIONAL: same reasoning as the System / captain-talents modal backdrops, the backdrop click-to-close is a convenience; Escape (focusTrap) and the header ✕ both close, and the dialog's controls (TreeSelector / RadialWeb / Reset) are focusable and trapped inside. -->
+        <div
+          class="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Fleet Admiral Prestige"
+          use:focusTrap={() => (admiralPrestigeModalOpen = false)}
+          on:click={onAdmiralPrestigeBackdropClick}
+        >
+          <div class="system-modal-dialog">
+            <header class="system-modal-header">
+              <div class="system-modal-title">Fleet Admiral, Prestige</div>
+              <button class="system-modal-close" on:click={() => (admiralPrestigeModalOpen = false)} aria-label="Close Fleet Admiral Prestige">✕</button>
+            </header>
+            <div class="system-modal-body">
+              <!-- Homeworld Talents (Task 6, Captain & Homeworld Talent Trees) --
+                   fleet-wide (not per-captain, reads state.adminPoints /
+                   state.unlockedHomeworldTalents directly, never activeCaptain).
+                   Same fixed-5-branch iteration pattern as the Captain Talents
+                   panel, so Homeland Defense/Citizenry (zero entries today, see
+                   model.ts) render as labeled, empty columns.
+
+                   Homeworld Talents are Fleet Admiral prestige, gated ENTIRELY on
+                   adminPoints, deliberately independent of any individual
+                   captain's own level/statPoints (those only ever gate that
+                   captain's OWN Captain Talents). Confirmed with the user rather
+                   than inventing a captain-scoped gate for a fleet-wide purchase.
+
+                   Moved VERBATIM out of the retired Homeworld tab's ADMINISTRATION
+                   panel into this Admiral Prestige modal (0.12.0 Console / CN2b);
+                   the tree, its category selector, the Reset control, and all
+                   wiring are UNCHANGED, only the host chrome moved. -->
+              <Panel>
+                <div class="panel-title">ADMINISTRATION</div>
+                <div class="research-cost">Admin Points: {formatNumber(state.adminPoints)}</div>
+                <div class="research-cost">Credits: {formatNumber(state.credits)}</div>
+                <!-- Shared button row: the "← Categories" back button (left, shown ONLY
+                     while viewing a category) and the fleet-wide Reset (right, always
+                     available) sit on ONE row, so it reads clean and parallels the captain
+                     panel's single button row. Reset wraps respecHomeworldTalents via the
+                     confirmation modal near DELETE SAVE; disabled up-front so affordability
+                     shows before opening the flow. margin-left:auto pins Reset to the right
+                     whether or not the back button is present. -->
+                <div class="dev-row">
+                  {#if selectedCategory !== null}
+                    <button
+                      type="button"
+                      class="dev-btn"
+                      on:click={() => (selectedCategory = null)}
+                    >
+                      ← Categories
+                    </button>
+                  {/if}
+                  <button
+                    class="dev-btn danger"
+                    style="margin-left: auto;"
+                    disabled={state.credits.lt(RESPEC_COST_CREDITS)}
+                    on:click={openHomeworldRespecModal}
+                  >
+                    Reset
+                  </button>
+                </div>
+                <!-- Radial Skill Web (Task 15), the 5-category selector sits in
+                     FRONT of the RadialWeb. selectedCategory is component-local,
+                     view-only NAVIGATION state (never persisted): null shows the
+                     TreeSelector category card-picker; a chosen category shows THAT
+                     category's RadialWeb plus a back button to the picker. This is
+                     deliberately UNLIKE the captain spec flow: there is no lock-in,
+                     no cost, and no save write, committing a card just navigates
+                     (viewCategory), and the back button just returns to the picker,
+                     both freely reversible. The Reset button above
+                     (respecHomeworldTalents) is orthogonal and unchanged. `owned` is
+                     the fleet-wide state.unlockedHomeworldTalents, `points` the shared
+                     adminPoints pool; onLearn routes the tooltip's Learn button into
+                     the EXISTING doBuyHomeworldTalent wrapper (buyHomeworldTalent +
+                     pushLog + save), so learning still works exactly as before.
+                     describeEffect passes the homeworld effect describer through so
+                     RadialWeb's internal tooltip renders the right effect line without
+                     importing it. NOTE: keep Svelte block tokens (hash-if / colon-else
+                     / slash-if) OUT of this comment, they can trip the parser even
+                     inside an HTML comment. -->
+                {#if selectedCategory === null}
+                  <TreeSelector
+                    cards={categoryCards}
+                    commitLabel={"View Tree"}
+                    onCommit={(key) => viewCategory(key)}
+                  />
+                {:else}
+                  <!-- Category selected: THAT category's RadialWeb. The "← Categories" back
+                       button (pure navigation, clears selectedCategory, no save write) now
+                       lives in the shared button row above. selectedCategory is a plain local
+                       that TS narrows to non-null across the conditional, but the trailing !
+                       is kept for consistency with the captain mount's activeCaptain.spec!
+                       (and it is genuinely non-null here). -->
+                  <RadialWeb
+                    table={HOMEWORLD_TALENTS}
+                    branch={selectedCategory!}
+                    owned={state.unlockedHomeworldTalents}
+                    points={state.adminPoints}
+                    pointsLabel={"Admin Points"}
+                    fleetAdminLevel={state.fleetAdminLevel}
+                    describeEffect={describeHomeworldTalentEffect}
+                    onLearn={(key) => doBuyHomeworldTalent(key as HomeworldTalentKey)}
+                  />
+                {/if}
+              </Panel>
+            </div>
+          </div>
+        </div>
+        {/if}
         {/if}
 
         {#if activePersonnelTab === "roster"}
@@ -7145,7 +7112,6 @@
       <button class="nav-tab" class:active={activeTab === "foundry"} on:click={() => (activeTab = "foundry")}>Foundry</button>
       <button class="nav-tab" class:active={activeTab === "drydock"} on:click={() => (activeTab = "drydock")}>Drydock</button>
       <button class="nav-tab" class:active={activeTab === "stores"} on:click={() => (activeTab = "stores")}>Stores</button>
-      <button class="nav-tab" class:active={activeTab === "homeworld"} on:click={() => (activeTab = "homeworld")}>Homeworld</button>
     </div>
   </div>
 
