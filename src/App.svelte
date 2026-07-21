@@ -617,6 +617,24 @@
   // Defaults to "grid" so Personnel > Captain Roster lands on the grid.
   let personnelRosterView: "grid" | "captain" = "grid";
 
+  // Captain Talents modal (0.12.0 Console, Phase 1 follow-up). The captain's
+  // talent tree no longer renders inline on the captain page; a "Talents" button
+  // in CAPTAIN ACTIONS opens it in its OWN modal, built on the SAME shared modal
+  // idiom the System (gear-portrait) modal uses (.modal-backdrop + focusTrap +
+  // .system-modal-dialog/header/body, Escape + ✕ + backdrop-click close, opaque
+  // surface since Brave has no backdrop-filter). This frees the captain page for
+  // leveling + actions. captainTalentsModalOpen gates it; it is scoped to the
+  // currently-selected activeCaptain (the modal only renders on the captain view,
+  // so activeCaptain is always defined while it is open). onCaptainTalentsBackdropClick
+  // mirrors onSystemBackdropClick (close only when the click hit the backdrop
+  // itself, not a bubble from the dialog surface).
+  let captainTalentsModalOpen = false;
+  function onCaptainTalentsBackdropClick(event: MouseEvent): void {
+    if (event.target === event.currentTarget) {
+      captainTalentsModalOpen = false;
+    }
+  }
+
   // Starbase's sub-tab: Docks (ship management, capacity + per-ship rows +
   // assign/swap). The old Requisition (instant credit-buy) sub-tab was RETIRED
   // in S4, hulls now come from the Shipyard build panel, so only Docks
@@ -6007,7 +6025,19 @@
                every per-captain read/write below is UNCHANGED from the old
                Overview/Talents sub-tabs. A back control returns to the grid. -->
           <div class="roster-back-row">
-            <button class="dev-btn" on:click={() => (personnelRosterView = "grid")}>← Captains</button>
+            <!-- Back to the roster grid. Also closes the Talents modal so it can
+                 never linger open into the next captain the player selects (the
+                 modal is gated on this same captain view, so a stale-true flag
+                 would otherwise pop it straight open on the next card tap). -->
+            <button
+              class="dev-btn"
+              on:click={() => {
+                captainTalentsModalOpen = false;
+                personnelRosterView = "grid";
+              }}
+            >
+              ← Captains
+            </button>
             <div class="research-name roster-detail-name">{activeCaptain.label}</div>
           </div>
 
@@ -6076,95 +6106,133 @@
               >
                 Assign Ship
               </button>
+              <!-- Talents: opens THIS captain's talent tree in its own modal (the
+                   same gear-portrait/System modal idiom), keeping the captain page
+                   focused on leveling + actions. Always enabled; the tree's own
+                   spec-gating / affordability lives inside the modal, unchanged. -->
+              <button class="dev-btn" on:click={() => (captainTalentsModalOpen = true)}>Talents</button>
               <button class="dev-btn" disabled title="Coming soon, not yet available">Rename</button>
               <button class="dev-btn" disabled title="Coming soon, not yet available">Equip</button>
             </div>
           </Panel>
 
-          <!-- Captain Talents (Task 6, Captain & Homeworld Talent Trees;
-               originally relocated into the old Fleet Captain's Talents sub-tab
-               during the UI Redesign, Task 8; re-homed VERBATIM into the
-               Personnel captain console, 0.12.0 Console Phase 1),
-               per-captain-scoped, like Captain Leveling above (reads
-               activeCaptain, not the whole fleet), spends THIS captain's own
-               statPoints, records the unlock on THIS captain only
-               (activeCaptain.unlockedCaptainTalents), never touches any other
-               captain's state. Iterates the FIXED 5-branch list, not
-               Object.keys(CAPTAIN_TALENTS), so Tactical/Science/Diplomacy
-               (currently zero entries, see model.ts) still render as labeled,
-               empty columns rather than not appearing at all. -->
-          <Panel>
-            <div class="panel-title">CAPTAIN TALENTS, {activeCaptain.label}</div>
-            <div class="research-cost">
-              Spec: {activeCaptain.spec === null
-                ? "None chosen"
-                : (SPEC_DISPLAY_NAME[activeCaptain.spec] ?? activeCaptain.spec)}
-            </div>
-            <!-- Radial Skill Web (Task 14), spec-gated captain Talents view.
-                 FIRST PICK IS FREE, CHANGING IT COSTS A RESPEC (confirmed
-                 design decision):
-                 - spec === null: the captain has not chosen a specialization
-                   yet. Show the TreeSelector card-picker; committing a card
-                   calls chooseSpec(key), which sets the spec for FREE (no
-                   cost, no point change, chooseCaptainSpec only succeeds
-                   from null). There is no Reset here: there's nothing to
-                   reset until a spec exists.
-                 - spec !== null: show THAT spec's RadialWeb (branch =
-                   activeCaptain.spec, no longer hardcoded to
-                   "resourcefulness"). To CHANGE the spec, the player uses
-                   Reset, which respecs to null (refund points, charge 50
-                   credits), clearing the spec so the TreeSelector reappears
-                   and a new spec can be picked free. So "changing spec" costs
-                   exactly one respec, never chooseCaptainSpec.
-                 `owned`/`points` are THIS captain's own unlockedCaptainTalents
-                 and statPoints (per-captain scoping preserved). onLearn routes
-                 the tooltip's Learn button into the EXISTING doBuyCaptainTalent
-                 wrapper (buyCaptainTalent for activeCaptain.id + pushLog +
-                 save), so learning still works exactly as before. describeEffect
-                 passes the captain effect describer through for the internal
-                 tooltip. -->
-            {#if activeCaptain.spec === null}
-              <TreeSelector
-                cards={specCards}
-                commitLabel={"Choose this spec"}
-                onCommit={(key) => chooseSpec(key)}
-              />
-            {:else}
-              <!-- Reset (Task 13, Talent Tree Visual Redesign; Task 14 repurposed
-                   it to CLEAR the spec), per-captain, scoped to activeCaptain,
-                   wraps respecCaptainTalents(..., null) via
-                   doRespecCaptainTalents/the confirmation modal near DELETE
-                   SAVE further down this file. Only shown once a spec is
-                   chosen (there's nothing to reset before that). Disabled
-                   up-front below the credit cost, same
-                   affordability-visible-before-opening-the-modal reasoning as
-                   the Homeworld Talents panel's own Reset button above. -->
-              <div class="dev-row">
-                <button
-                  class="dev-btn danger"
-                  disabled={state.credits.lt(RESPEC_COST_CREDITS)}
-                  on:click={openCaptainRespecModal}
-                >
-                  Reset
-                </button>
+          <!-- Captain Talents MODAL (0.12.0 Console Phase 1 follow-up). The tree
+               no longer renders inline on the captain page; it opens HERE, in its
+               own modal, built on the SAME shared idiom as the System
+               (gear-portrait) modal so the two look and behave identically:
+               the fixed .modal-backdrop + the shared focusTrap action (Escape
+               closes, focus trapped + restored), the .system-modal-dialog
+               surface (OPAQUE, since Brave disables backdrop-filter), its header
+               (title + ✕) and its internally-scrolling .system-modal-body. Only
+               rendered on the captain view, so activeCaptain is always defined
+               here; captainTalentsModalOpen gates it. The ENTIRE talents Panel
+               below (the spec-gated TreeSelector-or-RadialWeb + Reset control and
+               ALL its wiring) is the previous inline panel moved VERBATIM. -->
+          {#if captainTalentsModalOpen}
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions a11y_interactive_supports_focus, INTENTIONAL: same reasoning as the System modal backdrop, the backdrop click-to-close is a convenience; Escape (focusTrap) and the header ✕ both close, and the dialog's controls (TreeSelector / RadialWeb / Reset) are focusable and trapped inside. -->
+          <div
+            class="modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Captain Talents"
+            use:focusTrap={() => (captainTalentsModalOpen = false)}
+            on:click={onCaptainTalentsBackdropClick}
+          >
+            <div class="system-modal-dialog">
+              <header class="system-modal-header">
+                <div class="system-modal-title">Captain {activeCaptain.label}, Talents</div>
+                <button class="system-modal-close" on:click={() => (captainTalentsModalOpen = false)} aria-label="Close Captain Talents">✕</button>
+              </header>
+              <div class="system-modal-body">
+                <!-- Captain Talents (Task 6, Captain & Homeworld Talent Trees;
+                     originally relocated into the old Fleet Captain's Talents sub-tab
+                     during the UI Redesign, Task 8; re-homed into the Personnel
+                     captain console, 0.12.0 Console Phase 1; moved VERBATIM again
+                     into this modal, Phase 1 follow-up), per-captain-scoped, like
+                     Captain Leveling above (reads activeCaptain, not the whole
+                     fleet), spends THIS captain's own statPoints, records the unlock
+                     on THIS captain only (activeCaptain.unlockedCaptainTalents),
+                     never touches any other captain's state. Iterates the FIXED
+                     5-branch list, not Object.keys(CAPTAIN_TALENTS), so
+                     Tactical/Science/Diplomacy (currently zero entries, see model.ts)
+                     still render as labeled, empty columns rather than not appearing
+                     at all. -->
+                <Panel>
+                  <div class="panel-title">CAPTAIN TALENTS, {activeCaptain.label}</div>
+                  <div class="research-cost">
+                    Spec: {activeCaptain.spec === null
+                      ? "None chosen"
+                      : (SPEC_DISPLAY_NAME[activeCaptain.spec] ?? activeCaptain.spec)}
+                  </div>
+                  <!-- Radial Skill Web (Task 14), spec-gated captain Talents view.
+                       FIRST PICK IS FREE, CHANGING IT COSTS A RESPEC (confirmed
+                       design decision):
+                       - spec === null: the captain has not chosen a specialization
+                         yet. Show the TreeSelector card-picker; committing a card
+                         calls chooseSpec(key), which sets the spec for FREE (no
+                         cost, no point change, chooseCaptainSpec only succeeds
+                         from null). There is no Reset here: there's nothing to
+                         reset until a spec exists.
+                       - spec !== null: show THAT spec's RadialWeb (branch =
+                         activeCaptain.spec, no longer hardcoded to
+                         "resourcefulness"). To CHANGE the spec, the player uses
+                         Reset, which respecs to null (refund points, charge 50
+                         credits), clearing the spec so the TreeSelector reappears
+                         and a new spec can be picked free. So "changing spec" costs
+                         exactly one respec, never chooseCaptainSpec.
+                       `owned`/`points` are THIS captain's own unlockedCaptainTalents
+                       and statPoints (per-captain scoping preserved). onLearn routes
+                       the tooltip's Learn button into the EXISTING doBuyCaptainTalent
+                       wrapper (buyCaptainTalent for activeCaptain.id + pushLog +
+                       save), so learning still works exactly as before. describeEffect
+                       passes the captain effect describer through for the internal
+                       tooltip. -->
+                  {#if activeCaptain.spec === null}
+                    <TreeSelector
+                      cards={specCards}
+                      commitLabel={"Choose this spec"}
+                      onCommit={(key) => chooseSpec(key)}
+                    />
+                  {:else}
+                    <!-- Reset (Task 13, Talent Tree Visual Redesign; Task 14 repurposed
+                         it to CLEAR the spec), per-captain, scoped to activeCaptain,
+                         wraps respecCaptainTalents(..., null) via
+                         doRespecCaptainTalents/the confirmation modal near DELETE
+                         SAVE further down this file. Only shown once a spec is
+                         chosen (there's nothing to reset before that). Disabled
+                         up-front below the credit cost, same
+                         affordability-visible-before-opening-the-modal reasoning as
+                         the Homeworld Talents panel's own Reset button above. -->
+                    <div class="dev-row">
+                      <button
+                        class="dev-btn danger"
+                        disabled={state.credits.lt(RESPEC_COST_CREDITS)}
+                        on:click={openCaptainRespecModal}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    <!-- spec is non-null in this else-branch (the spec-is-null case is handled by the
+                         selector above); the non-null assertion satisfies svelte-check/tsc, which does
+                         not narrow a member expression across the conditional. RadialWeb's branch prop
+                         is a string, so a nullable spec would otherwise be rejected. NOTE: keep Svelte
+                         block tokens (hash-if / colon-else / slash-if) OUT of this comment, they break
+                         the parser even inside an HTML comment. -->
+                    <RadialWeb
+                      table={CAPTAIN_TALENTS}
+                      branch={activeCaptain.spec!}
+                      owned={activeCaptain.unlockedCaptainTalents}
+                      points={activeCaptain.statPoints}
+                      pointsLabel={"Stat Points"}
+                      describeEffect={describeCaptainTalentEffect}
+                      onLearn={(key) => doBuyCaptainTalent(key as CaptainTalentKey)}
+                    />
+                  {/if}
+                </Panel>
               </div>
-              <!-- spec is non-null in this else-branch (the spec-is-null case is handled by the
-                   selector above); the non-null assertion satisfies svelte-check/tsc, which does
-                   not narrow a member expression across the conditional. RadialWeb's branch prop
-                   is a string, so a nullable spec would otherwise be rejected. NOTE: keep Svelte
-                   block tokens (hash-if / colon-else / slash-if) OUT of this comment, they break
-                   the parser even inside an HTML comment. -->
-              <RadialWeb
-                table={CAPTAIN_TALENTS}
-                branch={activeCaptain.spec!}
-                owned={activeCaptain.unlockedCaptainTalents}
-                points={activeCaptain.statPoints}
-                pointsLabel={"Stat Points"}
-                describeEffect={describeCaptainTalentEffect}
-                onLearn={(key) => doBuyCaptainTalent(key as CaptainTalentKey)}
-              />
-            {/if}
-          </Panel>
+            </div>
+          </div>
+          {/if}
           {/if}
         {/if}
       </div>
