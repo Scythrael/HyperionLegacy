@@ -4,6 +4,7 @@
   import Starfield from "./lib/Starfield.svelte";
   import Panel from "./lib/Panel.svelte";
   import SubTabs from "./lib/SubTabs.svelte";
+  import ConsoleTabs from "./lib/ConsoleTabs.svelte";
   // Ship Systems (0.11.0 equipment 0.11.0 fitting UI), the REAL, player-facing
   // install/uninstall screen for one ship. A reusable modal-hosted panel opened
   // from BOTH the Docks ship list and the Fleet Captain's Overview. It reads the
@@ -6470,18 +6471,21 @@
            the 0.11.2 content moved VERBATIM, only the surrounding chrome changed. -->
       <div class="tab-scroll-area">
 
-        <!-- Scrolling top-tab row. Live tabs flip activeHomeTab; the active tab
-             GLOWS (.console-tab.active). Reserved meta tabs are inert locked
-             affordances (same crimson "coming soon" idiom the System / Battlespace
-             slots use), the title attr is the affordance. -->
-        <div class="console-tabs">
-          <button class="console-tab" class:active={activeHomeTab === "overview"} on:click={() => (activeHomeTab = "overview")}>Overview</button>
-          <button class="console-tab" class:active={activeHomeTab === "help"} on:click={() => (activeHomeTab = "help")}>Help</button>
-          <button class="console-tab" class:active={activeHomeTab === "statistics"} on:click={() => (activeHomeTab = "statistics")}>Statistics</button>
-          <div class="console-tab locked" title="Coming soon, not yet available">🔒 Achievements</div>
-          <div class="console-tab locked" title="Coming soon, not yet available">🔒 Completion</div>
-          <div class="console-tab locked" title="Coming soon, not yet available">🔒 Leaderboards</div>
-        </div>
+        <!-- Scrolling top-tab row via the shared ConsoleTabs primitive (sticky,
+             hidden scrollbar, glow on active, edge scroll slices). Live tabs flip
+             activeHomeTab; reserved meta tabs are inert locked affordances. -->
+        <ConsoleTabs
+          tabs={[
+            { key: "overview", label: "Overview" },
+            { key: "help", label: "Help" },
+            { key: "statistics", label: "Statistics" },
+            { key: "achievements", label: "Achievements", locked: true },
+            { key: "completion", label: "Completion", locked: true },
+            { key: "leaderboards", label: "Leaderboards", locked: true },
+          ]}
+          active={activeHomeTab}
+          onSelect={(key) => (activeHomeTab = key as "overview" | "help" | "statistics")}
+        />
 
         {#if activeHomeTab === "overview"}
         <!-- Overview: the console landing, kept lean (the design warns against
@@ -7814,56 +7818,12 @@
      .captain-list, without giving them .captain-list's fixed 96px width. */
   .battlespace-locked-list { display: flex; flex-direction: column; gap: 2px; }
   .fleet-captains-content { flex: 1; min-width: 0; }
-  /* Console model (0.12.0 "Console" nav, established on Home as the
-     PATTERN-SETTER, revised per user 2026-07-21). Each perspective presents a
-     horizontally SCROLLING top-tab row (.console-tabs); the selected tab
-     (.console-tab.active) GLOWS and its page renders in place BELOW the row.
-     No left rail, no Back control, you switch by tapping another tab. These rules
-     are the copyable template the other four perspectives reuse, so they carry no
-     Home-specific assumptions. Colors are the existing accent tokens only (no new
-     colors). Full-width by default: the tab row and each page are plain block flow
-     inside .tab-body's own inset, so desktop fills the available width; the tab
-     row scrolls sideways so a long set of tabs never wraps or cramps on mobile. */
-  .console-tabs {
-    display: flex;
-    gap: 6px;
-    overflow-x: auto;
-    padding-bottom: 8px;
-    margin-bottom: 12px;
-    -webkit-overflow-scrolling: touch;
-  }
-  .console-tab {
-    flex: 0 0 auto;
-    background: rgba(var(--color-accent-rgb), 0.06);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    border-radius: 8px;
-    padding: 9px 16px;
-    color: var(--color-text-secondary);
-    font-size: 13px;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-    cursor: pointer;
-  }
-  .console-tab:hover:not(.locked):not(.active) {
-    background: rgba(var(--color-accent-rgb), 0.15);
-    color: var(--color-accent-bright);
-    border-color: var(--color-accent);
-  }
-  /* The selected tab GLOWS to mark where you are (user 2026-07-21): accent border
-     and text plus a soft accent halo, all from the theme accent token so it
-     tracks whatever theme is active. */
-  .console-tab.active {
-    color: var(--color-accent-bright);
-    border-color: var(--color-accent);
-    background: rgba(var(--color-accent-rgb), 0.15);
-    box-shadow: 0 0 10px rgba(var(--color-accent-rgb), 0.45), inset 0 0 7px rgba(var(--color-accent-rgb), 0.12);
-  }
-  /* Reserved meta tabs, inert (same honest "coming soon" role as the System /
-     Battlespace locked slots). */
-  .console-tab.locked {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  /* Console model (0.12.0 "Console" nav). The scrolling top-tab row itself now
+     lives in the shared ConsoleTabs component (src/lib/ConsoleTabs.svelte):
+     sticky so page content never covers it, hidden scrollbar, glow on the active
+     tab, and edge scroll slices. Every perspective reuses <ConsoleTabs>, so no
+     tab-row CSS lives here anymore. The selected tab's page renders in place
+     below the row as plain block flow (full-width on desktop). */
   /* Fleet Operations tab layout (2026-07-07 Fleet Operations Mission UI,
      Task 6), mirrors .fleet-captains-layout/.captain-list/
      .captain-list-item directly above verbatim in spirit: flat,
