@@ -1235,11 +1235,19 @@ describe("ITEMS, Phase 1 seed registry", () => {
     }
   });
 
-  // Every RAW item must declare a Warehouse subCategory so it cannot render ungrouped.
-  it("every raw item declares a subCategory", () => {
-    for (const [id, def] of Object.entries(ITEMS)) {
-      if (def.category === "raw") {
-        expect(def.subCategory, `raw item ${id} missing subCategory`).toBeDefined();
+  // STANDING RULE (0.11.2 UI Restructure, Warehouse Materials sub-categories): the
+  // Warehouse Materials tab groups raw items by themed sub-category (Ores & Metals /
+  // Volatiles / Organic Compounds / Recovered Tech) instead of one flat "raw" grid,
+  // so every RAW item MUST declare a subCategory or it would render ungrouped. Guarded
+  // registry-wide by iterating the live ITEMS registry (no hard-coded key list), so a
+  // future raw item added without a subCategory fails here. Non-raw items validly omit
+  // the field (it is optional on ItemDef).
+  it("every raw item declares a valid Warehouse subCategory", () => {
+    const validSubCategories = ["oresMetals", "volatiles", "organicCompounds", "recoveredTech"];
+    for (const [key, item] of Object.entries(ITEMS)) {
+      if (item.category === "raw") {
+        expect(item.subCategory, `${key}.subCategory is present (raw items must be grouped)`).toBeDefined();
+        expect(validSubCategories, `${key}.subCategory is a valid RawSubCategory`).toContain(item.subCategory);
       }
     }
   });
