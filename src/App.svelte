@@ -5930,7 +5930,7 @@
               {@const unlockRung = FACILITIES[`warehouseT${activeMaterialsTier}`]?.upgrades[0]}
               {@const unlockIds = unlockRung ? Object.keys(unlockRung.materials) : []}
               <p class="warehouse-locked-note">
-                Tier {activeMaterialsTier} storage locked, <b>unlock in the Warehouse (Foundry tab)</b>{#if unlockRung && unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
+                Tier {activeMaterialsTier} storage locked, <b>unlock in the Warehouse (Facilities)</b>{#if unlockRung && unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
               </p>
             {/if}
 
@@ -8517,6 +8517,9 @@
     color: rgba(var(--color-accent-rgb), 0.4);
     cursor: not-allowed;
   }
+  /* A disabled DANGER button keeps its red hue (dimmed) rather than falling back
+     to the accent tint, so a disabled destructive control still reads as danger. */
+  .dev-btn.danger:disabled { color: var(--color-danger); opacity: 0.5; }
   /* [DEV] Equipment panel only (dev-gated). Monospace readout text so the
      base -> fitted stat columns line up, and a subtle divider between per-ship
      blocks. New classes, no existing panel restyled. */
