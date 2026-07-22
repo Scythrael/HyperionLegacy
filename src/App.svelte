@@ -7049,7 +7049,9 @@
             <div class="system-modal-title">SYSTEM</div>
             <button class="system-modal-close" on:click={closeSystemModal} aria-label="Close System">✕</button>
           </header>
-          <SubTabs tabs={systemModalTabs} active={activeSystemSubTab} onSelect={selectSystemSubTab} />
+          <div class="system-modal-tabs">
+            <SubTabs tabs={systemModalTabs} active={activeSystemSubTab} onSelect={selectSystemSubTab} />
+          </div>
           <div class="system-modal-body">
       {#if activeSystemSubTab === "profile"}
       <!-- Profile view (0.11.2 Shell Correction, Task 3, NEW). Shows the same
@@ -8553,7 +8555,7 @@
   .system-modal-dialog {
     display: flex;
     flex-direction: column;
-    width: min(560px, 100%);
+    width: min(900px, 100%);
     max-height: 100%;
     background: linear-gradient(rgba(var(--color-accent-rgb), 0.06), rgba(var(--color-accent-rgb), 0.06)), var(--color-bg-mid);
     border: 1px solid var(--color-border-strong);
@@ -8570,6 +8572,10 @@
     border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.25);
     flex-shrink: 0;
   }
+  /* The tab row keeps its natural height (flex-shrink:0), so a tall settings view
+     scrolls in the body below instead of squishing the tabs (which pushed their
+     text toward the bottom when a big view like Debug grew the modal). */
+  .system-modal-tabs { flex-shrink: 0; }
   .system-modal-title {
     font-family: var(--font-display);
     font-size: 15px;
