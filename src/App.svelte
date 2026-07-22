@@ -559,7 +559,7 @@
   // Drydock; Warehouse to Stores; Mission Control to Operations), and the emptied
   // Facilities tab was then removed (Task 7). The union below is the resulting
   // program set (see the .nav-tabs row for their left-to-right order).
-  type TabKey = "home" | "personnel" | "fleetOperations" | "facilities" | "drydock" | "logistics";
+  type TabKey = "home" | "personnel" | "fleetOperations" | "facilities" | "logistics";
   let activeTab: TabKey = "home";
 
   // Home program (0.11.2 Shell Correction, Task 1): the landing program, first
@@ -652,13 +652,10 @@
     }
   }
 
-  // Starbase's sub-tab: Docks (ship management, capacity + per-ship rows +
-  // assign/swap). The old Requisition (instant credit-buy) sub-tab was RETIRED
-  // in S4, hulls now come from the Shipyard build panel, so only Docks
-  // remains. Kept as a (single-member) union so re-adding a sub-tab later is a
-  // one-line change and the SubTabs `key as StarbaseSubTab` cast stays typed.
-  type StarbaseSubTab = "docks";
-  let activeStarbaseSubTab: StarbaseSubTab = "docks";
+  // (0.12.0 Console, CN4b: the StarbaseSubTab / activeStarbaseSubTab state was
+  //  RETIRED with the Docks fold. The Docks was a single-tab SubTabs strip, and
+  //  the Docks facility now shows only its storage/expansion surface directly, so
+  //  there is no sub-tab left to track.)
 
   // Foundry program rail state (0.11.2 nav restructure, Task 1).
   // The FOUNDRY program (Refinery/Fabricator/Research Lab/Fuel Depot) uses
@@ -673,7 +670,12 @@
   // as-building views (Overview + Upgrade) live here; the material catalog itself
   // moved to Logistics > Materials. This keeps the ONLY material-storage-expansion
   // UI reachable through the transition.
-  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay";
+  // 0.12.0 Console (Facilities, CN4b): the Shipyard + Docks fold in here from the
+  // retired Drydock tab. Both are BUILDINGS the player manages, so they belong to
+  // the Facilities (building) perspective. "shipyard" = the hull-build facility
+  // (moved verbatim); "docks" = ship-STORAGE management only (berth capacity +
+  // expansion; per-hull list/assign/salvage live in Logistics > Ships).
+  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks";
   // 0.12.0 "Console" nav (Facilities, CN4a): the LEFT RAIL that this key used to
   // drive is RETIRED. Facilities is the BUILDING perspective and now lands on a
   // DASHBOARD (a responsive grid of building cards, the SAME .roster-grid model
@@ -697,28 +699,25 @@
     fuelStorage: "Fuel Depot",
     warehouse: "Warehouse",
     salvageBay: "Salvage Bay",
+    shipyard: "Shipyard",
+    docks: "Docks",
   };
 
-  // Drydock program rail state (0.11.2 nav restructure, Task 2).
-  // The DRYDOCK program unites ship BUILDING (the Shipyard, moved from the
-  // Facilities tab) with ship ASSIGNMENT (the Docks, moved from the Locations
-  // tab's Fleet Sector place). Like the Foundry's activeFoundryFacility above,
-  // it uses its OWN dedicated rail-selection state. (The Locations tab it also
-  // drew from has since been removed in Task 4.) A dedicated two-key union keeps
-  // invalid selections unrepresentable. Named (not an inline literal union) to match the sibling
-  // rail-state types (FoundryFacilityKey, StarbaseSubTab, ShipyardSubTab).
-  type DrydockSection = "shipyard" | "docks";
-  let activeDrydockSection: DrydockSection = "shipyard";
+  // (0.12.0 Console, CN4b: the DRYDOCK program is RETIRED. Its two facilities
+  //  folded into the Facilities console, Shipyard and Docks are now cards on the
+  //  Facilities dashboard (activeFoundryFacility === "shipyard" / "docks"), so the
+  //  DrydockSection / activeDrydockSection rail state is gone. The Shipyard content
+  //  still uses ShipyardSubTab / activeShipyardSubTab, which stay declared below.)
 
   // Logistics program tab state (0.12.0 "Console" nav, Phase 3 / CN3a). Replaces
   // the old Stores program (the activeStoresFacility Warehouse | Salvage Bay left
   // rail, now RETIRED). Logistics is the ITEM perspective: everything at the item
   // scope. A slim TOP rail (the shared <ConsoleTabs> primitive, same idiom Home
   // and Personnel use) splits it into:
-  //   - "ships"         , the ship console (paper-doll + installs). STUB this
-  //                       task, built out in the next task (CN3b). Docks (ship
-  //                       storage/assignment) stays in the Drydock tab meanwhile,
-  //                       so ship management is still reachable during transition.
+  //   - "ships"         , the ship console (paper-doll + installs), built out in
+  //                       CN3b. Per-hull management (assign/swap/salvage) lives
+  //                       here now; the Docks facility (Facilities) keeps only
+  //                       ship-STORAGE capacity + expansion (CN4b).
   //   - "shipEquipment" , the spare Ship Systems bay (moved verbatim from the old
   //                       Warehouse Finished Goods > Ship Systems), + compact
   //                       locked markers for the reserved Weapons/Modules/Consumables.
@@ -779,8 +778,8 @@
   // "dispatch" (the existing mission dispatch UI: category rail + tier tabs +
   // mission cards) and "missionControl" (the mission-UNLOCK facility moved
   // VERBATIM out of the Facilities tab, since it is mission-related). Like the
-  // sibling program states above (activeFoundryFacility / activeDrydockSection /
-  // activeStoresFacility), it uses its OWN dedicated selection state. It
+  // sibling program states above (e.g. activeFoundryFacility), it uses its OWN
+  // dedicated selection state. It
   // defaults to "dispatch" so the tab still opens on dispatch exactly as before
   // the Mission Control pane joined it. Named (not an inline literal union) to
   // match the sibling rail-state types.
@@ -3664,8 +3663,9 @@
            control + the building's EXISTING content rendered VERBATIM (its own
            SubTabs strip and panes UNCHANGED, only the surrounding nav changed from
            rail to dashboard/back-row). This is a mechanical re-home, not a
-           redesign. Drydock (Shipyard + Docks) folds in a LATER task (CN4b) and is
-           untouched here. -->
+           redesign. The Drydock tab's two facilities (Shipyard + Docks) folded in
+           here in CN4b, so the Drydock tab is now retired; they are the last two
+           cards on the dashboard + the last two branches of the console chain. -->
       <div class="tab-scroll-area">
         {#if facilitiesView === "dashboard"}
           <!-- FACILITIES DASHBOARD. The SAME responsive card grid the Captain
@@ -3843,6 +3843,62 @@
               <div class="roster-card-lines">
                 <div class="roster-card-line">
                   Status: {spareEquipmentCount(state)} spare system{spareEquipmentCount(state) === 1 ? "" : "s"} to salvage
+                </div>
+              </div>
+            </button>
+
+            <!-- Shipyard card (folded in from the retired Drydock tab, CN4b).
+                 Level = shipyardLevel (0 = not founded); live status = whether a
+                 hull is building (activeShipBuild, the SAME in-flight process the
+                 Shipyard Build pane shows) vs idle. -->
+            <button
+              class="roster-card"
+              on:click={() => {
+                activeFoundryFacility = "shipyard";
+                facilitiesView = "console";
+              }}
+            >
+              <div class="roster-card-head">
+                <div class="roster-card-glyph" aria-hidden="true">🛠️</div>
+                <div class="roster-card-heading">
+                  <div class="research-name">{FACILITY_LABELS.shipyard}</div>
+                  <div class="roster-card-sub">Level {shipyardLevel}</div>
+                </div>
+              </div>
+              <div class="roster-card-lines">
+                <div class="roster-card-line">
+                  {#if !shipyardFounded}
+                    Status: Not founded
+                  {:else if activeShipBuild}
+                    Status: Building a hull
+                  {:else}
+                    Status: Idle
+                  {/if}
+                </div>
+              </div>
+            </button>
+
+            <!-- Docks card (folded in from the retired Drydock tab, CN4b). No
+                 build/upgrade LEVEL; live status = ship-storage berths used vs cap
+                 (state.ships.length / state.shipStorageCapacity), the SAME figures
+                 the Docks capacity readout shows. -->
+            <button
+              class="roster-card"
+              on:click={() => {
+                activeFoundryFacility = "docks";
+                facilitiesView = "console";
+              }}
+            >
+              <div class="roster-card-head">
+                <div class="roster-card-glyph" aria-hidden="true">🚉</div>
+                <div class="roster-card-heading">
+                  <div class="research-name">{FACILITY_LABELS.docks}</div>
+                  <div class="roster-card-sub">Ship storage</div>
+                </div>
+              </div>
+              <div class="roster-card-lines">
+                <div class="roster-card-line">
+                  Status: {state.ships.length} / {state.shipStorageCapacity} berths used
                 </div>
               </div>
             </button>
@@ -4990,7 +5046,7 @@
                       Salvage action panel (requestSalvage("material", ...)) over
                       the whole salvaged catalog (salvageBaySalvagedItems, no tier
                       selector). Ship teardown (requestSalvage("ship", ...)) is a
-                      Drydock action and deliberately NOT relocated here. -->
+                      Logistics Ships action and deliberately NOT relocated here. -->
             <Panel>
               <div class="panel-title">SALVAGE BAY</div>
               <p class="research-status">
@@ -5196,45 +5252,11 @@
                 </div>
               </Panel>
             {/if}
-          {/if}
-        {/if}
-      </div>
-      {/if}
-      {#if activeTab === "drydock"}
-      <!-- DRYDOCK program (0.11.2 nav restructure, Task 2): unites ship
-           BUILDING (the Shipyard, moved VERBATIM out of the now removed
-           Facilities tab) with ship ASSIGNMENT (the Docks, moved VERBATIM out of
-           the Locations tab's Fleet Sector place). Same shell as the Foundry /
-           Crew tabs (tab-scroll-area > fleet-captains-layout > captain-list rail +
-           fleet-captains-content). Uses a DEDICATED activeDrydockSection rail
-           state. (The Locations tab it also drew from was removed in Task 4.)
-           This is an information-architecture move, not a redesign: the moved
-           rail entries and content panes are unchanged except that their guard
-           variable was retargeted to activeDrydockSection. -->
-      <div class="tab-scroll-area">
-      <div class="fleet-captains-layout">
-        <div class="captain-list">
-          <!-- Drydock rail: Shipyard (build the hull) then Docks (assign it to
-               a captain). Both moved from their former tabs; only class:active /
-               on:click retarget to activeDrydockSection. -->
-          <button
-            class="captain-list-item"
-            class:active={activeDrydockSection === "shipyard"}
-            on:click={() => (activeDrydockSection = "shipyard")}
-          >
-            Shipyard
-          </button>
-          <button
-            class="captain-list-item"
-            class:active={activeDrydockSection === "docks"}
-            on:click={() => (activeDrydockSection = "docks")}
-          >
-            Docks
-          </button>
-        </div>
-
-        <div class="fleet-captains-content">
-          {#if activeDrydockSection === "shipyard"}
+          {:else if activeFoundryFacility === "shipyard"}
+            <!-- SHIPYARD folded into Facilities (0.12.0 Console, CN4b), moved
+                 VERBATIM out of the retired Drydock tab. Content pane UNCHANGED;
+                 only its guard flipped from activeDrydockSection === "shipyard" to
+                 the Facilities console's activeFoundryFacility === "shipyard". -->
             <!-- SHIPYARD (Phase 5, Task S5 UI), the hull-BUILD facility. It CONSUMES the
                  components the Fabricator crafts + credits to build a ship over time, then
                  parks the finished hull in the fleet. Two sub-tabs mirroring the sibling
@@ -5450,37 +5472,22 @@
                 {/if}
               </Panel>
             {/if}
-          {/if}
-
-          {#if activeDrydockSection === "docks"}
-            <SubTabs
-              tabs={[
-                { key: "docks", label: "Docks" },
-              ]}
-              active={activeStarbaseSubTab}
-              onSelect={(key) => (activeStarbaseSubTab = key as StarbaseSubTab)}
-            />
-
-            {#if activeStarbaseSubTab === "docks"}
-              <!-- DOCKS, one row per hull in state.ships. Capacity readout
-                   uses the same "label: value" line style as the Homeworld
-                   panels' "Admin Points: X" / "Credits: X" lines. Each ship row
-                   shows: type label, the 3 mission stats (via shipDerivedStats),
-                   inert module-slot pips (count = SHIP_TYPES[typeKey].moduleSlots
-                  , display-only, no module system exists yet), an assignment
-                   badge (the flying captain's label, or "Parked"), and ONE
-                   assign/swap control whose kind + disabled-state depends on the
-                   ship's assignment + that captain's mission status (see the
-                   per-row @const block). -->
+          {:else if activeFoundryFacility === "docks"}
+              <!-- DOCKS storage management (0.12.0 Console, CN4b). The Docks is a
+                   BUILDING the player manages, so under the perspective model it
+                   folds into Facilities. ONLY the ship-STORAGE surface remains: the
+                   berth-capacity readout + the "Expand Docks" upgrade (the ONLY UI
+                   that raises shipStorageCapacity, so it MUST stay reachable). The
+                   per-hull LIST, captain ASSIGNMENT (openAssignPicker/openSwapPicker),
+                   and hull SALVAGE (requestSalvage("ship", ...)) that used to share
+                   this panel were DROPPED: they are the SAME flows now homed in the
+                   Logistics > Ships console (CN3b), reached from the ITEM
+                   perspective, so keeping them here would duplicate one action in
+                   two places. The degenerate single-tab Docks SubTabs was dropped
+                   with them (nothing left to switch between). All remaining reads/
+                   gates are UNCHANGED (canUpgradeDocks / doExpandDocks /
+                   state.shipStorageCapacity). -->
               <Panel>
-                <!-- Panel-wide derived sets, declared first (before any markup)
-                     so they're valid {@const} children of <Panel> and available
-                     to every row below. parkedShips gates each ASSIGNED ship's
-                     Swap button (nothing to swap in if empty); idleCaptains gates
-                     each PARKED ship's Assign button (no valid target if empty).
-                     Both recompute reactively as ships/captains change. -->
-                {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
-                {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
                 <div class="panel-title">DOCKS</div>
                 <!-- Berth capacity + the "Expand Docks" action (Fleet Management,
                      Docks Expansion). The button is disabled + reasoned exactly like
@@ -5503,124 +5510,16 @@
                 {#if !docksCheck.ok}
                   <div class="docks-expand-note">{docksCheck.reason}</div>
                 {/if}
-                <div class="ship-list">
-                  {#each state.ships as ship (ship.id)}
-                    {@const def = SHIP_TYPES[ship.typeKey]}
-                    {@const stats = shipDerivedStats(ship)}
-                    <!-- assignedCaptain: the captain flying THIS hull, or null if
-                         parked. assignedCaptainId is the SINGLE SOURCE OF TRUTH
-                         (model.ts), we look the captain up by it rather than
-                         trusting any duplicate field. onMission gates the Swap
-                         control: you can't pull a hull out from under an active
-                         mission, matching assignShipToCaptain's own block on the
-                         target captain's mission. -->
-                    {@const assignedCaptain = ship.assignedCaptainId === null
-                      ? null
-                      : state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null}
-                    {@const onMission = assignedCaptain !== null && assignedCaptain.mission !== null}
-                    <div class="ship-card">
-                      <div class="ship-card-head">
-                        <div class="research-name">{def.label}</div>
-                        <!-- Assignment badge: the flying captain's label, or
-                             "Parked". .ship-badge.parked dims it to read as the
-                             quieter, available state. -->
-                        <span class="ship-badge" class:parked={assignedCaptain === null}>
-                          {assignedCaptain === null ? "Parked" : assignedCaptain.label}
-                        </span>
-                      </div>
-
-                      <div class="ship-stats">
-                        <span class="ship-stat">Cargo: {formatNumber(stats.cargoCapacity)}</span>
-                        <span class="ship-stat">Speed: {stats.transitSpeedMult.toFixed(1)}×</span>
-                        <span class="ship-stat">Yield: {stats.extractionYieldMult.toFixed(2)}×</span>
-                      </div>
-
-                      <!-- Module slots: inert pips, one per moduleSlots. Purely
-                           decorative this pass (no module system), the quiet
-                           "unlock with Research" note sets the expectation
-                           without implying they do anything yet. Array.from is
-                           used (not a bare {length} object) since {#each} needs a
-                           real iterable, same as the locked-captain-slots loop. -->
-                      <div class="ship-modules">
-                        <span class="ship-modules-label">Modules:</span>
-                        {#each Array.from({ length: def.moduleSlots }) as _, mi}
-                          <span class="ship-module-pip" title="Module slot, unlocks with Research"></span>
-                        {/each}
-                        <span class="ship-modules-note">unlock with Research</span>
-                      </div>
-
-                      <!-- ONE control per row, three cases (see the coordinator's
-                           corrected design):
-                           1. PARKED -> "Assign ▾": pick an IDLE captain. Disabled
-                              (no picker) when there are no idle captains, since
-                              assignShipToCaptain would fail on an on-mission
-                              target anyway.
-                           2. ASSIGNED + captain IDLE -> "Swap ▾": pick a PARKED
-                              ship to give that captain. Disabled when there are
-                              no parked ships to swap in.
-                           3. ASSIGNED + captain ON-MISSION -> disabled "Swap ▾"
-                              with the recall-first reason. -->
-                      {#if assignedCaptain === null}
-                        <button
-                          class="dev-btn ship-assign-btn"
-                          disabled={idleCaptains.length === 0}
-                          title={idleCaptains.length === 0 ? "No idle captain, recall one first" : undefined}
-                          on:click={() => openAssignPicker(ship.id)}
-                        >
-                          Assign ▾
-                        </button>
-                      {:else if onMission}
-                        <button class="dev-btn ship-assign-btn" disabled title="On a mission, recall first">
-                          Swap ▾
-                        </button>
-                      {:else}
-                        <button
-                          class="dev-btn ship-assign-btn"
-                          disabled={parkedShips.length === 0}
-                          title={parkedShips.length === 0 ? "No spare ship, buy or free one" : undefined}
-                          on:click={() => openSwapPicker(assignedCaptain.id)}
-                        >
-                          Swap ▾
-                        </button>
-                      {/if}
-
-                      <!-- Ship Systems (0.11.0): opens the real install/uninstall
-                           screen for THIS hull. Always enabled, it works for a
-                           PARKED ship (no captain) too, since fitment only locks
-                           mid-mission (the on-mission gate is enforced inside the
-                           panel, not here). Same .ship-assign-btn look as the
-                           assign/swap control above so the row reads as one set. -->
-                      <button
-                        class="dev-btn ship-assign-btn"
-                        on:click={() => openShipSystems(ship.id)}
-                      >
-                        Ship Systems
-                      </button>
-
-                      <!-- SALVAGE (0.11.0 ship-salvage): break this hull down for a fraction
-                           of its build cost (materials + credits back, crafted systems return
-                           to the spare pool). Routes through the SAME salvage confirmation
-                           modal as the system/material salvages (requestSalvage("ship", ...)).
-                           DISABLED for an on-mission ship (its captain is out flying, so the
-                           hull can't be torn down, salvageShip enforces the SAME lock), with
-                           the reason surfaced in the title. INSTANT this patch; a future task
-                           makes hull teardown a timed process (see salvage.ts). -->
-                      <button
-                        class="dev-btn ship-assign-btn danger"
-                        disabled={onMission}
-                        title={onMission ? "On a mission, recall first" : "Break down this hull for parts"}
-                        on:click={() => requestSalvage("ship", ship.id, def.label)}
-                      >
-                        Salvage
-                      </button>
-                    </div>
-                  {/each}
-                </div>
+                <!-- Where per-hull management went. The list/assign/salvage that
+                     used to render here now live in Logistics > Ships (the ITEM
+                     perspective); this pointer keeps the player oriented after the
+                     fold. A plain caption, no new state or behavior. -->
+                <p class="research-status">
+                  Individual hull management, captain assignment, system installs, and salvage now live in Logistics, Ships.
+                </p>
               </Panel>
-            {/if}
           {/if}
-        </div>
-      </div>
+        {/if}
       </div>
       {/if}
 
@@ -5636,10 +5535,9 @@
            is a FACILITY action (user decision 2026-07-21), so the Salvage Bay is
            NOT a tab here; it lives in the Foundry rail (activeFoundryFacility ===
            "salvageBay") beside the warehouse building-management.
-             - Ships          , STUB this task; the ship console (paper-doll +
-                                installs) arrives in the next task (CN3b). Docks
-                                (ship storage/assignment) stays in the Drydock tab
-                                meanwhile, so ship management is still reachable.
+             - Ships          , the ship console (paper-doll + installs, CN3b) plus
+                                per-hull assign/swap/salvage. Ship-STORAGE capacity +
+                                expansion is the Docks facility under Facilities (CN4b).
              - Ship Equipment , the spare Ship Systems bay, moved VERBATIM from the
                                 old Warehouse Finished Goods > Ship Systems (its
                                 inner product-family SubTabs strip FLATTENED away per
@@ -5677,8 +5575,10 @@
                stat breakdown live in the ShipSystemsPanel MODAL (opened by Ship
                Installs via the existing openShipSystems invocation, verbatim), the
                SAME modal the Docks and the captain Leveling panel already open; the
-               ship page does NOT duplicate that content inline. The Drydock Docks
-               section is untouched this task (transitional overlap is expected). -->
+               ship page does NOT duplicate that content inline. (CN4b update: the
+               Drydock Docks list that these flows first came from has since been
+               DROPPED, its per-hull management is now ONLY here; the Docks facility
+               under Facilities keeps only ship-storage capacity + expansion.) -->
           {#if logisticsShipsView === "grid"}
           <!-- FLEET grid. The SAME responsive card grid the Captain Roster uses
                (.roster-grid: auto-fill, fills the desktop width with more cards per
@@ -5691,7 +5591,7 @@
             <Panel>
               <div class="panel-title">SHIPS</div>
               <p class="research-status">
-                No ships in the fleet yet. Build a hull at the Shipyard (Drydock tab) to add one.
+                No ships in the fleet yet. Build a hull at the Shipyard (Facilities) to add one.
               </p>
             </Panel>
           {:else}
@@ -7465,7 +7365,6 @@
       <button class="nav-tab" class:active={activeTab === "personnel"} on:click={() => (activeTab = "personnel")}>Personnel</button>
       <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
       <button class="nav-tab" class:active={activeTab === "facilities"} on:click={() => (activeTab = "facilities")}>Facilities</button>
-      <button class="nav-tab" class:active={activeTab === "drydock"} on:click={() => (activeTab = "drydock")}>Drydock</button>
       <button class="nav-tab" class:active={activeTab === "logistics"} on:click={() => (activeTab = "logistics")}>Logistics</button>
     </div>
   </div>
@@ -8733,53 +8632,10 @@
      flat-cornered from the 2026-07-07 button-style pass), this class only
      supplies the container's flex/gap, no new button style needed. */
   .modal-captain-list { display: flex; flex-direction: column; gap: 2px; margin: 10px 0; }
-  /* Ships, Stats Foundation (Task 11 UI), Docks/Requisition ship rows.
-     .ship-list/.ship-card mirror .module-list/.mission-card's flat, thin-
-     border, panel-strong look verbatim in spirit (NOT a new visual language) --
-     same padding/radius/background/border tokens, just a distinct class so ship
-     rows can carry their own head/stats/modules sub-layout. All colors come
-     from theme tokens (--color-accent-rgb / --color-accent / --color-text-*),
-     so these repaint on every theme switch like every other element here. */
-  .ship-list { display: flex; flex-direction: column; gap: 10px; }
-  .ship-card {
-    padding: 12px;
-    border-radius: 10px;
-    background: var(--color-panel-bg-strong);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
-  }
-  .ship-card-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-  /* Assignment badge, the flying captain's label (or "Parked"), and reused in
-     Requisition for the price chip. .parked dims it to read as the quieter,
-     available state, same opacity convention as other .locked/dim elements. */
-  .ship-badge {
-    font-size: 11px;
-    font-family: var(--font-mono);
-    color: var(--color-accent-bright);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
-    padding: 2px 8px;
-    white-space: nowrap;
-  }
-  .ship-badge.parked { color: var(--color-text-secondary); opacity: 0.7; }
-  .ship-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 8px; }
-  .ship-stat { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
-  /* Inert module-slot pips, display-only (no module system this pass). Small
-     accent-tinted squares, one per moduleSlots; the quiet note sets the
-     "unlocks later" expectation without implying they're interactive. */
-  .ship-modules { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-  .ship-modules-label { font-size: 11px; color: var(--color-text-secondary); }
-  .ship-module-pip {
-    width: 10px;
-    height: 10px;
-    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
-    background: rgba(var(--color-accent-rgb), 0.1);
-  }
-  .ship-modules-note { font-size: 10px; color: var(--color-text-dim); font-style: italic; margin-left: 4px; }
-  /* Assign/Swap control, reuses .dev-btn's flat look as-is (same as the
-     mission popup's captain picker buttons); this modifier only nudges the top
-     margin so it sits clear of the modules row above. */
-  .ship-assign-btn { margin-top: 2px; }
-  /* (.ship-desc, the Requisition hull blurb's margin tweak, was removed in S4
-     with the Requisition buy panel that was its only user.) */
+  /* (0.12.0 Console, CN4b: the .ship-list / .ship-card / .ship-badge / .ship-stats
+     / .ship-modules / .ship-assign-btn rules were REMOVED with the Docks per-hull
+     list. That list folded into the Logistics > Ships console (CN3b), which uses
+     the .roster-card grid, so these classes had no remaining markup users.) */
 
   /* PERSONNEL Captain Roster (0.12.0 "Console" nav, Phase 1). The roster grid
      reuses the mission grid's responsive reflow in spirit: auto-fill + minmax
