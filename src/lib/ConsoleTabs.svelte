@@ -73,22 +73,27 @@
 </div>
 
 <style>
-  /* Sticky so the row stays pinned while the page below scrolls (fixes the page
-     covering the tabs). The background MUST be fully opaque or scrolled content
-     bleeds straight through the pinned row. Brave disables backdrop-filter, and
-     the panel token --color-panel-bg-strong is only 6% alpha (it reads solid ONLY
-     under a blur the panels add and this row does not), so neither can be relied
-     on here. Use the SAME proven opaque recipe the currency tooltip uses: a faint
-     themed accent wash over the OPAQUE --color-bg-mid base, so the row occludes
-     content yet still matches the console tint. (Earlier this said var(--color-bg),
-     a token that is NOT defined anywhere, so it resolved to nothing and left the
-     row transparent, the overlap-on-scroll bug.) position: sticky also establishes
-     the containing block the absolutely-positioned edge slices anchor to. */
+  /* The tab row is a NON-SCROLLING HEADER: each perspective renders it as a
+     flex-shrink:0 sibling ABOVE its .tab-scroll-area, so the page scrolls (and is
+     CLIPPED) in that separate region below and never passes under this row. That
+     is what stops content bleeding into the tabs, on every screen and platform,
+     with NO opaque slab: because nothing scrolls under it, this row stays fully
+     TRANSPARENT and lets the app's translucent frame + starfield show through the
+     gap. (Transparency matters here on Brave, where backdrop-filter is disabled,
+     so a blurred panel background is not an option and an opaque band would read
+     as an out-of-place solid bar.) The blank gap below the tabs before content is
+     padding-bottom + margin-bottom, identical across every perspective.
+     position: relative establishes the containing block the absolutely-positioned
+     edge slices anchor to (this was position: sticky while the row lived inside
+     the scroll area; the row no longer scrolls, so relative is all the slices need).
+     HISTORY: the row used to sit INSIDE .tab-scroll-area as a sticky first child
+     painting background var(--color-bg), a token NEVER defined -> transparent ->
+     content bled through on scroll; a stopgap opaque wash hid it but looked like a
+     bar. Moving the row OUT to a header + letting the scroll region clip its own
+     content is the real, platform-independent fix. */
   .ctabs-wrap {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
+    position: relative;
+    flex-shrink: 0;
     padding-bottom: 12px;
     margin-bottom: 4px;
   }

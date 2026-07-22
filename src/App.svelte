@@ -5611,12 +5611,16 @@
                                 warehouse-as-a-building management (Overview +
                                 Upgrade) moved to the Foundry tab, NOT here.
            See docs/plans/2026-07-21-console-nav-0.12.0-design.md + -plan.md. -->
+      <!-- ConsoleTabs is a NON-SCROLLING header ABOVE .tab-scroll-area (a direct
+           flex-shrink:0 child of .tab-body, the same header pattern Operations
+           uses), so the content below scrolls and is CLIPPED in its own region
+           and never bleeds up under the tabs. See ConsoleTabs.svelte's .ctabs-wrap. -->
+      <ConsoleTabs
+        tabs={LOGISTICS_TABS}
+        active={activeLogisticsTab}
+        onSelect={(key) => (activeLogisticsTab = key as "ships" | "shipEquipment" | "crewEquipment" | "materials")}
+      />
       <div class="tab-scroll-area">
-        <ConsoleTabs
-          tabs={LOGISTICS_TABS}
-          active={activeLogisticsTab}
-          onSelect={(key) => (activeLogisticsTab = key as "ships" | "shipEquipment" | "crewEquipment" | "materials")}
-        />
 
         {#if activeLogisticsTab === "ships"}
           <!-- SHIPS console (0.12.0 Console, Phase 2 / CN3b). The ITEM perspective's
@@ -6047,15 +6051,18 @@
            Admiral is a STUB this task (built out in a follow-up, CN2b); Captain
            Roster is built out here. See
            docs/plans/2026-07-21-console-nav-0.12.0-design.md + -plan.md. -->
+      <!-- ConsoleTabs is a NON-SCROLLING header ABOVE .tab-scroll-area (see the
+           Logistics/Operations header pattern), so captain-roster content scrolls
+           and is CLIPPED below and never bleeds up under the tabs. -->
+      <ConsoleTabs
+        tabs={[
+          { key: "admiral", label: "Admiral" },
+          { key: "roster", label: "Captain Roster" },
+        ]}
+        active={activePersonnelTab}
+        onSelect={(key) => (activePersonnelTab = key as "admiral" | "roster")}
+      />
       <div class="tab-scroll-area">
-        <ConsoleTabs
-          tabs={[
-            { key: "admiral", label: "Admiral" },
-            { key: "roster", label: "Captain Roster" },
-          ]}
-          active={activePersonnelTab}
-          onSelect={(key) => (activePersonnelTab = key as "admiral" | "roster")}
-        />
 
         {#if activePersonnelTab === "admiral"}
         <!-- ADMIRAL page (0.12.0 Console, Phase 1 / CN2b). The Fleet Admiral is a
@@ -6946,23 +6953,25 @@
            is the copyable template every perspective reuses (see the
            .console-tabs / .console-tab CSS). The Help and Statistics bodies are
            the 0.11.2 content moved VERBATIM, only the surrounding chrome changed. -->
+      <!-- Scrolling top-tab row via the shared ConsoleTabs primitive (hidden
+           scrollbar, glow on active, edge scroll slices). A NON-SCROLLING header
+           ABOVE .tab-scroll-area (the Logistics/Operations header pattern), so the
+           Help / Statistics bodies scroll and are CLIPPED below and never bleed up
+           under the tabs. Live tabs flip activeHomeTab; reserved meta tabs are
+           inert locked affordances. -->
+      <ConsoleTabs
+        tabs={[
+          { key: "overview", label: "Overview" },
+          { key: "help", label: "Help" },
+          { key: "statistics", label: "Statistics" },
+          { key: "achievements", label: "Achievements", locked: true },
+          { key: "completion", label: "Completion", locked: true },
+          { key: "leaderboards", label: "Leaderboards", locked: true },
+        ]}
+        active={activeHomeTab}
+        onSelect={(key) => (activeHomeTab = key as "overview" | "help" | "statistics")}
+      />
       <div class="tab-scroll-area">
-
-        <!-- Scrolling top-tab row via the shared ConsoleTabs primitive (sticky,
-             hidden scrollbar, glow on active, edge scroll slices). Live tabs flip
-             activeHomeTab; reserved meta tabs are inert locked affordances. -->
-        <ConsoleTabs
-          tabs={[
-            { key: "overview", label: "Overview" },
-            { key: "help", label: "Help" },
-            { key: "statistics", label: "Statistics" },
-            { key: "achievements", label: "Achievements", locked: true },
-            { key: "completion", label: "Completion", locked: true },
-            { key: "leaderboards", label: "Leaderboards", locked: true },
-          ]}
-          active={activeHomeTab}
-          onSelect={(key) => (activeHomeTab = key as "overview" | "help" | "statistics")}
-        />
 
         {#if activeHomeTab === "overview"}
         <!-- Overview: the console landing, kept lean (the design warns against
