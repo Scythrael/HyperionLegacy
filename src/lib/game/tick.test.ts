@@ -42,6 +42,7 @@ import {
   xpForNextFleetAdminLevel,
   craftingXpForNext,
   CRAFTING_XP_PER_DURATION_TICK,
+  FLEET_ADMIN_XP_PER_DURATION_TICK,
   ITEMS,
   BLUEPRINTS,
   type GameState,
@@ -2634,16 +2635,19 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
     equipmentStorageUpgrade: { type: "equipmentStorageLevelUp" },
     docksExpansion: { type: "docksCapacityUp" },
   };
-  // Expected contribution of ONE completed process of each kind. FA XP lumps the
-  // full durationTicks; crafting XP lumps CRAFTING_XP_PER_DURATION_TICK * duration.
+  // Expected contribution of ONE completed process of each kind. FA XP lumps
+  // FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks (0.12.1: was the bare
+  // durationTicks); crafting XP lumps CRAFTING_XP_PER_DURATION_TICK * duration.
   // `fa` / `crafting` here are booleans (does this kind feed that axis today).
+  // ⚠️ 0.12.1: researchProject / fabricateJob / shipBuild flipped fa false -> true
+  // (finite, high-value builds now grant FA XP). Only fuelRefineJob feeds neither.
   const expectations: Record<TimedProcessKind, { fa: boolean; crafting: boolean }> = {
     refineJob: { fa: true, crafting: true },
     facilityUpgrade: { fa: true, crafting: false },
     fuelRefineJob: { fa: false, crafting: false },
-    researchProject: { fa: false, crafting: false },
-    fabricateJob: { fa: false, crafting: true },
-    shipBuild: { fa: false, crafting: true },
+    researchProject: { fa: true, crafting: false },
+    fabricateJob: { fa: true, crafting: true },
+    shipBuild: { fa: true, crafting: true },
     equipmentStorageUpgrade: { fa: true, crafting: false },
     docksExpansion: { fa: true, crafting: false },
   };
@@ -2657,10 +2661,129 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
         { id: "proc-1", kind, remainingTicks: D, durationTicks: D, effect: effectForKind[kind] },
       ]);
       const { fleetAdminXpDelta, craftingXpDelta } = resolveProcesses(state, D); // exactly completes it
-      expect(fleetAdminXpDelta).toBe(fa ? D : 0);
+      expect(fleetAdminXpDelta).toBe(fa ? FLEET_ADMIN_XP_PER_DURATION_TICK * D : 0);
       expect(craftingXpDelta).toBe(crafting ? CRAFTING_XP_PER_DURATION_TICK * D : 0);
     });
   }
+});
+
+// ⚠️ 0.12.1 FA-XP UNBLOCK: the finite-source FA XP lump + the new FA-feeding kinds.
+// Companion to the crafting-XP suite below (same direct-construction style). Pins:
+//   1. a completed FA-feeding process lumps FLEET_ADMIN_XP_PER_DURATION_TICK *
+//      durationTicks (0.12.1: was the bare durationTicks, an implicit x1).
+//   2. researchProject / fabricateJob / shipBuild NOW feed FA (flipped in 0.12.1),
+//      while fuelRefineJob still does not.
+//   3. closed-form offline==live parity for the FA lump: one big resolve of N ticks
+//      awards the SAME total FA XP as N single-tick resolves, AND folding either
+//      through applyFleetAdminXp lands the SAME fleetAdminLevel + fleetAdminXp. This
+//      is the load-bearing invariant, integer * integer keeps it exact.
+//   4. an existing save with banked FA XP rolls its levels up FINITELY on the next
+//      tick (respecting MAX_LEVEL_UPS_PER_TICK), not infinitely.
+describe("resolveProcesses, FA XP on completed finite-source processes (0.12.1 unblock)", () => {
+  const withProcesses = (activeProcesses: TimedProcess[]) => ({
+    ...freshState(),
+    activeProcesses,
+  });
+  const addItem = (itemId: string, amount: number): ProcessEffect => ({ type: "addItem", itemId, amount: new Decimal(amount) });
+  const addShip = (): ProcessEffect => ({ type: "addShip", typeKey: "prospectorMiner" });
+  const levelUp = (facility: string): ProcessEffect => ({ type: "facilityLevelUp", facility });
+  const addFuel = (amount: number): ProcessEffect => ({ type: "addFuel", amount: new Decimal(amount) });
+  const unlock = (key: string): ProcessEffect => ({ type: "unlockBlueprint", key });
+
+  it("a completed facilityUpgrade lumps FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks, once", () => {
+    const durationTicks = 60; // representative early-upgrade duration
+    const state = withProcesses([
+      { id: "proc-1", kind: "facilityUpgrade", remainingTicks: durationTicks, durationTicks, effect: levelUp("refinery") },
+    ]);
+    const { fleetAdminXpDelta } = resolveProcesses(state, durationTicks); // exactly reaches 0
+    expect(fleetAdminXpDelta).toBe(FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks);
+    // Concrete sanity at the chosen constant (5): a 60-tick upgrade = 300 FA XP,
+    // 40% of the 750 first-level requirement (a meaningful chunk, not a rounding error).
+    expect(fleetAdminXpDelta).toBe(300);
+  });
+
+  it("researchProject, fabricateJob, and shipBuild NOW feed FA XP (0.12.1 flip); fuelRefineJob still does not", () => {
+    const research = 120;
+    const fab = 90;
+    const build = 300;
+    const fuel = 10;
+    const state = withProcesses([
+      { id: "proc-1", kind: "researchProject", remainingTicks: research, durationTicks: research, effect: unlock("bp") },
+      { id: "proc-2", kind: "fabricateJob", remainingTicks: fab, durationTicks: fab, effect: addItem("alloy", 1) },
+      { id: "proc-3", kind: "shipBuild", remainingTicks: build, durationTicks: build, effect: addShip() },
+      { id: "proc-4", kind: "fuelRefineJob", remainingTicks: fuel, durationTicks: fuel, effect: addFuel(50) },
+    ]);
+    const { fleetAdminXpDelta } = resolveProcesses(state, build); // completes all four
+    // The three finite builds contribute; the fuel batch contributes nothing.
+    expect(fleetAdminXpDelta).toBe(FLEET_ADMIN_XP_PER_DURATION_TICK * (research + fab + build));
+  });
+
+  // THE load-bearing invariant: closed-form offline==live parity for the FA lump.
+  // One big resolve of N ticks must award the SAME total FA XP as N single-tick
+  // resolves, and folding either total through applyFleetAdminXp must land the SAME
+  // fleetAdminLevel + fleetAdminXp. Holds because each process completes EXACTLY once
+  // (dropped on completion) and the lump is integer * integer (no float drift).
+  it("closed-form parity: one big resolve's fleetAdminXpDelta == the sum of many single-tick resolves, and folds to the same level", () => {
+    const seed = (): TimedProcess[] => [
+      { id: "proc-1", kind: "facilityUpgrade", remainingTicks: 20, durationTicks: 20, effect: levelUp("refinery") },
+      { id: "proc-2", kind: "refineJob", remainingTicks: 40, durationTicks: 40, effect: addItem("titaniumIngot", 3) },
+      { id: "proc-3", kind: "fabricateJob", remainingTicks: 90, durationTicks: 90, effect: addItem("alloy", 2) },
+      { id: "proc-4", kind: "shipBuild", remainingTicks: 300, durationTicks: 300, effect: addShip() },
+      { id: "proc-5", kind: "researchProject", remainingTicks: 120, durationTicks: 120, effect: unlock("bp") },
+      { id: "proc-6", kind: "fuelRefineJob", remainingTicks: 80, durationTicks: 80, effect: addFuel(9) }, // excluded, stays 0 either way
+    ];
+    const span = 400; // completes every process above in the big jump
+
+    // One big jump.
+    const jumped = resolveProcesses(withProcesses(seed()), span);
+
+    // Many single-tick steps summing to the same span.
+    let stepped = withProcesses(seed());
+    let steppedFaXp = 0;
+    for (let i = 0; i < span; i++) {
+      const r = resolveProcesses(stepped, 1);
+      stepped = r.next;
+      steppedFaXp += r.fleetAdminXpDelta;
+    }
+
+    expect(jumped.fleetAdminXpDelta).toBe(steppedFaXp); // paths agree (the whole point)
+    // Pin the exact total: FA-feeding kinds are facilityUpgrade(20) + refine(40) +
+    // fabricate(90) + shipBuild(300) + research(120) = 570 durationTicks; fuel adds 0.
+    expect(jumped.fleetAdminXpDelta).toBe(FLEET_ADMIN_XP_PER_DURATION_TICK * 570); // 2850
+
+    // Fold BOTH totals through applyFleetAdminXp from the same fresh state: identical
+    // fleetAdminLevel + fleetAdminXp is the offline==live guarantee at the state level.
+    const foldedFromBig = applyFleetAdminXp(freshState(), jumped.fleetAdminXpDelta);
+    const foldedFromSteps = applyFleetAdminXp(freshState(), steppedFaXp);
+    expect(foldedFromBig.fleetAdminLevel).toBe(foldedFromSteps.fleetAdminLevel);
+    expect(foldedFromBig.fleetAdminXp.equals(foldedFromSteps.fleetAdminXp)).toBe(true);
+    // 2850 FA XP against the 750 curve resolves real levels (750 + 3000 > 2850, so
+    // it crosses L1->L2 but not L2->L3): lands at level 2 with 2850 - 750 = 2100 banked.
+    expect(foldedFromBig.fleetAdminLevel).toBe(2);
+    expect(foldedFromBig.fleetAdminXp.equals(2100)).toBe(true);
+  });
+
+  it("an existing save with banked FA XP rolls its levels up FINITELY on the next fold (respects MAX_LEVEL_UPS_PER_TICK)", () => {
+    // Simulates a save that banked XP under the OLD 375000 curve, e.g. a level-1
+    // admin sitting on 300,000 un-leveled XP (below the old 375000 L1 wall). After
+    // the 0.12.1 rescale that banked XP resolves MANY levels at once on the next
+    // fold. The applyFleetAdminXp while-loop drains it in ONE pass, bounded by
+    // MAX_LEVEL_UPS_PER_TICK, so the roll-up is finite + safe, never an infinite loop.
+    const banked = new Decimal(300_000);
+    const save = { ...freshState(), fleetAdminXp: banked, fleetAdminLevel: 1 };
+
+    const rolled = applyFleetAdminXp(save, 0); // delta 0: pure backlog drain of the banked XP
+
+    // Finite result: sum_{k=1}^{n} 750*k^2 <= 300000 solves to n ~ 10, well under the
+    // 10,000 cap, so every banked point resolves this call with a small remainder.
+    expect(rolled.fleetAdminLevel).toBeGreaterThan(1); // actually leveled up
+    expect(rolled.fleetAdminLevel).toBeLessThan(1 + MAX_LEVEL_UPS_PER_TICK); // NOT cap-bound, fully drained
+    // The exact landing: cumulative cost to reach level L from 1 is 750 * sum_{k=1}^{L-1} k^2.
+    // 750 * (1+4+9+...+100) for k=1..10 = 750 * 385 = 288,750 <= 300,000, and the next
+    // rung (k=11, +750*121=90,750) overshoots, so it lands at level 11 with 11,250 banked.
+    expect(rolled.fleetAdminLevel).toBe(11);
+    expect(rolled.fleetAdminXp.equals(300_000 - 288_750)).toBe(true); // 11,250 remainder
+  });
 });
 
 describe("resolveProcesses, crafting XP on completed production jobs (Equipment 0.11.0, Phase 3)", () => {
@@ -3412,12 +3535,13 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
     const result = tick(100, state);
 
     // Mission FA XP: 1 captain * 100 whole ticks * rate 1 = 100 (see the "stacks
-    // across active captains" test). Process FA XP: proc-1's lump durationTicks 10
-    // on completion; proc-2 unfinished -> 0. The two fold into ONE fleetAdminXpDelta
-    // handed to applyFleetAdminXp -> 110 total. 110 < xpForNextFleetAdminLevel(1), so
-    // no FA level-up and fleetAdminXp holds the full earned total directly.
-    expect(110).toBeLessThan(xpForNextFleetAdminLevel(1));
-    expect(result.fleetAdminXp.equals(110)).toBe(true);
+    // across active captains" test). Process FA XP (0.12.1): proc-1's lump is
+    // FLEET_ADMIN_XP_PER_DURATION_TICK(5) * durationTicks 10 = 50 on completion;
+    // proc-2 unfinished -> 0. The two fold into ONE fleetAdminXpDelta handed to
+    // applyFleetAdminXp -> 150 total. 150 < xpForNextFleetAdminLevel(1), so no FA
+    // level-up and fleetAdminXp holds the full earned total directly.
+    expect(150).toBeLessThan(xpForNextFleetAdminLevel(1));
+    expect(result.fleetAdminXp.equals(150)).toBe(true);
     expect(result.fleetAdminLevel).toBe(1);
 
     // proc-1 completed: output granted through the shared add seam (-> discovered), removed.
@@ -3463,10 +3587,11 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
     expect(viaTick.activeProcesses[0].id).toBe("proc-2");
     expect(viaTick.activeProcesses[0].remainingTicks).toBe(standalone.next.activeProcesses[0].remainingTicks);
     expect(viaTick.activeProcesses[0].remainingTicks).toBe(460); // 500 - 40
-    // The lump FA XP tick() applied equals the resolver's delta exactly (25), with
-    // no mission FA XP mixed in.
-    expect(standalone.fleetAdminXpDelta).toBe(25);
-    expect(viaTick.fleetAdminXp.equals(25)).toBe(true);
+    // The lump FA XP tick() applied equals the resolver's delta exactly, with no
+    // mission FA XP mixed in. 0.12.1: facilityUpgrade durationTicks 25 lumps
+    // FLEET_ADMIN_XP_PER_DURATION_TICK(5) * 25 = 125.
+    expect(standalone.fleetAdminXpDelta).toBe(125);
+    expect(viaTick.fleetAdminXp.equals(125)).toBe(true);
     expect(viaTick.fleetAdminLevel).toBe(1);
   });
 
@@ -3492,7 +3617,7 @@ describe("tick(), threads the timed-process resolver through the fleet loop (Pha
     const exact = tick(120, { ...base, activeProcesses: [proc()], nextProcessId: 2 });
     expect(exact.activeProcesses).toEqual([]); // 30 ticks elapsed -> completes
     expect(itemTotal(exact.inventory, "titaniumIngot").toString()).toBe("1"); // output granted
-    expect(exact.fleetAdminXp.equals(30)).toBe(true); // lump durationTicks 30
+    expect(exact.fleetAdminXp.equals(150)).toBe(true); // 0.12.1 lump: FLEET_ADMIN_XP_PER_DURATION_TICK(5) * durationTicks 30
   });
 
   it("with NO active processes, the resolver is an inert no-op: mission FA XP unchanged and the empty activeProcesses reference threads through untouched", () => {

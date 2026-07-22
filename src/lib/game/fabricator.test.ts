@@ -225,14 +225,12 @@ describe("Fabricator F2, completion adds output + increments itemsCrafted (idemp
     expect(itemTotal(later.inventory, "frameSegment").toString()).toBe("1");
     expect(later.lifetimeStats.itemsCrafted.frameSegment.toString()).toBe("1");
 
-    // DESIGN DECISION (flagged to controller): a completed fabricateJob awards NO Fleet
-    // Admiral XP, it is EXCLUDED from resolveProcesses' lump award, mirroring
-    // researchProject/fuelRefineJob (blueprint-gated, long-duration automated economies
-    // that must not perturb the tuned FA-XP curve), NOT the tiny-duration Phase-1
-    // refineJob which keeps its award. The idle captain earns none either, so FA XP/level
-    // stay at their fresh values through the whole craft. Flip this (and the exclusion in
-    // resolveProcesses) together if fabrication should feed FA XP.
-    expect(done.fleetAdminXp.toString()).toBe("0");
+    // ⚠️ 0.12.1: a completed fabricateJob NOW feeds FA XP (flipped from the old
+    // exclusion; finite, high-value builds should grant FA XP). The idle captain earns
+    // none, so the only FA XP here is the fabricate lump: FLEET_ADMIN_XP_PER_DURATION_TICK(5)
+    // * the 120-tick craft = 600, folded into fleetAdminXp. 600 < xpForNextFleetAdminLevel(1)
+    // (750), so no level-up: level stays 1, fleetAdminXp holds the full 600.
+    expect(done.fleetAdminXp.toString()).toBe("600");
     expect(done.fleetAdminLevel).toBe(1);
   });
 });

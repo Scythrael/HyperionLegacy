@@ -90,13 +90,14 @@ describe("refineJob completion grants output + lifetime itemsRefined", () => {
     expect(started.activeProcesses).toHaveLength(1);
 
     // 0.11.0 recipe-collapse: refineCommonOre is now the 20:1 / 12-tick recipe, so 12 ticks
-    // (not the old 10) is the exact completion boundary; FA XP = durationTicks = 12.
+    // (not the old 10) is the exact completion boundary; 0.12.1 FA XP =
+    // FLEET_ADMIN_XP_PER_DURATION_TICK(5) * durationTicks 12 = 60.
     const { next, fleetAdminXpDelta } = resolveProcesses(started, 12); // exactly reaches 0
 
     expect(itemTotal(next.inventory, "titaniumIngot").toString()).toBe("1"); // output granted
     expect(next.discovered).toContain("titaniumIngot"); // via the addToInventory seam
     expect(next.activeProcesses).toEqual([]); // completed process removed
-    expect(fleetAdminXpDelta).toBe(12); // lump FA XP = durationTicks
+    expect(fleetAdminXpDelta).toBe(60); // 0.12.1 lump FA XP = FLEET_ADMIN_XP_PER_DURATION_TICK(5) * durationTicks 12
     // The Task 11 lifetime hook: itemsRefined accrues the refined output.
     expect(next.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
     // The other lifetime maps stay untouched (only refine jobs feed itemsRefined).
@@ -144,9 +145,10 @@ describe("refineJob completion, CLOSED-FORM parity for the itemsRefined hook", (
     // Lifetime itemsRefined identical (the completion fires exactly once either way).
     expect(jumped.next.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
     expect(stepped.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
-    // FA XP identical (lump FA XP = durationTicks = 12 after the 0.11.0 collapse).
-    expect(jumped.fleetAdminXpDelta).toBe(12);
-    expect(steppedFaXp).toBe(12);
+    // FA XP identical (0.12.1 lump FA XP = FLEET_ADMIN_XP_PER_DURATION_TICK(5) *
+    // durationTicks 12 = 60; the 12-tick duration is post-0.11.0-collapse).
+    expect(jumped.fleetAdminXpDelta).toBe(60);
+    expect(steppedFaXp).toBe(60);
     // Process removed in both paths.
     expect(jumped.next.activeProcesses).toEqual([]);
     expect(stepped.activeProcesses).toEqual([]);

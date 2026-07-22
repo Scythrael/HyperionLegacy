@@ -16,6 +16,10 @@ import {
   xpForNextFleetAdminLevel,
   craftingXpForNext,
   CRAFTING_XP_PER_DURATION_TICK,
+  // 0.12.1 FA-XP unblock: the per-durationTick FA XP multiplier for a completed
+  // FA-feeding process, the FA twin of CRAFTING_XP_PER_DURATION_TICK. Sized in
+  // model.ts (tunable placeholder). Applied in resolveProcesses' completion lump.
+  FLEET_ADMIN_XP_PER_DURATION_TICK,
   rollQuality,
   // Equipment 0.11.0 (Task 19): the base craftable-rarity roll for a freshly minted piece
   // (one seeded draw, Standard..Radiant) + the rarity type generateEquipment consumes.
@@ -562,30 +566,38 @@ export function foldXpLevelUps(
 // grants Fleet Admiral XP and whether it grants crafting XP. The values below
 // reproduce the two former conditionals EXACTLY (locked by the per-kind
 // characterization test in tick.test.ts):
-//   - fleetAdmin: the old FA blacklist EXCLUDED fuelRefineJob / researchProject /
-//     fabricateJob / shipBuild (additive / automated / blueprint-gated economies
-//     that must not perturb the tuned FA-XP curve), so those four are false and
-//     every other kind is true.
+//   - fleetAdmin (⚠️ CHANGED in 0.12.1): the old FA blacklist EXCLUDED fuelRefineJob
+//     / researchProject / fabricateJob / shipBuild. As part of the 0.12.1 FA-XP
+//     unblock, researchProject / fabricateJob / shipBuild were FLIPPED to true:
+//     they are finite, high-value builds and SHOULD grant FA XP now that finite
+//     sources are meant to be meaningful (paired with the gentler 750 curve + the
+//     FLEET_ADMIN_XP_PER_DURATION_TICK lump). fuelRefineJob stays false (an
+//     additive, automated, endlessly-repeatable fuel batch is the one economy that
+//     must NOT feed FA, or a fuel loop would trivially farm FA levels). So today
+//     every kind EXCEPT fuelRefineJob is true.
 //   - crafting: the old whitelist INCLUDED only refineJob / fabricateJob /
 //     shipBuild (the "you produced an item or hull" kinds), so only those three
-//     are true. This DELIBERATELY differs from the FA set: fabricateJob + shipBuild
-//     feed crafting but NOT FA (crafting is the axis those producing jobs are meant
-//     to feed), while facilityUpgrade feeds FA but NOT crafting (building
-//     infrastructure is not crafting an item).
+//     are true. This still DIFFERS from the FA set: researchProject feeds FA but
+//     NOT crafting (unlocking a blueprint is not producing an item), while
+//     facilityUpgrade / equipmentStorageUpgrade / docksExpansion feed FA but NOT
+//     crafting (building infrastructure is not crafting an item). fabricateJob +
+//     shipBuild now feed BOTH axes.
 // Closed-form parity is unaffected: each award still fires exactly once, on the
 // completion tick that drops the process (see the parity tests).
 //
-// ⚠️ DESIGN NOTE (carried over): fabricateJob granting NO FA XP is a deliberate
-// call (a blueprint-gated 120-300-tick automated craft would be a large FA-XP
-// injection that skews progression, matching researchProject more than refineJob).
-// If fabrication should ever feed FA XP, flip fabricateJob.fleetAdmin here.
+// ⚠️ DESIGN NOTE (0.12.1): fabricateJob / shipBuild / researchProject NOW grant FA
+// XP (flipped from false). These are finite, high-value, blueprint-gated builds; a
+// long automated craft or hull build being a large FA-XP injection is now the
+// DESIRED behavior (finite sources should be meaningful), the exact opposite of the
+// pre-0.12.1 intent that kept the 375000 curve "pure." Only fuelRefineJob stays
+// false. If a fuel loop should ever feed FA XP, flip fuelRefineJob.fleetAdmin here.
 const PROCESS_XP_AWARDS: Record<TimedProcessKind, { fleetAdmin: boolean; crafting: boolean }> = {
   refineJob:               { fleetAdmin: true,  crafting: true },
   facilityUpgrade:         { fleetAdmin: true,  crafting: false },
   fuelRefineJob:           { fleetAdmin: false, crafting: false },
-  researchProject:         { fleetAdmin: false, crafting: false },
-  fabricateJob:            { fleetAdmin: false, crafting: true },
-  shipBuild:               { fleetAdmin: false, crafting: true },
+  researchProject:         { fleetAdmin: true,  crafting: false }, // 0.12.1: flipped to true (finite, high-value)
+  fabricateJob:            { fleetAdmin: true,  crafting: true },  // 0.12.1: flipped to true (finite, high-value)
+  shipBuild:               { fleetAdmin: true,  crafting: true },  // 0.12.1: flipped to true (finite, high-value)
   equipmentStorageUpgrade: { fleetAdmin: true,  crafting: false },
   docksExpansion:          { fleetAdmin: true,  crafting: false },
 };
@@ -4581,10 +4593,11 @@ export function fuelRunwayProjection(input: {
 // is expected positive; a non-positive-duration process would complete on its
 // first resolve, which is the correct reading of "zero-length process".
 //
-// FA XP is LUMPED on completion: a completed process contributes its FULL
-// durationTicks to fleetAdminXpDelta, exactly once. Task 9 folds the returned
-// delta via applyFleetAdminXp (the same path mission FA XP takes). Facility
-// processes award NO captain XP (no captain pilots them).
+// FA XP is LUMPED on completion: a completed FA-feeding process contributes
+// FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks to fleetAdminXpDelta, exactly
+// once (0.12.1: was the bare durationTicks). Task 9 folds the returned delta via
+// applyFleetAdminXp (the same path mission FA XP takes). Facility processes award
+// NO captain XP (no captain pilots them).
 //
 // CRAFTING XP (Equipment 0.11.0, Phase 3) is lumped the SAME way, on a DIFFERENT
 // set of kinds: a completed PRODUCTION job (refineJob / fabricateJob / shipBuild)
@@ -4893,7 +4906,10 @@ export function resolveProcesses(
     // the completion tick, closed-form exactly as before (see the parity tests).
     const xpAward = PROCESS_XP_AWARDS[process.kind];
     if (xpAward.fleetAdmin) {
-      fleetAdminXpDelta += process.durationTicks;
+      // 0.12.1: FA lump = FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks (was the
+      // bare durationTicks, an implicit x1). Integer * integer, so the closed-form
+      // offline==live parity is preserved exactly (see this function's parity tests).
+      fleetAdminXpDelta += FLEET_ADMIN_XP_PER_DURATION_TICK * process.durationTicks;
     }
     if (xpAward.crafting) {
       craftingXpDelta += CRAFTING_XP_PER_DURATION_TICK * process.durationTicks;

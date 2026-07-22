@@ -27,6 +27,7 @@ import {
   blueprintUnlocked,
   blueprintResearchable,
   RESEARCH_FACILITY_KEY,
+  FLEET_ADMIN_XP_PER_DURATION_TICK,
 } from "./model";
 import type { GameState } from "./model";
 import type { TimedProcess } from "./model";
@@ -385,7 +386,7 @@ describe("Research R3, startResearch (start a timed research project)", () => {
 });
 
 describe("Research R3, resolveProcesses completes a research project", () => {
-  it("unlocks the blueprint on completion (idempotent add) and awards NO Fleet Admiral XP", () => {
+  it("unlocks the blueprint on completion (idempotent add) and awards FA XP (0.12.1 flip)", () => {
     const cost = BLUEPRINTS.frameSegmentBp.researchCreditCost;
     const dur = BLUEPRINTS.frameSegmentBp.researchDurationTicks;
     const state: GameState = { ...freshState(), credits: new Decimal(cost) };
@@ -396,8 +397,9 @@ describe("Research R3, resolveProcesses completes a research project", () => {
     expect(blueprintUnlocked(done, "frameSegmentBp")).toBe(true);
     // The project process is consumed (resolved exactly once, removed).
     expect(done.activeProcesses.filter((p) => p.kind === "researchProject").length).toBe(0);
-    // No FA XP for research (automated infra, mirrors the fuel-refine exclusion).
-    expect(fleetAdminXpDelta).toBe(0);
+    // ⚠️ 0.12.1: researchProject NOW feeds FA XP (finite, high-value; flipped from the
+    // old fuel-refine-style exclusion). Lump = FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks.
+    expect(fleetAdminXpDelta).toBe(FLEET_ADMIN_XP_PER_DURATION_TICK * dur);
   });
 
   it("is idempotent: a completing project never duplicates an already-present key", () => {

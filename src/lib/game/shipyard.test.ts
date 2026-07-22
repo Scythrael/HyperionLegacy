@@ -20,6 +20,7 @@ import {
   ITEMS,
   FACILITIES,
   SHIPYARD_FACILITY_KEY,
+  FLEET_ADMIN_XP_PER_DURATION_TICK,
   type ShipTypeKey,
   type GameState,
   type TimedProcess,
@@ -328,7 +329,7 @@ describe("startShipBuild (S3)", () => {
 });
 
 describe("shipBuild completion parks a hull (S3)", () => {
-  it("on completion: mints a PARKED hull, bumps nextShipId, awards NO Fleet Admiral XP", () => {
+  it("on completion: mints a PARKED hull, bumps nextShipId, awards FA XP (0.12.1 flip)", () => {
     const state = yardState({ frameSegment: 10, powerCoupling: 10, credits: 1000 });
     const started = startShipBuild(state, "generalFreighter").next;
     const shipsBefore = started.ships.length;
@@ -348,8 +349,9 @@ describe("shipBuild completion parks a hull (S3)", () => {
     expect(next.nextShipId).toBe(nextIdBefore + 1);
     // The shipBuild process is gone (resolved exactly once).
     expect(next.activeProcesses.filter((p) => p.kind === "shipBuild")).toHaveLength(0);
-    // EXCLUDED from the FA-XP lump award (like fabricateJob / researchProject).
-    expect(fleetAdminXpDelta).toBe(0);
+    // ⚠️ 0.12.1: shipBuild NOW feeds FA XP (finite, high-value build; flipped from the
+    // old exclusion). Lump = FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks.
+    expect(fleetAdminXpDelta).toBe(FLEET_ADMIN_XP_PER_DURATION_TICK * duration);
   });
 });
 

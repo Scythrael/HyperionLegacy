@@ -170,7 +170,7 @@ describe("startFacilityUpgrade, delegates to startProcess (atomic deduct-at-star
     const resolved = resolveProcesses(started.next, 20);
     expect(resolved.next.facilities.refinery.level).toBe(1); // 0 -> 1
     expect(resolved.next.activeProcesses).toHaveLength(0); // process removed on completion
-    expect(resolved.fleetAdminXpDelta).toBe(20); // lump FA XP = durationTicks
+    expect(resolved.fleetAdminXpDelta).toBe(100); // 0.12.1 lump FA XP = FLEET_ADMIN_XP_PER_DURATION_TICK(5) * durationTicks 20
   });
 
   it("is a same-reference no-op when the gate fails (materials short)", () => {

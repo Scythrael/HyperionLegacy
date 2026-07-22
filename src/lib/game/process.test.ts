@@ -185,10 +185,10 @@ describe("resolveProcesses, completion applies effects, lumps FA XP, removes the
     expect(itemTotal(next.inventory, "titaniumIngot").toString()).toBe("3"); // output granted
     expect(next.discovered).toContain("titaniumIngot"); // routed through addToInventory -> discovered
     expect(next.activeProcesses).toEqual([]); // completed process removed
-    expect(fleetAdminXpDelta).toBe(10); // lump FA XP == durationTicks, once
+    expect(fleetAdminXpDelta).toBe(50); // 0.12.1 lump: FLEET_ADMIN_XP_PER_DURATION_TICK(5) * durationTicks 10, once
   });
 
-  it("completes a facilityLevelUp process: bumps the facility level, FA XP = durationTicks, process removed", () => {
+  it("completes a facilityLevelUp process: bumps the facility level, FA XP = FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks, process removed", () => {
     const base = freshState();
     const process: TimedProcess = {
       id: "proc-1",
@@ -203,7 +203,7 @@ describe("resolveProcesses, completion applies effects, lumps FA XP, removes the
 
     expect(next.facilities.refinery.level).toBe(1); // 0 -> 1
     expect(next.activeProcesses).toEqual([]);
-    expect(fleetAdminXpDelta).toBe(25);
+    expect(fleetAdminXpDelta).toBe(125); // 0.12.1 lump: FLEET_ADMIN_XP_PER_DURATION_TICK(5) * durationTicks 25
   });
 
   it("leaves a not-yet-done process in place with a decremented remainingTicks and zero FA XP", () => {
@@ -264,10 +264,12 @@ describe("resolveProcesses, CLOSED-FORM parity (critical): one big resolve == ma
     // Identical final state (inventory / facilities / surviving processes / discovered).
     expect(snapshot(stepped)).toEqual(snapshot(jumped.next));
 
-    // Identical summed Fleet Admiral XP: 1 + 10 + 25 + 60 == 96 (proc-5 never
-    // completes within 320, so its 500 is NOT counted in either path).
-    expect(steppedFaXp).toBe(96);
-    expect(jumped.fleetAdminXpDelta).toBe(96);
+    // Identical summed Fleet Admiral XP: FA-feeding durationTicks completing are
+    // 1 + 10 + 25 + 60 == 96 (proc-5 never completes within 320, so its 500 is NOT
+    // counted in either path); 0.12.1 lumps FLEET_ADMIN_XP_PER_DURATION_TICK(5) each
+    // -> 5 * 96 == 480. Parity is what matters: both paths agree exactly.
+    expect(steppedFaXp).toBe(480);
+    expect(jumped.fleetAdminXpDelta).toBe(480);
 
     // Spot-check the concrete outcome so a silent double-count/omission is caught:
     // titaniumIngot += 5 + 3 (proc-5's +7 excluded), frameSegment += 2, refinery 0->1,

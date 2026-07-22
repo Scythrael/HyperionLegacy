@@ -3742,14 +3742,49 @@ export function xpForNextLevel(level: number): number {
 //     see tickCaptainMission's fleetAdminXpAwardedThisCall). tickDurationSeconds
 //     = 1s.
 //   * Quadratic (super-linear) shape is KEPT so the curve stays fast-early /
-//     slow-later: the per-level increment is 375000*(2*level+1), which GROWS
+//     slow-later: the per-level increment is BASE*(2*level+1), which GROWS
 //     with level, so high FA levels cost disproportionately more (FA is
 //     powerful, high levels should take real time). Not steepened past
 //     quadratic on purpose (YAGNI): the scale, not the exponent, is the lever
 //     the device playtest will move first.
+//
+// ⚠️ 0.12.1 TEMPORARY UNBLOCK (2026-07-21): the base scale was dropped from
+// 375000 to 750 as a TEMPORARY tuning pass ahead of the full balance. The old
+// 375000 parity scale (rationale preserved above) made early content
+// unreachable: reaching FA level 3 to unlock the Shipyard cost 3,375,000 XP for
+// that level alone (~1.875M just for L2->L3 at ~1 FA XP/tick per active captain,
+// on the order of weeks of wall-clock). At 750 the curve keeps its EXACT
+// quadratic shape (still fast-early / slow-later, still parity-honest integers),
+// but early levels are reachable: L1->L2 = 750, L2->L3 = 3000, so reaching level
+// 3 costs 3,750 XP total. This deliberately trades the old "missions alone must
+// carry FA" parity intent for a playable early game; the finite FA XP sources
+// (upgrades / crafting / research / ship-build, see PROCESS_XP_AWARDS +
+// FLEET_ADMIN_XP_PER_DURATION_TICK in tick.ts) now contribute meaningful lumps
+// on top of the mission trickle. Both the base here and those lumps are TUNABLE
+// placeholders we will refine on staging, NOT a final balance.
 export function xpForNextFleetAdminLevel(level: number): number {
-  return 375000 * level * level;
+  return 750 * level * level; // ⚠️ 0.12.1 TEMPORARY base (was 375000); tunable, see note above
 }
+
+// ⚠️ TUNABLE (0.12.1 launch placeholder). Fleet Admiral XP granted per durationTick
+// by a COMPLETED timed process that feeds the FA axis (see PROCESS_XP_AWARDS in
+// tick.ts for which kinds). Mirrors the CRAFTING_XP_PER_DURATION_TICK idiom below:
+// a process's FA lump is FLEET_ADMIN_XP_PER_DURATION_TICK * process.durationTicks,
+// lumped once on completion. Before 0.12.1 the FA lump was the bare durationTicks
+// (an implicit multiplier of 1), a rounding-error against the old 375000 curve; this
+// makes finite sources MEANINGFUL against the new 750 curve.
+//
+// SIZING (against the 0.12.1 curve: L1->L2 = 750, L2->L3 = 3000): early facility
+// upgrades run ~20-90 durationTicks (Refinery rungs 20/40/60..., Fabricator
+// 20/45/90/180, founding builds ~60, Fuel Depot 60/120...), and early research
+// projects ~12-120 ticks. At 5, a representative ~60-tick early upgrade grants 300
+// FA XP (40% of the first level), a cheap 20-tick refine rung grants 100 (13%), so
+// roughly 2-4 early upgrades earn a level rather than one upgrade == a level or a
+// rounding error. INTEGER on purpose: the FA award closed-form parity (offline
+// catch-up == live) holds ONLY for integer awards (integer * integer durationTicks,
+// no float drift), same trap CRAFTING_XP_PER_DURATION_TICK and the mission
+// fleetAdminXpPerTick rate guard against. Tunable, we will refine on staging.
+export const FLEET_ADMIN_XP_PER_DURATION_TICK = 5;
 
 // --- Crafting Level XP (Equipment 0.11.0, Phase 3, Task 8) -------------------
 // A SEPARATE progression axis from Fleet Admiral XP: the player's crafting skill,

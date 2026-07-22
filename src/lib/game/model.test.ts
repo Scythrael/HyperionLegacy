@@ -504,20 +504,21 @@ describe("xpForNextLevel", () => {
 });
 
 describe("xpForNextFleetAdminLevel", () => {
-  // Progression Pacing Rework: the curve was rescaled from 2500*level^2 to
-  // 375000*level^2. The factor (150) is the PARITY factor, same method the
-  // captain curve used (cycle ticks / old XP-per-cycle): old FA income was 1 per
-  // cycle over the 149-tick short cycle, so 149/1 = 149 -> 2500*149 = 372,500,
-  // rounded to a clean 375000. The curve is scaled to PRESERVE the old FA pace,
-  // NOT to absorb the new income as a boost (that boost is deferred to other
-  // planned FA XP sources). These are DEVICE-TUNED STARTING VALUES, the
+  // ⚠️ 0.12.1 TEMPORARY UNBLOCK: the base scale was dropped from 375000 to 750.
+  // The old 375000 parity scale (preserved the pre-per-tick FA pace) made early
+  // content unreachable: reaching FA level 3 to unlock the Shipyard cost millions
+  // of XP (weeks of wall-clock). At 750 the curve keeps its EXACT quadratic shape
+  // (still fast-early / slow-later, still integer / parity-honest) but early levels
+  // are reachable (L1->L2 = 750, L2->L3 = 3000, so level 3 costs 3,750 total). The
+  // finite FA XP sources (upgrades / crafting / research / ship-build) now stack
+  // meaningful lumps on top of the mission trickle. TUNABLE placeholder, the
   // assertions below pin the chosen scale/shape, not a final balance.
 
-  // Concrete sanity values at the chosen parity scale (quadratic: 375000*level^2).
-  it("scales quadratically at 375000*level^2 (375k at L1, 1.5M at L2, 3.375M at L3)", () => {
-    expect(xpForNextFleetAdminLevel(1)).toBe(375_000);
-    expect(xpForNextFleetAdminLevel(2)).toBe(1_500_000);
-    expect(xpForNextFleetAdminLevel(3)).toBe(3_375_000);
+  // Concrete sanity values at the chosen scale (quadratic: 750*level^2).
+  it("scales quadratically at 750*level^2 (750 at L1, 3000 at L2, 6750 at L3)", () => {
+    expect(xpForNextFleetAdminLevel(1)).toBe(750);
+    expect(xpForNextFleetAdminLevel(2)).toBe(3_000);
+    expect(xpForNextFleetAdminLevel(3)).toBe(6_750);
   });
 
   // Strictly monotonic increasing: every level costs more than the one before.
@@ -533,7 +534,7 @@ describe("xpForNextFleetAdminLevel", () => {
   // higher levels cost disproportionately more than lower ones (a flat/linear
   // curve would have a constant increment; this one accelerates).
   it("has a growing per-level increment (later levels cost disproportionately more)", () => {
-    // increment(N) = cost(N+1) - cost(N) = 375000*((N+1)^2 - N^2) = 375000*(2N+1)
+    // increment(N) = cost(N+1) - cost(N) = 750*((N+1)^2 - N^2) = 750*(2N+1)
     for (let level = 1; level < 20; level++) {
       const incrementHere =
         xpForNextFleetAdminLevel(level + 1) - xpForNextFleetAdminLevel(level);
@@ -544,23 +545,22 @@ describe("xpForNextFleetAdminLevel", () => {
     // Pin a couple of concrete increments at the chosen scale.
     expect(
       xpForNextFleetAdminLevel(2) - xpForNextFleetAdminLevel(1),
-    ).toBe(1_125_000); // 375000*(2*1+1)
+    ).toBe(2_250); // 750*(2*1+1)
     expect(
       xpForNextFleetAdminLevel(3) - xpForNextFleetAdminLevel(2),
-    ).toBe(1_875_000); // 375000*(2*2+1)
+    ).toBe(3_750); // 750*(2*2+1)
   });
 
-  // Rough pacing sanity (ballpark, NOT exact, kept loose to avoid brittleness):
-  // FA XP now accrues at ~1/tick per ACTIVE captain (Task 5). At a single active
-  // captain (~1 FA XP/tick) reaching level 2 must cost the L1 threshold in ticks,
-  // which should land "on the order of" hundreds of thousands of ticks, slower
-  // than a trivial grind but reachable in a session with a few active captains
-  // (N captains ≈ divide the tick count by N). This encodes the parity scale
-  // intent (375k at L1) without pinning a fragile exact wall-clock number.
-  it("takes on the order of hundreds of thousands of ticks to reach level 2 at ~1 FA XP/tick", () => {
+  // Rough pacing sanity (ballpark, NOT exact, kept loose to avoid brittleness).
+  // ⚠️ 0.12.1: FA XP accrues at ~1/tick per ACTIVE captain PLUS meaningful finite
+  // lumps from upgrades / crafting / research / ship-build. The temporary 750 base
+  // makes level 2 reachable from mission trickle alone in well under an hour of a
+  // single active captain (was hundreds of thousands of ticks at the old 375000
+  // scale). This pins the new gentler pace without a fragile exact wall-clock number.
+  it("reaches level 2 from the mission trickle alone in a modest number of ticks (0.12.1 unblock)", () => {
     const ticksToLevel2AtOnePerTick = xpForNextFleetAdminLevel(1); // 1 FA XP/tick => cost == ticks
-    expect(ticksToLevel2AtOnePerTick).toBeGreaterThan(100_000);
-    expect(ticksToLevel2AtOnePerTick).toBeLessThan(1_000_000);
+    expect(ticksToLevel2AtOnePerTick).toBe(750); // exact at the new scale
+    expect(ticksToLevel2AtOnePerTick).toBeLessThan(10_000); // reachable, no longer a multi-day wall
   });
 });
 
