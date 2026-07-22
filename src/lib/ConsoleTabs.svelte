@@ -74,14 +74,21 @@
 
 <style>
   /* Sticky so the row stays pinned while the page below scrolls (fixes the page
-     covering the tabs). Opaque background because Brave disables backdrop-filter,
-     scrolled content must not show through. position: sticky also establishes the
-     containing block the absolutely-positioned edge slices anchor to. */
+     covering the tabs). The background MUST be fully opaque or scrolled content
+     bleeds straight through the pinned row. Brave disables backdrop-filter, and
+     the panel token --color-panel-bg-strong is only 6% alpha (it reads solid ONLY
+     under a blur the panels add and this row does not), so neither can be relied
+     on here. Use the SAME proven opaque recipe the currency tooltip uses: a faint
+     themed accent wash over the OPAQUE --color-bg-mid base, so the row occludes
+     content yet still matches the console tint. (Earlier this said var(--color-bg),
+     a token that is NOT defined anywhere, so it resolved to nothing and left the
+     row transparent, the overlap-on-scroll bug.) position: sticky also establishes
+     the containing block the absolutely-positioned edge slices anchor to. */
   .ctabs-wrap {
     position: sticky;
     top: 0;
     z-index: 2;
-    background: var(--color-bg);
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
     padding-bottom: 12px;
     margin-bottom: 4px;
   }
@@ -150,12 +157,12 @@
     left: 0;
     justify-content: flex-start;
     padding-left: 3px;
-    background: linear-gradient(90deg, var(--color-bg) 45%, transparent);
+    background: linear-gradient(90deg, var(--color-bg-mid) 45%, transparent);
   }
   .ctabs-slice.right {
     right: 0;
     justify-content: flex-end;
     padding-right: 3px;
-    background: linear-gradient(270deg, var(--color-bg) 45%, transparent);
+    background: linear-gradient(270deg, var(--color-bg-mid) 45%, transparent);
   }
 </style>
