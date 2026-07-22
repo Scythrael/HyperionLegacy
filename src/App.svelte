@@ -3369,6 +3369,38 @@
     return showTicks ? `${ticks} ticks (${clock})` : clock;
   }
 
+  // lineRemainingReadout: the WHOLE-BATCH countdown for a production line (refine or
+  // fabricate), fixing the bug where the readout showed only the item CURRENTLY
+  // minting instead of the time to finish the whole batch. A batch of 100 with 40
+  // done must read the time for all 60 remaining, not the ~one-item time.
+  //
+  // A batch line's total remaining time = the in-flight job's own remainingTicks
+  // (the item minting right now) PLUS one FULL durationTicks for every not-yet-
+  // started iteration. That queued count is exactly `line.remaining`: stepCraftLine
+  // (tick.ts) decrements it the instant each job starts, so while a job is in flight
+  // `line.remaining` already excludes the in-flight item and counts only what is
+  // still queued behind it. The paired "total" is (queued + 1) full durations (every
+  // pending iteration at full length), so at each item's start remaining == total
+  // and the showTicks "X / Y ticks" figure reads sensibly.
+  //
+  // A CONTINUOUS line is endless (line.remaining is pinned at 1 and never counts
+  // down), so there is no finite batch to total, it keeps the plain per-item
+  // countdown. Callers guard `job` non-null and render "Queued" when it is null.
+  function lineRemainingReadout(
+    job: { remainingTicks: number; durationTicks: number },
+    line: CraftLine,
+    showTicks: boolean,
+    secPerTick: number,
+  ): string {
+    if (line.mode.kind === "batch") {
+      const queued = line.remaining; // not-yet-started iterations (in-flight already excluded)
+      const totalTicks = (queued + 1) * job.durationTicks; // in-flight + queued, all at full duration
+      const remainingTicks = job.remainingTicks + queued * job.durationTicks;
+      return remainingReadout(remainingTicks, totalTicks, showTicks, secPerTick);
+    }
+    return remainingReadout(job.remainingTicks, job.durationTicks, showTicks, secPerTick);
+  }
+
   // Research button's title (and its inline "why not" text). tierLocked reads the
   // blueprint's tier to name the required lab level (canResearch blocks when
   // bp.tier > lab level, so reaching level == tier unlocks it). alreadyResearched
@@ -4040,7 +4072,7 @@
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
                       <div class="research-readout">
-                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
+                        {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
                       </div>
                     </div>
                   {/each}
@@ -4323,7 +4355,7 @@
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
                       <div class="research-readout">
-                        {#if job}{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
+                        {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
                       </div>
                     </div>
                   {/each}
