@@ -774,17 +774,28 @@
   ];
 
   // Operations program sub-tab state (0.11.2 nav restructure, Task 5).
-  // The OPERATIONS program now hosts two axes via a top-level <SubTabs>:
-  // "dispatch" (the existing mission dispatch UI: category rail + tier tabs +
-  // mission cards) and "missionControl" (the mission-UNLOCK facility moved
-  // VERBATIM out of the Facilities tab, since it is mission-related). Like the
-  // sibling program states above (e.g. activeFoundryFacility), it uses its OWN
-  // dedicated selection state. It
-  // defaults to "dispatch" so the tab still opens on dispatch exactly as before
-  // the Mission Control pane joined it. Named (not an inline literal union) to
-  // match the sibling rail-state types.
-  type OperationsSubTab = "dispatch" | "missionControl";
-  let activeOperationsSubTab: OperationsSubTab = "dispatch";
+  // The OPERATIONS program (0.12.0 "Console" nav, CN5): the MISSION perspective,
+  // driven by the shared <ConsoleTabs> slim TOP rail (same idiom Home / Personnel
+  // / Logistics use), one tab per mission TYPE. Two tabs are live today and are
+  // the only ones ever selectable:
+  //   - "gathering": the existing resource-gathering mission dispatch (in-progress
+  //     + available cards + the assign/dispatch flow + the tier selector), moved
+  //     VERBATIM out of the old activeOperationsSubTab "dispatch" pane. This was
+  //     the single live entry in the retired mission-category rail
+  //     (activeMissionCategory === "resourceGathering"); with the rail gone it is
+  //     promoted directly under this tab.
+  //   - "missionControl": the mission-UNLOCK facility, moved VERBATIM (it was the
+  //     old activeOperationsSubTab "missionControl" pane).
+  // The rail's other slots are LOCKED, reserved "coming soon" ConsoleTabs with no
+  // page (combat/exploration missions and the combat-era Battlespace do not exist
+  // yet): Combat + Exploration (the old locked Patrol / Surveying / Long-Term
+  // Exploration mission categories fold into these two) and Battlespace (PvE) /
+  // Battlespace (PvP) (which absorb the old 4-item Battlespace stub panel).
+  // ConsoleTabs blocks selection of locked tabs, so onSelect only ever hands back
+  // "gathering" or "missionControl"; the type is scoped to those two reachable
+  // states. Defaults to "gathering" so the tab opens on live mission dispatch.
+  type OperationsTab = "gathering" | "missionControl";
+  let activeOperationsTab: OperationsTab = "gathering";
 
   // ---- Warehouse facility view (Phase 2, Group C; 0.11.2 Task 9 restructure) --
   // 0.12.0 "Console" nav (Logistics, CN3a): the Warehouse's two CONTENT tabs left
@@ -1395,14 +1406,12 @@
     }
   }
 
-  // Fleet Operations mission-category buttons (2026-07-07 Fleet Operations
-  // Mission UI). Only "resourceGathering" has real content today, the other
-  // 3 render locked/"Coming Soon", same pattern as locked captain-list slots
-  // and locked sub-tabs. Confirmed with the user: Patrol needs combat
-  // (Battlespace is still a stub), Surveying/Long-Term Exploration have no
-  // backing mechanics yet.
-  type MissionCategoryKey = "resourceGathering" | "patrol" | "surveying" | "longTermExploration";
-  let activeMissionCategory: MissionCategoryKey = "resourceGathering";
+  // The 2026-07-07 mission-CATEGORY rail (resourceGathering + locked Patrol /
+  // Surveying / Long-Term Exploration) was RETIRED in the 0.12.0 "Console" nav
+  // (CN5): mission types are now the Operations ConsoleTabs top rail
+  // (activeOperationsTab), so the single live category (resourceGathering) is the
+  // "gathering" tab and the locked ones fold into the reserved Combat / Exploration
+  // locked tabs. No activeMissionCategory state is needed anymore.
 
   // Difficulty tiers within Resource-Gathering, reusing the SubTabs component's
   // existing locked-tab support. Tier I is real and contains BOTH launch
@@ -6461,66 +6470,50 @@
       {/if}
 
       {#if activeTab === "fleetOperations"}
-      <!-- Operations program (0.11.2 nav restructure, Task 5): a top-level
-           <SubTabs> axis splits this tab into Dispatch (the existing mission
-           dispatch UI below) and Mission Control (the mission-unlock facility
-           moved VERBATIM out of the Facilities tab). Defaults to Dispatch via
-           activeOperationsSubTab so the tab opens on dispatch exactly as it did
-           before Mission Control joined it. Same <SubTabs> idiom as the Fleet
-           Captain's / Refinery axes. -->
-      <SubTabs
+      <!-- Operations program (0.12.0 "Console" nav, CN5, the MISSION perspective):
+           the shared <ConsoleTabs> primitive is the slim TOP rail, one tab per
+           mission TYPE (same scrolling-glowing-tab idiom Home / Personnel /
+           Logistics use). Two tabs are live and selectable, Gathering (the
+           existing resource-gathering dispatch) and Mission Control (the
+           mission-unlock track), tracked by activeOperationsTab (default
+           Gathering). Combat / Exploration and Battlespace (PvE) / (PvP) are
+           LOCKED reserved "coming soon" tabs with no page (those missions and the
+           combat-era Battlespace do not exist yet); ConsoleTabs grays them and
+           blocks selection, the same honest locked affordance the System /
+           Battlespace slots use. This replaces the old Dispatch / Mission Control
+           <SubTabs> axis AND the mission-CATEGORY rail below it, both collapsed
+           into this single top rail per the console FLATTEN principle. -->
+      <ConsoleTabs
         tabs={[
-          { key: "dispatch", label: "Dispatch" },
+          { key: "gathering", label: "Gathering" },
+          { key: "combat", label: "Combat", locked: true },
+          { key: "exploration", label: "Exploration", locked: true },
           { key: "missionControl", label: "Mission Control" },
+          { key: "battlespacePve", label: "Battlespace (PvE)", locked: true },
+          { key: "battlespacePvp", label: "Battlespace (PvP)", locked: true },
         ]}
-        active={activeOperationsSubTab}
-        onSelect={(key) => (activeOperationsSubTab = key as OperationsSubTab)}
+        active={activeOperationsTab}
+        onSelect={(key) => (activeOperationsTab = key as OperationsTab)}
       />
 
-      {#if activeOperationsSubTab === "dispatch"}
+      {#if activeOperationsTab === "gathering"}
       <div class="tab-scroll-area">
       <!-- Fleet Operations Mission UI (2026-07-07 --
-           docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md, Task 4) --
-           replaces the old flat one-Panel-per-mission loop (UI Redesign, Task
-           9) with a category-list + tier-tabs + mission-card flow, mirroring
-           .fleet-captains-layout/.captain-list/.captain-list-item's visual
-           language (those shared classes still back the Home Help topic rail;
-           the old "Crew"/fleetCaptains tab that once used them here became the
-           Personnel console in 0.12.0). Only
-           "resourceGathering" has real content today (Patrol/Surveying/
-           Long-Term Exploration are locked placeholders, see
-           activeMissionCategory's declaration comment above). Within
-           Resource-Gathering, only Tier I is real (both shortOreRun and
+           docs/plans/2026-07-07-fleet-operations-mission-ui-plan.md, Task 4),
+           the resource-gathering dispatch. Originally a category-list + tier-tabs
+           + mission-card flow; in the 0.12.0 "Console" nav (CN5) the mission-
+           CATEGORY rail was retired (mission types are the Operations ConsoleTabs
+           top rail now), so resource-gathering, the rail's only live category, is
+           promoted directly under this Gathering tab. The tier selector + mission
+           cards below are UNCHANGED. Only Tier I is real (both shortOreRun and
            longOreRun, see model.ts's MissionDef.tier field); Tiers II-V are
-           locked SubTabs entries. Dispatch no longer happens inline here --
+           locked SubTabs entries. Dispatch does not happen inline here --
            clicking an available mission card calls openMissionPopup, which
            sets missionPopupKey/missionPopupCaptainId (declared near
            deleteModalOpen). The popup markup that consumes that state and
            performs the dispatch through the existing
            doDispatchCaptainOnMission lives near the DELETE SAVE modal,
-           further down this same template (Task 5). -->
-      <div class="fleet-ops-layout">
-        <div class="mission-category-list">
-          <button
-            class="mission-category-item"
-            class:active={activeMissionCategory === "resourceGathering"}
-            on:click={() => (activeMissionCategory = "resourceGathering")}
-          >
-            Resource-Gathering
-          </button>
-          <div class="mission-category-item locked" title="Coming soon, combat isn't built yet">
-            🔒 Patrol Missions
-          </div>
-          <div class="mission-category-item locked" title="Coming soon, not yet available">
-            🔒 Surveying
-          </div>
-          <div class="mission-category-item locked" title="Coming soon, not yet available">
-            🔒 Long-Term Exploration
-          </div>
-        </div>
-
-        <div class="mission-category-content">
-          {#if activeMissionCategory === "resourceGathering"}
+           further down this same template. -->
             <SubTabs
               tabs={[
                 { key: "tierI", label: "Tier I" },
@@ -6692,53 +6685,25 @@
                 {/each}
               </div>
             {/if}
-          {/if}
-        </div>
-      </div>
-      <!-- Battlespace section (0.11.2 Shell Correction, Task 5): the former
-           standalone Battlespace tab, MOVED VERBATIM to sit BELOW the mission
-           dispatch UI inside this same .tab-scroll-area, so it reads as a
-           separate section under the missions and scrolls with the Dispatch
-           view. No divider element is added: .tab-scroll-area's own flex-
-           column gap:14px already spaces this Panel off the .fleet-ops-layout
-           block above (the same idiom that spaces every stacked panel), and
-           the Panel's own "BATTLESPACE" panel-title labels the section. The
-           Battlespace nav-tab and its standalone {#if activeTab ===
-           "battlespace"} region are removed; Battlespace lives only here now. -->
-      <Panel>
-        <div class="panel-title">BATTLESPACE</div>
-        <p class="prestige-text">PvP and PvE fleet operations will live here.</p>
-        <!-- Expanded from a single generic "Coming Soon" line to 4 named
-             locked options (mid-plan extra task, 2026-07-07), reuses
-             .captain-list-item.locked as-is (same class/markup as the locked
-             captain slots under Fleet Captain's, above) rather than
-             introducing .mission-category-item, since that class belongs to
-             the separate, still-in-flight Fleet Operations mission-category
-             rebuild and doesn't exist in this file yet. .captain-list-item
-             has no standalone stacking/gap behavior of its own, it normally
-             relies on its usual parent .captain-list (display:flex;
-             flex-direction:column; gap:2px) for that, so .battlespace-
-             locked-list below reproduces just that same flex/gap pairing
-             as a tiny scoped class, without duplicating any of
-             .captain-list-item's own visual rules. -->
-        <div class="battlespace-locked-list">
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Fleet Skirmishes</div>
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Campaign</div>
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Fleet Exercises</div>
-          <div class="captain-list-item locked" title="Coming soon, not yet available">🔒 Invasion</div>
-        </div>
-      </Panel>
       </div>
       {/if}
 
-      {#if activeOperationsSubTab === "missionControl"}
-      <!-- Mission Control (mission-unlock facility) moved VERBATIM here from the
-           Facilities tab (0.11.2 nav restructure, Task 5). Its inner Overview /
-           Upgrades <SubTabs> and both Panel bodies are unchanged; only the pane's
-           outer guard changed from activeFacility to activeOperationsSubTab, and
-           it now sits in its own .tab-scroll-area (every tab/sub-view wraps its
-           panel content in exactly one). The rail button it had in Facilities is
-           gone; the top-level Operations <SubTabs> entry selects it now. -->
+      <!-- Battlespace (PvE) / Battlespace (PvP): the combat-era fleet-operations
+           system. In the 0.12.0 "Console" nav (CN5) these are reserved LOCKED
+           ConsoleTabs in the Operations top rail above (no page); they absorb the
+           former standalone Battlespace stub panel (its 4 named modes, Fleet
+           Skirmishes / Campaign / Fleet Exercises / Invasion, were placeholder
+           internal structure and are deferred to the combat build, 0.13.0, per the
+           design doc). Nothing renders here until that content exists. -->
+
+      {#if activeOperationsTab === "missionControl"}
+      <!-- Mission Control (mission-unlock facility). Moved VERBATIM here from the
+           Facilities tab (0.11.2 nav restructure, Task 5); in the 0.12.0 "Console"
+           nav (CN5) it is its own tab in the Operations ConsoleTabs top rail. Its
+           inner Overview / Upgrades <SubTabs> and both Panel bodies are unchanged;
+           the pane's outer guard is activeOperationsTab === "missionControl", and
+           it sits in its own .tab-scroll-area (every tab/sub-view wraps its panel
+           content in exactly one). -->
       <div class="tab-scroll-area">
             <!-- MISSION CONTROL (Mission Rework Task 8), the mission-unlock
                  facility. Two sub-tabs mirroring the Refinery: Overview (unlocked /
@@ -8200,19 +8165,14 @@
     color: var(--color-accent-bright);
     border-color: var(--color-accent);
   }
-  .captain-list-item.locked {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .captain-list-item.locked:hover {
-    border-color: rgba(var(--color-accent-rgb), 0.3);
-  }
-  /* Battlespace's 4 locked placeholders (mid-plan extra task, 2026-07-07)
-     reuse .captain-list-item.locked verbatim but sit inside a Panel, not
-     .captain-list, this reproduces just that parent's flex/gap pairing so
-     the reused items stack with the same thin 2px seam they'd get under
-     .captain-list, without giving them .captain-list's fixed 96px width. */
-  .battlespace-locked-list { display: flex; flex-direction: column; gap: 2px; }
+  /* .captain-list-item.locked / .locked:hover were RETIRED in the 0.12.0 "Console"
+     nav (CN5): their last consumer was the Battlespace stub panel, now replaced by
+     reserved locked ConsoleTabs. .captain-list-item (+ .active) still backs the
+     Home Help topic rail. */
+  /* .battlespace-locked-list + .fleet-ops-layout / .mission-category-* were
+     RETIRED in the 0.12.0 "Console" nav (CN5): the Operations mission-category
+     rail became the ConsoleTabs top rail, and the Battlespace stub panel became
+     two reserved locked ConsoleTabs, so none of those classes render anymore. */
   .fleet-captains-content { flex: 1; min-width: 0; }
   /* Console model (0.12.0 "Console" nav). The scrolling top-tab row itself now
      lives in the shared ConsoleTabs component (src/lib/ConsoleTabs.svelte):
@@ -8220,37 +8180,6 @@
      tab, and edge scroll slices. Every perspective reuses <ConsoleTabs>, so no
      tab-row CSS lives here anymore. The selected tab's page renders in place
      below the row as plain block flow (full-width on desktop). */
-  /* Fleet Operations tab layout (2026-07-07 Fleet Operations Mission UI,
-     Task 6), mirrors .fleet-captains-layout/.captain-list/
-     .captain-list-item directly above verbatim in spirit: flat,
-     square-cornered panel look with a thin 2px gap between stacked items
-     (2026-07-07 button-style pass), not a new visual language. Left-hand
-     .mission-category-list is a bit wider (140px vs .captain-list's 96px)
-     since "Long-Term Exploration" is a longer label than any captain name. */
-  .fleet-ops-layout { display: flex; gap: 12px; align-items: flex-start; }
-  .mission-category-list { display: flex; flex-direction: column; gap: 2px; flex: 0 0 140px; }
-  .mission-category-item {
-    background: rgba(var(--color-accent-rgb), 0.06);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    padding: 10px 8px;
-    color: var(--color-text-secondary);
-    font-size: 12px;
-    cursor: pointer;
-    text-align: left;
-  }
-  .mission-category-item.active {
-    background: rgba(var(--color-accent-rgb), 0.15);
-    color: var(--color-accent-bright);
-    border-color: var(--color-accent);
-  }
-  .mission-category-item.locked {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .mission-category-item.locked:hover {
-    border-color: rgba(var(--color-accent-rgb), 0.3);
-  }
-  .mission-category-content { flex: 1; min-width: 0; }
   .panel-title {
     font-size: 11px;
     letter-spacing: 1.5px;
@@ -8400,7 +8329,7 @@
   /* Locked mission card (Mission Rework Task 8), reuses .mission-card's box +
      borrows the .mission-card-selectable portrait+body flex ROW layout, but is a
      static (non-button) dimmed div: the game's consistent "show locked content"
-     signal (cf. .module-card.locked's opacity dim, .captain-list-item.locked).
+     signal (cf. .module-card.locked's opacity dim, the ConsoleTabs .ctab.locked).
      No hover/cursor affordance since it isn't clickable. */
   .mission-card-locked {
     display: flex;
@@ -8627,8 +8556,8 @@
   .modal-row { display: flex; justify-content: flex-end; gap: 2px; }
   /* Popup captain-picker list (2026-07-07 Fleet Operations Mission UI, Task 6)
     , stacks the idle-captain buttons inside the captain-selection popup
-     (Task 5) with the same thin 2px gap as .captain-list/.mission-category-list
-     above. Reuses .dev-btn as-is for each individual captain button (already
+     (Task 5) with the same thin 2px gap as .captain-list above. Reuses .dev-btn
+     as-is for each individual captain button (already
      flat-cornered from the 2026-07-07 button-style pass), this class only
      supplies the container's flex/gap, no new button style needed. */
   .modal-captain-list { display: flex; flex-direction: column; gap: 2px; margin: 10px 0; }
