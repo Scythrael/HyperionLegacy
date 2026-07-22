@@ -34,7 +34,11 @@
       case "stellar":
         return "#4fa3f2"; // blue (matches the item-rarity "rare" hue)
       case "radiant":
-        return "#b07cf2"; // purple (matches the item-rarity "epic" hue)
+        // Purple (epic-tier hue). Shifted from #b07cf2 to #a855f7 (user, 2026-07-21):
+        // a cooler, lower-green violet that reads unmistakably PURPLE and does not
+        // drift toward orange under a warm/red screen filter (the old hue's higher
+        // green channel picked up an orange cast on filtered displays).
+        return "#a855f7";
       case "luminous":
         return "var(--color-warning)"; // amber (stable :root token): legendary-class
       case "constellar":
