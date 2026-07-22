@@ -1151,6 +1151,14 @@
   // statement re-run on either change (the initial null -> null run is harmless).
   $: activeLogisticsTab, activeTab, hideWarehouseTooltip();
 
+  // Collapse any expanded "View Info" mission detail when the player leaves the
+  // Gathering view (0.12.0 "Console" nav, CN5b): the expanded card belongs to the
+  // Operations > Gathering tab, so switching Operations tabs (activeOperationsTab)
+  // or leaving Operations entirely (activeTab) should return every card to its
+  // compact summary. Same idiom as the warehouse-tooltip reset above; referencing
+  // both vars re-runs this on either change (the initial null -> null is harmless).
+  $: activeOperationsTab, activeTab, (expandedMissionKey = null);
+
   // The Refinery's three sub-tabs: Overview (level + refine slots + active jobs +
   // one-shot Start Refine Job), Orders (Phase 2 Task D4, the batch/continuous
   // ORDER management view, design §4.4's dedicated refinery management view), and
@@ -1420,6 +1428,14 @@
   // Tiers II-V are locked placeholders for future mission content.
   type MissionTierKey = "tierI" | "tierII" | "tierIII" | "tierIV" | "tierV";
   let activeMissionTier: MissionTierKey = "tierI";
+
+  // 0.12.0 "Console" nav (CN5b): the available-mission card whose "View Info"
+  // detail is expanded IN PLACE (rich drop table + requirements + rewards), or
+  // null when every card shows its compact summary. Only ONE card is expanded at
+  // a time: the "View Info" button sets this to its own MissionKey and "Summary"
+  // clears it back to null. Purely presentational (no economy/save impact); it is
+  // reset when the player leaves the Gathering view (see the reactive below).
+  let expandedMissionKey: MissionKey | null = null;
 
   let tickHandle: ReturnType<typeof setInterval>;
   let saveHandle: ReturnType<typeof setInterval>;
@@ -6591,7 +6607,17 @@
                        triads. Same `?.label ?? key` fallback the rest of the file uses. -->
                   {@const loot = missionDef.lootTable}
                   {#if unlocked}
-                    <button class="mission-card mission-card-selectable" on:click={() => openMissionPopup(missionKey)}>
+                    {@const expanded = expandedMissionKey === missionKey}
+                    <!-- Available mission card. 0.12.0 "Console" nav (CN5b): now a
+                         DIV, not a <button>, so it can host real child buttons (the
+                         "View Info"/"Summary" toggle + "Assign") without nesting a
+                         button in a button. Dispatch is an explicit "Assign" .dev-btn
+                         calling openMissionPopup (the SAME dispatch flow, unchanged),
+                         no longer a whole-card click. "View Info" swaps the compact
+                         two-column summary for a rich in-place detail block (same
+                         card, content swapped, not a modal), tracked by
+                         expandedMissionKey (one card expanded at a time). -->
+                    <div class="mission-card mission-card-selectable" class:expanded>
                       <!-- Card redesign (2026-07-15): HEADER = portrait placeholder +
                            name, with the captain-XP/tick readout tucked under the name so
                            the dispatch value survives the body's restructure into
@@ -6612,6 +6638,40 @@
                           <div class="mission-xp-line">{xpPerTick(missionKey, state.captains[0])}/tick XP</div>
                         </div>
                       </div>
+                      {#if expanded}
+                        <!-- RICH DETAIL (CN5b in-place swap), ONLY MissionDef data.
+                             MissionDef has NO flavor/description field, so no flavor
+                             line is shown (reported to the coordinator as unavailable).
+                             Drop chances are the mission's BASE per-tick odds via
+                             missionDropTiers, the SAME helper the summary drop icons
+                             use, so the two cannot disagree; common is the guaranteed
+                             per-tick floor (1 - uncommon - rare). -->
+                        <div class="mission-detail">
+                          <div class="mission-detail-section">
+                            <div class="mission-col-label">Drop Table</div>
+                            {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
+                              {@const dItem = ITEMS[drop.key]}
+                              {#if dItem}
+                                <div class="mission-req-line">
+                                  <span style="color: {warehouseRarityColor(dItem.rarity)}">{dItem.label}</span> ({dItem.rarity}): {drop.chancePct.toFixed(1)}% per tick
+                                </div>
+                              {/if}
+                            {/each}
+                          </div>
+                          <div class="mission-detail-section">
+                            <div class="mission-col-label">Requirements</div>
+                            <div class="mission-req-line">Captain Level: {missionDef.requiresCaptainLevel ?? 1}</div>
+                            <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "None"}</div>
+                            <div class="mission-req-line">Fuel / dispatch: {fuelCost !== null ? formatNumber(fuelCost) : "None"}</div>
+                          </div>
+                          <div class="mission-detail-section">
+                            <div class="mission-col-label">Rewards</div>
+                            <div class="mission-req-line">Credits / cycle: {formatNumber(missionDef.creditsPerCycle)}</div>
+                            <div class="mission-req-line">Captain XP / tick: {xpPerTick(missionKey, state.captains[0])}</div>
+                            <div class="mission-req-line">Fleet Admiral XP / tick: {missionDef.fleetAdminXpPerTick}</div>
+                          </div>
+                        </div>
+                      {:else}
                       <!-- BODY = two columns. LEFT lists this mission's dispatch GATE
                            requirements; RIGHT is the rarity-colored Rewards drops row. -->
                       <div class="mission-card-columns">
@@ -6636,19 +6696,18 @@
                                drops (missionDropTiers filters out uncommon/rare when their
                                chance is 0, so Local Deuterium Skim shows a single icon).
                                Hover/tap an icon for its Warehouse-style tooltip (name /
-                               stored qty / flavor / this mission's drop chance).
-                               These icons are SPANS, not buttons: this card is ITSELF a
-                               button element (opens the dispatch popup), and a button may not
-                               nest a button. on:click|stopPropagation shows the tooltip
-                               WITHOUT also opening the popup; keyboard users reach the same
-                               drops as focusable buttons inside that popup. Chances passed
-                               are the mission's BASE chances (this card is captain-agnostic;
-                               the popup applies the selected captain's modifiers). -->
+                               held / cap / this mission's drop chance / flavor). These icons
+                               are SPANS, not buttons (CN5b kept them spans even though the
+                               card became a div): the compact summary stays icons-only, and
+                               the same drops are reachable as focusable buttons in the
+                               dispatch popup, so no keyboard interaction is lost. Chances
+                               passed are the mission's BASE chances (this card is captain-
+                               agnostic; the popup applies the selected captain's modifiers). -->
                           <div class="drops-row">
                             {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
                               {@const dropItem = ITEMS[drop.key]}
                               {#if dropItem}
-                                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions, INTENTIONAL: this icon is a span, not a button, because it lives inside the card's own button (a button may not nest a button) and stopPropagation keeps a tap from opening the popup. Keyboard/AT users get the SAME drops as real, focusable buttons in the dispatch popup, so no interaction is lost. -->
+                                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions, INTENTIONAL: this icon is a span (not a focusable button) carrying a tap-to-pin tooltip; stopPropagation is a harmless leftover from when the card was a button. Keyboard/AT users get the SAME drops as real, focusable buttons in the dispatch popup, so no interaction is lost. -->
                                 <span
                                   class="drop-icon"
                                   role="img"
@@ -6663,7 +6722,18 @@
                           </div>
                         </div>
                       </div>
-                    </button>
+                      {/if}
+
+                      <!-- Action row (CN5b): "View Info" / "Summary" toggles the
+                           in-place detail swap; "Assign" opens the captain-selection
+                           dispatch popup (openMissionPopup, the unchanged dispatch
+                           flow). Both are .dev-btn and stay available whether the card
+                           shows its summary or its detail. -->
+                      <div class="mission-card-actions">
+                        <button class="dev-btn" on:click={() => (expandedMissionKey = expanded ? null : missionKey)}>{expanded ? "Summary" : "View Info"}</button>
+                        <button class="dev-btn" on:click={() => openMissionPopup(missionKey)}>Assign</button>
+                      </div>
+                    </div>
                   {:else}
                     <!-- LOCKED mission, non-openable, dimmed, with the unlock hint +
                          a requirements preview so the player can plan toward it. -->
@@ -7793,12 +7863,23 @@
              Unlike the tile tooltip it never gates on discovery, the mission cards
              already name their loot openly, so revealing the item here spoils
              nothing. -->
+        {@const tipDropCap = tierCap(state, tip.tier)}
+        <!-- An un-warehoused tier fails open to tierCap's uncapped sentinel
+             (1e1000); the >= 1e99 test detects that so the row never reads
+             "/ 1e1000". Live mission drops are all warehoused materials with a
+             real cap, so in practice the held / cap form always renders. -->
+        {@const tipDropUncapped = tipDropCap.gte(new Decimal("1e99"))}
         <div class="warehouse-tooltip" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
           <div class="warehouse-tt-name" style="color: {warehouseRarityColor(tip.rarity)}">{tip.label}</div>
           <div class="warehouse-tt-rarity" style="color: {warehouseRarityColor(tip.rarity)}">{tip.rarity}</div>
+          <!-- Held / cap (0.12.0 "Console" nav, CN5b): the player's current stock
+               AND its storage cap for THIS item, so a run's value is judgeable at a
+               glance (e.g. "Titanium Ore: 1,240 / 5,000"). itemTotal (held, tipCount
+               above) + tierCap (cap) are the SAME derivations the Warehouse tile
+               tooltip reads, so this cannot drift from the Materials view. -->
           <div class="warehouse-tt-row">
-            <span>Stored</span>
-            <span class="warehouse-tt-v">{formatNumber(tipCount)}</span>
+            <span>Held / Cap</span>
+            <span class="warehouse-tt-v">{#if tipDropUncapped}{formatNumber(tipCount)}{:else}{formatNumber(tipCount)} / {formatNumber(tipDropCap)}{/if}</span>
           </div>
           <div class="warehouse-tt-row">
             <span>Drop chance</span>
@@ -8289,6 +8370,21 @@
   .mission-card-selectable:hover {
     border-color: var(--color-accent);
   }
+  /* Expanded "View Info" card (0.12.0 "Console" nav, CN5b): a persistent accent
+     border marks which card is showing its detail, reusing the same accent token
+     the :hover state uses (no new color). */
+  .mission-card-selectable.expanded {
+    border-color: var(--color-accent);
+  }
+  /* View Info detail block (CN5b): a stacked column of labelled sections (Drop
+     Table / Requirements / Rewards) that replaces the compact two-column summary
+     in place. Single-column stack reads cleanly at any card width, so it needs no
+     media query (the .mission-list grid already reflows the cards). */
+  .mission-detail { display: flex; flex-direction: column; gap: 10px; }
+  .mission-detail-section { display: flex; flex-direction: column; gap: 4px; }
+  /* Action row (CN5b): the View Info / Summary toggle + Assign, side by side,
+     wrapping to a second line on a very narrow card. */
+  .mission-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   /* Header row: portrait placeholder beside the name + exp sub-line. */
   .mission-card-header { display: flex; gap: 12px; align-items: center; }
   /* Descendant selector (specificity 0,2,0) shrinks the shared portrait for
