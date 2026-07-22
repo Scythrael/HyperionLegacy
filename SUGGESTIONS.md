@@ -914,3 +914,27 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   presentation addition, no economy change; reuse the 0.11.0 Ship Systems stat vocabulary and the
   EquipmentTooltip stat-display patterns for consistency. Likely small and lightly mockup-gated. Not
   scheduled yet; a good candidate near a Shipyard or ship-stats pass.
+
+- **Full FA-XP / economy balance pass (future, user 2026-07-21).** The 0.12.1 curve (base-750
+  quadratic + substantial finite-source FA XP) is a TEMPORARY unblock so players can reach
+  content gates (e.g. Shipyard needs FA level 3) without a multi-day grind. The REAL balance
+  comes once talents are built out and the economy is fleshed. Known future intents: RESEARCH
+  upgrades should eventually grant LOTS of FA XP; ship construction gets real timers (tier-1
+  hulls ~20 min, everything above much longer, likely ~6 hours for the first tier-2), which
+  reshapes the FA/crafting income curve. Revisit the curve base + per-source awards then.
+
+- **Recent-events log on the Home overview (user 2026-07-21).** The Home > Overview page (a
+  bare welcome placeholder today) should host a small "recent events" log surfacing only the
+  IMPORTANT beats over a play session: a research completed, a facility/storage/docks upgrade
+  finished, a ship finished construction, etc. Short, scannable, most-recent-first. Ties into
+  the timed-process completion events (resolveProcesses) and the ship-build/research completions.
+
+- **Save-game NUKE / server-side version gate (user 2026-07-21, PRE-BALANCE-PATCH REQUIREMENT).**
+  Before the real balance patch starts, we need a way to invalidate all existing saves so testing
+  starts clean: announce "in 24 hours all saves are nuked and old saves will no longer load," and
+  once live, a save whose game-version predates the cutoff is REFUSED on load. ⚠️ The version-cutoff
+  check MUST be SERVER-SIDE so it cannot be trivially poked/edited client-side (a client-only check
+  in the SPA is defeatable). This needs backend support the game does not have yet (currently a
+  static client-side SPA on crystalisoft.com; /version.json is a static file, not a validator), so
+  it depends on standing up a small server-side endpoint (min-viable-save-version) the client checks
+  on load and refuses below. NOT needed yet; build it just before the balance patch begins.
