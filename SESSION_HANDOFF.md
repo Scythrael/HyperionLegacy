@@ -1,138 +1,62 @@
-# Session Handoff: Hyperion Legacy (fleet-admiral)
+# SESSION HANDOFF, Combat 0.13.0 build (as of 2026-07-23)
 
-**Updated:** 2026-07-18, 0.11.1 "Fleet Management" PROMOTED TO PRODUCTION (`origin/main` = `origin/staging` = `babed10`, docs tip on top of `83d569f`), on top of the earlier 0.11.0. Very long session. Read this FIRST, then the memory files and the docs it points to.
+Authoritative resume doc for a fresh session. Read this + the two combat docs below, then continue at **Phase 9b**.
 
-**WHY 0.11.1 EXISTS (user, 2026-07-20):** 0.11.1 "Fleet Management" was NOT a planned roadmap feature. It was a QUICK EMERGENCY BUGFIX for a SOFTLOCK: the docks (`shipStorageCapacity`) would fill up with no in-game way to remove a ship, so a player trying to create/acquire a new ship had nowhere to put it and got stuck. Ship SALVAGE (a way to break a hull down and free the berth) plus the DOCKS-CAPACITY upgrade (more berths) were the two escape valves, shipped fast to unblock players. That is why ship salvage is deliberately INSTANT (emergency scope), with a timed-teardown version deferred. Treat the roadmap numbering accordingly: the planned UI restructure is now 0.11.2, Material Lines 0.11.3.
+## TL;DR
+- **Branch:** `feat/combat-0.13.0` (tip `b930932`, 38 commits since main). Tree clean.
+- **Gate right now:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, ignore); `npm test` = 1190 passing.
+- **Done:** the ENTIRE combat ENGINE (Phases 1-8) + combat hulls (Phase 9a). Combat is playable via a DEV button today; the real MISSION loop is not built yet.
+- **Next:** Phase 9b (playable Patrol missions). Then 10 rewards, 11 loss/repair, 12 UI (MOCKUP-GATED), 13 offline, 14 fold-in.
+- **PROD is 0.12.1** (unaffected); combat ships as 0.13.0 later, after user device-test + explicit go.
 
----
+## Read these first
+1. `docs/plans/2026-07-22-combat-0.13.0-design.md`  (the full design, 20 sections S1..S20)
+2. `docs/plans/2026-07-22-combat-0.13.0-plan.md`  (the phased plan; Phase 1 detailed, 2-14 outlined, expand each just-in-time)
+3. Memory `project_fleet_admiral_combat_0130.md` (phase-by-phase status, every decision + seam)
 
-## 0. TL;DR (read this, then the sections you need)
+## Hard invariants (do NOT break)
+- **Deterministic + seeded + headless.** `resolveBattle(participants, seed, { generateLog }) -> { outcome, log }` is pure. Same seed => same outcome.
+- **Offline == live is a HARD invariant** (parity suite in `src/lib/game/combat/resolveBattle.test.ts`). Two RNG streams: `combat` (outcomes) + `cosmetic` (flavor). Offline skips cosmetic, outcome identical. Every new outcome-roll MUST draw from the `combat` stream, independent of `generateLog`. RE-RUN the parity suite after any combat change.
+- **Integer / fixed-point math** in the sim (NO Decimal; Decimal is only the idle economy). Time in integer deci-seconds (dt=1, round=10).
+- **No em dashes, no "--" in PROSE / user-facing strings** (CSS `var(--x)` and `// --- section ---` code-comment dividers are fine, they match the existing codebase).
+- **SAVE_VERSION is currently 31** (Phase 1 bumped it). Phase 9b+ that add persisted state bump it further with a backfill migration; existing saves are PRESERVED, never nuked.
+- **Combat UI (Phase 12) is MOCKUP-GATED**: build an HTML mockup, send it to the user (SendUserFile; inline widgets do not render for this user), get sign-off BEFORE any combat-UI code. User has pre-approved that a mockup is required.
 
-- **Production (crystalisoft.com) is at 0.11.1** (`origin/main` = `origin/staging` = `babed10`, promoted 2026-07-18, prod == staging). Public. Do NOT touch main without a fresh explicit user go-ahead. Latest branch: `feat/fleet-management` (= prod tip). Future work branches off `main`. NOTE: 0.11.1 was an EMERGENCY softlock fix, not a planned feature (see the WHY note above); the planned work resumes at 0.11.2.
-- **0.11.1 "Fleet Management" shipped (2026-07-18), as an EMERGENCY SOFTLOCK FIX (see the WHY note in section 0):** DOCKS CAPACITY upgrade (a timed `docksExpansion` process raising `shipStorageCapacity` +1/level from base 8 up to 16; mirrors the equipment Systems-Bay upgrade, `tick.ts` `docksCapacityUp` effect, deterministic/parity-safe); SHIP SALVAGE (`salvage.ts` `salvageShip`: LIVE-ONLY instant this patch, returns crafted systems to spares + discards free baselines, recovers ~30-40% of build materials/credits, frees the docks slot, on-mission guard via shared `onMissionLock`, confirm dialog that WARNS when an idle captain is aboard). NOTE: ship salvage is deliberately INSTANT for now, a future task makes it a timed teardown (flagged in salvage.ts).
-- **NEXT (user-directed, do IN THIS ORDER):** FIRST the recommended CLEANUP as careful, separately-tested refactors on now-LIVE code: (1) `foldXpLevelUps` DRY refactor (consolidate the three subtract-and-carry XP loops: captain `tick.ts:~1075`, FA `~1184`, crafting `~1236`, into one shared helper, prove no behavior change), (2) converge the FA-XP BLACKLIST (`tick.ts:~4701`) and crafting-XP WHITELIST (`~4724`) so a future `TimedProcessKind` can't silently inherit one but not the other (the new `docksExpansion` kind already routes correctly). THEN the **UI restructure (now 0.11.2)**: Quartermaster facility split, material recategorization, salvage-as-own-facility, salvage RESULT display + tiered/configurable salvage confirm, Help tab, desk-OS lens (see `docs/plans/2026-07-18-0.11.1-ui-restructure-notes.md`), PLUS a **fitment -> "install ship systems" terminology sweep of ALL user-facing text** (code vocab stays internal). Then Material Lines (0.11.3, `feat/material-lines-0.11.1` branch), then 0.12.0 combat (HARD PREREQ: captain ids to a monotonic counter first). Also open: the ship-class NAMING threads (`2026-07-18-ship-class-naming-notes.md`, Frigate/small-ship names + Dreadnought theme unpicked).
-- **What 0.11.0 shipped (2026-07-18):** item cleanup (`refinedMaterial` merged to `titaniumIngot`; dead `components` removed; `intactReactorCore` relabeled "Damaged Reactor Housing" + new `salvagedMaterial` category + reserved exotics; `cockpit` slot key renamed `bridge` = "Bridge Module"); capped Ship Systems storage (base 25) with a timed upgrade that adds **+25 per level** (25 -> 50 -> ... -> 200, 7 rungs, additive `slotIncrement`); FULL salvage (`salvage.ts`: `salvageEquipment` recycle + `salvageSalvagedMaterial` tiered loot roll, FA-level-gated ceiling, `fleetLogisticsSalvage` talent), all LIVE-ONLY (never in economyTick), with a SALVAGE CONFIRMATION dialog; Warehouse Ship Systems + Salvaged Materials tabs (tiled, per-variety icon + iLevel + rarity) + `EquipmentTooltip.svelte` (stacked header: name+quality row, rarity/iLevel/slot row, flavor text) + slot readouts; `iLevel` field on every item + per-variety icons.
-- Branch `feat/ship-equipment-0.11.0` is now merged into `main` (prod tip `75d9d86`); future work branches off `main`. 0.12.0 combat HARD PREREQ: migrate captain ids to a monotonic counter first.
-- `SAVE_VERSION` is **30** (v28->v29 item-catalog reconcile + storage-level seed, v29->v30 iLevel backfill). `APP_VERSION` is **"0.11.0"** (patch note expanded for the completion features). Tests: **891 passing, 33 files**.
-- The user hates losing context across sessions AND ships feature-complete (no layered releases). The memory files + this doc are the safety net. Trust them, but verify any file/line/flag still exists before acting on it.
+## Workflow
+Subagent-driven development (the user's standard): a fresh implementer subagent per coherent unit, gate green + controller-verify the risky seam, commit. SUB-PHASE big phases (drones was 7a/7b; Phase 9 is 9a done + 9b/9c...). Keep the combat memory doc current after each phase (compaction insurance). Give each subagent full context in the prompt (do not make it read the plan). Commit messages end with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`. **The user drives pace; when they say continue, continue (see feedback memory `feedback_respect_continue_decisions`).**
 
----
+## What is built (Phases 1-8 + 9a), all in `src/lib/game/combat/` unless noted
+- **P1 Captain Identity** (model.ts/tick.ts/save.ts/App.svelte): `nextCaptainId` monotonic counter; `captainName.ts` `validateCaptainName` (client courtesy seam, real mod server-side 0.14.0); `renameCaptain`; live Rename UI. SAVE_VERSION 31.
+- **P2 sim core:** `rng.ts` (mulberry32, two streams), `types.ts`, `resolveBattle.ts` (fixed 0.1s loop, round cap + tiebreak, pure). Flagship parity suite.
+- **P3 shot pipeline + weapons:** families kinetic/particle/ew + triangle; mitigation shields->attenuation(particle-only)->ablativeArmor->kineticDampening->hull; `weapons.ts` WEAPON_DEFS = the 9 (Plasma/Graviton/Voltaic, Railgun/Autocannon/ConcussionTorpedo, PointDefense/EMP/Tachyon).
+- **P4 status effects:** `statusEffects.ts` unified DoT/debuff/buff, the 12-entry disruption table, ranks 1->3, DoT per-tick damage + 1 log line/round, wired to weapon effectSlots.
+- **P5 defense/durability/power:** per-family resists (damage + disruption), `durability.ts` (+ systemCondition 4-state), `power.ts` (powerBudget). Renamed reserved stat keys bleedthrough->shieldAttenuation, bleedthroughResist->shieldCoherence.
+- **P6 positional:** `positioning.ts` bands Short100/Med200/Long300, stance aggressive/balanced/standoff movement, formal targeting, openers (precharge + longest-range opener), ambush SYMMETRIC (hull-direct + delayed return fire + torpedoes-barred + cloak), counter-module flags. Wired movement/sensor debuffs.
+- **P7 drones:** `drones.ts` + `droneDefense.ts`. Roles attack/defense/support, individual-unit tracking, offense; defense interactions (deflect/reflect/smart-reflect PARTICLE-ONLY, meat-shield overflow, attack counter, multi-projectile saturation); replenishment; support kit.
+- **P8 rating:** `rating.ts` battleRating (monotonic scalar) + engagementForecast (Monte-Carlo winrate over resolveBattle, 64 samples, advisory).
+- **P9a combat hulls:** `SHIP_TYPES` destroyer/battleship/carrier (live combat stats) + `COMBAT_DEFAULT_LOADOUT` (bridge.ts) + `shipToCombatant` builds real combatants (hullType + default loadout, carrier gets a drone squadron).
+- **DEV TEST HARNESS:** `bridge.ts` (`shipToCombatant`, `sampleLoadout`), `logFormat.ts` (`formatCombatLog`, `=== Round N ===`), and a dev **"Run Test Battle"** button in App.svelte Debug panel (bridges ships[0] vs a pirate, resolveBattle, renders the log; read-only). This is how combat is testable in-game TODAY. It is NOT the Phase-12 UI.
 
-## 1. How this project is run (the workflow the user ALWAYS wants)
+## PHASE 9b (next): playable Patrol mission loop
+Goal: dispatch a Patrol from the game, it runs multi-wave seeded battles, resolves, and you see the result. This BUMPS SAVE_VERSION (careful migration). Sub-phase it; the pieces:
+1. **Combat hull gating:** the 3 warships now appear as buildable Shipyard cards with NO tier/research gate (`canBuildShip` tick.ts ~3038 has no gate; Shipyard UI App.svelte ~5585 enumerates all SHIP_TYPES). Add the tier/research gate so warships are earned, not free at start.
+2. **Faction data:** a lightweight `Faction` (id/name/flavor) in model.ts; reputation scalar + consequences are DEFERRED (seam only). A few named pirate factions.
+3. **Patrol MissionDef(s):** new combat mission type. Card shows "Combat Waves: min-max". Enemy generation deterministic/seeded per encounter (build enemy Combatants from hull + loadout; enemies may bring drones so anti-drone matters).
+4. **Wave generator:** min guaranteed via spread catch-up checkpoints, max ceiling, per-tick rolls, stop at max, infamy-talent raises max, deterministic count (design S14). Between waves: shields regen + drones replenish (`replenishDrones`) per tick, hull persists.
+5. **Dispatch + resolution:** dispatch a captain + ship + STANCE (pass precharge:true) from Operations; run over the mission timer; at each encounter tick call `resolveBattle` with a seed derived from a persisted master seed + encounter index (so offline==live). Dispatch Once / Dispatch Repeatedly toggle.
+6. **SAVE_VERSION bump + migration** for the new mission/combat/faction/master-seed state. Backfill old saves. Extend save.test.ts.
+NOTE: 9b can use the P9a DEFAULT loadouts (no weapon/drone CRAFTING yet). Weapons/drone-pods as craftable+fittable EQUIPMENT (Fabricator + hardpoints + hangar bays) is a follow-on sub-phase, not required for a first playable patrol.
 
-See memory `feedback_fleet_admiral_workflow` for the authoritative version. In short, for every feature:
+## Remaining after 9b
+- **Weapons + drone pods as craftable/fittable equipment** (Fabricator mints; weapon hardpoints; hangar bays; installCap/class gates). Replaces default loadouts.
+- **P10 rewards:** seeded loot tables, wreck salvage + guaranteed "Damaged [System]" reverse-eng components (Damaged-Reactor-Housing idiom), cargo loot, credit bounty, captain+FA XP. No functional-gear drops.
+- **P11 loss/repair:** limp-home 2x, auto-route to Shipyard, repair as timed process, Shipyard Bays shared build/repair (>=1 reserved for repair, idle-build-flex, "waiting for repair" queue).
+- **P12 combat UI (MOCKUP-GATED):** portraits + hull/shield bars + square status pips + drone squadron pips + ship-system condition pips + range/band readout + phase narration + Log-Guided (default) & Visual (damage-pops) modes. Under Operations, watch-live on an active patrol. Data-driven LAYERED flavor pools (signature->type->family->generic, cosmetic RNG) replace the dev logFormat. Fix "bleed-through" -> attenuation wording.
+- **P13 offline overhaul:** While-You-Were-Away summary (patrols resolved, waves won/lost, loot+bounty, ships in repair, captain status). Offline combat headless (no log gen), identical to live.
+- **P14 fold-in:** HELP entries, 0.13.0 patch notes, APP_VERSION 0.13.0, holistic review, then staging -> user device-test -> explicit prod go. Balance-tuning pass (all the flagged S20 numbers) once systems are live.
 
-1. **Brainstorm** (superpowers:brainstorming) then a **design doc** then a **plan doc** (superpowers:writing-plans) in `docs/plans/`, then a **branch**, then **subagent-driven-development**: one implementer subagent per task, then a spec-compliance reviewer, then a code-quality reviewer. Even small tasks.
-2. **Independently verify subagent claims** before trusting them, especially high-risk seams (parity, data safety, migrations). The controller (you) re-reads the critical code and re-runs gates. The user values this and has seen it catch real bugs (e.g. the Task 20 stat-neutral parity proof, the crash hotfix).
-3. After all tasks: a **holistic review** of the whole branch, then a clean final state on **staging**, gate-green, push.
-4. **Production is NOT frozen.** Ship vetted work to `origin/staging` (devpreview) freely. Promote to `origin/main` (prod, public) ONLY with fresh explicit user confirmation each time. Keep `main` a clean fast-forward ancestor of `staging` (never commit directly to main).
-5. **Branch before building, always.** Gate every task with `npm run check` (expect "COMPLETED ... 0 ERRORS") and `npm test`.
-6. Genuine design ambiguity: ask the user (AskUserQuestion), do not let a subagent guess.
-7. Deferred ideas go to `SUGGESTIONS.md`, not into current scope.
+## Accumulated integration seams (TODO-commented in code, wire during 9b+)
+Stance/precharge/ambush set per encounter by the mission layer; module ITEMS granting particleTraceDetector / rapidChargeAfterAmbush / smartReflect / inCombatReplenishPercent; `antiDrone` weapon flag on PointDefense/EMP; between-wave `replenishDrones` call; escortShare targeting (escort missions = fast-follow); durability NOT rolled live yet (wire at integration, re-verify parity); carrier bay count currently in COMBAT_DEFAULT_LOADOUT.builtInBays; per-weapon-type resists (v1 is family-granularity).
 
-**Reviewer/subagent prompts must say "static review only, no WebSearch/WebFetch, keep it fast and bounded"** (a review once hung 18 minutes on a network call).
-
----
-
-## 2. Environment and hard conventions (do not rediscover these)
-
-- **Node:** `node` resolves at `C:\Program Files\nodejs\node.exe` and was on PATH this session (plain `npm run check` / `npm test` / `npm run build` worked). If a shell ever cannot find it, prepend `export PATH="/c/Program Files/nodejs:$PATH"` on the SAME Bash line. Scripts: `npm run check` (svelte-check + tsc), `npm test` (vitest, **836 passing, 31 files**), `npm run build`.
-- **This repo lives at `F:\Windows Folders\Documents\fleet-admiral`.** The controller's default Bash cwd and path-less Grep default to the OTHER project (`RPG-Idle-Game`). Always pass explicit `fleet-admiral` paths, or `cd` first.
-- **NO EM DASHES and NO "--" as punctuation. Anywhere.** Rendered game text, code strings, code comments, docs, commit messages, and chat replies. Use colons, periods, commas, parentheses. The ONLY legitimate "--" is CSS custom properties (`var(--color-x)`), which are required syntax. See memory `feedback_no_em_dashes`. All of `src/` is punctuation-clean; markdown docs still contain some (sweep on request).
-- **Deploy topology:** `origin/main` = production = crystalisoft.com (public). `origin/staging` = devpreview.crystalisoft.com. Vercel auto-builds both.
-- **devpreview is behind Vercel authentication.** An automated browser cannot fetch it. Live verification of staging must be done by the USER in their logged-in browser. Local `preview_start` reads launch.json from the OTHER project dir, so it is unreliable here (memory `reference_browser_preview_rooted_primary_dir`).
-- **The user tests on mobile (Brave) and PC (Brave).** Brave disables `backdrop-filter` (frosted glass), so never rely on blur for legibility; use opaque or near-opaque backgrounds.
-
----
-
-## 3. Exact state of the repo right now
-
-- Current branch: `feat/ship-equipment-0.11.0`, tip `0c19ea2`. `origin/staging` == this tip (pushed). `origin/main` (prod) = `8e3b26b` (0.10.2), a clean ancestor.
-- `SAVE_VERSION` = **28** (`save.ts`). `APP_VERSION` = **"0.10.2"** (`src/lib/patchNotes.ts`) still, bump is Task 23.
-- To ship more vetted 0.11.0 WIP to devpreview: commit on the branch, gate green, `git push origin HEAD:staging` (clean fast-forward). Do NOT touch `main`.
-
----
-
-## 4. 0.11.0 build state (what EXISTS on the branch)
-
-Design docs: `docs/plans/2026-07-17-ship-equipment-combat-epic-design.md` (the WHOLE vision: equipment + combat + crew + exploration vocabulary), `docs/plans/2026-07-17-equipment-0.11.0-design.md` (the buildable non-combat slice), `docs/plans/2026-07-17-equipment-0.11.0-plan.md` (24-task plan). 0.11.0 ships the equipment slice; 0.12.0 is combat. Each ships as ONE complete patch.
-
-Built and gate-green on the branch (see TaskList / git log for the per-task commits):
-- **Model:** `EquipmentInstance` + slot/rarity/ascension enums, 4 LIVE slots (`EQUIPMENT_SLOTS`: cargoBay / ftlDrive / reactorCore / specUtility), `DEFAULT_EQUIPMENT_VARIETY`, the full stat vocabulary (`LIVE_STAT_KEYS` / `RESERVED_STAT_KEYS`), 12 equipment blueprints, `rollCraftedRarity`, `rollQuality`, Crafting Level XP (`craftingLevel` / `craftingXp` / `craftingXpForNext` / `applyCraftingXp`).
-- **Item generation:** `src/lib/game/itemgen.ts` (iLevel then budget then ratio-distribution then seeded weighted affix roll). `generateEquipment` for crafted gear; `generateStandardIssue` + `seedStandardIssueForShip` for the baseline (model.ts).
-- **Inventory:** quality-bucketed (`Record<string, Decimal[]>`, index = quality tier 0-5), `src/lib/game/inventory.ts` helpers.
-- **Fitting:** `src/lib/game/equipment.ts` (`equippedFor`, `fittedInSlot`, `canFitEquipment`, `fitEquipment` atomic-swap, `unfitEquipment` now auto-refits Standard-Issue = never-empty invariant, on-mission lock).
-- **Stat fold:** `shipDerivedStats(ship, pieces)` + `equipmentStatMods` in model.ts. Folds equipment into ship stats on BOTH the live and offline paths (parity verified by construction). `plusToPercent` curve.
-- **Crafting-real loop:** the Fabricator mints real `EquipmentInstance`s (Task 19), offline/live parity via the shared seeded rng draw order. Research Lab previews equipment blueprints by system name.
-- **UI:** `src/lib/ShipSystemsPanel.svelte` (the real player-facing "Ship Systems" install screen: paper-doll ship + slots + stats panel + install/uninstall; labels say "Ship Systems"/"Install", code stays "equipment"). Entry points from Docks + the Fleet Captain Overview. Plus a DEV_MODE-gated equipment harness in App.svelte.
-- **Saves:** `SAVE_VERSION` 25 then 26 (inventory bucketing) then 27 (equipment-field backfill, the crash hotfix) then 28 (Standard-Issue seed). Migrations are frozen once shipped to PROD; the 0.11.0 ones are still on-branch (editable).
-
-**Task 20 (last completed):** every ship is born fully fitted with a craft-less Standard-Issue baseline on all 4 live slots (migration seeds existing ships, freshState + ship-build + captain-unlock seed new ones, one shared helper). Baseline gear is **STAT-NEUTRAL this patch** (magnitude 0, mass 0, power 0) so it folds bit-identically to a bare hull and does NOT shift the shipped economy; its magnitude is a single deferred TUNABLE knob (`STANDARD_ISSUE_IMPLICIT_MAGNITUDE`), to be set during the device-check tuning pass. The interim not-yet-migrated guards were retired (crafting XP + equipment pool now read directly and fail loud). Reviewed (spec-compliant, no blockers); review fixes in `0c19ea2`.
-
----
-
-## 5. NEXT
-
-### 5a. IMMEDIATE: finish 0.11.0 to feature-complete (design LOCKED, BUILD not started)
-
-This is the actual next build. Three committed design docs on branch `feat/ship-equipment-0.11.0` (on top of staging tip `4485f10`, not yet pushed) fully specify it:
-- `docs/plans/2026-07-18-ship-systems-legibility-0.11.0-design.md`: names (Titanium Ingot merge, remove dead `components`), Ship Systems visible in the Warehouse, slots show installed system + granted stats, Fabricator labels crafts by real name.
-- `docs/plans/2026-07-18-storage-salvage-0.11.0-design.md`: capped + upgradable Ship Systems storage (reuse the material-tab `storageCapMult` rung pattern); equipment recycle-salvage (consume a spare system, return a variable ~30-40% of its recipe inputs); salvaged-material loot salvage (Damaged Reactor Housing = renamed `intactReactorCore` reclassified to a new "salvaged material" category + own Warehouse tab; tiered rarity loot roll reusing the mission-loot machinery, progression-gated ceiling up to Radiant; exclusive salvage items DEFINED + droppable but RESERVED with honest tooltips; ONE FA salvage talent). ALL data changes under ONE migration + a SAVE_VERSION bump.
-- `docs/plans/2026-07-18-salvaging-design-notes.md`: the fuller/future salvage vision + BALANCE RULE: salvage supplements, never replaces, missions/refining/fabricating (super-rare refined/component drops; steep top-tier odds). Salvage-feeds-research is a LATER extension.
-
-RESOLVED design calls (build to these): loot tiers map to gear rarity names (standard..radiant + reserved above); exclusive items reserved this patch; one combined FA salvage talent; storage cap base 25 via multiplier rungs. NEXT STEP: writing-plans for this whole scope, then subagent-driven build, gate green, push to staging, USER device-tests, THEN promote 0.11.0 to prod.
-
-### 5b. THEN 0.11.1 = Help + UI/desk-OS restructure. THEN 0.11.2 = "Material Lines" (below; design LOCKED, doc written on branch `feat/material-lines-0.11.1`, RENUMBER to 0.11.2)
-
-The dead-end-ores question grew into a real feature. Current state: crafting is fully playable off just 2 ores (`commonOre` Titanium + `uncommonMaterial` Polysilicate); the other ~10 mission items (from the Lunar Mine / Salvage / Forage runs) have NO refine recipe and no sink. Material Lines gives all 12 mission items a purpose. NOTE: the Damaged Reactor Housing is now handled by 0.11.0 salvage (not reserved by Material Lines), and `refinedMaterial` is merged into `titaniumIngot` by 0.11.0, so the Material Lines doc's references to those need reconciling when it is built.
-
-USER-LOCKED design decisions (2026-07-18):
-- **Model: "themed by system."** Each ship system is crafted from its thematically-matched material lines, so every mission supplies different slots and all four missions matter. Structural ores feed holds; heavy metals + a salvaged core feed reactors; electronics/coils feed FTL drives; organics/exotics feed the spec-utility sensor rigs.
-- The 4 mission lines get identities: Local Asteroid (structural + electronic spine), Lunar Mine (heavy metals: Ferrite/Cobalt/Osmium), Salvage (recovered tech: Scrap/Circuitry/Reactor Cell), Forage (organic chemistry: Biomass/Resin/Spore).
-- **All 12 items get a use OR an honest "not used in any recipe yet, reserved for future" tooltip** (inverse of the existing "no source yet" masking). Bounds scope.
-- **The rare salvage item (`intactReactorCore`) is a CRAFTING INGREDIENT, never an installable system, and must be RENAMED** (it collides with the `reactorCore` slot name; e.g. "Derelict Reactor Cell").
-- Recipes must be **thematically coherent** ("do these inputs make sense for this system?"); items may be renamed/repurposed to make that true. Multi-input "chemical process" refines (compounds, e.g. resin + wafer to a "photonic gel" for survey sensors) are wanted.
-- **Design-critical check:** mission-unlock order == crafting access, so a themed requirement must not wall off a slot the player has no mission for yet. Verify the unlock progression lines up with the recipe requirements before finalizing.
-- Reclaimed targets ALREADY exist in ITEMS with broken-promise hints: `reclaimedAlloy` ("Refined from salvage"), `purifiedBiomass` ("Refined from foraged biomass"). No recipe wired yet.
-
-NEXT ACTION: write the 0.11.1 design doc (superpowers:brainstorming is effectively done; go to design doc then writing-plans then subagent-driven build). The concrete recipe rework of the 12 equipment blueprints + the compound refines is the core of it.
-
-**HARD PREREQ for 0.12.0 (combat), not 0.11.x:** migrate captain ids to a monotonic counter before any captain-death feature ships.
-
----
-
-## 6. Open decisions + follow-ups (logged so they are not lost)
-
-**Two decisions waiting on the USER (surfaced, not yet answered):**
-- **Dead-end ores.** 10 of 12 raw ores (iridium, ferrite, cobalt, osmium, scrap, circuitry, reactorCore, biomass, resin, spore) have no refine recipe, so they cannot feed crafting. Controller lean: add a small refine-expansion IN 0.11.0 so the loop is not half-connected. Decision: in-patch vs 0.11.1 fast-follow.
-- **Crafting-quality source (plan Task 14, the 9c/9d question).** Crafted quality currently ROLLS. Alternative: derive it from the quality of the input materials fed to the Fabricator. Not blocking; a design call.
-
-**Smaller items:**
-- `EquipmentInstance` field comment at `model.ts:694` ("Nothing generates, fits, or reads these yet") is now stale (Task 20 generates/fits). Trivial doc fix.
-- Per-hull slot availability is NOT wired: the seeder fits all 4 live slots on EVERY hull, even the General Freighter (design gives it only 3, no Spec Utility; `SHIP_TYPES.generalFreighter.equipmentSlots === 0`). Harmless now (stat-neutral, UI shows 4 for all). When per-hull slots get enforced, the seeder must consult a per-hull live-slot list.
-- Equipment mints do not tally `lifetimeStats.itemsCrafted` (future nicety).
-- `unfitEquipment` on a RESERVED (non-live) slot would throw in `generateStandardIssue` (no default variety) rather than no-op; no current caller touches reserved slots.
-- **Pre-existing:** `loadFromLocalStorage` calls `migrate(save)` outside try/catch, so a valid-but-unmigratable save throws out of `onMount` rather than reaching the corrupt-save recovery modal. Good small hardening follow-up.
-- **2 pre-existing RadialWeb a11y warnings** (pointer handlers, lines ~792/952) are the only `npm run check` warnings; known, left.
-- Markdown docs still contain em dashes (design docs, SUGGESTIONS.md, KNOWN_ISSUES.md). `src/` is clean.
-
-**Bigger future (logged in SUGGESTIONS.md):** 0.12.0 combat, then crew + exploration; an Active-Play / Fleet-Admiral-Flagship 2.0 expansion (far future, "not any time this year"); a HELP tab + desk-terminal-OS UI restructure as 0.11.1; a Legacy/meta tab (Overview/Achievements/Completion/Leaderboards/Statistics); a notification-glow "needs attention" system; Daily Rewards (online-integration-gated). Game name "Hyperion Legacy" is tentative.
-
----
-
-## 7. Where things live (orientation)
-
-- **Engine:** `src/lib/game/tick.ts` (closed-form timed-process engine + offline `tick()`; the live loop in `App.svelte` calls the SAME `economyTick(_, 1)` per step, which is what makes offline==live parity hold by construction). `src/lib/game/model.ts` (all data + `shipDerivedStats` + equipment defs). `src/lib/game/save.ts` (SAVE_VERSION, migrations, load/save, corrupt handling). `src/lib/game/itemgen.ts`, `inventory.ts`, `equipment.ts` (the 0.11.0 equipment engine). `src/lib/game/allocation.ts` (material free/allocated model).
-- **UI:** `src/App.svelte` (the game, huge; legacy Svelte `$:` reactivity, NOT runes). `src/Root.svelte` (router + `.app-shell` + update banner). `src/lib/ShipSystemsPanel.svelte` (equipment install screen). Other `src/lib/` components (Panel, Starfield, RadialWeb, SubTabs, TreeSelector, UpdateBanner, focusTrap).
-- **Version/notes:** `src/lib/patchNotes.ts` (`APP_VERSION` + `PATCH_NOTES`; no markdown processor, the string renders exactly).
-- **Docs:** `docs/plans/*`. `KNOWN_ISSUES.md`. `SUGGESTIONS.md`. `SESSION_LOG.md`.
-- **Memory (auto-loads each session):** `MEMORY.md` index plus `feedback_fleet_admiral_workflow`, `project_fleet_admiral`, `feedback_no_em_dashes`, `feedback_visual_ui_needs_mockup`, `reference_browser_preview_rooted_primary_dir`, `project_fuel_runway_measured_locked`, `user_context`.
-
----
-
-## 8. Working style the user likes
-
-- Momentum. The user says "continue", "go", "vroom vroom" and wants you to proceed, not stall. But still gate, verify, and confirm before anything outward-facing (prod pushes). Token efficiency matters to them: do not over-build or over-explain.
-- Visual/spatial UI is MOCKUP-GATED: show a mockup before building layouts (memory `feedback_visual_ui_needs_mockup`). The inline visualize widget did NOT render for the user; send an HTML file via SendUserFile (display: render) or publish an Artifact.
-- Push back with truth when warranted (Intellectual Sparring Partner), and explain tradeoffs, per `CLAUDE.md`.
-- The user controls when to start a new conversation. Do not lose their context; that is what this doc is for.
+## Deferred to later patches (NOT 0.13.0), see design S19 + SUGGESTIONS.md
+Escort missions; combat-chance in non-combat missions; player cloaking; specialty weapons (Neutron anti-crew, Ion, Laser, Hyperon, Mass Driver, Breaching Lance, etc.); set-bonus RESOLUTION (hooks: setId, chase affixes like +1 Drone Hangar); weapon+captain proficiency; refit + configurable bay allocation; captain death + crew promotion; escape pods; faction reputation (bounties/law-enforcement incarceration/diplomacy spec); 2.0 interactive turn-based Battlespace + SVG animation; ground combat; away-mission turn-based; **Celestial-class apex = Jupiter-class**.

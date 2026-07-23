@@ -957,3 +957,11 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   - **Severe (very low rep):** a BOUNTY is placed on you and your CAPTAIN can be destroyed (captain-specific death -> ties to the future captain-death + crew-promotion turnover; needs the monotonic captain-id counter combat is already adding). A **Diplomacy spec** could grant account-wide reputation-gain bonuses.
   - **Moderate (bad but not worst, the user's FAVORITE):** that faction's LAW ENFORCEMENT randomly attacks you during their missions. Lose the fight -> you're hauled in and INCARCERATED for X ticks scaled by rep level; serving it RAISES your rep. Player should get an option to SURRENDER or make REPARATIONS instead of fighting. On capture: ship IMPOUNDED + captain in PRISON for a duration (up to ~a day if rep is bad enough).
   Depends on: factions, the Diplomacy spec, captain death, and the reputation axis itself. All future; capture the hooks (faction ids, a rep scalar) opportunistically but build none of it in 0.13.0.
+
+- **Celestial-class ship naming: apex = "Jupiter-class" (user 2026-07-23).** The Celestial line of ship
+  classes has its apex/flagship tier named **Jupiter-class**, named after the user's "best boy himself"
+  (his dog Jupiter). A hard, sentimental naming lock for the top of the Celestial scheme when the full
+  ship roster / class-naming themes are built out (see the ship-class-naming notes and the apex-class
+  ideas in docs/plans/2026-07-18-ship-class-naming-notes.md). Not needed for 0.13.0 combat v1 (which
+  ships destroyer/battleship/carrier as first-pass hulls), but LOCK Jupiter-class = Celestial apex for
+  the future naming pass.
