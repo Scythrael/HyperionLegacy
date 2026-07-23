@@ -894,6 +894,14 @@ export interface ShipInstance {
   typeKey: ShipTypeKey;
   assignedCaptainId: number | null; // SINGLE SOURCE OF TRUTH for assignment; null = parked/available
   name?: string;                    // player naming deferred
+  // Combat 0.13.0 (Phase 9b.5c): set true when a PATROL this ship flew ended in DEFEAT
+  // (the wave loop in tick.ts flags it). OPTIONAL so absent === not damaged: a pre-9b.5c
+  // save (and every ship that never lost a patrol) reads as undefined, so NO save
+  // migration is needed (the same absent-is-default pattern refuelDelayTicks uses).
+  // ⚠️ FORWARD SEAM (P11 limp-home + repair-bay queue): this flag is the ONLY thing set
+  // here. No repair logic, timing, or stat penalty consumes it yet; P11 reads it to route
+  // a damaged hull into the repair bay. Do NOT build that here.
+  damaged?: boolean;
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
 }
 

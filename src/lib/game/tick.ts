@@ -52,6 +52,7 @@ import {
   type PatrolMissionState,
   type PatrolKey,
   type PatrolDef,
+  type PatrolPhase,
   type LootMaterialKey,
   type MissionDef,
   type ShipDerivedStats,
@@ -105,9 +106,18 @@ import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
 // resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
-import { combatHullTypeOf, defaultDronesForHull } from "./combat/bridge";
+import { combatHullTypeOf, defaultDronesForHull, shipToCombatant } from "./combat/bridge";
 import { planWaveSchedule, type WaveScheduleParams } from "./combat/waveSchedule";
 import type { CombatStance } from "./combat/positioning";
+// Combat 0.13.0 (Phase 9b.5c): the patrol TICK LOOP wiring. generateEnemyWave builds a
+// wave's enemy team from the patrol def; resolveBattle runs one wave's battle and returns
+// the id-sorted finalCombatants the loop reads the player's surviving hull/shield/drones
+// off; replenishDrones is the between-wave (out-of-combat) drone recovery; DroneSquadron is
+// the carry-state squadron shape the deep-clone helper preserves.
+import { generateEnemyWave } from "./combat/enemyWave";
+import { resolveBattle } from "./combat/resolveBattle";
+import { replenishDrones } from "./combat/droneDefense";
+import type { DroneSquadron } from "./combat/drones";
 // Equipment 0.11.0 (Task 19): the Fabricator's equipment mint. computeItemLevel derives a
 // crafted piece's level (clamped by the blueprint-tier cap), generateEquipment rolls the whole
 // EquipmentInstance from an INJECTED seeded rng (so the mint is offline==live reproducible), and
@@ -1309,6 +1319,382 @@ export function tickCaptainMission(
   };
 }
 
+// ============================================================================
+// Combat Patrols (Combat 0.13.0, Phase 9b.5c): the PATROL TICK LOOP. This is the
+// patrol twin of tickCaptainMission: it advances a dispatched patrol along its
+// route, fights a resolveBattle at each scheduled wave, carries the player's hull/
+// shield/drones between waves (attrition, design S14), and resolves the patrol
+// (success/relaunch, defeat, recall). economyTick's switch(kind) routes a patrol
+// captain here; NO rewards/XP/loot are awarded (that is Phase 10), only win/loss +
+// carry-state + end conditions.
+//
+// ⚠️ THE HARD INVARIANT: CLOSED-FORM PARITY (offline == live). economyTick is called
+// as economyTick(state, 1) many times live AND as one economyTick(state, N) for
+// offline catch-up; this function MUST produce a byte-identical resulting mission
+// (progress, waves, carry-state, phase, nextWaveIndex) either way. The mechanism:
+//   1. WHOLE-ROUTE-TICK BOUNDARIES. progressTicks advances boundary by boundary
+//      exactly like tickCaptainMission's phaseProgressTicks: a fractional remainder
+//      just banks into `progress` and crosses no boundary, so one big ticksElapsed
+//      and many small ones summing to it cross the IDENTICAL integer route ticks in
+//      the IDENTICAL order. A wave / regen happens ONLY on a whole-tick crossing.
+//   2. STATE-DERIVED BATTLE SEEDS (NOT tick timing). Each wave's enemy team + battle
+//      draw their seeds from deriveWaveSeed(masterSeed, waveIndex, salt) -- a pure
+//      function of persisted state, independent of how ticks are batched. Same wave =>
+//      same seeds => same outcome, always.
+// This is TICK-BY-TICK over whole route ticks (a big call is literally a loop of the
+// same single-tick advances), so parity holds BY CONSTRUCTION -- the safest v1.
+// TRADEOFF (flagged per the design): it is O(ticksElapsed). A patrol route is bounded
+// (~14 ticks/cycle here), and a repeat-dispatch patrol under a very long offline
+// absence loops many cycles' worth of ticks (bounded by tick()'s offline cap). A
+// closed-form event-jumping optimization (jump straight to the next wave tick) is a
+// valid FUTURE improvement, but ONLY if it provably preserves parity; if in ANY
+// doubt, this tick-by-tick form is correct by construction and is what the parity
+// test in patrol-tick.test.ts gates.
+// ============================================================================
+
+// murmur3 fmix32 finalizer (public-domain constants): avalanches a uint32 so tiny
+// input changes decorrelate. Used only by deriveWaveSeed. Every op is masked to
+// uint32 (>>> 0 / Math.imul) so the result is identical on every JS engine, the same
+// cross-device determinism combat/rng.ts's mulberry32 demands.
+function fmix32(hash: number): number {
+  let h = hash >>> 0;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+// deriveWaveSeed: THE per-wave battle-seed derivation. A pure uint32 function of
+// (masterSeed, waveIndex, salt) so a wave's seed is a function of PERSISTED STATE, not
+// tick timing (the parity invariant): the same wave replays identically whether the
+// patrol advanced as one big offline jump or many small live ticks. resolveBattle /
+// generateEnemyWave further scramble it via makeStreams / makeRng, so this only has to
+// be a well-mixed distinct integer per (wave, salt). The `salt` decorrelates the
+// ENEMY-GENERATION seed from the BATTLE seed for the SAME wave (see the two salts
+// below): two independent derivations off one master seed, belt-and-suspenders against
+// any correlation between "what is in the wave" and "how the wave's rolls fall".
+// Exported so the parity/determinism tests can hand-verify the derivation.
+export function deriveWaveSeed(masterSeed: number, waveIndex: number, salt: number): number {
+  // Combine the three inputs into one uint32 (odd-constant multiplies spread each
+  // input's bits across the word), then avalanche with fmix32. waveIndex + 1 so
+  // wave 0 does not collapse its multiply to 0.
+  const combined =
+    (Math.imul(masterSeed >>> 0, 0x9e3779b9) ^
+      Math.imul((waveIndex + 1) >>> 0, 0x85ebca6b) ^
+      (salt >>> 0)) >>>
+    0;
+  return fmix32(combined);
+}
+
+// The two decorrelation salts for deriveWaveSeed. Arbitrary-but-fixed nonzero
+// constants (same spirit as rng.ts's COSMETIC_SEED_XOR): one for the wave's ENEMY
+// TEAM generation, one for the wave's BATTLE. Distinct so the two streams cannot
+// correlate. Do NOT change these once patrols ship live: a persisted masterSeed +
+// these salts is what makes a saved patrol replay identically on reload.
+const WAVE_ENEMY_SEED_SALT = 0x1b873593;
+const WAVE_BATTLE_SEED_SALT = 0xcc9e2d51;
+
+// patrolPhaseFor: derive the coarse PatrolPhase from the route position, PURE. The
+// route is transitOut [0, transitOutTicks) -> engaging [transitOutTicks,
+// transitOutTicks+rollWindowTicks) -> transitBack [.., routeLength). Floors the
+// (possibly fractional) progress so a sub-tick residue reads as its whole route tick.
+// The tick loop derives-and-stores mission.phase from this each whole tick so the
+// persisted phase stays consistent with progressTicks (and the 9b.5d UI reads it).
+// Exported for the tests.
+export function patrolPhaseFor(def: PatrolDef, progressTicks: number): PatrolPhase {
+  const t = Math.floor(progressTicks);
+  const engageStart = def.transitOutTicks;
+  const engageEnd = def.transitOutTicks + def.rollWindowTicks; // exclusive
+  if (t < engageStart) return "transitOut";
+  if (t < engageEnd) return "engaging";
+  return "transitBack";
+}
+
+// Deep-clone a patrol's carry-state drone squadrons (squadron + its per-drone list)
+// so the tick loop's in-place replenishDrones mutations NEVER touch the caller's
+// input mission (purity: the offline-big-call vs stepped-call parity test advances
+// the SAME input state two ways and compares). Mirrors combat/resolveBattle.ts's
+// cloneParticipants drone clone exactly. An empty array (non-carrier) clones to [].
+function cloneSquadrons(squadrons: DroneSquadron[]): DroneSquadron[] {
+  return squadrons.map((sq) => ({ ...sq, drones: sq.drones.map((d) => ({ ...d })) }));
+}
+
+// The result tickCaptainPatrol reports back to economyTick, mirroring
+// tickCaptainMission's fold: the updated captain (mission advanced, relaunched, or
+// null), plus the shared-budget draws + the relaunch-seed count economyTick threads
+// across captains, plus the ship-damaged flag a defeat raises.
+interface PatrolTickResult {
+  // The captain with its mission advanced. mission is null when the patrol ENDED this
+  // call (success without repeat, defeat, recall-at-cycle-end, or truly-broke relaunch).
+  captain: CaptainState;
+  // True iff the patrol ended in DEFEAT this call: economyTick sets the assigned ship's
+  // `damaged` flag (forward seam P11). A success/recall/broke end leaves the ship intact.
+  shipDamaged: boolean;
+  // Fuel drawn from the SHARED tank budget for RELAUNCH cycles this call (0 unless a
+  // repeat-dispatch patrol completed a route and relaunched). economyTick subtracts it
+  // from the Decimal tank exactly as it does tickCaptainMission's fuelSpent.
+  fuelSpent: number;
+  // Credits drawn AUTO-BUYING a relaunch fuel shortfall (mirrors extraction's F3 rule).
+  creditsSpentOnFuel: number;
+  // How many nextPatrolSeed values this call CONSUMED (one per relaunch). economyTick
+  // advances the fleet-wide counter by this so two patrols relaunching in one call, or a
+  // big offline call relaunching many times, never reuse a master seed.
+  seedsConsumed: number;
+}
+
+// tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
+// given its inputs (the only randomness is the state-derived combat seeds, never
+// Math.random), so it is closed-form / offline==live (see the header invariant).
+// Returns a PatrolTickResult; economyTick owns the shared-tank / seed-counter / ship
+// threading (this function reports draws, it does not touch GameState).
+export function tickCaptainPatrol(
+  ticksElapsed: number,
+  captain: CaptainState,
+  // The captain's assigned hull (GameState.ships find by assignedCaptainId). A patrol
+  // REQUIRES a combat hull (dispatch guaranteed it); undefined / non-combat is a
+  // defensive no-op (cannot happen in normal play: assignShipToCaptain locks mid-mission).
+  ship: ShipInstance | undefined,
+  // Shared-tank budget this call may draw for RELAUNCH cycles, and one round trip's fuel
+  // cost on this hull (economyTick prices it from the equipment-folded engineEfficiency,
+  // like the extraction path). Threaded exactly like tickCaptainMission's fuelBudget /
+  // fuelPerCycle so two captains in one call cannot double-spend the one tank.
+  fuelBudget: number,
+  fuelPerCycle: number,
+  // Shared credits budget for AUTO-BUYING a relaunch fuel shortfall, and the price per
+  // unit (mirrors tickCaptainMission's F3 auto-buy). Default price is the real one.
+  creditsBudget: number,
+  // The fleet-wide nextPatrolSeed counter's CURRENT value: a relaunch takes this as its
+  // fresh master seed and the loop increments a LOCAL copy per relaunch (reported back as
+  // seedsConsumed). Threaded so parity holds: the k-th relaunch across the whole span gets
+  // the same seed whether batched or stepped.
+  nextPatrolSeed: number,
+  creditsPerUnit: number = FUEL_CREDITS_PER_UNIT,
+): PatrolTickResult {
+  const noOp: PatrolTickResult = {
+    captain,
+    shipDamaged: false,
+    fuelSpent: 0,
+    creditsSpentOnFuel: 0,
+    seedsConsumed: 0,
+  };
+  // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
+  if (!captain.mission || captain.mission.kind !== "patrol" || ticksElapsed <= 0) return noOp;
+  // A patrol requires a combat hull. combatHullTypeOf resolves the CombatHullType (drives
+  // the player's default weapons + carrier drone screen). null / no ship -> defensive no-op.
+  const hullType = ship ? combatHullTypeOf(ship.typeKey) : null;
+  if (!ship || hullType === null) return noOp;
+
+  const def = PATROLS[captain.mission.patrolKey];
+  const shipDef = SHIP_TYPES[ship.typeKey];
+  const playerId = ship.id; // the player combatant's stable id across every wave (id-sorted lookup)
+  const routeLength = def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks;
+
+  // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
+  // never touch the input), and playerDrones is DEEP-cloned so the between-wave
+  // replenishDrones in-place mutations stay off the caller's input (purity). waveTicks is
+  // read-only here (only REPLACED wholesale on relaunch), so sharing its ref is safe.
+  let mission: PatrolMissionState | null = {
+    ...captain.mission,
+    playerDrones: cloneSquadrons(captain.mission.playerDrones),
+  };
+
+  // The (possibly fractional) route position, advanced boundary-by-boundary below.
+  let progress = mission.progressTicks;
+  let shipDamaged = false;
+  // Shared-budget locals, drawn down at relaunch cycle boundaries ONLY (like the
+  // extraction engine's fuel/credits), reported back as the *Spent totals.
+  let fuelRemaining = fuelBudget;
+  let fuelSpent = 0;
+  let creditsRemaining = creditsBudget;
+  let creditsSpentOnFuel = 0;
+  let seedNext = nextPatrolSeed;
+  let seedsConsumed = 0;
+
+  let remaining = ticksElapsed;
+  while (remaining > 0 && mission !== null) {
+    // Advance to the NEXT whole route-tick boundary (the extraction closed-form idiom).
+    const nextBoundary = Math.floor(progress) + 1;
+    let step = Math.min(remaining, nextBoundary - progress);
+    // Snap to the boundary when float drift leaves the tentative step within epsilon of
+    // it, so the "landed on a whole tick?" test below reads the corrected value.
+    if (Math.abs(progress + step - nextBoundary) < MISSION_TICK_EPSILON) {
+      step = nextBoundary - progress;
+    }
+    progress += step;
+    remaining -= step;
+
+    // A sub-tick partial (did not reach the boundary): nothing happens except banking
+    // `progress`; the loop exits next check (remaining now 0) with the residue carried.
+    if (Math.abs(progress - nextBoundary) >= MISSION_TICK_EPSILON) continue;
+    progress = nextBoundary; // exactly on a whole route tick
+
+    const routeTick = nextBoundary;
+    const waveIndex = mission.nextWaveIndex;
+    // A wave fires this route tick iff the schedule places one exactly here. waveTicks is
+    // ascending + distinct (one wave per tick, waveSchedule.ts), so at most one per tick.
+    const waveThisTick =
+      waveIndex < mission.waveTicks.length && mission.waveTicks[waveIndex] === routeTick;
+
+    if (waveThisTick) {
+      // ---- FIGHT the scheduled wave. --------------------------------------------------
+      // PLAYER combatant: FRESH from the hull defaults (weapons + cooldowns reset each
+      // wave -- each wave is a discrete battle, design-correct), then OVERRIDE hull/
+      // shield/drones with the CARRY-STATE so damage + drone losses persist across waves.
+      const player = shipToCombatant({
+        id: playerId,
+        team: "player",
+        stats: shipDef,
+        hullType,
+        stance: mission.stance,
+      });
+      player.hull = mission.playerHull;
+      player.shield = mission.playerShield;
+      player.drones = mission.playerDrones;
+
+      // ENEMY team: deterministic from the ENEMY-salt derivation. idPrefix = faction id +
+      // wave index (traceable + disjoint across waves, enemyWave.ts's contract).
+      const enemies = generateEnemyWave(
+        deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_ENEMY_SEED_SALT),
+        {
+          hullPool: def.hullPool,
+          enemyCountMin: def.enemyCountMin,
+          enemyCountMax: def.enemyCountMax,
+          idPrefix: `${mission.factionId}-w${waveIndex}`,
+        },
+      );
+
+      // BATTLE: the BATTLE-salt derivation (distinct from the enemy seed above).
+      // generateLog defaults false: the engine needs only the OUTCOME + carry-state; the
+      // watchable log is a 9b.5d concern (it re-resolves / streams for the player). Default
+      // objective (lastTeamStanding) = enemies down -> player wins, player down -> loss.
+      const { outcome, finalCombatants } = resolveBattle(
+        { combatants: [player, ...enemies] },
+        deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_BATTLE_SEED_SALT),
+      );
+
+      // Read the player's POST-battle state BY ID (finalCombatants is id-SORTED, never
+      // input order). Carry hull/shield/drones forward (attrition; hull never regens).
+      const p = finalCombatants.find((c) => c.id === playerId);
+      if (p) {
+        mission.playerHull = p.hull;
+        mission.playerShield = p.shield;
+        mission.playerDrones = p.drones;
+      }
+
+      // A win requires BOTH the objective naming "player" AND the player actually alive
+      // (defensive: a cap-tiebreak "player" with a dead player, or a missing p, is a loss).
+      const playerSurvived = p !== undefined && p.alive && p.hull > 0;
+      if (outcome.winner === "player" && playerSurvived) {
+        mission.wavesWon += 1;
+        mission.nextWaveIndex = waveIndex + 1;
+        // CONTINUE: the patrol proceeds (later waves and/or transitBack still ahead).
+      } else {
+        // DEFEAT: the patrol ENDS this tick. Flag the ship damaged (forward seam P11) and
+        // end the mission. A defeat is NEVER auto-repeated (design).
+        mission.wavesLost += 1;
+        shipDamaged = true;
+        mission = null;
+        break;
+      }
+    } else {
+      // ---- BETWEEN-WAVE RECOVERY (no battle this route tick, design S14). -------------
+      // Shields regen toward capacity at the hull's per-tick recharge; HULL DOES NOT
+      // REGEN (attrition). Drones replenish (carrier only; the array is empty otherwise,
+      // so this loop is a no-op for a non-carrier). replenishDrones only touches
+      // disrupted/destroyed drones, so an undamaged screen is untouched. Parity-safe under
+      // batching BY CONSTRUCTION: this runs once per whole-tick crossing, and we advance
+      // one whole tick at a time, so a big call applies the identical per-tick recovery.
+      mission.playerShield = Math.min(
+        shipDef.shieldCapacity,
+        mission.playerShield + shipDef.shieldRecharge,
+      );
+      for (const squadron of mission.playerDrones) {
+        replenishDrones(squadron, squadron.droneReplenishRate);
+      }
+    }
+
+    // Keep the persisted coarse phase consistent with the route position (derive-and-store).
+    mission.phase = patrolPhaseFor(def, progress);
+
+    // ---- COMPLETION: the whole route is flown (all waves passed + player alive). --------
+    // Reached only on a non-defeat tick (defeat broke out above). progress lands exactly
+    // on routeLength (integer legs), so this fires precisely at route end.
+    if (progress >= routeLength) {
+      if (mission.repeatDispatch && !mission.recalled) {
+        // RELAUNCH (Dispatch Repeatedly, not recalled). Spend one round trip's fuel from
+        // the shared budget mirroring extraction's auto-repeat rule: tank covers -> spend;
+        // short but affordable -> auto-buy the shortfall; truly broke -> do NOT relaunch
+        // (end + idle, the anti-infinite-fuel floor). Patrols have no refuel-penalty phase.
+        const need = fuelPerCycle;
+        let canRelaunch = true;
+        if (fuelRemaining >= need) {
+          fuelRemaining -= need;
+          fuelSpent += need;
+        } else {
+          const shortfall = need - fuelRemaining;
+          const cost = shortfall * creditsPerUnit;
+          if (creditsRemaining >= cost) {
+            creditsRemaining -= cost;
+            creditsSpentOnFuel += cost;
+            fuelSpent += fuelRemaining; // tank drains to 0
+            fuelRemaining = 0;
+          } else {
+            canRelaunch = false;
+          }
+        }
+        if (canRelaunch) {
+          // Fresh master seed from the threaded counter (never reused). Re-plan the wave
+          // schedule for the new seed and reset progress + carry-state to FULL.
+          const newSeed = seedNext;
+          seedNext += 1;
+          seedsConsumed += 1;
+          mission = {
+            kind: "patrol",
+            patrolKey: mission.patrolKey,
+            factionId: def.factionId,
+            stance: mission.stance, // stance + repeatDispatch persist across relaunch
+            masterSeed: newSeed,
+            phase: "transitOut",
+            progressTicks: 0,
+            waveTicks: planWaveSchedule(newSeed, patrolWaveParams(def)),
+            nextWaveIndex: 0,
+            wavesWon: 0,
+            wavesLost: 0,
+            playerHull: shipDef.hullIntegrity,
+            playerShield: shipDef.shieldCapacity,
+            playerDrones: defaultDronesForHull(hullType, `patrol-${newSeed}-p`),
+            recalled: false,
+            repeatDispatch: mission.repeatDispatch,
+          };
+          progress = 0;
+          // Loop continues: any remaining ticks advance the FRESH patrol.
+        } else {
+          mission = null; // truly broke: end (captain idles until refuelled/re-dispatched)
+          break;
+        }
+      } else {
+        // Dispatch Once, OR a recalled patrol that finished its route: end (captain idles).
+        // A recalled patrol does NOT relaunch (recall honored at cycle end, like extraction).
+        mission = null;
+        break;
+      }
+    }
+  }
+
+  // Persist the (possibly fractional) route position onto the surviving mission.
+  if (mission !== null) mission.progressTicks = progress;
+
+  return {
+    captain: { ...captain, mission },
+    shipDamaged,
+    fuelSpent,
+    creditsSpentOnFuel,
+    seedsConsumed,
+  };
+}
+
 // Replaces the old recomputeFleetAdmin (which recomputed fleetAdminXp fresh
 // each call as the sum of every captain's level, effectively frozen under
 // realistic play, see this plan's design doc for the live-tested root
@@ -1588,6 +1974,14 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // Decimal-exact because totalCreditsSpentOnFuel is the true sum of (small) purchase costs.
   let creditsBudgetRemaining = state.credits.toNumber();
   let totalCreditsSpentOnFuel = 0;
+  // Combat 0.13.0 (Phase 9b.5c): patrol wiring, threaded through the per-captain map like
+  // the fuel/credits budgets above. patrolSeedNext is the running nextPatrolSeed counter --
+  // a patrol RELAUNCH takes it as a fresh master seed and advances it, so two patrols
+  // relaunching in the SAME call (or a big offline call relaunching many times) never reuse
+  // a seed; it is written back to state.nextPatrolSeed once, below. damagedShipIds collects
+  // the ships whose patrol ended in DEFEAT this call, folded into state.ships once, below.
+  let patrolSeedNext = state.nextPatrolSeed;
+  const damagedShipIds = new Set<string>();
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // Combat 0.13.0 (Phase 9b.5a): ROUTE by mission KIND. CaptainState.mission is now a
@@ -1604,9 +1998,48 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     switch (captain.mission.kind) {
       case "extraction":
         break; // fall through to the extraction handling below (unchanged)
-      case "patrol":
-        // 9b.5b fills the patrol tick loop here. For now: no-op (return the captain as-is).
-        return captain;
+      case "patrol": {
+        // Combat 0.13.0 (Phase 9b.5c): advance the patrol along its route, fighting a
+        // battle at each scheduled wave and carrying hull/shield/drones between waves.
+        // Mirrors the extraction arm's shared-budget threading: draw relaunch fuel/credits
+        // from the SAME running tank/credit budgets (no double-spend across captains),
+        // report the spends back for the single Decimal deduction below, and thread the
+        // relaunch seed counter + the ship-damaged flag. NO rewards/XP here (Phase 10).
+        const patrolShip = state.ships.find((s) => s.assignedCaptainId === captain.id);
+        // Price one round trip's fuel from the SAME equipment-folded engineEfficiency the
+        // dispatch gate + the extraction path use, so a RELAUNCH burns the dispatch estimate
+        // (a no-gear fold is an identity). Only relaunches spend; the first cycle was pre-paid
+        // at dispatch, exactly like extraction's first cycle.
+        const patrolDef = PATROLS[captain.mission.patrolKey];
+        const patrolStats = patrolShip ? shipDerivedStats(patrolShip, equippedFor(state, patrolShip.id)) : null;
+        const patrolFuelPerCycle =
+          patrolShip && patrolStats
+            ? fuelForRoundTrip(patrolDef.transitOutTicks, patrolDef.transitBackTicks, {
+                ...SHIP_TYPES[patrolShip.typeKey],
+                engineEfficiency: patrolStats.engineEfficiency,
+              })
+            : 0;
+        const patrolResult = tickCaptainPatrol(
+          ticksElapsed,
+          captain,
+          patrolShip,
+          fuelBudgetRemaining,
+          patrolFuelPerCycle,
+          creditsBudgetRemaining,
+          patrolSeedNext
+        );
+        // Draw down the shared budgets so a later captain sees the reduced values (no
+        // double-spend), and sum for the single Decimal tank/credits deductions below.
+        fuelBudgetRemaining -= patrolResult.fuelSpent;
+        totalFuelSpent += patrolResult.fuelSpent;
+        creditsBudgetRemaining -= patrolResult.creditsSpentOnFuel;
+        totalCreditsSpentOnFuel += patrolResult.creditsSpentOnFuel;
+        // Advance the seed counter by what the relaunch(es) consumed, and flag the ship on
+        // a defeat (folded into state.ships once, below).
+        patrolSeedNext += patrolResult.seedsConsumed;
+        if (patrolResult.shipDamaged && patrolShip) damagedShipIds.add(patrolShip.id);
+        return patrolResult.captain;
+      }
       default:
         return assertNeverMission(captain.mission);
     }
@@ -1859,6 +2292,16 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   const postMissionState: GameState = {
     ...state,
     captains,
+    // Combat 0.13.0 (Phase 9b.5c): the relaunch seed counter advanced by any patrol that
+    // completed + relaunched this call (=== state.nextPatrolSeed when none did, a no-op).
+    nextPatrolSeed: patrolSeedNext,
+    // Combat 0.13.0 (Phase 9b.5c): flag any ship whose patrol ended in DEFEAT this call
+    // (immutable map, matching the file's state-update idiom). Same reference when none was
+    // damaged (the common case), so a call with no patrol defeat is byte-identical for ships.
+    ships:
+      damagedShipIds.size > 0
+        ? state.ships.map((s) => (damagedShipIds.has(s.id) ? { ...s, damaged: true } : s))
+        : state.ships,
     gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
     // Flat .plus(), unlike fleetAdminXpDelta (which resolves through
     // applyFleetAdminXp's level-up loop below), credits has no leveling
@@ -4817,16 +5260,24 @@ export function fuelFlowSummary(state: GameState): FuelFlowSummary {
   // the cycle length uses the ship-adjusted def so the rate is fuel per REAL tick.
   const burnPerTick = state.captains.reduce((sum, captain) => {
     if (captain.mission === null) return sum;
-    // Combat 0.13.0 (Phase 9b.5a): this fuel-runway burn estimate only knows the
-    // EXTRACTION arm today. ANY non-extraction mission kind is SKIPPED here (not just
-    // today's patrol): the guard is `kind !== "extraction"`, so a future kind is silently
-    // excluded from the estimate too. This site is extraction-scoped by nature and is NOT a
-    // compile-time exhaustiveness checkpoint (only economyTick's switch(kind) is); a future
-    // kind that burns fuel must be added to this estimate EXPLICITLY, never left to fall
-    // through as skipped. A patrol also burns transit fuel, but no player path dispatches one
-    // yet and wiring its burn term is 9b.5b; narrow-and-skip keeps the extraction estimate
-    // byte-identical and cannot crash on a non-extraction mission. 9b.5b adds the patrol burn
-    // term here (fuelForRoundTrip over the patrol's legs / its cycle length).
+    // Combat 0.13.0 (Phase 9b.5c): the fuel-runway burn estimate now knows BOTH arms.
+    // PATROL: a patrol burns its two transit legs' fuel over one route; amortize one round
+    // trip's fuel over the whole route length (transitOut + rollWindow + transitBack) for a
+    // per-real-tick rate, the direct twin of the extraction term below. Uses the UNFOLDED
+    // SHIP_TYPES stats, matching the extraction term's fuelNeeded convention (an estimate,
+    // not the exact per-cycle spend the tick loop draws). A hull-less patrol captain burns 0.
+    if (captain.mission.kind === "patrol") {
+      const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
+      if (!ship) return sum;
+      const def = PATROLS[captain.mission.patrolKey];
+      const routeTicks = def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks;
+      if (routeTicks <= 0) return sum;
+      return sum + fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, SHIP_TYPES[ship.typeKey]) / routeTicks;
+    }
+    // ANY OTHER non-extraction kind is SKIPPED (a future kind that burns fuel must be added
+    // EXPLICITLY here, like the patrol arm just above; this site is NOT a compile-time
+    // exhaustiveness checkpoint, only economyTick's switch(kind) is). Narrow-and-skip keeps
+    // the estimate from crashing on an unhandled kind.
     if (captain.mission.kind !== "extraction") return sum;
     const extractionMission = captain.mission;
     const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
