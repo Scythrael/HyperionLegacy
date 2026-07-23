@@ -115,12 +115,12 @@ export interface CombatWeapon {
 	// pipeline's effect-proc seam in resolveBattle.ts.
 	effectSlots: WeaponEffect[];
 
-	// -- DURABILITY (design S9). A weapon is a DurableSystem: it takes durability
+	// DURABILITY (design S9). A weapon is a DurableSystem: it takes durability
 	// "damage events" and its quality mitigates the loss + raises its ceiling. See
 	// combat/durability.ts for the model + the systemCondition four-state helper.
 	// ⚠️ SEAM: the sim does NOT roll durability loss live yet (that would perturb
 	// the parity/mechanic fixtures' fixed draw schedule); it is a pure tested model
-	// wired in during the equipment-durability-sync integration phase. --
+	// wired in during the equipment-durability-sync integration phase.
 	// Current durability points remaining (integer, >= 0). 0 => the system reads
 	// "offline" from systemCondition.
 	durability: number;
@@ -194,7 +194,7 @@ export interface Combatant {
 	// Phase 6 feeds this from maneuverability/speed + range; a flat field for now.
 	evasion: number;
 
-	// -- Per-family resists (design S5). Resistances are DUAL-purpose: they cut
+	// Per-family resists (design S5). Resistances are DUAL-purpose: they cut
 	// incoming DAMAGE of a family AND the chance + rank of that family's
 	// disruptions. For v1 the "type" granularity is the three weapon FAMILIES
 	// (kinetic / particle / ew). Each value is an integer percent (0..100);

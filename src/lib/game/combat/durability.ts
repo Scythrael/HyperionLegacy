@@ -1,5 +1,5 @@
 // ============================================================================
-// combat/durability.ts -- system durability model + four-state condition
+// combat/durability.ts: system durability model + four-state condition
 // (Combat 0.13.0, Phase 5, design S9)
 //
 // Gear loses durability on DAMAGE EVENTS (design S9: "a hit is an event"). This

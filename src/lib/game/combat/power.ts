@@ -1,5 +1,5 @@
 // ============================================================================
-// combat/power.ts -- reactor power budget (Combat 0.13.0, Phase 5, design S10)
+// combat/power.ts: reactor power budget (Combat 0.13.0, Phase 5, design S10)
 //
 // A ship's reactor `powerOutput` gates what its loadout can draw: you cannot
 // stack the craziest weapons/modules if the reactor cannot supply them, which
