@@ -3074,6 +3074,20 @@ export interface BlueprintDef {
   unlockHint?: string;  // functional "how to unlock" clue for the UI (optional)
 }
 
+// The THREE mutually-exclusive blueprint shapes, as a single classified value. This encodes
+// the discriminant PRECEDENCE in ONE place: unlock-only wins first (it crafts nothing, so it
+// must never be read as a material even though it, too, lacks `equipmentOutput`), then equipment
+// (mints a system), else material (a stackable output). Before this helper the precedence lived
+// inline at several call sites, where a material-vs-equipment branch classifying on
+// `equipmentOutput === undefined` ALONE would misread an unlock-only blueprint as material if it
+// ever reached that branch unguarded. Routing shape reads through blueprintKind removes that risk.
+export type BlueprintKind = "unlockOnly" | "equipment" | "material";
+export function blueprintKind(bp: BlueprintDef): BlueprintKind {
+  if (bp.unlockOnly) return "unlockOnly";   // precedence encoded ONCE, here
+  if (bp.equipmentOutput) return "equipment";
+  return "material";
+}
+
 // First-pass blueprint set (design §5), tied to the already-scaffolded component
 // ITEMS (frameSegment/powerCoupling [minorComponent], structuralAssembly [majorComponent]).
 // Keyed Record<string, BlueprintDef> (not a narrow union), matching FACILITIES'/

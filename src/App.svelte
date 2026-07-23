@@ -109,6 +109,7 @@
     // tick.ts research fns (canResearch / startResearch / researchSlotCount) use,
     // so the panel can't drift from what the backend enforces.
     BLUEPRINTS,
+    blueprintKind,
     blueprintUnlocked,
     RESEARCH_FACILITY_KEY,
     // Fabricator (Phase 4, Task F4 UI), the stable "fabricator" facility key the
@@ -2736,8 +2737,18 @@
         return "Not enough free materials to reserve that quantity.";
       case "storageFull":
         return "Output storage is full (expand the Warehouse).";
-      default:
+      case "equipmentStorageFull":
+        // The spare-system pool (equipmentAtCap) is full, the equipment twin of storageFull.
+        // (Previously this valid reason fell through to the generic default; the exhaustiveness
+        // assertion below surfaced the gap.) Relieved by salvaging a system or expanding storage.
+        return "Ship-system storage is full (salvage a system or expand storage).";
+      default: {
+        // Exhaustiveness assertion: every StartLineBlockReason above is handled, so `reason` is
+        // `never` here. A future union member that is NOT added above becomes a real compile error
+        // at this line (svelte-check), making the "new reason is a compile error" claim true.
+        const _exhaustive: never = reason;
         return "Cannot start this line right now.";
+      }
     }
   }
 
@@ -2822,8 +2833,13 @@
         return "Not enough credits.";
       case "notFound":
         return "Unavailable.";
-      default:
+      default: {
+        // Exhaustiveness assertion: every ShipBuildBlockReason above is handled, so `reason` is
+        // `never` here. A future union member that is NOT added above becomes a real compile error
+        // at this line (svelte-check), making the "new reason is a compile error" claim true.
+        const _exhaustive: never = reason;
         return "Cannot build this hull right now.";
+      }
     }
   }
 
@@ -3454,7 +3470,7 @@
   // their research/tier state, filter them out here (and from availableFabricateBlueprints below)
   // so the Fabricator never counts or offers them. They live in the Research list instead.
   $: fabricableBlueprintCount = Object.keys(BLUEPRINTS).filter(
-    (k) => !BLUEPRINTS[k].unlockOnly && blueprintUnlocked(state, k) && BLUEPRINTS[k].tier <= fabricatorLevel
+    (k) => blueprintKind(BLUEPRINTS[k]) !== "unlockOnly" && blueprintUnlocked(state, k) && BLUEPRINTS[k].tier <= fabricatorLevel
   ).length;
 
   // Whether the fabricator is built at all (>= 1 slot). Below 1 slot there are no line
@@ -3470,7 +3486,7 @@
   // also reject them, this keeps them out of the configurator's dropdowns in the first place).
   $: availableFabricateBlueprints = Object.keys(BLUEPRINTS)
     .map((k) => BLUEPRINTS[k])
-    .filter((bp) => !bp.unlockOnly && blueprintUnlocked(state, bp.key) && bp.tier <= fabricatorLevel);
+    .filter((bp) => blueprintKind(bp) !== "unlockOnly" && blueprintUnlocked(state, bp.key) && bp.tier <= fabricatorLevel);
   // The DISTINCT tiers among those blueprints, ascending, the tier dropdown's options.
   $: availableFabricateTiers = [...new Set(availableFabricateBlueprints.map((bp) => bp.tier))].sort(
     (a, b) => a - b
@@ -4836,7 +4852,7 @@
                            it UNLOCKS (a hull at the Shipyard) instead of "Crafts: inputs -> output".
                            A MATERIAL blueprint shows its stackable output; an EQUIPMENT blueprint
                            previews its minted piece's SYSTEM name (slot + variety, no recipe.outputItem). -->
-                      {#if bp.unlockOnly}
+                      {#if blueprintKind(bp) === "unlockOnly"}
                         <div class="research-cost">Unlocks: {hullUnlockedByBlueprint(bp.key) ?? "new build content"} (build at the Shipyard)</div>
                       {:else}
                         <div class="research-cost">
@@ -4846,7 +4862,7 @@
                       <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                       {#if unlocked}
-                        <div class="research-cost" style="color: var(--color-success)">{bp.unlockOnly ? "✓ Researched, build it at the Shipyard" : "✓ Researched, craftable once the Fabricator is online"}</div>
+                        <div class="research-cost" style="color: var(--color-success)">{blueprintKind(bp) === "unlockOnly" ? "✓ Researched, build it at the Shipyard" : "✓ Researched, craftable once the Fabricator is online"}</div>
                       {:else if job}
                         {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                         <div class="research-bar-track">

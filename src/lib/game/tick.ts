@@ -76,6 +76,7 @@ import {
   FABRICATOR_FACILITY_KEY,
   SHIPYARD_FACILITY_KEY,
   BLUEPRINTS,
+  blueprintKind,
   blueprintUnlocked,
   // Equipment 0.11.0 Task B1: the spare-storage-cap seam. equipmentAtCap is the
   // equipment twin of materialAtCap, consulted by both fabricate gates below to refuse
@@ -3728,10 +3729,14 @@ function lineJobSpec(line: CraftLine): CraftLineJobSpec | null {
   // kind === "fabricate"
   const bp = BLUEPRINTS[line.recipeKey];
   if (!bp) return null; // unknown blueprint -> inert line
-  // Task 19: branch on equipmentOutput. An EQUIPMENT blueprint mints an EquipmentInstance at
+  // Task 19: branch on blueprint SHAPE. An EQUIPMENT blueprint mints an EquipmentInstance at
   // completion (addEquipment); a MATERIAL blueprint deposits its stackable output (addItem,
   // UNCHANGED). Both consume recipe.inputs identically (that map is meaningful for both shapes).
-  const isEquipment = bp.equipmentOutput !== undefined;
+  // Classify via blueprintKind (0.13.0 centralized precedence) rather than a bare
+  // `equipmentOutput !== undefined`: identical for all valid data (an unlock-only blueprint never
+  // carries equipmentOutput, and one can never reach here anyway since canStartLine refuses it),
+  // but it cannot silently read an unlock-only shape as equipment even on corrupt data.
+  const isEquipment = blueprintKind(bp) === "equipment";
   // recipe.outputItem/outputQty are OPTIONAL (model.ts): a MATERIAL blueprint always carries
   // them, an EQUIPMENT blueprint OMITS them (its real output is the minted EquipmentInstance).
   // These two locals are INERT on the equipment path (isEquipment skips the cap gate below and
@@ -4010,7 +4015,7 @@ export function canStartLine(
     // guarantee does not rest on UI filtering alone (the codebase treats the engine as the source
     // of truth). Without it, a RESEARCHED unlock-only blueprint would fall through to the materials
     // gate and block only incidentally (empty inputs -> 0 affordable), an honest reason, not luck.
-    if (BLUEPRINTS[recipeKey].unlockOnly) return { ok: false, reason: "unlockOnly" };
+    if (blueprintKind(BLUEPRINTS[recipeKey]) === "unlockOnly") return { ok: false, reason: "unlockOnly" };
     if (!blueprintUnlocked(state, recipeKey)) return { ok: false, reason: "notResearched" };
     if (BLUEPRINTS[recipeKey].tier > facilityLevel(state, FABRICATOR_FACILITY_KEY)) {
       return { ok: false, reason: "tierLocked" };
@@ -4041,7 +4046,10 @@ export function canStartLine(
   // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT from
   // the WAREHOUSE cap, it mints an EquipmentInstance and has no stackable output, so the material
   // storage cap must not block it. The SAME exemption stepCraftLine/canFabricate apply.
-  const isEquipmentBlueprint = kind === "fabricate" && BLUEPRINTS[recipeKey].equipmentOutput !== undefined;
+  // blueprintKind (0.13.0) classifies the fabricate shape; behavior-identical to the prior
+  // `equipmentOutput !== undefined` here (an unlock-only blueprint was already refused above, so
+  // recipeKey is material or equipment), with precedence now living in one place.
+  const isEquipmentBlueprint = kind === "fabricate" && blueprintKind(BLUEPRINTS[recipeKey]) === "equipment";
   if (!isEquipmentBlueprint) {
     // A non-equipment fabricate line is a MATERIAL blueprint, which always carries recipe.outputItem;
     // the `?? undefined` guard only exists because outputItem is now an optional field (a corrupt/
@@ -4232,7 +4240,8 @@ export function canFabricate(
   // research/tier/resource state (researching it grants Shipyard build access, not a craft), so
   // reject it FIRST, before the ownership gate, with its own honest reason. This is the engine-
   // level guarantee behind the F4 UI also filtering these out of the craftable-blueprint list.
-  if (bp.unlockOnly) return { ok: false, reason: "unlockOnly" };
+  // Classified via blueprintKind (0.13.0), the single home for the shape precedence.
+  if (blueprintKind(bp) === "unlockOnly") return { ok: false, reason: "unlockOnly" };
 
   // --- Ownership: the blueprint must be RESEARCHED (unlocked via the Research Lab) before
   // it can be fabricated. Pure membership test, surfaced as its own reason.
@@ -4267,9 +4276,11 @@ export function canFabricate(
   // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT from
   // the WAREHOUSE cap, it mints an EquipmentInstance into state.equipment and has no stackable
   // output, so the material storage cap must not block it. Same exemption canStartLine/stepCraftLine
-  // apply. equipmentOutput === undefined narrows this to a MATERIAL blueprint, which always carries
-  // recipe.outputItem; the extra `!== undefined` guard only satisfies the now-optional field type.
-  if (bp.equipmentOutput === undefined) {
+  // apply. blueprintKind === "material" narrows this to a MATERIAL blueprint (unlock-only was
+  // already rejected above, so this is behavior-identical to the prior `equipmentOutput ===
+  // undefined`); a material blueprint always carries recipe.outputItem, the inner `!== undefined`
+  // guard only satisfies the now-optional field type.
+  if (blueprintKind(bp) === "material") {
     if (bp.recipe.outputItem !== undefined && materialAtCap(state, bp.recipe.outputItem)) {
       return { ok: false, reason: "storageFull" };
     }
@@ -4333,8 +4344,11 @@ export function startFabricateJob(
   // deduct + startProcess call are otherwise identical for both shapes.
   // The material branch always has recipe.outputItem/outputQty (only equipment blueprints omit
   // them); the `?? ""` / `?? 1` fallbacks are inert there and only satisfy the optional field type.
+  // blueprintKind (0.13.0) selects the effect shape; behavior-identical to the prior
+  // `equipmentOutput !== undefined` (canFabricate above already rejected unlock-only, so bp is
+  // material or equipment here).
   const effect: ProcessEffect =
-    bp.equipmentOutput !== undefined
+    blueprintKind(bp) === "equipment"
       ? { type: "addEquipment", blueprintKey }
       : { type: "addItem", itemId: bp.recipe.outputItem ?? "", amount: new Decimal(bp.recipe.outputQty ?? 1) };
 

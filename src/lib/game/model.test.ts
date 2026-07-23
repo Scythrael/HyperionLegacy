@@ -24,6 +24,7 @@ import {
   rarityIndex,
   EQUIPMENT_SLOTS,
   BLUEPRINTS,
+  blueprintKind,
   DEFAULT_EQUIPMENT_VARIETY,
   LIVE_STAT_KEYS,
   RESERVED_STAT_KEYS,
@@ -1592,6 +1593,31 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
 // BlueprintDef invariants (outputItem resolves, inputs resolve, no dead-end refined
 // input) over ALL of BLUEPRINTS, including these; this block adds the equipment-only
 // contract on top.
+// blueprintKind (Combat 0.13.0): the single classifier that encodes the three-shape
+// precedence (unlockOnly wins over equipment over material) in one place, so no call site
+// re-derives it. These pin the precedence + the three real representatives.
+describe("blueprintKind classifier", () => {
+  it("classifies an unlock-only blueprint as 'unlockOnly'", () => {
+    expect(blueprintKind(BLUEPRINTS.battleshipHullBp)).toBe("unlockOnly");
+    expect(blueprintKind(BLUEPRINTS.carrierHullBp)).toBe("unlockOnly");
+  });
+
+  it("classifies an equipment blueprint (equipmentOutput present) as 'equipment'", () => {
+    expect(blueprintKind(BLUEPRINTS.prospectorHoldBp)).toBe("equipment");
+  });
+
+  it("classifies a material blueprint (stackable output, no equipmentOutput) as 'material'", () => {
+    expect(blueprintKind(BLUEPRINTS.frameSegmentBp)).toBe("material");
+  });
+
+  it("precedence: unlockOnly WINS even if a (malformed) blueprint also carried equipmentOutput", () => {
+    // Data invariant is that unlock-only blueprints carry no equipmentOutput, but the classifier
+    // must still put unlockOnly first so a corrupt/hand-edited shape can never be read as equipment.
+    const malformed = { ...BLUEPRINTS.battleshipHullBp, equipmentOutput: { slotType: "cargoBay", varietyKey: "balancedHold" } } as typeof BLUEPRINTS.battleshipHullBp;
+    expect(blueprintKind(malformed)).toBe("unlockOnly");
+  });
+});
+
 describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
   // The 12 (slot, variety) pairs the equipment blueprints must cover, derived
   // straight from EQUIPMENT_SLOTS so this stays in lockstep with the slot table.
