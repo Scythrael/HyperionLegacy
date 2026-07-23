@@ -181,6 +181,15 @@
     type EquipFitBlockReason,
   } from "./lib/game/equipment";
   import { generateEquipment } from "./lib/game/itemgen";
+  // Combat 0.13.0 dev harness (Debug tab only): the ship->Combatant bridge
+  // (shipToCombatant + the illustrative sampleLoadout), the sim entry point
+  // (resolveBattle), and the plain dev log renderer (formatCombatLog). These wire
+  // the REAL combat engine so a seeded test battle can be run + read on-device
+  // BEFORE the mockup-gated combat UI (Phase 12) exists. NOT a shipped-UI
+  // dependency; feeds only the DEV_MODE-gated "Run Test Battle" control below.
+  import { shipToCombatant, sampleLoadout } from "./lib/game/combat/bridge";
+  import { resolveBattle } from "./lib/game/combat/resolveBattle";
+  import { formatCombatLog } from "./lib/game/combat/logFormat";
   // Equipment 0.11.0 Phase D (2026-07-20): salvageEquipment(state, id) recycles ONE
   // spare CRAFTED system back into a fraction of its crafting inputs, returning a
   // SalvageResult (discriminated on `ok`: success carries { next, recovered }, reject
@@ -1970,6 +1979,87 @@
     };
     doSave();
     pushLog(`[DEV] Granted spare ${piece.id}: ${EQUIPMENT_SLOTS[slot].label} / ${varietyKey} (${piece.rarity} q${piece.quality}).`);
+  }
+
+  // --- [DEV] Combat 0.13.0 test battle (Debug tab only) --------------------
+  // Runs the REAL combat engine on the player's current ship vs a hardcoded pirate
+  // and renders the log into a dev readout block. This exercises the sim end-to-end
+  // on-device BEFORE the mockup-gated combat UI (Phase 12) is built. It is STRICTLY
+  // READ-ONLY on game state: it bridges a COPY of the ship's stats into a throwaway
+  // Combatant and never writes back the battle's hull/shield damage. Nothing is
+  // persisted (no doSave) and the player's real ship is untouched.
+
+  // The rendered battle log lines (one string per line, incl. round dividers and
+  // the outcome). Empty until the first run; shown in the [DEV BATTLE] readout.
+  let devBattleLines: string[] = [];
+
+  // How many of the log's lines the readout shows before collapsing the middle
+  // (a long fight can produce hundreds of lines; we cap so the dev panel does not
+  // grow unbounded). Head + tail are shown with a "... N more lines" marker.
+  const DEV_BATTLE_HEAD = 40;
+  const DEV_BATTLE_TAIL = 20;
+
+  function devRunTestBattle() {
+    // Pick the player's ship: the first in the fleet. No ship => nothing to test.
+    const ship = state.ships[0];
+    if (ship === undefined) {
+      devBattleLines = ["[DEV BATTLE] No ship in the fleet to test with."];
+      return;
+    }
+    const shipDef = SHIP_TYPES[ship.typeKey];
+    const shipLabel = shipDef?.label ?? ship.typeKey;
+
+    // Bridge the player's ship into a Combatant (a COPY of its stats; read-only).
+    // Weapons are the illustrative sampleLoadout (the game has no fitted weapons
+    // yet, see bridge.ts). team "player".
+    const player = shipToCombatant({
+      id: ship.id,
+      team: "player",
+      stats: shipDef,
+      weaponLoadout: sampleLoadout("player"),
+    });
+
+    // A hardcoded pirate hull, team "enemy", with its own fresh sampleLoadout.
+    // FIRST-PASS placeholder stats (this is a dev harness, not balance).
+    const enemy = shipToCombatant({
+      id: "pirate-raider",
+      team: "enemy",
+      stats: { hullIntegrity: 260, shieldCapacity: 120, shieldRecharge: 5 },
+      weaponLoadout: sampleLoadout("pirate"),
+    });
+
+    // Seed: a fresh per-run seed off the clock, masked to 32 bits so it is a plain
+    // integer the RNG accepts. Each click is a NEW battle; swap this for a fixed
+    // literal (e.g. 12345) to replay the exact same fight while debugging.
+    const seed = Date.now() & 0xffffffff;
+
+    // Run the REAL sim with log generation on (LIVE watching path).
+    const { outcome, log } = resolveBattle(
+      { combatants: [player, enemy] },
+      seed,
+      { generateLog: true },
+    );
+
+    // Friendly names for the two combatants in the rendered lines.
+    const nameFor = (id: string): string =>
+      id === ship.id ? `${shipLabel} (you)` : id === "pirate-raider" ? "Pirate Raider" : id;
+
+    // Render + label. Cap huge logs: show the head + tail with a collapsed marker
+    // so a long fight never spams the readout unboundedly.
+    const rendered = formatCombatLog(log, nameFor, outcome);
+    let body = rendered;
+    if (rendered.length > DEV_BATTLE_HEAD + DEV_BATTLE_TAIL) {
+      const hidden = rendered.length - DEV_BATTLE_HEAD - DEV_BATTLE_TAIL;
+      body = [
+        ...rendered.slice(0, DEV_BATTLE_HEAD),
+        `... ${hidden} more lines ...`,
+        ...rendered.slice(rendered.length - DEV_BATTLE_TAIL),
+      ];
+    }
+    devBattleLines = [
+      `[DEV BATTLE] ${shipLabel} vs Pirate Raider (seed ${seed})`,
+      ...body,
+    ];
   }
 
   // Human-readable text for a blocked-fit reason token, so the dev panel can SHOW
@@ -7369,6 +7459,22 @@
             <span class="dev-label">[DEV] Materials</span>
             <button class="dev-btn" on:click={devGrantMaterials}>+ Craft materials (ores + refined)</button>
           </div>
+          <!-- [DEV] Combat 0.13.0 test battle. Runs the REAL sim (bridge ->
+               resolveBattle -> formatCombatLog) on the player's first ship vs a
+               hardcoded pirate and prints the log below. READ-ONLY on state: it
+               bridges a COPY of the ship's stats, persists nothing, and never
+               touches the real ship's hull. Each click is a fresh seeded fight.
+               See devRunTestBattle in the script block. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Combat</span>
+            <button class="dev-btn" on:click={devRunTestBattle}>Run Test Battle</button>
+          </div>
+          {#each devBattleLines as line}
+            <div class="dev-row">
+              <span class="dev-label"></span>
+              <span class="dev-readout-text">{line}</span>
+            </div>
+          {/each}
           <div class="dev-row">
             <button class="dev-btn" on:click={doSave}>Save now</button>
             <button class="dev-btn danger" on:click={resetSave}>Reset save</button>
