@@ -958,8 +958,12 @@ export const RESERVED_STAT_KEYS = [
   // Defense:
   "shieldCapacity",
   "shieldRecharge",
-  "bleedthrough",
-  "bleedthroughResist",
+  // Renamed from bleedthrough / bleedthroughResist (Combat 0.13.0 design S5): the
+  // particle Shield Attenuation signature and its resist counterpart. Still INERT
+  // reserved keys (no runtime consumer yet), so this is a pure identifier rename
+  // with NO save migration needed.
+  "shieldAttenuation",
+  "shieldCoherence",
   "hullStrength",
   "ablativeArmor",
   "kineticDampening",
