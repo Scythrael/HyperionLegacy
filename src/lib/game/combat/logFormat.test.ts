@@ -1,7 +1,7 @@
 // ============================================================================
 // combat/logFormat.test.ts -- the dev combat-log renderer (Combat 0.13.0)
 //
-// Guards the round grouping (a "-- Round N --" divider per round), the hit-line
+// Guards the round grouping (a "=== Round N ===" divider per round), the hit-line
 // content (attacker / target / damage all present), determinism (a fixed log
 // renders identical lines every call), and the outcome summary line.
 // ============================================================================
@@ -62,8 +62,8 @@ const OUTCOME: BattleOutcome = {
 describe("formatCombatLog", () => {
 	it("emits a round divider for each round present", () => {
 		const lines = formatCombatLog(FIXED_LOG, nameFor);
-		expect(lines).toContain("-- Round 1 --");
-		expect(lines).toContain("-- Round 2 --");
+		expect(lines).toContain("=== Round 1 ===");
+		expect(lines).toContain("=== Round 2 ===");
 	});
 
 	it("hit line includes attacker, target, and damage", () => {

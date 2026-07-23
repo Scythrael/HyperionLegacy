@@ -3,7 +3,7 @@
 //
 // A PLAIN, DATA-DRIVEN renderer that turns the structured combat event stream
 // (types.ts CombatEvent) into readable text lines for a DEV readout. It groups
-// events by round with a "-- Round N --" divider and applies a small template per
+// events by round with a "=== Round N ===" divider and applies a small template per
 // event type (hit / evade / crit / effect / DoT / destruction), then appends the
 // outcome as a final line.
 //
@@ -81,7 +81,7 @@ function formatEvent(
 // formatCombatLog -- the public renderer.
 //
 // Groups the event stream into rounds (CombatEvent.round, the 1-second bucket)
-// with a "-- Round N --" divider between rounds, formats each event via the
+// with a "=== Round N ===" divider between rounds, formats each event via the
 // template above, and appends the outcome as a final line. Human round numbers
 // are 1-based (round 0 = the first second of action, shown as "Round 1").
 //
@@ -105,7 +105,7 @@ export function formatCombatLog(
 		if (line === null) continue;
 		if (ev.round !== lastRound) {
 			// New round: emit its divider (human 1-based) before its first line.
-			lines.push(`-- Round ${ev.round + 1} --`);
+			lines.push(`=== Round ${ev.round + 1} ===`);
 			lastRound = ev.round;
 		}
 		lines.push(line);
