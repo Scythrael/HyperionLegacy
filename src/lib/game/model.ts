@@ -1702,9 +1702,13 @@ export interface CaptainState {
 // null. A convenience for the existing extraction consumers (the App.svelte status
 // readouts + the in-progress mission list) that must read extraction-only fields off the
 // now-unioned CaptainState.mission WITHOUT each site hand-narrowing the discriminant.
-// Returns the extraction mission when the captain is on one, else null (idle OR on a
-// patrol, both of which those extraction-only consumers treat as "not an extraction run").
-// PURE.
+// Returns the extraction mission when the captain is on one, else null for EVERY other
+// case: idle (mission null) AND any non-extraction kind (today's patrol, and any future
+// kind), all of which these extraction-only consumers treat as "not an extraction run".
+// This is NOT a compile-time exhaustiveness checkpoint (only economyTick's switch(kind) +
+// assertNeverMission is): a future kind is absorbed as null here silently, so any consumer
+// that must actually DISPLAY/handle a new kind has to add that path EXPLICITLY rather than
+// rely on this helper. PURE.
 export function extractionMissionOf(captain: CaptainState): CaptainMissionState | null {
   return captain.mission !== null && captain.mission.kind === "extraction" ? captain.mission : null;
 }

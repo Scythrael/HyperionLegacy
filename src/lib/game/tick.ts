@@ -848,13 +848,18 @@ export function tickCaptainMission(
   }
 
   // Combat 0.13.0 (Phase 9b.5a): tickCaptainMission advances ONLY the EXTRACTION arm of
-  // the CaptainState.mission discriminated union. A PATROL is advanced by its own loop
-  // (9b.5b); economyTick routes by kind so a patrol never reaches here in production, but
-  // this guard is the belt-and-suspenders that keeps a DIRECT caller (a test, a future
-  // path) from reading extraction-only fields off a patrol. Narrow ONCE into a typed local
-  // (`extractionMission`) so every read below sees the extraction arm's fields without
-  // re-narrowing across the many statements + calls that follow. A patrol returns the SAME
-  // no-op result the idle/zero-tick early-out returns, i.e. no progress, no crash.
+  // the CaptainState.mission discriminated union. ANY non-extraction mission kind no-ops
+  // here (not just today's patrol): the guard is `kind !== "extraction"`, so a future kind
+  // is silently absorbed as a no-op too. This site is extraction-scoped by NATURE (its
+  // whole body reads extraction-only fields), and it is NOT a compile-time exhaustiveness
+  // checkpoint, only economyTick's switch(kind) + assertNeverMission is. A future kind that
+  // needs a real tick path must be routed EXPLICITLY (from economyTick), never left to fall
+  // through here. economyTick already routes by kind so a patrol never reaches this in
+  // production; this guard is belt-and-suspenders for a DIRECT caller (a test, a future
+  // path). Narrow ONCE into a typed local (`extractionMission`) so every read below sees the
+  // extraction arm's fields without re-narrowing across the many statements + calls that
+  // follow. A non-extraction mission returns the SAME no-op result the idle/zero-tick
+  // early-out returns, i.e. no progress, no crash.
   if (captain.mission.kind !== "extraction") {
     return {
       captain,
@@ -2327,7 +2332,7 @@ export function canDispatchPatrol(
   // RANGE: the hull physically cannot carry enough fuel for the round trip (independent of
   // how much is in the shared tank). Forward-defensive, mirrors canDispatch's fuelCapacity.
   if (stats.fuelCapacity < need) return { ok: false, reason: "fuelCapacity" };
-  // RESOURCE (mirror of canDispatch/Fuel Economy v2 F3): a short tank does NOT hard-block --
+  // RESOURCE (mirror of canDispatch/Fuel Economy v2 F3): a short tank does NOT hard-block,
   // dispatchCaptainOnPatrol AUTO-BUYS the shortfall from credits and flies. So fuelEmpty
   // fires ONLY when the tank is short AND the shortfall is UNAFFORDABLE (the "truly broke"
   // floor). shortfall/cost as plain numbers (fuel is human-scale, and state.fuel < need here
@@ -4813,10 +4818,15 @@ export function fuelFlowSummary(state: GameState): FuelFlowSummary {
   const burnPerTick = state.captains.reduce((sum, captain) => {
     if (captain.mission === null) return sum;
     // Combat 0.13.0 (Phase 9b.5a): this fuel-runway burn estimate only knows the
-    // EXTRACTION arm today. A patrol also burns transit fuel, but no player path
-    // dispatches one yet and wiring its burn term is 9b.5b; narrow-and-skip keeps the
-    // extraction estimate byte-identical and cannot crash on a patrol. 9b.5b adds the
-    // patrol burn term here (fuelForRoundTrip over the patrol's legs / its cycle length).
+    // EXTRACTION arm today. ANY non-extraction mission kind is SKIPPED here (not just
+    // today's patrol): the guard is `kind !== "extraction"`, so a future kind is silently
+    // excluded from the estimate too. This site is extraction-scoped by nature and is NOT a
+    // compile-time exhaustiveness checkpoint (only economyTick's switch(kind) is); a future
+    // kind that burns fuel must be added to this estimate EXPLICITLY, never left to fall
+    // through as skipped. A patrol also burns transit fuel, but no player path dispatches one
+    // yet and wiring its burn term is 9b.5b; narrow-and-skip keeps the extraction estimate
+    // byte-identical and cannot crash on a non-extraction mission. 9b.5b adds the patrol burn
+    // term here (fuelForRoundTrip over the patrol's legs / its cycle length).
     if (captain.mission.kind !== "extraction") return sum;
     const extractionMission = captain.mission;
     const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);

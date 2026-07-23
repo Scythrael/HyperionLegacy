@@ -1,5 +1,5 @@
 // ============================================================================
-// patrol-dispatch.test.ts -- Combat 0.13.0, Phase 9b.5a
+// patrol-dispatch.test.ts : Combat 0.13.0, Phase 9b.5a
 //
 // Locks the PATROL dispatch foundation: the canDispatchPatrol gate, the
 // dispatchCaptainOnPatrol action (state seeding + fuel spend + master-seed counter),
@@ -140,14 +140,31 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
     expect(result.next).toBe(state); // exact same reference, nothing mutated
   });
 
-  it("distinct dispatches draw distinct, monotonic master seeds", () => {
-    const state = stateWithHull("destroyer");
-    const first = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false);
-    const firstSeed = (first.next.captains[0].mission as PatrolMissionState).masterSeed;
-    // Recall + re-dispatch would advance to a real cycle; here just confirm the counter moved
-    // so the NEXT patrol (whoever dispatches it) cannot reuse this seed.
-    expect(first.next.nextPatrolSeed).toBe(firstSeed + 1);
-    expect(first.next.nextPatrolSeed).not.toBe(firstSeed);
+  it("two distinct patrols draw DIFFERENT, monotonic master seeds", () => {
+    // A captain becomes busy after one dispatch, so prove distinctness DIRECTLY with a
+    // SECOND combat-hull captain: dispatch both and assert their seeds differ and the
+    // counter advanced exactly twice (never reusing a seed).
+    const base = stateWithHull("destroyer"); // captain 1 flies a destroyer
+    const captain2: CaptainState = { ...freshCaptains(1)[0], id: 2, label: "Captain 2" };
+    const state: GameState = {
+      ...base,
+      captains: [...base.captains, captain2],
+      ships: [...base.ships, { id: "ship-2", typeKey: "destroyer", assignedCaptainId: 2 }],
+      nextCaptainId: 3,
+      nextShipId: 3,
+    };
+    const seedStart = state.nextPatrolSeed;
+
+    const afterFirst = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false).next;
+    const afterSecond = dispatchCaptainOnPatrol(afterFirst, 2, PATROL_KEY, "balanced", false).next;
+
+    const seed1 = (afterSecond.captains.find((c) => c.id === 1)!.mission as PatrolMissionState).masterSeed;
+    const seed2 = (afterSecond.captains.find((c) => c.id === 2)!.mission as PatrolMissionState).masterSeed;
+
+    expect(seed1).toBe(seedStart);       // first patrol took the starting seed
+    expect(seed2).toBe(seedStart + 1);   // second took the next
+    expect(seed1).not.toBe(seed2);       // DISTINCT, proven directly
+    expect(afterSecond.nextPatrolSeed).toBe(seedStart + 2); // counter advanced twice, no reuse
   });
 });
 

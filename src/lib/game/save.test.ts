@@ -50,7 +50,7 @@ describe("migrate, tickDurationSeconds backfill", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -89,7 +89,7 @@ describe("migrate, research field backfill", () => {
     });
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -263,7 +263,7 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -360,7 +360,7 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
     expect(migrated.captains[0].modules.miner).toBe(3); // untouched, not reset
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -466,7 +466,7 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
     expect(migrated.skillPoints).toBe(0);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -555,7 +555,7 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
     expect(migrated.captains[0].lifetimeComponents).toBe(60);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -628,7 +628,7 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -691,7 +691,7 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
     expect(itemTotal(migrated.inventory, "titaniumIngot").equals(6)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -761,7 +761,7 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
     expect(migrated.tickDurationSeconds).toBe(1);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -1553,7 +1553,7 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
     expect(migrated.nextShipId).toBe(original.nextShipId);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -1761,7 +1761,7 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
     expect(migrated.lifetimeStats.missionsCompleted.longOreRun.equals(3)).toBe(true);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -2045,7 +2045,7 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     expect(migrated.discovered).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -2231,7 +2231,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(migrated.facilities).toEqual(original.facilities);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -2360,7 +2360,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     });
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -2527,7 +2527,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     expect(migrated.facilities.missionControl).toEqual({ level: 2 }); // preserved, NOT reset to level 1
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -2718,7 +2718,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
     expect(blueprintResearchable(migratedTwice, "frameSegmentBp")).toBe(true); // still playable
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -2909,7 +2909,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
     expect(migratedTwice.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -3102,7 +3102,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
     expect(played.fabricateLines).toEqual([]);
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -3279,7 +3279,7 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
     expect(played.facilities.shipyard).toEqual({ level: 0 });
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -3431,7 +3431,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     expect(migrated.craftingXp.equals(150)).toBe(true); // the string is revived, not reset to 0
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 });
@@ -3674,7 +3674,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     }
   });
 
-  it("current SAVE_VERSION is 31", () => {
+  it("SAVE_VERSION is pinned to its expected value", () => {
     expect(SAVE_VERSION).toBe(32);
   });
 
