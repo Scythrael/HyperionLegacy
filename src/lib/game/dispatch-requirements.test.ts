@@ -13,7 +13,7 @@
 // failure contract still hold now that dispatch routes through canDispatch.
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { SHIP_TYPES, MISSIONS, freshState, FUEL_TANK_BASE_CAP } from "./model";
+import { SHIP_TYPES, MISSIONS, freshState, FUEL_TANK_BASE_CAP, type CaptainMissionState } from "./model";
 import { fuelNeeded } from "./fuel";
 import { canDispatch, dispatchCaptainOnMission } from "./tick";
 
@@ -137,7 +137,7 @@ describe("dispatchCaptainOnMission, consumes canDispatch (reason exposed + fuel 
     const { next, success, reason } = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(success).toBe(true);
     expect(reason).toBeUndefined();
-    expect(next.captains[0].mission?.missionKey).toBe("shortOreRun");
+    expect((next.captains[0].mission as CaptainMissionState)?.missionKey).toBe("shortOreRun");
     expect(next.fuel.eq(100 - FREIGHTER_SHORT_RUN_FUEL)).toBe(true); // 50 spent at dispatch
   });
 

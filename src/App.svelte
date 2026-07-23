@@ -165,6 +165,13 @@
     // helper's `bp` param (so tierLocked can read bp.tier for its "Requires
     // Research Lab level N" message) and the per-blueprint markup loop var.
     type BlueprintDef,
+    // Combat 0.13.0 (Phase 9b.5a): CaptainState.mission is now a discriminated union
+    // (extraction | patrol | null). extractionMissionOf narrows it to the extraction arm
+    // (or null) so the status readouts + in-progress list below can read extraction-only
+    // fields (missionKey/phase/cargo) type-safely without hand-narrowing at each site. No
+    // patrol UI this unit (that is 9b.5c); a patrolling captain simply reads as not-on-an-
+    // extraction-run in these extraction-scoped views.
+    extractionMissionOf,
   } from "./lib/game/model";
   // Equipment 0.11.0 DEV readout (Debug tab only). The fitment helpers
   // (equippedFor / canFitEquipment / fitEquipment / unfitEquipment /
@@ -1801,7 +1808,13 @@
 
   function doRecallCaptain(captainId: number) {
     const captain = state.captains.find((c) => c.id === captainId)!;
-    const missionLabel = MISSIONS[captain.mission!.missionKey].label; // captured before the state swap below, same pre-swap-capture idiom as doDispatchCaptainOnMission's `captain.label` above
+    // Combat 0.13.0 (9b.5a): narrow the mission union to its extraction arm for the log
+    // label. A patrol has no missionKey; recall works on both arms (recallCaptain), but no
+    // patrol is dispatchable in this unit, so a neutral fallback covers the unreachable case
+    // without introducing patrol-specific UI text. Captured before the state swap below,
+    // same pre-swap-capture idiom as doDispatchCaptainOnMission's `captain.label` above.
+    const captainExtractionMission = extractionMissionOf(captain);
+    const missionLabel = captainExtractionMission ? MISSIONS[captainExtractionMission.missionKey].label : "current mission";
     const { next, success } = recallCaptain(state, captainId);
     if (!success) return;
     state = next;
@@ -5917,7 +5930,7 @@
                       Status: Parked
                     {:else if shipCaptain.mission === null}
                       Status: Idle
-                    {:else}
+                    {:else if shipCaptain.mission.kind === "extraction"}
                       Status: On mission, {MISSIONS[shipCaptain.mission.missionKey].label}
                     {/if}
                   </div>
@@ -5976,7 +5989,7 @@
                 Status: Parked
               {:else if assignedCaptain.mission === null}
                 Status: Idle
-              {:else}
+              {:else if assignedCaptain.mission.kind === "extraction"}
                 Status: On mission, {MISSIONS[assignedCaptain.mission.missionKey].label}
               {/if}
             </div>
@@ -6487,7 +6500,7 @@
                   <div class="roster-card-line">
                     {#if captain.mission === null}
                       Status: Idle
-                    {:else}
+                    {:else if captain.mission.kind === "extraction"}
                       Status: On mission, {MISSIONS[captain.mission.missionKey].label}
                     {/if}
                   </div>
@@ -6579,7 +6592,7 @@
             <div class="research-cost">
               {#if activeCaptain.mission === null}
                 Currently: Idle
-              {:else}
+              {:else if activeCaptain.mission.kind === "extraction"}
                 Currently on: {MISSIONS[activeCaptain.mission.missionKey].label}
               {/if}
             </div>
@@ -6868,12 +6881,17 @@
                    cargo-so-far, Recall button) is otherwise byte-identical to
                    what this replaced, only its position in the markup moved. -->
               {@const tierIMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([, def]) => def.tier === "I")}
-              {@const embarked = state.captains.filter((c) => c.mission !== null && tierIMissions.some(([key]) => key === c.mission!.missionKey))}
+              <!-- Combat 0.13.0 (9b.5a): extractionMissionOf narrows the mission union to
+                   the extraction arm; this IN PROGRESS list is extraction-only, so a
+                   patrolling captain is excluded from `embarked` (its mission is not an
+                   extraction run). The `!` inside the each is safe because the filter
+                   guaranteed an extraction mission for every listed captain. -->
+              {@const embarked = state.captains.filter((c) => { const em = extractionMissionOf(c); return em !== null && tierIMissions.some(([key]) => key === em.missionKey); })}
 
               {#if embarked.length > 0}
                 <div class="panel-title">IN PROGRESS</div>
                 {#each embarked as captain}
-                  {@const mission = captain.mission!}
+                  {@const mission = extractionMissionOf(captain)!}
                   {@const missionDef = MISSIONS[mission.missionKey]}
                   {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
                   {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}

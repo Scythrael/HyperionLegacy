@@ -65,6 +65,7 @@ function missionCaptain(
   missionKey: MissionKey = "shortOreRun"
 ): CaptainMissionState {
   return {
+    kind: "extraction",
     missionKey,
     phase: "ordersReceived",
     phaseProgressTicks: 0,
@@ -124,15 +125,15 @@ describe("tickCaptainMission, closed-form requirement", () => {
     // since toEqual's structural comparison isn't guaranteed reliable across Decimal's
     // internal mantissa/exponent representation. The non-Decimal mission fields
     // (phase, phaseProgressTicks, recalled, missionKey) are still plain toEqual-safe.
-    expect(bigJump.captain.mission!.phase).toBe(steppedCaptain.mission!.phase);
-    expect(bigJump.captain.mission!.phaseProgressTicks).toBeCloseTo(steppedCaptain.mission!.phaseProgressTicks, 6);
-    expect(bigJump.captain.mission!.recalled).toBe(steppedCaptain.mission!.recalled);
-    expect(bigJump.captain.mission!.missionKey).toBe(steppedCaptain.mission!.missionKey);
-    expect(bigJump.captain.mission!.cargo.commonOre.equals(steppedCaptain.mission!.cargo.commonOre)).toBe(true);
+    expect((bigJump.captain.mission as CaptainMissionState).phase).toBe((steppedCaptain.mission as CaptainMissionState).phase);
+    expect((bigJump.captain.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo((steppedCaptain.mission as CaptainMissionState).phaseProgressTicks, 6);
+    expect((bigJump.captain.mission as CaptainMissionState).recalled).toBe((steppedCaptain.mission as CaptainMissionState).recalled);
+    expect((bigJump.captain.mission as CaptainMissionState).missionKey).toBe((steppedCaptain.mission as CaptainMissionState).missionKey);
+    expect((bigJump.captain.mission as CaptainMissionState).cargo.commonOre.equals((steppedCaptain.mission as CaptainMissionState).cargo.commonOre)).toBe(true);
     expect(
-      bigJump.captain.mission!.cargo.uncommonMaterial.equals(steppedCaptain.mission!.cargo.uncommonMaterial)
+      (bigJump.captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals((steppedCaptain.mission as CaptainMissionState).cargo.uncommonMaterial)
     ).toBe(true);
-    expect(bigJump.captain.mission!.cargo.rareMaterial.equals(steppedCaptain.mission!.cargo.rareMaterial)).toBe(true);
+    expect((bigJump.captain.mission as CaptainMissionState).cargo.rareMaterial.equals((steppedCaptain.mission as CaptainMissionState).cargo.rareMaterial)).toBe(true);
     expect(bigJump.homePlanetDelta.commonOre.equals(steppedDelta.commonOre)).toBe(true);
     expect(bigJump.homePlanetDelta.uncommonMaterial.equals(steppedDelta.uncommonMaterial)).toBe(true);
     expect(bigJump.homePlanetDelta.rareMaterial.equals(steppedDelta.rareMaterial)).toBe(true);
@@ -249,16 +250,16 @@ describe("tickCaptainMission, phase progression", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain();
     const { captain } = tickCaptainMission(0.5, base, ALWAYS_MIN_ROLL);
-    expect(captain.mission!.phase).toBe("ordersReceived");
-    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.5, 6);
+    expect((captain.mission as CaptainMissionState).phase).toBe("ordersReceived");
+    expect((captain.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(0.5, 6);
   });
 
   it("completes ordersReceived (1 tick) and moves into transitOut", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain();
     const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
-    expect(captain.mission!.phase).toBe("transitOut");
-    expect(captain.mission!.phaseProgressTicks).toBe(0);
+    expect((captain.mission as CaptainMissionState).phase).toBe("transitOut");
+    expect((captain.mission as CaptainMissionState).phaseProgressTicks).toBe(0);
   });
 
   it("carries leftover ticks into the next phase in the same call", () => {
@@ -266,16 +267,16 @@ describe("tickCaptainMission, phase progression", () => {
     base.mission = missionCaptain();
     // 1.5 ticks: completes the 1-tick ordersReceived phase, carries 0.5 into transitOut.
     const { captain } = tickCaptainMission(1.5, base, ALWAYS_MIN_ROLL);
-    expect(captain.mission!.phase).toBe("transitOut");
-    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.5, 6);
+    expect((captain.mission as CaptainMissionState).phase).toBe("transitOut");
+    expect((captain.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(0.5, 6);
   });
 
   it("advances all the way through extracting, transitBack, and unloading in one big call", () => {
     const base = freshCaptains(1)[0];
     base.mission = missionCaptain(); // shortOreRun: 1+25+90+25+8 = 149 ticks for one full cycle
     const { captain, homePlanetDelta } = tickCaptainMission(141.9, base, ALWAYS_MIN_ROLL);
-    expect(captain.mission!.phase).toBe("unloading");
-    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(0.9, 6);
+    expect((captain.mission as CaptainMissionState).phase).toBe("unloading");
+    expect((captain.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(0.9, 6);
     // not unloaded yet, per-key .equals(), not .toEqual() against a plain-number literal.
     expect(homePlanetDelta.commonOre.equals(0)).toBe(true);
     expect(homePlanetDelta.uncommonMaterial.equals(0)).toBe(true);
@@ -297,10 +298,10 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     // occurrence check ever passes (see NOTHING_OCCURS above), so every roll is
     // pure commonOre at the full per-tick base amount: 3 * 1 = 3.
     const { captain } = tickCaptainMission(3.5, base, NOTHING_OCCURS);
-    expect(captain.mission!.cargo.commonOre.equals(3)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(3.5, 6);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(3)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(3.5, 6);
   });
 
   it("a large jump resolves every extraction tick's loot roll, not just the last one", () => {
@@ -309,8 +310,8 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     // Exactly 90 ticks completes extracting (cargoCapacity 90 / rate 1), 90 rolls, all
     // commonOre under NOTHING_OCCURS, each delivering the full base amount: 90 * 1 = 90.
     const { captain } = tickCaptainMission(90, base, NOTHING_OCCURS);
-    expect(captain.mission!.cargo.commonOre.equals(90)).toBe(true);
-    expect(captain.mission!.phase).toBe("transitBack"); // extracting completed, advanced
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(90)).toBe(true);
+    expect((captain.mission as CaptainMissionState).phase).toBe("transitBack"); // extracting completed, advanced
   });
 
   it("neither tier occurs: pure commonOre at the unmodified extractionRatePerTick", () => {
@@ -322,9 +323,9 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     //   call 2 (uncommon occurrence): 0.5 < 0.019? no -> uncommon does NOT occur.
     //   common wins by default (no roll needed): commonAmount = extractionRatePerTick 1 * (1+0) = 1.
     const { captain } = tickCaptainMission(1, base, NOTHING_OCCURS);
-    expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(1)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   it("ALWAYS_MIN_ROLL (rng=0) always lands on rare first, since 0 passes any positive rare-chance check", () => {
@@ -336,18 +337,18 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     //   call 1 (rare occurrence): 0 < 0.001 -> true, rare occurs and wins outright.
     //   rareAmount = extractionRatePerTick 1 * (1+0) = 1. No further rng() calls happen.
     const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
-    expect(captain.mission!.cargo.rareMaterial.equals(1)).toBe(true);
-    expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(1)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
   });
 
   it("omitting the bonuses arg behaves exactly as before (defaults to no bonus)", () => {
     const base = freshCaptains(1)[0];
     base.mission = { ...missionCaptain(), phase: "extracting", phaseProgressTicks: 0 };
     const { captain } = tickCaptainMission(1, base, NOTHING_OCCURS); // no 4th arg at all
-    expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true); // unmodified extractionRatePerTick
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(1)).toBe(true); // unmodified extractionRatePerTick
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   it("commonYieldMult scales the common tier's full amount when it wins, not whether it wins", () => {
@@ -357,9 +358,9 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     // (that bonus doesn't touch either chance), common wins by default, and its FULL
     // base amount is scaled: commonAmount = extractionRatePerTick 1 * (1+0.25) = 1.25.
     const { captain } = tickCaptainMission(1, base, NOTHING_OCCURS, { commonYieldMult: 0.25 });
-    expect(captain.mission!.cargo.commonOre.equals(1.25)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(1.25)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   it("uncommonYieldMult scales only uncommon's rolled amount, when uncommon actually occurred", () => {
@@ -374,9 +375,9 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     // winning tier gets the full amount, the other two tiers get nothing this roll.
     const rng = () => 0.01;
     const { captain } = tickCaptainMission(1, base, rng, { uncommonYieldMult: 0.5 });
-    expect(captain.mission!.cargo.uncommonMaterial.equals(1.5)).toBe(true);
-    expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(1.5)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   it("rareYieldMult scales only rare's rolled amount, when rare actually occurred", () => {
@@ -391,9 +392,9 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     // exclusivity holds, the other two tiers get nothing when rare wins.
     const rng = () => 0.0005;
     const { captain } = tickCaptainMission(1, base, rng, { rareYieldMult: 0.4 });
-    expect(captain.mission!.cargo.rareMaterial.equals(1.4)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(1.4)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
   });
 
   it("uncommonChanceMult shifts a borderline rng value across the uncommon occurrence threshold", () => {
@@ -406,8 +407,8 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     //   common wins by default: commonAmount = extractionRatePerTick 1 * (1+0) = 1.
     const fixedRoll = () => 0.1;
     const unboosted = tickCaptainMission(1, base, fixedRoll);
-    expect(unboosted.captain.mission!.cargo.commonOre.equals(1)).toBe(true);
-    expect(unboosted.captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((unboosted.captain.mission as CaptainMissionState).cargo.commonOre.equals(1)).toBe(true);
+    expect((unboosted.captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
 
     // Boosted: effectiveUncommonChance = 0.08 * (1 + 1) = 0.16. rareChanceMult is NOT set
     // on this call, so effectiveRareChance stays 0.02. call 1 (rare occurrence): 0.1 < 0.02?
@@ -417,8 +418,8 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     // uncommonChanceMult pushed the effective chance past 0.1. commonOre is exactly 0 here
     // (mutual exclusivity), not a leftover-subtraction value.
     const boosted = tickCaptainMission(1, base, fixedRoll, { uncommonChanceMult: 1 });
-    expect(boosted.captain.mission!.cargo.uncommonMaterial.equals(1)).toBe(true);
-    expect(boosted.captain.mission!.cargo.commonOre.equals(0)).toBe(true);
+    expect((boosted.captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(1)).toBe(true);
+    expect((boosted.captain.mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
   });
 
   it("rareChanceMult shifts a borderline rng value across the rare occurrence threshold", () => {
@@ -432,8 +433,8 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     //   wins by default: commonAmount = extractionRatePerTick 1 * (1+0) = 1.
     const fixedRoll = () => 0.09;
     const unboosted = tickCaptainMission(1, base, fixedRoll);
-    expect(unboosted.captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
-    expect(unboosted.captain.mission!.cargo.commonOre.equals(1)).toBe(true);
+    expect((unboosted.captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
+    expect((unboosted.captain.mission as CaptainMissionState).cargo.commonOre.equals(1)).toBe(true);
 
     // Boosted: effectiveRareChance = 0.02 * (1 + 4) = 0.1. Rare is checked FIRST: call 1
     //   (rare occurrence): 0.09 < 0.1 -> true, rare occurs and wins outright, uncommon is
@@ -442,9 +443,9 @@ describe("tickCaptainMission, extraction loot rolls", () => {
     //   (rareYieldMult defaults to 0 on this call). commonOre and uncommonMaterial are both
     //   exactly 0 (mutual exclusivity).
     const boosted = tickCaptainMission(1, base, fixedRoll, { rareChanceMult: 4 });
-    expect(boosted.captain.mission!.cargo.rareMaterial.equals(1)).toBe(true);
-    expect(boosted.captain.mission!.cargo.commonOre.equals(0)).toBe(true);
-    expect(boosted.captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((boosted.captain.mission as CaptainMissionState).cargo.rareMaterial.equals(1)).toBe(true);
+    expect((boosted.captain.mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
+    expect((boosted.captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
   });
 });
 
@@ -456,9 +457,9 @@ describe("tickCaptainMission, bonus roll (Resourcefulness Lucky Strike)", () => 
     // -> common wins, amount 1. Bonus trigger: effectiveBonusRollChance = 0.02*(1+0) = 0.02, 0.5 < 0.02?
     // no -> bonus never fires. Total: commonOre 1, uncommon/rare both 0.
     const { captain } = tickCaptainMission(1, base, () => 0.5, { bonusRollChance: 0.02 });
-    expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(1)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   it("bonus trigger fires and its own mini-sequence lands on rare", () => {
@@ -470,9 +471,9 @@ describe("tickCaptainMission, bonus roll (Resourcefulness Lucky Strike)", () => 
     // mini-sequence call 3 (rare): 0.0005 < 0.001 -> true, bonus ALSO lands rare, amount 1. Total:
     // rareMaterial = 1 (primary) + 1 (bonus) = 2, commonOre/uncommonMaterial both 0.
     const { captain } = tickCaptainMission(1, base, () => 0.0005, { bonusRollChance: 0.02 });
-    expect(captain.mission!.cargo.rareMaterial.equals(2)).toBe(true);
-    expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(2)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
   });
 
   it("bonus trigger fires and its own mini-sequence lands on uncommon", () => {
@@ -484,9 +485,9 @@ describe("tickCaptainMission, bonus roll (Resourcefulness Lucky Strike)", () => 
     // 0.001? no. uncommon (call 5) 0.01 < 0.019? yes -> bonus ALSO lands uncommon, amount 1. Total:
     // uncommonMaterial = 1 (primary) + 1 (bonus) = 2, commonOre/rareMaterial both 0.
     const { captain } = tickCaptainMission(1, base, () => 0.01, { bonusRollChance: 0.02 });
-    expect(captain.mission!.cargo.uncommonMaterial.equals(2)).toBe(true);
-    expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(2)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   it("bonus trigger fires, its rare/uncommon checks both miss, and its 30% common check HITS", () => {
@@ -501,9 +502,9 @@ describe("tickCaptainMission, bonus roll (Resourcefulness Lucky Strike)", () => 
     let i = 0;
     const rng = () => values[i++];
     const { captain } = tickCaptainMission(1, base, rng, { bonusRollChance: 0.05 });
-    expect(captain.mission!.cargo.commonOre.equals(2)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(2)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   it("bonus trigger fires but all 3 of its own checks miss: bonus delta is zero, only the primary's amount is delivered", () => {
@@ -515,9 +516,9 @@ describe("tickCaptainMission, bonus roll (Resourcefulness Lucky Strike)", () => 
     let i = 0;
     const rng = () => values[i++];
     const { captain } = tickCaptainMission(1, base, rng, { bonusRollChance: 0.05 });
-    expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true); // primary only, bonus delivered 0
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(1)).toBe(true); // primary only, bonus delivered 0
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   it("no bonus-roll talents unlocked: bonusRollChance/bonusRollChanceMult default to 0, bonus check never fires regardless of rng", () => {
@@ -529,9 +530,9 @@ describe("tickCaptainMission, bonus roll (Resourcefulness Lucky Strike)", () => 
     // fires even under the most favorable possible rng. Primary roll (rare checked first) DOES fire:
     // rare wins on rng()=0 (matches the existing ALWAYS_MIN_ROLL test in the primary describe block).
     const { captain } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
-    expect(captain.mission!.cargo.rareMaterial.equals(1)).toBe(true); // primary only
-    expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(1)).toBe(true); // primary only
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
   });
 
   // Task 2c (Talent Tree Visual Redesign, Captain Specialization), regression
@@ -598,9 +599,9 @@ describe("tickCaptainMission, bonus roll (Resourcefulness Lucky Strike)", () => 
     // 0.05 from 0.06; the companion "ABOVE the boundary" test right below
     // is what actually proves the boundary sits at 0.05, not 0.06 or anything else.
     const { captain } = tickCaptainMission(1, base, () => 0.0499, bonuses);
-    expect(captain.mission!.cargo.commonOre.equals(2)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(2)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   it("resourcefulness spec + both Lucky Strike talents combine to exactly 0.05, not 0.06 (regression guard for the spec-bonus scaling order), ABOVE the boundary does NOT fire the bonus", () => {
@@ -632,9 +633,9 @@ describe("tickCaptainMission, bonus roll (Resourcefulness Lucky Strike)", () => 
     // 0.0501 < 0.06 -> TRUE, firing the bonus and producing commonOre = 2
     // instead, failing this assertion.
     const { captain } = tickCaptainMission(1, base, () => 0.0501, bonuses);
-    expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(1)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   // Task 2c: confirms spec:null (no Captain Specialization chosen) is
@@ -676,9 +677,9 @@ describe("tickCaptainMission, bonus roll (Resourcefulness Lucky Strike)", () => 
     // Total: commonOre = 1 (primary only), proving the pre-spec ceiling is 0.04,
     // not 0.05, for this exact same talent configuration.
     const { captain } = tickCaptainMission(1, base, () => 0.0499, bonuses);
-    expect(captain.mission!.cargo.commonOre.equals(1)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(1)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 });
 
@@ -844,13 +845,13 @@ describe("tickCaptainMission, cycle completion, auto-repeat, and recall", () => 
     expect(homePlanetDelta.commonOre.equals(90)).toBe(true);
     expect(homePlanetDelta.uncommonMaterial.equals(8)).toBe(true);
     expect(homePlanetDelta.rareMaterial.equals(2)).toBe(true);
-    expect(captain.mission!.phase).toBe("ordersReceived"); // auto-repeated
-    expect(captain.mission!.phaseProgressTicks).toBe(0);
+    expect((captain.mission as CaptainMissionState).phase).toBe("ordersReceived"); // auto-repeated
+    expect((captain.mission as CaptainMissionState).phaseProgressTicks).toBe(0);
     // reset, per-key .equals(), not .toEqual() against a plain-number literal.
-    expect(captain.mission!.cargo.commonOre.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
-    expect(captain.mission!.recalled).toBe(false);
+    expect((captain.mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
+    expect((captain.mission as CaptainMissionState).recalled).toBe(false);
   });
 
   // Mission Rework (Task 1): the extraction cargo accumulates under the 3 ABSTRACT
@@ -946,8 +947,8 @@ describe("tickCaptainMission, cycle completion, auto-repeat, and recall", () => 
     expect(homePlanetDelta.commonOre.equals(0)).toBe(true);
     expect(homePlanetDelta.uncommonMaterial.equals(0)).toBe(true);
     expect(homePlanetDelta.rareMaterial.equals(180)).toBe(true);
-    expect(captain.mission!.phase).toBe("ordersReceived"); // mid-3rd-cycle-start, not recalled
-    expect(captain.mission!.phaseProgressTicks).toBe(0);
+    expect((captain.mission as CaptainMissionState).phase).toBe("ordersReceived"); // mid-3rd-cycle-start, not recalled
+    expect((captain.mission as CaptainMissionState).phaseProgressTicks).toBe(0);
   });
 
   it("recall takes effect at the end of the CURRENT cycle, not immediately", () => {
@@ -956,8 +957,8 @@ describe("tickCaptainMission, cycle completion, auto-repeat, and recall", () => 
     // 3 more ticks: still mid-extraction, far from completing the cycle, recalled flag is inert until unloading finishes.
     const { captain } = tickCaptainMission(3, base, ALWAYS_MIN_ROLL);
     expect(captain.mission).not.toBe(null);
-    expect(captain.mission!.phase).toBe("extracting");
-    expect(captain.mission!.phaseProgressTicks).toBeCloseTo(8, 6);
+    expect((captain.mission as CaptainMissionState).phase).toBe("extracting");
+    expect((captain.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(8, 6);
   });
 });
 
@@ -1322,9 +1323,9 @@ describe("economyTick / tick() equivalence, the Task A2 mechanical extraction is
     expect(ec.xp.equals(tc.xp)).toBe(true);
     expect(ec.level).toBe(tc.level);
     expect(ec.statPoints).toBe(tc.statPoints);
-    expect(ec.mission!.phase).toBe(tc.mission!.phase);
-    expect(ec.mission!.phaseProgressTicks).toBeCloseTo(tc.mission!.phaseProgressTicks, 9);
-    expect(ec.mission!.missionKey).toBe(tc.mission!.missionKey);
+    expect((ec.mission as CaptainMissionState).phase).toBe((tc.mission as CaptainMissionState).phase);
+    expect((ec.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo((tc.mission as CaptainMissionState).phaseProgressTicks, 9);
+    expect((ec.mission as CaptainMissionState).missionKey).toBe((tc.mission as CaptainMissionState).missionKey);
 
     // --- fleetAdminXp / fleetAdminLevel / adminPoints (applyFleetAdminXp pass) ---
     expect(viaEconomy.fleetAdminXp.equals(viaTick.fleetAdminXp)).toBe(true);
@@ -1559,6 +1560,7 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     const state = freshState();
     state.captains = freshCaptains(2);
     state.captains[0].mission = {
+      kind: "extraction",
       missionKey: "shortOreRun",
       phase: "ordersReceived",
       phaseProgressTicks: 0,
@@ -1600,6 +1602,7 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     const state = freshState();
     state.captains = freshCaptains(2);
     state.captains[0].mission = {
+      kind: "extraction",
       missionKey: "shortOreRun",
       phase: "extracting",
       phaseProgressTicks: 0,
@@ -1607,6 +1610,7 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
       recalled: false,
     };
     state.captains[1].mission = {
+      kind: "extraction",
       missionKey: "shortOreRun",
       phase: "extracting",
       phaseProgressTicks: 89,
@@ -1619,21 +1623,21 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     // Captain 0 gained exactly 1 roll's worth (1 unit, tier rng-dependent) of onboard cargo.
     // .plus() chain (not +) since these are Decimal fields, .equals() (not toBe) on the
     // resulting Decimal, same reasoning as every other Decimal-field assertion in this file.
-    const cap0CargoTotal = result.captains[0].mission!.cargo.commonOre
-      .plus(result.captains[0].mission!.cargo.uncommonMaterial)
-      .plus(result.captains[0].mission!.cargo.rareMaterial);
+    const cap0CargoTotal = (result.captains[0].mission as CaptainMissionState).cargo.commonOre
+      .plus((result.captains[0].mission as CaptainMissionState).cargo.uncommonMaterial)
+      .plus((result.captains[0].mission as CaptainMissionState).cargo.rareMaterial);
     expect(cap0CargoTotal.equals(1)).toBe(true);
-    expect(result.captains[0].mission!.phase).toBe("extracting");
+    expect((result.captains[0].mission as CaptainMissionState).phase).toBe("extracting");
 
     // Captain 1 completed extracting (90/90 ticks), advanced to transitBack, final cargo 90 --
     // asserted as a tier-agnostic total since the final roll's tier is rng-dependent (unmocked
     // Math.random here, same reasoning as captain 0's total check above).
-    const cap1CargoTotal = result.captains[1].mission!.cargo.commonOre
-      .plus(result.captains[1].mission!.cargo.uncommonMaterial)
-      .plus(result.captains[1].mission!.cargo.rareMaterial);
+    const cap1CargoTotal = (result.captains[1].mission as CaptainMissionState).cargo.commonOre
+      .plus((result.captains[1].mission as CaptainMissionState).cargo.uncommonMaterial)
+      .plus((result.captains[1].mission as CaptainMissionState).cargo.rareMaterial);
     expect(cap1CargoTotal.equals(90)).toBe(true);
-    expect(result.captains[1].mission!.phase).toBe("transitBack");
-    expect(result.captains[1].mission!.phaseProgressTicks).toBe(0);
+    expect((result.captains[1].mission as CaptainMissionState).phase).toBe("transitBack");
+    expect((result.captains[1].mission as CaptainMissionState).phaseProgressTicks).toBe(0);
 
     // Neither captain reached "unloading" this tick, nothing delivered home yet.
     // Per-key .equals() (not .toEqual against a plain-number-literal object), since
@@ -1670,6 +1674,7 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
       titaniumIngot: [new Decimal(0)],
     };
     state.captains[0].mission = {
+      kind: "extraction",
       missionKey: "shortOreRun",
       phase: "unloading",
       phaseProgressTicks: 0,
@@ -1693,11 +1698,11 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     expect(result.discovered).toContain("uncommonMaterial");
     expect(result.discovered).toContain("rareMaterial");
     expect(result.discovered).not.toContain("titaniumIngot");
-    expect(result.captains[0].mission!.phase).toBe("ordersReceived"); // auto-repeated
-    expect(result.captains[0].mission!.phaseProgressTicks).toBe(0);
-    expect(result.captains[0].mission!.cargo.commonOre.equals(0)).toBe(true);
-    expect(result.captains[0].mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(result.captains[0].mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((result.captains[0].mission as CaptainMissionState).phase).toBe("ordersReceived"); // auto-repeated
+    expect((result.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBe(0);
+    expect((result.captains[0].mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
+    expect((result.captains[0].mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((result.captains[0].mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 
   it("adds MISSIONS.shortOreRun.creditsPerCycle to state.credits when a mission's cycle completes this tick", () => {
@@ -1714,6 +1719,7 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     const state = freshState();
     state.credits = new Decimal(5);
     state.captains[0].mission = {
+      kind: "extraction",
       missionKey: "shortOreRun",
       phase: "unloading",
       phaseProgressTicks: 0,
@@ -1766,9 +1772,9 @@ describe("tick(), Homeworld/Captain Talent effects wired into extraction and pas
       // extractionRatePerTick 1 * (1 + 0.1) = 1.1.
       // .plus() chain (Decimal), not +, .toNumber() before toBeCloseTo since that
       // matcher needs a plain-number operand, not a Decimal instance.
-      const totalDelivered = result.captains[0].mission!.cargo.commonOre
-        .plus(result.captains[0].mission!.cargo.uncommonMaterial)
-        .plus(result.captains[0].mission!.cargo.rareMaterial);
+      const totalDelivered = (result.captains[0].mission as CaptainMissionState).cargo.commonOre
+        .plus((result.captains[0].mission as CaptainMissionState).cargo.uncommonMaterial)
+        .plus((result.captains[0].mission as CaptainMissionState).cargo.rareMaterial);
       expect(totalDelivered.toNumber()).toBeCloseTo(1.1, 6);
     } finally {
       randomSpy.mockRestore();
@@ -1794,9 +1800,9 @@ describe("tick(), Homeworld/Captain Talent effects wired into extraction and pas
       // BOTH exactly 0 here, this is a MORE precise assertion than a tier-agnostic
       // total, since it also proves fleetLogisticsYield's bonus landed on the correct
       // tier (rareMaterial) and nowhere else.
-      expect(result.captains[0].mission!.cargo.rareMaterial.toNumber()).toBeCloseTo(1.05, 6);
-      expect(result.captains[0].mission!.cargo.commonOre.equals(0)).toBe(true);
-      expect(result.captains[0].mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
+      expect((result.captains[0].mission as CaptainMissionState).cargo.rareMaterial.toNumber()).toBeCloseTo(1.05, 6);
+      expect((result.captains[0].mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
+      expect((result.captains[0].mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
     } finally {
       randomSpy.mockRestore();
     }
@@ -1820,9 +1826,9 @@ describe("tick(), Homeworld/Captain Talent effects wired into extraction and pas
       // commonYieldMult: extractionRatePerTick 1 * (1 + 0.1) = 1.1, same as the
       // commonYieldMult-only test above, proving fleetLogisticsYield being
       // simultaneously unlocked doesn't change this number.
-      const totalDelivered = result.captains[0].mission!.cargo.commonOre
-        .plus(result.captains[0].mission!.cargo.uncommonMaterial)
-        .plus(result.captains[0].mission!.cargo.rareMaterial);
+      const totalDelivered = (result.captains[0].mission as CaptainMissionState).cargo.commonOre
+        .plus((result.captains[0].mission as CaptainMissionState).cargo.uncommonMaterial)
+        .plus((result.captains[0].mission as CaptainMissionState).cargo.rareMaterial);
       expect(totalDelivered.toNumber()).toBeCloseTo(1.1, 6);
     } finally {
       randomSpy.mockRestore();
@@ -1891,9 +1897,9 @@ describe("tick(), Homeworld/Captain Talent effects wired into extraction and pas
 
     const result = tick(1, state);
 
-    const totalDelivered = result.captains[0].mission!.cargo.commonOre
-      .plus(result.captains[0].mission!.cargo.uncommonMaterial)
-      .plus(result.captains[0].mission!.cargo.rareMaterial);
+    const totalDelivered = (result.captains[0].mission as CaptainMissionState).cargo.commonOre
+      .plus((result.captains[0].mission as CaptainMissionState).cargo.uncommonMaterial)
+      .plus((result.captains[0].mission as CaptainMissionState).cargo.rareMaterial);
     // With no unlocked Homeworld Talents, all yield-mults are 0, whichever tier wins
     // this roll (rng-dependent, unmocked Math.random) still delivers EXACTLY
     // extractionRatePerTick (1), unscaled. The "total = rate * (1 + winning tier's own
@@ -1912,13 +1918,13 @@ describe("dispatchCaptainOnMission", () => {
     expect(success).toBe(true);
     // Per-field checks (not one .toEqual() against a plain-number-literal cargo object) --
     // cargo's values are real Decimal instances.
-    expect(next.captains[0].mission!.missionKey).toBe("shortOreRun");
-    expect(next.captains[0].mission!.phase).toBe("ordersReceived");
-    expect(next.captains[0].mission!.phaseProgressTicks).toBe(0);
-    expect(next.captains[0].mission!.cargo.commonOre.equals(0)).toBe(true);
-    expect(next.captains[0].mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(next.captains[0].mission!.cargo.rareMaterial.equals(0)).toBe(true);
-    expect(next.captains[0].mission!.recalled).toBe(false);
+    expect((next.captains[0].mission as CaptainMissionState).missionKey).toBe("shortOreRun");
+    expect((next.captains[0].mission as CaptainMissionState).phase).toBe("ordersReceived");
+    expect((next.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBe(0);
+    expect((next.captains[0].mission as CaptainMissionState).cargo.commonOre.equals(0)).toBe(true);
+    expect((next.captains[0].mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((next.captains[0].mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
+    expect((next.captains[0].mission as CaptainMissionState).recalled).toBe(false);
   });
 
   it("leaves the rest of the captain and the rest of state untouched", () => {
@@ -1948,7 +1954,7 @@ describe("dispatchCaptainOnMission", () => {
     const { next, success } = dispatchCaptainOnMission(dispatched, 1, "longOreRun");
     expect(success).toBe(false);
     expect(next).toBe(dispatched); // same reference, not a fresh copy
-    expect(next.captains[0].mission!.missionKey).toBe("shortOreRun"); // unchanged, not overwritten
+    expect((next.captains[0].mission as CaptainMissionState).missionKey).toBe("shortOreRun"); // unchanged, not overwritten
   });
 
   it("fails if no captain has the given id, rather than throwing (same state reference, unchanged)", () => {
@@ -1963,6 +1969,7 @@ describe("recallCaptain", () => {
   it("sets recalled: true on the EXISTING mission object without resetting phase/progress/cargo", () => {
     const state = freshState();
     state.captains[0].mission = {
+      kind: "extraction",
       missionKey: "shortOreRun",
       phase: "extracting",
       phaseProgressTicks: 4.5,
@@ -1973,13 +1980,13 @@ describe("recallCaptain", () => {
     const { next, success } = recallCaptain(state, 1);
     expect(success).toBe(true);
     // Per-field checks (not one .toEqual()), cargo's values are real Decimal instances.
-    expect(next.captains[0].mission!.missionKey).toBe("shortOreRun");
-    expect(next.captains[0].mission!.phase).toBe("extracting");
-    expect(next.captains[0].mission!.phaseProgressTicks).toBe(4.5);
-    expect(next.captains[0].mission!.cargo.commonOre.equals(40)).toBe(true);
-    expect(next.captains[0].mission!.cargo.uncommonMaterial.equals(5)).toBe(true);
-    expect(next.captains[0].mission!.cargo.rareMaterial.equals(0)).toBe(true);
-    expect(next.captains[0].mission!.recalled).toBe(true); // only this field flips
+    expect((next.captains[0].mission as CaptainMissionState).missionKey).toBe("shortOreRun");
+    expect((next.captains[0].mission as CaptainMissionState).phase).toBe("extracting");
+    expect((next.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBe(4.5);
+    expect((next.captains[0].mission as CaptainMissionState).cargo.commonOre.equals(40)).toBe(true);
+    expect((next.captains[0].mission as CaptainMissionState).cargo.uncommonMaterial.equals(5)).toBe(true);
+    expect((next.captains[0].mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
+    expect((next.captains[0].mission as CaptainMissionState).recalled).toBe(true); // only this field flips
   });
 
   it("fails if the captain has no active mission (same state reference, unchanged)", () => {
@@ -3123,15 +3130,15 @@ describe("tickCaptainMission, assigned ship stats (Task 6)", () => {
     }
 
     // Same per-key .equals()/toBeCloseTo shape as the base closed-form test.
-    expect(bigJump.captain.mission!.phase).toBe(steppedCaptain.mission!.phase);
-    expect(bigJump.captain.mission!.phaseProgressTicks).toBeCloseTo(steppedCaptain.mission!.phaseProgressTicks, 6);
-    expect(bigJump.captain.mission!.recalled).toBe(steppedCaptain.mission!.recalled);
-    expect(bigJump.captain.mission!.missionKey).toBe(steppedCaptain.mission!.missionKey);
-    expect(bigJump.captain.mission!.cargo.commonOre.equals(steppedCaptain.mission!.cargo.commonOre)).toBe(true);
-    expect(bigJump.captain.mission!.cargo.uncommonMaterial.equals(steppedCaptain.mission!.cargo.uncommonMaterial)).toBe(
+    expect((bigJump.captain.mission as CaptainMissionState).phase).toBe((steppedCaptain.mission as CaptainMissionState).phase);
+    expect((bigJump.captain.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo((steppedCaptain.mission as CaptainMissionState).phaseProgressTicks, 6);
+    expect((bigJump.captain.mission as CaptainMissionState).recalled).toBe((steppedCaptain.mission as CaptainMissionState).recalled);
+    expect((bigJump.captain.mission as CaptainMissionState).missionKey).toBe((steppedCaptain.mission as CaptainMissionState).missionKey);
+    expect((bigJump.captain.mission as CaptainMissionState).cargo.commonOre.equals((steppedCaptain.mission as CaptainMissionState).cargo.commonOre)).toBe(true);
+    expect((bigJump.captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals((steppedCaptain.mission as CaptainMissionState).cargo.uncommonMaterial)).toBe(
       true
     );
-    expect(bigJump.captain.mission!.cargo.rareMaterial.equals(steppedCaptain.mission!.cargo.rareMaterial)).toBe(true);
+    expect((bigJump.captain.mission as CaptainMissionState).cargo.rareMaterial.equals((steppedCaptain.mission as CaptainMissionState).cargo.rareMaterial)).toBe(true);
     // xp / level carried by the captain must agree across chunking too.
     expect(bigJump.captain.xp.equals(steppedCaptain.xp)).toBe(true);
     expect(bigJump.captain.level).toBe(steppedCaptain.level);
@@ -3184,16 +3191,16 @@ describe("tickCaptainMission, assigned ship stats (Task 6)", () => {
     const minerResult = tickCaptainMission(1, baseMiner, COMMON_WINS, {}, shipStatsFor("prospectorMiner"));
 
     // Absolute values first (proves the exact amounts, not just the ratio):
-    expect(nullResult.captain.mission!.cargo.commonOre.equals(1)).toBe(true);
-    expect(minerResult.captain.mission!.cargo.commonOre.equals(1.35)).toBe(true);
+    expect((nullResult.captain.mission as CaptainMissionState).cargo.commonOre.equals(1)).toBe(true);
+    expect((minerResult.captain.mission as CaptainMissionState).cargo.commonOre.equals(1.35)).toBe(true);
     // Then the 1.35x relationship the task calls out explicitly:
-    const nullCommon = nullResult.captain.mission!.cargo.commonOre;
-    const minerCommon = minerResult.captain.mission!.cargo.commonOre;
+    const nullCommon = (nullResult.captain.mission as CaptainMissionState).cargo.commonOre;
+    const minerCommon = (minerResult.captain.mission as CaptainMissionState).cargo.commonOre;
     expect(minerCommon.equals(nullCommon.times(1.35))).toBe(true);
     // Miner leaves cargoCapacity 90 / transit 1.0 unchanged, so nothing but the
     // common AMOUNT should differ, uncommon/rare stay at 0 on both paths.
-    expect(minerResult.captain.mission!.cargo.uncommonMaterial.equals(0)).toBe(true);
-    expect(minerResult.captain.mission!.cargo.rareMaterial.equals(0)).toBe(true);
+    expect((minerResult.captain.mission as CaptainMissionState).cargo.uncommonMaterial.equals(0)).toBe(true);
+    expect((minerResult.captain.mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
   });
 });
 
@@ -3270,9 +3277,9 @@ describe("Equipment fold, closed-form + both-path parity (Task 14)", () => {
       };
     }
 
-    expect(bigJump.captain.mission!.phase).toBe(steppedCaptain.mission!.phase);
-    expect(bigJump.captain.mission!.phaseProgressTicks).toBeCloseTo(steppedCaptain.mission!.phaseProgressTicks, 6);
-    expect(bigJump.captain.mission!.cargo.rareMaterial.equals(steppedCaptain.mission!.cargo.rareMaterial)).toBe(true);
+    expect((bigJump.captain.mission as CaptainMissionState).phase).toBe((steppedCaptain.mission as CaptainMissionState).phase);
+    expect((bigJump.captain.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo((steppedCaptain.mission as CaptainMissionState).phaseProgressTicks, 6);
+    expect((bigJump.captain.mission as CaptainMissionState).cargo.rareMaterial.equals((steppedCaptain.mission as CaptainMissionState).cargo.rareMaterial)).toBe(true);
     expect(bigJump.captain.xp.equals(steppedCaptain.xp)).toBe(true);
     expect(bigJump.captain.level).toBe(steppedCaptain.level);
     expect(bigJump.homePlanetDelta.rareMaterial.equals(steppedDelta.rareMaterial)).toBe(true);
@@ -3285,6 +3292,7 @@ describe("Equipment fold, closed-form + both-path parity (Task 14)", () => {
     const s = freshState();
     s.fuel = new Decimal(1_000_000);
     s.captains[0].mission = {
+      kind: "extraction",
       missionKey: "shortOreRun",
       phase: "ordersReceived",
       phaseProgressTicks: 0,
@@ -3313,8 +3321,8 @@ describe("Equipment fold, closed-form + both-path parity (Task 14)", () => {
     expect(offline.captains[0].xp.equals(live.captains[0].xp)).toBe(true);
     expect(offline.captains[0].level).toBe(live.captains[0].level);
     expect(totalLoot(offline).equals(totalLoot(live))).toBe(true);
-    expect(offline.captains[0].mission!.phase).toBe(live.captains[0].mission!.phase);
-    expect(offline.captains[0].mission!.phaseProgressTicks).toBeCloseTo(live.captains[0].mission!.phaseProgressTicks, 6);
+    expect((offline.captains[0].mission as CaptainMissionState).phase).toBe((live.captains[0].mission as CaptainMissionState).phase);
+    expect((offline.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo((live.captains[0].mission as CaptainMissionState).phaseProgressTicks, 6);
   });
 
   // PROOF 2b: the fold is genuinely CONSUMED through the economyTick seam. A fitted
@@ -3372,6 +3380,7 @@ describe("tick(), applies each captain's assigned-ship stats to their mission", 
     const state = freshState();
     state.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so the Runner's auto-repeat isn't gated (these tests are about ship stats, not fuel)
     state.captains[0].mission = {
+      kind: "extraction",
       missionKey: "shortOreRun",
       phase: "ordersReceived",
       phaseProgressTicks: 0,
@@ -3412,9 +3421,9 @@ describe("tick(), applies each captain's assigned-ship stats to their mission", 
     const resultB = tick(DELTA, stateB);
 
     // Runner completed a cycle and is back at the start; freighter is mid-extract.
-    expect(resultA.captains[0].mission!.phase).toBe("extracting");
-    expect(resultA.captains[0].mission!.phaseProgressTicks).toBeCloseTo(77, 6);
-    expect(resultB.captains[0].mission!.phase).toBe("ordersReceived");
+    expect((resultA.captains[0].mission as CaptainMissionState).phase).toBe("extracting");
+    expect((resultA.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(77, 6);
+    expect((resultB.captains[0].mission as CaptainMissionState).phase).toBe("ordersReceived");
 
     // The decisive rng-independent proof: the runner delivered a full haul; the
     // freighter delivered nothing. Freighter delivered EXACTLY 0 (no cycle done);
@@ -3454,8 +3463,8 @@ describe("tick(), applies each captain's assigned-ship stats to their mission", 
     const state = stateOnShortOreRun();
     const result = tick(103, state);
 
-    expect(result.captains[0].mission!.phase).toBe("extracting");
-    expect(result.captains[0].mission!.phaseProgressTicks).toBeCloseTo(77, 6);
+    expect((result.captains[0].mission as CaptainMissionState).phase).toBe("extracting");
+    expect((result.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(77, 6);
     // No cycle completed within 103 < 149 ticks -> no loot, no credits. FA XP,
     // however, is NON-zero now: since the Progression Pacing Rework (v0.5.0) FA XP
     // accrues per WHOLE tick a mission advances (fleetAdminXpPerTick == 1), so 103
@@ -3522,6 +3531,7 @@ describe("assignShipToCaptain", () => {
     // stability. captain 1 has a live mission -> assignment must refuse.
     const state = twoShipFleet();
     state.captains[0].mission = {
+      kind: "extraction",
       missionKey: "shortOreRun",
       phase: "extracting",
       phaseProgressTicks: 4,
@@ -3872,8 +3882,8 @@ describe("economyTick, mission auto-stop when the primary material is at cap (Ta
     // transitOut (progress reset to 0) and accrues 1 whole tick of XP, the exact
     // pre-B3 behavior for a below-cap captain.
     const cap = result.captains[0];
-    expect(cap.mission!.phase).toBe("transitOut");
-    expect(cap.mission!.phaseProgressTicks).toBe(0);
+    expect((cap.mission as CaptainMissionState).phase).toBe("transitOut");
+    expect((cap.mission as CaptainMissionState).phaseProgressTicks).toBe(0);
     expect(cap.xp.equals(1)).toBe(true);
     expect(result.fleetAdminXp.equals(1)).toBe(true);
   });
@@ -3907,9 +3917,9 @@ describe("tick, offline catch-up is clamped to offlineCapTicks then stepped (Tas
 
     // Both advanced exactly 2 ticks -> identical across every economy field.
     expect(fiveDays.captains[0].xp.equals(twoDays.captains[0].xp)).toBe(true);
-    expect(fiveDays.captains[0].mission!.phase).toBe(twoDays.captains[0].mission!.phase);
-    expect(fiveDays.captains[0].mission!.phaseProgressTicks).toBeCloseTo(
-      twoDays.captains[0].mission!.phaseProgressTicks,
+    expect((fiveDays.captains[0].mission as CaptainMissionState).phase).toBe((twoDays.captains[0].mission as CaptainMissionState).phase);
+    expect((fiveDays.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(
+      (twoDays.captains[0].mission as CaptainMissionState).phaseProgressTicks,
       9
     );
     expect(itemTotal(fiveDays.inventory, "commonOre").equals(itemTotal(twoDays.inventory, "commonOre"))).toBe(true);
@@ -3957,9 +3967,9 @@ describe("tick, per-tick stepping matches the single-call economy when no cap bi
     expect(viaTick.captains[0].xp.equals(viaSingle.captains[0].xp)).toBe(true);
     expect(viaTick.captains[0].xp.equals(149)).toBe(true);
     expect(viaTick.captains[0].level).toBe(viaSingle.captains[0].level);
-    expect(viaTick.captains[0].mission!.phase).toBe(viaSingle.captains[0].mission!.phase);
-    expect(viaTick.captains[0].mission!.phaseProgressTicks).toBeCloseTo(
-      viaSingle.captains[0].mission!.phaseProgressTicks,
+    expect((viaTick.captains[0].mission as CaptainMissionState).phase).toBe((viaSingle.captains[0].mission as CaptainMissionState).phase);
+    expect((viaTick.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(
+      (viaSingle.captains[0].mission as CaptainMissionState).phaseProgressTicks,
       9
     );
 
@@ -4011,13 +4021,13 @@ describe("tick, per-tick stepping matches the single-call economy when no cap bi
     // Cycle completes at 149 (reset to ordersReceived @ 0), then 0.7 advances into
     // ordersReceived. The stepped frac (149.7-149) and the single call's accumulated
     // 0.7 differ only by sub-1e-13 float residue, so compare with toBeCloseTo.
-    expect(viaTick.captains[0].mission!.phase).toBe(viaSingle.captains[0].mission!.phase);
-    expect(viaTick.captains[0].mission!.phase).toBe("ordersReceived");
-    expect(viaTick.captains[0].mission!.phaseProgressTicks).toBeCloseTo(
-      viaSingle.captains[0].mission!.phaseProgressTicks,
+    expect((viaTick.captains[0].mission as CaptainMissionState).phase).toBe((viaSingle.captains[0].mission as CaptainMissionState).phase);
+    expect((viaTick.captains[0].mission as CaptainMissionState).phase).toBe("ordersReceived");
+    expect((viaTick.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(
+      (viaSingle.captains[0].mission as CaptainMissionState).phaseProgressTicks,
       9
     );
-    expect(viaTick.captains[0].mission!.phaseProgressTicks).toBeCloseTo(0.7, 9);
+    expect((viaTick.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(0.7, 9);
 
     // --- fleetAdminXp (Decimal, exact) tracks the SAME 149 whole ticks; the fleet
     // clock advances the full fractional span (float -> toBeCloseTo, ~149.7). ---

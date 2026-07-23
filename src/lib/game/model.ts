@@ -12,6 +12,20 @@ import type { CraftLine } from "./allocation";
 // than each hard-coding 5/6. inventory.ts imports nothing from this file, so this value
 // import creates NO cycle (unlike the CraftLine type-only import above).
 import { QUALITY_TIERS } from "./inventory";
+// Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
+// below) carries a player-chosen combat STANCE and the carry-state DRONE squadrons.
+// Both types live in the combat/ layer. Imported TYPE-ONLY (erased at compile time)
+// so model.ts gains NO runtime dependency on combat/ and no runtime import cycle is
+// created (combat/ imports model at runtime; a value import back would cycle). This is
+// a deliberate, type-only exception to the "model.ts never imports combat internals"
+// note in combat/enemyHulls.ts: the discriminated mission union must NAME these shapes,
+// but naming a type costs nothing at runtime. Same erased-import discipline as CraftLine.
+import type { CombatStance } from "./combat/positioning";
+import type { DroneSquadron } from "./combat/drones";
+// Combat 0.13.0 (Phase 9b.5a): PatrolDef.hullPool references the pirate ENEMY hull
+// roster by id. Type-only (erased) import, same discipline as CombatStance/DroneSquadron
+// above: model.ts names the id union but takes no runtime dependency on combat/.
+import type { PirateHullId } from "./combat/enemyHulls";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -567,6 +581,88 @@ export const FACTIONS: Record<string, Faction> = {
     flavor: "A disciplined corsair fleet out of the burned-out colonies, feared for coordinated ambushes at the jump gates.",
   },
 };
+
+// --- Combat Patrols (Combat 0.13.0, Phase 9b.5a, design §S14) ------------------
+// A PatrolDef is to a patrol what a MissionDef is to an extraction run: the immutable
+// CONTENT template a dispatched patrol reads. It describes a route (transit OUT, a
+// combat WAVE WINDOW, transit BACK) fought against one named pirate faction drawing
+// enemies from a hull pool. Analogous to MissionDef but patrol-shaped: instead of an
+// extract/unload window it has a wave-roll window (the fields planWaveSchedule consumes)
+// and an enemy-count band; instead of a MissionLootTable it names a faction + hull pool
+// (enemy generation, 9b.5b, reads these). Fuel is DERIVED from the two transit legs
+// exactly as an extraction mission's is (only transit burns fuel, see fuel.ts), so a
+// patrol needs no explicit fuelCost field, just transitOutTicks / transitBackTicks.
+//
+// ⚠️ EVERY NUMBER IN PATROLS BELOW IS FIRST-PASS + TUNABLE (design S20 owns the balance
+// pass), same launch-placeholder spirit as MISSIONS'/SHIP_TYPES'/PIRATE_HULLS' constants.
+// The per-patrol INTENT COMMENT is the durable contract; the exact integers will move.
+export interface PatrolDef {
+  // Player-facing display name (shown in the patrol readout / dispatch UI, 9b.5c).
+  label: string;
+  // The FACTIONS id this patrol fights. Must be a real FACTIONS key (model.test guard).
+  factionId: string;
+  // The pirate hulls enemy generation (9b.5b) may draw a wave's enemies from. Every id
+  // must be a real PIRATE_HULLS key (model.test guard). Non-empty by contract.
+  hullPool: PirateHullId[];
+  // Wave-count band. minWaves is the guaranteed floor, maxWaves the ceiling; the resolved
+  // schedule (planWaveSchedule) always lands in [minWaves, maxWaves]. minWaves <= maxWaves
+  // (model.test guard). These map directly onto WaveScheduleParams.min/maxWaves.
+  minWaves: number;
+  maxWaves: number;
+  // Per-wave enemy-count band (how many enemy hulls a single wave fields). enemyCountMin
+  // <= enemyCountMax (model.test guard). Consumed by enemy generation (9b.5b), NOT by the
+  // wave schedule.
+  enemyCountMin: number;
+  enemyCountMax: number;
+  // Route geometry. transitOutTicks is the initial no-waves transit (shields regen); it
+  // also fixes the wave window's start (rollStartTick == transitOutTicks, the first tick a
+  // wave can occur). rollWindowTicks is the LENGTH of the wave-eligible window (so
+  // rollEndTick == transitOutTicks + rollWindowTicks - 1). transitBackTicks is the return
+  // leg. Total route length = transitOutTicks + rollWindowTicks + transitBackTicks. The
+  // window must physically hold maxWaves (rollWindowTicks >= maxWaves), which planWaveSchedule
+  // enforces for minWaves and the model.test guard enforces for maxWaves.
+  transitOutTicks: number;
+  rollWindowTicks: number;
+  transitBackTicks: number;
+  // Per-eligible-tick NATURAL wave-roll chance as an integer fraction (numerator /
+  // denominator), fed straight to planWaveSchedule (which draws on the combat PRNG). E.g.
+  // 30 / 100 == a 30% chance per eligible tick, on top of the catch-up floor that
+  // guarantees minWaves.
+  waveChanceNumerator: number;
+  waveChanceDenominator: number;
+}
+
+// The starting patrol roster, keyed by id (map-key IS the identity, like MISSIONS; no
+// separate `id` field). Add an entry here (growing PatrolKey) when a new patrol is
+// authored; never repurpose an existing key (a persisted PatrolMissionState.patrolKey
+// references it). ONE starter patrol this unit: a low-tier sweep against the Crimson
+// Reavers, drawing raiders + marauders, 2-4 waves of 1-2 enemies. Sized so the wave
+// window (8 ticks) comfortably holds maxWaves (4).
+export const PATROLS: Record<string, PatrolDef> = {
+  // CRIMSON-REAVER SWEEP: the entry patrol. A short local sweep (3-tick legs) through an
+  // 8-tick contested window, fighting 2-4 light waves (raiders, the odd marauder) of 1-2
+  // ships each. Beatable by an entry destroyer flying its default loadout (the pirate
+  // hulls are tuned weaker than the player's warships, see PIRATE_HULLS).
+  crimsonReaverSweep: {
+    label: "Crimson-Reaver Sweep",
+    factionId: "crimsonReavers",
+    hullPool: ["raider", "marauder"],
+    minWaves: 2,
+    maxWaves: 4,
+    enemyCountMin: 1,
+    enemyCountMax: 2,
+    transitOutTicks: 3,
+    rollWindowTicks: 8,
+    transitBackTicks: 3,
+    waveChanceNumerator: 30,
+    waveChanceDenominator: 100,
+  },
+};
+
+// The KEY union over PATROLS (mirrors MissionKey = keyof typeof MISSIONS). A persisted
+// PatrolMissionState.patrolKey is typed on this, so a typo or a retired key is a compile
+// error rather than a runtime miss.
+export type PatrolKey = keyof typeof PATROLS;
 
 // The 4 real hulls this feature ships (design doc, Task 1). TUNABLE, first-pass
 // balance; real tuning happens at the device-check stage, same launch-placeholder
@@ -1136,7 +1232,24 @@ export type LiveStatKey = (typeof LIVE_STAT_KEYS)[number];
 export type ReservedStatKey = (typeof RESERVED_STAT_KEYS)[number];
 export type StatKey = LiveStatKey | ReservedStatKey;
 
+// Combat 0.13.0 (Phase 9b.5a): the mission-KIND discriminant. A captain can now run
+// one of several KINDS of mission, so CaptainState.mission is a discriminated union
+// (CaptainMissionState | PatrolMissionState | null) keyed on this literal. EXTENSIBLE
+// on purpose: adding a member here (e.g. a future "science" survey) forces every
+// exhaustive switch over the kind (economyTick's routing, the tickers) to handle it
+// or fail to compile. "extraction" is today's resource-extraction mission; "patrol" is
+// the 0.13.0 combat patrol (PatrolMissionState below).
+export type MissionKind = "extraction" | "patrol";
+
+// The EXTRACTION arm of the CaptainState.mission discriminated union (Combat 0.13.0,
+// Phase 9b.5a). Behavior is UNCHANGED from before the union: every field and every
+// consumer path is byte-identical; the only addition is the required `kind` tag that
+// distinguishes this arm from PatrolMissionState at every union-consuming site (which
+// now narrows on `mission.kind === "extraction"` before reading the extraction-only
+// fields below). Constructed by dispatchCaptainOnMission (tick.ts) and backfilled onto
+// pre-v32 saves by the v31->v32 migration (save.ts, which stamps kind:"extraction").
 export interface CaptainMissionState {
+  kind: "extraction"; // discriminant: tags this as the extraction arm of the mission union
   missionKey: MissionKey;
   phase: MissionPhase;
   phaseProgressTicks: number; // continuous (can be fractional mid-tick) so multi-tick deltas land on exact phase boundaries
@@ -1152,6 +1265,95 @@ export interface CaptainMissionState {
   // OPTIONAL so pre-F3 saves (whose in-flight missions predate the field) rehydrate as absent
   // and are read as 0 (`?? 0`), no migration needed; a fresh cycle always sets it explicitly.
   refuelDelayTicks?: number;
+}
+
+// --- Combat Patrol mission (Combat 0.13.0, Phase 9b.5a, design §S14) -----------
+// The coarse ROUTE PHASE of a patrol, analogous to MissionPhase for extraction but
+// patrol-shaped: a patrol flies OUT (no waves, shields regen), fights through the
+// wave window ("engaging"), then flies BACK. The boundaries are derived from the
+// PatrolDef (transitOutTicks / rollWindowTicks / transitBackTicks) against the global
+// progressTicks counter; the 9b.5b patrol tick loop ADVANCES this phase as progressTicks
+// crosses those boundaries. Kept explicit (not purely derived) to mirror the extraction
+// model's explicit `phase` and to give the 9b.5b loop + any readout a stable label.
+export type PatrolPhase = "transitOut" | "engaging" | "transitBack";
+
+// The PERSISTED patrol-mission shape: the "patrol" arm of the CaptainState.mission
+// discriminated union. Carries EVERYTHING needed to DISPATCH a patrol, RESUME it after
+// a save/load, and (in 9b.5b) RUN it wave-by-wave, so 9b.5b adds NO new persisted field
+// (avoiding a second SAVE_VERSION bump). WHO WRITES each field is noted: `dispatch` =
+// dispatchCaptainOnPatrol (tick.ts, this unit); `9b.5b` = the not-yet-written patrol
+// tick loop. All fields are plain numbers / strings / arrays of plain-number records
+// (DroneSquadron holds no Decimal), so the shape round-trips through JSON with NO
+// hydrateDecimals change (unlike the extraction arm's Decimal cargo).
+export interface PatrolMissionState {
+  kind: "patrol"; // discriminant: tags this as the patrol arm of the mission union
+  // WHICH patrol (a PATROLS key). dispatch sets it; 9b.5b reads PATROLS[patrolKey] for
+  // the static def (wave params, hull pool, transit legs), exactly as extraction reads
+  // MISSIONS[missionKey]. Set by: dispatch.
+  patrolKey: PatrolKey;
+  // The FACTIONS id this patrol fights (copied from the def at dispatch so the fought
+  // faction is pinned even if the def is ever retuned mid-flight). Set by: dispatch.
+  factionId: string;
+  // The player-chosen combat STANCE for every wave this patrol fights (design S6). Set
+  // by: dispatch (from the dispatch arg).
+  stance: CombatStance;
+  // The persisted MASTER SEED (a plain int, never reused, drawn from GameState
+  // .nextPatrolSeed at dispatch). 9b.5b derives every encounter's battle seed from this
+  // (e.g. masterSeed + waveIndex) so an offline catch-up resolves BYTE-IDENTICALLY to a
+  // live run (design S0). It also seeded the wave schedule below. Set by: dispatch.
+  masterSeed: number;
+  // Coarse route phase (see PatrolPhase). dispatch seeds "transitOut" (progressTicks 0);
+  // 9b.5b advances it. Set by: dispatch (initial), then 9b.5b.
+  phase: PatrolPhase;
+  // GLOBAL route ticks elapsed since dispatch (0 at dispatch). This is the ABSOLUTE
+  // route position the wave schedule is indexed against (waveTicks holds absolute route
+  // ticks), so 9b.5b compares progressTicks directly to waveTicks[nextWaveIndex]. `phase`
+  // above is consistent with this by construction (the loop crosses phase boundaries at
+  // the def's transit/window tick counts). Set by: dispatch (0), then 9b.5b.
+  progressTicks: number;
+  // The RESOLVED wave schedule: the absolute route ticks at which waves occur, computed
+  // ONCE at dispatch via planWaveSchedule(masterSeed, def-derived params). WAVE-PLAN-NOW
+  // (not deferred to the first tick): the seed is fixed at dispatch, so the schedule is
+  // fully determined then; persisting the resolved array makes save/load trivially
+  // stable (no recompute-on-load ambiguity) and lets 9b.5b's loop read waveTicks
+  // [nextWaveIndex] with zero setup. Determinism/offline-parity is preserved because it
+  // is a pure function of the persisted masterSeed. Set by: dispatch.
+  waveTicks: number[];
+  // Pointer into waveTicks: the index of the NEXT unfought wave (0 at dispatch, advanced
+  // to waveTicks.length when all waves are done). Persisting the resolved waveTicks +
+  // this pointer is the simplest save/load-stable representation (chosen over persisting
+  // only the params + recomputing, which would risk a param/def drift on reload). Set
+  // by: dispatch (0), then 9b.5b.
+  nextWaveIndex: number;
+  // Running tally of waves CLEARED. Set by: dispatch (0), then 9b.5b.
+  wavesWon: number;
+  // Running tally of waves LOST. A loss is normally terminal (the ship is destroyed ->
+  // the patrol ends), so this is 0 or 1 in practice; kept as a count for a uniform
+  // wins/losses readout and forward flexibility. Set by: dispatch (0), then 9b.5b.
+  wavesLost: number;
+  // PLAYER CARRY-STATE between waves (design S14): the hull PERSISTS and accumulates
+  // damage across waves. Seeded at dispatch to the ship's FULL hull (SHIP_TYPES
+  // [typeKey].hullIntegrity, the same pool bridge.ts's shipToCombatant reads). Set by:
+  // dispatch (full), then 9b.5b (carries damage forward).
+  playerHull: number;
+  // PLAYER CARRY-STATE: the shield pool, which REGENERATES per tick toward full between
+  // waves (design S14). Seeded at dispatch to the ship's full shieldCapacity. Set by:
+  // dispatch (full), then 9b.5b.
+  playerShield: number;
+  // PLAYER CARRY-STATE: the drone squadrons, which REPLENISH per tick between waves
+  // (design S14). Seeded at dispatch from the hull's default loadout (a carrier's Attack
+  // screen via COMBAT_DEFAULT_LOADOUT; EMPTY for a non-carrier combat hull). DroneSquadron
+  // holds only plain numbers/strings, so this array is JSON-safe with no hydration. Set
+  // by: dispatch (fresh squadrons), then 9b.5b (carries losses/replenish forward).
+  playerDrones: DroneSquadron[];
+  // Recall intent, mirroring CaptainMissionState.recalled: when true, the patrol ends
+  // (mission -> null) after the CURRENT cycle completes instead of auto-relaunching. Set
+  // by: dispatch (false), recallCaptain (true), then honored by 9b.5b at cycle end.
+  recalled: boolean;
+  // The "Dispatch Once vs Repeatedly" toggle: true = auto-relaunch a fresh patrol after
+  // this one completes (mirrors extraction's implicit auto-repeat); false = end after one
+  // cycle. Read by 9b.5b at cycle completion. Set by: dispatch (from the dispatch arg).
+  repeatDispatch: boolean;
 }
 
 // How many ticks a phase requires before advancing to the next one.
@@ -1482,12 +1684,29 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
 export interface CaptainState {
   id: number;
   label: string; // live, user-editable display name (defaults to "Captain N"), edited via renameCaptain (tick.ts) behind validateCaptainName (captainName.ts)
-  mission: CaptainMissionState | null; // null when idle (idle captains have no passive economy, see tick.ts)
+  // Combat 0.13.0 (Phase 9b.5a): a DISCRIMINATED UNION over mission KIND. null = idle
+  // (idle captains have no passive economy, see tick.ts); an extraction mission
+  // (CaptainMissionState, kind:"extraction") = the resource-extraction run; a patrol
+  // (PatrolMissionState, kind:"patrol") = the 0.13.0 combat patrol. Every consumer that
+  // reads extraction-only fields (missionKey/phase/cargo/...) MUST narrow on
+  // `mission.kind === "extraction"` first; the compiler flags any that don't.
+  mission: CaptainMissionState | PatrolMissionState | null;
   xp: Decimal; // accumulated toward the NEXT level, see xpForNextLevel() below; accrued per active tick in tick.ts's tickCaptainMission (Task 4)
   level: number; // starts at 1
   statPoints: number; // unspent, earned on level-up, spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
   unlockedCaptainTalents: CaptainTalentKey[]; // this captain's own purchased Captain Talent keys, see buyCaptainTalent (tick.ts)
   spec: CaptainTalentBranch | null; // this captain's chosen Captain Specialization, if any, null means no CAPTAIN_SPEC_BONUS entry applies yet (see that table below)
+}
+
+// Combat 0.13.0 (Phase 9b.5a): narrow a captain's mission union to its EXTRACTION arm, or
+// null. A convenience for the existing extraction consumers (the App.svelte status
+// readouts + the in-progress mission list) that must read extraction-only fields off the
+// now-unioned CaptainState.mission WITHOUT each site hand-narrowing the discriminant.
+// Returns the extraction mission when the captain is on one, else null (idle OR on a
+// patrol, both of which those extraction-only consumers treat as "not an extraction run").
+// PURE.
+export function extractionMissionOf(captain: CaptainState): CaptainMissionState | null {
+  return captain.mission !== null && captain.mission.kind === "extraction" ? captain.mission : null;
 }
 
 // --- Ship Production Economy (Phase 1, Task 3, docs/plans/2026-07-11-facility-
@@ -2391,6 +2610,14 @@ export interface GameState {
   // freshState seeds 2 (the one starter "Captain 1" holds id 1); the v30->v31 save
   // migration backfills it as max(existing captain ids) + 1.
   nextCaptainId: number;
+  // Combat 0.13.0 (Phase 9b.5a): monotonic id source for a new patrol's MASTER SEED;
+  // never reused, mirrors nextShipId / nextCaptainId / nextEquipmentId. Each dispatched
+  // patrol takes the CURRENT value as its PatrolMissionState.masterSeed and the counter
+  // increments, so every patrol ever dispatched gets a distinct, stable seed. 9b.5b
+  // derives every encounter's battle seed from that master seed, which is what makes an
+  // offline catch-up resolve byte-identically to a live run (design S0). freshState seeds
+  // 1; the v31->v32 save migration backfills 1 onto old saves.
+  nextPatrolSeed: number;
   // --- Progression Pacing Rework (docs/plans/2026-07-11-progression-pacing-rework-*) ---
   // Monotonic LIFETIME totals, reserved now for future Completions/Achievements
   // systems to read. These are FORWARD-COMPAT schema only: freshState zero-inits
@@ -4955,6 +5182,11 @@ export function freshState(): GameState {
     // is taken, next is 2" reasoning). Existing saves get this backfilled by the
     // v30->v31 migration (save.ts), NOT this function's job.
     nextCaptainId: 2,
+    // Combat 0.13.0 (Phase 9b.5a): the first patrol dispatched takes master seed 1, so
+    // the counter starts at 1 (mirrors nextShipId/nextCaptainId's "next allocatable"
+    // seeding). Existing saves get this backfilled by the v31->v32 migration (save.ts),
+    // NOT this function's job.
+    nextPatrolSeed: 1,
     // Clean-slate lifetime totals, see freshLifetimeStats() above. Extracted
     // to that shared factory (Omega 4, DRY) so this new-game init and the
     // v16->v17 save migration that backfills the same field (save.ts,

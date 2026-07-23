@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL } from "./model";
 
-export const SAVE_VERSION = 31;
+export const SAVE_VERSION = 32;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -87,15 +87,25 @@ function hydrateDecimals(state: any): GameState {
     captains: state.captains.map((c: any) => ({
       ...c,
       xp: toDecimal(c.xp),
+      // Combat 0.13.0 (Phase 9b.5a): CaptainState.mission is now a discriminated union.
+      // Only the EXTRACTION arm carries Decimal cargo needing revival; a PATROL arm holds
+      // only plain numbers/strings (hull/shield/seed/waveTicks) and JSON-safe DroneSquadron
+      // records, so it rides through UNTOUCHED. Guard on kind === "patrol" (the sole
+      // no-cargo arm) so anything else, an extraction mission with or without a stamped
+      // kind, still gets the byte-identical cargo hydration below. By the time this runs the
+      // v31->v32 migration has already stamped kind:"extraction" on any pre-v32 mission, and
+      // a patrol can only exist in a v32+ save, so the kind check is reliable.
       mission: c.mission
-        ? {
-            ...c.mission,
-            cargo: {
-              commonOre: toDecimal(c.mission.cargo.commonOre),
-              uncommonMaterial: toDecimal(c.mission.cargo.uncommonMaterial),
-              rareMaterial: toDecimal(c.mission.cargo.rareMaterial),
-            },
-          }
+        ? c.mission.kind === "patrol"
+          ? c.mission
+          : {
+              ...c.mission,
+              cargo: {
+                commonOre: toDecimal(c.mission.cargo.commonOre),
+                uncommonMaterial: toDecimal(c.mission.cargo.uncommonMaterial),
+                rareMaterial: toDecimal(c.mission.cargo.rareMaterial),
+              },
+            }
         : c.mission,
     })),
     fleetAdminXp: toDecimal(state.fleetAdminXp),
@@ -1194,6 +1204,37 @@ const MIGRATIONS: Record<number, Migration> = {
     const nextCaptainId = Math.max(0, ...captainIds) + 1;
     return { ...state, nextCaptainId };
   },
+  // v31 -> v32: mission-KIND discriminant + patrol master-seed counter (Combat 0.13.0,
+  // Phase 9b.5a). CaptainState.mission became a DISCRIMINATED UNION (extraction | patrol)
+  // keyed on a required `kind` tag, and GameState gained `nextPatrolSeed` (the monotonic
+  // patrol master-seed source). This step backfills both onto an existing v31 save:
+  //
+  // (a) DISCRIMINANT BACKFILL: every captain whose `mission` is a non-null EXTRACTION
+  //     mission lacking `kind` gets `kind: "extraction"` stamped (its extraction fields
+  //     already prove which arm it is). A null mission stays null (idle captain). A PATROL
+  //     mission CANNOT exist in a v31 save (patrols did not exist pre-v32), so there is no
+  //     patrol case to handle here. `?? "extraction"` is idempotent + belt-and-suspenders:
+  //     a genuine v31 mission has no `kind` (so it is stamped), but a chained/hand-edited
+  //     save that already carries one keeps it exactly (never clobbered). An in-flight
+  //     extraction mission keeps EVERY other field (missionKey/phase/progress/cargo/recalled/
+  //     refuelDelayTicks) via the spread, so it resumes running byte-identically; the sole
+  //     change is the added tag. The Decimal cargo is revived by hydrateDecimals AFTER this
+  //     runs (its extraction branch), unchanged by this step.
+  // (b) nextPatrolSeed BACKFILL: seeded 1 if absent (the same value freshState seeds), via
+  //     `?? 1` so a chained/re-run save keeps an existing counter. A PLAIN number (no
+  //     Decimal), so it rides hydrateDecimals's `...state` spread untouched.
+  //
+  // Every OTHER GameState field rides through untouched on the outer `...state` spread.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production,
+  // so it is still editable (the frozen-once-shipped rule applies only to production-released
+  // migrations).
+  31: (state: any): any => ({
+    ...state,
+    captains: (state.captains ?? []).map((c: any) =>
+      c.mission ? { ...c, mission: { ...c.mission, kind: c.mission.kind ?? "extraction" } } : c
+    ),
+    nextPatrolSeed: state.nextPatrolSeed ?? 1,
+  }),
 };
 
 export function migrate(save: SaveFile): GameState {

@@ -77,6 +77,7 @@ function withCaptainSpec(state: GameState, spec: GameState["captains"][number]["
 // Put the seeded captain (id 1) on an active mission (any live mission state).
 function withCaptainOnMission(state: GameState): GameState {
   const mission = {
+    kind: "extraction" as const,
     missionKey: "shortOreRun" as const,
     phase: "transitOut" as const,
     phaseProgressTicks: 0,

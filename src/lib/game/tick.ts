@@ -27,6 +27,9 @@ import {
   type EquipmentRarity,
   MISSIONS,
   BASE_XP_PER_TICK,
+  // Combat 0.13.0 (Phase 9b.5a): the patrol content table + its shapes, for patrol
+  // dispatch (canDispatchPatrol / dispatchCaptainOnPatrol) and the economyTick kind routing.
+  PATROLS,
   SHIP_TYPES,
   CAPTAIN_TALENTS,
   CAPTAIN_SPEC_BONUS,
@@ -46,6 +49,9 @@ import {
   type ShipInstance,
   type CaptainState,
   type CaptainMissionState,
+  type PatrolMissionState,
+  type PatrolKey,
+  type PatrolDef,
   type LootMaterialKey,
   type MissionDef,
   type ShipDerivedStats,
@@ -94,7 +100,14 @@ import {
   SHIP_DOCKS_BASE,
   SHIP_DOCKS_RUNGS,
 } from "./model";
-import { fuelNeeded } from "./fuel";
+import { fuelNeeded, fuelForRoundTrip } from "./fuel";
+// Combat 0.13.0 (Phase 9b.5a): patrol dispatch helpers. combatHullTypeOf gates the
+// combat-hull requirement + resolves the CombatHullType for the drone default;
+// defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
+// resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
+import { combatHullTypeOf, defaultDronesForHull } from "./combat/bridge";
+import { planWaveSchedule, type WaveScheduleParams } from "./combat/waveSchedule";
+import type { CombatStance } from "./combat/positioning";
 // Equipment 0.11.0 (Task 19): the Fabricator's equipment mint. computeItemLevel derives a
 // crafted piece's level (clamped by the blueprint-tier cap), generateEquipment rolls the whole
 // EquipmentInstance from an INJECTED seeded rng (so the mint is offline==live reproducible), and
@@ -130,6 +143,17 @@ import { validateCaptainName } from "./captainName";
 // phase added to MissionPhase without a matching entry here would silently
 // wrap `.indexOf()` to -1 instead of erroring.
 const MISSION_PHASE_ORDER: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
+
+// Combat 0.13.0 (Phase 9b.5a): compile-time exhaustiveness guard for the discriminated
+// CaptainState.mission union (keyed on MissionKind). Called in the DEFAULT arm of a
+// switch over `mission.kind`: because its parameter is typed `never`, TS accepts the call
+// ONLY when every kind has been handled by a prior case; adding a future MissionKind
+// without a matching case makes `captain.mission` non-`never` there and FAILS to compile,
+// forcing the new kind to be handled. Throws at runtime as a last resort (unreachable in
+// well-typed code). Mirrors the "switch exhaustively" intent noted in combat/types.ts.
+function assertNeverMission(mission: never): never {
+  throw new Error(`Unhandled mission kind: ${JSON.stringify(mission)}`);
+}
 
 // Equipment 0.11.0 (Task 13/14 -> RETIRED in Task 20): the interim `fittedPieces`
 // helper that used to guard `state.equipment ? equippedFor(...) : []` was DELETED here.
@@ -823,6 +847,27 @@ export function tickCaptainMission(
     };
   }
 
+  // Combat 0.13.0 (Phase 9b.5a): tickCaptainMission advances ONLY the EXTRACTION arm of
+  // the CaptainState.mission discriminated union. A PATROL is advanced by its own loop
+  // (9b.5b); economyTick routes by kind so a patrol never reaches here in production, but
+  // this guard is the belt-and-suspenders that keeps a DIRECT caller (a test, a future
+  // path) from reading extraction-only fields off a patrol. Narrow ONCE into a typed local
+  // (`extractionMission`) so every read below sees the extraction arm's fields without
+  // re-narrowing across the many statements + calls that follow. A patrol returns the SAME
+  // no-op result the idle/zero-tick early-out returns, i.e. no progress, no crash.
+  if (captain.mission.kind !== "extraction") {
+    return {
+      captain,
+      homePlanetDelta: emptyLootTotals(),
+      fleetAdminXpDelta: 0,
+      creditsDelta: 0,
+      lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
+      fuelSpent: 0,
+      creditsSpentOnFuel: 0,
+    };
+  }
+  const extractionMission = captain.mission;
+
   // Resolve the mission's transit + cargo geometry ONCE, before the while loop
   // below, exactly like resolvedBonuses further down. effectiveMissionDef
   // rescales transitOut/BackTicks by the ship's transitSpeedMult (ceil, so they
@@ -834,9 +879,9 @@ export function tickCaptainMission(
   // preserved. Do NOT move this inside the loop: a per-iteration recompute would
   // still yield the same numbers (effectiveMissionDef is pure), but computing it
   // once is both cheaper and the clearest signal that it's a call-constant.
-  const rawMissionDef = MISSIONS[captain.mission.missionKey];
+  const rawMissionDef = MISSIONS[extractionMission.missionKey];
   const missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : rawMissionDef;
-  let mission: CaptainMissionState | null = { ...captain.mission, cargo: { ...captain.mission.cargo } };
+  let mission: CaptainMissionState | null = { ...extractionMission, cargo: { ...extractionMission.cargo } };
   let remaining = ticksElapsed;
   // Mission Rework (Task 1): typed Record<string,Decimal> (not the narrow
   // LootMaterialKey) because the cycle-delivery below remaps the abstract-tier cargo
@@ -872,12 +917,12 @@ export function tickCaptainMission(
   // captain.mission (guaranteed non-null past the early return above) rather
   // than the local `mission`, which can become null on a recall before we use
   // this after the loop.
-  const xpRate = xpPerTick(captain.mission.missionKey, captain);
+  const xpRate = xpPerTick(extractionMission.missionKey, captain);
   // The mission key this call runs, captured ONCE (call-constant: auto-repeat
   // reuses the same key). Used only to key the lifetimeStatsDelta.missionsCompleted
   // tally below. Read off captain.mission (guaranteed non-null past the early
   // return) rather than the local `mission`, which can go null on a recall.
-  const missionKey = captain.mission.missionKey;
+  const missionKey = extractionMission.missionKey;
   // The per-tick Fleet Admiral XP RATE for this mission, resolved ONCE
   // (call-constant), mirroring xpRate directly above. Read off missionDef, the
   // ship-adjusted def, which is safe because effectiveMissionDef preserves
@@ -1135,6 +1180,7 @@ export function tickCaptainMission(
           }
           if (startNextCycle) {
             mission = {
+              kind: "extraction", // Combat 0.13.0 (9b.5a): tag the auto-repeated extraction cycle
               missionKey,
               phase: "ordersReceived",
               phaseProgressTicks: 0,
@@ -1539,11 +1585,33 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   let totalCreditsSpentOnFuel = 0;
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
-    // Capture the mission key ONCE, while `captain.mission` is still narrowed non-null by
-    // the guard above. The recall branch below reassigns `captain` (to flag `recalled`),
-    // which re-widens `captain.mission` to `... | null` for TS, so downstream reads go
-    // through this const instead. missionKey is invariant across a recall (recall only
-    // flags intent; it never changes which mission runs), so this is exactly equivalent.
+    // Combat 0.13.0 (Phase 9b.5a): ROUTE by mission KIND. CaptainState.mission is now a
+    // discriminated union, so the per-captain economy step branches on the tag. An
+    // EXHAUSTIVE switch with an assertNever default makes a future MissionKind a COMPILE
+    // ERROR here (the codebase's discriminated-union hygiene) rather than a silent skip.
+    //   - extraction: fall through to the UNCHANGED extraction path below (byte-identical).
+    //   - patrol:     a NO-OP stub this unit, the captain stays on the patrol WITHOUT it
+    //                 advancing. 9b.5b fills the patrol tick loop here (running battles,
+    //                 advancing progressTicks/waves, honoring recall/repeat). No player path
+    //                 dispatches a patrol yet, so a non-advancing patrol is expected + safe;
+    //                 the point of this branch is that a dispatched patrol cannot CRASH the
+    //                 economy tick and the OTHER captains in the same map tick normally.
+    switch (captain.mission.kind) {
+      case "extraction":
+        break; // fall through to the extraction handling below (unchanged)
+      case "patrol":
+        // 9b.5b fills the patrol tick loop here. For now: no-op (return the captain as-is).
+        return captain;
+      default:
+        return assertNeverMission(captain.mission);
+    }
+    // Past the switch, TS has narrowed captain.mission to the EXTRACTION arm (the patrol +
+    // default cases both return), so the extraction-only reads below type-check directly.
+    // Capture the mission key ONCE, while `captain.mission` is still narrowed by the switch
+    // above. The recall branch below reassigns `captain` (to flag `recalled`), which
+    // re-widens `captain.mission` to the full union for TS, so downstream reads go through
+    // this const instead. missionKey is invariant across a recall (recall only flags intent;
+    // it never changes which mission runs), so this is exactly equivalent.
     const missionKey = captain.mission.missionKey;
     // Phase 2 (Task B3, design §3.4): AUTO-STOP, when this mission's PRIMARY material is
     // already at its warehouse tier cap the run CANNOT usefully complete (its haul would
@@ -2144,6 +2212,7 @@ export function dispatchCaptainOnMission(
   captains[idx] = {
     ...captains[idx],
     mission: {
+      kind: "extraction", // Combat 0.13.0 (9b.5a): tag the extraction arm of the mission union
       missionKey,
       phase: "ordersReceived",
       phaseProgressTicks: 0,
@@ -2167,6 +2236,202 @@ export function dispatchCaptainOnMission(
   };
 }
 
+// ============================================================================
+// Combat Patrols (Combat 0.13.0, Phase 9b.5a): the DISPATCH gate + action for a
+// captain's SECOND mission kind, a combat patrol. Deliberately mirrors canDispatch /
+// dispatchCaptainOnMission above (the extraction pair) so the two kinds share shape,
+// conventions, and the same-ref-on-failure contract; only the gates + the seeded
+// mission state differ. The patrol TICK LOOP (running battles) is 9b.5b; this unit only
+// puts a captain ONTO a patrol. No player-facing path calls these yet (UI is 9b.5c).
+// ============================================================================
+
+// patrolWaveParams: derive the WaveScheduleParams a PatrolDef implies. The wave window
+// STARTS the tick initial transit ends (rollStartTick == transitOutTicks, the first tick
+// a wave can occur) and SPANS rollWindowTicks ticks (rollEndTick == transitOutTicks +
+// rollWindowTicks - 1, inclusive). Pulled out so dispatch (which resolves the schedule
+// now), any test, and the 9b.5b loop derive the SAME params from one place (Omega 4).
+// PURE.
+export function patrolWaveParams(def: PatrolDef): WaveScheduleParams {
+  return {
+    minWaves: def.minWaves,
+    maxWaves: def.maxWaves,
+    rollStartTick: def.transitOutTicks,
+    rollEndTick: def.transitOutTicks + def.rollWindowTicks - 1,
+    waveChanceNumerator: def.waveChanceNumerator,
+    waveChanceDenominator: def.waveChanceDenominator,
+  };
+}
+
+// The reasons canDispatchPatrol can block, a typed union mirroring DispatchBlockReason
+// (extraction). Member order mirrors the gate order below (cheapest/most-fundamental
+// first). Patrols share the identity/status/fuel gates but SWAP the mission-specific
+// gates: an extraction mission gates on unlock/captain-level/cargo; a patrol instead
+// gates on the assigned ship being a COMBAT HULL (`notCombatHull`), a user decision (a
+// freighter/prospector cannot patrol). Unlock/level/reward gates for patrols are a later
+// concern (no locked patrol content this unit), so they are deliberately absent here.
+export type PatrolDispatchBlockReason =
+  | "noCaptain"      // no captain has that id (bad caller / stale reference)
+  | "busy"           // the captain is already on a mission (extraction OR patrol); dispatch is idle-only
+  | "noShip"         // the captain flies no hull, so the trip can't be priced/crewed
+  | "notCombatHull"  // the assigned hull is NOT a combat hull (destroyer/battleship/carrier)
+  | "fuelCapacity"   // the hull's tank is physically too small for the round trip (RANGE)
+  | "fuelEmpty";     // the shared fuel tank can't cover the round trip's cost AND the shortfall is unaffordable (RESOURCE)
+
+// canDispatchPatrol: THE single consolidated patrol-dispatch gate. Pure predicate, reads
+// state + the static PATROLS/SHIP_TYPES tables, mutates + spends nothing. The ONE source
+// of truth for "can this captain fly this patrol right now?" (dispatchCaptainOnPatrol
+// consults it and does nothing else gate-wise; a future patrol UI calls it directly).
+//
+// GATE ORDER (cheapest/most-fundamental first, determines WHICH reason surfaces when
+// several fail): identity (noCaptain) -> status (busy) -> hull existence (noShip) -> hull
+// CAPABILITY (notCombatHull) -> fuel RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty).
+// notCombatHull is checked right after the hull is resolved (it is a property of the
+// hull, cheaper + more useful to report than any fuel arithmetic). Fuel is priced from
+// the SAME equipment-folded engineEfficiency the extraction gate uses, so a patrol's
+// dispatch estimate matches what 9b.5b will burn.
+export function canDispatchPatrol(
+  state: GameState,
+  captainId: number,
+  patrolKey: PatrolKey
+): { ok: true } | { ok: false; reason: PatrolDispatchBlockReason } {
+  // --- Identity + status: the captain must exist and be idle (dispatch is idle-only).
+  // Found by stable id, not array index (mirrors canDispatch). `mission !== null` covers
+  // BOTH kinds, so a captain already on an extraction mission OR a patrol is "busy".
+  const captain = state.captains.find((c) => c.id === captainId);
+  if (!captain) return { ok: false, reason: "noCaptain" };
+  if (captain.mission !== null) return { ok: false, reason: "busy" };
+
+  const def = PATROLS[patrolKey];
+
+  // --- Hull existence: resolve THIS captain's hull (assignedCaptainId is the single
+  // source of truth). No hull -> can't price fuel or crew the patrol.
+  const ship = state.ships.find((s) => s.assignedCaptainId === captainId);
+  if (!ship) return { ok: false, reason: "noShip" };
+
+  // --- Hull CAPABILITY: a patrol requires a COMBAT hull (destroyer/battleship/carrier).
+  // A freighter/prospector cannot patrol (user decision). combatHullTypeOf narrows the
+  // typeKey to a CombatHullType or null; null -> blocked. (dispatch reuses this to seed
+  // the carrier's default drones, so the two never disagree on "is this a combat hull".)
+  if (combatHullTypeOf(ship.typeKey) === null) return { ok: false, reason: "notCombatHull" };
+  const shipDef = SHIP_TYPES[ship.typeKey];
+
+  // --- Fuel gates: price the round trip from the patrol's transit legs (fuelForRoundTrip),
+  // using the EQUIPMENT-FOLDED engineEfficiency (overlaid on the static ShipTypeDef, as
+  // canDispatch does), so the dispatch estimate matches the loop's per-cycle burn. With no
+  // gear fitted the fold is an identity. The folded fuelCapacity gates RANGE.
+  const stats = shipDerivedStats(ship, equippedFor(state, ship.id));
+  const need = fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
+    ...shipDef,
+    engineEfficiency: stats.engineEfficiency,
+  });
+  // RANGE: the hull physically cannot carry enough fuel for the round trip (independent of
+  // how much is in the shared tank). Forward-defensive, mirrors canDispatch's fuelCapacity.
+  if (stats.fuelCapacity < need) return { ok: false, reason: "fuelCapacity" };
+  // RESOURCE (mirror of canDispatch/Fuel Economy v2 F3): a short tank does NOT hard-block --
+  // dispatchCaptainOnPatrol AUTO-BUYS the shortfall from credits and flies. So fuelEmpty
+  // fires ONLY when the tank is short AND the shortfall is UNAFFORDABLE (the "truly broke"
+  // floor). shortfall/cost as plain numbers (fuel is human-scale, and state.fuel < need here
+  // so .toNumber() is exact); credits compared as Decimal.
+  if (state.fuel.lt(need)) {
+    const shortfall = need - state.fuel.toNumber();
+    const cost = shortfall * FUEL_CREDITS_PER_UNIT;
+    if (state.credits.lt(cost)) return { ok: false, reason: "fuelEmpty" };
+  }
+
+  return { ok: true };
+}
+
+// dispatchCaptainOnPatrol: put an idle captain onto a patrol. A THIN WRAPPER over
+// canDispatchPatrol (the single source of truth for every gate), mirroring
+// dispatchCaptainOnMission exactly: (a) consult the gate, (b) on failure return the SAME
+// state ref + success:false + the reason (same-ref no-op convention), (c) on success
+// consume the first leg's fuel (auto-buying any affordable shortfall, like extraction),
+// draw the master seed, resolve the wave schedule NOW, seed a fresh PatrolMissionState,
+// and increment nextPatrolSeed.
+export function dispatchCaptainOnPatrol(
+  state: GameState,
+  captainId: number,
+  patrolKey: PatrolKey,
+  stance: CombatStance,
+  repeatDispatch: boolean
+): { next: GameState; success: boolean; reason?: PatrolDispatchBlockReason } {
+  const gate = canDispatchPatrol(state, captainId, patrolKey);
+  // Blocked: same-ref no-op (dispatch's long-standing failure convention) + the reason.
+  if (!gate.ok) return { next: state, success: false, reason: gate.reason };
+
+  // gate.ok GUARANTEES: the captain exists + is idle, has an assigned COMBAT hull, and the
+  // tank covers (or can affordably top up to) one round trip. So the lookups below cannot
+  // fail (asserted with `!`), matching what canDispatchPatrol just verified. Recomputed
+  // here (rather than threaded out of the gate) to keep the gate a clean predicate.
+  const def = PATROLS[patrolKey];
+  const idx = state.captains.findIndex((c) => c.id === captainId);
+  const ship = state.ships.find((s) => s.assignedCaptainId === captainId)!;
+  const shipDef = SHIP_TYPES[ship.typeKey];
+  const hullType = combatHullTypeOf(ship.typeKey)!; // non-null: canDispatchPatrol passed notCombatHull
+
+  // Price the first cycle's fuel from the SAME folded engineEfficiency the gate + 9b.5b use.
+  const dispatchStats = shipDerivedStats(ship, equippedFor(state, ship.id));
+  const need = fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
+    ...shipDef,
+    engineEfficiency: dispatchStats.engineEfficiency,
+  });
+  // Fuel spend, mirroring dispatchCaptainOnMission: if the tank covers `need`, spend
+  // straight from it; if SHORT, canDispatchPatrol's fuelEmpty gate has already guaranteed
+  // the shortfall is affordable, so AUTO-BUY exactly the shortfall from credits. (Patrols
+  // have no ordersReceived refuel-penalty concept, so no penalty tick is stamped, that
+  // extraction mechanic does not apply to the patrol phase model.)
+  const short = state.fuel.lt(need);
+  const shortfall = short ? need - state.fuel.toNumber() : 0;
+  const cost = shortfall * FUEL_CREDITS_PER_UNIT;
+
+  // The persisted master seed for this patrol, taken from the never-reused counter; the
+  // counter increments below so the next patrol gets a distinct seed.
+  const masterSeed = state.nextPatrolSeed;
+  // Resolve the wave schedule NOW (see PatrolMissionState.waveTicks for the wave-plan-now
+  // rationale): a pure function of the master seed + the def-derived params, so it is
+  // stable across save/load and reproducible offline==live.
+  const waveTicks = planWaveSchedule(masterSeed, patrolWaveParams(def));
+  // Seed the carry-state: full hull/shield from the hull's combat stats (the same pools
+  // bridge.ts reads), and the hull's default drones (a carrier's screen; empty otherwise).
+  const playerDrones = defaultDronesForHull(hullType, `patrol-${masterSeed}-p`);
+
+  const mission: PatrolMissionState = {
+    kind: "patrol",
+    patrolKey,
+    factionId: def.factionId,
+    stance,
+    masterSeed,
+    phase: "transitOut", // progressTicks 0 -> initial transit; 9b.5b advances it
+    progressTicks: 0,
+    waveTicks,
+    nextWaveIndex: 0,
+    wavesWon: 0,
+    wavesLost: 0,
+    playerHull: shipDef.hullIntegrity,
+    playerShield: shipDef.shieldCapacity,
+    playerDrones,
+    recalled: false,
+    repeatDispatch,
+  };
+
+  const captains = [...state.captains];
+  captains[idx] = { ...captains[idx], mission };
+  // Tank + credits: buy the shortfall (if any) INTO the tank, then spend the full round
+  // trip (nets to 0 on a short tank, fuel-need on a covered one); drop credits by the
+  // auto-buy cost (0 when the tank covered it). Both guaranteed >= 0 by the passed gate.
+  // nextPatrolSeed increments so this master seed is never reused.
+  return {
+    next: {
+      ...state,
+      captains,
+      fuel: state.fuel.plus(shortfall).minus(need),
+      credits: state.credits.minus(cost),
+      nextPatrolSeed: state.nextPatrolSeed + 1,
+    },
+    success: true,
+  };
+}
+
 // Flags an active mission as recalled. Deliberately does NOT reset phase,
 // phaseProgressTicks, or cargo, recall only flags intent; tickCaptainMission
 // (Task 2) already knows to end the mission (mission -> null) instead of
@@ -2174,13 +2439,20 @@ export function dispatchCaptainOnMission(
 // recall takes effect at the end of the current cycle, not immediately --
 // a deliberate design choice, not a bug. Fails if no captain has that id,
 // or if they have no active mission to recall.
+//
+// Combat 0.13.0 (Phase 9b.5a): works for EITHER arm of the CaptainState.mission
+// discriminated union. Both CaptainMissionState and PatrolMissionState carry a
+// `recalled: boolean`, so spreading the (non-null) mission and overriding recalled
+// preserves the arm's `kind` + every other field and stays a valid union member. A
+// patrol honors the flag at its own cycle end (9b.5b); an extraction mission at unload.
 export function recallCaptain(state: GameState, captainId: number): { next: GameState; success: boolean } {
   const idx = state.captains.findIndex((c) => c.id === captainId);
   if (idx === -1) return { next: state, success: false };
-  if (state.captains[idx].mission === null) return { next: state, success: false };
+  const mission = state.captains[idx].mission;
+  if (mission === null) return { next: state, success: false };
 
   const captains = [...state.captains];
-  captains[idx] = { ...captains[idx], mission: { ...captains[idx].mission!, recalled: true } };
+  captains[idx] = { ...captains[idx], mission: { ...mission, recalled: true } };
   return { next: { ...state, captains }, success: true };
 }
 
@@ -4540,9 +4812,16 @@ export function fuelFlowSummary(state: GameState): FuelFlowSummary {
   // the cycle length uses the ship-adjusted def so the rate is fuel per REAL tick.
   const burnPerTick = state.captains.reduce((sum, captain) => {
     if (captain.mission === null) return sum;
+    // Combat 0.13.0 (Phase 9b.5a): this fuel-runway burn estimate only knows the
+    // EXTRACTION arm today. A patrol also burns transit fuel, but no player path
+    // dispatches one yet and wiring its burn term is 9b.5b; narrow-and-skip keeps the
+    // extraction estimate byte-identical and cannot crash on a patrol. 9b.5b adds the
+    // patrol burn term here (fuelForRoundTrip over the patrol's legs / its cycle length).
+    if (captain.mission.kind !== "extraction") return sum;
+    const extractionMission = captain.mission;
     const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
     if (!ship) return sum;
-    const baseMission = MISSIONS[captain.mission.missionKey];
+    const baseMission = MISSIONS[extractionMission.missionKey];
     const cycleTicks = missionCycleTicks(baseMission, ship);
     if (cycleTicks <= 0) return sum;
     return sum + fuelNeeded(baseMission, SHIP_TYPES[ship.typeKey]) / cycleTicks;

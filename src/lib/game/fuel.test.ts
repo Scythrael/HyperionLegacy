@@ -19,6 +19,7 @@ import {
   FUEL_PER_TICK,
   FUEL_CREDITS_PER_UNIT,
   FUEL_TANK_BASE_CAP,
+  type CaptainMissionState,
 } from "./model";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { roundTripTransitTicks, fuelNeeded } from "./fuel";
@@ -252,7 +253,7 @@ describe("dispatch fuel gate + spend (dispatchCaptainOnMission)", () => {
     state.fuel = new Decimal(100); // covers the 50-fuel round trip with margin
     const { next, success } = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(success).toBe(true);
-    expect(next.captains[0].mission?.missionKey).toBe("shortOreRun"); // dispatched
+    expect((next.captains[0].mission as CaptainMissionState)?.missionKey).toBe("shortOreRun"); // dispatched
     expect(next.fuel.eq(100 - FREIGHTER_SHORT_RUN_FUEL)).toBe(true); // 50 spent at dispatch
   });
 });

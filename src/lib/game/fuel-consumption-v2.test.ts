@@ -44,6 +44,7 @@ import {
   FUEL_REFINE_OUTPUT,
   FUEL_REFINE_DURATION_TICKS,
   type GameState,
+  type CaptainMissionState,
 } from "./model";
 import { fuelNeeded } from "./fuel";
 import { canDispatch, dispatchCaptainOnMission, economyTick, tick } from "./tick";
@@ -149,13 +150,13 @@ describe("F3 (a) tank has enough -> spend, NO penalty, NO auto-buy", () => {
     expect(afterCycle.credits.eq(1030)).toBe(true);
     // tank paid one repeat (350 -> 300); nothing refilled it.
     expect(afterCycle.fuel.eq(300)).toBe(true);
-    const m = afterCycle.captains[0].mission!;
+    const m = afterCycle.captains[0].mission as CaptainMissionState;
     expect(m.phase).toBe("ordersReceived");
     expect(m.refuelDelayTicks ?? 0).toBe(0); // NO penalty on this cycle
 
     // One more tick completes the 1-tick orders phase (NO +2 delay) -> transitOut.
     const next = step(afterCycle, 1);
-    expect(next.captains[0].mission!.phase).toBe("transitOut");
+    expect((next.captains[0].mission as CaptainMissionState).phase).toBe("transitOut");
     expect(next.credits.eq(1030)).toBe(true); // still no auto-buy
   });
 });
@@ -167,7 +168,7 @@ describe("F3 (b) tank short but affordable -> auto-buy shortfall + credits down 
     s.credits = new Decimal(2000);
     s = dispatchCaptainOnMission(s, 1, "shortOreRun").next; // fuel -> 0 (dispatch had enough: no penalty)
     expect(s.fuel.eq(0)).toBe(true);
-    expect(s.captains[0].mission!.refuelDelayTicks ?? 0).toBe(0); // dispatch was fully fuelled
+    expect((s.captains[0].mission as CaptainMissionState).refuelDelayTicks ?? 0).toBe(0); // dispatch was fully fuelled
 
     // Run cycle 1 (149 ticks). No ice on hand, so the depot cannot top the tank -> at tick 149
     // the tank is 0 and the auto-repeat must auto-buy the full 50-fuel shortfall
@@ -176,17 +177,17 @@ describe("F3 (b) tank short but affordable -> auto-buy shortfall + credits down 
     // credits: 2000 + 30 (cycle-1 reward) - 1000 (auto-buy) = 1030.
     expect(after.credits.eq(1030)).toBe(true);
     expect(after.fuel.eq(0)).toBe(true); // bought 50, spent 50 -> net 0
-    const m = after.captains[0].mission!;
+    const m = after.captains[0].mission as CaptainMissionState;
     expect(m.phase).toBe("ordersReceived");
     expect(m.refuelDelayTicks).toBe(REFUEL_PENALTY_TICKS); // +2 penalty stamped on THIS cycle
 
     // PROVE the +2 delay is real: orders now needs 1 + 2 = 3 ticks. After 2 MORE ticks a
     // NORMAL cycle would already be in transitOut, but the penalized cycle is STILL in orders.
     const after2 = step(after, 2);
-    expect(after2.captains[0].mission!.phase).toBe("ordersReceived"); // still delayed
+    expect((after2.captains[0].mission as CaptainMissionState).phase).toBe("ordersReceived"); // still delayed
     // The 3rd tick finally completes the extended orders phase.
     const after3 = step(after2, 1);
-    expect(after3.captains[0].mission!.phase).toBe("transitOut");
+    expect((after3.captains[0].mission as CaptainMissionState).phase).toBe("transitOut");
   });
 
   it("canDispatch is OK when the tank is short but the shortfall is affordable (auto-buy at dispatch)", () => {
@@ -205,7 +206,7 @@ describe("F3 (b) tank short but affordable -> auto-buy shortfall + credits down 
     expect(reason).toBeUndefined();
     expect(next.fuel.eq(0)).toBe(true); // 3 in tank + 47 bought - 50 spent = 0
     expect(next.credits.eq(1060)).toBe(true); // bought 47 units * 20 = 940 credits -> 2000 - 940
-    expect(next.captains[0].mission!.refuelDelayTicks).toBe(REFUEL_PENALTY_TICKS);
+    expect((next.captains[0].mission as CaptainMissionState).refuelDelayTicks).toBe(REFUEL_PENALTY_TICKS);
   });
 });
 
@@ -241,7 +242,7 @@ describe("Fuel-sourcing restructure, the free localFuelRun bootstrap runs on 0 f
     const d = dispatchCaptainOnMission(s, 1, "localFuelRun");
     expect(d.success).toBe(true); // 0 fuel need -> dispatchable from a bricked fuel state
     expect(d.next.fuel.eq(0)).toBe(true); // spent nothing
-    expect(d.next.captains[0].mission!.refuelDelayTicks ?? 0).toBe(0); // no shortfall -> no penalty
+    expect((d.next.captains[0].mission as CaptainMissionState).refuelDelayTicks ?? 0).toBe(0); // no shortfall -> no penalty
   });
 
   it("delivers Deuterium Ice ONLY, which the Fuel Depot then refines into fuel (the whole bootstrap loop)", () => {
@@ -295,7 +296,10 @@ describe("⚠️ F3 REQUIRED offline==live PARITY, refining + consumption + auto
   };
 
   const snap = (st: GameState) => {
-    const m = st.captains[0].mission;
+    // Combat 0.13.0 (9b.5a): this suite only ever runs extraction missions; narrow the
+    // mission union to the extraction arm so the snapshot can read its fields (the `m ?`
+    // guard preserves the idle/null case).
+    const m = st.captains[0].mission as CaptainMissionState | null;
     return {
       fuel: st.fuel.toString(),
       credits: st.credits.toString(),
@@ -317,7 +321,7 @@ describe("⚠️ F3 REQUIRED offline==live PARITY, refining + consumption + auto
     let sawPenalty = false;
     for (let i = 0; i < BIG_SPAN; i++) {
       live = economyTick(live, 1, ALL_COMMON);
-      if ((live.captains[0].mission?.refuelDelayTicks ?? 0) > 0) sawPenalty = true;
+      if (((live.captains[0].mission as CaptainMissionState)?.refuelDelayTicks ?? 0) > 0) sawPenalty = true;
     }
 
     // BIT-IDENTICAL across every fuel-affected field + mission state.

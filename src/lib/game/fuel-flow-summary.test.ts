@@ -58,6 +58,7 @@ function depotState(opts: { deuteriumIce?: number; fuel?: number; fuelStorageLev
 function burningState(opts: { deuteriumIce?: number; fuel?: number; fuelStorageLevel?: number }): GameState {
   const s = depotState(opts);
   const mission: CaptainMissionState = {
+    kind: "extraction",
     missionKey: "shortOreRun",
     phase: "transitOut" as MissionPhase,
     phaseProgressTicks: 0,

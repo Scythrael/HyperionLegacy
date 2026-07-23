@@ -117,6 +117,32 @@ export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout
 	},
 };
 
+// combatHullTypeOf: narrow a ShipTypeKey (passed as a plain string) to a CombatHullType,
+// or null if the hull is NOT a combat hull. Combat 0.13.0 (Phase 9b.5a): patrol dispatch
+// (tick.ts canDispatchPatrol) gates on the assigned ship being a combat hull, and needs
+// the CombatHullType to look up its default drone loadout. The three combat hull ShipType
+// keys ARE exactly the CombatHullType members (destroyer/battleship/carrier), so this is a
+// direct membership narrow. An economy hull (freighter/hauler/runner/miner) returns null.
+// PURE. Kept here (not model.ts) because CombatHullType + COMBAT_DEFAULT_LOADOUT live here.
+export function combatHullTypeOf(typeKey: string): CombatHullType | null {
+  return typeKey === "destroyer" || typeKey === "battleship" || typeKey === "carrier"
+    ? typeKey
+    : null;
+}
+
+// defaultDronesForHull: build a combat hull's DEFAULT drone squadrons fresh, for a
+// patrol's persisted carry-state (PatrolMissionState.playerDrones). Combat 0.13.0 (Phase
+// 9b.5a): a carrier deploys its COMBAT_DEFAULT_LOADOUT drone screen; every other combat
+// hull fields none (empty array). Mirrors the drone-building branch inside shipToCombatant
+// exactly (makeSquadron mints independent instances, tier 0), so a patrol's seeded drones
+// match what a bridged carrier would fly. idPrefix scopes the squadron ids to one patrol.
+// PURE.
+export function defaultDronesForHull(hullType: CombatHullType, idPrefix: string): DroneSquadron[] {
+  return COMBAT_DEFAULT_LOADOUT[hullType].droneRoles.map((role, index) =>
+    makeSquadron(role, undefined, 0, `${idPrefix}-${role}${index}`),
+  );
+}
+
 // The combat-relevant slice of a ship's stats this bridge reads. A real SHIP_TYPES
 // entry (ShipTypeDef) structurally satisfies this Pick, so callers pass
 // `SHIP_TYPES[ship.typeKey]` directly; a hardcoded enemy hull can pass a plain

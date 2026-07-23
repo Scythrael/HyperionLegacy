@@ -31,7 +31,7 @@
 // (ALL_COMMON) so loot interleaving can't perturb any comparison.
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { freshState, MISSIONS, WAREHOUSE_T1_BASE_CAP, type GameState } from "./model";
+import { freshState, MISSIONS, WAREHOUSE_T1_BASE_CAP, type GameState, type CaptainMissionState } from "./model";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { dispatchCaptainOnMission, economyTick, tick, materialAtCap } from "./tick";
 
@@ -67,20 +67,20 @@ describe("mission recall-on-cap, MID-CYCLE (ship OUT) recalls home + idles, neve
     // Dispatch, then advance the ship OUT to the extracting phase (below cap the whole way).
     let s = dispatchCaptainOnMission(freshState(), 1, "shortOreRun").next;
     s = step(s, TICKS_INTO_EXTRACTING);
-    const mid = s.captains[0].mission!;
+    const mid = s.captains[0].mission as CaptainMissionState;
     expect(mid.phase).toBe("extracting"); // sanity: the ship is genuinely OUT
     expect(mid.recalled).toBe(false); // ...and not yet recalled
 
     // Fill the warehouse: the primary material now sits AT its cap.
     s = withStock(s, PRIMARY, CAP);
     expect(materialAtCap(s, PRIMARY)).toBe(true);
-    const beforePhase = s.captains[0].mission!.phase;
-    const beforeProgress = s.captains[0].mission!.phaseProgressTicks;
+    const beforePhase = (s.captains[0].mission as CaptainMissionState).phase;
+    const beforeProgress = (s.captains[0].mission as CaptainMissionState).phaseProgressTicks;
 
     // ONE tick: the at-cap gate must FLAG recalled and ADVANCE (not return the captain
     // unchanged as the old freeze did).
     const t1 = economyTick(s, 1, ALL_COMMON);
-    const m1 = t1.captains[0].mission!;
+    const m1 = t1.captains[0].mission as CaptainMissionState;
     expect(m1.recalled).toBe(true); // recall flagged, the reused recall mechanic
     // NOT frozen: state moved (phase changed OR progress advanced), never sat unchanged.
     const advanced = m1.phase !== beforePhase || m1.phaseProgressTicks !== beforeProgress;
@@ -97,7 +97,7 @@ describe("mission recall-on-cap, AT BASE (ordersReceived) idles immediately, doe
   it("ends the mission on the first capped tick without running an out-and-back loop", () => {
     // Freshly dispatched: phase is ordersReceived (pre-departure, still at base).
     let s = dispatchCaptainOnMission(freshState(), 1, "shortOreRun").next;
-    expect(s.captains[0].mission!.phase).toBe("ordersReceived");
+    expect((s.captains[0].mission as CaptainMissionState).phase).toBe("ordersReceived");
 
     // Primary material at cap BEFORE it leaves base.
     s = withStock(s, PRIMARY, CAP);
@@ -122,7 +122,7 @@ describe("mission recall-on-cap, BELOW cap is unchanged (anti-regression guard)"
     // Run a full cycle. The at-cap branch must NOT fire: recalled stays false, the mission
     // auto-repeats (back to ordersReceived, mission non-null), and its haul was deposited.
     const after = step(s, CYCLE_TICKS);
-    const m = after.captains[0].mission!;
+    const m = after.captains[0].mission as CaptainMissionState;
     expect(m).not.toBeNull();
     expect(m.recalled).toBe(false); // below cap never touches the recall path
     // shortOreRun with ALL_COMMON deposits its common fallback each of the 90 extract ticks
@@ -166,7 +166,10 @@ describe("⚠️ mission recall-on-cap, REQUIRED offline==live PARITY (recall fi
   };
 
   const snap = (st: GameState) => {
-    const m = st.captains[0].mission;
+    // Combat 0.13.0 (9b.5a): this suite only ever runs extraction missions; narrow the
+    // mission union to the extraction arm so the snapshot can read its fields (the `m ?`
+    // guard preserves the idle/null case).
+    const m = st.captains[0].mission as CaptainMissionState | null;
     return {
       inventory: Object.fromEntries(Object.keys(st.inventory).map((k) => [k, itemTotal(st.inventory, k).toString()])),
       fuel: st.fuel.toString(),
@@ -184,8 +187,8 @@ describe("⚠️ mission recall-on-cap, REQUIRED offline==live PARITY (recall fi
     const base = makeMidMissionAtCap();
     // Sanity: the pre-span state is genuinely OUT-and-capped (so the null-at-end below is
     // caused by the recall firing IN-span, not a pre-existing idle).
-    expect(base.captains[0].mission!.phase).toBe("extracting");
-    expect(base.captains[0].mission!.recalled).toBe(false);
+    expect((base.captains[0].mission as CaptainMissionState).phase).toBe("extracting");
+    expect((base.captains[0].mission as CaptainMissionState).recalled).toBe(false);
     expect(materialAtCap(base, PRIMARY)).toBe(true);
 
     const offline = tick(SPAN, base, ALL_COMMON); // internally steps economyTick(_,1)
@@ -195,7 +198,7 @@ describe("⚠️ mission recall-on-cap, REQUIRED offline==live PARITY (recall fi
     let sawRecalled = false;
     for (let i = 0; i < SPAN; i++) {
       live = economyTick(live, 1, ALL_COMMON);
-      if (live.captains[0].mission?.recalled) sawRecalled = true;
+      if ((live.captains[0].mission as CaptainMissionState)?.recalled) sawRecalled = true;
     }
 
     // BIT-IDENTICAL across inventory, fuel, credits, ships, and mission/captain state.

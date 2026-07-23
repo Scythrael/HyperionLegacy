@@ -69,3 +69,24 @@ export function fuelNeeded(mission: MissionDef, ship: ShipTypeDef): number {
   const roundTrip = roundTripTransitTicks(mission);
   return (roundTrip * FUEL_PER_TICK) / (1 + ship.engineEfficiency);
 }
+
+// fuelForRoundTrip: the fuel a given hull burns to fly a round trip described DIRECTLY by
+// its two transit legs, rather than by a full MissionDef. Combat 0.13.0 (Phase 9b.5a): a
+// Patrol has transit legs (transitOutTicks / transitBackTicks on PatrolDef) but is NOT a
+// MissionDef, so it cannot call fuelNeeded (whose first param is a full MissionDef). This
+// helper takes just the two leg lengths + the hull, applying the IDENTICAL cost model
+// fuelNeeded uses (only transit burns fuel; efficiency divides the burn). Kept as its own
+// tiny function rather than widening fuelNeeded's contract so the working extraction path
+// is untouched (Omega 15). ⚠️ Omega 4 (DRY): fuelNeeded's body is the same formula with
+// its legs summed via roundTripTransitTicks; a future consolidation could have fuelNeeded
+// delegate here, flagged not done to avoid editing the shipped extraction path this unit.
+// PURE: reads only its args + FUEL_PER_TICK. The engineEfficiency-below-0 caveat on
+// fuelNeeded (a heavy fitment can push 1+eff < 1) applies identically; callers pass the
+// already-clamped folded value, so no internal guard is duplicated here either.
+export function fuelForRoundTrip(
+  transitOutTicks: number,
+  transitBackTicks: number,
+  ship: ShipTypeDef
+): number {
+  return ((transitOutTicks + transitBackTicks) * FUEL_PER_TICK) / (1 + ship.engineEfficiency);
+}

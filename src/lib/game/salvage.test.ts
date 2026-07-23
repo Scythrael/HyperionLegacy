@@ -550,6 +550,7 @@ const FREIGHTER_RECIPE = SHIP_TYPES.generalFreighter.buildRecipe;
 // Record is satisfied with an empty object via a cast, this fixture never reads it.
 function activeMission(): CaptainMissionState {
   return {
+    kind: "extraction",
     missionKey: "shortOreRun",
     phase: "transitOut",
     phaseProgressTicks: 0,

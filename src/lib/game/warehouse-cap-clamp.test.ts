@@ -43,6 +43,7 @@ const UNCAPPED_SENTINEL = new Decimal("1e1000");
 // captain can be put on a mining mission for the offline-parity span.
 function missionCaptain(missionKey: MissionKey = "shortOreRun"): CaptainMissionState {
   return {
+    kind: "extraction",
     missionKey,
     phase: "ordersReceived",
     phaseProgressTicks: 0,
