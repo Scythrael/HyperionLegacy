@@ -276,6 +276,14 @@
     respecCaptainTalents,
     respecHomeworldTalents,
     chooseCaptainSpec,
+    // Combat 0.13.0, Phase 1, Task 1.6: the pure captain-rename seam. Same
+    // { next, success, reason? } contract as the other tick.ts action fns above
+    // (chooseCaptainSpec / assignShipToCaptain), so the Rename UI applies the
+    // identical reassign-state + pushLog + doSave pattern on success and reads
+    // the returned validation reason on failure. renameCaptain owns the actual
+    // validation (it calls validateCaptainName internally), the UI never
+    // duplicates it, it only maps the reason to a human message.
+    renameCaptain,
     RESPEC_COST_CREDITS,
     // captainCommonYieldMult / captainUncommonYieldMult / fleetRareYieldMult were
     // removed here (2026-07-15): their ONLY consumer was the captain popup's
@@ -367,6 +375,13 @@
   // the SELECTED captain's hull, the authoritative dispatching cost). Imported from
   // fuel.ts directly (its own module; tick.ts does not re-export it).
   import { fuelNeeded } from "./lib/game/fuel";
+  // Combat 0.13.0, Phase 1, Task 1.6: MAX_CAPTAIN_NAME backs the Rename input's
+  // maxlength attribute (the input can't exceed the same ceiling renameCaptain
+  // enforces) and the "Max N characters" error copy. Imported from captainName.ts
+  // directly (its own module; tick.ts does not re-export it, the same as fuelNeeded
+  // above). validateCaptainName is NOT imported here on purpose: renameCaptain
+  // already runs it and returns the reason, so the UI never re-validates.
+  import { MAX_CAPTAIN_NAME } from "./lib/game/captainName";
   // Crafting Allocation Redesign (Task C1/C4), the DERIVED material-allocation helpers the
   // per-line configurator's REQUIRES preview reads: lineInputsPerIteration(line) => a recipe's
   // per-iteration input map (for the "per/ea" column); allocatedItem(lines, item) => units
@@ -633,6 +648,76 @@
     if (event.target === event.currentTarget) {
       captainTalentsModalOpen = false;
     }
+  }
+
+  // Captain Rename modal (Combat 0.13.0, Phase 1, Task 1.6). The "Rename" button
+  // in CAPTAIN ACTIONS opens this small text-input modal, built on the SAME
+  // Panel.modal-dialog + .modal-input + .modal-row + focusTrap idiom the DELETE
+  // SAVE modal below uses (Escape / Cancel close, one shared modal visual
+  // language). Like the captain-talents modal above it is scoped to the
+  // currently-selected activeCaptain: the captain page (and this modal) only
+  // render while activeCaptain is defined, so activeCaptain is always the target.
+  //   - captainRenameModalOpen gates the modal.
+  //   - captainRenameInput is the in-progress name, two-way bound to the input;
+  //     openCaptainRenameModal seeds it with the captain's CURRENT label so the
+  //     player edits from the existing name rather than a blank field.
+  //   - captainRenameError holds the inline validation message, empty until a Save
+  //     fails, so nothing shows on first open.
+  // Naming has NO mission lock (a captain can be renamed idle or on a mission), so
+  // this action is ungated, unlike Assign Ship which is disabled while out.
+  let captainRenameModalOpen = false;
+  let captainRenameInput = "";
+  let captainRenameError = "";
+  function openCaptainRenameModal(): void {
+    captainRenameInput = activeCaptain.label;
+    captainRenameError = "";
+    captainRenameModalOpen = true;
+  }
+  function cancelCaptainRename(): void {
+    captainRenameModalOpen = false;
+    captainRenameInput = "";
+    captainRenameError = "";
+  }
+  // Maps a failed-rename reason (forwarded from renameCaptain -> validateCaptainName)
+  // to the short human message shown inline under the input. notFound cannot happen
+  // from this UI (activeCaptain is always a live captain), but it is handled by the
+  // default so the message is never blank on an unexpected reason.
+  function captainRenameReasonMessage(
+    reason: "notFound" | "empty" | "tooLong" | "charset" | "profanity" | undefined,
+  ): string {
+    switch (reason) {
+      case "empty":
+        return "Name cannot be empty";
+      case "tooLong":
+        return `Max ${MAX_CAPTAIN_NAME} characters`;
+      case "charset":
+        return "Letters, numbers, spaces, and . ' - _ only";
+      case "profanity":
+        return "Please choose a different name";
+      default:
+        return "That name can't be used";
+    }
+  }
+  // Save handler: routes the input through the pure renameCaptain seam and applies
+  // the SAME { next, success } reassign-state + pushLog + doSave pattern every
+  // other do* handler uses (see chooseSpec / doAssignShip). On failure it keeps the
+  // modal open and shows the mapped reason; on success it swaps in `next`, logs the
+  // old -> new name (old label captured before the swap; new label read back from
+  // `next`, the source of truth, since renameCaptain stores the cleaned/trimmed
+  // name), closes the modal, and saves.
+  function doRenameCaptain(): void {
+    const captain = activeCaptain;
+    const previousLabel = captain.label;
+    const { next, success, reason } = renameCaptain(state, captain.id, captainRenameInput);
+    if (!success) {
+      captainRenameError = captainRenameReasonMessage(reason);
+      return;
+    }
+    state = next;
+    const newLabel = next.captains.find((c) => c.id === captain.id)?.label ?? captainRenameInput;
+    pushLog(`[${previousLabel}] Renamed to: ${newLabel}.`);
+    cancelCaptainRename();
+    doSave();
   }
 
   // Admiral Prestige modal (0.12.0 Console, Phase 1 / CN2b). The Fleet Admiral
@@ -6378,9 +6463,13 @@
                    current hull, if any, auto-parks). Honors the on-mission lock:
                    disabled with the recall-first reason while the captain is out,
                    exactly as the Docks Swap control does.
-                 - Rename / Equip: RESERVED. No captain rename and no crew-equipment
-                   system exist yet, so these are honest disabled "coming soon"
-                   affordances, NOT invented behavior. -->
+                 - Rename: LIVE (Combat 0.13.0, Phase 1, Task 1.6). Opens the
+                   captain-rename modal, which routes the new name through the pure
+                   renameCaptain seam (validation lives there). Ungated: naming has
+                   no mission lock, a captain can be renamed anytime.
+                 - Equip: RESERVED. No crew-equipment system exists yet, so it stays
+                   an honest disabled "coming soon" affordance, NOT invented
+                   behavior. -->
           <Panel>
             <div class="panel-title">CAPTAIN ACTIONS</div>
             <div class="dev-row">
@@ -6397,7 +6486,10 @@
                    focused on leveling + actions. Always enabled; the tree's own
                    spec-gating / affordability lives inside the modal, unchanged. -->
               <button class="dev-btn" on:click={() => (captainTalentsModalOpen = true)}>Talents</button>
-              <button class="dev-btn" disabled title="Coming soon, not yet available">Rename</button>
+              <!-- Rename: opens the captain-rename modal (see openCaptainRenameModal
+                   and the modal markup below). Ungated, a captain can be renamed at
+                   any time. -->
+              <button class="dev-btn" on:click={openCaptainRenameModal}>Rename</button>
               <button class="dev-btn" disabled title="Coming soon, not yet available">Equip</button>
             </div>
           </Panel>
@@ -6517,6 +6609,46 @@
                 </Panel>
               </div>
             </div>
+          </div>
+          {/if}
+
+          <!-- Captain Rename MODAL (Combat 0.13.0, Phase 1, Task 1.6). Built on the
+               SAME Panel.modal-dialog + .modal-input + .modal-row + focusTrap idiom
+               as the DELETE SAVE modal near the bottom of this file (Escape and
+               Cancel close, one shared modal visual language). Only rendered on the
+               captain view, so activeCaptain is always defined here;
+               captainRenameModalOpen gates it. The input is two-way bound to
+               captainRenameInput (seeded with the current label by
+               openCaptainRenameModal) and capped at MAX_CAPTAIN_NAME. Save routes
+               through doRenameCaptain -> renameCaptain (the pure seam owns all
+               validation); a failed Save shows the mapped reason in
+               captainRenameError and keeps the modal open. Enter in the field
+               submits (same as clicking Save). -->
+          {#if captainRenameModalOpen}
+          <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Rename captain" use:focusTrap={cancelCaptainRename}>
+            <Panel class="modal-dialog">
+              <div class="panel-title">RENAME CAPTAIN</div>
+              <p class="modal-instruction">Enter a new name for {activeCaptain.label}.</p>
+              <!-- svelte-ignore a11y_autofocus, INTENTIONAL: the rename field is the sole focus target of a purpose-built modal the player just opened, so autofocusing it is the expected, keyboard-friendly behavior (mirrors the field-first intent of the DELETE SAVE confirm). -->
+              <input
+                class="modal-input"
+                type="text"
+                bind:value={captainRenameInput}
+                maxlength={MAX_CAPTAIN_NAME}
+                aria-label="New captain name"
+                autofocus
+                on:keydown={(e) => {
+                  if (e.key === "Enter") doRenameCaptain();
+                }}
+              />
+              {#if captainRenameError !== ""}
+              <p class="modal-warning">{captainRenameError}</p>
+              {/if}
+              <div class="modal-row">
+                <button class="dev-btn" on:click={cancelCaptainRename}>Cancel</button>
+                <button class="dev-btn" on:click={doRenameCaptain}>Save</button>
+              </div>
+            </Panel>
           </div>
           {/if}
           {/if}

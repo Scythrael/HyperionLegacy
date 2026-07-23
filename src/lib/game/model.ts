@@ -1323,7 +1323,7 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
 
 export interface CaptainState {
   id: number;
-  label: string; // placeholder, e.g. "Captain 1", naming UI deferred per master doc §10.7
+  label: string; // live, user-editable display name (defaults to "Captain N"), edited via renameCaptain (tick.ts) behind validateCaptainName (captainName.ts)
   mission: CaptainMissionState | null; // null when idle (idle captains have no passive economy, see tick.ts)
   xp: Decimal; // accumulated toward the NEXT level, see xpForNextLevel() below; accrued per active tick in tick.ts's tickCaptainMission (Task 4)
   level: number; // starts at 1
