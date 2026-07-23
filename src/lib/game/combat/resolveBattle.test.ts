@@ -193,6 +193,108 @@ describe("resolveBattle offline == live (the hard invariant)", () => {
 	});
 });
 
+// The carry-state enabler (sub-phase 5b): resolveBattle also returns the final
+// (post-battle) combatant array so the Patrol loop can carry a ship's surviving
+// hull/shield/drones forward to the next wave. finalCombatants is OUTCOME state
+// (driven only by the combat RNG stream), so it MUST obey the same offline==live
+// + determinism + purity guarantees as `outcome`. These tests guard exactly that.
+describe("resolveBattle finalCombatants (carry-state)", () => {
+	// A decisive 1v1 the player clearly wins: high yield + fast cooldown vs a
+	// fragile enemy, so the enemy is wiped and the player survives with hull left.
+	// This gives us a known-shape post-battle state to assert against.
+	const buildDecisive = () =>
+		oneVsOne(
+			{
+				id: "P1",
+				hull: 500,
+				hullMax: 500,
+				weapons: [makeWeapon({ id: "pw", yield: 50, cooldownDeciSec: 5 })],
+			},
+			{
+				id: "E1",
+				hull: 40,
+				hullMax: 40,
+				weapons: [makeWeapon({ id: "ew", yield: 2, cooldownDeciSec: 20 })],
+			},
+		);
+
+	it("returns the same combatants (by id) that went in, in id-sorted order", () => {
+		const { finalCombatants } = resolveBattle(buildDecisive(), 7);
+		expect(Array.isArray(finalCombatants)).toBe(true);
+		// Same cast, keyed by id (order-independent set equality).
+		const ids = finalCombatants.map((c) => c.id).sort();
+		expect(ids).toEqual(["E1", "P1"]);
+		// ...and the array itself is ASCENDING-ID order (the sim sorts by id), which
+		// is the contract the Patrol loop relies on (look up BY ID, not by index).
+		const asReturned = finalCombatants.map((c) => c.id);
+		expect(asReturned).toEqual([...asReturned].sort());
+	});
+
+	it("reflects POST-battle state: loser is dead, winner survives with hull", () => {
+		const { outcome, finalCombatants } = resolveBattle(buildDecisive(), 7);
+		// Sanity: this fixture resolves by elimination in the player's favor.
+		expect(outcome.winner).toBe("player");
+		expect(outcome.reason).toBe("eliminated");
+		const player = finalCombatants.find((c) => c.id === "P1");
+		const enemy = finalCombatants.find((c) => c.id === "E1");
+		expect(player).toBeDefined();
+		expect(enemy).toBeDefined();
+		// The wiped enemy is dead (alive false and/or hull bottomed out)...
+		expect(enemy?.alive).toBe(false);
+		expect(enemy?.hull).toBeLessThanOrEqual(0);
+		// ...while the winner is still standing with hull to spare (this is the
+		// carry-forward value the next wave seeds from).
+		expect(player?.alive).toBe(true);
+		expect(player?.hull).toBeGreaterThan(0);
+	});
+
+	it("does NOT alias the caller's input objects (purity preserved)", () => {
+		const p = buildDecisive();
+		const inputPlayer = p.combatants.find((c) => c.id === "P1");
+		const before = JSON.parse(JSON.stringify(p));
+		const { finalCombatants } = resolveBattle(p, 7, { generateLog: true });
+		// The caller's original objects are untouched (the existing purity guarantee):
+		// finalCombatants is the sim's PRIVATE clone, not the input.
+		expect(p).toEqual(before);
+		const returnedPlayer = finalCombatants.find((c) => c.id === "P1");
+		// Different object references: mutating the returned state can never leak
+		// back into the caller's ships.
+		expect(returnedPlayer).not.toBe(inputPlayer);
+	});
+
+	it("is deterministic: same participants + seed => identical finalCombatants", () => {
+		const a = resolveBattle(buildDecisive(), 7);
+		const b = resolveBattle(buildDecisive(), 7);
+		expect(a.finalCombatants).toEqual(b.finalCombatants);
+	});
+
+	it("offline == live for finalCombatants, not just the outcome (PARITY)", () => {
+		// The hard invariant, extended to the new field: because finalCombatants is
+		// pure combat-stream state, the post-battle hull/shield/drones/status of EVERY
+		// ship must be byte-identical whether we built the log (live) or not (offline).
+		// If any cosmetic-stream work ever leaked into that state, this diverges.
+		const live = resolveBattle(buildDecisive(), 7, { generateLog: true });
+		const offline = resolveBattle(buildDecisive(), 7, { generateLog: false });
+		expect(offline.finalCombatants).toEqual(live.finalCombatants);
+	});
+
+	it("finalCombatants parity holds across many seeds (fuzz)", () => {
+		// A closer, longer 1v1 so most seeds resolve mid-fight with non-trivial
+		// surviving state (partial hull, live status/drones), giving the parity check
+		// real post-battle variety to compare rather than always-clean eliminations.
+		const build = () =>
+			oneVsOne(
+				{ id: "P1", hull: 120, weapons: [makeWeapon({ id: "pw", yield: 7 })] },
+				{ id: "E1", hull: 115, weapons: [makeWeapon({ id: "ew", yield: 6 })] },
+			);
+		for (let seed = 0; seed < 60; seed++) {
+			const live = resolveBattle(build(), seed, { generateLog: true });
+			const offline = resolveBattle(build(), seed, { generateLog: false });
+			expect(offline.finalCombatants).toEqual(live.finalCombatants);
+		}
+	});
+});
+
 describe("resolveBattle cosmetic isolation", () => {
 	it("cosmetic/log work cannot shift the combat rolls (outcome invariant)", () => {
 		// This is the resolveBattle-level restatement of rng's independence test:

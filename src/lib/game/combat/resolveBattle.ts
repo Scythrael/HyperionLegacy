@@ -1135,11 +1135,42 @@ function resolveAmbushOpener(
 }
 
 // The public simulator. See file header for the two invariants it upholds.
+//
+// RETURN SHAPE:
+//   outcome         -- the resolved BattleOutcome (winner/reason/rounds).
+//   log             -- the structured event stream (empty when generateLog is off).
+//   finalCombatants -- the POST-battle combatant array: every ship's final hull,
+//                      shield, drones, statusEffects, alive flag, etc. after the
+//                      sim finishes. This is the carry-state enabler for the Patrol
+//                      loop (sub-phase 5b): it runs a battle per wave and reads the
+//                      player's surviving hull/shield/drones off this to seed the
+//                      next wave.
+//
+//   TWO CAVEATS the caller MUST know about finalCombatants:
+//
+//   1. ID-SORTED ORDER, NOT INPUT ORDER. The sim sorts `combatants` by id once at
+//      the start (deterministic turn order, ~line 1158), so finalCombatants is in
+//      ascending-id order, which is generally NOT the order the caller passed in.
+//      Look a ship up BY ID, never by index:
+//          finalCombatants.find((c) => c.id === playerId)
+//
+//   2. PURITY IS PRESERVED. finalCombatants is the PRIVATE clone the sim mutated
+//      (made by cloneParticipants ~line 199), NOT the caller's input objects. The
+//      caller's original combatants are still untouched (they can re-resolve the
+//      same battle). We are handing back the clone we already own, which is exactly
+//      the post-battle state the caller wants, so no input is ever exposed or
+//      mutated. finalCombatants members are therefore DIFFERENT object references
+//      from the input combatants.
+//
+//   finalCombatants is OUTCOME state: it is driven purely by the `combat` RNG
+//   stream, never the `cosmetic` stream, so it is byte-identical offline vs live
+//   (design S0 principle 2), exactly like `outcome`. The flagship parity suite
+//   asserts this.
 export function resolveBattle(
 	participants: BattleParticipants,
 	seed: number,
 	options?: ResolveOptions,
-): { outcome: BattleOutcome; log: CombatEvent[] } {
+): { outcome: BattleOutcome; log: CombatEvent[]; finalCombatants: Combatant[] } {
 	const generateLog = options?.generateLog ?? false;
 	const objective = options?.objective ?? lastTeamStanding;
 
@@ -1692,5 +1723,12 @@ export function resolveBattle(
 		};
 	}
 
-	return { outcome, log };
+	// Hand back the outcome, the log, AND the post-battle combatant array. The
+	// latter is `combatants` (=== working.combatants), the id-sorted PRIVATE clone
+	// the sim has been mutating all along: its members carry every ship's final
+	// hull/shield/drones/statusEffects/alive state. This is additive and does NOT
+	// reintroduce input mutation, because `combatants` is the clone from
+	// cloneParticipants (~line 199), never the caller's input (purity intact). It
+	// is in ascending-id order (sorted ~line 1158): callers look ships up BY ID.
+	return { outcome, log, finalCombatants: combatants };
 }
