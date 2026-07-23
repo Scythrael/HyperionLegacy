@@ -126,6 +126,89 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
     const withFrac = economyTick(economyTick(dispatched, 5.5, RNG), 0.5, RNG); // 5.5 + 0.5 == 6.0
     expect(withFrac.captains).toEqual(whole.captains);
   });
+
+  // ⚠️ THE MULTI-PATROL REGRESSION GUARD. A single patrol captain cannot expose the
+  // relaunch-seed-ordering defect (there is no other captain to interleave with). With TWO
+  // repeat-dispatch patrol captains, a big offline call ran captain 1's WHOLE relaunch chain
+  // before captain 2's, while the stepped path INTERLEAVES their relaunches tick-by-tick.
+  // When the relaunch seed was drawn from the shared fleet counter, those two orders drew
+  // DIFFERENT master seeds per relaunch => divergent wave schedules / win-loss / carry-state:
+  // offline != live. Deriving each relaunch seed purely from that captain's OWN current seed
+  // makes it batch- AND order-invariant, so big == stepped again. This case FAILED before the
+  // per-captain-derivation fix and PASSES after.
+  describe("multi-patrol parity (two repeat-dispatch patrol captains)", () => {
+    // A fleet of two combat-hull captains, both eligible to patrol. Tank/credits topped up so
+    // relaunches are never fuel-gated (which would mask the seed-ordering divergence).
+    function twoPatrolCaptains(seedBase: number, hullA: ShipTypeKey, hullB: ShipTypeKey): GameState {
+      const base = freshState();
+      const captain2: CaptainState = { ...freshCaptains(1)[0], id: 2, label: "Captain 2" };
+      return {
+        ...base,
+        nextPatrolSeed: seedBase,
+        fuel: new Decimal(1_000_000),
+        credits: new Decimal(1_000_000),
+        captains: [...base.captains, captain2],
+        ships: [
+          { ...base.ships[0], typeKey: hullA }, // ship-1 -> captain 1
+          { id: "ship-2", typeKey: hullB, assignedCaptainId: 2 },
+        ],
+        nextCaptainId: 3,
+        nextShipId: 3,
+      };
+    }
+
+    // Dispatch both captains (repeat), then compare big vs stepped over N ticks. seedBases
+    // 3/5/7 all have captain 1 (a destroyer flying the winning starter route) clear its first
+    // route and RELAUNCH, so the interleaving the old shared-seed-counter code got wrong is
+    // genuinely exercised. Returns the compared pair + the pre-tick fuel (for the relaunch
+    // sanity: any relaunch spends transit fuel, so a drop below dispatch-fuel proves it fired).
+    function runPair(seedBase: number, hullA: ShipTypeKey, hullB: ShipTypeKey) {
+      let state = twoPatrolCaptains(seedBase, hullA, hullB);
+      state = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", true).next;
+      state = dispatchCaptainOnPatrol(state, 2, PATROL_KEY, "balanced", true).next;
+      const fuelAtDispatch = state.fuel;
+      const N = 60; // >> ROUTE_LEN (14): both captains cycle multiple routes, interleaving relaunches
+      return { b: big(state, N), s: stepped(state, N), fuelAtDispatch };
+    }
+
+    // TWO DESTROYERS: integer per-cycle fuel, so the WHOLE resulting state is exactly equal
+    // (captains carry-state, ship damaged flags, the untouched fleet seed counter, tank +
+    // credits). This is the core regression guard: it FAILS before the per-captain-derived
+    // relaunch seed (the shared counter drew order-dependent seeds) and PASSES after.
+    for (const seedBase of [3, 5, 7]) {
+      it(`big == stepped, FULL exact state, two destroyers (seedBase=${seedBase})`, () => {
+        const { b, s, fuelAtDispatch } = runPair(seedBase, "destroyer", "destroyer");
+        expect(b.captains).toEqual(s.captains);
+        expect(b.ships).toEqual(s.ships);
+        expect(b.nextPatrolSeed).toBe(s.nextPatrolSeed);
+        expect(b.fuel.toString()).toBe(s.fuel.toString());
+        expect(b.credits.toString()).toBe(s.credits.toString());
+        // Relaunch actually fired (fuel spent beyond the dispatch cost), so the guard is not vacuous.
+        expect(s.fuel.lt(fuelAtDispatch)).toBe(true);
+      });
+    }
+
+    // DESTROYER + CARRIER: exercises drone carry-state through the interleaving too. The
+    // TRAJECTORY (both captains' full carry-state incl. drones, ship flags, seed counter) is
+    // asserted EXACTLY, that is where the seed-ordering defect manifested. Fuel/credits are
+    // compared to 6 decimals rather than byte-exact ONLY because a carrier's per-cycle fuel is
+    // non-integer (6 / (1 + engineEfficiency)), so the shared-tank's float-SUM (big call) vs
+    // sequential Decimal-subtraction (stepped) accumulates a sub-1e-6 last-digit difference.
+    // That float-accumulation artifact is PRE-EXISTING in the shared fuel model (any
+    // non-integer-fuel extraction mission has it too) and is independent of the seed fix under
+    // test here; flagged to the controller separately, out of this unit's scope.
+    for (const seedBase of [3, 5, 7]) {
+      it(`big == stepped, exact trajectory + ~fuel, destroyer + carrier (seedBase=${seedBase})`, () => {
+        const { b, s, fuelAtDispatch } = runPair(seedBase, "destroyer", "carrier");
+        expect(b.captains).toEqual(s.captains); // exact carry-state incl. drones
+        expect(b.ships).toEqual(s.ships);
+        expect(b.nextPatrolSeed).toBe(s.nextPatrolSeed);
+        expect(b.fuel.toNumber()).toBeCloseTo(s.fuel.toNumber(), 6);
+        expect(b.credits.toNumber()).toBeCloseTo(s.credits.toNumber(), 6);
+        expect(s.fuel.lt(fuelAtDispatch)).toBe(true); // relaunch fired
+      });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -211,7 +294,12 @@ describe("defeat handling", () => {
 // Repeat-dispatch relaunches (new seed + reset carry-state); Dispatch Once ends.
 // ---------------------------------------------------------------------------
 describe("repeat-dispatch vs dispatch-once on SUCCESS", () => {
-  it("Dispatch Repeatedly relaunches a fresh patrol with a new masterSeed + reset carry-state", () => {
+  // The relaunch salt (mirrors RELAUNCH_SEED_SALT in tick.ts; module-private there, so
+  // pinned here to hand-verify the derivation). The relaunch master seed is a pure
+  // transform of the captain's OWN current seed, NOT drawn from the fleet nextPatrolSeed.
+  const RELAUNCH_SEED_SALT = 0x27d4eb2f;
+
+  it("Dispatch Repeatedly relaunches with a per-captain-derived masterSeed + reset carry-state", () => {
     const dispatched = dispatch(patrolState("destroyer", 3), true);
     const originalSeed = patrolOf(dispatched)!.masterSeed;
     const seedCounterAtDispatch = dispatched.nextPatrolSeed;
@@ -220,9 +308,13 @@ describe("repeat-dispatch vs dispatch-once on SUCCESS", () => {
     const after = stepped(dispatched, ROUTE_LEN + 2);
     const m = patrolOf(after);
     expect(m).not.toBeNull(); // still on patrol (relaunched, not idled)
-    expect(m!.masterSeed).not.toBe(originalSeed); // a FRESH master seed
-    expect(m!.masterSeed).toBe(seedCounterAtDispatch); // drawn from nextPatrolSeed
-    expect(after.nextPatrolSeed).toBe(seedCounterAtDispatch + 1); // counter advanced once
+    // FRESH master seed = a PURE transform of the captain's own prior seed (batch-invariant,
+    // independent of other patrol captains), NOT the fleet counter.
+    expect(m!.masterSeed).toBe(deriveWaveSeed(originalSeed, 0, RELAUNCH_SEED_SALT));
+    expect(m!.masterSeed).not.toBe(originalSeed);
+    // The fleet-wide nextPatrolSeed counter is UNTOUCHED by a relaunch (only player dispatch
+    // advances it), so it stays exactly where dispatch left it.
+    expect(after.nextPatrolSeed).toBe(seedCounterAtDispatch);
     // Carry-state reset to a fresh cycle: full hull, waves zeroed, early in the route.
     expect(m!.playerHull).toBe(SHIP_TYPES.destroyer.hullIntegrity);
     expect(m!.wavesWon).toBe(0);

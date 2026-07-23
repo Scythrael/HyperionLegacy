@@ -1338,11 +1338,14 @@ export function tickCaptainMission(
 //      and many small ones summing to it cross the IDENTICAL integer route ticks in
 //      the IDENTICAL order. A wave / regen happens ONLY on a whole-tick crossing.
 //   2. STATE-DERIVED BATTLE SEEDS (NOT tick timing). Each wave's enemy team + battle
-//      draw their seeds from deriveWaveSeed(masterSeed, waveIndex, salt) -- a pure
+//      draw their seeds from deriveWaveSeed(masterSeed, waveIndex, salt), a pure
 //      function of persisted state, independent of how ticks are batched. Same wave =>
-//      same seeds => same outcome, always.
+//      same seeds => same outcome, always. A RELAUNCH's fresh master seed is likewise a
+//      pure transform of the captain's OWN current seed (see RELAUNCH_SEED_SALT), never
+//      drawn from the fleet-wide nextPatrolSeed counter, so multi-patrol relaunch order
+//      cannot perturb it either (the multi-captain parity fix).
 // This is TICK-BY-TICK over whole route ticks (a big call is literally a loop of the
-// same single-tick advances), so parity holds BY CONSTRUCTION -- the safest v1.
+// same single-tick advances), so parity holds BY CONSTRUCTION (the safest v1).
 // TRADEOFF (flagged per the design): it is O(ticksElapsed). A patrol route is bounded
 // (~14 ticks/cycle here), and a repeat-dispatch patrol under a very long offline
 // absence loops many cycles' worth of ticks (bounded by tick()'s offline cap). A
@@ -1396,6 +1399,19 @@ export function deriveWaveSeed(masterSeed: number, waveIndex: number, salt: numb
 const WAVE_ENEMY_SEED_SALT = 0x1b873593;
 const WAVE_BATTLE_SEED_SALT = 0xcc9e2d51;
 
+// The relaunch salt. A repeat-dispatch patrol that completes its route RELAUNCHES with a
+// fresh master seed derived PURELY from the captain's OWN current master seed via
+// deriveWaveSeed(currentSeed, 0, RELAUNCH_SEED_SALT), forming an independent per-captain
+// seed chain (seed0 -> f(seed0) -> f(f(seed0)) -> ...). This is what makes multi-patrol
+// offline==live parity hold: the relaunch seed is a function of that captain's persisted
+// state ALONE, so it does not depend on how many OTHER patrol captains relaunched first
+// (fleet-map iteration order) or on how ticks are batched. It deliberately does NOT touch
+// the fleet-wide GameState.nextPatrolSeed counter (that stays exclusively the discrete
+// player-DISPATCH path's, dispatchCaptainOnPatrol). A third distinct salt so a relaunch
+// seed never collides with the same cycle's enemy/battle wave seeds. Do NOT change it once
+// patrols ship live (a saved in-flight patrol's future relaunch chain depends on it).
+const RELAUNCH_SEED_SALT = 0x27d4eb2f;
+
 // patrolPhaseFor: derive the coarse PatrolPhase from the route position, PURE. The
 // route is transitOut [0, transitOutTicks) -> engaging [transitOutTicks,
 // transitOutTicks+rollWindowTicks) -> transitBack [.., routeLength). Floors the
@@ -1423,8 +1439,7 @@ function cloneSquadrons(squadrons: DroneSquadron[]): DroneSquadron[] {
 
 // The result tickCaptainPatrol reports back to economyTick, mirroring
 // tickCaptainMission's fold: the updated captain (mission advanced, relaunched, or
-// null), plus the shared-budget draws + the relaunch-seed count economyTick threads
-// across captains, plus the ship-damaged flag a defeat raises.
+// null), plus the shared-budget draws, plus the ship-damaged flag a defeat raises.
 interface PatrolTickResult {
   // The captain with its mission advanced. mission is null when the patrol ENDED this
   // call (success without repeat, defeat, recall-at-cycle-end, or truly-broke relaunch).
@@ -1438,17 +1453,16 @@ interface PatrolTickResult {
   fuelSpent: number;
   // Credits drawn AUTO-BUYING a relaunch fuel shortfall (mirrors extraction's F3 rule).
   creditsSpentOnFuel: number;
-  // How many nextPatrolSeed values this call CONSUMED (one per relaunch). economyTick
-  // advances the fleet-wide counter by this so two patrols relaunching in one call, or a
-  // big offline call relaunching many times, never reuse a master seed.
-  seedsConsumed: number;
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
 // given its inputs (the only randomness is the state-derived combat seeds, never
-// Math.random), so it is closed-form / offline==live (see the header invariant).
-// Returns a PatrolTickResult; economyTick owns the shared-tank / seed-counter / ship
-// threading (this function reports draws, it does not touch GameState).
+// Math.random), so it is closed-form / offline==live (see the header invariant). A
+// RELAUNCH derives its fresh master seed PURELY from this captain's OWN current seed
+// (RELAUNCH_SEED_SALT), so the result depends on THIS captain's state alone, never on
+// other captains or tick batching (the multi-patrol parity fix). Returns a
+// PatrolTickResult; economyTick owns the shared-tank / ship threading (this function
+// reports draws, it does not touch GameState or the fleet-wide nextPatrolSeed counter).
 export function tickCaptainPatrol(
   ticksElapsed: number,
   captain: CaptainState,
@@ -1465,11 +1479,6 @@ export function tickCaptainPatrol(
   // Shared credits budget for AUTO-BUYING a relaunch fuel shortfall, and the price per
   // unit (mirrors tickCaptainMission's F3 auto-buy). Default price is the real one.
   creditsBudget: number,
-  // The fleet-wide nextPatrolSeed counter's CURRENT value: a relaunch takes this as its
-  // fresh master seed and the loop increments a LOCAL copy per relaunch (reported back as
-  // seedsConsumed). Threaded so parity holds: the k-th relaunch across the whole span gets
-  // the same seed whether batched or stepped.
-  nextPatrolSeed: number,
   creditsPerUnit: number = FUEL_CREDITS_PER_UNIT,
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
@@ -1477,7 +1486,6 @@ export function tickCaptainPatrol(
     shipDamaged: false,
     fuelSpent: 0,
     creditsSpentOnFuel: 0,
-    seedsConsumed: 0,
   };
   // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
   if (!captain.mission || captain.mission.kind !== "patrol" || ticksElapsed <= 0) return noOp;
@@ -1509,8 +1517,6 @@ export function tickCaptainPatrol(
   let fuelSpent = 0;
   let creditsRemaining = creditsBudget;
   let creditsSpentOnFuel = 0;
-  let seedNext = nextPatrolSeed;
-  let seedsConsumed = 0;
 
   let remaining = ticksElapsed;
   while (remaining > 0 && mission !== null) {
@@ -1540,7 +1546,7 @@ export function tickCaptainPatrol(
     if (waveThisTick) {
       // ---- FIGHT the scheduled wave. --------------------------------------------------
       // PLAYER combatant: FRESH from the hull defaults (weapons + cooldowns reset each
-      // wave -- each wave is a discrete battle, design-correct), then OVERRIDE hull/
+      // wave, each wave being a discrete battle, design-correct), then OVERRIDE hull/
       // shield/drones with the CARRY-STATE so damage + drone losses persist across waves.
       const player = shipToCombatant({
         id: playerId,
@@ -1645,11 +1651,13 @@ export function tickCaptainPatrol(
           }
         }
         if (canRelaunch) {
-          // Fresh master seed from the threaded counter (never reused). Re-plan the wave
-          // schedule for the new seed and reset progress + carry-state to FULL.
-          const newSeed = seedNext;
-          seedNext += 1;
-          seedsConsumed += 1;
+          // Fresh master seed derived PURELY from this captain's OWN current master seed
+          // (RELAUNCH_SEED_SALT), forming an independent per-captain chain. NOT drawn from
+          // the fleet-wide nextPatrolSeed counter: that would make the seed depend on how
+          // many OTHER patrols relaunched first (map order) + on tick batching, which is
+          // exactly the multi-patrol offline==live parity defect this derivation fixes.
+          // Re-plan the wave schedule for the new seed and reset progress + carry-state to FULL.
+          const newSeed = deriveWaveSeed(mission.masterSeed, 0, RELAUNCH_SEED_SALT);
           mission = {
             kind: "patrol",
             patrolKey: mission.patrolKey,
@@ -1691,7 +1699,6 @@ export function tickCaptainPatrol(
     shipDamaged,
     fuelSpent,
     creditsSpentOnFuel,
-    seedsConsumed,
   };
 }
 
@@ -1974,13 +1981,12 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // Decimal-exact because totalCreditsSpentOnFuel is the true sum of (small) purchase costs.
   let creditsBudgetRemaining = state.credits.toNumber();
   let totalCreditsSpentOnFuel = 0;
-  // Combat 0.13.0 (Phase 9b.5c): patrol wiring, threaded through the per-captain map like
-  // the fuel/credits budgets above. patrolSeedNext is the running nextPatrolSeed counter --
-  // a patrol RELAUNCH takes it as a fresh master seed and advances it, so two patrols
-  // relaunching in the SAME call (or a big offline call relaunching many times) never reuse
-  // a seed; it is written back to state.nextPatrolSeed once, below. damagedShipIds collects
-  // the ships whose patrol ended in DEFEAT this call, folded into state.ships once, below.
-  let patrolSeedNext = state.nextPatrolSeed;
+  // Combat 0.13.0 (Phase 9b.5c): patrol wiring. damagedShipIds collects the ships whose
+  // patrol ended in DEFEAT this call, folded into state.ships once, below. NOTE: a patrol
+  // RELAUNCH does NOT touch the fleet-wide nextPatrolSeed counter, it derives its fresh
+  // master seed purely from the captain's own current seed (tickCaptainPatrol /
+  // RELAUNCH_SEED_SALT), so there is no seed counter to thread here. Threading it would
+  // reintroduce the multi-patrol parity defect (map-iteration-order-dependent seeds).
   const damagedShipIds = new Set<string>();
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
@@ -2003,8 +2009,10 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
         // battle at each scheduled wave and carrying hull/shield/drones between waves.
         // Mirrors the extraction arm's shared-budget threading: draw relaunch fuel/credits
         // from the SAME running tank/credit budgets (no double-spend across captains),
-        // report the spends back for the single Decimal deduction below, and thread the
-        // relaunch seed counter + the ship-damaged flag. NO rewards/XP here (Phase 10).
+        // report the spends back for the single Decimal deduction below, and flag the ship
+        // on a defeat. The relaunch master seed is derived per-captain inside
+        // tickCaptainPatrol (batch-invariant), so no seed counter is threaded here. NO
+        // rewards/XP here (Phase 10).
         const patrolShip = state.ships.find((s) => s.assignedCaptainId === captain.id);
         // Price one round trip's fuel from the SAME equipment-folded engineEfficiency the
         // dispatch gate + the extraction path use, so a RELAUNCH burns the dispatch estimate
@@ -2025,8 +2033,7 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
           patrolShip,
           fuelBudgetRemaining,
           patrolFuelPerCycle,
-          creditsBudgetRemaining,
-          patrolSeedNext
+          creditsBudgetRemaining
         );
         // Draw down the shared budgets so a later captain sees the reduced values (no
         // double-spend), and sum for the single Decimal tank/credits deductions below.
@@ -2034,9 +2041,7 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
         totalFuelSpent += patrolResult.fuelSpent;
         creditsBudgetRemaining -= patrolResult.creditsSpentOnFuel;
         totalCreditsSpentOnFuel += patrolResult.creditsSpentOnFuel;
-        // Advance the seed counter by what the relaunch(es) consumed, and flag the ship on
-        // a defeat (folded into state.ships once, below).
-        patrolSeedNext += patrolResult.seedsConsumed;
+        // Flag the ship on a defeat (folded into state.ships once, below).
         if (patrolResult.shipDamaged && patrolShip) damagedShipIds.add(patrolShip.id);
         return patrolResult.captain;
       }
@@ -2292,9 +2297,9 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   const postMissionState: GameState = {
     ...state,
     captains,
-    // Combat 0.13.0 (Phase 9b.5c): the relaunch seed counter advanced by any patrol that
-    // completed + relaunched this call (=== state.nextPatrolSeed when none did, a no-op).
-    nextPatrolSeed: patrolSeedNext,
+    // Combat 0.13.0 (Phase 9b.5c): nextPatrolSeed rides through unchanged via `...state`, a
+    // RELAUNCH derives its master seed per-captain (not from this counter), so economyTick
+    // never advances it (only the discrete player-dispatch action does).
     // Combat 0.13.0 (Phase 9b.5c): flag any ship whose patrol ended in DEFEAT this call
     // (immutable map, matching the file's state-update idiom). Same reference when none was
     // damaged (the common case), so a call with no patrol defeat is byte-identical for ships.
