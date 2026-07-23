@@ -6,7 +6,7 @@ import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL } from "./model";
 
-export const SAVE_VERSION = 30;
+export const SAVE_VERSION = 31;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1170,6 +1170,29 @@ const MIGRATIONS: Record<number, Migration> = {
       return { ...piece, iLevel: STANDARD_ISSUE_ILEVEL };
     });
     return { ...state, equipment };
+  },
+
+  // v30 -> v31: nextCaptainId BACKFILL (Combat 0.13.0, Task 1.3). GameState gained a monotonic
+  // captain-id counter (model.ts) so a future captain removal (captain death) can never let a
+  // slot-unlock reissue a freed id and collide. Old saves carry `captains` but NO nextCaptainId,
+  // so this stamps a coherent starting value: strictly greater than every id currently in use.
+  //
+  // BACKFILL VALUE (documented choice): max(existing captain ids) + 1, exactly the invariant the
+  // counter must always satisfy (every future id > every id ever issued). Using max(ids)+1 rather
+  // than captains.length+1 is deliberate and load-bearing: a roster with a GAP (ids [1, 3], id 2
+  // freed by a future removal) has length 2, so length+1 would be 3, a COLLISION with the live
+  // id-3 captain. max(ids)+1 is 4, which clears every surviving id. Math.max(0, ...ids) floors an
+  // EMPTY roster at 0 (-> counter 1); an empty roster should never occur (one starter captain is an
+  // invariant), but the floor keeps a hand-edited/partial save from producing max()=-Infinity.
+  //
+  // nextCaptainId is a PLAIN number (no Decimal), so it rides hydrateDecimals's `...state` spread
+  // untouched, hydrateDecimals needs NO change. `?? []` guards a hand-edited/partial save.
+  // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production, so it
+  // is still editable (the frozen-once-shipped rule applies only to production-released migrations).
+  30: (state: any): any => {
+    const captainIds = (state.captains ?? []).map((captain: any) => captain.id);
+    const nextCaptainId = Math.max(0, ...captainIds) + 1;
+    return { ...state, nextCaptainId };
   },
 };
 
