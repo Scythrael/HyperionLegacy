@@ -1089,3 +1089,160 @@ describe("Phase 6: focus-fire targeting through the sim", () => {
 		expect(destroyOrder.indexOf("E-weak")).toBeLessThan(destroyOrder.indexOf("E-tough"));
 	});
 });
+
+// ---------------------------------------------------------------------------
+// PHASE 6: encounter open (pre-charge) + ambush / first-strike / cloak (S7).
+// ---------------------------------------------------------------------------
+describe("Phase 6: encounter open pre-charge", () => {
+	it("pre-charge fires the opener on tick 1 instead of after a full cooldown", () => {
+		// A single long-range gun (cd 20 = 2.0s) already in range at the start. With
+		// precharge it fires on tick 1; without, only after its 20-deci cooldown.
+		const battle = (): BattleParticipants => ({
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					position: 0,
+					speed: 0, // stationary: isolate the timing from movement
+					weapons: [makeWeapon({ id: "pw", yield: 10, accuracy: 100, range: 300, cooldownDeciSec: 20 })],
+				}),
+				makeCombatant({ id: "E1", team: "enemy", hull: 100000, hullMax: 100000, position: 250, speed: 0, weapons: [] }),
+			],
+		});
+		const firstHitT = (opts: object): number | undefined =>
+			resolveBattle(battle(), 77, { generateLog: true, ...opts }).log.find(
+				(e) => e.type === "hit" && e.actorId === "P1",
+			)?.tDeciSec;
+
+		expect(firstHitT({ precharge: true })).toBe(1); // immediate charged salvo
+		expect(firstHitT({ precharge: false })).toBe(20); // waited a full cooldown
+	});
+
+	it("the longest-range in-range weapon fires the opener; a short gun holds out of range", () => {
+		// Player mounts a Long particle gun (range 300) + a Short kinetic gun (range
+		// 100). The enemy sits at distance 250 and the player only closes to Medium
+		// (balanced preferred 200), so the short gun NEVER reaches. Only particle hits.
+		const battle = (): BattleParticipants => ({
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					position: 0,
+					speed: 10,
+					stance: "balanced", // settles at distance 200
+					weapons: [
+						makeWeapon({ id: "long", family: "particle", yield: 10, accuracy: 100, range: 300, cooldownDeciSec: 20 }),
+						makeWeapon({ id: "short", family: "kinetic", yield: 10, accuracy: 100, range: 100, cooldownDeciSec: 20 }),
+					],
+				}),
+				makeCombatant({ id: "E1", team: "enemy", hull: 100000, hullMax: 100000, position: 250, speed: 0, weapons: [] }),
+			],
+		});
+		const { log } = resolveBattle(battle(), 88, { generateLog: true, precharge: true });
+		const hits = log.filter((e) => e.type === "hit" && e.actorId === "P1");
+		// The opener is the long-range (particle) weapon, on tick 1.
+		expect(hits[0].family).toBe("particle");
+		expect(hits[0].tDeciSec).toBe(1);
+		// The short-range kinetic gun is out-ranged the whole fight: it never lands.
+		expect(hits.some((e) => e.family === "kinetic")).toBe(false);
+	});
+});
+
+describe("Phase 6: ambush opener (design S7)", () => {
+	// A 1v1 where P1 ambushes E1. E1 has shields; the ambusher a plain particle gun.
+	const ambushBattle = (
+		playerWeapons: CombatWeapon[],
+		enemyOverrides: Partial<Combatant> = {},
+	): (() => BattleParticipants) => () => ({
+		combatants: [
+			makeCombatant({ id: "P1", team: "player", hull: 100000, hullMax: 100000, weapons: playerWeapons }),
+			makeCombatant({
+				id: "E1",
+				team: "enemy",
+				hull: 300,
+				hullMax: 300,
+				shield: 100,
+				shieldMax: 100,
+				weapons: [makeWeapon({ id: "ew", yield: 5, accuracy: 100, cooldownDeciSec: 10 })],
+				...enemyOverrides,
+			}),
+		],
+	});
+
+	it("the ambusher's opening salvo strikes hull directly, leaving the shield untouched", () => {
+		const { log } = resolveBattle(
+			ambushBattle([makeWeapon({ id: "pw", family: "particle", yield: 40, accuracy: 100, cooldownDeciSec: 10 })])(),
+			1234,
+			{ generateLog: true, ambush: "P1" },
+		);
+		const firstAmbush = log.find((e) => e.type === "ambush");
+		expect(firstAmbush).toBeDefined();
+		expect(firstAmbush!.result).toBe("hullDirect");
+		// Shield pool NOT scratched by the hull-direct opener; hull WAS bitten.
+		expect(firstAmbush!.shieldAfter).toBe(100);
+		expect(firstAmbush!.hullAfter).toBeLessThan(300);
+	});
+
+	it("delays the ambushed party's return fire (it fires later than an un-ambushed baseline)", () => {
+		const weapons = [makeWeapon({ id: "pw", family: "particle", yield: 5, accuracy: 100, cooldownDeciSec: 10 })];
+		const firstEnemyHit = (opts: object): number | undefined =>
+			resolveBattle(ambushBattle(weapons)(), 55, { generateLog: true, ...opts }).log.find(
+				(e) => e.type === "hit" && e.actorId === "E1",
+			)?.tDeciSec;
+		const baseline = firstEnemyHit({}); // no ambush: E1 fires on its cooldown
+		const ambushed = firstEnemyHit({ ambush: "P1" }); // stunned first
+		expect(baseline).toBeDefined();
+		expect(ambushed).toBeDefined();
+		expect(ambushed!).toBeGreaterThan(baseline!);
+	});
+
+	it("bars a torpedo from the opener: an ambusher with only a barred weapon lands no free salvo and no stun", () => {
+		// Concussion Torpedo is ambushEligible:false. The lone-torpedo ambusher fires
+		// no opener (no ambush event) AND the target is not stunned (fires on time).
+		const torpedo = makeWeapon({ id: "torp", family: "kinetic", yield: 90, accuracy: 100, cooldownDeciSec: 10, ambushEligible: false });
+		const withAmbush = resolveBattle(ambushBattle([torpedo])(), 55, { generateLog: true, ambush: "P1" });
+		const withoutAmbush = resolveBattle(ambushBattle([torpedo])(), 55, { generateLog: true });
+		expect(withAmbush.log.some((e) => e.type === "ambush")).toBe(false); // torpedo barred
+		// No stun: E1's first return shot lands at the same tick as the un-ambushed run.
+		const firstE1 = (r: typeof withAmbush) => r.log.find((e) => e.type === "hit" && e.actorId === "E1")?.tDeciSec;
+		expect(firstE1(withAmbush)).toBe(firstE1(withoutAmbush));
+	});
+
+	it("particleTraceDetector downgrades a hull-direct ambush to a shielded opener", () => {
+		// Detector at 100% is a forced success: the target raises shields, so the
+		// opener is a normal shielded shot (result 'shielded', shield takes the hit).
+		const { log } = resolveBattle(
+			ambushBattle(
+				[makeWeapon({ id: "pw", family: "particle", yield: 40, accuracy: 100, cooldownDeciSec: 10 })],
+				{ particleTraceDetector: 100 },
+			)(),
+			1234,
+			{ generateLog: true, ambush: "P1" },
+		);
+		const firstAmbush = log.find((e) => e.type === "ambush");
+		expect(firstAmbush!.result).toBe("shielded");
+		// The shield absorbed the shielded opener (it was touched, unlike hull-direct).
+		expect(firstAmbush!.shieldAfter).toBeLessThan(100);
+	});
+
+	it("rapidChargeAfterAmbush shortens the return-fire delay", () => {
+		const weapons = [makeWeapon({ id: "pw", family: "particle", yield: 5, accuracy: 100, cooldownDeciSec: 10 })];
+		const firstEnemyHit = (rapid: boolean): number | undefined =>
+			resolveBattle(
+				ambushBattle(weapons, { rapidChargeAfterAmbush: rapid })(),
+				55,
+				{ generateLog: true, ambush: "P1" },
+			).log.find((e) => e.type === "hit" && e.actorId === "E1")?.tDeciSec;
+		const slow = firstEnemyHit(false); // base ambush delay
+		const fast = firstEnemyHit(true); // rapid-charge module
+		expect(fast!).toBeLessThan(slow!);
+	});
+
+	it("offline == live still holds with an ambush configured (parity)", () => {
+		const build = ambushBattle([makeWeapon({ id: "pw", family: "particle", yield: 40, accuracy: 100, cooldownDeciSec: 10 })]);
+		const live = resolveBattle(build(), 909, { generateLog: true, ambush: "P1" });
+		const offline = resolveBattle(build(), 909, { generateLog: false, ambush: "P1" });
+		expect(offline.outcome).toEqual(live.outcome);
+		expect(offline.log.length).toBe(0);
+	});
+});

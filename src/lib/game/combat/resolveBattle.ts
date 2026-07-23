@@ -68,6 +68,22 @@ const TENTHS_PER_SECOND = 10;
 const MAX_TICKS = 600;
 
 // ---------------------------------------------------------------------------
+// OPENER / AMBUSH TUNING (design S7, Phase 6). FIRST-PASS + TUNABLE (design S20).
+// ---------------------------------------------------------------------------
+
+// How long (deci-seconds) the AMBUSHED party is stunned before its firing timer
+// starts, after the ambush's first hit lands (design S7: "the ambushed party's
+// firing timer starts only AFTER that first hit lands"). Its weapons hold (no
+// cooldown accrual) until tick reaches this value; movement + shields + status
+// still tick. 10 = 1.0s.
+const AMBUSH_RETURN_DELAY_DECISEC = 10;
+
+// The SHORTENED return-fire delay when the ambushed party carries a Rapid-Charge
+// counter-module (Combatant.rapidChargeAfterAmbush, design S7). Strictly less
+// than the base delay so the module is a real mitigation. 3 = 0.3s.
+const RAPID_CHARGE_RETURN_DELAY_DECISEC = 3;
+
+// ---------------------------------------------------------------------------
 // SHOT-PIPELINE TUNING CONSTANTS (all FIRST-PASS, a balance pass owns them,
 // design S20). Grouped here so the balance pass has one obvious knob board and
 // so the pipeline code below reads as intent, not magic numbers. Every value is
@@ -126,6 +142,28 @@ export interface ResolveOptions {
 	// Patrol / other mission types plug in their own win condition (design S1:
 	// objective is pluggable data) without touching the loop.
 	objective?: BattleObjective;
+
+	// PHASE 6 ENCOUNTER OPEN (design S6): weapons PRE-CHARGE during the close so the
+	// first weapon to enter range fires its charged salvo immediately (no cooldown
+	// wait). Modeled by seeding every weapon's cooldownAccumulator to its
+	// cooldownDeciSec at battle start, so it is ready on the first tick it is in
+	// range (the longest-range weapon fires the opener; shorter guns join as the
+	// distance closes). Default false so synthetic fixtures (co-located, immediate
+	// fire) are unchanged; the mission layer (Phase 9) opens real encounters with
+	// precharge:true. TODO(Phase 9): the mission dispatch sets this for a normal open.
+	precharge?: boolean;
+
+	// PHASE 6 AMBUSH (design S7), SYMMETRIC: the combatant id of the AMBUSHER (the
+	// player can ambush too), or undefined for no ambush. The ambusher lands a free
+	// opening salvo that strikes HULL DIRECTLY (bypassing the not-yet-raised shields)
+	// with its ambush-eligible weapons ONLY (Concussion Torpedo is barred), and the
+	// ambushed target's return fire is delayed. An enemy CLOAK opener is modeled as
+	// an ambush with the enemy as ambusher (design S7: cloak is a flavor of ambush).
+	// The two counter-modules (Combatant.particleTraceDetector / rapidChargeAfterAmbush)
+	// can downgrade or soften it. Default undefined => no ambush, zero new draws, so
+	// every existing fixture is byte-identical. The mission layer sets this per
+	// encounter (Phase 9). TODO(Phase 9): derive the ambusher from mission + stealth.
+	ambush?: string;
 }
 
 // Transient per-combatant fixed-point accumulators. These are SIM-INTERNAL
@@ -269,12 +307,23 @@ export function applyProjectileDamage(
 	weaponShieldAttenuation: number,
 	weaponArmorPen: number,
 	rawAfterCrit: number,
+	// PHASE 6 AMBUSH (design S7): when true, this shot strikes HULL DIRECTLY, as if
+	// the target's shields are not up yet. The shield POOL is bypassed entirely (no
+	// absorption, no attenuation split) and the shot uses the vs-Armor triangle
+	// column (shields notionally down). Armor + dampening + hull still apply (an
+	// ambush skips the deflector screen, not the hull plating). Default false keeps
+	// every normal shot byte-identical (the regression default for all fixtures).
+	bypassShields = false,
 ): { dealt: number; attenuated: boolean } {
-	// STEP 4 (triangle): pick ONE column from the target's CURRENT shield state
-	// (shields up => vs-Shields, shields down => vs-Armor). See FAMILY_VS_* above
-	// for why a single column per shot rather than a per-pool split.
-	const triangleMult =
-		target.shield > 0 ? FAMILY_VS_SHIELDS[family] : FAMILY_VS_ARMOR[family];
+	// STEP 4 (triangle): pick ONE column. Normally from the target's CURRENT shield
+	// state (shields up => vs-Shields, shields down => vs-Armor); a hull-direct
+	// ambush always uses the vs-Armor column (shields are down for this shot). See
+	// FAMILY_VS_* above for why a single column per shot rather than a per-pool split.
+	const triangleMult = bypassShields
+		? FAMILY_VS_ARMOR[family]
+		: target.shield > 0
+			? FAMILY_VS_SHIELDS[family]
+			: FAMILY_VS_ARMOR[family];
 	const dmgAfterTriangle = Math.floor((rawAfterCrit * triangleMult) / 100);
 
 	// STEP 4b (per-family DAMAGE RESIST, design S5). A flat TYPE resist applied to
@@ -298,33 +347,42 @@ export function applyProjectileDamage(
 	let hullPath = 0;
 	let attenuated = false;
 
-	// STEP 5a (attenuation, PARTICLE ONLY): a net fraction skips shields straight
-	// to the hull-path. net = max(0, weaponShieldAttenuation - shieldCoherence).
-	// Kinetic + EW never attenuate (their signature is armor-pen / disruption).
-	let toShields = dmg;
-	if (family === "particle") {
-		const netAttenPct = Math.max(
-			0,
-			weaponShieldAttenuation - target.shieldCoherence,
-		);
-		if (netAttenPct > 0) {
-			const bypass = Math.floor((dmg * netAttenPct) / 100);
-			if (bypass > 0) {
-				hullPath += bypass;
-				toShields = dmg - bypass;
-				attenuated = true;
+	if (bypassShields) {
+		// PHASE 6 AMBUSH hull-direct: the shield pool is not up, so the ENTIRE shot
+		// routes to the hull-path with no shield absorption and no attenuation split
+		// (attenuation is a particle-vs-shields interaction; there is no shield to
+		// slip past here). The shield value is left untouched (the test asserts the
+		// first ambush hit does not scratch the shield).
+		hullPath += dmg;
+	} else {
+		// STEP 5a (attenuation, PARTICLE ONLY): a net fraction skips shields straight
+		// to the hull-path. net = max(0, weaponShieldAttenuation - shieldCoherence).
+		// Kinetic + EW never attenuate (their signature is armor-pen / disruption).
+		let toShields = dmg;
+		if (family === "particle") {
+			const netAttenPct = Math.max(
+				0,
+				weaponShieldAttenuation - target.shieldCoherence,
+			);
+			if (netAttenPct > 0) {
+				const bypass = Math.floor((dmg * netAttenPct) / 100);
+				if (bypass > 0) {
+					hullPath += bypass;
+					toShields = dmg - bypass;
+					attenuated = true;
+				}
 			}
 		}
-	}
 
-	// STEP 5b (shields): the non-attenuated portion is absorbed up to the current
-	// shield pool; the overflow continues to the hull-path.
-	if (target.shield > 0) {
-		const absorbed = Math.min(target.shield, toShields);
-		target.shield -= absorbed;
-		hullPath += toShields - absorbed;
-	} else {
-		hullPath += toShields;
+		// STEP 5b (shields): the non-attenuated portion is absorbed up to the current
+		// shield pool; the overflow continues to the hull-path.
+		if (target.shield > 0) {
+			const absorbed = Math.min(target.shield, toShields);
+			target.shield -= absorbed;
+			hullPath += toShields - absorbed;
+		} else {
+			hullPath += toShields;
+		}
 	}
 
 	// STEP 5c (armor on the hull-path): ablativeArmor is a DEPLETING buffer that
@@ -399,6 +457,9 @@ function fireWeapon(
 	target: Combatant,
 	weapon: CombatWeapon,
 	combat: Rng,
+	// PHASE 6 AMBUSH: when true (the ambush opener), every projectile strikes hull
+	// directly (bypasses the shield pool). Default false for the normal firing loop.
+	bypassShields = false,
 ): ShotResult {
 	// PHASE 4 DEBUFF (applied): the attacker's accuracy debuffs (Scattering Field,
 	// Targeting Drift) scale weapon accuracy DOWN before the evasion subtraction.
@@ -452,6 +513,7 @@ function fireWeapon(
 			weapon.shieldAttenuation,
 			weapon.armorPen,
 			raw,
+			bypassShields,
 		);
 		totalDealt += dealt;
 		if (attenuated) anyAttenuated = true;
@@ -574,6 +636,108 @@ function tiebreakByHullPercent(
 	return "draw";
 }
 
+// ---------------------------------------------------------------------------
+// AMBUSH OPENER (design S7, Phase 6). Resolve the ambusher's free opening salvo
+// before the main loop: it strikes HULL DIRECTLY (shields not up yet) with the
+// ambusher's ambush-eligible weapons only, and stuns the target's return fire.
+//
+// SYMMETRIC (either side can be the ambusher) and used for CLOAK too (a cloaked
+// enemy is just the ambusher). Two counter-modules on the TARGET can change the
+// outcome: a Particle-Trace Detector (combat-stream chance) can detect the ambush
+// and raise shields, downgrading the hull-direct strike to a normal shielded
+// opener and cancelling the delay; a Rapid-Charge module shortens the delay.
+//
+// PARITY: every RNG draw here is on the COMBAT stream and runs unconditionally
+// when an ambush is set (the detector roll, then each salvo shot's hit/crit/
+// damage/proc draws), so offline == live. Only the log pushes are gated on
+// generateLog. Mutates the target's hull/shield + populates returnFireReadyTick.
+// ---------------------------------------------------------------------------
+function resolveAmbushOpener(
+	ambusherId: string,
+	combatants: Combatant[],
+	combat: Rng,
+	generateLog: boolean,
+	log: CombatEvent[],
+	returnFireReadyTick: Map<string, number>,
+): void {
+	// The ambusher must exist + be alive to open. An unknown/dead id is a caller
+	// mistake we tolerate silently (no opener) rather than throw mid-battle.
+	const ambusher = combatants.find((c) => c.id === ambusherId && c.alive);
+	if (ambusher === undefined) return;
+
+	// The surprised party is the ambusher's focus-fire target. The opener IGNORES
+	// the range gate: the ambusher chose the moment (a cloak decloaks already in
+	// range), so it can strike even from the long-range encounter open.
+	const target = selectTarget(ambusher, combatants);
+	if (target === undefined) return;
+
+	// DETECTOR (design S7): the AMBUSHED target's Particle-Trace Detector is an
+	// integer-percent COMBAT-stream chance to see the ambush coming and raise
+	// shields, downgrading the strike to a shielded opener + cancelling the delay.
+	// 0 = no module, no draw (keeps the draw schedule tied to real detector gear).
+	let detected = false;
+	if (target.particleTraceDetector > 0) {
+		detected = combat.chance(target.particleTraceDetector, 100);
+	}
+
+	// Fire each AMBUSH-ELIGIBLE weapon once. Heavy weapons (Concussion Torpedo,
+	// ambushEligible false) are BARRED (design S7: a hull-direct torpedo is a delete
+	// button). Hull-direct unless the target detected + shielded up. Track whether
+	// ANY eligible weapon actually fired: an ambusher packing only barred weapons
+	// lands no opener, so there is no free salvo AND no return-fire stun (the ambush
+	// fizzles) rather than a phantom stun with no hit behind it.
+	const bypassShields = !detected;
+	let firedOpener = false;
+	for (const weapon of ambusher.weapons) {
+		if (!weapon.ambushEligible) continue;
+		firedOpener = true;
+		const shot = fireWeapon(ambusher, target, weapon, combat, bypassShields);
+		// LOG ONLY (gated): an "ambush" event so the flavor layer narrates the
+		// surprise salvo distinctly (result flags hull-direct vs a detected shielded
+		// opener). Stamped at t=0 (the opener precedes tick 1).
+		if (generateLog && shot.fired) {
+			log.push({
+				tDeciSec: 0,
+				round: 0,
+				type: "ambush",
+				actorId: ambusher.id,
+				targetId: target.id,
+				damage: shot.damage,
+				result: detected ? "shielded" : "hullDirect",
+				shieldAfter: shot.shieldAfter,
+				hullAfter: shot.hullAfter,
+				family: weapon.family,
+				crit: shot.crit,
+				attenuated: shot.attenuated,
+				projectilesHit: shot.projectilesHit,
+			});
+			if (shot.killed) {
+				log.push({
+					tDeciSec: 0,
+					round: 0,
+					type: "destroyed",
+					actorId: ambusher.id,
+					targetId: target.id,
+					result: "destroyed",
+					shieldAfter: shot.shieldAfter,
+					hullAfter: shot.hullAfter,
+				});
+			}
+		}
+	}
+
+	// RETURN-FIRE DELAY (design S7). A detected ambush (shields up, not caught
+	// unaware) or a fizzled one (no eligible weapon fired) imposes NO delay.
+	// Otherwise the target is stunned for the base delay, SHORTENED by a Rapid-Charge
+	// counter-module. Its weapons hold until this tick.
+	if (!detected && firedOpener) {
+		const delay = target.rapidChargeAfterAmbush
+			? RAPID_CHARGE_RETURN_DELAY_DECISEC
+			: AMBUSH_RETURN_DELAY_DECISEC;
+		returnFireReadyTick.set(target.id, delay);
+	}
+}
+
 // The public simulator. See file header for the two invariants it upholds.
 export function resolveBattle(
 	participants: BattleParticipants,
@@ -606,6 +770,41 @@ export function resolveBattle(
 	// The structured event stream. Built only when generateLog is on; offline
 	// leaves it an empty array (and pays for none of the pushes/flavor draws).
 	const log: CombatEvent[] = [];
+
+	// PHASE 6 ENCOUNTER OPEN (design S6): pre-charge weapons so the first to enter
+	// range fires immediately. Seed every weapon's cooldownAccumulator to its full
+	// cooldownDeciSec, so on tick 1 it is already ready and fires the instant the
+	// range gate opens (the longest-range weapon fires the opener; shorter guns join
+	// as the ship closes). Opt-in (default off) so co-located immediate-fire fixtures
+	// are unchanged.
+	if (options?.precharge) {
+		for (const c of combatants) {
+			for (const w of c.weapons) {
+				w.cooldownAccumulator = w.cooldownDeciSec;
+			}
+		}
+	}
+
+	// PHASE 6 AMBUSH return-fire delay (design S7). Maps a combatant id -> the tick
+	// at or after which it may FIRE (its weapons hold until then). Default (absent)
+	// = 0 = fire from tick 1 (no delay). Only an ambushed target gets a positive
+	// entry; everyone else is unaffected, so a no-ambush battle never gates firing.
+	const returnFireReadyTick = new Map<string, number>();
+
+	// PHASE 6 AMBUSH opener (design S7). Resolve the ambusher's free opening salvo
+	// BEFORE the main loop. This runs its combat-stream draws (detector roll, then
+	// the salvo's hit/crit/damage/proc draws) UNCONDITIONALLY when an ambush is set,
+	// so offline == live holds (only the LOG pushes below are gated on generateLog).
+	if (options?.ambush !== undefined) {
+		resolveAmbushOpener(
+			options.ambush,
+			combatants,
+			combat,
+			generateLog,
+			log,
+			returnFireReadyTick,
+		);
+	}
 
 	// PHASE 4 DoT LOG AGGREGATION (design S4 / S16). DoT damage lands EVERY tick
 	// (in the Phase D loop below), but the LOG must show ONE aggregated line per
@@ -677,19 +876,28 @@ export function resolveBattle(
 		for (const self of combatants) {
 			if (!self.alive) continue;
 
-			// Choose this combatant's target (lowest-effective-HP living enemy).
-			// No living enemy => nothing to do this tick (its side has effectively
-			// won; the objective check below will formalize it).
+			// Choose this combatant's target (Phase 6 focus-fire policy: lowest
+			// effective-HP enemy in range, else the best to close on). No living enemy
+			// => nothing to do this tick (its side has effectively won; the objective
+			// check below will formalize it).
 			const target = selectTarget(self, combatants);
 			if (target === undefined) continue;
 
 			const acc = accumulators.get(self.id)!;
 
-			// PHASE A: movement. Close toward the target (skeleton behavior).
+			// PHASE A: movement. Step toward this ship's stance preferred distance from
+			// the target (close / kite / hold), Coolant-Leak-scaled (see advanceMovement).
 			advanceMovement(self, target, acc);
 
 			// PHASE B: shield regen for the acting combatant (banked per-tick).
 			advanceShieldRegen(self, acc);
+
+			// PHASE 6 AMBUSH return-fire delay (design S7): a freshly-ambushed target
+			// holds fire (weapons do not even accrue cooldown) until its ready tick.
+			// It still moved + regenerated shields above; only its firing is stunned.
+			// Default 0 (absent) => never gates, so a no-ambush battle is unaffected.
+			const readyTick = returnFireReadyTick.get(self.id) ?? 0;
+			if (t < readyTick) continue;
 
 			// PHASE C: weapons. Advance each weapon's cooldown clock by dt; fire any
 			// that have both come off cooldown AND have the target in range.
