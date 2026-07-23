@@ -58,9 +58,11 @@ export interface EnemyWaveParams {
 	// Combatant[] length can exceed 1).
 	enemyCountMax: number;
 	// Id prefix for every combatant / weapon / squadron id this wave mints (e.g.
-	// the faction id + encounter index). Makes enemy ids UNIQUE across the battle
-	// (the sim's turn-order sort key must not collide) and TRACEABLE back to the
-	// wave that spawned them.
+	// the faction id + encounter index). The per-enemy `-e${i}-w${w}` suffixes
+	// already guarantee WITHIN-wave uniqueness (the sim's turn-order sort key never
+	// collides even if idPrefix were constant); idPrefix's real job is to make ids
+	// TRACEABLE to, and DISJOINT ACROSS, the waves that spawned them. Non-empty by
+	// contract, so that traceability is never silently lost (guarded below).
 	idPrefix: string;
 
 	// ⚠️ FORWARD SEAM (TI-TX difficulty, design note): a future difficulty tier
@@ -130,6 +132,14 @@ export function generateEnemyWave(
 		throw new Error(
 			`generateEnemyWave requires enemyCountMax >= enemyCountMin, received ` +
 				`min=${enemyCountMin} max=${enemyCountMax}`,
+		);
+	}
+	// idPrefix must be non-empty: an empty prefix yields ids like "-e0-w0-autocannon",
+	// silently degrading the log-traceability idPrefix exists to provide. Guard it
+	// beside the others rather than letting a caller quietly lose that disambiguation.
+	if (idPrefix.length === 0) {
+		throw new Error(
+			`generateEnemyWave requires a non-empty idPrefix, received an empty string`,
 		);
 	}
 

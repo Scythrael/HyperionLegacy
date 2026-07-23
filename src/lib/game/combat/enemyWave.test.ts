@@ -120,6 +120,20 @@ describe("generateEnemyWave, deterministic Patrol enemy-wave generator", () => {
 		}
 	});
 
+	it("a full pool eventually spawns more than one distinct hull across many seeds", () => {
+		// Locks the per-enemy hull PICK wiring specifically: pool-membership alone
+		// would still pass if the picker regressed to always taking hullPool[0], so
+		// this asserts the multi-hull pool actually reaches more than one hull.
+		// hullMax differs across the three first-pass hulls, so it identifies them.
+		const seen = new Set<number>();
+		for (let seed = 0; seed < 200; seed++) {
+			for (const enemy of generateEnemyWave(seed, BASE)) {
+				seen.add(enemy.hullMax);
+			}
+		}
+		expect(seen.size).toBeGreaterThan(1);
+	});
+
 	// ---- 5. Fresh clones (the per-battle deep-clone the sim requires) ----
 	it("two enemies in one wave never share a weapon object by reference", () => {
 		// Marauder has two weapons; a two-marauder wave gives two enemies whose
@@ -216,5 +230,11 @@ describe("generateEnemyWave, deterministic Patrol enemy-wave generator", () => {
 		expect(() =>
 			generateEnemyWave(1, { ...BASE, enemyCountMax: 2.5 }),
 		).toThrow(/integer enemyCountMax/);
+	});
+
+	it("throws on an empty idPrefix (traceability must never be silently lost)", () => {
+		expect(() => generateEnemyWave(1, { ...BASE, idPrefix: "" })).toThrow(
+			/non-empty idPrefix/,
+		);
 	});
 });
