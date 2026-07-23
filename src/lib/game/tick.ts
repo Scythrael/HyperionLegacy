@@ -46,6 +46,7 @@ import {
   type ItemDef,
   type GameState,
   type ShipTypeKey,
+  type ShipTypeDef,
   type ShipInstance,
   type CaptainState,
   type CaptainMissionState,
@@ -106,7 +107,7 @@ import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
 // resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
-import { combatHullTypeOf, defaultDronesForHull, shipToCombatant } from "./combat/bridge";
+import { combatHullTypeOf, defaultDronesForHull, shipToCombatant, type CombatHullType } from "./combat/bridge";
 import { planWaveSchedule, type WaveScheduleParams } from "./combat/waveSchedule";
 import type { CombatStance } from "./combat/positioning";
 // Combat 0.13.0 (Phase 9b.5c): the patrol TICK LOOP wiring. generateEnemyWave builds a
@@ -1658,24 +1659,20 @@ export function tickCaptainPatrol(
           // exactly the multi-patrol offline==live parity defect this derivation fixes.
           // Re-plan the wave schedule for the new seed and reset progress + carry-state to FULL.
           const newSeed = deriveWaveSeed(mission.masterSeed, 0, RELAUNCH_SEED_SALT);
-          mission = {
-            kind: "patrol",
+          // Mint the next cycle via the shared factory (THE single source of truth for a
+          // new patrol, shared with dispatchCaptainOnPatrol so the two can never drift).
+          // Relaunch reuses THIS mission's stance + repeatDispatch (they persist across a
+          // relaunch) and the freshly derived per-captain newSeed; the factory re-plans the
+          // wave schedule, resets progress + carry-state to FULL, and re-keys the drone id
+          // prefix to newSeed.
+          mission = freshPatrolMission({
             patrolKey: mission.patrolKey,
-            factionId: def.factionId,
-            stance: mission.stance, // stance + repeatDispatch persist across relaunch
+            stance: mission.stance,
             masterSeed: newSeed,
-            phase: "transitOut",
-            progressTicks: 0,
-            waveTicks: planWaveSchedule(newSeed, patrolWaveParams(def)),
-            nextWaveIndex: 0,
-            wavesWon: 0,
-            wavesLost: 0,
-            playerHull: shipDef.hullIntegrity,
-            playerShield: shipDef.shieldCapacity,
-            playerDrones: defaultDronesForHull(hullType, `patrol-${newSeed}-p`),
-            recalled: false,
             repeatDispatch: mission.repeatDispatch,
-          };
+            shipDef,
+            hullType,
+          });
           progress = 0;
           // Loop continues: any remaining ticks advance the FRESH patrol.
         } else {
@@ -2715,6 +2712,73 @@ export function patrolWaveParams(def: PatrolDef): WaveScheduleParams {
   };
 }
 
+// freshPatrolMission: THE single source of truth for a brand-new PatrolMissionState.
+// Combat 0.13.0 (Phase 9b follow-up). A fresh patrol is minted in exactly TWO places and
+// they MUST stay identical: (1) dispatchCaptainOnPatrol seeds the very first cycle, and
+// (2) tickCaptainPatrol relaunches the next cycle on a Dispatch-Repeatedly success. Those
+// two sites differ ONLY in stance / masterSeed / repeatDispatch (dispatch takes the
+// dispatch-time args; relaunch reuses the mission's own stance + repeatDispatch and a
+// freshly derived per-captain masterSeed). EVERY other field, phase init, the full
+// carry-state, the resolved wave schedule, and the `patrol-${masterSeed}-p` drone id
+// prefix, is identical. Hand-building the 16-field object at both sites is exactly how a
+// future field (9b.5d / P10) gets added to one site and silently forgotten at the other,
+// desyncing a relaunched patrol from a freshly dispatched one. Consolidating here makes
+// that drift a compile-time impossibility: add a field once, both sites get it.
+//
+// PURE: reads only the static PATROLS/def tables + the passed args, mutates nothing. The
+// factionId + wave schedule are both derived from PATROLS[patrolKey] INSIDE the factory,
+// so the pinned faction and the wave params can never come from a mismatched def.
+function freshPatrolMission(args: {
+  // WHICH patrol (stored on the state AND used to look the def up, one source, no drift).
+  patrolKey: PatrolKey;
+  // The player-chosen combat stance carried by every wave. Dispatch: the dispatch arg.
+  // Relaunch: the mission's own persisted stance (stance survives a relaunch).
+  stance: CombatStance;
+  // The persisted master seed. Dispatch: GameState.nextPatrolSeed. Relaunch: the freshly
+  // derived per-captain seed (deriveWaveSeed(oldSeed, 0, RELAUNCH_SEED_SALT)). It seeds
+  // BOTH the wave schedule and the drone id prefix below, so passing one value keeps them
+  // in lockstep.
+  masterSeed: number;
+  // Auto-relaunch intent. Dispatch: the dispatch arg. Relaunch: the mission's own flag
+  // (it persists across cycles, which is what makes a repeat patrol repeat).
+  repeatDispatch: boolean;
+  // The ship's static combat stats, for the FULL carry-state pools (hull + shield); the
+  // same SHIP_TYPES entry bridge.ts's shipToCombatant reads.
+  shipDef: ShipTypeDef;
+  // The resolved combat hull type, for the hull's DEFAULT drone screen (a carrier's Attack
+  // squadron; EMPTY for destroyer/battleship).
+  hullType: CombatHullType;
+}): PatrolMissionState {
+  const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType } = args;
+  // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
+  // could disagree with patrolKey).
+  const def = PATROLS[patrolKey];
+  return {
+    kind: "patrol",
+    patrolKey,
+    factionId: def.factionId, // pin the fought faction (def could be retuned mid-flight)
+    stance,
+    masterSeed,
+    phase: "transitOut", // progressTicks 0 -> initial transit
+    progressTicks: 0,
+    // Resolve the wave schedule NOW: a pure function of the master seed + def params, so it
+    // is stable across save/load and reproducible offline==live (see PatrolMissionState
+    // .waveTicks for the wave-plan-now rationale).
+    waveTicks: planWaveSchedule(masterSeed, patrolWaveParams(def)),
+    nextWaveIndex: 0,
+    wavesWon: 0,
+    wavesLost: 0,
+    // Carry-state seeded to FULL: hull/shield from the hull's combat stats, and the hull's
+    // default drones (a carrier's screen; empty otherwise). The drone id prefix is keyed to
+    // the master seed so ids are stable + unique per patrol cycle.
+    playerHull: shipDef.hullIntegrity,
+    playerShield: shipDef.shieldCapacity,
+    playerDrones: defaultDronesForHull(hullType, `patrol-${masterSeed}-p`),
+    recalled: false,
+    repeatDispatch,
+  };
+}
+
 // The reasons canDispatchPatrol can block, a typed union mirroring DispatchBlockReason
 // (extraction). Member order mirrors the gate order below (cheapest/most-fundamental
 // first). Patrols share the identity/status/fuel gates but SWAP the mission-specific
@@ -2840,32 +2904,12 @@ export function dispatchCaptainOnPatrol(
   // The persisted master seed for this patrol, taken from the never-reused counter; the
   // counter increments below so the next patrol gets a distinct seed.
   const masterSeed = state.nextPatrolSeed;
-  // Resolve the wave schedule NOW (see PatrolMissionState.waveTicks for the wave-plan-now
-  // rationale): a pure function of the master seed + the def-derived params, so it is
-  // stable across save/load and reproducible offline==live.
-  const waveTicks = planWaveSchedule(masterSeed, patrolWaveParams(def));
-  // Seed the carry-state: full hull/shield from the hull's combat stats (the same pools
-  // bridge.ts reads), and the hull's default drones (a carrier's screen; empty otherwise).
-  const playerDrones = defaultDronesForHull(hullType, `patrol-${masterSeed}-p`);
-
-  const mission: PatrolMissionState = {
-    kind: "patrol",
-    patrolKey,
-    factionId: def.factionId,
-    stance,
-    masterSeed,
-    phase: "transitOut", // progressTicks 0 -> initial transit; 9b.5b advances it
-    progressTicks: 0,
-    waveTicks,
-    nextWaveIndex: 0,
-    wavesWon: 0,
-    wavesLost: 0,
-    playerHull: shipDef.hullIntegrity,
-    playerShield: shipDef.shieldCapacity,
-    playerDrones,
-    recalled: false,
-    repeatDispatch,
-  };
+  // Seed the fresh mission via the shared factory (THE single source of truth for a new
+  // patrol, shared with the relaunch site so the two can never drift): it resolves the
+  // wave schedule from masterSeed + def, seeds the full hull/shield/drone carry-state, and
+  // keys the drone id prefix to masterSeed. Dispatch passes the dispatch-time stance /
+  // masterSeed / repeatDispatch.
+  const mission = freshPatrolMission({ patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType });
 
   const captains = [...state.captains];
   captains[idx] = { ...captains[idx], mission };
