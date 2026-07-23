@@ -94,6 +94,20 @@ describe("freshState ships seeding", () => {
   });
 });
 
+// Combat 0.13.0 (Task 1.1): captain ids move to a MONOTONIC counter
+// (nextCaptainId) mirroring nextShipId/nextEquipmentId, so a future captain
+// removal (captain death) can never let a later slot-unlock reuse a freed id.
+// This guards ONLY the freshState seed: one starter captain has id 1, so the
+// next allocatable id is 2. freshCaptains itself stays deterministic 1..count
+// (genesis/migration seeding), asserted alongside to prove it is unchanged.
+describe("freshState nextCaptainId seeding (Combat 0.13.0)", () => {
+  it("seeds nextCaptainId at 2 (Captain 1 holds id 1), leaving freshCaptains deterministic", () => {
+    const s = freshState();
+    expect(s.nextCaptainId).toBe(2); // "Captain 1" holds id 1, so the next id is 2
+    expect(freshCaptains(3).map((c) => c.id)).toEqual([1, 2, 3]); // unchanged genesis seeding
+  });
+});
+
 describe("freshCaptains(count), parameterized roster generation", () => {
   it("generates exactly `count` captains with sequential ids/labels, all sharing the fresh baseline", () => {
     const captains = freshCaptains(3);

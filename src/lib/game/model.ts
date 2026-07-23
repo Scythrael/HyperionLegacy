@@ -2224,6 +2224,15 @@ export interface GameState {
   ships: ShipInstance[];
   shipStorageCapacity: number; // max hulls the fleet can hold (parked + assigned); starter cap
   nextShipId: number; // monotonic id source for new ShipInstance.id ("ship-N"); never reused
+  // Combat 0.13.0 (Task 1.1): monotonic id source for a new captain's numeric id;
+  // never reused, mirrors nextShipId / nextEquipmentId. Captain ids USED to be
+  // length-derived (captains.length + 1 at slot-unlock), which is safe ONLY while
+  // captains are append-only. Once a captain can be REMOVED (future captain death),
+  // a freed slot would let the next unlock reissue a live id and collide. A monotonic
+  // counter is the fix: every new captain id is strictly greater than any ever issued.
+  // freshState seeds 2 (the one starter "Captain 1" holds id 1); the v30->v31 save
+  // migration backfills it as max(existing captain ids) + 1.
+  nextCaptainId: number;
   // --- Progression Pacing Rework (docs/plans/2026-07-11-progression-pacing-rework-*) ---
   // Monotonic LIFETIME totals, reserved now for future Completions/Achievements
   // systems to read. These are FORWARD-COMPAT schema only: freshState zero-inits
@@ -4706,6 +4715,11 @@ export function freshState(): GameState {
     ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
     shipStorageCapacity: 8,
     nextShipId: 2,
+    // Combat 0.13.0 (Task 1.1): the one starting captain (freshCaptains(1) -> id 1)
+    // holds id 1, so the next allocatable captain id is 2 (mirrors nextShipId's "ship-1
+    // is taken, next is 2" reasoning). Existing saves get this backfilled by the
+    // v30->v31 migration (save.ts), NOT this function's job.
+    nextCaptainId: 2,
     // Clean-slate lifetime totals, see freshLifetimeStats() above. Extracted
     // to that shared factory (Omega 4, DRY) so this new-game init and the
     // v16->v17 save migration that backfills the same field (save.ts,
