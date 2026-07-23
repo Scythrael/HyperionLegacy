@@ -57,10 +57,24 @@ export type ShipTypeKey =
   | "generalFreighter"
   | "prospectorHauler"
   | "prospectorRunner"
-  | "prospectorMiner";
-// FORWARD BUCKETS (documented in the design doc, NOT built this pass): tactician --
-// destroyer/battleship/carrier; explorer, cruiser/surveyor/medical (explorer hulls
-// get MORE module slots). Add keys here only when actually built.
+  | "prospectorMiner"
+  // --- COMBAT HULLS (Combat 0.13.0, Phase 9a, design S3 / S8 / S19) --------------
+  // The three v1 combat hull classes (tactician spec). Added this pass so the
+  // combat sim can build REAL combatants from real hulls (see combat/bridge.ts's
+  // COMBAT_DEFAULT_LOADOUT + shipToCombatant). Their combat stats (hullIntegrity /
+  // shieldCapacity / shieldRecharge / weaponHardpoints) are now LIVE inputs to the
+  // sim, no longer display-only like the economy hulls' reserved fields.
+  // ⚠️ 9b SEAM: Shipyard build-gating + research for these hulls is NOT built here;
+  // canBuildShip has no tier/research gate yet, so they currently appear as buildable
+  // Shipyard cards (Phase 9b/progression adds the gate). Non-combat fields (cargo /
+  // extraction / fuel) are deliberately MINIMAL for a warship (a warship hauls little).
+  | "destroyer"
+  | "battleship"
+  | "carrier";
+// FORWARD BUCKETS (documented in the design doc, NOT built this pass): explorer --
+// cruiser/surveyor/medical (explorer hulls get MORE module slots). Add keys here
+// only when actually built. (The tactician combat trio destroyer/battleship/carrier
+// is now BUILT, above.)
 
 export interface ShipTypeDef {
   label: string;
@@ -554,6 +568,69 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // 1 major assembly, below the Hauler. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 4, structuralAssembly: 1 }, credits: 1100, durationTicks: 550 },
     description: "Specialized extraction rig, more materials per tick.",
+  },
+
+  // --- COMBAT HULLS (Combat 0.13.0, Phase 9a, design S3 / S8 / S19) ----------------
+  // ⚠️ COMBAT STATS ARE NOW LIVE (not display-only): hullIntegrity / shieldCapacity /
+  // shieldRecharge / weaponHardpoints feed combat/bridge.ts -> resolveBattle. Each of
+  // the three classes gets a DISTINCT, FIRST-PASS-TUNABLE profile that expresses its
+  // identity (destroyer = fast striker, battleship = slow tank, carrier = drone
+  // platform). ⚠️ EVERY NUMBER HERE IS FIRST-PASS + TUNABLE (design S20 owns balance).
+  //
+  // NON-COMBAT fields are deliberately MINIMAL for a warship: a warship carries little
+  // cargo, has neutral extraction (it is not a miner), and modest fuel. They are still
+  // POSITIVE + valid (the fuel loop asserts fuelCapacity > 0 / engineEfficiency >= 0)
+  // so a warship remains a structurally-valid hull the economy code can reason about,
+  // it just is not the tool for a mining run. tier > 1 encodes combat-progression
+  // intent; the actual build-gate that reads it is Phase 9b (canBuildShip has none yet).
+  destroyer: {
+    label: "Destroyer", spec: "tactician", tier: 2,
+    // Fast strike hull: quick transit, tiny hold (it is not a hauler), neutral extraction.
+    cargoCapacity: 30, transitSpeedMult: 1.3, extractionYieldMult: 1.0,
+    fuelCapacity: 130, engineEfficiency: 0.2, // nimble: mid-small tank, decent efficiency
+    moduleSlots: 2, equipmentSlots: 0,
+    // ⚠️ TUNABLE / LIVE (combat): FAST + fragile-ish striker. Solid hull, strong fast-
+    // regen shields, but FEWER weapon hardpoints than the battleship (a raider, not a
+    // gun platform). Default loadout = 2 fast weapons (see COMBAT_DEFAULT_LOADOUT).
+    hullIntegrity: 600, shieldCapacity: 300, shieldRecharge: 10, weaponHardpoints: 4,
+    cost: { credits: 300 },
+    // Combat hull BOM: heavier than the economy hulls (more assemblies), a mid-length
+    // build. ⚠️ FIRST-PASS TUNABLE. (9b re-tunes alongside the research gate.)
+    buildRecipe: { components: { frameSegment: 6, powerCoupling: 5, structuralAssembly: 2 }, credits: 2000, durationTicks: 600 },
+    description: "A fast strike hull. Quick shields, fewer guns, closes and hits hard.",
+  },
+  battleship: {
+    label: "Battleship", spec: "tactician", tier: 3,
+    // Slow line hull: sluggish transit, small hold, neutral extraction.
+    cargoCapacity: 40, transitSpeedMult: 0.7, extractionYieldMult: 1.0,
+    fuelCapacity: 180, engineEfficiency: 0.05, // heavy: big tank, near-baseline burn
+    moduleSlots: 3, equipmentSlots: 0,
+    // ⚠️ TUNABLE / LIVE (combat): the TANK. MOST hull + shields of any hull and the MOST
+    // weapon hardpoints (a wall of guns), at the cost of SLOW movement + slow shield
+    // regen. Default loadout = 3 heavy weapons (see COMBAT_DEFAULT_LOADOUT).
+    hullIntegrity: 1400, shieldCapacity: 600, shieldRecharge: 6, weaponHardpoints: 6,
+    cost: { credits: 800 },
+    // Heaviest BOM + longest build of any hull (a capital ship). ⚠️ FIRST-PASS TUNABLE.
+    buildRecipe: { components: { frameSegment: 14, powerCoupling: 10, structuralAssembly: 5 }, credits: 5000, durationTicks: 1200 },
+    description: "A slow capital hull. The most armor, shields, and guns the fleet fields.",
+  },
+  carrier: {
+    label: "Carrier", spec: "tactician", tier: 3,
+    // Drone platform: slow-ish transit, smallest hold (space given to the bays),
+    // neutral extraction.
+    cargoCapacity: 25, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
+    fuelCapacity: 170, engineEfficiency: 0.1, // large hull: mid-large tank, mild efficiency
+    moduleSlots: 2, equipmentSlots: 0,
+    // ⚠️ TUNABLE / LIVE (combat): the DRONE platform. Tough (second only to the
+    // battleship) but with REDUCED weapon hardpoints (design S8: carriers trade
+    // hardpoints for built-in hangar bays). Its offense is its drone screen, NOT its
+    // guns. Default loadout = 1 weapon + an Attack squadron (see COMBAT_DEFAULT_LOADOUT;
+    // the carrier's built-in bay count lives there too until the hangar-gear system).
+    hullIntegrity: 1100, shieldCapacity: 500, shieldRecharge: 7, weaponHardpoints: 2,
+    cost: { credits: 800 },
+    // Heavy BOM (a big hull), just under the battleship. ⚠️ FIRST-PASS TUNABLE.
+    buildRecipe: { components: { frameSegment: 12, powerCoupling: 10, structuralAssembly: 4 }, credits: 4800, durationTicks: 1150 },
+    description: "A drone platform. Few guns, but launches squadrons that fight for it.",
   },
 };
 

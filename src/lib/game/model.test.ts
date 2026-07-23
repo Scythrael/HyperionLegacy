@@ -887,7 +887,16 @@ describe("Selector cards, specCards / categoryCards (Task 13)", () => {
 // The three forward buckets (tactician/explorer hull families) are deliberately
 // NOT built yet and therefore intentionally NOT asserted here.
 describe("SHIP_TYPES", () => {
-  it("has the 4 real hulls with the designed stat profiles", () => {
+  // The 4 ECONOMY hulls (Ships/Stats Foundation). All tier 1 (Research raises tier
+  // later). The combat hulls are a SEPARATE class asserted below (they are tier > 1).
+  const ECONOMY_HULLS = [
+    "generalFreighter",
+    "prospectorHauler",
+    "prospectorRunner",
+    "prospectorMiner",
+  ] as const;
+
+  it("has the 4 economy hulls with the designed stat profiles", () => {
     expect(SHIP_TYPES.generalFreighter.cargoCapacity).toBe(90);
     expect(SHIP_TYPES.generalFreighter.transitSpeedMult).toBe(1.0);
     expect(SHIP_TYPES.generalFreighter.extractionYieldMult).toBe(1.0);
@@ -895,10 +904,44 @@ describe("SHIP_TYPES", () => {
     expect(SHIP_TYPES.prospectorHauler.cargoCapacity).toBe(180);
     expect(SHIP_TYPES.prospectorRunner.transitSpeedMult).toBe(1.5);
     expect(SHIP_TYPES.prospectorMiner.extractionYieldMult).toBe(1.35);
-    for (const key of Object.keys(SHIP_TYPES) as (keyof typeof SHIP_TYPES)[]) {
+    for (const key of ECONOMY_HULLS) {
       expect(SHIP_TYPES[key].tier).toBe(1);
       expect(SHIP_TYPES[key].cost?.credits).toBeGreaterThan(0);
     }
+  });
+
+  // COMBAT HULLS (Combat 0.13.0, Phase 9a, design S3 / S8 / S19). Asserts each of
+  // the three combat classes EXISTS with a valid, distinct combat-stat profile and
+  // the required non-combat fields. tier > 1 encodes combat-progression intent (the
+  // build-gate that reads tier is Phase 9b, NOT built here). These stats are now LIVE
+  // inputs to the combat sim (combat/bridge.ts), not display-only like the economy
+  // hulls' reserved fields, so guarding their shape here protects the bridge.
+  it("has the 3 combat hulls (destroyer/battleship/carrier) with live combat stats", () => {
+    const COMBAT_HULLS = ["destroyer", "battleship", "carrier"] as const;
+    for (const key of COMBAT_HULLS) {
+      const def = SHIP_TYPES[key];
+      expect(def, key).toBeDefined();
+      // Tactician combat hulls, gated above the starter tier (progression intent).
+      expect(def.spec, `${key}.spec`).toBe("tactician");
+      expect(def.tier, `${key}.tier`).toBeGreaterThan(1);
+      // Live combat stats: every one positive so a bridged combatant is well-formed.
+      expect(def.hullIntegrity, `${key}.hullIntegrity`).toBeGreaterThan(0);
+      expect(def.shieldCapacity, `${key}.shieldCapacity`).toBeGreaterThan(0);
+      expect(def.shieldRecharge, `${key}.shieldRecharge`).toBeGreaterThan(0);
+      expect(def.weaponHardpoints, `${key}.weaponHardpoints`).toBeGreaterThan(0);
+      // Required non-combat fields are still valid (minimal, but present + positive
+      // where the economy code assumes it, e.g. the fuel loop).
+      expect(def.fuelCapacity, `${key}.fuelCapacity`).toBeGreaterThan(0);
+      expect(def.engineEfficiency, `${key}.engineEfficiency`).toBeGreaterThanOrEqual(0);
+      expect(def.buildRecipe.durationTicks, `${key}.durationTicks`).toBeGreaterThan(0);
+    }
+    // The three classes express DISTINCT identities (design S3 / S8):
+    //   battleship = tankiest + most hardpoints; destroyer = fastest; carrier = fewest
+    //   hardpoints (traded for drone bays, its offense is the screen).
+    expect(SHIP_TYPES.battleship.hullIntegrity).toBeGreaterThan(SHIP_TYPES.destroyer.hullIntegrity);
+    expect(SHIP_TYPES.battleship.weaponHardpoints).toBeGreaterThan(SHIP_TYPES.destroyer.weaponHardpoints);
+    expect(SHIP_TYPES.destroyer.transitSpeedMult).toBeGreaterThan(SHIP_TYPES.battleship.transitSpeedMult);
+    expect(SHIP_TYPES.carrier.weaponHardpoints).toBeLessThan(SHIP_TYPES.destroyer.weaponHardpoints);
   });
 });
 
