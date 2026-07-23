@@ -141,10 +141,44 @@ export interface DroneSquadron {
 	// distance to the target gates the whole squadron.
 	range: number;
 	// The squadron's EVASION as an integer percent (design S8). Used when the
-	// squadron is TARGETED (Phase 7b defensive interactions), NOT for its own
-	// offense. Modeled now so the shape is complete; consulted in 7b. Attack/support
-	// are nimble (high), defense is a low-evade blocker.
+	// squadron is TARGETED (Phase 7b "Squadron is targeted" row): a drone that is
+	// being hunted rolls this to dodge. NOT its own offense. Attack/support are
+	// nimble (high), defense is a low-evade blocker (it deflects instead, below).
 	evasion: number;
+
+	// -- PHASE 7b DEFENSIVE FIELDS (design S8 interaction matrix). Additive on top of
+	// the 7a offense model; every one defaults to a role-appropriate value from the
+	// template so a squadron built by makeSquadron is complete. A drone-less
+	// combatant never consults these (the parity guard). --
+	//
+	// interceptChance: the integer-percent COMBAT-stream chance a drone STOPS an
+	// incoming projectile when it engages the intercept (design S8 "Carrier is
+	// targeted"). Semantics differ by role:
+	//   - defense: DEFLECT chance, deliberately HIGHER than its own self-evasion
+	//     (it is guarding, not counterattacking): a successful deflect blocks the
+	//     shot (and, particle-only, may reflect it, see reflectChance).
+	//   - attack:  the risky guarding EVADE, deliberately LOWER than its own
+	//     self-evasion; on success the drone dodges AND lands a solid counterattack.
+	//   - support: 0 (a pure meat-shield never evades when guarding the carrier).
+	interceptChance: number;
+	// reflectChance: given a DEFENSE drone deflected a PARTICLE shot, the integer-
+	// percent COMBAT-stream chance it REFLECTS the shot back rather than merely
+	// blocking it (design S8: reflect is PARTICLE-ONLY). 0 for non-defense roles.
+	reflectChance: number;
+	// smartReflect: a CARRIER-EXCLUSIVE flag (design S8) that retargets a reflected
+	// shot to a PRIORITY enemy (a weaker/Support foe) instead of the attacker.
+	// Default false; the module/hull that grants it is Phase 9. Inert when off.
+	smartReflect: boolean;
+	// supportHullRepair: hull points a SUPPORT squadron repairs on the owner PER
+	// SUPPORT PULSE, PER ALIVE DRONE (design S8 Mode 3 "small hull repair per tick").
+	// 0 for attack/defense. No combat draw (deterministic heal).
+	supportHullRepair: number;
+	// droneReplenishRate: refab/repair PROGRESS UNITS per SECOND this squadron
+	// recovers (design S8: "an implicit droneReplenishRate rebuilds destroyed drones
+	// only out of combat"). Phase 9 passes this to replenishDrones between waves; the
+	// in-combat replenish module (Combatant.inCombatReplenishPercent) uses x% of it
+	// DURING battle. FIRST-PASS + TUNABLE.
+	droneReplenishRate: number;
 
 	// Time between volleys, in deci-seconds (integer fixed-point). Attack fires
 	// FAST (short cooldown), defense/support fire SLOW.
@@ -217,6 +251,11 @@ interface RoleTemplate {
 	range: number;
 	evasion: number;
 	attackCooldownDeciSec: number;
+	// -- Phase 7b defensive fields (see DroneSquadron for full docs). --
+	interceptChance: number;
+	reflectChance: number;
+	supportHullRepair: number;
+	droneReplenishRate: number;
 }
 
 // Per-role templates expressing the S8 "Squadron attacks" row:
@@ -233,8 +272,15 @@ const ROLE_TEMPLATE: Record<DroneRole, RoleTemplate> = {
 		yieldMin: 4,
 		yieldMax: 6,
 		range: BAND_SHORT, // "zoom in" and strike at close reach
-		evasion: 40, // nimble: hard to swat (used when targeted, 7b)
+		evasion: 40, // nimble: hard to swat when the squadron is TARGETED (7b)
 		attackCooldownDeciSec: 5, // fast: a volley every 0.5s
+		// GUARDING intercept is LOWER than its self-evasion (40): attack drones do
+		// not normally guard, so guarding is a RISKY dodge (design S8). On success it
+		// dodges the shot AND lands a solid counterattack (yieldMin..yieldMax).
+		interceptChance: 25,
+		reflectChance: 0, // attack drones never reflect (that is defense's kit)
+		supportHullRepair: 0,
+		droneReplenishRate: 20,
 	},
 	defense: {
 		droneHp: 30,
@@ -243,21 +289,34 @@ const ROLE_TEMPLATE: Record<DroneRole, RoleTemplate> = {
 		yieldMin: 1,
 		yieldMax: 2,
 		range: BAND_LONG, // long-range picket by the carrier
-		evasion: 15, // low-evade blocker (absorbs/blocks in 7b)
+		evasion: 15, // low-evade when TARGETED (it blocks/deflects instead)
 		attackCooldownDeciSec: 15, // slow: a volley every 1.5s
+		// GUARDING deflect is HIGHER than its self-evasion (15): a defense drone is
+		// built to intercept (design S8 "HIGHER deflect than self-defense").
+		interceptChance: 60,
+		// On a successful deflect of a PARTICLE shot, half the time it reflects.
+		reflectChance: 50,
+		supportHullRepair: 0,
+		droneReplenishRate: 15,
 	},
 	support: {
 		droneHp: 15,
 		family: "kinetic",
 		accuracy: 70,
-		// NO offense in 7a: support's real kit is utility (repair/cleanse), built in
-		// 7b. yield 0 makes the sim skip its volley entirely (zero combat draws).
-		// TODO(Phase 7b): support repair-per-tick + disruption cleanse (half per rank).
+		// NO offense: support's real kit is utility (repair/cleanse), wired into the
+		// tick loop in 7b. yield 0 makes the sim skip its volley entirely (zero combat
+		// draws) and route it to the SUPPORT PULSE instead.
 		yieldMin: 0,
 		yieldMax: 0,
 		range: BAND_LONG,
-		evasion: 40, // evades like attack (design S8 "evade like Attack")
-		attackCooldownDeciSec: 20, // slowest
+		evasion: 40, // evades like attack WHEN TARGETED (design S8 "evade like Attack")
+		attackCooldownDeciSec: 20, // slowest: the support-pulse cadence
+		// Support never deflects; guarding the carrier it is a PURE MEAT-SHIELD (0).
+		interceptChance: 0,
+		reflectChance: 0,
+		// Heals the owner 1 hull per alive drone per support pulse (design S8 Mode 3).
+		supportHullRepair: 1,
+		droneReplenishRate: 25,
 	},
 };
 
@@ -327,6 +386,14 @@ export function makeSquadron(
 		evasion: template.evasion,
 		attackCooldownDeciSec: template.attackCooldownDeciSec,
 		cooldownAccumulator: 0,
+		// Phase 7b defensive fields (from the role template). smartReflect is a
+		// carrier-exclusive upgrade the factory leaves OFF by default; Phase 9 flips
+		// it on for a carrier hull / module.
+		interceptChance: template.interceptChance,
+		reflectChance: template.reflectChance,
+		smartReflect: false,
+		supportHullRepair: template.supportHullRepair,
+		droneReplenishRate: template.droneReplenishRate,
 	};
 }
 

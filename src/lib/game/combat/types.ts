@@ -158,6 +158,18 @@ export interface CombatWeapon {
 	// v1 weapon is eligible. The normal firing loop ignores this field entirely; it
 	// gates ONLY the opener salvo (see resolveBattle's ambush path). true = eligible.
 	ambushEligible: boolean;
+
+	// ANTI-DRONE (design S8 / Phase 7b). When true, this weapon aims at the target's
+	// DRONE SCREEN directly (the "Squadron is targeted" matrix row): its projectiles
+	// are contested by the screen under the squadron-targeted rules (evade for
+	// attack/support, deflect for defense) instead of the carrier-guard rules, and a
+	// projectile that engages a drone deals NOTHING to the carrier. Point-Defense /
+	// EMP set this in Phase 9 content; every other weapon leaves it falsy and hits
+	// the carrier normally (with the screen guarding). OPTIONAL so existing weapon
+	// fixtures (which never set it) stay byte-identical: undefined reads as false.
+	// TODO(Phase 9): a targeting rule may also route a normal shot at a squadron; for
+	// now the flag is the single, explicit way a shot targets the drones directly.
+	antiDrone?: boolean;
 }
 
 // One participant in the battle: a ship (yours or an enemy).
@@ -295,6 +307,17 @@ export interface Combatant {
 	// (no detection roll drawn). The roll is on the combat stream, so it is
 	// deterministic + offline == live. Default 0.
 	particleTraceDetector: number;
+
+	// IN-COMBAT DRONE REPLENISH (design S8 / Phase 7b). The integer percent (0..100)
+	// of a squadron's droneReplenishRate that rebuilds destroyed / repairs disrupted
+	// drones DURING battle (design S8: "a module unlocks x% of that rate during
+	// combat for a sticky-screen build"). 0 (or undefined) = drones only recover
+	// OUT of combat (between waves, Phase 9), which keeps a combatant with no such
+	// module byte-identical (the in-combat replenish block is fully gated on > 0, so
+	// it never touches the combat stream or drone state at the default). The MODULE
+	// that grants this is Phase 9; here it is the inert-by-default field the loop
+	// reads. OPTIONAL so existing combatant fixtures are unchanged.
+	inCombatReplenishPercent?: number;
 }
 
 // One structured record in the combat log.
