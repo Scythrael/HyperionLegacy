@@ -5,6 +5,7 @@ import {
   tickCaptainMission,
   dispatchCaptainOnMission,
   recallCaptain,
+  renameCaptain,
   assignShipToCaptain,
   buyCaptainTalent,
   buyHomeworldTalent,
@@ -1993,6 +1994,59 @@ describe("recallCaptain", () => {
     const { next, success } = recallCaptain(state, 999);
     expect(success).toBe(false);
     expect(next).toBe(state);
+  });
+});
+
+describe("renameCaptain", () => {
+  it("sets label to the validated (trimmed) name on the captain with the matching id", () => {
+    const state = freshState(); // captains[0] is id 1, label "Captain 1"
+    const { next, success, reason } = renameCaptain(state, 1, "  Ravenscar  ");
+    expect(success).toBe(true);
+    expect(reason).toBeUndefined();
+    expect(next.captains[0].label).toBe("Ravenscar"); // trimmed, stored
+    expect(next).not.toBe(state); // new state on success
+  });
+
+  it("touches ONLY the target captain, leaving others untouched (id match, not index)", () => {
+    const state = freshState();
+    // Add a second captain so we can prove non-target captains are preserved.
+    state.captains.push({ ...state.captains[0], id: 2, label: "Captain 2" });
+
+    const { next, success } = renameCaptain(state, 2, "Halsey");
+    expect(success).toBe(true);
+    expect(next.captains[0].label).toBe("Captain 1"); // untouched
+    expect(next.captains[1].label).toBe("Halsey"); // renamed
+  });
+
+  it("is immutable, it does not mutate the incoming state's captain", () => {
+    const state = freshState();
+    renameCaptain(state, 1, "Drake");
+    expect(state.captains[0].label).toBe("Captain 1"); // original object unchanged
+  });
+
+  it("rejects an invalid name (same state reference, unchanged) and surfaces the reason", () => {
+    const state = freshState();
+    const { next, success, reason } = renameCaptain(state, 1, "na@me");
+    expect(success).toBe(false);
+    expect(reason).toBe("charset");
+    expect(next).toBe(state); // same reference, untouched
+    expect(next.captains[0].label).toBe("Captain 1");
+  });
+
+  it("rejects an empty name with the empty reason (same state reference)", () => {
+    const state = freshState();
+    const { next, success, reason } = renameCaptain(state, 1, "   ");
+    expect(success).toBe(false);
+    expect(reason).toBe("empty");
+    expect(next).toBe(state);
+  });
+
+  it("fails with reason 'notFound' for a non-existent id, rather than throwing", () => {
+    const state = freshState();
+    const { next, success, reason } = renameCaptain(state, 999, "Ghost");
+    expect(success).toBe(false);
+    expect(reason).toBe("notFound");
+    expect(next).toBe(state); // same reference, untouched
   });
 });
 

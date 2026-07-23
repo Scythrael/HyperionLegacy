@@ -118,6 +118,11 @@ import { lineInputsPerIteration, freeItem, freeItemForState, type CraftLine, typ
 // Quality-bucketed inventory helpers (Equipment 0.11.0, Task 9a): every inventory
 // read/write routes through these so the economy is identical to the old scalar shape.
 import { itemTotal, addItemQuality, removeItemLowestFirst } from "./inventory";
+// Captain custom-name validation seam (Combat 0.13.0, Task 1.4): renameCaptain
+// runs every proposed name through this single client-side chokepoint before it
+// touches state. See captainName.ts for the (deliberately minimal, bypassable)
+// scope; server-side moderation in 0.14.0 plugs into the same signature.
+import { validateCaptainName } from "./captainName";
 
 // Must stay in sync with MissionPhase and requiredTicksForPhase's switch --
 // there's no compiler link between this array and the union type, so a 6th
@@ -2175,6 +2180,49 @@ export function recallCaptain(state: GameState, captainId: number): { next: Game
 
   const captains = [...state.captains];
   captains[idx] = { ...captains[idx], mission: { ...captains[idx].mission!, recalled: true } };
+  return { next: { ...state, captains }, success: true };
+}
+
+// Renames a captain: sets CaptainState.label (the editable DISPLAY name, default
+// "Captain N") to a player-supplied string, AFTER routing it through the single
+// validateCaptainName chokepoint (captainName.ts). This is the only supported
+// way to change a captain's label, so the courtesy validation cannot be skipped
+// by the UI, and when server-side moderation lands (0.14.0) it slots in behind
+// the same seam without touching this call site.
+//
+// Return shape matches the local action-function convention (recallCaptain /
+// assignShipToCaptain above): { next, success, reason? }, and it follows the
+// SAME "same state reference on failure" rule so callers can cheaply detect a
+// no-op with `next === state`. The `reason` field is present only on failure and
+// carries either "notFound" (no captain with that id, treated as a FAILURE, not
+// a silent success, mirroring recallCaptain's unknown-id handling) or the exact
+// validation reason forwarded from validateCaptainName (empty | tooLong |
+// charset | profanity), so the UI can show a specific message.
+//
+// Pure + immutable: on success it spreads a NEW captains array with ONLY the
+// matching captain replaced (matched by id, never by index, so a reordered or
+// sparse roster still hits the right captain); every other captain object is
+// carried by reference, untouched. It never throws on a bad id.
+export function renameCaptain(
+  state: GameState,
+  captainId: number,
+  rawName: string,
+): { next: GameState; success: boolean; reason?: "notFound" | "empty" | "tooLong" | "charset" | "profanity" } {
+  // Locate the target by STABLE id (Task 1.1 monotonic counter), not array
+  // position. Unknown id is a failure no-op (same state reference), matching
+  // recallCaptain rather than throwing.
+  const idx = state.captains.findIndex((c) => c.id === captainId);
+  if (idx === -1) return { next: state, success: false, reason: "notFound" };
+
+  // Courtesy validation chokepoint. On rejection, return the state UNCHANGED
+  // (same reference) and forward the specific reason for the UI to surface.
+  const result = validateCaptainName(rawName);
+  if (!result.ok) return { next: state, success: false, reason: result.reason };
+
+  // Valid: replace ONLY the target captain's label with the cleaned (trimmed)
+  // value. Immutable spread, no mutation of the incoming state or its captains.
+  const captains = [...state.captains];
+  captains[idx] = { ...captains[idx], label: result.value };
   return { next: { ...state, captains }, success: true };
 }
 
