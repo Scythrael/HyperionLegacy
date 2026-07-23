@@ -1,6 +1,6 @@
 // ============================================================================
 // combat/drones.ts -- the drone sub-system data model + squadron factory
-// (Combat 0.13.0, Phase 7a: model + OFFENSE only)
+// (Combat 0.13.0, Phase 7a model/offense + Phase 7b defensive fields)
 //
 // WHY ITS OWN MODULE (design S8). Drones are a whole offense/defense/utility
 // sub-system: a ship's hangar bays each hold one Drone Squadron Pod (one
@@ -11,14 +11,19 @@
 // from the sim loop, means the balance pass tunes ONE data board (Omega 9:
 // rule-based, readable without the sim) and the sim just reads these fields.
 //
-// SCOPE OF THIS FILE RIGHT NOW (Phase 7a): the DATA MODEL (Drone / DroneSquadron
-// / DronePod), the makeSquadron/makeDronePod factories, and the read-only
-// squadronStatusSummary helper. The OFFENSE (how a squadron fires each tick)
-// lives in resolveBattle.ts's tick loop, which reads these shapes. Everything
-// DEFENSIVE (evade/deflect/reflect/smart-reflect when a squadron or the carrier
-// is targeted), plus REPLENISHMENT of destroyed drones and the CARRIER hull
-// class, is Phase 7b: the fields those need (evasion, per-drone status +
-// progress) are modeled here now, but their TRANSITIONS are TODO(Phase 7b).
+// SCOPE OF THIS FILE: the DATA MODEL (Drone / DroneSquadron / DronePod), the
+// makeSquadron/makeDronePod factories, and the read-only squadronStatusSummary
+// helper. Every field a squadron needs lives here (offense stats AND the Phase 7b
+// defensive stats: interceptChance / reflectChance / smartReflect /
+// supportHullRepair / droneReplenishRate). The BEHAVIOR that reads them is split
+// across two sim files: OFFENSE (fireSquadron) + the SUPPORT PULSE + IN-COMBAT
+// REPLENISH live in resolveBattle.ts's tick loop, and the DEFENSIVE interactions
+// (deflect/reflect/meat-shield when a shot targets a drone-carrier) run through
+// resolveBattle.fireWeapon using the PURE helpers in droneDefense.ts (absorb,
+// reflect-target pick, replenishDrones, supportCleanse). The per-drone status
+// TRANSITIONS (destroyed -> refabricating -> online, disrupted -> online) are
+// driven by absorbWithDrone + replenishDrones. The CARRIER hull class + hangar
+// equipment + between-wave replenishment CALL remain Phase 9 seams.
 //
 // UNITS (mirroring types.ts): every time value is INTEGER DECI-SECONDS (10 =
 // 1.0s); HP / damage / accuracy-percent / evasion-percent are bounded integers.
