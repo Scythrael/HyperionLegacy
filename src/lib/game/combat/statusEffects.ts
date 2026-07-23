@@ -1,5 +1,5 @@
 // ============================================================================
-// combat/statusEffects.ts -- the unified status-effect system (Combat 0.13.0,
+// combat/statusEffects.ts: the unified status-effect system (Combat 0.13.0,
 // Phase 4: DoTs + system disruptions + buffs, with ranks)
 //
 // ONE engine, three flavors of timed effect (design S4). A combatant carries a
@@ -212,7 +212,7 @@ function debuffDef(
 }
 
 export const DISRUPTIONS: Record<string, StatusEffectDef> = {
-	// -- Sensors -------------------------------------------------------------
+	// Sensors -------------------------------------------------------------
 	scatteringField: debuffDef(
 		"scatteringField",
 		"sensors",
@@ -231,7 +231,7 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		"Sensor arrays brown out; the horizon closes in.",
 		"#4fc3f7",
 	),
-	// -- Engines -------------------------------------------------------------
+	// Engines -------------------------------------------------------------
 	manifoldOverheat: debuffDef(
 		"manifoldOverheat",
 		"engines",
@@ -250,7 +250,7 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		"Coolant venting forces the drives into a limp.",
 		"#ff8a65",
 	),
-	// -- Shields -------------------------------------------------------------
+	// Shields -------------------------------------------------------------
 	emitterOverload: debuffDef(
 		"emitterOverload",
 		"shields",
@@ -278,7 +278,7 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		"Shield capacitors falter; the screen refuses to rebuild.",
 		"#ba68c8",
 	),
-	// -- Weapons -------------------------------------------------------------
+	// Weapons -------------------------------------------------------------
 	// (Weapons -damage; design S4 left the name pending Power Sag / Emitter
 	// Fatigue / Coil Dampening. We pick Coil Dampening. TODO(balance): rename if
 	// the final flavor pass prefers another.)
@@ -309,7 +309,7 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		"Fire-control drifts off-boresight; rounds sail wide.",
 		"#e57373",
 	),
-	// -- Drones --------------------------------------------------------------
+	// Drones --------------------------------------------------------------
 	inhibit: debuffDef(
 		"inhibit",
 		"drones",
@@ -319,7 +319,7 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		"Squadron comms jam; drones hesitate between passes.",
 		"#aed581",
 	),
-	// -- DoT -----------------------------------------------------------------
+	// DoT -----------------------------------------------------------------
 	plasmaFire: {
 		id: "plasmaFire",
 		kind: "dot",
