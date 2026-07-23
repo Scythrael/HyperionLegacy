@@ -42,6 +42,12 @@ import type {
 } from "./types";
 import { lastTeamStanding } from "./types";
 import { makeStreams, type Rng } from "./rng";
+import {
+	applyEffect,
+	tickEffects,
+	activeStatDelta,
+	applyPercentDelta,
+} from "./statusEffects";
 
 // One simulation step is 1 deci-second. Named so the "0.1s" intent is explicit
 // wherever we advance a clock or a cooldown, and so it is a single knob if the
@@ -222,7 +228,13 @@ function advanceMovement(
 function advanceShieldRegen(self: Combatant, acc: Accumulators): void {
 	if (!self.alive) return;
 	if (self.shield >= self.shieldMax) return;
-	acc.shield += self.shieldRecharge * DT_DECISEC;
+	// PHASE 4 DEBUFF (applied): Capacitor Failure reduces shieldRecharge. Scale the
+	// per-second recharge by the combatant's active shieldRecharge delta (a summed
+	// negative percent) before banking it. Pure integer scaling of an
+	// already-integer rate: no combat draw, so parity (offline == live) is intact.
+	const rechargeDelta = activeStatDelta(self.statusEffects, "shieldRecharge");
+	const effectiveRecharge = applyPercentDelta(self.shieldRecharge, rechargeDelta);
+	acc.shield += effectiveRecharge * DT_DECISEC;
 	const wholePoints = Math.floor(acc.shield / TENTHS_PER_SECOND);
 	if (wholePoints <= 0) return;
 	acc.shield -= wholePoints * TENTHS_PER_SECOND;
@@ -247,6 +259,11 @@ interface ShotResult {
 	shieldAfter: number;
 	hullAfter: number;
 	killed: boolean;
+	// Phase 4: which effect-slot disruptions/DoTs this shot LANDED on the target
+	// (empty if the weapon has no slots or none proc'd). Collected always (cheap)
+	// so the OPTIONAL "effectApplied" log events are built from real data without
+	// re-deriving; the effect application itself already happened in fireWeapon.
+	appliedEffects: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -367,19 +384,35 @@ export function applyProjectileDamage(
 //
 // ⚠️ CRITICAL FOR PARITY: every combat-stream draw happens HERE, on a schedule
 // that does NOT depend on generateLog (a miss draws only its hit roll; a hit
-// draws hit + crit + damage). Logging/flavor never adds or removes a combat
-// draw, so the outcome is byte-identical live vs offline. Effect-slot procs
-// (design S2.6) are the Phase 4 seam, marked below.
+// draws hit + crit + damage; a CONNECTING shot then draws one proc roll per
+// effect slot, plus an escalation roll when a proc lands on an existing effect).
+// Logging/flavor never adds or removes a combat draw, so the outcome is
+// byte-identical live vs offline.
+//
+// PHASE 4 DEBUFFS applied here (all read the ATTACKER's OWN active effects, so no
+// state is threaded into the pure applyProjectileDamage function and its exact-
+// integer tests stay intact): Scattering Field / Targeting Drift reduce the
+// attacker's outgoing accuracy; Coil Dampening reduces its outgoing raw damage.
+// Both are deterministic post-draw scalings, so they never shift the draw count.
 // ---------------------------------------------------------------------------
 function fireWeapon(
+	self: Combatant,
 	target: Combatant,
 	weapon: CombatWeapon,
 	combat: Rng,
 ): ShotResult {
-	// Per-projectile hit chance: accuracy reduced by the target's evasion, clamped
-	// to a valid percent. No minimum floor, so a 0 net chance is a guaranteed
-	// miss (the evade tests rely on this) and a >= 100 net chance is a sure hit.
-	const hitChance = Math.max(0, Math.min(100, weapon.accuracy - target.evasion));
+	// PHASE 4 DEBUFF (applied): the attacker's accuracy debuffs (Scattering Field,
+	// Targeting Drift) scale weapon accuracy DOWN before the evasion subtraction.
+	const accuracyDelta = activeStatDelta(self.statusEffects, "accuracy");
+	const effectiveAccuracy = applyPercentDelta(weapon.accuracy, accuracyDelta);
+	// Per-projectile hit chance: (debuffed) accuracy reduced by the target's
+	// evasion, clamped to a valid percent. No minimum floor, so a 0 net chance is a
+	// guaranteed miss (the evade tests rely on this) and >= 100 is a sure hit.
+	const hitChance = Math.max(0, Math.min(100, effectiveAccuracy - target.evasion));
+
+	// PHASE 4 DEBUFF (applied): the attacker's weapon-damage debuff (Coil
+	// Dampening) scales every projectile's raw damage DOWN. Computed once per shot.
+	const weaponDamageDelta = activeStatDelta(self.statusEffects, "weaponDamage");
 
 	let projectilesHit = 0;
 	let totalDealt = 0;
@@ -399,10 +432,15 @@ function fireWeapon(
 		const crit = combat.chance(CRIT_CHANCE_NUM, CRIT_CHANCE_DEN);
 		if (crit) anyCrit = true;
 
-		// STEP 4: raw damage in [yieldMin, yieldMax] (one combat draw), * crit.
+		// STEP 4: raw damage in [yieldMin, yieldMax] (one combat draw), * crit, then
+		// scaled by the attacker's Coil Dampening weapon-damage debuff (deterministic
+		// post-draw scaling; does not change the draw count).
 		let raw = combat.nextRange(weapon.yieldMin, weapon.yieldMax);
 		if (crit) {
 			raw = Math.floor((raw * CRIT_MULT_NUM) / CRIT_MULT_DEN);
+		}
+		if (weaponDamageDelta !== 0) {
+			raw = applyPercentDelta(raw, weaponDamageDelta);
 		}
 
 		// STEP 5: mitigation. Applies triangle + attenuation + shields + armor +
@@ -418,12 +456,31 @@ function fireWeapon(
 		);
 		totalDealt += dealt;
 		if (attenuated) anyAttenuated = true;
+	}
 
-		// PHASE 4 SEAM: roll this weapon's effectSlots (disruptions/DoTs) on hit
-		// here, off the combat stream, with rank escalation (design S2.6). Left
-		// empty on purpose; weapon.effectSlots is [] in Phase 3 so no draw happens
-		// and the parity draw schedule is unaffected until Phase 4 fills it.
-		// for (const slot of weapon.effectSlots) { /* Phase 4 */ }
+	// PHASE 4 (design S2.6): on a CONNECTING shot, roll each effect slot's proc off
+	// the combat stream; on success apply it to the target with rank escalation.
+	// Rolled ONCE per shot (design says "on hit"), AFTER the projectile loop, so a
+	// multi-projectile weapon does not multiply its proc odds. Weapons with no
+	// slots (effectSlots []) draw nothing here, which is exactly why the flagship
+	// parity fixtures (all empty-slot) keep an identical draw schedule. The draw
+	// order is fixed and independent of generateLog.
+	const appliedEffects: string[] = [];
+	if (projectilesHit > 0) {
+		for (const slot of weapon.effectSlots) {
+			// One proc roll per slot, always (whether or not it lands).
+			if (!combat.chance(slot.procChance, 100)) continue;
+			// It landed: apply (add rank 1, or refresh + roll escalation if the target
+			// already has it). applyEffect draws the escalation roll from the SAME
+			// combat stream, only when refreshing an un-capped effect.
+			target.statusEffects = applyEffect(
+				target.statusEffects,
+				slot.defId,
+				slot.escalationChance,
+				combat,
+			);
+			appliedEffects.push(slot.defId);
+		}
 	}
 
 	// Death bookkeeping: hull at or below 0 means destroyed. Single source of
@@ -443,6 +500,7 @@ function fireWeapon(
 		shieldAfter: target.shield,
 		hullAfter: target.hull,
 		killed,
+		appliedEffects,
 	};
 }
 
@@ -513,6 +571,46 @@ export function resolveBattle(
 	// leaves it an empty array (and pays for none of the pushes/flavor draws).
 	const log: CombatEvent[] = [];
 
+	// PHASE 4 DoT LOG AGGREGATION (design S4 / S16). DoT damage lands EVERY tick
+	// (in the Phase D loop below), but the LOG must show ONE aggregated line per
+	// DoT per ROUND ("Plasma Fire II sears the hull for Z this round"). We bank a
+	// round's per-(combatant, defId) DoT damage here and FLUSH it to one event per
+	// entry when the round rolls over, plus once more at battle end. This is LOG
+	// ONLY: the damage itself is applied unconditionally, so offline (which never
+	// touches this map) loses byte-identical hull.
+	interface DotRoundEntry {
+		combatantId: string;
+		defId: string;
+		damage: number; // summed hull damage this round
+		rank: number; // rank at the latest tick (for the "Plasma Fire II" flavor)
+		hullAfter: number; // target hull after the latest DoT tick this round
+	}
+	const dotRoundAccum = new Map<string, DotRoundEntry>();
+	// The round the accumulator currently holds (flushed when the tick's round
+	// advances past it). Starts at 0 (the round of ticks 1..9).
+	let dotAccumRound = 0;
+	// Emit one "dot" event per accumulated entry for a completed round, then clear.
+	// Only ever called under generateLog.
+	const flushDotRound = (roundToFlush: number): void => {
+		for (const entry of dotRoundAccum.values()) {
+			log.push({
+				// Stamp the event at the END of the round it summarizes.
+				tDeciSec: roundToFlush * TENTHS_PER_SECOND + TENTHS_PER_SECOND,
+				round: roundToFlush,
+				type: "dot",
+				// A DoT has no single actor (the burn outlives the shot that lit it);
+				// only the afflicted target is recorded.
+				targetId: entry.combatantId,
+				result: "dot",
+				damage: entry.damage,
+				hullAfter: entry.hullAfter,
+				effectDefId: entry.defId,
+				effectRank: entry.rank,
+			});
+		}
+		dotRoundAccum.clear();
+	};
+
 	// Decided-outcome holder. Set the moment the objective resolves; the loop
 	// breaks and we package the outcome after.
 	let decided: "player" | "enemy" | "draw" | null = null;
@@ -522,12 +620,20 @@ export function resolveBattle(
 
 	// -------------------------------------------------------------------------
 	// MAIN FIXED-TIMESTEP LOOP. One iteration = one 0.1s tick. Ordered phases per
-	// tick (design S1): movement -> weapons -> (status effects, Phase 4) ->
-	// deaths -> objective. Bounded by MAX_TICKS so it always terminates.
+	// tick (design S1): movement -> weapons (+ effect procs) -> status effects
+	// (DoT/disruption ticks) -> deaths -> objective. Bounded by MAX_TICKS so it
+	// always terminates.
 	// -------------------------------------------------------------------------
 	for (t = 1; t <= MAX_TICKS; t++) {
 		// The 1-second narration bucket for events created this tick.
 		const round = Math.floor(t / TENTHS_PER_SECOND);
+
+		// PHASE 4: the round rolled over, so flush the PREVIOUS round's aggregated
+		// DoT damage to one log line per DoT (design S4). Log-only; offline skips it.
+		if (generateLog && round !== dotAccumRound) {
+			flushDotRound(dotAccumRound);
+			dotAccumRound = round;
+		}
 
 		// Iterate combatants in the fixed id order. A combatant that died earlier
 		// this same tick is skipped (alive flag), so a killed ship cannot fire
@@ -570,8 +676,10 @@ export function resolveBattle(
 				weapon.cooldownAccumulator -= weapon.cooldownDeciSec;
 
 				// REAL shot pipeline. Every combat-stream draw happens inside, on a
-				// schedule independent of generateLog (parity invariant).
-				const shot = fireWeapon(target, weapon, combat);
+				// schedule independent of generateLog (parity invariant). Passes `self`
+				// so the pipeline can read the ATTACKER's active accuracy / weapon-damage
+				// debuffs (Phase 4). Effect procs against the target also happen inside.
+				const shot = fireWeapon(self, target, weapon, combat);
 
 				// LOG + COSMETIC work is gated on generateLog ONLY. None of this can
 				// change the outcome: fireWeapon already did all its combat draws.
@@ -600,6 +708,26 @@ export function resolveBattle(
 						attenuated: shot.attenuated,
 						projectilesHit: shot.projectilesHit,
 					});
+					// PHASE 4: log one "effectApplied" event per disruption/DoT this
+					// shot landed (design S4: log an effect-applied event under
+					// generateLog only). The effect was already applied inside
+					// fireWeapon; here we only narrate it, reading the target's CURRENT
+					// rank so an escalation reads "II" / "III".
+					for (const defId of shot.appliedEffects) {
+						const inst = target.statusEffects.find((e) => e.defId === defId);
+						log.push({
+							tDeciSec: t,
+							round,
+							type: "effectApplied",
+							actorId: self.id,
+							targetId: target.id,
+							result: "effectApplied",
+							shieldAfter: shot.shieldAfter,
+							hullAfter: shot.hullAfter,
+							effectDefId: defId,
+							effectRank: inst?.rank ?? 1,
+						});
+					}
 					if (shot.killed) {
 						log.push({
 							tDeciSec: t,
@@ -614,11 +742,53 @@ export function resolveBattle(
 					}
 				}
 			}
+		}
 
-			// PHASE D (Phase 4 seam): tick status effects here. Empty in the
-			// skeleton; the reserved self.statusEffects array is intentionally not
-			// iterated yet. Left as a comment so the ordering slot is reserved.
-			// for (const effect of self.statusEffects) { /* Phase 4 */ }
+		// PHASE D: status effects (design S4). Tick EVERY living combatant's
+		// DoTs / disruptions once this tick, INDEPENDENT of whether it had a
+		// target to act on above (a ship burns even after its last enemy dies).
+		// DoT hull damage is outcome-affecting, so this runs unconditionally;
+		// tickEffects makes NO combat-stream draw in v1 (flat DoT), so the parity
+		// invariant holds. Only the per-round LOG aggregation is gated below.
+		for (const self of combatants) {
+			if (!self.alive) continue;
+			const { dotDamageByDef, killed } = tickEffects(self, DT_DECISEC, combat);
+			if (!generateLog) continue;
+			// Accumulate this tick's DoT damage into the current round's bucket, one
+			// entry per (combatant, defId), for the aggregated round line.
+			for (const [defId, dmg] of dotDamageByDef) {
+				const key = `${self.id}:${defId}`;
+				// After ticking, the effect may have EXPIRED and been removed; fall
+				// back to the entry's last-known rank (or 1) so the flavor still reads.
+				const liveRank = self.statusEffects.find((e) => e.defId === defId)?.rank;
+				const existing = dotRoundAccum.get(key);
+				if (existing) {
+					existing.damage += dmg;
+					existing.hullAfter = self.hull;
+					existing.rank = liveRank ?? existing.rank;
+				} else {
+					dotRoundAccum.set(key, {
+						combatantId: self.id,
+						defId,
+						damage: dmg,
+						rank: liveRank ?? 1,
+						hullAfter: self.hull,
+					});
+				}
+			}
+			// A DoT can be the killing blow; narrate it (no actor: the burn's source
+			// shot is long gone).
+			if (killed) {
+				log.push({
+					tDeciSec: t,
+					round,
+					type: "destroyed",
+					targetId: self.id,
+					result: "destroyed",
+					shieldAfter: self.shield,
+					hullAfter: self.hull,
+				});
+			}
 		}
 
 		// PHASE E: evaluate the objective after the full tick resolved. If the
@@ -627,6 +797,13 @@ export function resolveBattle(
 		if (decided !== null) {
 			break;
 		}
+	}
+
+	// PHASE 4: flush the final (in-progress) round's aggregated DoT damage, which
+	// the round-rollover flush at the loop top never reached because the battle
+	// ended mid-round. Log-only; offline never populated the accumulator.
+	if (generateLog) {
+		flushDotRound(dotAccumRound);
 	}
 
 	// -------------------------------------------------------------------------

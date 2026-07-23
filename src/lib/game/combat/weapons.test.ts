@@ -23,6 +23,7 @@ import {
 	CONCUSSION_TORPEDO,
 	POINT_DEFENSE_ARRAY,
 } from "./weapons";
+import { DISRUPTIONS } from "./statusEffects";
 import type { CombatWeapon, WeaponFamily } from "./types";
 
 const ALL = Object.values(WEAPON_DEFS);
@@ -63,9 +64,20 @@ describe("weapon roster: shape + integrity", () => {
 			expect(w.shieldAttenuation).toBeLessThanOrEqual(100);
 			expect(w.armorPen).toBeGreaterThanOrEqual(0);
 			expect(w.armorPen).toBeLessThanOrEqual(100);
-			// Templates start with a zeroed cooldown + empty Phase-4 effect slots.
+			// Templates start with a zeroed cooldown.
 			expect(w.cooldownAccumulator).toBe(0);
-			expect(w.effectSlots).toEqual([]);
+			// Phase 4: each weapon carries 0..2 effect slots (design S3), and every
+			// slot references a real disruption/DoT def with valid integer-percent
+			// proc + escalation chances.
+			expect(Array.isArray(w.effectSlots)).toBe(true);
+			expect(w.effectSlots.length).toBeLessThanOrEqual(2);
+			for (const slot of w.effectSlots) {
+				expect(DISRUPTIONS[slot.defId]).toBeDefined();
+				expect(slot.procChance).toBeGreaterThan(0);
+				expect(slot.procChance).toBeLessThanOrEqual(100);
+				expect(slot.escalationChance).toBeGreaterThanOrEqual(0);
+				expect(slot.escalationChance).toBeLessThanOrEqual(100);
+			}
 		}
 	});
 
@@ -146,13 +158,17 @@ describe("weapon roster: instance cloning", () => {
 	it("makeWeaponInstance returns a fresh, independent copy (no shared mutation)", () => {
 		const a = makeWeaponInstance("plasma");
 		const b = makeWeaponInstance("plasma");
-		// Mutating one instance's sim-state must not touch the other or the template.
+		// Plasma ships with one effect slot (Plasma Fire), so this also proves the
+		// effectSlots ARRAY is cloned, not shared: mutating one instance's sim-state
+		// (cooldown + slot list) must not touch the other instance or the template.
+		const templateSlots = PLASMA.effectSlots.length;
+		expect(templateSlots).toBeGreaterThan(0);
 		a.cooldownAccumulator = 55;
-		(a.effectSlots as unknown[]).push({ marker: true });
+		a.effectSlots.push({ defId: "coolantLeak", procChance: 1, escalationChance: 1 });
 		expect(b.cooldownAccumulator).toBe(0);
-		expect(b.effectSlots).toEqual([]);
+		expect(b.effectSlots.length).toBe(templateSlots); // clone unaffected
 		expect(PLASMA.cooldownAccumulator).toBe(0);
-		expect(PLASMA.effectSlots).toEqual([]);
+		expect(PLASMA.effectSlots.length).toBe(templateSlots); // template unaffected
 	});
 
 	it("makeWeaponInstance can assign a unique instance id (two of the same weapon on one ship)", () => {

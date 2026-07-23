@@ -19,16 +19,31 @@
 // until Phase 6 turns it into Long/Medium/Short bands; the nominal band anchors
 // below keep the roster's relative reach legible in the meantime.
 //
-// FORWARD HOOKS deliberately NOT on these records yet (kept off so the Phase 3
-// CombatWeapon contract stays exactly as specced; added additively later):
+// Phase 4 FILLED each weapon's effectSlots with its S3-identity disruption/DoT
+// (see per-weapon comments below); the shot pipeline rolls them on hit. Proc +
+// escalation chances are FIRST-PASS + TUNABLE; the DEF ID a weapon carries is the
+// durable identity contract.
+//
+// FORWARD HOOKS still deliberately NOT on these records (kept off so the contract
+// stays minimal; added additively later):
 //   - installCap + class gates + power draw  [Phase 5]
-//   - effectSlots CONTENT (Plasma Fire, Targeting Drift, Coolant Leak, EMP stun,
-//     sensor/engine disruptions, etc.)  [Phase 4] -- every weapon ships with an
-//     empty effectSlots today; the identity comments name the effect each will
-//     carry so Phase 4 knows where each one goes.
 // ============================================================================
 
 import type { CombatWeapon, WeaponFamily } from "./types";
+import type { WeaponEffect } from "./statusEffects";
+
+// A tiny builder for a weapon effect slot so the roster reads as intent: which
+// disruption/DoT id, its on-hit proc chance, and its base escalation chance (both
+// integer percents; escalation is scaled by current rank in applyEffect). EVERY
+// number here is FIRST-PASS + TUNABLE (design S20 owns the balance pass); the
+// DEF ID each weapon carries is the durable identity contract (design S3).
+function fx(
+	defId: string,
+	procChance: number,
+	escalationChance: number,
+): WeaponEffect {
+	return { defId, procChance, escalationChance };
+}
 
 // Nominal range-band anchors on the 1D distance axis (design S6 Long/Medium/
 // Short). Phase 6 replaces the scalar `range` with real bands; until then these
@@ -54,6 +69,10 @@ function def(
 		// Signature levers default to 0; only the owning family sets them.
 		shieldAttenuation?: number;
 		armorPen?: number;
+		// Up to 2 effect slots (design S3). Defaults to none for weapons whose
+		// identity is pure direct damage (Autocannon) or whose kit is a later
+		// phase (Point-Defense = anti-drone, Phase 8).
+		effectSlots?: WeaponEffect[];
 	},
 ): CombatWeapon {
 	return {
@@ -68,7 +87,7 @@ function def(
 		shieldAttenuation: stats.shieldAttenuation ?? 0,
 		armorPen: stats.armorPen ?? 0,
 		cooldownAccumulator: 0,
-		effectSlots: [], // Phase 4 fills these per the identity comments below
+		effectSlots: stats.effectSlots ?? [],
 	};
 }
 
@@ -79,7 +98,8 @@ function def(
 
 // Plasma: the moderate, well-rounded particle staple. Middling everything with a
 // healthy attenuation so it always chips hull through shields.
-// Phase 4 effect: strong Plasma Fire DoT (its signature burn).
+// Effect: strong Plasma Fire DoT (its signature burn), high proc + escalation so
+// Plasma reliably stacks the burn (design S3 "strong Plasma Fire DoT").
 export const PLASMA: CombatWeapon = def("plasma", "particle", {
 	yieldMin: 18,
 	yieldMax: 26,
@@ -88,11 +108,13 @@ export const PLASMA: CombatWeapon = def("plasma", "particle", {
 	projectileCount: 1,
 	range: RANGE_MEDIUM,
 	shieldAttenuation: 30, // solid bleed-through
+	effectSlots: [fx("plasmaFire", 60, 40)], // signature burn, stacks readily
 });
 
 // Graviton: a longer-reach particle emitter, slightly lower yield/rate, modest
 // attenuation. The "engine-disruptor" flavor lands in Phase 4.
-// Phase 4 effect: engine disruptions (Manifold Overheat / Coolant Leak).
+// Effect: engine disruption (Manifold Overheat, -maneuver) per its "engine-
+// disruptor" identity (design S3). Moderate proc; single-slot focus.
 export const GRAVITON: CombatWeapon = def("graviton", "particle", {
 	yieldMin: 14,
 	yieldMax: 20,
@@ -101,14 +123,18 @@ export const GRAVITON: CombatWeapon = def("graviton", "particle", {
 	projectileCount: 1,
 	range: RANGE_LONG,
 	shieldAttenuation: 25,
+	effectSlots: [fx("manifoldOverheat", 45, 30)], // engine disruptor
 });
 
 // Voltaic: the anti-shield specialist. High yield that the particle +10%-vs-
 // shields lever amplifies, but shieldAttenuation 0 by design: it CANNOT bleed
 // through shields, so once shields drop it is a poor hull weapon (particle -10%
 // vs armor with no attenuation). Pair it with a kinetic finisher.
-// Phase 4 effect: bonus shield damage + shield disruptions (Emitter Overload /
-// Capacitor Failure); chains across targets. TODO(P4): chaining mechanic.
+// Effect: the anti-shield specialist carries BOTH shield disruptions (Emitter
+// Overload = +damage taken, Capacitor Failure = -shield recharge), so it grinds
+// a screen down and keeps it down (design S3). TODO(P4/balance): the cross-target
+// CHAIN mechanic is not modeled yet (single-target sim); revisit with multi-enemy
+// targeting in Phase 6/8.
 export const VOLTAIC: CombatWeapon = def("voltaic", "particle", {
 	yieldMin: 20,
 	yieldMax: 30,
@@ -117,6 +143,7 @@ export const VOLTAIC: CombatWeapon = def("voltaic", "particle", {
 	projectileCount: 1,
 	range: RANGE_MEDIUM,
 	shieldAttenuation: 0, // deliberate: no bleed-through (weak vs hull)
+	effectSlots: [fx("capacitorFailure", 50, 35), fx("emitterOverload", 40, 30)],
 });
 
 // ---------------------------------------------------------------------------
@@ -126,7 +153,8 @@ export const VOLTAIC: CombatWeapon = def("voltaic", "particle", {
 
 // Railgun: the precision heavy hitter. High yield, high accuracy, slow rate, long
 // reach, and high armor penetration so it shreds armored hulls.
-// Phase 4 effect: Targeting Drift (-accuracy debuff on the target).
+// Effect: Targeting Drift (-accuracy debuff on the target) per its precision
+// identity (design S3). Modest proc; a heavy hitter, not a disruption platform.
 export const RAILGUN: CombatWeapon = def("railgun", "kinetic", {
 	yieldMin: 40,
 	yieldMax: 55,
@@ -135,11 +163,14 @@ export const RAILGUN: CombatWeapon = def("railgun", "kinetic", {
 	projectileCount: 1,
 	range: RANGE_LONG,
 	armorPen: 60, // ignores 60% of ablative armor + dampening
+	effectSlots: [fx("targetingDrift", 35, 25)],
 });
 
 // Autocannon: sustained short-range hull DPS. Low per-shot yield but a very fast
 // cooldown and TWO projectiles, so it is reliable chip once shields are gone;
 // modest armor-pen. The workhorse.
+// Effect: NONE by design (S3: "Autocannon can have none or a light one"). Its
+// identity is pure sustained hull DPS, not disruption; effectSlots defaults to [].
 export const AUTOCANNON: CombatWeapon = def("autocannon", "kinetic", {
 	yieldMin: 6,
 	yieldMax: 10,
@@ -153,7 +184,8 @@ export const AUTOCANNON: CombatWeapon = def("autocannon", "kinetic", {
 // Concussion Torpedo: the heavy warhead. Very high single-projectile yield, long
 // cooldown, low-mid accuracy (swingy: all-or-nothing), decent armor-pen. Barred
 // from ambush openers by design (S7), enforced later.
-// Phase 4 effect: Coolant Leak (-speed disruption).
+// Effect: Coolant Leak (-speed disruption) per design S3, a heavy warhead that
+// also cripples the target's drives. High proc (a torpedo hit is a big event).
 export const CONCUSSION_TORPEDO: CombatWeapon = def(
 	"concussionTorpedo",
 	"kinetic",
@@ -165,6 +197,7 @@ export const CONCUSSION_TORPEDO: CombatWeapon = def(
 		projectileCount: 1,
 		range: RANGE_LONG,
 		armorPen: 40,
+		effectSlots: [fx("coolantLeak", 60, 30)],
 	},
 );
 
@@ -177,6 +210,9 @@ export const CONCUSSION_TORPEDO: CombatWeapon = def(
 // Point-Defense Array: fast, accurate, many small projectiles. Mid direct damage
 // but great screen coverage; anti-drone role lands in Phase 8 (does NOT hard-
 // destroy torpedoes by design).
+// Effect: NONE in v1 (S3: "Point-Defense can have none or a light one"). Its
+// whole value is the anti-drone screen role in Phase 8, not disruptions; leaving
+// effectSlots empty keeps it a pure screen weapon until then.
 export const POINT_DEFENSE_ARRAY: CombatWeapon = def(
 	"pointDefenseArray",
 	"ew",
@@ -192,7 +228,9 @@ export const POINT_DEFENSE_ARRAY: CombatWeapon = def(
 
 // EMP Cannon: low DIRECT damage on purpose. Its value is disruptions (Phase 4)
 // and anti-drone (Phase 8), not raw yield.
-// Phase 4 effect: Weapon Jam / stun + power/system disruptions.
+// Effect: Weapon Jam (offline chance) + Capacitor Failure (a power/system
+// disruption: -shield recharge) per design S3 ("drone damage + stun + power/
+// system disruptions"). The EW disruption specialist: two high-proc slots.
 export const EMP_CANNON: CombatWeapon = def("empCannon", "ew", {
 	yieldMin: 4,
 	yieldMax: 8,
@@ -200,6 +238,7 @@ export const EMP_CANNON: CombatWeapon = def("empCannon", "ew", {
 	accuracy: 80,
 	projectileCount: 1,
 	range: RANGE_MEDIUM,
+	effectSlots: [fx("weaponJam", 55, 40), fx("capacitorFailure", 45, 35)],
 });
 
 // Tachyon Burst Emitter: the deliberate EW anti-shield EXCEPTION (design S3: it
@@ -211,7 +250,9 @@ export const EMP_CANNON: CombatWeapon = def("empCannon", "ew", {
 // 4 and, if still wanted as a raw-damage lever, a per-weapon triangle override in
 // the balance pass. Its stats below give it the best direct yield of the EW
 // family as a stand-in for that identity.
-// Phase 4 effect: sensor disruptions (Scattering Field / Sensor Power Drain).
+// Effect: Scattering Field (sensor -accuracy) per design S3 ("sensor
+// disruptions"). A single strong sensor-disruption slot; its vs-shields buff
+// identity is still parked for the balance pass (see the TODO above).
 export const TACHYON_BURST_EMITTER: CombatWeapon = def(
 	"tachyonBurstEmitter",
 	"ew",
@@ -222,6 +263,7 @@ export const TACHYON_BURST_EMITTER: CombatWeapon = def(
 		accuracy: 82,
 		projectileCount: 1,
 		range: RANGE_MEDIUM,
+		effectSlots: [fx("scatteringField", 55, 35)],
 	},
 );
 

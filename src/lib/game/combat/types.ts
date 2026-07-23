@@ -32,6 +32,13 @@ export type CombatTeam = "player" | "enemy";
 //                 support/debuff family (disruption procs land in Phase 4).
 export type WeaponFamily = "kinetic" | "particle" | "ew";
 
+// Phase 4 status-effect shapes live in statusEffects.ts (the whole disruption/
+// DoT/buff engine + registry). types.ts imports them as TYPES ONLY so the two
+// modules can reference each other's shapes (Combatant carries StatusEffect[];
+// statusEffects.ts's tickEffects reads a structural subset of Combatant) with
+// zero runtime cycle: `import type` is erased at compile time.
+import type { StatusEffect, WeaponEffect } from "./statusEffects";
+
 // A single weapon mounted on a combatant.
 //
 // This is the REAL Phase 3 weapon model (it replaced the Phase 2 flat-`yield`
@@ -89,11 +96,13 @@ export interface CombatWeapon {
 	// (keeping the remainder) so fractional fire rates never skew over time.
 	// Seeded to 0 (or a value) at battle start.
 	cooldownAccumulator: number;
-	// STUB, Phase 4 fills this with real disruption/DoT effect records that the
-	// weapon rolls on hit. Typed loosely so Phase 4 defines the element type and
-	// drops it in without reshaping CombatWeapon or the pipeline. Empty today; the
-	// shot pipeline leaves a clearly-marked seam where it will be iterated.
-	effectSlots: unknown[];
+	// The disruptions/DoTs this weapon can inflict on hit (design S3: up to 2). A
+	// weapon rolls each slot's procChance off the combat stream on a connecting
+	// shot; on success it applies the slot's effect to the target with rank
+	// escalation (design S2.6 / S4). Empty [] = a weapon that inflicts no effects
+	// (e.g. a plain Autocannon). See statusEffects.ts WeaponEffect + the shot
+	// pipeline's effect-proc seam in resolveBattle.ts.
+	effectSlots: WeaponEffect[];
 }
 
 // One participant in the battle: a ship (yours or an enemy).
@@ -167,12 +176,16 @@ export interface Combatant {
 	// single unambiguous source of truth the loop + objective read.
 	alive: boolean;
 
-	// RESERVED, EMPTY for the skeleton. Typed loosely on purpose so Phase 4
-	// (status-effect system) and Phase 8 (drones) can define their real element
-	// types and drop them in without reshaping Combatant or its consumers. They
-	// exist now so the sim loop can already have "tick effects" / "act drones"
-	// seams that simply iterate empty arrays today.
-	statusEffects: unknown[]; // TODO Phase 4: timed DoT/debuff/buff effects
+	// Active timed status effects (DoTs / disruptions / buffs) currently on this
+	// combatant (design S4). tickEffects advances them each step; effect procs
+	// from enemy weapons push onto this list. PERSISTS between battles by design
+	// (disruptions tick down over time), so the sim does NOT clear it at battle
+	// end. See statusEffects.ts.
+	statusEffects: StatusEffect[];
+	// RESERVED, EMPTY until Phase 8 (drones). Typed loosely on purpose so the
+	// drone sub-system can define its real element type and drop it in without
+	// reshaping Combatant; the sim loop already has an "act drones" seam that
+	// iterates this empty array today.
 	drones: unknown[]; // TODO Phase 8: launched drone squadrons
 }
 
@@ -227,6 +240,15 @@ export interface CombatEvent {
 	// How many of the shot's projectiles connected (0 = full evade). Lets flavor
 	// distinguish a clean volley from a grazing partial hit.
 	projectilesHit?: number;
+
+	// -- Phase 4 status-effect fields (all optional). --
+	// The disruption/DoT/buff def id this event concerns, for the flavor layer to
+	// switch on (design S16 `disruptionType?`). Set on "effectApplied" events (a
+	// weapon landed a disruption) and on "dot" events (a per-round DoT tick sum).
+	effectDefId?: string;
+	// The rank of the effect at the moment of the event (1..MAX_RANK), so flavor
+	// can read "Plasma Fire II" vs "Plasma Fire" (design S4 aggregated DoT line).
+	effectRank?: number;
 }
 
 // The full cast of a battle: BOTH teams in one flat, team-tagged list. A flat
