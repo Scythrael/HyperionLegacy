@@ -21,6 +21,7 @@ import {
   ITEMS,
   BASE_XP_PER_TICK,
   FACTIONS,
+  PATROLS,
   FUEL_CREDITS_PER_UNIT,
   rarityIndex,
   EQUIPMENT_SLOTS,
@@ -47,6 +48,7 @@ import type {
 } from "./model";
 import { fuelNeeded } from "./fuel";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
+import { PIRATE_HULLS } from "./combat/enemyHulls"; // Combat 0.13.0: PATROLS.hullPool ids are validated against this roster
 
 describe("freshState, captain roster shape", () => {
   it("starts with exactly 1 captain (Command branch is how the roster grows now)", () => {
@@ -450,6 +452,64 @@ describe("FACTIONS, lightweight pirate-faction data table (Combat 0.13.0 §S14)"
     // (mirrors BLUEPRINTS[key] / MISSIONS[key]), returning the entry or undefined.
     expect(FACTIONS.crimsonReavers?.id).toBe("crimsonReavers");
     expect(FACTIONS.notARealFaction).toBeUndefined();
+  });
+});
+
+// PATROLS (Combat 0.13.0, Phase 9b.5a, design §S14): the combat-patrol content table.
+// Pins the DATA-SHAPE contract dispatch (canDispatchPatrol / dispatchCaptainOnPatrol) +
+// the 9b.5b wave loop rely on: real faction + hull references (a typo can't silently ship),
+// well-ordered wave/enemy bands, and a wave window physically large enough to hold maxWaves
+// (the planWaveSchedule window>=count rule, asserted at the STRONGER maxWaves bound so every
+// scheduled wave fits). Keyed by record key (like MISSIONS, no id field), so there is no
+// key/id drift to guard, the KEY IS the identity.
+describe("PATROLS, combat-patrol content table (Combat 0.13.0 §S14)", () => {
+  it("ships at least one starter patrol", () => {
+    expect(Object.keys(PATROLS).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("every patrol has a non-empty label", () => {
+    for (const def of Object.values(PATROLS)) {
+      expect(def.label.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("every patrol's factionId is a real FACTIONS key", () => {
+    for (const def of Object.values(PATROLS)) {
+      expect(FACTIONS[def.factionId]).toBeDefined();
+    }
+  });
+
+  it("every patrol's hullPool is non-empty and references only real PIRATE_HULLS ids", () => {
+    for (const def of Object.values(PATROLS)) {
+      expect(def.hullPool.length).toBeGreaterThan(0);
+      for (const hullId of def.hullPool) {
+        expect(PIRATE_HULLS[hullId]).toBeDefined();
+      }
+    }
+  });
+
+  it("every patrol's wave + enemy-count bands are well-ordered (min <= max)", () => {
+    for (const def of Object.values(PATROLS)) {
+      expect(def.minWaves).toBeLessThanOrEqual(def.maxWaves);
+      expect(def.enemyCountMin).toBeLessThanOrEqual(def.enemyCountMax);
+    }
+  });
+
+  it("every patrol's roll window physically holds maxWaves (window >= count rule)", () => {
+    // rollWindowTicks IS the window length (rollEndTick - rollStartTick + 1), one wave per
+    // tick max, so it must be >= maxWaves for the schedule to fit every wave. This is the
+    // stronger form of planWaveSchedule's own window >= minWaves guard.
+    for (const def of Object.values(PATROLS)) {
+      expect(def.rollWindowTicks).toBeGreaterThanOrEqual(def.maxWaves);
+    }
+  });
+
+  it("the starter Crimson-Reaver Sweep is present with its intended shape", () => {
+    const sweep = PATROLS.crimsonReaverSweep;
+    expect(sweep).toBeDefined();
+    expect(sweep.factionId).toBe("crimsonReavers");
+    expect(sweep.hullPool).toEqual(["raider", "marauder"]);
+    expect(PATROLS.notARealPatrol).toBeUndefined();
   });
 });
 
