@@ -1,6 +1,6 @@
 // ============================================================================
 // combat/resolveBattle.ts -- the deterministic fixed-timestep combat simulator
-// (Combat 0.13.0, Phase 2 sim-core SKELETON)
+// (Combat 0.13.0, Phase 3: real shot pipeline + weapon families)
 //
 // THE ONE ENTRY POINT for resolving any battle. `resolveBattle(participants,
 // seed, options?)` is a PURE function of its inputs (design S0 principle 1):
@@ -37,9 +37,11 @@ import type {
 	BattleParticipants,
 	Combatant,
 	CombatEvent,
+	CombatWeapon,
+	WeaponFamily,
 } from "./types";
 import { lastTeamStanding } from "./types";
-import { makeStreams } from "./rng";
+import { makeStreams, type Rng } from "./rng";
 
 // One simulation step is 1 deci-second. Named so the "0.1s" intent is explicit
 // wherever we advance a clock or a cooldown, and so it is a single knob if the
@@ -57,6 +59,52 @@ const TENTHS_PER_SECOND = 10;
 // hit, we stop and tiebreak by hull% (see below) so two uncrackable tanks
 // resolve deterministically instead of hanging offline catch-up.
 const MAX_TICKS = 600;
+
+// ---------------------------------------------------------------------------
+// SHOT-PIPELINE TUNING CONSTANTS (all FIRST-PASS, a balance pass owns them,
+// design S20). Grouped here so the balance pass has one obvious knob board and
+// so the pipeline code below reads as intent, not magic numbers. Every value is
+// integer / integer-percent so the math stays drift-proof (design S0.4).
+// ---------------------------------------------------------------------------
+
+// Base crit chance per landed projectile, as numerator/denominator (design S2.3
+// "base crit ~5-10%"). Rolled with combat.chance(CRIT_CHANCE_NUM, CRIT_CHANCE_DEN).
+// TODO(balance): make crit chance a per-weapon field so weapons differ.
+const CRIT_CHANCE_NUM = 1;
+const CRIT_CHANCE_DEN = 10; // 10%
+
+// Crit damage multiplier as a fraction CRIT_MULT_NUM / CRIT_MULT_DEN (design
+// S2.3 "1.5x"). Applied to a projectile's raw damage as integer floor math.
+// TODO(balance): per-weapon crit multipliers.
+const CRIT_MULT_NUM = 3;
+const CRIT_MULT_DEN = 2; // 1.5x
+
+// The damage-type triangle (design S3), as integer percents applied via
+// floor(dmg * mult / 100). Two columns: the multiplier used while the target
+// still has shields up (vs Shields) vs once shields are down (vs Armor/Hull).
+//
+// DESIGN CHOICE (documented): the design table is CONTEXTUAL ("+10% vs Shields",
+// "+10% vs Armor"). Rather than split a single shot's damage across both columns
+// (which forces messy fractional overflow accounting), Phase 3 picks ONE column
+// per shot from the target's CURRENT shield state at the instant the shot lands:
+// shields up => vs-Shields column, shields down => vs-Armor column. This exactly
+// matches the design narrative ("Particle chips through shields; Kinetic shreds
+// the exposed hull once shields drop") and keeps the math a single integer
+// multiply. TODO(balance): if a finer per-pool split is ever wanted, scale the
+// shield-absorbed portion and the hull-path portion independently instead.
+//
+// "vs Drones" (design S3: Kinetic -10%, EW +10%, Particle 0%) is INERT until the
+// drone sub-system lands (Phase 8); only the shield/armor columns apply now.
+const FAMILY_VS_SHIELDS: Record<WeaponFamily, number> = {
+	particle: 110, // +10% vs shields (its specialty)
+	kinetic: 100, //   neutral vs shields (hard-walled, no attenuation)
+	ew: 90, //         -10% vs shields (weak direct damage)
+};
+const FAMILY_VS_ARMOR: Record<WeaponFamily, number> = {
+	particle: 90, //  -10% vs armor/hull (poor once shields drop)
+	kinetic: 110, //  +10% vs armor/hull (the finisher)
+	ew: 100, //        neutral vs armor/hull
+};
 
 // Options that tune HOW resolveBattle runs WITHOUT changing the outcome. The
 // only knob today is generateLog. Kept as an object so later phases add flags
@@ -181,65 +229,201 @@ function advanceShieldRegen(self: Combatant, acc: Accumulators): void {
 	self.shield = Math.min(self.shieldMax, self.shield + wholePoints);
 }
 
-// Result of firing one weapon: how much damage landed + the target's snapshot,
-// so the OPTIONAL log event can be built from real post-shot values without
-// re-deriving them. Returned even when generateLog is off (cheap struct) to
-// keep the fire path single, so the combat-stream draw schedule is identical
-// regardless of logging.
+// Result of firing one weapon: the aggregate of every projectile in the shot +
+// the target's post-shot snapshot, so the OPTIONAL log event is built from real
+// values without re-deriving them. Returned even when generateLog is off (cheap
+// struct) so the fire path is single and the combat-stream draw schedule is
+// identical regardless of logging (the parity invariant).
 interface ShotResult {
 	fired: boolean;
-	hit: boolean;
+	// How many projectiles connected (0 => the whole volley was evaded).
+	projectilesHit: number;
+	// Total damage dealt to the target across all projectiles (integer).
 	damage: number;
+	// True if any projectile critically hit.
+	crit: boolean;
+	// True if this (particle) shot bled damage through shields via attenuation.
+	attenuated: boolean;
 	shieldAfter: number;
 	hullAfter: number;
 	killed: boolean;
 }
 
 // ---------------------------------------------------------------------------
-// PLACEHOLDER SHOT, Phase 3 replaces this with the real shot pipeline.
+// Apply ONE projectile's already-rolled raw damage to a target through the
+// STRICT mitigation order (design S2.5): family triangle -> attenuation split
+// (particle) -> shields -> armor (ablative deplete then dampening %, with
+// kinetic armor-pen) -> hull. Mutates the target's shield/hull/ablativeArmor.
+// Returns the total damage that reached the target (shield loss + hull loss),
+// plus whether this projectile attenuated, so the caller can aggregate + log.
 //
-// The real pipeline (design S2) is: hit-or-evade -> projectiles -> crit ->
-// damage variance -> family triangle -> mitigation (attenuation/shields/armor/
-// hull). The skeleton collapses all of that to: roll ONE hit chance off the
-// combat stream, and on a hit apply a flat `yield` to shields-then-hull. This
-// is enough to make battles resolve deterministically.
-//
-// ⚠️ CRITICAL FOR PARITY: the combat-stream draw (the hit roll) happens HERE on
-// every fire, unconditionally, with NO reference to generateLog. Logging never
-// adds or removes a combat draw, so the outcome is identical live vs offline.
+// PURE INTEGER MATH throughout (floor on every scaling) so the outcome is
+// bit-identical on every device. No combat-stream draws happen here; the raw
+// damage + crit were already rolled by the caller, keeping the draw schedule in
+// one place (fireWeapon) for parity auditing.
 // ---------------------------------------------------------------------------
-function fireWeapon(
-	shooter: Combatant,
+export function applyProjectileDamage(
 	target: Combatant,
-	weapon: { yield: number },
-	combat: { chance(n: number, d: number): boolean },
-): ShotResult {
-	// Placeholder hit chance: 90% (9/10), one integer draw off the combat stream.
-	// Phase 3 replaces this with weaponAccuracy vs target evasion, range-modified.
-	const hit = combat.chance(9, 10);
-	if (!hit) {
-		// A miss still consumed exactly one combat draw (above), keeping the draw
-		// schedule fixed. No damage applied.
-		return {
-			fired: true,
-			hit: false,
-			damage: 0,
-			shieldAfter: target.shield,
-			hullAfter: target.hull,
-			killed: false,
-		};
+	family: WeaponFamily,
+	weaponShieldAttenuation: number,
+	weaponArmorPen: number,
+	rawAfterCrit: number,
+): { dealt: number; attenuated: boolean } {
+	// STEP 4 (triangle): pick ONE column from the target's CURRENT shield state
+	// (shields up => vs-Shields, shields down => vs-Armor). See FAMILY_VS_* above
+	// for why a single column per shot rather than a per-pool split.
+	const triangleMult =
+		target.shield > 0 ? FAMILY_VS_SHIELDS[family] : FAMILY_VS_ARMOR[family];
+	const dmg = Math.floor((rawAfterCrit * triangleMult) / 100);
+
+	// Track total damage actually removed from the target (for logging + the
+	// aggregate the caller sums), and whether this projectile attenuated.
+	const shieldBefore = target.shield;
+	let hullPath = 0;
+	let attenuated = false;
+
+	// STEP 5a (attenuation, PARTICLE ONLY): a net fraction skips shields straight
+	// to the hull-path. net = max(0, weaponShieldAttenuation - shieldCoherence).
+	// Kinetic + EW never attenuate (their signature is armor-pen / disruption).
+	let toShields = dmg;
+	if (family === "particle") {
+		const netAttenPct = Math.max(
+			0,
+			weaponShieldAttenuation - target.shieldCoherence,
+		);
+		if (netAttenPct > 0) {
+			const bypass = Math.floor((dmg * netAttenPct) / 100);
+			if (bypass > 0) {
+				hullPath += bypass;
+				toShields = dmg - bypass;
+				attenuated = true;
+			}
+		}
 	}
 
-	// Apply flat yield to shields first, overflow to hull (design S2.5b/d order,
-	// minus the armor/attenuation stages Phase 5 adds). All integer arithmetic.
-	let remaining = weapon.yield;
+	// STEP 5b (shields): the non-attenuated portion is absorbed up to the current
+	// shield pool; the overflow continues to the hull-path.
 	if (target.shield > 0) {
-		const absorbed = Math.min(target.shield, remaining);
+		const absorbed = Math.min(target.shield, toShields);
 		target.shield -= absorbed;
-		remaining -= absorbed;
+		hullPath += toShields - absorbed;
+	} else {
+		hullPath += toShields;
 	}
-	if (remaining > 0) {
-		target.hull -= remaining; // hull may go negative; death check clamps intent
+
+	// STEP 5c (armor on the hull-path): ablativeArmor is a DEPLETING buffer that
+	// soaks first, then kineticDampening is a flat percent reduction. Kinetic
+	// weapons apply Armor Penetration: they IGNORE weaponArmorPen percent of BOTH
+	// the ablative buffer and the dampening for this shot (the ignored armor is
+	// not consumed).
+	if (hullPath > 0) {
+		let effectiveArmor = target.ablativeArmor;
+		let effectiveDampenPct = target.kineticDampening;
+		if (family === "kinetic" && weaponArmorPen > 0) {
+			const penComplement = 100 - Math.min(100, weaponArmorPen);
+			effectiveArmor = Math.floor((effectiveArmor * penComplement) / 100);
+			effectiveDampenPct = Math.floor((effectiveDampenPct * penComplement) / 100);
+		}
+
+		// Ablative soak: reduce the hull-path damage and DEPLETE the real buffer by
+		// what it actually soaked (never below what pen let us reach).
+		if (effectiveArmor > 0) {
+			const soaked = Math.min(hullPath, effectiveArmor);
+			hullPath -= soaked;
+			target.ablativeArmor = Math.max(0, target.ablativeArmor - soaked);
+		}
+
+		// Dampening: flat percent reduction on whatever remains.
+		if (hullPath > 0 && effectiveDampenPct > 0) {
+			const keptPct = 100 - Math.min(100, effectiveDampenPct);
+			hullPath = Math.floor((hullPath * keptPct) / 100);
+		}
+	}
+
+	// STEP 5d (hull): the remainder lands on hull. Hull may go negative; the
+	// caller's death check reads `alive`, never re-derives from a clamped value.
+	if (hullPath > 0) {
+		target.hull -= hullPath;
+	}
+
+	// Total damage the target actually lost = shield drained + hull-path landed.
+	const shieldLost = shieldBefore - target.shield;
+	return { dealt: shieldLost + hullPath, attenuated };
+}
+
+// ---------------------------------------------------------------------------
+// THE REAL SHOT PIPELINE (design S2), replacing the Phase 2 placeholder.
+//
+// One shot fires `projectileCount` projectiles. Per projectile, in order, all
+// rolls off the COMBAT stream:
+//   1/2. Hit: roll clamp(accuracy - evasion, 0, 100) percent. A projectile that
+//        misses deals nothing. If EVERY projectile misses, the whole shot reads
+//        as an evade (design S2.1). Each projectile rolls independently (design
+//        S2.2): single-projectile weapons are swingy, multi-projectile reliable.
+//   3.   Crit: each connecting projectile rolls crit for a damage multiplier.
+//   4.   Raw damage: an integer in [yieldMin, yieldMax], times crit.
+//   5.   Mitigation (triangle -> attenuation -> shields -> armor -> hull): done
+//        by applyProjectileDamage above.
+//
+// ⚠️ CRITICAL FOR PARITY: every combat-stream draw happens HERE, on a schedule
+// that does NOT depend on generateLog (a miss draws only its hit roll; a hit
+// draws hit + crit + damage). Logging/flavor never adds or removes a combat
+// draw, so the outcome is byte-identical live vs offline. Effect-slot procs
+// (design S2.6) are the Phase 4 seam, marked below.
+// ---------------------------------------------------------------------------
+function fireWeapon(
+	target: Combatant,
+	weapon: CombatWeapon,
+	combat: Rng,
+): ShotResult {
+	// Per-projectile hit chance: accuracy reduced by the target's evasion, clamped
+	// to a valid percent. No minimum floor, so a 0 net chance is a guaranteed
+	// miss (the evade tests rely on this) and a >= 100 net chance is a sure hit.
+	const hitChance = Math.max(0, Math.min(100, weapon.accuracy - target.evasion));
+
+	let projectilesHit = 0;
+	let totalDealt = 0;
+	let anyCrit = false;
+	let anyAttenuated = false;
+
+	// Fire each projectile independently. projectileCount is >= 1 by contract; a
+	// bad 0/negative count would simply fire nothing (defensive, no throw).
+	for (let p = 0; p < weapon.projectileCount; p++) {
+		// STEP 1/2: hit roll (one combat draw, always).
+		const hit = combat.chance(hitChance, 100);
+		if (!hit) continue; // missed projectile: no crit/damage draw, no damage
+
+		projectilesHit++;
+
+		// STEP 3: crit roll (one combat draw per connecting projectile).
+		const crit = combat.chance(CRIT_CHANCE_NUM, CRIT_CHANCE_DEN);
+		if (crit) anyCrit = true;
+
+		// STEP 4: raw damage in [yieldMin, yieldMax] (one combat draw), * crit.
+		let raw = combat.nextRange(weapon.yieldMin, weapon.yieldMax);
+		if (crit) {
+			raw = Math.floor((raw * CRIT_MULT_NUM) / CRIT_MULT_DEN);
+		}
+
+		// STEP 5: mitigation. Applies triangle + attenuation + shields + armor +
+		// hull to THIS projectile against the target's live state (so a volley
+		// that breaks the shield mid-way correctly switches the triangle column
+		// and stops attenuating once shields are gone).
+		const { dealt, attenuated } = applyProjectileDamage(
+			target,
+			weapon.family,
+			weapon.shieldAttenuation,
+			weapon.armorPen,
+			raw,
+		);
+		totalDealt += dealt;
+		if (attenuated) anyAttenuated = true;
+
+		// PHASE 4 SEAM: roll this weapon's effectSlots (disruptions/DoTs) on hit
+		// here, off the combat stream, with rank escalation (design S2.6). Left
+		// empty on purpose; weapon.effectSlots is [] in Phase 3 so no draw happens
+		// and the parity draw schedule is unaffected until Phase 4 fills it.
+		// for (const slot of weapon.effectSlots) { /* Phase 4 */ }
 	}
 
 	// Death bookkeeping: hull at or below 0 means destroyed. Single source of
@@ -252,8 +436,10 @@ function fireWeapon(
 
 	return {
 		fired: true,
-		hit: true,
-		damage: weapon.yield,
+		projectilesHit,
+		damage: totalDealt,
+		crit: anyCrit,
+		attenuated: anyAttenuated,
 		shieldAfter: target.shield,
 		hullAfter: target.hull,
 		killed,
@@ -383,29 +569,36 @@ export function resolveBattle(
 				// exact over time (design S1: cooldown accumulator with carry-over).
 				weapon.cooldownAccumulator -= weapon.cooldownDeciSec;
 
-				// PLACEHOLDER shot. The combat-stream draw happens inside, always,
-				// independent of generateLog (parity invariant).
-				const shot = fireWeapon(self, target, weapon, combat);
+				// REAL shot pipeline. Every combat-stream draw happens inside, on a
+				// schedule independent of generateLog (parity invariant).
+				const shot = fireWeapon(target, weapon, combat);
 
 				// LOG + COSMETIC work is gated on generateLog ONLY. None of this can
-				// change the outcome: fireWeapon already did its single combat draw.
+				// change the outcome: fireWeapon already did all its combat draws.
 				if (generateLog && shot.fired) {
-					// Touch the cosmetic stream to select flavor (skeleton: a throwaway
+					// Touch the cosmetic stream to select flavor (Phase 3: a throwaway
 					// draw standing in for Phase-16 flavor-line selection). This PROVES
 					// the isolation: offline skips this draw entirely, yet the combat
-					// sequence is identical, so the outcome cannot move. Kept even in
-					// the skeleton so the parity test exercises a real cosmetic draw.
+					// sequence is identical, so the outcome cannot move.
 					cosmetic.nextInt(1000);
+					// A shot with zero connecting projectiles reads as an evade; any
+					// connection is a hit. The flavor layer reads the detail fields to
+					// pick the most specific line (crit / attenuated / family).
+					const evaded = shot.projectilesHit === 0;
 					log.push({
 						tDeciSec: t,
 						round,
-						type: shot.hit ? "hullShieldHit" : "miss",
+						type: evaded ? "evade" : "hit",
 						actorId: self.id,
 						targetId: target.id,
 						damage: shot.damage,
-						result: shot.hit ? "hit" : "miss",
+						result: evaded ? "evade" : "hit",
 						shieldAfter: shot.shieldAfter,
 						hullAfter: shot.hullAfter,
+						family: weapon.family,
+						crit: shot.crit,
+						attenuated: shot.attenuated,
+						projectilesHit: shot.projectilesHit,
 					});
 					if (shot.killed) {
 						log.push({
@@ -414,6 +607,7 @@ export function resolveBattle(
 							type: "destroyed",
 							actorId: self.id,
 							targetId: target.id,
+							result: "destroyed",
 							shieldAfter: shot.shieldAfter,
 							hullAfter: shot.hullAfter,
 						});
