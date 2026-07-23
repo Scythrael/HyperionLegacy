@@ -41,6 +41,7 @@ import type {
 	WeaponFamily,
 } from "./types";
 import { lastTeamStanding } from "./types";
+import type { DroneSquadron } from "./drones";
 import { makeStreams, type Rng } from "./rng";
 import {
 	applyEffect,
@@ -180,9 +181,8 @@ interface Accumulators {
 // Deep-ish clone of the participant list so resolveBattle NEVER mutates the
 // caller's objects (purity: the caller can resolve the same battle twice, or
 // keep using its ships afterward, with zero side effects). Combatants + their
-// weapons are the only mutable things the sim writes to, so we copy those; the
-// reserved statusEffects/drones arrays are empty in the skeleton and copied by
-// reference-into-fresh-array to stay forward-safe.
+// weapons + their DRONE SQUADRONS are the mutable things the sim writes to, so we
+// deep-copy those; the statusEffects array is copied by reference-into-fresh-array.
 function cloneParticipants(participants: BattleParticipants): BattleParticipants {
 	return {
 		combatants: participants.combatants.map((c) => ({
@@ -190,9 +190,17 @@ function cloneParticipants(participants: BattleParticipants): BattleParticipants
 			// Fresh weapon objects: the sim advances cooldownAccumulator on these,
 			// which must not leak back into the caller's data.
 			weapons: c.weapons.map((w) => ({ ...w })),
-			// Fresh reserved arrays so future in-sim mutation is isolated too.
+			// Fresh statusEffects array so in-sim mutation is isolated.
 			statusEffects: [...c.statusEffects],
-			drones: [...c.drones],
+			// Phase 7a: DEEP-copy each squadron AND its per-drone list. The sim mutates
+			// squadron.cooldownAccumulator + each drone's hp/alive/status, so a shallow
+			// copy would leak those writes back into the caller (breaking purity + a
+			// second resolve of the same battle). Squadrons/drones are plain data, so a
+			// spread per level is a full clone.
+			drones: c.drones.map((sq) => ({
+				...sq,
+				drones: sq.drones.map((d) => ({ ...d })),
+			})),
 		})),
 	};
 }
@@ -610,6 +618,129 @@ function fireWeapon(
 	};
 }
 
+// ---------------------------------------------------------------------------
+// DRONE SQUADRON VOLLEY (design S8, Phase 7a OFFENSE). Aggregate of every ALIVE,
+// ONLINE drone that fired this volley at the owner's target. Returned always
+// (cheap struct) so the OPTIONAL log event is built from real values and the
+// combat-stream draw schedule is identical regardless of logging (parity).
+// ---------------------------------------------------------------------------
+interface VolleyResult {
+	// A volley actually happened (the squadron has offense AND at least one alive,
+	// online drone). False => nothing fired, ZERO combat draws (support in 7a, or a
+	// wiped squadron), so no log/cosmetic work either.
+	fired: boolean;
+	// How many drones connected (0 => the whole volley was evaded).
+	dronesHit: number;
+	// Total damage dealt to the target across every connecting drone (integer).
+	damage: number;
+	shieldAfter: number;
+	hullAfter: number;
+	killed: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Fire ONE drone squadron's volley (design S8 "Squadron attacks" row). Each
+// ALIVE, ONLINE drone independently rolls its own hit (drone accuracy vs the
+// target's maneuver-scaled evasion) and, on a hit, its ~1/size damage, applied
+// through the SAME mitigation as a weapon shot (applyProjectileDamage). Drones
+// are many small kinetic attackers: NO crit, NO effect procs, NO attenuation/
+// armor-pen (shieldAttenuation/armorPen passed 0), keeping the model simple for
+// 7a. TODO(balance): per-role families + optional drone crit.
+//
+// ⚠️ PARITY: every combat-stream draw happens HERE, on a schedule independent of
+// generateLog: one hit roll per participating drone, plus one damage roll per
+// CONNECTING drone. A squadron with no offense (yieldMax 0, i.e. Support in 7a)
+// or no alive drones draws NOTHING and returns fired:false. Output scales with
+// the ALIVE drone count (design S8): dead drones are skipped, so fewer drones =>
+// fewer draws => less damage (which sets up 7b, where drones get destroyed).
+// ---------------------------------------------------------------------------
+function fireSquadron(
+	self: Combatant,
+	target: Combatant,
+	squadron: DroneSquadron,
+	combat: Rng,
+): VolleyResult {
+	// NO-OFFENSE short-circuit (Support in 7a): a zero-yield squadron never fires,
+	// so it draws nothing and cannot perturb the combat stream. Its real kit is
+	// utility (repair/cleanse), built in Phase 7b. Void `self` so the unused-param
+	// lint is honest while the signature stays uniform with fireWeapon (7b reads
+	// `self` for the carrier interactions).
+	void self;
+	if (squadron.yieldMax <= 0) {
+		return {
+			fired: false,
+			dronesHit: 0,
+			damage: 0,
+			shieldAfter: target.shield,
+			hullAfter: target.hull,
+			killed: false,
+		};
+	}
+
+	// The target's evasion, scaled by its Manifold Overheat (-maneuver) debuff
+	// exactly as fireWeapon does (design S6: maneuverability feeds evasion). Zero
+	// delta => nominal evasion, so an unafflicted target is byte-identical. This
+	// only moves the hit THRESHOLD, never the draw count.
+	const maneuverDelta = activeStatDelta(target.statusEffects, "maneuver");
+	const effectiveEvasion =
+		maneuverDelta !== 0 ? applyPercentDelta(target.evasion, maneuverDelta) : target.evasion;
+	// Per-drone hit chance: the squadron's accuracy reduced by the target's evasion,
+	// clamped to a valid percent (no floor: a 0 net chance is a guaranteed miss).
+	const hitChance = Math.max(0, Math.min(100, squadron.accuracy - effectiveEvasion));
+
+	let dronesHit = 0;
+	let totalDealt = 0;
+	// Did ANY drone actually participate this volley? A squadron whose drones are
+	// all dead/offline fires nothing (fired:false => no draws happened above the
+	// per-drone guards, and no log/cosmetic work downstream).
+	let anyFired = false;
+
+	for (const drone of squadron.drones) {
+		// Output scales with ALIVE count: a destroyed drone contributes nothing (and
+		// draws nothing). Disrupted/refabricating drones cannot strike either (their
+		// status transitions land in 7b; in 7a every alive drone is "online").
+		if (!drone.alive) continue;
+		if (drone.status !== "online") continue;
+		anyFired = true;
+
+		// STEP 1/2: this drone's hit roll (one combat draw per participating drone).
+		if (!combat.chance(hitChance, 100)) continue; // missed: no damage draw
+		dronesHit++;
+
+		// STEP 4: raw damage in [yieldMin, yieldMax] (one combat draw per hit). No
+		// crit for drones in 7a (TODO balance).
+		const raw = combat.nextRange(squadron.yieldMin, squadron.yieldMax);
+
+		// STEP 5: mitigation, same strict order as a weapon shot. Drones carry no
+		// particle attenuation or kinetic armor-pen (0/0), so they route through
+		// shields -> armor -> hull cleanly against the target's live state.
+		const { dealt } = applyProjectileDamage(
+			target,
+			squadron.family,
+			0, // shieldAttenuation: drones do not attenuate
+			0, // armorPen: drones do not penetrate armor
+			raw,
+		);
+		totalDealt += dealt;
+	}
+
+	// Death bookkeeping: mirror fireWeapon. Single source of truth for liveness.
+	let killed = false;
+	if (target.hull <= 0 && target.alive) {
+		target.alive = false;
+		killed = true;
+	}
+
+	return {
+		fired: anyFired,
+		dronesHit,
+		damage: totalDealt,
+		shieldAfter: target.shield,
+		hullAfter: target.hull,
+		killed,
+	};
+}
+
 // Compute the winner when the hard tick cap is reached: the team with the
 // highest TOTAL hull% remaining (design S1 tiebreak). Percentages are compared
 // as integer cross-multiplications to avoid any float, and an exact tie yields
@@ -1003,6 +1134,77 @@ export function resolveBattle(
 					}
 				}
 			}
+
+				// PHASE C2: DRONE SQUADRONS (design S8, Phase 7a OFFENSE). Each squadron
+				// advances its OWN firing clock; when ready AND the owner's target is within
+				// the squadron's reach, every ONLINE drone fires its ~1/size shot at that
+				// target through the same mitigation as a weapon (fireSquadron above). Output
+				// scales with the ALIVE drone count. An empty drones [] iterates nothing =>
+				// ZERO combat draws (the parity guard); a zero-offense Support squadron draws
+				// nothing either. This sits AFTER the ambush return-fire gate above, so a
+				// freshly-ambushed ship's drones hold fire with its weapons (the whole ship is
+				// caught off guard) until its ready tick.
+				//
+				// ⚠️ Phase 7b: DEFENSIVE interactions (evade/deflect/reflect/smart-reflect
+				// when a squadron or the carrier is targeted), meat-shield overflow,
+				// replenishment of destroyed drones, and the carrier hull class all attach to
+				// this same array. This 7a seam is OFFENSE ONLY.
+				for (const squadron of self.drones) {
+					// Advance the squadron's firing clock by dt (no combat draw).
+					squadron.cooldownAccumulator += DT_DECISEC;
+					// Not yet ready to volley.
+					if (squadron.cooldownAccumulator < squadron.attackCooldownDeciSec) continue;
+
+					// Reach gate: owner-to-target distance vs the squadron's range. Out of
+					// reach HOLDS the accumulator (like a weapon) so the volley fires the
+					// instant the owner closes into range. Attack drones "zoom in" (short
+					// reach); defense/support fire from long reach (see drones.ts templates).
+					const droneDistance = Math.abs(self.position - target.position);
+					if (droneDistance > squadron.range) continue;
+
+					// Ready + in reach: consume ONE cooldown period (carry the remainder for
+					// exact fractional rates), then volley. Every combat-stream draw happens
+					// inside fireSquadron, on a schedule independent of generateLog (parity).
+					squadron.cooldownAccumulator -= squadron.attackCooldownDeciSec;
+					const volley = fireSquadron(self, target, squadron, combat);
+
+					// LOG + COSMETIC gated on generateLog ONLY (cannot change the outcome:
+					// fireSquadron already did all its combat draws). ONE AGGREGATE event per
+					// squadron per volley (design S8: do NOT spam one line per drone per tick);
+					// projectilesHit carries how many drones connected, so the flavor layer can
+					// narrate "Wasp squadron strikes E1 for N (6 of 8 drones)".
+					if (generateLog && volley.fired) {
+						// Touch the cosmetic stream for flavor selection, same proof-of-isolation
+						// as a weapon shot: offline skips this draw, yet the outcome is identical.
+						cosmetic.nextInt(1000);
+						const evaded = volley.dronesHit === 0;
+						log.push({
+							tDeciSec: t,
+							round,
+							type: "droneVolley",
+							actorId: self.id,
+							targetId: target.id,
+							damage: volley.damage,
+							result: evaded ? "evade" : "droneVolley",
+							shieldAfter: volley.shieldAfter,
+							hullAfter: volley.hullAfter,
+							family: squadron.family,
+							projectilesHit: volley.dronesHit,
+						});
+						if (volley.killed) {
+							log.push({
+								tDeciSec: t,
+								round,
+								type: "destroyed",
+								actorId: self.id,
+								targetId: target.id,
+								result: "destroyed",
+								shieldAfter: volley.shieldAfter,
+								hullAfter: volley.hullAfter,
+							});
+						}
+					}
+				}
 		}
 
 		// PHASE D: status effects (design S4). Tick EVERY living combatant's
