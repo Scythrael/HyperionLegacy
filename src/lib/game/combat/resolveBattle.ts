@@ -41,7 +41,20 @@ import type {
 	WeaponFamily,
 } from "./types";
 import { lastTeamStanding } from "./types";
-import type { DroneSquadron } from "./drones";
+import type { DroneSquadron, Drone } from "./drones";
+// Phase 7b DEFENSIVE helpers (the pure half of the drone defense model). This
+// module orchestrates them: it routes a shot's projectiles through the target's
+// drone screen and reuses these small, unit-tested facts (particle-only reflect,
+// HP absorption, reflect-target pick, defender ordering, replenishment, cleanse).
+import {
+	canReflect,
+	absorbWithDrone,
+	selectReflectTarget,
+	availableDefenders,
+	replenishDrones,
+	supportCleanse,
+} from "./droneDefense";
+import type { Defender } from "./droneDefense";
 import { makeStreams, type Rng } from "./rng";
 import {
 	applyEffect,
@@ -294,6 +307,33 @@ interface ShotResult {
 	// so the OPTIONAL "effectApplied" log events are built from real data without
 	// re-deriving; the effect application itself already happened in fireWeapon.
 	appliedEffects: string[];
+
+	// -- Phase 7b DRONE-DEFENSE fields (all default 0 / empty for a droneless
+	// target, keeping a screen-less shot byte-identical to the 7a result). --
+	// How many of this shot's projectiles a drone ENGAGED (deflected, absorbed, or
+	// evaded+countered). Lets the flavor layer narrate "the screen caught 2 of 3".
+	dronesEngaged: number;
+	// How many of the carrier's drones this shot DESTROYED (HP penetrated).
+	dronesDestroyed: number;
+	// COLLATERAL hits this shot caused on OTHER combatants: a reflected shot back at
+	// the attacker (or a smart-reflect priority foe) and an attack-drone
+	// counterattack. Applied inside fireWeapon (so the mutation + death are done);
+	// surfaced here only so the tick loop can LOG them (parity: log-only).
+	collateral: CollateralHit[];
+}
+
+// One reflect/counter hit landed on a combatant OTHER than the shot's target, as a
+// by-product of the target's drone screen (design S8 reflect + attack-drone
+// counterattack). Data only; the damage was already applied in fireWeapon.
+interface CollateralHit {
+	// The combatant that took the collateral damage.
+	targetId: string;
+	// Damage actually dealt (post-mitigation, integer).
+	damage: number;
+	// Which drone behavior produced it, so flavor can distinguish the two.
+	kind: "reflect" | "counter";
+	// True if this collateral hit destroyed that combatant.
+	killed: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -434,6 +474,137 @@ export function applyProjectileDamage(
 }
 
 // ---------------------------------------------------------------------------
+// DRONE-DEFENSE CONTEXT (Phase 7b). Threaded into fireWeapon ONLY from the normal
+// tick-loop firing path, carrying the full combatant list the reflect / smart-
+// reflect target pick needs. When it is undefined (the AMBUSH opener, design S7:
+// a surprise strike slips past the screen), NO drone interception happens and the
+// draw schedule is exactly the 7a one, so the ambush fixtures stay byte-identical.
+// TODO(balance): decide if a detected/less-surprising ambush lets the screen react.
+// ---------------------------------------------------------------------------
+interface DroneDefenseContext {
+	combatants: Combatant[];
+}
+
+// ---------------------------------------------------------------------------
+// PER-PROJECTILE DRONE INTERCEPT (design S8 interaction matrix). Decide what ONE
+// defending drone does with ONE incoming projectile that has already ROLLED its
+// raw damage. This is the branch table that IS the drone AI:
+//
+//   CARRIER IS TARGETED (targeted=false, a normal shot the screen guards against):
+//     - defense: DEFLECT roll (interceptChance, higher than self-evasion). Success
+//       + PARTICLE => reflect roll (reflectChance): reflect the shot back (attacker
+//       or smart-reflect priority) else harmless block. Success + kinetic/EW =>
+//       harmless block (particle-only reflect). Fail => absorb with HP, overflow to
+//       carrier, drone may die.
+//     - support: PURE MEAT-SHIELD, no roll: absorb with HP, overflow to carrier,
+//       drone may die.
+//     - attack: RISKY guarding EVADE (interceptChance, lower than self-evasion).
+//       Success => a solid COUNTERATTACK at the attacker (drone unharmed). Fail =>
+//       absorb with HP, overflow to carrier, drone may die.
+//
+//   SQUADRON IS TARGETED (targeted=true, an antiDrone weapon aimed at the drones):
+//     - attack/support: EVADE roll (self-evasion). Success => nothing. Fail => take
+//       the hit, die if HP penetrated. No overflow to the carrier (aimed at drones).
+//     - defense: DEFLECT/reflect exactly as above; destroyed only if HP penetrated;
+//       no carrier overflow.
+//
+// Every yes/no is one COMBAT-stream draw; a counterattack draws its damage too.
+// Mutates the drone's HP/status (via absorbWithDrone). Returns a PLAN the caller
+// executes (carrier overflow + collateral reflect/counter) so all applyProjectile-
+// Damage calls stay in fireWeapon (one mitigation site for parity auditing).
+// ---------------------------------------------------------------------------
+interface InterceptPlan {
+	// Raw (pre-mitigation) damage that spilled past the drone onto the carrier; the
+	// caller routes it through applyProjectileDamage. 0 when fully stopped or when a
+	// squadron-targeted (antiDrone) shot was spent on the drone.
+	carrierOverflow: number;
+	// A reflected (particle) shot to apply to another combatant, if any.
+	reflect?: { target: Combatant; damage: number };
+	// An attack-drone counterattack to apply to the attacker, if any.
+	counter?: { target: Combatant; damage: number; family: WeaponFamily };
+	// True if this projectile destroyed the engaging drone.
+	droneDestroyed: boolean;
+}
+
+function planIntercept(
+	defender: Defender,
+	weapon: CombatWeapon,
+	raw: number,
+	attacker: Combatant,
+	carrier: Combatant,
+	combatants: Combatant[],
+	targeted: boolean,
+	combat: Rng,
+): InterceptPlan {
+	const { squadron, drone } = defender;
+	const role = squadron.role;
+
+	// DEFENSE: deflect/reflect in BOTH the carrier-targeted and squadron-targeted
+	// cases (a defense drone's whole job is to block, whoever it is shielding).
+	if (role === "defense") {
+		if (combat.chance(squadron.interceptChance, 100)) {
+			// Deflected. PARTICLE-ONLY reflect: roll whether it bounces back.
+			if (canReflect(weapon.family) && combat.chance(squadron.reflectChance, 100)) {
+				const reflectTarget = selectReflectTarget(
+					carrier,
+					attacker,
+					combatants,
+					squadron.smartReflect,
+				);
+				return {
+					carrierOverflow: 0,
+					reflect: { target: reflectTarget, damage: raw },
+					droneDestroyed: false,
+				};
+			}
+			// Harmless block (non-particle, or a particle that did not reflect).
+			return { carrierOverflow: 0, droneDestroyed: false };
+		}
+		// Failed deflect: absorb with HP; overflow leaks to the carrier UNLESS this
+		// was squadron-targeted anti-drone fire (spent on the drone).
+		const { overflow, destroyed } = absorbWithDrone(drone, raw);
+		return { carrierOverflow: targeted ? 0 : overflow, droneDestroyed: destroyed };
+	}
+
+	// SUPPORT.
+	if (role === "support") {
+		if (targeted) {
+			// Squadron-targeted: evade like attack (design S8 "evade like Attack").
+			if (combat.chance(squadron.evasion, 100)) {
+				return { carrierOverflow: 0, droneDestroyed: false };
+			}
+			const { destroyed } = absorbWithDrone(drone, raw);
+			return { carrierOverflow: 0, droneDestroyed: destroyed };
+		}
+		// Carrier-targeted: PURE MEAT-SHIELD, no roll. Absorb + overflow to carrier.
+		const { overflow, destroyed } = absorbWithDrone(drone, raw);
+		return { carrierOverflow: overflow, droneDestroyed: destroyed };
+	}
+
+	// ATTACK.
+	if (targeted) {
+		// Squadron-targeted: it is being HUNTED, so it just tries to evade (no
+		// counterattack: it is not guarding the carrier here).
+		if (combat.chance(squadron.evasion, 100)) {
+			return { carrierOverflow: 0, droneDestroyed: false };
+		}
+		const { destroyed } = absorbWithDrone(drone, raw);
+		return { carrierOverflow: 0, droneDestroyed: destroyed };
+	}
+	// Carrier-targeted: risky guarding intercept. Success dodges AND counterattacks.
+	if (combat.chance(squadron.interceptChance, 100)) {
+		const counterDamage = combat.nextRange(squadron.yieldMin, squadron.yieldMax);
+		return {
+			carrierOverflow: 0,
+			counter: { target: attacker, damage: counterDamage, family: squadron.family },
+			droneDestroyed: false,
+		};
+	}
+	const { overflow, destroyed } = absorbWithDrone(drone, raw);
+	return { carrierOverflow: overflow, droneDestroyed: destroyed };
+}
+
+// ---------------------------------------------------------------------------
 // THE REAL SHOT PIPELINE (design S2), replacing the Phase 2 placeholder.
 //
 // One shot fires `projectileCount` projectiles. Per projectile, in order, all
@@ -460,7 +631,7 @@ export function applyProjectileDamage(
 // attacker's outgoing accuracy; Coil Dampening reduces its outgoing raw damage.
 // Both are deterministic post-draw scalings, so they never shift the draw count.
 // ---------------------------------------------------------------------------
-function fireWeapon(
+export function fireWeapon(
 	self: Combatant,
 	target: Combatant,
 	weapon: CombatWeapon,
@@ -468,6 +639,11 @@ function fireWeapon(
 	// PHASE 6 AMBUSH: when true (the ambush opener), every projectile strikes hull
 	// directly (bypasses the shield pool). Default false for the normal firing loop.
 	bypassShields = false,
+	// PHASE 7b DRONE DEFENSE: the normal firing path passes this so an incoming shot
+	// is contested by the TARGET's drone screen (the "Carrier/Squadron is targeted"
+	// matrix rows). Undefined (the ambush opener) => no interception, 7a draw
+	// schedule. A droneless target also makes zero extra draws (the parity guard).
+	defenseCtx?: DroneDefenseContext,
 ): ShotResult {
 	// PHASE 4 DEBUFF (applied): the attacker's accuracy debuffs (Scattering Field,
 	// Targeting Drift) scale weapon accuracy DOWN before the evasion subtraction.
@@ -495,6 +671,40 @@ function fireWeapon(
 	let anyCrit = false;
 	let anyAttenuated = false;
 
+	// PHASE 7b: build the TARGET's drone screen ONCE for this shot (design S8:
+	// "up to N drones pulled into the intercept"). Empty when there is no defense
+	// context (the ambush path) or the target owns no online drones, so a droneless
+	// shot makes ZERO extra draws below (the parity guard). `targeted` = this weapon
+	// aims at the drones themselves (antiDrone), selecting the squadron-targeted
+	// matrix row for whichever drone engages.
+	const defenders: Defender[] =
+		defenseCtx !== undefined ? availableDefenders(target) : [];
+	const targeted = weapon.antiDrone === true;
+	let dronesEngaged = 0;
+	let dronesDestroyed = 0;
+	const collateral: CollateralHit[] = [];
+
+	// Apply a reflect/counterattack hit to a combatant OTHER than the shot's target
+	// (design S8). Routes through the SAME mitigation (particle for a reflect, the
+	// drone's family for a counter) + death bookkeeping, and records it for logging.
+	function applyCollateral(
+		victim: Combatant,
+		family: WeaponFamily,
+		damage: number,
+		kind: "reflect" | "counter",
+	): void {
+		// A reflect/counter carries no attenuation/armor-pen signature (0/0): it is a
+		// bounced/return bolt, not the original weapon's shaped shot. TODO(balance):
+		// let a reflect inherit the source weapon's attenuation.
+		const { dealt } = applyProjectileDamage(victim, family, 0, 0, damage);
+		let killed = false;
+		if (victim.hull <= 0 && victim.alive) {
+			victim.alive = false;
+			killed = true;
+		}
+		collateral.push({ targetId: victim.id, damage: dealt, kind, killed });
+	}
+
 	// Fire each projectile independently. projectileCount is >= 1 by contract; a
 	// bad 0/negative count would simply fire nothing (defensive, no throw).
 	for (let p = 0; p < weapon.projectileCount; p++) {
@@ -519,8 +729,52 @@ function fireWeapon(
 			raw = applyPercentDelta(raw, weaponDamageDelta);
 		}
 
-		// STEP 5: mitigation. Applies triangle + attenuation + shields + armor +
-		// hull to THIS projectile against the target's live state (so a volley
+		// PHASE 7b INTERCEPT: each projectile pulls the NEXT available defender (one
+		// drone per projectile, design S8 saturation). If the screen is thinner than
+		// the projectile count, `defender` is undefined for the surplus projectiles
+		// and they LEAK straight to the carrier (the 7a path below). All intercept
+		// draws happen inside planIntercept, only when a defender exists (parity).
+		const defender: Defender | undefined = p < defenders.length ? defenders[p] : undefined;
+		if (defender !== undefined) {
+			dronesEngaged++;
+			const plan = planIntercept(
+				defender,
+				weapon,
+				raw,
+				self,
+				target,
+				defenseCtx!.combatants,
+				targeted,
+				combat,
+			);
+			if (plan.droneDestroyed) dronesDestroyed++;
+			// A reflected (particle) shot bounces onto the attacker or a smart-reflect
+			// priority foe; an attack-drone counter hits the attacker. Apply + record.
+			if (plan.reflect !== undefined) {
+				applyCollateral(plan.reflect.target, "particle", plan.reflect.damage, "reflect");
+			}
+			if (plan.counter !== undefined) {
+				applyCollateral(plan.counter.target, plan.counter.family, plan.counter.damage, "counter");
+			}
+			// Overflow past the drone (if any) lands on the carrier through normal
+			// mitigation. A fully-stopped / anti-drone-spent projectile has 0 overflow.
+			if (plan.carrierOverflow > 0) {
+				const { dealt, attenuated } = applyProjectileDamage(
+					target,
+					weapon.family,
+					weapon.shieldAttenuation,
+					weapon.armorPen,
+					plan.carrierOverflow,
+					bypassShields,
+				);
+				totalDealt += dealt;
+				if (attenuated) anyAttenuated = true;
+			}
+			continue;
+		}
+
+		// STEP 5 (no defender): mitigation. Applies triangle + attenuation + shields +
+		// armor + hull to THIS projectile against the target's live state (so a volley
 		// that breaks the shield mid-way correctly switches the triangle column
 		// and stops attenuating once shields are gone).
 		const { dealt, attenuated } = applyProjectileDamage(
@@ -615,6 +869,9 @@ function fireWeapon(
 		hullAfter: target.hull,
 		killed,
 		appliedEffects,
+		dronesEngaged,
+		dronesDestroyed,
+		collateral,
 	};
 }
 
@@ -906,6 +1163,14 @@ export function resolveBattle(
 		accumulators.set(c.id, { move: 0, shield: 0 });
 	}
 
+	// PHASE 7b IN-COMBAT DRONE REPLENISH banks (design S8). Keyed by
+	// `${combatantId}:${squadronId}`, these bank fixed-point refab/repair progress
+	// so a per-SECOND droneReplenishRate becomes exact integer progress per 0.1s
+	// tick (same banked idiom as movement/shields). ONLY populated for combatants
+	// whose inCombatReplenishPercent > 0, so a normal battle never touches this Map
+	// (the parity guard: no bank, no state, no drone recovery mid-fight).
+	const droneReplenishBank = new Map<string, number>();
+
 	// The structured event stream. Built only when generateLog is on; offline
 	// leaves it an empty array (and pays for none of the pushes/flavor draws).
 	const log: CombatEvent[] = [];
@@ -1071,7 +1336,12 @@ export function resolveBattle(
 				// schedule independent of generateLog (parity invariant). Passes `self`
 				// so the pipeline can read the ATTACKER's active accuracy / weapon-damage
 				// debuffs (Phase 4). Effect procs against the target also happen inside.
-				const shot = fireWeapon(self, target, weapon, combat);
+				// PHASE 7b: pass the defense context so an incoming shot is contested by
+				// the target's drone screen (interception / deflect / reflect / meat-
+				// shield). Droneless targets make zero extra draws (the parity guard).
+				const shot = fireWeapon(self, target, weapon, combat, false, {
+					combatants,
+				});
 
 				// LOG + COSMETIC work is gated on generateLog ONLY. None of this can
 				// change the outcome: fireWeapon already did all its combat draws.
@@ -1132,6 +1402,44 @@ export function resolveBattle(
 							hullAfter: shot.hullAfter,
 						});
 					}
+					// PHASE 7b: narrate the drone screen's reaction (log-only; the outcome
+					// was already resolved inside fireWeapon). One aggregate "droneIntercept"
+					// line when the screen engaged, one "destroyed" per drone lost, and one
+					// "droneReflect"/"droneCounter" per collateral hit on the attacker / a
+					// smart-reflect priority foe.
+					if (shot.dronesEngaged > 0) {
+						log.push({
+							tDeciSec: t,
+							round,
+							type: "droneIntercept",
+							actorId: target.id, // the DEFENDER's drones acted
+							targetId: self.id,
+							result: "droneIntercept",
+							projectilesHit: shot.dronesEngaged,
+							family: weapon.family,
+						});
+					}
+					for (const hit of shot.collateral) {
+						log.push({
+							tDeciSec: t,
+							round,
+							type: hit.kind === "reflect" ? "droneReflect" : "droneCounter",
+							actorId: target.id, // the carrier's screen dealt this
+							targetId: hit.targetId,
+							damage: hit.damage,
+							result: hit.kind === "reflect" ? "droneReflect" : "droneCounter",
+						});
+						if (hit.killed) {
+							log.push({
+								tDeciSec: t,
+								round,
+								type: "destroyed",
+								actorId: target.id,
+								targetId: hit.targetId,
+								result: "destroyed",
+							});
+						}
+					}
 				}
 			}
 
@@ -1145,15 +1453,67 @@ export function resolveBattle(
 				// freshly-ambushed ship's drones hold fire with its weapons (the whole ship is
 				// caught off guard) until its ready tick.
 				//
-				// ⚠️ Phase 7b: DEFENSIVE interactions (evade/deflect/reflect/smart-reflect
-				// when a squadron or the carrier is targeted), meat-shield overflow,
-				// replenishment of destroyed drones, and the carrier hull class all attach to
-				// this same array. This 7a seam is OFFENSE ONLY.
+				// PHASE 7b: the DEFENSIVE interactions live in fireWeapon (an incoming
+				// shot is contested by this same array); here the loop adds the SUPPORT
+				// KIT (Mode 3): a support squadron's pulse repairs the owner + cleanses
+				// disruptions instead of firing. Offense (attack/defense volleys) is 7a.
 				for (const squadron of self.drones) {
 					// Advance the squadron's firing clock by dt (no combat draw).
 					squadron.cooldownAccumulator += DT_DECISEC;
-					// Not yet ready to volley.
+					// Not yet ready to volley / pulse.
 					if (squadron.cooldownAccumulator < squadron.attackCooldownDeciSec) continue;
+
+					// PHASE 7b SUPPORT PULSE (design S8 Mode 3). A utility squadron does
+					// NOT fire; when its clock is ready it repairs the OWNER's hull (per
+					// alive drone, no range gate: it tends its own ship) and attempts to
+					// cleanse the owner's disruptions (halve-per-rank chance). Gated on
+					// mode so attack/defense fall through to the offense volley below, and
+					// on there being a support squadron at all (parity: no support => no
+					// draw here). The cleanse is the only combat-stream draw.
+					if (squadron.mode === "utility") {
+						squadron.cooldownAccumulator -= squadron.attackCooldownDeciSec;
+						// Count alive+online drones: a wiped/jammed support screen heals less.
+						let activeDrones = 0;
+						for (const d of squadron.drones) {
+							if (d.alive && d.status === "online") activeDrones++;
+						}
+						// Hull repair (deterministic, no draw), clamped to hullMax.
+						const healed = squadron.supportHullRepair * activeDrones;
+						const hullBefore = self.hull;
+						if (healed > 0 && self.hull < self.hullMax) {
+							self.hull = Math.min(self.hullMax, self.hull + healed);
+						}
+						// Cleanse (draws on the combat stream, one per disruption). Only when
+						// the screen has an active drone to run the kit.
+						const cleansed =
+							activeDrones > 0 ? supportCleanse(self, combat) : [];
+						// LOG-ONLY narration of the pulse (never changes the outcome).
+						if (generateLog && (self.hull !== hullBefore || cleansed.length > 0)) {
+							cosmetic.nextInt(1000);
+							log.push({
+								tDeciSec: t,
+								round,
+								type: "droneSupport",
+								actorId: self.id,
+								targetId: self.id,
+								result: "droneSupport",
+								damage: self.hull - hullBefore, // hull RESTORED this pulse
+								hullAfter: self.hull,
+							});
+							for (const defId of cleansed) {
+								log.push({
+									tDeciSec: t,
+									round,
+									type: "droneCleanse",
+									actorId: self.id,
+									targetId: self.id,
+									result: "droneCleanse",
+									effectDefId: defId,
+								});
+							}
+						}
+						continue;
+					}
 
 					// Reach gate: owner-to-target distance vs the squadron's range. Out of
 					// reach HOLDS the accumulator (like a weapon) so the volley fires the
@@ -1205,6 +1565,46 @@ export function resolveBattle(
 						}
 					}
 				}
+		}
+
+		// PHASE C3: IN-COMBAT DRONE REPLENISH (design S8, Phase 7b). A combatant with
+		// an in-combat replenish MODULE (inCombatReplenishPercent > 0, Phase 9 content)
+		// rebuilds destroyed / repairs disrupted drones DURING the fight at x% of each
+		// squadron's droneReplenishRate. Fully GATED on the percent being > 0, so a
+		// combatant without the module never banks or draws here and its drones only
+		// recover OUT of combat (between waves, Phase 9). NO combat-stream draw
+		// (replenishDrones is deterministic), so this is parity-safe by construction.
+		// Runs for every LIVING combatant, target or not (a screen recovers regardless).
+		for (const self of combatants) {
+			if (!self.alive) continue;
+			const pct = self.inCombatReplenishPercent ?? 0;
+			if (pct <= 0) continue; // no module: no in-combat recovery (parity guard)
+			for (const squadron of self.drones) {
+				// Bank fixed-point progress: rate (per second) * pct% * dt (deci-seconds).
+				// Divisor 100 (percent) * TENTHS_PER_SECOND (per-second -> per-tick) keeps
+				// it exact integer, releasing whole progress units and carrying the rest.
+				const key = `${self.id}:${squadron.id}`;
+				const banked =
+					(droneReplenishBank.get(key) ?? 0) +
+					squadron.droneReplenishRate * pct * DT_DECISEC;
+				const units = Math.floor(banked / (100 * TENTHS_PER_SECOND));
+				droneReplenishBank.set(key, banked - units * 100 * TENTHS_PER_SECOND);
+				if (units > 0) {
+					const restored = replenishDrones(squadron, units);
+					// LOG-ONLY: narrate a drone coming back online mid-fight.
+					if (generateLog && restored > 0) {
+						log.push({
+							tDeciSec: t,
+							round,
+							type: "droneReplenish",
+							actorId: self.id,
+							targetId: self.id,
+							result: "droneReplenish",
+							projectilesHit: restored, // count of drones restored this tick
+						});
+					}
+				}
+			}
 		}
 
 		// PHASE D: status effects (design S4). Tick EVERY living combatant's
