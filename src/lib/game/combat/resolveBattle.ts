@@ -465,10 +465,18 @@ function fireWeapon(
 	// Targeting Drift) scale weapon accuracy DOWN before the evasion subtraction.
 	const accuracyDelta = activeStatDelta(self.statusEffects, "accuracy");
 	const effectiveAccuracy = applyPercentDelta(weapon.accuracy, accuracyDelta);
+	// PHASE 6 DEBUFF (applied): the TARGET's Manifold Overheat (-maneuver) scales its
+	// EVASION down (design S6: maneuverability feeds evasion). A negative maneuver
+	// delta reduces evasion => the ship is EASIER to hit while its thrusters overheat.
+	// Zero delta => applyPercentDelta(evasion, 0) == evasion, so an unafflicted target
+	// is byte-identical (parity). This only moves the hit THRESHOLD, never the draw.
+	const maneuverDelta = activeStatDelta(target.statusEffects, "maneuver");
+	const effectiveEvasion =
+		maneuverDelta !== 0 ? applyPercentDelta(target.evasion, maneuverDelta) : target.evasion;
 	// Per-projectile hit chance: (debuffed) accuracy reduced by the target's
-	// evasion, clamped to a valid percent. No minimum floor, so a 0 net chance is a
-	// guaranteed miss (the evade tests rely on this) and >= 100 is a sure hit.
-	const hitChance = Math.max(0, Math.min(100, effectiveAccuracy - target.evasion));
+	// (maneuver-scaled) evasion, clamped to a valid percent. No minimum floor, so a 0
+	// net chance is a guaranteed miss (the evade tests rely on this) and >= 100 sure.
+	const hitChance = Math.max(0, Math.min(100, effectiveAccuracy - effectiveEvasion));
 
 	// PHASE 4 DEBUFF (applied): the attacker's weapon-damage debuff (Coil
 	// Dampening) scales every projectile's raw damage DOWN. Computed once per shot.
@@ -899,6 +907,13 @@ export function resolveBattle(
 			const readyTick = returnFireReadyTick.get(self.id) ?? 0;
 			if (t < readyTick) continue;
 
+			// PHASE 6 DEBUFF (applied): Sensor Power Drain (-range) shrinks this ship's
+			// EFFECTIVE weapon range (design S4/S6: sensor drains reduce range). Read the
+			// summed `range` delta (negative for a drain) ONCE per combatant; zero delta
+			// => nominal range, so an undrained ship is byte-identical (parity). Applied
+			// to each weapon's range at the gate below.
+			const rangeDelta = activeStatDelta(self.statusEffects, "range");
+
 			// PHASE C: weapons. Advance each weapon's cooldown clock by dt; fire any
 			// that have both come off cooldown AND have the target in range.
 			for (const weapon of self.weapons) {
@@ -907,12 +922,14 @@ export function resolveBattle(
 				if (weapon.cooldownAccumulator < weapon.cooldownDeciSec) continue;
 
 				// Range gate: fire only if the target sits within this weapon's
-				// range on the 1D axis. If out of range we HOLD the accumulator at
-				// (or above) the ready threshold so the shot goes off the instant the
-				// ship closes into range (design S6: charged salvo fires when the
-				// band opens). We do NOT reset it here.
+				// (sensor-drain-scaled) range on the 1D axis. If out of range we HOLD the
+				// accumulator at (or above) the ready threshold so the shot goes off the
+				// instant the ship closes into range (design S6: charged salvo fires when
+				// the band opens). We do NOT reset it here.
 				const distance = Math.abs(self.position - target.position);
-				if (distance > weapon.range) continue;
+				const effectiveRange =
+					rangeDelta !== 0 ? applyPercentDelta(weapon.range, rangeDelta) : weapon.range;
+				if (distance > effectiveRange) continue;
 
 				// Ready + in range: fire. Consume ONE cooldown period from the
 				// accumulator, carrying the remainder so fractional fire rates stay

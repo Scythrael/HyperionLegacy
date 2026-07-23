@@ -1246,3 +1246,98 @@ describe("Phase 6: ambush opener (design S7)", () => {
 		expect(offline.log.length).toBe(0);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// PHASE 6: the movement / sensor debuffs the status system carried since Phase
+// 4 are now WIRED into the positional math (Coolant Leak -> effective move speed,
+// Sensor Power Drain -> effective weapon range, Manifold Overheat -> evasion).
+// Each reads active statusEffects and is a no-op at zero, so parity holds.
+// ---------------------------------------------------------------------------
+describe("Phase 6: wired movement + sensor debuffs", () => {
+	const leak = (rank: number) => ({ defId: "coolantLeak", rank, remainingDeciSec: 100000, dotBank: 0 });
+	const drain = (rank: number) => ({ defId: "sensorPowerDrain", rank, remainingDeciSec: 100000, dotBank: 0 });
+	const overheat = (rank: number) => ({ defId: "manifoldOverheat", rank, remainingDeciSec: 100000, dotBank: 0 });
+
+	it("Coolant Leak slows a ship's closing, so it reaches firing range later", () => {
+		// A short-range brawler charges a stationary dummy at distance 300. With a
+		// Coolant Leak it closes slower, so its first in-range shot lands later.
+		const battle = (leaked: boolean): BattleParticipants => ({
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					position: 0,
+					speed: 20,
+					stance: "aggressive", // charge to Short (100)
+					weapons: [makeWeapon({ id: "pw", yield: 10, accuracy: 100, range: 100, cooldownDeciSec: 5 })],
+					statusEffects: leaked ? [leak(1)] : [],
+				}),
+				makeCombatant({ id: "E1", team: "enemy", hull: 100000, hullMax: 100000, position: 300, speed: 0, weapons: [] }),
+			],
+		});
+		const firstHitT = (leaked: boolean): number | undefined =>
+			resolveBattle(battle(leaked), 12, { generateLog: true }).log.find(
+				(e) => e.type === "hit" && e.actorId === "P1",
+			)?.tDeciSec;
+		const clean = firstHitT(false);
+		const leaked = firstHitT(true);
+		expect(clean).toBeDefined();
+		expect(leaked).toBeDefined();
+		expect(leaked!).toBeGreaterThan(clean!); // slowed = later into range
+	});
+
+	it("Sensor Power Drain shrinks effective range: an edge-of-range target falls out of reach", () => {
+		// A stationary shooter with range 300 vs a target at distance 250. Clean it
+		// is in range and fires; a rank-1 sensor drain (-20% => range 240) puts the
+		// target out of reach, so the shooter never lands a shot.
+		const battle = (drained: boolean): BattleParticipants => ({
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					position: 0,
+					speed: 0, // stationary: isolate range from movement
+					weapons: [makeWeapon({ id: "pw", yield: 10, accuracy: 100, range: 300, cooldownDeciSec: 10 })],
+					statusEffects: drained ? [drain(1)] : [],
+				}),
+				makeCombatant({ id: "E1", team: "enemy", hull: 100000, hullMax: 100000, position: 250, speed: 0, weapons: [] }),
+			],
+		});
+		const landedAny = (drained: boolean): boolean =>
+			resolveBattle(battle(drained), 34, { generateLog: true }).log.some(
+				(e) => e.type === "hit" && e.actorId === "P1",
+			);
+		expect(landedAny(false)).toBe(true); // in range at 250 <= 300
+		expect(landedAny(true)).toBe(false); // drained range 240 < 250: out of reach
+	});
+
+	it("Manifold Overheat cuts evasion, so an overheated target is easier to hit", () => {
+		// Same seeded battle; the only difference is a rank-3 Manifold Overheat on the
+		// evasive target, which lowers its evasion and lets the attacker land more.
+		const battle = (overheated: boolean): BattleParticipants => ({
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					hull: 100000,
+					hullMax: 100000,
+					weapons: [makeWeapon({ id: "pw", yield: 1, accuracy: 60, cooldownDeciSec: 5 })],
+				}),
+				makeCombatant({
+					id: "E1",
+					team: "enemy",
+					hull: 100000,
+					hullMax: 100000,
+					evasion: 40,
+					weapons: [],
+					statusEffects: overheated ? [overheat(3)] : [],
+				}),
+			],
+		});
+		const hits = (overheated: boolean): number =>
+			resolveBattle(battle(overheated), 71, { generateLog: true }).log.filter(
+				(e) => e.type === "hit" && e.actorId === "P1",
+			).length;
+		expect(hits(true)).toBeGreaterThan(hits(false)); // overheated = easier to hit
+	});
+});

@@ -60,9 +60,9 @@ export type StatusEffectSystem =
 // rest, but the FULL vocabulary lives here so a disruption def never lacks a home.
 export type StatusEffectStat =
 	| "accuracy" // Sensors Scattering Field + Weapons Targeting Drift
-	| "range" // Sensors Sensor Power Drain          [applied Phase 6: range bands]
-	| "maneuver" // Engines Manifold Overheat          [applied Phase 6: evasion]
-	| "speed" // Engines Coolant Leak               [applied Phase 6: movement]
+	| "range" // Sensors Sensor Power Drain          [WIRED Phase 6: firing range gate]
+	| "maneuver" // Engines Manifold Overheat          [WIRED Phase 6: evasion in hit path]
+	| "speed" // Engines Coolant Leak               [WIRED Phase 6: effective move speed]
 	| "damageTaken" // Shields Emitter Overload        [applied Phase 5: defense math]
 	| "attenuation" // Shields Harmonic Gap            [applied Phase 5: defense math]
 	| "shieldRecharge" // Shields Capacitor Failure
