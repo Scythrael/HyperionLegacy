@@ -49,6 +49,11 @@ function makeWeapon(
 		armorPen: overrides.armorPen ?? 0,
 		cooldownAccumulator: overrides.cooldownAccumulator ?? 0,
 		effectSlots: overrides.effectSlots ?? [],
+		// Durability defaults: full pool at quality 0. The sim does not roll loss
+		// live, so these never move a resolveBattle outcome (regression-safe).
+		durability: overrides.durability ?? 100,
+		durabilityMax: overrides.durabilityMax ?? 100,
+		quality: overrides.quality ?? 0,
 	};
 }
 

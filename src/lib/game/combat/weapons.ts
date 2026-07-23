@@ -53,6 +53,13 @@ const RANGE_LONG = 300;
 const RANGE_MEDIUM = 200;
 const RANGE_SHORT = 100;
 
+// Base weapon durability (design S9) for the roster TEMPLATES, at quality 0. A
+// shared first-pass base keeps the roster legible; a real per-instance ceiling
+// (quality raises it via qualityDurabilityMax) arrives with the crafted-equipment
+// bridge in the integration phase. TUNABLE (design S20). Templates ship full
+// (durability == durabilityMax) at quality 0.
+const BASE_WEAPON_DURABILITY = 100;
+
 // A tiny builder so each roster entry states only its identity stats and inherits
 // the two always-zero-unless-signature fields + the empty Phase-4 effect slots +
 // a zeroed cooldown accumulator. Keeps the roster readable as a table of intent.
@@ -88,6 +95,12 @@ function def(
 		armorPen: stats.armorPen ?? 0,
 		cooldownAccumulator: 0,
 		effectSlots: stats.effectSlots ?? [],
+		// Durability (design S9): templates ship full at quality 0. The sim does not
+		// roll loss live yet (see the durability.ts SEAM note); quality + a real
+		// per-instance ceiling arrive with the equipment bridge (integration phase).
+		durability: BASE_WEAPON_DURABILITY,
+		durabilityMax: BASE_WEAPON_DURABILITY,
+		quality: 0,
 	};
 }
 

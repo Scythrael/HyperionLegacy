@@ -523,6 +523,18 @@ function fireWeapon(
 		}
 	}
 
+	// PHASE 5 DURABILITY SEAM (design S9): a connecting hit is a durability "damage
+	// event" for the TARGET's systems. The pure model + roll live in
+	// combat/durability.ts (rollDurabilityLoss / systemCondition), fully unit
+	// tested. We deliberately do NOT roll it here yet: a live combat-stream draw
+	// per hit would shift the fixed roll schedule the flagship parity + Phase 3/4
+	// mechanic fixtures pin, and durability is not yet synced to real game
+	// equipment (that is the integration phase). When the equipment-durability
+	// bridge lands, this is exactly where the loop calls rollDurabilityLoss on the
+	// target's damaged systems (and, per S9, optionally the firing weapon), using
+	// `combat` so offline == live holds. TODO(integration): wire rollDurabilityLoss
+	// here + sync to equipment durability.
+
 	// Death bookkeeping: hull at or below 0 means destroyed. Single source of
 	// truth for liveness (the loop + objective read `alive`, never re-derive).
 	let killed = false;

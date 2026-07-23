@@ -114,6 +114,23 @@ export interface CombatWeapon {
 	// (e.g. a plain Autocannon). See statusEffects.ts WeaponEffect + the shot
 	// pipeline's effect-proc seam in resolveBattle.ts.
 	effectSlots: WeaponEffect[];
+
+	// -- DURABILITY (design S9). A weapon is a DurableSystem: it takes durability
+	// "damage events" and its quality mitigates the loss + raises its ceiling. See
+	// combat/durability.ts for the model + the systemCondition four-state helper.
+	// ⚠️ SEAM: the sim does NOT roll durability loss live yet (that would perturb
+	// the parity/mechanic fixtures' fixed draw schedule); it is a pure tested model
+	// wired in during the equipment-durability-sync integration phase. --
+	// Current durability points remaining (integer, >= 0). 0 => the system reads
+	// "offline" from systemCondition.
+	durability: number;
+	// Maximum durability (integer). Quality raises this via qualityDurabilityMax
+	// (design S9 ~+100% at top quality). The Degraded-condition denominator.
+	durabilityMax: number;
+	// Quality rank 0..5 (design S9). Reduces the per-event loss chance (~-10%/rank)
+	// and raises durabilityMax. First-pass 0 for the roster templates; the real
+	// per-instance quality arrives with the crafted-equipment bridge (integration).
+	quality: number;
 }
 
 // One participant in the battle: a ship (yours or an enemy).
