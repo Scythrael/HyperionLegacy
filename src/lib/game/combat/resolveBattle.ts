@@ -48,6 +48,7 @@ import {
 	activeStatDelta,
 	applyPercentDelta,
 } from "./statusEffects";
+import { stancePreferredDistance, stanceMoveDelta } from "./positioning";
 
 // One simulation step is 1 deci-second. Named so the "0.1s" intent is explicit
 // wherever we advance a clock or a cooldown, and so it is a single knob if the
@@ -195,30 +196,44 @@ function selectTarget(
 	return best;
 }
 
-// Move `self` toward `target` along the 1D position axis, using the banked-
-// tenths accumulator so a per-SECOND speed becomes exact integer motion per
-// 0.1s tick. Never overshoots the target's position (skeleton just closes the
-// gap; Phase 6 adds stance-driven preferred ranges + kiting).
+// Move `self` toward its STANCE's preferred distance from `target` along the 1D
+// position axis (design S6), using the banked-tenths accumulator so a per-SECOND
+// speed becomes exact integer motion per 0.1s tick. Closes if too far, kites if
+// too close, holds at the preferred point (never overshoots): the geometry is the
+// pure stanceMoveDelta helper; this function only owns the fixed-point speed
+// banking + the debuff-scaled effective speed.
 function advanceMovement(
 	self: Combatant,
 	target: Combatant,
 	acc: Accumulators,
 ): void {
-	// Bank this tick's worth of tenths (speed tenths per second * dt ticks).
-	acc.move += self.speed * DT_DECISEC;
+	// PHASE 6 DEBUFF (applied): Coolant Leak (-speed) scales the EFFECTIVE movement
+	// speed DOWN before banking. Read the combatant's summed `speed` delta (a
+	// negative percent for a coolant leak) and apply it to the base speed. Pure
+	// integer scaling of an already-integer rate, no combat draw, so parity holds
+	// (offline == live) and a leak-free ship is byte-identical (zero delta = no-op).
+	const speedDelta = activeStatDelta(self.statusEffects, "speed");
+	const effectiveSpeed =
+		speedDelta !== 0 ? applyPercentDelta(self.speed, speedDelta) : self.speed;
+
+	// Bank this tick's worth of tenths (effective speed tenths per second * dt).
+	acc.move += effectiveSpeed * DT_DECISEC;
 	// Convert whole banked units into position steps; keep the remainder banked.
 	const wholeSteps = Math.floor(acc.move / TENTHS_PER_SECOND);
 	if (wholeSteps <= 0) return;
 	acc.move -= wholeSteps * TENTHS_PER_SECOND;
 
-	// Distance + direction to the target on the 1D axis.
-	const gap = target.position - self.position;
-	if (gap === 0) return; // already co-located; nothing to close
-	const direction = gap > 0 ? 1 : -1;
-	const distance = Math.abs(gap);
-	// Move by the banked steps but never past the target (min with distance).
-	const step = Math.min(wholeSteps, distance);
-	self.position += direction * step;
+	// Step toward the stance's preferred distance (signed: + closes, - kites, 0
+	// holds). stanceMoveDelta caps the step so we never overshoot the preferred
+	// point and holds when co-located (gap 0), which preserves the co-located
+	// parity fixtures (both at position 0 stay put).
+	const preferred = stancePreferredDistance(self.stance);
+	self.position += stanceMoveDelta(
+		self.position,
+		target.position,
+		preferred,
+		wholeSteps,
+	);
 }
 
 // Regenerate shields using the banked-tenths accumulator (per-second recharge

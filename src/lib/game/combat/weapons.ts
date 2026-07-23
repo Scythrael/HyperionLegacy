@@ -86,6 +86,10 @@ function def(
 		// identity is pure direct damage (Autocannon) or whose kit is a later
 		// phase (Point-Defense = anti-drone, Phase 8).
 		effectSlots?: WeaponEffect[];
+		// AMBUSH ELIGIBILITY (design S7): may this weapon fire in the free hull-direct
+		// ambush opener? Defaults to TRUE (most weapons); heavy warheads (Concussion
+		// Torpedo) set it false so a hull-direct torpedo cannot be an opener.
+		ambushEligible?: boolean;
 	},
 ): CombatWeapon {
 	return {
@@ -102,6 +106,8 @@ function def(
 		armorPen: stats.armorPen ?? 0,
 		cooldownAccumulator: 0,
 		effectSlots: stats.effectSlots ?? [],
+		// Ambush-eligible unless the weapon explicitly opts out (Concussion Torpedo).
+		ambushEligible: stats.ambushEligible ?? true,
 		// Durability (design S9): templates ship full at quality 0. The sim does not
 		// roll loss live yet (see the durability.ts SEAM note); quality + a real
 		// per-instance ceiling arrive with the equipment bridge (integration phase).
@@ -224,6 +230,9 @@ export const CONCUSSION_TORPEDO: CombatWeapon = def(
 		powerDraw: 35, // heaviest warhead, priciest to power
 		armorPen: 40,
 		effectSlots: [fx("coolantLeak", 60, 30)],
+		// BARRED from ambush openers (design S7): a hull-direct torpedo would be a
+		// delete button. The only v1 weapon that opts out of ambush eligibility.
+		ambushEligible: false,
 	},
 );
 

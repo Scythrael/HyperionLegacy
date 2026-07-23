@@ -50,6 +50,12 @@ export interface FamilyResist {
 // zero runtime cycle: `import type` is erased at compile time.
 import type { StatusEffect, WeaponEffect } from "./statusEffects";
 
+// Phase 6 positional-layer type. CombatStance lives in positioning.ts (with the
+// band + movement helpers that consume it); imported as a TYPE ONLY so the two
+// modules reference each other's shapes with zero runtime cycle (import type is
+// erased at compile time, exactly like the StatusEffect import above).
+import type { CombatStance } from "./positioning";
+
 // A single weapon mounted on a combatant.
 //
 // This is the REAL Phase 3 weapon model (it replaced the Phase 2 flat-`yield`
@@ -138,6 +144,14 @@ export interface CombatWeapon {
 	// ⚠️ SEAM: the FIT-TIME gate that calls canFitByPower is the integration phase;
 	// here it is just the per-weapon datum + the pure budget helpers.
 	powerDraw: number;
+
+	// AMBUSH ELIGIBILITY (design S7 / Phase 6). Whether this weapon may fire in an
+	// AMBUSH OPENER (the free, hull-direct opening salvo). Heavy warheads are BARRED
+	// so a hull-direct torpedo is not a delete button (design S7: "Torpedoes are
+	// barred from ambush openers"): Concussion Torpedo sets this false, every other
+	// v1 weapon is eligible. The normal firing loop ignores this field entirely; it
+	// gates ONLY the opener salvo (see resolveBattle's ambush path). true = eligible.
+	ambushEligible: boolean;
 }
 
 // One participant in the battle: a ship (yours or an enemy).
@@ -215,12 +229,20 @@ export interface Combatant {
 	disruptionResist: FamilyResist;
 
 	// Position on a 1D distance axis (integer). Combatants close/open distance
-	// toward their target each tick. Phase 6 layers stance + range bands on top;
-	// the skeleton just closes toward the nearest enemy.
+	// toward their target each tick. Phase 6 layers stance + range bands on top
+	// (see positioning.ts); movement steps toward the stance's preferred distance.
 	position: number;
 	// Movement per SECOND along the position axis (integer). Converted to a
-	// per-dt step by resolveBattle.
+	// per-dt step by resolveBattle. The Coolant Leak (-speed) disruption scales the
+	// EFFECTIVE speed used for movement (design S4 / Phase 6 debuff wiring).
 	speed: number;
+	// STANCE (design S6 / Phase 6): the posture that sets this ship's PREFERRED
+	// fighting distance (aggressive->Short, balanced->Medium, standoff->Long). The
+	// sim moves the ship toward stancePreferredDistance(stance) each tick. Default
+	// "balanced". Player-set per dispatch and enemy-derived-from-loadout are the
+	// mission layer (Phase 9); for now it is a plain field the caller sets, defaulting
+	// balanced. See positioning.ts for the type + preferred-distance mapping.
+	stance: CombatStance;
 
 	// This combatant's weapons. Skeleton fires the placeholder shot; Phase 3
 	// swaps in the real shot pipeline.
@@ -242,6 +264,24 @@ export interface Combatant {
 	// reshaping Combatant; the sim loop already has an "act drones" seam that
 	// iterates this empty array today.
 	drones: unknown[]; // TODO Phase 8: launched drone squadrons
+
+	// -- COUNTER-MODULE EFFECT FLAGS (design S7 / Phase 6). Modules are a reserved
+	// equipment slot; the sim reads their EFFECTS as these plain combatant fields.
+	// The real module ITEMS that GRANT these effects (a Combat-Reflex / Rapid-Charge
+	// module, a Particle-Trace Detector module) are Phase 9 content; here they are
+	// just inert-by-default fields the ambush path consults. Both default OFF so a
+	// combatant with no counter-modules behaves exactly as an un-countered ambush.
+	//
+	// rapidChargeAfterAmbush: when true, SHORTENS the post-ambush return-fire delay
+	// (design S7 Combat-Reflex / Rapid-Charge). A boolean gate (the magnitude is a
+	// tuned constant in resolveBattle). Default false.
+	rapidChargeAfterAmbush: boolean;
+	// particleTraceDetector: an integer-percent COMBAT-stream chance to DETECT an
+	// incoming ambush and raise shields first, downgrading a hull-direct ambush
+	// opener to a normal SHIELDED opener (design S7 Particle-Trace Detector). 0 = off
+	// (no detection roll drawn). The roll is on the combat stream, so it is
+	// deterministic + offline == live. Default 0.
+	particleTraceDetector: number;
 }
 
 // One structured record in the combat log.

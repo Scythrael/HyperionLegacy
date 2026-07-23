@@ -57,6 +57,8 @@ function makeWeapon(
 		// Power draw is inert in resolveBattle (the fit-time gate is the integration
 		// phase); default 0 so fixtures are unaffected.
 		powerDraw: overrides.powerDraw ?? 0,
+		// Ambush-eligible by default (Phase 6); an ambush test opts a torpedo out.
+		ambushEligible: overrides.ambushEligible ?? true,
 	};
 }
 
@@ -89,10 +91,16 @@ function makeCombatant(overrides: Partial<Combatant> = {}): Combatant {
 		},
 		position: overrides.position ?? 0,
 		speed: overrides.speed ?? 10,
+		// Default stance Balanced (Phase 6). Co-located fixtures (position 0) hold
+		// station regardless of stance, so this keeps every pre-Phase-6 outcome.
+		stance: overrides.stance ?? "balanced",
 		weapons: overrides.weapons ?? [makeWeapon()],
 		alive: overrides.alive ?? true,
 		statusEffects: overrides.statusEffects ?? [],
 		drones: overrides.drones ?? [],
+		// Counter-module flags OFF by default (Phase 6); ambush tests opt in.
+		rapidChargeAfterAmbush: overrides.rapidChargeAfterAmbush ?? false,
+		particleTraceDetector: overrides.particleTraceDetector ?? 0,
 	};
 }
 
@@ -996,5 +1004,60 @@ describe("status effects: applied accuracy debuff reduces hit rate", () => {
 		expect(hits(debuffed)).toBeLessThan(hits(clean));
 		// Sanity: the clean attacker at 90% actually landed plenty of hits.
 		expect(hits(clean)).toBeGreaterThan(0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// PHASE 6: range bands + stance movement, exercised through the full sim (the
+// pure geometry is unit-tested in positioning.test.ts). This asserts the
+// OBSERVABLE consequence: a long-range attacker punishes a short-range brawler
+// during the approach, landing hits before the brawler can answer (design S6:
+// "Being out-ranged is punishing ... A short-range brawler must survive the
+// walk-in").
+// ---------------------------------------------------------------------------
+describe("Phase 6: out-ranged punishment during the approach", () => {
+	it("a long-range attacker hits a short-range brawler before it can answer", () => {
+		// Player: a Long-range gun (range 300), STANDOFF stance (kite at 300), slow so
+		// it holds the enemy at arm's length. Starts at position 0.
+		// Enemy: a Short-range gun (range 100), AGGRESSIVE stance (charge to 100), fast
+		// so it eventually closes into its own range. Starts far away at 300.
+		const battle = (): BattleParticipants => ({
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					hull: 100000,
+					hullMax: 100000,
+					position: 0,
+					speed: 5, // slow kite
+					stance: "standoff", // preferred distance 300 (Long)
+					weapons: [makeWeapon({ id: "pw", yield: 20, accuracy: 100, range: 300, cooldownDeciSec: 10 })],
+				}),
+				makeCombatant({
+					id: "E1",
+					team: "enemy",
+					hull: 100000,
+					hullMax: 100000,
+					position: 300, // opens at Long distance
+					speed: 20, // fast rush
+					stance: "aggressive", // preferred distance 100 (Short)
+					weapons: [makeWeapon({ id: "ew", yield: 20, accuracy: 100, range: 100, cooldownDeciSec: 10 })],
+				}),
+			],
+		});
+		const { log } = resolveBattle(battle(), 4242, { generateLog: true });
+
+		// First hit landed BY the player and BY the enemy (by timestamp).
+		const firstBy = (id: string): number | undefined =>
+			log.find((e) => e.type === "hit" && e.actorId === id)?.tDeciSec;
+		const firstPlayerHit = firstBy("P1");
+		const firstEnemyHit = firstBy("E1");
+
+		// The player (long-range) lands the opening damage very early in the approach.
+		expect(firstPlayerHit).toBeDefined();
+		expect(firstPlayerHit!).toBeLessThanOrEqual(20);
+		// The short-range brawler must survive the walk-in: its first answer, if it
+		// comes at all, lands strictly AFTER the player has already been firing.
+		expect(firstEnemyHit === undefined || firstEnemyHit > firstPlayerHit!).toBe(true);
 	});
 });

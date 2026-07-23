@@ -28,7 +28,14 @@
 
 import type { ShipTypeDef } from "../model";
 import type { Combatant, CombatTeam, CombatWeapon, FamilyResist } from "./types";
+import type { CombatStance } from "./positioning";
 import { makeWeaponInstance, type WeaponId } from "./weapons";
+
+// Default stance for a bridged ship (design S6): Balanced (fight at Medium range)
+// until the mission layer sets a real per-dispatch stance (player-chosen) or the
+// enemy generator derives one from the loadout (Phase 9). Named so the default is
+// explicit + a single knob.
+const DEFAULT_STANCE: CombatStance = "balanced";
 
 // Default combat speed (position units per second) for a bridged ship until the
 // ship model grows a real combat-maneuver stat (TODO integration). Non-zero so
@@ -72,6 +79,9 @@ export interface ShipToCombatantArgs {
 	position?: number;
 	// Combat speed (position units/sec). Defaults to DEFAULT_COMBAT_SPEED.
 	speed?: number;
+	// Combat stance (design S6). Defaults to Balanced. The mission layer sets the
+	// player's chosen stance / the enemy's loadout-derived stance (Phase 9).
+	stance?: CombatStance;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +134,8 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		// placeholder DEFAULT_COMBAT_SPEED (TODO integration: a real maneuver stat).
 		position: args.position ?? 0,
 		speed: args.speed ?? DEFAULT_COMBAT_SPEED,
+		// Stance (design S6): Balanced by default; caller/mission layer overrides.
+		stance: args.stance ?? DEFAULT_STANCE,
 
 		// Caller-supplied weapons (the game has no fitted-weapon system yet).
 		weapons: weaponLoadout,
@@ -134,6 +146,12 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		// Reserved-empty forward-shaped arrays (the sim iterates them as no-ops).
 		statusEffects: [],
 		drones: [],
+
+		// Counter-module effect flags (design S7): OFF by default. The module ITEMS
+		// that grant these are Phase 9; a bridged ship carries none yet. TODO(Phase
+		// 9): read these from the ship's fitted counter-modules.
+		rapidChargeAfterAmbush: false,
+		particleTraceDetector: 0,
 	};
 }
 
