@@ -938,3 +938,22 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   static client-side SPA on crystalisoft.com; /version.json is a static file, not a validator), so
   it depends on standing up a small server-side endpoint (min-viable-save-version) the client checks
   on load and refuses below. NOT needed yet; build it just before the balance patch begins.
+
+- **SVG animated battle screen -> future "2.0 active-play combat" mode (user 2026-07-21).** A little
+  battle viewport: combatant icons moving around, weapons firing with PER-WEAPON-TYPE graphics
+  (each weapon type its own visual), last-one-standing wins. Deferred DELIBERATELY out of the
+  0.13.0 combat feature: regular combat ships as a headless deterministic AUTO-RESOLVE (compute
+  outcome + rewards, no animation). This visualization belongs to a later "active play" mode where
+  the player is present and engaged, not idle. Feasibility (confirmed): SVG is a great fit for a
+  handful of entities (Svelte binds reactive state -> SVG nodes; per-weapon graphics = small SVG
+  components; themes off existing tokens; RadialWeb is SVG precedent). The ONLY hard requirement to
+  keep 2.0 cheap: 0.13.0's combat resolver stays DETERMINISTIC + SEEDED (required for offline parity
+  anyway) and its outcome is structured enough that a future replay layer can plug in. The animation
+  is then a pure cosmetic REPLAY of a seeded event log, never the source of truth (same "presentation
+  is a projection of the sim" pattern as fuel-runway / XP parity). Do NOT build any event-log or
+  animation machinery in 0.13.0; just do not paint the resolver into a corner.
+
+- **Faction Reputation system -> future, post-combat (user 2026-07-22).** Reputation per faction; low rep triggers escalating consequences:
+  - **Severe (very low rep):** a BOUNTY is placed on you and your CAPTAIN can be destroyed (captain-specific death -> ties to the future captain-death + crew-promotion turnover; needs the monotonic captain-id counter combat is already adding). A **Diplomacy spec** could grant account-wide reputation-gain bonuses.
+  - **Moderate (bad but not worst, the user's FAVORITE):** that faction's LAW ENFORCEMENT randomly attacks you during their missions. Lose the fight -> you're hauled in and INCARCERATED for X ticks scaled by rep level; serving it RAISES your rep. Player should get an option to SURRENDER or make REPARATIONS instead of fighting. On capture: ship IMPOUNDED + captain in PRISON for a duration (up to ~a day if rep is bad enough).
+  Depends on: factions, the Diplomacy spec, captain death, and the reputation axis itself. All future; capture the hooks (faction ids, a rep scalar) opportunistically but build none of it in 0.13.0.
