@@ -135,6 +135,19 @@ export interface ShipTypeDef {
   // the device checkpoint, NOT piecemeal.
   buildRecipe: { components: Record<string, number>; credits: number; durationTicks: number };
   description: string;
+  // --- Research gate (Combat 0.13.0, Phase 9b: warship research gate) ------------
+  // OPTIONAL build-gate: the BLUEPRINTS key that must be in state.researchedBlueprints
+  // before this hull may be built. ABSENT (the default) = NO research gate, the hull is
+  // free to build once the Shipyard is founded (every economy hull + the entry warship,
+  // the destroyer). PRESENT = the hull is locked until its blueprint is researched at the
+  // Research Lab, which is how the heavier warships (battleship / carrier) gate behind an
+  // earned unlock. canBuildShip reads this as its `notResearched` content-availability gate
+  // (placed right after `notFounded`), so an absent field simply skips that gate entirely.
+  // Deliberately mirrors the "first tier free, later tiers gated" shape the freighter /
+  // prospector economy lines already use (the destroyer is the combat line's free first tier).
+  // The referenced blueprint is UNLOCK-ONLY (produces no craftable item, see BlueprintDef):
+  // researching it grants build access, nothing is fabricated.
+  requiresBlueprint?: string;
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
 
@@ -601,6 +614,11 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
   },
   battleship: {
     label: "Battleship", spec: "tactician", tier: 3,
+    // Warship research gate (Phase 9b): the battleship is a tier-3 capital hull, gated behind
+    // its OWN unlock-only blueprint so a player earns capital-ship access by researching it
+    // (separate from the carrier's, so the two are independent unlock choices). The destroyer
+    // (the combat line's free entry tier) carries NO requiresBlueprint by contrast.
+    requiresBlueprint: "battleshipHullBp",
     // Slow line hull: sluggish transit, small hold, neutral extraction.
     cargoCapacity: 40, transitSpeedMult: 0.7, extractionYieldMult: 1.0,
     fuelCapacity: 180, engineEfficiency: 0.05, // heavy: big tank, near-baseline burn
@@ -616,6 +634,10 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
   },
   carrier: {
     label: "Carrier", spec: "tactician", tier: 3,
+    // Warship research gate (Phase 9b): the carrier gates behind its OWN unlock-only blueprint,
+    // distinct from the battleship's, so researching one does NOT grant the other, the player
+    // picks which capital line to unlock first.
+    requiresBlueprint: "carrierHullBp",
     // Drone platform: slow-ish transit, smallest hold (space given to the bays),
     // neutral extraction.
     cargoCapacity: 25, transitSpeedMult: 0.8, extractionYieldMult: 1.0,
@@ -3032,6 +3054,22 @@ export interface BlueprintDef {
   // equipment blueprint never reaches the stackable-output path (all three already
   // branch on `equipmentOutput`/`isEquipment` first), so the fallback value is inert.
   equipmentOutput?: { slotType: EquipmentSlotType; varietyKey: string };
+  // --- Unlock-only shape (Combat 0.13.0, Phase 9b: warship research gate) ---------
+  // A THIRD blueprint family, on top of the two output families above. An UNLOCK-ONLY
+  // blueprint outputs NOTHING craftable: it has no `recipe.outputItem` (no stackable) AND
+  // no `equipmentOutput` (no minted system), and its `recipe.inputs` is EMPTY (there is
+  // nothing to fabricate). Its "product" is BUILD CONTENT: researching it flips a hull's
+  // ShipTypeDef.requiresBlueprint gate open (e.g. the battleship / carrier hulls), so the
+  // payoff is delivered by the Research Lab + the Shipyard, never by the Fabricator.
+  //
+  // WHY a dedicated flag (matching the codebase's explicit-discriminant idiom): the two
+  // existing families discriminate on `equipmentOutput` presence, but an unlock-only
+  // blueprint has NEITHER output shape, so "material vs equipment" cannot classify it.
+  // A self-documenting `unlockOnly: true` marker is the honest discriminant: Research OFFERS
+  // it (canResearch / the R5 list gate on tier like any blueprint), the Fabricator SKIPS it
+  // (canFabricate rejects it with `unlockOnly`, and the F4 craftable-list enumerations filter
+  // it out) since it produces nothing to craft. Absent/undefined = a normal craftable blueprint.
+  unlockOnly?: true;
   flavor?: string;      // narrative color (optional)
   unlockHint?: string;  // functional "how to unlock" clue for the UI (optional)
 }
@@ -3297,6 +3335,53 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     recipe: { inputs: { titaniumIngot: 5 } },
     flavor: "A sorting rig that hand-picks the cleanest ore, so the Refinery gets a better feed.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // WARSHIP HULL BLUEPRINTS (Combat 0.13.0, Phase 9b: warship research gate) ──
+  // UNLOCK-ONLY blueprints (unlockOnly: true, see BlueprintDef): they craft NOTHING.
+  // Researching one flips a hull's ShipTypeDef.requiresBlueprint gate open, so the entry
+  // warship (destroyer) stays free while the heavier capital hulls (battleship / carrier)
+  // must be earned through research, one blueprint each so the two are independent choices.
+  //
+  // TIER = 2 (NOT the hulls' own tier-3 combat rank): this `tier` field gates the RESEARCH
+  // LAB level required to research the blueprint (canResearch: bp.tier > research level ->
+  // tierLocked). The Research Lab caps at level 2 today (FACILITIES.research has 2 rungs), so
+  // a tier-3 blueprint would be permanently un-researchable, and thus its hull permanently
+  // un-buildable. Tier 2 keeps these reachable at the Lab's current ceiling, and it is the
+  // heaviest researchable tier (matching structuralAssemblyBp / the tier-2 equipment lines).
+  // When a later phase adds a level-3 Research Lab rung, these can be re-tiered upward.
+  //
+  // recipe.inputs is EMPTY (nothing is fabricated); the credit + duration cost is paid at the
+  // Research Lab. ⚠️ FIRST-PASS TUNABLE ⚠️ tier / researchDurationTicks / researchCreditCost
+  // are launch placeholders in the SAME spirit as every constant above (heavier than the
+  // tier-2 component blueprints, since a capital hull is a bigger unlock); real balance lands
+  // at the device-check stage. craftDurationTicks is required by the shape but INERT here (an
+  // unlock-only blueprint is never fabricated); a positive placeholder satisfies the F1 "every
+  // blueprint has a positive craftDurationTicks" invariant without implying it is ever crafted.
+  battleshipHullBp: {
+    key: "battleshipHullBp",
+    label: "Battleship Hull Blueprint",
+    tier: 2,
+    researchDurationTicks: 300,
+    researchCreditCost: 6000,
+    craftDurationTicks: 1, // INERT: unlock-only blueprints are never fabricated (positive to satisfy the F1 invariant)
+    unlockOnly: true,
+    recipe: { inputs: {} }, // nothing to craft: the payoff is Shipyard build access, not an item
+    flavor: "The full construction schematics for a battleship: the fleet's slow, gun-heavy capital wall.",
+    unlockHint: "Research at the Research Lab to unlock the Battleship at the Shipyard.",
+  },
+  carrierHullBp: {
+    key: "carrierHullBp",
+    label: "Carrier Hull Blueprint",
+    tier: 2,
+    researchDurationTicks: 300,
+    researchCreditCost: 6000,
+    craftDurationTicks: 1, // INERT: unlock-only blueprints are never fabricated (positive to satisfy the F1 invariant)
+    unlockOnly: true,
+    recipe: { inputs: {} }, // nothing to craft: the payoff is Shipyard build access, not an item
+    flavor: "The full construction schematics for a carrier: a drone platform that launches squadrons to fight for it.",
+    unlockHint: "Research at the Research Lab to unlock the Carrier at the Shipyard.",
   },
 };
 

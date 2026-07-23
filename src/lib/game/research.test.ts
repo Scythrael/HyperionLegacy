@@ -62,10 +62,21 @@ describe("Research R1, BLUEPRINTS registry is well-formed", () => {
 
   it("every recipe resolves to REAL ITEMS keys, with positive quantities", () => {
     for (const [key, bp] of Object.entries(BLUEPRINTS)) {
-      // 0.11.0 cleanup: recipe.outputItem/outputQty are OPTIONAL. Only a MATERIAL blueprint
-      // (equipmentOutput absent) produces a stackable item, so only it asserts a real output
-      // item + positive quantity. An EQUIPMENT blueprint mints an EquipmentInstance and OMITS
-      // both fields entirely, assert that omission as the cleanup invariant.
+      // THREE blueprint shapes (see BlueprintDef):
+      //   UNLOCK-ONLY (Combat 0.13.0 warship gate, unlockOnly: true): crafts NOTHING. No output
+      //     of either kind, and EMPTY inputs (the payoff is Shipyard build access, granted by
+      //     research). Assert that "produces nothing" shape, then skip the craftable assertions.
+      //   MATERIAL (equipmentOutput absent): produces a stackable, asserts a real outputItem +
+      //     positive outputQty.
+      //   EQUIPMENT (equipmentOutput present): mints an EquipmentInstance, OMITS both output
+      //     fields entirely (the 0.11.0 cleanup invariant).
+      if (bp.unlockOnly) {
+        expect(bp.recipe.outputItem, `${key} unlock-only outputItem omitted`).toBeUndefined();
+        expect(bp.recipe.outputQty, `${key} unlock-only outputQty omitted`).toBeUndefined();
+        expect(bp.equipmentOutput, `${key} unlock-only equipmentOutput omitted`).toBeUndefined();
+        expect(Object.keys(bp.recipe.inputs).length, `${key} unlock-only has no inputs`).toBe(0);
+        continue; // nothing craftable to resolve
+      }
       if (bp.equipmentOutput === undefined) {
         expect(bp.recipe.outputItem, `${key} outputItem present`).toBeDefined();
         expect(ITEMS[bp.recipe.outputItem ?? ""], `${key} outputItem`).toBeDefined();
@@ -74,7 +85,8 @@ describe("Research R1, BLUEPRINTS registry is well-formed", () => {
         expect(bp.recipe.outputItem, `${key} equipment outputItem omitted`).toBeUndefined();
         expect(bp.recipe.outputQty, `${key} equipment outputQty omitted`).toBeUndefined();
       }
-      // Every recipe INPUT key must be a real registry item with a positive amount.
+      // Every recipe INPUT key of a CRAFTABLE blueprint must be a real registry item with a
+      // positive amount (unlock-only blueprints have no inputs and were skipped above).
       const inputKeys = Object.keys(bp.recipe.inputs);
       expect(inputKeys.length, `${key} has >=1 input`).toBeGreaterThan(0);
       for (const inputKey of inputKeys) {
@@ -98,6 +110,60 @@ describe("Research R1, BLUEPRINTS registry is well-formed", () => {
     expect(BLUEPRINTS.structuralAssemblyBp).toBeDefined();
     expect(BLUEPRINTS.structuralAssemblyBp.tier).toBe(2);
     expect(BLUEPRINTS.structuralAssemblyBp.recipe.outputItem).toBe("structuralAssembly");
+  });
+});
+
+// ============================================================================
+// Combat 0.13.0, Phase 9b: the WARSHIP RESEARCH GATE, blueprint side.
+// The two UNLOCK-ONLY hull blueprints (battleshipHullBp / carrierHullBp) are a THIRD
+// blueprint shape: they craft nothing, their payoff is Shipyard build access via research.
+// These tests fence THAT contract on the Research/blueprint side: the shape is correct, the
+// tier is researchable at the Research Lab's real ceiling (level 2), and Research OFFERS them
+// (blueprintResearchable / canResearch) exactly like any other blueprint. The gate that reads
+// them (canBuildShip.notResearched) is fenced in shipyard.test.ts; the Fabricator SKIP is in
+// fabricator.test.ts.
+// ============================================================================
+describe("Combat 0.13.0, unlock-only warship hull blueprints", () => {
+  const UNLOCK_ONLY_KEYS = ["battleshipHullBp", "carrierHullBp"] as const;
+
+  it("both exist, are unlockOnly, craft nothing (no output either kind, empty inputs)", () => {
+    for (const key of UNLOCK_ONLY_KEYS) {
+      const bp = BLUEPRINTS[key];
+      expect(bp, `${key} exists`).toBeDefined();
+      expect(bp.unlockOnly, `${key} is unlockOnly`).toBe(true);
+      expect(bp.recipe.outputItem, `${key} no stackable output`).toBeUndefined();
+      expect(bp.recipe.outputQty, `${key} no output qty`).toBeUndefined();
+      expect(bp.equipmentOutput, `${key} no equipment output`).toBeUndefined();
+      expect(Object.keys(bp.recipe.inputs).length, `${key} empty inputs`).toBe(0);
+    }
+  });
+
+  it("are tier 2 (researchable at the Research Lab's current level-2 ceiling, not permanently tier-locked)", () => {
+    // The Research Lab caps at level 2 (FACILITIES.research has 2 rungs). A tier-3 unlock-only
+    // blueprint would be permanently un-researchable -> its hull permanently un-buildable, so
+    // tier MUST be <= 2. This locks that constraint so a future re-tier can't silently strand it.
+    const maxResearchLevel = FACILITIES[RESEARCH_FACILITY_KEY].upgrades.length; // 2 today
+    for (const key of UNLOCK_ONLY_KEYS) {
+      expect(BLUEPRINTS[key].tier).toBe(2);
+      expect(BLUEPRINTS[key].tier).toBeLessThanOrEqual(maxResearchLevel);
+    }
+  });
+
+  it("Research OFFERS them: tier-locked at lab level 1, researchable once the lab reaches level 2", () => {
+    for (const key of UNLOCK_ONLY_KEYS) {
+      // Level 1 (fresh): tier 2 > level 1 -> NOT researchable yet (tier gate), the honest lock.
+      const lvl1 = freshState();
+      lvl1.facilities[RESEARCH_FACILITY_KEY] = { level: 1 };
+      expect(blueprintResearchable(lvl1, key), `${key} not researchable at lab level 1`).toBe(false);
+      expect(canResearch(lvl1, key)).toEqual({ ok: false, reason: "tierLocked" });
+
+      // Level 2 + funded + a free slot: Research OFFERS it (canResearch ok), like any blueprint.
+      const lvl2 = freshState();
+      lvl2.facilities[RESEARCH_FACILITY_KEY] = { level: 2 };
+      lvl2.credits = new Decimal(BLUEPRINTS[key].researchCreditCost + 1000);
+      expect(blueprintResearchable(lvl2, key), `${key} researchable at lab level 2`).toBe(true);
+      expect(canResearch(lvl2, key), `${key} canResearch ok at lab level 2`).toEqual({ ok: true });
+    }
   });
 });
 

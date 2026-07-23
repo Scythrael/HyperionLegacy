@@ -2792,10 +2792,20 @@
   // per-component "Need N [Item]" message; unused today (the generic materials text reads
   // fine against the card's own red per-component free/need rows), but threaded so the
   // signature is ready without touching call sites.
-  function shipBuildBlockText(reason: ShipBuildBlockReason, _typeKey?: ShipTypeKey): string {
+  function shipBuildBlockText(reason: ShipBuildBlockReason, typeKey?: ShipTypeKey): string {
     switch (reason) {
       case "notFounded":
         return "Found the Shipyard first (Upgrades).";
+      case "notResearched": {
+        // Combat 0.13.0 warship research gate: name the specific blueprint the player must
+        // research (the hull's requiresBlueprint), so a disabled Build button says exactly what
+        // to go unlock. Falls back to a generic phrase if the typeKey/blueprint can't be resolved.
+        const bpKey = typeKey ? SHIP_TYPES[typeKey]?.requiresBlueprint : undefined;
+        const bpLabel = bpKey ? (BLUEPRINTS[bpKey]?.label ?? bpKey) : undefined;
+        return bpLabel
+          ? `Research required: ${bpLabel} (Research Lab).`
+          : "Research required (Research Lab).";
+      }
       case "noSlot":
         return "Shipyard busy, a build is in progress.";
       case "storageFull":
@@ -3433,8 +3443,12 @@
   // (the STABLE "you have the capability to craft this" count, NOT the transient
   // canFabricate.ok which flickers with live materials/slots). Paired with
   // researchedBlueprintCount as the Overview's researched-vs-fabricable at-a-glance line.
+  // Combat 0.13.0 (warship research gate): UNLOCK-ONLY blueprints (unlockOnly: true, e.g. the
+  // battleship / carrier hull unlocks) craft NOTHING, so they are NOT "fabricable" no matter
+  // their research/tier state, filter them out here (and from availableFabricateBlueprints below)
+  // so the Fabricator never counts or offers them. They live in the Research list instead.
   $: fabricableBlueprintCount = Object.keys(BLUEPRINTS).filter(
-    (k) => blueprintUnlocked(state, k) && BLUEPRINTS[k].tier <= fabricatorLevel
+    (k) => !BLUEPRINTS[k].unlockOnly && blueprintUnlocked(state, k) && BLUEPRINTS[k].tier <= fabricatorLevel
   ).length;
 
   // Whether the fabricator is built at all (>= 1 slot). Below 1 slot there are no line
@@ -3445,9 +3459,12 @@
   // AND tier-available (tier <= fabricator level), the SAME two stable gates the fabricable
   // count uses. These populate the configurator's tier + item dropdowns. Derived off state so
   // researching/upgrading updates the dropdowns LIVE. An empty list -> the Research-Lab signpost.
+  // (Combat 0.13.0) `!bp.unlockOnly` excludes the unlock-only hull blueprints: they craft
+  // nothing, so a fabricate LINE must never be configurable for one (canFabricate/canStartLine
+  // also reject them, this keeps them out of the configurator's dropdowns in the first place).
   $: availableFabricateBlueprints = Object.keys(BLUEPRINTS)
     .map((k) => BLUEPRINTS[k])
-    .filter((bp) => blueprintUnlocked(state, bp.key) && bp.tier <= fabricatorLevel);
+    .filter((bp) => !bp.unlockOnly && blueprintUnlocked(state, bp.key) && bp.tier <= fabricatorLevel);
   // The DISTINCT tiers among those blueprints, ascending, the tier dropdown's options.
   $: availableFabricateTiers = [...new Set(availableFabricateBlueprints.map((bp) => bp.tier))].sort(
     (a, b) => a - b
@@ -3516,6 +3533,19 @@
       .sort((a, b) => a - b)
       .map((tier) => ({ tier, blueprints: byTier.get(tier) ?? [] }));
   })();
+
+  // Combat 0.13.0 (warship research gate): the hull (if any) an UNLOCK-ONLY blueprint grants
+  // build access to, the REVERSE of ShipTypeDef.requiresBlueprint. The Research card uses this
+  // to describe an unlock-only blueprint by WHAT it unlocks ("Unlocks: Battleship") instead of
+  // the "Crafts: inputs -> output" line, which is meaningless for a blueprint that crafts nothing.
+  // Pure scan over the static SHIP_TYPES table; returns the hull label or undefined (no match).
+  function hullUnlockedByBlueprint(blueprintKey: string): string | undefined {
+    for (const k of Object.keys(SHIP_TYPES)) {
+      const def = SHIP_TYPES[k as ShipTypeKey];
+      if (def.requiresBlueprint === blueprintKey) return def.label;
+    }
+    return undefined;
+  }
 
   // Map a canResearch BLOCK reason to the human sentence shown on a disabled
   // Tick-readout formatters (2026-07-16). Both wrap formatClock (the PRECISE
@@ -4795,17 +4825,22 @@
                     {@const job = activeResearchProjects.find((p) => p.effect.type === "unlockBlueprint" && p.effect.key === bp.key)}
                     <div class="mission-card">
                       <div class="research-name">{bp.label}</div>
-                      <!-- Recipe (what the Fabricator will craft): inputs → output.
-                           Plain-text [Item] labels (no icon tooltip needed). Task 19: an
-                           EQUIPMENT blueprint previews its minted piece's SYSTEM name (slot +
-                           variety); it carries no recipe.outputItem (optional, omitted). -->
-                      <div class="research-cost">
-                        Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]{/if}
-                      </div>
+                      <!-- Recipe line. THREE blueprint shapes (see BlueprintDef): an UNLOCK-ONLY
+                           blueprint (Combat 0.13.0 warship gate) crafts nothing, so it shows what
+                           it UNLOCKS (a hull at the Shipyard) instead of "Crafts: inputs -> output".
+                           A MATERIAL blueprint shows its stackable output; an EQUIPMENT blueprint
+                           previews its minted piece's SYSTEM name (slot + variety, no recipe.outputItem). -->
+                      {#if bp.unlockOnly}
+                        <div class="research-cost">Unlocks: {hullUnlockedByBlueprint(bp.key) ?? "new build content"} (build at the Shipyard)</div>
+                      {:else}
+                        <div class="research-cost">
+                          Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]{/if}
+                        </div>
+                      {/if}
                       <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                       {#if unlocked}
-                        <div class="research-cost" style="color: var(--color-success)">✓ Researched, craftable once the Fabricator is online</div>
+                        <div class="research-cost" style="color: var(--color-success)">{bp.unlockOnly ? "✓ Researched, build it at the Shipyard" : "✓ Researched, craftable once the Fabricator is online"}</div>
                       {:else if job}
                         {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                         <div class="research-bar-track">

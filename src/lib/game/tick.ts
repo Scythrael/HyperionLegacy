@@ -3009,15 +3009,19 @@ export function shipBuildDurationTicks(state: GameState, typeKey: ShipTypeKey): 
 // A string union (mirrors FabricateBlockReason / ResearchBlockReason) so it serializes/logs
 // as a readable token and the S5 Shipyard UI can switch on it exhaustively to render each
 // hull's disabled Build button with its cause. Member order mirrors canBuildShip's gate order:
-//   notFound   , no SHIP_TYPES entry for that key (bad caller / stale UI reference)
-//   notFounded , the shipyard is still LOCKED (facilityLevel < 1); found it first
-//   noSlot     , the single build slot is busy (a shipBuild already in activeProcesses)
-//   storageFull, the ship store is at shipStorageCapacity (park/scrap a hull first)
-//   materials  , some component BOM entry exceeds the reservation-aware FREE pool (S2)
-//   credits    , state.credits < the recipe's credit cost
+//   notFound     , no SHIP_TYPES entry for that key (bad caller / stale UI reference)
+//   notFounded   , the shipyard is still LOCKED (facilityLevel < 1); found it first
+//   notResearched, the hull's requiresBlueprint is not in researchedBlueprints (research it
+//                    first). CONTENT-AVAILABILITY gate: a hull with no requiresBlueprint (every
+//                    economy hull + the destroyer) skips it. Combat 0.13.0 warship research gate.
+//   noSlot       , the single build slot is busy (a shipBuild already in activeProcesses)
+//   storageFull  , the ship store is at shipStorageCapacity (park/scrap a hull first)
+//   materials    , some component BOM entry exceeds the reservation-aware FREE pool (S2)
+//   credits      , state.credits < the recipe's credit cost
 export type ShipBuildBlockReason =
   | "notFound"
   | "notFounded"
+  | "notResearched"
   | "noSlot"
   | "storageFull"
   | "materials"
@@ -3031,10 +3035,13 @@ export type ShipBuildBlockReason =
 //
 // GATE ORDER is deliberate, cheapest/most-fundamental first, and determines WHICH reason
 // surfaces when several fail at once (ok itself is order-independent, all must pass):
-// identity (notFound) -> facility founded (notFounded) -> concurrency (noSlot) -> storage
-// (storageFull) -> resource:materials -> resource:credits. The storage gate sits at START
-// (here) so a build never begins that could not be parked on completion, resolveProcesses
-// can then park unconditionally (see its addShip branch).
+// identity (notFound) -> facility founded (notFounded) -> content availability (notResearched)
+// -> concurrency (noSlot) -> storage (storageFull) -> resource:materials -> resource:credits.
+// The research gate is a CONTENT-AVAILABILITY check (does this build content exist for the
+// player yet), placed right after `notFounded` and before the concurrency/resource gates so
+// "you have not unlocked this hull" reads before "the yard is busy" or "you cannot afford it".
+// The storage gate sits at START (here) so a build never begins that could not be parked on
+// completion, resolveProcesses can then park unconditionally (see its addShip branch).
 export function canBuildShip(
   state: GameState,
   typeKey: string
@@ -3049,6 +3056,17 @@ export function canBuildShip(
   // is SEPARATE from the slot cap (shipBuildSlotCount returns 1 even at level 0): whether a
   // build may start AT ALL is this gate; how many may run at once is the slot cap.
   if (facilityLevel(state, SHIPYARD_FACILITY_KEY) < 1) return { ok: false, reason: "notFounded" };
+
+  // --- Content availability (Combat 0.13.0 warship research gate): a hull may carry an
+  // OPTIONAL requiresBlueprint naming the unlock-only blueprint that must be researched before
+  // it can be built. When PRESENT and NOT yet in researchedBlueprints, the hull is locked ->
+  // notResearched. When ABSENT (every economy hull + the destroyer, the combat line's free entry
+  // tier), this gate is SKIPPED entirely, so ungated hulls behave EXACTLY as before (no
+  // behavior change for the free hulls). Reuses the SAME blueprintUnlocked membership test the
+  // Research/Fabricator gates read, so "researched" means one thing across the whole app.
+  if (def.requiresBlueprint !== undefined && !blueprintUnlocked(state, def.requiresBlueprint)) {
+    return { ok: false, reason: "notResearched" };
+  }
 
   // --- Concurrency: a free build slot, count in-flight shipBuilds against the cap (1 this
   // pass). At the cap, no new build starts. The EXACT slot accounting canFabricate uses.
@@ -4145,6 +4163,10 @@ export function cancelLine(state: GameState, lineId: string): GameState {
 // button with its cause. DELIBERATELY mirrors ResearchBlockReason (above). The order of the
 // members mirrors canFabricate's gate order (see below):
 //   notFound      , no blueprint has that key (bad caller / stale UI reference)
+//   unlockOnly    , the blueprint is UNLOCK-ONLY (unlockOnly: true): it crafts nothing, its
+//                   payoff is Shipyard build access via research, so the Fabricator refuses it
+//                   OUTRIGHT (checked before every other gate, since it can never be crafted no
+//                   matter the research/tier/resource state). Combat 0.13.0 warship research gate.
 //   notResearched , the blueprint is NOT unlocked (blueprintUnlocked is false)
 //   tierLocked    , BLUEPRINTS[key].tier > the fabricator facility level (upgrade to unlock)
 //   noSlot        , every fabricate slot is busy (active fabricateJobs >= fabricateSlotCount)
@@ -4154,6 +4176,7 @@ export function cancelLine(state: GameState, lineId: string): GameState {
 //                   (equipmentAtCap), the equipment twin of storageFull (Task B1)
 export type FabricateBlockReason =
   | "notFound"
+  | "unlockOnly"
   | "notResearched"
   | "tierLocked"
   | "noSlot"
@@ -4188,6 +4211,14 @@ export function canFabricate(
   // safely read `bp`.
   const bp = BLUEPRINTS[blueprintKey];
   if (!bp) return { ok: false, reason: "notFound" };
+
+  // --- Unlock-only guard (Combat 0.13.0 warship research gate): an UNLOCK-ONLY blueprint
+  // (unlockOnly: true) crafts NOTHING, it has no recipe.outputItem and no equipmentOutput, so
+  // a fabricate job would mint an empty output. It is not a fabricatable thing REGARDLESS of
+  // research/tier/resource state (researching it grants Shipyard build access, not a craft), so
+  // reject it FIRST, before the ownership gate, with its own honest reason. This is the engine-
+  // level guarantee behind the F4 UI also filtering these out of the craftable-blueprint list.
+  if (bp.unlockOnly) return { ok: false, reason: "unlockOnly" };
 
   // --- Ownership: the blueprint must be RESEARCHED (unlocked via the Research Lab) before
   // it can be fabricated. Pure membership test, surfaced as its own reason.

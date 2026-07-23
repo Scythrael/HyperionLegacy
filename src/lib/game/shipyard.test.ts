@@ -284,6 +284,65 @@ describe("canBuildShip, typed reasons (S3)", () => {
   });
 });
 
+// ============================================================================
+// Combat 0.13.0, Phase 9b: the WARSHIP RESEARCH GATE (canBuildShip.notResearched).
+// The combat line's first tier (destroyer) is FREE, the heavier warships (battleship /
+// carrier) each gate behind their OWN unlock-only blueprint. These tests pin the gate down:
+//   - destroyer (no requiresBlueprint) NEVER returns notResearched.
+//   - battleship / carrier return notResearched when their blueprint is NOT researched.
+//   - once the blueprint IS researched, the gate passes that point (ok here, since we feed
+//     full materials + credits), NOT notResearched.
+//   - startShipBuild surfaces notResearched on a blocked start (same-ref no-op + reason).
+// Gate order (identity -> founded -> research -> concurrency -> storage -> materials ->
+// credits) means notResearched surfaces BEFORE materials/credits, so we still feed full BOM +
+// credits to prove the ONLY thing blocking (or, once researched, NOT blocking) is research.
+// ============================================================================
+describe("canBuildShip, warship research gate (Combat 0.13.0)", () => {
+  // Full-BOM, founded, empty-fleet states for each combat hull so ONLY the research gate is in
+  // question. Combat BOMs: destroyer {frame6,coupling5,assembly2,2000cr}, battleship
+  // {frame14,coupling10,assembly5,5000cr}, carrier {frame12,coupling10,assembly4,4800cr}.
+  const combatStock = { frameSegment: 40, powerCoupling: 40, structuralAssembly: 20, credits: 100000 };
+
+  it("destroyer (free entry tier, no requiresBlueprint) never returns notResearched, builds on a fresh unresearched yard", () => {
+    // Fresh state -> researchedBlueprints is []. The destroyer has NO requiresBlueprint, so the
+    // research gate is skipped entirely: it is buildable immediately once the yard is founded.
+    const res = canBuildShip(yardState(combatStock), "destroyer");
+    expect(res).toEqual({ ok: true });
+  });
+
+  it("battleship / carrier return notResearched when their blueprint is NOT researched", () => {
+    // Founded yard + full BOM + credits, but researchedBlueprints is [] -> the research gate
+    // (which precedes materials/credits) is the sole blocker.
+    expect(canBuildShip(yardState(combatStock), "battleship")).toEqual({ ok: false, reason: "notResearched" });
+    expect(canBuildShip(yardState(combatStock), "carrier")).toEqual({ ok: false, reason: "notResearched" });
+  });
+
+  it("each hull gates behind its OWN blueprint (researching one does not unlock the other)", () => {
+    // Research ONLY the battleship blueprint: the battleship passes the research gate (-> ok
+    // here, with full BOM), but the carrier still reports notResearched. Proves independence.
+    const battleshipOnly = { ...yardState(combatStock), researchedBlueprints: ["battleshipHullBp"] };
+    expect(canBuildShip(battleshipOnly, "battleship")).toEqual({ ok: true });
+    expect(canBuildShip(battleshipOnly, "carrier")).toEqual({ ok: false, reason: "notResearched" });
+  });
+
+  it("once its blueprint is researched, the hull passes the research gate (ok, not notResearched)", () => {
+    const bothResearched = {
+      ...yardState(combatStock),
+      researchedBlueprints: ["battleshipHullBp", "carrierHullBp"],
+    };
+    expect(canBuildShip(bothResearched, "battleship")).toEqual({ ok: true });
+    expect(canBuildShip(bothResearched, "carrier")).toEqual({ ok: true });
+  });
+
+  it("startShipBuild surfaces notResearched on a blocked start (same-ref no-op + reason)", () => {
+    const state = yardState(combatStock); // battleship blueprint NOT researched
+    const res = startShipBuild(state, "battleship");
+    expect(res.started).toBe(false);
+    expect(res.reason).toBe("notResearched");
+    expect(res.next).toBe(state); // same-ref: a blocked start mutates nothing
+  });
+});
+
 describe("startShipBuild (S3)", () => {
   it("on ok: deducts the BOM + credits at start and pushes a shipBuild process", () => {
     const state = yardState({ frameSegment: 10, powerCoupling: 10, credits: 1000 });

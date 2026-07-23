@@ -45,6 +45,44 @@ describe("Fabricator F1, BLUEPRINTS craftDurationTicks", () => {
   });
 });
 
+// ============================================================================
+// Combat 0.13.0, Phase 9b: the Fabricator SKIPS unlock-only warship blueprints.
+// An unlock-only blueprint (battleshipHullBp / carrierHullBp) crafts nothing, so the
+// Fabricator must refuse it OUTRIGHT, no matter its research/tier/resource state. This
+// proves the engine-level guarantee behind the F4 UI also filtering them out of the
+// craftable list. The Research side (that Research DOES offer them) is in research.test.ts.
+// ============================================================================
+describe("Combat 0.13.0, Fabricator refuses unlock-only warship blueprints", () => {
+  const UNLOCK_ONLY_KEYS = ["battleshipHullBp", "carrierHullBp"] as const;
+
+  it("canFabricate returns unlockOnly EVEN when researched + tier-available (guard fires first)", () => {
+    for (const key of UNLOCK_ONLY_KEYS) {
+      // Stack the deck so NOTHING ELSE could block: research the blueprint AND raise the
+      // fabricator to its tier, so the only remaining reason can be the unlock-only guard.
+      const state: GameState = {
+        ...freshState(),
+        researchedBlueprints: [key],
+        facilities: { ...freshState().facilities, fabricator: { level: BLUEPRINTS[key].tier } },
+      };
+      expect(canFabricate(state, key)).toEqual({ ok: false, reason: "unlockOnly" });
+    }
+  });
+
+  it("startFabricateJob refuses them (same-ref no-op, started:false, unlockOnly reason)", () => {
+    for (const key of UNLOCK_ONLY_KEYS) {
+      const state: GameState = {
+        ...freshState(),
+        researchedBlueprints: [key],
+        facilities: { ...freshState().facilities, fabricator: { level: BLUEPRINTS[key].tier } },
+      };
+      const { next, started, reason } = startFabricateJob(state, key);
+      expect(started).toBe(false);
+      expect(reason).toBe("unlockOnly");
+      expect(next).toBe(state); // same-ref: no state mutation on a refused start
+    }
+  });
+});
+
 describe("Fabricator F1, FACILITIES.fabricator (tier + slot upgrade track)", () => {
   it("exists, is labelled 'Fabricator', with a FINITE track (one rung per blueprint tier)", () => {
     const fab = FACILITIES.fabricator;
