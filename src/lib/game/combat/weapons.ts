@@ -1,0 +1,266 @@
+// ============================================================================
+// combat/weapons.ts -- the v1 weapon roster as DATA (Combat 0.13.0, Phase 3)
+//
+// The nine v1 weapons (three per family) from design S3, expressed as plain
+// CombatWeapon stat lines. This is CONTENT, not logic: the shot pipeline in
+// resolveBattle.ts reads these fields and the family triangle / signatures do
+// the rest, so tuning a weapon is a one-line data edit here (Omega 9: readable
+// as rule-based data, no hidden behavior).
+//
+// ⚠️ EVERY NUMBER HERE IS FIRST-PASS AND TUNABLE (design S20 owns the balance
+// pass). They are chosen to EXPRESS each weapon's locked identity (S3), not to
+// be balanced against each other yet. The identity comment on each weapon is the
+// durable contract; the exact integers will move.
+//
+// UNITS recap (see types.ts): cooldownDeciSec is tenths of a second (10 = 1.0s,
+// lower = faster fire); accuracy is an integer percent; shieldAttenuation and
+// armorPen are integer percents and are ONLY consulted for their signature
+// family (particle / kinetic respectively). range is a scalar on the 1D axis
+// until Phase 6 turns it into Long/Medium/Short bands; the nominal band anchors
+// below keep the roster's relative reach legible in the meantime.
+//
+// FORWARD HOOKS deliberately NOT on these records yet (kept off so the Phase 3
+// CombatWeapon contract stays exactly as specced; added additively later):
+//   - installCap + class gates + power draw  [Phase 5]
+//   - effectSlots CONTENT (Plasma Fire, Targeting Drift, Coolant Leak, EMP stun,
+//     sensor/engine disruptions, etc.)  [Phase 4] -- every weapon ships with an
+//     empty effectSlots today; the identity comments name the effect each will
+//     carry so Phase 4 knows where each one goes.
+// ============================================================================
+
+import type { CombatWeapon, WeaponFamily } from "./types";
+
+// Nominal range-band anchors on the 1D distance axis (design S6 Long/Medium/
+// Short). Phase 6 replaces the scalar `range` with real bands; until then these
+// give the roster a legible, consistent reach scale (a Railgun outranges an
+// Autocannon, a Torpedo reaches far, etc.). TUNABLE.
+const RANGE_LONG = 300;
+const RANGE_MEDIUM = 200;
+const RANGE_SHORT = 100;
+
+// A tiny builder so each roster entry states only its identity stats and inherits
+// the two always-zero-unless-signature fields + the empty Phase-4 effect slots +
+// a zeroed cooldown accumulator. Keeps the roster readable as a table of intent.
+function def(
+	id: string,
+	family: WeaponFamily,
+	stats: {
+		yieldMin: number;
+		yieldMax: number;
+		cooldownDeciSec: number;
+		accuracy: number;
+		projectileCount: number;
+		range: number;
+		// Signature levers default to 0; only the owning family sets them.
+		shieldAttenuation?: number;
+		armorPen?: number;
+	},
+): CombatWeapon {
+	return {
+		id,
+		family,
+		yieldMin: stats.yieldMin,
+		yieldMax: stats.yieldMax,
+		cooldownDeciSec: stats.cooldownDeciSec,
+		accuracy: stats.accuracy,
+		projectileCount: stats.projectileCount,
+		range: stats.range,
+		shieldAttenuation: stats.shieldAttenuation ?? 0,
+		armorPen: stats.armorPen ?? 0,
+		cooldownAccumulator: 0,
+		effectSlots: [], // Phase 4 fills these per the identity comments below
+	};
+}
+
+// ---------------------------------------------------------------------------
+// PARTICLE family: +10% vs shields, -10% vs armor, signature Shield Attenuation
+// (partial hull damage bleeds through shields). Steady shield-pressure family.
+// ---------------------------------------------------------------------------
+
+// Plasma: the moderate, well-rounded particle staple. Middling everything with a
+// healthy attenuation so it always chips hull through shields.
+// Phase 4 effect: strong Plasma Fire DoT (its signature burn).
+export const PLASMA: CombatWeapon = def("plasma", "particle", {
+	yieldMin: 18,
+	yieldMax: 26,
+	cooldownDeciSec: 12, // 1.2s
+	accuracy: 80,
+	projectileCount: 1,
+	range: RANGE_MEDIUM,
+	shieldAttenuation: 30, // solid bleed-through
+});
+
+// Graviton: a longer-reach particle emitter, slightly lower yield/rate, modest
+// attenuation. The "engine-disruptor" flavor lands in Phase 4.
+// Phase 4 effect: engine disruptions (Manifold Overheat / Coolant Leak).
+export const GRAVITON: CombatWeapon = def("graviton", "particle", {
+	yieldMin: 14,
+	yieldMax: 20,
+	cooldownDeciSec: 14, // 1.4s
+	accuracy: 82,
+	projectileCount: 1,
+	range: RANGE_LONG,
+	shieldAttenuation: 25,
+});
+
+// Voltaic: the anti-shield specialist. High yield that the particle +10%-vs-
+// shields lever amplifies, but shieldAttenuation 0 by design: it CANNOT bleed
+// through shields, so once shields drop it is a poor hull weapon (particle -10%
+// vs armor with no attenuation). Pair it with a kinetic finisher.
+// Phase 4 effect: bonus shield damage + shield disruptions (Emitter Overload /
+// Capacitor Failure); chains across targets. TODO(P4): chaining mechanic.
+export const VOLTAIC: CombatWeapon = def("voltaic", "particle", {
+	yieldMin: 20,
+	yieldMax: 30,
+	cooldownDeciSec: 13, // 1.3s
+	accuracy: 78,
+	projectileCount: 1,
+	range: RANGE_MEDIUM,
+	shieldAttenuation: 0, // deliberate: no bleed-through (weak vs hull)
+});
+
+// ---------------------------------------------------------------------------
+// KINETIC family: +10% vs armor/hull, hard-walled by shields (never attenuates),
+// signature Armor Penetration. The finisher family once shields are down.
+// ---------------------------------------------------------------------------
+
+// Railgun: the precision heavy hitter. High yield, high accuracy, slow rate, long
+// reach, and high armor penetration so it shreds armored hulls.
+// Phase 4 effect: Targeting Drift (-accuracy debuff on the target).
+export const RAILGUN: CombatWeapon = def("railgun", "kinetic", {
+	yieldMin: 40,
+	yieldMax: 55,
+	cooldownDeciSec: 20, // 2.0s
+	accuracy: 90,
+	projectileCount: 1,
+	range: RANGE_LONG,
+	armorPen: 60, // ignores 60% of ablative armor + dampening
+});
+
+// Autocannon: sustained short-range hull DPS. Low per-shot yield but a very fast
+// cooldown and TWO projectiles, so it is reliable chip once shields are gone;
+// modest armor-pen. The workhorse.
+export const AUTOCANNON: CombatWeapon = def("autocannon", "kinetic", {
+	yieldMin: 6,
+	yieldMax: 10,
+	cooldownDeciSec: 4, // 0.4s (high rate)
+	accuracy: 75,
+	projectileCount: 2,
+	range: RANGE_SHORT,
+	armorPen: 15,
+});
+
+// Concussion Torpedo: the heavy warhead. Very high single-projectile yield, long
+// cooldown, low-mid accuracy (swingy: all-or-nothing), decent armor-pen. Barred
+// from ambush openers by design (S7), enforced later.
+// Phase 4 effect: Coolant Leak (-speed disruption).
+export const CONCUSSION_TORPEDO: CombatWeapon = def(
+	"concussionTorpedo",
+	"kinetic",
+	{
+		yieldMin: 90,
+		yieldMax: 130,
+		cooldownDeciSec: 60, // 6.0s
+		accuracy: 60,
+		projectileCount: 1,
+		range: RANGE_LONG,
+		armorPen: 40,
+	},
+);
+
+// ---------------------------------------------------------------------------
+// EW family: -10% vs shields, neutral vs armor, weak direct damage, signature
+// Disruption-focused. The support/debuff family (procs are the whole point,
+// Phase 4). Carries the anti-drone tools (Phase 8). No attenuation, no armor-pen.
+// ---------------------------------------------------------------------------
+
+// Point-Defense Array: fast, accurate, many small projectiles. Mid direct damage
+// but great screen coverage; anti-drone role lands in Phase 8 (does NOT hard-
+// destroy torpedoes by design).
+export const POINT_DEFENSE_ARRAY: CombatWeapon = def(
+	"pointDefenseArray",
+	"ew",
+	{
+		yieldMin: 8,
+		yieldMax: 12,
+		cooldownDeciSec: 5, // 0.5s (high rate)
+		accuracy: 92,
+		projectileCount: 3, // saturates a drone screen (Phase 8)
+		range: RANGE_SHORT,
+	},
+);
+
+// EMP Cannon: low DIRECT damage on purpose. Its value is disruptions (Phase 4)
+// and anti-drone (Phase 8), not raw yield.
+// Phase 4 effect: Weapon Jam / stun + power/system disruptions.
+export const EMP_CANNON: CombatWeapon = def("empCannon", "ew", {
+	yieldMin: 4,
+	yieldMax: 8,
+	cooldownDeciSec: 16, // 1.6s
+	accuracy: 80,
+	projectileCount: 1,
+	range: RANGE_MEDIUM,
+});
+
+// Tachyon Burst Emitter: the deliberate EW anti-shield EXCEPTION (design S3: it
+// is "buffed vs shields" against the family's normal -10%). Sensor disruptions
+// and strong-vs-drones role land later.
+// TODO(balance/P4): the anti-shield exception is NOT expressed yet. The Phase 3
+// triangle is family-based (EW = -10% vs shields), so Tachyon currently inherits
+// the EW column. Its vs-shields buff will arrive via shield disruptions in Phase
+// 4 and, if still wanted as a raw-damage lever, a per-weapon triangle override in
+// the balance pass. Its stats below give it the best direct yield of the EW
+// family as a stand-in for that identity.
+// Phase 4 effect: sensor disruptions (Scattering Field / Sensor Power Drain).
+export const TACHYON_BURST_EMITTER: CombatWeapon = def(
+	"tachyonBurstEmitter",
+	"ew",
+	{
+		yieldMin: 10,
+		yieldMax: 16,
+		cooldownDeciSec: 12, // 1.2s
+		accuracy: 82,
+		projectileCount: 1,
+		range: RANGE_MEDIUM,
+	},
+);
+
+// ---------------------------------------------------------------------------
+// The full roster, keyed by weapon id, for lookup + iteration (tests, enemy
+// generation, future equip). Freshly spread on read is the caller's job: these
+// are TEMPLATES (cooldownAccumulator 0, effectSlots []), so clone before mounting
+// on a combatant so the sim's per-instance mutation never leaks back into the
+// shared template (same discipline resolveBattle uses when it clones weapons).
+// ---------------------------------------------------------------------------
+export const WEAPON_DEFS = {
+	plasma: PLASMA,
+	graviton: GRAVITON,
+	voltaic: VOLTAIC,
+	railgun: RAILGUN,
+	autocannon: AUTOCANNON,
+	concussionTorpedo: CONCUSSION_TORPEDO,
+	pointDefenseArray: POINT_DEFENSE_ARRAY,
+	empCannon: EMP_CANNON,
+	tachyonBurstEmitter: TACHYON_BURST_EMITTER,
+} as const satisfies Record<string, CombatWeapon>;
+
+// Stable id union for the v1 roster, so callers referencing a weapon by id get a
+// compile error on a typo rather than a runtime miss.
+export type WeaponId = keyof typeof WEAPON_DEFS;
+
+// A convenience clone so callers mounting a roster weapon onto a combatant get a
+// FRESH instance (own cooldown accumulator + effect-slot array), never a shared
+// reference to the template. Give it a unique instance id if two of the same
+// weapon are mounted on one ship.
+export function makeWeaponInstance(
+	id: WeaponId,
+	instanceId?: string,
+): CombatWeapon {
+	const template = WEAPON_DEFS[id];
+	return {
+		...template,
+		id: instanceId ?? template.id,
+		effectSlots: [...template.effectSlots],
+		cooldownAccumulator: 0,
+	};
+}

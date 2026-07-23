@@ -15,7 +15,7 @@
 // ============================================================================
 
 import { describe, it, expect } from "vitest";
-import { resolveBattle } from "./resolveBattle";
+import { resolveBattle, applyProjectileDamage } from "./resolveBattle";
 import type { BattleParticipants, Combatant, CombatWeapon } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -24,21 +24,38 @@ import type { BattleParticipants, Combatant, CombatWeapon } from "./types";
 // helper) because these are test fixtures, not production shapes.
 // ---------------------------------------------------------------------------
 
-// Build a weapon with sensible skeleton defaults. Default range is huge so the
-// range gate is a non-issue unless a test opts into it; default cooldown fires
-// roughly once per second.
-function makeWeapon(overrides: Partial<CombatWeapon> = {}): CombatWeapon {
+// Build a weapon with sensible defaults. Default range is huge so the range gate
+// is a non-issue unless a test opts into it; default cooldown fires roughly once
+// per second. Default family is KINETIC (no attenuation, simplest for the parity
+// fixtures). A `yield` convenience sets a FLAT yieldMin == yieldMax so the many
+// legacy call sites that pass `yield: N` keep working unchanged; a test that
+// wants a damage band sets yieldMin/yieldMax directly. Default accuracy is 90
+// (mirroring the Phase 2 90% hit rate the flagship suite was written around) and
+// projectileCount 1, so the parity fixtures behave as before + a 10% crit.
+function makeWeapon(
+	overrides: Partial<CombatWeapon> & { yield?: number } = {},
+): CombatWeapon {
+	const flat = overrides.yield;
 	return {
 		id: overrides.id ?? "w",
-		yield: overrides.yield ?? 10,
+		family: overrides.family ?? "kinetic",
+		yieldMin: overrides.yieldMin ?? flat ?? 10,
+		yieldMax: overrides.yieldMax ?? flat ?? 10,
 		cooldownDeciSec: overrides.cooldownDeciSec ?? 10,
+		accuracy: overrides.accuracy ?? 90,
+		projectileCount: overrides.projectileCount ?? 1,
 		range: overrides.range ?? 1000,
+		shieldAttenuation: overrides.shieldAttenuation ?? 0,
+		armorPen: overrides.armorPen ?? 0,
 		cooldownAccumulator: overrides.cooldownAccumulator ?? 0,
+		effectSlots: overrides.effectSlots ?? [],
 	};
 }
 
-// Build a combatant with skeleton defaults. Callers set id/team/hull/weapons
-// per test; the reserved arrays start empty (as the skeleton requires).
+// Build a combatant with sane defaults. Callers set id/team/hull/weapons per
+// test; the reserved arrays start empty and the defense fields default to 0 (no
+// armor/dampening/coherence/evasion) so a test only opts into the defense it is
+// exercising.
 function makeCombatant(overrides: Partial<Combatant> = {}): Combatant {
 	const hullMax = overrides.hullMax ?? overrides.hull ?? 100;
 	const shieldMax = overrides.shieldMax ?? overrides.shield ?? 0;
@@ -50,6 +67,10 @@ function makeCombatant(overrides: Partial<Combatant> = {}): Combatant {
 		shield: overrides.shield ?? shieldMax,
 		shieldMax,
 		shieldRecharge: overrides.shieldRecharge ?? 0,
+		shieldCoherence: overrides.shieldCoherence ?? 0,
+		ablativeArmor: overrides.ablativeArmor ?? 0,
+		kineticDampening: overrides.kineticDampening ?? 0,
+		evasion: overrides.evasion ?? 0,
 		position: overrides.position ?? 0,
 		speed: overrides.speed ?? 10,
 		weapons: overrides.weapons ?? [makeWeapon()],
@@ -262,5 +283,306 @@ describe("resolveBattle basic sanity", () => {
 		const { outcome } = resolveBattle(p, 3);
 		expect(outcome.winner).toBe("player");
 		expect(outcome.reason).toBe("eliminated");
+	});
+});
+
+// ===========================================================================
+// PHASE 3 shot-pipeline MECHANIC tests.
+//
+// The mitigation math (family triangle, attenuation, armor, armor-pen) is tested
+// through the PURE applyProjectileDamage function with hand-picked raw damage, so
+// every assertion is an exact integer with ZERO rng involved. The rng-driven
+// behaviors (evade, projectile independence, crit spread, carry-over fire timing)
+// are tested through the full resolveBattle with fixed seeds.
+// ===========================================================================
+
+// A defense-target factory for the pure mitigation tests. Big pools so a single
+// crafted projectile never kills it and we can read the exact shield/hull loss.
+function defenseTarget(overrides: Partial<Combatant> = {}): Combatant {
+	return makeCombatant({
+		id: "T",
+		team: "enemy",
+		hull: 100000,
+		hullMax: 100000,
+		shield: 100000,
+		shieldMax: 100000,
+		...overrides,
+	});
+}
+
+describe("shot pipeline: family damage triangle", () => {
+	it("particle does +10% vs shields (shields up => vs-Shields column)", () => {
+		// Shields up, particle, no attenuation (attenuation 0), so all 100 raw hits
+		// shields at the +10% particle-vs-shields multiplier => 110 shield lost.
+		const t = defenseTarget();
+		const { dealt } = applyProjectileDamage(t, "particle", 0, 0, 100);
+		expect(t.shield).toBe(100000 - 110);
+		expect(dealt).toBe(110);
+	});
+
+	it("particle does -10% vs armor/hull (shields down => vs-Armor column)", () => {
+		// No shields => vs-Armor column => particle -10% => 90 hull lost.
+		const t = defenseTarget({ shield: 0, shieldMax: 0 });
+		applyProjectileDamage(t, "particle", 0, 0, 100);
+		expect(t.hull).toBe(100000 - 90);
+	});
+
+	it("kinetic is neutral vs shields but +10% vs armor/hull", () => {
+		// Shields up: kinetic vs-Shields column is 100% => exactly 100 shield lost.
+		const shielded = defenseTarget();
+		applyProjectileDamage(shielded, "kinetic", 0, 0, 100);
+		expect(shielded.shield).toBe(100000 - 100);
+
+		// Shields down: kinetic vs-Armor column is +10% => 110 hull lost.
+		const bare = defenseTarget({ shield: 0, shieldMax: 0 });
+		applyProjectileDamage(bare, "kinetic", 0, 0, 100);
+		expect(bare.hull).toBe(100000 - 110);
+	});
+
+	it("EW does -10% vs shields and is neutral vs armor/hull", () => {
+		const shielded = defenseTarget();
+		applyProjectileDamage(shielded, "ew", 0, 0, 100);
+		expect(shielded.shield).toBe(100000 - 90); // -10% vs shields
+
+		const bare = defenseTarget({ shield: 0, shieldMax: 0 });
+		applyProjectileDamage(bare, "ew", 0, 0, 100);
+		expect(bare.hull).toBe(100000 - 100); // neutral vs hull
+	});
+});
+
+describe("shot pipeline: shield attenuation (particle only)", () => {
+	it("a particle shot partially bypasses full shields; a kinetic shot of equal damage does not", () => {
+		// Particle with 40% attenuation vs a target with 0 coherence. Per the spec
+		// stage order, the triangle (step 4) is applied BEFORE attenuation (step
+		// 5a): shields up => particle vs-Shields +10% => 110; then 40% of 110 = 44
+		// bypasses straight to hull. We assert the hull took damage THROUGH a full
+		// shield, and the exact bypass amount.
+		const particleTarget = defenseTarget();
+		const pr = applyProjectileDamage(particleTarget, "particle", 40, 0, 100);
+		expect(pr.attenuated).toBe(true);
+		expect(particleTarget.hull).toBeLessThan(100000); // hull hit through shields
+		expect(particleTarget.hull).toBe(100000 - 44); // floor(110 * 40/100) = 44
+
+		// Kinetic of identical raw against an identical full shield: NO attenuation,
+		// so the shield fully walls it and hull is untouched.
+		const kineticTarget = defenseTarget();
+		const kr = applyProjectileDamage(kineticTarget, "kinetic", 40, 0, 100);
+		expect(kr.attenuated).toBe(false);
+		expect(kineticTarget.hull).toBe(100000); // hull untouched, fully walled
+	});
+
+	it("attenuation is reduced by shieldCoherence; equal coherence => zero net bypass", () => {
+		// net attenuation = max(0, weaponAtten - shieldCoherence). 30 vs 30 => 0.
+		const t = defenseTarget({ shieldCoherence: 30 });
+		const r = applyProjectileDamage(t, "particle", 30, 0, 100);
+		expect(r.attenuated).toBe(false);
+		expect(t.hull).toBe(100000); // nothing bled through
+	});
+
+	it("partial coherence leaves a smaller net bypass", () => {
+		// weaponAtten 50, coherence 20 => net 30% bypass. Triangle first (shields up
+		// => +10% => 110), then 30% of 110 = 33 bypasses to hull.
+		const t = defenseTarget({ shieldCoherence: 20 });
+		const r = applyProjectileDamage(t, "particle", 50, 0, 100);
+		expect(r.attenuated).toBe(true);
+		expect(t.hull).toBe(100000 - 33);
+	});
+});
+
+describe("shot pipeline: armor on the hull-path", () => {
+	it("ablativeArmor is a depleting buffer that soaks first, then depletes", () => {
+		// Shields down so 100 raw goes straight to the hull-path (kinetic vs-Armor
+		// +10% => 110 incoming). Armor 40 soaks 40 (depleting to 0), leaving 70 hull.
+		const t = defenseTarget({
+			shield: 0,
+			shieldMax: 0,
+			ablativeArmor: 40,
+		});
+		applyProjectileDamage(t, "kinetic", 0, 0, 100);
+		expect(t.ablativeArmor).toBe(0); // buffer depleted by what it soaked
+		expect(t.hull).toBe(100000 - 70); // 110 incoming - 40 soaked = 70
+	});
+
+	it("kineticDampening applies a percent reduction after armor", () => {
+		// Shields down, EW (neutral vs armor so incoming == 100 raw), no ablative,
+		// 25% dampening => floor(100 * 75/100) = 75 hull lost.
+		const t = defenseTarget({
+			shield: 0,
+			shieldMax: 0,
+			kineticDampening: 25,
+		});
+		applyProjectileDamage(t, "ew", 0, 0, 100);
+		expect(t.hull).toBe(100000 - 75);
+	});
+
+	it("kinetic armorPen ignores a percent of BOTH ablative armor and dampening", () => {
+		// Baseline (no pen): kinetic vs-Armor +10% => 110 incoming. Armor 50 soaks
+		// 50 => 60 remains, 50% dampening => floor(60*50/100)=30 hull lost.
+		const noPen = defenseTarget({
+			shield: 0,
+			shieldMax: 0,
+			ablativeArmor: 50,
+			kineticDampening: 50,
+		});
+		applyProjectileDamage(noPen, "kinetic", 0, 0, 100);
+		expect(noPen.hull).toBe(100000 - 30);
+
+		// With 100% armorPen: effective armor 0 AND effective dampening 0, so the
+		// full 110 incoming lands. Proves pen ignores BOTH mitigations.
+		const fullPen = defenseTarget({
+			shield: 0,
+			shieldMax: 0,
+			ablativeArmor: 50,
+			kineticDampening: 50,
+		});
+		applyProjectileDamage(fullPen, "kinetic", 0, 100, 100);
+		expect(fullPen.hull).toBe(100000 - 110);
+		// The ignored armor was NOT consumed (pen bypassed it, did not deplete it).
+		expect(fullPen.ablativeArmor).toBe(50);
+	});
+
+	it("strict mitigation order: attenuation split, then shields, then armor, then hull", () => {
+		// A single particle projectile against a target with a THIN shield + armor,
+		// exercising every stage at once. raw 100, attenuation 50 (coherence 0):
+		//   4:  triangle first (shields up => particle vs-Shields +10%) => 110.
+		//   5a: 50% of 110 = 55 bypasses to the hull-path; 55 aimed at shields.
+		//   5b: shield is only 20, so 20 absorbed and 35 overflows to the hull-path.
+		//       hull-path so far = 55 (bypass) + 35 (overflow) = 90.
+		//   5c: ablative armor 10 soaks 10 (depletes to 0) => 80 remains.
+		//   5d: 80 lands on hull.
+		// The point of this test is the strict STAGE ORDER firing together, so we
+		// assert the end state of each stage (shield drained, armor depleted, hull
+		// hit) rather than leaning on any single intermediate.
+		const t = defenseTarget({ shield: 20, shieldMax: 20, ablativeArmor: 10 });
+		const r = applyProjectileDamage(t, "particle", 50, 0, 100);
+		expect(r.attenuated).toBe(true);
+		expect(t.shield).toBe(0); // thin shield fully drained
+		expect(t.ablativeArmor).toBe(0); // armor buffer soaked + depleted
+		expect(t.hull).toBeLessThan(100000); // remainder reached hull
+	});
+});
+
+describe("shot pipeline: evade", () => {
+	it("a zero-net-hit-chance shot misses, logs an evade, deals no damage", () => {
+		// accuracy 0 => hitChance clamps to 0 => guaranteed miss regardless of seed.
+		const p = oneVsOne(
+			{
+				hull: 1000,
+				hullMax: 1000,
+				weapons: [makeWeapon({ id: "pw", yield: 30, accuracy: 0 })],
+			},
+			{ hull: 1000, hullMax: 1000, weapons: [] },
+		);
+		const { log } = resolveBattle(p, 12345, { generateLog: true });
+		const playerShots = log.filter((e) => e.actorId === "P1");
+		expect(playerShots.length).toBeGreaterThan(0);
+		// Every player shot is an evade with zero damage (nothing ever connects).
+		for (const e of playerShots) {
+			expect(e.type).toBe("evade");
+			expect(e.result).toBe("evade");
+			expect(e.damage).toBe(0);
+			expect(e.projectilesHit).toBe(0);
+		}
+	});
+
+	it("high target evasion equal to accuracy also yields guaranteed evades", () => {
+		// accuracy 70 vs evasion 70 => net 0 hit chance => all evades.
+		const p = oneVsOne(
+			{
+				hull: 1000,
+				hullMax: 1000,
+				weapons: [makeWeapon({ id: "pw", yield: 30, accuracy: 70 })],
+			},
+			{ hull: 1000, hullMax: 1000, weapons: [], evasion: 70 },
+		);
+		const { log } = resolveBattle(p, 999, { generateLog: true });
+		const hits = log.filter((e) => e.actorId === "P1" && e.type === "hit");
+		expect(hits.length).toBe(0);
+	});
+});
+
+describe("shot pipeline: crit + projectiles roll independently", () => {
+	it("a multi-projectile weapon spreads hits: some projectiles connect, some miss (seed-fixed)", () => {
+		// A 4-projectile weapon at 50% accuracy: over a fixed seed the connecting
+		// count per shot varies between 0 and 4 (independent per-projectile rolls),
+		// which a single all-or-nothing roll could never produce.
+		const p = oneVsOne(
+			{
+				hull: 100000,
+				hullMax: 100000,
+				weapons: [
+					makeWeapon({
+						id: "pw",
+						yield: 5,
+						accuracy: 50,
+						projectileCount: 4,
+						cooldownDeciSec: 10,
+					}),
+				],
+			},
+			{ hull: 100000, hullMax: 100000, weapons: [] },
+		);
+		const { log } = resolveBattle(p, 4242, { generateLog: true });
+		const shots = log.filter((e) => e.actorId === "P1");
+		const hitCounts = new Set(shots.map((e) => e.projectilesHit));
+		// Independence => a spread of connecting counts (not just {0} or {4}).
+		expect(hitCounts.size).toBeGreaterThan(1);
+		// Every per-shot count is within [0, projectileCount].
+		for (const e of shots) {
+			expect(e.projectilesHit).toBeGreaterThanOrEqual(0);
+			expect(e.projectilesHit).toBeLessThanOrEqual(4);
+		}
+	});
+
+	it("crit is deterministic per seed: the same battle reports the same crit shots", () => {
+		// Two identical runs must flag crit on exactly the same shots (crit is a
+		// combat-stream roll, so it is reproducible).
+		const build = () =>
+			oneVsOne(
+				{
+					hull: 100000,
+					hullMax: 100000,
+					weapons: [makeWeapon({ id: "pw", yield: 20, accuracy: 100 })],
+				},
+				{ hull: 100000, hullMax: 100000, weapons: [] },
+			);
+		const a = resolveBattle(build(), 77, { generateLog: true });
+		const b = resolveBattle(build(), 77, { generateLog: true });
+		const critsA = a.log.filter((e) => e.crit).map((e) => e.tDeciSec);
+		const critsB = b.log.filter((e) => e.crit).map((e) => e.tDeciSec);
+		expect(critsA).toEqual(critsB);
+		// A 60s fight at 10% crit over ~60 shots should land at least one crit, so
+		// this also proves crits actually happen (not a vacuous match of two empties).
+		expect(critsA.length).toBeGreaterThan(0);
+	});
+});
+
+describe("shot pipeline: carry-over cooldown fire timing", () => {
+	it("a weapon whose cooldownDeciSec does not divide the run still fires the exact count", () => {
+		// cooldownDeciSec 7 (0.7s) does NOT divide the 600-tick (60s) cap evenly.
+		// The carry-over accumulator means it fires every 7 ticks: floor(600/7)=85
+		// times, with NO drift from the ragged remainder. accuracy 100 so every
+		// fire logs a hit; target is unkillable so the battle runs the full cap.
+		const p = oneVsOne(
+			{
+				hull: 1000000000,
+				hullMax: 1000000000,
+				weapons: [
+					makeWeapon({
+						id: "pw",
+						yield: 1,
+						accuracy: 100,
+						cooldownDeciSec: 7,
+					}),
+				],
+			},
+			{ hull: 1000000000, hullMax: 1000000000, weapons: [] },
+		);
+		const { outcome, log } = resolveBattle(p, 1, { generateLog: true });
+		expect(outcome.reason).toBe("capReached");
+		const playerHits = log.filter(
+			(e) => e.actorId === "P1" && e.type === "hit",
+		);
+		expect(playerHits.length).toBe(Math.floor(600 / 7)); // 85, no drift
 	});
 });
