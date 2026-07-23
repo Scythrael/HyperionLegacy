@@ -56,6 +56,12 @@ import type { StatusEffect, WeaponEffect } from "./statusEffects";
 // erased at compile time, exactly like the StatusEffect import above).
 import type { CombatStance } from "./positioning";
 
+// Phase 7 drone sub-system type. DroneSquadron lives in drones.ts (with the model,
+// factory + status helpers). Imported as a TYPE ONLY, same zero-runtime-cycle
+// pattern as the imports above: drones.ts imports WeaponFamily from here as a type
+// too, so the mutual reference is compile-time only and erased at runtime.
+import type { DroneSquadron } from "./drones";
+
 // A single weapon mounted on a combatant.
 //
 // This is the REAL Phase 3 weapon model (it replaced the Phase 2 flat-`yield`
@@ -259,11 +265,18 @@ export interface Combatant {
 	// (disruptions tick down over time), so the sim does NOT clear it at battle
 	// end. See statusEffects.ts.
 	statusEffects: StatusEffect[];
-	// RESERVED, EMPTY until Phase 8 (drones). Typed loosely on purpose so the
-	// drone sub-system can define its real element type and drop it in without
-	// reshaping Combatant; the sim loop already has an "act drones" seam that
-	// iterates this empty array today.
-	drones: unknown[]; // TODO Phase 8: launched drone squadrons
+	// The drone squadrons this combatant fields (design S8), one per equipped bay.
+	// Phase 7a TYPED + FILLED this (was reserved-empty unknown[]): the sim's tick
+	// loop iterates it and fires each ready squadron's volley at the combatant's
+	// target (drone OFFENSE). Default [] = no hangar = zero drone draws, so a
+	// dronel-less combatant is byte-identical to the pre-drone sim (the parity
+	// guard, where drone-less means byte-identical). Squadron loadouts are caller-
+	// supplied for now; the fit-to-ship / fabrication pipeline that populates them
+	// from real hangar gear is Phase 9/12.
+	// ⚠️ Phase 7b adds the DEFENSIVE interactions (evade/deflect/reflect when a
+	// squadron or the carrier is targeted), replenishment of destroyed drones, and
+	// the carrier hull class; those read this same array.
+	drones: DroneSquadron[];
 
 	// -- COUNTER-MODULE EFFECT FLAGS (design S7 / Phase 6). Modules are a reserved
 	// equipment slot; the sim reads their EFFECTS as these plain combatant fields.
