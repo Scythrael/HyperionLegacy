@@ -291,7 +291,22 @@ export function applyProjectileDamage(
 	// for why a single column per shot rather than a per-pool split.
 	const triangleMult =
 		target.shield > 0 ? FAMILY_VS_SHIELDS[family] : FAMILY_VS_ARMOR[family];
-	const dmg = Math.floor((rawAfterCrit * triangleMult) / 100);
+	const dmgAfterTriangle = Math.floor((rawAfterCrit * triangleMult) / 100);
+
+	// STEP 4b (per-family DAMAGE RESIST, design S5). A flat TYPE resist applied to
+	// the raw typed damage BEFORE any mitigation stage (shields / armor / hull),
+	// which is the design-consistent spot: design S2.4 forms the raw typed damage
+	// from "the family triangle multiplier AND per-type resists" together, then
+	// mitigation (step 5) acts on the result. We place it right after the triangle
+	// (both are properties of the damage TYPE) so the whole shot, including the
+	// particle attenuation split below, is computed off the already-resisted
+	// number. Integer floor math, clamped 0..100, so 0 resist is a no-op (the
+	// regression default that keeps every zero-resist fixture byte-identical).
+	const damageResistPct = Math.max(0, Math.min(100, target.damageResist[family]));
+	const dmg =
+		damageResistPct > 0
+			? Math.floor((dmgAfterTriangle * (100 - damageResistPct)) / 100)
+			: dmgAfterTriangle;
 
 	// Track total damage actually removed from the target (for logging + the
 	// aggregate the caller sums), and whether this projectile attenuated.
@@ -467,16 +482,41 @@ function fireWeapon(
 	// order is fixed and independent of generateLog.
 	const appliedEffects: string[] = [];
 	if (projectilesHit > 0) {
+		// PHASE 5 (design S5): the target's per-family DISRUPTION RESIST cuts this
+		// weapon-family's procs, DUAL-purpose with its damage resist. It lowers BOTH
+		// the proc chance AND the escalation chance (rank), computed once per shot as
+		// a deterministic pre-roll scaling. Because it only changes the THRESHOLD of
+		// rolls we already draw (never whether we draw), the combat-stream schedule
+		// is unchanged, so parity (offline == live) holds and a zero-resist target is
+		// byte-identical to before. Clamped 0..100; 0 = no-op.
+		const disruptionResistPct = Math.max(
+			0,
+			Math.min(100, target.disruptionResist[weapon.family]),
+		);
+		const resistKept = 100 - disruptionResistPct; // percent of chance retained
 		for (const slot of weapon.effectSlots) {
-			// One proc roll per slot, always (whether or not it lands).
-			if (!combat.chance(slot.procChance, 100)) continue;
+			// Cut the proc chance by the family disruption resist (integer floor).
+			const effectiveProcChance =
+				disruptionResistPct > 0
+					? Math.floor((slot.procChance * resistKept) / 100)
+					: slot.procChance;
+			// One proc roll per slot, always (whether or not it lands). The DRAW
+			// happens unconditionally; resist only moves the pass threshold.
+			if (!combat.chance(effectiveProcChance, 100)) continue;
+			// Cut the escalation chance the same way, so resist also suppresses RANK
+			// growth (design S5 "the chance + rank"): a resisted target is both less
+			// likely to be disrupted AND less likely to have it escalate.
+			const effectiveEscalationChance =
+				disruptionResistPct > 0
+					? Math.floor((slot.escalationChance * resistKept) / 100)
+					: slot.escalationChance;
 			// It landed: apply (add rank 1, or refresh + roll escalation if the target
 			// already has it). applyEffect draws the escalation roll from the SAME
 			// combat stream, only when refreshing an un-capped effect.
 			target.statusEffects = applyEffect(
 				target.statusEffects,
 				slot.defId,
-				slot.escalationChance,
+				effectiveEscalationChance,
 				combat,
 			);
 			appliedEffects.push(slot.defId);

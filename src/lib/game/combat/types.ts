@@ -32,6 +32,17 @@ export type CombatTeam = "player" | "enemy";
 //                 support/debuff family (disruption procs land in Phase 4).
 export type WeaponFamily = "kinetic" | "particle" | "ew";
 
+// A per-family integer-percent map (design S5). Combat resistances are typed by
+// weapon FAMILY for v1 (finer per-weapon-type resist is future, see the TODO on
+// Combatant.damageResist). One value per family, each an integer percent 0..100.
+// Used for BOTH the damage-resist and disruption-resist maps below, so the shape
+// is named once and shared.
+export interface FamilyResist {
+	kinetic: number;
+	particle: number;
+	ew: number;
+}
+
 // Phase 4 status-effect shapes live in statusEffects.ts (the whole disruption/
 // DoT/buff engine + registry). types.ts imports them as TYPES ONLY so the two
 // modules can reference each other's shapes (Combatant carries StatusEffect[];
@@ -158,6 +169,26 @@ export interface Combatant {
 	// per-projectile hit chance (design S2.1). Higher = harder to hit. 0 = none.
 	// Phase 6 feeds this from maneuverability/speed + range; a flat field for now.
 	evasion: number;
+
+	// -- Per-family resists (design S5). Resistances are DUAL-purpose: they cut
+	// incoming DAMAGE of a family AND the chance + rank of that family's
+	// disruptions. For v1 the "type" granularity is the three weapon FAMILIES
+	// (kinetic / particle / ew). Each value is an integer percent (0..100);
+	// all-zero = no resist (the regression default, so existing fixtures are
+	// unchanged). TODO(future): finer PER-WEAPON-TYPE resist (design S5 "Finer
+	// per-weapon-type resist is future") layers on top of these family maps.
+	//
+	// damageResist cuts the raw TYPED damage of the matching family, applied in
+	// applyProjectileDamage right after the family triangle and BEFORE the
+	// attenuation split / shields (design S2.4: "the family triangle multiplier
+	// AND per-type resists" are both part of forming the raw typed damage, before
+	// mitigation). See resolveBattle.applyProjectileDamage for the exact spot.
+	damageResist: FamilyResist;
+	// disruptionResist cuts the matching family's effect PROCS: in the shot
+	// pipeline it lowers both the proc chance AND the escalation chance (rank) of a
+	// weapon's effect slots (design S5: a resist cuts "the chance + rank"). See
+	// resolveBattle.fireWeapon's effect-proc loop.
+	disruptionResist: FamilyResist;
 
 	// Position on a 1D distance axis (integer). Combatants close/open distance
 	// toward their target each tick. Phase 6 layers stance + range bands on top;

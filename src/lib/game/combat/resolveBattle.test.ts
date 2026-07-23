@@ -71,6 +71,14 @@ function makeCombatant(overrides: Partial<Combatant> = {}): Combatant {
 		ablativeArmor: overrides.ablativeArmor ?? 0,
 		kineticDampening: overrides.kineticDampening ?? 0,
 		evasion: overrides.evasion ?? 0,
+		// Per-family resists default to all-zero (no resist), so any test not
+		// exercising resists is byte-identical to the pre-Phase-5 behavior.
+		damageResist: overrides.damageResist ?? { kinetic: 0, particle: 0, ew: 0 },
+		disruptionResist: overrides.disruptionResist ?? {
+			kinetic: 0,
+			particle: 0,
+			ew: 0,
+		},
 		position: overrides.position ?? 0,
 		speed: overrides.speed ?? 10,
 		weapons: overrides.weapons ?? [makeWeapon()],
@@ -584,6 +592,212 @@ describe("shot pipeline: carry-over cooldown fire timing", () => {
 			(e) => e.actorId === "P1" && e.type === "hit",
 		);
 		expect(playerHits.length).toBe(Math.floor(600 / 7)); // 85, no drift
+	});
+});
+
+// ===========================================================================
+// PHASE 5 per-family DAMAGE-RESIST tests (pure applyProjectileDamage).
+//
+// Damage resist is a flat per-family cut on the raw typed damage, applied right
+// after the triangle and before mitigation. All exact-integer, zero rng.
+// ===========================================================================
+
+describe("shot pipeline: per-family damage resist (design S5)", () => {
+	it("50% particle resist halves a particle shot (after the triangle)", () => {
+		// Shields up, particle => triangle +10% => 110, then 50% damage resist =>
+		// floor(110 * 50/100) = 55 shield lost. Resist is applied to the typed
+		// damage BEFORE mitigation, so the whole 55 hits the (huge) shield pool.
+		const t = defenseTarget({
+			damageResist: { kinetic: 0, particle: 50, ew: 0 },
+		});
+		const { dealt } = applyProjectileDamage(t, "particle", 0, 0, 100);
+		expect(t.shield).toBe(100000 - 55);
+		expect(dealt).toBe(55);
+	});
+
+	it("resist is per-family: particle resist does NOT reduce a kinetic shot", () => {
+		// Same 50% PARTICLE resist, but a KINETIC shot: kinetic vs-Shields is neutral
+		// (100%) and the particle-only resist does not apply => full 100 shield lost.
+		const t = defenseTarget({
+			damageResist: { kinetic: 0, particle: 50, ew: 0 },
+		});
+		applyProjectileDamage(t, "kinetic", 0, 0, 100);
+		expect(t.shield).toBe(100000 - 100);
+	});
+
+	it("resist cuts the raw typed damage before the attenuation split", () => {
+		// Particle, 40% attenuation, 50% particle damage resist, shields up.
+		//   triangle: +10% => 110
+		//   resist:   floor(110 * 50/100) = 55  (the number the split works off)
+		//   attenuate: floor(55 * 40/100) = 22 bypass to hull; 33 to shields.
+		// Proves resist lands on the raw typed damage, upstream of attenuation.
+		const t = defenseTarget({
+			damageResist: { kinetic: 0, particle: 50, ew: 0 },
+		});
+		const r = applyProjectileDamage(t, "particle", 40, 0, 100);
+		expect(r.attenuated).toBe(true);
+		expect(t.hull).toBe(100000 - 22); // floor(55 * 40/100)
+		expect(t.shield).toBe(100000 - 33); // the non-bypassed remainder
+	});
+
+	it("zero resist is a byte-identical no-op (regression guard)", () => {
+		// An all-zero resist map must reproduce the plain triangle result exactly.
+		const t = defenseTarget({
+			damageResist: { kinetic: 0, particle: 0, ew: 0 },
+		});
+		applyProjectileDamage(t, "particle", 0, 0, 100);
+		expect(t.shield).toBe(100000 - 110); // unchanged +10% particle-vs-shields
+	});
+
+	it("100% resist fully negates the matching family's damage", () => {
+		const t = defenseTarget({
+			damageResist: { kinetic: 0, particle: 100, ew: 0 },
+		});
+		const { dealt } = applyProjectileDamage(t, "particle", 0, 0, 100);
+		expect(dealt).toBe(0);
+		expect(t.shield).toBe(100000);
+	});
+});
+
+// ===========================================================================
+// PHASE 5 per-family DISRUPTION-RESIST tests (through the full resolveBattle).
+//
+// Disruption resist cuts the matching family's proc chance AND escalation
+// (rank). Deterministic per seed; a zero-resist run is unchanged.
+// ===========================================================================
+
+describe("status effects: per-family disruption resist (design S5)", () => {
+	// A particle Plasma-Fire weapon that always connects and always tries to proc,
+	// so the ONLY thing gating the proc landing is the target's disruption resist.
+	const alwaysProcPlasma = () =>
+		makeWeapon({
+			id: "pw",
+			family: "particle",
+			yield: 1,
+			accuracy: 100,
+			cooldownDeciSec: 10,
+			effectSlots: [{ defId: "plasmaFire", procChance: 100, escalationChance: 0 }],
+		});
+
+	it("100% particle disruption resist blocks all particle procs; 0% does not", () => {
+		const resisted = oneVsOne(
+			{ hull: 100000, hullMax: 100000, weapons: [alwaysProcPlasma()] },
+			{
+				hull: 100000,
+				hullMax: 100000,
+				weapons: [],
+				disruptionResist: { kinetic: 0, particle: 100, ew: 0 },
+			},
+		);
+		const clean = oneVsOne(
+			{ hull: 100000, hullMax: 100000, weapons: [alwaysProcPlasma()] },
+			{ hull: 100000, hullMax: 100000, weapons: [] },
+		);
+		const r = resolveBattle(resisted, 11, { generateLog: true });
+		const c = resolveBattle(clean, 11, { generateLog: true });
+		const procs = (res: typeof r) =>
+			res.log.filter((e) => e.type === "effectApplied").length;
+		expect(procs(r)).toBe(0); // fully resisted: nothing lands
+		expect(procs(c)).toBeGreaterThan(0); // unresisted: procs land
+	});
+
+	it("disruption resist is per-family: EW resist does NOT block a particle proc", () => {
+		// Target resists EW disruptions fully, but the incoming weapon is PARTICLE,
+		// so its Plasma Fire still lands exactly as if unresisted.
+		const ewResisted = oneVsOne(
+			{ hull: 100000, hullMax: 100000, weapons: [alwaysProcPlasma()] },
+			{
+				hull: 100000,
+				hullMax: 100000,
+				weapons: [],
+				disruptionResist: { kinetic: 0, particle: 0, ew: 100 },
+			},
+		);
+		const clean = oneVsOne(
+			{ hull: 100000, hullMax: 100000, weapons: [alwaysProcPlasma()] },
+			{ hull: 100000, hullMax: 100000, weapons: [] },
+		);
+		const proc = (p: BattleParticipants) =>
+			resolveBattle(p, 11, { generateLog: true }).log.filter(
+				(e) => e.type === "effectApplied",
+			).length;
+		expect(proc(ewResisted)).toBe(proc(clean));
+	});
+
+	it("disruption resist suppresses rank escalation (cuts rank, not just chance)", () => {
+		// The resist cuts proc AND escalation by the SAME factor, so it cannot zero
+		// escalation while procs still land; the rank-suppression is therefore
+		// statistical, demonstrated on a pinned seed. escalationChance 100 => an
+		// unresisted target climbs to MAX_RANK 3. A 75% particle disruption resist
+		// dampens both proc chance (100 -> 25) and escalation (100 -> 25), so on this
+		// representative seed the resisted target peaks at a STRICTLY lower rank.
+		// The seed is safe to pin: resist only moves roll THRESHOLDS, never the draw
+		// schedule, so the sequence is stable (same discipline as the crit tests).
+		const escalating = () =>
+			makeWeapon({
+				id: "pw",
+				family: "particle",
+				yield: 1,
+				accuracy: 100,
+				cooldownDeciSec: 10,
+				effectSlots: [
+					{ defId: "plasmaFire", procChance: 100, escalationChance: 100 },
+				],
+			});
+		const clean = oneVsOne(
+			{ hull: 100000, hullMax: 100000, weapons: [escalating()] },
+			{ hull: 100000, hullMax: 100000, weapons: [] },
+		);
+		const resisted = oneVsOne(
+			{ hull: 100000, hullMax: 100000, weapons: [escalating()] },
+			{
+				hull: 100000,
+				hullMax: 100000,
+				weapons: [],
+				disruptionResist: { kinetic: 0, particle: 75, ew: 0 },
+			},
+		);
+		const maxRank = (p: BattleParticipants) => {
+			const dots = resolveBattle(p, 0, { generateLog: true }).log.filter(
+				(e) => e.type === "dot" && e.effectDefId === "plasmaFire",
+			);
+			return Math.max(0, ...dots.map((e) => e.effectRank ?? 0));
+		};
+		expect(maxRank(clean)).toBe(3); // unresisted climbs to the cap
+		expect(maxRank(resisted)).toBeLessThan(3); // resist held the rank down
+	});
+
+	it("offline == live still holds with a disruption-resisted target (parity)", () => {
+		// Resist changes proc/escalation THRESHOLDS but never the draw schedule, so
+		// the winner + rounds must match with and without the log.
+		const build = () =>
+			oneVsOne(
+				{
+					hull: 400,
+					hullMax: 400,
+					weapons: [
+						makeWeapon({
+							id: "pw",
+							family: "particle",
+							yield: 20,
+							accuracy: 100,
+							effectSlots: [
+								{ defId: "plasmaFire", procChance: 70, escalationChance: 40 },
+							],
+						}),
+					],
+				},
+				{
+					hull: 300,
+					hullMax: 300,
+					weapons: [makeWeapon({ id: "ew", yield: 4 })],
+					disruptionResist: { kinetic: 0, particle: 60, ew: 0 },
+					damageResist: { kinetic: 0, particle: 25, ew: 0 },
+				},
+			);
+		const live = resolveBattle(build(), 5150, { generateLog: true });
+		const offline = resolveBattle(build(), 5150, { generateLog: false });
+		expect(offline.outcome).toEqual(live.outcome);
 	});
 });
 
