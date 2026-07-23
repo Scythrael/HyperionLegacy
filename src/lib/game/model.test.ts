@@ -20,6 +20,7 @@ import {
   effectiveMissionDef,
   ITEMS,
   BASE_XP_PER_TICK,
+  FACTIONS,
   FUEL_CREDITS_PER_UNIT,
   rarityIndex,
   EQUIPMENT_SLOTS,
@@ -411,6 +412,44 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
       // ⚠️ block in model.ts MissionDef); Task 2 owns any fractional XP retune.
       expect(Number.isInteger(m.fleetAdminXpPerTick)).toBe(true);
     }
+  });
+});
+
+// FACTIONS (Combat 0.13.0, design §S14): the lightweight named-pirate-faction data
+// table. Nothing consumes it yet (enemy generation + patrol dispatch are later
+// sub-phases), so this pins the DATA-SHAPE contract those future consumers will rely
+// on: the map-key-equals-id drift guard (the same invariant BLUEPRINTS asserts, so an
+// id and its key can never disagree), unique ids, and non-empty display strings.
+describe("FACTIONS, lightweight pirate-faction data table (Combat 0.13.0 §S14)", () => {
+  it("has a small first-pass roster (3 to 4 factions)", () => {
+    const count = Object.keys(FACTIONS).length;
+    expect(count).toBeGreaterThanOrEqual(3);
+    expect(count).toBeLessThanOrEqual(4);
+  });
+
+  it("every entry's map key equals its id (no key/id drift)", () => {
+    for (const [key, faction] of Object.entries(FACTIONS)) {
+      expect(faction.id).toBe(key);
+    }
+  });
+
+  it("ids are unique", () => {
+    const ids = Object.values(FACTIONS).map((f) => f.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("every faction has a non-empty name and flavor", () => {
+    for (const faction of Object.values(FACTIONS)) {
+      expect(faction.name.length).toBeGreaterThan(0);
+      expect(faction.flavor.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("a lookup by id is a direct record read (entry for a known id, undefined for an unknown one)", () => {
+    // Documents WHY no factionById helper exists: the Record read is the idiom
+    // (mirrors BLUEPRINTS[key] / MISSIONS[key]), returning the entry or undefined.
+    expect(FACTIONS.crimsonReavers?.id).toBe("crimsonReavers");
+    expect(FACTIONS.notARealFaction).toBeUndefined();
   });
 });
 

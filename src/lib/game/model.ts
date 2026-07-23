@@ -513,6 +513,61 @@ export const BASE_XP_PER_TICK: Record<MissionKey, number> = {
   forageFlora: 1.25,
 };
 
+// --- Combat factions (Combat 0.13.0, design §S14) ----------------------------
+// The lightweight named-pirate-faction record. Combat 0.13.0 adds Patrol missions
+// where the player fights a NAMED pirate faction; each starting Patrol is tied to
+// one of these. This is the DATA SEAM ONLY: a later sub-phase (enemy generation)
+// reads a Faction to build seeded enemy combatants, and patrol defs will reference
+// a faction by `id`, so `id` is the STABLE identifier those consumers key on (do
+// not rename an id once a patrol/enemy references it, same discipline as a mission
+// key or blueprint key).
+//
+// ⚠️ REPUTATION DEFERRED (design §S14): a per-faction reputation SCALAR and its
+// consequences (reprisal, standing-gated rewards, faction-vs-faction dynamics) are
+// a PLANNED extension, intentionally NOT shipped this patch. 0.13.0 lands only the
+// id/name/flavor triad so the seam is live and future work is additive. The ABSENCE
+// of a reputation field here is deliberate, NOT an oversight: a future reader adding
+// reputation should extend this interface (and add a save-migration then, since a
+// persisted reputation value is the FIRST thing about factions that will need to
+// persist, nothing here does yet).
+export interface Faction {
+  id: string;    // stable identifier, keyed by future enemy-gen + patrol defs
+  name: string;  // player-facing display name
+  flavor: string; // one-sentence PG flavor blurb
+}
+
+// The named pirate factions the starting Patrols draw from. FIRST-PASS PLACEHOLDER
+// content: the ids are stable, but the names/flavor are launch placeholders meant to
+// be art-directed later (same tunable spirit as MISSIONS'/SHIP_TYPES' first-pass
+// constants above). Keyed by `id` so a lookup is a direct FACTIONS[id] read (mirrors
+// how BLUEPRINTS/MISSIONS/SHIP_TYPES key their records, and why no factionById helper
+// is warranted: the record read already returns the entry or undefined). Four entries
+// give enemy generation a small roster to seed from; add one here (do not repurpose an
+// existing id) when a new faction is authored. The map-key-equals-id invariant is
+// asserted in model.test.ts, the same drift guard BLUEPRINTS carries.
+export const FACTIONS: Record<string, Faction> = {
+  crimsonReavers: {
+    id: "crimsonReavers",
+    name: "The Crimson Reavers",
+    flavor: "A blood-bannered raider clan that strips freighters to the frame and leaves the crews adrift as a warning.",
+  },
+  voidJackals: {
+    id: "voidJackals",
+    name: "The Void Jackals",
+    flavor: "Opportunist scavengers who shadow the trade lanes and pounce on any hull that drifts from its escort.",
+  },
+  ironVultures: {
+    id: "ironVultures",
+    name: "The Iron Vultures",
+    flavor: "Salvage-pirates in patchwork gunships who circle wounded convoys and pick the wreckage clean.",
+  },
+  ashenCorsairs: {
+    id: "ashenCorsairs",
+    name: "The Ashen Corsairs",
+    flavor: "A disciplined corsair fleet out of the burned-out colonies, feared for coordinated ambushes at the jump gates.",
+  },
+};
+
 // The 4 real hulls this feature ships (design doc, Task 1). TUNABLE, first-pass
 // balance; real tuning happens at the device-check stage, same launch-placeholder
 // spirit as MISSIONS'/RECIPES' constants above. `moduleSlots`/`equipmentSlots`
