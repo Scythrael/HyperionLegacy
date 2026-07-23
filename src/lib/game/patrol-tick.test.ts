@@ -129,13 +129,17 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
 
   // ⚠️ THE MULTI-PATROL REGRESSION GUARD. A single patrol captain cannot expose the
   // relaunch-seed-ordering defect (there is no other captain to interleave with). With TWO
-  // repeat-dispatch patrol captains, a big offline call ran captain 1's WHOLE relaunch chain
-  // before captain 2's, while the stepped path INTERLEAVES their relaunches tick-by-tick.
-  // When the relaunch seed was drawn from the shared fleet counter, those two orders drew
-  // DIFFERENT master seeds per relaunch => divergent wave schedules / win-loss / carry-state:
-  // offline != live. Deriving each relaunch seed purely from that captain's OWN current seed
-  // makes it batch- AND order-invariant, so big == stepped again. This case FAILED before the
-  // per-captain-derivation fix and PASSES after.
+  // repeat-dispatch patrol captains, a big offline economyTick(state, N) ran captain 1's
+  // WHOLE relaunch chain before captain 2's, while N stepped economyTick(state, 1) calls
+  // INTERLEAVE their relaunches tick-by-tick. When a relaunch drew its master seed from the
+  // shared fleet nextPatrolSeed counter, those two orders assigned DIFFERENT seeds per
+  // relaunch => divergent wave schedules / win-loss / carry-state: offline != live. Deriving
+  // each relaunch seed purely from that captain's OWN current seed makes it batch- AND
+  // order-invariant, so big == stepped again.
+  //
+  // The combos below were VERIFIED (a 20-seed x 5-hull-combo sweep) to diverge on the full
+  // captains/ships/nextPatrolSeed state under the pre-fix shared-counter engine and to be
+  // clean under the fix, so each case genuinely FAILS before the fix and PASSES after.
   describe("multi-patrol parity (two repeat-dispatch patrol captains)", () => {
     // A fleet of two combat-hull captains, both eligible to patrol. Tank/credits topped up so
     // relaunches are never fuel-gated (which would mask the seed-ordering divergence).
@@ -157,11 +161,6 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
       };
     }
 
-    // Dispatch both captains (repeat), then compare big vs stepped over N ticks. seedBases
-    // 3/5/7 all have captain 1 (a destroyer flying the winning starter route) clear its first
-    // route and RELAUNCH, so the interleaving the old shared-seed-counter code got wrong is
-    // genuinely exercised. Returns the compared pair + the pre-tick fuel (for the relaunch
-    // sanity: any relaunch spends transit fuel, so a drop below dispatch-fuel proves it fired).
     function runPair(seedBase: number, hullA: ShipTypeKey, hullB: ShipTypeKey) {
       let state = twoPatrolCaptains(seedBase, hullA, hullB);
       state = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", true).next;
@@ -171,40 +170,48 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
       return { b: big(state, N), s: stepped(state, N), fuelAtDispatch };
     }
 
-    // TWO DESTROYERS: integer per-cycle fuel, so the WHOLE resulting state is exactly equal
-    // (captains carry-state, ship damaged flags, the untouched fleet seed counter, tank +
-    // credits). This is the core regression guard: it FAILS before the per-captain-derived
-    // relaunch seed (the shared counter drew order-dependent seeds) and PASSES after.
+    // THE BUG-CATCHING CASES. carrier+carrier and battleship+battleship at these seeds all
+    // diverged on the full captains/ships/nextPatrolSeed state under the OLD shared-counter
+    // engine (verified). The TRAJECTORY (both captains' carry-state incl. drones, ship damaged
+    // flags, the fleet seed counter) is asserted EXACTLY, that is exactly what the ordering
+    // defect corrupted, and it is clean under the fix.
+    const guardCases: [number, ShipTypeKey, ShipTypeKey][] = [
+      [1, "carrier", "carrier"],
+      [8, "carrier", "carrier"],
+      [8, "battleship", "battleship"],
+      [10, "battleship", "battleship"],
+    ];
+    for (const [seedBase, hullA, hullB] of guardCases) {
+      it(`big == stepped trajectory, ${hullA}+${hullB} (seedBase=${seedBase}) [failed pre-fix]`, () => {
+        const { b, s, fuelAtDispatch } = runPair(seedBase, hullA, hullB);
+        expect(b.captains).toEqual(s.captains); // exact carry-state incl. drones, waves, hull/shield
+        expect(b.ships).toEqual(s.ships); // exact ship damaged flags
+        expect(b.nextPatrolSeed).toBe(s.nextPatrolSeed); // relaunch never touches the fleet counter
+        // Fuel/credits compared to 6 dp, NOT byte-exact, ONLY because these hulls have a
+        // non-integer per-cycle fuel (6 / (1 + engineEfficiency)), so the shared tank's
+        // float-SUM (big call) vs sequential Decimal-subtraction (stepped) drifts by <1e-6.
+        // That float-accumulation artifact is PRE-EXISTING in the shared fuel model (any
+        // non-integer-fuel extraction mission has it too), independent of the seed fix here,
+        // and is flagged to the controller separately. The TRAJECTORY asserts above are exact.
+        expect(b.fuel.toNumber()).toBeCloseTo(s.fuel.toNumber(), 6);
+        expect(b.credits.toNumber()).toBeCloseTo(s.credits.toNumber(), 6);
+        expect(s.fuel.lt(fuelAtDispatch)).toBe(true); // relaunch actually fired (not vacuous)
+      });
+    }
+
+    // TWO DESTROYERS: integer-ish per-cycle fuel (6 / 1.2), so the WHOLE resulting state is
+    // BYTE-EXACT equal here (captains, ships, fleet seed counter, AND the Decimal tank +
+    // credits). These seeds do not themselves trigger the ordering defect (only one captain
+    // relaunches), but they lock the stronger exact-fuel parity the non-integer hulls above
+    // cannot, complementing the trajectory guard.
     for (const seedBase of [3, 5, 7]) {
-      it(`big == stepped, FULL exact state, two destroyers (seedBase=${seedBase})`, () => {
+      it(`big == stepped, FULL byte-exact state, two destroyers (seedBase=${seedBase})`, () => {
         const { b, s, fuelAtDispatch } = runPair(seedBase, "destroyer", "destroyer");
         expect(b.captains).toEqual(s.captains);
         expect(b.ships).toEqual(s.ships);
         expect(b.nextPatrolSeed).toBe(s.nextPatrolSeed);
         expect(b.fuel.toString()).toBe(s.fuel.toString());
         expect(b.credits.toString()).toBe(s.credits.toString());
-        // Relaunch actually fired (fuel spent beyond the dispatch cost), so the guard is not vacuous.
-        expect(s.fuel.lt(fuelAtDispatch)).toBe(true);
-      });
-    }
-
-    // DESTROYER + CARRIER: exercises drone carry-state through the interleaving too. The
-    // TRAJECTORY (both captains' full carry-state incl. drones, ship flags, seed counter) is
-    // asserted EXACTLY, that is where the seed-ordering defect manifested. Fuel/credits are
-    // compared to 6 decimals rather than byte-exact ONLY because a carrier's per-cycle fuel is
-    // non-integer (6 / (1 + engineEfficiency)), so the shared-tank's float-SUM (big call) vs
-    // sequential Decimal-subtraction (stepped) accumulates a sub-1e-6 last-digit difference.
-    // That float-accumulation artifact is PRE-EXISTING in the shared fuel model (any
-    // non-integer-fuel extraction mission has it too) and is independent of the seed fix under
-    // test here; flagged to the controller separately, out of this unit's scope.
-    for (const seedBase of [3, 5, 7]) {
-      it(`big == stepped, exact trajectory + ~fuel, destroyer + carrier (seedBase=${seedBase})`, () => {
-        const { b, s, fuelAtDispatch } = runPair(seedBase, "destroyer", "carrier");
-        expect(b.captains).toEqual(s.captains); // exact carry-state incl. drones
-        expect(b.ships).toEqual(s.ships);
-        expect(b.nextPatrolSeed).toBe(s.nextPatrolSeed);
-        expect(b.fuel.toNumber()).toBeCloseTo(s.fuel.toNumber(), 6);
-        expect(b.credits.toNumber()).toBeCloseTo(s.credits.toNumber(), 6);
         expect(s.fuel.lt(fuelAtDispatch)).toBe(true); // relaunch fired
       });
     }
