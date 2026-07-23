@@ -131,6 +131,13 @@ export interface CombatWeapon {
 	// and raises durabilityMax. First-pass 0 for the roster templates; the real
 	// per-instance quality arrives with the crafted-equipment bridge (integration).
 	quality: number;
+
+	// POWER DRAW (design S10). The reactor load this weapon places on the ship. A
+	// loadout's total draw must fit under the reactor's powerOutput (see
+	// combat/power.ts powerBudget / canFitByPower). Integer, first-pass + tunable.
+	// ⚠️ SEAM: the FIT-TIME gate that calls canFitByPower is the integration phase;
+	// here it is just the per-weapon datum + the pure budget helpers.
+	powerDraw: number;
 }
 
 // One participant in the battle: a ship (yours or an enemy).

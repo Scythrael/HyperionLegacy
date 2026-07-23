@@ -73,6 +73,12 @@ function def(
 		accuracy: number;
 		projectileCount: number;
 		range: number;
+		// Reactor load this weapon places on the ship (design S10). Required per
+		// weapon so the roster states each draw explicitly; the pure budget helpers
+		// (combat/power.ts) sum these against the reactor's powerOutput. FIRST-PASS +
+		// TUNABLE (design S20): heavier / higher-impact weapons draw more (a Concussion
+		// Torpedo or Railgun costs far more reactor than an Autocannon).
+		powerDraw: number;
 		// Signature levers default to 0; only the owning family sets them.
 		shieldAttenuation?: number;
 		armorPen?: number;
@@ -91,6 +97,7 @@ function def(
 		accuracy: stats.accuracy,
 		projectileCount: stats.projectileCount,
 		range: stats.range,
+		powerDraw: stats.powerDraw,
 		shieldAttenuation: stats.shieldAttenuation ?? 0,
 		armorPen: stats.armorPen ?? 0,
 		cooldownAccumulator: 0,
@@ -120,6 +127,7 @@ export const PLASMA: CombatWeapon = def("plasma", "particle", {
 	accuracy: 80,
 	projectileCount: 1,
 	range: RANGE_MEDIUM,
+	powerDraw: 20, // mid-cost particle staple
 	shieldAttenuation: 30, // solid bleed-through
 	effectSlots: [fx("plasmaFire", 60, 40)], // signature burn, stacks readily
 });
@@ -135,6 +143,7 @@ export const GRAVITON: CombatWeapon = def("graviton", "particle", {
 	accuracy: 82,
 	projectileCount: 1,
 	range: RANGE_LONG,
+	powerDraw: 18, // slightly leaner long-reach emitter
 	shieldAttenuation: 25,
 	effectSlots: [fx("manifoldOverheat", 45, 30)], // engine disruptor
 });
@@ -155,6 +164,7 @@ export const VOLTAIC: CombatWeapon = def("voltaic", "particle", {
 	accuracy: 78,
 	projectileCount: 1,
 	range: RANGE_MEDIUM,
+	powerDraw: 22, // high-yield anti-shield specialist runs hot
 	shieldAttenuation: 0, // deliberate: no bleed-through (weak vs hull)
 	effectSlots: [fx("capacitorFailure", 50, 35), fx("emitterOverload", 40, 30)],
 });
@@ -175,6 +185,7 @@ export const RAILGUN: CombatWeapon = def("railgun", "kinetic", {
 	accuracy: 90,
 	projectileCount: 1,
 	range: RANGE_LONG,
+	powerDraw: 30, // heavy precision gun, big reactor bite
 	armorPen: 60, // ignores 60% of ablative armor + dampening
 	effectSlots: [fx("targetingDrift", 35, 25)],
 });
@@ -191,6 +202,7 @@ export const AUTOCANNON: CombatWeapon = def("autocannon", "kinetic", {
 	accuracy: 75,
 	projectileCount: 2,
 	range: RANGE_SHORT,
+	powerDraw: 8, // cheap sustained workhorse
 	armorPen: 15,
 });
 
@@ -209,6 +221,7 @@ export const CONCUSSION_TORPEDO: CombatWeapon = def(
 		accuracy: 60,
 		projectileCount: 1,
 		range: RANGE_LONG,
+		powerDraw: 35, // heaviest warhead, priciest to power
 		armorPen: 40,
 		effectSlots: [fx("coolantLeak", 60, 30)],
 	},
@@ -236,6 +249,7 @@ export const POINT_DEFENSE_ARRAY: CombatWeapon = def(
 		accuracy: 92,
 		projectileCount: 3, // saturates a drone screen (Phase 8)
 		range: RANGE_SHORT,
+		powerDraw: 10, // light screen weapon
 	},
 );
 
@@ -251,6 +265,7 @@ export const EMP_CANNON: CombatWeapon = def("empCannon", "ew", {
 	accuracy: 80,
 	projectileCount: 1,
 	range: RANGE_MEDIUM,
+	powerDraw: 25, // disruption platform draws a lot for little damage
 	effectSlots: [fx("weaponJam", 55, 40), fx("capacitorFailure", 45, 35)],
 });
 
@@ -276,6 +291,7 @@ export const TACHYON_BURST_EMITTER: CombatWeapon = def(
 		accuracy: 82,
 		projectileCount: 1,
 		range: RANGE_MEDIUM,
+		powerDraw: 20, // best-yield EW emitter, mid draw
 		effectSlots: [fx("scatteringField", 55, 35)],
 	},
 );

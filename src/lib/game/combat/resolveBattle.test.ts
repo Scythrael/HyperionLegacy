@@ -54,6 +54,9 @@ function makeWeapon(
 		durability: overrides.durability ?? 100,
 		durabilityMax: overrides.durabilityMax ?? 100,
 		quality: overrides.quality ?? 0,
+		// Power draw is inert in resolveBattle (the fit-time gate is the integration
+		// phase); default 0 so fixtures are unaffected.
+		powerDraw: overrides.powerDraw ?? 0,
 	};
 }
 
