@@ -438,6 +438,22 @@ describe("canStartLine, typed-reason gate (each reason + ok)", () => {
     expect(canStartLine(state, "fabricate", "structuralAssemblyBp", 1)).toEqual({ ok: false, reason: "tierLocked" });
   });
 
+  it("unlockOnly (fabricate only): a researched, tier-available unlock-only blueprint is refused (live-path backstop)", () => {
+    // Combat 0.13.0 warship research gate: an UNLOCK-ONLY blueprint (battleshipHullBp) crafts
+    // NOTHING, so a fabricate LINE must never start for it. Stack the deck so nothing else could
+    // block, RESEARCH it AND raise the fabricator to its tier, so the ONLY thing that can block
+    // is the unlock-only guard. Without the guard this state would (wrongly) start a line that
+    // mints nothing; the UI hides it via the dropdown filter, but the ENGINE is the backstop.
+    const base = linesState({ fabricatorLevel: 2 });
+    const state: GameState = { ...base, researchedBlueprints: ["battleshipHullBp"] };
+    expect(canStartLine(state, "fabricate", "battleshipHullBp", 1)).toEqual({ ok: false, reason: "unlockOnly" });
+    // startLine funnels through canStartLine, so a blocked start is a same-ref no-op + the reason.
+    const res = startLine(state, "fabricate", "battleshipHullBp", { kind: "continuous" });
+    expect(res.started).toBe(false);
+    expect(res.reason).toBe("unlockOnly");
+    expect(res.next).toBe(state);
+  });
+
   it("a REFINE line SKIPS the research + tier reasons (they are a fabricate-only subset)", () => {
     // refineCommonOre carries no research/tier gate; with a free slot + affordable stock it
     // is OK even though no blueprint is researched for it.

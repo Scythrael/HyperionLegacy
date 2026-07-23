@@ -3944,6 +3944,9 @@ export function maxAffordableIterations(
 // C4 configurator can switch on it exhaustively to render a disabled Start with its cause.
 // DELIBERATELY parallels FabricateBlockReason; the ORDER mirrors canStartLine's gate order:
 //   notFound     , the key names no recipe/blueprint in the kind's registry
+//   unlockOnly   , FABRICATE only: the blueprint is UNLOCK-ONLY (unlockOnly: true), it crafts
+//                    nothing (its payoff is Shipyard build access via research), so a fabricate
+//                    LINE can never validly produce it. Combat 0.13.0 warship research gate.
 //   notResearched, FABRICATE only: the blueprint is not unlocked (blueprintUnlocked false)
 //   tierLocked   , FABRICATE only: BLUEPRINTS[key].tier > the fabricator facility level
 //   noSlot       , the kind's lines array already fills its slot count (one line per slot)
@@ -3952,12 +3955,13 @@ export function maxAffordableIterations(
 //   storageFull  , the output item is at its warehouse storage cap (materialAtCap)
 //   equipmentStorageFull, EQUIPMENT fabricate only: the SPARE-system pool is at its cap
 //                  (equipmentAtCap), the equipment twin of storageFull (Task B1)
-// notResearched + tierLocked are a FABRICATE-ONLY subset: refine recipes carry no research
-// or tier gate (a refine recipe is always available once the refinery is built), so a refine
-// line can never surface those two reasons. equipmentStorageFull is likewise fabricate-only
-// (only an equipment BLUEPRINT mints a spare system), so a refine line never surfaces it.
+// unlockOnly + notResearched + tierLocked are a FABRICATE-ONLY subset: refine recipes carry no
+// unlock/research/tier gate (a refine recipe is always available once the refinery is built), so
+// a refine line can never surface those three reasons. equipmentStorageFull is likewise fabricate-
+// only (only an equipment BLUEPRINT mints a spare system), so a refine line never surfaces it.
 export type StartLineBlockReason =
   | "notFound"
+  | "unlockOnly"
   | "notResearched"
   | "tierLocked"
   | "noSlot"
@@ -3974,10 +3978,11 @@ export type StartLineBlockReason =
 //
 // GATE ORDER is deliberate (cheapest/most-fundamental first) and determines WHICH reason
 // surfaces when several fail at once (ok itself is order-independent, all must pass):
-// identity (notFound) -> ownership (notResearched, fabricate) -> tier unlock (tierLocked,
-// fabricate) -> concurrency (noSlot) -> count validity (invalidCount) -> resource (materials)
-// -> storage (storageFull). This consolidates C2's inline startLine guards (recipe existence
-// / count / slot) and ADDS the research/tier/affordability/storage gates canFabricate carries.
+// identity (notFound) -> craftability (unlockOnly, fabricate) -> ownership (notResearched,
+// fabricate) -> tier unlock (tierLocked, fabricate) -> concurrency (noSlot) -> count validity
+// (invalidCount) -> resource (materials) -> storage (storageFull). This consolidates C2's inline
+// startLine guards (recipe existence / count / slot) and ADDS the research/tier/affordability/
+// storage gates canFabricate carries, plus the unlock-only craftability guard (0.13.0).
 export function canStartLine(
   state: GameState,
   kind: CraftLineKind,
@@ -3992,11 +3997,20 @@ export function canStartLine(
     if (!BLUEPRINTS[recipeKey]) return { ok: false, reason: "notFound" };
   }
 
-  // --- Ownership + tier (FABRICATE ONLY): a blueprint must be RESEARCHED and its tier must
-  // be reached by the fabricator's level, the SAME two gates canFabricate applies. Refine
-  // recipes have neither gate, so a refine line skips this block entirely (these reasons are
-  // a fabricate-only subset of StartLineBlockReason).
+  // --- Craftability + ownership + tier (FABRICATE ONLY). Refine recipes have none of these
+  // gates, so a refine line skips this block entirely (these reasons are a fabricate-only subset
+  // of StartLineBlockReason).
   if (kind === "fabricate") {
+    // Unlock-only guard (Combat 0.13.0 warship research gate): an UNLOCK-ONLY blueprint crafts
+    // NOTHING (no recipe.outputItem, no equipmentOutput), so a fabricate line producing it is a
+    // contradiction. Checked FIRST, BEFORE the researched/tier gates, because it is not craftable
+    // REGARDLESS of research or tier state (the same reasoning + placement as canFabricate's guard):
+    // an unlock-only blueprint's "unresearched" or "tier-locked" state is irrelevant, it is simply
+    // never a valid line. This is the ENGINE backstop behind the F4 UI's dropdown filter, so the
+    // guarantee does not rest on UI filtering alone (the codebase treats the engine as the source
+    // of truth). Without it, a RESEARCHED unlock-only blueprint would fall through to the materials
+    // gate and block only incidentally (empty inputs -> 0 affordable), an honest reason, not luck.
+    if (BLUEPRINTS[recipeKey].unlockOnly) return { ok: false, reason: "unlockOnly" };
     if (!blueprintUnlocked(state, recipeKey)) return { ok: false, reason: "notResearched" };
     if (BLUEPRINTS[recipeKey].tier > facilityLevel(state, FABRICATOR_FACILITY_KEY)) {
       return { ok: false, reason: "tierLocked" };

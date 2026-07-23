@@ -2718,6 +2718,12 @@
     switch (reason) {
       case "notFound":
         return "That recipe no longer exists.";
+      case "unlockOnly":
+        // Combat 0.13.0 warship research gate: unlock-only blueprints craft nothing, they are
+        // filtered OUT of the Fabricator's blueprint dropdowns (availableFabricateBlueprints), so
+        // this text should never actually render here. Handled explicitly so the switch stays
+        // genuinely exhaustive (not reliant on the default) if that filter ever changes.
+        return "This blueprint is researched at the Research Lab; it is not fabricated.";
       case "notResearched":
         return "Research this blueprint at the Research Lab first.";
       case "tierLocked":
