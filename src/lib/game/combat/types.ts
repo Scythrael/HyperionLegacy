@@ -20,45 +20,91 @@
 // escort ships join the "player" team in a later phase without changing this.
 export type CombatTeam = "player" | "enemy";
 
+// The three PERMANENT weapon families (design S3). Growth happens as new TYPES
+// within a family, never new families. Each family has a signature trait and a
+// modest damage-type triangle multiplier (a lever, not a hard counter), both
+// implemented in resolveBattle's shot pipeline:
+//   - "kinetic":  Armor Penetration signature; +10% vs armor/hull, hard-walled
+//                 by shields (no attenuation). The finisher.
+//   - "particle": Shield Attenuation signature; +10% vs shields, partial hull
+//                 damage bleeds through shields (never fully walled). Steady.
+//   - "ew":       Disruption-focused; weak direct damage, no attenuation. The
+//                 support/debuff family (disruption procs land in Phase 4).
+export type WeaponFamily = "kinetic" | "particle" | "ew";
+
 // A single weapon mounted on a combatant.
 //
-// ⚠️ PLACEHOLDER SHAPE. Phase 3 REPLACES this with the real weapon model
-// (families Particle/Kinetic/EW, the damage-type triangle, accuracy, crit,
-// projectile count, per-weapon effect slots, range bands, install caps). For
-// the skeleton a weapon is just "hits for `yield`, every `cooldownDeciSec`, if
-// the target is within `range`", which is enough to make battles actually
-// resolve so the parity + termination tests are meaningful.
+// This is the REAL Phase 3 weapon model (it replaced the Phase 2 flat-`yield`
+// placeholder). A weapon now carries its family (which selects the triangle +
+// signature in the shot pipeline), a min-max damage band rolled with variance +
+// crit, an accuracy that is checked against target evasion, a projectile count
+// (each projectile rolls hit/crit independently), and the two signature levers
+// (shieldAttenuation for particle, armorPen for kinetic). All numeric fields are
+// bounded INTEGERS so the sim stays drift-proof.
+//
+// FORWARD HOOKS deferred to later phases (kept OUT of this shape on purpose so
+// the contract stays exactly the Phase 3 spec, added additively later):
+//   - installCap / class gates + power draw  [Phase 5, equipment mapping]
+//   - effect-slot CONTENT (real disruption/DoT records)  [Phase 4]
 export interface CombatWeapon {
 	// Stable identifier for this weapon instance. Used in log events + for
 	// deterministic ordering if two weapons ever need a tiebreak.
 	id: string;
-	// Flat damage dealt per shot in the skeleton. Phase 3 turns this into a
-	// min-max range rolled with variance + crit + family multipliers.
-	yield: number;
+	// Which family this weapon belongs to. Selects the damage-type triangle
+	// multiplier AND the signature trait (attenuation vs armor-pen vs disruption)
+	// applied in the shot pipeline.
+	family: WeaponFamily;
+	// Damage band, INCLUSIVE integers. Each projectile rolls a raw value in
+	// [yieldMin, yieldMax] off the combat stream (design S2.4 damage variance).
+	// yieldMin == yieldMax gives a flat, variance-free weapon.
+	yieldMin: number;
+	yieldMax: number;
 	// Time between shots, in deci-seconds (integer fixed-point). e.g. 15 = fire
-	// once every 1.5s. Phase 3 derives this from weaponAttackRate.
+	// once every 1.5s. Balance derives this from a design-facing attack rate.
 	cooldownDeciSec: number;
+	// Hit chance as an INTEGER PERCENT (0..100). The shot pipeline rolls each
+	// projectile against clamp(accuracy - targetEvasion, 0, 100) via
+	// combat.chance(effective, 100), so no float ever enters the hit path.
+	accuracy: number;
+	// How many projectiles the weapon fires per shot. Each projectile rolls its
+	// own hit + crit independently (design S2.2): a high count is reliable chip,
+	// a single projectile is swingy. Must be >= 1.
+	projectileCount: number;
 	// Firing range on the 1D distance axis (integer). The weapon only fires when
-	// the target's |position - self.position| is <= range. Phase 3 replaces the
+	// the target's |position - self.position| is <= range. Phase 6 replaces the
 	// scalar with Long/Medium/Short range BANDS.
 	range: number;
+	// PARTICLE signature (0 for kinetic/EW). An integer percent: the fraction of
+	// incoming damage that, once reduced by the target's shieldCoherence, skips
+	// shields straight to the hull-path (design S2.5a). Only consulted for the
+	// particle family; kinetic + EW never attenuate.
+	shieldAttenuation: number;
+	// KINETIC signature (0 for particle/EW). An integer percent of the target's
+	// ablativeArmor AND kineticDampening that this weapon IGNORES on the hull-path
+	// (design S2.5c / S3 Armor Penetration). Only consulted for the kinetic
+	// family.
+	armorPen: number;
 	// Carry-over cooldown clock, in deci-seconds. Advanced by dt each tick; when
 	// it reaches cooldownDeciSec the weapon fires and we SUBTRACT cooldownDeciSec
 	// (keeping the remainder) so fractional fire rates never skew over time.
 	// Seeded to 0 (or a value) at battle start.
 	cooldownAccumulator: number;
+	// STUB, Phase 4 fills this with real disruption/DoT effect records that the
+	// weapon rolls on hit. Typed loosely so Phase 4 defines the element type and
+	// drops it in without reshaping CombatWeapon or the pipeline. Empty today; the
+	// shot pipeline leaves a clearly-marked seam where it will be iterated.
+	effectSlots: unknown[];
 }
 
 // One participant in the battle: a ship (yours or an enemy).
 //
-// FORWARD-FRIENDLY GAPS (added by later phases, do NOT need them yet):
-//   - armor: ablativeArmor (depleting buffer) + kineticDampening (% cut)  [Phase 4/5]
-//   - resists: per damage-type damage-resist AND disruption-resist        [Phase 4/5]
-//   - evasion / maneuverability / accuracy inputs                          [Phase 3]
-//   - stance + preferred range band, targeting policy                      [Phase 6]
+// Phase 3 added the core defense model (shieldCoherence, ablativeArmor,
+// kineticDampening, evasion below). Still FORWARD-FRIENDLY GAPS for later phases
+// (all purely additive when they arrive):
+//   - resists: per damage-type damage-resist AND disruption-resist        [Phase 5]
 //   - durability / system-condition tracking                               [Phase 9]
-//   - power budget                                                          [Phase 10]
-// Adding those is purely additive to this interface.
+//   - power budget (reactor output vs loadout draw)                         [Phase 10]
+//   - stance + preferred range band, targeting policy                       [Phase 6]
 export interface Combatant {
 	// Unique id across BOTH teams. Also the deterministic sort key for turn
 	// order (see resolveBattle), so it must be stable and unique per battle.
@@ -81,6 +127,28 @@ export interface Combatant {
 	// Shield regenerated per SECOND (not per tick). resolveBattle converts this
 	// to a per-dt amount using fixed-point accumulation so 0.1s steps stay exact.
 	shieldRecharge: number;
+	// Attenuation RESIST, an integer percent (design S5 shieldCoherence). It is
+	// subtracted from a PARTICLE weapon's shieldAttenuation before the bypass
+	// fraction is computed: net bypass = max(0, weapon.shieldAttenuation -
+	// shieldCoherence). Counter-building against particle pressure. 0 = no resist.
+	// NOTE: per-type resists + disruption resists land in Phase 5.
+	shieldCoherence: number;
+
+	// -- Hull-path defenses (design S5). Applied on the hull-path AFTER shields, in
+	// the strict order ablativeArmor (deplete) -> kineticDampening (%), see the
+	// shot pipeline. Per-type resists + durability + power all arrive in Phase 5.
+	// Ablative armor: a DEPLETING flat buffer that soaks hull-path damage first
+	// and is consumed as it soaks (integer points). Kinetic weapons ignore
+	// weapon.armorPen percent of it. 0 = no armor buffer.
+	ablativeArmor: number;
+	// Kinetic dampening: a flat PERCENT reduction (0..100) applied to whatever
+	// hull-path damage remains after ablative armor. Kinetic weapons ignore
+	// weapon.armorPen percent of this reduction. 0 = no dampening.
+	kineticDampening: number;
+	// Evasion: an integer percent subtracted from a weapon's accuracy to get the
+	// per-projectile hit chance (design S2.1). Higher = harder to hit. 0 = none.
+	// Phase 6 feeds this from maneuverability/speed + range; a flat field for now.
+	evasion: number;
 
 	// Position on a 1D distance axis (integer). Combatants close/open distance
 	// toward their target each tick. Phase 6 layers stance + range bands on top;
@@ -134,9 +202,11 @@ export interface CombatEvent {
 	// Who was affected, if applicable.
 	targetId?: string;
 
-	// Damage applied by this event (integer), if any.
+	// Damage applied by this event (integer), if any. For a multi-projectile shot
+	// this is the TOTAL damage summed across every projectile that landed.
 	damage?: number;
-	// Coarse result tag, e.g. "hit" / "miss". Phase 3 adds "crit", "evade", etc.
+	// Coarse result tag, e.g. "hit" / "evade" / "destroyed". The flavor layer
+	// switches on this plus `type`.
 	result?: string;
 	// Target's shield value AFTER this event resolved, so the eventual flavor
 	// line matches reality (design S2.8: "log the event with the result so the
@@ -144,6 +214,19 @@ export interface CombatEvent {
 	shieldAfter?: number;
 	// Target's hull value AFTER this event resolved, same reason.
 	hullAfter?: number;
+
+	// -- Phase 3 shot-detail fields (all optional; a flavor layer reads them to
+	// pick the most specific line). --
+	// The firing weapon's family, so flavor can be styled per particle/kinetic/EW.
+	family?: WeaponFamily;
+	// True if ANY projectile in this shot critically hit (design S2.3 crit lines).
+	crit?: boolean;
+	// True if this PARTICLE shot bled damage through shields via attenuation
+	// (design S2.5a), so the log can narrate the bypass distinctly.
+	attenuated?: boolean;
+	// How many of the shot's projectiles connected (0 = full evade). Lets flavor
+	// distinguish a clean volley from a grazing partial hit.
+	projectilesHit?: number;
 }
 
 // The full cast of a battle: BOTH teams in one flat, team-tagged list. A flat
