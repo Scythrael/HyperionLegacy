@@ -143,6 +143,23 @@ describe("planWaveSchedule Infamy raises max (monotonic)", () => {
 			expect(largeRun.slice(0, smallRun.length)).toEqual(smallRun);
 		}
 	});
+
+	it("prefix property holds at realistic 15% chance too (the property Infamy relies on)", () => {
+		// The prefix relationship is NOT special to certain chance: maxWaves only
+		// affects the early-stop break, so two runs that differ ONLY in maxWaves
+		// draw byte-identical PRNG values (same seed, same order) until the smaller
+		// cap is reached. Raising the cap (Infamy) therefore only ever EXTENDS the
+		// schedule, never rewrites its earlier waves. This is the exact guarantee
+		// Infamy scaling leans on, so we prove it at the realistic BASE 15% chance.
+		const small: WaveScheduleParams = { ...BASE, maxWaves: 3 };
+		const large: WaveScheduleParams = { ...small, maxWaves: 6 };
+		for (const seed of SEEDS) {
+			const smallRun = planWaveSchedule(seed, small);
+			const largeRun = planWaveSchedule(seed, large);
+			expect(largeRun.length).toBeGreaterThanOrEqual(smallRun.length);
+			expect(largeRun.slice(0, smallRun.length)).toEqual(smallRun);
+		}
+	});
 });
 
 describe("planWaveSchedule edge cases", () => {
@@ -189,6 +206,18 @@ describe("planWaveSchedule guard throws", () => {
 	it("throws when minWaves < 0", () => {
 		expect(() =>
 			planWaveSchedule(1, { ...BASE, minWaves: -1 }),
+		).toThrow();
+	});
+
+	it("throws on a fractional tick (no float may enter the outcome path)", () => {
+		expect(() =>
+			planWaveSchedule(1, { ...BASE, rollStartTick: 10.5 }),
+		).toThrow();
+	});
+
+	it("throws on a NaN numerator (Number.isInteger rejects NaN)", () => {
+		expect(() =>
+			planWaveSchedule(1, { ...BASE, waveChanceNumerator: NaN }),
 		).toThrow();
 	});
 

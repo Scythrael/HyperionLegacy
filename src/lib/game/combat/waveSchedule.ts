@@ -72,6 +72,19 @@ export function planWaveSchedule(
 	// param here is a caller/def bug, and silently clamping it would hide a
 	// balance error and, worse, could desync live vs offline. So we throw. ----
 
+	// Integer-ness FIRST: every field is an integer by contract, and a float in
+	// the outcome path is exactly the drift risk S0 forbids. Number.isInteger
+	// rejects fractionals, NaN, and Infinity in a single check, so a stray 10.5
+	// or a NaN numerator fails loudly here instead of silently corrupting the
+	// tick output downstream.
+	for (const [name, value] of Object.entries(params)) {
+		if (!Number.isInteger(value)) {
+			throw new Error(
+				`planWaveSchedule requires integer ${name}, received ${value}`,
+			);
+		}
+	}
+
 	if (minWaves < 0) {
 		throw new Error(
 			`planWaveSchedule requires minWaves >= 0, received ${minWaves}`,
@@ -118,7 +131,11 @@ export function planWaveSchedule(
 
 	// A zero ceiling means no waves are possible at all; short-circuit before we
 	// build any state. (minWaves is guaranteed <= maxWaves === 0 here, so this is
-	// consistent with the floor.)
+	// consistent with the floor.) This early exit is REDUNDANT with the pass
+	// below: the loop's `scheduled === maxWaves` break fires on the very first
+	// tick when maxWaves is 0, so the loop would also return []. We keep it as an
+	// explicit fast exit so a future reader does not have to trace the loop to
+	// convince themselves the zero case is handled.
 	if (maxWaves === 0) {
 		return [];
 	}
@@ -126,8 +143,8 @@ export function planWaveSchedule(
 	// ---- Catch-up checkpoints: the deadlines that guarantee the floor, spread
 	// evenly across the window. ----
 	//
-	// checkpoint_i = rollStartTick + floor(i * window / minWaves), for i in
-	// 1..minWaves, where window = rollEndTick - rollStartTick. This places the
+	// checkpoint_i = rollStartTick + floor(i * windowSpan / minWaves), for i in
+	// 1..minWaves, where windowSpan = rollEndTick - rollStartTick. This places the
 	// LAST checkpoint (i === minWaves) exactly on rollEndTick and distributes the
 	// rest evenly before it, so the guaranteed minimum is spread across the route
 	// instead of stacked at the end.
@@ -140,10 +157,10 @@ export function planWaveSchedule(
 	//
 	// When minWaves === 0 this loop produces no checkpoints (an empty floor),
 	// which also sidesteps the divide-by-minWaves entirely.
-	const window = rollEndTick - rollStartTick;
+	const windowSpan = rollEndTick - rollStartTick;
 	const checkpoints: number[] = [];
 	for (let i = 1; i <= minWaves; i++) {
-		checkpoints.push(rollStartTick + Math.floor((i * window) / minWaves));
+		checkpoints.push(rollStartTick + Math.floor((i * windowSpan) / minWaves));
 	}
 	// requiredByTick(t) = how many checkpoint deadlines have passed by tick t.
 	// checkpoints is ascending by construction, so we count with a moving pointer
