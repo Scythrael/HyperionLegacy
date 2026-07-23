@@ -201,13 +201,15 @@ describe("economyTick kind routing (Combat 0.13.0 §S14)", () => {
     };
   }
 
-  it("a captain on a patrol does NOT crash economyTick and stays on the patrol un-advanced", () => {
+  it("a captain on a patrol ticks without crashing and ADVANCES along its route (9b.5c)", () => {
     const dispatched = dispatchCaptainOnPatrol(stateWithHull("destroyer"), 1, PATROL_KEY, "balanced", false).next;
     const after = economyTick(dispatched, 1); // must not throw
     const mission = after.captains[0].mission as PatrolMissionState;
     expect(mission.kind).toBe("patrol");
-    // 9b.5a stub: the patrol does not advance (9b.5b fills the loop).
-    expect(mission.progressTicks).toBe(0);
+    // 9b.5c REPLACED the 9b.5a no-op stub with the real loop: one tick advances the route by
+    // one whole route tick (still in the initial transitOut leg, no wave yet at tick 1).
+    expect(mission.progressTicks).toBe(1);
+    expect(mission.phase).toBe("transitOut");
     expect(mission.nextWaveIndex).toBe(0);
   });
 
