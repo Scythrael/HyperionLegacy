@@ -1061,3 +1061,31 @@ describe("Phase 6: out-ranged punishment during the approach", () => {
 		expect(firstEnemyHit === undefined || firstEnemyHit > firstPlayerHit!).toBe(true);
 	});
 });
+
+describe("Phase 6: focus-fire targeting through the sim", () => {
+	it("the player kills the lower effective-HP enemy first (focus-fire)", () => {
+		// One player vs two co-located enemies: a weak one (E-weak) and a tough one
+		// (E-tough). The focus-fire policy (positioning.selectTarget) must concentrate
+		// on the weaker in-range enemy, so its destruction is logged FIRST.
+		const battle = (): BattleParticipants => ({
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					hull: 100000,
+					hullMax: 100000,
+					weapons: [makeWeapon({ id: "pw", yield: 40, accuracy: 100, cooldownDeciSec: 5 })],
+				}),
+				makeCombatant({ id: "E-tough", team: "enemy", hull: 400, weapons: [] }),
+				makeCombatant({ id: "E-weak", team: "enemy", hull: 60, weapons: [] }),
+			],
+		});
+		const { log } = resolveBattle(battle(), 999, { generateLog: true });
+		const destroyOrder = log
+			.filter((e) => e.type === "destroyed")
+			.map((e) => e.targetId);
+		// The weak enemy dies before the tough one (focus-fire concentrated on it).
+		expect(destroyOrder.indexOf("E-weak")).toBeGreaterThanOrEqual(0);
+		expect(destroyOrder.indexOf("E-weak")).toBeLessThan(destroyOrder.indexOf("E-tough"));
+	});
+});

@@ -48,7 +48,7 @@ import {
 	activeStatDelta,
 	applyPercentDelta,
 } from "./statusEffects";
-import { stancePreferredDistance, stanceMoveDelta } from "./positioning";
+import { stancePreferredDistance, stanceMoveDelta, selectTarget } from "./positioning";
 
 // One simulation step is 1 deci-second. Named so the "0.1s" intent is explicit
 // wherever we advance a clock or a cooldown, and so it is a single knob if the
@@ -159,42 +159,11 @@ function cloneParticipants(participants: BattleParticipants): BattleParticipants
 	};
 }
 
-// Effective HP used for target selection + tiebreak: shield soaks before hull,
-// so a ship's "how hard to kill right now" is simply shield + hull. Integer.
-function effectiveHp(c: Combatant): number {
-	return c.shield + c.hull;
-}
-
-// Pick the target a combatant should shoot at / close toward.
-//
-// SKELETON POLICY: focus the lowest effective-HP living ENEMY (a stand-in for
-// the design's "focus-fire the lowest effective-HP enemy" default, Section 6),
-// with a deterministic id tiebreak so the choice never depends on array order
-// or floating comparisons. Returns undefined if no living enemy remains.
-// Phase 6 replaces this with real per-combatant targeting policies + range.
-function selectTarget(
-	self: Combatant,
-	all: Combatant[],
-): Combatant | undefined {
-	let best: Combatant | undefined;
-	for (const other of all) {
-		// Only living enemies of `self` are valid targets.
-		if (!other.alive) continue;
-		if (other.team === self.team) continue;
-		if (best === undefined) {
-			best = other;
-			continue;
-		}
-		// Prefer lower effective HP; on a tie, prefer the lower id so the pick is
-		// fully deterministic and independent of iteration order.
-		const otherHp = effectiveHp(other);
-		const bestHp = effectiveHp(best);
-		if (otherHp < bestHp || (otherHp === bestHp && other.id < best.id)) {
-			best = other;
-		}
-	}
-	return best;
-}
+// Target selection is the Phase 6 policy in positioning.ts (selectTarget):
+// focus-fire the lowest effective-HP enemy IN RANGE, falling back to the lowest
+// effective-HP enemy overall to close on when none are reachable yet, with a
+// deterministic id tiebreak. It also carries the reserved escort-share seam
+// (Phase 7/9). The sim imports it rather than keeping a divergent local copy.
 
 // Move `self` toward its STANCE's preferred distance from `target` along the 1D
 // position axis (design S6), using the banked-tenths accumulator so a per-SECOND
