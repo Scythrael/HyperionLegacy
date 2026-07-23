@@ -5042,7 +5042,12 @@ export function buyHomeworldTalent(
     // Fleet Admiral prestige) are deliberately independent of any individual
     // captain's own level/statPoints, unlike the old captain-scoped
     // CAPTAIN_SLOT_UNLOCKS mechanism this replaced (removed in Task 4).
-    const nextId = state.captains.length + 1;
+    // Combat 0.13.0 (Task 1.2): allocate the new captain's id from the monotonic
+    // nextCaptainId counter, NOT from captains.length + 1. Length-derivation is safe
+    // only while captains are append-only; once a captain can be REMOVED (future
+    // captain death) a freed slot would let length+1 reissue a live id and collide.
+    // The counter guarantees every new id is strictly greater than any ever issued.
+    const nextId = state.nextCaptainId;
     const captains = [
       ...state.captains,
       { id: nextId, label: `Captain ${nextId}`, ...freshCaptainStack() }, // shipType removed (captain no longer owns a hull)
@@ -5068,6 +5073,8 @@ export function buyHomeworldTalent(
         captains,
         ships,
         nextShipId: state.nextShipId + 1,
+        nextCaptainId: nextId + 1, // Combat 0.13.0 (Task 1.2): consume the monotonic captain-id counter
+
         equipment: [...state.equipment, ...seededHull.pieces],
         nextEquipmentId: seededHull.nextId,
         adminPoints,

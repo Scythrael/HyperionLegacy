@@ -2138,6 +2138,30 @@ describe("buyHomeworldTalent", () => {
     }
   });
 
+  // Combat 0.13.0 (Task 1.2): a slot-unlock now allocates the new captain's id
+  // from state.nextCaptainId (a monotonic counter), NOT from captains.length + 1.
+  // This is the anti-collision guard: with a GAP in the roster (id 2 was removed
+  // by a future captain death, leaving ids [1, 3]), the old length-derived scheme
+  // would mint id 3 (length 2 + 1) and COLLIDE with the surviving id-3 captain.
+  // The counter mints id 4 and advances to 5, so ids stay globally unique forever.
+  it("allocates the new captain id from nextCaptainId, not captains.length+1 (survives a roster gap)", () => {
+    const state = freshState();
+    state.adminPoints = 10;
+    // Simulate a post-removal roster with a gap: keep the starter (id 1) and add a
+    // survivor at id 3 (id 2 was freed by a future removal). length is 2, but the
+    // next allocatable id is 4, deliberately NOT length+1 (which would be 3, a collision).
+    const survivor = { ...freshCaptains(1)[0], id: 3, label: "Captain 3" };
+    state.captains = [state.captains[0], survivor];
+    state.nextCaptainId = 4;
+    const withHub = buyHomeworldTalent(state, "fleetLogisticsHub").next; // hub cost 1, makes slot1 learnable
+    const { next, success } = buyHomeworldTalent(withHub, "fleetLogisticsSlot1"); // cost 3, unlockCaptainSlot
+    expect(success).toBe(true);
+    const added = next.captains[next.captains.length - 1];
+    expect(added.id).toBe(4); // from nextCaptainId, NOT length+1 (which would collide with id 3)
+    expect(added.label).toBe("Captain 4");
+    expect(next.nextCaptainId).toBe(5); // counter advanced by exactly 1
+  });
+
   it("fails if adminPoints are insufficient (even for a learnable node)", () => {
     const state = freshState();
     state.adminPoints = 0; // fleetLogisticsHub costs 1; adjacency gate passes (hub), cost gate fails
