@@ -586,3 +586,193 @@ describe("shot pipeline: carry-over cooldown fire timing", () => {
 		expect(playerHits.length).toBe(Math.floor(600 / 7)); // 85, no drift
 	});
 });
+
+// ===========================================================================
+// PHASE 4 status-effect INTEGRATION tests (through the full resolveBattle).
+//
+// These exercise the effect-proc seam + the per-tick tickEffects pass + the
+// per-round DoT log aggregation + an applied debuff, all end to end, plus a
+// restatement of the parity invariant with an effect-procing weapon. The pure
+// mechanics (rank/refresh/DoT math/cleanse) are unit-tested in
+// statusEffects.test.ts; here we prove the SIM wires them correctly.
+// ===========================================================================
+
+// A weapon that reliably lands its effect: a particle weapon at 100% accuracy
+// with a single guaranteed-proc, non-escalating Plasma Fire slot and negligible
+// direct damage, so the hull movement we observe is the DoT, not the shot.
+function plasmaFireWeapon(
+	overrides: {
+		procChance?: number;
+		escalationChance?: number;
+		yield?: number;
+	} = {},
+): CombatWeapon {
+	return makeWeapon({
+		id: "pw",
+		family: "particle",
+		yield: overrides.yield ?? 1, // tiny direct damage; the DoT is the story
+		accuracy: 100, // always connects, so the proc always gets its roll
+		cooldownDeciSec: 10, // fire once per round
+		effectSlots: [
+			{
+				defId: "plasmaFire",
+				procChance: overrides.procChance ?? 100,
+				escalationChance: overrides.escalationChance ?? 0,
+			},
+		],
+	});
+}
+
+// A punching-bag enemy: enormous hull, NO weapons (so it never kills the player
+// and the battle runs to the cap), no shields (so DoT hits hull directly and is
+// easy to read). The player likewise gets huge hull so it always survives.
+function burnTargetBattle(playerWeapon: CombatWeapon): BattleParticipants {
+	return oneVsOne(
+		{ hull: 100000, hullMax: 100000, weapons: [playerWeapon] },
+		{ hull: 100000, hullMax: 100000, weapons: [] },
+	);
+}
+
+describe("status effects: DoT proc + burn over rounds", () => {
+	it("a Plasma hit applies Plasma Fire and it burns the target over subsequent rounds", () => {
+		const { log } = resolveBattle(burnTargetBattle(plasmaFireWeapon()), 11, {
+			generateLog: true,
+		});
+		// The shot landed the effect: an effectApplied event names plasmaFire.
+		const applied = log.filter(
+			(e) => e.type === "effectApplied" && e.effectDefId === "plasmaFire",
+		);
+		expect(applied.length).toBeGreaterThan(0);
+		// The DoT actually burned hull: dot events with positive damage, on the
+		// enemy target, across MORE THAN ONE round (it burns over time).
+		const dots = log.filter(
+			(e) => e.type === "dot" && e.effectDefId === "plasmaFire",
+		);
+		expect(dots.length).toBeGreaterThan(1);
+		for (const d of dots) {
+			expect(d.targetId).toBe("E1");
+			expect(d.damage).toBeGreaterThan(0);
+		}
+		const burnRounds = new Set(dots.map((e) => e.round));
+		expect(burnRounds.size).toBeGreaterThan(1); // burned across several rounds
+	});
+
+	it("the DoT log aggregates to ONE line per round, not one per tick", () => {
+		const { log } = resolveBattle(burnTargetBattle(plasmaFireWeapon()), 11, {
+			generateLog: true,
+		});
+		const dots = log.filter(
+			(e) => e.type === "dot" && e.effectDefId === "plasmaFire",
+		);
+		// No two plasmaFire dot events may share a round: exactly one aggregated
+		// line per round (not the ~10 ticks that actually dealt the damage).
+		const rounds = dots.map((e) => e.round);
+		expect(new Set(rounds).size).toBe(rounds.length);
+		// A rank-1 Plasma Fire deals 10/round; a full round's aggregated line must
+		// therefore never exceed 10 (partial first/last rounds can be less).
+		for (const d of dots) {
+			expect(d.damage).toBeLessThanOrEqual(10);
+		}
+		// And a representative full round should sum to the whole 10 (proving the
+		// aggregation adds the per-tick damage, not just logs one tick).
+		const tens = dots.filter((e) => e.damage === 10);
+		expect(tens.length).toBeGreaterThan(0);
+	});
+
+	it("escalation climbs the rank in-sim when escalationChance is guaranteed", () => {
+		// procChance + escalationChance 100 => every fire re-applies and (below the
+		// cap) escalates, so later rounds' DoT lines report a higher rank + bigger
+		// per-round damage, up to MAX_RANK 3 (30/round).
+		const { log } = resolveBattle(
+			burnTargetBattle(plasmaFireWeapon({ escalationChance: 100 })),
+			11,
+			{ generateLog: true },
+		);
+		const dots = log.filter(
+			(e) => e.type === "dot" && e.effectDefId === "plasmaFire",
+		);
+		const maxRank = Math.max(...dots.map((e) => e.effectRank ?? 0));
+		expect(maxRank).toBe(3); // escalated to the cap
+		// The heaviest full round burns at the rank-3 rate (30/round).
+		const maxDamage = Math.max(...dots.map((e) => e.damage ?? 0));
+		expect(maxDamage).toBe(30);
+	});
+
+	it("proc + burn is deterministic per seed (identical dot log across runs)", () => {
+		const build = () => burnTargetBattle(plasmaFireWeapon({ procChance: 50 }));
+		const a = resolveBattle(build(), 909, { generateLog: true });
+		const b = resolveBattle(build(), 909, { generateLog: true });
+		const dotsOf = (r: typeof a) =>
+			r.log
+				.filter((e) => e.type === "dot")
+				.map((e) => `${e.round}:${e.damage}:${e.effectRank}`);
+		expect(dotsOf(a)).toEqual(dotsOf(b));
+		// A 50% proc over ~60 shots reliably lands at least one burn, so this is not
+		// a vacuous match of two empty lists.
+		expect(dotsOf(a).length).toBeGreaterThan(0);
+	});
+
+	it("offline == live still holds with an effect-procing weapon (parity)", () => {
+		// The proc + escalation add combat-stream draws; they must be independent of
+		// generateLog. A high-proc, escalating Plasma vs a killable enemy: the winner
+		// + rounds must match with and without the log.
+		const build = () =>
+			oneVsOne(
+				{
+					hull: 400,
+					hullMax: 400,
+					weapons: [
+						plasmaFireWeapon({ procChance: 70, escalationChance: 40, yield: 20 }),
+					],
+				},
+				{ hull: 300, hullMax: 300, weapons: [makeWeapon({ id: "ew", yield: 4 })] },
+			);
+		const live = resolveBattle(build(), 5150, { generateLog: true });
+		const offline = resolveBattle(build(), 5150, { generateLog: false });
+		expect(offline.outcome).toEqual(live.outcome);
+	});
+});
+
+describe("status effects: applied accuracy debuff reduces hit rate", () => {
+	it("an attacker afflicted with an accuracy disruption lands fewer hits", () => {
+		// Same battle, same seed; the only difference is the attacker carries a
+		// rank-3 Scattering Field (-60% accuracy) with a long duration so it stays
+		// active for the whole fight. It must land strictly fewer hits than a clean
+		// attacker. Target is unkillable so both runs go the full cap (same shot
+		// count opportunity), isolating the accuracy effect.
+		const cleanBattle = () =>
+			oneVsOne(
+				{
+					hull: 100000,
+					hullMax: 100000,
+					weapons: [makeWeapon({ id: "pw", yield: 1, accuracy: 90 })],
+				},
+				{ hull: 100000, hullMax: 100000, weapons: [] },
+			);
+		const debuffedBattle = () =>
+			oneVsOne(
+				{
+					hull: 100000,
+					hullMax: 100000,
+					weapons: [makeWeapon({ id: "pw", yield: 1, accuracy: 90 })],
+					// A long-lived rank-3 accuracy disruption on the SHOOTER.
+					statusEffects: [
+						{
+							defId: "scatteringField",
+							rank: 3,
+							remainingDeciSec: 100000,
+							dotBank: 0,
+						},
+					],
+				},
+				{ hull: 100000, hullMax: 100000, weapons: [] },
+			);
+		const clean = resolveBattle(cleanBattle(), 321, { generateLog: true });
+		const debuffed = resolveBattle(debuffedBattle(), 321, { generateLog: true });
+		const hits = (r: typeof clean) =>
+			r.log.filter((e) => e.actorId === "P1" && e.type === "hit").length;
+		expect(hits(debuffed)).toBeLessThan(hits(clean));
+		// Sanity: the clean attacker at 90% actually landed plenty of hits.
+		expect(hits(clean)).toBeGreaterThan(0);
+	});
+});
