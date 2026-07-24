@@ -40,7 +40,8 @@ const ROUTE_LEN = DEF.transitOutTicks + DEF.rollWindowTicks + DEF.transitBackTic
 
 // The loot salt, mirrored from tick.ts (module-private there, pinned here to hand-derive the
 // per-wave loot seed, the SAME pattern patrol-tick.test.ts uses for RELAUNCH_SEED_SALT).
-const WAVE_LOOT_SEED_SALT = 0x85ebca6b;
+// Must stay in lockstep with tick.ts's WAVE_LOOT_SEED_SALT or the expected loot diverges.
+const WAVE_LOOT_SEED_SALT = 0x165667b1;
 
 // A constant rng so any incidental economyTick draw (the quality roll on each deposited
 // material) is identical across every compared path, exactly the patrol-tick.test.ts idiom.
@@ -80,6 +81,26 @@ function expectSameInventoryValue(a: GameState, b: GameState): void {
   for (const k of keys) {
     expect(itemTotal(a.inventory, k).equals(itemTotal(b.inventory, k)), `inventory total for ${k}`).toBe(true);
   }
+}
+
+// Compare the lifetimeStats fields patrol rewards feed BY VALUE. itemsGathered is a Decimal
+// map (compared per-key via .equals, same -0/0 tolerance as inventory); creditsEarned /
+// captainXpAwarded / fleetAdminXpAwarded are Decimal scalars (compared via .toString()).
+// missionsCompleted stays empty for patrols on BOTH paths, so it matches trivially, but it is
+// asserted anyway to catch a future accidental patrol write into that extraction-only map.
+function expectSameLifetimeStats(a: GameState, b: GameState): void {
+  const la = a.lifetimeStats;
+  const lb = b.lifetimeStats;
+  const keys = new Set([...Object.keys(la.itemsGathered), ...Object.keys(lb.itemsGathered)]);
+  for (const k of keys) {
+    const va = la.itemsGathered[k] ?? new Decimal(0);
+    const vb = lb.itemsGathered[k] ?? new Decimal(0);
+    expect(va.equals(vb), `lifetime itemsGathered for ${k}`).toBe(true);
+  }
+  expect(la.creditsEarned.toString()).toBe(lb.creditsEarned.toString());
+  expect(la.captainXpAwarded.toString()).toBe(lb.captainXpAwarded.toString());
+  expect(la.fleetAdminXpAwarded.toString()).toBe(lb.fleetAdminXpAwarded.toString());
+  expect(Object.keys(la.missionsCompleted)).toEqual(Object.keys(lb.missionsCompleted));
 }
 
 function big(state: GameState, n: number): GameState {
@@ -137,6 +158,9 @@ describe("closed-form parity: reward deltas identical big vs stepped (THE GATE)"
         expect(b.credits.toString()).toBe(s.credits.toString());
         expect(b.fleetAdminXp.toString()).toBe(s.fleetAdminXp.toString());
         expect(b.fleetAdminLevel).toBe(s.fleetAdminLevel);
+        // Lifetime stats (itemsGathered / creditsEarned / captain + FA XP awarded) must fold
+        // identically big vs stepped too (foldLifetimeStatsDelta is additive/associative).
+        expectSameLifetimeStats(b, s);
       });
     }
   }
@@ -180,9 +204,15 @@ describe("rewards on WIN only", () => {
     expect(done.credits.toString()).toBe(dispatched.credits.toString());
     expect(done.captains[0].xp.equals(0)).toBe(true);
     expect(done.fleetAdminXp.equals(0)).toBe(true);
+    // ...and NOTHING accrued into lifetimeStats either (the win-only guard covers lifetime too).
+    expect(done.lifetimeStats.creditsEarned.equals(0)).toBe(true);
+    expect(done.lifetimeStats.captainXpAwarded.equals(0)).toBe(true);
+    expect(done.lifetimeStats.fleetAdminXpAwarded.equals(0)).toBe(true);
+    expect(Object.keys(done.lifetimeStats.itemsGathered).every((k) =>
+      done.lifetimeStats.itemsGathered[k].equals(0))).toBe(true);
   });
 
-  it("a WON patrol (2 waves) DOES deposit loot + bounty + XP", () => {
+  it("a WON patrol (2 waves) DOES deposit loot + bounty + XP, and records it in lifetimeStats", () => {
     const dispatched = dispatch(patrolState("destroyer", 3), false);
     const done = stepped(dispatched, ROUTE_LEN + 4);
     // Won both waves, ended cleanly (not damaged).
@@ -193,6 +223,14 @@ describe("rewards on WIN only", () => {
     expect(done.credits.gt(dispatched.credits)).toBe(true);
     expect(done.captains[0].xp.gt(0)).toBe(true);
     expect(done.fleetAdminXp.gt(0)).toBe(true);
+    // ...and the SAME reward is counted in lifetimeStats (mirrors extraction): salvage in
+    // itemsGathered, bounty in creditsEarned, and the gross captain + FA XP awarded.
+    expect(done.lifetimeStats.itemsGathered[DEFAULT_PATROL_LOOT_TABLE.salvage.itemId].gt(0)).toBe(true);
+    expect(done.lifetimeStats.creditsEarned.gt(0)).toBe(true);
+    expect(done.lifetimeStats.captainXpAwarded.gt(0)).toBe(true);
+    expect(done.lifetimeStats.fleetAdminXpAwarded.gt(0)).toBe(true);
+    // missionsCompleted stays EMPTY: a patrol is not a MissionKey extraction cycle.
+    expect(Object.keys(done.lifetimeStats.missionsCompleted).length).toBe(0);
   });
 });
 
@@ -225,6 +263,14 @@ describe("loot lands in the right places (exact amounts)", () => {
     expect(done.fleetAdminXp.equals(expected.fleetAdminXp)).toBe(true);
     expect(expected.fleetAdminXp).toBe(20);
     expect(done.fleetAdminLevel).toBe(1);
+    // LIFETIME STATS record the SAME reward at the SAME exact amounts (mirrors extraction):
+    // itemsGathered per material, creditsEarned = bounty, captain/FA XP awarded = the gross sums.
+    for (const id of Object.keys(expected.materials)) {
+      expect(done.lifetimeStats.itemsGathered[id].equals(expected.materials[id]), `lifetime ${id}`).toBe(true);
+    }
+    expect(done.lifetimeStats.creditsEarned.equals(expected.credits)).toBe(true);
+    expect(done.lifetimeStats.captainXpAwarded.equals(expected.captainXp)).toBe(true);
+    expect(done.lifetimeStats.fleetAdminXpAwarded.equals(expected.fleetAdminXp)).toBe(true);
   });
 
   it("captain LEVEL-UP fires when accrued patrol XP crosses the threshold (shared foldXpLevelUps)", () => {

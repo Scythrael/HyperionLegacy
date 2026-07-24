@@ -1429,7 +1429,17 @@ const RELAUNCH_SEED_SALT = 0x27d4eb2f;
 // the SAME persisted masterSeed + waveIndex, a won wave's loot is fixed the instant that
 // wave resolves and is byte-identical offline vs live (the parity gate). Do NOT change it
 // once patrols ship live (a saved patrol's future wave loot depends on it).
-const WAVE_LOOT_SEED_SALT = 0x85ebca6b; // arbitrary-but-fixed nonzero (a murmur3 mixing constant), distinct from the 3 salts above
+//
+// ⚠️ Value chosen to be distinct not only from the other 3 salts but ALSO from every
+// constant used INSIDE deriveWaveSeed / fmix32 (0x9e3779b9 the masterSeed multiplier,
+// 0x85ebca6b the waveIndex multiplier + first fmix32 constant, 0xc2b2ae35 the second fmix32
+// constant). An earlier value (0x85ebca6b) accidentally equalled the waveIndex multiplier +
+// first fmix32 constant, which for waveIndex 0 made the salt and waveIndex terms cancel
+// (imul(1, 0x85ebca6b) ^ 0x85ebca6b == 0). That was not a correctness bug (fmix32 is a
+// bijection, so decorrelation still held), but it defeated the "distinct nonzero salt" intent
+// and tripled a magic literal. 0x165667b1 is xxHash's PRIME32_5, an odd 32-bit constant not
+// used anywhere in the mixer, so no term can cancel for any waveIndex.
+const WAVE_LOOT_SEED_SALT = 0x165667b1; // xxHash PRIME32_5: odd, distinct from the 3 salts AND from every deriveWaveSeed/fmix32 constant
 
 // Combat 0.13.0 (Phase 10, design S12): the PATROL LOOT TABLES, keyed by PatrolKey. This is
 // the SINGLE data-driven source for what a won wave (a wreck) drops, so ship-class-specific
@@ -1551,6 +1561,13 @@ interface PatrolTickResult {
   homePlanetDelta: Record<string, Decimal>;
   creditsDelta: number;
   fleetAdminXpDelta: number;
+  // Combat 0.13.0 (Phase 10): this call's LIFETIME-STATS contribution, folded by economyTick
+  // through the SAME foldLifetimeStatsDelta seam the extraction arm uses for
+  // tickCaptainMission's lifetimeStatsDelta, so patrol loot counts toward lifetime totals
+  // exactly like extraction loot. Built from the SAME won-wave accumulators as the deltas
+  // above (empty on a no-win call). See the build site below for which fields map and which
+  // extraction-specific field (missionsCompleted) is deliberately left empty for patrols.
+  lifetimeStatsDelta: MissionLifetimeStatsDelta;
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
@@ -1588,6 +1605,7 @@ export function tickCaptainPatrol(
     homePlanetDelta: {},
     creditsDelta: 0,
     fleetAdminXpDelta: 0,
+    lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
   };
   // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
   if (!captain.mission || captain.mission.kind !== "patrol" || ticksElapsed <= 0) return noOp;
@@ -1848,6 +1866,31 @@ export function tickCaptainPatrol(
     statPoints += captainLevelUps.levelUps;
   }
 
+  // Combat 0.13.0 (Phase 10): this call's LIFETIME-STATS contribution, built from the SAME
+  // won-wave accumulators as the deltas above so patrol rewards count toward lifetime totals
+  // exactly like extraction (economyTick folds this through the shared foldLifetimeStatsDelta).
+  // Field mapping MIRRORS tickCaptainMission's lifetimeStatsDelta (see ~line 1311):
+  //   - itemsGathered: the looted MATERIALS (shallow clone, same immutable Decimal refs, like
+  //     extraction's `{ ...homePlanetDelta }`), so combat loot lands in lifetime itemsGathered.
+  //   - creditsEarned: the credit BOUNTY (mirrors extraction's creditsDelta -> creditsEarned).
+  //   - captainXpAwarded: the GROSS captain XP granted this call (the pre-level-up sum, exactly
+  //     the "gross before subtraction" semantics extraction records), NOT the leftover xp.
+  //   - fleetAdminXpAwarded: the FA XP granted this call (mirrors extraction).
+  //   - missionsCompleted: DELIBERATELY EMPTY. That map is keyed by MissionKey (an extraction
+  //     mission) and counts completed extraction cycles; a patrol is a PatrolKey, not a
+  //     MissionKey, and "waves won / patrols run" is a distinct combat concept with no home in
+  //     this extraction-specific map. Forcing a PatrolKey in would be a semantic stretch, so it
+  //     stays empty until (if ever) a dedicated combat lifetime counter is designed.
+  // WIN-ONLY holds by construction: every accumulator is 0/empty unless a wave was won (the
+  // defeat branch breaks before any accrual), so a lost/defeated patrol contributes nothing.
+  const lifetimeStatsDelta: MissionLifetimeStatsDelta = {
+    itemsGathered: { ...lootMaterials },
+    missionsCompleted: {},
+    creditsEarned: new Decimal(creditsAwarded),
+    captainXpAwarded: new Decimal(captainXpAwarded),
+    fleetAdminXpAwarded: new Decimal(fleetAdminXpAwarded),
+  };
+
   return {
     // The captain with its patrol advanced AND its won-wave XP/level-ups already folded in
     // (mirrors tickCaptainMission returning the captain with XP pre-folded).
@@ -1861,6 +1904,7 @@ export function tickCaptainPatrol(
     homePlanetDelta: lootMaterials,
     creditsDelta: creditsAwarded,
     fleetAdminXpDelta: fleetAdminXpAwarded,
+    lifetimeStatsDelta,
   };
 }
 
@@ -2220,6 +2264,10 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
         }
         creditsDelta += patrolResult.creditsDelta;
         fleetAdminXpDelta += patrolResult.fleetAdminXpDelta;
+        // Combat 0.13.0 (Phase 10): fold patrol rewards into lifetimeStats through the SAME
+        // shared foldLifetimeStatsDelta seam the extraction arm uses (~110 lines below), so
+        // combat loot/bounty/XP count toward lifetime totals exactly like extraction loot.
+        lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, patrolResult.lifetimeStatsDelta);
         return patrolResult.captain;
       }
       default:
