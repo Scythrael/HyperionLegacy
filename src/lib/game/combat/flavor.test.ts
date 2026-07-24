@@ -106,7 +106,7 @@ describe("selectFlavorTemplate fallback chain (most specific wins)", () => {
 		}
 	});
 
-	it("the SIGNATURE layer (forward hook) wins over type/family when present", () => {
+	it("an unminted signature id falls through safely to the most specific available layer", () => {
 		// The v1 roster mints no signature, but the module supports the layer. hull
 		// hit ships no signature pool, so a signature id simply falls through to the
 		// type layer here; this asserts the fallback does NOT crash on an unknown

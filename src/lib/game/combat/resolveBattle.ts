@@ -1108,10 +1108,6 @@ function resolveAmbushOpener(
 	for (const weapon of ambusher.weapons) {
 		if (!weapon.ambushEligible) continue;
 		firedOpener = true;
-		// Capture the target's shield BEFORE the shot so the flavor layer can tell a
-		// shield-break from a plain hit (design S16 death beat). Only read under
-		// generateLog so offline stays untouched; the read is outcome-neutral anyway.
-		const shieldBefore = generateLog ? target.shield : 0;
 		const shot = fireWeapon(ambusher, target, weapon, combat, bypassShields);
 		// LOG ONLY (gated): an "ambush" event so the flavor layer narrates the
 		// surprise salvo distinctly (result flags hull-direct vs a detected shielded
@@ -1135,7 +1131,6 @@ function resolveAmbushOpener(
 						crit: shot.crit,
 						attenuated: shot.attenuated,
 						projectilesHit: shot.projectilesHit,
-						shieldBroke: shieldBefore > 0 && shot.shieldAfter === 0,
 					},
 					cosmetic,
 				),
