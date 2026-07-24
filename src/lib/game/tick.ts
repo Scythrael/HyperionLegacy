@@ -119,6 +119,13 @@ import { generateEnemyWave } from "./combat/enemyWave";
 import { resolveBattle } from "./combat/resolveBattle";
 import { replenishDrones } from "./combat/droneDefense";
 import type { DroneSquadron } from "./combat/drones";
+// Combat 0.13.0 (Phase 10, design S12): the seeded per-won-wave PATROL LOOT roller.
+// rollWaveLoot(table, seed) is the PURE reward roll a defeated wave (a wreck) yields;
+// PatrolLootTable is the data-driven table shape. tick.ts owns the seed derivation (a
+// distinct loot salt off deriveWaveSeed) + the concrete PATROL_LOOT_TABLES below, and
+// folds each won wave's reward through the SAME homePlanetDelta/credits/XP deltas the
+// extraction arm uses. See patrolLoot.ts for the determinism + no-gear invariants.
+import { rollWaveLoot, type PatrolLootTable } from "./combat/patrolLoot";
 // Equipment 0.11.0 (Task 19): the Fabricator's equipment mint. computeItemLevel derives a
 // crafted piece's level (clamped by the blueprint-tier cap), generateEquipment rolls the whole
 // EquipmentInstance from an INJECTED seeded rng (so the mint is offline==live reproducible), and
@@ -1413,6 +1420,78 @@ const WAVE_BATTLE_SEED_SALT = 0xcc9e2d51;
 // patrols ship live (a saved in-flight patrol's future relaunch chain depends on it).
 const RELAUNCH_SEED_SALT = 0x27d4eb2f;
 
+// Combat 0.13.0 (Phase 10, design S12): the LOOT salt. Each WON wave's reward is rolled
+// from deriveWaveSeed(masterSeed, waveIndex, WAVE_LOOT_SEED_SALT), a FOURTH distinct salt
+// so a wave's loot stream DECORRELATES from that same wave's enemy-gen and battle streams
+// (WAVE_ENEMY/WAVE_BATTLE salts) and from the relaunch chain (RELAUNCH salt). That
+// separation is what stops loot from correlating with which enemies spawned or how the
+// fight resolved: it is its own independent, seed-derived sequence. Because it derives off
+// the SAME persisted masterSeed + waveIndex, a won wave's loot is fixed the instant that
+// wave resolves and is byte-identical offline vs live (the parity gate). Do NOT change it
+// once patrols ship live (a saved patrol's future wave loot depends on it).
+const WAVE_LOOT_SEED_SALT = 0x85ebca6b; // arbitrary-but-fixed nonzero (a murmur3 mixing constant), distinct from the 3 salts above
+
+// Combat 0.13.0 (Phase 10, design S12): the PATROL LOOT TABLES, keyed by PatrolKey. This is
+// the SINGLE data-driven source for what a won wave (a wreck) drops, so ship-class-specific
+// and rare-enemy tables can slot in later (design S12) without touching the roller. tick.ts
+// owns the concrete tables (they reference ITEMS keys + the balance values), while the pure
+// roll lives in patrolLoot.ts. A patrol WITHOUT its own entry falls back to
+// DEFAULT_PATROL_LOOT_TABLE, so a future PATROLS key never rolls nothing by omission.
+//
+// ⚠️ EVERY amount below is FIRST-PASS TUNABLE (design S20 loot-rate pass), same
+// launch-placeholder discipline as MISSIONS/RECIPES/PATROLS. Rationale for the current
+// values: a patrol is 2 won waves, so a full clear yields ~2x these bands. Kept modest so
+// combat FEEDS the economy without trivializing it (a won patrol is a small, riskier
+// alternative to an extraction cycle, not a jackpot).
+//
+// ⚠️ NO FUNCTIONAL GEAR (design S12): every itemId below is a MATERIAL category
+// (raw/refined/component/salvagedMaterial), NEVER a shipModule/shipSystem/equipment. This
+// protects the crafting loop; patrol-loot.test.ts locks the invariant against every table id.
+//
+// ⚠️ RESERVED, DEFERRED (design S12): a guaranteed "Damaged [System]" reverse-engineering
+// component (the Damaged Reactor Housing idiom) belongs here once WEAPON CRAFTING exists.
+// It is OMITTED now because that recipe does not exist, so the item would be dead inventory.
+// PatrolLootTable carries a commented `damagedSystem?` slot; wire it (item + recipe + a draw
+// in rollWaveLoot) when weapon crafting lands.
+const DEFAULT_PATROL_LOOT_TABLE: PatrolLootTable = {
+  // Guaranteed salvaged-material drop: the only existing salvagedMaterial item, the wreck's
+  // stripped reactor shell. 1-2 per wave (small, per design "a small amount").
+  salvage: { itemId: "intactReactorCore", minQty: 1, maxQty: 2 },
+  // Cargo hold: a modest, representative spread of EXISTING raw / refined / component items
+  // (no invented keys). Uniform pick over this pool, then a small qty roll per pick.
+  cargoPool: [
+    { itemId: "scrapAlloy", minQty: 2, maxQty: 5 },      // raw (recoveredTech) -- battlefield scrap
+    { itemId: "commonOre", minQty: 2, maxQty: 5 },        // raw (oresMetals) -- structural ore
+    { itemId: "titaniumIngot", minQty: 1, maxQty: 3 },    // refined -- salvaged refined stock
+    { itemId: "frameSegment", minQty: 1, maxQty: 2 },     // minorComponent -- a recovered strut
+    { itemId: "powerCoupling", minQty: 1, maxQty: 2 },    // minorComponent -- a recovered junction
+  ],
+  cargoPicksMin: 1,
+  cargoPicksMax: 2,
+  // Modest bounty. A won patrol (2 waves) nets ~20-60 credits, on the order of a mission
+  // cycle's payout, not a windfall (RESPEC_COST is 50, a Freighter build is 500).
+  creditsMin: 10,
+  creditsMax: 30,
+  // XP per won wave, riding the EXISTING tracks. captainXpPerWave 20 => a 2-wave patrol is
+  // ~40 captain XP (xpForNextLevel(1) is 300, so ~7-8 patrols per early level, richer than
+  // extraction's 1/tick to reward the risk). fleetAdminXpPerWave 10 => ~20 FA XP/patrol
+  // (xpForNextFleetAdminLevel(1) is 750, so FA still lags, per its design intent).
+  captainXpPerWave: 20,
+  fleetAdminXpPerWave: 10,
+};
+
+const PATROL_LOOT_TABLES: Record<PatrolKey, PatrolLootTable> = {
+  // The entry patrol uses the default table (one starter patrol this unit). A tougher patrol
+  // added later gets its OWN richer entry here (bigger bands / rarer pool) with no roller change.
+  crimsonReaverSweep: DEFAULT_PATROL_LOOT_TABLE,
+};
+
+// Resolve the loot table for a patrol, falling back to the default so a future PATROLS key
+// added WITHOUT a table entry still drops loot (never rolls nothing by omission).
+function lootTableForPatrol(patrolKey: PatrolKey): PatrolLootTable {
+  return PATROL_LOOT_TABLES[patrolKey] ?? DEFAULT_PATROL_LOOT_TABLE;
+}
+
 // patrolPhaseFor: derive the coarse PatrolPhase from the route position, PURE. The
 // route is transitOut [0, transitOutTicks) -> engaging [transitOutTicks,
 // transitOutTicks+rollWindowTicks) -> transitBack [.., routeLength). Floors the
@@ -1454,6 +1533,21 @@ interface PatrolTickResult {
   fuelSpent: number;
   // Credits drawn AUTO-BUYING a relaunch fuel shortfall (mirrors extraction's F3 rule).
   creditsSpentOnFuel: number;
+  // Combat 0.13.0 (Phase 10, design S12): the REWARDS this call earned, folded by economyTick
+  // through the SAME deltas the extraction arm uses (tickCaptainMission returns the identical
+  // shapes). Each is the sum over the waves WON this call (a LOST wave / defeat earns nothing).
+  // - homePlanetDelta: rolled loot MATERIALS (itemId -> Decimal qty), folded into home
+  //   inventory EXACTLY like extraction's homePlanetDelta (grow-on-demand keys, quality roll,
+  //   cap clamp). Empty when no wave was won this call.
+  // - creditsDelta: the summed credit BOUNTY, folded into state.credits like extraction's.
+  // - fleetAdminXpDelta: the summed Fleet Admiral XP, folded through applyFleetAdminXp like
+  //   extraction's (rides the existing FA track, no new bar).
+  // NOTE: captain XP is NOT a delta here, it is already applied onto `captain` above (its xp/
+  //   level/statPoints reflect the won waves), mirroring how tickCaptainMission returns the
+  //   captain with its XP + level-ups already folded (both use the shared foldXpLevelUps).
+  homePlanetDelta: Record<string, Decimal>;
+  creditsDelta: number;
+  fleetAdminXpDelta: number;
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
@@ -1487,6 +1581,10 @@ export function tickCaptainPatrol(
     shipDamaged: false,
     fuelSpent: 0,
     creditsSpentOnFuel: 0,
+    // No wave fought => no reward (empty material delta, zero credits/FA XP, captain untouched).
+    homePlanetDelta: {},
+    creditsDelta: 0,
+    fleetAdminXpDelta: 0,
   };
   // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
   if (!captain.mission || captain.mission.kind !== "patrol" || ticksElapsed <= 0) return noOp;
@@ -1499,6 +1597,10 @@ export function tickCaptainPatrol(
   const shipDef = SHIP_TYPES[ship.typeKey];
   const playerId = ship.id; // the player combatant's stable id across every wave (id-sorted lookup)
   const routeLength = def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks;
+  // Combat 0.13.0 (Phase 10): the loot table for THIS patrol, resolved once. patrolKey is
+  // invariant across a relaunch (a relaunch reuses the same patrolKey), so this one table
+  // covers every cycle this call advances, exactly like `def` above.
+  const lootTable = lootTableForPatrol(captain.mission.patrolKey);
 
   // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
   // never touch the input), and playerDrones is DEEP-cloned so the between-wave
@@ -1518,6 +1620,15 @@ export function tickCaptainPatrol(
   let fuelSpent = 0;
   let creditsRemaining = creditsBudget;
   let creditsSpentOnFuel = 0;
+  // Combat 0.13.0 (Phase 10, design S12): REWARD accumulators, summed over every wave WON
+  // this call ("accumulate locally, apply once", the same shape as tickCaptainMission's
+  // homePlanetDelta / creditsDelta / fleetAdminXpDelta / captainXpAwardedThisCall). A LOST
+  // wave (defeat) contributes NOTHING (the defeat branch breaks before any accrual). These
+  // stay 0/empty on a call that wins no wave, so a transit-only or sub-tick call is reward-free.
+  const lootMaterials: Record<string, Decimal> = {}; // itemId -> summed Decimal qty (home-inventory delta)
+  let creditsAwarded = 0;        // summed credit bounty
+  let fleetAdminXpAwarded = 0;   // summed Fleet Admiral XP (rides the existing FA track)
+  let captainXpAwarded = 0;      // summed captain XP (folded onto the captain at the end of this call)
 
   let remaining = ticksElapsed;
   while (remaining > 0 && mission !== null) {
@@ -1596,6 +1707,26 @@ export function tickCaptainPatrol(
       if (outcome.winner === "player" && playerSurvived) {
         mission.wavesWon += 1;
         mission.nextWaveIndex = waveIndex + 1;
+        // ---- REWARD the won wave (Combat 0.13.0, Phase 10, design S12). ----------------
+        // This defeated wave is a WRECK to loot. Roll its reward from its OWN loot seed,
+        // derived off the persisted masterSeed + THIS wave's index via the DISTINCT loot
+        // salt, so the loot is a pure function of (masterSeed, waveIndex) and byte-identical
+        // offline vs live. CRITICAL FOR PARITY: the seed is (masterSeed, waveIndex), NOT tick
+        // timing or any fleet-wide/iteration-order state, and each wave resolves EXACTLY ONCE
+        // in this loop (whether the patrol advanced as one big call or many small ones), so a
+        // won wave contributes its reward exactly once, identically, on either path. The roll
+        // uses the combat PRNG (makeRng), never Math.random. A LOST wave never reaches here
+        // (the defeat branch below breaks first), so a defeat earns nothing for the lost wave.
+        const lootSeed = deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_LOOT_SEED_SALT);
+        const loot = rollWaveLoot(lootTable, lootSeed);
+        // Accumulate materials as Decimal (the home-inventory representation), grow-on-demand
+        // per itemId, exactly the shape tickCaptainMission builds for its homePlanetDelta.
+        for (const itemId of Object.keys(loot.materials)) {
+          lootMaterials[itemId] = (lootMaterials[itemId] ?? new Decimal(0)).plus(loot.materials[itemId]);
+        }
+        creditsAwarded += loot.credits;
+        fleetAdminXpAwarded += loot.fleetAdminXp;
+        captainXpAwarded += loot.captainXp;
         // CONTINUE: the patrol proceeds (later waves and/or transitBack still ahead).
       } else {
         // DEFEAT: the patrol ENDS this tick. Flag the ship damaged (forward seam P11) and
@@ -1691,11 +1822,42 @@ export function tickCaptainPatrol(
   // Persist the (possibly fractional) route position onto the surviving mission.
   if (mission !== null) mission.progressTicks = progress;
 
+  // ---- CAPTAIN XP + level-ups (Combat 0.13.0, Phase 10, design S12). --------------------
+  // Fold the summed per-won-wave captain XP onto the captain, then resolve level-ups through
+  // the SHARED foldXpLevelUps helper (the SAME subtract-and-carry loop tickCaptainMission's
+  // extraction path uses; captain XP grants ONE stat point per level, so statPoints climbs by
+  // the level-up count). Applied ONCE per call over the summed award, exactly mirroring
+  // tickCaptainMission (captainXpAwardedThisCall -> xp.plus -> foldXpLevelUps). Closed-form
+  // parity holds for the same reason it does for extraction captain XP: foldXpLevelUps is
+  // subtract-and-carry, so folding the full call's award once equals folding each wave's
+  // award as it lands (the sum is the sum), and the awards are flat integers (no fractional-
+  // rate drift). A call that won no wave has captainXpAwarded == 0: xp/level/statPoints ride
+  // through untouched (the guard skips the fold), so a reward-free call leaves the captain
+  // byte-identical to before.
+  let xp = captain.xp;
+  let level = captain.level;
+  let statPoints = captain.statPoints;
+  if (captainXpAwarded > 0) {
+    xp = xp.plus(captainXpAwarded);
+    const captainLevelUps = foldXpLevelUps(xp, level, xpForNextLevel);
+    xp = captainLevelUps.xp;
+    level = captainLevelUps.level;
+    statPoints += captainLevelUps.levelUps;
+  }
+
   return {
-    captain: { ...captain, mission },
+    // The captain with its patrol advanced AND its won-wave XP/level-ups already folded in
+    // (mirrors tickCaptainMission returning the captain with XP pre-folded).
+    captain: { ...captain, mission, xp, level, statPoints },
     shipDamaged,
     fuelSpent,
     creditsSpentOnFuel,
+    // The rewards economyTick folds through the SAME deltas as extraction (materials into home
+    // inventory, credits into state.credits, FA XP through applyFleetAdminXp). Empty/0 on a
+    // no-win call.
+    homePlanetDelta: lootMaterials,
+    creditsDelta: creditsAwarded,
+    fleetAdminXpDelta: fleetAdminXpAwarded,
   };
 }
 
@@ -2040,6 +2202,21 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
         totalCreditsSpentOnFuel += patrolResult.creditsSpentOnFuel;
         // Flag the ship on a defeat (folded into state.ships once, below).
         if (patrolResult.shipDamaged && patrolShip) damagedShipIds.add(patrolShip.id);
+        // Combat 0.13.0 (Phase 10, design S12): fold this patrol's REWARDS into the SAME
+        // fleet-wide accumulators the extraction arm folds tickCaptainMission's deltas into
+        // (see that fold ~80 lines below), so patrol loot lands in home inventory, patrol
+        // bounty in credits, and patrol FA XP on the FA track through the identical seams,
+        // byte-for-byte the same code path. Captain XP is already applied onto
+        // patrolResult.captain (folded inside tickCaptainPatrol via the shared foldXpLevelUps,
+        // mirroring how the extraction arm receives a captain with XP pre-folded), so it needs
+        // no delta here. NOTE (mirrors extraction): a patrol's bounty goes to creditsDelta
+        // ONLY, NOT back into creditsBudgetRemaining, so this call's earnings are not available
+        // to a LATER captain's fuel auto-buy this same call, exactly like extraction earnings.
+        for (const key of Object.keys(patrolResult.homePlanetDelta)) {
+          homePlanetDelta[key] = (homePlanetDelta[key] ?? new Decimal(0)).plus(patrolResult.homePlanetDelta[key]);
+        }
+        creditsDelta += patrolResult.creditsDelta;
+        fleetAdminXpDelta += patrolResult.fleetAdminXpDelta;
         return patrolResult.captain;
       }
       default:
