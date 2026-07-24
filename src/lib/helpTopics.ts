@@ -38,6 +38,11 @@ export const HELP_TOPICS: HelpTopic[] = [
     body: "Operations is the program where you run missions. It has two parts: Dispatch, where you send captains out and watch their progress, and Mission Control, the facility that tracks which missions are available and how many times you have completed each one. New missions unlock through Mission Control as you progress, so check back there as your fleet grows.",
   },
   {
+    id: "patrols",
+    title: "Combat Patrols",
+    body: "Combat Patrols are the first combat mission type, run from Operations under Combat Patrols. A patrol sends one captain and their assigned warship to sweep a pirate faction's territory: the ship transits out, fights a short series of enemy waves, and transits back. You do not pick a ship here (assign that at the Docks); you pick the captain and their assigned hull comes with them, shown read-only. Only a combat hull (a destroyer, battleship, or carrier) can patrol, so a captain flying a freighter or prospector is blocked with a clear reason until you assign a combat hull. Choose a stance (Aggressive closes to short range, Balanced holds at medium, Standoff fights at long) and whether to dispatch once or repeatedly, then launch; each run burns round-trip fuel like any mission. Your hull's damage carries across the waves of a run while shields recover between them, and the in-progress readout shows the phase, waves won and lost, and live hull and shield bars. Win and the ship returns ready to go again; lose and it limps home flagged damaged and must be repaired before it can patrol again.",
+  },
+  {
     id: "refining",
     title: "Refining",
     body: "The Refinery, in the Foundry program, turns raw ore into the refined materials your Fabricator needs (for example Titanium Ore into Titanium Ingots, and Polysilicate Ore into Polysilicate Wafers). It runs as a set of independent production lines: each slot can be configured with its own tier, item, and amount, so several different refine jobs run at once. Starting a job reserves its ingredients up front so lines never double-spend the same stockpile, and each upgrade unlocks another line. You can queue a fixed batch or run continuously, and the status readout tells you why a line paused, whether it ran out of ingredients or the output storage is full.",

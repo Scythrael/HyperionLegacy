@@ -48,6 +48,14 @@
     // navigation into that category's web (see selectedCategory/viewCategory).
     categoryCards,
     MISSIONS,
+    // Combat 0.13.0 (Phase 9b.5d): the static Combat Patrol content the new
+    // Operations > Combat Patrols surface enumerates. PATROLS is the patrol roster
+    // (label / wave band / transit legs / hull pool), FACTIONS supplies the fought
+    // faction's display name + flavor. Both are the SAME tables the dispatch/tick
+    // engine reads (canDispatchPatrol / dispatchCaptainOnPatrol), so the card can
+    // never show a patrol the backend would reject.
+    PATROLS,
+    FACTIONS,
     requiredTicksForPhase,
     // Fuel Economy v2 (F4 UI): effectiveMissionDef rescales a base mission's transit
     // by the flying hull's speed, so the fuel-chip expenditure math can measure a burn
@@ -172,6 +180,15 @@
     // patrol UI this unit (that is 9b.5c); a patrolling captain simply reads as not-on-an-
     // extraction-run in these extraction-scoped views.
     extractionMissionOf,
+    // Combat 0.13.0 (Phase 9b.5d): the persisted patrol-mission shape + its key/phase
+    // types, so the Combat Patrols in-flight readout can read a patrolling captain's
+    // live carry-state (playerHull / playerShield / wavesWon / phase) type-safely.
+    // extractionMissionOf narrows the OTHER arm; a patrol is read by hand-narrowing
+    // `mission.kind === "patrol"` (there is no patrolMissionOf helper, and the
+    // discriminant narrows cleanly at each site).
+    type PatrolKey,
+    type PatrolMissionState,
+    type PatrolPhase,
   } from "./lib/game/model";
   // Equipment 0.11.0 DEV readout (Debug tab only). The fitment helpers
   // (equippedFor / canFitEquipment / fitEquipment / unfitEquipment /
@@ -195,9 +212,18 @@
   // the REAL combat engine so a seeded test battle can be run + read on-device
   // BEFORE the mockup-gated combat UI (Phase 12) exists. NOT a shipped-UI
   // dependency; feeds only the DEV_MODE-gated "Run Test Battle" control below.
-  import { shipToCombatant, sampleLoadout } from "./lib/game/combat/bridge";
+  // Combat 0.13.0 (Phase 9b.5d, Combat Patrols dispatch UI) adds combatHullTypeOf to
+  // this bridge import: it narrows an assigned hull's typeKey to a combat hull
+  // (destroyer/battleship/carrier) or null, so the dispatch card can show the
+  // read-only "combat hull" check that mirrors canDispatchPatrol's notCombatHull gate.
+  import { shipToCombatant, sampleLoadout, combatHullTypeOf } from "./lib/game/combat/bridge";
   import { resolveBattle } from "./lib/game/combat/resolveBattle";
   import { formatCombatLog } from "./lib/game/combat/logFormat";
+  // Combat 0.13.0 (Phase 9b.5d): PIRATE_HULLS supplies the enemy-hull display names
+  // for a patrol's hostile-pool summary; CombatStance types the player's per-patrol
+  // stance choice fed to dispatchCaptainOnPatrol.
+  import { PIRATE_HULLS } from "./lib/game/combat/enemyHulls";
+  import type { CombatStance } from "./lib/game/combat/positioning";
   // Equipment 0.11.0 Phase D (2026-07-20): salvageEquipment(state, id) recycles ONE
   // spare CRAFTED system back into a fraction of its crafting inputs, returning a
   // SalvageResult (discriminated on `ok`: success carries { next, recovered }, reject
@@ -229,6 +255,15 @@
     tickCaptainMission,
     dispatchCaptainOnMission,
     recallCaptain,
+    // Combat 0.13.0 (Phase 9b.5d): the patrol dispatch gate + action the new Combat
+    // Patrols surface drives. canDispatchPatrol is the ONE source of truth for "can
+    // this captain fly this patrol right now?" (the card consults it for the disabled
+    // Dispatch button + the block-reason text); dispatchCaptainOnPatrol performs the
+    // dispatch. PatrolDispatchBlockReason types the reason the block-reason helper maps
+    // to player text (mirrors DispatchBlockReason for extraction missions).
+    canDispatchPatrol,
+    dispatchCaptainOnPatrol,
+    type PatrolDispatchBlockReason,
     applyFleetAdminXp,
     // Ships, Stats Foundation (Task 11 UI), the remaining pure ship action
     // wired into the Sector Space > Starbase Docks panel below.
@@ -391,7 +426,11 @@
   // Operations dispatch surface (list card = representative captain's hull; popup =
   // the SELECTED captain's hull, the authoritative dispatching cost). Imported from
   // fuel.ts directly (its own module; tick.ts does not re-export it).
-  import { fuelNeeded } from "./lib/game/fuel";
+  // fuelNeeded prices an extraction round trip; fuelForRoundTrip (Combat 0.13.0,
+  // Phase 9b.5d) prices a PATROL round trip from its two transit legs + the flying
+  // hull's engine efficiency, the SAME figure canDispatchPatrol / dispatchCaptainOnPatrol
+  // spend, so the patrol card's "fuel per run" can never mislead about the real cost.
+  import { fuelNeeded, fuelForRoundTrip } from "./lib/game/fuel";
   // Combat 0.13.0, Phase 1, Task 1.6: MAX_CAPTAIN_NAME backs the Rename input's
   // maxlength attribute (the input can't exceed the same ceiling renameCaptain
   // enforces) and the "Max N characters" error copy. Imported from captainName.ts
@@ -486,6 +525,19 @@
     unloading: "Unloading",
   };
 
+  // Combat 0.13.0 (Phase 9b.5d): display-only labels for a patrol's PatrolPhase, the
+  // patrol counterpart to MISSION_PHASE_LABEL. Same UI-only rationale (nothing outside
+  // this file maps a phase to text) and the same "keep in sync with the literal union"
+  // caveat: a new PatrolPhase added in model.ts without an entry here would render
+  // "undefined". "limpingHome" is the DEFEAT state (the ship lost and is limping its
+  // wreck home to repair), phrased as a plain player-facing label.
+  const PATROL_PHASE_LABEL: Record<PatrolPhase, string> = {
+    transitOut: "Transiting Out",
+    engaging: "Engaging",
+    transitBack: "Returning",
+    limpingHome: "Limping Home",
+  };
+
   // Radial Skill Web (Task 11b) removed the depth-row talent rendering that
   // lived here: the CAPTAIN_TALENT_BRANCH_LABEL map (keyed on the removed
   // command/diplomacy branches), the talentDepth helper (walked the removed
@@ -565,6 +617,22 @@
   // but does NOT dispatch, only the Dispatch button does that.
   let missionPopupKey: MissionKey | null = null;
   let missionPopupCaptainId: number | null = null;
+
+  // Combat 0.13.0 (Phase 9b.5d, Combat Patrols dispatch UI) state. The dispatch
+  // surface mirrors the extraction flow's split: the per-patrol CARD holds the
+  // player's inline choices (which captain, which stance, once vs repeatedly), and a
+  // REUSED captain-picker MODAL (the same .modal-captain-list idiom the mission popup
+  // uses) sets the chosen captain. All three choices are keyed by PatrolKey so each
+  // patrol card keeps its own selection independently (there is one patrol today, but
+  // this stays correct the day a second patrol is authored, rather than sharing one
+  // captain/stance across cards). Absent-is-default: a key with no entry reads as no
+  // captain selected / stance "balanced" / dispatch-once, resolved by the accessor
+  // helpers below. patrolPickerKey is the PatrolKey whose captain-picker modal is
+  // open (null = closed), mirroring missionPopupKey.
+  let patrolCaptainByKey: Partial<Record<PatrolKey, number>> = {};
+  let patrolStanceByKey: Partial<Record<PatrolKey, CombatStance>> = {};
+  let patrolRepeatByKey: Partial<Record<PatrolKey, boolean>> = {};
+  let patrolPickerKey: PatrolKey | null = null;
 
   // Radial Skill Web (Task 11b), the old shared talent-tooltip mechanism
   // (openTooltipKey + the talentTooltipInfo lookup + the activeTooltipInfo
@@ -896,7 +964,10 @@
   // ConsoleTabs blocks selection of locked tabs, so onSelect only ever hands back
   // "gathering" or "missionControl"; the type is scoped to those two reachable
   // states. Defaults to "gathering" so the tab opens on live mission dispatch.
-  type OperationsTab = "gathering" | "missionControl";
+  // Combat 0.13.0 (Phase 9b.5d): "combat" is now a LIVE Operations sub-tab (the Combat
+  // Patrols dispatch surface), no longer a locked reserved slot. Gathering stays the
+  // default landing tab; missionControl + combat are the other two live tabs.
+  type OperationsTab = "gathering" | "missionControl" | "combat";
   let activeOperationsTab: OperationsTab = "gathering";
 
   // ---- Warehouse facility view (Phase 2, Group C; 0.11.2 Task 9 restructure) --
@@ -1808,13 +1879,19 @@
 
   function doRecallCaptain(captainId: number) {
     const captain = state.captains.find((c) => c.id === captainId)!;
-    // Combat 0.13.0 (9b.5a): narrow the mission union to its extraction arm for the log
-    // label. A patrol has no missionKey; recall works on both arms (recallCaptain), but no
-    // patrol is dispatchable in this unit, so a neutral fallback covers the unreachable case
-    // without introducing patrol-specific UI text. Captured before the state swap below,
+    // Combat 0.13.0: resolve a human label for the recalled run, per mission arm. An
+    // extraction run reads MISSIONS[missionKey].label; a PATROL (reachable since the
+    // 9b.5d dispatch UI) reads PATROLS[patrolKey].label. recallCaptain itself works on
+    // BOTH arms; this only picks the log text. Captured before the state swap below,
     // same pre-swap-capture idiom as doDispatchCaptainOnMission's `captain.label` above.
-    const captainExtractionMission = extractionMissionOf(captain);
-    const missionLabel = captainExtractionMission ? MISSIONS[captainExtractionMission.missionKey].label : "current mission";
+    let missionLabel = "current mission";
+    if (captain.mission !== null) {
+      if (captain.mission.kind === "extraction") {
+        missionLabel = MISSIONS[captain.mission.missionKey].label;
+      } else if (captain.mission.kind === "patrol") {
+        missionLabel = PATROLS[captain.mission.patrolKey].label;
+      }
+    }
     const { next, success } = recallCaptain(state, captainId);
     if (!success) return;
     state = next;
@@ -1841,6 +1918,111 @@
     if (missionPopupKey === null || missionPopupCaptainId === null) return;
     doDispatchCaptainOnMission(missionPopupCaptainId, missionPopupKey); // existing function, unchanged
     closeMissionPopup();
+  }
+
+  // --- Combat Patrols dispatch handlers (Combat 0.13.0, Phase 9b.5d) --------------
+  // Accessor helpers reading the by-key patrol selection state with an absent-is-
+  // default fallback (no entry -> no captain / "balanced" / dispatch-once). Kept as
+  // functions (not reactive derivations) since they are read per-card inside the
+  // {#each PATROLS} loop with the loop's own patrolKey.
+  function patrolSelectedCaptainId(patrolKey: PatrolKey): number | null {
+    return patrolCaptainByKey[patrolKey] ?? null;
+  }
+  function patrolStanceFor(patrolKey: PatrolKey): CombatStance {
+    return patrolStanceByKey[patrolKey] ?? "balanced";
+  }
+  function patrolRepeatFor(patrolKey: PatrolKey): boolean {
+    return patrolRepeatByKey[patrolKey] ?? false;
+  }
+
+  // Setters. Each reassigns the whole record (Svelte 5 legacy reactivity needs a new
+  // reference to re-render, spreading an object mutation would not trigger it).
+  function setPatrolStance(patrolKey: PatrolKey, stance: CombatStance) {
+    patrolStanceByKey = { ...patrolStanceByKey, [patrolKey]: stance };
+  }
+  function setPatrolRepeat(patrolKey: PatrolKey, repeat: boolean) {
+    patrolRepeatByKey = { ...patrolRepeatByKey, [patrolKey]: repeat };
+  }
+
+  // Captain-picker modal (mirrors openMissionPopup/closeMissionPopup): patrolPickerKey
+  // holds which patrol card's picker is open. Selecting a captain records it under that
+  // patrol's key and closes the modal (it does NOT dispatch, only the card's Dispatch
+  // button does, exactly like the mission popup's two-step flow).
+  function openPatrolPicker(patrolKey: PatrolKey) {
+    patrolPickerKey = patrolKey;
+  }
+  function closePatrolPicker() {
+    patrolPickerKey = null;
+  }
+  function selectPatrolCaptain(patrolKey: PatrolKey, captainId: number) {
+    patrolCaptainByKey = { ...patrolCaptainByKey, [patrolKey]: captainId };
+    patrolPickerKey = null;
+  }
+
+  // The actual dispatch, delegating to the pure dispatchCaptainOnPatrol (the single
+  // source of truth for every gate). Mirrors doDispatchCaptainOnMission: capture the
+  // captain label BEFORE the state swap, bail on failure (same-ref no-op), then log +
+  // save on success. Clears this patrol's captain selection so the card resets to
+  // "select a captain" (the captain is now busy and would fail the popup's idle filter
+  // anyway); stance + repeat choices persist for the next dispatch.
+  function doDispatchCaptainOnPatrol(patrolKey: PatrolKey) {
+    const captainId = patrolSelectedCaptainId(patrolKey);
+    if (captainId === null) return;
+    const captain = state.captains.find((c) => c.id === captainId);
+    if (!captain) return;
+    const { next, success } = dispatchCaptainOnPatrol(
+      state,
+      captainId,
+      patrolKey,
+      patrolStanceFor(patrolKey),
+      patrolRepeatFor(patrolKey),
+    );
+    if (!success) return;
+    state = next;
+    pushLog(`[${captain.label}] Dispatched on patrol: ${PATROLS[patrolKey].label}.`);
+    const { [patrolKey]: _cleared, ...rest } = patrolCaptainByKey;
+    patrolCaptainByKey = rest;
+    doSave();
+  }
+
+  // Maps a canDispatchPatrol PatrolDispatchBlockReason to a short player-facing string,
+  // the patrol counterpart to dispatchBlockMessage. Wording matches the mockup where it
+  // specifies one ("assign a combat hull first" for notCombatHull); the rest mirror the
+  // extraction reason phrasings so the two dispatch surfaces read consistently.
+  function patrolDispatchBlockMessage(reason: PatrolDispatchBlockReason): string {
+    switch (reason) {
+      case "noCaptain":
+        return "No captain selected";
+      case "busy":
+        return "Captain is already on a mission";
+      case "noShip":
+        return "Captain has no ship assigned";
+      case "notCombatHull":
+        return "Assign a combat hull first";
+      case "needsRepair":
+        return "Ship is damaged, repair it first";
+      case "fuelCapacity":
+        return "Ship's tank too small for this trip";
+      case "fuelEmpty":
+        return "Not enough fuel or credits to refuel";
+      default:
+        return "Cannot dispatch";
+    }
+  }
+
+  // Round-trip fuel cost for a patrol flown by a given ship, priced from the patrol's
+  // two transit legs + the ship's EQUIPMENT-FOLDED engine efficiency, the SAME figure
+  // canDispatchPatrol / dispatchCaptainOnPatrol spend (so the card's "fuel per run" can
+  // never mislead). Mirrors how those functions overlay shipDerivedStats' engineEfficiency
+  // onto the static ShipTypeDef before calling fuelForRoundTrip.
+  function patrolFuelCost(patrolKey: PatrolKey, ship: GameState["ships"][number]): number {
+    const def = PATROLS[patrolKey];
+    const shipDef = SHIP_TYPES[ship.typeKey];
+    const stats = shipDerivedStats(ship, equippedFor(state, ship.id));
+    return fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
+      ...shipDef,
+      engineEfficiency: stats.engineEfficiency,
+    });
   }
 
   function simulateOffline(hours: number) {
@@ -5932,6 +6114,8 @@
                       Status: Idle
                     {:else if shipCaptain.mission.kind === "extraction"}
                       Status: On mission, {MISSIONS[shipCaptain.mission.missionKey].label}
+                    {:else if shipCaptain.mission.kind === "patrol"}
+                      Status: On patrol, {PATROLS[shipCaptain.mission.patrolKey].label}
                     {/if}
                   </div>
                 </div>
@@ -5991,6 +6175,8 @@
                 Status: Idle
               {:else if assignedCaptain.mission.kind === "extraction"}
                 Status: On mission, {MISSIONS[assignedCaptain.mission.missionKey].label}
+              {:else if assignedCaptain.mission.kind === "patrol"}
+                Status: On patrol, {PATROLS[assignedCaptain.mission.patrolKey].label}
               {/if}
             </div>
           </Panel>
@@ -6502,6 +6688,8 @@
                       Status: Idle
                     {:else if captain.mission.kind === "extraction"}
                       Status: On mission, {MISSIONS[captain.mission.missionKey].label}
+                    {:else if captain.mission.kind === "patrol"}
+                      Status: On patrol, {PATROLS[captain.mission.patrolKey].label}
                     {/if}
                   </div>
                 </div>
@@ -6594,6 +6782,8 @@
                 Currently: Idle
               {:else if activeCaptain.mission.kind === "extraction"}
                 Currently on: {MISSIONS[activeCaptain.mission.missionKey].label}
+              {:else if activeCaptain.mission.kind === "patrol"}
+                Currently on: {PATROLS[activeCaptain.mission.patrolKey].label}
               {/if}
             </div>
             <!-- Ship Systems shortcut (0.11.0): opens the SAME install screen
@@ -6820,20 +7010,22 @@
       <!-- Operations program (0.12.0 "Console" nav, CN5, the MISSION perspective):
            the shared <ConsoleTabs> primitive is the slim TOP rail, one tab per
            mission TYPE (same scrolling-glowing-tab idiom Home / Personnel /
-           Logistics use). Two tabs are live and selectable, Gathering (the
-           existing resource-gathering dispatch) and Mission Control (the
-           mission-unlock track), tracked by activeOperationsTab (default
-           Gathering). Combat / Exploration and Battlespace (PvE) / (PvP) are
-           LOCKED reserved "coming soon" tabs with no page (those missions and the
-           combat-era Battlespace do not exist yet); ConsoleTabs grays them and
-           blocks selection, the same honest locked affordance the System /
-           Battlespace slots use. This replaces the old Dispatch / Mission Control
-           <SubTabs> axis AND the mission-CATEGORY rail below it, both collapsed
-           into this single top rail per the console FLATTEN principle. -->
+           Logistics use). THREE tabs are live and selectable, Gathering (the
+           existing resource-gathering dispatch), Combat Patrols (Combat 0.13.0,
+           Phase 9b.5d, the first combat mission type: dispatch a warship + captain
+           to sweep a pirate faction), and Mission Control (the mission-unlock
+           track), tracked by activeOperationsTab (default Gathering). Exploration
+           and Battlespace (PvE) / (PvP) stay LOCKED reserved "coming soon" tabs
+           with no page (those missions and the combat-era Battlespace do not exist
+           yet); ConsoleTabs grays them and blocks selection, the same honest locked
+           affordance the System / Battlespace slots use. This replaces the old
+           Dispatch / Mission Control <SubTabs> axis AND the mission-CATEGORY rail
+           below it, both collapsed into this single top rail per the console FLATTEN
+           principle. -->
       <ConsoleTabs
         tabs={[
           { key: "gathering", label: "Gathering" },
-          { key: "combat", label: "Combat", locked: true },
+          { key: "combat", label: "Combat Patrols" },
           { key: "exploration", label: "Exploration", locked: true },
           { key: "missionControl", label: "Mission Control" },
           { key: "battlespacePve", label: "Battlespace (PvE)", locked: true },
@@ -7091,6 +7283,233 @@
                 {/each}
               </div>
             {/if}
+      </div>
+      {/if}
+
+      {#if activeOperationsTab === "combat"}
+      <!-- Combat Patrols (Combat 0.13.0, Phase 9b.5d, the first combat mission type).
+           Built to the owner-approved mockup (patrol-dispatch-mockup.html): a single
+           surface with an IN PROGRESS list of patrolling captains (live carry-state
+           readout) above an AVAILABLE PATROLS list of per-patrol dispatch cards. It
+           reuses the SAME idioms the Gathering dispatch surface uses (.mission-card box,
+           .research-* text/bars, .dev-btn/.recall-btn actions, the captain-picker MODAL,
+           and the disabled-button + reason-text block idiom), so it introduces no new
+           visual language. Two mockup elements are DELIBERATELY OMITTED here: the Threat
+           Assessment band (a separate later unit owns the win-% / tier work) and any
+           wiring on the View Combat Log button (that opens the Phase-12 combat view,
+           which does not exist yet, so it renders disabled / "coming soon"). Ship
+           assignment is NOT done here: you pick the CAPTAIN and their assigned hull comes
+           with them read-only (reassign at the Drydock), matching the no-ship-picker
+           decision baked into the mockup. -->
+      <!-- IN PROGRESS source (declared as an immediate child of this {#if}, the only
+           placement Svelte allows {@const}): every captain currently flying a patrol.
+           Pre-filtered only to gate the heading; each row re-narrows the mission union
+           to its patrol arm inline (there is no patrolMissionOf helper, and the
+           `kind === "patrol"` discriminant narrows cleanly), mirroring how the Gathering
+           IN PROGRESS list narrows its extraction arm. -->
+      {@const patrolling = state.captains.filter((c) => c.mission !== null && c.mission.kind === "patrol")}
+      <div class="tab-scroll-area">
+
+            {#if patrolling.length > 0}
+              <div class="panel-title">IN PROGRESS</div>
+              {#each patrolling as captain (captain.id)}
+                <!-- Inline narrow to the patrol arm (guaranteed non-null by the filter
+                     above, but TS/svelte-check won't carry that through the {#each}). -->
+                {@const patrol = captain.mission !== null && captain.mission.kind === "patrol" ? captain.mission : null}
+                {#if patrol !== null}
+                  {@const patrolShip = state.ships.find((s) => s.assignedCaptainId === captain.id) ?? null}
+                  {@const patrolShipDef = patrolShip ? SHIP_TYPES[patrolShip.typeKey] : null}
+                  {@const faction = FACTIONS[patrol.factionId]}
+                  {@const totalWaves = patrol.waveTicks.length}
+                  {@const wavesResolved = patrol.wavesWon + patrol.wavesLost}
+                  {@const defeated = patrol.phase === "limpingHome"}
+                  <!-- Hull/shield carry-state as fractions of the ship's MAX (the same
+                       pools bridge.ts seeds a wave's combatant from). Clamped 0..1 and
+                       guarded against a 0 max (never in shipped content, but keeps the
+                       bar honest if a hull ever had a 0 pool). -->
+                  {@const hullMax = patrolShipDef ? patrolShipDef.hullIntegrity : 0}
+                  {@const shieldMax = patrolShipDef ? patrolShipDef.shieldCapacity : 0}
+                  {@const hullRatio = hullMax > 0 ? Math.max(0, Math.min(1, patrol.playerHull / hullMax)) : 0}
+                  {@const shieldRatio = shieldMax > 0 ? Math.max(0, Math.min(1, patrol.playerShield / shieldMax)) : 0}
+                  <div class="mission-card">
+                    <div class="research-name">
+                      {captain.label}
+                      {#if patrolShipDef}, {patrolShipDef.label}{/if}
+                      {#if faction} vs {faction.name}{/if}
+                    </div>
+                    <!-- Phase line, patrol counterpart to the extraction card's "Phase:"
+                         row. On defeat it reads in danger color to flag the loss state. -->
+                    <div class="research-cost" style={defeated ? "color: var(--color-danger)" : undefined}>
+                      Phase: {PATROL_PHASE_LABEL[patrol.phase]}
+                      {#if defeated} (defeated, returning to repair){/if}
+                    </div>
+                    <div class="research-cost">
+                      Waves: {wavesResolved} / {totalWaves} resolved
+                      &middot; <span style="color: var(--color-success)">{patrol.wavesWon}W</span>
+                      &middot; <span style="color: var(--color-danger)">{patrol.wavesLost}L</span>
+                    </div>
+
+                    <!-- Player carry-state bars (playerHull / playerShield over the hull's
+                         max), reusing the existing research-bar-track/fill pair the whole
+                         app uses for progress readouts (no bespoke bar styling). The hull
+                         PERSISTS across waves; the shield REGENERATES between them. -->
+                    <div class="mission-col-label">Hull, {formatNumber(Math.round(patrol.playerHull))} / {formatNumber(hullMax)}</div>
+                    <div class="research-bar-track">
+                      <div class="research-bar-fill" style="width:{hullRatio * 100}%"></div>
+                    </div>
+                    <div class="mission-col-label">Shield, {formatNumber(Math.round(patrol.playerShield))} / {formatNumber(shieldMax)}</div>
+                    <div class="research-bar-track">
+                      <div class="research-bar-fill" style="width:{shieldRatio * 100}%"></div>
+                    </div>
+
+                    <!-- Repeat-mode indicator: a patrol dispatched "repeatedly" relaunches
+                         a fresh cycle on completion; recall ends it after the current run
+                         (recallCaptain flags intent, honored at cycle end, so the recalled
+                         text below matches the extraction card's wording). -->
+                    <div class="research-cost">
+                      {#if patrol.repeatDispatch}Mode: Repeating (relaunches after each run){:else}Mode: Single run{/if}
+                    </div>
+
+                    <div class="mission-card-actions">
+                      <!-- View Combat Log: a HOOK for the future Phase-12 combat view,
+                           which does not exist yet. Rendered DISABLED / "coming soon" and
+                           wired to nothing, per the unit's scope. -->
+                      <button class="dev-btn" disabled title="Coming soon: the round-by-round combat view arrives in a later update">View Combat Log (coming soon)</button>
+                      {#if patrol.recalled}
+                        <p class="prestige-text mission-recalled-text">Recall ordered, returning to base once the current run completes.</p>
+                      {:else}
+                        <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
+              {/each}
+            {/if}
+
+            <div class="panel-title">AVAILABLE PATROLS</div>
+            <div class="mission-list">
+              <!-- One dispatch card per PATROLS entry (one starter patrol today; the loop
+                   grows automatically as patrols are authored). The cast mirrors the
+                   Gathering tab's Object.entries(MISSIONS) idiom so the loop vars are
+                   typed (PatrolKey + PatrolDef) rather than string/any. -->
+              {#each (Object.entries(PATROLS) as [PatrolKey, typeof PATROLS[PatrolKey]][]) as [patrolKey, def]}
+                {@const faction = FACTIONS[def.factionId]}
+                {@const hostiles = [...new Set(def.hullPool)].map((id) => PIRATE_HULLS[id].name).join(", ")}
+                {@const wavesLabel = def.minWaves === def.maxWaves ? `${def.minWaves}` : `${def.minWaves} - ${def.maxWaves}`}
+                {@const selectedCaptainId = patrolSelectedCaptainId(patrolKey)}
+                {@const selectedCaptain = selectedCaptainId !== null ? state.captains.find((c) => c.id === selectedCaptainId) ?? null : null}
+                {@const selectedShip = selectedCaptain !== null ? state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null : null}
+                {@const selectedShipDef = selectedShip ? SHIP_TYPES[selectedShip.typeKey] : null}
+                {@const isCombatHull = selectedShip ? combatHullTypeOf(selectedShip.typeKey) !== null : false}
+                <!-- The dispatch GATE for the selected captain, canDispatchPatrol (the ONE
+                     source of truth dispatchCaptainOnPatrol also consults). null until a
+                     captain is picked; the Dispatch button + reason text below read it, so
+                     the card can never disagree with what the backend would allow. -->
+                {@const gate = selectedCaptainId !== null ? canDispatchPatrol(state, selectedCaptainId, patrolKey) : null}
+                {@const fuelCost = selectedShip ? patrolFuelCost(patrolKey, selectedShip) : null}
+                {@const stance = patrolStanceFor(patrolKey)}
+                {@const repeat = patrolRepeatFor(patrolKey)}
+                <div class="mission-card">
+                  <div class="research-name">{def.label}</div>
+                  {#if faction}
+                    <div class="research-cost" style="font-style: italic">{faction.flavor}</div>
+                  {/if}
+
+                  <!-- Static patrol facts (all from the PatrolDef): the wave-count band,
+                       the hostile hull pool summary, and the round-trip route length. -->
+                  <div class="mission-card-columns">
+                    <div class="mission-card-col">
+                      <div class="mission-col-label">Combat Waves</div>
+                      <div class="mission-req-line">{wavesLabel}</div>
+                    </div>
+                    <div class="mission-card-col">
+                      <div class="mission-col-label">Hostiles</div>
+                      <div class="mission-req-line">{hostiles}</div>
+                    </div>
+                    <div class="mission-card-col">
+                      <div class="mission-col-label">Route</div>
+                      <div class="mission-req-line">{def.transitOutTicks + def.transitBackTicks} transit ticks</div>
+                    </div>
+                  </div>
+
+                  <!-- CAPTAIN selector. Reuses the captain-picker MODAL (openPatrolPicker
+                       sets patrolPickerKey; the modal near the mission popup lists idle
+                       captains and calls selectPatrolCaptain). The button shows the chosen
+                       captain, or a prompt when none is picked, exactly like the mission
+                       popup's first step, just surfaced on the card instead of inside it. -->
+                  <div class="mission-col-label">Captain</div>
+                  <button class="dev-btn" on:click={() => openPatrolPicker(patrolKey)}>
+                    {#if selectedCaptain !== null}{selectedCaptain.label} (Level {selectedCaptain.level}){:else}Select a captain{/if}
+                  </button>
+
+                  <!-- Assigned ship, READ-ONLY. You pick the captain; their assigned hull
+                       comes with them (reassign at the Drydock). Shows the hull's combat
+                       stats + a combat-hull check that mirrors the notCombatHull gate: a
+                       non-combat hull is flagged here AND blocks Dispatch below. -->
+                  {#if selectedCaptain !== null}
+                    <div class="mission-col-label" style="margin-top: 8px">Ship (from the captain)</div>
+                    {#if selectedShipDef !== null}
+                      <div class="mission-req-line">
+                        {selectedShipDef.label}: hull {formatNumber(selectedShipDef.hullIntegrity)}
+                        &middot; shield {formatNumber(selectedShipDef.shieldCapacity)}
+                        &middot; {selectedShipDef.weaponHardpoints} guns
+                      </div>
+                      <div class="mission-req-line" style="color: {isCombatHull ? 'var(--color-success)' : 'var(--color-danger)'}">
+                        {#if isCombatHull}Combat hull{:else}Not a combat hull, assign a combat hull first{/if}
+                      </div>
+                    {:else}
+                      <div class="mission-req-line" style="color: var(--color-danger)">No ship assigned</div>
+                    {/if}
+                  {/if}
+
+                  <!-- STANCE selector (segmented, default Balanced). Three .dev-btn options
+                       with aria-pressed marking the active one (the same accent-border
+                       selection signal .mission-card-selectable.expanded / .theme-swatch.active
+                       use), fed to dispatchCaptainOnPatrol at dispatch time. -->
+                  <div class="mission-col-label" style="margin-top: 8px">Stance</div>
+                  <div class="patrol-segmented" role="group" aria-label="Combat stance">
+                    <button class="dev-btn" aria-pressed={stance === "aggressive"} on:click={() => setPatrolStance(patrolKey, "aggressive")}>Aggressive</button>
+                    <button class="dev-btn" aria-pressed={stance === "balanced"} on:click={() => setPatrolStance(patrolKey, "balanced")}>Balanced</button>
+                    <button class="dev-btn" aria-pressed={stance === "standoff"} on:click={() => setPatrolStance(patrolKey, "standoff")}>Standoff</button>
+                  </div>
+
+                  <!-- DISPATCH MODE (segmented): once vs auto-relaunch. -->
+                  <div class="mission-col-label" style="margin-top: 8px">Dispatch mode</div>
+                  <div class="patrol-segmented" role="group" aria-label="Dispatch mode">
+                    <button class="dev-btn" aria-pressed={!repeat} on:click={() => setPatrolRepeat(patrolKey, false)}>Dispatch Once</button>
+                    <button class="dev-btn" aria-pressed={repeat} on:click={() => setPatrolRepeat(patrolKey, true)}>Dispatch Repeatedly</button>
+                  </div>
+
+                  <!-- Fuel per run: the authoritative round-trip cost for the selected
+                       captain's hull (the same figure dispatch spends), plus the shared
+                       tank level. The cost needs a hull, so it is priced only once a
+                       captain is chosen; before that only the tank level is shown. -->
+                  <div class="research-cost" style="margin-top: 10px">
+                    {#if fuelCost !== null}
+                      Fuel per run: {formatNumber(Math.ceil(fuelCost))} &middot; In tank: {formatNumber(state.fuel)}
+                    {:else}
+                      In tank: {formatNumber(state.fuel)} (select a captain to price the run)
+                    {/if}
+                  </div>
+
+                  <!-- Block reason (danger color), the same disabled-button + reason-text
+                       idiom the mission popup uses. Shows the specific canDispatchPatrol
+                       reason (notCombatHull / needsRepair / fuel gates / busy / no captain). -->
+                  {#if gate !== null && !gate.ok}
+                    <div class="research-cost" style="color: var(--color-danger)">⚠ {patrolDispatchBlockMessage(gate.reason)}</div>
+                  {/if}
+
+                  <button
+                    class="buy-btn patrol-dispatch-btn"
+                    disabled={gate === null || !gate.ok}
+                    title={gate !== null && !gate.ok ? patrolDispatchBlockMessage(gate.reason) : undefined}
+                    on:click={() => doDispatchCaptainOnPatrol(patrolKey)}
+                  >
+                    Dispatch Patrol
+                  </button>
+                </div>
+              {/each}
+            </div>
       </div>
       {/if}
 
@@ -7899,6 +8318,42 @@
               Dispatch
             </button>
           {/if}
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
+  {#if patrolPickerKey !== null}
+    <!-- Combat Patrols captain picker (Combat 0.13.0, Phase 9b.5d). The patrol
+         counterpart to the mission popup's first step, REUSING the exact
+         .modal-backdrop / Panel.modal-dialog / .modal-captain-list idiom (and the
+         focusTrap) so all three modals share one visual language. It lists IDLE
+         captains (mission === null); picking one records it under this patrol's key
+         via selectPatrolCaptain and closes, it does NOT dispatch (the card's Dispatch
+         button does that, mirroring the two-step mission-popup flow). Unlike the
+         mission popup, the ship/fuel/gate preview lives on the CARD (read-only
+         assigned hull, no ship picker), so this modal is captain-selection only. -->
+    {@const pickerPatrol = PATROLS[patrolPickerKey]}
+    {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Select a captain for this patrol" use:focusTrap={closePatrolPicker}>
+      <Panel class="modal-dialog">
+        <div class="panel-title">{pickerPatrol.label.toUpperCase()}</div>
+        <p class="modal-instruction">Select a captain to fly this patrol. Their assigned ship comes with them.</p>
+        {#if idleCaptains.length === 0}
+          <p class="prestige-text">No idle captains available, recall one first.</p>
+        {:else}
+          <div class="modal-captain-list">
+            {#each idleCaptains as captain (captain.id)}
+              <!-- patrolPickerKey is non-null in this whole block, but svelte-check
+                   won't narrow a module-scoped `let` inside this nested {#each}
+                   closure, so the trailing ! matches the same idiom the ASSIGN picker
+                   below uses (assignPickerShipId!). -->
+              <button class="dev-btn" on:click={() => selectPatrolCaptain(patrolPickerKey!, captain.id)}>{captain.label} (Level {captain.level})</button>
+            {/each}
+          </div>
+        {/if}
+        <div class="modal-row">
+          <button class="dev-btn" on:click={closePatrolPicker}>Cancel</button>
         </div>
       </Panel>
     </div>
@@ -8740,7 +9195,25 @@
   .mission-detail-section { display: flex; flex-direction: column; gap: 4px; }
   /* Action row (CN5b): the View Info / Summary toggle + Assign, side by side,
      wrapping to a second line on a very narrow card. */
-  .mission-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .mission-card-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  /* Combat Patrols (Combat 0.13.0, Phase 9b.5d) segmented controls (Stance /
+     Dispatch mode): a tight row of .dev-btn options where the SELECTED one is
+     signalled with aria-pressed. The pressed style reuses the SAME accent-border +
+     accent-bright-text selection signal .mission-card-selectable.expanded and
+     .theme-swatch.active already use (no new color, theme-linked via the accent
+     tokens), so it reads as this app's existing "this option is chosen" affordance
+     rather than a new visual language. Each button flexes to share the row width. */
+  .patrol-segmented { display: flex; gap: 4px; margin-top: 4px; }
+  .patrol-segmented .dev-btn { flex: 1; }
+  .patrol-segmented .dev-btn[aria-pressed="true"] {
+    border-color: var(--color-accent);
+    color: var(--color-accent-bright);
+    background: rgba(var(--color-accent-rgb), 0.16);
+  }
+  /* Patrol Dispatch button: full-width primary action, reusing .buy-btn's themed
+     accent look (same object the shop/dispatch primary actions use); only the
+     full-width block layout + top spacing are added here. */
+  .patrol-dispatch-btn { width: 100%; margin-top: 10px; }
   /* Header row: portrait placeholder beside the name + exp sub-line. */
   .mission-card-header { display: flex; gap: 12px; align-items: center; }
   /* Descendant selector (specificity 0,2,0) shrinks the shared portrait for
