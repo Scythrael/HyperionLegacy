@@ -2005,9 +2005,13 @@
         return "Ship's tank too small for this trip";
       case "fuelEmpty":
         return "Not enough fuel or credits to refuel";
-      default:
-        return "Cannot dispatch";
     }
+    // Compile-time exhaustiveness guard (same discipline as PATROL_PHASE_LABEL and the
+    // rest of this epic): every case above returns, so `reason` narrows to `never` here.
+    // A future 8th PatrolDispatchBlockReason left unhandled would make `reason` non-never
+    // and BREAK THE BUILD on this line, rather than silently hitting a text fallback.
+    const _exhaustive: never = reason;
+    return _exhaustive;
   }
 
   // Round-trip fuel cost for a patrol flown by a given ship, priced from the patrol's
@@ -7370,7 +7374,7 @@
                       {#if patrol.repeatDispatch}Mode: Repeating (relaunches after each run){:else}Mode: Single run{/if}
                     </div>
 
-                    <div class="mission-card-actions">
+                    <div class="patrol-card-actions">
                       <!-- View Combat Log: a HOOK for the future Phase-12 combat view,
                            which does not exist yet. Rendered DISABLED / "coming soon" and
                            wired to nothing, per the unit's scope. -->
@@ -7428,7 +7432,12 @@
                     </div>
                     <div class="mission-card-col">
                       <div class="mission-col-label">Route</div>
-                      <div class="mission-req-line">{def.transitOutTicks + def.transitBackTicks} transit ticks</div>
+                      <!-- FULL route length = transit out + the wave-eligible window +
+                           transit back (the engine's routeLength, tick.ts), NOT just the
+                           two transit legs: the ship is out for the whole window while
+                           waves roll, so the transit-only figure understated the real
+                           duration by more than half. Fixed at 14 for the starter patrol. -->
+                      <div class="mission-req-line">{def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks} ticks</div>
                     </div>
                   </div>
 
@@ -9194,8 +9203,15 @@
   .mission-detail { display: flex; flex-direction: column; gap: 10px; }
   .mission-detail-section { display: flex; flex-direction: column; gap: 4px; }
   /* Action row (CN5b): the View Info / Summary toggle + Assign, side by side,
-     wrapping to a second line on a very narrow card. */
-  .mission-card-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+     wrapping to a second line on a very narrow card. SHARED by the extraction mission
+     cards; left UNTOUCHED (the patrol action row's vertical centering lives on its own
+     .patrol-card-actions class below, so the extraction row is provably unchanged). */
+  .mission-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  /* Patrol in-progress action row (Combat 0.13.0, Phase 9b.5d): same base layout as
+     .mission-card-actions but vertically centers its items, because the row mixes a
+     button with the recalled-text paragraph (which would otherwise top-align against the
+     taller button). Patrol-only, so the shared extraction rule stays untouched. */
+  .patrol-card-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   /* Combat Patrols (Combat 0.13.0, Phase 9b.5d) segmented controls (Stance /
      Dispatch mode): a tight row of .dev-btn options where the SELECTED one is
      signalled with aria-pressed. The pressed style reuses the SAME accent-border +
