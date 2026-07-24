@@ -310,6 +310,32 @@ describe("resolveBattle cosmetic isolation", () => {
 		const withoutLog = resolveBattle(build(), 24680, { generateLog: false });
 		expect(withLog.outcome).toEqual(withoutLog.outcome);
 	});
+
+	// PHASE 12: the real flavor selection (many cosmetic draws, one per event)
+	// replaced the Phase-3 single throwaway draw. This confirms (a) events now
+	// carry a selected flavor TEMPLATE under generateLog, (b) offline carries
+	// none, and (c) the outcome is still byte-identical, so the extra cosmetic
+	// draws cannot have perturbed the combat stream.
+	it("attaches flavor under generateLog, none offline, and the outcome is unchanged", () => {
+		const build = () =>
+			oneVsOne(
+				{ hull: 140, weapons: [makeWeapon({ id: "pw", yield: 9 })] },
+				{ hull: 130, weapons: [makeWeapon({ id: "ew", yield: 7 })] },
+			);
+		const live = resolveBattle(build(), 24680, { generateLog: true });
+		const offline = resolveBattle(build(), 24680, { generateLog: false });
+
+		// Every logged event under generateLog carries a non-empty flavor template.
+		expect(live.log.length).toBeGreaterThan(0);
+		for (const e of live.log) {
+			expect(e.flavor).toBeDefined();
+			expect(e.flavor && e.flavor.length).toBeGreaterThan(0);
+		}
+		// Offline generated no log (and therefore no flavor / cosmetic work).
+		expect(offline.log.length).toBe(0);
+		// The outcome is identical despite the per-event cosmetic draws.
+		expect(live.outcome).toEqual(offline.outcome);
+	});
 });
 
 describe("resolveBattle termination", () => {

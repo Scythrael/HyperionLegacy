@@ -94,6 +94,11 @@ function def(
 ): CombatWeapon {
 	return {
 		id,
+		// Roster TYPE identity (design S16 flavor layer). Equals the template id here;
+		// makeWeaponInstance spreads this template, so a minted instance keeps
+		// weaponType even though its per-instance `id` gets mangled to be unique. This
+		// is what lets Phase 12 flavor narrate a Railgun differently from an Autocannon.
+		weaponType: id,
 		family,
 		yieldMin: stats.yieldMin,
 		yieldMax: stats.yieldMax,

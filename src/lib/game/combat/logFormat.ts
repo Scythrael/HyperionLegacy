@@ -7,14 +7,18 @@
 // event type (hit / evade / crit / effect / DoT / destruction), then appends the
 // outcome as a final line.
 //
-// ⚠️ THIS IS NOT THE PHASE 12 FLAVOR SYSTEM. Phase 12 replaces this with the
-// layered cosmetic flavor pools (many varied lines selected off the `cosmetic`
-// RNG stream from the same event fields). This module is a deliberately simple,
-// deterministic stand-in so the engine is legible in a dev tool NOW: one fixed
-// template per event, no randomness, same input => same lines every time.
+// PHASE 12 UPDATE. The layered cosmetic flavor pools (flavor.ts) now select a
+// line PER EVENT off the `cosmetic` RNG stream inside resolveBattle and store the
+// chosen TEMPLATE on `event.flavor`. This renderer PREFERS that flavor line: when
+// `event.flavor` is present it binds the template's names/numbers via
+// interpolateFlavor (nameFor + the event's own fields) and renders that. It falls
+// back to the built-in per-type templates below ONLY for events with no flavor
+// (e.g. events built by hand in a test, or a future event type not yet flavored),
+// so the dev tool keeps working and the round-grouping + outcome line are intact.
 // ============================================================================
 
 import type { BattleOutcome, CombatEvent, WeaponFamily } from "./types";
+import { interpolateFlavor } from "./flavor";
 
 // Readable label for each weapon family (the event carries the family, not a
 // weapon name, since the log is family-tagged, see types.ts CombatEvent.family).
@@ -38,6 +42,14 @@ function formatEvent(
 	ev: CombatEvent,
 	nameFor: (id: string) => string,
 ): string | null {
+	// PHASE 12: prefer the selected cosmetic flavor line. It holds a raw template
+	// (placeholders unbound at sim time, since the sim has no name lookup); bind it
+	// here with the caller's nameFor + this event's numbers. Events without flavor
+	// fall through to the built-in templates below.
+	if (ev.flavor !== undefined) {
+		return interpolateFlavor(ev.flavor, ev, nameFor);
+	}
+
 	const actor = display(nameFor, ev.actorId);
 	const target = display(nameFor, ev.targetId);
 	const family = ev.family ? FAMILY_LABEL[ev.family] : "weapon";

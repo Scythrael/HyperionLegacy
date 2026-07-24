@@ -63,6 +63,26 @@ import {
 	applyPercentDelta,
 } from "./statusEffects";
 import { stancePreferredDistance, stanceMoveDelta, selectTarget } from "./positioning";
+import { selectFlavorTemplate, FLAVOR_PICK_RANGE } from "./flavor";
+
+// ---------------------------------------------------------------------------
+// attachFlavor: select a cosmetic flavor line for a log event and stamp it on.
+//
+// The ONE place the sim consumes the `cosmetic` stream (design S0 principle 3):
+// draw a single integer, let flavor.ts pick the most-specific template for this
+// event, and store that raw template on `event.flavor` (names/numbers bind later
+// at render). Returns the same event so call sites read `log.push(attachFlavor(
+// {...}, cosmetic))`.
+//
+// CRITICAL ISOLATION CONTRACT: this touches ONLY the cosmetic stream, never the
+// combat stream, so it cannot move any outcome. Every caller invokes it INSIDE a
+// `generateLog` guard, so offline resolution never calls it, draws zero cosmetic
+// state, and stays byte-identical to live (the flagship parity invariant).
+// ---------------------------------------------------------------------------
+function attachFlavor(event: CombatEvent, cosmetic: Rng): CombatEvent {
+	event.flavor = selectFlavorTemplate(event, cosmetic.nextInt(FLAVOR_PICK_RANGE));
+	return event;
+}
 
 // One simulation step is 1 deci-second. Named so the "0.1s" intent is explicit
 // wherever we advance a clock or a cooldown, and so it is a single knob if the
@@ -1052,6 +1072,7 @@ function resolveAmbushOpener(
 	ambusherId: string,
 	combatants: Combatant[],
 	combat: Rng,
+	cosmetic: Rng,
 	generateLog: boolean,
 	log: CombatEvent[],
 	returnFireReadyTick: Map<string, number>,
@@ -1087,37 +1108,54 @@ function resolveAmbushOpener(
 	for (const weapon of ambusher.weapons) {
 		if (!weapon.ambushEligible) continue;
 		firedOpener = true;
+		// Capture the target's shield BEFORE the shot so the flavor layer can tell a
+		// shield-break from a plain hit (design S16 death beat). Only read under
+		// generateLog so offline stays untouched; the read is outcome-neutral anyway.
+		const shieldBefore = generateLog ? target.shield : 0;
 		const shot = fireWeapon(ambusher, target, weapon, combat, bypassShields);
 		// LOG ONLY (gated): an "ambush" event so the flavor layer narrates the
 		// surprise salvo distinctly (result flags hull-direct vs a detected shielded
-		// opener). Stamped at t=0 (the opener precedes tick 1).
+		// opener). Stamped at t=0 (the opener precedes tick 1). attachFlavor draws
+		// the cosmetic pick (cosmetic-only, cannot move the outcome).
 		if (generateLog && shot.fired) {
-			log.push({
-				tDeciSec: 0,
-				round: 0,
-				type: "ambush",
-				actorId: ambusher.id,
-				targetId: target.id,
-				damage: shot.damage,
-				result: detected ? "shielded" : "hullDirect",
-				shieldAfter: shot.shieldAfter,
-				hullAfter: shot.hullAfter,
-				family: weapon.family,
-				crit: shot.crit,
-				attenuated: shot.attenuated,
-				projectilesHit: shot.projectilesHit,
-			});
+			log.push(
+				attachFlavor(
+					{
+						tDeciSec: 0,
+						round: 0,
+						type: "ambush",
+						actorId: ambusher.id,
+						targetId: target.id,
+						damage: shot.damage,
+						result: detected ? "shielded" : "hullDirect",
+						shieldAfter: shot.shieldAfter,
+						hullAfter: shot.hullAfter,
+						family: weapon.family,
+						weaponType: weapon.weaponType,
+						crit: shot.crit,
+						attenuated: shot.attenuated,
+						projectilesHit: shot.projectilesHit,
+						shieldBroke: shieldBefore > 0 && shot.shieldAfter === 0,
+					},
+					cosmetic,
+				),
+			);
 			if (shot.killed) {
-				log.push({
-					tDeciSec: 0,
-					round: 0,
-					type: "destroyed",
-					actorId: ambusher.id,
-					targetId: target.id,
-					result: "destroyed",
-					shieldAfter: shot.shieldAfter,
-					hullAfter: shot.hullAfter,
-				});
+				log.push(
+					attachFlavor(
+						{
+							tDeciSec: 0,
+							round: 0,
+							type: "destroyed",
+							actorId: ambusher.id,
+							targetId: target.id,
+							result: "destroyed",
+							shieldAfter: shot.shieldAfter,
+							hullAfter: shot.hullAfter,
+						},
+						cosmetic,
+					),
+				);
 			}
 		}
 	}
@@ -1235,6 +1273,7 @@ export function resolveBattle(
 			options.ambush,
 			combatants,
 			combat,
+			cosmetic,
 			generateLog,
 			log,
 			returnFireReadyTick,
@@ -1263,20 +1302,25 @@ export function resolveBattle(
 	// Only ever called under generateLog.
 	const flushDotRound = (roundToFlush: number): void => {
 		for (const entry of dotRoundAccum.values()) {
-			log.push({
-				// Stamp the event at the END of the round it summarizes.
-				tDeciSec: roundToFlush * TENTHS_PER_SECOND + TENTHS_PER_SECOND,
-				round: roundToFlush,
-				type: "dot",
-				// A DoT has no single actor (the burn outlives the shot that lit it);
-				// only the afflicted target is recorded.
-				targetId: entry.combatantId,
-				result: "dot",
-				damage: entry.damage,
-				hullAfter: entry.hullAfter,
-				effectDefId: entry.defId,
-				effectRank: entry.rank,
-			});
+			log.push(
+				attachFlavor(
+					{
+						// Stamp the event at the END of the round it summarizes.
+						tDeciSec: roundToFlush * TENTHS_PER_SECOND + TENTHS_PER_SECOND,
+						round: roundToFlush,
+						type: "dot",
+						// A DoT has no single actor (the burn outlives the shot that lit it);
+						// only the afflicted target is recorded.
+						targetId: entry.combatantId,
+						result: "dot",
+						damage: entry.damage,
+						hullAfter: entry.hullAfter,
+						effectDefId: entry.defId,
+						effectRank: entry.rank,
+					},
+					cosmetic,
+				),
+			);
 		}
 		dotRoundAccum.clear();
 	};
@@ -1363,6 +1407,13 @@ export function resolveBattle(
 				// exact over time (design S1: cooldown accumulator with carry-over).
 				weapon.cooldownAccumulator -= weapon.cooldownDeciSec;
 
+				// Capture the target's shield BEFORE the shot so the flavor layer can
+				// distinguish a shield-BREAK (shields dropped to 0 this hit, the "hull
+				// laid bare" death beat) from a plain shield hit or hull hit. Read only
+				// under generateLog so offline stays untouched; the read never affects
+				// the outcome regardless.
+				const shieldBefore = generateLog ? target.shield : 0;
+
 				// REAL shot pipeline. Every combat-stream draw happens inside, on a
 				// schedule independent of generateLog (parity invariant). Passes `self`
 				// so the pipeline can read the ATTACKER's active accuracy / weapon-damage
@@ -1376,31 +1427,38 @@ export function resolveBattle(
 
 				// LOG + COSMETIC work is gated on generateLog ONLY. None of this can
 				// change the outcome: fireWeapon already did all its combat draws.
+				// attachFlavor performs the single cosmetic draw per event (cosmetic
+				// stream only), replacing the Phase-3 throwaway draw with the real
+				// Phase-12 flavor selection.
 				if (generateLog && shot.fired) {
-					// Touch the cosmetic stream to select flavor (Phase 3: a throwaway
-					// draw standing in for Phase-16 flavor-line selection). This PROVES
-					// the isolation: offline skips this draw entirely, yet the combat
-					// sequence is identical, so the outcome cannot move.
-					cosmetic.nextInt(1000);
 					// A shot with zero connecting projectiles reads as an evade; any
 					// connection is a hit. The flavor layer reads the detail fields to
-					// pick the most specific line (crit / attenuated / family).
+					// pick the most specific line (crit / attenuated / shield-break / family).
 					const evaded = shot.projectilesHit === 0;
-					log.push({
-						tDeciSec: t,
-						round,
-						type: evaded ? "evade" : "hit",
-						actorId: self.id,
-						targetId: target.id,
-						damage: shot.damage,
-						result: evaded ? "evade" : "hit",
-						shieldAfter: shot.shieldAfter,
-						hullAfter: shot.hullAfter,
-						family: weapon.family,
-						crit: shot.crit,
-						attenuated: shot.attenuated,
-						projectilesHit: shot.projectilesHit,
-					});
+					log.push(
+						attachFlavor(
+							{
+								tDeciSec: t,
+								round,
+								type: evaded ? "evade" : "hit",
+								actorId: self.id,
+								targetId: target.id,
+								damage: shot.damage,
+								result: evaded ? "evade" : "hit",
+								shieldAfter: shot.shieldAfter,
+								hullAfter: shot.hullAfter,
+								family: weapon.family,
+								weaponType: weapon.weaponType,
+								crit: shot.crit,
+								attenuated: shot.attenuated,
+								projectilesHit: shot.projectilesHit,
+								// Shield-break only on a CONNECTING hit that zeroed a live shield.
+								shieldBroke:
+									!evaded && shieldBefore > 0 && shot.shieldAfter === 0,
+							},
+							cosmetic,
+						),
+					);
 					// PHASE 4: log one "effectApplied" event per disruption/DoT this
 					// shot landed (design S4: log an effect-applied event under
 					// generateLog only). The effect was already applied inside
@@ -1408,30 +1466,40 @@ export function resolveBattle(
 					// rank so an escalation reads "II" / "III".
 					for (const defId of shot.appliedEffects) {
 						const inst = target.statusEffects.find((e) => e.defId === defId);
-						log.push({
-							tDeciSec: t,
-							round,
-							type: "effectApplied",
-							actorId: self.id,
-							targetId: target.id,
-							result: "effectApplied",
-							shieldAfter: shot.shieldAfter,
-							hullAfter: shot.hullAfter,
-							effectDefId: defId,
-							effectRank: inst?.rank ?? 1,
-						});
+						log.push(
+							attachFlavor(
+								{
+									tDeciSec: t,
+									round,
+									type: "effectApplied",
+									actorId: self.id,
+									targetId: target.id,
+									result: "effectApplied",
+									shieldAfter: shot.shieldAfter,
+									hullAfter: shot.hullAfter,
+									effectDefId: defId,
+									effectRank: inst?.rank ?? 1,
+								},
+								cosmetic,
+							),
+						);
 					}
 					if (shot.killed) {
-						log.push({
-							tDeciSec: t,
-							round,
-							type: "destroyed",
-							actorId: self.id,
-							targetId: target.id,
-							result: "destroyed",
-							shieldAfter: shot.shieldAfter,
-							hullAfter: shot.hullAfter,
-						});
+						log.push(
+							attachFlavor(
+								{
+									tDeciSec: t,
+									round,
+									type: "destroyed",
+									actorId: self.id,
+									targetId: target.id,
+									result: "destroyed",
+									shieldAfter: shot.shieldAfter,
+									hullAfter: shot.hullAfter,
+								},
+								cosmetic,
+							),
+						);
 					}
 					// PHASE 7b: narrate the drone screen's reaction (log-only; the outcome
 					// was already resolved inside fireWeapon). One aggregate "droneIntercept"
@@ -1439,36 +1507,51 @@ export function resolveBattle(
 					// "droneReflect"/"droneCounter" per collateral hit on the attacker / a
 					// smart-reflect priority foe.
 					if (shot.dronesEngaged > 0) {
-						log.push({
-							tDeciSec: t,
-							round,
-							type: "droneIntercept",
-							actorId: target.id, // the DEFENDER's drones acted
-							targetId: self.id,
-							result: "droneIntercept",
-							projectilesHit: shot.dronesEngaged,
-							family: weapon.family,
-						});
+						log.push(
+							attachFlavor(
+								{
+									tDeciSec: t,
+									round,
+									type: "droneIntercept",
+									actorId: target.id, // the DEFENDER's drones acted
+									targetId: self.id,
+									result: "droneIntercept",
+									projectilesHit: shot.dronesEngaged,
+									family: weapon.family,
+								},
+								cosmetic,
+							),
+						);
 					}
 					for (const hit of shot.collateral) {
-						log.push({
-							tDeciSec: t,
-							round,
-							type: hit.kind === "reflect" ? "droneReflect" : "droneCounter",
-							actorId: target.id, // the carrier's screen dealt this
-							targetId: hit.targetId,
-							damage: hit.damage,
-							result: hit.kind === "reflect" ? "droneReflect" : "droneCounter",
-						});
+						log.push(
+							attachFlavor(
+								{
+									tDeciSec: t,
+									round,
+									type: hit.kind === "reflect" ? "droneReflect" : "droneCounter",
+									actorId: target.id, // the carrier's screen dealt this
+									targetId: hit.targetId,
+									damage: hit.damage,
+									result: hit.kind === "reflect" ? "droneReflect" : "droneCounter",
+								},
+								cosmetic,
+							),
+						);
 						if (hit.killed) {
-							log.push({
-								tDeciSec: t,
-								round,
-								type: "destroyed",
-								actorId: target.id,
-								targetId: hit.targetId,
-								result: "destroyed",
-							});
+							log.push(
+								attachFlavor(
+									{
+										tDeciSec: t,
+										round,
+										type: "destroyed",
+										actorId: target.id,
+										targetId: hit.targetId,
+										result: "destroyed",
+									},
+									cosmetic,
+								),
+							);
 						}
 					}
 				}
@@ -1519,28 +1602,38 @@ export function resolveBattle(
 						const cleansed =
 							activeDrones > 0 ? supportCleanse(self, combat) : [];
 						// LOG-ONLY narration of the pulse (never changes the outcome).
+						// attachFlavor makes the single cosmetic draw per event.
 						if (generateLog && (self.hull !== hullBefore || cleansed.length > 0)) {
-							cosmetic.nextInt(1000);
-							log.push({
-								tDeciSec: t,
-								round,
-								type: "droneSupport",
-								actorId: self.id,
-								targetId: self.id,
-								result: "droneSupport",
-								damage: self.hull - hullBefore, // hull RESTORED this pulse
-								hullAfter: self.hull,
-							});
+							log.push(
+								attachFlavor(
+									{
+										tDeciSec: t,
+										round,
+										type: "droneSupport",
+										actorId: self.id,
+										targetId: self.id,
+										result: "droneSupport",
+										damage: self.hull - hullBefore, // hull RESTORED this pulse
+										hullAfter: self.hull,
+									},
+									cosmetic,
+								),
+							);
 							for (const defId of cleansed) {
-								log.push({
-									tDeciSec: t,
-									round,
-									type: "droneCleanse",
-									actorId: self.id,
-									targetId: self.id,
-									result: "droneCleanse",
-									effectDefId: defId,
-								});
+								log.push(
+									attachFlavor(
+										{
+											tDeciSec: t,
+											round,
+											type: "droneCleanse",
+											actorId: self.id,
+											targetId: self.id,
+											result: "droneCleanse",
+											effectDefId: defId,
+										},
+										cosmetic,
+									),
+								);
 							}
 						}
 						continue;
@@ -1565,34 +1658,44 @@ export function resolveBattle(
 					// projectilesHit carries how many drones connected, so the flavor layer can
 					// narrate "Wasp squadron strikes E1 for N (6 of 8 drones)".
 					if (generateLog && volley.fired) {
-						// Touch the cosmetic stream for flavor selection, same proof-of-isolation
-						// as a weapon shot: offline skips this draw, yet the outcome is identical.
-						cosmetic.nextInt(1000);
+						// attachFlavor makes the single cosmetic draw per event, same
+						// proof-of-isolation as a weapon shot: offline skips it, yet the
+						// outcome is identical.
 						const evaded = volley.dronesHit === 0;
-						log.push({
-							tDeciSec: t,
-							round,
-							type: "droneVolley",
-							actorId: self.id,
-							targetId: target.id,
-							damage: volley.damage,
-							result: evaded ? "evade" : "droneVolley",
-							shieldAfter: volley.shieldAfter,
-							hullAfter: volley.hullAfter,
-							family: squadron.family,
-							projectilesHit: volley.dronesHit,
-						});
+						log.push(
+							attachFlavor(
+								{
+									tDeciSec: t,
+									round,
+									type: "droneVolley",
+									actorId: self.id,
+									targetId: target.id,
+									damage: volley.damage,
+									result: evaded ? "evade" : "droneVolley",
+									shieldAfter: volley.shieldAfter,
+									hullAfter: volley.hullAfter,
+									family: squadron.family,
+									projectilesHit: volley.dronesHit,
+								},
+								cosmetic,
+							),
+						);
 						if (volley.killed) {
-							log.push({
-								tDeciSec: t,
-								round,
-								type: "destroyed",
-								actorId: self.id,
-								targetId: target.id,
-								result: "destroyed",
-								shieldAfter: volley.shieldAfter,
-								hullAfter: volley.hullAfter,
-							});
+							log.push(
+								attachFlavor(
+									{
+										tDeciSec: t,
+										round,
+										type: "destroyed",
+										actorId: self.id,
+										targetId: target.id,
+										result: "destroyed",
+										shieldAfter: volley.shieldAfter,
+										hullAfter: volley.hullAfter,
+									},
+									cosmetic,
+								),
+							);
 						}
 					}
 				}
@@ -1624,15 +1727,20 @@ export function resolveBattle(
 					const restored = replenishDrones(squadron, units);
 					// LOG-ONLY: narrate a drone coming back online mid-fight.
 					if (generateLog && restored > 0) {
-						log.push({
-							tDeciSec: t,
-							round,
-							type: "droneReplenish",
-							actorId: self.id,
-							targetId: self.id,
-							result: "droneReplenish",
-							projectilesHit: restored, // count of drones restored this tick
-						});
+						log.push(
+							attachFlavor(
+								{
+									tDeciSec: t,
+									round,
+									type: "droneReplenish",
+									actorId: self.id,
+									targetId: self.id,
+									result: "droneReplenish",
+									projectilesHit: restored, // count of drones restored this tick
+								},
+								cosmetic,
+							),
+						);
 					}
 				}
 			}
@@ -1673,15 +1781,20 @@ export function resolveBattle(
 			// A DoT can be the killing blow; narrate it (no actor: the burn's source
 			// shot is long gone).
 			if (killed) {
-				log.push({
-					tDeciSec: t,
-					round,
-					type: "destroyed",
-					targetId: self.id,
-					result: "destroyed",
-					shieldAfter: self.shield,
-					hullAfter: self.hull,
-				});
+				log.push(
+					attachFlavor(
+						{
+							tDeciSec: t,
+							round,
+							type: "destroyed",
+							targetId: self.id,
+							result: "destroyed",
+							shieldAfter: self.shield,
+							hullAfter: self.hull,
+						},
+						cosmetic,
+					),
+				);
 			}
 		}
 

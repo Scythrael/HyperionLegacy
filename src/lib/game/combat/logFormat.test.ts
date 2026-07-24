@@ -98,3 +98,56 @@ describe("formatCombatLog", () => {
 		expect(lines.some((l) => l.startsWith("Outcome:"))).toBe(false);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// PHASE 12: when an event carries a selected flavor line, the renderer PREFERS
+// it (binding names/numbers) over the built-in per-type template. Events with no
+// flavor still fall back to the templates (covered by the FIXED_LOG suite above,
+// whose events carry no `flavor`).
+// ---------------------------------------------------------------------------
+describe("formatCombatLog flavor rendering", () => {
+	// A hit whose flavor template holds unbound {placeholders}: the renderer must
+	// bind {actor}/{target}/{damage} from nameFor + the event fields.
+	const FLAVORED_LOG: CombatEvent[] = [
+		{
+			tDeciSec: 5,
+			round: 0,
+			type: "hit",
+			actorId: "player",
+			targetId: "enemy",
+			damage: 140,
+			result: "hit",
+			shieldAfter: 0,
+			hullAfter: 60,
+			family: "kinetic",
+			weaponType: "railgun",
+			projectilesHit: 1,
+			flavor: "{actor}'s railgun punches clean through, {damage} into the hull.",
+		},
+	];
+
+	it("renders the interpolated flavor line, not the built-in hit template", () => {
+		const lines = formatCombatLog(FLAVORED_LOG, nameFor);
+		expect(lines).toContain(
+			"Ravenscar's railgun punches clean through, 140 into the hull.",
+		);
+		// The generic "hits ... for ..." template must NOT appear for this event.
+		expect(lines.some((l) => l.includes("kinetic fire hits"))).toBe(false);
+	});
+
+	it("still binds names for a flavored event with no actor (target-only line)", () => {
+		const log: CombatEvent[] = [
+			{
+				tDeciSec: 14,
+				round: 1,
+				type: "destroyed",
+				targetId: "enemy",
+				result: "destroyed",
+				hullAfter: -3,
+				flavor: "{target}'s hull gives way and it breaks apart.",
+			},
+		];
+		const lines = formatCombatLog(log, nameFor);
+		expect(lines).toContain("the raider's hull gives way and it breaks apart.");
+	});
+});

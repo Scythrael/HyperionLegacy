@@ -80,6 +80,16 @@ export interface CombatWeapon {
 	// Stable identifier for this weapon instance. Used in log events + for
 	// deterministic ordering if two weapons ever need a tiebreak.
 	id: string;
+	// Stable ROSTER TYPE this weapon is an instance of (e.g. "railgun",
+	// "plasma"), distinct from the per-instance `id` above (which is mangled to be
+	// unique per ship, e.g. "player-w0-railgun"). Phase 12 flavor selection keys
+	// its weapon-TYPE pool layer off this so a Railgun narrates differently from an
+	// Autocannon. Minted by weapons.ts makeWeaponInstance from the template id;
+	// OPTIONAL because hand-built test/fixture weapons omit it (they simply inherit
+	// the family-level flavor layer, keeping those fixtures byte-identical). Typed
+	// as a plain string (not the WeaponId union) to avoid a weapons.ts <-> types.ts
+	// import cycle; it holds a roster WeaponId when minted through the roster.
+	weaponType?: string;
 	// Which family this weapon belongs to. Selects the damage-type triangle
 	// multiplier AND the signature trait (attenuation vs armor-pen vs disruption)
 	// applied in the shot pipeline.
@@ -371,6 +381,35 @@ export interface CombatEvent {
 	// How many of the shot's projectiles connected (0 = full evade). Lets flavor
 	// distinguish a clean volley from a grazing partial hit.
 	projectilesHit?: number;
+
+	// -- Phase 12 flavor fields (all optional; consumed by the layered cosmetic
+	// flavor pools in flavor.ts). None of these affect the outcome; they exist so
+	// the flavor layer can pick the MOST SPECIFIC line and so the render step can
+	// bind names/numbers. --
+	// The firing weapon's roster TYPE (e.g. "railgun"), copied from
+	// CombatWeapon.weaponType, so flavor can select a weapon-type-specific line
+	// (design S16 layered pool: type layer). Absent => the type layer is skipped
+	// and the family layer is used instead.
+	weaponType?: string;
+	// A future crafted/named SIGNATURE weapon's id, for the most-specific flavor
+	// layer (design S16: signature -> type -> family -> generic). FORWARD HOOK: the
+	// v1 roster mints none, so the sim never sets this yet; the flavor module + its
+	// tests exercise the layer so the growth path is proven. Absent => signature
+	// layer skipped.
+	weaponSignature?: string;
+	// True on a HIT that dropped the target's shields to exactly 0 this event (the
+	// "shields stripped, hull laid bare" death-sequence beat, design S16 / the
+	// approved mockup). Lets flavor pick a distinct shield-break line rather than a
+	// plain shield-hit or hull-hit line. Absent/false => not a shield-break moment.
+	shieldBroke?: boolean;
+	// The SELECTED flavor line for this event, chosen off the COSMETIC rng stream
+	// (design S0 principle 3: cosmetic-only, never the combat stream). Stored as the
+	// raw TEMPLATE with {actor}/{target}/{damage}/... placeholders still unbound;
+	// the render step (logFormat / the combat view) binds names via the caller's
+	// nameFor and numbers from this event's own fields. Present ONLY when the battle
+	// ran with generateLog:true (offline leaves it undefined, touching zero cosmetic
+	// state), which is exactly what keeps offline byte-identical to live.
+	flavor?: string;
 
 	// -- Phase 4 status-effect fields (all optional). --
 	// The disruption/DoT/buff def id this event concerns, for the flavor layer to
