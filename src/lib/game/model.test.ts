@@ -508,7 +508,9 @@ describe("PATROLS, combat-patrol content table (Combat 0.13.0 §S14)", () => {
     const sweep = PATROLS.crimsonReaverSweep;
     expect(sweep).toBeDefined();
     expect(sweep.factionId).toBe("crimsonReavers");
-    expect(sweep.hullPool).toEqual(["raider", "marauder"]);
+    // Phase 9b first-pass balance: a raider-heavy 4:1 pool (mostly lone raiders, the odd
+    // marauder) so all three tactician hulls reliably win the starter. See patrol-balance.test.ts.
+    expect(sweep.hullPool).toEqual(["raider", "raider", "raider", "raider", "marauder"]);
     expect(PATROLS.notARealPatrol).toBeUndefined();
   });
 });

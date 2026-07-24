@@ -636,21 +636,34 @@ export interface PatrolDef {
 // separate `id` field). Add an entry here (growing PatrolKey) when a new patrol is
 // authored; never repurpose an existing key (a persisted PatrolMissionState.patrolKey
 // references it). ONE starter patrol this unit: a low-tier sweep against the Crimson
-// Reavers, drawing raiders + marauders, 2-4 waves of 1-2 enemies. Sized so the wave
-// window (8 ticks) comfortably holds maxWaves (4).
+// Reavers, drawing MOSTLY lone raiders (the odd lone marauder), 2 waves of 1 enemy.
+// Sized so the wave window (8 ticks) comfortably holds maxWaves (2).
 export const PATROLS: Record<string, PatrolDef> = {
   // CRIMSON-REAVER SWEEP: the entry patrol. A short local sweep (3-tick legs) through an
-  // 8-tick contested window, fighting 2-4 light waves (raiders, the odd marauder) of 1-2
-  // ships each. Beatable by an entry destroyer flying its default loadout (the pirate
-  // hulls are tuned weaker than the player's warships, see PIRATE_HULLS).
+  // 8-tick contested window, fighting 2 light waves of a SINGLE ship each (mostly raiders,
+  // the odd marauder). ⚠️ FIRST-PASS BALANCE (Phase 9b): these fields were tuned so ALL
+  // THREE tactician hulls (destroyer / battleship / carrier), each flying its DEFAULT
+  // loadout, RELIABLY WIN this starter (measured ~100% across a 200-seed sample, guarded by
+  // patrol-balance.test.ts). The entry patrol must never be an "unwinnable first fight"
+  // wall; a real global balance pass (design S20) revisits the wider difficulty curve later.
+  // The tuning is DELIBERATELY GENTLE (single-enemy waves + a raider-heavy pool + only 2
+  // waves) because it is the very first combat a new player sees; tougher patrols get their
+  // own richer pools/counts. See PIRATE_HULLS (the pirate hulls stay usable for those).
   crimsonReaverSweep: {
     label: "Crimson-Reaver Sweep",
     factionId: "crimsonReavers",
-    hullPool: ["raider", "marauder"],
+    // 4:1 raider:marauder (uniform pick over this list). Raider-heavy so most waves are
+    // trivial for an entry warship; the lone marauder is a rare step-up, not a wall.
+    // FIRST-PASS + TUNABLE (S20).
+    hullPool: ["raider", "raider", "raider", "raider", "marauder"],
+    // Exactly 2 waves (minWaves == maxWaves), each exactly 1 enemy (enemyCountMin ==
+    // enemyCountMax). Single-enemy waves + a short 2-wave route keep hull attrition low
+    // enough that even the destroyer (the thinnest-hulled tactician) clears it reliably.
+    // FIRST-PASS + TUNABLE (S20): a later balance pass can widen these bands for difficulty.
     minWaves: 2,
-    maxWaves: 4,
+    maxWaves: 2,
     enemyCountMin: 1,
-    enemyCountMax: 2,
+    enemyCountMax: 1,
     transitOutTicks: 3,
     rollWindowTicks: 8,
     transitBackTicks: 3,

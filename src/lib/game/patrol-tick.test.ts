@@ -10,8 +10,14 @@
 // offline==live invariant the whole combat design rests on.
 //
 // Seeds used (discovered empirically, deterministic once pinned):
-//   masterSeed 3 => a destroyer WINS a 3-wave route (waves at ticks [4,6,10]) with clear
-//                   hull attrition (600 -> 505 -> 424 -> 77) and completes at route end.
+//   masterSeed 29 => a destroyer WINS a 2-wave route (waves at ticks [3,4]) with clear hull
+//                    attrition (600 -> 447 -> 381, a marauder in the pool bloodies it) and
+//                    completes at route end. (The starter def is now 2 single-enemy waves
+//                    from a raider-heavy pool, Phase 9b balance; masterSeed 29 is one of the
+//                    minority of seeds that draws a marauder, so attrition is visible.)
+//   masterSeed 3  => a destroyer WINS a 2-wave route taking NO hull damage (all raiders);
+//                    used by the relaunch / dispatch-once resolution tests where only the
+//                    win + end-condition matter, not attrition.
 //   A carry-state hull override (playerHull 5, playerShield 0) => a GUARANTEED defeat
 //                   regardless of enemy tuning (robust against a future S20 balance pass).
 // ============================================================================
@@ -84,8 +90,11 @@ function stepped(state: GameState, n: number): GameState {
 // THE PARITY GATE (offline == live).
 // ---------------------------------------------------------------------------
 describe("closed-form parity: one big call == many small calls (THE GATE)", () => {
-  // Several master seeds spanning a WIN route (3) and a LOSS route (1: a wave of two
-  // marauders beats a lone destroyer), each for Dispatch Once AND Dispatch Repeatedly.
+  // Several master seeds, each for Dispatch Once AND Dispatch Repeatedly. Under the Phase 9b
+  // starter def a lone destroyer WINS all of these (single-enemy, raider-heavy waves), so
+  // these exercise the win + relaunch-threading path; the parity being proven (big == stepped)
+  // is win/loss-agnostic anyway. (A guaranteed-DEFEAT path is proven separately below via a
+  // hull-override, which stays a loss regardless of enemy tuning.)
   for (const seed of [1, 3, 5, 7, 11]) {
     for (const repeat of [false, true]) {
       it(`is byte-identical for masterSeed=${seed}, repeat=${repeat} (destroyer)`, () => {
@@ -223,18 +232,19 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
 // ---------------------------------------------------------------------------
 describe("a patrol runs, fights its waves, and resolves", () => {
   it("wins its waves with hull attrition, then ends in SUCCESS (mission null, ship intact)", () => {
-    const dispatched = dispatch(patrolState("destroyer", 3), false); // Dispatch Once, winning route
+    const dispatched = dispatch(patrolState("destroyer", 29), false); // Dispatch Once, winning route with a marauder
 
-    // Mid-route (past all 3 waves at ticks [4,6,10], before route end at 14): waves cleared
-    // and the hull has ATTRITED below full (design S14). Shields are a partial pool (regenning).
+    // Mid-route (past both waves at ticks [3,4], before route end at 14): waves cleared and
+    // the hull has ATTRITED below full (design S14; seed 29 draws a marauder, so it bleeds).
+    // Shields are a partial pool (regenning).
     const mid = stepped(dispatched, 12);
     const m = patrolOf(mid)!;
     expect(m).not.toBeNull();
-    expect(m.wavesWon).toBe(3);
+    expect(m.wavesWon).toBe(2); // the starter runs exactly 2 waves (Phase 9b def)
     expect(m.wavesLost).toBe(0);
     expect(m.playerHull).toBeLessThan(SHIP_TYPES.destroyer.hullIntegrity); // attrition
     expect(m.playerHull).toBeGreaterThan(0); // still alive
-    expect(m.nextWaveIndex).toBe(3); // all waves consumed
+    expect(m.nextWaveIndex).toBe(2); // all waves consumed
 
     // Run to route end: SUCCESS ends the patrol (mission null), ship NOT damaged (a win
     // never flags damaged), and Dispatch Once does NOT relaunch.
@@ -244,13 +254,11 @@ describe("a patrol runs, fights its waves, and resolves", () => {
   });
 
   it("carry-state (playerHull) monotonically decreases across successive waves", () => {
-    const dispatched = dispatch(patrolState("destroyer", 3), false);
-    const afterW1 = patrolOf(stepped(dispatched, 4))!.playerHull; // wave at tick 4
-    const afterW2 = patrolOf(stepped(dispatched, 6))!.playerHull; // wave at tick 6
-    const afterW3 = patrolOf(stepped(dispatched, 10))!.playerHull; // wave at tick 10
-    expect(afterW1).toBeLessThan(SHIP_TYPES.destroyer.hullIntegrity);
-    expect(afterW2).toBeLessThanOrEqual(afterW1);
-    expect(afterW3).toBeLessThanOrEqual(afterW2); // hull only ever falls (no regen)
+    const dispatched = dispatch(patrolState("destroyer", 29), false); // waves at ticks [3,4], marauder present
+    const afterW1 = patrolOf(stepped(dispatched, 3))!.playerHull; // wave at tick 3
+    const afterW2 = patrolOf(stepped(dispatched, 4))!.playerHull; // wave at tick 4
+    expect(afterW1).toBeLessThan(SHIP_TYPES.destroyer.hullIntegrity); // attrited after wave 1
+    expect(afterW2).toBeLessThanOrEqual(afterW1); // hull only ever falls (no regen)
   });
 });
 
