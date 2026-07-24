@@ -4179,10 +4179,18 @@
                   <!-- Material readiness: [Item]: have / need, ✅ (have≥need) or ❌. -->
                   {#each Object.keys(nextRefineryUpgrade.materials) as itemId}
                     {@const need = nextRefineryUpgrade.materials[itemId]}
-                    {@const have = itemTotal(state.inventory, itemId)}
+                    <!-- have = the reservation-aware FREE amount (inventory MINUS what active
+                         craft lines reserve), the SAME value canBuildFacilityUpgrade spends
+                         against, so this readiness row can never contradict the Build button
+                         (the "shows 1.52M but says not enough" bug). reserved = stock - free
+                         is surfaced so the number reading below the Warehouse's raw total is
+                         self-explanatory. -->
+                    {@const stock = itemTotal(state.inventory, itemId)}
+                    {@const have = freeItemForState(state, itemId)}
+                    {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -4485,10 +4493,14 @@
                        fabricator track today, kept for parity with the sibling tabs. -->
                   {#each Object.keys(nextFabricatorUpgrade.materials) as itemId}
                     {@const need = nextFabricatorUpgrade.materials[itemId]}
-                    {@const have = itemTotal(state.inventory, itemId)}
+                    <!-- FREE (reservation-aware) have, consistent with the Build gate; see
+                         the Refinery upgrade row for the full rationale. -->
+                    {@const stock = itemTotal(state.inventory, itemId)}
+                    {@const have = freeItemForState(state, itemId)}
+                    {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -4693,10 +4705,14 @@
                        research track today, kept for parity with the sibling tabs. -->
                   {#each Object.keys(nextResearchUpgrade.materials) as itemId}
                     {@const need = nextResearchUpgrade.materials[itemId]}
-                    {@const have = itemTotal(state.inventory, itemId)}
+                    <!-- FREE (reservation-aware) have, consistent with the Build gate; see
+                         the Refinery upgrade row for the full rationale. -->
+                    {@const stock = itemTotal(state.inventory, itemId)}
+                    {@const have = freeItemForState(state, itemId)}
+                    {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -4917,10 +4933,14 @@
 
                   {#each Object.keys(nextFuelStorageUpgrade.materials) as itemId}
                     {@const need = nextFuelStorageUpgrade.materials[itemId]}
-                    {@const have = itemTotal(state.inventory, itemId)}
+                    <!-- FREE (reservation-aware) have, consistent with the Build gate; see
+                         the Refinery upgrade row for the full rationale. -->
+                    {@const stock = itemTotal(state.inventory, itemId)}
+                    {@const have = freeItemForState(state, itemId)}
+                    {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -5042,10 +5062,14 @@
                     <!-- Material readiness: [Item]: have / need, ✅/❌. -->
                     {#each Object.keys(nextRung.materials) as itemId}
                       {@const need = nextRung.materials[itemId]}
-                      {@const have = itemTotal(state.inventory, itemId)}
+                      <!-- FREE (reservation-aware) have, consistent with the Build gate; see
+                           the Refinery upgrade row for the full rationale. -->
+                      {@const stock = itemTotal(state.inventory, itemId)}
+                      {@const have = freeItemForState(state, itemId)}
+                      {@const reserved = stock.minus(have)}
                       {@const met = have.gte(need)}
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                        {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                       </div>
                     {/each}
 
@@ -5492,10 +5516,14 @@
                        parity with the sibling upgrade tabs. -->
                   {#each Object.keys(nextShipyardUpgrade.materials) as itemId}
                     {@const need = nextShipyardUpgrade.materials[itemId]}
-                    {@const have = itemTotal(state.inventory, itemId)}
+                    <!-- FREE (reservation-aware) have, consistent with the Build gate; see
+                         the Refinery upgrade row for the full rationale. -->
+                    {@const stock = itemTotal(state.inventory, itemId)}
+                    {@const have = freeItemForState(state, itemId)}
+                    {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -6892,10 +6920,14 @@
                        the Refinery/Warehouse upgrade tabs. -->
                   {#each Object.keys(nextMissionControlUpgrade.materials) as itemId}
                     {@const need = nextMissionControlUpgrade.materials[itemId]}
-                    {@const have = itemTotal(state.inventory, itemId)}
+                    <!-- FREE (reservation-aware) have, consistent with the Build gate; see
+                         the Refinery upgrade row for the full rationale. -->
+                    {@const stock = itemTotal(state.inventory, itemId)}
+                    {@const have = freeItemForState(state, itemId)}
+                    {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 

@@ -5,6 +5,12 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL } from "./model";
+// Over-cap reconciliation: run at load so a stack stuck above its warehouse cap (deposited
+// before the deposit-clamp fix, or by a live salvage) is trimmed back to cap. Idempotent and
+// shape-preserving, so it is applied on EVERY load with no SAVE_VERSION bump. See
+// clampInventoryToCaps in tick.ts for the full rationale. This is a one-way import (tick.ts
+// never imports save.ts), so it introduces no module cycle.
+import { clampInventoryToCaps } from "./tick";
 
 export const SAVE_VERSION = 30;
 export const SAVE_KEY = "fleet_admiral_save";
@@ -1180,7 +1186,13 @@ export function migrate(save: SaveFile): GameState {
     state = MIGRATIONS[version](state);
     version += 1;
   }
-  return hydrateDecimals(state);
+  // Hydrate the SHAPE first (Decimals, quality buckets), THEN reconcile any over-cap stack
+  // down to its warehouse cap. clampInventoryToCaps needs the hydrated Decimal inventory +
+  // the facility levels (both present after hydrateDecimals) to resolve each item's cap. It
+  // runs on every load (idempotent, no SAVE_VERSION bump), which is what un-sticks a legacy
+  // over-cap stack that the deposit clamp + materialAtCap auto-stop can never re-clamp on
+  // their own (a stuck stack gets no further deposit to trigger the deposit-side clamp).
+  return clampInventoryToCaps(hydrateDecimals(state));
 }
 
 export function serialize(state: GameState, createdAt: number): string {
