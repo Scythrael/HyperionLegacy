@@ -34,6 +34,22 @@
     gap: 2px;
     margin-bottom: 14px;
     flex-wrap: nowrap;
+    /* This row lives as a flex item inside .tab-scroll-area, a flex COLUMN. The
+       overflow-x:auto below makes this element a SCROLL CONTAINER, and a scroll
+       container's CSS automatic minimum size is 0 (not its content height). So
+       when the sibling panel below overflows the column (tall content on a short
+       viewport, e.g. desktop/landscape, where the Research blueprint list runs
+       well past the fold), flexbox has to absorb the vertical deficit somewhere,
+       the panel cannot shrink below its own content, so ALL of it lands on this
+       row, crushing it to height 0 and clipping every tab button out of view (the
+       whole Overview/Research/Upgrades strip silently vanishes). flex-shrink:0
+       pins this header row at its natural height so it is never the release valve
+       for the column's overflow, that job belongs to .tab-scroll-area's own
+       scrollbar. This mirrors ConsoleTabs, whose .ctabs-wrap is likewise
+       flex-shrink:0 around its inner overflow-x scroller. Portrait (a taller
+       viewport) often had enough slack to avoid the overflow, which is why the
+       collapse only showed at wider/shorter viewports. */
+    flex-shrink: 0;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none; /* Firefox */
