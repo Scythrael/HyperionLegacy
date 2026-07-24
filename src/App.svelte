@@ -1504,6 +1504,38 @@
   }
   // -------------------------------------------------------------------------
 
+  // ---- Warehouse storage-upgrade disabled-reason tooltip -------------------
+  // Flicker fix (2026-07-24). The Warehouse "Expand / Unlock Storage" button is
+  // DISABLED whenever it has a reason to show, and previously that reason was
+  // fed to the button's NATIVE `title` attribute. The browser hides and re-shows
+  // a native tooltip every time the `title` string changes, and the reason string
+  // from canBuildFacilityUpgrade embeds the LIVE free stock ("Need 750000 Titanium
+  // Ore (have Y)"). freeItemForState(Y) changes on every tick while a producer
+  // fills or a craft line reserves the gating material, so the title mutated once
+  // per tick and the native tooltip flickered on and off under the hovering
+  // pointer, exactly the "resetting with the tick" the owner reported.
+  //
+  // Root fix: show the reason in a CUSTOM popover whose OPEN state (this key) is
+  // held in a variable the tick never touches, the same open-state-independent-of-
+  // tick idiom the currency-chip tooltip uses. A tick re-render now only rewrites
+  // the reason TEXT in place; it never tears the popover down or re-opens it, so
+  // there is nothing left to flicker.
+  //
+  // Keyed by the tier's facility key (wt.key) so only the hovered card's popover
+  // opens. The hover handlers live on a WRAPPER around the button, NOT the button
+  // itself: a disabled <button> does not dispatch pointer events, so listening on
+  // the button would never fire. Mouse-hover only (mouseenter/mouseleave), matching
+  // the old native title, which never surfaced on touch anyway; touch/keyboard users
+  // still read the same shortfall in the always-visible readiness rows above.
+  let openUpgradeReasonKey: string | null = null;
+  function showUpgradeReason(key: string) {
+    openUpgradeReasonKey = key;
+  }
+  function hideUpgradeReason(key: string) {
+    if (openUpgradeReasonKey === key) openUpgradeReasonKey = null;
+  }
+  // -------------------------------------------------------------------------
+
   // ---- Homeworld program rail state ----------------------------------------
   // RETIRED (0.12.0 "Console" nav, Phase 1 / CN2b). The Homeworld tab is gone:
   // its ADMINISTRATION prestige tree (the Fleet Admiral prestige RadialWeb) moved
@@ -5510,14 +5542,40 @@
                       </p>
                     {/if}
 
-                    <button
-                      class="buy-btn"
-                      disabled={!check.ok}
-                      title={check.ok ? undefined : check.reason}
-                      on:click={() => doStartFacilityUpgrade(wt.key)}
+                    <!-- Hover region for the disabled-reason popover lives on this
+                         wrapper, NOT the button: a disabled <button> does not fire
+                         pointer events, so the wrapper is what catches the hover.
+                         The native `title` was removed here on purpose, it was the
+                         flicker source (see openUpgradeReasonKey in the script). -->
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <!-- Intentional: this is a MOUSE-CONVENIENCE popover that only
+                         duplicates the shortfall already shown in the always-visible
+                         readiness rows above, so keyboard/screen-reader users lose
+                         nothing by it being hover-only. There is no accessible role
+                         for a bare hover-reveal container, and the button it wraps is
+                         (correctly) disabled, hence not a valid handler host. -->
+                    <div
+                      class="upgrade-reason-wrap"
+                      on:mouseenter={() => showUpgradeReason(wt.key)}
+                      on:mouseleave={() => hideUpgradeReason(wt.key)}
                     >
-                      {isUnlockRung ? `Unlock ${wt.label}` : "Expand · doubles capacity"}
-                    </button>
+                      <button
+                        class="buy-btn"
+                        disabled={!check.ok}
+                        on:click={() => doStartFacilityUpgrade(wt.key)}
+                      >
+                        {isUnlockRung ? `Unlock ${wt.label}` : "Expand · doubles capacity"}
+                      </button>
+                      <!-- Custom disabled-reason popover. Its open-state
+                           (openUpgradeReasonKey) is tick-independent, so the per-tick
+                           reason text updates in place without the popover resetting.
+                           Reuses the currency-tooltip look (opaque, bordered, shadow). -->
+                      {#if !check.ok && check.reason && openUpgradeReasonKey === wt.key}
+                        <div class="currency-tooltip upgrade-reason-tooltip" role="tooltip">
+                          <div class="currency-tooltip-body">{check.reason}</div>
+                        </div>
+                      {/if}
+                    </div>
                   {/if}
 
                   {#if inFlight}
@@ -9030,6 +9088,15 @@
     color: var(--color-accent); margin-bottom: 4px;
   }
   .currency-tooltip-body { font-size: 11px; line-height: 1.4; color: var(--color-text-secondary); }
+  /* Warehouse storage-upgrade disabled-reason popover (2026-07-24 flicker fix).
+     The wrapper is the hover region + the positioning context for the popover
+     (a disabled button cannot be it, see openUpgradeReasonKey in the script).
+     inline-block so it hugs the button and the absolute popover (top: 100%,
+     left: 0 from .currency-tooltip) drops directly beneath it. */
+  .upgrade-reason-wrap { position: relative; display: inline-block; }
+  /* The reason is a single short sentence; widen a touch past the currency
+     default so "Need 750000 Titanium Ore (have 90)" stays on one or two lines. */
+  .upgrade-reason-tooltip { max-width: 260px; }
   /* Fuel chip tooltip rows (Fuel Economy v2 F4): a label/value two-column line, a thin
      divider, and a dimmer sub-note line. Scoped to the fuel tooltip; the currency
      tooltips render a plain flavor string and don't use these. min-width keeps the
