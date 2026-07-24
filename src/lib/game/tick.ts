@@ -101,6 +101,11 @@ import {
   // (the single source) rather than a separate stored level.
   SHIP_DOCKS_BASE,
   SHIP_DOCKS_RUNGS,
+  // Combat 0.13.0 (Phase 11, design S13): the ship-repair tunables (repair-duration formula
+  // constants + the dedicated repair-bay count) the loss/repair loop reads.
+  REPAIR_BASE_TICKS,
+  REPAIR_TICKS_PER_HULL,
+  REPAIR_BAY_COUNT,
 } from "./model";
 import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // Combat 0.13.0 (Phase 9b.5a): patrol dispatch helpers. combatHullTypeOf gates the
@@ -648,6 +653,11 @@ const PROCESS_XP_AWARDS: Record<TimedProcessKind, { fleetAdmin: boolean; craftin
   shipBuild:               { fleetAdmin: true,  crafting: true },  // 0.12.1: flipped to true (finite, high-value)
   equipmentStorageUpgrade: { fleetAdmin: true,  crafting: false },
   docksExpansion:          { fleetAdmin: true,  crafting: false },
+  // Combat 0.13.0 (Phase 11, design S13): a ship REPAIR grants NEITHER axis. Repair is a
+  // CONSEQUENCE of losing a patrol (restoring a wrecked hull), not an achievement or a
+  // production job, so it must not farm FA or crafting XP (a defeat-repair-redispatch loop
+  // could otherwise be an XP faucet). It joins fuelRefineJob as the only neither-axis kind.
+  shipRepair:              { fleetAdmin: false, crafting: false },
 };
 
 // Exported so App.svelte can display/gate on this exact value (Reset button
@@ -1537,9 +1547,16 @@ interface PatrolTickResult {
   // The captain with its mission advanced. mission is null when the patrol ENDED this
   // call (success without repeat, defeat, recall-at-cycle-end, or truly-broke relaunch).
   captain: CaptainState;
-  // True iff the patrol ended in DEFEAT this call: economyTick sets the assigned ship's
-  // `damaged` flag (forward seam P11). A success/recall/broke end leaves the ship intact.
+  // True iff a DEFEATED patrol finished LIMPING HOME this call: economyTick sets the
+  // assigned ship's `damaged` flag + stamps repairDamage (Phase 11, design S13). Note this
+  // is now raised when the limp-home countdown completes, NOT at the lost-wave instant (the
+  // wreck must reach base first). A success/recall/broke end leaves the ship intact.
   shipDamaged: boolean;
+  // Combat 0.13.0 (Phase 11): the HULL POINTS the ship must repair (hullIntegrity minus the
+  // carry-state hull at the defeat instant), carried through the limp and reported here when
+  // the hull reaches base so economyTick can stamp ShipInstance.repairDamage. 0 unless
+  // shipDamaged is true this call (the only call that flags the ship).
+  shipDamageTaken: number;
   // Fuel drawn from the SHARED tank budget for RELAUNCH cycles this call (0 unless a
   // repeat-dispatch patrol completed a route and relaunched). economyTick subtracts it
   // from the Decimal tank exactly as it does tickCaptainMission's fuelSpent.
@@ -1599,6 +1616,7 @@ export function tickCaptainPatrol(
   const noOp: PatrolTickResult = {
     captain,
     shipDamaged: false,
+    shipDamageTaken: 0,
     fuelSpent: 0,
     creditsSpentOnFuel: 0,
     // No wave fought => no reward (empty material delta, zero credits/FA XP, captain untouched).
@@ -1618,6 +1636,12 @@ export function tickCaptainPatrol(
   const shipDef = SHIP_TYPES[ship.typeKey];
   const playerId = ship.id; // the player combatant's stable id across every wave (id-sorted lookup)
   const routeLength = def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks;
+  // Combat 0.13.0 (Phase 11, design S13): the LIMP-HOME duration a defeat imposes = 2x the
+  // return leg (movement is damaged, so the wreck crawls back at half speed). A pure
+  // function of the def, deterministic, computed once. FIRST-PASS: fixed 2x regardless of
+  // where in the route the ship died (design S13 says "2x return time"); a crew bonus /
+  // module exception is a forward hook only (not this pass).
+  const limpHomeTicks = 2 * def.transitBackTicks;
   // Combat 0.13.0 (Phase 10): the loot table for THIS patrol, resolved once. patrolKey is
   // invariant across a relaunch (a relaunch reuses the same patrolKey), so this one table
   // covers every cycle this call advances, exactly like `def` above.
@@ -1635,6 +1659,10 @@ export function tickCaptainPatrol(
   // The (possibly fractional) route position, advanced boundary-by-boundary below.
   let progress = mission.progressTicks;
   let shipDamaged = false;
+  // Combat 0.13.0 (Phase 11): the hull points to repair, reported to economyTick ONLY when a
+  // limp-home completes this call (0 otherwise). Captured at the defeat instant, carried on
+  // the mission through the limp, and read out here when the wreck reaches base.
+  let shipDamageTaken = 0;
   // Shared-budget locals, drawn down at relaunch cycle boundaries ONLY (like the
   // extraction engine's fuel/credits), reported back as the *Spent totals.
   let fuelRemaining = fuelBudget;
@@ -1668,6 +1696,29 @@ export function tickCaptainPatrol(
     // `progress`; the loop exits next check (remaining now 0) with the residue carried.
     if (Math.abs(progress - nextBoundary) >= MISSION_TICK_EPSILON) continue;
     progress = nextBoundary; // exactly on a whole route tick
+
+    // ---- LIMP-HOME (Combat 0.13.0, Phase 11, design S13). ---------------------------
+    // A prior defeat switched this patrol into the "limpingHome" phase (see the defeat
+    // branch below). Every whole route tick now ONLY decrements the limp countdown, no
+    // waves fire, no shield/drone recovery, no completion/relaunch check. When the counter
+    // reaches 0 the wreck has reached base: END the mission (captain idles) and report the
+    // ship as damaged + the hull points to repair, which economyTick stamps onto the ship
+    // (ShipInstance.damaged + repairDamage). The ship is flagged ONLY here (on arrival),
+    // never at the lost-wave instant, so a defeated ship is neither instantly reusable nor
+    // prematurely parked in the repair bay while still flying home.
+    // CLOSED-FORM / PARITY: one whole-tick crossing == one decrement, so a single big call
+    // and many one-tick calls cross the identical number of ticks and land the countdown at
+    // the identical value (the exact argument the wave loop's closed-form relies on).
+    if (mission.phase === "limpingHome") {
+      mission.limpTicksRemaining = (mission.limpTicksRemaining ?? 0) - 1;
+      if (mission.limpTicksRemaining <= 0) {
+        shipDamaged = true;
+        shipDamageTaken = mission.limpDamage ?? 0; // 0 only on a corrupt/absent capture
+        mission = null;
+        break;
+      }
+      continue; // still crawling home; nothing else happens this tick
+    }
 
     const routeTick = nextBoundary;
     const waveIndex = mission.nextWaveIndex;
@@ -1750,12 +1801,24 @@ export function tickCaptainPatrol(
         captainXpAwarded += loot.captainXp;
         // CONTINUE: the patrol proceeds (later waves and/or transitBack still ahead).
       } else {
-        // DEFEAT: the patrol ENDS this tick. Flag the ship damaged (forward seam P11) and
-        // end the mission. A defeat is NEVER auto-repeated (design).
+        // DEFEAT (Combat 0.13.0, Phase 11, design S13): the patrol does NOT end instantly.
+        // The wreck must LIMP HOME first (2x the return leg), so instead of ending we switch
+        // to the "limpingHome" phase and seed the countdown. Capture the hull DAMAGE now = the
+        // hull points that must be RESTORED to reach full again = hullIntegrity minus the
+        // surviving hull. The surviving hull is floored at 0 because a killing blow can drive
+        // the carry-state hull NEGATIVE (overkill), and you cannot repair "more than a full
+        // hull", so overkill past 0 must not inflate the repair. On a normal loss the hull is
+        // <= 0, so this is the FULL hull integrity; a rare cap-tiebreak loss with residual hull
+        // yields less. Always in [0, hullIntegrity]. The ship is flagged damaged only when the
+        // limp completes (the limp branch above), NOT here. A defeat is NEVER auto-repeated
+        // (design), the limp just ends the mission when it lands. `continue` (not break): the
+        // loop keeps advancing so the limp countdown runs; if `remaining` is exhausted first,
+        // the mission persists mid-limp and resumes next call (the limp fields are persisted).
         mission.wavesLost += 1;
-        shipDamaged = true;
-        mission = null;
-        break;
+        mission.phase = "limpingHome";
+        mission.limpTicksRemaining = limpHomeTicks;
+        mission.limpDamage = shipDef.hullIntegrity - Math.max(0, mission.playerHull);
+        continue;
       }
     } else {
       // ---- BETWEEN-WAVE RECOVERY (no battle this route tick, design S14). -------------
@@ -1896,6 +1959,7 @@ export function tickCaptainPatrol(
     // (mirrors tickCaptainMission returning the captain with XP pre-folded).
     captain: { ...captain, mission, xp, level, statPoints },
     shipDamaged,
+    shipDamageTaken,
     fuelSpent,
     creditsSpentOnFuel,
     // The rewards economyTick folds through the SAME deltas as extraction (materials into home
@@ -2187,13 +2251,15 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // Decimal-exact because totalCreditsSpentOnFuel is the true sum of (small) purchase costs.
   let creditsBudgetRemaining = state.credits.toNumber();
   let totalCreditsSpentOnFuel = 0;
-  // Combat 0.13.0 (Phase 9b.5c): patrol wiring. damagedShipIds collects the ships whose
-  // patrol ended in DEFEAT this call, folded into state.ships once, below. NOTE: a patrol
-  // RELAUNCH does NOT touch the fleet-wide nextPatrolSeed counter, it derives its fresh
-  // master seed purely from the captain's own current seed (tickCaptainPatrol /
+  // Combat 0.13.0 (Phase 9b.5c / Phase 11): patrol wiring. damagedShips maps the id of each
+  // ship whose defeated patrol finished LIMPING HOME this call -> the hull points it must
+  // repair (repairDamage), folded into state.ships once, below (Phase 11 carries the damage
+  // amount so the repair duration can scale; 9b.5c carried only the id + a bare flag). NOTE:
+  // a patrol RELAUNCH does NOT touch the fleet-wide nextPatrolSeed counter, it derives its
+  // fresh master seed purely from the captain's own current seed (tickCaptainPatrol /
   // RELAUNCH_SEED_SALT), so there is no seed counter to thread here. Threading it would
   // reintroduce the multi-patrol parity defect (map-iteration-order-dependent seeds).
-  const damagedShipIds = new Set<string>();
+  const damagedShips = new Map<string, number>();
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // Combat 0.13.0 (Phase 9b.5a): ROUTE by mission KIND. CaptainState.mission is now a
@@ -2247,8 +2313,9 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
         totalFuelSpent += patrolResult.fuelSpent;
         creditsBudgetRemaining -= patrolResult.creditsSpentOnFuel;
         totalCreditsSpentOnFuel += patrolResult.creditsSpentOnFuel;
-        // Flag the ship on a defeat (folded into state.ships once, below).
-        if (patrolResult.shipDamaged && patrolShip) damagedShipIds.add(patrolShip.id);
+        // Flag the ship when its defeated patrol finished limping home this call (folded into
+        // state.ships once, below), recording the hull damage so the repair scales with it.
+        if (patrolResult.shipDamaged && patrolShip) damagedShips.set(patrolShip.id, patrolResult.shipDamageTaken);
         // Combat 0.13.0 (Phase 10, design S12): fold this patrol's REWARDS into the SAME
         // fleet-wide accumulators the extraction arm folds tickCaptainMission's deltas into
         // (see that fold ~80 lines below), so patrol loot lands in home inventory, patrol
@@ -2525,12 +2592,17 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     // Combat 0.13.0 (Phase 9b.5c): nextPatrolSeed rides through unchanged via `...state`, a
     // RELAUNCH derives its master seed per-captain (not from this counter), so economyTick
     // never advances it (only the discrete player-dispatch action does).
-    // Combat 0.13.0 (Phase 9b.5c): flag any ship whose patrol ended in DEFEAT this call
-    // (immutable map, matching the file's state-update idiom). Same reference when none was
-    // damaged (the common case), so a call with no patrol defeat is byte-identical for ships.
+    // Combat 0.13.0 (Phase 9b.5c / Phase 11): flag any ship whose defeated patrol finished
+    // limping home this call, raising `damaged` (blocks re-dispatch) AND stamping
+    // `repairDamage` (the repair-duration input) together (immutable map, the file's
+    // state-update idiom). Same reference when none limped home (the common case), so a call
+    // with no completed limp is byte-identical for ships. The auto-start repair pass
+    // (processShipRepairs, below) then picks these up into the repair bay.
     ships:
-      damagedShipIds.size > 0
-        ? state.ships.map((s) => (damagedShipIds.has(s.id) ? { ...s, damaged: true } : s))
+      damagedShips.size > 0
+        ? state.ships.map((s) =>
+            damagedShips.has(s.id) ? { ...s, damaged: true, repairDamage: damagedShips.get(s.id) } : s,
+          )
         : state.ships,
     gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
     // Flat .plus(), unlike fleetAdminXpDelta (which resolves through
@@ -2625,6 +2697,17 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // parity guarantee.
   const postFuelState = processFuelPipelines(postFabricateLinesState);
 
+  // Combat 0.13.0 (Phase 11, design S13): auto-start ship REPAIRS AFTER resolveProcesses (a
+  // repair completing this tick has already cleared its ship + freed its bay, so the next
+  // queued damaged hull can claim it this SAME tick) and after the mission loop flagged any
+  // newly-limped-home hull as damaged (on postMissionState, carried through resolveProcesses).
+  // Independent of the refine/fabricate/fuel passes (repairs count against REPAIR_BAY_COUNT,
+  // touch only activeProcesses, share nothing that gates them). A same-reference no-op when no
+  // hull is damaged. Living HERE inside economyTick is what makes repair auto-start identically
+  // live (App.svelte per bar) and offline (tick() steps economyTick(_,1) per tick), the
+  // one-seam offline==live guarantee, exactly like processFuelPipelines.
+  const postRepairState = processShipRepairs(postFuelState);
+
   // applyFleetAdminXp wraps the final state, it runs AFTER BOTH the captain loop
   // (mission FA XP) and resolveProcesses (process FA XP) have contributed to
   // fleetAdminXpDelta, so every FA XP source this call resolves through the one
@@ -2634,8 +2717,8 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // on postFuelState. Threaded through postFuelState so every engine's newly-started jobs
   // ride into the returned state; with no lines and no depot pipeline postFuelState ===
   // postProcessState, so this is byte-identical to before those features.
-  // (Fuel batches + fabricate jobs award NO FA XP, see resolveProcesses.)
-  const postFleetAdminXpState = applyFleetAdminXp(postFuelState, fleetAdminXpDelta);
+  // (Fuel batches + fabricate jobs + ship repairs award NO FA XP, see resolveProcesses.)
+  const postFleetAdminXpState = applyFleetAdminXp(postRepairState, fleetAdminXpDelta);
 
   // Crafting Level XP (Equipment 0.11.0, Phase 3, Task 8): fold the crafting XP that any
   // producing job (refine / fabricate / ship-build) accrued in resolveProcesses through its
@@ -2747,6 +2830,7 @@ export type DispatchBlockReason =
   | "captainLevel"
   | "cargo"
   | "noShip"
+  | "needsRepair"
   | "fuelCapacity"
   | "fuelEmpty";
 
@@ -2762,8 +2846,8 @@ export type DispatchBlockReason =
 // GATE ORDER is deliberate, cheapest/most-fundamental first, and determines WHICH
 // reason surfaces when several fail at once (ok itself is order-independent, all must
 // pass): identity (noCaptain) -> status (busy) -> unlock (locked) -> captain capability
-// (captainLevel) -> hull existence (noShip) -> hull capability (cargo) -> fuel RANGE
-// (fuelCapacity) -> fuel RESOURCE (fuelEmpty). captainLevel is checked BEFORE noShip on
+// (captainLevel) -> hull existence (noShip) -> repair state (needsRepair) -> hull capability
+// (cargo) -> fuel RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty). captainLevel is checked BEFORE noShip on
 // purpose: it's a property of the CAPTAIN alone, needs no hull, and is the more useful
 // thing to tell the player first.
 export function canDispatch(
@@ -2800,6 +2884,12 @@ export function canDispatch(
   // both assign one), so this is a belt-and-suspenders guard, not a routine path.
   const ship = state.ships.find((s) => s.assignedCaptainId === captainId);
   if (!ship) return { ok: false, reason: "noShip" };
+  // --- Repair state (Combat 0.13.0, Phase 11, design S13): a DAMAGED hull (a combat hull
+  // that lost a patrol and limped home) cannot fly ANY mission, extraction included, until
+  // the Shipyard repairs it. Only patrol defeats set `damaged`, so in practice this only
+  // ever grounds a combat hull, but the gate applies to any assigned hull for safety. The
+  // escape valve is the same as patrols: swap to a healthy hull via assignShipToCaptain.
+  if (ship.damaged) return { ok: false, reason: "needsRepair" };
   const shipDef = SHIP_TYPES[ship.typeKey];
   // Equipment 0.11.0 (Task 13/14): the EQUIPMENT-FOLDED derived stats for this hull,
   // resolved from the SAME seam economyTick uses (equippedFor + shipDerivedStats), so
@@ -3019,6 +3109,7 @@ export type PatrolDispatchBlockReason =
   | "busy"           // the captain is already on a mission (extraction OR patrol); dispatch is idle-only
   | "noShip"         // the captain flies no hull, so the trip can't be priced/crewed
   | "notCombatHull"  // the assigned hull is NOT a combat hull (destroyer/battleship/carrier)
+  | "needsRepair"    // the assigned hull is DAMAGED (lost a patrol) and must be repaired first (Phase 11)
   | "fuelCapacity"   // the hull's tank is physically too small for the round trip (RANGE)
   | "fuelEmpty";     // the shared fuel tank can't cover the round trip's cost AND the shortfall is unaffordable (RESOURCE)
 
@@ -3029,7 +3120,8 @@ export type PatrolDispatchBlockReason =
 //
 // GATE ORDER (cheapest/most-fundamental first, determines WHICH reason surfaces when
 // several fail): identity (noCaptain) -> status (busy) -> hull existence (noShip) -> hull
-// CAPABILITY (notCombatHull) -> fuel RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty).
+// CAPABILITY (notCombatHull) -> repair state (needsRepair) -> fuel RANGE (fuelCapacity) ->
+// fuel RESOURCE (fuelEmpty).
 // notCombatHull is checked right after the hull is resolved (it is a property of the
 // hull, cheaper + more useful to report than any fuel arithmetic). Fuel is priced from
 // the SAME equipment-folded engineEfficiency the extraction gate uses, so a patrol's
@@ -3058,6 +3150,14 @@ export function canDispatchPatrol(
   // typeKey to a CombatHullType or null; null -> blocked. (dispatch reuses this to seed
   // the carrier's default drones, so the two never disagree on "is this a combat hull".)
   if (combatHullTypeOf(ship.typeKey) === null) return { ok: false, reason: "notCombatHull" };
+
+  // --- Repair state (Combat 0.13.0, Phase 11, design S13): a DAMAGED hull (one that lost a
+  // patrol and limped home) CANNOT be re-dispatched until the Shipyard repairs it. Checked
+  // after the hull is confirmed a combat hull (so only combat hulls surface needsRepair) and
+  // before any fuel arithmetic (a wrecked ship can't fly regardless of the tank). The escape
+  // valve is assignShipToCaptain: the captain can swap to a healthy hull and dispatch that
+  // one; only THIS damaged hull is grounded until its repair completes.
+  if (ship.damaged) return { ok: false, reason: "needsRepair" };
   const shipDef = SHIP_TYPES[ship.typeKey];
 
   // --- Fuel gates: price the round trip from the patrol's transit legs (fuelForRoundTrip),
@@ -4142,6 +4242,89 @@ export function startShipBuild(
     type: "addShip",
     typeKey: shipTypeKey,
   });
+}
+
+// ============================================================================
+// Ship repair engine (Combat 0.13.0, Phase 11, design S13)
+//
+// The LOSS -> REPAIR half of the combat loop. A patrol defeat limps the hull home
+// (tickCaptainPatrol) and economyTick flags it damaged + stamps repairDamage; this engine
+// then auto-routes the wreck into a Shipyard repair bay and fixes it over TIME:
+//   - shipRepairDurationTicks : a hull's repair time, scaled by the damage it took.
+//   - processShipRepairs      : the AUTO-START pass (mirrors processFuelPipelines) that
+//                               starts a shipRepair TimedProcess for each damaged hull as a
+//                               repair bay frees, in a deterministic order.
+// A completing shipRepair clears the damage (resolveProcesses' clearShipDamage branch), so
+// the whole loop rides the SHARED startProcess/resolveProcesses engine, closed-form and
+// offline==live exactly like shipBuild. Repair is priced in TIME only (no materials/credits
+// this pass, a first-pass simplification; a materials cost is a forward tuning hook).
+//
+// ⚠️ P11b (design S13): builds and repairs SHARE Shipyard bays there (>= 1 bay always
+// reserved for repair, idle build capacity flexing into repair, a real waiting-for-repair
+// queue). THIS pass uses a DEDICATED repair capacity (REPAIR_BAY_COUNT, first-pass 1)
+// SEPARATE from the single build slot, so build and repair do not yet contend. The
+// generalization is localized to REPAIR_BAY_COUNT + this pass + shipBuildSlotCount.
+// ============================================================================
+
+// A hull's repair time RIGHT NOW = the deterministic first-pass formula (model.ts):
+//   REPAIR_BASE_TICKS + ceil(repairDamage * REPAIR_TICKS_PER_HULL)
+// FIXED at process creation (like shipBuildDurationTicks), so a repair job is closed-form:
+// resolveProcesses decrements the countdown by whole ticks and one big offline resolve
+// crosses zero at the identical point as many small live steps. `repairDamage` is the hull
+// points the ship lost (captured at the defeat instant); a defensive fallback to the hull's
+// full integrity keeps a `damaged` ship with no capture (a hand-edited save) repairable.
+// PURE: reads the ship + the static SHIP_TYPES table, mutates nothing.
+export function shipRepairDurationTicks(ship: ShipInstance): number {
+  const shipDef = SHIP_TYPES[ship.typeKey];
+  const damage = ship.repairDamage ?? shipDef.hullIntegrity;
+  return REPAIR_BASE_TICKS + Math.ceil(damage * REPAIR_TICKS_PER_HULL);
+}
+
+// The AUTO-START pass. For each DAMAGED hull not already in a repair bay, start a shipRepair
+// TimedProcess while a bay is free, in the ships array's STABLE order (monotonic ship-id
+// insertion order) so which damaged hull claims a freeing bay is DETERMINISTIC, the implicit
+// repair queue this pass (P11b replaces it with the real shared-bay queue). MIRRORS
+// processFuelPipelines exactly (same slot-accounting + same-reference no-op posture), and
+// like it lives INSIDE economyTick so it runs identically live (App.svelte per bar) and
+// offline (tick() steps economyTick(_,1) per tick), the one-seam offline==live guarantee.
+// A repair started here begins advancing on the NEXT economyTick (its countdown untouched by
+// the resolveProcesses that already ran above), exactly as a fuel batch started this tick does.
+export function processShipRepairs(state: GameState): GameState {
+  // No damaged hull anywhere -> same-reference no-op (cheap early-out, like
+  // processFuelPipelines' no-pipeline guard). The overwhelmingly common case.
+  if (!state.ships.some((s) => s.damaged)) return state;
+
+  let working = state; // threaded immutably as each startProcess returns fresh state
+  for (const ship of state.ships) {
+    if (!ship.damaged) continue; // healthy hull, nothing to do
+
+    // Already in a bay? A shipRepair process targeting THIS ship (its clearShipDamage effect
+    // carries the id) means the hull is mid-repair, do not double-start it.
+    const alreadyRepairing = working.activeProcesses.some(
+      (p) => p.kind === "shipRepair" && p.effect.type === "clearShipDamage" && p.effect.shipId === ship.id,
+    );
+    if (alreadyRepairing) continue;
+
+    // A free repair bay must exist. Count in-flight repairs against the dedicated capacity
+    // (REPAIR_BAY_COUNT). At capacity the remaining damaged hulls WAIT (they stay damaged +
+    // un-started) until a bay frees on a future tick, the deterministic implicit queue. SAME
+    // slot accounting processFuelPipelines / canBuildShip use.
+    const inFlightRepairs = working.activeProcesses.filter((p) => p.kind === "shipRepair").length;
+    if (inFlightRepairs >= REPAIR_BAY_COUNT) break; // all repair bays busy -> stop
+
+    // Gates pass -> start ONE repair via the SHARED startProcess engine. Repair takes NO
+    // material/credit inputs this pass (priced in time only), so the inputs map is empty:
+    // startProcess's affordability gate is vacuously satisfied and it just pushes the
+    // "shipRepair" TimedProcess whose completion effect { clearShipDamage } lowers the ship's
+    // damaged flag (resolveProcesses). The duration is FIXED here from the captured damage.
+    const { next, started } = startProcess(working, "shipRepair", {}, shipRepairDurationTicks(ship), {
+      type: "clearShipDamage",
+      shipId: ship.id,
+    });
+    if (!started) break; // defensive: empty inputs never reject, so this only guards a future gated repair
+    working = next;
+  }
+  return working;
 }
 
 // Research Task R4 (design §3): the typed reason canResearch returns when a research
@@ -6014,6 +6197,22 @@ export function resolveProcesses(
       // one big offline resolve and many small live steps land the identical capacity
       // (see the offline==live parity test in docks-expansion.test.ts).
       shipStorageCapacity += 1;
+    } else if (process.effect.type === "clearShipDamage") {
+      // Combat 0.13.0 (Phase 11, design S13): a completed shipRepair CLEARS the target
+      // ship's damage so it becomes dispatchable again. Find the hull by id and drop both
+      // `damaged` and `repairDamage` (set to undefined; JSON serialization omits them and
+      // deep-equal treats them as absent, so a repaired ship is byte-identical to one that
+      // never lost a patrol). A fresh ships array only when the target is present (immutable,
+      // mirroring the addShip branch). A STALE shipId (the ship was salvaged mid-repair) hits
+      // no row and is a harmless no-op. Deterministic (no rng), fires exactly ONCE on the
+      // completion that drops the process, so it is closed-form like the level-up branches:
+      // one big offline resolve and many small live steps clear the identical hull.
+      const shipId = process.effect.shipId;
+      if (ships.some((s) => s.id === shipId)) {
+        ships = ships.map((s) =>
+          s.id === shipId ? { ...s, damaged: undefined, repairDamage: undefined } : s,
+        );
+      }
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same

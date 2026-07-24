@@ -11,7 +11,11 @@ import { equippedFor } from "./equipment";
 // field read), so it imports those tick.ts helpers directly. Fuel Economy v2 (F5) adds
 // economyTick to prove a CURRENT-version (v21) save's Fuel Depot still refines after a
 // round trip (the "no new migration needed" proof).
-import { canDispatch, missionUnlocked, buyFuel, economyTick } from "./tick";
+import { canDispatch, missionUnlocked, buyFuel, economyTick, canDispatchPatrol, dispatchCaptainOnPatrol, processShipRepairs } from "./tick";
+// Combat 0.13.0 (Phase 11): the loss/repair-loop round-trip test needs a combat hull + a
+// patrol key + the repair tunables to prove the NEW optional repair/limp fields survive a
+// save/load with NO version bump (the absent-is-default posture).
+import { SHIP_TYPES, PATROLS, REPAIR_BASE_TICKS, REPAIR_TICKS_PER_HULL } from "./model";
 
 describe("migrate, tickDurationSeconds backfill", () => {
   it("defaults tickDurationSeconds to 10 on a v1 save that predates the field", () => {
@@ -3985,6 +3989,106 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const fueled = buyFuel(played, 100); // clamps to what 1000 credits affords at 20 cr/unit (50 units)
     expect(fueled.fuel.gte(50)).toBe(true); // shortOreRun round trip needs 50 fuel
     expect(canDispatch(fueled, 1, "shortOreRun")).toEqual({ ok: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Combat 0.13.0 (Phase 11, design S13): the LOSS/REPAIR loop adds NO SAVE_VERSION bump.
+// Every new persisted field is OPTIONAL / absent-is-default (ShipInstance.damaged +
+// repairDamage; PatrolMissionState.limpTicksRemaining + limpDamage + the "limpingHome"
+// phase), and a shipRepair is just an activeProcess like shipBuild (its clearShipDamage
+// effect carries no Decimal, so hydrateDecimals is unchanged). So a pre-Phase-11 (v32) save,
+// which simply LACKS these fields, must load and behave with ZERO migration, the SAME
+// absent-is-default posture the `damaged?` flag itself shipped under (9b.5c, no migration).
+// These two tests are the evidence: (1) an OLD-SHAPED save (no repair/limp fields, an
+// in-flight non-defeated patrol) round-trips to a playable, dispatchable state with empty
+// repair state; (2) the NEW fields (a damaged ship + an in-flight shipRepair) round-trip and
+// the repair still completes to a dispatchable hull. The fixture is freshState() (already the
+// current v32 shape), so migrate() runs ZERO version steps, exactly a real v32 load.
+// ---------------------------------------------------------------------------
+describe("Phase 11 loss/repair loop round-trips at v32 with NO migration (absent-is-default)", () => {
+  const PATROL_KEY = "crimsonReaverSweep";
+
+  // A fresh state whose captain 1 flies a destroyer (a combat hull, so patrols are legal),
+  // tank + credits topped up so fuel never gates the dispatch assertions.
+  function combatState(): ReturnType<typeof freshState> {
+    const base = freshState();
+    return {
+      ...base,
+      fuel: new Decimal(100000),
+      credits: new Decimal(100000),
+      ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as const } : s)),
+    };
+  }
+
+  it("(1) an OLD-SHAPED save (no repair/limp fields, in-flight non-defeated patrol) round-trips + stays playable", () => {
+    // Dispatch a patrol and advance a few ticks so a NON-defeated patrol is genuinely in
+    // flight (transitOut/engaging), the ship carries NO repair/limp fields (the old shape).
+    const dispatched = dispatchCaptainOnPatrol(combatState(), 1, PATROL_KEY, "balanced", false);
+    expect(dispatched.success).toBe(true);
+    const inFlight = economyTick(dispatched.next, 2, () => 0.5);
+    // Precondition: the ship is NOT damaged and the patrol is NOT limping (the old shape).
+    const shipBefore = inFlight.ships.find((s) => s.id === "ship-1")!;
+    expect(shipBefore.damaged).toBeUndefined();
+    expect(shipBefore.repairDamage).toBeUndefined();
+
+    // Round-trip at the current version: serialize stamps v32; deserialize + migrate run NO
+    // version steps (already current), then hydrateDecimals.
+    const save = deserialize(serialize(inFlight, 0)) as SaveFile;
+    expect(save).not.toBeNull();
+    expect(save!.version).toBe(SAVE_VERSION);
+    expect(save!.version).toBe(32); // no bump for Phase 11
+    const restored = migrate(save);
+
+    // Empty repair state survived: the ship reads as healthy, the in-flight patrol is intact
+    // and NOT in the limp phase.
+    const shipAfter = restored.ships.find((s) => s.id === "ship-1")!;
+    expect(shipAfter.damaged).toBeUndefined();
+    expect(shipAfter.repairDamage).toBeUndefined();
+    const mission = restored.captains[0].mission;
+    expect(mission).not.toBeNull();
+    expect(mission!.kind).toBe("patrol");
+    if (mission!.kind === "patrol") expect(mission!.phase).not.toBe("limpingHome");
+
+    // And it PLAYS: stepping the restored patrol to route end resolves it (a clean win, no
+    // repair state raised), leaving the hull dispatchable.
+    const played = economyTick(restored, 40, () => 0.5);
+    expect(played.captains[0].mission).toBeNull(); // patrol resolved
+    expect(played.ships.find((s) => s.id === "ship-1")!.damaged).toBeUndefined();
+    expect(canDispatchPatrol(played, 1, PATROL_KEY).ok).toBe(true);
+  });
+
+  it("(2) the NEW fields (damaged ship + in-flight shipRepair) round-trip and the repair completes", () => {
+    // A damaged destroyer with a small repair-damage (short repair for a fast test), then
+    // auto-start its repair so a shipRepair process is genuinely in flight before the save.
+    const dmg = 4;
+    const duration = REPAIR_BASE_TICKS + Math.ceil(dmg * REPAIR_TICKS_PER_HULL);
+    const base = combatState();
+    const damaged = {
+      ...base,
+      ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, damaged: true, repairDamage: dmg } : s)),
+    };
+    const withRepair = processShipRepairs(damaged);
+    expect(withRepair.activeProcesses.some((p) => p.kind === "shipRepair")).toBe(true);
+
+    // Round-trip: the damaged flag, repairDamage, AND the in-flight shipRepair (clearShipDamage
+    // effect) must all survive JSON with no hydration change.
+    const save = deserialize(serialize(withRepair, 0)) as SaveFile;
+    expect(save!.version).toBe(32);
+    const restored = migrate(save!);
+    const shipAfter = restored.ships.find((s) => s.id === "ship-1")!;
+    expect(shipAfter.damaged).toBe(true);
+    expect(shipAfter.repairDamage).toBe(dmg);
+    const repairJob = restored.activeProcesses.find((p) => p.kind === "shipRepair");
+    expect(repairJob).toBeDefined();
+    expect(repairJob!.effect).toEqual({ type: "clearShipDamage", shipId: "ship-1" });
+
+    // The restored repair runs to completion and clears the damage -> dispatchable again.
+    const done = economyTick(restored, duration + 3, () => 0.5);
+    const healed = done.ships.find((s) => s.id === "ship-1")!;
+    expect(healed.damaged).toBeUndefined();
+    expect(healed.repairDamage).toBeUndefined();
+    expect(canDispatchPatrol(done, 1, PATROL_KEY).ok).toBe(true);
   });
 });
 

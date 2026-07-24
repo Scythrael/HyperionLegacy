@@ -41,6 +41,7 @@ import {
   economyTick,
   deriveWaveSeed,
   patrolPhaseFor,
+  canDispatchPatrol,
 } from "./tick";
 import { PATROLS } from "./model";
 
@@ -282,12 +283,14 @@ describe("determinism", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Defeat flags the ship damaged and ends the patrol (no auto-repeat).
+// Defeat LIMPS the ship home (Phase 11), then flags it damaged + blocks re-dispatch.
+// A defeat never auto-repeats.
 // ---------------------------------------------------------------------------
 describe("defeat handling", () => {
-  it("a lost wave ends the patrol, flags ship.damaged, and does NOT relaunch (even on repeat)", () => {
+  it("a lost wave LIMPS home (2x return leg) then flags ship.damaged, blocks re-dispatch, and does NOT relaunch", () => {
     // Dispatch REPEATEDLY, then force a guaranteed loss by seeding the carry-state to a
     // sliver of hull with no shield. Proves a DEFEAT never auto-repeats despite repeat=true.
+    // Phase 11: the ship is NOT flagged instantly, it limps home first (2 * transitBackTicks).
     const dispatched = dispatch(patrolState("destroyer", 3), true);
     const cap = dispatched.captains[0];
     const m = cap.mission as PatrolMissionState;
@@ -297,9 +300,15 @@ describe("defeat handling", () => {
       captains: [{ ...cap, mission: { ...m, playerHull: 5, playerShield: 0 } }],
     };
 
-    const done = stepped(wounded, ROUTE_LEN + 4);
-    expect(patrolOf(done)).toBeNull(); // ended
-    expect(done.ships[0].damaged).toBe(true); // flagged for the P11 repair seam
+    // Enough ticks to fight+lose a wave AND finish the 2x-return-leg limp home.
+    const done = stepped(wounded, ROUTE_LEN + 2 * DEF.transitBackTicks + 4);
+    expect(patrolOf(done)).toBeNull(); // ended (after limping home)
+    expect(done.ships[0].damaged).toBe(true); // flagged on arrival, drives the repair loop
+    expect(done.ships[0].repairDamage).toBe(SHIP_TYPES.destroyer.hullIntegrity); // full-hull loss
+    // A damaged hull cannot be re-dispatched until repaired (Phase 11 gate).
+    const gate = canDispatchPatrol(done, 1, PATROL_KEY);
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.reason).toBe("needsRepair");
     // NO relaunch consumed a seed (a defeat is terminal), so the counter is unchanged.
     expect(done.nextPatrolSeed).toBe(seedAtDispatch);
   });

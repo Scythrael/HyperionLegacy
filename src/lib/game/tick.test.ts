@@ -2719,6 +2719,7 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
     shipBuild: { type: "addShip", typeKey: "prospectorMiner" },
     equipmentStorageUpgrade: { type: "equipmentStorageLevelUp" },
     docksExpansion: { type: "docksCapacityUp" },
+    shipRepair: { type: "clearShipDamage", shipId: "ship-1" },
   };
   // Expected contribution of ONE completed process of each kind. FA XP lumps
   // FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks (0.12.1: was the bare
@@ -2735,6 +2736,9 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
     shipBuild: { fa: true, crafting: true },
     equipmentStorageUpgrade: { fa: true, crafting: false },
     docksExpansion: { fa: true, crafting: false },
+    // Combat 0.13.0 (Phase 11): a ship repair is a consequence, not an achievement/production
+    // job, so it grants NEITHER axis (joins fuelRefineJob as the only neither-axis kind).
+    shipRepair: { fa: false, crafting: false },
   };
 
   const D = 30; // durationTicks used for every single-process case

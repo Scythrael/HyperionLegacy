@@ -911,12 +911,53 @@ export interface ShipInstance {
   // (the wave loop in tick.ts flags it). OPTIONAL so absent === not damaged: a pre-9b.5c
   // save (and every ship that never lost a patrol) reads as undefined, so NO save
   // migration is needed (the same absent-is-default pattern refuelDelayTicks uses).
-  // ⚠️ FORWARD SEAM (P11 limp-home + repair-bay queue): this flag is the ONLY thing set
-  // here. No repair logic, timing, or stat penalty consumes it yet; P11 reads it to route
-  // a damaged hull into the repair bay. Do NOT build that here.
+  // Combat 0.13.0 (Phase 11, design S13): TRUE once a patrol this ship flew ended in DEFEAT
+  // AND the ship has limped home (the limp-home phase completes in tickCaptainPatrol, then
+  // economyTick raises this + repairDamage together). While true the ship CANNOT be
+  // re-dispatched (canDispatch / canDispatchPatrol both gate on it with the `needsRepair`
+  // reason); a completing shipRepair process (resolveProcesses' clearShipDamage branch)
+  // lowers it back to undefined. Still OPTIONAL so absent === not damaged: a pre-P11 save
+  // (and every ship that never lost a patrol) reads as undefined, so NO save migration is
+  // needed (the same absent-is-default posture refuelDelayTicks + this field's own 9b.5c
+  // introduction used).
   damaged?: boolean;
+  // Combat 0.13.0 (Phase 11, design S13): the HULL POINTS this ship must have repaired,
+  // captured at the DEFEAT instant as (hullIntegrity - carry-state hull) and stamped onto
+  // the ship when it finishes limping home (economyTick). It is the SOLE input to the
+  // repair-duration formula (shipRepairDurationTicks), so a heavier hull that took more
+  // damage repairs longer. OPTIONAL / absent-is-default like `damaged`: absent on every
+  // healthy ship and on a pre-P11 save, so NO migration is needed. Defensive floor: if a
+  // ship is somehow `damaged` with repairDamage absent (a hand-edited save), the repair
+  // formula falls back to the hull's full integrity so the ship can still be repaired.
+  // Cleared (back to undefined) together with `damaged` when the repair completes.
+  repairDamage?: number;
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
 }
+
+// --- Ship repair tunables (Combat 0.13.0, Phase 11, design S13) ------------------
+// The DETERMINISTIC repair-duration formula the Shipyard uses to fix a limped-home hull:
+//   durationTicks = REPAIR_BASE_TICKS + ceil(repairDamage * REPAIR_TICKS_PER_HULL)
+// Integer math, no RNG, FIXED at process creation (shipRepairDurationTicks, tick.ts), so a
+// repair job is closed-form / offline==live exactly like a shipBuild. `repairDamage` is the
+// hull points lost (see ShipInstance.repairDamage), so a bigger hull that took more damage
+// repairs longer, tying the cost to the damage taken (design S13). ⚠️ ALL FIRST-PASS TUNABLE
+// (real balancing at the S20 pass), same launch-placeholder spirit as the constants above.
+//   REPAIR_BASE_TICKS       , a flat floor so even a lightly-damaged hull spends real time.
+//   REPAIR_TICKS_PER_HULL   , ticks added per hull point lost (0.5 -> ~half the lost-hull
+//                             count in ticks, e.g. a destroyer losing its full 600 hull =
+//                             REPAIR_BASE_TICKS + 300 ticks).
+export const REPAIR_BASE_TICKS = 20;
+export const REPAIR_TICKS_PER_HULL = 0.5;
+// REPAIR_BAY_COUNT (Combat 0.13.0, Phase 11): how many ship repairs the Shipyard can run
+// AT ONCE this pass. A dedicated repair capacity SEPARATE from the single build slot (a
+// deliberate P11 simplification: build and repair do NOT yet share bays). First-pass 1, so
+// damaged ships beyond it wait in a deterministic ship-id order (the implicit queue that the
+// auto-start pass, processShipRepairs in tick.ts, services as the bay frees).
+// ⚠️ P11b (design S13) REPLACES this dedicated slot with the SHARED Shipyard-bay model
+// (N bays used for BOTH build and repair, at-least-one always reserved for repair, idle
+// build capacity flexing into repair, a real waiting-for-repair queue). Kept as a named
+// constant so that generalization is a localized change here + at the two call sites.
+export const REPAIR_BAY_COUNT = 1;
 
 // ============================================================================
 // Equipment 0.11.0 (Task 1): rarity / ascension / slot vocabulary + the
@@ -1296,7 +1337,15 @@ export interface CaptainMissionState {
 // progressTicks counter; the 9b.5b patrol tick loop ADVANCES this phase as progressTicks
 // crosses those boundaries. Kept explicit (not purely derived) to mirror the extraction
 // model's explicit `phase` and to give the 9b.5b loop + any readout a stable label.
-export type PatrolPhase = "transitOut" | "engaging" | "transitBack";
+// Combat 0.13.0 (Phase 11, design S13): "limpingHome" is the DEFEAT phase. transitOut ->
+// engaging -> transitBack are the normal route phases (derived from progress by
+// patrolPhaseFor); "limpingHome" is set EXPLICITLY by tickCaptainPatrol when a wave is lost
+// and is NEVER produced by patrolPhaseFor. While in it the patrol fights no waves and does
+// no recovery, it just counts down limpTicksRemaining (2x the return leg), keeping the
+// captain busy until the wrecked hull reaches base, at which point the mission ends and the
+// ship is flagged damaged. A pre-P11 save never carries this phase (it is only ever written
+// by new code), so widening the union needs no migration.
+export type PatrolPhase = "transitOut" | "engaging" | "transitBack" | "limpingHome";
 
 // The PERSISTED patrol-mission shape: the "patrol" arm of the CaptainState.mission
 // discriminated union. Carries EVERYTHING needed to DISPATCH a patrol, RESUME it after
@@ -1375,6 +1424,21 @@ export interface PatrolMissionState {
   // this one completes (mirrors extraction's implicit auto-repeat); false = end after one
   // cycle. Read by 9b.5b at cycle completion. Set by: dispatch (from the dispatch arg).
   repeatDispatch: boolean;
+  // Combat 0.13.0 (Phase 11, design S13): LIMP-HOME COUNTDOWN. PRESENT only while
+  // phase === "limpingHome" (a defeated patrol flying its wreck home); ticks left until the
+  // hull reaches base, seeded to 2x the return leg (2 * def.transitBackTicks) at the DEFEAT
+  // instant and decremented one per whole route tick by tickCaptainPatrol. When it reaches 0
+  // the mission ends (captain idles) and the ship is flagged damaged. ABSENT (undefined) on
+  // every non-defeated patrol and on a pre-P11 save (never written by old code), so it is
+  // optional / absent-is-default and needs no migration. Set by: 9b.5b defeat branch, then
+  // decremented by the limp loop. A plain number, JSON-safe like every other field here.
+  limpTicksRemaining?: number;
+  // Combat 0.13.0 (Phase 11, design S13): the HULL POINTS lost this patrol, captured at the
+  // DEFEAT instant as (hullIntegrity - playerHull) and carried through the limp so it can be
+  // stamped onto ShipInstance.repairDamage when the hull reaches base (the repair-duration
+  // input). PRESENT only alongside limpTicksRemaining (the limp phase); ABSENT otherwise, so
+  // optional / absent-is-default, no migration. A plain number, JSON-safe.
+  limpDamage?: number;
 }
 
 // How many ticks a phase requires before advancing to the next one.
@@ -1780,7 +1844,7 @@ export function extractionMissionOf(captain: CaptainState): CaptainMissionState 
 // tuned FA-XP source. Its completion effect is the NEW `addShip` ProcessEffect (a
 // ship is NOT an inventory item, so it cannot reuse addItem). One build slot this
 // pass (shipBuildSlotCount, tick.ts).
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion";
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "shipRepair";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -1847,7 +1911,16 @@ export type ProcessEffect =
   // than a level. It carries NO payload (the single target field is fixed), so like
   // facilityLevelUp / equipmentStorageLevelUp it holds NO Decimal and round-trips
   // through JSON as {type} only (hydrateDecimals skips it, no "amount" key).
-  | { type: "docksCapacityUp" };
+  | { type: "docksCapacityUp" }
+  // Combat 0.13.0 (Phase 11, design S13): a completed shipRepair job CLEARS the target
+  // ship's damage. resolveProcesses finds the ship by `shipId` and lowers its `damaged` +
+  // `repairDamage` back to undefined, so the hull becomes dispatchable again. This is a NEW
+  // effect (NOT a reuse of any above) because it targets a first-class fleet object (a ship)
+  // by id, exactly like addShip mints one. Like addShip / unlockBlueprint it carries NO
+  // Decimal (shipId is a plain string), so hydrateDecimals (save.ts) skips it via its
+  // `"amount" in effect` guard and it round-trips through JSON as {type,shipId} strings. A
+  // stale shipId (the ship was salvaged mid-repair) is a harmless no-op in the resolver.
+  | { type: "clearShipDamage"; shipId: string };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
