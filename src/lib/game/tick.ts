@@ -1463,11 +1463,11 @@ export const DEFAULT_PATROL_LOOT_TABLE: PatrolLootTable = {
   // Cargo hold: a modest, representative spread of EXISTING raw / refined / component items
   // (no invented keys). Uniform pick over this pool, then a small qty roll per pick.
   cargoPool: [
-    { itemId: "scrapAlloy", minQty: 2, maxQty: 5 },      // raw (recoveredTech) -- battlefield scrap
-    { itemId: "commonOre", minQty: 2, maxQty: 5 },        // raw (oresMetals) -- structural ore
-    { itemId: "titaniumIngot", minQty: 1, maxQty: 3 },    // refined -- salvaged refined stock
-    { itemId: "frameSegment", minQty: 1, maxQty: 2 },     // minorComponent -- a recovered strut
-    { itemId: "powerCoupling", minQty: 1, maxQty: 2 },    // minorComponent -- a recovered junction
+    { itemId: "scrapAlloy", minQty: 2, maxQty: 5 },      // raw (recoveredTech): battlefield scrap
+    { itemId: "commonOre", minQty: 2, maxQty: 5 },        // raw (oresMetals): structural ore
+    { itemId: "titaniumIngot", minQty: 1, maxQty: 3 },    // refined: salvaged refined stock
+    { itemId: "frameSegment", minQty: 1, maxQty: 2 },     // minorComponent: a recovered strut
+    { itemId: "powerCoupling", minQty: 1, maxQty: 2 },    // minorComponent: a recovered junction
   ],
   cargoPicksMin: 1,
   cargoPicksMax: 2,

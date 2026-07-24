@@ -106,7 +106,7 @@ describe("NO FUNCTIONAL GEAR invariant (design S12)", () => {
         expect(def, `loot id "${id}" must be a real ITEMS key`).toBeDefined();
         expect(
           MATERIAL_CATEGORIES.includes(def.category),
-          `loot id "${id}" is category "${def.category}" -- loot must NEVER be installable gear`,
+          `loot id "${id}" is category "${def.category}"; loot must NEVER be installable gear`,
         ).toBe(true);
       }
     }
