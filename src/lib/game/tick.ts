@@ -4065,7 +4065,9 @@ export function shipyardBayCount(state: GameState): number {
     // Reuse the SAME rungs shipBuildSpeedMult reads: each reached build-speed rung also adds
     // a bay. The founding rung carries no buildSpeedMult, so it is skipped here (no bay for
     // founding). The `i < upgrades.length` guard is the sibling helpers' belt-and-suspenders.
-    if ("buildSpeedMult" in upgrades[i].effect) {
+    // `const effect` extracted first to mirror shipBuildSpeedMult's loop body exactly.
+    const effect = upgrades[i].effect;
+    if ("buildSpeedMult" in effect) {
       bays += 1; // FIRST-PASS TUNABLE: +1 bay per build-speed upgrade rung
     }
   }
@@ -4342,9 +4344,12 @@ export function processShipRepairs(state: GameState): GameState {
   if (!state.ships.some((s) => s.damaged)) return state;
 
   // Total shared bays RIGHT NOW (shipyard-level-derived). Constant across this pass (facility
-  // level does not change mid-tick), so read once. Active BUILDS occupy bays too (shared pool),
-  // so repair's free capacity is bayCount minus the builds AND the repairs already running.
+  // level does not change mid-tick), so read once. Active BUILDS occupy bays too (shared pool);
+  // this pass only ever STARTS repairs, never builds, so the build count is ALSO loop-invariant
+  // and is hoisted here alongside bayCount. Repair's free capacity is bayCount minus these
+  // builds AND the repairs already running (the latter is the only per-iteration term).
   const bayCount = shipyardBayCount(state);
+  const activeBuilds = state.activeProcesses.filter((p) => p.kind === "shipBuild").length;
 
   let working = state; // threaded immutably as each startProcess returns fresh state
   for (const ship of state.ships) {
@@ -4357,15 +4362,15 @@ export function processShipRepairs(state: GameState): GameState {
     );
     if (alreadyRepairing) continue;
 
-    // A FREE shared bay must exist. free = bayCount - active builds - active repairs, recomputed
-    // each iteration because we just may have started a repair (it consumes a bay). Repairs
-    // claim ANY free bay, so idle build capacity flexes into repair; builds are separately
-    // capped at bayCount - 1 (shipBuildSlotCount) so a build can NEVER take the last bay a
-    // repair would need. At 0 free bays the remaining damaged hulls WAIT (stay damaged +
-    // un-started) until a bay frees on a future tick, the deterministic queue. The base floor
-    // (bayCount >= 2) + that build cap guarantee >= 1 free bay whenever no repair is running,
-    // so a damaged hull is never permanently stranded (the enforced soft-lock invariant).
-    const activeBuilds = working.activeProcesses.filter((p) => p.kind === "shipBuild").length;
+    // A FREE shared bay must exist. free = bayCount - active builds - active repairs. Only the
+    // REPAIR count is recomputed here: each iteration may have started a repair (which consumes
+    // a bay), while builds are loop-invariant (hoisted above). Repairs claim ANY free bay, so
+    // idle build capacity flexes into repair; builds are separately capped at bayCount - 1
+    // (shipBuildSlotCount) so a build can NEVER take the last bay a repair would need. At 0 free
+    // bays the remaining damaged hulls WAIT (stay damaged + un-started) until a bay frees on a
+    // future tick, the deterministic queue. The build cap (builds <= bayCount - 1) guarantees
+    // >= 1 free bay whenever no repair is running, so a damaged hull is never permanently
+    // stranded (the enforced soft-lock invariant).
     const activeRepairs = working.activeProcesses.filter((p) => p.kind === "shipRepair").length;
     const freeBays = bayCount - activeBuilds - activeRepairs;
     if (freeBays <= 0) break; // every shared bay busy -> stop, the rest wait in id order

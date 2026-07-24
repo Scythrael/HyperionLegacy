@@ -8,7 +8,7 @@
 //   2. A DAMAGED hull cannot be re-dispatched (patrol OR extraction) until repaired; the
 //      escape valve is swapping the captain to a healthy hull.
 //   3. Repair is a deterministic timed process (shipRepair) whose duration scales with the
-//      damage taken; it auto-starts into a dedicated repair bay and, on completion, clears
+//      damage taken; it auto-starts into a shared build/repair bay and, on completion, clears
 //      the damage so the hull is dispatchable again. Repair grants NO XP.
 //   4. Shared build/repair BAYS (Phase 11b): bays serve both build and repair from one pool;
 //      damaged hulls repair CONCURRENTLY up to the free-bay count, the excess WAITS in

@@ -959,10 +959,13 @@ export const REPAIR_TICKS_PER_HULL = 0.5;
 // ⚠️ ALL FIRST-PASS TUNABLE (real balancing at the S20 pass), launch-placeholder spirit.
 //
 //   SHIPYARD_BAY_BASE (2): bays a Shipyard has BEFORE any upgrade, including at level 0
-//     (unfounded). A floor of 2, not 1, is deliberate: it is the SOFT-LOCK INVARIANT floor
-//     (see below) AND it leaves >= 1 bay for repair even while the single build occupies one.
-//     shipyardBayCount then adds +1 per reached build-speed upgrade rung (level 2 -> 3 bays,
-//     level 3 -> 4), reusing the SAME FACILITIES.shipyard rungs shipBuildSpeedMult reads.
+//     (unfounded). A floor of 2, not 1, is the CONCURRENCY floor: it lets a build AND a repair
+//     run at the same time (with a build using one bay, >= 1 remains for repair). It is NOT
+//     what prevents the soft-lock, that is clauses (b)+(c) below, which hold even at a
+//     hypothetical base of 1 (a build would just be capped to 0 bays, leaving the sole bay
+//     claimable by repair). shipyardBayCount then adds +1 per reached build-speed upgrade rung
+//     (level 2 -> 3 bays, level 3 -> 4), reusing the SAME FACILITIES.shipyard rungs
+//     shipBuildSpeedMult reads.
 //
 //   BUILD_CONCURRENCY_CAP (1): how many ship BUILDS may run at once, the multi-build cap.
 //     DELIBERATELY HELD AT 1 this pass (owner directive, anti-regression): the bay system now
@@ -975,16 +978,20 @@ export const REPAIR_TICKS_PER_HULL = 0.5;
 // soft-locks (needsRepair blocks dispatch, no free bay blocks processShipRepairs from ever
 // starting its repair, and the hull-swap escape valve only PARKS the wreck, never heals it).
 // Design S13's ">= 1 bay always reserved for repair" is the mitigation, and it is now
-// STRUCTURALLY GUARANTEED, not left to a hard-coded 1:
+// STRUCTURALLY GUARANTEED, not left to a hard-coded 1. The ANTI-STRAND guarantee rests on
+// clauses (b)+(c) alone; clause (a) is a background fact about how many bays exist, NOT
+// load-bearing for it (see the SHIPYARD_BAY_BASE note: even a base of 1 would not strand
+// repairs, it would only forbid concurrent building):
 //   (a) shipyardBayCount >= SHIPYARD_BAY_BASE (2) at EVERY shipyard level, including 0, so
-//       there are always >= 2 bays total.
+//       there are always >= 2 bays total. (This is the concurrency floor, not the anti-strand
+//       guarantee; (b)+(c) below are what actually prevent the soft-lock.)
 //   (b) shipBuildSlotCount caps builds at bayCount - 1 ("builds use all-but-one bay"), so
 //       active builds can NEVER occupy the last bay -> >= 1 bay is always repair-reachable.
 //   (c) repairs use ANY free bay (free = bayCount - active builds - active repairs), so with
 //       no repair in flight there is always >= 1 free bay a damaged hull can claim.
-// Together (a)+(b)+(c) mean no reachable state strands a damaged hull (see the soft-lock
-// invariant test in ship-repair.test.ts). The reservation holds even if EITHER number
-// changes: the cap is expressed as min(BUILD_CONCURRENCY_CAP, bayCount - 1), not a literal.
+// Together (b)+(c) mean no reachable state strands a damaged hull (see the soft-lock invariant
+// test in ship-repair.test.ts). The reservation holds even if EITHER number changes: the cap
+// is expressed as min(BUILD_CONCURRENCY_CAP, bayCount - 1), not a literal.
 export const SHIPYARD_BAY_BASE = 2;
 export const BUILD_CONCURRENCY_CAP = 1;
 
