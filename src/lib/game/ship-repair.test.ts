@@ -107,23 +107,19 @@ function dispatchedIntoCertainLoss(seed = 3): GameState {
 //    ship only when the wreck reaches base (after 2x the return leg).
 // ---------------------------------------------------------------------------
 describe("limp-home (defeat does not end instantly)", () => {
-  it("a lost wave switches to the limpingHome phase and does NOT yet flag the ship", () => {
-    // Step only PART of the route: far enough for the first wave (and its loss) to have
-    // happened, but well short of the limp completing. The ship must be mid-limp, undamaged.
+  it("a real defeat enters limpingHome + seeds the countdown WITHOUT instantly flagging the ship", () => {
+    // Step to EXACTLY the first scheduled wave (seed-derived, so deterministic): the wounded
+    // hull loses it, so the patrol transitions into limpingHome this very tick. The ship is
+    // NOT flagged yet (it flags only when the limp completes), the captain stays busy (a
+    // defeat does not free them instantly), and the limp counter is seeded but not yet ticked.
     const wounded = dispatchedIntoCertainLoss();
-    // The first wave fires within the roll window (route ticks 3..11). Step to route tick 12,
-    // which is past the last possible wave but the limp (>= 6 ticks from the loss) is still
-    // running because the loss happened at a wave tick < 12 and 12 - waveTick < 6 is NOT
-    // guaranteed... so instead assert the phase directly right after the loss by stepping to
-    // exactly the transit-out + first roll checkpoint. Simplest robust check: step 4 ticks
-    // (past the earliest wave at tick 3) and confirm we are EITHER still fighting toward the
-    // loss or already limping, then that the ship is not yet damaged.
-    const mid = stepped(wounded, 4);
-    const p = patrolOf(mid);
-    // The captain is still on the mission (not freed) and the ship is not yet damaged: the
-    // defeat has not been allowed to instantly ground the hull.
+    const firstWaveTick = patrolOf(wounded)!.waveTicks[0];
+    const atLoss = stepped(wounded, firstWaveTick);
+    const p = patrolOf(atLoss);
     expect(p).not.toBeNull();
-    expect(shipOf(mid).damaged).toBeUndefined();
+    expect(p!.phase).toBe("limpingHome");
+    expect(p!.limpTicksRemaining).toBe(LIMP_TICKS); // seeded at the defeat instant, not yet decremented
+    expect(shipOf(atLoss).damaged).toBeUndefined();
   });
 
   it("the limp countdown flags the ship damaged + stamps repairDamage when it reaches base", () => {

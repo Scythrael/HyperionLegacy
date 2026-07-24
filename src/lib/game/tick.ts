@@ -4322,6 +4322,16 @@ export function processShipRepairs(state: GameState): GameState {
       shipId: ship.id,
     });
     if (!started) break; // defensive: empty inputs never reject, so this only guards a future gated repair
+    // ⚠️ QUEUE-JUMP POLICY (decide deliberately WHEN repair gains a cost): today `break` is
+    // pure plumbing, mirrored from processFuelPipelines where it is safe because every fuel
+    // batch is IDENTICAL (a failed start means no batch can start, so stopping loses nothing).
+    // Repairs are HETEROGENEOUS (per-ship duration, and a forward-hooked per-ship materials/
+    // credits cost). Once a repair can FAIL to start for lack of resources, `break` vs
+    // `continue` here becomes a real policy choice: `break` = strict FIFO head-of-line
+    // blocking (an unaffordable queue head stalls every ship behind it); `continue` = skip the
+    // unaffordable ship to serve a cheaper one behind it. Neither is obviously right, pick it
+    // consciously when the cost lands (P11b), do not let this defensive `break` decide it by
+    // accident. No behavior change now (empty inputs make `started` always true).
     working = next;
   }
   return working;

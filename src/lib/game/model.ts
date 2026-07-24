@@ -957,6 +957,16 @@ export const REPAIR_TICKS_PER_HULL = 0.5;
 // (N bays used for BOTH build and repair, at-least-one always reserved for repair, idle
 // build capacity flexing into repair, a real waiting-for-repair queue). Kept as a named
 // constant so that generalization is a localized change here + at the two call sites.
+//
+// ⚠️ P11b SOFT-LOCK INVARIANT (READ BEFORE making bay count dynamic): repair-bay capacity
+// MUST stay >= 1 whenever any hull can be damaged. Today this is SAFE by construction (a
+// hard-coded 1, so a damaged hull always has a bay to auto-start into). But once P11b makes
+// the bay count SHIPYARD-DERIVED, any state that reaches 0 repair bays while a hull is
+// `damaged` is a PERMANENT SOFT-LOCK: that hull can NEVER clear, `needsRepair` blocks it from
+// dispatching, zero bays blocks processShipRepairs from starting its repair, and the
+// hull-swap escape valve only PARKS the wreck (assignShipToCaptain), it does not heal it.
+// Design S13's ">= 1 bay always reserved for repair" IS this mitigation, P11b MUST enforce
+// it (never let builds or a low shipyard level starve repair below one bay).
 export const REPAIR_BAY_COUNT = 1;
 
 // ============================================================================
