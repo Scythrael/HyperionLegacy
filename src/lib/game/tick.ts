@@ -1453,7 +1453,10 @@ const WAVE_LOOT_SEED_SALT = 0x85ebca6b; // arbitrary-but-fixed nonzero (a murmur
 // It is OMITTED now because that recipe does not exist, so the item would be dead inventory.
 // PatrolLootTable carries a commented `damagedSystem?` slot; wire it (item + recipe + a draw
 // in rollWaveLoot) when weapon crafting lands.
-const DEFAULT_PATROL_LOOT_TABLE: PatrolLootTable = {
+// Exported so patrol-loot.test.ts can lock the tables' contract directly (every id resolves
+// to a non-gear ITEMS category; the no-functional-gear invariant), the same export-for-tests
+// rationale as foldXpLevelUps / MAX_LEVEL_UPS_PER_TICK.
+export const DEFAULT_PATROL_LOOT_TABLE: PatrolLootTable = {
   // Guaranteed salvaged-material drop: the only existing salvagedMaterial item, the wreck's
   // stripped reactor shell. 1-2 per wave (small, per design "a small amount").
   salvage: { itemId: "intactReactorCore", minQty: 1, maxQty: 2 },
@@ -1480,7 +1483,7 @@ const DEFAULT_PATROL_LOOT_TABLE: PatrolLootTable = {
   fleetAdminXpPerWave: 10,
 };
 
-const PATROL_LOOT_TABLES: Record<PatrolKey, PatrolLootTable> = {
+export const PATROL_LOOT_TABLES: Record<PatrolKey, PatrolLootTable> = {
   // The entry patrol uses the default table (one starter patrol this unit). A tougher patrol
   // added later gets its OWN richer entry here (bigger bands / rarer pool) with no roller change.
   crimsonReaverSweep: DEFAULT_PATROL_LOOT_TABLE,
