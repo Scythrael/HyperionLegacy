@@ -4691,6 +4691,58 @@ export function itemCap(state: GameState, itemId: string): Decimal {
 }
 
 // ============================================================================
+// Over-cap reconciliation (fix/warehouse-overcap-reconcile, 2026-07-24).
+//
+// clampInventoryToCaps(state) returns a state whose EVERY inventory stack is at or below
+// its per-item warehouse cap, draining any overflow so no stored stack can read above its
+// cap (e.g. the Warehouse showing "1.52M / 1.5M").
+//
+// WHY THIS EXISTS (the root-cause gap it closes): the deposit clamp inside addToInventory
+// only fires ON a deposit, and the materialAtCap auto-stop idles a producer the instant its
+// output is AT cap, so a stack that is ALREADY over its cap never receives another deposit
+// and is therefore NEVER re-clamped: it sits stuck above the cap indefinitely. A stack can
+// be over cap for reasons that predate or sidestep the deposit clamp:
+//   - stock deposited BEFORE the 2026-07-16 deposit-clamp fix existed (the reported
+//     1.52M-vs-1.5M ore: a legit save whose ore missions are now idled at base by the
+//     auto-stop, so nothing ever delivers to re-clamp it),
+//   - a salvage payout (the live-only salvage paths write raw via addItemQuality), or
+//   - a hypothetically lowered cap.
+// This helper is the ONE reconciliation seam that brings any such stack back down to cap.
+//
+// WHERE IT RUNS: at LOAD (save.ts migrate), unconditionally and on every load. It is
+// IDEMPOTENT (a stack already at/under cap is untouched, so re-running changes nothing) and
+// it does NOT change the save SHAPE, so it needs NO SAVE_VERSION bump: it is a value
+// normalization, not a schema migration. Running it every load also self-heals a stack that
+// a live salvage pushed over cap since the last load.
+//
+// Overflow is drained LOWEST-quality-first (removeItemLowestFirst), so once quality tiers
+// carry value the player keeps their BEST stock and loses the cheapest, matching the
+// "cheap stock spent first" policy the consume seam already uses. Today all stock is quality
+// 0, so this only ever trims bucket 0. Uncapped items (itemCap returns the 1e1000 sentinel)
+// are never trimmed: no reachable quantity exceeds the sentinel.
+//
+// PURE: reads state.inventory + itemCap (static ITEMS + state.facilities); returns a NEW
+// state only when something was actually over cap (else the SAME reference, no needless
+// clone); mutates nothing.
+// ============================================================================
+export function clampInventoryToCaps(state: GameState): GameState {
+  let inventory = state.inventory;
+  let changed = false;
+  for (const itemId of Object.keys(inventory)) {
+    const cap = itemCap(state, itemId);
+    const total = itemTotal(inventory, itemId);
+    if (total.gt(cap)) {
+      // Drain exactly the overflow (total - cap), lowest-quality-first, so the stack lands
+      // at EXACTLY the cap. removeItemLowestFirst is the same tested consume helper the
+      // economy uses, reused here so the trim policy lives in one place.
+      inventory = removeItemLowestFirst(inventory, itemId, total.minus(cap));
+      changed = true;
+    }
+  }
+  return changed ? { ...state, inventory } : state;
+}
+
+// ============================================================================
 // Fuel tank cap + buy (Mission Rework Task 4, design §3).
 //
 // fuelCap(state), the CURRENT global Fuel Tank capacity, a DERIVED value (never
