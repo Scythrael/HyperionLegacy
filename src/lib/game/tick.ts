@@ -101,11 +101,14 @@ import {
   // (the single source) rather than a separate stored level.
   SHIP_DOCKS_BASE,
   SHIP_DOCKS_RUNGS,
-  // Combat 0.13.0 (Phase 11, design S13): the ship-repair tunables (repair-duration formula
-  // constants + the dedicated repair-bay count) the loss/repair loop reads.
+  // Combat 0.13.0 (Phase 11/11b, design S13): the ship-repair + shared-bay tunables the
+  // loss/repair loop reads. REPAIR_BASE_TICKS/REPAIR_TICKS_PER_HULL drive the repair-duration
+  // formula; SHIPYARD_BAY_BASE + BUILD_CONCURRENCY_CAP drive the shared build/repair bay pool
+  // (shipyardBayCount + shipBuildSlotCount + processShipRepairs below).
   REPAIR_BASE_TICKS,
   REPAIR_TICKS_PER_HULL,
-  REPAIR_BAY_COUNT,
+  SHIPYARD_BAY_BASE,
+  BUILD_CONCURRENCY_CAP,
 } from "./model";
 import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // Combat 0.13.0 (Phase 9b.5a): patrol dispatch helpers. combatHullTypeOf gates the
@@ -2701,8 +2704,9 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // repair completing this tick has already cleared its ship + freed its bay, so the next
   // queued damaged hull can claim it this SAME tick) and after the mission loop flagged any
   // newly-limped-home hull as damaged (on postMissionState, carried through resolveProcesses).
-  // Independent of the refine/fabricate/fuel passes (repairs count against REPAIR_BAY_COUNT,
-  // touch only activeProcesses, share nothing that gates them). A same-reference no-op when no
+  // Independent of the refine/fabricate/fuel passes (repairs count against the shared Shipyard
+  // bays via shipyardBayCount, touch only activeProcesses, share nothing that gates them with
+  // the crafting lines). A same-reference no-op when no
   // hull is damaged. Living HERE inside economyTick is what makes repair auto-start identically
   // live (App.svelte per bar) and offline (tick() steps economyTick(_,1) per tick), the
   // one-seam offline==live guarantee, exactly like processFuelPipelines.
@@ -4030,27 +4034,66 @@ export function fabricateSlotCount(state: GameState): number {
   return slots;
 }
 
-// Ship-build SLOT count (Shipyard Task S1), how many concurrent ship builds the
-// Shipyard can run RIGHT NOW. A CONST 1 this pass: the Shipyard builds ONE ship at a
-// time (locked brainstorm decision #2). This DELIBERATELY does NOT read the facility
-// level or sum an effect off the upgrade track (unlike researchSlotCount /
-// fabricateSlotCount, whose rungs grant slots): the Shipyard's upgrade track buys build
-// SPEED, not parallel slots. It stays a function (not a bare constant) as a FORWARD HOOK
-//, when DRONES land (design §7, mass-production), this becomes a real derivation
-// (e.g. 1 + a summed { addBuildSlots } grant), and every S3+ call site already routes
-// through it, so that upgrade is a pure body change here with no call-site churn.
+// Shipyard BAY COUNT (Combat 0.13.0, Phase 11b, design S13 item 4), how many SHARED
+// build/repair bays the Shipyard has RIGHT NOW. Bays serve BOTH ship builds and ship repairs
+// out of one pool (Section 3 below), so this is the single source of truth both the build
+// slot cap (shipBuildSlotCount) and the repair auto-start pass (processShipRepairs) read.
 //
-// ⚠️ Returns 1 REGARDLESS of shipyard level, even at level 0 (unfounded). Concurrency
-// is this slot cap; whether a build may START AT ALL (shipyard founded, i.e. level >= 1)
-// is a SEPARATE gate that S3's canBuildShip enforces (the `notFounded` reason). Keeping
-// the two orthogonal mirrors how slot-count and the tier/level gate are separate in the
-// research/fabricate systems.
+// DERIVE-ON-READ, mirroring shipBuildSpeedMult's loop EXACTLY (same `i < level && i <
+// upgrades.length` reached-rungs scan over FACILITIES.shipyard): a SHIPYARD_BAY_BASE floor
+// plus +1 per reached BUILD-SPEED upgrade rung (the rungs carrying `buildSpeedMult`; the
+// founding rung [0] carries none, so founding the yard does NOT add a bay, it just unlocks
+// BUILDING in the base bays that already existed for repair). With the current track:
+//   level 0 (unfounded) -> 2 bays   (the invariant floor, see below)
+//   level 1 (founded)    -> 2 bays   (baseline; founding adds no bay)
+//   level 2              -> 3 bays   (+1 from the 1.5x speed rung)
+//   level 3 (max)        -> 4 bays   (+1 more from the 2.0x speed rung)
+// ⚠️ Base + scaling are FIRST-PASS TUNABLE (report for owner review; real balance at S20).
+//
+// ⚠️ SOFT-LOCK INVARIANT ENFORCEMENT (this replaces P11's warning comment with the actual
+// guarantee): this ALWAYS returns >= SHIPYARD_BAY_BASE (2) at EVERY level, including 0. That
+// floor of >= 2, combined with shipBuildSlotCount capping builds at bayCount - 1 (below) and
+// repairs claiming any free bay (processShipRepairs), STRUCTURALLY guarantees >= 1 bay is
+// always reachable by a damaged hull, so no reachable state strands a wreck (model.ts's
+// SHIPYARD_BAY_BASE block details the (a)+(b)+(c) proof).
+export function shipyardBayCount(state: GameState): number {
+  const level = facilityLevel(state, SHIPYARD_FACILITY_KEY);
+  const upgrades = FACILITIES[SHIPYARD_FACILITY_KEY].upgrades;
+  // Start at the base floor (never below it -> the soft-lock invariant's structural >= 2).
+  let bays = SHIPYARD_BAY_BASE;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    // Reuse the SAME rungs shipBuildSpeedMult reads: each reached build-speed rung also adds
+    // a bay. The founding rung carries no buildSpeedMult, so it is skipped here (no bay for
+    // founding). The `i < upgrades.length` guard is the sibling helpers' belt-and-suspenders.
+    if ("buildSpeedMult" in upgrades[i].effect) {
+      bays += 1; // FIRST-PASS TUNABLE: +1 bay per build-speed upgrade rung
+    }
+  }
+  return bays;
+}
+
+// Ship-build SLOT count (Shipyard Task S1 / Phase 11b), how many concurrent ship builds the
+// Shipyard may run RIGHT NOW. Effectively 1 this pass (the Shipyard builds ONE ship at a
+// time, locked brainstorm decision #2), but now expressed as the REPAIR-FAVORED RESERVATION
+// arithmetic instead of a bare `return 1`:
+//
+//   min(BUILD_CONCURRENCY_CAP, shipyardBayCount(state) - 1)
+//
+// The `- 1` is design S13's "builds use all-but-one bay": a build may occupy at most
+// bayCount - 1 bays so >= 1 bay is ALWAYS left free for repair (the soft-lock invariant's
+// clause (b)). BUILD_CONCURRENCY_CAP is DELIBERATELY HELD AT 1 (owner directive, anti-
+// regression): multi-ship building stays OFF this pass. With cap 1 and bayCount >= 2, this is
+// min(1, >= 1) = 1, BYTE-IDENTICAL to the old `return 1`, so every existing shipBuild gate/
+// test is unchanged. Expressing it as the min() (not a literal 1) means the reservation still
+// holds if EITHER number later changes: raise BUILD_CONCURRENCY_CAP to enable multi-build and
+// builds automatically flex up to bayCount - 1, never stealing repair's last bay. That
+// multi-build toggle is the SEPARATE future decision the owner will make; the seam is here.
 export function shipBuildSlotCount(state: GameState): number {
-  // `state` is intentionally unread this pass (const 1); named (not `_`) so the drone
-  // upgrade that starts reading it is a body-only change. Reference it to satisfy the
-  // no-unused-parameter lint without altering the return.
-  void state;
-  return 1;
+  const bays = shipyardBayCount(state);
+  // Repair-favored reservation: leave >= 1 bay for repair (all-but-one). Math.max(0, ...) is
+  // a defensive floor (never negative) though bayCount >= 2 already keeps bays - 1 >= 1.
+  const buildableBays = Math.max(0, bays - 1);
+  return Math.min(BUILD_CONCURRENCY_CAP, buildableBays);
 }
 
 // ============================================================================
@@ -4245,7 +4288,7 @@ export function startShipBuild(
 }
 
 // ============================================================================
-// Ship repair engine (Combat 0.13.0, Phase 11, design S13)
+// Ship repair engine (Combat 0.13.0, Phase 11 + 11b, design S13)
 //
 // The LOSS -> REPAIR half of the combat loop. A patrol defeat limps the hull home
 // (tickCaptainPatrol) and economyTick flags it damaged + stamps repairDamage; this engine
@@ -4259,11 +4302,14 @@ export function startShipBuild(
 // offline==live exactly like shipBuild. Repair is priced in TIME only (no materials/credits
 // this pass, a first-pass simplification; a materials cost is a forward tuning hook).
 //
-// ⚠️ P11b (design S13): builds and repairs SHARE Shipyard bays there (>= 1 bay always
-// reserved for repair, idle build capacity flexing into repair, a real waiting-for-repair
-// queue). THIS pass uses a DEDICATED repair capacity (REPAIR_BAY_COUNT, first-pass 1)
-// SEPARATE from the single build slot, so build and repair do not yet contend. The
-// generalization is localized to REPAIR_BAY_COUNT + this pass + shipBuildSlotCount.
+// P11b (design S13 item 4): builds and repairs now SHARE the Shipyard's bay pool
+// (shipyardBayCount). This pass claims any FREE bay for repair (free = bayCount - active
+// builds - active repairs), so idle build capacity flexes into repair, while the build side
+// (shipBuildSlotCount) reserves >= 1 bay for repair by capping builds at bayCount - 1. Excess
+// damaged hulls beyond the free bays WAIT in the deterministic monotonic-ship-id queue and
+// claim a bay as one frees. The soft-lock invariant (a damaged hull always eventually gets a
+// bay) is STRUCTURALLY enforced by that base-floor + reservation (see model.ts's
+// SHIPYARD_BAY_BASE block and shipyardBayCount for the (a)+(b)+(c) proof).
 // ============================================================================
 
 // A hull's repair time RIGHT NOW = the deterministic first-pass formula (model.ts):
@@ -4281,11 +4327,12 @@ export function shipRepairDurationTicks(ship: ShipInstance): number {
 }
 
 // The AUTO-START pass. For each DAMAGED hull not already in a repair bay, start a shipRepair
-// TimedProcess while a bay is free, in the ships array's STABLE order (monotonic ship-id
+// TimedProcess while a bay is FREE, in the ships array's STABLE order (monotonic ship-id
 // insertion order) so which damaged hull claims a freeing bay is DETERMINISTIC, the implicit
-// repair queue this pass (P11b replaces it with the real shared-bay queue). MIRRORS
-// processFuelPipelines exactly (same slot-accounting + same-reference no-op posture), and
-// like it lives INSIDE economyTick so it runs identically live (App.svelte per bar) and
+// repair queue (now spanning the shared bays: multiple hulls repair CONCURRENTLY up to the
+// free-bay count, and the excess wait in this same monotonic order). MIRRORS
+// processFuelPipelines exactly (same free-capacity accounting + same-reference no-op posture),
+// and like it lives INSIDE economyTick so it runs identically live (App.svelte per bar) and
 // offline (tick() steps economyTick(_,1) per tick), the one-seam offline==live guarantee.
 // A repair started here begins advancing on the NEXT economyTick (its countdown untouched by
 // the resolveProcesses that already ran above), exactly as a fuel batch started this tick does.
@@ -4293,6 +4340,11 @@ export function processShipRepairs(state: GameState): GameState {
   // No damaged hull anywhere -> same-reference no-op (cheap early-out, like
   // processFuelPipelines' no-pipeline guard). The overwhelmingly common case.
   if (!state.ships.some((s) => s.damaged)) return state;
+
+  // Total shared bays RIGHT NOW (shipyard-level-derived). Constant across this pass (facility
+  // level does not change mid-tick), so read once. Active BUILDS occupy bays too (shared pool),
+  // so repair's free capacity is bayCount minus the builds AND the repairs already running.
+  const bayCount = shipyardBayCount(state);
 
   let working = state; // threaded immutably as each startProcess returns fresh state
   for (const ship of state.ships) {
@@ -4305,12 +4357,18 @@ export function processShipRepairs(state: GameState): GameState {
     );
     if (alreadyRepairing) continue;
 
-    // A free repair bay must exist. Count in-flight repairs against the dedicated capacity
-    // (REPAIR_BAY_COUNT). At capacity the remaining damaged hulls WAIT (they stay damaged +
-    // un-started) until a bay frees on a future tick, the deterministic implicit queue. SAME
-    // slot accounting processFuelPipelines / canBuildShip use.
-    const inFlightRepairs = working.activeProcesses.filter((p) => p.kind === "shipRepair").length;
-    if (inFlightRepairs >= REPAIR_BAY_COUNT) break; // all repair bays busy -> stop
+    // A FREE shared bay must exist. free = bayCount - active builds - active repairs, recomputed
+    // each iteration because we just may have started a repair (it consumes a bay). Repairs
+    // claim ANY free bay, so idle build capacity flexes into repair; builds are separately
+    // capped at bayCount - 1 (shipBuildSlotCount) so a build can NEVER take the last bay a
+    // repair would need. At 0 free bays the remaining damaged hulls WAIT (stay damaged +
+    // un-started) until a bay frees on a future tick, the deterministic queue. The base floor
+    // (bayCount >= 2) + that build cap guarantee >= 1 free bay whenever no repair is running,
+    // so a damaged hull is never permanently stranded (the enforced soft-lock invariant).
+    const activeBuilds = working.activeProcesses.filter((p) => p.kind === "shipBuild").length;
+    const activeRepairs = working.activeProcesses.filter((p) => p.kind === "shipRepair").length;
+    const freeBays = bayCount - activeBuilds - activeRepairs;
+    if (freeBays <= 0) break; // every shared bay busy -> stop, the rest wait in id order
 
     // Gates pass -> start ONE repair via the SHARED startProcess engine. Repair takes NO
     // material/credit inputs this pass (priced in time only), so the inputs map is empty:
@@ -4330,8 +4388,8 @@ export function processShipRepairs(state: GameState): GameState {
     // `continue` here becomes a real policy choice: `break` = strict FIFO head-of-line
     // blocking (an unaffordable queue head stalls every ship behind it); `continue` = skip the
     // unaffordable ship to serve a cheaper one behind it. Neither is obviously right, pick it
-    // consciously when the cost lands (P11b), do not let this defensive `break` decide it by
-    // accident. No behavior change now (empty inputs make `started` always true).
+    // consciously when the repair cost lands (a future tuning pass), do not let this defensive
+    // `break` decide it by accident. No behavior change now (empty inputs make `started` true).
     working = next;
   }
   return working;

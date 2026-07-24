@@ -10,8 +10,10 @@
 //   3. Repair is a deterministic timed process (shipRepair) whose duration scales with the
 //      damage taken; it auto-starts into a dedicated repair bay and, on completion, clears
 //      the damage so the hull is dispatchable again. Repair grants NO XP.
-//   4. Bay contention: with the single first-pass bay busy, a second damaged hull WAITS in a
-//      deterministic order and is serviced when the bay frees.
+//   4. Shared build/repair BAYS (Phase 11b): bays serve both build and repair from one pool;
+//      damaged hulls repair CONCURRENTLY up to the free-bay count, the excess WAITS in
+//      deterministic monotonic ship-id order, and the reservation keeps >= 1 bay always
+//      repair-reachable so no damaged hull is ever permanently stranded (soft-lock invariant).
 //
 // DETERMINISM NOTE: offline==live holds because BOTH paths step economyTick ONE tick at a
 // time (tick() offline, App.svelte live). The auto-start passes (processShipRepairs, like
@@ -30,6 +32,8 @@ import {
   PATROLS,
   REPAIR_BASE_TICKS,
   REPAIR_TICKS_PER_HULL,
+  SHIPYARD_BAY_BASE,
+  BUILD_CONCURRENCY_CAP,
   type GameState,
   type ShipInstance,
   type ShipTypeKey,
@@ -45,6 +49,8 @@ import {
   economyTick,
   processShipRepairs,
   shipRepairDurationTicks,
+  shipyardBayCount,
+  shipBuildSlotCount,
   resolveProcesses,
 } from "./tick";
 
@@ -339,37 +345,157 @@ describe("ship repair timed process", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Bay contention: the single first-pass repair bay serves damaged hulls in a
-//    deterministic order; the overflow WAITS and is serviced as the bay frees.
+// 4. Shared build/repair BAYS (Combat 0.13.0, Phase 11b, design S13 item 4).
+//    Bays serve BOTH build and repair from one pool: multiple hulls repair
+//    CONCURRENTLY up to the free-bay count, the excess WAITS in monotonic ship-id
+//    order and claims bays as they free, and the reservation keeps >= 1 bay always
+//    repair-reachable so no damaged hull is ever permanently stranded.
 // ---------------------------------------------------------------------------
-describe("repair bay contention (REPAIR_BAY_COUNT = 1, deterministic queue)", () => {
-  // Two damaged destroyers (ship-1 heavy, ship-2 light) both idle. ship-1 comes first in the
-  // array (lower id), so it claims the single bay first.
-  function twoDamaged(): GameState {
-    const base = patrolState("destroyer", 3);
-    return {
-      ...base,
-      ships: [
-        { ...base.ships[0], id: "ship-1", damaged: true, repairDamage: 8 }, // duration 24
-        { id: "ship-2", typeKey: "destroyer", assignedCaptainId: null, damaged: true, repairDamage: 2 }, // duration 21
-      ],
-    };
-  }
 
-  it("with the one bay busy, only the FIRST damaged hull repairs; the second waits", () => {
-    const after = processShipRepairs(twoDamaged());
-    const repairs = after.activeProcesses.filter((p) => p.kind === "shipRepair");
-    expect(repairs.length).toBe(1); // one bay -> one active repair
-    // The lower-id hull (ship-1) claimed the bay; ship-2 is un-started (waiting).
-    expect(repairs[0].effect).toEqual({ type: "clearShipDamage", shipId: "ship-1" });
+// A state whose shipyard sits at `level` (0 unfounded .. 3 max), for bay-count scaling +
+// reservation assertions. Only the facility level matters to shipyardBayCount, so a shallow
+// override of the shipyard FacilityState is enough.
+function withShipyardLevel(state: GameState, level: number): GameState {
+  return { ...state, facilities: { ...state.facilities, shipyard: { level } } };
+}
+
+// A minimal in-flight shipBuild process to occupy a shared bay in reservation tests, without
+// standing up a full build (materials/blueprint/credits). processShipRepairs only COUNTS
+// `kind === "shipBuild"` against the shared pool, so this stub is sufficient + honest.
+function buildProcess(remaining = 50): TimedProcess {
+  return {
+    id: "proc-build-stub",
+    kind: "shipBuild",
+    remainingTicks: remaining,
+    durationTicks: remaining,
+    effect: { type: "addShip", typeKey: "destroyer" },
+  };
+}
+
+// N damaged destroyers as ship-1..ship-N (monotonic id order), each lightly damaged (small,
+// equal repairDamage so durations match and the ONLY variable under test is bay contention).
+function damagedFleet(n: number, repairDamage = 4): GameState {
+  const base = patrolState("destroyer", 3);
+  const ships: ShipInstance[] = [];
+  for (let i = 1; i <= n; i++) {
+    ships.push({ id: `ship-${i}`, typeKey: "destroyer", assignedCaptainId: null, damaged: true, repairDamage });
+  }
+  return { ...base, ships };
+}
+
+describe("shipyardBayCount (base + scaling)", () => {
+  it("returns the base floor at every pre-upgrade level, including level 0 (unfounded)", () => {
+    // The base is the soft-lock invariant FLOOR: it must hold even at level 0 so a damaged hull
+    // is never stranded before the yard is founded. Founding (level 1) carries no build-speed
+    // rung, so it adds no bay either -> still the base.
+    const fresh = freshState();
+    expect(shipyardBayCount(withShipyardLevel(fresh, 0))).toBe(SHIPYARD_BAY_BASE);
+    expect(shipyardBayCount(withShipyardLevel(fresh, 1))).toBe(SHIPYARD_BAY_BASE);
   });
 
-  it("the waiting hull is serviced once the bay frees, and BOTH end repaired", () => {
-    // ship-1 duration 24, ship-2 duration 21; serial through the one bay => ~24 + 21 + start
-    // offsets. Step generously.
-    const done = stepped(twoDamaged(), 24 + 21 + 6);
-    expect(shipOf(done, "ship-1").damaged).toBeUndefined();
-    expect(shipOf(done, "ship-2").damaged).toBeUndefined();
+  it("adds +1 bay per reached build-speed upgrade rung (level 2 -> +1, level 3 -> +2)", () => {
+    const fresh = freshState();
+    expect(shipyardBayCount(withShipyardLevel(fresh, 2))).toBe(SHIPYARD_BAY_BASE + 1);
+    expect(shipyardBayCount(withShipyardLevel(fresh, 3))).toBe(SHIPYARD_BAY_BASE + 2);
+  });
+});
+
+describe("shipBuildSlotCount reservation (build cap held at 1, all-but-one bay)", () => {
+  it("stays at BUILD_CONCURRENCY_CAP (1) at every shipyard level (multi-build deliberately off)", () => {
+    const fresh = freshState();
+    for (const level of [0, 1, 2, 3]) {
+      expect(shipBuildSlotCount(withShipyardLevel(fresh, level))).toBe(BUILD_CONCURRENCY_CAP);
+    }
+  });
+
+  it("never lets builds occupy the last bay: slot count <= bayCount - 1 at every level", () => {
+    // The structural repair reservation: builds use all-but-one bay so >= 1 is always free for
+    // repair. This is what enforces the soft-lock invariant on the BUILD side.
+    const fresh = freshState();
+    for (const level of [0, 1, 2, 3]) {
+      const s = withShipyardLevel(fresh, level);
+      expect(shipBuildSlotCount(s)).toBeLessThanOrEqual(shipyardBayCount(s) - 1);
+    }
+  });
+});
+
+describe("shared bays: concurrent repair up to free bays + deterministic queue overflow", () => {
+  it("repairs run CONCURRENTLY up to the free-bay count (base 2 -> two at once)", () => {
+    // Three damaged hulls, base 2 bays, no build running -> exactly 2 repair concurrently and
+    // the 3rd (highest id) waits. Proves idle build capacity flexes into a second repair.
+    const after = processShipRepairs(damagedFleet(3));
+    const repairs = after.activeProcesses.filter((p) => p.kind === "shipRepair");
+    expect(repairs.length).toBe(SHIPYARD_BAY_BASE); // 2 bays -> 2 concurrent repairs
+    // The two LOWEST ids (ship-1, ship-2) claimed the bays; ship-3 waits (monotonic order).
+    const repairing = repairs.map((p) => (p.effect.type === "clearShipDamage" ? p.effect.shipId : "")).sort();
+    expect(repairing).toEqual(["ship-1", "ship-2"]);
+  });
+
+  it("the waiting hull claims a bay as one frees, and ALL end repaired", () => {
+    // Four damaged hulls through 2 bays: two serial rounds. Step generously past both rounds.
+    const done = stepped(damagedFleet(4, 4), (REPAIR_BASE_TICKS + 2) * 2 + 10);
+    for (let i = 1; i <= 4; i++) expect(shipOf(done, `ship-${i}`).damaged).toBeUndefined();
     expect(done.activeProcesses.filter((p) => p.kind === "shipRepair").length).toBe(0);
+  });
+});
+
+describe("repair-favored reservation (a build cannot starve repair)", () => {
+  it("with a build occupying a bay, a repair STILL gets the reserved free bay", () => {
+    // Base 2 bays, one build already running, two damaged hulls. free = 2 - 1 build - 0 repairs
+    // = 1, so exactly ONE repair starts (the lowest id) and the other waits. The build consumed
+    // a bay but could NOT take the last one repair needs: >= 1 repair always proceeds.
+    const base = damagedFleet(2);
+    const withBuild: GameState = { ...base, activeProcesses: [buildProcess()] };
+    const after = processShipRepairs(withBuild);
+    const repairs = after.activeProcesses.filter((p) => p.kind === "shipRepair");
+    expect(repairs.length).toBe(1); // 2 bays - 1 build = 1 free -> exactly one repair
+    expect(repairs[0].effect).toEqual({ type: "clearShipDamage", shipId: "ship-1" });
+    // The build is untouched (still occupying its bay).
+    expect(after.activeProcesses.filter((p) => p.kind === "shipBuild").length).toBe(1);
+  });
+});
+
+describe("SOFT-LOCK INVARIANT: no reachable state strands a damaged hull", () => {
+  // Sweep assorted adversarial states (min shipyard level, a build hogging a bay, many damaged
+  // hulls) and assert EVERY damaged hull eventually clears. A permanent lock would show as a
+  // still-damaged hull after generous stepping. This is the enforcement of the P11 warning.
+  const scenarios: Array<{ name: string; state: GameState }> = [
+    { name: "min level (0), 3 damaged", state: withShipyardLevel(damagedFleet(3), 0) },
+    { name: "min level (0), 5 damaged", state: withShipyardLevel(damagedFleet(5), 0) },
+    {
+      name: "min level (0), build hogging a bay, 4 damaged",
+      state: { ...withShipyardLevel(damagedFleet(4), 0), activeProcesses: [buildProcess(30)] },
+    },
+    { name: "max level (3), 6 damaged", state: withShipyardLevel(damagedFleet(6), 3) },
+  ];
+
+  for (const { name, state } of scenarios) {
+    it(`clears every damaged hull: ${name}`, () => {
+      const damagedCount = state.ships.filter((s) => s.damaged).length;
+      // Worst case is fully serial through ONE reserved bay (the invariant's floor guarantee),
+      // so bound the steps by damagedCount serial repairs plus slack. A stranded hull would
+      // survive this bound still damaged.
+      const done = stepped(state, damagedCount * (REPAIR_BASE_TICKS + 4) + 40);
+      const stillDamaged = done.ships.filter((s) => s.damaged);
+      expect(stillDamaged).toEqual([]); // zero stranded hulls
+    });
+  }
+});
+
+describe("determinism: same state + ticks => same repair schedule + queue order", () => {
+  it("stepping the same damaged fleet twice yields identical repair progress + order", () => {
+    const start = damagedFleet(5, 6);
+    const runA = stepped(start, REPAIR_BASE_TICKS + 5);
+    const runB = stepped(start, REPAIR_BASE_TICKS + 5);
+    // Same set of in-flight repairs (same ship ids, same countdowns) => identical schedule.
+    const schedule = (s: GameState) =>
+      s.activeProcesses
+        .filter((p) => p.kind === "shipRepair")
+        .map((p) => `${p.effect.type === "clearShipDamage" ? p.effect.shipId : ""}:${p.remainingTicks}`)
+        .sort();
+    expect(schedule(runA)).toEqual(schedule(runB));
+    // And the same damaged/healed partition of the fleet.
+    const damagedIds = (s: GameState) => s.ships.filter((x) => x.damaged).map((x) => x.id).sort();
+    expect(damagedIds(runA)).toEqual(damagedIds(runB));
   });
 });

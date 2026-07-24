@@ -948,26 +948,45 @@ export interface ShipInstance {
 //                             REPAIR_BASE_TICKS + 300 ticks).
 export const REPAIR_BASE_TICKS = 20;
 export const REPAIR_TICKS_PER_HULL = 0.5;
-// REPAIR_BAY_COUNT (Combat 0.13.0, Phase 11): how many ship repairs the Shipyard can run
-// AT ONCE this pass. A dedicated repair capacity SEPARATE from the single build slot (a
-// deliberate P11 simplification: build and repair do NOT yet share bays). First-pass 1, so
-// damaged ships beyond it wait in a deterministic ship-id order (the implicit queue that the
-// auto-start pass, processShipRepairs in tick.ts, services as the bay frees).
-// ⚠️ P11b (design S13) REPLACES this dedicated slot with the SHARED Shipyard-bay model
-// (N bays used for BOTH build and repair, at-least-one always reserved for repair, idle
-// build capacity flexing into repair, a real waiting-for-repair queue). Kept as a named
-// constant so that generalization is a localized change here + at the two call sites.
+// Shipyard BAYS (Combat 0.13.0, Phase 11b, design S13 item 4): the SHARED build/repair bay
+// model that GENERALIZES P11's dedicated single repair slot. Bays serve BOTH ship builds and
+// ship repairs out of one pool; idle build capacity flexes into repair; a damaged hull with
+// no open bay waits in a deterministic (monotonic ship-id) queue and claims a bay as one
+// frees. The live count is DERIVED on read (shipyardBayCount, tick.ts) from these two knobs +
+// the shipyard's existing upgrade level, so nothing new is persisted (bays are static-data +
+// facility-level derived, repairs remain activeProcesses; NO SAVE_VERSION bump).
 //
-// ⚠️ P11b SOFT-LOCK INVARIANT (READ BEFORE making bay count dynamic): repair-bay capacity
-// MUST stay >= 1 whenever any hull can be damaged. Today this is SAFE by construction (a
-// hard-coded 1, so a damaged hull always has a bay to auto-start into). But once P11b makes
-// the bay count SHIPYARD-DERIVED, any state that reaches 0 repair bays while a hull is
-// `damaged` is a PERMANENT SOFT-LOCK: that hull can NEVER clear, `needsRepair` blocks it from
-// dispatching, zero bays blocks processShipRepairs from starting its repair, and the
-// hull-swap escape valve only PARKS the wreck (assignShipToCaptain), it does not heal it.
-// Design S13's ">= 1 bay always reserved for repair" IS this mitigation, P11b MUST enforce
-// it (never let builds or a low shipyard level starve repair below one bay).
-export const REPAIR_BAY_COUNT = 1;
+// ⚠️ ALL FIRST-PASS TUNABLE (real balancing at the S20 pass), launch-placeholder spirit.
+//
+//   SHIPYARD_BAY_BASE (2): bays a Shipyard has BEFORE any upgrade, including at level 0
+//     (unfounded). A floor of 2, not 1, is deliberate: it is the SOFT-LOCK INVARIANT floor
+//     (see below) AND it leaves >= 1 bay for repair even while the single build occupies one.
+//     shipyardBayCount then adds +1 per reached build-speed upgrade rung (level 2 -> 3 bays,
+//     level 3 -> 4), reusing the SAME FACILITIES.shipyard rungs shipBuildSpeedMult reads.
+//
+//   BUILD_CONCURRENCY_CAP (1): how many ship BUILDS may run at once, the multi-build cap.
+//     DELIBERATELY HELD AT 1 this pass (owner directive, anti-regression): the bay system now
+//     structurally SUPPORTS multi-build (raise this and shipBuildSlotCount flexes up to
+//     bayCount - 1), but enabling it is a SEPARATE future toggle the owner will decide. With
+//     cap 1 + base 2, shipBuildSlotCount = min(1, bayCount - 1) = 1, byte-identical to today.
+//
+// ⚠️ SOFT-LOCK INVARIANT (P11's loud comment, now ENFORCED not just warned): repair-bay
+// capacity MUST stay >= 1 whenever any hull can be damaged, or a `damaged` hull PERMANENTLY
+// soft-locks (needsRepair blocks dispatch, no free bay blocks processShipRepairs from ever
+// starting its repair, and the hull-swap escape valve only PARKS the wreck, never heals it).
+// Design S13's ">= 1 bay always reserved for repair" is the mitigation, and it is now
+// STRUCTURALLY GUARANTEED, not left to a hard-coded 1:
+//   (a) shipyardBayCount >= SHIPYARD_BAY_BASE (2) at EVERY shipyard level, including 0, so
+//       there are always >= 2 bays total.
+//   (b) shipBuildSlotCount caps builds at bayCount - 1 ("builds use all-but-one bay"), so
+//       active builds can NEVER occupy the last bay -> >= 1 bay is always repair-reachable.
+//   (c) repairs use ANY free bay (free = bayCount - active builds - active repairs), so with
+//       no repair in flight there is always >= 1 free bay a damaged hull can claim.
+// Together (a)+(b)+(c) mean no reachable state strands a damaged hull (see the soft-lock
+// invariant test in ship-repair.test.ts). The reservation holds even if EITHER number
+// changes: the cap is expressed as min(BUILD_CONCURRENCY_CAP, bayCount - 1), not a literal.
+export const SHIPYARD_BAY_BASE = 2;
+export const BUILD_CONCURRENCY_CAP = 1;
 
 // ============================================================================
 // Equipment 0.11.0 (Task 1): rarity / ascension / slot vocabulary + the
