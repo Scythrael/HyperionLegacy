@@ -1504,16 +1504,17 @@
   }
   // -------------------------------------------------------------------------
 
-  // ---- Warehouse storage-upgrade disabled-reason tooltip -------------------
-  // Flicker fix (2026-07-24). The Warehouse "Expand / Unlock Storage" button is
-  // DISABLED whenever it has a reason to show, and previously that reason was
-  // fed to the button's NATIVE `title` attribute. The browser hides and re-shows
-  // a native tooltip every time the `title` string changes, and the reason string
-  // from canBuildFacilityUpgrade embeds the LIVE free stock ("Need 750000 Titanium
-  // Ore (have Y)"). freeItemForState(Y) changes on every tick while a producer
-  // fills or a craft line reserves the gating material, so the title mutated once
-  // per tick and the native tooltip flickered on and off under the hovering
-  // pointer, exactly the "resetting with the tick" the owner reported.
+  // ---- Facility-upgrade disabled-reason tooltip (SHARED) -------------------
+  // Flicker fix (2026-07-24, generalized). EVERY facility-upgrade Build button is
+  // DISABLED whenever it has a reason to show, and previously that reason was fed
+  // to the button's NATIVE `title` attribute. The browser hides and re-shows a
+  // native tooltip every time the `title` string changes, and the reason string
+  // from canBuildFacilityUpgrade (and the sibling canUpgrade* gates) embeds the
+  // LIVE free stock ("Need 750000 Titanium Ore (have Y)"). freeItemForState(Y)
+  // changes on every tick while a producer fills or a craft line reserves the
+  // gating material, so the title mutated once per tick and the native tooltip
+  // flickered on and off under the hovering pointer, exactly the "resetting with
+  // the tick" the owner reported.
   //
   // Root fix: show the reason in a CUSTOM popover whose OPEN state (this key) is
   // held in a variable the tick never touches, the same open-state-independent-of-
@@ -1521,12 +1522,26 @@
   // the reason TEXT in place; it never tears the popover down or re-opens it, so
   // there is nothing left to flicker.
   //
-  // Keyed by the tier's facility key (wt.key) so only the hovered card's popover
-  // opens. The hover handlers live on a WRAPPER around the button, NOT the button
-  // itself: a disabled <button> does not dispatch pointer events, so listening on
-  // the button would never fire. Mouse-hover only (mouseenter/mouseleave), matching
-  // the old native title, which never surfaced on touch anyway; touch/keyboard users
-  // still read the same shortfall in the always-visible readiness rows above.
+  // This is the SINGLE SOURCE of that behavior. The markup half lives in ONE place
+  // too: the {#snippet facilityUpgradeButton(...)} at the top of the template, which
+  // renders the hover WRAPPER + the button + the popover and carries the one
+  // justified a11y-ignore. Every facility Build button renders through that snippet,
+  // so adding a future upgrade button is a one-line {@render ...} include.
+  //
+  // Keyed by a caller-supplied string (unique per button, e.g. "refinery", or the
+  // Warehouse tier's wt.key) so only the hovered card's popover opens. The hover
+  // handlers live on a WRAPPER around the button, NOT the button itself: a disabled
+  // <button> does not dispatch pointer events, so listening on the button would
+  // never fire. Mouse-hover only (mouseenter/mouseleave), matching the old native
+  // title, which never surfaced on touch anyway; touch/keyboard users still read the
+  // same shortfall in the always-visible readiness rows above.
+  //
+  // NOTE: the Docks "Expand Docks" and Systems-Bay "Upgrade Bay" buttons are NOT
+  // routed through the snippet. They already render their reason in a PERSISTENT
+  // note directly below the button (their readiness display, since they have no
+  // per-material ✅/❌ rows), and a persistent text node updates in place without
+  // flicker. For those two the fix is simply DROPPING the native title; adding a
+  // hover popover on top of an always-visible note would only duplicate it.
   let openUpgradeReasonKey: string | null = null;
   function showUpgradeReason(key: string) {
     openUpgradeReasonKey = key;
@@ -3973,6 +3988,58 @@
   on:keydown={handleCurrencyKeydown}
 />
 
+<!-- SHARED facility-upgrade Build button (2026-07-24 flicker fix, DRY). This is the
+     ONE place the tick-stable disabled-reason popover lives; every facility Build
+     button renders through it, so the mechanism (hover wrapper, popover, positioning,
+     and the single justified a11y-ignore) is defined exactly once. See the
+     openUpgradeReasonKey block in the script for the full "why" of the fix.
+
+     Params:
+       key       unique string per button (e.g. "refinery", or a Warehouse tier's
+                 wt.key). Keys the open-state so only the hovered button's popover shows.
+       check     the button's real gate result { ok, reason? } from canBuildFacilityUpgrade
+                 (or a sibling canUpgrade* fn). Drives BOTH the disabled state and the
+                 popover text, so the popover can never drift from the live reason.
+       label     the button caption (a plain string; callers pass any per-facility text).
+       onBuild   the click handler (e.g. () => doStartFacilityUpgrade("refinery")).
+       wrapStyle optional inline style for the wrapper (e.g. "margin-top: 8px;" to keep
+                 the spacing a button previously carried). -->
+{#snippet facilityUpgradeButton(
+  key: string,
+  check: { ok: boolean; reason?: string },
+  label: string,
+  onBuild: () => void,
+  wrapStyle: string = ""
+)}
+  <!-- The hover region sits on this WRAPPER, NOT the button: a disabled <button>
+       does not fire pointer events, so the wrapper is what catches the hover. The
+       native `title` was removed on purpose, it was the flicker source. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- Intentional: this is a MOUSE-CONVENIENCE popover that only duplicates the
+       shortfall already shown in the always-visible readiness rows above each
+       button, so keyboard/screen-reader users lose nothing by it being hover-only.
+       There is no accessible role for a bare hover-reveal container, and the button
+       it wraps is (correctly) disabled, hence not a valid handler host. -->
+  <div
+    class="upgrade-reason-wrap"
+    style={wrapStyle}
+    on:mouseenter={() => showUpgradeReason(key)}
+    on:mouseleave={() => hideUpgradeReason(key)}
+  >
+    <button class="buy-btn" disabled={!check.ok} on:click={onBuild}>
+      {label}
+    </button>
+    <!-- Custom disabled-reason popover. Its open-state (openUpgradeReasonKey) is
+         tick-independent, so the per-tick reason text updates in place without the
+         popover resetting. Reuses the currency-tooltip look (opaque, bordered, shadow). -->
+    {#if !check.ok && check.reason && openUpgradeReasonKey === key}
+      <div class="currency-tooltip upgrade-reason-tooltip" role="tooltip">
+        <div class="currency-tooltip-body">{check.reason}</div>
+      </div>
+    {/if}
+  </div>
+{/snippet}
+
 <div class="root">
   <Starfield />
   <div class="frame">
@@ -4673,17 +4740,16 @@
                   {/if}
 
                   <!-- Build, gated on the backend predicate; its .reason is the
-                       "why not" title when the button is disabled (covers the
-                       "Upgrade already in progress" case below, plus any unmet
-                       material/prereq the readiness rows above already show). -->
-                  <button
-                    class="buy-btn"
-                    disabled={!refineryUpgradeCheck.ok}
-                    title={refineryUpgradeCheck.ok ? undefined : refineryUpgradeCheck.reason}
-                    on:click={() => doStartFacilityUpgrade("refinery")}
-                  >
-                    Build · Level {refineryLevel} → {refineryLevel + 1}
-                  </button>
+                       "why not" shown in the shared tick-stable popover when the
+                       button is disabled (covers the "Upgrade already in progress"
+                       case below, plus any unmet material/prereq the readiness rows
+                       above already show). -->
+                  {@render facilityUpgradeButton(
+                    "refinery",
+                    refineryUpgradeCheck,
+                    `Build · Level ${refineryLevel} → ${refineryLevel + 1}`,
+                    () => doStartFacilityUpgrade("refinery")
+                  )}
                 {/if}
 
                 <!-- In-flight upgrade progress (independent of the maxed check --
@@ -4970,14 +5036,12 @@
                     </div>
                   {/if}
 
-                  <button
-                    class="buy-btn"
-                    disabled={!fabricatorUpgradeCheck.ok}
-                    title={fabricatorUpgradeCheck.ok ? undefined : fabricatorUpgradeCheck.reason}
-                    on:click={() => doStartFacilityUpgrade(FABRICATOR_FACILITY_KEY)}
-                  >
-                    Build · Level {fabricatorLevel} → {fabricatorLevel + 1}
-                  </button>
+                  {@render facilityUpgradeButton(
+                    FABRICATOR_FACILITY_KEY,
+                    fabricatorUpgradeCheck,
+                    `Build · Level ${fabricatorLevel} → ${fabricatorLevel + 1}`,
+                    () => doStartFacilityUpgrade(FABRICATOR_FACILITY_KEY)
+                  )}
                 {/if}
 
                 {#if fabricatorUpgradeInFlight}
@@ -5187,14 +5251,12 @@
                     </div>
                   {/if}
 
-                  <button
-                    class="buy-btn"
-                    disabled={!researchUpgradeCheck.ok}
-                    title={researchUpgradeCheck.ok ? undefined : researchUpgradeCheck.reason}
-                    on:click={() => doStartFacilityUpgrade(RESEARCH_FACILITY_KEY)}
-                  >
-                    Build · Level {researchLevel} → {researchLevel + 1}
-                  </button>
+                  {@render facilityUpgradeButton(
+                    RESEARCH_FACILITY_KEY,
+                    researchUpgradeCheck,
+                    `Build · Level ${researchLevel} → ${researchLevel + 1}`,
+                    () => doStartFacilityUpgrade(RESEARCH_FACILITY_KEY)
+                  )}
                 {/if}
 
                 {#if researchUpgradeInFlight}
@@ -5407,18 +5469,20 @@
                     </div>
                   {/each}
 
-                  <button
-                    class="buy-btn"
-                    disabled={!fuelStorageUpgradeCheck.ok}
-                    title={fuelStorageUpgradeCheck.ok ? undefined : fuelStorageUpgradeCheck.reason}
-                    on:click={() => doStartFacilityUpgrade("fuelStorage")}
-                  >
-                    {#if "storageCapMult" in nextEff}Expand Tank
-                    {:else if "addFuelPipelines" in nextEff}Add Pipeline
-                    {:else if "fuelYieldMult" in nextEff}Boost Yield
-                    {:else if "fuelInputMult" in nextEff}Improve Intake
-                    {:else}Build{/if}
-                  </button>
+                  {@render facilityUpgradeButton(
+                    "fuelStorage",
+                    fuelStorageUpgradeCheck,
+                    "storageCapMult" in nextEff
+                      ? "Expand Tank"
+                      : "addFuelPipelines" in nextEff
+                        ? "Add Pipeline"
+                        : "fuelYieldMult" in nextEff
+                          ? "Boost Yield"
+                          : "fuelInputMult" in nextEff
+                            ? "Improve Intake"
+                            : "Build",
+                    () => doStartFacilityUpgrade("fuelStorage")
+                  )}
                 {/if}
 
                 {#if fuelStorageUpgradeInFlight}
@@ -5542,40 +5606,16 @@
                       </p>
                     {/if}
 
-                    <!-- Hover region for the disabled-reason popover lives on this
-                         wrapper, NOT the button: a disabled <button> does not fire
-                         pointer events, so the wrapper is what catches the hover.
-                         The native `title` was removed here on purpose, it was the
-                         flicker source (see openUpgradeReasonKey in the script). -->
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <!-- Intentional: this is a MOUSE-CONVENIENCE popover that only
-                         duplicates the shortfall already shown in the always-visible
-                         readiness rows above, so keyboard/screen-reader users lose
-                         nothing by it being hover-only. There is no accessible role
-                         for a bare hover-reveal container, and the button it wraps is
-                         (correctly) disabled, hence not a valid handler host. -->
-                    <div
-                      class="upgrade-reason-wrap"
-                      on:mouseenter={() => showUpgradeReason(wt.key)}
-                      on:mouseleave={() => hideUpgradeReason(wt.key)}
-                    >
-                      <button
-                        class="buy-btn"
-                        disabled={!check.ok}
-                        on:click={() => doStartFacilityUpgrade(wt.key)}
-                      >
-                        {isUnlockRung ? `Unlock ${wt.label}` : "Expand · doubles capacity"}
-                      </button>
-                      <!-- Custom disabled-reason popover. Its open-state
-                           (openUpgradeReasonKey) is tick-independent, so the per-tick
-                           reason text updates in place without the popover resetting.
-                           Reuses the currency-tooltip look (opaque, bordered, shadow). -->
-                      {#if !check.ok && check.reason && openUpgradeReasonKey === wt.key}
-                        <div class="currency-tooltip upgrade-reason-tooltip" role="tooltip">
-                          <div class="currency-tooltip-body">{check.reason}</div>
-                        </div>
-                      {/if}
-                    </div>
+                    <!-- Warehouse storage rung, now routed through the SHARED
+                         facilityUpgradeButton snippet (was the bespoke original of
+                         this flicker fix; refactored so there is a single source of
+                         the popover mechanism). Keyed by the tier's facility key. -->
+                    {@render facilityUpgradeButton(
+                      wt.key,
+                      check,
+                      isUnlockRung ? `Unlock ${wt.label}` : "Expand · doubles capacity",
+                      () => doStartFacilityUpgrade(wt.key)
+                    )}
                   {/if}
 
                   {#if inFlight}
@@ -5873,15 +5913,13 @@
                     {/if}
                     <div class="research-cost">Founding time: {durationReadout(nextShipyardUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
-                    <button
-                      class="buy-btn"
-                      style="margin-top: 8px;"
-                      disabled={!shipyardUpgradeCheck.ok}
-                      title={shipyardUpgradeCheck.ok ? undefined : shipyardUpgradeCheck.reason}
-                      on:click={() => doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY)}
-                    >
-                      Found · ◈ {formatNumber(nextShipyardUpgrade.credits ?? new Decimal(0))}
-                    </button>
+                    {@render facilityUpgradeButton(
+                      "shipyardFound",
+                      shipyardUpgradeCheck,
+                      `Found · ◈ ${formatNumber(nextShipyardUpgrade.credits ?? new Decimal(0))}`,
+                      () => doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY),
+                      "margin-top: 8px;"
+                    )}
                   {/if}
 
                   <!-- In-flight founding progress (a founding is a facilityUpgrade process). -->
@@ -6024,14 +6062,12 @@
                     </div>
                   {/if}
 
-                  <button
-                    class="buy-btn"
-                    disabled={!shipyardUpgradeCheck.ok}
-                    title={shipyardUpgradeCheck.ok ? undefined : shipyardUpgradeCheck.reason}
-                    on:click={() => doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY)}
-                  >
-                    {shipyardLevel === 0 ? "Found" : "Build"} · Level {shipyardLevel} → {shipyardLevel + 1}
-                  </button>
+                  {@render facilityUpgradeButton(
+                    "shipyard",
+                    shipyardUpgradeCheck,
+                    `${shipyardLevel === 0 ? "Found" : "Build"} · Level ${shipyardLevel} → ${shipyardLevel + 1}`,
+                    () => doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY)
+                  )}
                 {/if}
 
                 {#if shipyardUpgradeInFlight}
@@ -6072,10 +6108,14 @@
                 {@const docksCheck = canUpgradeDocks(state)}
                 <div class="docks-cap-head">
                   <div class="research-cost">Berths: {state.ships.length} / {state.shipStorageCapacity}</div>
+                  <!-- Native `title` removed (2026-07-24 flicker fix): the reason
+                       already renders in the persistent docks-expand-note below, a
+                       plain text node that updates in place without flicker, so this
+                       button needs no hover popover (unlike the facility Build buttons,
+                       which have no persistent note and use facilityUpgradeButton). -->
                   <button
                     class="buy-btn docks-expand-btn"
                     disabled={!docksCheck.ok}
-                    title={docksCheck.ok ? undefined : docksCheck.reason}
                     on:click={doExpandDocks}
                   >
                     Expand Docks
@@ -6362,10 +6402,14 @@
                 <span class="systems-bay-cap-label">Systems Bay</span>
                 <span class="systems-bay-cap-val">{baySpare} <small>/ {bayCap} spare</small></span>
               </div>
+              <!-- Native `title` removed (2026-07-24 flicker fix): the reason already
+                   renders in the persistent systems-bay-upgrade-note below, a plain
+                   text node that updates in place without flicker, so this button needs
+                   no hover popover (unlike the facility Build buttons, which have no
+                   persistent note and use facilityUpgradeButton). -->
               <button
                 class="buy-btn systems-bay-upgrade"
                 disabled={!upgradeCheck.ok}
-                title={upgradeCheck.ok ? undefined : upgradeCheck.reason}
                 on:click={doUpgradeEquipmentBay}
               >
                 Upgrade Bay
@@ -7731,15 +7775,13 @@
 
                   <!-- Build, gated on canBuildFacilityUpgrade (materials + the
                        completion gate + no in-flight upgrade); its .reason is the
-                       "why not" title when disabled. -->
-                  <button
-                    class="buy-btn"
-                    disabled={!missionControlUpgradeCheck.ok}
-                    title={missionControlUpgradeCheck.ok ? undefined : missionControlUpgradeCheck.reason}
-                    on:click={() => doStartFacilityUpgrade("missionControl")}
-                  >
-                    Build · Level {missionControlLevel} → {missionControlLevel + 1}
-                  </button>
+                       "why not" shown in the shared tick-stable popover when disabled. -->
+                  {@render facilityUpgradeButton(
+                    "missionControl",
+                    missionControlUpgradeCheck,
+                    `Build · Level ${missionControlLevel} → ${missionControlLevel + 1}`,
+                    () => doStartFacilityUpgrade("missionControl")
+                  )}
                 {/if}
 
                 {#if missionControlUpgradeInFlight}
