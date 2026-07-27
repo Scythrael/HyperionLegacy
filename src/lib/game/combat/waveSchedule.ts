@@ -39,6 +39,10 @@
 // ============================================================================
 
 import { makeRng } from "./rng";
+// Type-only import: PatrolDef is a plain data shape in model.ts. `import type` is fully
+// erased at compile time, so this creates NO runtime import edge (model.ts does not
+// import this module, and even if it did, an erased type import cannot form a cycle).
+import type { PatrolDef } from "../model";
 
 // Public param shape every caller (patrol definitions, dispatch) codes against.
 // All fields are integers by contract; the guards below reject anything that
@@ -219,4 +223,23 @@ export function planWaveSchedule(
 	// [minWaves, maxWaves]: checkpoints force scheduled up to minWaves unless the
 	// cap intervenes first, and the cap bounds the top.
 	return ticks;
+}
+
+// patrolWaveParams: derive the WaveScheduleParams a PatrolDef implies. The wave window
+// STARTS the tick initial transit ends (rollStartTick == transitOutTicks, the first tick
+// a wave can occur) and SPANS rollWindowTicks ticks (rollEndTick == transitOutTicks +
+// rollWindowTicks - 1, inclusive). Pulled out so dispatch (which resolves the schedule
+// now), any test, and the 9b.5b loop derive the SAME params from one place (Omega 4).
+// PURE. Lives beside planWaveSchedule (Phase 12b-1 review) so the def -> params mapper
+// and the params -> schedule generator are one leaf both the live tick loop and the
+// display replay import DOWN from, rather than reaching UP into tick.ts.
+export function patrolWaveParams(def: PatrolDef): WaveScheduleParams {
+	return {
+		minWaves: def.minWaves,
+		maxWaves: def.maxWaves,
+		rollStartTick: def.transitOutTicks,
+		rollEndTick: def.transitOutTicks + def.rollWindowTicks - 1,
+		waveChanceNumerator: def.waveChanceNumerator,
+		waveChanceDenominator: def.waveChanceDenominator,
+	};
 }

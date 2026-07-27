@@ -65,23 +65,39 @@ function dispatch(state: GameState, repeat: boolean): GameState {
 // still alive, so the final values survive the tick that nulls the mission) and whether
 // the ship ended DAMAGED (the limp-home defeat outcome). 60 ticks covers the 14-tick
 // route + a 6-tick limp with margin.
+//
+// ALSO captures the PER-WON-WAVE carry-state (hull/shield) the instant each wave is won,
+// so the parity gate can assert the replay's displayed arena bars line up with the real
+// fight's surviving pools, not merely the win COUNT. The capture is taken on the tick
+// wavesWon rises (post-battle, BEFORE the next inter-wave shield regen), which is exactly
+// the moment the replay records as a won wave's playerEnd. A single 1-tick advance crosses
+// at most one whole route tick, so wavesWon rises by at most 1 per tick, one push each.
 function runLivePatrol(state0: GameState): {
   wavesWon: number;
   wavesLost: number;
   shipDamaged: boolean;
+  wonCarry: { hull: number; shield: number }[];
 } {
   let s = state0;
   let wavesWon = 0;
   let wavesLost = 0;
+  let prevWavesWon = 0;
+  const wonCarry: { hull: number; shield: number }[] = [];
   for (let i = 0; i < 60; i++) {
     s = economyTick(s, 1, RNG);
     const m = s.captains[0].mission as PatrolMissionState | null;
     if (m && m.kind === "patrol") {
       wavesWon = m.wavesWon;
       wavesLost = m.wavesLost;
+      if (m.wavesWon > prevWavesWon) {
+        // A wave just resolved as a WIN this tick: snapshot the post-battle carry pools
+        // the live loop persisted (playerHull/playerShield), before any later-tick regen.
+        wonCarry.push({ hull: m.playerHull, shield: m.playerShield });
+        prevWavesWon = m.wavesWon;
+      }
     }
   }
-  return { wavesWon, wavesLost, shipDamaged: s.ships[0].damaged === true };
+  return { wavesWon, wavesLost, shipDamaged: s.ships[0].damaged === true, wonCarry };
 }
 
 // ---------------------------------------------------------------------------
@@ -104,9 +120,29 @@ describe("replay-vs-live parity (THE GATE)", () => {
         const live = runLivePatrol(dispatched);
 
         // Per-wave win count matches, and the replay's own tally agrees with its waves.
-        const replayWavesWon = replay.waves.filter((w) => w.playerWon).length;
-        expect(replayWavesWon).toBe(replay.wavesWon);
+        const replayWonWaves = replay.waves.filter((w) => w.playerWon);
+        expect(replayWonWaves.length).toBe(replay.wavesWon);
         expect(replay.wavesWon).toBe(live.wavesWon);
+
+        // CARRY-STATE PARITY (the arena-bars gate): the replay's surviving hull/shield
+        // after EACH won wave MUST equal the live loop's persisted post-battle carry for
+        // that same wave. This proves the watched health bars cannot silently drift from
+        // the real fight, one wave at a time, not merely that the win COUNT agrees.
+        expect(live.wonCarry.length).toBe(replayWonWaves.length);
+        for (let i = 0; i < replayWonWaves.length; i++) {
+          expect(replayWonWaves[i].playerEnd?.hull).toBe(live.wonCarry[i].hull);
+          expect(replayWonWaves[i].playerEnd?.shield).toBe(live.wonCarry[i].shield);
+        }
+
+        // Terminal hull agrees: hull never regenerates post-wave, so the replay's terminal
+        // finalPlayerHull is the fight's real end hull. On a clean full-clear that is the
+        // last won wave's carry hull (on a defeat it is the surviving hull at the loss,
+        // asserted in the public-defeat case below).
+        if (!replay.defeated && replayWonWaves.length > 0) {
+          expect(replay.finalPlayerHull).toBe(
+            live.wonCarry[replayWonWaves.length - 1].hull,
+          );
+        }
 
         // Defeat detection matches the live loop (limp-home => ship.damaged), and
         // wavesLost agrees.
@@ -221,6 +257,55 @@ describe("defeat-path parity (guaranteed loss)", () => {
     expect(res.defeated).toBe(true);
     expect(res.waves.length).toBe(1); // stops at the lost wave, no later waves replayed
     expect(res.waves[0].playerWon).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1c. DEFEAT-PATH PARITY THROUGH THE PUBLIC ENTRY (replayPatrol).
+//
+// 1b above drives the defeat through the LOW-LEVEL resolver with an injected near-dead
+// start. This case exercises the DEFEAT branch through the PUBLIC replayPatrol, which by
+// contract always starts FULL HULL, and compares it side-by-side to a real live limp-home
+// for the same patrol + seed. No production change is needed: a full-hull DESTROYER
+// genuinely LOSES the shipped starter patrol (crimsonReaverSweep) at masterSeed 331
+// (empirically found by scanning seeds 1..2000; battleship/carrier win every sampled seed,
+// and destroyer wins the 12 seeds the main parity fuzz above happens to sample, which is
+// why that fuzz never reaches a full-hull defeat). This locks that the public replay's
+// early-stop (waves fought, defeated flag, wavesWon) mirrors the live loop's limp-home.
+// ---------------------------------------------------------------------------
+describe("defeat-path parity through the PUBLIC entry (replayPatrol)", () => {
+  // masterSeed where a full-hull destroyer loses crimsonReaverSweep (see block note).
+  const DEFEAT_SEED = 331;
+
+  it("replayPatrol early-stops on a real full-hull defeat exactly as the live limp-home does", () => {
+    const dispatched = dispatch(patrolState("destroyer", DEFEAT_SEED), false);
+
+    // Public path, full-hull start by contract: this seed is chosen precisely because it
+    // LOSES, so the defeat branch of replayPatrol is exercised end to end.
+    const replay = replayPatrol(dispatched, dispatched.captains[0]);
+    expect(replay.available).toBe(true);
+    expect(replay.defeated).toBe(true);
+
+    // Resolve the SAME patrol live and confirm the limp-home defeat outcome.
+    const live = runLivePatrol(dispatched);
+    expect(live.shipDamaged).toBe(true);
+    expect(live.wavesLost).toBe(1);
+
+    // PUBLIC-PATH DEFEAT PARITY: same waves won, and the replay stopped AT the lost wave
+    // (waves fought == wavesWon + 1, last wave a loss), mirroring the live loop switching
+    // to limp-home on that wave and fighting no further waves.
+    expect(replay.wavesWon).toBe(live.wavesWon);
+    expect(replay.waves.length).toBe(replay.wavesWon + 1);
+    expect(replay.waves[replay.waves.length - 1].playerWon).toBe(false);
+
+    // Per-won-wave carry parity holds on the public defeat path too (the bars up to the
+    // loss match the real fight).
+    const replayWonWaves = replay.waves.filter((w) => w.playerWon);
+    expect(live.wonCarry.length).toBe(replayWonWaves.length);
+    for (let i = 0; i < replayWonWaves.length; i++) {
+      expect(replayWonWaves[i].playerEnd?.hull).toBe(live.wonCarry[i].hull);
+      expect(replayWonWaves[i].playerEnd?.shield).toBe(live.wonCarry[i].shield);
+    }
   });
 });
 

@@ -24,9 +24,10 @@
 //     loop's generateLog:false resolution (the parity gate the tests enforce).
 //
 // PARITY IS STRUCTURAL, NOT COINCIDENTAL: this module deliberately does NOT re-derive
-// any wave math. It imports deriveWaveSeed + the two wave salts from the live loop
-// (tick.ts) and calls the same generateEnemyWave / resolveBattle / patrolWave leaves,
-// so there is one source of truth for "how a wave resolves". The ORCHESTRATION the
+// any wave math. It imports deriveWaveSeed + the two wave salts from the shared combat/
+// leaf (waveSeed.ts, which the live loop ALSO imports) and calls the same generateEnemyWave
+// / resolveBattle / patrolWave leaves, so there is one source of truth for "how a wave
+// resolves" and this display module never imports UP into tick.ts. The ORCHESTRATION the
 // live loop wraps around those leaves (limp-home, relaunch, fuel, credits, rewards)
 // is irrelevant to a display replay and is intentionally NOT reproduced here: a replay
 // shows ONE patrol cycle's waves from full hull, which is exactly the fight the player
@@ -55,17 +56,18 @@ import { replenishDrones } from "./droneDefense";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
 import type { Combatant, CombatEvent, BattleOutcome } from "./types";
 import type { DroneSquadron } from "./drones";
-import { planWaveSchedule } from "./waveSchedule";
-// The wave-seed derivation + its two salts + the schedule params live with the live
-// loop (tick.ts). Importing them (rather than re-declaring) is the WHOLE POINT: the
-// replay derives every enemy/battle seed with the identical inputs the live loop used,
-// so the two cannot drift. tick.ts does NOT import this module, so there is no cycle.
+// The schedule params mapper + the schedule generator both live in the waveSchedule
+// leaf; the per-wave seed derivation + its two salts live in the waveSeed leaf. Importing
+// them (rather than re-declaring) is the WHOLE POINT: the replay derives every enemy/battle
+// seed with the identical inputs the live loop used, so the two cannot drift. These are
+// combat/ LEAVES: this display module imports DOWN into them, never UP into the live loop
+// (tick.ts). tick.ts imports the SAME leaves, so there is one source of truth and no cycle.
+import { planWaveSchedule, patrolWaveParams } from "./waveSchedule";
 import {
   deriveWaveSeed,
-  patrolWaveParams,
   WAVE_ENEMY_SEED_SALT,
   WAVE_BATTLE_SEED_SALT,
-} from "../tick";
+} from "./waveSeed";
 
 // ---------------------------------------------------------------------------
 // PUBLIC RESULT SHAPES.
@@ -199,8 +201,13 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
   let defeated = false;
 
   // The previous wave's route tick, so the inter-wave recovery count is the number of
-  // NON-wave whole route ticks strictly between two waves. 0 before the first wave (the
-  // pre-first-wave transit ticks apply recovery from a full pool, a harmless no-op).
+  // NON-wave whole route ticks strictly between two waves. 0 before the first wave, so the
+  // pre-first-wave transit ticks (routeTick[0] - 0 - 1 of them) also apply the per-tick
+  // recovery below. In the public replayPatrol path the start pools are already FULL, so
+  // that pre-wave-0 shield regen is a no-op; in the low-level resolvePatrolWaves path a
+  // caller may pass a DAMAGED start (e.g. the defeat-path test), and then this pre-wave-0
+  // regen genuinely applies -- correctly, because the live loop likewise regenerates on
+  // those same pre-first-wave transit ticks.
   let prevWaveTick = 0;
 
   for (let waveIndex = 0; waveIndex < waveTicks.length; waveIndex++) {
@@ -403,6 +410,16 @@ function unavailableReplay(): PatrolReplay {
 // elements must come from elsewhere (the wave's playerStart/enemyStart/playerEnd/enemyEnd
 // combatants give drone start/end summaries via squadronStatusSummary) or await a later
 // unit that emits them. This fold deliberately omits them rather than guessing.
+//
+// ⚠️ STATUS-EFFECT EXPIRY CAVEAT (referenced by CombatantSnapshot.effects): a folded
+// status effect does NOT auto-expire here, because the event stream carries no
+// effect-expired event -- only applications (effectApplied / dot) and cleanse removals
+// (droneCleanse). So a status pip added by the fold can LINGER past its real duration,
+// until a cleanse strips it or the wave ends. This is purely COSMETIC (an effect pip
+// never moves hull/shield -- those come from each event's hullAfter/shieldAfter, which
+// are already correct), so it cannot desync the arena bars. It must nonetheless be
+// resolved SIM-SIDE (an emitted expiry event) before the combat view renders status
+// pips; that is a separate, out-of-scope decision, NOT patched in this display fold.
 // ---------------------------------------------------------------------------
 
 // One combatant's rendered state at a given round.
@@ -415,8 +432,10 @@ export interface CombatantSnapshot {
   // Last-known shield up to this round, or null if never carried yet.
   shield: number | null;
   // The active status effects on this combatant, each with its latest rank. Built from
-  // effectApplied / dot applications; removed on droneCleanse. See the expiry caveat
-  // below.
+  // effectApplied / dot applications; removed on droneCleanse. See the STATUS-EFFECT
+  // EXPIRY CAVEAT in the per-round-snapshot-fold header block above: these pips do not
+  // auto-expire (the stream emits no expiry event), so one can linger until a cleanse or
+  // wave end -- cosmetic only, never hull/shield.
   effects: SnapshotEffect[];
 }
 
