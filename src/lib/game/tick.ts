@@ -115,7 +115,7 @@ import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
 // resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
-import { combatHullTypeOf, defaultDronesForHull, shipToCombatant, type CombatHullType } from "./combat/bridge";
+import { combatHullTypeOf, defaultDronesForHull, type CombatHullType } from "./combat/bridge";
 import { planWaveSchedule, type WaveScheduleParams } from "./combat/waveSchedule";
 import type { CombatStance } from "./combat/positioning";
 // Combat 0.13.0 (Phase 9b.5c): the patrol TICK LOOP wiring. generateEnemyWave builds a
@@ -127,6 +127,12 @@ import { generateEnemyWave } from "./combat/enemyWave";
 import { resolveBattle } from "./combat/resolveBattle";
 import { replenishDrones } from "./combat/droneDefense";
 import type { DroneSquadron } from "./combat/drones";
+// Combat 0.13.0 (Phase 12b-1): the SHARED per-wave leaves. buildPatrolPlayerCombatant
+// builds the wave's player combatant from the carry-state; regenPatrolShield is the
+// between-wave shield-regen formula. The DISPLAY-ONLY patrol replay (patrolReplay.ts)
+// calls these SAME leaves, so the watchable replay stays byte-identical to this live
+// loop by construction (parity is structural, not coincidental).
+import { buildPatrolPlayerCombatant, regenPatrolShield } from "./combat/patrolWave";
 // Combat 0.13.0 (Phase 10, design S12): the seeded per-won-wave PATROL LOOT roller.
 // rollWaveLoot(table, seed) is the PURE reward roll a defeated wave (a wreck) yields;
 // PatrolLootTable is the data-driven table shape. tick.ts owns the seed derivation (a
@@ -1417,8 +1423,12 @@ export function deriveWaveSeed(masterSeed: number, waveIndex: number, salt: numb
 // TEAM generation, one for the wave's BATTLE. Distinct so the two streams cannot
 // correlate. Do NOT change these once patrols ship live: a persisted masterSeed +
 // these salts is what makes a saved patrol replay identically on reload.
-const WAVE_ENEMY_SEED_SALT = 0x1b873593;
-const WAVE_BATTLE_SEED_SALT = 0xcc9e2d51;
+// Exported (Phase 12b-1) so the DISPLAY-ONLY patrol replay derives each wave's enemy /
+// battle seed with the EXACT same salts the live loop uses: identical salts + identical
+// masterSeed + waveIndex => identical enemy team + identical battle, the structural parity
+// the watchable replay depends on. Do NOT change these once patrols ship live.
+export const WAVE_ENEMY_SEED_SALT = 0x1b873593;
+export const WAVE_BATTLE_SEED_SALT = 0xcc9e2d51;
 
 // The relaunch salt. A repeat-dispatch patrol that completes its route RELAUNCHES with a
 // fresh master seed derived PURELY from the captain's OWN current master seed via
@@ -1735,16 +1745,17 @@ export function tickCaptainPatrol(
       // PLAYER combatant: FRESH from the hull defaults (weapons + cooldowns reset each
       // wave, each wave being a discrete battle, design-correct), then OVERRIDE hull/
       // shield/drones with the CARRY-STATE so damage + drone losses persist across waves.
-      const player = shipToCombatant({
-        id: playerId,
-        team: "player",
+      // Built through the SHARED leaf (combat/patrolWave.ts) that the display-only patrol
+      // replay also uses, so the two paths cannot drift (structural parity, Phase 12b-1).
+      const player = buildPatrolPlayerCombatant({
+        playerId,
         stats: shipDef,
         hullType,
         stance: mission.stance,
+        carryHull: mission.playerHull,
+        carryShield: mission.playerShield,
+        carryDrones: mission.playerDrones,
       });
-      player.hull = mission.playerHull;
-      player.shield = mission.playerShield;
-      player.drones = mission.playerDrones;
 
       // ENEMY team: deterministic from the ENEMY-salt derivation. idPrefix = faction id +
       // wave index (traceable + disjoint across waves, enemyWave.ts's contract).
@@ -1831,9 +1842,12 @@ export function tickCaptainPatrol(
       // disrupted/destroyed drones, so an undamaged screen is untouched. Parity-safe under
       // batching BY CONSTRUCTION: this runs once per whole-tick crossing, and we advance
       // one whole tick at a time, so a big call applies the identical per-tick recovery.
-      mission.playerShield = Math.min(
+      // Shield regen via the SHARED leaf (combat/patrolWave.ts) the display replay also
+      // applies, so the between-wave carry-state stays byte-identical across the two paths.
+      mission.playerShield = regenPatrolShield(
         shipDef.shieldCapacity,
-        mission.playerShield + shipDef.shieldRecharge,
+        mission.playerShield,
+        shipDef.shieldRecharge,
       );
       for (const squadron of mission.playerDrones) {
         replenishDrones(squadron, squadron.droneReplenishRate);

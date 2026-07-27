@@ -38,6 +38,19 @@ import { makeSquadron } from "./drones";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
 import type { Combatant, CombatTeam } from "./types";
 
+// The full result of building a wave: the enemy Combatant[] AND the per-enemy picked
+// hull ids, in the SAME order as the combatants (enemies[i] was built from hullIds[i]).
+// Combat 0.13.0 (Phase 12b-1): the display-only patrol replay reads hullIds to label the
+// enemy composition for the combat view (PIRATE_HULLS[id].name), which the Combatant shape
+// alone does not carry. generateEnemyWave (the existing outcome path) returns only the
+// enemies, so nothing about the sim's inputs changes; this is the enemies PLUS the labels.
+export interface EnemyWaveResult {
+	// The fresh enemy team (identical to generateEnemyWave's return).
+	enemies: Combatant[];
+	// The picked pirate hull id per enemy, aligned by index to `enemies`.
+	hullIds: PirateHullId[];
+}
+
 // The enemy team value from the CombatTeam union (types.ts). Bound to a named
 // const (rather than sprinkling the bare "enemy" string) so the team side these
 // combatants join is stated once and a rename of the union would surface here.
@@ -85,6 +98,24 @@ export function generateEnemyWave(
 	seed: number,
 	params: EnemyWaveParams,
 ): Combatant[] {
+	// THIN WRAPPER (Phase 12b-1): the outcome path only needs the enemy team, so it
+	// discards the labels. The build itself (draws + order) lives in the detailed variant
+	// below, so live combat and the display replay share ONE construction (no divergent
+	// copy that could desync the enemies the replay shows from the enemies live fought).
+	return generateEnemyWaveDetailed(seed, params).enemies;
+}
+
+// ---------------------------------------------------------------------------
+// generateEnemyWaveDetailed -- build the ENEMY TEAM AND report each enemy's picked
+// hull id (Combat 0.13.0, Phase 12b-1). Identical draw-order contract and identical
+// enemy Combatant[] as generateEnemyWave (which now delegates here); it additionally
+// returns the picked hull ids so the display-only patrol replay can label the enemy
+// composition for the combat view. Deterministic from (seed, params).
+// ---------------------------------------------------------------------------
+export function generateEnemyWaveDetailed(
+	seed: number,
+	params: EnemyWaveParams,
+): EnemyWaveResult {
 	const { hullPool, enemyCountMin, enemyCountMax, idPrefix } = params;
 
 	// ---- Guards: fail loud (Omega 14), mirroring rng.ts / waveSchedule.ts throw
@@ -153,10 +184,14 @@ export function generateEnemyWave(
 	// Build the team. For each enemy: DRAW one hull index, look up the template,
 	// then EXPAND (no draws) its guns + squadrons into fresh instances.
 	const enemies: Combatant[] = [];
+	// The picked hull id per enemy, aligned by index to `enemies` (the display replay's
+	// composition labels). Filled in lockstep with the loop below, so it never desyncs.
+	const hullIds: PirateHullId[] = [];
 	for (let i = 0; i < count; i++) {
 		// DRAW (per enemy): pick a hull from the pool. Uniform over the pool; a
 		// weighted pick would be a future knob on the params seam, not this pass.
 		const hullId = hullPool[rng.nextInt(hullPool.length)];
+		hullIds.push(hullId);
 		const hull = PIRATE_HULLS[hullId];
 
 		// The three combat stats the bridge reads, pulled straight off the hull
@@ -200,5 +235,5 @@ export function generateEnemyWave(
 		);
 	}
 
-	return enemies;
+	return { enemies, hullIds };
 }
