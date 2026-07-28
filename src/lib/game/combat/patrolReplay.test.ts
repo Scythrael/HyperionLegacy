@@ -385,6 +385,73 @@ describe("foldWaveSnapshots (per-round arena state)", () => {
     expect(snaps[0].combatants).toEqual({});
   });
 
+  it("consumes roundState events into per-combatant range (distance + band) + phase", () => {
+    const log: CombatEvent[] = [
+      // Round 0: both ships open at long range (distance 250), out of range -> detection.
+      { tDeciSec: 1, round: 0, type: "roundState", actorId: "P", targetId: "E1", distance: 250, band: "long", phase: "detection" },
+      { tDeciSec: 1, round: 0, type: "roundState", actorId: "E1", targetId: "P", distance: 250, band: "long", phase: "detection" },
+      // Round 1: closed to short range and P is now firing.
+      { tDeciSec: 10, round: 1, type: "roundState", actorId: "P", targetId: "E1", distance: 80, band: "short", phase: "firing" },
+      { tDeciSec: 10, round: 1, type: "roundState", actorId: "E1", targetId: "P", distance: 80, band: "short", phase: "weaponsReady" },
+    ];
+    const snaps = foldWaveSnapshots(log);
+    expect(snaps.map((s) => s.round)).toEqual([0, 1]);
+
+    // Round 0: both at long-range detection.
+    expect(snaps[0].combatants["P"].range).toEqual({ distance: 250, band: "long" });
+    expect(snaps[0].combatants["P"].phase).toBe("detection");
+    expect(snaps[0].combatants["E1"].range).toEqual({ distance: 250, band: "long" });
+
+    // Round 1: closed to short; P firing, E1 weapons-ready.
+    expect(snaps[1].combatants["P"].range).toEqual({ distance: 80, band: "short" });
+    expect(snaps[1].combatants["P"].phase).toBe("firing");
+    expect(snaps[1].combatants["E1"].phase).toBe("weaponsReady");
+  });
+
+  it("range/phase are null until a roundState event arrives for that combatant", () => {
+    const log: CombatEvent[] = [
+      // A plain hit with no roundState: the target gets pools but no range/phase.
+      { tDeciSec: 5, round: 0, type: "hit", actorId: "P", targetId: "E1", damage: 10, shieldAfter: 0, hullAfter: 90 },
+    ];
+    const snaps = foldWaveSnapshots(log);
+    expect(snaps[0].combatants["E1"].range).toBeNull();
+    expect(snaps[0].combatants["E1"].phase).toBeNull();
+  });
+
+  it("drops a status pip on effectExpired (the former over-report is fixed)", () => {
+    const log: CombatEvent[] = [
+      // Round 0: a disruption lands on E1 (rank 1).
+      { tDeciSec: 3, round: 0, type: "effectApplied", actorId: "P", targetId: "E1", effectDefId: "coilDampening", effectRank: 1 },
+      // Round 1: it is still there (a hit event, no removal).
+      { tDeciSec: 12, round: 1, type: "hit", actorId: "P", targetId: "E1", damage: 5, shieldAfter: 0, hullAfter: 80 },
+      // Round 2: the disruption's timer runs out -> the sim emits effectExpired.
+      { tDeciSec: 25, round: 2, type: "effectExpired", targetId: "E1", effectDefId: "coilDampening", effectRank: 1 },
+    ];
+    const snaps = foldWaveSnapshots(log);
+
+    // Rounds 0 + 1: the pip is present (would formerly linger forever).
+    expect(snaps[0].combatants["E1"].effects).toEqual([{ defId: "coilDampening", rank: 1 }]);
+    expect(snaps[1].combatants["E1"].effects).toEqual([{ defId: "coilDampening", rank: 1 }]);
+    // Round 2: expiry drops the pip (no longer over-reported past its duration).
+    expect(snaps[2].combatants["E1"].effects).toEqual([]);
+  });
+
+  it("a REAL replayed wave folds populated range + phase from the sim's roundState stream", () => {
+    const dispatched = dispatch(patrolState("destroyer", 29), false);
+    const replay = replayPatrol(dispatched, dispatched.captains[0]);
+    const wave0 = replay.waves[0];
+    // The sim emitted roundState events (Phase 12b), so the wave log carries them.
+    expect(wave0.log.some((e) => e.type === "roundState")).toBe(true);
+    const snaps = foldWaveSnapshots(wave0.log, [wave0.playerStart, ...wave0.enemyStart]);
+    // By the final round the player has a populated range readout + a phase (it engaged).
+    const last = snaps[snaps.length - 1];
+    const playerSnap = last.combatants[wave0.playerStart.id];
+    expect(playerSnap.range).not.toBeNull();
+    expect(playerSnap.phase).not.toBeNull();
+    // The band is consistent with the folded distance (positioning.ts thresholds).
+    expect(["short", "medium", "long"]).toContain(playerSnap.range!.band);
+  });
+
   it("folds a REAL replayed wave with its start baseline (integration)", () => {
     const dispatched = dispatch(patrolState("destroyer", 29), false);
     const replay = replayPatrol(dispatched, dispatched.captains[0]);

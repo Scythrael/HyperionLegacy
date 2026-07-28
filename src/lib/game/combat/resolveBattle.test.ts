@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from "vitest";
 import { resolveBattle, applyProjectileDamage } from "./resolveBattle";
+import { bandFor } from "./positioning";
 import type { BattleParticipants, Combatant, CombatWeapon } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -325,9 +326,17 @@ describe("resolveBattle cosmetic isolation", () => {
 		const live = resolveBattle(build(), 24680, { generateLog: true });
 		const offline = resolveBattle(build(), 24680, { generateLog: false });
 
-		// Every logged event under generateLog carries a non-empty flavor template.
-		expect(live.log.length).toBeGreaterThan(0);
-		for (const e of live.log) {
+		// Every FLAVORED logged event under generateLog carries a non-empty flavor
+		// template. The Phase-12b structured display events (roundState / effectExpired)
+		// are STRUCTURED-ONLY by design: the combat view renders them from their
+		// band/phase/effect fields, not a flavor line, and they deliberately make NO
+		// cosmetic-stream draw (so every other event's flavor stays byte-identical). They
+		// are therefore excluded from this flavor-presence assertion.
+		const flavoredEvents = live.log.filter(
+			(e) => e.type !== "roundState" && e.type !== "effectExpired",
+		);
+		expect(flavoredEvents.length).toBeGreaterThan(0);
+		for (const e of flavoredEvents) {
 			expect(e.flavor).toBeDefined();
 			expect(e.flavor && e.flavor.length).toBeGreaterThan(0);
 		}
@@ -335,6 +344,152 @@ describe("resolveBattle cosmetic isolation", () => {
 		expect(offline.log.length).toBe(0);
 		// The outcome is identical despite the per-event cosmetic draws.
 		expect(live.outcome).toEqual(offline.outcome);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// PHASE 12b DISPLAY-ONLY emission: range/band + phase (roundState) + status-effect
+// expiry (effectExpired). ALL of this is gated on generateLog and must NOT move a
+// single outcome. These tests prove (a) the events carry sane display data and (b)
+// their presence changes no outcome / finalCombatants vs offline (the hard
+// invariant, extended to the new emission).
+// ---------------------------------------------------------------------------
+describe("Phase 12b: range/band/phase (roundState) emission", () => {
+	// Two ships that OPEN at long range and close through the bands, so the
+	// roundState readout exercises detection -> intercept -> weapons-ready -> firing
+	// and every band. Short weapon range (100) forces a real close before firing.
+	const build = (): BattleParticipants => ({
+		combatants: [
+			makeCombatant({
+				id: "P1",
+				team: "player",
+				hull: 400,
+				hullMax: 400,
+				position: 0,
+				speed: 30,
+				stance: "aggressive", // charge to short range so it closes + fires
+				weapons: [makeWeapon({ id: "pw", yield: 8, range: 100, accuracy: 80 })],
+			}),
+			makeCombatant({
+				id: "E1",
+				team: "enemy",
+				hull: 400,
+				hullMax: 400,
+				position: 250, // opens at 250 => long band, out of the 100 weapon range
+				speed: 20,
+				stance: "aggressive",
+				weapons: [makeWeapon({ id: "ew", yield: 7, range: 100, accuracy: 80 })],
+			}),
+		],
+	});
+
+	it("emits per-combatant roundState events with the band matching bandFor(distance)", () => {
+		const { log } = resolveBattle(build(), 4242, { generateLog: true });
+		const roundStates = log.filter((e) => e.type === "roundState");
+		expect(roundStates.length).toBeGreaterThan(0);
+		for (const e of roundStates) {
+			// Every roundState carries the display triple.
+			expect(e.distance).toBeDefined();
+			expect(e.band).toBeDefined();
+			expect(e.phase).toBeDefined();
+			// The band is exactly bandFor(distance): positioning.ts is the single source
+			// of truth for the thresholds, never re-hardcoded here.
+			expect(e.band).toBe(bandFor(e.distance!));
+		}
+	});
+
+	it("round 0 opens at long-range detection (out of weapon range, before any fire)", () => {
+		const { log } = resolveBattle(build(), 4242, { generateLog: true });
+		const round0 = log.filter((e) => e.type === "roundState" && e.round === 0);
+		// Both ships get a readout; both open at distance 250 (the |250 - 0| gap), which
+		// is the long band and out of the 100 weapon range, so the phase is detection.
+		expect(round0.length).toBe(2);
+		for (const e of round0) {
+			expect(e.distance).toBe(250);
+			expect(e.band).toBe("long");
+			expect(e.phase).toBe("detection");
+		}
+	});
+
+	it("the engagement reaches a firing phase once the ships close into range", () => {
+		const { log } = resolveBattle(build(), 4242, { generateLog: true });
+		const phases = new Set(
+			log.filter((e) => e.type === "roundState").map((e) => e.phase),
+		);
+		// The arc advances past the opening: at minimum it reaches firing (shots
+		// exchanged) after closing, and it passed through a non-detection phase.
+		expect(phases.has("firing")).toBe(true);
+	});
+
+	it("is OUTCOME-NEUTRAL: generateLog true vs false gives identical outcome + finalCombatants (fuzz)", () => {
+		// The heart of the unit: the roundState (+ effectExpired) emission is all under
+		// generateLog, so a live run's outcome AND every ship's post-battle state must
+		// stay byte-identical to the offline run that emits none of it.
+		for (let seed = 1; seed <= 40; seed++) {
+			const live = resolveBattle(build(), seed, { generateLog: true });
+			const offline = resolveBattle(build(), seed, { generateLog: false });
+			expect(offline.outcome).toEqual(live.outcome);
+			expect(offline.finalCombatants).toEqual(live.finalCombatants);
+			// Offline emitted no roundState (no log at all); live did.
+			expect(offline.log.length).toBe(0);
+			expect(live.log.some((e) => e.type === "roundState")).toBe(true);
+		}
+	});
+});
+
+describe("Phase 12b: status-effect expiry (effectExpired) emission", () => {
+	// A ship carrying a pre-existing debuff that is NEVER reapplied (its enemy has no
+	// weapons) ticks the effect down; when its timer hits 0 the sim removes it and
+	// emits exactly ONE effectExpired event. Both ships are near-unkillable so the
+	// battle outlasts the effect's duration.
+	const build = (): BattleParticipants => ({
+		combatants: [
+			makeCombatant({
+				id: "P1",
+				team: "player",
+				hull: 100000,
+				hullMax: 100000,
+				// coilDampening rank 1, 25 deci-seconds left => expires at tick 25.
+				statusEffects: [
+					{ defId: "coilDampening", rank: 1, remainingDeciSec: 25, dotBank: 0 },
+				],
+				weapons: [makeWeapon({ id: "pw", yield: 1 })],
+			}),
+			makeCombatant({
+				id: "E1",
+				team: "enemy",
+				hull: 100000,
+				hullMax: 100000,
+				weapons: [], // cannot fight back or REAPPLY the debuff
+			}),
+		],
+	});
+
+	it("an effect that times out emits exactly one effectExpired, tagged with target/def/rank", () => {
+		const { log } = resolveBattle(build(), 7, { generateLog: true });
+		const expiries = log.filter((e) => e.type === "effectExpired");
+		expect(expiries.length).toBe(1);
+		const e = expiries[0];
+		expect(e.targetId).toBe("P1");
+		expect(e.effectDefId).toBe("coilDampening");
+		expect(e.effectRank).toBe(1);
+		// Stamped at the expiry tick (25) and its round bucket (2).
+		expect(e.tDeciSec).toBe(25);
+		expect(e.round).toBe(2);
+	});
+
+	it("effectExpired is outcome-neutral: offline outcome/finalCombatants match live", () => {
+		const live = resolveBattle(build(), 7, { generateLog: true });
+		const offline = resolveBattle(build(), 7, { generateLog: false });
+		expect(offline.outcome).toEqual(live.outcome);
+		expect(offline.finalCombatants).toEqual(live.finalCombatants);
+		// Offline emitted no expiry event (no log), yet the effect still expired
+		// mechanically (its removal is in the outcome path, not the log path): the
+		// surviving player carries no coilDampening in either run.
+		const livePlayer = live.finalCombatants.find((c) => c.id === "P1")!;
+		const offlinePlayer = offline.finalCombatants.find((c) => c.id === "P1")!;
+		expect(livePlayer.statusEffects).toEqual([]);
+		expect(offlinePlayer.statusEffects).toEqual([]);
 	});
 });
 
@@ -626,7 +781,11 @@ describe("shot pipeline: evade", () => {
 			{ hull: 1000, hullMax: 1000, weapons: [] },
 		);
 		const { log } = resolveBattle(p, 12345, { generateLog: true });
-		const playerShots = log.filter((e) => e.actorId === "P1");
+		// Player SHOT events only (hit / evade). Exclude the Phase-12b per-round
+		// "roundState" readout, which also carries actorId "P1" but is not a shot.
+		const playerShots = log.filter(
+			(e) => e.actorId === "P1" && (e.type === "hit" || e.type === "evade"),
+		);
 		expect(playerShots.length).toBeGreaterThan(0);
 		// Every player shot is an evade with zero damage (nothing ever connects).
 		for (const e of playerShots) {
@@ -675,7 +834,11 @@ describe("shot pipeline: crit + projectiles roll independently", () => {
 			{ hull: 100000, hullMax: 100000, weapons: [] },
 		);
 		const { log } = resolveBattle(p, 4242, { generateLog: true });
-		const shots = log.filter((e) => e.actorId === "P1");
+		// Player SHOT events only (hit / evade). Exclude the Phase-12b per-round
+		// "roundState" readout, which also carries actorId "P1" but is not a shot.
+		const shots = log.filter(
+			(e) => e.actorId === "P1" && (e.type === "hit" || e.type === "evade"),
+		);
 		const hitCounts = new Set(shots.map((e) => e.projectilesHit));
 		// Independence => a spread of connecting counts (not just {0} or {4}).
 		expect(hitCounts.size).toBeGreaterThan(1);

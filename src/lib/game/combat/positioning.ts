@@ -60,6 +60,55 @@ export function weaponInRange(weapon: CombatWeapon, distance: number): boolean {
 	return distance <= weapon.range;
 }
 
+// The longest NOMINAL firing range across all of a combatant's weapons (design
+// S6). This is the distance at which the ship's FIRST weapon can open up (its
+// longest-range gun), so it is the natural "in weapons range at all" threshold
+// the combat-view PHASE derivation (combatPhase below) reads. Pure integer max
+// over the weapon list, no RNG, no debuff (nominal range, mirroring
+// weaponInRange). An UNARMED ship returns 0: it is never in weapons range, so it
+// never leaves the pre-firing phases, which is exactly correct (it cannot fire).
+export function longestWeaponRange(self: Combatant): number {
+	let longest = 0;
+	for (const weapon of self.weapons) {
+		if (weapon.range > longest) longest = weapon.range;
+	}
+	return longest;
+}
+
+// ---------------------------------------------------------------------------
+// COMBAT PHASE (design S16 combat view: "phase narration (detection -> intercept
+// -> weapons-ready -> firing)"). A DISPLAY-ONLY classification of where a ship is
+// in the engagement arc, derived purely from its distance to its target, its
+// longest weapon range, the round, and whether it has fired yet. It is consumed
+// ONLY by the combat-view readout (emitted under generateLog); it never gates a
+// shot, moves a ship, or draws an RNG, so it cannot perturb any outcome.
+// ---------------------------------------------------------------------------
+export type CombatPhase = "detection" | "intercept" | "weaponsReady" | "firing";
+
+// Derive the display phase for one combatant vs its current target (design S16).
+// The four phases map to concrete, testable sim conditions, checked MOST-ADVANCED
+// first so the arc only ever moves forward within a readout:
+//   - "firing":       the ship has already fired at least once this engagement
+//                     (shots are being exchanged). `hasFired` is the sim's record
+//                     of a real shot / ambush salvo going off.
+//   - "weaponsReady": not yet fired, but the target is now within the longest
+//                     weapon's range (a charged salvo is about to open up).
+//   - "detection":    round 0 and still out of all weapon range (the opening
+//                     "entered sensor range" beat, before any closing).
+//   - "intercept":    out of all weapon range and past round 0 (closing to range).
+// PURE: no RNG, no mutation. Same inputs always give the same phase.
+export function combatPhase(
+	round: number,
+	distance: number,
+	longestRange: number,
+	hasFired: boolean,
+): CombatPhase {
+	if (hasFired) return "firing";
+	if (distance <= longestRange) return "weaponsReady";
+	if (round === 0) return "detection";
+	return "intercept";
+}
+
 // ---------------------------------------------------------------------------
 // STANCE (design S6). A per-ship posture that sets the distance the ship TRIES
 // to hold from its target. Player-set per dispatch (mission layer, Phase 9);

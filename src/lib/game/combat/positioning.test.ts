@@ -19,6 +19,8 @@ import {
 	stanceMoveDelta,
 	effectiveHp,
 	selectTarget,
+	longestWeaponRange,
+	combatPhase,
 } from "./positioning";
 
 // A minimal weapon whose only interesting field here is `range`; everything else
@@ -104,6 +106,55 @@ describe("range bands: weaponInRange", () => {
 		expect(weaponInRange(long, BAND_SHORT)).toBe(true);
 		expect(weaponInRange(long, BAND_MEDIUM)).toBe(true);
 		expect(weaponInRange(long, BAND_LONG)).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// PHASE 12b combat-view display helpers (longestWeaponRange + combatPhase). These
+// are DISPLAY-ONLY derivations (no RNG, no mutation) the sim emits under
+// generateLog for the combat view's range track + phase narration.
+// ---------------------------------------------------------------------------
+describe("display: longestWeaponRange", () => {
+	it("returns the max nominal range across a ship's weapons", () => {
+		const c = mkc({ weapons: [wpn(BAND_SHORT), wpn(BAND_LONG), wpn(BAND_MEDIUM)] });
+		expect(longestWeaponRange(c)).toBe(BAND_LONG);
+	});
+
+	it("an unarmed ship has longest range 0 (never in weapons range)", () => {
+		const c = mkc({ weapons: [] });
+		expect(longestWeaponRange(c)).toBe(0);
+	});
+});
+
+describe("display: combatPhase derivation", () => {
+	// firing WINS regardless of range/round once the ship has opened fire.
+	it("firing: hasFired true overrides everything", () => {
+		expect(combatPhase(0, 9999, BAND_SHORT, true)).toBe("firing");
+		expect(combatPhase(5, 0, BAND_LONG, true)).toBe("firing");
+	});
+
+	// weapons-ready: not yet fired, but the target is within the longest weapon range.
+	it("weaponsReady: in range but not yet fired (inclusive at the range edge)", () => {
+		expect(combatPhase(3, BAND_MEDIUM, BAND_MEDIUM, false)).toBe("weaponsReady");
+		expect(combatPhase(0, BAND_SHORT, BAND_LONG, false)).toBe("weaponsReady");
+	});
+
+	// detection: round 0, out of all weapon range (the opening sensor-contact beat).
+	it("detection: round 0 and out of range", () => {
+		expect(combatPhase(0, BAND_LONG, BAND_SHORT, false)).toBe("detection");
+	});
+
+	// intercept: out of range, past round 0 (still closing to range).
+	it("intercept: out of range after round 0", () => {
+		expect(combatPhase(1, BAND_LONG, BAND_SHORT, false)).toBe("intercept");
+		expect(combatPhase(20, BAND_MEDIUM + 1, BAND_MEDIUM, false)).toBe("intercept");
+	});
+
+	// The exact detection -> intercept boundary is the round: same geometry, round 0
+	// reads detection, round 1+ reads intercept.
+	it("detection vs intercept differs only by round at the same geometry", () => {
+		expect(combatPhase(0, 500, 100, false)).toBe("detection");
+		expect(combatPhase(1, 500, 100, false)).toBe("intercept");
 	});
 });
 

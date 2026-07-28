@@ -220,6 +220,25 @@ describe("tickEffects: DoT damage per tick, aggregation, and expiry", () => {
 		expect(r.dotDamageByDef.size).toBe(0);
 		expect(subject.hull).toBe(-3);
 		expect(subject.statusEffects[0].remainingDeciSec).toBe(5); // not decremented
+		expect(r.expired).toEqual([]); // a dead ship's effects do not expire this tick
+	});
+
+	// PHASE 12b DISPLAY-ONLY: tickEffects reports which effects lapsed this tick so the
+	// caller can emit an "effectExpired" log event (the removal itself is unchanged).
+	it("reports the expired effect (def + rank) on the tick it lapses, once", () => {
+		const rng = makeRng(1);
+		// Two effects: one with 1 deci-second left (lapses this tick), one with 5 left.
+		const subject = dotSubject([
+			instance("coilDampening", 2, 1),
+			instance("scatteringField", 1, 5),
+		]);
+		const r = tickEffects(subject, 1, rng);
+		// Exactly the short one lapsed, carrying its def id + the rank it held.
+		expect(r.expired).toEqual([{ defId: "coilDampening", rank: 2 }]);
+		// The other survives; a follow-up tick reports nothing new expired.
+		expect(subject.statusEffects.map((e) => e.defId)).toEqual(["scatteringField"]);
+		const r2 = tickEffects(subject, 1, rng);
+		expect(r2.expired).toEqual([]);
 	});
 });
 

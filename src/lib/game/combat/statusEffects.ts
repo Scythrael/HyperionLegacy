@@ -487,6 +487,19 @@ function dotDamageThisTick(
 	return whole;
 }
 
+// One status effect that lapsed on its own this tick (its timer reached 0 and it
+// was removed by the natural-expiry path). Reported so the caller can emit a
+// DISPLAY-ONLY "effectExpired" log event (Phase 12b): the mechanical removal is
+// unchanged, this is only the record of WHAT was removed so the combat view can
+// drop the status pip. Distinct from a support-drone cleanse (a separate removal
+// path with its own event).
+export interface ExpiredEffect {
+	// Which def lapsed (registry key), for the pip the view drops + any flavor.
+	defId: string;
+	// The rank the effect held at the instant it expired (1..MAX_RANK).
+	rank: number;
+}
+
 // The result of ticking one combatant's effects for one step.
 export interface TickEffectsResult {
 	// DoT hull damage dealt THIS tick, keyed by def id, so resolveBattle can
@@ -496,6 +509,13 @@ export interface TickEffectsResult {
 	// True if this tick's DoT damage brought the combatant to <= 0 hull (so the
 	// caller can log a destruction + let the objective read `alive`).
 	killed: boolean;
+	// The effects that EXPIRED (timer hit 0, removed) this tick, in list order.
+	// DISPLAY-ONLY reporting (Phase 12b): the removal already happened in the
+	// survivors filter below; this array only NAMES what lapsed so the caller can
+	// narrate it under generateLog. Empty when nothing expired this tick. Building
+	// it is pure (no RNG, no extra mutation), so offline (which ignores it) stays
+	// byte-identical.
+	expired: ExpiredEffect[];
 }
 
 // Advance a combatant's status effects by one step (design S4 tick phase):
@@ -522,11 +542,16 @@ export function tickEffects(
 	_rng: Rng,
 ): TickEffectsResult {
 	const dotDamageByDef = new Map<string, number>();
+	// DISPLAY-ONLY (Phase 12b): the effects that lapse this tick, so the caller can
+	// emit an "effectExpired" log event and the combat view can drop the pip. Built
+	// unconditionally (it is pure data, no RNG); the caller reads it only under
+	// generateLog, so offline is byte-identical.
+	const expired: ExpiredEffect[] = [];
 
 	// A dead ship's effects do nothing (they persist untouched; the battle is
 	// ending anyway). No draw, no damage.
 	if (!combatant.alive) {
-		return { dotDamageByDef, killed: false };
+		return { dotDamageByDef, killed: false, expired };
 	}
 
 	const survivors: StatusEffect[] = [];
@@ -542,10 +567,14 @@ export function tickEffects(
 
 		// STEP 2: decrement duration; keep only effects with time left. An effect
 		// deals its damage FIRST, then may expire this same tick (design S4: it
-		// ticks, then expires).
+		// ticks, then expires). An effect that drops to 0 is dropped from survivors
+		// AND recorded in `expired` (DISPLAY-ONLY: the removal is the survivors
+		// filter; the record just names it for the combat view's pip drop).
 		effect.remainingDeciSec -= dtDeciSec;
 		if (effect.remainingDeciSec > 0) {
 			survivors.push(effect);
+		} else {
+			expired.push({ defId: effect.defId, rank: effect.rank });
 		}
 	}
 	combatant.statusEffects = survivors;
@@ -558,5 +587,5 @@ export function tickEffects(
 		killed = true;
 	}
 
-	return { dotDamageByDef, killed };
+	return { dotDamageByDef, killed, expired };
 }

@@ -54,7 +54,10 @@ import type { StatusEffect, WeaponEffect } from "./statusEffects";
 // band + movement helpers that consume it); imported as a TYPE ONLY so the two
 // modules reference each other's shapes with zero runtime cycle (import type is
 // erased at compile time, exactly like the StatusEffect import above).
-import type { CombatStance } from "./positioning";
+// Phase 12b adds RangeBand + CombatPhase from the SAME module for the DISPLAY-ONLY
+// per-round combat-view readout fields on CombatEvent (below); same type-only,
+// zero-runtime-cycle import.
+import type { CombatStance, RangeBand, CombatPhase } from "./positioning";
 
 // Phase 7 drone sub-system type. DroneSquadron lives in drones.ts (with the model,
 // factory + status helpers). Imported as a TYPE ONLY, same zero-runtime-cycle
@@ -414,11 +417,34 @@ export interface CombatEvent {
 	// -- Phase 4 status-effect fields (all optional). --
 	// The disruption/DoT/buff def id this event concerns, for the flavor layer to
 	// switch on (design S16 `disruptionType?`). Set on "effectApplied" events (a
-	// weapon landed a disruption) and on "dot" events (a per-round DoT tick sum).
+	// weapon landed a disruption), on "dot" events (a per-round DoT tick sum), and
+	// on "effectExpired" events (an effect's timer ran out and it was removed).
 	effectDefId?: string;
 	// The rank of the effect at the moment of the event (1..MAX_RANK), so flavor
 	// can read "Plasma Fire II" vs "Plasma Fire" (design S4 aggregated DoT line).
+	// On "effectExpired" this is the rank the effect held at the moment it lapsed.
 	effectRank?: number;
+
+	// Phase 12b combat-view DISPLAY fields (all optional; consumed ONLY by the
+	// combat-view fold / render, NEVER by an outcome path). These carry the per-round
+	// arena readout the design S16 combat view needs: the range track + band label
+	// and the engagement phase narration. They are emitted on the "roundState" event
+	// (one per living combatant per round, under generateLog), so offline resolution
+	// (which never builds the log) sets none of them and stays byte-identical. None
+	// of these ever gate a shot or move a ship; they are pure narration.
+	// The actor-to-target distance on the 1D position axis at this round boundary
+	// (integer, design S6). Feeds the combat view's range-track position. Present on
+	// "roundState" events; absent elsewhere.
+	distance?: number;
+	// The range BAND that `distance` falls in (short / medium / long, from
+	// positioning.ts bandFor, the single source of truth for the thresholds), so
+	// the view labels the current band without re-deriving it. Present on
+	// "roundState" events.
+	band?: RangeBand;
+	// The engagement PHASE for the actor this round (detection -> intercept ->
+	// weapons-ready -> firing, from positioning.ts combatPhase), for the phase
+	// narration line. Present on "roundState" events.
+	phase?: CombatPhase;
 }
 
 // The full cast of a battle: BOTH teams in one flat, team-tagged list. A flat

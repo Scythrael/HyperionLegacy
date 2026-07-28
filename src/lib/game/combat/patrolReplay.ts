@@ -55,6 +55,7 @@ import { resolveBattle } from "./resolveBattle";
 import { replenishDrones } from "./droneDefense";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
 import type { Combatant, CombatEvent, BattleOutcome } from "./types";
+import type { RangeBand, CombatPhase } from "./positioning";
 import type { DroneSquadron } from "./drones";
 // The schedule params mapper + the schedule generator both live in the waveSchedule
 // leaf; the per-wave seed derivation + its two salts live in the waveSeed leaf. Importing
@@ -398,28 +399,25 @@ function unavailableReplay(): PatrolReplay {
 // The combat view renders the arena round-by-round. This folds one wave's CombatEvent[]
 // into an ordered list of per-round snapshots: applying every event with round <= N
 // yields the arena state AT round N. It reads ONLY what the event stream genuinely
-// carries -- per-combatant hull / shield (from each event's hullAfter / shieldAfter)
-// and active status effects (from effectApplied / dot applications and droneCleanse
-// removals). It does NOT invent anything the stream does not provide.
+// carries: per-combatant hull / shield (from each event's hullAfter / shieldAfter),
+// active status effects (from effectApplied / dot applications, removed on droneCleanse
+// AND effectExpired), and the per-round range / band / phase readout (from Phase 12b's
+// "roundState" events). It does NOT invent anything the stream does not provide.
 //
-// ⚠️ WHAT THE STREAM CANNOT FEED (reported honestly, NOT fabricated here): the current
-// CombatEvent shape carries no position/range/band, no phase (detection -> intercept ->
-// weapons-ready -> firing) marker, no absolute per-squadron drone pip counts
-// (online/disrupted/refabricating -- only incremental engage/restore signals exist),
-// and no per-system durability condition (the sim defers durability rolls). Those arena
-// elements must come from elsewhere (the wave's playerStart/enemyStart/playerEnd/enemyEnd
-// combatants give drone start/end summaries via squadronStatusSummary) or await a later
-// unit that emits them. This fold deliberately omits them rather than guessing.
+// ⚠️ WHAT THE STREAM CANNOT FEED (reported honestly, NOT fabricated here): the event
+// stream still carries no absolute per-squadron drone pip counts (online/disrupted/
+// refabricating, only incremental engage/restore signals exist) and no per-system
+// durability condition (the sim defers durability rolls). Those arena elements must come
+// from elsewhere (the wave's playerStart/enemyStart/playerEnd/enemyEnd combatants give
+// drone start/end summaries via squadronStatusSummary) or await a later unit that emits
+// them. This fold deliberately omits them rather than guessing.
 //
-// ⚠️ STATUS-EFFECT EXPIRY CAVEAT (referenced by CombatantSnapshot.effects): a folded
-// status effect does NOT auto-expire here, because the event stream carries no
-// effect-expired event -- only applications (effectApplied / dot) and cleanse removals
-// (droneCleanse). So a status pip added by the fold can LINGER past its real duration,
-// until a cleanse strips it or the wave ends. This is purely COSMETIC (an effect pip
-// never moves hull/shield -- those come from each event's hullAfter/shieldAfter, which
-// are already correct), so it cannot desync the arena bars. It must nonetheless be
-// resolved SIM-SIDE (an emitted expiry event) before the combat view renders status
-// pips; that is a separate, out-of-scope decision, NOT patched in this display fold.
+// STATUS-EFFECT EXPIRY (now handled in Phase 12b): the sim emits a DISPLAY-ONLY
+// "effectExpired" event when an effect's timer runs out and it is removed (the natural-
+// expiry path, distinct from a droneCleanse). The fold consumes it, dropping the pip on
+// expiry, so a status pip no longer lingers past its real duration. (An effect pip never
+// moved hull/shield, which come from each event's hullAfter/shieldAfter, so this only
+// corrects the pip display, it never touched the arena bars.)
 // ---------------------------------------------------------------------------
 
 // One combatant's rendered state at a given round.
@@ -432,17 +430,34 @@ export interface CombatantSnapshot {
   // Last-known shield up to this round, or null if never carried yet.
   shield: number | null;
   // The active status effects on this combatant, each with its latest rank. Built from
-  // effectApplied / dot applications; removed on droneCleanse. See the STATUS-EFFECT
-  // EXPIRY CAVEAT in the per-round-snapshot-fold header block above: these pips do not
-  // auto-expire (the stream emits no expiry event), so one can linger until a cleanse or
-  // wave end -- cosmetic only, never hull/shield.
+  // effectApplied / dot applications; removed on droneCleanse AND on effectExpired (an
+  // effect's timer running out). See the fold header: pips now drop on real expiry, so
+  // one no longer lingers past its duration.
   effects: SnapshotEffect[];
+  // The combatant's engagement RANGE readout at this round (Phase 12b "roundState"):
+  // its distance to its current target + the derived band, for the combat view's range
+  // track + band label. null until a roundState event for this combatant has been folded
+  // (e.g. a combatant seeded only from the baseline before round 0's readout).
+  range: SnapshotRange | null;
+  // The combatant's engagement PHASE at this round (detection -> intercept ->
+  // weapons-ready -> firing), for the phase narration line. null until a roundState
+  // event for this combatant has been folded.
+  phase: CombatPhase | null;
 }
 
 // One active status effect on a combatant at a round (the pip + tooltip data).
 export interface SnapshotEffect {
   defId: string;
   rank: number;
+}
+
+// A combatant's range readout at a round: the raw 1D distance to its current target
+// plus the band that distance falls in (short / medium / long). Both come straight off
+// the sim's "roundState" event (Phase 12b), which derives the band via positioning.ts
+// bandFor (the single source of truth for the thresholds).
+export interface SnapshotRange {
+  distance: number;
+  band: RangeBand;
 }
 
 // The arena state at one round: every combatant that has appeared, keyed by id.
@@ -466,8 +481,12 @@ export function foldWaveSnapshots(
   const hull = new Map<string, number>();
   const shield = new Map<string, number>();
   // id -> (defId -> rank). A nested map so an effect's rank updates in place and a
-  // cleanse removes it cleanly.
+  // cleanse / expiry removes it cleanly.
   const effects = new Map<string, Map<string, number>>();
+  // id -> the combatant's latest range readout (distance + band), from roundState.
+  const range = new Map<string, SnapshotRange>();
+  // id -> the combatant's latest engagement phase, from roundState.
+  const phase = new Map<string, CombatPhase>();
 
   // Seed the baseline from the starting combatants (real start state, not invented).
   if (initial) {
@@ -514,9 +533,27 @@ export function foldWaveSnapshots(
       effects.set(ev.targetId, m);
     }
 
-    // Cleanse removal: a support drone stripped a disruption off its owner.
-    if (ev.type === "droneCleanse" && ev.effectDefId && ev.targetId) {
+    // Effect removal: a support-drone cleanse (droneCleanse) OR a natural expiry
+    // (effectExpired, Phase 12b) strips a disruption off the target. Both drop the pip;
+    // effectExpired is what fixes the fold's former pip over-report (a lingering pip past
+    // its real duration).
+    if (
+      (ev.type === "droneCleanse" || ev.type === "effectExpired") &&
+      ev.effectDefId &&
+      ev.targetId
+    ) {
       effects.get(ev.targetId)?.delete(ev.effectDefId);
+    }
+
+    // Per-round arena readout (Phase 12b "roundState"): the actor's range (distance +
+    // band) and engagement phase. Keyed by the ACTOR (the ship the readout is for), which
+    // the event carries in actorId. Graceful on absent fields (an old log without
+    // roundState simply never sets these, leaving range/phase null).
+    if (ev.type === "roundState" && ev.actorId) {
+      if (ev.distance !== undefined && ev.band !== undefined) {
+        range.set(ev.actorId, { distance: ev.distance, band: ev.band });
+      }
+      if (ev.phase !== undefined) phase.set(ev.actorId, ev.phase);
     }
   };
 
@@ -526,7 +563,7 @@ export function foldWaveSnapshots(
   const snapshots: RoundSnapshot[] = [];
   for (let round = 0; round <= maxRound; round++) {
     for (const ev of byRound.get(round) ?? []) applyEvent(ev);
-    snapshots.push(snapshotOf(round, hull, shield, effects));
+    snapshots.push(snapshotOf(round, hull, shield, effects, range, phase));
   }
   return snapshots;
 }
@@ -538,10 +575,18 @@ function snapshotOf(
   hull: Map<string, number>,
   shield: Map<string, number>,
   effects: Map<string, Map<string, number>>,
+  range: Map<string, SnapshotRange>,
+  phase: Map<string, CombatPhase>,
 ): RoundSnapshot {
   // The union of every id seen in any map (a combatant may appear via hull-only,
-  // shield-only, or effect-only events).
-  const ids = new Set<string>([...hull.keys(), ...shield.keys(), ...effects.keys()]);
+  // shield-only, effect-only, or roundState-only events).
+  const ids = new Set<string>([
+    ...hull.keys(),
+    ...shield.keys(),
+    ...effects.keys(),
+    ...range.keys(),
+    ...phase.keys(),
+  ]);
   const combatants: Record<string, CombatantSnapshot> = {};
   for (const id of ids) {
     const effMap = effects.get(id);
@@ -552,6 +597,10 @@ function snapshotOf(
       effects: effMap
         ? [...effMap.entries()].map(([defId, rank]) => ({ defId, rank }))
         : [],
+      // range/band + phase are per-combatant (from its roundState events); null until
+      // one has been folded (e.g. a baseline-only combatant before round 0's readout).
+      range: range.has(id) ? { ...range.get(id)! } : null,
+      phase: phase.has(id) ? phase.get(id)! : null,
     };
   }
   return { round, combatants };

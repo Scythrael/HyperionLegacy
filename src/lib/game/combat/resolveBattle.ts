@@ -62,7 +62,14 @@ import {
 	activeStatDelta,
 	applyPercentDelta,
 } from "./statusEffects";
-import { stancePreferredDistance, stanceMoveDelta, selectTarget } from "./positioning";
+import {
+	stancePreferredDistance,
+	stanceMoveDelta,
+	selectTarget,
+	bandFor,
+	longestWeaponRange,
+	combatPhase,
+} from "./positioning";
 import { selectFlavorTemplate, FLAVOR_PICK_RANGE } from "./flavor";
 
 // ---------------------------------------------------------------------------
@@ -1076,6 +1083,11 @@ function resolveAmbushOpener(
 	generateLog: boolean,
 	log: CombatEvent[],
 	returnFireReadyTick: Map<string, number>,
+	// DISPLAY-ONLY (Phase 12b): the set of combatant ids that have fired at least
+	// once, so the round-0 phase readout can show the ambusher already "firing". A
+	// pure narration record; only written under generateLog, only read by the phase
+	// derivation, never gates a shot.
+	hasFired: Set<string>,
 ): void {
 	// The ambusher must exist + be alive to open. An unknown/dead id is a caller
 	// mistake we tolerate silently (no opener) rather than throw mid-battle.
@@ -1109,6 +1121,11 @@ function resolveAmbushOpener(
 		if (!weapon.ambushEligible) continue;
 		firedOpener = true;
 		const shot = fireWeapon(ambusher, target, weapon, combat, bypassShields);
+		// DISPLAY-ONLY (Phase 12b): record that the ambusher opened fire, so the
+		// round-0 phase readout narrates it as "firing" from the outset. Gated on
+		// generateLog (the set is only read by the phase readout, itself log-only),
+		// so offline never populates it.
+		if (generateLog && shot.fired) hasFired.add(ambusher.id);
 		// LOG ONLY (gated): an "ambush" event so the flavor layer narrates the
 		// surprise salvo distinctly (result flags hull-direct vs a detected shielded
 		// opener). Stamped at t=0 (the opener precedes tick 1). attachFlavor draws
@@ -1164,6 +1181,68 @@ function resolveAmbushOpener(
 			? RAPID_CHARGE_RETURN_DELAY_DECISEC
 			: AMBUSH_RETURN_DELAY_DECISEC;
 		returnFireReadyTick.set(target.id, delay);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 12b PER-ROUND ARENA READOUT (design S16 combat view). Emit one
+// "roundState" event per LIVING combatant, carrying its range readout (distance
+// to its current target + the derived band) and its engagement phase (detection
+// -> intercept -> weapons-ready -> firing). This is the structured data the
+// combat view renders the range track + band label + phase narration from.
+//
+// DISPLAY-ONLY / OUTCOME-NEUTRAL by construction:
+//   - Called ONLY under generateLog (offline never builds the log, so it emits
+//     none of these and stays byte-identical).
+//   - It READS the sim state the main loop already computed (positions, weapons,
+//     the same selectTarget policy) and derives band/phase via the pure
+//     positioning.ts helpers (bandFor / longestWeaponRange / combatPhase, the
+//     single source of truth for the thresholds). It draws NO RNG, mutates
+//     nothing, and gates no shot.
+//   - It does NOT attach flavor (no cosmetic-stream draw): the view renders these
+//     from the band/phase enums + the distance number directly. That also leaves
+//     every OTHER event's cosmetic flavor selection byte-identical to before this
+//     phase existed (the P12b-1 replay-parity guarantee).
+//
+// PER-COMBATANT (not one aggregate) so the readout is fully general: each ship
+// has its own distance-to-target and phase, and escorts / multi-ship encounters
+// (later phases) fall out for free. The view picks the row it wants to feature
+// (the player's) for the primary range track. A combatant with no living enemy
+// (its side has won) has no engagement to read, so it is skipped.
+// ---------------------------------------------------------------------------
+function emitRoundState(
+	combatants: Combatant[],
+	round: number,
+	tDeciSec: number,
+	hasFired: Set<string>,
+	log: CombatEvent[],
+): void {
+	for (const self of combatants) {
+		if (!self.alive) continue;
+		// The same focus-fire policy the loop uses, so the readout's target matches
+		// the ship the sim is actually engaging. No living enemy => no readout.
+		const target = selectTarget(self, combatants);
+		if (target === undefined) continue;
+
+		const distance = Math.abs(self.position - target.position);
+		const band = bandFor(distance);
+		const phase = combatPhase(
+			round,
+			distance,
+			longestWeaponRange(self),
+			hasFired.has(self.id),
+		);
+
+		log.push({
+			tDeciSec,
+			round,
+			type: "roundState",
+			actorId: self.id,
+			targetId: target.id,
+			distance,
+			band,
+			phase,
+		});
 	}
 }
 
@@ -1239,6 +1318,14 @@ export function resolveBattle(
 	// leaves it an empty array (and pays for none of the pushes/flavor draws).
 	const log: CombatEvent[] = [];
 
+	// PHASE 12b DISPLAY-ONLY: the set of combatant ids that have fired at least one
+	// shot (or ambush salvo) so far, the sole input the phase readout needs beyond
+	// pure geometry to tell "weapons-ready" from "firing". Written ONLY under
+	// generateLog (inside the fire path's existing log guard + the ambush opener),
+	// read ONLY by the per-round roundState emission. It draws no RNG and gates
+	// nothing, so offline never touches it and stays byte-identical.
+	const hasFired = new Set<string>();
+
 	// PHASE 6 ENCOUNTER OPEN (design S6): pre-charge weapons so the first to enter
 	// range fires immediately. Seed every weapon's cooldownAccumulator to its full
 	// cooldownDeciSec, so on tick 1 it is already ready and fires the instant the
@@ -1272,6 +1359,7 @@ export function resolveBattle(
 			generateLog,
 			log,
 			returnFireReadyTick,
+			hasFired,
 		);
 	}
 
@@ -1320,6 +1408,12 @@ export function resolveBattle(
 		dotRoundAccum.clear();
 	};
 
+	// PHASE 12b DISPLAY-ONLY: the last round we emitted per-round arena readout
+	// ("roundState") events for. Starts at -1 so round 0 (the opening) emits on the
+	// very first tick. Only advanced under generateLog (offline emits none). See the
+	// emit block at the top of the loop.
+	let lastRoundStateRound = -1;
+
 	// Decided-outcome holder. Set the moment the objective resolves; the loop
 	// breaks and we package the outcome after.
 	let decided: "player" | "enemy" | "draw" | null = null;
@@ -1342,6 +1436,23 @@ export function resolveBattle(
 		if (generateLog && round !== dotAccumRound) {
 			flushDotRound(dotAccumRound);
 			dotAccumRound = round;
+		}
+
+		// PHASE 12b DISPLAY-ONLY: on the FIRST tick of each round, emit one
+		// "roundState" event per living combatant carrying its range readout (distance
+		// to its current target + the derived band) and its engagement phase, so the
+		// combat view can render the range track + band label + phase narration (design
+		// S16). This is PURE NARRATION: it samples position/target the sim already
+		// holds, derives band/phase via the positioning.ts helpers (the single source
+		// of truth for the thresholds), draws NO RNG, mutates nothing, and never gates a
+		// shot. Emitted at the round's opening (before this round's movement/firing), so
+		// it reads as the state ENTERING the round. Gated on generateLog, so offline
+		// emits none of it and stays byte-identical. No cosmetic-stream draw either (the
+		// view renders these from the enum/number directly, not a flavor line), which
+		// also keeps every OTHER event's flavor selection byte-identical to before.
+		if (generateLog && round !== lastRoundStateRound) {
+			emitRoundState(combatants, round, t, hasFired, log);
+			lastRoundStateRound = round;
 		}
 
 		// Iterate combatants in the fixed id order. A combatant that died earlier
@@ -1426,6 +1537,9 @@ export function resolveBattle(
 				// stream only), replacing the Phase-3 throwaway draw with the real
 				// Phase-12 flavor selection.
 				if (generateLog && shot.fired) {
+					// PHASE 12b DISPLAY-ONLY: mark that this ship has opened fire, so its
+					// phase readout advances to "firing" from the next round boundary on.
+					hasFired.add(self.id);
 					// A shot with zero connecting projectiles reads as an evade; any
 					// connection is a hit. The flavor layer reads the detail fields to
 					// pick the most specific line (crit / attenuated / shield-break / family).
@@ -1749,8 +1863,27 @@ export function resolveBattle(
 		// invariant holds. Only the per-round LOG aggregation is gated below.
 		for (const self of combatants) {
 			if (!self.alive) continue;
-			const { dotDamageByDef, killed } = tickEffects(self, DT_DECISEC, combat);
+			const { dotDamageByDef, killed, expired } = tickEffects(self, DT_DECISEC, combat);
 			if (!generateLog) continue;
+			// PHASE 12b DISPLAY-ONLY: one "effectExpired" event per effect that lapsed
+			// on its own this tick (timer reached 0). The mechanical removal already
+			// happened inside tickEffects (the survivors filter); this only NARRATES it
+			// so the combat view can drop the status pip, fixing the fold's pip
+			// over-report. Distinct from "droneCleanse" (a support-drone removal). No
+			// cosmetic draw (the view renders it from the effect def, not a flavor line),
+			// keeping every other event's flavor byte-identical. Gated on generateLog, so
+			// offline emits none of it.
+			for (const lapsed of expired) {
+				log.push({
+					tDeciSec: t,
+					round,
+					type: "effectExpired",
+					targetId: self.id,
+					result: "effectExpired",
+					effectDefId: lapsed.defId,
+					effectRank: lapsed.rank,
+				});
+			}
 			// Accumulate this tick's DoT damage into the current round's bucket, one
 			// entry per (combatant, defId), for the aggregated round line.
 			for (const [defId, dmg] of dotDamageByDef) {
