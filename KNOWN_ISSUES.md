@@ -542,3 +542,41 @@ write it down so you don't relitigate it later.
   exported and are exercised only by `fabricator.test.ts`. Inert (no broken references, no runtime path), left in
   place rather than deleted piecemeal; safe to remove in a dedicated cleanup pass (and to drop the tests that pin
   them), same "leave the orphan for a focused cleanup" posture as the orphaned-CSS entries above. Not a bug.
+
+## Autonomous bug-hunt, 2026-07-29 (Opus, while user away)
+
+Five parallel hunters swept combat sim, economy/tick, save/migration, Svelte UI/reactivity, and helpers/display. UI and economy came back essentially clean. Three safe, verified fixes were applied + tested + committed (branch feat/combat-0.13.0); everything below was DEFERRED because it changes deterministic combat outcomes, changes a live readout, needs a balance/design call, or is a non-bug. Nothing here is pushed past devpreview.
+
+### FIXED this pass (committed, tests green at 1576)
+- **Save soft-brick** (`1f793e1`): `deserialize()` accepted a decompressible-but-malformed save (valid JSON, wrong shape), which `importRawSave` then persisted and the next load crashed on, white-screening every reload. Now structurally validated (integer version + non-null object state) -> routes to corrupt-recovery. Regression test added.
+- **"1000K" formatting** (`5227494`): `formatNumber`/`formatDecimal` printed the malformed "1000K"/"1000M" at tier boundaries (e.g. 999999) instead of rolling to "1.00M"/"1.00B". Affects the real Decimal currency path. Tier now rolls up after rounding; decimals chosen sign-safely (this also hardened the latent negative-large-magnitude 2-decimal quirk). Boundary tests added.
+- **Stale `economyTick` comment** (`7b8b731`): header claimed a single whole-span call; corrected to the actual per-tick chunk loop. Comment-only.
+
+### DEFERRED, needs a user decision
+
+- **[COMBAT, correctness/balance] Weapons + offense-drones bank cooldown while OUT of range, then burst-fire on entry.** `resolveBattle.ts:1714-1738` (weapons) + `:1916-1992` (drones). The cooldown accumulator increments every tick but the out-of-range `continue` neither subtracts a period nor caps it, so a weapon that sits ready-but-out-of-range banks K extra ticks and dumps ~K/cooldown back-to-back shots when it closes into range (e.g. an autocannon closing from long range can fire 35+ shots in ~35 ticks). Deterministic (offline==live identical), so NOT a parity break, but it front-loads a damage burst that shifts damage timing, round counts, and MAX_TICKS hull%-tiebreaks. Proposed minimal fix (cap the accumulator at the ready threshold on the out-of-range branch):
+  ```ts
+  // weapons, at the out-of-range continue (~:1733):
+  if (distance > effectiveRange) {
+    if (weapon.cooldownAccumulator > weapon.cooldownDeciSec) weapon.cooldownAccumulator = weapon.cooldownDeciSec;
+    continue;
+  }
+  // drones, at the out-of-range continue (~:1987):
+  if (droneDistance > squadron.range) {
+    if (squadron.cooldownAccumulator > squadron.attackCooldownDeciSec) squadron.cooldownAccumulator = squadron.attackCooldownDeciSec;
+    continue;
+  }
+  ```
+  WHY DEFERRED: this changes deterministic sim outcomes, so it needs combat fixtures rebaselined AND a balance judgment on whether the "charged burst" is even undesirable. Not an autonomous change.
+
+- **[COMBAT, missing-wiring/balance] `emitterOverload` (damageTaken) and `harmonicGap` (attenuation) disruptions proc but do nothing.** `statusEffects.ts:66-67` label them "applied Phase 5"; Voltaic (`weapons.ts:180`) + the registry roll `emitterOverload`, but `applyProjectileDamage` (`resolveBattle.ts:420-548`) never reads `damageTaken`/`attenuation` from the target's statusEffects (grep-confirmed: only speed/shieldRecharge/accuracy/maneuver/weaponDamage/range are consumed). So a landed Emitter Overload / Harmonic Gap is inert. Either a genuine missing wire or a stale deferral (comment says Phase 5, we are at 12b). Affects balance, not determinism. Wiring it into the mitigation pipeline (where in the order, fixture rebaseline) is a design call.
+
+- **[COMBAT, design] Intra-tick targeting does not re-check liveness.** `selectTarget` runs once per combatant per tick (`resolveBattle.ts:1686`); all that ship's weapons + drone squadrons then fire at that same target. So (1) if an early weapon kills the target, remaining weapons/drones still fire at the corpse (rolling draws) instead of retargeting, and (2) a drone reflect/counter can kill `self` mid-loop yet the ship keeps firing its remaining weapons that tick, contradicting the "a killed ship cannot fire back within the tick it dies" note at `:1676-1678`. Deterministic (not a parity break). Whether to re-select/guard per-weapon is a design call with fixture-rebaseline implications.
+
+- **[SAVE, product call] No downgrade guard for a FUTURE-version save.** `migrate()` (`save.ts:1296`) never checks `save.version <= SAVE_VERSION`; a save from a newer build skips all migrations and is hydrated against the current shape (possible missing-field crash / silent drift). The new deserialize shape guard already neutralizes the oddly-typed-version edge (a string version is rejected). Deciding whether to hard-reject a future version (route to recovery) vs best-effort load is a product call.
+
+- **[FORMAT, live readout] Negative magnitudes in [10,1000) floor toward -infinity, not toward zero.** `format.ts:22` (`Math.floor`): e.g. a fuel net of -50.7/tick renders "-51" (positive 50.7 -> "50"). Only live caller is the fuel `netPerTick` chip. NOT fixed autonomously because switching to `Math.trunc` would change a value currently on screen; flagging so you can eyeball it first (trivial one-word go if you want it).
+
+- **[DOC hygiene] `KNOWN_ISSUES.md` fuel entries are stale vs code.** Older Session-32 entries describe the Fuel Depot feedstock as `commonOre` and `FUEL_PER_TICK = 0.1`; the shipped code uses a dedicated `deuteriumIce` item and `FUEL_PER_TICK = 1` (an intentional, documented revert at `model.ts:833-847`). No code impact; the fuel entries above/below just need a refresh so the current shape is not rediscovered as a surprise.
+
+- **[UI, non-bug watch-item] Some `{#each}` captain lists lack `(captain.id)` keys.** `App.svelte:6854`, `:8498`, `:7273` (keyed siblings exist at `:8630`/`:8667`). Harmless today (the cards hold no local/bound state and captains are append-only); would only matter if a captain were removed from the middle AND the cards later gained transient per-card state. Adding the keys would future-proof + match the rest of the file. Left untouched per do-not-rewrite-working-code.
