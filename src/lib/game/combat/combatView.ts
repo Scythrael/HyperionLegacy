@@ -14,9 +14,12 @@
 // (design S17 / patrolReplay.ts's HARD CONTRACT) all the way down to the pixels.
 // ============================================================================
 
-import type { CombatEvent } from "./types";
+import type { CombatEvent, Combatant } from "./types";
 import { BAND_LONG } from "./positioning";
 import type { SquadronStatusSummary } from "./drones";
+// Type-only import (no runtime dependency, so no import cycle): the mobile roster
+// helpers below read a folded RoundSnapshot to find each enemy's CURRENT hull.
+import type { RoundSnapshot } from "./patrolReplay";
 
 // ---------------------------------------------------------------------------
 // currentReplayWaveIndex: which wave the view should show for a live patrol.
@@ -155,4 +158,80 @@ export function dronePips(summary: SquadronStatusSummary): DronePip[] {
     pips.push({ cls: "offline", title: "Destroyed" });
   }
   return pips;
+}
+
+// ---------------------------------------------------------------------------
+// logSpeedToMs: the combat-view log-stream cadence, in milliseconds.
+//
+// The mobile control row exposes a Speed toggle (1s / 5s) alongside the mode
+// toggle. This is the ONE place the two speeds map to their reveal-interval
+// delays, so the component never hard-codes a magic millisecond literal and the
+// mapping is unit-tested. "fast" is the default (design S16: "streams ~1 round/
+// second live"); "slow" is the relaxed 5-second cadence for reading the log.
+// ---------------------------------------------------------------------------
+export type LogSpeed = "fast" | "slow";
+export function logSpeedToMs(speed: LogSpeed): number {
+  return speed === "slow" ? 5000 : 1000;
+}
+
+// ---------------------------------------------------------------------------
+// targetEnemyId: which living enemy the sim is focus-firing this round.
+//
+// The battle sim focus-fires the enemy with the LOWEST current hull, so the
+// mobile roster marks that ship as the TARGET. This is a pure read of the wave's
+// enemy combatants against the current folded snapshot: each enemy's CURRENT hull
+// is its snapshot hull (falling back to its wave-start hull before the first
+// snapshot exists, or when a snapshot never carried a hull for it). A destroyed
+// enemy (hull <= 0) can never be the target. Ties break to the FIRST enemy in
+// wave order (stable), matching the deterministic sim's own turn-order tiebreak.
+//
+// RETURNS the target enemy's id, or null when every enemy is destroyed (or the
+// wave has no enemies).
+// ---------------------------------------------------------------------------
+export function targetEnemyId(
+  enemies: readonly Combatant[],
+  snap: RoundSnapshot | null,
+): string | null {
+  let bestId: string | null = null;
+  let bestHull = Number.POSITIVE_INFINITY;
+  for (const enemy of enemies) {
+    // Nullish (null snapshot value OR no snapshot yet) falls back to the wave-start
+    // hull, so a never-targeted enemy still reports its opening pool.
+    const hull = snap?.combatants[enemy.id]?.hull ?? enemy.hull;
+    if (hull <= 0) continue; // destroyed, not a valid focus-fire target
+    // Strict < keeps the FIRST enemy on a tie (stable, matches the sim tiebreak).
+    if (hull < bestHull) {
+      bestHull = hull;
+      bestId = enemy.id;
+    }
+  }
+  return bestId;
+}
+
+// The living / destroyed split of an enemy wave, for the roster's "Enemy Wave (N)"
+// header + its "K down" count.
+export interface EnemyWaveTally {
+  living: number;
+  down: number;
+}
+
+// ---------------------------------------------------------------------------
+// enemyWaveTally: how many enemies are still alive vs destroyed this round.
+//
+// Same CURRENT-hull read as targetEnemyId (snapshot hull, falling back to the
+// wave-start hull): an enemy with hull <= 0 is counted as down, otherwise living.
+// Pure over the enemies + snapshot so the header counts are testable without a DOM.
+// ---------------------------------------------------------------------------
+export function enemyWaveTally(
+  enemies: readonly Combatant[],
+  snap: RoundSnapshot | null,
+): EnemyWaveTally {
+  let living = 0;
+  let down = 0;
+  for (const enemy of enemies) {
+    const hull = snap?.combatants[enemy.id]?.hull ?? enemy.hull;
+    if (hull <= 0) down += 1;
+    else living += 1;
+  }
+  return { living, down };
 }

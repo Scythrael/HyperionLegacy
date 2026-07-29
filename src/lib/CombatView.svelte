@@ -49,6 +49,10 @@
     rangeMarkerPercent,
     logLineClass,
     dronePips,
+    logSpeedToMs,
+    targetEnemyId,
+    enemyWaveTally,
+    type LogSpeed,
   } from "./game/combat/combatView";
 
   // --- Props ------------------------------------------------------------------
@@ -79,9 +83,13 @@
     standoff: "Standoff",
   };
 
-  // How long one round of the log lingers before the next is revealed (design
-  // S16: "streams ~1 round/second live"). One knob, not a magic literal.
-  const ROUND_MS = 1000;
+  // How long one round of the log lingers before the next is revealed. The player
+  // picks the cadence via the Speed toggle (Fast 1s / Slow 5s); logSpeedToMs is the
+  // single source of truth for the mapping (design S16: "streams ~1 round/second
+  // live" is the Fast default). `logSpeed` is plain state toggled by a click handler,
+  // never a reactive side effect, so changing it cannot re-enter the flush loop that
+  // once froze this component (see the afterUpdate note below).
+  let logSpeed: LogSpeed = "fast";
 
   // ==========================================================================
   // REPLAY (memoized). replayPatrol is a pure, read-only reproduction of the
@@ -143,16 +151,39 @@
     }
   }
 
+  // Create (or re-create) the reveal interval at the CURRENT speed, revealing one
+  // round per tick until the wave's final round. It does NOT reset revealedRound, so
+  // it is reused both to start a wave (after revealedRound is zeroed) and to re-cadence
+  // an in-flight stream when the speed toggle flips, WITHOUT rewinding. It reads the
+  // live maxRound + logSpeed each call, so a later wave-change / speed-change is always
+  // current. No-op once already settled (nothing left to reveal).
+  function createTimer(): void {
+    stopTimer();
+    if (revealedRound >= maxRound) return;
+    timer = setInterval(() => {
+      revealedRound += 1;
+      if (revealedRound >= maxRound) stopTimer();
+    }, logSpeedToMs(logSpeed));
+  }
+
   // (Re)start streaming a wave from round 0. A single-round (or empty) wave has
   // nothing to reveal over time, so it settles immediately with no timer.
   function startStream(max: number): void {
     stopTimer();
     revealedRound = 0;
     if (max <= 0) return;
-    timer = setInterval(() => {
-      revealedRound += 1;
-      if (revealedRound >= max) stopTimer();
-    }, ROUND_MS);
+    createTimer();
+  }
+
+  // Speed-toggle click handler. Changing the cadence re-creates the running interval
+  // at the new delay from the CURRENT round (revealedRound is untouched, so the log
+  // does not rewind); if the stream is not currently running (settled, or a single-
+  // round wave), there is no timer to re-cadence and this only records the choice.
+  // Driven from the click, never a reactive `$:`, so it introduces no side-effect loop.
+  function chooseSpeed(next: LogSpeed): void {
+    if (next === logSpeed) return;
+    logSpeed = next;
+    if (timer !== null) createTimer();
   }
 
   // Skip-to-end: settle the arena + log on the wave's final state at once.
@@ -340,6 +371,40 @@
   $: playerSystemPips = systemPipLabels(playerSnap?.systemConditions ?? null);
   $: enemySystemPips = systemPipLabels(enemySnap?.systemConditions ?? null);
 
+  // ==========================================================================
+  // MOBILE ROSTER DERIVATIONS (narrow-screen layout). The mobile block renders a
+  // compact row PER enemy (the desktop arena features only the first + lists the
+  // rest), so it needs the whole wave's enemy list plus two pure roll-ups: which
+  // living enemy the sim is focus-firing (the TARGET marker) and the living/down
+  // split for the "Enemy Wave (N) / K down" header. Both read the SAME snapshot the
+  // arena does, so the two layouts never diverge. All pure (combatView.ts helpers).
+  // ==========================================================================
+  $: waveEnemies = wave ? wave.enemyStart : [];
+  $: currentTargetId = wave ? targetEnemyId(wave.enemyStart, snap) : null;
+  $: waveTally = wave ? enemyWaveTally(wave.enemyStart, snap) : { living: 0, down: 0 };
+  // The player row's stable id, so the tap-expand toggle can key the player row the
+  // same way it keys each enemy row (by combatant id).
+  $: playerRowId = wave ? wave.playerStart.id : "player";
+
+  // Tap-to-expand state for the mobile roster: the id of the single expanded row, or
+  // null when all rows are collapsed. PLAIN state toggled ONLY by the row click
+  // handler below, never a reactive side effect (HARD reactivity contract: a $: with
+  // a side effect in this perpetually-recomputing component risks the flush loop that
+  // once froze the tab). A stale id after a wave change simply matches no row and the
+  // row shows collapsed, so no reset side effect is needed.
+  let expandedId: string | null = null;
+  function toggleExpanded(id: string): void {
+    expandedId = expandedId === id ? null : id;
+  }
+  // The drone source for one enemy row's expanded detail: the END squadron once the
+  // wave has settled, else the START squadron (mirrors the desktop enemyDroneSrc rule,
+  // per enemy). Pure lookup, safe to call from markup.
+  function enemyDroneSource(index: number) {
+    if (!wave) return null;
+    const end = settled ? wave.enemyEnd[index] : undefined;
+    return end ?? wave.enemyStart[index] ?? null;
+  }
+
   // --- Bar width helpers ------------------------------------------------------
   // Percentage width for a bar, clamped 0..100 and guarded against a 0 max.
   function pct(value: number, max: number): number {
@@ -401,6 +466,13 @@
         <div class="mode" role="tablist" aria-label="Combat view mode">
           <button class:on={mode === "log"} on:click={() => (mode = "log")}>Log-Guided</button>
           <button class:on={mode === "visual"} on:click={() => (mode = "visual")}>Visual</button>
+        </div>
+        <!-- Log-stream speed toggle. Restarts the reveal interval at the new cadence
+             from the current round (never rewinds); see chooseSpeed. -->
+        <div class="mode speed" role="group" aria-label="Log stream speed">
+          <span class="seglab">Speed</span>
+          <button class:on={logSpeed === "fast"} on:click={() => chooseSpeed("fast")} aria-pressed={logSpeed === "fast"}>1s</button>
+          <button class:on={logSpeed === "slow"} on:click={() => chooseSpeed("slow")} aria-pressed={logSpeed === "slow"}>5s</button>
         </div>
         <button class="cv-close" on:click={onClose} aria-label="Close">Close</button>
       </div>
@@ -538,6 +610,176 @@
       </div>
     </div>
 
+    <!-- MOBILE LAYOUT (narrow screens only; hidden on desktop via CSS, where the
+         .arena above is shown instead). Purpose-built per the approved mockup: a
+         pinned status band (range + band + phase, always visible without scrolling)
+         and a compact roster of tappable rows grouped by side. It reads the SAME
+         reactive vars the desktop arena does, so the two never diverge. -->
+    <div class="cv-mobile">
+      <!-- STATUS BAND: range track + current band + engagement phase, pinned under
+           the controls so the phase is always on screen (the original complaint). -->
+      <div class="cvm-status">
+        <div class="cvm-block">
+          <span class="cvm-lab">Range</span>
+          <div class="cvm-rangetrack">
+            <div class="cvm-marker" style="left:{markerPct}%" title="current distance"></div>
+          </div>
+          <div class="cvm-rangelabels"><span>Short</span><span>Med</span><span>Long</span></div>
+        </div>
+        <div class="cvm-block">
+          <span class="cvm-lab">Band</span>
+          <span class="cvm-band">{rangeBand ? BAND_LABEL[rangeBand] : "..."}</span>
+        </div>
+        <div class="cvm-block">
+          <span class="cvm-lab">Phase</span>
+          <span class="cvm-phase">{phase ? PHASE_LABEL[phase] : "..."}</span>
+        </div>
+      </div>
+
+      <!-- ROSTER: compact rows grouped by side. Each row is a <button> so it is
+           keyboard-operable (tap / Enter / Space) and reports its expanded state. -->
+      <div class="cvm-roster">
+        <!-- YOUR SHIP -->
+        <div class="cvm-side-lab"><span>Your Ship</span><span class="cvm-hint">tap a row for detail</span></div>
+        <button
+          type="button"
+          class="cvm-row"
+          class:expanded={expandedId === playerRowId}
+          on:click={() => toggleExpanded(playerRowId)}
+          aria-expanded={expandedId === playerRowId}
+        >
+          <div class="cvm-ico">{"\u{1F6E1}️"}</div>
+          <div class="cvm-main">
+            <div class="cvm-name">{playerName}</div>
+            <div class="cvm-sub">{shipClassLabel}{#if shipClassLabel} &middot; {/if}{stanceLabel}</div>
+            <div class="cvm-mbars">
+              <div class="cvm-mbar hull"><span style="width:{pct(playerHull, playerHullMax)}%"></span></div>
+              <div class="cvm-mbar shield"><span style="width:{pct(playerShield, playerShieldMax)}%"></span></div>
+            </div>
+          </div>
+          <div class="cvm-vals">{num(playerHull)}/{num(playerHullMax)}<br /><span class="s">{num(playerShield)}/{num(playerShieldMax)}</span></div>
+          {#if expandedId === playerRowId}
+            <div class="cvm-detail">
+              {#if playerSystemPips.length > 0}
+                <div class="cvm-drow">
+                  <span class="cvm-dl">Systems</span>
+                  <span class="cvm-mini">
+                    {#each playerSystemPips as sp (sp.pip.id)}
+                      <span class="pip {sp.pip.condition}" title={sp.label}></span>
+                    {/each}
+                  </span>
+                </div>
+              {/if}
+              <div class="cvm-drow">
+                <span class="cvm-dl">Effects</span>
+                <span class="cvm-mini">
+                  {#if playerSnap && playerSnap.effects.length > 0}
+                    {#each playerSnap.effects as e (e.defId)}
+                      <span class="pip {effectPipClass(e.defId)}" title={effectPipTitle(e.defId, e.rank)}>{effectPipGlyph(e.defId)}</span>
+                    {/each}
+                  {:else}
+                    <span class="cvm-none">none</span>
+                  {/if}
+                </span>
+              </div>
+              {#if playerDroneSrc}
+                {#each playerDroneSrc.drones as squadron (squadron.id)}
+                  <div class="cvm-drow">
+                    <span class="cvm-dl">{squadron.model}</span>
+                    <span class="cvm-mini">
+                      {#each dronePips(squadronStatusSummary(squadron)) as dp}
+                        <span class="pip {dp.cls}" title={dp.title}></span>
+                      {/each}
+                    </span>
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </button>
+
+        <!-- ENEMY WAVE (all enemies as compact rows; scales to N). -->
+        <div class="cvm-side-lab foe">
+          <span>Enemy Wave &middot; {waveTally.living}</span>
+          {#if waveTally.down > 0}<span class="cvm-hint">{waveTally.down} down</span>{/if}
+        </div>
+        {#each waveEnemies as enemy, i (enemy.id)}
+          {@const es = snap ? snap.combatants[enemy.id] ?? null : null}
+          {@const eHull = es?.hull ?? enemy.hull}
+          {@const eShield = es?.shield ?? enemy.shield}
+          {@const destroyed = eHull <= 0}
+          {@const isTarget = enemy.id === currentTargetId}
+          {@const eLabel = wave && wave.enemyLabels[i] ? wave.enemyLabels[i] : "Hostile"}
+          {@const ePips = systemPipLabels(es?.systemConditions ?? null)}
+          {@const eDroneSrc = enemyDroneSource(i)}
+          <button
+            type="button"
+            class="cvm-row foe"
+            class:target={isTarget}
+            class:destroyed
+            on:click={() => toggleExpanded(enemy.id)}
+            aria-expanded={expandedId === enemy.id}
+          >
+            <div class="cvm-ico">{destroyed ? "\u{1F480}" : "☠️"}</div>
+            <div class="cvm-main">
+              <div class="cvm-name">
+                <span class="cvm-nametext">{eLabel}</span>
+                {#if isTarget && !destroyed}<span class="cvm-tgt">TARGET</span>{/if}
+              </div>
+              <div class="cvm-sub">{destroyed ? "destroyed" : faction ? faction.name : "Hostile"}</div>
+              {#if !destroyed}
+                <div class="cvm-mbars">
+                  <div class="cvm-mbar ehull"><span style="width:{pct(eHull, enemy.hullMax)}%"></span></div>
+                  <div class="cvm-mbar eshield"><span style="width:{pct(eShield, enemy.shieldMax)}%"></span></div>
+                </div>
+              {/if}
+            </div>
+            <div class="cvm-vals">
+              {num(eHull)}/{num(enemy.hullMax)}{#if !destroyed}<br /><span class="s">{num(eShield)}/{num(enemy.shieldMax)}</span>{/if}
+            </div>
+            {#if expandedId === enemy.id && !destroyed}
+              <div class="cvm-detail">
+                {#if ePips.length > 0}
+                  <div class="cvm-drow">
+                    <span class="cvm-dl">Systems</span>
+                    <span class="cvm-mini">
+                      {#each ePips as sp (sp.pip.id)}
+                        <span class="pip {sp.pip.condition}" title={sp.label}></span>
+                      {/each}
+                    </span>
+                  </div>
+                {/if}
+                <div class="cvm-drow">
+                  <span class="cvm-dl">Effects</span>
+                  <span class="cvm-mini">
+                    {#if es && es.effects.length > 0}
+                      {#each es.effects as e (e.defId)}
+                        <span class="pip {effectPipClass(e.defId)}" title={effectPipTitle(e.defId, e.rank)}>{effectPipGlyph(e.defId)}</span>
+                      {/each}
+                    {:else}
+                      <span class="cvm-none">none</span>
+                    {/if}
+                  </span>
+                </div>
+                {#if eDroneSrc}
+                  {#each eDroneSrc.drones as squadron (squadron.id)}
+                    <div class="cvm-drow">
+                      <span class="cvm-dl">{squadron.model}</span>
+                      <span class="cvm-mini">
+                        {#each dronePips(squadronStatusSummary(squadron)) as dp}
+                          <span class="pip {dp.cls}" title={dp.title}></span>
+                        {/each}
+                      </span>
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    </div>
+
     <!-- LOG / VISUAL body. -->
     {#if mode === "log"}
       <div class="log">
@@ -660,6 +902,22 @@
     color: var(--color-accent-bright);
     font-weight: 600;
   }
+  /* Speed toggle: same segmented look as the mode toggle, with a small inline
+     label so "1s / 5s" reads as a cadence, not an unrelated pair of buttons. */
+  .mode.speed {
+    align-items: center;
+  }
+  .mode.speed .seglab {
+    font-size: 8.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    padding: 0 8px;
+    border-right: 1px solid var(--color-border);
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+  }
   .cv-close,
   .cv-skip {
     background: transparent;
@@ -695,12 +953,36 @@
     align-items: start;
     overflow-y: auto;
   }
+  /* RESPONSIVE SWITCH. The desktop arena is the default; the mobile block is hidden
+     until the viewport narrows past 760px, at which point the arena hides and the
+     purpose-built mobile layout takes over. Both read the same reactive vars, so this
+     is a pure presentation swap with no data divergence. Desktop styling above is
+     left exactly as-is (Rule 15: do not restructure working desktop layout). */
+  .cv-mobile {
+    display: none;
+  }
   @media (max-width: 760px) {
     .arena {
-      grid-template-columns: 1fr;
+      display: none;
     }
-    .center-col {
-      order: 3;
+    .cv-mobile {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    /* On mobile the log fills the remaining height and scrolls internally, rather
+       than the desktop's fixed 230px cap, so the log (the reading focus) owns the
+       space left under the pinned status band + roster. */
+    .log {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .log-body {
+      max-height: none;
+      flex: 1;
     }
   }
   .ship {
@@ -1032,5 +1314,256 @@
   }
   .ln.atten {
     color: var(--color-accent);
+  }
+
+  /* ==========================================================================
+     MOBILE LAYOUT (cvm- prefix). Namespaced so nothing here can bleed into the
+     desktop arena rules above. Mirrors the approved mobile mockup: a pinned status
+     band, then compact tappable rows. All colors are theme vars or literals that
+     match a theme var's value (the same danger/warning tints the desktop arena +
+     pips use), keeping the two layouts visually consistent.
+     ========================================================================== */
+
+  /* STATUS BAND: range track + band + phase, always visible under the controls. */
+  .cvm-status {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-bg-mid, var(--color-bg-deep));
+  }
+  .cvm-block {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .cvm-lab {
+    font-size: 8px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+  }
+  .cvm-rangetrack {
+    position: relative;
+    width: 120px;
+    height: 6px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.24));
+    border: 1px solid var(--color-border);
+  }
+  .cvm-marker {
+    position: absolute;
+    top: -4px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    box-shadow: 0 0 7px rgba(var(--color-accent-rgb), 0.7);
+    transform: translateX(-50%);
+    transition: left 0.4s ease;
+  }
+  .cvm-rangelabels {
+    display: flex;
+    justify-content: space-between;
+    width: 120px;
+    font-size: 7.5px;
+    letter-spacing: 0.06em;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+  }
+  .cvm-band {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-accent-bright);
+  }
+  .cvm-phase {
+    font-family: var(--font-display);
+    font-size: 12px;
+    color: var(--color-warning);
+    letter-spacing: 0.05em;
+  }
+
+  /* ROSTER: grouped, compact rows. */
+  .cvm-roster {
+    border-bottom: 1px solid var(--color-border);
+  }
+  .cvm-side-lab {
+    font-size: 8.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    padding: 8px 14px 4px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .cvm-side-lab.foe {
+    color: var(--color-danger);
+  }
+  .cvm-side-lab .cvm-hint {
+    color: var(--color-text-dim);
+    font-weight: 400;
+  }
+
+  /* A row is a <button> reset to a slim grid: icon | body | values, with an
+     expanded detail block spanning the full width when opened. */
+  .cvm-row {
+    display: grid;
+    grid-template-columns: 30px 1fr auto;
+    gap: 9px;
+    align-items: center;
+    width: 100%;
+    text-align: left;
+    padding: 7px 14px;
+    border: 0;
+    border-top: 1px solid rgba(var(--color-accent-rgb), 0.06);
+    background: rgba(var(--color-accent-rgb), 0.03);
+    color: var(--color-text-primary);
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .cvm-row:hover {
+    background: rgba(var(--color-accent-rgb), 0.06);
+  }
+  .cvm-row.foe {
+    background: rgba(248, 113, 113, 0.05);
+  }
+  .cvm-row.foe:hover {
+    background: rgba(248, 113, 113, 0.08);
+  }
+  /* The focus-fire target gets a warning spine on its leading edge. */
+  .cvm-row.target {
+    box-shadow: inset 3px 0 0 var(--color-warning);
+  }
+  .cvm-row.expanded {
+    background: rgba(var(--color-accent-rgb), 0.07);
+  }
+  .cvm-row.destroyed {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .cvm-ico {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    border: 1px solid var(--color-border);
+    background: rgba(var(--color-accent-rgb), 0.06);
+  }
+  .cvm-row.foe .cvm-ico {
+    border-color: rgba(248, 113, 113, 0.3);
+    background: rgba(248, 113, 113, 0.06);
+  }
+  .cvm-main {
+    min-width: 0;
+  }
+  .cvm-name {
+    font-size: 12.5px;
+    color: var(--color-text-primary);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .cvm-row.foe .cvm-name {
+    color: #fca5a5;
+  }
+  .cvm-row.destroyed .cvm-nametext {
+    text-decoration: line-through;
+  }
+  .cvm-tgt {
+    font-size: 8px;
+    color: var(--color-warning);
+    border: 1px solid rgba(251, 191, 36, 0.5);
+    border-radius: 4px;
+    padding: 0 4px;
+    letter-spacing: 0.08em;
+  }
+  .cvm-sub {
+    font-size: 9.5px;
+    color: var(--color-text-dim);
+    margin-top: 1px;
+  }
+  /* Stacked micro-bars: hull over shield. */
+  .cvm-mbars {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 4px;
+  }
+  .cvm-mbar {
+    position: relative;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--color-border);
+    overflow: hidden;
+  }
+  .cvm-mbar > span {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+  }
+  .cvm-mbar.hull > span {
+    background: linear-gradient(90deg, #34d399, #67e8f9);
+  }
+  .cvm-mbar.shield > span {
+    background: linear-gradient(90deg, #67e8f9, #8ff0e0);
+  }
+  .cvm-mbar.ehull > span {
+    background: linear-gradient(90deg, #f87171, #fbbf24);
+  }
+  .cvm-mbar.eshield > span {
+    background: linear-gradient(90deg, #fbbf24, #fde68a);
+  }
+  .cvm-vals {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    white-space: nowrap;
+    align-self: start;
+  }
+  .cvm-vals .s {
+    color: var(--color-text-dim);
+  }
+
+  /* Expanded detail: system + effect + drone pip rows, spanning the full row. */
+  .cvm-detail {
+    grid-column: 1 / -1;
+    padding: 8px 2px 2px;
+    border-top: 1px dashed var(--color-border);
+    margin-top: 6px;
+  }
+  .cvm-drow {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .cvm-drow:last-child {
+    margin-bottom: 0;
+  }
+  .cvm-dl {
+    font-size: 8px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    width: 66px;
+    flex-shrink: 0;
+  }
+  .cvm-mini {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .cvm-none {
+    font-size: 9px;
+    color: var(--color-text-dim);
   }
 </style>

@@ -12,10 +12,14 @@ import {
   rangeMarkerPercent,
   logLineClass,
   dronePips,
+  logSpeedToMs,
+  targetEnemyId,
+  enemyWaveTally,
 } from "./combatView";
 import { BAND_LONG } from "./positioning";
-import type { CombatEvent } from "./types";
+import type { CombatEvent, Combatant } from "./types";
 import type { SquadronStatusSummary } from "./drones";
+import type { RoundSnapshot } from "./patrolReplay";
 
 // A minimal CombatEvent factory: only the fields the helper reads matter; the
 // rest stay at their optional defaults.
@@ -139,5 +143,75 @@ describe("dronePips", () => {
       refabricating: 0,
     });
     expect(pips.map((p) => p.cls)).toEqual(["offline", "offline", "offline"]);
+  });
+});
+
+describe("logSpeedToMs", () => {
+  it("maps fast to the 1-second cadence (the default)", () => {
+    expect(logSpeedToMs("fast")).toBe(1000);
+  });
+  it("maps slow to the 5-second cadence", () => {
+    expect(logSpeedToMs("slow")).toBe(5000);
+  });
+});
+
+// A minimal enemy Combatant: targetEnemyId / enemyWaveTally read only id + hull,
+// so the rest stays a cast rather than a full literal.
+function enemy(id: string, hull: number): Combatant {
+  return { id, hull } as unknown as Combatant;
+}
+// A minimal RoundSnapshot carrying only the per-enemy hulls the helpers read.
+function snapOf(hulls: Record<string, number>): RoundSnapshot {
+  const combatants: RoundSnapshot["combatants"] = {};
+  for (const [id, hull] of Object.entries(hulls)) {
+    combatants[id] = { id, hull } as unknown as RoundSnapshot["combatants"][string];
+  }
+  return { round: 0, combatants };
+}
+
+describe("targetEnemyId", () => {
+  const enemies = [enemy("foe-a", 260), enemy("foe-b", 120), enemy("foe-c", 120)];
+
+  it("returns null when there are no enemies", () => {
+    expect(targetEnemyId([], snapOf({}))).toBe(null);
+  });
+  it("falls back to wave-start hull before any snapshot (lowest wins)", () => {
+    // No snapshot: foe-b and foe-c tie at 120, foe-b wins on stable order.
+    expect(targetEnemyId(enemies, null)).toBe("foe-b");
+  });
+  it("marks the living enemy with the LOWEST current snapshot hull", () => {
+    // foe-a chewed down to 40 is now the lowest-hull living ship.
+    expect(targetEnemyId(enemies, snapOf({ "foe-a": 40, "foe-b": 120, "foe-c": 120 }))).toBe(
+      "foe-a",
+    );
+  });
+  it("skips destroyed enemies (hull <= 0) when picking the target", () => {
+    // foe-b is destroyed; the lowest LIVING hull is foe-c at 90.
+    expect(
+      targetEnemyId(enemies, snapOf({ "foe-a": 200, "foe-b": 0, "foe-c": 90 })),
+    ).toBe("foe-c");
+  });
+  it("returns null when every enemy is destroyed", () => {
+    expect(
+      targetEnemyId(enemies, snapOf({ "foe-a": 0, "foe-b": 0, "foe-c": 0 })),
+    ).toBe(null);
+  });
+});
+
+describe("enemyWaveTally", () => {
+  const enemies = [enemy("foe-a", 260), enemy("foe-b", 120), enemy("foe-c", 120)];
+
+  it("counts all living before any damage", () => {
+    expect(enemyWaveTally(enemies, null)).toEqual({ living: 3, down: 0 });
+  });
+  it("splits living vs destroyed off the current snapshot", () => {
+    expect(
+      enemyWaveTally(enemies, snapOf({ "foe-a": 200, "foe-b": 0, "foe-c": 90 })),
+    ).toEqual({ living: 2, down: 1 });
+  });
+  it("counts all down when every enemy is destroyed", () => {
+    expect(
+      enemyWaveTally(enemies, snapOf({ "foe-a": 0, "foe-b": 0, "foe-c": 0 })),
+    ).toEqual({ living: 0, down: 3 });
   });
 });
