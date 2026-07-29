@@ -470,13 +470,17 @@
      backdrop blur, and it owns its own scroll rather than growing the page). The
      host wraps this in the shared .modal-backdrop. -->
 <div class="cv-dialog" role="document">
+  <!-- Close: a window-style X pinned to the top-right CORNER of the panel (absolute,
+       positioned against .cv-dialog), shown in BOTH the available and unavailable
+       states. Sits above the top bar via z-index; the top bar reserves right padding
+       so its content never slides under it. -->
+  <button class="cv-close" on:click={onClose} aria-label="Close">✕</button>
   {#if !replay.available || wave === null}
     <!-- Graceful unavailable state: not on a combat patrol, no ship, or a
          non-combat hull. The button should not be shown in that case, but the view
          still handles it rather than rendering a broken arena. -->
     <div class="cv-topbar">
       <div class="ctx">Combat View</div>
-      <button class="cv-close" on:click={onClose} aria-label="Close">✕</button>
     </div>
     <div class="cv-unavailable">
       There is no combat to watch right now. This captain is not on an active combat patrol.
@@ -496,7 +500,6 @@
           <button class:on={mode === "log"} on:click={() => (mode = "log")}>Log-Guided</button>
           <button class:on={mode === "visual"} on:click={() => (mode = "visual")}>Visual</button>
         </div>
-        <button class="cv-close" on:click={onClose} aria-label="Close">✕</button>
       </div>
     </div>
 
@@ -849,6 +852,7 @@
      punctuation in comments; CSS custom properties (var(--x)) are exempt. */
 
   .cv-dialog {
+    position: relative; /* positioning context for the corner close (below) */
     width: min(1080px, 100%);
     /* LOCKED HEIGHT (Combat 0.13.0): a stable frame that does NOT grow/shrink as the
        log streams in. Capped to the viewport on short screens. The arena keeps its
@@ -877,7 +881,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 12px 16px;
+    /* Extra RIGHT padding reserves the top-right corner for the absolute .cv-close, so
+       the mode toggle / ctx never slide under it. */
+    padding: 12px 52px 12px 16px;
     border-bottom: 1px solid var(--color-border);
     background: rgba(var(--color-accent-rgb), 0.04);
     flex-wrap: wrap;
@@ -933,7 +939,12 @@
     font-weight: 600;
   }
   .cv-close {
-    /* Square X icon (top-right of the panel), not a text pill. */
+    /* Square X icon pinned to the panel's top-right CORNER (window-style), above the
+       top bar. The top bar reserves matching right padding so nothing slides under it. */
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 5;
     width: 30px;
     height: 30px;
     flex-shrink: 0;
