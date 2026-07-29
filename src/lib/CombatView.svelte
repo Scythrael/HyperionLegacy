@@ -29,7 +29,7 @@
   // but Visual shows a "coming soon" placeholder. It is NOT built in this unit.
   // ============================================================================
 
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, afterUpdate } from "svelte";
   import type { GameState, CaptainState } from "./game/model";
   import { SHIP_TYPES, FACTIONS } from "./game/model";
   import {
@@ -358,16 +358,19 @@
   let mode: "log" | "visual" = "log";
 
   // --- Auto-scroll the log to the newest revealed round -----------------------
+  // afterUpdate runs AFTER the DOM reflects each update, so pinning the log to the
+  // bottom here needs no tick() and, crucially, creates NO reactive dependency.
+  // The previous version was a reactive `$:` that called tick(): in this component
+  // the display derivations (memoReplay / foldWaveSnapshots / buildNameFor) return
+  // FRESH objects every flush, so the component is perpetually "dirty", and a
+  // reactive tick() drove Svelte's flush-until-stable into a synchronous infinite
+  // loop the instant the streamed round advanced (revealedRound was the trigger),
+  // hard-freezing the tab. A lifecycle hook cannot re-enter reactivity, so it
+  // cannot loop.
   let logBody: HTMLDivElement | null = null;
-  function scrollLogToBottom(): void {
-    // Wait for the DOM to reflect the newly-revealed round, then pin to the bottom.
-    void tick().then(() => {
-      if (logBody) logBody.scrollTop = logBody.scrollHeight;
-    });
-  }
-  // Re-pin whenever the revealed round advances (and only in the Log-Guided view,
-  // where the log is on screen).
-  $: if (mode === "log" && revealedRound >= 0 && logBody) scrollLogToBottom();
+  afterUpdate(() => {
+    if (mode === "log" && logBody) logBody.scrollTop = logBody.scrollHeight;
+  });
 </script>
 
 <!-- The bounded, internally-scrolling dialog surface (mirrors ShipSystemsPanel's
