@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
+import LZString from "lz-string";
 import { migrate, serialize, deserialize, importRawSave, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY } from "./model";
@@ -4437,6 +4438,38 @@ describe("importRawSave", () => {
       // must return false BEFORE ever calling localStorage.setItem, since
       // deserialize() fails first and short-circuits the function.
       expect(localStorage.getItem(SAVE_KEY)).toBe("some-existing-valid-save-string-placeholder");
+    } finally {
+      localStorage.removeItem(SAVE_KEY);
+    }
+  });
+
+  it("rejects a decompressible-but-malformed save (valid LZString+JSON of the wrong shape), leaving existing localStorage untouched", () => {
+    // The soft-brick class: a truncated/hand-edited export or a foreign LZString+JSON
+    // file that decompresses to well-formed JSON but is NOT a save. Before deserialize()
+    // grew a structural guard, importRawSave() PERSISTED these (it only checks the result
+    // is truthy), then the next load's migrate() -> hydrateDecimals() threw on the missing
+    // state, white-screening on EVERY reload with no in-app escape. deserialize() must now
+    // reject them so they route to the corrupt-recovery path exactly like non-JSON garbage.
+    localStorage.setItem(SAVE_KEY, "existing-valid-save-placeholder");
+    try {
+      const malformed = [
+        // (a) state missing entirely
+        LZString.compressToBase64(
+          JSON.stringify({ version: SAVE_VERSION, created_at: 0, last_saved_at: 0, game_time_seconds: 0 }),
+        ),
+        // (b) state present but null
+        LZString.compressToBase64(JSON.stringify({ version: SAVE_VERSION, state: null })),
+        // (c) a string version (would otherwise partially-migrate via "5" + 1 = "51")
+        LZString.compressToBase64(JSON.stringify({ version: "5", state: {} })),
+        // (d) a bare JSON primitive, not an object
+        LZString.compressToBase64(JSON.stringify(42)),
+      ];
+      for (const blob of malformed) {
+        expect(deserialize(blob)).toBeNull();
+        expect(importRawSave(blob)).toBe(false);
+      }
+      // The pre-existing save survived every rejected import untouched.
+      expect(localStorage.getItem(SAVE_KEY)).toBe("existing-valid-save-placeholder");
     } finally {
       localStorage.removeItem(SAVE_KEY);
     }

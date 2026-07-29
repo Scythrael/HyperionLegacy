@@ -1332,7 +1332,28 @@ export function deserialize(raw: string): SaveFile | null {
     if (!trimmed) return null; // null/empty/whitespace-only input -> not a save
     const json = LZString.decompressFromBase64(trimmed);
     if (!json) return null;
-    return JSON.parse(json) as SaveFile;
+    const parsed = JSON.parse(json) as unknown;
+    // STRUCTURAL GUARD. Decompress + JSON.parse only prove the blob is well-formed JSON,
+    // NOT that it is a real save. A decompressible-but-malformed blob (a truncated or
+    // hand-edited export, or any foreign LZString+JSON file) must be REJECTED here so it
+    // flows into the corrupt-recovery path exactly like non-JSON garbage does. Without this
+    // guard, importRawSave() persists it (it only checks deserialize() is truthy), and the
+    // next load's migrate() -> hydrateDecimals() then throws on the missing state
+    // (state.captains of undefined), white-screening on EVERY reload with no in-app escape.
+    // A genuine save always carries an integer version and a non-null object state, so this
+    // can never reject a valid save. (The integer check also rejects a string version, which
+    // would otherwise partially-migrate via "5" + 1 = "51".)
+    const shape = parsed as { version?: unknown; state?: unknown } | null;
+    if (
+      shape === null ||
+      typeof shape !== "object" ||
+      !Number.isInteger(shape.version) ||
+      typeof shape.state !== "object" ||
+      shape.state === null
+    ) {
+      return null;
+    }
+    return parsed as SaveFile;
   } catch {
     // Corrupt save, tech spec §6 says preserve raw data and surface it
     // rather than silently discarding. The caller decides what to show.
