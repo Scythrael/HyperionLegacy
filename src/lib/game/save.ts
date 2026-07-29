@@ -47,9 +47,21 @@ function toDecimal(value: Decimal | number | string): Decimal {
 // treatment homePlanet.storage's fixed keys already get, just iterated over the
 // map's dynamic keys. Idempotent (toDecimal no-ops on an existing Decimal), and a
 // no-op on an empty map (a fresh/never-populated tally). Mutates nothing.
+// Hostile-key guard for the dynamic-key hydration loops below. JSON.parse turns a
+// `"__proto__"` key into an own data property (reads are unaffected), but a dynamic
+// `obj[key] = ...` write with that key invokes the inherited prototype setter. No
+// legitimate item id, tally key, or captain field is ever named these, so skipping them
+// is a no-op on any valid save while blocking a hostile blob (once cloud save makes the
+// input attacker-controlled) from poking at prototypes through the copy loops.
+function isUnsafeKey(key: string): boolean {
+  return key === "__proto__" || key === "constructor" || key === "prototype";
+}
+
 function hydrateDecimalMap(map: Record<string, Decimal | number | string>): Record<string, Decimal> {
   const hydrated: Record<string, Decimal> = {};
+  if (map === null || typeof map !== "object") return hydrated; // fail-open on a non-map (hostile / partial save)
   for (const key of Object.keys(map)) {
+    if (isUnsafeKey(key)) continue;
     hydrated[key] = toDecimal(map[key]);
   }
   return hydrated;
@@ -72,7 +84,9 @@ function hydrateInventoryBuckets(
   map: Record<string, Decimal[] | Array<Decimal | number | string> | Decimal | number | string>
 ): Record<string, Decimal[]> {
   const hydrated: Record<string, Decimal[]> = {};
+  if (map === null || typeof map !== "object") return hydrated; // fail-open on a non-map (hostile / partial save)
   for (const key of Object.keys(map)) {
+    if (isUnsafeKey(key)) continue; // hostile-key guard (see isUnsafeKey)
     const value = map[key];
     if (Array.isArray(value)) {
       hydrated[key] = value.map((bucket) => toDecimal(bucket)); // per-bucket revival
@@ -97,6 +111,17 @@ function hydrateInventoryBuckets(
 function hydrateDecimals(state: any): GameState {
   return {
     ...state,
+    // Hostile-input guard (cloud / import): tickDurationSeconds is the DIVISOR for offline
+    // catch-up (tick() computes ticksElapsed = deltaSeconds / tickDurationSeconds, and
+    // offlineCapTicks divides by it too, so the offline cap does NOT bound you). A crafted 0
+    // makes that Infinity -> for (i < Infinity) never terminates (hard tab hang); a tiny
+    // positive value causes a ~1e17-iteration effective hang. A throw-guard cannot catch a
+    // hang, so this must be a VALUE check: reset any non-finite / non-positive cadence to the
+    // default 1. A valid save always has a positive finite cadence, so this is a no-op on it.
+    tickDurationSeconds:
+      Number.isFinite(state.tickDurationSeconds) && state.tickDurationSeconds > 0
+        ? state.tickDurationSeconds
+        : 1,
     captains: state.captains.map((c: any) => ({
       ...c,
       xp: toDecimal(c.xp),
@@ -1213,8 +1238,11 @@ const MIGRATIONS: Record<number, Migration> = {
   // NOTE: this migration is on the CURRENT feature branch and NOT yet shipped to production, so it
   // is still editable (the frozen-once-shipped rule applies only to production-released migrations).
   30: (state: any): any => {
-    const captainIds = (state.captains ?? []).map((captain: any) => captain.id);
-    const nextCaptainId = Math.max(0, ...captainIds) + 1;
+    const captainIds = (Array.isArray(state.captains) ? state.captains : []).map((captain: any) => captain.id);
+    // reduce, NOT Math.max(0, ...captainIds): a hostile save with a huge captains array would
+    // exceed the argument-spread limit on the spread form (RangeError). reduce is O(n), needs
+    // no spread, and is byte-identical to the old floor-at-0 behavior on any real roster.
+    const nextCaptainId = captainIds.reduce((m: number, x: number) => Math.max(m, x), 0) + 1;
     return { ...state, nextCaptainId };
   },
   // v31 -> v32: mission-KIND discriminant + patrol master-seed counter (Combat 0.13.0,
@@ -1376,7 +1404,19 @@ export function loadFromLocalStorage(): { state: GameState; lastSavedAt: number;
   if (!raw) return null;
   const save = deserialize(raw);
   if (!save) return null;
-  return { state: migrate(save), lastSavedAt: save.last_saved_at, createdAt: save.created_at };
+  try {
+    return { state: migrate(save), lastSavedAt: save.last_saved_at, createdAt: save.created_at };
+  } catch {
+    // A save that passes deserialize's shape guard (integer version + object state) can
+    // still throw INSIDE migrate()/hydrateDecimals() when its FIELDS are the wrong type (a
+    // hand-edited or, once cloud save lands, a hostile blob: captains a string, a mission
+    // missing its cargo, lifetimeStats null, etc). Returning null routes it to the caller's
+    // corrupt-recovery path (hasRawSave() true + a null load => offer recovery) instead of
+    // letting the throw propagate out of onMount and white-screen with no in-app escape
+    // (re-throwing on every reload). A valid save never throws here, so this cannot change
+    // valid-load behavior.
+    return null;
+  }
 }
 
 export function exportRawSave(): string | null {

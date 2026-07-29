@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import LZString from "lz-string";
-import { migrate, serialize, deserialize, importRawSave, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
+import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY } from "./model";
 // Task 20 v27->v28: the Standard-Issue seed proves stat-neutrality by comparing a
@@ -4473,6 +4473,49 @@ describe("importRawSave", () => {
     } finally {
       localStorage.removeItem(SAVE_KEY);
     }
+  });
+
+  it("hostile save: wrong-typed fields make loadFromLocalStorage return null (recoverable) instead of throwing/bricking", () => {
+    // deserialize's shape guard (integer version + object state) passes, but a field of the
+    // WRONG TYPE makes migrate()/hydrateDecimals() throw deeper in. Before the try/catch in
+    // loadFromLocalStorage that throw propagated out of onMount and white-screened on every
+    // reload; now it returns null so the caller routes to corrupt-recovery.
+    const bad: any = { ...freshState(), captains: "not-an-array" };
+    localStorage.setItem(SAVE_KEY, serialize(bad, Date.now()));
+    try {
+      expect(() => loadFromLocalStorage()).not.toThrow();
+      expect(loadFromLocalStorage()).toBeNull();
+    } finally {
+      localStorage.removeItem(SAVE_KEY);
+      localStorage.removeItem(`${SAVE_KEY}_created_at`);
+    }
+  });
+
+  it("hostile save: a zero/NaN/Infinity tickDurationSeconds is reset to 1 (prevents the offline-catch-up infinite loop)", () => {
+    // tickDurationSeconds is the offline-catch-up DIVISOR; a crafted 0 makes ticksElapsed
+    // Infinity -> for (i < Infinity) never terminates (hard hang). A throw-guard cannot catch
+    // a hang, so hydrateDecimals resets any non-finite / non-positive cadence to the default 1.
+    for (const badCadence of [0, NaN, Infinity, "x" as any, null as any]) {
+      const s: any = { ...freshState(), tickDurationSeconds: badCadence };
+      expect(migrate({ version: SAVE_VERSION, state: s } as any).tickDurationSeconds).toBe(1);
+    }
+    // A valid cadence is preserved untouched (guard is a no-op on valid saves).
+    const good: any = { ...freshState(), tickDurationSeconds: 2 };
+    expect(migrate({ version: SAVE_VERSION, state: good } as any).tickDurationSeconds).toBe(2);
+  });
+
+  it("hostile save: a __proto__ key in a hydrated tally map is skipped, no prototype pollution", () => {
+    const evil: any = { ...freshState() };
+    // JSON.parse creates an OWN "__proto__" data property (the real attack vector via
+    // deserialize), NOT an object literal that would set the prototype.
+    evil.lifetimeStats = {
+      ...evil.lifetimeStats,
+      itemsGathered: JSON.parse('{"__proto__": {"polluted": true}, "commonOre": "5"}'),
+    };
+    const migrated = migrate({ version: SAVE_VERSION, state: evil } as any);
+    expect(({} as any).polluted).toBeUndefined(); // Object.prototype untouched
+    expect(Object.keys(migrated.lifetimeStats.itemsGathered)).not.toContain("__proto__");
+    expect(migrated.lifetimeStats.itemsGathered.commonOre).toBeInstanceOf(Decimal);
   });
 
   it("accepts a valid raw save string, writing it byte-identical (not re-serialized) under SAVE_KEY", () => {
