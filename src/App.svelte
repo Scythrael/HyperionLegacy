@@ -13,6 +13,11 @@
   // the fit logic + doSave live in exactly one place. Distinct from the retained
   // DEV_MODE equipment harness (System > Debug), which stays for testing.
   import ShipSystemsPanel from "./lib/ShipSystemsPanel.svelte";
+  // Combat View (Combat 0.13.0, Phase 12b Unit C): the DISPLAY-ONLY "watch the
+  // combat" arena + Log-Guided log, opened as a modal from an in-flight patrol's
+  // View Combat Log button. It reads a pure replay of the patrol (replayPatrol)
+  // and never mutates game state; open/close is managed by combatViewCaptainId.
+  import CombatView from "./lib/CombatView.svelte";
   // Equipment 0.11.0 Phase D (2026-07-20): the reusable rarity-bordered equipment
   // card, rendered inline below the Ship Systems bay grid when a tile is selected.
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
@@ -2401,6 +2406,29 @@
   function closeShipSystems() {
     shipSystemsShipId = null;
   }
+
+  // ── Combat View (Combat 0.13.0, Phase 12b Unit C) ─────────────────────────
+  // The DISPLAY-ONLY "watch the combat" screen (CombatView.svelte), opened as a
+  // modal from the View Combat Log button on an in-flight patrol. One piece of
+  // state tracks which captain's patrol is open (null = closed). The view reads a
+  // pure replay of that captain's current patrol and never mutates game state, so
+  // opening / closing it is side-effect free. `combatViewCaptain` derives the live
+  // captain from the id each render, so the streaming arena keeps advancing as the
+  // patrol progresses under it.
+  let combatViewCaptainId: number | null = null;
+  function openCombatView(captainId: number) {
+    combatViewCaptainId = captainId;
+  }
+  function closeCombatView() {
+    combatViewCaptainId = null;
+  }
+  // The current CaptainState for the open combat view, re-resolved from state each
+  // render (null if the captain vanished, e.g. the patrol ended, which closes the
+  // view gracefully via the #if guard below).
+  $: combatViewCaptain =
+    combatViewCaptainId !== null
+      ? state.captains.find((c) => c.id === combatViewCaptainId) ?? null
+      : null;
 
   // INSTALL a spare system into a ship's slot. Same wiring idiom as the dev
   // harness's devFitEquipment (and every other do* handler): check the gate
@@ -7505,10 +7533,15 @@
                     </div>
 
                     <div class="patrol-card-actions">
-                      <!-- View Combat Log: a HOOK for the future Phase-12 combat view,
-                           which does not exist yet. Rendered DISABLED / "coming soon" and
-                           wired to nothing, per the unit's scope. -->
-                      <button class="dev-btn" disabled title="Coming soon: the round-by-round combat view arrives in a later update">View Combat Log (coming soon)</button>
+                      <!-- View Combat Log (Combat 0.13.0, Phase 12b Unit C): opens the
+                           DISPLAY-ONLY CombatView modal for this captain's patrol. Shown
+                           only when the assigned hull is a combat hull (a patrol always
+                           flies one, but the guard keeps the button honest if a non-combat
+                           hull ever appears here). The view reads a pure replay and never
+                           mutates game state. -->
+                      {#if patrolShip !== null && combatHullTypeOf(patrolShip.typeKey) !== null}
+                        <button class="dev-btn" on:click={() => openCombatView(captain.id)}>View Combat Log</button>
+                      {/if}
                       {#if patrol.recalled}
                         <p class="prestige-text mission-recalled-text">Recall ordered, returning to base once the current run completes.</p>
                       {:else}
@@ -8600,6 +8633,19 @@
         onUninstall={uninstallSystem}
         onClose={closeShipSystems}
       />
+    </div>
+  {/if}
+
+  {#if combatViewCaptain !== null}
+    <!-- Combat View modal (Combat 0.13.0, Phase 12b Unit C). Same shared
+         .modal-backdrop + focusTrap idiom as the Ship Systems modal (Escape closes
+         via closeCombatView, focus trapped + restored). CombatView renders its OWN
+         bounded, internally-scrolling dialog surface. It is DISPLAY ONLY: it reads
+         a pure replay of the captain's patrol and mutates no game state, so opening
+         / closing is side-effect free. The #if guard also auto-closes the view if
+         the captain disappears (e.g. the patrol ends). -->
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Combat View" use:focusTrap={closeCombatView}>
+      <CombatView {state} captain={combatViewCaptain} onClose={closeCombatView} />
     </div>
   {/if}
 
