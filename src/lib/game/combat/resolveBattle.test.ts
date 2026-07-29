@@ -15,8 +15,10 @@
 // ============================================================================
 
 import { describe, it, expect } from "vitest";
-import { resolveBattle, applyProjectileDamage } from "./resolveBattle";
+import { resolveBattle, applyProjectileDamage, fireWeapon } from "./resolveBattle";
 import { bandFor } from "./positioning";
+import { makeStreams } from "./rng";
+import type { DurableSystem } from "./durability";
 import type { BattleParticipants, Combatant, CombatWeapon } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -96,6 +98,11 @@ function makeCombatant(overrides: Partial<Combatant> = {}): Combatant {
 		// station regardless of stance, so this keeps every pre-Phase-6 outcome.
 		stance: overrides.stance ?? "balanced",
 		weapons: overrides.weapons ?? [makeWeapon()],
+		// Phase 12b Unit B1 durable defensive systems. OPTIONAL: a fixture opts in only
+		// when it exercises reactor/ftl wear or condition effects; omitted => undefined,
+		// which the sim reads as "no such system" (byte-identical to the pre-B1 fixture).
+		reactor: overrides.reactor,
+		ftl: overrides.ftl,
 		alive: overrides.alive ?? true,
 		statusEffects: overrides.statusEffects ?? [],
 		drones: overrides.drones ?? [],
@@ -1678,5 +1685,336 @@ describe("Phase 6: wired movement + sensor debuffs", () => {
 				(e) => e.type === "hit" && e.actorId === "P1",
 			).length;
 		expect(hits(true)).toBeGreaterThan(hits(false)); // overheated = easier to hit
+	});
+});
+
+// ============================================================================
+// PHASE 12b UNIT B1: LIVE SYSTEM DURABILITY (wear + condition effects).
+//
+// These lock the B1 wiring: systems WEAR on hits (combat stream, deterministic),
+// quality mitigates it, a depleted weapon stops firing, worn systems mechanically
+// DEGRADE output (weapon/reactor damage, ftl evasion), and the HARD INVARIANTS still
+// hold with durability live (same-seed determinism + offline == live on a battle whose
+// systems genuinely degrade). fireWeapon is exercised directly for the per-shot facts,
+// resolveBattle for the whole-battle behaviour + parity.
+// ============================================================================
+
+// A DurableSystem factory (reactor / ftl), so a test states only what it cares about.
+function sys(overrides: Partial<DurableSystem> = {}): DurableSystem {
+	const durabilityMax = overrides.durabilityMax ?? 100;
+	return {
+		durability: overrides.durability ?? durabilityMax,
+		durabilityMax,
+		quality: overrides.quality ?? 0,
+	};
+}
+
+// A fresh combat-stream Rng for a seed (fireWeapon draws every roll from this).
+const combatRng = (seed: number) => makeStreams(seed).combat;
+
+describe("B1 wear: systems lose durability on hits taken", () => {
+	it("connecting shots wear the target weapon + reactor + ftl, deterministically for a fixed seed", () => {
+		// Fire many connecting shots at a target and total the durability lost per system.
+		// Run twice with the SAME seed: byte-identical wear (the roll is combat-stream +
+		// deterministic).
+		const run = () => {
+			const target = makeCombatant({
+				id: "T",
+				team: "enemy",
+				hull: 100000, // huge so it never dies mid-test (we want a long wear sample)
+				weapons: [makeWeapon({ id: "tw", durability: 100, durabilityMax: 100 })],
+				reactor: sys(),
+				ftl: sys(),
+			});
+			const attacker = makeCombatant({ id: "A", team: "player" });
+			const weapon = makeWeapon({ id: "aw", accuracy: 100, yield: 5 });
+			const rng = combatRng(2024);
+			for (let i = 0; i < 40; i++) fireWeapon(attacker, target, weapon, rng);
+			return {
+				weapon: 100 - target.weapons[0].durability,
+				reactor: 100 - target.reactor!.durability,
+				ftl: 100 - target.ftl!.durability,
+			};
+		};
+		const a = run();
+		const b = run();
+		expect(a).toEqual(b); // deterministic for the fixed seed
+		// A hit is a durability event: every system took some wear over 40 connecting shots.
+		expect(a.weapon).toBeGreaterThan(0);
+		expect(a.reactor).toBeGreaterThan(0);
+		expect(a.ftl).toBeGreaterThan(0);
+	});
+
+	it("higher quality wears SLOWER under the identical draw schedule (quality mitigates loss)", () => {
+		// Quality 0 vs quality 5 weapon, hit with the SAME seed the same number of times.
+		// The wear roll spends one draw either way (schedule-fixed), so both runs stay
+		// aligned; only the loss THRESHOLD differs, so the q5 weapon loses fewer points.
+		const worn = (quality: number) => {
+			const target = makeCombatant({
+				id: "T",
+				team: "enemy",
+				hull: 100000,
+				weapons: [
+					makeWeapon({ id: "tw", durability: 100, durabilityMax: 100, quality }),
+				],
+			});
+			const attacker = makeCombatant({ id: "A", team: "player" });
+			const weapon = makeWeapon({ id: "aw", accuracy: 100, yield: 5 });
+			const rng = combatRng(99);
+			for (let i = 0; i < 60; i++) fireWeapon(attacker, target, weapon, rng);
+			return 100 - target.weapons[0].durability;
+		};
+		expect(worn(5)).toBeLessThan(worn(0));
+	});
+});
+
+describe("B1 condition: an OFFLINE (depleted) weapon cannot fire", () => {
+	it("a weapon at 0 durability never fires, so its target takes no damage from it", () => {
+		// P1 only weapon starts depleted; E1 fights back with a 0-accuracy weapon (never
+		// lands), so if the depleted weapon truly cannot fire, the E1 hull stays pristine.
+		const battle = (durability: number): BattleParticipants => ({
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					hull: 100000,
+					weapons: [
+						makeWeapon({
+							id: "pw",
+							durability,
+							durabilityMax: 100,
+							yield: 20,
+							accuracy: 100,
+						}),
+					],
+				}),
+				makeCombatant({
+					id: "E1",
+					team: "enemy",
+					hull: 500,
+					weapons: [makeWeapon({ id: "ew", yield: 1, accuracy: 0 })],
+				}),
+			],
+		});
+		const depleted = resolveBattle(battle(0), 5);
+		const enemyDepleted = depleted.finalCombatants.find((c) => c.id === "E1")!;
+		expect(enemyDepleted.hull).toBe(enemyDepleted.hullMax); // never fired => no damage
+		// Control: the SAME weapon at full durability DOES fire and damages the enemy.
+		const armed = resolveBattle(battle(100), 5);
+		const enemyArmed = armed.finalCombatants.find((c) => c.id === "E1")!;
+		expect(enemyArmed.hull).toBeLessThan(enemyArmed.hullMax);
+	});
+});
+
+describe("B1 condition effects: worn systems degrade output", () => {
+	// Fire ONE shot with a controlled rng + a target that never dodges, and read the damage
+	// dealt. Same seed + same target so the hit/crit/damage draws are identical; only the
+	// condition modifier under test differs, so any damage delta is that modifier alone.
+	function shotDamage(opts: {
+		weaponDurability?: number;
+		reactor?: DurableSystem;
+	}): number {
+		const target = makeCombatant({
+			id: "T",
+			team: "enemy",
+			hull: 100000,
+			shield: 0,
+			weapons: [], // no target systems => no wear draws, minimal + identical schedule
+		});
+		const attacker = makeCombatant({
+			id: "A",
+			team: "player",
+			reactor: opts.reactor,
+		});
+		const weapon = makeWeapon({
+			id: "aw",
+			accuracy: 100,
+			yield: 100,
+			durability: opts.weaponDurability ?? 100,
+			durabilityMax: 100,
+		});
+		return fireWeapon(attacker, target, weapon, combatRng(7)).damage;
+	}
+
+	it("a DEGRADED weapon deals less than a nominal one (same seed)", () => {
+		const nominal = shotDamage({ weaponDurability: 100 });
+		// durability 10 of 100 sits at/below the 50% degraded threshold => degraded.
+		const degraded = shotDamage({ weaponDurability: 10 });
+		expect(degraded).toBeLessThan(nominal);
+		expect(degraded).toBeGreaterThan(0); // still fires, just softer
+	});
+
+	it("an OFFLINE reactor scales weapon damage down vs a nominal reactor (same seed)", () => {
+		const nominal = shotDamage({ reactor: sys({ durability: 100 }) });
+		const offlineReactor = shotDamage({ reactor: sys({ durability: 0 }) });
+		expect(offlineReactor).toBeLessThan(nominal);
+		expect(offlineReactor).toBeGreaterThan(0);
+	});
+
+	it("a worn FTL cuts the target evasion (an offline drive lets otherwise-missing shots land)", () => {
+		// evasion 100 vs accuracy 100 => hitChance 0 (guaranteed miss) while the drive is
+		// nominal/absent. An OFFLINE drive cuts evasion 40% => 60 => hitChance 40 => hits land.
+		const fire = (ftl?: DurableSystem) => {
+			const target = makeCombatant({
+				id: "T",
+				team: "enemy",
+				hull: 100000,
+				evasion: 100,
+				ftl,
+			});
+			const attacker = makeCombatant({ id: "A", team: "player" });
+			const weapon = makeWeapon({
+				id: "aw",
+				accuracy: 100,
+				projectileCount: 30,
+				yield: 1,
+			});
+			return fireWeapon(attacker, target, weapon, combatRng(3)).projectilesHit;
+		};
+		expect(fire(sys({ durability: 100 }))).toBe(0); // nominal drive: un-hittable
+		expect(fire(undefined)).toBe(0); // no drive: un-hittable (byte-identical)
+		expect(fire(sys({ durability: 0 }))).toBeGreaterThan(0); // offline drive: shots land
+	});
+});
+
+describe("B1 HARD INVARIANTS: determinism + offline == live on a DEGRADING battle", () => {
+	// A 1v1 whose systems have SMALL durability ceilings, so they genuinely wear down
+	// (cross degraded / offline) during the fight, making durability outcome-ACTIVE (not a
+	// no-op the parity test would trivially pass).
+	function degradingBattle(): BattleParticipants {
+		const mk = (id: string, team: "player" | "enemy") =>
+			makeCombatant({
+				id,
+				team,
+				hull: 300,
+				hullMax: 300,
+				shield: 40,
+				shieldMax: 40,
+				shieldRecharge: 2,
+				weapons: [
+					makeWeapon({
+						id: `${id}-w0`,
+						yield: 8,
+						accuracy: 85,
+						durability: 4,
+						durabilityMax: 8,
+					}),
+					makeWeapon({
+						id: `${id}-w1`,
+						yield: 5,
+						accuracy: 90,
+						durability: 3,
+						durabilityMax: 6,
+					}),
+				],
+				reactor: sys({ durability: 4, durabilityMax: 8 }),
+				ftl: sys({ durability: 3, durabilityMax: 6 }),
+			});
+		return { combatants: [mk("P1", "player"), mk("E1", "enemy")] };
+	}
+
+	for (const seed of [1, 2, 7, 13, 42, 100, 777]) {
+		it(`seed ${seed}: same-seed determinism AND offline outcome == live outcome`, () => {
+			// Determinism: two OFFLINE runs are byte-identical (outcome + final state).
+			const off1 = resolveBattle(degradingBattle(), seed);
+			const off2 = resolveBattle(degradingBattle(), seed);
+			expect(off1.outcome).toEqual(off2.outcome);
+			expect(off1.finalCombatants).toEqual(off2.finalCombatants);
+			// Offline == live: the flavored (generateLog) run has the IDENTICAL outcome +
+			// final combatant state. The cosmetic stream + the display-only condition-pip
+			// emission cannot move a durability roll, so the fight resolves the same.
+			const live = resolveBattle(degradingBattle(), seed, { generateLog: true });
+			expect(live.outcome).toEqual(off1.outcome);
+			expect(live.finalCombatants).toEqual(off1.finalCombatants);
+		});
+	}
+
+	it("PURITY: live wear does NOT mutate the caller's reactor/ftl/weapon durability", () => {
+		// The sim wears its PRIVATE clone; the caller's input systems must be untouched, so
+		// the same participants object can be resolved twice with an identical result.
+		const participants: BattleParticipants = {
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					hull: 300,
+					weapons: [makeWeapon({ id: "P1-w", durability: 8, durabilityMax: 8 })],
+					reactor: sys({ durability: 8, durabilityMax: 8 }),
+					ftl: sys({ durability: 6, durabilityMax: 6 }),
+				}),
+				makeCombatant({
+					id: "E1",
+					team: "enemy",
+					hull: 300,
+					weapons: [makeWeapon({ id: "E1-w", durability: 8, durabilityMax: 8 })],
+					reactor: sys({ durability: 8, durabilityMax: 8 }),
+					ftl: sys({ durability: 6, durabilityMax: 6 }),
+				}),
+			],
+		};
+		const before = JSON.parse(JSON.stringify(participants));
+		const first = resolveBattle(participants, 9);
+		// The caller's objects are byte-identical to before (no wear leaked back).
+		expect(JSON.parse(JSON.stringify(participants))).toEqual(before);
+		// And a second resolve of the SAME (untouched) participants matches the first.
+		const second = resolveBattle(participants, 9);
+		expect(second.outcome).toEqual(first.outcome);
+		expect(second.finalCombatants).toEqual(first.finalCombatants);
+	});
+
+	it("the fixture genuinely degrades systems (some durability drops below max by battle end)", () => {
+		const { finalCombatants } = resolveBattle(degradingBattle(), 42, {
+			generateLog: true,
+		});
+		const anyWorn = finalCombatants.some(
+			(c) =>
+				c.weapons.some((w) => w.durability < w.durabilityMax) ||
+				(c.reactor !== undefined && c.reactor.durability < c.reactor.durabilityMax) ||
+				(c.ftl !== undefined && c.ftl.durability < c.ftl.durabilityMax),
+		);
+		expect(anyWorn).toBe(true);
+	});
+});
+
+describe("B1 condition-pip emission (display-only, outcome-neutral)", () => {
+	it("roundState events carry one systemConditions pip per weapon + reactor + ftl", () => {
+		const battle: BattleParticipants = {
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					hull: 300,
+					weapons: [makeWeapon({ id: "P1-w0" }), makeWeapon({ id: "P1-w1" })],
+					reactor: sys(),
+					ftl: sys(),
+				}),
+				makeCombatant({ id: "E1", team: "enemy", hull: 300, reactor: sys(), ftl: sys() }),
+			],
+		};
+		const { log } = resolveBattle(battle, 4, { generateLog: true });
+		const p1RoundState = log.find(
+			(e) => e.type === "roundState" && e.actorId === "P1",
+		);
+		expect(p1RoundState).toBeDefined();
+		const pips = p1RoundState!.systemConditions!;
+		// Two weapons + reactor + ftl = four pips, correctly kinded + all nominal at the open.
+		expect(pips.map((p) => p.kind)).toEqual(["weapon", "weapon", "reactor", "ftl"]);
+		expect(pips.every((p) => p.condition === "nominal")).toBe(true);
+		expect(pips.find((p) => p.kind === "reactor")!.id).toBe("reactor");
+	});
+
+	it("emission is OUTCOME-NEUTRAL: the pip payload does not change the battle result", () => {
+		// Building the pips (a pure read under generateLog) never perturbs an outcome: the
+		// offline (no emission) and live (emission) runs match in outcome + final state.
+		const build = (): BattleParticipants => ({
+			combatants: [
+				makeCombatant({ id: "P1", team: "player", hull: 200, reactor: sys(), ftl: sys() }),
+				makeCombatant({ id: "E1", team: "enemy", hull: 200, reactor: sys(), ftl: sys() }),
+			],
+		});
+		const offline = resolveBattle(build(), 55);
+		const live = resolveBattle(build(), 55, { generateLog: true });
+		expect(live.outcome).toEqual(offline.outcome);
+		expect(live.finalCombatants).toEqual(offline.finalCombatants);
 	});
 });

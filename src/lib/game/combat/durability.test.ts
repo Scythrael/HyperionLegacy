@@ -16,8 +16,18 @@ import {
 	qualityDurabilityMax,
 	rollDurabilityLoss,
 	systemCondition,
+	reactorDamagePercent,
+	ftlEvasionPenaltyPercent,
+	ftlSpeedPenaltyPercent,
 	BASE_DURABILITY_LOSS_PERCENT,
 	DEGRADED_THRESHOLD_PERCENT,
+	DEGRADED_WEAPON_DAMAGE_PERCENT,
+	REACTOR_DAMAGE_PERCENT_DEGRADED,
+	REACTOR_DAMAGE_PERCENT_OFFLINE,
+	FTL_EVASION_PENALTY_DEGRADED,
+	FTL_EVASION_PENALTY_OFFLINE,
+	FTL_SPEED_PENALTY_DEGRADED,
+	FTL_SPEED_PENALTY_OFFLINE,
 	type DurableSystem,
 } from "./durability";
 import { makeStreams } from "./rng";
@@ -184,5 +194,54 @@ describe("systemCondition: four-state model + precedence (design S9/S16)", () =>
 		// Healthy + disrupted is also disrupted.
 		const healthy = sys({ durability: 100, durabilityMax: 100 });
 		expect(systemCondition(healthy, true)).toBe("disrupted");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// CONDITION MECHANICAL EFFECTS (Phase 12b Unit B1). The pure magnitude helpers the
+// sim reads to translate a system's condition into a real penalty. Total functions
+// (every SystemCondition maps to a value); worse penalties at worse conditions.
+// ---------------------------------------------------------------------------
+describe("reactorDamagePercent: a worn reactor softens all weapon damage", () => {
+	it("nominal is full power (no penalty)", () => {
+		expect(reactorDamagePercent("nominal")).toBe(100);
+	});
+	it("degraded is the degraded percent, offline the offline percent", () => {
+		expect(reactorDamagePercent("degraded")).toBe(REACTOR_DAMAGE_PERCENT_DEGRADED);
+		expect(reactorDamagePercent("offline")).toBe(REACTOR_DAMAGE_PERCENT_OFFLINE);
+	});
+	it("offline is a strictly harsher penalty than degraded (worse condition, less power)", () => {
+		expect(reactorDamagePercent("offline")).toBeLessThan(
+			reactorDamagePercent("degraded"),
+		);
+	});
+	it("disrupted (unreachable for the reactor) maps defensively to the degraded value", () => {
+		expect(reactorDamagePercent("disrupted")).toBe(REACTOR_DAMAGE_PERCENT_DEGRADED);
+	});
+});
+
+describe("ftlEvasionPenaltyPercent / ftlSpeedPenaltyPercent: a worn drive juke/limps", () => {
+	it("nominal has no evasion or speed penalty", () => {
+		expect(ftlEvasionPenaltyPercent("nominal")).toBe(0);
+		expect(ftlSpeedPenaltyPercent("nominal")).toBe(0);
+	});
+	it("degraded < offline for BOTH evasion and speed (design S9 Degraded < Offline)", () => {
+		expect(ftlEvasionPenaltyPercent("degraded")).toBe(FTL_EVASION_PENALTY_DEGRADED);
+		expect(ftlEvasionPenaltyPercent("offline")).toBe(FTL_EVASION_PENALTY_OFFLINE);
+		expect(ftlEvasionPenaltyPercent("degraded")).toBeLessThan(
+			ftlEvasionPenaltyPercent("offline"),
+		);
+		expect(ftlSpeedPenaltyPercent("degraded")).toBe(FTL_SPEED_PENALTY_DEGRADED);
+		expect(ftlSpeedPenaltyPercent("offline")).toBe(FTL_SPEED_PENALTY_OFFLINE);
+		expect(ftlSpeedPenaltyPercent("degraded")).toBeLessThan(
+			ftlSpeedPenaltyPercent("offline"),
+		);
+	});
+});
+
+describe("DEGRADED_WEAPON_DAMAGE_PERCENT: a degraded weapon deals less (but > 0)", () => {
+	it("is a reduction (< 100) that still fires (> 0)", () => {
+		expect(DEGRADED_WEAPON_DAMAGE_PERCENT).toBeLessThan(100);
+		expect(DEGRADED_WEAPON_DAMAGE_PERCENT).toBeGreaterThan(0);
 	});
 });

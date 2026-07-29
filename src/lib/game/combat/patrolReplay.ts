@@ -54,7 +54,12 @@ import { generateEnemyWaveDetailed } from "./enemyWave";
 import { resolveBattle } from "./resolveBattle";
 import { replenishDrones } from "./droneDefense";
 import { PIRATE_HULLS, type PirateHullId } from "./enemyHulls";
-import type { Combatant, CombatEvent, BattleOutcome } from "./types";
+import type {
+  Combatant,
+  CombatEvent,
+  BattleOutcome,
+  SystemConditionPip,
+} from "./types";
 import type { RangeBand, CombatPhase } from "./positioning";
 import type { DroneSquadron } from "./drones";
 // The schedule params mapper + the schedule generator both live in the waveSchedule
@@ -406,11 +411,15 @@ function unavailableReplay(): PatrolReplay {
 //
 // ⚠️ WHAT THE STREAM CANNOT FEED (reported honestly, NOT fabricated here): the event
 // stream still carries no absolute per-squadron drone pip counts (online/disrupted/
-// refabricating, only incremental engage/restore signals exist) and no per-system
-// durability condition (the sim defers durability rolls). Those arena elements must come
-// from elsewhere (the wave's playerStart/enemyStart/playerEnd/enemyEnd combatants give
-// drone start/end summaries via squadronStatusSummary) or await a later unit that emits
-// them. This fold deliberately omits them rather than guessing.
+// refabricating, only incremental engage/restore signals exist). Those arena elements
+// must come from elsewhere (the wave's playerStart/enemyStart/playerEnd/enemyEnd
+// combatants give drone start/end summaries via squadronStatusSummary) or await a later
+// unit that emits them. This fold deliberately omits them rather than guessing.
+//
+// PER-SYSTEM DURABILITY CONDITION (now fed, Phase 12b Unit B1): the sim emits each
+// living combatant's ship-system condition pips (each weapon + reactor + ftl, as
+// Nominal/Degraded/Disrupted/Offline) on its DISPLAY-ONLY "roundState" events. The fold
+// carries the latest set per combatant, so the combat view can render per-system pips.
 //
 // STATUS-EFFECT EXPIRY (now handled in Phase 12b): the sim emits a DISPLAY-ONLY
 // "effectExpired" event when an effect's timer runs out and it is removed (the natural-
@@ -443,6 +452,10 @@ export interface CombatantSnapshot {
   // weapons-ready -> firing), for the phase narration line. null until a roundState
   // event for this combatant has been folded.
   phase: CombatPhase | null;
+  // The combatant's ship-system condition pips at this round (each weapon + reactor +
+  // ftl, Phase 12b Unit B1), for the combat view's per-system pip row. null until a
+  // roundState event carrying them has been folded for this combatant.
+  systemConditions: SystemConditionPip[] | null;
 }
 
 // One active status effect on a combatant at a round (the pip + tooltip data).
@@ -487,6 +500,8 @@ export function foldWaveSnapshots(
   const range = new Map<string, SnapshotRange>();
   // id -> the combatant's latest engagement phase, from roundState.
   const phase = new Map<string, CombatPhase>();
+  // id -> the combatant's latest ship-system condition pips, from roundState (B1).
+  const systemConditions = new Map<string, SystemConditionPip[]>();
 
   // Seed the baseline from the starting combatants (real start state, not invented).
   if (initial) {
@@ -549,6 +564,14 @@ export function foldWaveSnapshots(
         range.set(ev.actorId, { distance: ev.distance, band: ev.band });
       }
       if (ev.phase !== undefined) phase.set(ev.actorId, ev.phase);
+      // Ship-system condition pips (Phase 12b Unit B1). Copy the array into a fresh
+      // list so a later round's readout cannot retroactively mutate an earlier one.
+      if (ev.systemConditions !== undefined) {
+        systemConditions.set(
+          ev.actorId,
+          ev.systemConditions.map((p) => ({ ...p })),
+        );
+      }
     }
   };
 
@@ -577,7 +600,9 @@ export function foldWaveSnapshots(
     const bucket = byRound.get(round) ?? [];
     for (const ev of bucket) applyEvent(ev);
     for (const ev of bucket) applyRemoval(ev);
-    snapshots.push(snapshotOf(round, hull, shield, effects, range, phase));
+    snapshots.push(
+      snapshotOf(round, hull, shield, effects, range, phase, systemConditions),
+    );
   }
   return snapshots;
 }
@@ -591,6 +616,7 @@ function snapshotOf(
   effects: Map<string, Map<string, number>>,
   range: Map<string, SnapshotRange>,
   phase: Map<string, CombatPhase>,
+  systemConditions: Map<string, SystemConditionPip[]>,
 ): RoundSnapshot {
   // The union of every id seen in any map (a combatant may appear via hull-only,
   // shield-only, effect-only, or roundState-only events).
@@ -600,10 +626,12 @@ function snapshotOf(
     ...effects.keys(),
     ...range.keys(),
     ...phase.keys(),
+    ...systemConditions.keys(),
   ]);
   const combatants: Record<string, CombatantSnapshot> = {};
   for (const id of ids) {
     const effMap = effects.get(id);
+    const pips = systemConditions.get(id);
     combatants[id] = {
       id,
       hull: hull.has(id) ? hull.get(id)! : null,
@@ -615,6 +643,9 @@ function snapshotOf(
       // one has been folded (e.g. a baseline-only combatant before round 0's readout).
       range: range.has(id) ? { ...range.get(id)! } : null,
       phase: phase.has(id) ? phase.get(id)! : null,
+      // Ship-system condition pips (Phase 12b Unit B1); copied so a later round cannot
+      // retroactively mutate this snapshot. null until a roundState carrying them folds.
+      systemConditions: pips ? pips.map((p) => ({ ...p })) : null,
     };
   }
   return { round, combatants };
@@ -638,5 +669,9 @@ function cloneCombatant(c: Combatant): Combatant {
     damageResist: { ...c.damageResist },
     disruptionResist: { ...c.disruptionResist },
     drones: c.drones.map(cloneSquadron),
+    // Phase 12b Unit B1: fresh reactor + ftl so a snapshot record is fully independent
+    // (mirrors the weapon clone above). Undefined stays undefined.
+    reactor: c.reactor !== undefined ? { ...c.reactor } : undefined,
+    ftl: c.ftl !== undefined ? { ...c.ftl } : undefined,
   };
 }

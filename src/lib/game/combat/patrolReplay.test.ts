@@ -267,15 +267,21 @@ describe("defeat-path parity (guaranteed loss)", () => {
 // start. This case exercises the DEFEAT branch through the PUBLIC replayPatrol, which by
 // contract always starts FULL HULL, and compares it side-by-side to a real live limp-home
 // for the same patrol + seed. No production change is needed: a full-hull DESTROYER
-// genuinely LOSES the shipped starter patrol (crimsonReaverSweep) at masterSeed 331
-// (empirically found by scanning seeds 1..2000; battleship/carrier win every sampled seed,
+// genuinely LOSES the shipped starter patrol (crimsonReaverSweep) at masterSeed 79
+// (empirically found by scanning seeds 1..3000; battleship/carrier win every sampled seed,
 // and destroyer wins the 12 seeds the main parity fuzz above happens to sample, which is
 // why that fuzz never reaches a full-hull defeat). This locks that the public replay's
 // early-stop (waves fought, defeated flag, wavesWon) mirrors the live loop's limp-home.
+//
+// NOTE (Phase 12b Unit B1): the old defeat seed (331) was re-baselined here. Wiring live
+// system durability added combat-stream draws on every connecting hit, which legitimately
+// shifted the per-seed RNG schedule, so 331 no longer defeats a full-hull destroyer. 79 is
+// the re-scanned replacement; the parity ASSERTIONS below are unchanged (still a genuine
+// full-hull defeat, replay == live), only the seed literal moved to a still-true value.
 // ---------------------------------------------------------------------------
 describe("defeat-path parity through the PUBLIC entry (replayPatrol)", () => {
   // masterSeed where a full-hull destroyer loses crimsonReaverSweep (see block note).
-  const DEFEAT_SEED = 331;
+  const DEFEAT_SEED = 79;
 
   it("replayPatrol early-stops on a real full-hull defeat exactly as the live limp-home does", () => {
     const dispatched = dispatch(patrolState("destroyer", DEFEAT_SEED), false);
@@ -418,6 +424,53 @@ describe("foldWaveSnapshots (per-round arena state)", () => {
     expect(snaps[0].combatants["E1"].phase).toBeNull();
   });
 
+  it("consumes roundState systemConditions into per-combatant ship-system pips (Phase 12b Unit B1)", () => {
+    const log: CombatEvent[] = [
+      // Round 0: P's systems all nominal.
+      {
+        tDeciSec: 1, round: 0, type: "roundState", actorId: "P", targetId: "E1",
+        distance: 250, band: "long", phase: "detection",
+        systemConditions: [
+          { id: "P-w0", kind: "weapon", condition: "nominal" },
+          { id: "reactor", kind: "reactor", condition: "nominal" },
+          { id: "ftl", kind: "ftl", condition: "nominal" },
+        ],
+      },
+      // Round 1: P's weapon degraded + ftl offline (later readout wins, replacing round 0).
+      {
+        tDeciSec: 10, round: 1, type: "roundState", actorId: "P", targetId: "E1",
+        distance: 80, band: "short", phase: "firing",
+        systemConditions: [
+          { id: "P-w0", kind: "weapon", condition: "degraded" },
+          { id: "reactor", kind: "reactor", condition: "nominal" },
+          { id: "ftl", kind: "ftl", condition: "offline" },
+        ],
+      },
+    ];
+    const snaps = foldWaveSnapshots(log);
+    // Round 0: the opening all-nominal pip set is carried onto P's snapshot.
+    expect(snaps[0].combatants["P"].systemConditions).toEqual([
+      { id: "P-w0", kind: "weapon", condition: "nominal" },
+      { id: "reactor", kind: "reactor", condition: "nominal" },
+      { id: "ftl", kind: "ftl", condition: "nominal" },
+    ]);
+    // Round 1: the LATEST readout replaces the earlier one (weapon degraded, ftl offline).
+    expect(snaps[1].combatants["P"].systemConditions).toEqual([
+      { id: "P-w0", kind: "weapon", condition: "degraded" },
+      { id: "reactor", kind: "reactor", condition: "nominal" },
+      { id: "ftl", kind: "ftl", condition: "offline" },
+    ]);
+  });
+
+  it("systemConditions is null until a roundState carrying them arrives for that combatant", () => {
+    const log: CombatEvent[] = [
+      // A plain hit: the target gets pools but no system pips.
+      { tDeciSec: 5, round: 0, type: "hit", actorId: "P", targetId: "E1", damage: 10, shieldAfter: 0, hullAfter: 90 },
+    ];
+    const snaps = foldWaveSnapshots(log);
+    expect(snaps[0].combatants["E1"].systemConditions).toBeNull();
+  });
+
   it("drops a status pip on effectExpired (the former over-report is fixed)", () => {
     const log: CombatEvent[] = [
       // Round 0: a disruption lands on E1 (rank 1).
@@ -470,6 +523,17 @@ describe("foldWaveSnapshots (per-round arena state)", () => {
     expect(playerSnap.phase).not.toBeNull();
     // The band is consistent with the folded distance (positioning.ts thresholds).
     expect(["short", "medium", "long"]).toContain(playerSnap.range!.band);
+    // Phase 12b Unit B1: the real sim also emitted ship-system condition pips, so the
+    // fold carries them: the destroyer has its 2 default weapons + reactor + ftl (4 pips),
+    // and all read a valid four-state condition.
+    expect(playerSnap.systemConditions).not.toBeNull();
+    const kinds = playerSnap.systemConditions!.map((p) => p.kind);
+    expect(kinds).toContain("reactor");
+    expect(kinds).toContain("ftl");
+    expect(kinds.filter((k) => k === "weapon").length).toBeGreaterThan(0);
+    for (const pip of playerSnap.systemConditions!) {
+      expect(["nominal", "degraded", "disrupted", "offline"]).toContain(pip.condition);
+    }
   });
 
   it("folds a REAL replayed wave with its start baseline (integration)", () => {

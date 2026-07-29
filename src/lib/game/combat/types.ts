@@ -65,6 +65,12 @@ import type { CombatStance, RangeBand, CombatPhase } from "./positioning";
 // too, so the mutual reference is compile-time only and erased at runtime.
 import type { DroneSquadron } from "./drones";
 
+// Phase 12b Unit B1 durability model. DurableSystem is the structural shape a
+// weapon / reactor / ftl shares (durability + max + quality); SystemCondition is
+// the four-state pip. Imported as TYPES ONLY, zero runtime cycle: durability.ts
+// depends only on rng.ts, never on types.ts, so this import cannot loop.
+import type { DurableSystem, SystemCondition } from "./durability";
+
 // A single weapon mounted on a combatant.
 //
 // This is the REAL Phase 3 weapon model (it replaced the Phase 2 flat-`yield`
@@ -143,11 +149,13 @@ export interface CombatWeapon {
 	// DURABILITY (design S9). A weapon is a DurableSystem: it takes durability
 	// "damage events" and its quality mitigates the loss + raises its ceiling. See
 	// combat/durability.ts for the model + the systemCondition four-state helper.
-	// ⚠️ SEAM: the sim does NOT roll durability loss live yet (that would perturb
-	// the parity/mechanic fixtures' fixed draw schedule); it is a pure tested model
-	// wired in during the equipment-durability-sync integration phase.
+	// Phase 12b Unit B1 WIRED THIS LIVE: on each connecting hit the target's weapons
+	// (plus its reactor + ftl below on Combatant) roll rollDurabilityLoss off the
+	// COMBAT stream in resolveBattle.fireWeapon, so systems wear WITHIN a battle and
+	// their condition drives real damage / evasion / speed penalties. Wear resets at
+	// battle start (within-battle only; cross-wave persistence is Unit B2).
 	// Current durability points remaining (integer, >= 0). 0 => the system reads
-	// "offline" from systemCondition.
+	// "offline" from systemCondition (an offline weapon cannot fire).
 	durability: number;
 	// Maximum durability (integer). Quality raises this via qualityDurabilityMax
 	// (design S9 ~+100% at top quality). The Degraded-condition denominator.
@@ -278,6 +286,23 @@ export interface Combatant {
 	// This combatant's weapons. Skeleton fires the placeholder shot; Phase 3
 	// swaps in the real shot pipeline.
 	weapons: CombatWeapon[];
+
+	// DEFENSIVE DURABLE SYSTEMS (Phase 12b Unit B1, design S9). Alongside each
+	// weapon, a ship carries a REACTOR and an FTL/drive as DurableSystems. They wear
+	// on hits taken (rollDurabilityLoss, combat stream) exactly like weapons, and
+	// their condition drives global penalties in the sim: a worn reactor softens all
+	// weapon damage (power starvation, design S10); a worn ftl cuts evasion + closing
+	// speed. Populated by bridge.ts shipToCombatant for every real ship (players AND
+	// enemies), so both sides wear symmetrically.
+	//
+	// OPTIONAL (the codebase's forward-field idiom, like inCombatReplenishPercent /
+	// antiDrone): a hand-built test/fixture combatant may omit them, in which case the
+	// sim treats the ship as having no such system (no wear roll, nominal condition =
+	// no penalty), keeping those fixtures valid without a systems literal. A real ship
+	// always has both. quality raises the ceiling + slows the loss (qualityDurabilityMax
+	// / durabilityLossChance), first-pass 0 until the crafted-equipment bridge lands.
+	reactor?: DurableSystem;
+	ftl?: DurableSystem;
 
 	// Liveness flag. Set false the tick hull first reaches <= 0. Kept as an
 	// explicit field (rather than deriving hull<=0 everywhere) so death is a
@@ -445,6 +470,28 @@ export interface CombatEvent {
 	// weapons-ready -> firing, from positioning.ts combatPhase), for the phase
 	// narration line. Present on "roundState" events.
 	phase?: CombatPhase;
+
+	// Phase 12b Unit B1 SHIP-SYSTEM CONDITION PIPS (design S9 / S16). One entry per
+	// durable system on the actor (each weapon + reactor + ftl) carrying its
+	// four-state condition, so the combat view renders Nominal/Degraded/Disrupted/
+	// Offline pips per system. Present on "roundState" events (per living combatant),
+	// so like distance/band/phase it is emitted ONLY under generateLog and is pure
+	// narration: it READS systemCondition (no RNG, no mutation) and NEVER gates a
+	// shot, so offline stays byte-identical and this cannot move an outcome.
+	systemConditions?: SystemConditionPip[];
+}
+
+// One durable system's condition pip for the combat view (Phase 12b Unit B1). A
+// flat, display-only record the combat-view fold reads to draw a per-system pip.
+// DISPLAY DATA, never an outcome input.
+export interface SystemConditionPip {
+	// A stable per-system id: a weapon's instance id, or the fixed label "reactor" /
+	// "ftl" for the two defensive systems. Lets the view key a stable pip per system.
+	id: string;
+	// Which kind of system this pip is, so the view can group / icon them.
+	kind: "weapon" | "reactor" | "ftl";
+	// The four-state condition (nominal / degraded / disrupted / offline).
+	condition: SystemCondition;
 }
 
 // The full cast of a battle: BOTH teams in one flat, team-tagged list. A flat

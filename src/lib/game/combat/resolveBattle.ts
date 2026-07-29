@@ -38,6 +38,7 @@ import type {
 	Combatant,
 	CombatEvent,
 	CombatWeapon,
+	SystemConditionPip,
 	WeaponFamily,
 } from "./types";
 import { lastTeamStanding } from "./types";
@@ -71,6 +72,22 @@ import {
 	combatPhase,
 } from "./positioning";
 import { selectFlavorTemplate, FLAVOR_PICK_RANGE } from "./flavor";
+// Phase 12b Unit B1 LIVE DURABILITY. The pure model (rollDurabilityLoss draws ONE
+// combat-stream roll + drops a point; systemCondition is the four-state pip) plus the
+// first-pass CONDITION-EFFECT magnitudes (a degraded weapon / worn reactor hit softer;
+// a worn ftl juke/limps). resolveBattle wires these in so systems wear + degrade live.
+import {
+	rollDurabilityLoss,
+	systemCondition,
+	DEGRADED_WEAPON_DAMAGE_PERCENT,
+	reactorDamagePercent,
+	ftlEvasionPenaltyPercent,
+	ftlSpeedPenaltyPercent,
+} from "./durability";
+// The disruption REGISTRY, read ONLY by the display-only condition-pip emission to map
+// a combatant-level disruption (whose def carries a `system` category) onto the relevant
+// ship-system pip. Never consulted on an outcome path (emission is generateLog-gated).
+import { STATUS_EFFECT_DEFS } from "./statusEffects";
 
 // ---------------------------------------------------------------------------
 // attachFlavor: select a cosmetic flavor line for a log event and stamp it on.
@@ -227,9 +244,15 @@ function cloneParticipants(participants: BattleParticipants): BattleParticipants
 	return {
 		combatants: participants.combatants.map((c) => ({
 			...c,
-			// Fresh weapon objects: the sim advances cooldownAccumulator on these,
-			// which must not leak back into the caller's data.
+			// Fresh weapon objects: the sim advances cooldownAccumulator AND (Phase 12b
+			// Unit B1) drops durability on these, which must not leak back into the caller.
 			weapons: c.weapons.map((w) => ({ ...w })),
+			// Phase 12b Unit B1: FRESH reactor + ftl objects. The sim mutates their
+			// `durability` via rollDurabilityLoss, so a shallow (by-reference) copy would
+			// wear the caller's original systems (breaking purity + a second resolve of the
+			// same battle). Undefined stays undefined (a systemless fixture is unchanged).
+			reactor: c.reactor !== undefined ? { ...c.reactor } : undefined,
+			ftl: c.ftl !== undefined ? { ...c.ftl } : undefined,
 			// Fresh statusEffects array so in-sim mutation is isolated.
 			statusEffects: [...c.statusEffects],
 			// Phase 7a: DEEP-copy each squadron AND its per-drone list. The sim mutates
@@ -268,8 +291,19 @@ function advanceMovement(
 	// integer scaling of an already-integer rate, no combat draw, so parity holds
 	// (offline == live) and a leak-free ship is byte-identical (zero delta = no-op).
 	const speedDelta = activeStatDelta(self.statusEffects, "speed");
-	const effectiveSpeed =
+	let effectiveSpeed =
 		speedDelta !== 0 ? applyPercentDelta(self.speed, speedDelta) : self.speed;
+
+	// PHASE 12b UNIT B1 (design S9): a worn FTL/drive cuts CLOSING SPEED. Scale the
+	// effective speed DOWN by the ftl condition penalty (Degraded < Offline). Pure
+	// integer scaling of an already-integer rate, no combat draw, so parity holds and a
+	// ship with a nominal (or absent) ftl is byte-identical (penalty 0 => no-op).
+	if (self.ftl !== undefined) {
+		const ftlSpeedPenalty = ftlSpeedPenaltyPercent(systemCondition(self.ftl));
+		if (ftlSpeedPenalty > 0) {
+			effectiveSpeed = Math.floor((effectiveSpeed * (100 - ftlSpeedPenalty)) / 100);
+		}
+	}
 
 	// Bank this tick's worth of tenths (effective speed tenths per second * dt).
 	acc.move += effectiveSpeed * DT_DECISEC;
@@ -682,8 +716,19 @@ export function fireWeapon(
 	// Zero delta => applyPercentDelta(evasion, 0) == evasion, so an unafflicted target
 	// is byte-identical (parity). This only moves the hit THRESHOLD, never the draw.
 	const maneuverDelta = activeStatDelta(target.statusEffects, "maneuver");
-	const effectiveEvasion =
+	let effectiveEvasion =
 		maneuverDelta !== 0 ? applyPercentDelta(target.evasion, maneuverDelta) : target.evasion;
+	// PHASE 12b UNIT B1 (design S9): a worn FTL/drive on the TARGET cuts its EVASION
+	// (a damaged drive cannot juke), making it easier to hit. Scale the (maneuver-
+	// adjusted) evasion DOWN by the ftl condition penalty (Degraded < Offline). Pure
+	// integer scaling that only moves the hit THRESHOLD, never the draw count, so parity
+	// holds; a nominal (or absent) ftl is byte-identical (penalty 0 => no-op).
+	if (target.ftl !== undefined) {
+		const ftlEvasionPenalty = ftlEvasionPenaltyPercent(systemCondition(target.ftl));
+		if (ftlEvasionPenalty > 0) {
+			effectiveEvasion = Math.floor((effectiveEvasion * (100 - ftlEvasionPenalty)) / 100);
+		}
+	}
 	// Per-projectile hit chance: (debuffed) accuracy reduced by the target's
 	// (maneuver-scaled) evasion, clamped to a valid percent. No minimum floor, so a 0
 	// net chance is a guaranteed miss (the evade tests rely on this) and >= 100 sure.
@@ -692,6 +737,21 @@ export function fireWeapon(
 	// PHASE 4 DEBUFF (applied): the attacker's weapon-damage debuff (Coil
 	// Dampening) scales every projectile's raw damage DOWN. Computed once per shot.
 	const weaponDamageDelta = activeStatDelta(self.statusEffects, "weaponDamage");
+
+	// PHASE 12b UNIT B1 (design S9 / S10): the CONDITION damage modifiers, computed once
+	// per shot (deterministic post-draw scalings, so they never change the draw count).
+	//   - THIS WEAPON's condition: a DEGRADED weapon deals DEGRADED_WEAPON_DAMAGE_PERCENT
+	//     of its damage (an OFFLINE weapon is skipped in the fire loop, never reaching
+	//     here). Nominal => 100 (no scaling).
+	//   - THE ATTACKER's REACTOR condition: a global power-starvation multiplier applied
+	//     to EVERY weapon on top of its own condition (nominal x1.0 / degraded ~x0.9 /
+	//     offline ~x0.7). Absent reactor (a bare fixture) => 100 (no scaling).
+	// Both are 100 at full durability, so a healthy ship's damage is byte-identical to
+	// the pre-B1 sim (only the wear rolls below shift the schedule).
+	const weaponConditionDamagePct =
+		systemCondition(weapon) === "degraded" ? DEGRADED_WEAPON_DAMAGE_PERCENT : 100;
+	const reactorDamagePct =
+		self.reactor !== undefined ? reactorDamagePercent(systemCondition(self.reactor)) : 100;
 
 	let projectilesHit = 0;
 	let totalDealt = 0;
@@ -754,6 +814,15 @@ export function fireWeapon(
 		}
 		if (weaponDamageDelta !== 0) {
 			raw = applyPercentDelta(raw, weaponDamageDelta);
+		}
+		// PHASE 12b UNIT B1: a degraded weapon + a worn reactor soften the shot (both
+		// computed once above; 100 => no-op at full durability, so a healthy ship's
+		// damage is byte-identical to the pre-B1 sim).
+		if (weaponConditionDamagePct !== 100) {
+			raw = Math.floor((raw * weaponConditionDamagePct) / 100);
+		}
+		if (reactorDamagePct !== 100) {
+			raw = Math.floor((raw * reactorDamagePct) / 100);
 		}
 
 		// PHASE 7b INTERCEPT: each projectile pulls the NEXT available defender (one
@@ -866,17 +935,33 @@ export function fireWeapon(
 		}
 	}
 
-	// PHASE 5 DURABILITY SEAM (design S9): a connecting hit is a durability "damage
-	// event" for the TARGET's systems. The pure model + roll live in
-	// combat/durability.ts (rollDurabilityLoss / systemCondition), fully unit
-	// tested. We deliberately do NOT roll it here yet: a live combat-stream draw
-	// per hit would shift the fixed roll schedule the flagship parity + Phase 3/4
-	// mechanic fixtures pin, and durability is not yet synced to real game
-	// equipment (that is the integration phase). When the equipment-durability
-	// bridge lands, this is exactly where the loop calls rollDurabilityLoss on the
-	// target's damaged systems (and, per S9, optionally the firing weapon), using
-	// `combat` so offline == live holds. TODO(integration): wire rollDurabilityLoss
-	// here + sync to equipment durability.
+	// PHASE 12b UNIT B1 LIVE DURABILITY WEAR (design S2.7 / S9): a CONNECTING shot is
+	// a durability "damage event" for the TARGET's systems. GRANULARITY (documented
+	// choice): ONE wear roll per system per connecting SHOT (not per projectile, which
+	// would shred a multi-projectile weapon's target; not per-miss, which is not a hit),
+	// covering each of the target's weapons, then its reactor, then its ftl, in that
+	// fixed order. Each rollDurabilityLoss draws ONE combat-stream roll only while the
+	// system still has durability (a depleted system spends no draw), so the schedule is
+	// deterministic and identical offline vs live (the roll is independent of
+	// generateLog). This is the schedule-shifting change B1 introduces: it adds combat
+	// draws after every connecting shot, which legitimately re-baselines existing
+	// full-battle fixtures. Absent reactor/ftl (a bare fixture) simply roll nothing.
+	//
+	// SCOPING (first-pass, documented): only the PRIMARY target of a weapon shot wears.
+	// Drone-volley hits (fireSquadron) and drone reflect/counter collateral do NOT roll
+	// wear in B1 (weapons are the primary damage channel the design frames durability
+	// around); wiring those channels is a clean additive follow-up.
+	if (projectilesHit > 0) {
+		for (const targetWeapon of target.weapons) {
+			rollDurabilityLoss(targetWeapon, combat);
+		}
+		if (target.reactor !== undefined) {
+			rollDurabilityLoss(target.reactor, combat);
+		}
+		if (target.ftl !== undefined) {
+			rollDurabilityLoss(target.ftl, combat);
+		}
+	}
 
 	// Death bookkeeping: hull at or below 0 means destroyed. Single source of
 	// truth for liveness (the loop + objective read `alive`, never re-derive).
@@ -966,8 +1051,17 @@ function fireSquadron(
 	// delta => nominal evasion, so an unafflicted target is byte-identical. This
 	// only moves the hit THRESHOLD, never the draw count.
 	const maneuverDelta = activeStatDelta(target.statusEffects, "maneuver");
-	const effectiveEvasion =
+	let effectiveEvasion =
 		maneuverDelta !== 0 ? applyPercentDelta(target.evasion, maneuverDelta) : target.evasion;
+	// PHASE 12b UNIT B1 (design S9): a worn FTL/drive on the target cuts its evasion,
+	// same lever fireWeapon applies (so drone fire also lands more often on a ship whose
+	// drive is damaged). Only moves the hit THRESHOLD, no draw; nominal/absent => no-op.
+	if (target.ftl !== undefined) {
+		const ftlEvasionPenalty = ftlEvasionPenaltyPercent(systemCondition(target.ftl));
+		if (ftlEvasionPenalty > 0) {
+			effectiveEvasion = Math.floor((effectiveEvasion * (100 - ftlEvasionPenalty)) / 100);
+		}
+	}
 	// Per-drone hit chance: the squadron's accuracy reduced by the target's evasion,
 	// clamped to a valid percent (no floor: a 0 net chance is a guaranteed miss).
 	const hitChance = Math.max(0, Math.min(100, squadron.accuracy - effectiveEvasion));
@@ -1119,6 +1213,9 @@ function resolveAmbushOpener(
 	let firedOpener = false;
 	for (const weapon of ambusher.weapons) {
 		if (!weapon.ambushEligible) continue;
+		// PHASE 12b UNIT B1: an offline (depleted) weapon cannot fire the opener either.
+		// Moot at battle start (systems ship full), but consistent with the fire loop.
+		if (weapon.durability <= 0) continue;
 		firedOpener = true;
 		const shot = fireWeapon(ambusher, target, weapon, combat, bypassShields);
 		// DISPLAY-ONLY (Phase 12b): record that the ambusher opened fire, so the
@@ -1242,8 +1339,81 @@ function emitRoundState(
 			distance,
 			band,
 			phase,
+			// PHASE 12b UNIT B1: the per-system condition pips for this ship's durable
+			// systems (each weapon + reactor + ftl), so the combat view can render
+			// Nominal/Degraded/Disrupted/Offline pips. DISPLAY-ONLY (see the header): a
+			// pure read of systemCondition, no RNG, no mutation, no shot gated.
+			systemConditions: systemConditionPips(self),
 		});
 	}
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 12b UNIT B1 SHIP-SYSTEM CONDITION PIPS (design S9 / S16). Build the
+// per-system condition pip list for one combatant: one pip per weapon, then the
+// reactor, then the ftl (each present only if the combatant carries that system).
+//
+// DISPLAY-ONLY + OUTCOME-NEUTRAL: reads systemCondition (pure, no RNG) and the
+// combatant's active statusEffects; mutates nothing; called only from emitRoundState
+// (itself generateLog-gated). It never gates a shot, so it cannot move an outcome.
+//
+// DISRUPTION -> SYSTEM MAPPING (documented choice). Disruptions attach to the
+// COMBATANT, not to an individual weapon (the durability.ts systemCondition seam),
+// and each disruption def carries a `system` category. We map those categories onto
+// the durable-system pips so the pip can show "disrupted" (orange) / "offline"
+// beyond mere wear:
+//   - a "weapons"-category disruption marks EVERY weapon disrupted; a Weapon Jam
+//     specifically forces the OFFLINE pip (isHardDisabled), matching design S9's
+//     "offline chance, e.g. Weapon Jam". (This is PIP DISPLAY ONLY; the Weapon-Jam
+//     FIRING gate is a separate deferred feature, so the shot loop is unaffected.)
+//   - an "engines"-category disruption marks the ftl disrupted.
+//   - the reactor has no S4 disruption category, so it is never "disrupted"; its pip
+//     is purely durability-driven. sensors/shields/drones categories map to no durable
+//     system here and are surfaced by the separate status pips, so they are ignored.
+// ---------------------------------------------------------------------------
+function systemConditionPips(self: Combatant): SystemConditionPip[] {
+	// Scan the combatant's active disruptions ONCE for the two categories that map to a
+	// durable-system pip here (weapons / engines). An unknown def id is skipped rather
+	// than thrown (this is display-only; a missing def never gates an outcome).
+	let hasWeaponDisruption = false;
+	let hasWeaponJam = false;
+	let hasEngineDisruption = false;
+	for (const eff of self.statusEffects) {
+		const def = STATUS_EFFECT_DEFS[eff.defId];
+		if (def === undefined) continue;
+		if (def.system === "weapons") {
+			hasWeaponDisruption = true;
+			if (eff.defId === "weaponJam") hasWeaponJam = true;
+		} else if (def.system === "engines") {
+			hasEngineDisruption = true;
+		}
+	}
+
+	const pips: SystemConditionPip[] = [];
+	for (const weapon of self.weapons) {
+		pips.push({
+			id: weapon.id,
+			kind: "weapon",
+			// A Weapon Jam forces the offline pip (isHardDisabled); any other weapons
+			// disruption shows disrupted; otherwise the durability-driven condition.
+			condition: systemCondition(weapon, hasWeaponDisruption, hasWeaponJam),
+		});
+	}
+	if (self.reactor !== undefined) {
+		pips.push({
+			id: "reactor",
+			kind: "reactor",
+			condition: systemCondition(self.reactor),
+		});
+	}
+	if (self.ftl !== undefined) {
+		pips.push({
+			id: "ftl",
+			kind: "ftl",
+			condition: systemCondition(self.ftl, hasEngineDisruption),
+		});
+	}
+	return pips;
 }
 
 // The public simulator. See file header for the two invariants it upholds.
@@ -1494,6 +1664,12 @@ export function resolveBattle(
 			// PHASE C: weapons. Advance each weapon's cooldown clock by dt; fire any
 			// that have both come off cooldown AND have the target in range.
 			for (const weapon of self.weapons) {
+				// PHASE 12b UNIT B1 (design S9): an OFFLINE weapon (durability depleted) is
+				// down and cannot fire. Skip it entirely (it does not even accrue cooldown);
+				// in B1 durability only decreases within a battle, so once offline it stays
+				// offline. Deterministic (durability is combat-stream driven), so offline ==
+				// live holds; a full-durability weapon is never skipped (regression-safe).
+				if (weapon.durability <= 0) continue;
 				weapon.cooldownAccumulator += DT_DECISEC;
 				// Not yet ready to fire.
 				if (weapon.cooldownAccumulator < weapon.cooldownDeciSec) continue;

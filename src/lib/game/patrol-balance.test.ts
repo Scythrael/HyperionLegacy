@@ -101,11 +101,16 @@ function winRate(typeKey: ShipTypeKey): { wins: number; rate: number } {
 }
 
 // THE LOCKING THRESHOLD. Each hull must clear the starter on at least this fraction of
-// sampled seeds. As tuned (Phase 9b first pass), ALL THREE hulls win 100% (200/200):
-// destroyer, battleship, and carrier. We assert >= 0.95 rather than a brittle == 1.0 so a
-// trivial future sim tweak that flips a single unlucky seed does not fail CI, while any
-// REAL regression (a starter that drops back toward the old 37.5% destroyer wall) is caught
-// loudly. 0.95 means "reliably winnable by a new player," which is the whole promise here.
+// sampled seeds. As measured after Phase 12b Unit B1 wired LIVE SYSTEM DURABILITY, the
+// win rates are: destroyer 99.5% (199/200), battleship 100% (200/200), carrier 100%
+// (200/200). Wiring durability wear added combat-stream draws that shifted the per-seed
+// schedule, nudging the destroyer off its old 200/200 by a single unlucky seed; NO
+// constant re-tune was required (durability is intentionally low-impact within one short
+// starter battle, base 100 ceiling; cross-wave attrition is Unit B2). We assert >= 0.95
+// rather than a brittle == 1.0 so a trivial future sim tweak that flips a single unlucky
+// seed does not fail CI, while any REAL regression (a starter that drops back toward the
+// old 37.5% destroyer wall) is caught loudly. 0.95 means "reliably winnable by a new
+// player," which is the whole promise here.
 const MIN_WIN_RATE = 0.95;
 
 describe("STARTER PATROL BALANCE: winnable by all three tactician hulls", () => {

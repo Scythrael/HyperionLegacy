@@ -33,6 +33,7 @@ import type { Combatant, CombatTeam, CombatWeapon, FamilyResist } from "./types"
 import type { CombatStance } from "./positioning";
 import { makeWeaponInstance, type WeaponId } from "./weapons";
 import { makeSquadron, type DroneRole, type DroneSquadron } from "./drones";
+import { qualityDurabilityMax, type DurableSystem } from "./durability";
 
 // Default stance for a bridged ship (design S6): Balanced (fight at Medium range)
 // until the mission layer sets a real per-dispatch stance (player-chosen) or the
@@ -50,6 +51,23 @@ const DEFAULT_COMBAT_SPEED = 10;
 // per Combatant so two bridged ships never share a resist map by reference.
 function zeroResist(): FamilyResist {
 	return { kinetic: 0, particle: 0, ew: 0 };
+}
+
+// Base durability (design S9) for a bridged ship's REACTOR and FTL/drive, at
+// quality 0. The ship model has no per-hull durability stat yet (that arrives with
+// the crafted-equipment bridge), so these are shared first-pass ceilings, mirroring
+// weapons.ts BASE_WEAPON_DURABILITY. ⚠️ FIRST-PASS + TUNABLE (design S20). The
+// reactor/ftl start FULL (durability == durabilityMax) at quality 0.
+const BASE_REACTOR_DURABILITY = 100;
+const BASE_FTL_DURABILITY = 100;
+
+// Build one fresh DurableSystem (reactor or ftl) at quality 0 from a base ceiling.
+// A fresh object per Combatant so the sim's per-battle wear never leaks between
+// ships or back into a shared template. quality 0 => qualityDurabilityMax returns
+// the base unchanged; a real per-instance quality arrives with the equipment bridge.
+function freshSystem(baseDurability: number): DurableSystem {
+	const durabilityMax = qualityDurabilityMax(baseDurability, 0);
+	return { durability: durabilityMax, durabilityMax, quality: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +305,14 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 
 		// Weapons: explicit loadout, or the hull default (resolved above).
 		weapons,
+
+		// DEFENSIVE DURABLE SYSTEMS (Phase 12b Unit B1, design S9): every real ship
+		// carries a reactor + ftl/drive that wear on hits taken. Fresh per-combatant
+		// systems at quality 0 (first-pass base). Both players and enemies come through
+		// this bridge, so both sides wear symmetrically. The sim reads their condition
+		// for the power-starvation damage multiplier + the drive evasion/speed penalties.
+		reactor: freshSystem(BASE_REACTOR_DURABILITY),
+		ftl: freshSystem(BASE_FTL_DURABILITY),
 
 		// A fresh combatant is alive; the sim flips this the tick hull hits <= 0.
 		alive: true,

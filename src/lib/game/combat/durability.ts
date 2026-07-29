@@ -82,6 +82,84 @@ const QUALITY_DURABILITY_BONUS_PER_RANK = 20;
 // reduced effectiveness"). Above it (and not disrupted) => "nominal".
 export const DEGRADED_THRESHOLD_PERCENT = 50;
 
+// ---------------------------------------------------------------------------
+// CONDITION MECHANICAL EFFECTS (Phase 12b Unit B1). A worn system does not just
+// report a pip; it MECHANICALLY degrades the ship. These are the ONE knob board
+// for those magnitudes, read by resolveBattle so the wiring stays declarative
+// (Omega 9: rule-based, readable without the sim). Integer / integer-percent
+// throughout (design S0.4, drift-proof). ⚠️ EVERY VALUE IS FIRST-PASS + TUNABLE
+// (design S20 owns the balance pass); the mapping INTENT is the durable contract.
+//   - a DEGRADED weapon deals less damage (per-weapon condition),
+//   - a worn REACTOR starves EVERY weapon of power (a global damage multiplier),
+//   - a worn FTL/drive cuts the ship's EVASION and its CLOSING SPEED.
+// A system is never mechanically penalised while nominal, so a full-durability
+// ship is byte-identical to the pre-B1 sim on these levers (the wear rolls, not
+// these deterministic scalings, are what shift the schedule).
+// ---------------------------------------------------------------------------
+
+// A DEGRADED weapon deals this integer percent of its normal damage (design S9
+// "reduced effectiveness"), i.e. ~-25% first pass. An OFFLINE weapon does not fire
+// at all (gated in resolveBattle's fire loop), so only the degraded case scales
+// damage; nominal is an implicit 100 (no scaling) at the call site.
+export const DEGRADED_WEAPON_DAMAGE_PERCENT = 75;
+
+// The REACTOR's condition as a GLOBAL weapon-damage multiplier (integer percent),
+// standing in for power starvation (design S10 seam): a worn reactor cannot supply
+// full power, so every weapon hits softer. Applied ON TOP of each weapon's own
+// condition. Nominal x1.0, Degraded ~x0.9, Offline ~x0.7. "disrupted" is unreachable
+// for the reactor (no S4 disruption category targets it; systemCondition is called
+// with isDisrupted=false), but it maps to the degraded value so the function is total.
+export const REACTOR_DAMAGE_PERCENT_DEGRADED = 90;
+export const REACTOR_DAMAGE_PERCENT_OFFLINE = 70;
+export function reactorDamagePercent(condition: SystemCondition): number {
+	switch (condition) {
+		case "nominal":
+			return 100;
+		case "degraded":
+		case "disrupted":
+			return REACTOR_DAMAGE_PERCENT_DEGRADED;
+		case "offline":
+			return REACTOR_DAMAGE_PERCENT_OFFLINE;
+	}
+}
+
+// The FTL/drive's condition as an EVASION penalty: an integer percent REDUCTION of
+// the ship's evasion, because a damaged drive cannot juke, so the ship is easier to
+// hit. Worse as it degrades (Degraded < Offline, design S9). Nominal none, Degraded
+// -20%, Offline -40%. (Bridged ships default evasion 0 until the maneuver stat lands,
+// so this lever is wired but inert for real ships today; it drives the mechanic +
+// its unit tests now, and the closing-speed penalty below already bites live.)
+export const FTL_EVASION_PENALTY_DEGRADED = 20;
+export const FTL_EVASION_PENALTY_OFFLINE = 40;
+export function ftlEvasionPenaltyPercent(condition: SystemCondition): number {
+	switch (condition) {
+		case "nominal":
+			return 0;
+		case "degraded":
+		case "disrupted":
+			return FTL_EVASION_PENALTY_DEGRADED;
+		case "offline":
+			return FTL_EVASION_PENALTY_OFFLINE;
+	}
+}
+
+// The FTL/drive's condition as a CLOSING-SPEED penalty: an integer percent REDUCTION
+// of the ship's movement speed, because a damaged drive limps. Worse as it degrades
+// (Degraded < Offline, design S9). Nominal none, Degraded -25%, Offline -50%.
+export const FTL_SPEED_PENALTY_DEGRADED = 25;
+export const FTL_SPEED_PENALTY_OFFLINE = 50;
+export function ftlSpeedPenaltyPercent(condition: SystemCondition): number {
+	switch (condition) {
+		case "nominal":
+			return 0;
+		case "degraded":
+		case "disrupted":
+			return FTL_SPEED_PENALTY_DEGRADED;
+		case "offline":
+			return FTL_SPEED_PENALTY_OFFLINE;
+	}
+}
+
 // Quality is a 0..5 rank (design S9). Clamp defensively so a stray value never
 // produces a nonsense chance/max (Omega 8: no ghost assumptions about inputs).
 const QUALITY_MIN = 0;
