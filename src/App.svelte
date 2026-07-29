@@ -1974,9 +1974,13 @@
 
   // --- Combat Patrols dispatch handlers (Combat 0.13.0, Phase 9b.5d) --------------
   // Accessor helpers reading the by-key patrol selection state with an absent-is-
-  // default fallback (no entry -> no captain / "balanced" / dispatch-once). Kept as
-  // functions (not reactive derivations) since they are read per-card inside the
-  // {#each PATROLS} loop with the loop's own patrolKey.
+  // default fallback (no entry -> no captain / "balanced" / dispatch-once). These are
+  // for the SCRIPT path only (doDispatchCaptainOnPatrol). ⚠️ Do NOT call them from a
+  // template {@const}/expression: a function call hides the patrolCaptainByKey (etc.)
+  // read from Svelte's static dependency analysis, so the {@const} never recomputes when
+  // the record changes (that caused the "captain never selects" reactivity bug). In the
+  // {#each PATROLS} card, read patrolCaptainByKey/StanceByKey/RepeatByKey[patrolKey]
+  // DIRECTLY so the dependency is tracked.
   function patrolSelectedCaptainId(patrolKey: PatrolKey): number | null {
     return patrolCaptainByKey[patrolKey] ?? null;
   }
@@ -7563,7 +7567,14 @@
                 {@const faction = FACTIONS[def.factionId]}
                 {@const hostiles = [...new Set(def.hullPool)].map((id) => PIRATE_HULLS[id].name).join(", ")}
                 {@const wavesLabel = def.minWaves === def.maxWaves ? `${def.minWaves}` : `${def.minWaves} - ${def.maxWaves}`}
-                {@const selectedCaptainId = patrolSelectedCaptainId(patrolKey)}
+                <!-- Read the reactive records DIRECTLY here (not via the patrolSelectedCaptainId/
+                     patrolStanceFor/patrolRepeatFor helpers): a helper call hides the
+                     patrolCaptainByKey/StanceByKey/RepeatByKey read inside a function body, so
+                     Svelte's static dependency analysis of this {@const} never sees it and never
+                     recomputes when the record changes, leaving the selector stuck (the "captain
+                     never selects" bug). Referencing the record inline makes it a tracked dep.
+                     The helpers remain for the SCRIPT dispatch path (doDispatchCaptainOnPatrol). -->
+                {@const selectedCaptainId = patrolCaptainByKey[patrolKey] ?? null}
                 {@const selectedCaptain = selectedCaptainId !== null ? state.captains.find((c) => c.id === selectedCaptainId) ?? null : null}
                 {@const selectedShip = selectedCaptain !== null ? state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null : null}
                 {@const selectedShipDef = selectedShip ? SHIP_TYPES[selectedShip.typeKey] : null}
@@ -7574,8 +7585,8 @@
                      the card can never disagree with what the backend would allow. -->
                 {@const gate = selectedCaptainId !== null ? canDispatchPatrol(state, selectedCaptainId, patrolKey) : null}
                 {@const fuelCost = selectedShip ? patrolFuelCost(patrolKey, selectedShip) : null}
-                {@const stance = patrolStanceFor(patrolKey)}
-                {@const repeat = patrolRepeatFor(patrolKey)}
+                {@const stance = patrolStanceByKey[patrolKey] ?? "balanced"}
+                {@const repeat = patrolRepeatByKey[patrolKey] ?? false}
                 <div class="mission-card">
                   <div class="research-name">{def.label}</div>
                   {#if faction}
