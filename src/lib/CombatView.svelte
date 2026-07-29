@@ -476,7 +476,7 @@
          still handles it rather than rendering a broken arena. -->
     <div class="cv-topbar">
       <div class="ctx">Combat View</div>
-      <button class="cv-close" on:click={onClose} aria-label="Close">Close</button>
+      <button class="cv-close" on:click={onClose} aria-label="Close">✕</button>
     </div>
     <div class="cv-unavailable">
       There is no combat to watch right now. This captain is not on an active combat patrol.
@@ -496,7 +496,7 @@
           <button class:on={mode === "log"} on:click={() => (mode = "log")}>Log-Guided</button>
           <button class:on={mode === "visual"} on:click={() => (mode = "visual")}>Visual</button>
         </div>
-        <button class="cv-close" on:click={onClose} aria-label="Close">Close</button>
+        <button class="cv-close" on:click={onClose} aria-label="Close">✕</button>
       </div>
     </div>
 
@@ -854,7 +854,12 @@
        log streams in. Capped to the viewport on short screens. The arena keeps its
        natural size at top; the log fills + scrolls the remaining space (see .log +
        .log-body below), so the dialog stops resizing/bouncing as content changes. */
-    height: min(760px, calc(100vh - 40px));
+    height: min(760px, calc(100vh - 40px)); /* fallback for browsers without dvh */
+    /* dvh = the DYNAMIC (currently-visible) viewport, so the panel fits the space the
+       mobile browser + Android system nav bar actually leave visible. Plain 100vh is the
+       LARGE viewport (counts the area behind that UI), which pushed the log's bottom under
+       the on-screen nav bar. */
+    height: min(760px, calc(100dvh - 40px));
     display: flex;
     flex-direction: column;
     background:
@@ -928,14 +933,21 @@
     font-weight: 600;
   }
   .cv-close {
+    /* Square X icon (top-right of the panel), not a text pill. */
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: transparent;
     border: 1px solid var(--color-border);
     border-radius: 8px;
     color: var(--color-text-secondary);
-    font-size: 11.5px;
-    padding: 6px 11px;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0;
     cursor: pointer;
-    letter-spacing: 0.04em;
   }
   .cv-close:hover {
     color: var(--color-accent-bright);
