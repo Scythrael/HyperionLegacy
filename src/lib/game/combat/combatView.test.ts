@@ -364,4 +364,31 @@ describe("simplifiedLogTokens", () => {
     const tokens = simplifiedLogTokens(ev({ type: "evade", actorId: "P1", targetId: "E1" }), nameFor);
     expect(tokens.every((t) => t.kind === "text")).toBe(true);
   });
+
+  it("renders EVERY drone / outcome / unknown event type as a non-blank, undefined-free line (totality)", () => {
+    // The renderer must never emit a blank or "undefined"-bearing line for any event type
+    // (Omega 14: no silent gaps). These types resolve via their own case or the default
+    // catch-all; this pins that guarantee so a future event type cannot silently regress it.
+    const types = [
+      "droneVolley", "droneSupport", "droneCleanse", "droneIntercept",
+      "droneReflect", "droneCounter", "droneReplenish", "outcome", "somethingBrandNew",
+    ];
+    for (const type of types) {
+      const line = simplifiedLogLine(
+        ev({ type, actorId: "P1", targetId: "E1", damage: 9, shieldDamage: 4, hullDamage: 5 }),
+        nameFor,
+      );
+      expect(line.length, `type ${type} rendered blank`).toBeGreaterThan(0);
+      expect(line, `type ${type} leaked undefined`).not.toContain("undefined");
+    }
+  });
+
+  it("a winner-less outcome event reports the battle ending, not 'something wins'", () => {
+    // Self-contained nameFor so the assertion does not depend on the enclosing fixture.
+    const nf = buildNameFor("P1", "Vale", ["E1"], ["Raider"]);
+    expect(simplifiedLogLine(ev({ type: "outcome" }), nf)).toBe("The battle ends.");
+    expect(simplifiedLogLine(ev({ type: "outcome", actorId: "P1" }), nf)).toBe(
+      "Vale wins the battle.",
+    );
+  });
 });

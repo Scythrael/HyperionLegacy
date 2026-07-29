@@ -447,7 +447,15 @@ export function simplifiedLogTokens(
     case "destroyed":
       return [{ text: `${target} is destroyed.`, kind: "text" }];
     case "outcome":
-      return [{ text: `${attacker} wins the battle.`, kind: "text" }];
+      // The winner is the actor when the event stamps one; guard the absent case so a
+      // winner-less outcome event never renders "something wins the battle" (this event
+      // type is a forward hook the v1 sim does not emit yet, hence the defensive fallback).
+      return [
+        {
+          text: event.actorId !== undefined ? `${attacker} wins the battle.` : "The battle ends.",
+          kind: "text",
+        },
+      ];
     default: {
       // Any other flavored event: keep it legible. Report damage when present, else a
       // neutral engagement line, so no event renders as a blank line in Simplified.
