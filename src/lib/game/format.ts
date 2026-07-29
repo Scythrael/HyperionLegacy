@@ -14,6 +14,14 @@ import Decimal from "break_infinity.js";
 
 const TIERS = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc"];
 
+// Decimal places by magnitude: 2 below 10, 1 below 100, else 0. Reads |scaled| so a
+// negative magnitude gets the SAME precision as its positive counterpart (sign-safe),
+// and both the plain-number and Decimal branches share ONE rule (no drift between them).
+function decimalsFor(scaled: number): number {
+  const m = Math.abs(scaled);
+  return m < 10 ? 2 : m < 100 ? 1 : 0;
+}
+
 export function formatNumber(n: number | Decimal): string {
   if (n instanceof Decimal) return formatDecimal(n);
 
@@ -25,8 +33,17 @@ export function formatNumber(n: number | Decimal): string {
   if (tier >= TIERS.length) return n.toExponential(2);
   tier = Math.min(tier, TIERS.length - 1);
 
-  const scaled = n / Math.pow(10, tier * 3);
-  const decimals = scaled < 10 ? 2 : scaled < 100 ? 1 : 0;
+  let scaled = n / Math.pow(10, tier * 3);
+  let decimals = decimalsFor(scaled);
+  // Rounding to `decimals` places can push |scaled| up to 1000 at a tier boundary
+  // (e.g. 999999 -> 999.999 -> "1000" at 0 decimals), which must ROLL into the next
+  // tier ("1.00M", not "1000K"). If the rounded magnitude reaches 1000 and a higher
+  // tier exists, bump the tier and re-scale.
+  if (Math.abs(Number(scaled.toFixed(decimals))) >= 1000 && tier + 1 < TIERS.length) {
+    tier += 1;
+    scaled = n / Math.pow(10, tier * 3);
+    decimals = decimalsFor(scaled);
+  }
   return `${scaled.toFixed(decimals)}${TIERS[tier]}`;
 }
 
@@ -44,12 +61,19 @@ function formatDecimal(d: Decimal): string {
   if (d.exponent < 3) return formatNumber(d.toNumber()); // small enough to safely round-trip through a plain double, reuse the exact plain-number branch above, not a duplicate implementation
   if (d.exponent >= TIERS.length * 3) return d.toExponential(2);
 
-  const tier = Math.floor(d.exponent / 3);
+  let tier = Math.floor(d.exponent / 3);
   // Math.pow(10, tier*3) (a plain number) is sufficient here, not new Decimal(10).pow(tier*3) --
   // tier*3 never exceeds 27 (TIERS has 10 entries, index 9 * 3 = 27), nowhere near double
   // overflow, and .dividedBy() accepts a plain-number DecimalSource directly.
-  const scaled = d.dividedBy(Math.pow(10, tier * 3)).toNumber();
-  const decimals = scaled < 10 ? 2 : scaled < 100 ? 1 : 0;
+  let scaled = d.dividedBy(Math.pow(10, tier * 3)).toNumber();
+  let decimals = decimalsFor(scaled);
+  // Same tier-boundary rollover as formatNumber: a rounded 1000 rolls into the next tier
+  // ("1.00M", not "1000K"). Guarded so the top tier (Oc) never bumps out of range.
+  if (Math.abs(Number(scaled.toFixed(decimals))) >= 1000 && tier + 1 < TIERS.length) {
+    tier += 1;
+    scaled = d.dividedBy(Math.pow(10, tier * 3)).toNumber();
+    decimals = decimalsFor(scaled);
+  }
   return `${scaled.toFixed(decimals)}${TIERS[tier]}`;
 }
 

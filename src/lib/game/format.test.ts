@@ -41,6 +41,22 @@ describe("formatNumber", () => {
       expect(formatNumber(1000000)).toBe("1.00M");
     });
 
+    it("rolls a just-under-boundary value up into the next tier (999999 -> \"1.00M\", not \"1000K\")", () => {
+      // tier = floor(log10(999999)/3) = 1 (K). scaled = 999.999 rounds to "1000" at
+      // 0 decimals, which must ROLL into the M tier: 999999/1e6 = 0.999999 -> "1.00M".
+      // (Pre-fix this printed the malformed "1000K".)
+      expect(formatNumber(999999)).toBe("1.00M");
+    });
+
+    it("rolls the B boundary too (999999999 -> \"1.00B\", not \"1000M\")", () => {
+      expect(formatNumber(999999999)).toBe("1.00B");
+    });
+
+    it("does NOT roll a value that stays below the rounded boundary (999000 -> \"999K\")", () => {
+      // scaled = 999.0 rounds to "999" (< 1000), so no tier bump.
+      expect(formatNumber(999000)).toBe("999K");
+    });
+
     it("returns \"0\" for NaN", () => {
       expect(formatNumber(NaN)).toBe("0");
     });
@@ -90,6 +106,16 @@ describe("formatNumber", () => {
       // mantissa 1, exponent 6. tier = floor(6/3) = 2. scaled =
       // dividedBy(1e6).toNumber() = 1. decimals = 2. "1.00" + TIERS[2] ("M").
       expect(formatNumber(new Decimal(1000000))).toBe("1.00M");
+    });
+
+    it("rolls a just-under-boundary Decimal up into the next tier (999999 -> \"1.00M\")", () => {
+      // The real currency/resource display path (Decimals). scaled 999.999 rounds to
+      // "1000" and must roll into the M tier, matching the plain-number case above.
+      expect(formatNumber(new Decimal(999999))).toBe("1.00M");
+    });
+
+    it("rolls the Decimal B boundary (999999999 -> \"1.00B\")", () => {
+      expect(formatNumber(new Decimal(999999999))).toBe("1.00B");
     });
 
     it("falls through to scientific notation exactly at the exponent >= TIERS.length*3 boundary (1e30)", () => {
