@@ -355,6 +355,63 @@ describe("resolveBattle cosmetic isolation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// COMBAT 0.13.0 combat-log options: the DISPLAY-ONLY shield/hull damage split.
+// Each connecting hit event carries shieldDamage + hullDamage (the two halves of
+// `damage`) so the Simplified log style + damage-color option can report them. This
+// is emitted ONLY under generateLog (like the flavor field), so it MUST be
+// outcome-neutral: the winner + surviving ships are byte-identical live vs offline.
+// ---------------------------------------------------------------------------
+describe("resolveBattle shield/hull damage split (display-only, outcome-neutral)", () => {
+	// A shielded enemy guarantees BOTH a shield-absorbing hit (shieldDamage > 0) and,
+	// once its shields fall, a hull-landing hit (hullDamage > 0), so the split is
+	// exercised across the whole event stream.
+	const build = () =>
+		oneVsOne(
+			{ hull: 160, weapons: [makeWeapon({ id: "pw", yield: 12 })] },
+			{ hull: 120, shield: 60, weapons: [makeWeapon({ id: "ew", yield: 8 })] },
+		);
+
+	it("emits shieldDamage + hullDamage on every connecting hit, summing to damage", () => {
+		const live = resolveBattle(build(), 4242, { generateLog: true });
+		const hits = live.log.filter((e) => e.type === "hit");
+		expect(hits.length).toBeGreaterThan(0);
+		let sawShieldAbsorb = false;
+		let sawHullLand = false;
+		for (const h of hits) {
+			// Present on every connecting hit, and a pure decomposition of `damage`.
+			expect(h.shieldDamage).toBeDefined();
+			expect(h.hullDamage).toBeDefined();
+			expect((h.shieldDamage ?? 0) + (h.hullDamage ?? 0)).toBe(h.damage ?? 0);
+			if ((h.shieldDamage ?? 0) > 0) sawShieldAbsorb = true;
+			if ((h.hullDamage ?? 0) > 0) sawHullLand = true;
+		}
+		expect(sawShieldAbsorb).toBe(true);
+		expect(sawHullLand).toBe(true);
+	});
+
+	it("offline emits none of the split fields (no log built)", () => {
+		const offline = resolveBattle(build(), 4242, { generateLog: false });
+		expect(offline.log.length).toBe(0);
+	});
+
+	it("is OUTCOME-NEUTRAL: outcome + finalCombatants byte-identical live vs offline", () => {
+		const live = resolveBattle(build(), 4242, { generateLog: true });
+		const offline = resolveBattle(build(), 4242, { generateLog: false });
+		expect(offline.outcome).toEqual(live.outcome);
+		expect(offline.finalCombatants).toEqual(live.finalCombatants);
+	});
+
+	it("outcome-neutrality holds across many seeds (fuzz)", () => {
+		for (let seed = 1; seed <= 40; seed++) {
+			const live = resolveBattle(build(), seed, { generateLog: true });
+			const offline = resolveBattle(build(), seed, { generateLog: false });
+			expect(offline.outcome).toEqual(live.outcome);
+			expect(offline.finalCombatants).toEqual(live.finalCombatants);
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
 // PHASE 12b DISPLAY-ONLY emission: range/band + phase (roundState) + status-effect
 // expiry (effectExpired). ALL of this is gated on generateLog and must NOT move a
 // single outcome. These tests prove (a) the events carry sane display data and (b)

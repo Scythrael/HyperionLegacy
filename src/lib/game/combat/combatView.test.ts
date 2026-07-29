@@ -15,6 +15,9 @@ import {
   logSpeedToMs,
   targetEnemyId,
   enemyWaveTally,
+  weaponDisplayName,
+  simplifiedLogLine,
+  simplifiedLogTokens,
 } from "./combatView";
 import { BAND_LONG } from "./positioning";
 import type { CombatEvent, Combatant } from "./types";
@@ -213,5 +216,152 @@ describe("enemyWaveTally", () => {
     expect(
       enemyWaveTally(enemies, snapOf({ "foe-a": 0, "foe-b": 0, "foe-c": 0 })),
     ).toEqual({ living: 0, down: 3 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Simplified combat-log renderer (Combat 0.13.0 combat-log options). The pure,
+// plain-damage line + its structured token form, both tested without a DOM.
+// ---------------------------------------------------------------------------
+describe("weaponDisplayName", () => {
+  it("maps a known roster type to its display name", () => {
+    expect(weaponDisplayName("railgun")).toBe("Railgun");
+    expect(weaponDisplayName("concussionTorpedo")).toBe("Concussion Torpedo");
+  });
+  it("falls back to 'weapons' for an absent or unknown type", () => {
+    expect(weaponDisplayName(undefined)).toBe("weapons");
+    expect(weaponDisplayName("phaser")).toBe("weapons");
+  });
+});
+
+describe("simplifiedLogLine", () => {
+  // Player id -> captain name, enemy id -> hull label, exactly like the flavor path.
+  const nameFor = buildNameFor("P1", "Captain Vale", ["E1"], ["Raider Interceptor"]);
+
+  it("reports a hit with both shield and hull damage, named by weapon type", () => {
+    const line = simplifiedLogLine(
+      ev({
+        type: "hit",
+        actorId: "P1",
+        targetId: "E1",
+        weaponType: "railgun",
+        damage: 12,
+        shieldDamage: 5,
+        hullDamage: 7,
+      }),
+      nameFor,
+    );
+    expect(line).toBe(
+      "Captain Vale's Railgun hits Raider Interceptor for 5 shield damage and 7 hull damage.",
+    );
+  });
+
+  it("uses shield-only shorthand when the hull took nothing", () => {
+    const line = simplifiedLogLine(
+      ev({ type: "hit", actorId: "P1", targetId: "E1", weaponType: "voltaic", damage: 8, shieldDamage: 8, hullDamage: 0 }),
+      nameFor,
+    );
+    expect(line).toBe("Captain Vale's Voltaic Arc hits Raider Interceptor for 8 shield damage.");
+  });
+
+  it("uses hull-only shorthand when shields took nothing", () => {
+    const line = simplifiedLogLine(
+      ev({ type: "hit", actorId: "P1", targetId: "E1", weaponType: "autocannon", damage: 9, shieldDamage: 0, hullDamage: 9 }),
+      nameFor,
+    );
+    expect(line).toBe("Captain Vale's Autocannon hits Raider Interceptor for 9 hull damage.");
+  });
+
+  it("reads as a glancing hit when a connecting shot dealt zero", () => {
+    const line = simplifiedLogLine(
+      ev({ type: "hit", actorId: "P1", targetId: "E1", weaponType: "railgun", damage: 0, shieldDamage: 0, hullDamage: 0 }),
+      nameFor,
+    );
+    expect(line).toBe("Captain Vale's Railgun hits Raider Interceptor but the shot glances off.");
+  });
+
+  it("falls back to 'weapons' when the hit has no weapon type", () => {
+    const line = simplifiedLogLine(
+      ev({ type: "hit", actorId: "E1", targetId: "P1", damage: 4, shieldDamage: 0, hullDamage: 4 }),
+      nameFor,
+    );
+    expect(line).toBe("Raider Interceptor's weapons hits Captain Vale for 4 hull damage.");
+  });
+
+  it("attributes a damage total to hull when the split fields are absent", () => {
+    // A damage event without the shield/hull split (defensive fallback) still reports.
+    const line = simplifiedLogLine(
+      ev({ type: "droneReflect", actorId: "E1", targetId: "P1", damage: 6 }),
+      nameFor,
+    );
+    expect(line).toBe("Raider Interceptor's drones reflect fire at Captain Vale for 6 hull damage.");
+  });
+
+  it("renders an evade line", () => {
+    expect(
+      simplifiedLogLine(ev({ type: "evade", actorId: "P1", targetId: "E1" }), nameFor),
+    ).toBe("Raider Interceptor evades Captain Vale's fire.");
+  });
+
+  it("renders a DoT line with the effect name and hull damage", () => {
+    expect(
+      simplifiedLogLine(
+        ev({ type: "dot", targetId: "E1", damage: 20, effectDefId: "plasmaFire", effectRank: 2 }),
+        nameFor,
+      ),
+    ).toBe("Plasma Fire II deals 20 hull damage to Raider Interceptor.");
+  });
+
+  it("renders a destroyed line", () => {
+    expect(
+      simplifiedLogLine(ev({ type: "destroyed", targetId: "E1" }), nameFor),
+    ).toBe("Raider Interceptor is destroyed.");
+  });
+
+  it("renders an effect-applied line", () => {
+    expect(
+      simplifiedLogLine(
+        ev({ type: "effectApplied", actorId: "P1", targetId: "E1", effectDefId: "plasmaFire", effectRank: 1 }),
+        nameFor,
+      ),
+    ).toBe("Captain Vale hits Raider Interceptor with Plasma Fire.");
+  });
+});
+
+describe("simplifiedLogTokens", () => {
+  const nameFor = buildNameFor("P1", "Vale", ["E1"], ["Raider"]);
+
+  it("tags the shield and hull numbers so the render layer can color them", () => {
+    const tokens = simplifiedLogTokens(
+      ev({ type: "hit", actorId: "P1", targetId: "E1", weaponType: "railgun", damage: 12, shieldDamage: 5, hullDamage: 7 }),
+      nameFor,
+    );
+    // Exactly one shield-tagged token ("5") and one hull-tagged token ("7").
+    const shieldTokens = tokens.filter((t) => t.kind === "shield");
+    const hullTokens = tokens.filter((t) => t.kind === "hull");
+    expect(shieldTokens.map((t) => t.text)).toEqual(["5"]);
+    expect(hullTokens.map((t) => t.text)).toEqual(["7"]);
+  });
+
+  it("flattens to exactly the simplifiedLogLine string (no drift)", () => {
+    const event = ev({ type: "hit", actorId: "P1", targetId: "E1", weaponType: "autocannon", damage: 9, shieldDamage: 2, hullDamage: 7 });
+    const joined = simplifiedLogTokens(event, nameFor)
+      .map((t) => t.text)
+      .join("");
+    expect(joined).toBe(simplifiedLogLine(event, nameFor));
+  });
+
+  it("a DoT line tags only the hull number", () => {
+    const tokens = simplifiedLogTokens(
+      ev({ type: "dot", targetId: "E1", damage: 20, effectDefId: "plasmaFire", effectRank: 1 }),
+      nameFor,
+    );
+    expect(tokens.filter((t) => t.kind === "shield")).toEqual([]);
+    expect(tokens.filter((t) => t.kind === "hull").map((t) => t.text)).toEqual(["20"]);
+  });
+
+  it("a plain line (evade) carries no colored damage tokens", () => {
+    const tokens = simplifiedLogTokens(ev({ type: "evade", actorId: "P1", targetId: "E1" }), nameFor);
+    expect(tokens.every((t) => t.kind === "text")).toBe(true);
   });
 });

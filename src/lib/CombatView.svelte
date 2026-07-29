@@ -52,8 +52,20 @@
     logSpeedToMs,
     targetEnemyId,
     enemyWaveTally,
+    simplifiedLogTokens,
     type LogSpeed,
+    type SimplifiedToken,
   } from "./game/combat/combatView";
+  // Combat-log DISPLAY preferences (Combat 0.13.0). localStorage-backed, loaded once
+  // per open into plain `let` state below (the same idiom App.svelte uses for its
+  // options). They drive the log STYLE, damage COLORS, stream SPEED, and AUTO-SCROLL;
+  // the panel's own inline controls for these moved to the Options settings screen.
+  import {
+    loadCombatLogStyle,
+    loadCombatDamageColors,
+    loadCombatLogSpeed,
+    loadCombatAutoScroll,
+  } from "./combatLogPreference";
 
   // --- Props ------------------------------------------------------------------
   // `state` + `captain` are read-only inputs; the replay is regenerated from them
@@ -83,13 +95,29 @@
     standoff: "Standoff",
   };
 
-  // How long one round of the log lingers before the next is revealed. The player
-  // picks the cadence via the Speed toggle (Fast 1s / Slow 5s); logSpeedToMs is the
-  // single source of truth for the mapping (design S16: "streams ~1 round/second
-  // live" is the Fast default). `logSpeed` is plain state toggled by a click handler,
-  // never a reactive side effect, so changing it cannot re-enter the flush loop that
-  // once froze this component (see the afterUpdate note below).
-  let logSpeed: LogSpeed = "fast";
+  // ==========================================================================
+  // COMBAT-LOG PREFERENCES (Combat 0.13.0). Loaded ONCE at open from localStorage
+  // into plain `let` state. The controls that used to live in this panel (log speed,
+  // auto-scroll) now live in the Options settings screen; the panel reads the saved
+  // choices instead. Loading into plain state (not a reactive `$:` and not a store
+  // subscription with side effects) keeps the HARD reactivity contract below intact:
+  // these values feed pure derivations + the gated afterUpdate scroll, never a
+  // reactive statement that writes the DOM or calls tick(). A change made in Options
+  // is picked up the next time this view opens (the component remounts per open).
+  // ==========================================================================
+  // How long one round of the log lingers before the next is revealed (Fast 1s /
+  // Slow 5s). logSpeedToMs is the single source of truth for the mapping (design S16:
+  // "streams ~1 round/second live" is the Fast default). The pref values ("fast" /
+  // "slow") line up with the LogSpeed type, so the saved choice drives the timer
+  // directly. Read once here; the stream reads it via logSpeedToMs on each (re)start.
+  let logSpeed: LogSpeed = loadCombatLogSpeed();
+  // Log line STYLE: "default" flavor narration vs "simplified" plain damage reporting.
+  let combatLogStyle = loadCombatLogStyle();
+  // Damage COLORS: tint the Simplified log's shield-damage numbers vs hull-damage
+  // numbers (accessibility). Applied at render, only to the tagged number tokens.
+  let combatDamageColors = loadCombatDamageColors();
+  // AUTO-SCROLL: pin the log to the newest revealed round (gates the afterUpdate hook).
+  let combatAutoScroll = loadCombatAutoScroll();
 
   // ==========================================================================
   // REPLAY (memoized). replayPatrol is a pure, read-only reproduction of the
@@ -175,23 +203,6 @@
     createTimer();
   }
 
-  // Speed-toggle click handler. Changing the cadence re-creates the running interval
-  // at the new delay from the CURRENT round (revealedRound is untouched, so the log
-  // does not rewind); if the stream is not currently running (settled, or a single-
-  // round wave), there is no timer to re-cadence and this only records the choice.
-  // Driven from the click, never a reactive `$:`, so it introduces no side-effect loop.
-  function chooseSpeed(next: LogSpeed): void {
-    if (next === logSpeed) return;
-    logSpeed = next;
-    if (timer !== null) createTimer();
-  }
-
-  // Skip-to-end: settle the arena + log on the wave's final state at once.
-  function skipToEnd(): void {
-    stopTimer();
-    revealedRound = maxRound;
-  }
-
   // Restart the stream whenever the displayed wave changes (initial open, or the
   // live patrol advancing to a new wave while the view is open). Reads maxRound so
   // Svelte orders this after maxRound is computed for the new wave.
@@ -274,8 +285,15 @@
 
   // The full log grouped by round (every round's flavored lines), computed once
   // per wave; the template renders only rounds up to revealedRound.
+  //
+  // Each line is a small STRUCTURED token list (SimplifiedToken[]) rather than a raw
+  // string, so the template renders it via ordinary Svelte markup (never {@html}): a
+  // captain's user-editable name is escaped by Svelte, and the damage-color option can
+  // tint ONLY the shield/hull number tokens. Both styles share the same token shape:
+  //   - "default"   -> the interpolated flavor line wrapped as one plain text token.
+  //   - "simplified"-> the distilled plain-damage tokens (with tagged number runs).
   interface LogLine {
-    text: string;
+    tokens: SimplifiedToken[];
     cls: string;
   }
   interface LogRound {
@@ -285,18 +303,21 @@
   function buildLogRounds(
     log: CombatEvent[] | undefined,
     binder: (id: string) => string,
+    style: "default" | "simplified",
   ): LogRound[] {
     if (!log) return [];
     // Bucket the flavored events by round in chronological order. Only events that
     // carry a flavor TEMPLATE are narration lines; display-only roundState events
-    // (which drive the arena, not the text) carry none and are skipped.
+    // (which drive the arena, not the text) carry none and are skipped. Both styles
+    // key off this SAME set of events, so switching style never adds or drops a line.
     const byRound = new Map<number, LogLine[]>();
     for (const ev of log) {
       if (ev.flavor === undefined) continue;
-      const line: LogLine = {
-        text: interpolateFlavor(ev.flavor, ev, binder),
-        cls: logLineClass(ev),
-      };
+      const tokens: SimplifiedToken[] =
+        style === "simplified"
+          ? simplifiedLogTokens(ev, binder)
+          : [{ text: interpolateFlavor(ev.flavor, ev, binder), kind: "text" }];
+      const line: LogLine = { tokens, cls: logLineClass(ev) };
       const bucket = byRound.get(ev.round);
       if (bucket) bucket.push(line);
       else byRound.set(ev.round, [line]);
@@ -308,7 +329,9 @@
     }
     return rounds;
   }
-  $: allLogRounds = buildLogRounds(wave?.log, nameFor);
+  // Reactive read of the style pref (a plain value read, NO side effect), so if the
+  // pref ever changes while mounted the log rebuilds; normally it is fixed per open.
+  $: allLogRounds = buildLogRounds(wave?.log, nameFor, combatLogStyle);
   $: shownRounds = allLogRounds.filter((r) => r.round <= revealedRound);
 
   // --- Status-effect + system-condition pip presentation ----------------------
@@ -432,9 +455,13 @@
   // loop the instant the streamed round advanced (revealedRound was the trigger),
   // hard-freezing the tab. A lifecycle hook cannot re-enter reactivity, so it
   // cannot loop.
+  // Gated on the combatAutoScroll pref (Combat 0.13.0): when the player turns
+  // auto-scroll off in Options, the log holds position instead of being pinned to the
+  // newest round, so they can read back without being yanked to the bottom. Still a
+  // lifecycle hook (never a reactive statement), so it cannot re-enter the flush loop.
   let logBody: HTMLDivElement | null = null;
   afterUpdate(() => {
-    if (mode === "log" && logBody) logBody.scrollTop = logBody.scrollHeight;
+    if (mode === "log" && combatAutoScroll && logBody) logBody.scrollTop = logBody.scrollHeight;
   });
 </script>
 
@@ -463,16 +490,11 @@
         {#if totalWaves > 0}<span class="wavepill">Wave {(waveIdx ?? 0) + 1} / {totalWaves}</span>{/if}
       </div>
       <div class="cv-topbar-right">
+        <!-- The panel now holds only the Mode toggle + Close. The log-stream speed,
+             style, damage colors, and auto-scroll are Options settings (Combat 0.13.0). -->
         <div class="mode" role="tablist" aria-label="Combat view mode">
           <button class:on={mode === "log"} on:click={() => (mode = "log")}>Log-Guided</button>
           <button class:on={mode === "visual"} on:click={() => (mode = "visual")}>Visual</button>
-        </div>
-        <!-- Log-stream speed toggle. Restarts the reveal interval at the new cadence
-             from the current round (never rewinds); see chooseSpeed. -->
-        <div class="mode speed" role="group" aria-label="Log stream speed">
-          <span class="seglab">Speed</span>
-          <button class:on={logSpeed === "fast"} on:click={() => chooseSpeed("fast")} aria-pressed={logSpeed === "fast"}>1s</button>
-          <button class:on={logSpeed === "slow"} on:click={() => chooseSpeed("slow")} aria-pressed={logSpeed === "slow"}>5s</button>
         </div>
         <button class="cv-close" on:click={onClose} aria-label="Close">Close</button>
       </div>
@@ -784,19 +806,18 @@
     {#if mode === "log"}
       <div class="log">
         <div class="log-head">
-          <span class="t">Combat log &middot; Log-Guided</span>
-          <span class="log-head-right">
-            {#if !settled}
-              <button class="cv-skip" on:click={skipToEnd}>Skip to end</button>
-            {/if}
-            <span class="t dim">auto-scroll</span>
-          </span>
+          <span class="t">Combat log</span>
         </div>
         <div class="log-body" bind:this={logBody}>
           {#each shownRounds as r (r.round)}
             <div class="rounddiv">=== Round {r.round + 1} ===</div>
             {#each r.lines as line, li (li)}
-              <div class="ln {line.cls}">{line.text}</div>
+              <!-- Render the line's tokens as plain Svelte markup (never {@html}), so
+                   user-editable captain names are escaped. With the damage-color option
+                   on, shield-damage numbers tint accent (blue/cyan) and hull-damage
+                   numbers tint warning (orange); off, every token renders as plain text. -->
+              <div class="ln {line.cls}"
+                >{#each line.tokens as tk}{#if combatDamageColors && tk.kind === "shield"}<span class="dmg-shield">{tk.text}</span>{:else if combatDamageColors && tk.kind === "hull"}<span class="dmg-hull">{tk.text}</span>{:else}{tk.text}{/if}{/each}</div>
             {/each}
           {/each}
           {#if shownRounds.length === 0}
@@ -829,7 +850,11 @@
 
   .cv-dialog {
     width: min(1080px, 100%);
-    max-height: calc(100vh - 40px);
+    /* LOCKED HEIGHT (Combat 0.13.0): a stable frame that does NOT grow/shrink as the
+       log streams in. Capped to the viewport on short screens. The arena keeps its
+       natural size at top; the log fills + scrolls the remaining space (see .log +
+       .log-body below), so the dialog stops resizing/bouncing as content changes. */
+    height: min(760px, calc(100vh - 40px));
     display: flex;
     flex-direction: column;
     background:
@@ -902,24 +927,7 @@
     color: var(--color-accent-bright);
     font-weight: 600;
   }
-  /* Speed toggle: same segmented look as the mode toggle, with a small inline
-     label so "1s / 5s" reads as a cadence, not an unrelated pair of buttons. */
-  .mode.speed {
-    align-items: center;
-  }
-  .mode.speed .seglab {
-    font-size: 8.5px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-text-dim);
-    padding: 0 8px;
-    border-right: 1px solid var(--color-border);
-    align-self: stretch;
-    display: flex;
-    align-items: center;
-  }
-  .cv-close,
-  .cv-skip {
+  .cv-close {
     background: transparent;
     border: 1px solid var(--color-border);
     border-radius: 8px;
@@ -929,8 +937,7 @@
     cursor: pointer;
     letter-spacing: 0.04em;
   }
-  .cv-close:hover,
-  .cv-skip:hover {
+  .cv-close:hover {
     color: var(--color-accent-bright);
     border-color: var(--color-border-strong);
   }
@@ -952,6 +959,10 @@
     padding: 16px;
     align-items: start;
     overflow-y: auto;
+    /* Keep the arena at its natural height inside the locked-height dialog, but let it
+       shrink + scroll (rather than force the dialog to grow) on a short viewport, so
+       the log still gets its own scrollable frame below. */
+    min-height: 0;
   }
   /* RESPONSIVE SWITCH. The desktop arena is the default; the mobile block is hidden
      until the viewport narrows past 760px, at which point the arena hides and the
@@ -1240,10 +1251,18 @@
     letter-spacing: 0.06em;
   }
 
-  /* Log. */
+  /* Log. Fills the fixed frame under the arena and owns its own scroll (the log-body
+     scrolls internally), so the locked-height dialog never grows as rounds stream in.
+     This flex-column behavior is shared by desktop + mobile (the mobile media query
+     below restates it for the narrow layout). */
   .log {
     border-top: 1px solid var(--color-border);
     padding: 14px 16px 16px;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
   .log-head {
     display: flex;
@@ -1258,21 +1277,28 @@
     text-transform: uppercase;
     color: var(--color-text-secondary);
   }
-  .log-head .t.dim {
-    color: var(--color-text-dim);
-  }
-  .log-head-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
   .log-body {
     font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.75;
-    max-height: 230px;
     overflow-y: auto;
     padding-right: 8px;
+    /* Fill the fixed frame left under the arena (see the locked .cv-dialog height +
+       the flex .log below), so the log scrolls INTERNALLY from the first line rather
+       than growing the dialog as rounds stream in (the bounce this cleanup removes). */
+    flex: 1;
+    min-height: 0;
+  }
+  /* Damage-color option (Combat 0.13.0): tint the Simplified log's shield-damage
+     numbers vs hull-damage numbers so the two read apart at a glance (accessibility).
+     Applied only to the tagged number tokens; the surrounding text is unchanged. */
+  .dmg-shield {
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+  .dmg-hull {
+    color: var(--color-warning);
+    font-weight: 600;
   }
   .rounddiv {
     color: var(--color-text-dim);

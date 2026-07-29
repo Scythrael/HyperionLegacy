@@ -397,6 +397,20 @@ export interface CombatEvent {
 	// Target's hull value AFTER this event resolved, same reason.
 	hullAfter?: number;
 
+	// -- Combat 0.13.0 combat-log options: DISPLAY-ONLY damage split (accessibility).
+	// The portion of this event's `damage` that was absorbed by the target's SHIELDS
+	// vs the portion that reached its HULL, so the Simplified combat-log style can
+	// report "X shield damage and Y hull damage" and the damage-color option can tint
+	// the two numbers distinctly. The sim ALREADY computes this split when it applies
+	// each projectile (shields absorb first, then hull); these fields just surface it.
+	// INVARIANT for a damage event: (shieldDamage ?? 0) + (hullDamage ?? 0) === damage.
+	// Emitted ONLY under generateLog (exactly like the flavor field), so offline
+	// resolution sets neither and stays byte-identical: they are pure narration and
+	// never gate a shot or feed an outcome/finalCombatants path. Absent on
+	// non-damage events (evade / destroyed / effectApplied).
+	shieldDamage?: number;
+	hullDamage?: number;
+
 	// -- Phase 3 shot-detail fields (all optional; a flavor layer reads them to
 	// pick the most specific line). --
 	// The firing weapon's family, so flavor can be styled per particle/kinetic/EW.

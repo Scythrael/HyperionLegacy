@@ -479,6 +479,20 @@
     saveSalvageConfirmQualities,
     salvageNeedsConfirm,
   } from "./lib/salvageConfirmPreference";
+  // Combat-log DISPLAY preferences (Combat 0.13.0). localStorage-backed, surfaced in
+  // the Options settings as the first section of a growing accessibility/theming hub.
+  import {
+    loadCombatLogStyle,
+    saveCombatLogStyle,
+    loadCombatDamageColors,
+    saveCombatDamageColors,
+    loadCombatLogSpeed,
+    saveCombatLogSpeed,
+    loadCombatAutoScroll,
+    saveCombatAutoScroll,
+    type CombatLogStyle,
+    type CombatLogSpeed,
+  } from "./lib/combatLogPreference";
   import { focusTrap } from "./lib/focusTrap";
 
   // DEV_MODE, Vercel §9.5.3: true on Preview, false on Production. Locally,
@@ -567,6 +581,14 @@
   // tickBarEnabled above, so it survives a delete-save and needs no save
   // migration. Loaded in onMount alongside tickBarEnabled; default TRUE.
   let refineConfirmEnabled = true;
+  // Combat-log DISPLAY preferences (Combat 0.13.0). localStorage-backed (NOT on
+  // GameState), loaded at declaration like salvageConfirmQualities below, so they
+  // survive a delete-save and need no save migration. The combat view reads the same
+  // saved values when it opens; these mirrors drive the Options controls' active state.
+  let combatLogStyle: CombatLogStyle = loadCombatLogStyle();
+  let combatDamageColors = loadCombatDamageColors();
+  let combatLogSpeed: CombatLogSpeed = loadCombatLogSpeed();
+  let combatAutoScroll = loadCombatAutoScroll();
   let deleteModalOpen = false;
   let deleteConfirmText = "";
 
@@ -8072,6 +8094,83 @@
           </label>
         </div>
         <p class="prestige-text">When enabled, a confirmation popup appears before starting a refine order. Ticking "Don't show this again" in that popup turns this off.</p>
+
+        <!-- ============================================================
+             COMBAT LOG settings (Combat 0.13.0). The FIRST section of a growing
+             accessibility/theming options hub: future sections (high-contrast,
+             colorblind-safe palettes, pride themes) drop in as SIBLING blocks below
+             with this same "section title + segmented rows + one-line explanation"
+             pattern, no refactor needed. Each control writes its localStorage pref
+             immediately (mirrors the toggles above); the combat view reads the saved
+             value when it next opens. Segmented .dev-btn toggles match the existing
+             options styling (the theme swatches + debug segments use the same class).
+             ============================================================ -->
+        <div class="opt-section-title">Combat Log</div>
+
+        <!-- Log style: flavor narration vs plain damage reporting. -->
+        <div class="dev-row">
+          <span class="dev-label">Log style</span>
+          <button
+            class="dev-btn"
+            class:active={combatLogStyle === "default"}
+            on:click={() => { combatLogStyle = "default"; saveCombatLogStyle("default"); }}
+          >Default</button>
+          <button
+            class="dev-btn"
+            class:active={combatLogStyle === "simplified"}
+            on:click={() => { combatLogStyle = "simplified"; saveCombatLogStyle("simplified"); }}
+          >Simplified</button>
+        </div>
+        <p class="prestige-text">Simplified distills the log to plain damage reporting (shield and hull numbers), dropping the flavor narration. Default keeps the descriptive combat prose.</p>
+
+        <!-- Damage colors: tint shield vs hull damage numbers (accessibility). -->
+        <div class="dev-row">
+          <span class="dev-label">Damage colors</span>
+          <button
+            class="dev-btn"
+            class:active={combatDamageColors}
+            on:click={() => { combatDamageColors = true; saveCombatDamageColors(true); }}
+          >On</button>
+          <button
+            class="dev-btn"
+            class:active={!combatDamageColors}
+            on:click={() => { combatDamageColors = false; saveCombatDamageColors(false); }}
+          >Off</button>
+        </div>
+        <p class="prestige-text">When on, shield damage is shown in blue and hull damage in orange in the Simplified log, so the two read apart at a glance.</p>
+
+        <!-- Log speed: how fast rounds stream into the log. -->
+        <div class="dev-row">
+          <span class="dev-label">Log speed</span>
+          <button
+            class="dev-btn"
+            class:active={combatLogSpeed === "fast"}
+            on:click={() => { combatLogSpeed = "fast"; saveCombatLogSpeed("fast"); }}
+          >Fast (1s)</button>
+          <button
+            class="dev-btn"
+            class:active={combatLogSpeed === "slow"}
+            on:click={() => { combatLogSpeed = "slow"; saveCombatLogSpeed("slow"); }}
+          >Slow (5s)</button>
+        </div>
+        <p class="prestige-text">How long each round of the combat log lingers before the next appears: Fast reveals about one round per second, Slow one every five seconds.</p>
+
+        <!-- Auto-scroll: pin the log to the newest line as it streams. -->
+        <div class="dev-row">
+          <span class="dev-label">Auto-scroll</span>
+          <button
+            class="dev-btn"
+            class:active={combatAutoScroll}
+            on:click={() => { combatAutoScroll = true; saveCombatAutoScroll(true); }}
+          >On</button>
+          <button
+            class="dev-btn"
+            class:active={!combatAutoScroll}
+            on:click={() => { combatAutoScroll = false; saveCombatAutoScroll(false); }}
+          >Off</button>
+        </div>
+        <p class="prestige-text">When on, the combat log keeps the newest round in view as it streams. When off, the log holds position so you can read back without being pulled to the bottom.</p>
+
         <div class="theme-row">
           {#each THEME_NAMES as name}
             <button
@@ -9533,6 +9632,18 @@
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .dev-label { font-size: 11px; color: var(--color-text-secondary); width: 78px; }
+  /* A labeled sub-heading inside the Options panel, separating a settings section
+     (e.g. Combat Log) from the rows above it. Kept small + accent-tinted so a future
+     accessibility/theming section reads as a sibling group, not a new panel. */
+  .opt-section-title {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+    margin: 18px 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--color-border);
+  }
   /* .dev-btn: the flat action-button object used across the app (the dev panel AND
      player-facing actions like Ship Systems / Assign Ship / Talents / back
      controls). THEME-LINKED (user 2026-07-21): every color derives from the accent

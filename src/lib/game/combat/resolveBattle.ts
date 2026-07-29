@@ -360,6 +360,13 @@ interface ShotResult {
 	crit: boolean;
 	// True if this (particle) shot bled damage through shields via attenuation.
 	attenuated: boolean;
+	// DISPLAY-ONLY damage split (Combat 0.13.0 combat-log options): the portion of
+	// `damage` absorbed by the target's SHIELDS vs the portion that reached its HULL,
+	// summed across every projectile of this shot. A pure decomposition of `damage`
+	// (shieldDealt + hullDealt === damage), collected always (cheap) so the OPTIONAL,
+	// generateLog-gated hit event can carry it without re-deriving. Never an outcome input.
+	shieldDealt: number;
+	hullDealt: number;
 	shieldAfter: number;
 	hullAfter: number;
 	killed: boolean;
@@ -423,7 +430,7 @@ export function applyProjectileDamage(
 	// ambush skips the deflector screen, not the hull plating). Default false keeps
 	// every normal shot byte-identical (the regression default for all fixtures).
 	bypassShields = false,
-): { dealt: number; attenuated: boolean } {
+): { dealt: number; attenuated: boolean; shieldDealt: number; hullDealt: number } {
 	// STEP 4 (triangle): pick ONE column. Normally from the target's CURRENT shield
 	// state (shields up => vs-Shields, shields down => vs-Armor); a hull-direct
 	// ambush always uses the vs-Armor column (shields are down for this shot). See
@@ -530,8 +537,14 @@ export function applyProjectileDamage(
 	}
 
 	// Total damage the target actually lost = shield drained + hull-path landed.
+	// Also surface the two halves separately: `shieldDealt` (absorbed by shields)
+	// and `hullDealt` (post-mitigation damage that reached the hull). These feed the
+	// DISPLAY-ONLY combat-log damage split (Combat 0.13.0 combat-log options); they
+	// are a pure decomposition of `dealt` (shieldDealt + hullDealt === dealt) and
+	// change no outcome. A hull-direct ambush leaves the shield untouched, so its
+	// shieldDealt is 0 and the whole shot reads as hull damage.
 	const shieldLost = shieldBefore - target.shield;
-	return { dealt: shieldLost + hullPath, attenuated };
+	return { dealt: shieldLost + hullPath, attenuated, shieldDealt: shieldLost, hullDealt: hullPath };
 }
 
 // ---------------------------------------------------------------------------
@@ -755,6 +768,11 @@ export function fireWeapon(
 
 	let projectilesHit = 0;
 	let totalDealt = 0;
+	// DISPLAY-ONLY split accumulators (Combat 0.13.0): shield-absorbed vs hull-landed
+	// damage summed across this shot's projectiles. Cheap struct math (like totalDealt),
+	// so they add no combat-stream draw and cannot move an outcome.
+	let totalShieldDealt = 0;
+	let totalHullDealt = 0;
 	let anyCrit = false;
 	let anyAttenuated = false;
 
@@ -855,7 +873,7 @@ export function fireWeapon(
 			// Overflow past the drone (if any) lands on the carrier through normal
 			// mitigation. A fully-stopped / anti-drone-spent projectile has 0 overflow.
 			if (plan.carrierOverflow > 0) {
-				const { dealt, attenuated } = applyProjectileDamage(
+				const { dealt, attenuated, shieldDealt, hullDealt } = applyProjectileDamage(
 					target,
 					weapon.family,
 					weapon.shieldAttenuation,
@@ -864,6 +882,8 @@ export function fireWeapon(
 					bypassShields,
 				);
 				totalDealt += dealt;
+				totalShieldDealt += shieldDealt;
+				totalHullDealt += hullDealt;
 				if (attenuated) anyAttenuated = true;
 			}
 			continue;
@@ -873,7 +893,7 @@ export function fireWeapon(
 		// armor + hull to THIS projectile against the target's live state (so a volley
 		// that breaks the shield mid-way correctly switches the triangle column
 		// and stops attenuating once shields are gone).
-		const { dealt, attenuated } = applyProjectileDamage(
+		const { dealt, attenuated, shieldDealt, hullDealt } = applyProjectileDamage(
 			target,
 			weapon.family,
 			weapon.shieldAttenuation,
@@ -882,6 +902,8 @@ export function fireWeapon(
 			bypassShields,
 		);
 		totalDealt += dealt;
+		totalShieldDealt += shieldDealt;
+		totalHullDealt += hullDealt;
 		if (attenuated) anyAttenuated = true;
 	}
 
@@ -981,6 +1003,8 @@ export function fireWeapon(
 		damage: totalDealt,
 		crit: anyCrit,
 		attenuated: anyAttenuated,
+		shieldDealt: totalShieldDealt,
+		hullDealt: totalHullDealt,
 		shieldAfter: target.shield,
 		hullAfter: target.hull,
 		killed,
@@ -1006,6 +1030,12 @@ interface VolleyResult {
 	dronesHit: number;
 	// Total damage dealt to the target across every connecting drone (integer).
 	damage: number;
+	// DISPLAY-ONLY damage split (Combat 0.13.0 combat-log options): shield-absorbed vs
+	// hull-landed damage summed across the volley, so the Simplified log can report the
+	// drone volley the same way as a weapon shot. Pure decomposition of `damage`; never
+	// an outcome input.
+	shieldDealt: number;
+	hullDealt: number;
 	shieldAfter: number;
 	hullAfter: number;
 	killed: boolean;
@@ -1044,6 +1074,8 @@ function fireSquadron(
 			fired: false,
 			dronesHit: 0,
 			damage: 0,
+			shieldDealt: 0,
+			hullDealt: 0,
 			shieldAfter: target.shield,
 			hullAfter: target.hull,
 			killed: false,
@@ -1072,6 +1104,9 @@ function fireSquadron(
 
 	let dronesHit = 0;
 	let totalDealt = 0;
+	// DISPLAY-ONLY split accumulators (Combat 0.13.0), mirroring fireWeapon.
+	let totalShieldDealt = 0;
+	let totalHullDealt = 0;
 	// Did ANY drone actually participate this volley? A squadron whose drones are
 	// all dead/offline fires nothing (fired:false => no draws happened above the
 	// per-drone guards, and no log/cosmetic work downstream).
@@ -1096,7 +1131,7 @@ function fireSquadron(
 		// STEP 5: mitigation, same strict order as a weapon shot. Drones carry no
 		// particle attenuation or kinetic armor-pen (0/0), so they route through
 		// shields -> armor -> hull cleanly against the target's live state.
-		const { dealt } = applyProjectileDamage(
+		const { dealt, shieldDealt, hullDealt } = applyProjectileDamage(
 			target,
 			squadron.family,
 			0, // shieldAttenuation: drones do not attenuate
@@ -1104,6 +1139,8 @@ function fireSquadron(
 			raw,
 		);
 		totalDealt += dealt;
+		totalShieldDealt += shieldDealt;
+		totalHullDealt += hullDealt;
 	}
 
 	// Death bookkeeping: mirror fireWeapon. Single source of truth for liveness.
@@ -1117,6 +1154,8 @@ function fireSquadron(
 		fired: anyFired,
 		dronesHit,
 		damage: totalDealt,
+		shieldDealt: totalShieldDealt,
+		hullDealt: totalHullDealt,
 		shieldAfter: target.shield,
 		hullAfter: target.hull,
 		killed,
@@ -1249,6 +1288,11 @@ function resolveAmbushOpener(
 						crit: shot.crit,
 						attenuated: shot.attenuated,
 						projectilesHit: shot.projectilesHit,
+						// DISPLAY-ONLY damage split (Combat 0.13.0 combat-log options). An ambush
+						// opener always connects here (guarded by shot.fired); a hull-direct opener
+						// reports 0 shield / all hull, a detected shielded opener splits normally.
+						shieldDamage: shot.shieldDealt,
+						hullDamage: shot.hullDealt,
 					},
 					cosmetic,
 				),
@@ -1741,6 +1785,13 @@ export function resolveBattle(
 								crit: shot.crit,
 								attenuated: shot.attenuated,
 								projectilesHit: shot.projectilesHit,
+								// DISPLAY-ONLY damage split (Combat 0.13.0 combat-log options): the
+								// shield-absorbed vs hull-landed halves of `damage`, for the Simplified
+								// log style + the damage-color option. Present ONLY on a CONNECTING hit (a
+								// pure evade carries no damage), so they stay absent on non-damage events.
+								...(evaded
+									? {}
+									: { shieldDamage: shot.shieldDealt, hullDamage: shot.hullDealt }),
 								// Shield-break only on a CONNECTING hit that zeroed a live shield.
 								shieldBroke:
 									!evaded && shieldBefore > 0 && shot.shieldAfter === 0,
@@ -1965,6 +2016,12 @@ export function resolveBattle(
 									hullAfter: volley.hullAfter,
 									family: squadron.family,
 									projectilesHit: volley.dronesHit,
+									// DISPLAY-ONLY damage split (Combat 0.13.0 combat-log options): present
+									// only on a CONNECTING volley (a fully evaded volley carries no damage),
+									// so the field stays absent on the evade case like the weapon-hit path.
+									...(evaded
+										? {}
+										: { shieldDamage: volley.shieldDealt, hullDamage: volley.hullDealt }),
 								},
 								cosmetic,
 							),

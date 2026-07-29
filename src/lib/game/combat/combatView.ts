@@ -17,6 +17,7 @@
 import type { CombatEvent, Combatant } from "./types";
 import { BAND_LONG } from "./positioning";
 import type { SquadronStatusSummary } from "./drones";
+import { STATUS_EFFECT_DEFS } from "./statusEffects";
 // Type-only import (no runtime dependency, so no import cycle): the mobile roster
 // helpers below read a folded RoundSnapshot to find each enemy's CURRENT hull.
 import type { RoundSnapshot } from "./patrolReplay";
@@ -234,4 +235,248 @@ export function enemyWaveTally(
     else living += 1;
   }
   return { living, down };
+}
+
+// ===========================================================================
+// SIMPLIFIED COMBAT-LOG RENDERER (Combat 0.13.0 combat-log options)
+//
+// The combat log offers two styles (a localStorage preference, combatLogPreference.ts):
+//   - "default"     -> the layered cosmetic flavor narration (flavor.ts), unchanged.
+//   - "simplified"  -> the distilled, plain damage report built HERE.
+//
+// The Simplified style turns ONE structured CombatEvent into ONE easy-to-read line:
+// no flavor, just who did what to whom and the shield/hull damage split. It is PURE
+// (a function of the event fields + the caller's id->name binder), so it is unit-
+// tested without a DOM exactly like the flavor path.
+//
+// TWO OUTPUTS FROM ONE SOURCE:
+//   - simplifiedLogTokens(): a small STRUCTURED token list (plain-text runs plus
+//     tagged shield/hull damage-number runs). The combat view renders these via
+//     ordinary Svelte markup (never {@html}), so a captain's user-editable name is
+//     escaped by Svelte and the damage-color option can tint ONLY the number runs.
+//   - simplifiedLogLine(): the same content flattened to a plain string (tokens
+//     joined), for the color-off path + the tests. Color is applied at RENDER, never
+//     baked into the string, so the two callers can never drift.
+//
+// Uses the SAME nameFor the flavor path uses (player = captain name, enemy = hull
+// label). Christened per-ship names slot in later through renamable-ships; nothing
+// here needs to change for that (it renders whatever nameFor returns).
+// ===========================================================================
+
+// A run of the simplified line: plain narration text, or a damage NUMBER tagged by
+// which pool it hit, so the render layer can color the two distinctly (accessibility).
+export interface SimplifiedToken {
+  text: string;
+  kind: "text" | "shield" | "hull";
+}
+
+// Player-facing display names for the v1 weapon roster, keyed by CombatWeapon
+// .weaponType (weapons.ts WEAPON_DEFS ids). Kept as a small, readable lookup (Omega 9:
+// rule-based, explainable without the UI) so a Railgun reads as "Railgun" and not its
+// mangled instance id. An absent or unknown type falls back to the generic "weapons",
+// so a fixture weapon with no weaponType still yields a legible line.
+const WEAPON_DISPLAY_NAMES: Record<string, string> = {
+  plasma: "Plasma Cannon",
+  graviton: "Graviton Lance",
+  voltaic: "Voltaic Arc",
+  railgun: "Railgun",
+  autocannon: "Autocannon",
+  concussionTorpedo: "Concussion Torpedo",
+  pointDefenseArray: "Point-Defense Array",
+  empCannon: "EMP Cannon",
+  tachyonBurstEmitter: "Tachyon Burst Emitter",
+};
+
+export function weaponDisplayName(weaponType: string | undefined): string {
+  if (weaponType === undefined) return "weapons";
+  return WEAPON_DISPLAY_NAMES[weaponType] ?? "weapons";
+}
+
+// Resolve a combatant id to a display name via the caller's binder, with a neutral
+// fallback so a missing id never renders "undefined" (mirrors the flavor path's guard).
+function who(nameFor: (id: string) => string, id: string | undefined): string {
+  if (id === undefined) return "something";
+  const name = nameFor(id);
+  return name && name.length > 0 ? name : id;
+}
+
+// Roman-numeral rank suffix for effect names (rank 1 renders nothing, 2/3 render
+// II/III), matching flavor.ts + CombatView's own rankSuffix so the two styles agree.
+function rankSuffix(rank: number | undefined): string {
+  if (rank === undefined || rank <= 1) return "";
+  if (rank === 2) return " II";
+  if (rank === 3) return " III";
+  return ` ${rank}`;
+}
+
+// An effect def id resolved to its display name (+ rank), falling back to the raw id.
+function effectLabel(defId: string | undefined, rank: number | undefined): string {
+  if (defId === undefined) return "an effect";
+  const name = STATUS_EFFECT_DEFS[defId]?.displayName ?? defId;
+  return `${name}${rankSuffix(rank)}`;
+}
+
+// The shield/hull damage split for a damage event, with a defensive fallback: if the
+// split fields are absent but the event carries a `damage` total (an older or non-
+// weapon damage event, e.g. a drone reflect/counter that does not emit the split),
+// attribute the whole visible amount to HULL so the line still reports a number.
+function damageSplit(event: CombatEvent): { shield: number; hull: number } {
+  const shield = event.shieldDamage ?? 0;
+  let hull = event.hullDamage ?? 0;
+  if (shield === 0 && hull === 0 && (event.damage ?? 0) > 0) {
+    hull = event.damage ?? 0;
+  }
+  return { shield, hull };
+}
+
+// Build the trailing "for X shield damage and Y hull damage." clause as tokens, with
+// graceful shorthand for the shield-only / hull-only / zero cases. The leading space
+// lets a caller append it straight onto the subject clause.
+function damageClauseTokens(shield: number, hull: number): SimplifiedToken[] {
+  if (shield > 0 && hull > 0) {
+    return [
+      { text: " for ", kind: "text" },
+      { text: String(shield), kind: "shield" },
+      { text: " shield damage and ", kind: "text" },
+      { text: String(hull), kind: "hull" },
+      { text: " hull damage.", kind: "text" },
+    ];
+  }
+  if (shield > 0) {
+    return [
+      { text: " for ", kind: "text" },
+      { text: String(shield), kind: "shield" },
+      { text: " shield damage.", kind: "text" },
+    ];
+  }
+  if (hull > 0) {
+    return [
+      { text: " for ", kind: "text" },
+      { text: String(hull), kind: "hull" },
+      { text: " hull damage.", kind: "text" },
+    ];
+  }
+  // Zero damage that still connected: a glancing, ineffective hit.
+  return [{ text: " but the shot glances off.", kind: "text" }];
+}
+
+// ---------------------------------------------------------------------------
+// simplifiedLogTokens: one CombatEvent -> a structured, plain-damage line.
+//
+// Switches on the event type to pick a distilled sentence. Damage lines carry the
+// shield/hull split as tagged number tokens; everything else is plain text. A type we
+// do not specifically narrate still yields a legible generic line rather than a blank
+// (Omega 14: no silent gap). PURE: same event + binder always give the same tokens.
+// ---------------------------------------------------------------------------
+export function simplifiedLogTokens(
+  event: CombatEvent,
+  nameFor: (id: string) => string,
+): SimplifiedToken[] {
+  const attacker = who(nameFor, event.actorId);
+  const target = who(nameFor, event.targetId);
+
+  switch (event.type) {
+    case "hit":
+    case "ambush": {
+      const { shield, hull } = damageSplit(event);
+      const weapon = weaponDisplayName(event.weaponType);
+      return [
+        { text: `${attacker}'s ${weapon} hits ${target}`, kind: "text" },
+        ...damageClauseTokens(shield, hull),
+      ];
+    }
+    case "droneVolley": {
+      const { shield, hull } = damageSplit(event);
+      return [
+        { text: `${attacker}'s drone squadron hits ${target}`, kind: "text" },
+        ...damageClauseTokens(shield, hull),
+      ];
+    }
+    case "droneReflect": {
+      const { shield, hull } = damageSplit(event);
+      return [
+        { text: `${attacker}'s drones reflect fire at ${target}`, kind: "text" },
+        ...damageClauseTokens(shield, hull),
+      ];
+    }
+    case "droneCounter": {
+      const { shield, hull } = damageSplit(event);
+      return [
+        { text: `${attacker}'s drones counterattack ${target}`, kind: "text" },
+        ...damageClauseTokens(shield, hull),
+      ];
+    }
+    case "droneIntercept":
+      return [
+        { text: `${attacker}'s drones intercept ${target}'s fire.`, kind: "text" },
+      ];
+    case "droneSupport":
+      return [{ text: `${attacker}'s support drones make repairs.`, kind: "text" }];
+    case "droneCleanse":
+      return [
+        {
+          text: `${attacker}'s drones clear ${effectLabel(event.effectDefId, event.effectRank)}.`,
+          kind: "text",
+        },
+      ];
+    case "droneReplenish":
+      return [{ text: `${attacker} rebuilds a drone.`, kind: "text" }];
+    case "evade":
+      return [{ text: `${target} evades ${attacker}'s fire.`, kind: "text" }];
+    case "dot": {
+      // A DoT tick has no acting shooter (the burn outlives the shot); only the
+      // afflicted target + the effect are named. Its damage is hull-path, so the
+      // number is tagged hull.
+      const dmg = event.damage ?? 0;
+      return [
+        {
+          text: `${effectLabel(event.effectDefId, event.effectRank)} deals `,
+          kind: "text",
+        },
+        { text: String(dmg), kind: "hull" },
+        { text: ` hull damage to ${target}.`, kind: "text" },
+      ];
+    }
+    case "effectApplied":
+      return [
+        {
+          text: `${attacker} hits ${target} with ${effectLabel(event.effectDefId, event.effectRank)}.`,
+          kind: "text",
+        },
+      ];
+    case "destroyed":
+      return [{ text: `${target} is destroyed.`, kind: "text" }];
+    case "outcome":
+      return [{ text: `${attacker} wins the battle.`, kind: "text" }];
+    default: {
+      // Any other flavored event: keep it legible. Report damage when present, else a
+      // neutral engagement line, so no event renders as a blank line in Simplified.
+      if (event.actorId !== undefined && event.targetId !== undefined) {
+        if ((event.damage ?? 0) > 0) {
+          const { shield, hull } = damageSplit(event);
+          return [
+            { text: `${attacker}'s fire hits ${target}`, kind: "text" },
+            ...damageClauseTokens(shield, hull),
+          ];
+        }
+        return [{ text: `${attacker} engages ${target}.`, kind: "text" }];
+      }
+      if (event.targetId !== undefined) return [{ text: `${target} is affected.`, kind: "text" }];
+      if (event.actorId !== undefined) return [{ text: `${attacker} acts.`, kind: "text" }];
+      return [{ text: "Combat continues.", kind: "text" }];
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// simplifiedLogLine: the flattened plain-string form of the tokens (color-off path
+// + tests). Color is applied at render from the token kinds, never baked in here.
+// ---------------------------------------------------------------------------
+export function simplifiedLogLine(
+  event: CombatEvent,
+  nameFor: (id: string) => string,
+): string {
+  return simplifiedLogTokens(event, nameFor)
+    .map((t) => t.text)
+    .join("");
 }
