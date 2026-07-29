@@ -489,6 +489,10 @@ describe("drone carry-state", () => {
 // cycle's waves. masterSeed 29 draws a marauder that bloodies the destroyer over its 2 waves
 // (ticks [3,4]), so the player takes many connecting hits => durability-loss rolls fire on its
 // systems, giving VISIBLE, deterministic wear to assert on.
+// ⚠️ SEED IS COUPLED TO THE FIRST-PASS DURABILITY CONSTANTS: masterSeed 29 was chosen to
+// witness real wear under the current (untuned) loss rates. If the S20 balance pass LOWERS
+// wear enough that seed 29 stops wearing across two waves, these tests fail loudly (which is
+// correct: a real accumulation test must witness real wear) and the seed must be re-picked.
 // ---------------------------------------------------------------------------
 describe("cross-wave durability accumulation (Phase 12b Unit B2)", () => {
   // Total durability across every system (both weapons + reactor + ftl).

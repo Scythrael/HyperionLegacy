@@ -3999,6 +3999,22 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     const migrated: any = migrate(idle);
     expect(migrated.captains[0].mission).toBeNull();
   });
+
+  it("degrades safely on a corrupt/non-combat hull: leaves the field absent, no throw", () => {
+    // A hand-edited/corrupt v32 save: an in-flight patrol whose assigned ship is somehow a
+    // NON-combat hull (canDispatchPatrol never allows this in normal play). The migration
+    // cannot derive a full durability from a non-combat hull, so `if (!ship || !hullType)`
+    // leaves the field ABSENT rather than throwing; the build path later treats absent as
+    // full. This locks the last uncovered migration branch (the degrade-safe posture).
+    const save = makeV32PatrolSave();
+    (save.state as any).ships[0].typeKey = "generalFreighter";
+    const migrated: any = migrate(save);
+    const mission = migrated.captains[0].mission;
+    expect(mission.kind).toBe("patrol");
+    // No full durability derivable => field stays absent (no crash, no fabricated value).
+    expect(mission.playerSystemDurability).toBeUndefined();
+    expect(SAVE_VERSION).toBe(33);
+  });
 });
 
 // Fuel Economy v2 (F5): the "no new migration needed" PROOF. F1-F4 added NO new persistent
