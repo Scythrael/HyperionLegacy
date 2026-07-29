@@ -2145,9 +2145,11 @@ export function addToInventory(
 // Pure/deterministic given (state, ticksElapsed, rng): advancing by ticksElapsed
 // in ONE call equals advancing by chunks summing to ticksElapsed, because every
 // subsystem this calls (tickCaptainMission / resolveProcesses / applyFleetAdminXp)
-// is already closed-form (see tickCaptainMission's header). That is what lets a
-// later task (A4) drive the offline span as a chunk loop; today tick() still
-// calls it ONCE over the whole span, exactly as the pre-extraction code did.
+// is already closed-form (see tickCaptainMission's header). That closed-form
+// property is what lets the caller drive a span as a chunk loop: tick() steps
+// economyTick(state, 1, rng) once per WHOLE tick, plus one fractional-remainder
+// call, NOT once over the whole span (see tick() below). The earlier note here
+// claiming a single whole-span call was stale after that chunk-loop landed.
 //
 // Idle captains (mission === null) have no passive economy anymore, missions
 // are the only way a captain does anything. Only mission captains need advancing;
