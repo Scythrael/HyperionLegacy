@@ -1,65 +1,54 @@
-# SESSION HANDOFF, Combat 0.13.0 build (as of 2026-07-23)
+# SESSION HANDOFF, Combat 0.13.0 build (as of 2026-07-29)
 
-Authoritative resume doc for a fresh session. Read this + the two combat docs below, then continue at **Phase 9b**.
+Authoritative resume doc for a fresh session. Read this + the memory doc, then continue at the REMAINING WORK below.
 
 ## TL;DR
-- **Branch:** `feat/combat-0.13.0` (tip `b930932`, 38 commits since main). Tree clean.
-- **Gate right now:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, ignore); `npm test` = 1190 passing.
-- **Done:** the ENTIRE combat ENGINE (Phases 1-8) + combat hulls (Phase 9a). Combat is playable via a DEV button today; the real MISSION loop is not built yet.
-- **Next:** Phase 9b (playable Patrol missions). Then 10 rewards, 11 loss/repair, 12 UI (MOCKUP-GATED), 13 offline, 14 fold-in.
-- **PROD is 0.12.1** (unaffected); combat ships as 0.13.0 later, after user device-test + explicit go.
+- **Branch:** `feat/combat-0.13.0`, tip **`26b03a2`**. Tree clean, all committed.
+- **Gate now:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, ignore); `npm test` = **1570 passing**.
+- **Deploy state:** devpreview (`origin/staging`) = `26b03a2` (the full combat build, live for the user to test). **PROD (`origin/main`) = `e282614` = 0.12.1 + hotfixes, UNTOUCHED.** Combat ships as 0.13.0 only after P14 fold-in + user device-test + explicit go.
+- **Done:** the ENTIRE combat epic through the playable, polished COMBAT VIEW (desktop + mobile) + live durability + combat-log OPTIONS. See "What's done" below.
+- **Next:** the user is doing mobile VISUAL PASSES on devpreview. Then: **P12c Visual mode** -> **durability tuning** -> **P13 offline summary** -> **P14 fold-in** (ship it).
 
 ## Read these first
-1. `docs/plans/2026-07-22-combat-0.13.0-design.md`  (the full design, 20 sections S1..S20)
-2. `docs/plans/2026-07-22-combat-0.13.0-plan.md`  (the phased plan; Phase 1 detailed, 2-14 outlined, expand each just-in-time)
-3. Memory `project_fleet_admiral_combat_0130.md` (phase-by-phase status, every decision + seam)
+1. Memory `project_fleet_admiral_combat_0130.md` (phase-by-phase status, every decision + seam; the authoritative running log).
+2. `docs/plans/2026-07-22-combat-0.13.0-design.md` (full design, S1..S20) + `-plan.md` (phased plan).
+3. `SUGGESTIONS.md` (backlog; several items added this session, see below).
 
 ## Hard invariants (do NOT break)
-- **Deterministic + seeded + headless.** `resolveBattle(participants, seed, { generateLog }) -> { outcome, log }` is pure. Same seed => same outcome.
-- **Offline == live is a HARD invariant** (parity suite in `src/lib/game/combat/resolveBattle.test.ts`). Two RNG streams: `combat` (outcomes) + `cosmetic` (flavor). Offline skips cosmetic, outcome identical. Every new outcome-roll MUST draw from the `combat` stream, independent of `generateLog`. RE-RUN the parity suite after any combat change.
-- **Integer / fixed-point math** in the sim (NO Decimal; Decimal is only the idle economy). Time in integer deci-seconds (dt=1, round=10).
-- **No em dashes, no "--" in PROSE / user-facing strings** (CSS `var(--x)` and `// --- section ---` code-comment dividers are fine, they match the existing codebase).
-- **SAVE_VERSION is currently 31** (Phase 1 bumped it). Phase 9b+ that add persisted state bump it further with a backfill migration; existing saves are PRESERVED, never nuked.
-- **Combat UI (Phase 12) is MOCKUP-GATED**: build an HTML mockup, send it to the user (SendUserFile; inline widgets do not render for this user), get sign-off BEFORE any combat-UI code. User has pre-approved that a mockup is required.
+- **Deterministic + seeded + headless.** `resolveBattle(participants, seed, { generateLog }) -> { outcome, log, finalCombatants }` is pure. Same seed => same outcome. RE-RUN the parity suite after any combat change.
+- **Offline == live is a HARD invariant.** Two RNG streams: `combat` (outcomes) + `cosmetic` (flavor). Offline skips cosmetic + log; outcome identical. Any new OUTCOME roll draws from `combat`, independent of `generateLog`. Display-only additions (flavor, range/phase, shieldDamage/hullDamage, condition pips) are `generateLog`-GATED and must stay outcome-neutral (parity fuzz proves it).
+- **Integer / fixed-point sim math** (NO Decimal in combat; Decimal is only the idle economy). Time in integer deci-seconds; MAX_TICKS=600 (60 rounds).
+- **SAVE_VERSION is 33** (B2 durability persistence bumped 32->33 with a backfill migration). Existing saves PRESERVED, never nuked. Any new persisted state bumps + backfills.
+- **No em dashes, no "--" as prose punctuation** (CSS `var(--x)` and `// -- section` code dividers are tolerated but the user prefers real punctuation; there is a pending decide-once on the combat/ `// -- Phase N` markers).
+- **⚠️ SVELTE REACTIVITY FOOTGUN (caused a hard freeze this session):** NEVER call `tick()` (or await it) inside a reactive `$:`, and add NO reactive `$:` with side effects (DOM writes / scroll / focus). CombatView's derivations return fresh objects every flush => the component is perpetually dirty => a reactive tick() drives Svelte's flush-until-stable into a synchronous infinite loop that hard-freezes the tab. Use `afterUpdate`/`onMount` for post-render DOM work; toggle plain `let` state from click handlers only. Also: no `{@html}` with user-editable text (captain names) = XSS.
 
-## Workflow
-Subagent-driven development (the user's standard): a fresh implementer subagent per coherent unit, gate green + controller-verify the risky seam, commit. SUB-PHASE big phases (drones was 7a/7b; Phase 9 is 9a done + 9b/9c...). Keep the combat memory doc current after each phase (compaction insurance). Give each subagent full context in the prompt (do not make it read the plan). Commit messages end with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`. **The user drives pace; when they say continue, continue (see feedback memory `feedback_respect_continue_decisions`).**
+## What's DONE (all reviewed + green, all on devpreview)
+- **Combat ENGINE, Phases 1-11 + balance + rewards** (deterministic sim, 3 weapon families, disruptions/DoTs, drones, positioning/stance, loot, limp-home + Shipyard repair, captain identity).
+- **Patrol dispatch loop + UI** (9b.5*): dispatchable Patrols, Combat Patrols tab under Operations.
+- **P12a flavor/log engine** (layered cosmetic pools) + **P12b-1 display-only deterministic replay** (`patrolReplay.ts`; the combat view's data source, parity-locked) + **Unit A** range/band + phase + effect-expiry emission.
+- **Live durability (B1 + B2):** weapons/reactor/ftl wear on hits (combat stream), condition effects (weapon offline/degraded, reactor damage mult, ftl evasion/speed), per-system condition pips; cross-wave persistence (SAVE_VERSION 33 + migration) + repair. WARNING: **LATENT at first-pass constants** (base 100 durability rarely reaches the 50% Degraded threshold in the short starter) -> the DURABILITY TUNING call is deferred to the user (bite-now vs S20).
+- **Combat view UI (Unit C) + MOBILE layout:** desktop 3-col card arena; mobile compact-row roster + status band + tap-to-expand (`@media max-width:760px`). Log-Guided streaming; Visual mode is a STUB (P12c).
+- **Combat-log OPTIONS** (in the System > Options settings modal): `combatLogPreference.ts` localStorage prefs = style (Default flavor / Simplified), damage colors (shield blue / hull orange), speed (fast 1s / slow 5s), auto-scroll. Simplified renderer (`simplifiedLogTokens`). Display-only `shieldDamage`/`hullDamage` on CombatEvent (outcome-neutral) feed the split. Combat panel trimmed to Mode + Close; modal height locked.
 
-## STANDING DEFINITION-OF-DONE: update HELP + patch notes (user directive, do NOT skip)
-"Update HELP" is part of the definition-of-done for every feature, same as patch notes (living-doc rule, see SUGGESTIONS.md). HELP is data-driven (search `HELP_TOPICS` / `src/lib/helpTopics.ts` and the Home > Help manual). Combat introduces a LOT of new content + changes that need HELP coverage: the combat system itself (how a Patrol works, waves, dispatch, stance), weapon FAMILIES + the triangle, disruptions + DoTs, shields/attenuation/armor/hull, durability + repair bays, DRONES (roles/hangars/pods/replenishment), Battle Rating + Engagement Forecast, combat hulls (destroyer/battleship/carrier), captain NAMING (Phase 1 already live). Add/refresh HELP entries as each user-facing piece lands (ideally per phase; at minimum a dedicated HELP pass in Phase 14 before staging). Also refresh any HELP text that the combat changes made stale.
+## Bugs fixed this session (context)
+- **PROD hotfix (shipped to prod 0.12.1, e282614):** SubTabs flex-collapse, ore over-cap clamp + upgrade-affordability, storage-tooltip flicker, all-facility-upgrade popover. (Cherry-picked off origin/main; see the hotfix-workflow memory.)
+- **Patrol selector non-reactive** (helper-call hid the reactive dep) -> read the record directly in the `{@const}`.
+- **Combat view OPEN-FREEZE** (the reactive-tick() auto-scroll loop above) -> `afterUpdate` hook.
+- **dronePips double-count** (refab counted as offline) + rendered em dashes + `--` comment punctuation.
 
-## What is built (Phases 1-8 + 9a), all in `src/lib/game/combat/` unless noted
-- **P1 Captain Identity** (model.ts/tick.ts/save.ts/App.svelte): `nextCaptainId` monotonic counter; `captainName.ts` `validateCaptainName` (client courtesy seam, real mod server-side 0.14.0); `renameCaptain`; live Rename UI. SAVE_VERSION 31.
-- **P2 sim core:** `rng.ts` (mulberry32, two streams), `types.ts`, `resolveBattle.ts` (fixed 0.1s loop, round cap + tiebreak, pure). Flagship parity suite.
-- **P3 shot pipeline + weapons:** families kinetic/particle/ew + triangle; mitigation shields->attenuation(particle-only)->ablativeArmor->kineticDampening->hull; `weapons.ts` WEAPON_DEFS = the 9 (Plasma/Graviton/Voltaic, Railgun/Autocannon/ConcussionTorpedo, PointDefense/EMP/Tachyon).
-- **P4 status effects:** `statusEffects.ts` unified DoT/debuff/buff, the 12-entry disruption table, ranks 1->3, DoT per-tick damage + 1 log line/round, wired to weapon effectSlots.
-- **P5 defense/durability/power:** per-family resists (damage + disruption), `durability.ts` (+ systemCondition 4-state), `power.ts` (powerBudget). Renamed reserved stat keys bleedthrough->shieldAttenuation, bleedthroughResist->shieldCoherence.
-- **P6 positional:** `positioning.ts` bands Short100/Med200/Long300, stance aggressive/balanced/standoff movement, formal targeting, openers (precharge + longest-range opener), ambush SYMMETRIC (hull-direct + delayed return fire + torpedoes-barred + cloak), counter-module flags. Wired movement/sensor debuffs.
-- **P7 drones:** `drones.ts` + `droneDefense.ts`. Roles attack/defense/support, individual-unit tracking, offense; defense interactions (deflect/reflect/smart-reflect PARTICLE-ONLY, meat-shield overflow, attack counter, multi-projectile saturation); replenishment; support kit.
-- **P8 rating:** `rating.ts` battleRating (monotonic scalar) + engagementForecast (Monte-Carlo winrate over resolveBattle, 64 samples, advisory).
-- **P9a combat hulls:** `SHIP_TYPES` destroyer/battleship/carrier (live combat stats) + `COMBAT_DEFAULT_LOADOUT` (bridge.ts) + `shipToCombatant` builds real combatants (hullType + default loadout, carrier gets a drone squadron).
-- **DEV TEST HARNESS:** `bridge.ts` (`shipToCombatant`, `sampleLoadout`), `logFormat.ts` (`formatCombatLog`, `=== Round N ===`), and a dev **"Run Test Battle"** button in App.svelte Debug panel (bridges ships[0] vs a pirate, resolveBattle, renders the log; read-only). This is how combat is testable in-game TODAY. It is NOT the Phase-12 UI.
+## REMAINING WORK (in order)
+1. **User visual passes on devpreview** (in progress): mobile row density; locked-height proportions (desktop / mobile / short viewport); damage-color contrast; Options section spacing. One open UX call flagged: on mobile, whether the TARGET enemy's active status pips show INLINE (currently tap-to-expand only).
+2. **DURABILITY TUNING decision** (user's call): durability is wired but latent; decide whether to tune constants so it bites now, or defer to the S20 balance pass.
+3. **P12c: Visual mode** (design S16) - the damage-pop presentation over the ships (the currently-stubbed toggle). Reuse the same event stream; family/type-styled damage numbers.
+4. **P13: Offline overhaul** - While-You-Were-Away summary (patrols resolved, loot, ships in repair, captain statuses); confirm offline catch-up parity.
+5. **P14: Fold-in** - HELP encyclopedia entries, 0.13.0 patch notes, `APP_VERSION` 0.12.1 -> 0.13.0, holistic review vs the design doc, then promote: devpreview -> user device-test -> **explicit prod go** (push feat/combat-0.13.0 content to origin/main).
 
-## PHASE 9b (next): playable Patrol mission loop
-Goal: dispatch a Patrol from the game, it runs multi-wave seeded battles, resolves, and you see the result. This BUMPS SAVE_VERSION (careful migration). Sub-phase it; the pieces:
-1. **Combat hull gating:** the 3 warships now appear as buildable Shipyard cards with NO tier/research gate (`canBuildShip` tick.ts ~3038 has no gate; Shipyard UI App.svelte ~5585 enumerates all SHIP_TYPES). Add the tier/research gate so warships are earned, not free at start.
-2. **Faction data:** a lightweight `Faction` (id/name/flavor) in model.ts; reputation scalar + consequences are DEFERRED (seam only). A few named pirate factions.
-3. **Patrol MissionDef(s):** new combat mission type. Card shows "Combat Waves: min-max". Enemy generation deterministic/seeded per encounter (build enemy Combatants from hull + loadout; enemies may bring drones so anti-drone matters).
-4. **Wave generator:** min guaranteed via spread catch-up checkpoints, max ceiling, per-tick rolls, stop at max, infamy-talent raises max, deterministic count (design S14). Between waves: shields regen + drones replenish (`replenishDrones`) per tick, hull persists.
-5. **Dispatch + resolution:** dispatch a captain + ship + STANCE (pass precharge:true) from Operations; run over the mission timer; at each encounter tick call `resolveBattle` with a seed derived from a persisted master seed + encounter index (so offline==live). Dispatch Once / Dispatch Repeatedly toggle.
-6. **SAVE_VERSION bump + migration** for the new mission/combat/faction/master-seed state. Backfill old saves. Extend save.test.ts.
-NOTE: 9b can use the P9a DEFAULT loadouts (no weapon/drone CRAFTING yet). Weapons/drone-pods as craftable+fittable EQUIPMENT (Fabricator + hardpoints + hangar bays) is a follow-on sub-phase, not required for a first playable patrol.
+## Deploy / git model (IMPORTANT)
+- **`origin/main` = PROD** (Vercel). **`origin/staging` = devpreview.** Push to staging = `git push --force-with-lease origin feat/combat-0.13.0:staging` (combat branch mirrors devpreview; it is built on prod 0.12.1 + carries the hotfixes, so a force-push loses nothing).
+- **Prod is UNTOUCHED and stays 0.12.1 until P14.** Never push combat to origin/main without the user's explicit go.
+- WARNING: **VERIFY REMOTE TIPS, not local branch pointers** (local main/staging have been stale before). Always `git fetch` + read `origin/main`/`origin/staging` before any deploy.
 
-## Remaining after 9b
-- **Weapons + drone pods as craftable/fittable equipment** (Fabricator mints; weapon hardpoints; hangar bays; installCap/class gates). Replaces default loadouts.
-- **P10 rewards:** seeded loot tables, wreck salvage + guaranteed "Damaged [System]" reverse-eng components (Damaged-Reactor-Housing idiom), cargo loot, credit bounty, captain+FA XP. No functional-gear drops.
-- **P11 loss/repair:** limp-home 2x, auto-route to Shipyard, repair as timed process, Shipyard Bays shared build/repair (>=1 reserved for repair, idle-build-flex, "waiting for repair" queue).
-- **P12 combat UI (MOCKUP-GATED):** portraits + hull/shield bars + square status pips + drone squadron pips + ship-system condition pips + range/band readout + phase narration + Log-Guided (default) & Visual (damage-pops) modes. Under Operations, watch-live on an active patrol. Data-driven LAYERED flavor pools (signature->type->family->generic, cosmetic RNG) replace the dev logFormat. Fix "bleed-through" -> attenuation wording.
-- **P13 offline overhaul:** While-You-Were-Away summary (patrols resolved, waves won/lost, loot+bounty, ships in repair, captain status). Offline combat headless (no log gen), identical to live.
-- **P14 fold-in:** HELP entries for ALL new combat content (see the standing definition-of-done note above; this is a required deliverable, not optional), 0.13.0 patch notes, APP_VERSION 0.13.0, holistic review, then staging -> user device-test -> explicit prod go. Balance-tuning pass (all the flagged S20 numbers) once systems are live.
-
-## Accumulated integration seams (TODO-commented in code, wire during 9b+)
-Stance/precharge/ambush set per encounter by the mission layer; module ITEMS granting particleTraceDetector / rapidChargeAfterAmbush / smartReflect / inCombatReplenishPercent; `antiDrone` weapon flag on PointDefense/EMP; between-wave `replenishDrones` call; escortShare targeting (escort missions = fast-follow); durability NOT rolled live yet (wire at integration, re-verify parity); carrier bay count currently in COMBAT_DEFAULT_LOADOUT.builtInBays; per-weapon-type resists (v1 is family-granularity).
-
-## Deferred to later patches (NOT 0.13.0), see design S19 + SUGGESTIONS.md
-Escort missions; combat-chance in non-combat missions; player cloaking; specialty weapons (Neutron anti-crew, Ion, Laser, Hyperon, Mass Driver, Breaching Lance, etc.); set-bonus RESOLUTION (hooks: setId, chase affixes like +1 Drone Hangar); weapon+captain proficiency; refit + configurable bay allocation; captain death + crew promotion; escape pods; faction reputation (bounties/law-enforcement incarceration/diplomacy spec); 2.0 interactive turn-based Battlespace + SVG animation; ground combat; away-mission turn-based; **Celestial-class apex = Jupiter-class**.
+## Backlog added this session (SUGGESTIONS.md)
+- **Renamable ships** (custom hull names, mirrors captain rename; would enrich the combat view + Simplified log).
+- **"Hack the Gibson"** easter-egg encounter + achievement (Hackers reference; gated rare encounter for hack-module ships).
+- **Accessibility + theming roadmap:** high-contrast mode + more accessibility options, and **FREE pride themes (Trans, LGBT)** - never paywalled; paid tier = specialty cosmetic layouts (glows/transitions) only. The combat-log options are the first bricks; keep the Options section extensible.
