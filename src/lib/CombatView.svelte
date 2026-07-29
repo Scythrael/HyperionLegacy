@@ -36,6 +36,7 @@
     replayPatrol,
     foldWaveSnapshots,
     type PatrolReplay,
+    type PatrolReplayWave,
   } from "./game/combat/patrolReplay";
   import { interpolateFlavor } from "./game/combat/flavor";
   import { squadronStatusSummary } from "./game/combat/drones";
@@ -150,11 +151,67 @@
       ? captain.mission.waveTicks.length
       : 0;
 
-  // The wave to display + its fold into per-round snapshots.
+  // The LIVE wave index the patrol is currently on (advances / relaunches in the
+  // background while this view is open).
   $: waveIdx = replay.available
     ? currentReplayWaveIndex(missionNextWaveIndex, replay.waves.length)
     : null;
-  $: wave = waveIdx !== null ? replay.waves[waveIdx] : null;
+
+  // ==========================================================================
+  // WATCHED-WAVE FREEZE (Combat 0.13.0 streaming fix).
+  //
+  // WHY: the round counter was stuck on "Round 1". The view chased the LIVE patrol,
+  // so `wave` (and every derivation off it) swapped whenever the background patrol
+  // advanced a wave or relaunched, which RESET the reveal stream back to round 0.
+  // At the Slow (5s) log speed that reset beat round 2 every cycle, so the counter
+  // never progressed. The fix: FREEZE the battle being watched, play it fully round
+  // by round, and advance to a newer battle ONLY once the current one has settled.
+  //
+  // The live-derived wave (swaps under us) and a stable identity for it, so we can
+  // tell a genuinely DIFFERENT battle apart from the per-tick object churn (memoReplay
+  // returns a fresh replay object on each `state` reassignment). liveKey is null when
+  // there is no identifiable live wave (no seed / no wave), which the capture guards on.
+  // ==========================================================================
+  $: liveWave =
+    replay.available && waveIdx !== null ? (replay.waves[waveIdx] ?? null) : null;
+  $: liveKey =
+    liveWave !== null && replay.masterSeed !== undefined && waveIdx !== null
+      ? `${replay.masterSeed}:${waveIdx}`
+      : null;
+
+  // The FROZEN watched battle: plain `let` state, written ONLY by the guarded capture
+  // block below (never a live derivation), and held UNCHANGED while it streams so every
+  // downstream derivation reads one stable battle from round 1 to round N.
+  let watchedWave: PatrolReplayWave | null = null;
+  let watchedKey: string | null = null;
+
+  // `wave` is now the FROZEN watched wave (NOT the live one), so ALL the display
+  // derivations below (snapshots, nameFor, playerSnap, bars, pips) advance round by
+  // round and never rewind when the background patrol moves on.
+  $: wave = watchedWave;
+
+  // CAPTURE (FIRST OPEN ONLY). Adopt the live battle as the watched battle the FIRST time
+  // there is anything to watch (watchedKey === null). Advancing to LATER battles is handled
+  // by advanceWatchedIfReady (below), NOT here.
+  //
+  // ⚠️ WHY THIS IS SPLIT (and does NOT read `settled`). A single block gated on
+  // `settled && liveKey !== watchedKey` (the natural shape) both READS `settled` and WRITES
+  // `watchedWave`. `settled` is downstream of `watchedWave` (settled <- maxRound <- snapshots
+  // <- wave <- watchedWave), so that block closes a reactive cycle the Svelte 5 compiler
+  // REJECTS ("reactive_declaration_cycle"), even though the logic itself converges. The fix
+  // is to keep first-open capture free of any `settled` / `maxRound` read, and to do the
+  // "advance once finished" completion read INSIDE a plain function (advanceWatchedIfReady),
+  // where it is invisible to the compiler's cycle analysis. Runtime behavior is unchanged.
+  //
+  // Converges: once watchedKey is set non-null, the guard (watchedKey === null) is false on
+  // every re-run, so this block writes nothing further. No loop.
+  $: {
+    if (watchedKey === null && liveWave !== null && liveKey !== null) {
+      watchedKey = liveKey;
+      watchedWave = liveWave;
+    }
+  }
+
   // Seed the fold with the wave's starting combatants so a combatant that is never
   // targeted still renders its opening pools (patrolReplay.ts fold contract).
   $: snapshots = wave ? foldWaveSnapshots(wave.log, [wave.playerStart, ...wave.enemyStart]) : [];
@@ -167,10 +224,10 @@
   // ==========================================================================
   let revealedRound = 0; // highest round index currently revealed
   let timer: ReturnType<typeof setInterval> | null = null;
-  // Tracks which wave the current stream belongs to. `undefined` (the initial
-  // sentinel) differs from every real index AND from null, so the first reactive
-  // run always kicks off a stream.
-  let streamWaveKey: number | null | undefined = undefined;
+  // Tracks which WATCHED battle the current stream belongs to (its watchedKey). The
+  // `undefined` initial sentinel differs from every real key AND from null, so the
+  // first reactive run always kicks off a stream.
+  let streamKey: string | null | undefined = undefined;
 
   function stopTimer(): void {
     if (timer !== null) {
@@ -190,7 +247,13 @@
     if (revealedRound >= maxRound) return;
     timer = setInterval(() => {
       revealedRound += 1;
-      if (revealedRound >= maxRound) stopTimer();
+      if (revealedRound >= maxRound) {
+        stopTimer();
+        // The watched battle just finished streaming. If the live patrol advanced past it
+        // WHILE it was streaming, switch to the current live battle now (only now that this
+        // one has fully played, and only ever FORWARD, so the log never rewinds mid-battle).
+        advanceWatchedIfReady();
+      }
     }, logSpeedToMs(logSpeed));
   }
 
@@ -203,12 +266,52 @@
     createTimer();
   }
 
-  // Restart the stream whenever the displayed wave changes (initial open, or the
-  // live patrol advancing to a new wave while the view is open). Reads maxRound so
-  // Svelte orders this after maxRound is computed for the new wave.
+  // Advance the FROZEN watched battle to the current live battle, but ONLY once the watched
+  // battle has fully streamed (revealedRound >= maxRound) AND the live patrol has genuinely
+  // moved to a DIFFERENT battle (liveKey !== watchedKey). This is the auto-advance that lets
+  // the view roll on to the patrol's newer battle after the current one finishes.
+  //
+  // ⚠️ It deliberately reads the completion state (revealedRound / maxRound) INSIDE this
+  // plain function rather than in a reactive `$:`: a reactive block that referenced maxRound
+  // here while writing watchedWave would rebuild the wave -> watchedWave -> snapshots ->
+  // maxRound cycle the Svelte compiler rejects. Inside a function those reads are invisible
+  // to the compiler's dependency analysis, so the auto-advance stays cycle-free.
+  //
+  // Converges: after it sets watchedKey = liveKey, any re-run finds liveKey === watchedKey
+  // and the guard is false, so it writes nothing more. Capturing here restarts the stream,
+  // but the restart does not re-trigger the caller below (which depends only on liveKey,
+  // unchanged by the restart), so there is no loop.
+  function advanceWatchedIfReady(): void {
+    if (
+      revealedRound >= maxRound &&
+      liveWave !== null &&
+      liveKey !== null &&
+      liveKey !== watchedKey
+    ) {
+      watchedKey = liveKey;
+      watchedWave = liveWave;
+    }
+  }
+
+  // Re-run the auto-advance whenever the live patrol moves to a different battle (liveKey
+  // changes). If the watched battle is already finished, advanceWatchedIfReady switches to
+  // the live one immediately; if it is still streaming, the guard holds until the timer's
+  // own completion call (above) fires. This statement depends ONLY on liveKey (never on
+  // maxRound / watchedWave), which is exactly what keeps it out of the rejected cycle.
+  $: liveKey, advanceWatchedIfReady();
+
+  // STREAM DRIVER. Restart the reveal from round 0 ONLY when the WATCHED battle
+  // changes (first-open capture, or advanceWatchedIfReady rolling on to a newer battle
+  // once the current one finished). Keyed on watchedKey, NOT the live waveIdx, so a background
+  // patrol advance never rewinds the battle currently on screen. Reads maxRound so
+  // Svelte orders this AFTER maxRound recomputes for the newly-watched wave.
+  //
+  // Converges: startStream sets revealedRound = 0 but does NOT change watchedKey, so
+  // after this runs streamKey === watchedKey and the guard is false on the immediate
+  // re-run. (revealedRound advancing afterward is the async timer, not a reactive write.)
   $: {
-    if (waveIdx !== streamWaveKey) {
-      streamWaveKey = waveIdx;
+    if (watchedKey !== streamKey) {
+      streamKey = watchedKey;
       startStream(maxRound);
     }
   }
@@ -249,7 +352,9 @@
   $: playerShield = playerSnap?.shield ?? (wave ? wave.playerStart.shield : 0);
   $: playerShieldMax = wave ? wave.playerStart.shieldMax : 0;
 
-  $: enemyName = wave && waveIdx !== null && wave.enemyLabels.length > 0 ? wave.enemyLabels[0] : "";
+  // Reads the FROZEN wave directly (the old `waveIdx !== null` guard was for the live
+  // wave; `wave` being non-null is now the validity check, so it cannot go stale).
+  $: enemyName = wave && wave.enemyLabels.length > 0 ? wave.enemyLabels[0] : "";
   $: enemyHull = enemySnap?.hull ?? (enemyFeatured ? enemyFeatured.hull : 0);
   $: enemyHullMax = enemyFeatured ? enemyFeatured.hullMax : 0;
   $: enemyShield = enemySnap?.shield ?? (enemyFeatured ? enemyFeatured.shield : 0);
@@ -491,7 +596,7 @@
       <div class="ctx">
         <b>{playerName}</b>{#if shipClassLabel} &middot; {shipClassLabel}{/if}
         {#if faction}&nbsp;vs&nbsp;<b class="foe-name">{faction.name}</b>{/if}
-        {#if totalWaves > 0}<span class="wavepill">Wave {(waveIdx ?? 0) + 1} / {totalWaves}</span>{/if}
+        {#if totalWaves > 0}<span class="wavepill">Wave {(watchedWave?.waveIndex ?? 0) + 1} / {totalWaves}</span>{/if}
       </div>
       <div class="cv-topbar-right">
         <!-- The panel now holds only the Mode toggle + Close. The log-stream speed,
