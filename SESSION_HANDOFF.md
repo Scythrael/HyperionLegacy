@@ -3,9 +3,9 @@
 Authoritative resume doc for a fresh session. Read this + the memory doc, then continue at the REMAINING WORK below.
 
 ## TL;DR
-- **Branch:** `feat/combat-0.13.0`, tip **`26b03a2`**. Tree clean, all committed.
+- **Branch:** `feat/combat-0.13.0`, tip **`4f15753`**. Tree clean, all committed.
 - **Gate now:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, ignore); `npm test` = **1570 passing**.
-- **Deploy state:** devpreview (`origin/staging`) = `26b03a2` (the full combat build, live for the user to test). **PROD (`origin/main`) = `e282614` = 0.12.1 + hotfixes, UNTOUCHED.** Combat ships as 0.13.0 only after P14 fold-in + user device-test + explicit go.
+- **Deploy state:** devpreview (`origin/staging`) = `4f15753` (the full combat build, live for the user to test). **PROD (`origin/main`) = `e282614` = 0.12.1 + hotfixes, UNTOUCHED.** Combat ships as 0.13.0 only after P14 fold-in + user device-test + explicit go.
 - **Done:** the ENTIRE combat epic through the playable, polished COMBAT VIEW (desktop + mobile) + live durability + combat-log OPTIONS. See "What's done" below.
 - **Next:** the user is doing mobile VISUAL PASSES on devpreview. Then: **P12c Visual mode** -> **durability tuning** -> **P13 offline summary** -> **P14 fold-in** (ship it).
 
@@ -35,6 +35,7 @@ Authoritative resume doc for a fresh session. Read this + the memory doc, then c
 - **Patrol selector non-reactive** (helper-call hid the reactive dep) -> read the record directly in the `{@const}`.
 - **Combat view OPEN-FREEZE** (the reactive-tick() auto-scroll loop above) -> `afterUpdate` hook.
 - **dronePips double-count** (refab counted as offline) + rendered em dashes + `--` comment punctuation.
+- **Combat view polish:** Close is a square X icon (top-right); dialog height uses `dvh` (was `100vh`) so the mobile log no longer spills under the Android system nav bar.
 
 ## REMAINING WORK (in order)
 1. **User visual passes on devpreview** (in progress): mobile row density; locked-height proportions (desktop / mobile / short viewport); damage-color contrast; Options section spacing. One open UX call flagged: on mobile, whether the TARGET enemy's active status pips show INLINE (currently tap-to-expand only).
