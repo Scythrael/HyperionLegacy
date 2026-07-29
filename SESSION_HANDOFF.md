@@ -3,9 +3,9 @@
 Authoritative resume doc for a fresh session. Read this + the memory doc, then continue at the REMAINING WORK below.
 
 ## TL;DR
-- **Branch:** `feat/combat-0.13.0`, tip **`4f15753`**. Tree clean, all committed.
-- **Gate now:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, ignore); `npm test` = **1570 passing**.
-- **Deploy state:** devpreview (`origin/staging`) = `4f15753` (the full combat build, live for the user to test). **PROD (`origin/main`) = `e282614` = 0.12.1 + hotfixes, UNTOUCHED.** Combat ships as 0.13.0 only after P14 fold-in + user device-test + explicit go.
+- **Branch:** `feat/combat-0.13.0`, tip **`559d3b1`**. Tree clean, all committed.
+- **Gate now:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, ignore); `npm test` = **1576 passing**.
+- **Deploy state:** devpreview (`origin/staging`) = `559d3b1` (the full combat build + 2026-07-29 bug-hunt fixes, live for the user to test). **PROD (`origin/main`) = `e282614` = 0.12.1 + hotfixes, UNTOUCHED.** Combat ships as 0.13.0 only after P14 fold-in + user device-test + explicit go.
 - **Done:** the ENTIRE combat epic through the playable, polished COMBAT VIEW (desktop + mobile) + live durability + combat-log OPTIONS. See "What's done" below.
 - **Next:** the user is doing mobile VISUAL PASSES on devpreview. Then: **P12c Visual mode** -> **durability tuning** -> **P13 offline summary** -> **P14 fold-in** (ship it).
 
@@ -35,7 +35,9 @@ Authoritative resume doc for a fresh session. Read this + the memory doc, then c
 - **Patrol selector non-reactive** (helper-call hid the reactive dep) -> read the record directly in the `{@const}`.
 - **Combat view OPEN-FREEZE** (the reactive-tick() auto-scroll loop above) -> `afterUpdate` hook.
 - **dronePips double-count** (refab counted as offline) + rendered em dashes + `--` comment punctuation.
-- **Combat view polish:** Close is a square X icon (top-right); dialog height uses `dvh` (was `100vh`) so the mobile log no longer spills under the Android system nav bar.
+- **Combat view polish:** Close is a square X icon (top-right corner, absolute, window-style, `de47ecf`); dialog height uses `dvh` (was `100vh`) so the mobile log no longer spills under the Android system nav bar.
+- **Combat log round counter stuck on "Round 1"** (`9165729`): the view chased the LIVE patrol, resetting the reveal stream every wave advance/relaunch (at 5s/round the reset beat round 2). Froze the WATCHED battle so it plays fully round by round, advancing only when it finishes. See the freeze/convergence note in CombatView.svelte (~:160-314). Logic-verified; the user was mid-retest on devpreview.
+- **Autonomous bug-hunt fixes (2026-07-29, `1f793e1` / `5227494` / `7b8b731`):** (1) save soft-brick, `deserialize` now rejects a decompressible-but-malformed save (integer version + non-null object state) so it routes to corrupt-recovery instead of white-screening every reload; (2) "1000K" tier-rollover in `format.ts` (real Decimal currency path); (3) stale `economyTick` header comment. All tested (1576 green). A five-hunter sweep (combat sim / economy / save / UI / helpers) drove these; UI + economy came back clean. **DEFERRED findings are recorded in `KNOWN_ISSUES.md` under "Autonomous bug-hunt, 2026-07-29"** with proposed fixes, each needing a balance/design/product call: combat cooldown-burst (out-of-range accumulator), unwired emitterOverload/harmonicGap disruptions, intra-tick target-liveness, save future-version downgrade guard, and the negative-magnitude format floor (would change the live fuel readout). Also still-pending: the combat-log SPEED default flip (1s -> 5s readable) awaiting the user's yes.
 
 ## REMAINING WORK (in order)
 1. **User visual passes on devpreview** (in progress): mobile row density; locked-height proportions (desktop / mobile / short viewport); damage-color contrast; Options section spacing. One open UX call flagged: on mobile, whether the TARGET enemy's active status pips show INLINE (currently tap-to-expand only).
