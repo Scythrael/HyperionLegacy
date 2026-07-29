@@ -1,5 +1,5 @@
 // ============================================================================
-// combat/combatView.ts -- PURE view-model helpers for the combat view
+// combat/combatView.ts: PURE view-model helpers for the combat view
 // (Combat 0.13.0, Phase 12b Unit C, the "watch live" arena UI)
 //
 // WHAT THIS IS. CombatView.svelte renders the approved combat-view mockup from a
@@ -29,9 +29,9 @@ import type { SquadronStatusSummary } from "./drones";
 // resolved wave".
 //
 // INPUTS:
-//   nextWaveIndex -- the mission's pointer to the NEXT unfought wave (0 at
+//   nextWaveIndex: the mission's pointer to the NEXT unfought wave (0 at
 //                    dispatch, advancing to waveTicks.length when all are done).
-//   waveCount     -- how many waves the replay actually produced (replay.waves
+//   waveCount:     how many waves the replay actually produced (replay.waves
 //                    .length; a defeat stops the replay early, so this can be
 //                    shorter than the schedule).
 // RETURNS the 0-based index into replay.waves to display, or null when there is
@@ -143,8 +143,14 @@ export function dronePips(summary: SquadronStatusSummary): DronePip[] {
   for (let i = 0; i < summary.refabricating; i++) {
     pips.push({ cls: "refab", title: "Refabricating" });
   }
-  // Destroyed drones = full-strength size minus the count still alive.
-  const destroyed = summary.total - summary.alive;
+  // Destroyed drones = the remainder after the three shown states. NOT `total - alive`:
+  // a REFABRICATING drone has alive=false (drones.ts), so `total - alive` counts it as
+  // destroyed even though it already got a refab pip above, double-counting it. Subtract
+  // each rendered state explicitly so a refabricating drone is a refab pip and nothing else.
+  const destroyed = Math.max(
+    0,
+    summary.total - summary.online - summary.disrupted - summary.refabricating,
+  );
   for (let i = 0; i < destroyed; i++) {
     pips.push({ cls: "offline", title: "Destroyed" });
   }

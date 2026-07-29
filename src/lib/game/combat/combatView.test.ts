@@ -1,5 +1,5 @@
 // ============================================================================
-// combat/combatView.test.ts -- unit coverage for the pure combat-view helpers
+// combat/combatView.test.ts: unit coverage for the pure combat-view helpers
 // (Combat 0.13.0, Phase 12b Unit C). These pin the small logic decisions the
 // combat view UI factors out of the Svelte component, so the display behavior is
 // verifiable without a DOM.
@@ -103,10 +103,15 @@ describe("logLineClass", () => {
 });
 
 describe("dronePips", () => {
-  it("expands a summary into one pip per drone, in status order", () => {
+  it("expands a REAL summary into one pip per drone, in status order (refab is not double-counted)", () => {
+    // A genuine squadronStatusSummary shape: `alive` EXCLUDES refabricating drones (a
+    // refabricating drone has alive=false in drones.ts), so alive = online + disrupted = 3,
+    // NOT 4. With 2 online + 1 disrupted + 1 refabricating + 1 destroyed = 5 total, the
+    // destroyed count must be 1. The old `total - alive` (5 - 3 = 2) would render a SECOND
+    // offline pip for the refabricating drone (the double-count bug); the fix renders 5 pips.
     const summary: SquadronStatusSummary = {
       total: 5,
-      alive: 4,
+      alive: 3,
       online: 2,
       disrupted: 1,
       refabricating: 1,
@@ -117,7 +122,7 @@ describe("dronePips", () => {
       "online",
       "disrupted",
       "refab",
-      "offline", // total 5 - alive 4 = 1 destroyed
+      "offline", // exactly ONE destroyed (5 - 2 online - 1 disrupted - 1 refab)
     ]);
   });
   it("returns no pips for an empty squadron", () => {

@@ -461,11 +461,11 @@
             <div class="marker" style="left:{markerPct}%" title="current distance"></div>
           </div>
           <div class="rangelabels"><span>Short</span><span>Med</span><span>Long</span></div>
-          <div class="bandnow">{rangeBand ? BAND_LABEL[rangeBand] : "—"}</div>
+          <div class="bandnow">{rangeBand ? BAND_LABEL[rangeBand] : "..."}</div>
         </div>
         <div class="phase">
           <div class="lab">Phase</div>
-          <div class="val">{phase ? PHASE_LABEL[phase] : "—"}</div>
+          <div class="val">{phase ? PHASE_LABEL[phase] : "..."}</div>
         </div>
       </div>
 
