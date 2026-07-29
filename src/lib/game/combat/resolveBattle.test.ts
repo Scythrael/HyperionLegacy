@@ -421,6 +421,54 @@ describe("Phase 12b: range/band/phase (roundState) emission", () => {
 		expect(phases.has("firing")).toBe(true);
 	});
 
+	it("is OUTCOME-NEUTRAL with BOTH streams firing together: a closing battle that ALSO expires a debuff mid-fight (fuzz)", () => {
+		// The review gap: the roundState fuzz above carries no status effects, and the
+		// effectExpired fixture never closes distance, so neither proves the two display
+		// streams are neutral TOGETHER. This fixture opens at long range and closes (the
+		// full roundState arc) AND carries a coilDampening debuff that times out partway
+		// (effectExpired), then asserts outcome + finalCombatants stay byte-identical.
+		const buildBoth = (): BattleParticipants => ({
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					hull: 300,
+					hullMax: 300,
+					position: 0,
+					speed: 30,
+					stance: "aggressive",
+					// Expires at tick 25, long before hull-300 ships trade to a kill. The enemy
+					// has no effect-slot weapon, so it is never reapplied: it genuinely lapses.
+					statusEffects: [
+						{ defId: "coilDampening", rank: 1, remainingDeciSec: 25, dotBank: 0 },
+					],
+					weapons: [makeWeapon({ id: "pw", yield: 10, range: 100, accuracy: 80 })],
+				}),
+				makeCombatant({
+					id: "E1",
+					team: "enemy",
+					hull: 300,
+					hullMax: 300,
+					position: 250,
+					speed: 20,
+					stance: "aggressive",
+					weapons: [makeWeapon({ id: "ew", yield: 9, range: 100, accuracy: 80 })],
+				}),
+			],
+		});
+		for (let seed = 1; seed <= 40; seed++) {
+			const live = resolveBattle(buildBoth(), seed, { generateLog: true });
+			const offline = resolveBattle(buildBoth(), seed, { generateLog: false });
+			expect(offline.outcome).toEqual(live.outcome);
+			expect(offline.finalCombatants).toEqual(live.finalCombatants);
+			expect(offline.log.length).toBe(0);
+		}
+		// Confirm the fuzz was not vacuous: both display streams actually fire together.
+		const { log } = resolveBattle(buildBoth(), 3, { generateLog: true });
+		expect(log.some((e) => e.type === "roundState")).toBe(true);
+		expect(log.some((e) => e.type === "effectExpired")).toBe(true);
+	});
+
 	it("is OUTCOME-NEUTRAL: generateLog true vs false gives identical outcome + finalCombatants (fuzz)", () => {
 		// The heart of the unit: the roundState (+ effectExpired) emission is all under
 		// generateLog, so a live run's outcome AND every ship's post-battle state must

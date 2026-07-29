@@ -436,6 +436,26 @@ describe("foldWaveSnapshots (per-round arena state)", () => {
     expect(snaps[2].combatants["E1"].effects).toEqual([]);
   });
 
+  it("drops a DoT pip on expiry even when the round's dot line TRAILS the effectExpired (two-pass fold)", () => {
+    // The regression the two-pass fold fixes: a per-round aggregated `dot` line is flushed
+    // at the round N+1 boundary but stamped round N, so within round N's bucket it can be
+    // ordered AFTER the effectExpired. A single-pass, event-order fold let that trailing dot
+    // RE-ADD the just-expired pip (the DoT over-report). Additions-then-removals must win.
+    const log: CombatEvent[] = [
+      { tDeciSec: 5, round: 0, type: "effectApplied", actorId: "P", targetId: "E1", effectDefId: "plasmaFire", effectRank: 2 },
+      { tDeciSec: 10, round: 0, type: "dot", targetId: "E1", effectDefId: "plasmaFire", effectRank: 2, damage: 6, hullAfter: 94 },
+      // Round 1: the effect expires; the round-1 dot line is stamped round 1 but ordered
+      // AFTER the effectExpired (the flush-at-next-boundary ordering the reviewer found).
+      { tDeciSec: 19, round: 1, type: "effectExpired", targetId: "E1", effectDefId: "plasmaFire", effectRank: 2 },
+      { tDeciSec: 20, round: 1, type: "dot", targetId: "E1", effectDefId: "plasmaFire", effectRank: 2, damage: 6, hullAfter: 88 },
+    ];
+    const snaps = foldWaveSnapshots(log);
+    // Round 0: the DoT pip is present.
+    expect(snaps[0].combatants["E1"].effects).toEqual([{ defId: "plasmaFire", rank: 2 }]);
+    // Round 1: expiry wins over the trailing dot line, so the pip is dropped (not re-added).
+    expect(snaps[1].combatants["E1"].effects).toEqual([]);
+  });
+
   it("a REAL replayed wave folds populated range + phase from the sim's roundState stream", () => {
     const dispatched = dispatch(patrolState("destroyer", 29), false);
     const replay = replayPatrol(dispatched, dispatched.captains[0]);

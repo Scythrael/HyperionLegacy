@@ -88,9 +88,12 @@ export type CombatPhase = "detection" | "intercept" | "weaponsReady" | "firing";
 // Derive the display phase for one combatant vs its current target (design S16).
 // The four phases map to concrete, testable sim conditions, checked MOST-ADVANCED
 // first so the arc only ever moves forward within a readout:
-//   - "firing":       the ship has already fired at least once this engagement
+//   - "firing":       the ship has already fired at least once this BATTLE
 //                     (shots are being exchanged). `hasFired` is the sim's record
-//                     of a real shot / ambush salvo going off.
+//                     of a real shot / ambush salvo going off. It is battle-lifetime,
+//                     NOT per-target: a ship that finishes one target and turns to a
+//                     fresh far one stays "firing" (the arc is intentionally forward-
+//                     monotonic across the whole battle, not reset per engagement).
 //   - "weaponsReady": not yet fired, but the target is now within the longest
 //                     weapon's range (a charged salvo is about to open up).
 //   - "detection":    round 0 and still out of all weapon range (the opening

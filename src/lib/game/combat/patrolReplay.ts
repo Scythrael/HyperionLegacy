@@ -533,17 +533,12 @@ export function foldWaveSnapshots(
       effects.set(ev.targetId, m);
     }
 
-    // Effect removal: a support-drone cleanse (droneCleanse) OR a natural expiry
-    // (effectExpired, Phase 12b) strips a disruption off the target. Both drop the pip;
-    // effectExpired is what fixes the fold's former pip over-report (a lingering pip past
-    // its real duration).
-    if (
-      (ev.type === "droneCleanse" || ev.type === "effectExpired") &&
-      ev.effectDefId &&
-      ev.targetId
-    ) {
-      effects.get(ev.targetId)?.delete(ev.effectDefId);
-    }
+    // NOTE: effect REMOVALS (droneCleanse / effectExpired) are NOT applied here. They run
+    // in a SECOND pass per round (applyRemoval below) so a round-N removal wins over that
+    // same round's aggregated `dot` line. The dot line is flushed at the round N+1 boundary
+    // but stamped round N, so within the bucket it can TRAIL the effectExpired event; a
+    // single-pass fold would let the trailing dot re-add the pip the expiry just dropped
+    // (the DoT pip over-report). Two passes make the end-of-round-N snapshot correct.
 
     // Per-round arena readout (Phase 12b "roundState"): the actor's range (distance +
     // band) and engagement phase. Keyed by the ACTOR (the ship the readout is for), which
@@ -557,12 +552,31 @@ export function foldWaveSnapshots(
     }
   };
 
+  // SECOND-PASS applier: effect removals only (a support-drone cleanse OR a natural expiry,
+  // Phase 12b). Run AFTER every addition in the same round (see the note in applyEvent) so a
+  // round-N expiry/cleanse strips the pip even when that round's trailing `dot` line re-adds
+  // it. This is what actually fixes the DoT pip over-report (a pip lingering past its real
+  // duration); a single-pass, event-order fold does not, because the aggregated dot line is
+  // stamped round N but ordered after the effectExpired within the bucket.
+  const applyRemoval = (ev: CombatEvent): void => {
+    if (
+      (ev.type === "droneCleanse" || ev.type === "effectExpired") &&
+      ev.effectDefId &&
+      ev.targetId
+    ) {
+      effects.get(ev.targetId)?.delete(ev.effectDefId);
+    }
+  };
+
   // Fold round by round, emitting one snapshot per round from 0..maxRound. If the log is
   // empty and no baseline was given, this yields a single round-0 snapshot with no
-  // combatants (graceful, not a throw).
+  // combatants (graceful, not a throw). Two passes per round: additions first, then removals,
+  // so an expiry wins over its own round's final dot line (see applyRemoval).
   const snapshots: RoundSnapshot[] = [];
   for (let round = 0; round <= maxRound; round++) {
-    for (const ev of byRound.get(round) ?? []) applyEvent(ev);
+    const bucket = byRound.get(round) ?? [];
+    for (const ev of bucket) applyEvent(ev);
+    for (const ev of bucket) applyRemoval(ev);
     snapshots.push(snapshotOf(round, hull, shield, effects, range, phase));
   }
   return snapshots;
