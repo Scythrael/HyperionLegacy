@@ -16,6 +16,10 @@ import { canDispatch, missionUnlocked, buyFuel, economyTick, canDispatchPatrol, 
 // patrol key + the repair tunables to prove the NEW optional repair/limp fields survive a
 // save/load with NO version bump (the absent-is-default posture).
 import { SHIP_TYPES, PATROLS, REPAIR_BASE_TICKS, REPAIR_TICKS_PER_HULL } from "./model";
+// Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
+// durability carry-state; this helper is the expected full value (the same source the
+// migration + freshPatrolMission use).
+import { defaultSystemDurabilityForHull } from "./combat/bridge";
 
 describe("migrate, tickDurationSeconds backfill", () => {
   it("defaults tickDurationSeconds to 10 on a v1 save that predates the field", () => {
@@ -55,7 +59,7 @@ describe("migrate, tickDurationSeconds backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -94,7 +98,7 @@ describe("migrate, research field backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -268,7 +272,7 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -365,7 +369,7 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -471,7 +475,7 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -560,7 +564,7 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -633,7 +637,7 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -696,7 +700,7 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -766,7 +770,7 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -1558,7 +1562,7 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -1766,7 +1770,7 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -2050,7 +2054,7 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -2214,7 +2218,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(32);
+    expect(deserialized!.version).toBe(33);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2236,7 +2240,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -2365,7 +2369,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -2532,7 +2536,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -2723,7 +2727,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -2914,7 +2918,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -3107,7 +3111,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -3284,7 +3288,7 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -3436,7 +3440,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 });
 
@@ -3620,7 +3624,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     // (a v28 save chains all the way through the iLevel backfill at v29->v30 and the
     // nextCaptainId backfill at v30->v31).
     const roundTripped = deserialize(serialize(migrated, 0));
-    expect(roundTripped!.version).toBe(32);
+    expect(roundTripped!.version).toBe(33);
     expect(roundTripped!.version).toBe(SAVE_VERSION);
 
     // Task B1 (equipment storage cap): the SAME v28->v29 body seeds the new
@@ -3679,7 +3683,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(32);
+    expect(SAVE_VERSION).toBe(33);
   });
 
   it("freshState seeds equipmentStorageLevel 0 (Task B1), matching the migration's seed on old saves", () => {
@@ -3920,6 +3924,83 @@ describe("migrate, mission-kind discriminant + nextPatrolSeed backfill (v31 -> v
   });
 });
 
+// Combat 0.13.0 (Phase 12b Unit B2): per-system DURABILITY carry-state backfill (v32 -> v33).
+// PatrolMissionState gained `playerSystemDurability` so weapon/reactor/ftl wear ACCUMULATES
+// across a cycle's waves. MIGRATIONS[32] backfills it to FULL (no wear) on any in-flight patrol
+// that predates the field, computed from the captain's assigned combat hull, so a resumed patrol
+// starts with pristine systems exactly like a freshly dispatched one. A null/idle mission, an
+// extraction mission, or a patrol already carrying the field is untouched.
+describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () => {
+  const PATROL_KEY = "crimsonReaverSweep";
+
+  // A fresh state whose captain 1 flies a destroyer (a combat hull), tank/credits topped up so
+  // dispatch never gates. Mirrors the Phase 11 block's combatState helper.
+  function combatState(): ReturnType<typeof freshState> {
+    const base = freshState();
+    return {
+      ...base,
+      fuel: new Decimal(100000),
+      credits: new Decimal(100000),
+      ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as const } : s)),
+    };
+  }
+
+  // Build a genuine v32-shaped SaveFile carrying an IN-FLIGHT patrol that LACKS the B2 field:
+  // dispatch a real patrol, advance a couple ticks, round-trip to raw JSON, then strip
+  // playerSystemDurability and stamp version 32 (the pre-B2 shape a real v32 save would have).
+  function makeV32PatrolSave(): SaveFile {
+    const dispatched = dispatchCaptainOnPatrol(combatState(), 1, PATROL_KEY, "balanced", false);
+    expect(dispatched.success).toBe(true);
+    const inFlight = economyTick(dispatched.next, 2, () => 0.5);
+    const raw = deserialize(serialize(inFlight, 0)) as SaveFile;
+    // Simulate a v32 save: remove the field B2 added and reset the stamped version.
+    delete (raw.state as any).captains[0].mission.playerSystemDurability;
+    raw.version = 32;
+    return raw;
+  }
+
+  it("backfills FULL durability onto an in-flight patrol that predates the field", () => {
+    const save = makeV32PatrolSave();
+    // Precondition: the raw v32 save genuinely lacks the field.
+    expect((save.state as any).captains[0].mission.playerSystemDurability).toBeUndefined();
+
+    const migrated: any = migrate(save);
+    const mission = migrated.captains[0].mission;
+    expect(mission.kind).toBe("patrol");
+    // Backfilled to the destroyer's FULL (no-wear) durability, matching a fresh dispatch.
+    expect(mission.playerSystemDurability).toEqual(
+      defaultSystemDurabilityForHull("destroyer", SHIP_TYPES.destroyer),
+    );
+    // Every OTHER patrol field survives (the run resumes byte-identically; only the field is added).
+    expect(mission.patrolKey).toBe(PATROL_KEY);
+    expect(mission.masterSeed).toBeTypeOf("number");
+
+    // And it PLAYS: the restored patrol steps to route resolution with no crash.
+    const played = economyTick(migrated, 40, () => 0.5);
+    expect(played.captains[0].mission).toBeNull();
+  });
+
+  it("lands at the current version and re-migrating is idempotent (field preserved, not reset)", () => {
+    const save = makeV32PatrolSave();
+    const migrated: any = migrate(save);
+    const roundTripped = deserialize(serialize(migrated, 0));
+    expect(roundTripped!.version).toBe(SAVE_VERSION);
+    expect(roundTripped!.version).toBe(33);
+    // The now-v33 save carries the field; re-migrating keeps it (no re-backfill, no reset).
+    const before = (roundTripped!.state as any).captains[0].mission.playerSystemDurability;
+    const remigrated: any = migrate(roundTripped as SaveFile);
+    expect(remigrated.captains[0].mission.playerSystemDurability).toEqual(before);
+  });
+
+  it("leaves an idle (null) mission and an extraction mission untouched", () => {
+    // A v32 save whose only captain is idle: no patrol to backfill, no crash.
+    const idle = deserialize(serialize(combatState(), 0)) as SaveFile;
+    idle.version = 32;
+    const migrated: any = migrate(idle);
+    expect(migrated.captains[0].mission).toBeNull();
+  });
+});
+
 // Fuel Economy v2 (F5): the "no new migration needed" PROOF. F1-F4 added NO new persistent
 // state beyond what MIGRATIONS[20] (v20->v21) already seeds:
 //   - F1 renames are LABEL-ONLY (item/facility KEYS unchanged) -> nothing to migrate.
@@ -3966,7 +4047,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(32);
+    expect(save!.version).toBe(33);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
@@ -4003,10 +4084,12 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
 // These two tests are the evidence: (1) an OLD-SHAPED save (no repair/limp fields, an
 // in-flight non-defeated patrol) round-trips to a playable, dispatchable state with empty
 // repair state; (2) the NEW fields (a damaged ship + an in-flight shipRepair) round-trip and
-// the repair still completes to a dispatchable hull. The fixture is freshState() (already the
-// current v32 shape), so migrate() runs ZERO version steps, exactly a real v32 load.
+// the repair still completes to a dispatchable hull. The fixture is freshState() (the CURRENT
+// version shape), so migrate() runs ZERO version steps, exactly a real current-version load.
+// (The current version is now 33 after Phase 12b Unit B2's durability bump; Phase 11 itself
+// added no bump, which is the absent-is-default property these tests still lock.)
 // ---------------------------------------------------------------------------
-describe("Phase 11 loss/repair loop round-trips at v32 with NO migration (absent-is-default)", () => {
+describe("Phase 11 loss/repair loop round-trips at the current version with NO migration (absent-is-default)", () => {
   const PATROL_KEY = "crimsonReaverSweep";
 
   // A fresh state whose captain 1 flies a destroyer (a combat hull, so patrols are legal),
@@ -4037,7 +4120,7 @@ describe("Phase 11 loss/repair loop round-trips at v32 with NO migration (absent
     const save = deserialize(serialize(inFlight, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(32); // no bump for Phase 11
+    expect(save!.version).toBe(33); // Phase 11 added no bump; the current version is 33 (Unit B2)
     const restored = migrate(save);
 
     // Empty repair state survived: the ship reads as healthy, the in-flight patrol is intact
@@ -4074,7 +4157,7 @@ describe("Phase 11 loss/repair loop round-trips at v32 with NO migration (absent
     // Round-trip: the damaged flag, repairDamage, AND the in-flight shipRepair (clearShipDamage
     // effect) must all survive JSON with no hydration change.
     const save = deserialize(serialize(withRepair, 0)) as SaveFile;
-    expect(save!.version).toBe(32);
+    expect(save!.version).toBe(33);
     const restored = migrate(save!);
     const shipAfter = restored.ships.find((s) => s.id === "ship-1")!;
     expect(shipAfter.damaged).toBe(true);

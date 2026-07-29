@@ -1383,6 +1383,26 @@ export interface CaptainMissionState {
 // by new code), so widening the union needs no migration.
 export type PatrolPhase = "transitOut" | "engaging" | "transitBack" | "limpingHome";
 
+// The player ship's per-SYSTEM DURABILITY carry-state (Combat 0.13.0, Phase 12b Unit B2,
+// design S9), persisted on PatrolMissionState.playerSystemDurability so wear ACCUMULATES
+// across the waves of one patrol cycle. It records only the CURRENT durability of each
+// durable system (durabilityMax + quality are re-derived identically each wave from the
+// fresh loadout build, so they are not carried). JSON-safe by construction: plain numbers
+// only, no Decimal / class instances (mirrors DroneSquadron), so it round-trips with no
+// hydrateDecimals step. The two combat/ helpers that produce + consume it are
+// defaultSystemDurabilityForHull (bridge.ts, the FULL seed) and capturePlayerSystemDurability
+// / buildPatrolPlayerCombatant (patrolWave.ts, the post-wave capture + next-wave apply).
+export interface PatrolSystemDurability {
+  // Current durability of each weapon, aligned BY INDEX to the hull's default loadout
+  // (COMBAT_DEFAULT_LOADOUT, rebuilt in the same fixed order every wave). Length == the
+  // hull's default weapon count.
+  weapons: number[];
+  // Current durability of the reactor (0 if a bare fixture has none; a real ship always has it).
+  reactor: number;
+  // Current durability of the ftl/drive (0 if a bare fixture has none; a real ship always has it).
+  ftl: number;
+}
+
 // The PERSISTED patrol-mission shape: the "patrol" arm of the CaptainState.mission
 // discriminated union. Carries EVERYTHING needed to DISPATCH a patrol, RESUME it after
 // a save/load, and (in 9b.5b) RUN it wave-by-wave, so 9b.5b adds NO new persisted field
@@ -1452,6 +1472,22 @@ export interface PatrolMissionState {
   // holds only plain numbers/strings, so this array is JSON-safe with no hydration. Set
   // by: dispatch (fresh squadrons), then 9b.5b (carries losses/replenish forward).
   playerDrones: DroneSquadron[];
+  // PLAYER CARRY-STATE (Combat 0.13.0, Phase 12b Unit B2, design S9): the player ship's
+  // per-SYSTEM DURABILITY, which now ACCUMULATES wear across the waves of one patrol cycle
+  // (Unit B1 wore systems live but rebuilt them full each wave; B2 persists that wear). It
+  // holds the CURRENT durability of each weapon (aligned by index to the hull's default
+  // loadout, which is rebuilt in the SAME fixed order every wave), the reactor, and the ftl.
+  // Only CURRENT durability is carried, NOT durabilityMax / quality: those are re-derived
+  // identically each wave from the fresh loadout build, so carrying them would be redundant
+  // (and a drift risk). Seeded at dispatch to FULL (defaultSystemDurabilityForHull, bridge.ts
+  // == no wear); captured post-battle each wave (capturePlayerSystemDurability, patrolWave.ts)
+  // and applied on the NEXT wave's player build (buildPatrolPlayerCombatant). Plain numbers
+  // only, so it is JSON-safe with NO Decimal / hydration, exactly like playerDrones. Set by:
+  // dispatch (full), then tickCaptainPatrol (carries accumulating wear forward). This wear does
+  // NOT outlive the patrol: on a defeat the mission (and this field) end when the wreck limps
+  // home, so a repaired ship starts fresh; permanent on-gear durability arrives with weapons-
+  // as-gear (see the durability.ts header). Backfilled to full by the v32->v33 migration.
+  playerSystemDurability: PatrolSystemDurability;
   // Recall intent, mirroring CaptainMissionState.recalled: when true, the patrol ends
   // (mission -> null) after the CURRENT cycle completes instead of auto-relaunching. Set
   // by: dispatch (false), recallCaptain (true), then honored by 9b.5b at cycle end.

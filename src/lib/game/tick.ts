@@ -115,7 +115,7 @@ import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
 // resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
-import { combatHullTypeOf, defaultDronesForHull, type CombatHullType } from "./combat/bridge";
+import { combatHullTypeOf, defaultDronesForHull, defaultSystemDurabilityForHull, type CombatHullType } from "./combat/bridge";
 import { planWaveSchedule, patrolWaveParams } from "./combat/waveSchedule";
 // Combat 0.13.0 (Phase 12b-1 review): the pure per-wave seed derivation + its four salt
 // constants now live in their own dependency-free combat/ leaf (waveSeed.ts) so the
@@ -144,7 +144,7 @@ import type { DroneSquadron } from "./combat/drones";
 // between-wave shield-regen formula. The DISPLAY-ONLY patrol replay (patrolReplay.ts)
 // calls these SAME leaves, so the watchable replay stays byte-identical to this live
 // loop by construction (parity is structural, not coincidental).
-import { buildPatrolPlayerCombatant, regenPatrolShield } from "./combat/patrolWave";
+import { buildPatrolPlayerCombatant, regenPatrolShield, capturePlayerSystemDurability } from "./combat/patrolWave";
 // Combat 0.13.0 (Phase 10, design S12): the seeded per-won-wave PATROL LOOT roller.
 // rollWaveLoot(table, seed) is the PURE reward roll a defeated wave (a wreck) yields;
 // PatrolLootTable is the data-driven table shape. tick.ts owns the seed derivation (a
@@ -1698,6 +1698,11 @@ export function tickCaptainPatrol(
         carryHull: mission.playerHull,
         carryShield: mission.playerShield,
         carryDrones: mission.playerDrones,
+        // Phase 12b Unit B2: apply the ACCUMULATED per-system durability so a system worn in an
+        // earlier wave opens this one already worn (a multi-wave patrol can now reach Degraded/
+        // Offline). Outcome-affecting + parity-critical: the wear is derived from the deterministic
+        // combat stream, so big==stepped and offline==live still hold (locked by the parity tests).
+        carrySystemDurability: mission.playerSystemDurability,
       });
 
       // ENEMY team: deterministic from the ENEMY-salt derivation. idPrefix = faction id +
@@ -1728,6 +1733,13 @@ export function tickCaptainPatrol(
         mission.playerHull = p.hull;
         mission.playerShield = p.shield;
         mission.playerDrones = p.drones;
+        // Phase 12b Unit B2: capture the post-battle per-system durability so wear CARRIES into
+        // the next wave (accumulation). A FRESH object each wave (never a mutation of the input's
+        // carry-state object), so purity + closed-form parity hold exactly as they do for hull/
+        // shield above. Captured on BOTH win and defeat (this runs before the win/lose branch),
+        // symmetric with hull/shield; on a defeat the mission then limps home and this wear is
+        // discarded with the ending mission (it does not outlive the patrol in B2).
+        mission.playerSystemDurability = capturePlayerSystemDurability(p);
       }
 
       // A win requires BOTH the objective naming "player" AND the player actually alive
@@ -3045,6 +3057,10 @@ function freshPatrolMission(args: {
     playerHull: shipDef.hullIntegrity,
     playerShield: shipDef.shieldCapacity,
     playerDrones: defaultDronesForHull(hullType, `patrol-${masterSeed}-p`),
+    // Carry-state seeded to FULL system durability (Phase 12b Unit B2): every weapon + the
+    // reactor + the ftl at their fresh ceilings (no wear), the same "start clean" a fresh
+    // dispatch AND a relaunch both want. Wear accumulates from here across the cycle's waves.
+    playerSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef),
     recalled: false,
     repeatDispatch,
   };

@@ -33,6 +33,7 @@ import {
   type ShipTypeKey,
   type PatrolMissionState,
   type CaptainMissionState,
+  type PatrolSystemDurability,
 } from "./model";
 import {
   dispatchCaptainOnPatrol,
@@ -44,6 +45,7 @@ import {
   canDispatchPatrol,
 } from "./tick";
 import { PATROLS } from "./model";
+import { defaultSystemDurabilityForHull } from "./combat/bridge";
 
 const PATROL_KEY = "crimsonReaverSweep";
 const DEF = PATROLS[PATROL_KEY];
@@ -478,6 +480,73 @@ describe("drone carry-state", () => {
     expect(recovered).toBe(true);
     // The input state was NOT mutated (purity): its drone is still fully destroyed at 0.
     expect((seeded.captains[0].mission as PatrolMissionState).playerDrones[0].drones[0].refabProgress).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-wave per-system DURABILITY accumulation (Combat 0.13.0, Phase 12b Unit B2).
+// Unit B1 wore systems live but rebuilt them full each wave; B2 CARRIES the wear across the
+// cycle's waves. masterSeed 29 draws a marauder that bloodies the destroyer over its 2 waves
+// (ticks [3,4]), so the player takes many connecting hits => durability-loss rolls fire on its
+// systems, giving VISIBLE, deterministic wear to assert on.
+// ---------------------------------------------------------------------------
+describe("cross-wave durability accumulation (Phase 12b Unit B2)", () => {
+  // Total durability across every system (both weapons + reactor + ftl).
+  const total = (d: PatrolSystemDurability) =>
+    d.weapons.reduce((a, b) => a + b, 0) + d.reactor + d.ftl;
+
+  it("seeds FULL durability at dispatch (no wear before the first wave)", () => {
+    const dispatched = dispatch(patrolState("destroyer", 29), false);
+    const m = patrolOf(dispatched)!;
+    // The carry-state opens at the hull default's full ceilings (== defaultSystemDurabilityForHull).
+    expect(m.playerSystemDurability).toEqual(
+      defaultSystemDurabilityForHull("destroyer", SHIP_TYPES.destroyer),
+    );
+  });
+
+  it("wear ACCUMULATES across waves: wave 2 continues from wave 1's wear, never reset to full", () => {
+    const dispatched = dispatch(patrolState("destroyer", 29), false);
+    const full = defaultSystemDurabilityForHull("destroyer", SHIP_TYPES.destroyer);
+
+    const afterW1 = patrolOf(stepped(dispatched, 3))!.playerSystemDurability; // wave at tick 3
+    const afterW2 = patrolOf(stepped(dispatched, 4))!.playerSystemDurability; // wave at tick 4
+
+    // Wave 1 wore SOME system below full (the mechanism is genuinely live for this seed, not a
+    // vacuous no-op): with seed 29 the wave-1 carry is weapons[94,94] reactor 91 ftl 95.
+    expect(total(afterW1)).toBeLessThan(total(full));
+
+    // THE ACCUMULATION INVARIANT: wave 2 opens from wave 1's WORN carry-state (buildPatrolPlayer-
+    // Combatant applied afterW1), so every system after wave 2 is <= its wave-1 value. If B2 were
+    // broken (systems reset to full each wave), a system worn hard in wave 1 could REBOUND above
+    // its wave-1 value in wave 2 (start full, lose less), which this per-system <= forbids. seed
+    // 29's weapon[0] goes 100 -> 94 (wave 1) -> 92 (wave 2): 92 < 94 is only possible if wave 2
+    // started from the worn 94, i.e. accumulation.
+    expect(afterW2.weapons.length).toBe(afterW1.weapons.length);
+    for (let i = 0; i < afterW2.weapons.length; i++) {
+      expect(afterW2.weapons[i]).toBeLessThanOrEqual(afterW1.weapons[i]);
+    }
+    expect(afterW2.reactor).toBeLessThanOrEqual(afterW1.reactor);
+    expect(afterW2.ftl).toBeLessThanOrEqual(afterW1.ftl);
+    // And at least one system fell FURTHER in wave 2 (a strict accumulation witness, not merely
+    // "held"): seed 29's weapon[0] 94 -> 92 and reactor 91 -> 90 both drop across wave 2.
+    expect(total(afterW2)).toBeLessThan(total(afterW1));
+  });
+
+  it("is deterministic for a fixed seed (same accumulated durability every run)", () => {
+    const a = patrolOf(stepped(dispatch(patrolState("destroyer", 29), false), 5))!.playerSystemDurability;
+    const b = patrolOf(stepped(dispatch(patrolState("destroyer", 29), false), 5))!.playerSystemDurability;
+    expect(a).toEqual(b);
+  });
+
+  it("a RELAUNCH resets durability to full (a fresh cycle starts clean)", () => {
+    // Dispatch Repeatedly on seed 29 (which wears systems mid-cycle), then run just past one full
+    // route so exactly one relaunch has fired. The new cycle must open at FULL durability again.
+    const dispatched = dispatch(patrolState("destroyer", 29), true);
+    const relaunched = patrolOf(stepped(dispatched, ROUTE_LEN + 2));
+    expect(relaunched).not.toBeNull(); // relaunched, not idled
+    expect(relaunched!.playerSystemDurability).toEqual(
+      defaultSystemDurabilityForHull("destroyer", SHIP_TYPES.destroyer),
+    );
   });
 });
 

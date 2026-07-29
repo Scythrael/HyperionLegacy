@@ -4,7 +4,14 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL } from "./model";
+// Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
+// durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
+// hull's combat class and defaultSystemDurabilityForHull builds its FULL (no-wear) durability
+// from the SAME loadout source of truth freshPatrolMission uses (so a backfilled patrol matches
+// a freshly dispatched one). Both are pure combat/ leaves (they never import save.ts), so this
+// introduces no module cycle.
+import { combatHullTypeOf, defaultSystemDurabilityForHull } from "./combat/bridge";
 // Over-cap reconciliation: run at load so a stack stuck above its warehouse cap (deposited
 // before the deposit-clamp fix, or by a live salvage) is trimmed back to cap. Idempotent and
 // shape-preserving, so it is applied on EVERY load with no SAVE_VERSION bump. See
@@ -12,7 +19,7 @@ import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, r
 // never imports save.ts), so it introduces no module cycle.
 import { clampInventoryToCaps } from "./tick";
 
-export const SAVE_VERSION = 32;
+export const SAVE_VERSION = 33;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1241,6 +1248,49 @@ const MIGRATIONS: Record<number, Migration> = {
     ),
     nextPatrolSeed: state.nextPatrolSeed ?? 1,
   }),
+  // v32 -> v33: PER-SYSTEM DURABILITY carry-state on in-flight patrols (Combat 0.13.0, Phase
+  // 12b Unit B2). PatrolMissionState gained `playerSystemDurability` so weapon/reactor/ftl wear
+  // now ACCUMULATES across a cycle's waves (Unit B1 wore systems but rebuilt them full each
+  // wave). An existing v32 save's in-flight patrol predates the field, so this backfills it to
+  // FULL (no wear = the safe default): the patrol simply resumes with pristine systems, exactly
+  // as a freshly dispatched one starts.
+  //
+  // WHY IT MIRRORS the v31->v32 discriminant step: only a non-null PATROL mission lacking the
+  // field is touched (a null/idle mission and an extraction mission pass through untouched; a
+  // patrol that already carries it is preserved via the `=== undefined` guard, so a chained /
+  // re-run migration is idempotent). Unlike v31->v32, a PATROL mission CAN exist in a v32 save
+  // (patrols shipped at v32), which is exactly why this step is needed where v31->v32 had no
+  // patrol case.
+  //
+  // FULL is computed from the captain's ASSIGNED combat hull via defaultSystemDurabilityForHull
+  // (the SAME source freshPatrolMission seeds from), so a backfilled patrol's ceilings match a
+  // freshly dispatched one's. A genuine v32 patrol ALWAYS has a resolvable combat hull (dispatch
+  // required one and assignment is locked mid-mission); the ship/hull guards cover only a
+  // corrupt/hand-edited save, where the field is left ABSENT and the build path treats absent as
+  // full (buildPatrolPlayerCombatant), so such a save still loads + plays. NOTE: on the current
+  // feature branch, NOT yet shipped to production, so still editable (the frozen-once-shipped
+  // rule applies only to production-released migrations).
+  32: (state: any): any => {
+    const ships = state.ships ?? [];
+    return {
+      ...state,
+      captains: (state.captains ?? []).map((c: any) => {
+        const m = c.mission;
+        // Untouched: null/idle mission, an extraction mission, or a patrol already carrying it.
+        if (!m || m.kind !== "patrol" || m.playerSystemDurability !== undefined) return c;
+        // Resolve the assigned combat hull to compute its FULL durability. Corrupt/unresolvable
+        // (no ship or a non-combat hull) -> leave the field absent (=> full at build time).
+        const ship = ships.find((s: any) => s.assignedCaptainId === c.id);
+        const hullType = ship ? combatHullTypeOf(ship.typeKey) : null;
+        if (!ship || !hullType) return c;
+        const full = defaultSystemDurabilityForHull(
+          hullType,
+          SHIP_TYPES[ship.typeKey as keyof typeof SHIP_TYPES],
+        );
+        return { ...c, mission: { ...m, playerSystemDurability: full } };
+      }),
+    };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {

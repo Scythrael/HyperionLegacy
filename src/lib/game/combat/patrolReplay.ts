@@ -41,15 +41,21 @@ import {
   type CaptainState,
   type PatrolDef,
   type PatrolKey,
+  type PatrolSystemDurability,
 } from "../model";
 import {
   combatHullTypeOf,
   defaultDronesForHull,
+  defaultSystemDurabilityForHull,
   type CombatHullType,
   type CombatShipStats,
 } from "./bridge";
 import type { CombatStance } from "./positioning";
-import { buildPatrolPlayerCombatant, regenPatrolShield } from "./patrolWave";
+import {
+  buildPatrolPlayerCombatant,
+  regenPatrolShield,
+  capturePlayerSystemDurability,
+} from "./patrolWave";
 import { generateEnemyWaveDetailed } from "./enemyWave";
 import { resolveBattle } from "./resolveBattle";
 import { replenishDrones } from "./droneDefense";
@@ -178,6 +184,11 @@ export interface ResolvePatrolWavesInput {
   // The player's STARTING drone squadrons (a carrier's screen; empty otherwise). Cloned
   // on entry, never mutated.
   startDrones: DroneSquadron[];
+  // The player's STARTING per-system durability (Phase 12b Unit B2). FULL in the normal
+  // replayPatrol path (a cycle opens with no wear). Carried wave-to-wave here the SAME way
+  // the live loop carries it, so the replay's accumulating wear stays byte-identical to the
+  // real fight (and the combat view's durability pips cannot drift). Read-only, never mutated.
+  startSystemDurability: PatrolSystemDurability;
 }
 
 export interface ResolvePatrolWavesResult {
@@ -201,6 +212,14 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
   let carryHull = input.startHull;
   let carryShield = input.startShield;
   let carryDrones = input.startDrones.map(cloneSquadron);
+  // Per-system durability carry-state (Phase 12b Unit B2). A shallow copy on entry (its arrays
+  // are re-created wholesale by capturePlayerSystemDurability each wave, never mutated in place),
+  // so the caller's input object is never touched (purity).
+  let carrySystemDurability: PatrolSystemDurability = {
+    weapons: [...input.startSystemDurability.weapons],
+    reactor: input.startSystemDurability.reactor,
+    ftl: input.startSystemDurability.ftl,
+  };
 
   const waves: PatrolReplayWave[] = [];
   let wavesWon = 0;
@@ -240,6 +259,10 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       carryHull,
       carryShield,
       carryDrones,
+      // Phase 12b Unit B2: apply the accumulated per-system durability, exactly as the live
+      // loop does (same shared leaf), so the replayed wave opens with the same wear the real
+      // fight had (parity), and Degraded/Offline pips in the combat view are truthful.
+      carrySystemDurability,
     });
 
     // ENEMY team + labels, from the ENEMY-salt derivation with the SAME idPrefix the
@@ -308,6 +331,10 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       carryHull = playerEnd!.hull;
       carryShield = playerEnd!.shield;
       carryDrones = playerEnd!.drones;
+      // Carry the post-battle per-system durability forward (Phase 12b Unit B2), via the SAME
+      // capture leaf the live loop uses, so the wear entering the next replayed wave matches the
+      // real fight exactly. A fresh object (never a mutation of the input), keeping purity.
+      carrySystemDurability = capturePlayerSystemDurability(playerEnd!);
     } else {
       // DEFEAT: the live loop switches to limp-home here and fights NO further waves, so
       // the replay stops too. Record the surviving hull for the terminal readout.
@@ -373,6 +400,10 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
     startHull: shipDef.hullIntegrity,
     startShield: shipDef.shieldCapacity,
     startDrones,
+    // FULL system durability at the cycle's opening (Phase 12b Unit B2): the replay reconstructs
+    // from the initial no-wear state, exactly as freshPatrolMission seeded the live cycle, so
+    // both accumulate identical wear across the waves.
+    startSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef),
   });
 
   return {

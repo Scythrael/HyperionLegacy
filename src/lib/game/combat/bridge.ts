@@ -28,7 +28,7 @@
 //      reshaping this function.
 // ============================================================================
 
-import type { ShipTypeDef } from "../model";
+import type { ShipTypeDef, PatrolSystemDurability } from "../model";
 import type { Combatant, CombatTeam, CombatWeapon, FamilyResist } from "./types";
 import type { CombatStance } from "./positioning";
 import { makeWeaponInstance, type WeaponId } from "./weapons";
@@ -159,6 +159,34 @@ export function defaultDronesForHull(hullType: CombatHullType, idPrefix: string)
   return COMBAT_DEFAULT_LOADOUT[hullType].droneRoles.map((role, index) =>
     makeSquadron(role, undefined, 0, `${idPrefix}-${role}${index}`),
   );
+}
+
+// defaultSystemDurabilityForHull: build a combat hull's FULL (no-wear) per-system durability
+// carry-state, for a patrol's persisted PatrolMissionState.playerSystemDurability. Combat
+// 0.13.0 (Phase 12b Unit B2): freshPatrolMission seeds this at dispatch/relaunch and the
+// v32->v33 save migration backfills it, both meaning "full durability = no wear" (the safe
+// default). Mirrors defaultDronesForHull's posture (a carry-state seed derived from the hull
+// default): it builds the SAME fresh combatant shipToCombatant would fly, so the weapon COUNT
+// + ORDER and the reactor/ftl ceilings come from ONE source of truth (no separately-maintained
+// per-hull durability table that could drift from the real loadout). At quality 0 durability ==
+// durabilityMax, so each system reads FULL. PURE (reads only the static loadout tables + the
+// passed stats, mutates nothing). A carried value is later CLAMPED to the fresh max on apply,
+// so even if a hull is retuned after a save was written, a backfilled "full" can never exceed
+// the real ceiling.
+export function defaultSystemDurabilityForHull(
+  hullType: CombatHullType,
+  stats: CombatShipStats,
+): PatrolSystemDurability {
+  // Build the hull's fresh default combatant once and read its full ceilings. id/team are
+  // irrelevant here (nothing is fought), so any stable literal is fine.
+  const fresh = shipToCombatant({ id: "durability-seed", team: "player", stats, hullType });
+  return {
+    weapons: fresh.weapons.map((weapon) => weapon.durabilityMax),
+    // A real combat hull always carries both (shipToCombatant builds them); the `?? 0` guards
+    // the impossible-in-practice absent case so the shape is always complete + JSON-safe.
+    reactor: fresh.reactor ? fresh.reactor.durabilityMax : 0,
+    ftl: fresh.ftl ? fresh.ftl.durabilityMax : 0,
+  };
 }
 
 // The combat-relevant slice of a ship's stats this bridge reads. A real SHIP_TYPES

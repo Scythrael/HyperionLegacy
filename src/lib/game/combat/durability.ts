@@ -18,10 +18,25 @@
 // on a connecting hit's target systems (each weapon, the reactor, the ftl) off the COMBAT
 // stream, and the resulting condition drives real mechanical effects (an offline weapon
 // cannot fire; a degraded weapon and a degraded/offline reactor cut weapon damage; a
-// degraded/offline ftl cuts evasion + closing speed). Wear resets each battle (systems are
-// rebuilt full per wave). CROSS-WAVE persistence + a save migration + repair are Unit B2,
-// and permanent on-gear durability sync arrives with weapons-as-gear. So these helpers are
-// live combat logic now, not just unit-tested model code.
+// degraded/offline ftl cuts evasion + closing speed).
+//
+// CROSS-WAVE PERSISTENCE (Phase 12b Unit B2, DONE): the PLAYER ship's per-system durability
+// now ACCUMULATES across the waves of one patrol cycle instead of resetting full each wave. It
+// is carried on PatrolMissionState.playerSystemDurability (model.ts): seeded full at dispatch/
+// relaunch (defaultSystemDurabilityForHull, bridge.ts), captured post-battle + applied on the
+// next wave's player build (capturePlayerSystemDurability / buildPatrolPlayerCombatant,
+// patrolWave.ts), and the display replay carries it the same way (patrolReplay.ts) so its pips
+// stay parity-correct. A v32->v33 save migration backfills it to full. SCOPE HONESTY: this wear
+// does NOT outlive the patrol. On a defeat the ship limps home and the MISSION (which holds the
+// wear) ends when it lands, so the wear is discarded there; the P11 repair path clears a ship's
+// `damaged`/`repairDamage`, NOT durability, because by repair time the mission-borne wear is
+// already gone and a re-dispatch mints a fresh full-durability cycle. PERMANENT on-gear
+// durability (wear that survives between patrols, cleared by a repair) arrives with weapons-as-
+// gear (equipment instances), NOT here. MEASURED (starter patrol, 200 seeds/hull): every patrol
+// takes SOME wear but NONE reaches the Degraded threshold (worst single system ~62% of max vs
+// the 50% threshold), so the condition EFFECTS stay latent in real starter play; the first-pass
+// constants above are intentionally left for the S20 balance pass, not tuned here.
+// So these helpers are live combat logic now, not just unit-tested model code.
 //
 // ⚠️ EVERY NUMERIC CONSTANT HERE IS FIRST-PASS + TUNABLE (design S20 owns the
 // balance pass). Integer / integer-percent math throughout (design S0.4), so the

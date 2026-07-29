@@ -27,6 +27,7 @@ import { shipToCombatant, type CombatHullType, type CombatShipStats } from "./br
 import type { CombatStance } from "./positioning";
 import type { Combatant } from "./types";
 import type { DroneSquadron } from "./drones";
+import type { PatrolSystemDurability } from "../model";
 
 // ---------------------------------------------------------------------------
 // buildPatrolPlayerCombatant -- mint the PLAYER combatant for one patrol wave.
@@ -56,6 +57,13 @@ export function buildPatrolPlayerCombatant(args: {
   carryHull: number;
   carryShield: number;
   carryDrones: DroneSquadron[];
+  // Between-wave CARRY-STATE (Phase 12b Unit B2): the player ship's per-system DURABILITY,
+  // so wear ACCUMULATES across the cycle's waves (a weapon worn in wave 1 opens wave 2 already
+  // worn). OPTIONAL: absent => leave the fresh full-durability build untouched (the pre-B2
+  // behaviour, and the safe default for a hand-built fixture or a not-yet-fought first wave).
+  // Applied by OVERRIDING each fresh system's current durability, CLAMPED to that system's
+  // fresh max (so a stale/hand-edited carry can never exceed the ceiling or go negative).
+  carrySystemDurability?: PatrolSystemDurability;
 }): Combatant {
   // FRESH from the hull defaults (weapons + cooldowns reset each wave).
   const player = shipToCombatant({
@@ -69,7 +77,55 @@ export function buildPatrolPlayerCombatant(args: {
   player.hull = args.carryHull;
   player.shield = args.carryShield;
   player.drones = args.carryDrones;
+  // OVERRIDE the fresh systems with the carried DURABILITY so wear persists across waves
+  // (Phase 12b Unit B2). Absent => the fresh full build stands (no wear yet). shipToCombatant
+  // built fresh per-combatant weapon / reactor / ftl objects, so these writes never leak into
+  // a shared template.
+  if (args.carrySystemDurability) applyCarriedSystemDurability(player, args.carrySystemDurability);
   return player;
+}
+
+// Clamp a carried durability value to [0, max] as an integer. A carried value can only ever be
+// a prior FULL seed or a post-battle current (both already integers in [0, max]); this guard
+// keeps a hand-edited / stale save from injecting a negative or over-ceiling durability.
+function clampDurability(value: number, max: number): number {
+  return Math.max(0, Math.min(max, Math.floor(value)));
+}
+
+// Apply a carried per-system durability onto a freshly-built player combatant, mutating the
+// combatant's own (freshly-minted, unshared) systems in place. Weapons align BY INDEX to the
+// hull's default loadout (rebuilt in the same fixed order every wave), so index i is the same
+// weapon; a length mismatch (a hand-edited carry) is tolerated by iterating the overlap only.
+// The reactor / ftl override each apply only when the fresh build actually carries that system.
+function applyCarriedSystemDurability(
+  player: Combatant,
+  carry: PatrolSystemDurability,
+): void {
+  const weaponCount = Math.min(player.weapons.length, carry.weapons.length);
+  for (let i = 0; i < weaponCount; i++) {
+    player.weapons[i].durability = clampDurability(carry.weapons[i], player.weapons[i].durabilityMax);
+  }
+  if (player.reactor !== undefined) {
+    player.reactor.durability = clampDurability(carry.reactor, player.reactor.durabilityMax);
+  }
+  if (player.ftl !== undefined) {
+    player.ftl.durability = clampDurability(carry.ftl, player.ftl.durabilityMax);
+  }
+}
+
+// capturePlayerSystemDurability -- read a POST-battle player combatant's per-system durability
+// into the JSON-safe carry-state the mission persists (and the display replay carries wave-to-
+// wave). Combat 0.13.0 (Phase 12b Unit B2). Reads the CURRENT durability off each weapon (in
+// loadout order), the reactor, and the ftl. Both the live tick loop and the replay call this on
+// the id-sorted finalCombatants player, so the wear they carry forward is derived from the SAME
+// combat-stream state and stays byte-identical (parity). A combatant with no reactor/ftl (a bare
+// fixture) yields 0 for that slot; a real bridged player always carries both. PURE: reads only.
+export function capturePlayerSystemDurability(player: Combatant): PatrolSystemDurability {
+  return {
+    weapons: player.weapons.map((weapon) => weapon.durability),
+    reactor: player.reactor ? player.reactor.durability : 0,
+    ftl: player.ftl ? player.ftl.durability : 0,
+  };
 }
 
 // ---------------------------------------------------------------------------

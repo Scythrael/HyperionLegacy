@@ -26,6 +26,7 @@ import {
   type GameState,
   type ShipTypeKey,
   type PatrolMissionState,
+  type PatrolSystemDurability,
 } from "../model";
 import { dispatchCaptainOnPatrol, economyTick } from "../tick";
 import {
@@ -33,6 +34,8 @@ import {
   resolvePatrolWaves,
   foldWaveSnapshots,
 } from "./patrolReplay";
+import { defaultSystemDurabilityForHull } from "./bridge";
+import { capturePlayerSystemDurability } from "./patrolWave";
 import type { CombatEvent } from "./types";
 
 const PATROL_KEY = "crimsonReaverSweep";
@@ -76,13 +79,13 @@ function runLivePatrol(state0: GameState): {
   wavesWon: number;
   wavesLost: number;
   shipDamaged: boolean;
-  wonCarry: { hull: number; shield: number }[];
+  wonCarry: { hull: number; shield: number; durability: PatrolSystemDurability }[];
 } {
   let s = state0;
   let wavesWon = 0;
   let wavesLost = 0;
   let prevWavesWon = 0;
-  const wonCarry: { hull: number; shield: number }[] = [];
+  const wonCarry: { hull: number; shield: number; durability: PatrolSystemDurability }[] = [];
   for (let i = 0; i < 60; i++) {
     s = economyTick(s, 1, RNG);
     const m = s.captains[0].mission as PatrolMissionState | null;
@@ -91,8 +94,9 @@ function runLivePatrol(state0: GameState): {
       wavesLost = m.wavesLost;
       if (m.wavesWon > prevWavesWon) {
         // A wave just resolved as a WIN this tick: snapshot the post-battle carry pools
-        // the live loop persisted (playerHull/playerShield), before any later-tick regen.
-        wonCarry.push({ hull: m.playerHull, shield: m.playerShield });
+        // the live loop persisted (playerHull/playerShield) AND the accumulated per-system
+        // durability (Phase 12b Unit B2), before any later-tick regen.
+        wonCarry.push({ hull: m.playerHull, shield: m.playerShield, durability: m.playerSystemDurability });
         prevWavesWon = m.wavesWon;
       }
     }
@@ -132,6 +136,15 @@ describe("replay-vs-live parity (THE GATE)", () => {
         for (let i = 0; i < replayWonWaves.length; i++) {
           expect(replayWonWaves[i].playerEnd?.hull).toBe(live.wonCarry[i].hull);
           expect(replayWonWaves[i].playerEnd?.shield).toBe(live.wonCarry[i].shield);
+          // DURABILITY PARITY (Phase 12b Unit B2): the replay's post-battle per-system
+          // durability after EACH won wave MUST equal the live loop's persisted carry for that
+          // same wave. This proves the combat view's durability pips (each weapon + reactor +
+          // ftl) cannot drift from the real fight as wear ACCUMULATES across the cycle, one wave
+          // at a time. capturePlayerSystemDurability off the replay's playerEnd is exactly what
+          // the live loop captured into mission.playerSystemDurability.
+          expect(capturePlayerSystemDurability(replayWonWaves[i].playerEnd!)).toEqual(
+            live.wonCarry[i].durability,
+          );
         }
 
         // Terminal hull agrees: hull never regenerates post-wave, so the replay's terminal
@@ -209,6 +222,7 @@ describe("determinism", () => {
       startHull: shipDef.hullIntegrity,
       startShield: shipDef.shieldCapacity,
       startDrones: [],
+      startSystemDurability: defaultSystemDurabilityForHull("destroyer", shipDef),
     };
     expect(resolvePatrolWaves(input)).toEqual(resolvePatrolWaves(input));
   });
@@ -252,6 +266,7 @@ describe("defeat-path parity (guaranteed loss)", () => {
       startHull: 5,
       startShield: 0,
       startDrones: [],
+      startSystemDurability: defaultSystemDurabilityForHull("destroyer", shipDef),
     });
     expect(res.wavesWon).toBe(0);
     expect(res.defeated).toBe(true);
