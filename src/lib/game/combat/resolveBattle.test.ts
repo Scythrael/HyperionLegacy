@@ -1954,6 +1954,16 @@ describe("B1 HARD INVARIANTS: determinism + offline == live on a DEGRADING battl
 		};
 		const before = JSON.parse(JSON.stringify(participants));
 		const first = resolveBattle(participants, 9);
+		// NON-VACUOUS GUARD: confirm this battle actually WORE systems, so the "caller
+		// unchanged" assertion below proves isolation rather than passing because nothing
+		// wore (a mutate-through regression could otherwise slip past a zero-wear seed).
+		const worn = first.finalCombatants.some(
+			(c) =>
+				c.weapons.some((w) => w.durability < w.durabilityMax) ||
+				(c.reactor !== undefined && c.reactor.durability < c.reactor.durabilityMax) ||
+				(c.ftl !== undefined && c.ftl.durability < c.ftl.durabilityMax),
+		);
+		expect(worn).toBe(true);
 		// The caller's objects are byte-identical to before (no wear leaked back).
 		expect(JSON.parse(JSON.stringify(participants))).toEqual(before);
 		// And a second resolve of the SAME (untouched) participants matches the first.

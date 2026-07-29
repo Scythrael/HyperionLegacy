@@ -11,16 +11,17 @@
 //     carries (design S9: higher quality "~+100% durability" at the top rank).
 //   - rollDurabilityLoss(item, rng): draw the combat-stream event once and drop
 //     one durability point on success.
-//   - systemCondition(item, isDisrupted): the FOUR-STATE condition pip the UI
-//     reads later (design S9 / S16: Nominal / Degraded / Disrupted / Offline).
+//   - systemCondition(item, isDisrupted, isHardDisabled): the FOUR-STATE condition
+//     pip the UI reads (design S9 / S16: Nominal / Degraded / Disrupted / Offline).
 //
-// ⚠️ SEAM (integration phase, NOT this patch): durability here is the combat
-// MODEL only. It is NOT yet synced to real game equipment durability, and the
-// sim does NOT roll it live yet (that would perturb the flagship parity/mechanic
-// fixtures' fixed draw schedule). resolveBattle carries a documented TODO where
-// the target's-systems durability event will fire once equipment durability sync
-// lands. Until then these helpers are exercised only by their unit tests, which
-// is exactly the "pure, tested helper" the phase asks for.
+// WIRED LIVE (Phase 12b Unit B1): resolveBattle.fireWeapon now rolls rollDurabilityLoss
+// on a connecting hit's target systems (each weapon, the reactor, the ftl) off the COMBAT
+// stream, and the resulting condition drives real mechanical effects (an offline weapon
+// cannot fire; a degraded weapon and a degraded/offline reactor cut weapon damage; a
+// degraded/offline ftl cuts evasion + closing speed). Wear resets each battle (systems are
+// rebuilt full per wave). CROSS-WAVE persistence + a save migration + repair are Unit B2,
+// and permanent on-gear durability sync arrives with weapons-as-gear. So these helpers are
+// live combat logic now, not just unit-tested model code.
 //
 // ⚠️ EVERY NUMERIC CONSTANT HERE IS FIRST-PASS + TUNABLE (design S20 owns the
 // balance pass). Integer / integer-percent math throughout (design S0.4), so the

@@ -951,6 +951,10 @@ export function fireWeapon(
 	// Drone-volley hits (fireSquadron) and drone reflect/counter collateral do NOT roll
 	// wear in B1 (weapons are the primary damage channel the design frames durability
 	// around); wiring those channels is a clean additive follow-up.
+	// NOTE: projectilesHit counts a PASSED hit-roll, incremented BEFORE drone interception
+	// (the same "connected" definition the Phase-4 status-proc gate just above uses). So a
+	// volley the target's drones fully absorb still wears its systems even though its hull
+	// took nothing: durability tracks a weapon CONNECTING, not hull damage landing.
 	if (projectilesHit > 0) {
 		for (const targetWeapon of target.weapons) {
 			rollDurabilityLoss(targetWeapon, combat);
