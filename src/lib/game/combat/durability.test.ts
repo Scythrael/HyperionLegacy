@@ -58,10 +58,10 @@ describe("durabilityLossChance: quality reduces the per-event loss chance", () =
 	});
 
 	it("applies the -10%/rank multiplicatively (exact integer floors)", () => {
-		// 40 -> floor(40*0.9)=36 -> floor(36*0.9)=32 -> floor(32*0.9)=28.
-		expect(durabilityLossChance(1)).toBe(36);
-		expect(durabilityLossChance(2)).toBe(32);
-		expect(durabilityLossChance(3)).toBe(28);
+		// 50 -> floor(50*0.9)=45 -> floor(45*0.9)=40 -> floor(40*0.9)=36.
+		expect(durabilityLossChance(1)).toBe(45);
+		expect(durabilityLossChance(2)).toBe(40);
+		expect(durabilityLossChance(3)).toBe(36);
 	});
 
 	it("clamps out-of-range quality (never negative, never past rank 5)", () => {

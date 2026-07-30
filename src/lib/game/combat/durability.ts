@@ -32,11 +32,14 @@
 // `damaged`/`repairDamage`, NOT durability, because by repair time the mission-borne wear is
 // already gone and a re-dispatch mints a fresh full-durability cycle. PERMANENT on-gear
 // durability (wear that survives between patrols, cleared by a repair) arrives with weapons-as-
-// gear (equipment instances), NOT here. MEASURED (starter patrol, 200 seeds/hull): every patrol
-// takes SOME wear but NONE reaches the Degraded threshold (worst single system ~62% of max vs
-// the 50% threshold), so the condition EFFECTS stay latent in real starter play; the first-pass
-// constants above are intentionally left for the S20 balance pass, not tuned here.
-// So these helpers are live combat logic now, not just unit-tested model code.
+// gear (equipment instances), NOT here. MEASURED at the FIRST-PASS constants (starter patrol,
+// 200 seeds/hull): every patrol took SOME wear but NONE reached the old 50% Degraded threshold
+// (worst single system ~62% of max), so the condition EFFECTS were LATENT. LIGHT TUNE 2026-07-29
+// (user call, "make it felt, not invisible"): per-hit loss chance 40 -> 50 + Degraded threshold
+// 50 -> 60 (see the constants below), so tougher / unluckier patrols now surface Degraded while
+// Offline stays rare (the loss bump is modest and the threshold change does not raise the Offline
+// rate). The exact FEEL is to be confirmed on the devpreview playtest; the full re-balance +
+// re-measure remains S20's job. So these helpers are live combat logic now, not just unit-tested.
 //
 // ⚠️ EVERY NUMERIC CONSTANT HERE IS FIRST-PASS + TUNABLE (design S20 owns the
 // balance pass). Integer / integer-percent math throughout (design S0.4), so the
@@ -77,7 +80,10 @@ export type SystemCondition = "nominal" | "degraded" | "disrupted" | "offline";
 
 // Base chance, as an integer percent, that a quality-0 system loses one
 // durability point on a single damage event. Quality reduces this (below).
-export const BASE_DURABILITY_LOSS_PERCENT = 40;
+// LIGHT-PASS TUNE (2026-07-29, user call): raised 40 -> 50 so wear actually
+// surfaces the Degraded condition in tougher starter patrols (see the MEASURED
+// note in the header). Still first-pass; the full re-balance is S20.
+export const BASE_DURABILITY_LOSS_PERCENT = 50;
 
 // Quality's reduction of the loss chance, per rank, as a RETAINED-fraction
 // numerator over 100. Design S9 says "~-10%/rank": we model it MULTIPLICATIVELY
@@ -96,7 +102,12 @@ const QUALITY_DURABILITY_BONUS_PER_RANK = 20;
 // The Degraded threshold: a system at or below this integer percent of its max
 // durability (but still above 0) reports "degraded" (design S9 "low durability,
 // reduced effectiveness"). Above it (and not disrupted) => "nominal".
-export const DEGRADED_THRESHOLD_PERCENT = 50;
+// LIGHT-PASS TUNE (2026-07-29, user call): raised 50 -> 60 so a worn system shows
+// Degraded a little sooner. This does NOT change how fast systems wear (the Offline
+// rate is untouched); it only surfaces the "worn" pip + its effects at a more visible
+// point, which, with the loss bump above, makes durability felt in tougher patrols
+// instead of latent. Still first-pass; S20 owns the real balance pass.
+export const DEGRADED_THRESHOLD_PERCENT = 60;
 
 // ---------------------------------------------------------------------------
 // CONDITION MECHANICAL EFFECTS (Phase 12b Unit B1). A worn system does not just
@@ -191,9 +202,9 @@ function clampQuality(quality: number): number {
 
 // The per-event durability-loss chance for a system of the given quality, as an
 // integer percent (design S9). Multiplicative -10%/rank from the base:
-//   quality 0 -> BASE (40)
-//   quality 1 -> floor(40 * 90/100) = 36
-//   quality 5 -> floor(...) = 23
+//   quality 0 -> BASE (50)
+//   quality 1 -> floor(50 * 90/100) = 45
+//   quality 5 -> floor(...) = 28
 // Monotonically non-increasing in quality, and never negative.
 export function durabilityLossChance(quality: number): number {
 	const q = clampQuality(quality);
