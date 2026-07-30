@@ -2157,7 +2157,15 @@
   }
 
   function simulateOffline(hours: number) {
-    state = tick(hours * 3600, state); // fleet-wide: advances every captain, matches real offline catch-up
+    const before = state;
+    const secondsAway = hours * 3600;
+    state = tick(secondsAway, before); // fleet-wide: advances every captain, matches real offline catch-up
+    // Surface the SAME While-You-Were-Away recap the real reload path builds, using the SAME
+    // pure diff helper, so this dev button exercises the offline summary end-to-end for a KNOWN
+    // duration (verifiable numbers, screenshot-able). Unlike the real onMount path it does NOT
+    // gate on hasContent, so pressing the button always shows what that duration produced (an
+    // empty recap = nothing was running), giving clear QA feedback that the trigger fired.
+    offlineSummary = summarizeOfflineProgress(before, state, secondsAway);
     pushLog(`[DEV] Simulated ${hours}h offline for the whole fleet.`);
   }
 
