@@ -1549,6 +1549,39 @@ describe("Phase 6: encounter open pre-charge", () => {
 		// The short-range kinetic gun is out-ranged the whole fight: it never lands.
 		expect(hits.some((e) => e.family === "kinetic")).toBe(false);
 	});
+
+	it("caps a banked cooldown so a weapon ENTERING range fires one charged shot, not a burst", () => {
+		// A short gun (range 100, cd 4) starts far out of range (enemy at 250) and comes off
+		// cooldown while the ship is still closing (aggressive holds at Short = 100). WITHOUT
+		// the out-of-range accumulator cap it banks a shot every tick during the long approach
+		// and dumps a burst (hits on consecutive ticks) the instant it reaches range; WITH the
+		// cap it holds exactly ONE charged shot, then fires on its normal cadence, so no two
+		// hits ever land closer than the cooldown (4 deci) apart. (cooldown-burst fix, S6.)
+		const battle = (): BattleParticipants => ({
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					position: 0,
+					speed: 30,
+					stance: "aggressive",
+					weapons: [makeWeapon({ id: "short", yield: 10, accuracy: 100, range: 100, cooldownDeciSec: 4 })],
+				}),
+				makeCombatant({ id: "E1", team: "enemy", hull: 1_000_000, hullMax: 1_000_000, position: 250, speed: 0, weapons: [] }),
+			],
+		});
+		const { log } = resolveBattle(battle(), 123, { generateLog: true });
+		const hitTimes = log
+			.filter((e) => e.type === "hit" && e.actorId === "P1")
+			.map((e) => e.tDeciSec as number);
+		expect(hitTimes.length).toBeGreaterThan(1); // the gun does reach range and fire repeatedly
+		const gaps = hitTimes.slice(1).map((t, i) => t - hitTimes[i]);
+		// The BUG fires on CONSECUTIVE ticks (gap 1) while draining the banked accumulator.
+		// The FIX fires one charged shot on entry, then resumes cadence: a single gap of 3
+		// (the design-S1 carry-over leaves a remainder after the entry shot) followed by
+		// steady gaps of 4. So the tell-tale burst signature is a gap of 1: assert none exist.
+		expect(gaps.every((g) => g >= 2)).toBe(true);
+	});
 });
 
 describe("Phase 6: ambush opener (design S7)", () => {

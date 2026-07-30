@@ -1723,14 +1723,21 @@ export function resolveBattle(
 				if (weapon.cooldownAccumulator < weapon.cooldownDeciSec) continue;
 
 				// Range gate: fire only if the target sits within this weapon's
-				// (sensor-drain-scaled) range on the 1D axis. If out of range we HOLD the
-				// accumulator at (or above) the ready threshold so the shot goes off the
-				// instant the ship closes into range (design S6: charged salvo fires when
-				// the band opens). We do NOT reset it here.
+				// (sensor-drain-scaled) range on the 1D axis. If out of range we CAP the
+				// accumulator at exactly the ready threshold so the weapon stays "ready" (fires
+				// the instant the ship closes into range: design S6, a charged salvo when the
+				// band opens) WITHOUT banking a backlog. Without the cap the accumulator keeps
+				// growing every out-of-range tick (the += DT above runs each tick) and then dumps
+				// ~N back-to-back shots on entry (the cooldown-burst bug). We do NOT reset it.
 				const distance = Math.abs(self.position - target.position);
 				const effectiveRange =
 					rangeDelta !== 0 ? applyPercentDelta(weapon.range, rangeDelta) : weapon.range;
-				if (distance > effectiveRange) continue;
+				if (distance > effectiveRange) {
+					if (weapon.cooldownAccumulator > weapon.cooldownDeciSec) {
+						weapon.cooldownAccumulator = weapon.cooldownDeciSec;
+					}
+					continue;
+				}
 
 				// Ready + in range: fire. Consume ONE cooldown period from the
 				// accumulator, carrying the remainder so fractional fire rates stay
@@ -1979,12 +1986,19 @@ export function resolveBattle(
 						continue;
 					}
 
-					// Reach gate: owner-to-target distance vs the squadron's range. Out of
-					// reach HOLDS the accumulator (like a weapon) so the volley fires the
-					// instant the owner closes into range. Attack drones "zoom in" (short
-					// reach); defense/support fire from long reach (see drones.ts templates).
+					// Reach gate: owner-to-target distance vs the squadron's range. Out of reach
+					// CAPS the accumulator at the ready threshold (like a weapon, see PHASE C) so
+					// the volley fires the instant the owner closes into range WITHOUT banking a
+					// backlog that would dump ~N back-to-back volleys on entry (the cooldown-burst
+					// bug). Attack drones "zoom in" (short reach); defense/support fire from long
+					// reach (see drones.ts templates).
 					const droneDistance = Math.abs(self.position - target.position);
-					if (droneDistance > squadron.range) continue;
+					if (droneDistance > squadron.range) {
+						if (squadron.cooldownAccumulator > squadron.attackCooldownDeciSec) {
+							squadron.cooldownAccumulator = squadron.attackCooldownDeciSec;
+						}
+						continue;
+					}
 
 					// Ready + in reach: consume ONE cooldown period (carry the remainder for
 					// exact fractional rates), then volley. Every combat-stream draw happens
