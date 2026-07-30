@@ -1764,6 +1764,11 @@
       // A save EXISTS but failed to load (corrupt). Do NOT let the game overwrite it:
       // suppress autosave and show the recovery modal so the player can grab the raw
       // text before choosing to start fresh. suppressSave stays true until they choose.
+      // ⚠️ LOAD-BEARING coupling: the recovery modal (saveCorruptModalOpen) MUST have NO
+      // dismiss path (no Escape, backdrop, or Cancel), because the ONLY code that clears
+      // suppressSave is startFreshFromCorrupt. If a future edit adds a dismiss to that
+      // modal, suppressSave would stay true for the rest of the session and the running
+      // game would silently NEVER persist. Keep the two coupled.
       suppressSave = true;
       corruptRawSave = exportRawSave() ?? "";
       saveCorruptModalOpen = true;
@@ -1791,6 +1796,16 @@
     // the shared bar flicker unreadably, multiple game-ticks just batch
     // into one visual cycle, which is still correct because
     // tickCaptainMission is closed-form.
+    //
+    // ⚠️ LOAD-BEARING ASYNC INVARIANT (do NOT break, especially when the online /
+    // cloud-save / chat work lands): this tick callback, and every do* state handler,
+    // MUST stay SYNCHRONOUS between reading and writing `state` (compute a new state,
+    // then assign it, with NO await/then in between). JS never preempts a running
+    // callback, so this one property is what guarantees ticks cannot overlap
+    // (re-entrancy), autosave cannot serialize a half-updated state, and no captured-state
+    // callback can drop an intervening update (lost update). Introduce an `await` inside
+    // this callback, or between a handler's `const { next } = ...` and its `state = next`,
+    // and all three of those bug classes reopen at once. Verified sound 2026-07-29.
     tickHandle = setInterval(() => {
       const now = Date.now();
 
