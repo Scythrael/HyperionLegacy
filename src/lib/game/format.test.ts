@@ -25,8 +25,15 @@ describe("formatNumber", () => {
     });
 
     it("formats a value just under 1000 (999) with no decimals, no tier suffix", () => {
-      // abs = 999, < 1000 true, 999 < 10 false -> Math.floor(999).toString().
+      // abs = 999, < 1000 true, 999 < 10 false -> Math.trunc(999).toString().
       expect(formatNumber(999)).toBe("999");
+    });
+
+    it("truncates a negative magnitude toward zero, not toward -Infinity (-50.7 -> \"-50\")", () => {
+      // The fuel net chip: floor rendered "-51"; trunc matches how a positive 50.7 -> "50".
+      expect(formatNumber(-50.7)).toBe("-50");
+      expect(formatNumber(-999)).toBe("-999");
+      expect(formatNumber(50.7)).toBe("50"); // positives unaffected (trunc === floor for n >= 0)
     });
 
     it("formats 1000 exactly at the K tier boundary as \"1.00K\"", () => {

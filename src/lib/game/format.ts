@@ -27,7 +27,10 @@ export function formatNumber(n: number | Decimal): string {
 
   if (n === null || n === undefined || Number.isNaN(n)) return "0";
   const abs = Math.abs(n);
-  if (abs < 1000) return abs < 10 && abs !== 0 ? n.toFixed(2) : Math.floor(n).toString();
+  // Math.trunc (toward zero), NOT Math.floor (toward -Infinity): a negative net like the
+  // fuel chip's -50.7 renders "-50" (matching how a positive 50.7 renders "50"), instead
+  // of flooring to a more-negative "-51". Identical to floor for non-negative values.
+  if (abs < 1000) return abs < 10 && abs !== 0 ? n.toFixed(2) : Math.trunc(n).toString();
 
   let tier = Math.floor(Math.log10(abs) / 3);
   if (tier >= TIERS.length) return n.toExponential(2);
