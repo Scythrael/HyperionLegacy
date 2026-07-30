@@ -795,7 +795,7 @@
   // from this UI (activeCaptain is always a live captain), but it is handled by the
   // default so the message is never blank on an unexpected reason.
   function captainRenameReasonMessage(
-    reason: "notFound" | "empty" | "tooLong" | "charset" | "profanity" | undefined,
+    reason: "notFound" | "empty" | "tooLong" | "charset" | "noAlphanumeric" | "profanity" | undefined,
   ): string {
     switch (reason) {
       case "empty":
@@ -804,6 +804,8 @@
         return `Max ${MAX_CAPTAIN_NAME} characters`;
       case "charset":
         return "Letters, numbers, spaces, and . ' - _ only";
+      case "noAlphanumeric":
+        return "Name needs at least one letter or number";
       case "profanity":
         return "Please choose a different name";
       default:

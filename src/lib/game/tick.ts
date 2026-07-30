@@ -3276,7 +3276,7 @@ export function renameCaptain(
   state: GameState,
   captainId: number,
   rawName: string,
-): { next: GameState; success: boolean; reason?: "notFound" | "empty" | "tooLong" | "charset" | "profanity" } {
+): { next: GameState; success: boolean; reason?: "notFound" | "empty" | "tooLong" | "charset" | "noAlphanumeric" | "profanity" } {
   // Locate the target by STABLE id (Task 1.1 monotonic counter), not array
   // position. Unknown id is a failure no-op (same state reference), matching
   // recallCaptain rather than throwing.

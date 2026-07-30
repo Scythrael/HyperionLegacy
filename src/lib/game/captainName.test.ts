@@ -15,10 +15,11 @@ describe("validateCaptainName", () => {
     expect(validateCaptainName("Ravenscar")).toEqual({ ok: true, value: "Ravenscar" });
   });
 
-  it("trims leading/trailing whitespace but collapses nothing internal", () => {
-    // "  Ravenscar  " -> "Ravenscar"; an internal double space is preserved.
+  it("trims surrounding whitespace and collapses internal whitespace runs to one space", () => {
+    // "  Ravenscar  " -> "Ravenscar"; an internal double space now collapses to one.
     expect(validateCaptainName("  Ravenscar  ")).toEqual({ ok: true, value: "Ravenscar" });
-    expect(validateCaptainName("Van  Halen")).toEqual({ ok: true, value: "Van  Halen" });
+    expect(validateCaptainName("Van  Halen")).toEqual({ ok: true, value: "Van Halen" });
+    expect(validateCaptainName("A     B")).toEqual({ ok: true, value: "A B" });
   });
 
   it("accepts the small safe punctuation set (. ' - _), letters, digits, spaces", () => {
@@ -57,6 +58,14 @@ describe("validateCaptainName", () => {
     expect(validateCaptainName("Ravenscar!")).toEqual({ ok: false, reason: "charset" });
     expect(validateCaptainName("na@me")).toEqual({ ok: false, reason: "charset" });
     expect(validateCaptainName("emoji \u{1F600}")).toEqual({ ok: false, reason: "charset" });
+  });
+
+  it("rejects a punctuation/space-only name (no letter or digit) as noAlphanumeric", () => {
+    expect(validateCaptainName("....")).toEqual({ ok: false, reason: "noAlphanumeric" });
+    expect(validateCaptainName("----")).toEqual({ ok: false, reason: "noAlphanumeric" });
+    expect(validateCaptainName("_-_")).toEqual({ ok: false, reason: "noAlphanumeric" });
+    // A single letter or digit is enough to pass this check.
+    expect(validateCaptainName("x.")).toEqual({ ok: true, value: "x." });
   });
 
   it("rejects a profane token as profanity (case-insensitive, whole-token match)", () => {

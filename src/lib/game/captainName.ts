@@ -54,15 +54,19 @@ function tokenize(lowerName: string): string[] {
 }
 
 // The one validation chokepoint. Returns a discriminated union so callers
-// branch on `.ok` and, on success, use the CLEANED `.value` (trimmed) rather
-// than the raw input. Checks run in a fixed order -- empty, tooLong, charset,
-// profanity -- so the reported reason is the FIRST thing wrong, and each reason
-// is independently testable by feeding an input that trips only that check.
+// branch on `.ok` and, on success, use the CLEANED `.value` rather than the raw
+// input. Checks run in a fixed order (empty, tooLong, charset, noAlphanumeric,
+// profanity) so the reported reason is the FIRST thing wrong, and each reason is
+// independently testable by feeding an input that trips only that check.
 export function validateCaptainName(
   raw: string,
-): { ok: true; value: string } | { ok: false; reason: "empty" | "tooLong" | "charset" | "profanity" } {
-  // Trim leading/trailing whitespace only; internal spacing is the player's
-  // choice and is preserved verbatim (no internal collapse).
+):
+  | { ok: true; value: string }
+  | { ok: false; reason: "empty" | "tooLong" | "charset" | "noAlphanumeric" | "profanity" } {
+  // Trim surrounding whitespace, then COLLAPSE internal whitespace runs to a single
+  // space. A name is a display LABEL, not a canvas for spacing tricks; collapsing also
+  // blocks "A          B" layout abuse and padding-based impersonation once names show to
+  // other players (chat / leaderboards). The cleaned value is what gets stored + compared.
   const trimmed = raw.trim();
 
   // 1) empty: nothing (or only whitespace) left after trimming.
@@ -70,25 +74,34 @@ export function validateCaptainName(
     return { ok: false, reason: "empty" };
   }
 
-  // 2) tooLong: length is measured on the TRIMMED value, so surrounding spaces
-  //    never count against the player's budget.
-  if (trimmed.length > MAX_CAPTAIN_NAME) {
+  const cleaned = trimmed.replace(/\s+/g, " ");
+
+  // 2) tooLong: measured on the CLEANED value, so surrounding + collapsed spaces never
+  //    count against the player's budget.
+  if (cleaned.length > MAX_CAPTAIN_NAME) {
     return { ok: false, reason: "tooLong" };
   }
 
   // 3) charset: any character outside the allowed set rejects the whole name.
-  if (!ALLOWED_CHARSET.test(trimmed)) {
+  if (!ALLOWED_CHARSET.test(cleaned)) {
     return { ok: false, reason: "charset" };
   }
 
-  // 4) profanity: whole-token, case-insensitive match against the tiny list.
+  // 4) noAlphanumeric: require at least one letter or digit, so a punctuation-only name
+  //    ("....", "----", "_-_") is rejected. A real name always has a letter or number;
+  //    this is a cheap impersonation / layout-noise guard for the cross-player display.
+  if (!/[A-Za-z0-9]/.test(cleaned)) {
+    return { ok: false, reason: "noAlphanumeric" };
+  }
+
+  // 5) profanity: whole-token, case-insensitive match against the tiny list.
   //    Token boundaries are what keep innocent substrings (the Scunthorpe
   //    problem) from tripping this.
-  const tokens = tokenize(trimmed.toLowerCase());
+  const tokens = tokenize(cleaned.toLowerCase());
   if (tokens.some((token) => PROFANITY.includes(token))) {
     return { ok: false, reason: "profanity" };
   }
 
   // All checks passed: hand back the cleaned value for the caller to store.
-  return { ok: true, value: trimmed };
+  return { ok: true, value: cleaned };
 }
