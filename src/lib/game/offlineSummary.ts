@@ -28,6 +28,13 @@
 
 import Decimal from "break_infinity.js";
 import type { GameState, CaptainState, ShipInstance } from "./model";
+// Static registries + leveling curves (pure DATA / pure math, NOT the sim). MISSIONS/PATROLS
+// classify a completed-mission key into its player-facing type (extraction = gathering, patrol =
+// combat). xpForNextLevel / xpForNextFleetAdminLevel are the SAME curves the sim's level-up fold
+// reads; the summary reuses them ONLY to reconstruct gross XP earned from two leftover-xp
+// snapshots (see xpEarnedAcrossLevels). Importing these keeps the pure-diff invariant: no RNG, no
+// tick(), just reading catalog data the same way the Warehouse/Operations UI already does.
+import { MISSIONS, PATROLS, xpForNextLevel, xpForNextFleetAdminLevel } from "./model";
 import { itemTotal } from "./inventory";
 
 // One material whose on-hand total rose across the offline advance. `qty` is the
@@ -39,14 +46,27 @@ export interface OfflineMaterialGain {
   qty: Decimal;
 }
 
-// One captain who gained at least one level while away. Captains are matched by
-// their stable numeric id between the two snapshots; `name` is the captain's live
-// label captured from the AFTER snapshot (its most current display name).
-export interface OfflineCaptainLevel {
+// One mission TYPE and how many completions of that type landed while away. The
+// completed-mission tally is keyed by mission id; each id is classified into a
+// player-facing type (Gathering for extraction runs, Combat for patrols, Other for
+// unknown/legacy keys) and the counts are summed per type. `count` is a whole number
+// (a completion count never approaches the double ceiling), formatted via formatNumber.
+export interface OfflineMissionTypeCount {
+  type: string;
+  count: number;
+}
+
+// One captain who EARNED XP while away (levels gained may be zero). Captains are matched
+// by their stable numeric id between the two snapshots; `name` is the captain's live label
+// captured from the AFTER snapshot (its most current display name). `xpGained` is the GROSS
+// XP earned reconstructed across any level-ups (see xpEarnedAcrossLevels), a positive Decimal
+// formatted via formatNumber; `levelsGained` is the whole-level rise (after.level - before.level,
+// clamped >= 0), shown as "+N".
+export interface OfflineCaptainProgress {
   id: number;
   name: string;
-  fromLevel: number;
-  toLevel: number;
+  xpGained: Decimal;
+  levelsGained: number;
 }
 
 // One ship that limped home into the repair queue DURING the offline advance, i.e.
@@ -65,10 +85,12 @@ export interface OfflineShipInRepair {
 export interface OfflineSummary {
   secondsAway: number;
   hasContent: boolean;
-  missionsCompleted: number;
+  missionsByType: OfflineMissionTypeCount[];
   creditsEarned: Decimal;
+  fleetXpGained: Decimal;
+  fleetLevelsGained: number;
+  captainsProgressed: OfflineCaptainProgress[];
   materialsGained: OfflineMaterialGain[];
-  captainsLeveled: OfflineCaptainLevel[];
   shipsInRepair: OfflineShipInRepair[];
 }
 
@@ -76,16 +98,66 @@ export interface OfflineSummary {
 // Each pulls one shape off a GameState defensively so a corrupt / partial snapshot
 // degrades that ONE section to empty instead of throwing on load.
 
-// Sum of every value in a Decimal tally map (e.g. lifetimeStats.missionsCompleted).
-// Absent / non-object map -> Decimal(0). Non-Decimal stray values are skipped rather
-// than trusted, keeping the sum well-defined on a hand-edited save.
-function sumDecimalTally(tally: Record<string, Decimal> | undefined): Decimal {
-  if (!tally || typeof tally !== "object") return new Decimal(0);
-  let total = new Decimal(0);
-  for (const value of Object.values(tally)) {
-    if (value instanceof Decimal) total = total.plus(value);
+// The completed-mission tally off a snapshot, or {} when absent / not an object. Keyed by
+// mission id -> Decimal completion count. Callers diff it per key, so a missing side yields no
+// completions for that key (fail-open).
+function missionTallyOf(state: GameState): Record<string, Decimal> {
+  const tally = (state as GameState | undefined)?.lifetimeStats?.missionsCompleted;
+  return tally && typeof tally === "object" ? tally : {};
+}
+
+// A single tally cell as a Decimal: the stored value if it is one, else 0. Guards against a
+// stray non-Decimal on a hand-edited save so the per-key diff stays well-defined.
+function tallyCell(value: Decimal | undefined): Decimal {
+  return value instanceof Decimal ? value : new Decimal(0);
+}
+
+// Classify a completed-mission tally KEY into its player-facing TYPE label. The tally is keyed
+// by mission id: an extraction mission (a key in the MISSIONS registry) is resource GATHERING; a
+// patrol (a key in the PATROLS registry) is COMBAT. An unknown / legacy / renamed key falls back
+// to "Other" so its completions still count somewhere rather than silently vanishing. PURE: reads
+// only the static registries, mirrors how the mission id -> kind mapping is defined in model.ts.
+function missionTypeLabel(missionId: string): string {
+  if (Object.prototype.hasOwnProperty.call(MISSIONS, missionId)) return "Gathering";
+  if (Object.prototype.hasOwnProperty.call(PATROLS, missionId)) return "Combat";
+  return "Other";
+}
+
+// Fixed render order for the per-type rows so the modal is deterministic regardless of the
+// tally's key-iteration order. Combat first (the headline of a combat session), then Gathering,
+// then the Other catch-all last.
+const MISSION_TYPE_ORDER = ["Combat", "Gathering", "Other"] as const;
+
+// Reconstruct the GROSS xp EARNED across a level span from two leftover-xp snapshots.
+//
+// Both captain.xp and fleetAdminXp store xp LEFTOVER toward the NEXT level: the shared level-up
+// fold in tick.ts (foldXpLevelUps) SUBTRACTS each crossed threshold, so the field RESETS on every
+// level-up. A naive after.minus(before) therefore goes NEGATIVE whenever a level was gained,
+// which is the COMMON offline case (captains and the Fleet Admiral routinely level while away).
+//
+// The true earned amount is the leftover delta PLUS every threshold crossed between the two
+// levels:
+//     earned = (afterXp - beforeXp) + sum over l in [fromLevel, toLevel-1] of thresholdFor(l)
+// This is exact and cap-independent: the fold's MAX_LEVEL_UPS_PER_TICK cap only CARRIES surplus
+// xp forward in the returned leftover (it never DISCARDS xp, per that constant's contract), so
+// the final leftover already contains any un-leveled surplus. Equivalently, this equals the gross
+// XP the sim granted while away.
+//
+// PURE: reads only the static leveling curve passed in, rolls no RNG, never calls the sim.
+// Clamps a negative result to 0 so a corrupt / hand-edited snapshot (level or xp went DOWN)
+// degrades to "nothing earned" rather than surfacing a negative figure.
+function xpEarnedAcrossLevels(
+  beforeXp: Decimal,
+  fromLevel: number,
+  afterXp: Decimal,
+  toLevel: number,
+  thresholdFor: (level: number) => number,
+): Decimal {
+  let earned = afterXp.minus(beforeXp);
+  for (let level = fromLevel; level < toLevel; level++) {
+    earned = earned.plus(thresholdFor(level));
   }
-  return total;
+  return earned.lt(0) ? new Decimal(0) : earned;
 }
 
 // The captains array off a snapshot, or [] when absent / not an array. Callers then
@@ -117,13 +189,18 @@ function inventoryOf(state: GameState): Record<string, Decimal[]> {
 // allocates the summary, mutates nothing, rolls no RNG.
 //
 // FIELD-BY-FIELD (all derived, none stored):
-//   missionsCompleted : delta of summed lifetimeStats.missionsCompleted tallies,
-//                       clamped >= 0 and rounded to a whole display count.
+//   missionsByType    : per-key lifetimeStats.missionsCompleted deltas, each clamped >= 0 and
+//                       rounded, then SUMMED into their player-facing type (Gathering / Combat /
+//                       Other, see missionTypeLabel). One row per non-empty type.
 //   creditsEarned     : after.credits - before.credits, clamped >= 0 for display
 //                       (a net spend while away is not "earned", so it shows 0).
+//   fleetXpGained     : gross Fleet Admiral XP earned, reconstructed across level-ups from
+//                       fleetAdminXp + fleetAdminLevel (see xpEarnedAcrossLevels), a Decimal.
+//   fleetLevelsGained : after.fleetAdminLevel - before.fleetAdminLevel, clamped >= 0.
 //   materialsGained   : per-item itemTotal(after) - itemTotal(before), kept only
 //                       where it ROSE (strictly positive), as a Decimal delta.
-//   captainsLeveled   : captains (matched by id) whose level rose, from->to.
+//   captainsProgressed: captains (matched by id) that EARNED xp, each with gross xpGained
+//                       (reconstructed across level-ups) and levelsGained (+N).
 //   shipsInRepair     : ships flagged `damaged` in after that were NOT damaged in
 //                       before (i.e. they limped home into repair while away). The
 //                       repair field used is ShipInstance.damaged (the S13 flag the
@@ -137,16 +214,28 @@ export function summarizeOfflineProgress(
   after: GameState,
   secondsAway: number
 ): OfflineSummary {
-  // --- Missions completed (summed tally delta) ---
-  // lifetimeStats.missionsCompleted is a per-mission-key Decimal tally; the summary
-  // reports the TOTAL new completions, so we diff the summed-across-keys totals.
-  const missionsDelta = sumDecimalTally(after?.lifetimeStats?.missionsCompleted).minus(
-    sumDecimalTally(before?.lifetimeStats?.missionsCompleted)
-  );
-  // Clamp negatives to 0 (a tally should only ever rise) then round to a whole count
-  // for display. toNumber is safe here: a completion count never approaches the
-  // double ceiling that would justify a Decimal display.
-  const missionsCompleted = Math.max(0, Math.round(missionsDelta.toNumber()));
+  // --- Missions completed BY TYPE (per-key delta, summed into each type bucket) ---
+  // lifetimeStats.missionsCompleted is a per-mission-key Decimal tally. Diff each key, clamp its
+  // delta >= 0 and round to a whole count (a completion count never approaches the double ceiling
+  // that would justify a Decimal display), then SUM the per-key counts into their player-facing
+  // type (Gathering / Combat / Other). Union both sides' keys so a mission first completed while
+  // away (present only in `after`) is still counted.
+  const beforeMissions = missionTallyOf(before);
+  const afterMissions = missionTallyOf(after);
+  const missionKeys = new Set<string>([...Object.keys(beforeMissions), ...Object.keys(afterMissions)]);
+  const countByType = new Map<string, number>();
+  for (const key of missionKeys) {
+    const delta = tallyCell(afterMissions[key]).minus(tallyCell(beforeMissions[key]));
+    const whole = Math.max(0, Math.round(delta.toNumber()));
+    if (whole <= 0) continue; // skip unchanged / decreased keys
+    const type = missionTypeLabel(key);
+    countByType.set(type, (countByType.get(type) ?? 0) + whole);
+  }
+  // Emit one row per non-empty type in the fixed display order (deterministic regardless of the
+  // tally's key iteration order).
+  const missionsByType: OfflineMissionTypeCount[] = MISSION_TYPE_ORDER
+    .filter((type) => (countByType.get(type) ?? 0) > 0)
+    .map((type) => ({ type, count: countByType.get(type)! }));
 
   // --- Credits earned (net gain, clamped) ---
   // Kept a Decimal so the modal formats it through formatNumber like every other
@@ -156,6 +245,24 @@ export function summarizeOfflineProgress(
   const afterCredits = after?.credits instanceof Decimal ? after.credits : new Decimal(0);
   const creditsDelta = afterCredits.minus(beforeCredits);
   const creditsEarned = creditsDelta.lt(0) ? new Decimal(0) : creditsDelta;
+
+  // --- Fleet Admiral XP + levels ---
+  // fleetAdminXp is leftover-toward-next-level (it resets on each FA level-up), so the gross XP
+  // earned is reconstructed across the level span rather than read as a raw field delta (see
+  // xpEarnedAcrossLevels for why a raw delta would go negative on a level-up). fleetAdminLevel is a
+  // plain number starting at 1; its rise is the levels gained, clamped >= 0.
+  const beforeFaXp = before?.fleetAdminXp instanceof Decimal ? before.fleetAdminXp : new Decimal(0);
+  const afterFaXp = after?.fleetAdminXp instanceof Decimal ? after.fleetAdminXp : new Decimal(0);
+  const beforeFaLevel = typeof before?.fleetAdminLevel === "number" ? before.fleetAdminLevel : 1;
+  const afterFaLevel = typeof after?.fleetAdminLevel === "number" ? after.fleetAdminLevel : 1;
+  const fleetXpGained = xpEarnedAcrossLevels(
+    beforeFaXp,
+    beforeFaLevel,
+    afterFaXp,
+    afterFaLevel,
+    xpForNextFleetAdminLevel
+  );
+  const fleetLevelsGained = Math.max(0, afterFaLevel - beforeFaLevel);
 
   // --- Materials gained (per-item positive itemTotal delta) ---
   // Union the item keys of both inventories so an item that only EXISTS in `after`
@@ -170,26 +277,33 @@ export function summarizeOfflineProgress(
     if (delta.gt(0)) materialsGained.push({ itemId, qty: delta }); // skip unchanged / decreased
   }
 
-  // --- Captains leveled (matched by id, level rose) ---
-  // Index the BEFORE captains by id so each after-captain finds its prior level in
-  // O(1). A captain present on only one side (newly unlocked, or somehow removed) has
-  // no counterpart to diff, so it is skipped per the spec.
-  const beforeCaptainLevel = new Map<number, number>();
+  // --- Captains that earned XP (matched by id) ---
+  // Index the BEFORE captains by id so each after-captain finds its prior level + xp in O(1). A
+  // captain present on only one side (newly unlocked, or somehow removed) has no counterpart to
+  // diff, so it is skipped. For each matched captain, reconstruct the GROSS xp earned across any
+  // level-ups (captain.xp is leftover-toward-next-level, same reset semantics as fleetAdminXp) and
+  // keep only captains that actually earned xp (levelsGained may be 0). One compact row each, so
+  // the modal's internal scroll fits all captains.
+  const beforeCaptainProgress = new Map<number, { level: number; xp: Decimal }>();
   for (const captain of captainsOf(before)) {
-    beforeCaptainLevel.set(captain.id, captain.level);
+    beforeCaptainProgress.set(captain.id, {
+      level: captain.level,
+      xp: captain.xp instanceof Decimal ? captain.xp : new Decimal(0),
+    });
   }
-  const captainsLeveled: OfflineCaptainLevel[] = [];
+  const captainsProgressed: OfflineCaptainProgress[] = [];
   for (const captain of captainsOf(after)) {
-    const fromLevel = beforeCaptainLevel.get(captain.id);
-    if (fromLevel === undefined) continue; // no before-counterpart -> skip
-    if (captain.level > fromLevel) {
-      captainsLeveled.push({
-        id: captain.id,
-        name: captain.label,
-        fromLevel,
-        toLevel: captain.level,
-      });
-    }
+    const prev = beforeCaptainProgress.get(captain.id);
+    if (prev === undefined) continue; // no before-counterpart -> skip
+    const afterXp = captain.xp instanceof Decimal ? captain.xp : new Decimal(0);
+    const xpGained = xpEarnedAcrossLevels(prev.xp, prev.level, afterXp, captain.level, xpForNextLevel);
+    if (xpGained.lte(0)) continue; // only captains that earned xp
+    captainsProgressed.push({
+      id: captain.id,
+      name: captain.label,
+      xpGained,
+      levelsGained: Math.max(0, captain.level - prev.level),
+    });
   }
 
   // --- Ships newly in repair (damaged in after, not in before) ---
@@ -214,19 +328,23 @@ export function summarizeOfflineProgress(
   // the onMount open-decision) reads this single boolean rather than re-checking each
   // field.
   const hasContent =
-    missionsCompleted > 0 ||
+    missionsByType.length > 0 ||
     creditsEarned.gt(0) ||
+    fleetXpGained.gt(0) ||
+    fleetLevelsGained > 0 ||
+    captainsProgressed.length > 0 ||
     materialsGained.length > 0 ||
-    captainsLeveled.length > 0 ||
     shipsInRepair.length > 0;
 
   return {
     secondsAway,
     hasContent,
-    missionsCompleted,
+    missionsByType,
     creditsEarned,
+    fleetXpGained,
+    fleetLevelsGained,
+    captainsProgressed,
     materialsGained,
-    captainsLeveled,
     shipsInRepair,
   };
 }

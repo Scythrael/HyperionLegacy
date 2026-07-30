@@ -9028,13 +9028,22 @@
         <p class="offline-summary-lead">You were away for {formatDuration(sum.secondsAway, 1)}. Here is what your fleet got done.</p>
 
         <div class="offline-summary-scroll">
-          <!-- Headline stat rows. Each shows only when its value is meaningful. -->
-          {#if sum.missionsCompleted > 0}
-            <div class="offline-summary-row">
-              <span class="offline-summary-row-label">Missions completed</span>
-              <span class="offline-summary-row-value">{formatNumber(sum.missionsCompleted)}</span>
+          <!-- Missions completed, broken down by type (Combat / Gathering / Other). One row per
+               type that saw a completion; the pure diff already summed the per-mission tallies
+               into their type and emitted them in a fixed order. -->
+          {#if sum.missionsByType.length > 0}
+            <div class="offline-summary-section">
+              <div class="offline-summary-section-title">Missions completed</div>
+              {#each sum.missionsByType as row (row.type)}
+                <div class="offline-summary-row">
+                  <span class="offline-summary-row-label">{row.type}</span>
+                  <span class="offline-summary-row-value">{formatNumber(row.count)}</span>
+                </div>
+              {/each}
             </div>
           {/if}
+
+          <!-- Headline stat rows. Each shows only when its value is meaningful. -->
           {#if sum.creditsEarned.gt(0)}
             <div class="offline-summary-row">
               <span class="offline-summary-row-label">Credits earned</span>
@@ -9042,27 +9051,52 @@
             </div>
           {/if}
 
-          <!-- Captains that leveled, with the from->to range. -->
-          {#if sum.captainsLeveled.length > 0}
+          <!-- Fleet Admiral progression: gross XP earned + whole levels gained. Shown when
+               either is non-zero (a level cannot be gained without XP, but both are checked so
+               the section never renders empty). -->
+          {#if sum.fleetXpGained.gt(0) || sum.fleetLevelsGained > 0}
+            <div class="offline-summary-row">
+              <span class="offline-summary-row-label">Fleet Admiral experience</span>
+              <span class="offline-summary-row-value"
+                >+{formatNumber(sum.fleetXpGained)} xp{#if sum.fleetLevelsGained > 0}, +{formatNumber(sum.fleetLevelsGained)} {sum.fleetLevelsGained === 1 ? "level" : "levels"}{/if}</span
+              >
+            </div>
+          {/if}
+
+          <!-- Captains that earned XP, one COMPACT single-line row each (name left, xp + levels
+               right) so all captains fit inside the modal's internal scroll (.offline-summary-scroll).
+               levelsGained may be 0 (xp gained without a level-up), in which case only the xp shows. -->
+          {#if sum.captainsProgressed.length > 0}
             <div class="offline-summary-section">
-              <div class="offline-summary-section-title">Captains promoted</div>
-              {#each sum.captainsLeveled as cap (cap.id)}
+              <div class="offline-summary-section-title">Captains</div>
+              {#each sum.captainsProgressed as cap (cap.id)}
                 <div class="offline-summary-row">
                   <span class="offline-summary-row-label">{cap.name}</span>
-                  <span class="offline-summary-row-value">level {formatNumber(cap.fromLevel)} → {formatNumber(cap.toLevel)}</span>
+                  <span class="offline-summary-row-value"
+                    >+{formatNumber(cap.xpGained)} xp{#if cap.levelsGained > 0}, +{formatNumber(cap.levelsGained)} {cap.levelsGained === 1 ? "level" : "levels"}{/if}</span
+                  >
                 </div>
               {/each}
             </div>
           {/if}
 
-          <!-- Materials gained. Item display name via the ITEMS registry (the same
-               label + bracket convention the Warehouse uses); qty via formatNumber. -->
+          <!-- Materials gained. Item ICON via the SAME per-category glyph the Warehouse tiles use
+               (warehouseCategoryGlyph on the item's category), followed by the formatted qty. If an
+               item id is not in the ITEMS registry (unknown / legacy), fall back to its label so the
+               row still reads. -->
           {#if sum.materialsGained.length > 0}
             <div class="offline-summary-section">
               <div class="offline-summary-section-title">Materials banked</div>
               {#each sum.materialsGained as mat (mat.itemId)}
                 <div class="offline-summary-row">
-                  <span class="offline-summary-row-label">[{ITEMS[mat.itemId]?.label ?? mat.itemId}]</span>
+                  <span class="offline-summary-row-label">
+                    {#if ITEMS[mat.itemId]}
+                      <span class="offline-summary-item-icon" aria-hidden="true">{warehouseCategoryGlyph(ITEMS[mat.itemId].category)}</span>
+                      {ITEMS[mat.itemId].label}
+                    {:else}
+                      {mat.itemId}
+                    {/if}
+                  </span>
                   <span class="offline-summary-row-value">+{formatNumber(mat.qty)}</span>
                 </div>
               {/each}
@@ -9576,6 +9610,14 @@
     color: var(--color-text);
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+  /* Material row icon: the SAME per-category glyph the Warehouse tiles render
+     (warehouseCategoryGlyph), sat just before the item label so the summary reads like the
+     Warehouse. A hair of trailing space and line-height:1 keep it aligned with the label text. */
+  .offline-summary-item-icon {
+    font-size: 14px;
+    line-height: 1;
+    margin-right: 4px;
   }
   .offline-summary-row-value {
     color: var(--color-accent);
