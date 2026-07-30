@@ -56,15 +56,20 @@ export function saveCombatDamageColors(enabled: boolean): void {
 }
 
 // --- combatLogSpeed: log-stream cadence -------------------------------------
-// "fast" -> reveal one round per second (the design default cadence).
-// "slow" -> one round per five seconds, for reading the log at a relaxed pace.
-// The combat view maps these to milliseconds via combatView.ts logSpeedToMs (the
-// string values line up with its LogSpeed type on purpose). Default "fast".
+// "slow" -> reveal one round per five seconds, the READABLE default: a full battle now
+//           plays round by round (the counter fix), and 1s/round flashes past too fast
+//           to read (user feedback 2026-07-29), so the relaxed pace is the default.
+// "fast" -> one round per second, an opt-in skim / fast-forward for players who just
+//           want the outcome quickly.
+// The combat view maps these to milliseconds via combatView.ts logSpeedToMs (the string
+// values line up with its LogSpeed type on purpose). Default "slow".
 export type CombatLogSpeed = "fast" | "slow";
 const COMBAT_LOG_SPEED_KEY = "fleet_admiral_combat_log_speed";
 
 export function loadCombatLogSpeed(): CombatLogSpeed {
-  return localStorage.getItem(COMBAT_LOG_SPEED_KEY) === "slow" ? "slow" : "fast";
+  // Default "slow" (readable). Only the explicit "fast" token selects the skim pace, so an
+  // absent / corrupt value falls back to the readable default.
+  return localStorage.getItem(COMBAT_LOG_SPEED_KEY) === "fast" ? "fast" : "slow";
 }
 
 export function saveCombatLogSpeed(speed: CombatLogSpeed): void {

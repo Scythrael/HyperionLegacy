@@ -84,18 +84,18 @@ describe("combatLogPreference", () => {
 
   // --- combatLogSpeed -------------------------------------------------------
   describe("combatLogSpeed", () => {
-    it("defaults to 'fast' when unset", () => {
-      expect(loadCombatLogSpeed()).toBe("fast");
-    });
-    it("persists and reloads 'slow', then 'fast'", () => {
-      saveCombatLogSpeed("slow");
+    it("defaults to 'slow' (readable pace) when unset", () => {
       expect(loadCombatLogSpeed()).toBe("slow");
+    });
+    it("persists and reloads 'fast', then 'slow'", () => {
       saveCombatLogSpeed("fast");
       expect(loadCombatLogSpeed()).toBe("fast");
+      saveCombatLogSpeed("slow");
+      expect(loadCombatLogSpeed()).toBe("slow");
     });
-    it("falls back to 'fast' on a corrupt value", () => {
+    it("falls back to 'slow' (the default) on a corrupt value", () => {
       localStorage.setItem("fleet_admiral_combat_log_speed", "turbo");
-      expect(loadCombatLogSpeed()).toBe("fast");
+      expect(loadCombatLogSpeed()).toBe("slow");
     });
   });
 
