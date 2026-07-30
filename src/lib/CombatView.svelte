@@ -54,8 +54,10 @@
     targetEnemyId,
     enemyWaveTally,
     simplifiedLogTokens,
+    visualBeatsForRound,
     type LogSpeed,
     type SimplifiedToken,
+    type VisualBeat,
   } from "./game/combat/combatView";
   // Combat-log DISPLAY preferences (Combat 0.13.0). localStorage-backed, loaded once
   // per open into plain `let` state below (the same idiom App.svelte uses for its
@@ -547,8 +549,16 @@
   }
 
   // --- Mode toggle ------------------------------------------------------------
-  // Log-Guided is the built default; Visual is the Phase-12c stub (placeholder).
+  // Log-Guided is the built default; Visual (Phase 12c) plays animated damage POPS
+  // over the shared arena ships instead of the scrolling text log (see the FX driver
+  // + overlay below). Both modes read the SAME streamed replay; Visual is display-only.
   let mode: "log" | "visual" = "log";
+
+  // The most-recently-revealed round's log lines, for the calm "recent events" caption
+  // under the Visual arena (fills the space the text log occupies in Log-Guided, so the
+  // locked dialog height does not bounce between modes). Pure read of the already-derived
+  // shownRounds; no side effect.
+  $: latestVisualRound = shownRounds.length > 0 ? shownRounds[shownRounds.length - 1] : null;
 
   // --- Auto-scroll the log to the newest revealed round -----------------------
   // afterUpdate runs AFTER the DOM reflects each update, so pinning the log to the
@@ -568,13 +578,285 @@
   afterUpdate(() => {
     if (mode === "log" && combatAutoScroll && logBody) logBody.scrollTop = logBody.scrollHeight;
   });
+
+  // ==========================================================================
+  // VISUAL MODE FX DRIVER (Combat 0.13.0, Phase 12c). Animated damage-number pops +
+  // family-tinted tracers over the arena ships, driven off the SAME streamed replay
+  // the log uses. Display-only: it reads state and writes DOM, never the sim.
+  //
+  // ⚠️ FREEZE-SAFETY (a reactive-tick loop hard-froze this component once). ALL the
+  // pop/tracer DOM work is driven IMPERATIVELY from the afterUpdate lifecycle hook
+  // below, exactly like the auto-scroll hook above. There is NO reactive `$:` that
+  // writes the DOM, measures an element, or schedules a beat, and NOTHING here calls
+  // tick(). The driver's bookkeeping (lastVisualizedRound / lastVisualKey / visualActive
+  // + the timer/handle/dimmed arrays) is plain state used ONLY inside this hook and its
+  // helper functions, never referenced by the template or a `$:`. Because Svelte only
+  // makes a variable reactive when the template or a reactive statement reads it, these
+  // assignments do NOT invalidate the component, so the hook cannot re-enter the flush
+  // loop that a reactive tick() once drove into an infinite synchronous freeze.
+  //
+  // WHY POPS ARE NEUTRAL WITH RED EXCEPTIONS. The approved design reserves color for the
+  // exceptional: a normal hit pops in the neutral text color, and ONLY a crit or a kill
+  // ("destroyed") renders red (a crit also slightly larger). Damage TYPE (shield vs hull)
+  // is deliberately NOT color-coded here (the Simplified log already conveys it); pop
+  // color means "something notable happened", not "which pool was hit".
+  // ==========================================================================
+  // Tracer tint per weapon family (design P12c). particle green, kinetic grey, ew (and
+  // any family not listed, the "thermal/other" bucket) warm orange. Mirrors the swatch
+  // colors in the Visual legend markup below.
+  const TRACER_TINT: Record<string, string> = {
+    particle: "#1D9E75",
+    kinetic: "#888780",
+    ew: "#D85A30",
+  };
+  const TRACER_TINT_DEFAULT = "#D85A30"; // drones + any unmapped/absent family
+  function tracerColor(beat: VisualBeat): string {
+    if (beat.family !== undefined && TRACER_TINT[beat.family] !== undefined) {
+      return TRACER_TINT[beat.family];
+    }
+    return TRACER_TINT_DEFAULT;
+  }
+
+  // Beat timing (ms). Beats within a round are STAGGERED so a busy round reads clearly,
+  // while staying well inside the 1s Fast round cadence. The tracer travels first, then
+  // the pop lands and floats up + fades.
+  const BEAT_STAGGER_MS = 180; // gap between successive beats in one round
+  const TRACER_MS = 220; // tracer travel time (matches the CSS transition)
+  const POP_MS = 850; // pop float + fade lifetime (matches the CSS transition)
+  const POP_STATIC_MS = 700; // reduced-motion pop lifetime (appears, then clears)
+
+  // Bound element handles (bind:this in the markup). dialogEl is the positioning frame
+  // (a pop/tracer position = target rect minus dialog rect); fxLayer is the absolutely
+  // positioned overlay the pops/tracers are appended into.
+  let dialogEl: HTMLDivElement | null = null;
+  let fxLayer: HTMLDivElement | null = null;
+
+  // Freeze-safe bookkeeping (plain, NON-reactive: read/written only here). lastVisualizedRound
+  // is the highest round already played; lastVisualKey is the watched battle those pops belong
+  // to; visualActive tracks whether the last hook run was in visual mode (so we can detect
+  // switching INTO visual and re-sync instead of retro-playing the backlog).
+  let lastVisualizedRound = -1;
+  let lastVisualKey: string | null | undefined = undefined;
+  let visualActive = false;
+  // Every pending setTimeout, rAF handle, and imperatively-dimmed ship card, so the leak
+  // hunt stays clean: all are torn down on leaving visual mode and on destroy.
+  let popTimers: ReturnType<typeof setTimeout>[] = [];
+  let rafHandles: number[] = [];
+  let dimmedEls: HTMLElement[] = [];
+
+  // prefers-reduced-motion: skip the moving tracer + the float animation (the pop just
+  // appears briefly then clears), so the presentation stays accessible.
+  function prefersReducedMotion(): boolean {
+    return (
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+  }
+
+  // Find the VISIBLE element for a combatant id. The desktop arena and the mobile roster
+  // both carry data-cid anchors but only ONE layout is shown (the other is display:none),
+  // so we pick the anchor whose offsetParent is non-null (the laid-out one). Compares the
+  // attribute value directly (no CSS selector) so an id with odd characters cannot break
+  // the query. Returns null when nothing visible matches (the caller then SKIPS that beat).
+  function visibleElementFor(cid: string): HTMLElement | null {
+    if (dialogEl === null) return null;
+    const nodes = dialogEl.querySelectorAll<HTMLElement>("[data-cid]");
+    for (const node of nodes) {
+      if (node.getAttribute("data-cid") === cid && node.offsetParent !== null) return node;
+    }
+    return null;
+  }
+
+  // The top-center anchor point of an element, in fxLayer coordinates: the element's
+  // client rect minus the FX layer's client rect (the pops/tracers are children of the FX
+  // layer, so its box is their coordinate origin). Used for both the pop position and the
+  // tracer endpoints, so a pop overlays the right ship in EITHER layout.
+  function anchorPoint(el: HTMLElement, frameRect: DOMRect): { x: number; y: number } {
+    const r = el.getBoundingClientRect();
+    return {
+      x: r.left - frameRect.left + r.width / 2,
+      // A little below the card top so the pop sits over the ship, not its label.
+      y: r.top - frameRect.top + Math.min(r.height * 0.35, 54),
+    };
+  }
+
+  // Create one damage pop at (x, y). Neutral by default; red for a crit or a kill (color
+  // reserved for the exceptional). Under reduced motion it appears then clears with no
+  // float; otherwise it floats up + fades via the CSS transition, triggered on the next
+  // frame so the transition actually runs from the base state.
+  function spawnPop(beat: VisualBeat, x: number, y: number, reduced: boolean): void {
+    if (fxLayer === null) return;
+    const el = document.createElement("div");
+    el.className = "cv-pop";
+    if (beat.kind === "destroyed") {
+      el.classList.add("kill");
+      el.textContent = "destroyed";
+    } else if (beat.kind === "evade") {
+      el.classList.add("evade");
+      el.textContent = "evade";
+    } else {
+      const amount = beat.amount ?? 0;
+      if (beat.crit) {
+        el.classList.add("crit");
+        el.textContent = `crit -${amount}`;
+      } else {
+        el.textContent = `-${amount}`;
+      }
+    }
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    fxLayer.appendChild(el);
+
+    if (reduced) {
+      // No float: show the static pop, then remove it.
+      popTimers.push(setTimeout(() => el.remove(), POP_STATIC_MS));
+      return;
+    }
+    // Trigger the rise+fade on the next frame (so the transition runs), then remove.
+    rafHandles.push(
+      requestAnimationFrame(() => {
+        el.classList.add("rise");
+      }),
+    );
+    popTimers.push(setTimeout(() => el.remove(), POP_MS));
+  }
+
+  // Create one family-tinted tracer dot that travels from (x0, y0) to (x1, y1). The CSS
+  // holds the transition; setting the destination on the next frame runs the travel.
+  function spawnTracer(x0: number, y0: number, x1: number, y1: number, color: string): void {
+    if (fxLayer === null) return;
+    const dot = document.createElement("div");
+    dot.className = "cv-tracer";
+    dot.style.background = color;
+    dot.style.color = color; // drives the glow (box-shadow uses currentColor)
+    dot.style.left = `${x0}px`;
+    dot.style.top = `${y0}px`;
+    fxLayer.appendChild(dot);
+    rafHandles.push(
+      requestAnimationFrame(() => {
+        dot.style.left = `${x1}px`;
+        dot.style.top = `${y1}px`;
+      }),
+    );
+    popTimers.push(setTimeout(() => dot.remove(), TRACER_MS + 60));
+  }
+
+  // Dim a destroyed ship's card (imperative class on the Svelte-managed element). Svelte's
+  // class directives only touch the specific classes they manage, so this extra class
+  // survives re-renders; it is cleared on every FX teardown so a reused DOM node never
+  // stays dimmed into a later battle.
+  function dimShip(el: HTMLElement): void {
+    if (el.classList.contains("cv-dimmed")) return;
+    el.classList.add("cv-dimmed");
+    dimmedEls.push(el);
+  }
+
+  // Play ONE beat: the tracer (only when the beat has an actor AND motion is allowed),
+  // then the pop over the target. A beat whose target is not currently visible is SKIPPED
+  // (never throws). A destroyed beat also dims the target card.
+  function playBeat(beat: VisualBeat, reduced: boolean): void {
+    if (dialogEl === null || fxLayer === null) return;
+    const targetEl = visibleElementFor(beat.toId);
+    if (targetEl === null) return; // not laid out in the current layout: skip quietly
+    const frameRect = fxLayer.getBoundingClientRect();
+    const to = anchorPoint(targetEl, frameRect);
+
+    // Tracer first, if there is an attacker and motion is allowed. The tracer leads the
+    // pop by its travel time so the number lands as the shot arrives.
+    let popDelay = 0;
+    if (!reduced && beat.fromId !== undefined) {
+      const fromEl = visibleElementFor(beat.fromId);
+      if (fromEl !== null) {
+        const from = anchorPoint(fromEl, frameRect);
+        spawnTracer(from.x, from.y, to.x, to.y, tracerColor(beat));
+        popDelay = TRACER_MS;
+      }
+    }
+
+    if (beat.kind === "destroyed") dimShip(targetEl);
+
+    if (popDelay > 0) {
+      popTimers.push(setTimeout(() => spawnPop(beat, to.x, to.y, reduced), popDelay));
+    } else {
+      spawnPop(beat, to.x, to.y, reduced);
+    }
+  }
+
+  // Play every beat of a round, staggered so a busy round reads clearly. Reads the pure
+  // visualBeatsForRound mapping off the frozen wave's log (the SAME events the text log
+  // reads), so the pops and the log can never disagree about what happened.
+  function playRound(round: number): void {
+    if (wave === null) return;
+    const beats = visualBeatsForRound(wave.log, round);
+    if (beats.length === 0) return;
+    const reduced = prefersReducedMotion();
+    let i = 0;
+    for (const beat of beats) {
+      const delay = i * BEAT_STAGGER_MS;
+      if (delay === 0) {
+        playBeat(beat, reduced);
+      } else {
+        popTimers.push(setTimeout(() => playBeat(beat, reduced), delay));
+      }
+      i += 1;
+    }
+  }
+
+  // Tear down all pending FX: cancel every scheduled beat/removal timer + rAF, empty the
+  // overlay, and un-dim any dimmed cards. Called on leaving visual mode, on a battle change,
+  // and on destroy, so no timer or DOM node leaks.
+  function clearVisualFx(): void {
+    for (const t of popTimers) clearTimeout(t);
+    popTimers = [];
+    for (const h of rafHandles) cancelAnimationFrame(h);
+    rafHandles = [];
+    if (fxLayer !== null) fxLayer.replaceChildren();
+    for (const el of dimmedEls) el.classList.remove("cv-dimmed");
+    dimmedEls = [];
+  }
+
+  // THE DRIVER. A sibling of the auto-scroll hook: a lifecycle afterUpdate (never a `$:`),
+  // so it reads settled DOM and cannot re-enter reactivity. On each run:
+  //   - Not in visual mode: if we just LEFT visual, tear down pending FX once, then idle.
+  //   - Entering visual (first time or re-entered) OR the watched battle changed: RE-SYNC
+  //     the cursor to the CURRENT revealedRound (and clear stale FX) so entering mid-stream
+  //     pops only NEWLY revealed rounds, never the whole backlog at once.
+  //   - Otherwise: play each round newly revealed since last time (lastVisualizedRound+1 ..
+  //     revealedRound), then advance the cursor.
+  afterUpdate(() => {
+    if (mode !== "visual") {
+      if (visualActive) {
+        visualActive = false;
+        clearVisualFx();
+      }
+      return;
+    }
+    if (!visualActive || watchedKey !== lastVisualKey) {
+      // Just entered visual, or the frozen battle rolled over: sync WITHOUT replaying the
+      // already-streamed rounds (start popping only from the next reveal onward).
+      visualActive = true;
+      lastVisualKey = watchedKey;
+      lastVisualizedRound = revealedRound;
+      clearVisualFx();
+      return;
+    }
+    if (revealedRound > lastVisualizedRound) {
+      for (let r = lastVisualizedRound + 1; r <= revealedRound; r++) playRound(r);
+      lastVisualizedRound = revealedRound;
+    }
+  });
+
+  // Tear down any pending FX timers/nodes on unmount (the streaming timer is stopped by the
+  // existing onDestroy(stopTimer) above; this is the FX-layer counterpart).
+  onDestroy(clearVisualFx);
 </script>
 
 <!-- The bounded, internally-scrolling dialog surface (mirrors ShipSystemsPanel's
      .ss-dialog: an opaque surface so it stays legible on browsers without
      backdrop blur, and it owns its own scroll rather than growing the page). The
      host wraps this in the shared .modal-backdrop. -->
-<div class="cv-dialog" role="document">
+<div class="cv-dialog" role="document" bind:this={dialogEl}>
   <!-- Close: a window-style X pinned to the top-right CORNER of the panel (absolute,
        positioned against .cv-dialog), shown in BOTH the available and unavailable
        states. Sits above the top bar via z-index; the top bar reserves right padding
@@ -611,7 +893,10 @@
     <!-- ARENA: player card | center (range + phase) | enemy card. -->
     <div class="arena">
       <!-- PLAYER -->
-      <div class="ship">
+      <!-- data-cid anchors this card to the player combatant id so a Visual-mode beat's
+           fromId/toId can locate it (see visibleElementFor). The mobile player row carries
+           the SAME id; only the laid-out one is targeted. -->
+      <div class="ship" data-cid={wave.playerStart.id}>
         <div class="ship-head">
           <div class="portrait">{"\u{1F6E1}️"}</div>
           <div>
@@ -675,7 +960,8 @@
       </div>
 
       <!-- ENEMY -->
-      <div class="ship enemy">
+      <!-- data-cid = the featured enemy id (the Visual-mode pop/tracer anchor). -->
+      <div class="ship enemy" data-cid={enemyFeatured?.id}>
         <div class="ship-head">
           <div class="portrait">{"☠️"}</div>
           <div>
@@ -730,7 +1016,7 @@
             {#each extraEnemies as foe, i (foe.id)}
               {@const foeSnap = snap ? snap.combatants[foe.id] ?? null : null}
               {@const foeHull = foeSnap?.hull ?? foe.hull}
-              <div class="extra-row">
+              <div class="extra-row" data-cid={foe.id}>
                 <span class="extra-name">{wave && wave.enemyLabels[i + 1] ? wave.enemyLabels[i + 1] : "Hostile"}</span>
                 <div class="bar ehull mini"><span style="width:{pct(foeHull, foe.hullMax)}%"></span></div>
               </div>
@@ -774,6 +1060,7 @@
         <button
           type="button"
           class="cvm-row"
+          data-cid={playerRowId}
           class:expanded={expandedId === playerRowId}
           on:click={() => toggleExpanded(playerRowId)}
           aria-expanded={expandedId === playerRowId}
@@ -845,6 +1132,7 @@
           <button
             type="button"
             class="cvm-row foe"
+            data-cid={enemy.id}
             class:target={isTarget}
             class:destroyed
             on:click={() => toggleExpanded(enemy.id)}
@@ -910,6 +1198,13 @@
       </div>
     </div>
 
+    <!-- VISUAL-MODE FX OVERLAY. One absolutely-positioned, pointer-events:none layer over
+         the whole dialog. It is ALWAYS in the DOM (empty in Log-Guided, so invisible) and
+         the imperative FX driver appends pops/tracers into it, positioned via the ships'
+         data-cid anchors. Kept outside the mode `{#if}` so it never remounts on a toggle
+         and the driver can tear it down on leaving Visual. -->
+    <div class="cv-fx-layer" bind:this={fxLayer} aria-hidden="true"></div>
+
     <!-- LOG / VISUAL body. -->
     {#if mode === "log"}
       <div class="log">
@@ -934,14 +1229,38 @@
         </div>
       </div>
     {:else}
-      <!-- VISUAL MODE STUB (Phase 12c). The damage-number pops over the ships are
-           the NEXT unit; this placeholder keeps the toggle honest without faking
-           that presentation. Do NOT build the damage-pop visual here. -->
-      <div class="log">
-        <div class="log-head"><span class="t">Combat view &middot; Visual</span></div>
-        <div class="cv-visual-stub">
-          Visual mode (family-styled damage pops over the ships) arrives in a later
-          update. Switch to Log-Guided to watch the round-by-round combat log.
+      <!-- VISUAL MODE BODY (Phase 12c). The arena above is shared, so the animated pops
+           play over its ships from the FX overlay; this body is the calm footer. It reuses
+           the .log frame (flex:1) so it occupies the SAME space the text log does and the
+           locked dialog height never bounces between modes. Top: the most recent round's
+           events as a quiet caption (no damage colors, so the space reads calm). Bottom: a
+           compact legend + the current phase / round. -->
+      <div class="log cv-visual">
+        <div class="log-head">
+          <span class="t">Combat view &middot; Visual</span>
+          <span class="cv-vround">{phase ? PHASE_LABEL[phase] : "..."} &middot; Round {Math.min(revealedRound, maxRound) + 1}</span>
+        </div>
+        <div class="cv-vcaption">
+          {#if latestVisualRound}
+            {#each latestVisualRound.lines as line, li (li)}
+              <div class="cv-vcap-ln {line.cls}">{#each line.tokens as tk}{tk.text}{/each}</div>
+            {/each}
+          {:else}
+            <div class="cv-vcap-ln dim">Damage pops play over the ships as the battle streams.</div>
+          {/if}
+        </div>
+        <!-- LEGEND: -N normal, crit / kill in red, tracer tint = weapon family. The swatch
+             colors mirror TRACER_TINT in the script (particle green / kinetic grey / ew +
+             other orange). -->
+        <div class="cv-vlegend">
+          <span class="cv-vl-item"><b class="cv-vl-num">-N</b> damage</span>
+          <span class="cv-vl-item"><b class="cv-vl-num crit">crit</b> / <b class="cv-vl-num crit">kill</b> in red</span>
+          <span class="cv-vl-item">
+            <span class="cv-vl-swatch" style="background:#1D9E75"></span>
+            <span class="cv-vl-swatch" style="background:#888780"></span>
+            <span class="cv-vl-swatch" style="background:#D85A30"></span>
+            tracer tint = weapon family
+          </span>
         </div>
       </div>
     {/if}
@@ -1070,8 +1389,7 @@
     border-color: var(--color-border-strong);
   }
 
-  .cv-unavailable,
-  .cv-visual-stub {
+  .cv-unavailable {
     padding: 28px 20px;
     color: var(--color-text-secondary);
     font-size: 13px;
@@ -1719,5 +2037,141 @@
   .cvm-none {
     font-size: 9px;
     color: var(--color-text-dim);
+  }
+
+  /* ==========================================================================
+     VISUAL MODE FX (Combat 0.13.0, Phase 12c). The pops + tracers are created
+     IMPERATIVELY in JS (document.createElement) by the afterUpdate driver, so they
+     are NOT Svelte-managed and Svelte's scoped-style hashing does not reach them.
+     Their rules are therefore written as `.cv-fx-layer :global(.cv-pop)` etc: the
+     scoped `.cv-fx-layer` parent (a real template element) carries the component hash
+     and `:global(...)` matches the JS-created child inside it. Pops are NEUTRAL by
+     default; only a crit or a kill is red (color reserved for the exceptional), and a
+     crit is slightly larger. prefers-reduced-motion is honored in the driver (it skips
+     the moving tracer + the float), so no motion-only styling is required here.
+     ========================================================================== */
+  .cv-fx-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none; /* never intercepts clicks (close button / toggles stay live) */
+    overflow: hidden;
+    z-index: 4; /* above the arena, below the .cv-close (z-index 5) */
+  }
+  /* Base pop: a mono number centered on its anchor point, floating up + fading via the
+     transition. The `.rise` class (added on the next frame) is what actually animates it. */
+  .cv-fx-layer :global(.cv-pop) {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-text-primary); /* NEUTRAL default (the common case) */
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+    white-space: nowrap;
+    opacity: 1;
+    will-change: transform, opacity;
+    transition: transform 0.8s ease-out, opacity 0.8s ease-out;
+  }
+  .cv-fx-layer :global(.cv-pop.rise) {
+    transform: translate(-50%, -150%);
+    opacity: 0;
+  }
+  /* CRIT: red + larger (the two exceptional cues, together). */
+  .cv-fx-layer :global(.cv-pop.crit) {
+    font-size: 18px;
+    color: #e24b4a;
+  }
+  /* KILL ("destroyed"): red, with a hair of letter-spacing so the word reads. */
+  .cv-fx-layer :global(.cv-pop.kill) {
+    color: #e24b4a;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+  }
+  /* EVADE: a subtle, quiet neutral note (kept understated per the design). */
+  .cv-fx-layer :global(.cv-pop.evade) {
+    color: var(--color-text-dim);
+    font-weight: 600;
+    font-size: 11px;
+    font-style: italic;
+  }
+  /* Tracer: a small dot that travels attacker -> target. The family tint is set inline
+     (JS) as both background + color, so the glow (currentColor) matches the tint. */
+  .cv-fx-layer :global(.cv-tracer) {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 6px currentColor;
+    transition: left 0.22s linear, top 0.22s linear;
+  }
+  /* A destroyed ship's card is dimmed imperatively (class added in JS, cleared on FX
+     teardown). Scoped under the hashed .cv-dialog so it stays local to this component. */
+  .cv-dialog :global(.cv-dimmed) {
+    opacity: 0.45;
+    transition: opacity 0.3s ease;
+  }
+
+  /* VISUAL-MODE FOOTER. Reuses the .log frame (flex:1) so it fills the same space the
+     text log does (stable dialog height across modes). A quiet recent-events caption on
+     top, a compact legend pinned at the bottom. */
+  .cv-vround {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--color-warning);
+  }
+  .cv-vcaption {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: var(--color-text-dim);
+    padding-right: 8px;
+  }
+  /* The caption keeps the log's per-line accents but muted (this is a calm recap, not the
+     primary read), so a crit/kill line is still recognizable at a glance. */
+  .cv-vcap-ln.crit {
+    color: var(--color-text-secondary);
+    font-weight: 600;
+  }
+  .cv-vcap-ln.destroy {
+    color: var(--color-success);
+  }
+  .cv-vcap-ln.dot {
+    color: #fca5a5;
+  }
+  .cv-vlegend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 16px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-border);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--color-text-dim);
+  }
+  .cv-vl-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .cv-vl-num {
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+    font-weight: 700;
+  }
+  .cv-vl-num.crit {
+    color: #e24b4a;
+  }
+  .cv-vl-swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
   }
 </style>

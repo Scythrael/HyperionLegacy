@@ -14,7 +14,7 @@
 // (design S17 / patrolReplay.ts's HARD CONTRACT) all the way down to the pixels.
 // ============================================================================
 
-import type { CombatEvent, Combatant } from "./types";
+import type { CombatEvent, Combatant, WeaponFamily } from "./types";
 import { BAND_LONG } from "./positioning";
 import type { SquadronStatusSummary } from "./drones";
 import { STATUS_EFFECT_DEFS } from "./statusEffects";
@@ -487,4 +487,126 @@ export function simplifiedLogLine(
   return simplifiedLogTokens(event, nameFor)
     .map((t) => t.text)
     .join("");
+}
+
+// ===========================================================================
+// VISUAL-MODE BEATS (Combat 0.13.0, Phase 12c). The combat view's Visual mode
+// replaces the scrolling text log with animated damage-number POPS + tracers over
+// the arena ships. The DOM/animation layer lives in CombatView.svelte, but the pure
+// "which events in this round become which pops" decision is factored OUT here, so
+// it is unit-tested WITHOUT a DOM exactly like the Simplified/flavor renderers above.
+//
+// PURITY / DISPLAY-ONLY: visualBeatsForRound is a pure map from (events, round) to a
+// VisualBeat[] list. It reads the SAME `wave.log` replay events the log renderer reads,
+// draws no RNG, and never mutates: it changes nothing about the sim or determinism.
+//
+// WHY THESE FIVE KINDS (and nothing else). The approved visual design pops a number
+// over the TARGET for each hit / drone volley / DoT tick, a red "destroyed" over a
+// killed ship, and an optional quiet "evade". Every OTHER event type (roundState,
+// effect applied/expired, the non-damage drone actions, outcome, battleEnd) has no
+// pop, so it maps to NO beat. Keeping that in one switch here means a new event type
+// cannot silently start (or stop) popping without a test change.
+// ===========================================================================
+
+// One animated beat the Visual layer plays: a pop (always) plus, when the beat has an
+// actor, a preceding tracer from attacker to target.
+export type VisualBeatKind = "hit" | "drone" | "dot" | "destroyed" | "evade";
+export interface VisualBeat {
+  kind: VisualBeatKind;
+  // The TARGET combatant id: the ship the pop floats over. ALWAYS present. An event with
+  // no resolvable target yields no beat (see the targetId guard below), so the DOM layer
+  // can anchor on a real id and never has to handle an empty toId.
+  toId: string;
+  // The ATTACKER combatant id, when the beat has one (hit / drone / evade). ABSENT for a
+  // DoT tick (the burn outlives the shot, so there is no live shooter) and for a destroyed
+  // event (a state change with no actor): the DOM layer draws a tracer ONLY when fromId is
+  // present, so those two kinds correctly pop with no tracer.
+  fromId?: string;
+  // The firing weapon family, for the tracer tint (hit beats carry it; drones/dot/etc leave
+  // it undefined and the render layer picks its default tint). Optional because non-weapon
+  // beats have no family.
+  family?: WeaponFamily;
+  // Total damage for the pop text `-N` (hit / drone / dot). Absent for destroyed + evade,
+  // which have no number.
+  amount?: number;
+  // True when any projectile in a hit critically hit: the render layer pops it larger + red
+  // (`crit -N`). Always false for drones (per the design: a volley is one aggregate pop, not
+  // a crit) and unused by the number-less kinds.
+  crit?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// visualBeatsForRound: the pop-worthy events of ONE round, in order, as beats.
+//
+// Filters `events` to this `round` (the log is already time-ordered, so the surviving
+// beats stay in fire order) and maps each pop-worthy event to a VisualBeat. Reuses
+// damageSplit (above) for the shield+hull total so a drone reflect/counter that only
+// carries a `damage` field still yields a number, identical to the Simplified path.
+// PURE: same events + round always give the same beats.
+// ---------------------------------------------------------------------------
+export function visualBeatsForRound(events: CombatEvent[], round: number): VisualBeat[] {
+  const beats: VisualBeat[] = [];
+  for (const event of events) {
+    if (event.round !== round) continue;
+    // A pop must anchor over a TARGET ship. An event that somehow carries no targetId
+    // cannot be placed, so it yields no beat (this keeps VisualBeat.toId a real id).
+    switch (event.type) {
+      case "hit":
+      case "ambush": {
+        if (event.targetId === undefined) break;
+        // amount = shield + hull damage this shot dealt (damageSplit attributes a bare
+        // `damage` total to hull when the split fields are absent), matching the design's
+        // "total damage as -N".
+        const { shield, hull } = damageSplit(event);
+        beats.push({
+          kind: "hit",
+          fromId: event.actorId,
+          toId: event.targetId,
+          family: event.family,
+          amount: shield + hull,
+          crit: !!event.crit,
+        });
+        break;
+      }
+      case "droneVolley":
+      case "droneReflect":
+      case "droneCounter": {
+        if (event.targetId === undefined) break;
+        // A drone volley is ONE aggregate pop (never a crit, per the design), tinted by the
+        // render layer's default (drone events carry no weapon family).
+        const { shield, hull } = damageSplit(event);
+        beats.push({
+          kind: "drone",
+          fromId: event.actorId,
+          toId: event.targetId,
+          amount: shield + hull,
+          crit: false,
+        });
+        break;
+      }
+      case "dot": {
+        if (event.targetId === undefined) break;
+        // A DoT tick pops over the target with NO tracer (no actor); its damage is the raw
+        // `damage` total (the burn does not split shield/hull).
+        beats.push({ kind: "dot", toId: event.targetId, amount: event.damage ?? 0 });
+        break;
+      }
+      case "destroyed": {
+        if (event.targetId === undefined) break;
+        beats.push({ kind: "destroyed", toId: event.targetId });
+        break;
+      }
+      case "evade": {
+        if (event.targetId === undefined) break;
+        beats.push({ kind: "evade", fromId: event.actorId, toId: event.targetId });
+        break;
+      }
+      default:
+        // roundState, effectApplied / effectExpired, droneIntercept / droneSupport /
+        // droneCleanse / droneReplenish, outcome, battleEnd, and any unknown type are not
+        // pop-worthy: they produce no beat.
+        break;
+    }
+  }
+  return beats;
 }

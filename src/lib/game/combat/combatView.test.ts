@@ -18,6 +18,7 @@ import {
   weaponDisplayName,
   simplifiedLogLine,
   simplifiedLogTokens,
+  visualBeatsForRound,
 } from "./combatView";
 import { BAND_LONG } from "./positioning";
 import type { CombatEvent, Combatant } from "./types";
@@ -390,5 +391,106 @@ describe("simplifiedLogTokens", () => {
     expect(simplifiedLogLine(ev({ type: "outcome", actorId: "P1" }), nf)).toBe(
       "Vale wins the battle.",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Visual-mode beats (Combat 0.13.0, Phase 12c). The pure map from a round's events
+// to the animated pops/tracers, tested without a DOM exactly like the log renderers.
+// ---------------------------------------------------------------------------
+describe("visualBeatsForRound", () => {
+  it("maps a crit hit to a hit beat carrying attacker, target, family, total, and crit", () => {
+    const events = [
+      ev({
+        round: 3,
+        type: "hit",
+        actorId: "P1",
+        targetId: "E1",
+        family: "particle",
+        damage: 12,
+        shieldDamage: 5,
+        hullDamage: 7,
+        crit: true,
+      }),
+    ];
+    expect(visualBeatsForRound(events, 3)).toEqual([
+      { kind: "hit", fromId: "P1", toId: "E1", family: "particle", amount: 12, crit: true },
+    ]);
+  });
+
+  it("sums the shield + hull split for the hit amount, and defaults crit to false", () => {
+    const events = [
+      ev({ round: 0, type: "hit", actorId: "P1", targetId: "E1", family: "kinetic", shieldDamage: 3, hullDamage: 4 }),
+    ];
+    const beats = visualBeatsForRound(events, 0);
+    expect(beats[0].amount).toBe(7);
+    expect(beats[0].crit).toBe(false);
+  });
+
+  it("maps a drone volley to ONE aggregate drone beat (never a crit, no family)", () => {
+    const events = [
+      ev({ round: 1, type: "droneVolley", actorId: "P1", targetId: "E1", damage: 9, shieldDamage: 2, hullDamage: 7 }),
+    ];
+    expect(visualBeatsForRound(events, 1)).toEqual([
+      { kind: "drone", fromId: "P1", toId: "E1", amount: 9, crit: false },
+    ]);
+  });
+
+  it("maps a drone reflect that carries only a damage total (no split) to that total", () => {
+    // damageSplit attributes a bare `damage` to hull, so the aggregate still reports a number.
+    const events = [ev({ round: 2, type: "droneReflect", actorId: "E1", targetId: "P1", damage: 6 })];
+    expect(visualBeatsForRound(events, 2)[0]).toEqual({
+      kind: "drone",
+      fromId: "E1",
+      toId: "P1",
+      amount: 6,
+      crit: false,
+    });
+  });
+
+  it("maps a DoT tick to a target-only beat with no tracer (no fromId)", () => {
+    const events = [ev({ round: 4, type: "dot", targetId: "E1", damage: 20 })];
+    const beats = visualBeatsForRound(events, 4);
+    expect(beats).toEqual([{ kind: "dot", toId: "E1", amount: 20 }]);
+    expect(beats[0].fromId).toBeUndefined();
+  });
+
+  it("maps a destroyed event to a target-only destroyed beat (no amount, no fromId)", () => {
+    const events = [ev({ round: 5, type: "destroyed", targetId: "E1" })];
+    expect(visualBeatsForRound(events, 5)).toEqual([{ kind: "destroyed", toId: "E1" }]);
+  });
+
+  it("maps an evade to a quiet evade beat carrying attacker + target", () => {
+    const events = [ev({ round: 6, type: "evade", actorId: "P1", targetId: "E1" })];
+    expect(visualBeatsForRound(events, 6)).toEqual([{ kind: "evade", fromId: "P1", toId: "E1" }]);
+  });
+
+  it("produces NO beat for non-pop event types (roundState / effectApplied / outcome / etc)", () => {
+    const events = [
+      ev({ round: 0, type: "roundState", actorId: "P1" }),
+      ev({ round: 0, type: "effectApplied", actorId: "P1", targetId: "E1", effectDefId: "plasmaFire" }),
+      ev({ round: 0, type: "effectExpired", targetId: "E1", effectDefId: "plasmaFire" }),
+      ev({ round: 0, type: "droneIntercept", actorId: "P1", targetId: "E1" }),
+      ev({ round: 0, type: "droneSupport", actorId: "P1" }),
+      ev({ round: 0, type: "outcome", actorId: "P1" }),
+      ev({ round: 0, type: "battleEnd" }),
+    ];
+    expect(visualBeatsForRound(events, 0)).toEqual([]);
+  });
+
+  it("filters to the requested round only, preserving fire order within it", () => {
+    const events = [
+      ev({ round: 0, type: "hit", actorId: "P1", targetId: "E1", damage: 1, hullDamage: 1 }),
+      ev({ round: 1, type: "hit", actorId: "P1", targetId: "E1", damage: 2, hullDamage: 2 }),
+      ev({ round: 1, type: "droneVolley", actorId: "P1", targetId: "E1", damage: 3, hullDamage: 3 }),
+      ev({ round: 2, type: "hit", actorId: "P1", targetId: "E1", damage: 4, hullDamage: 4 }),
+    ];
+    const beats = visualBeatsForRound(events, 1);
+    expect(beats.map((b) => `${b.kind}:${b.amount}`)).toEqual(["hit:2", "drone:3"]);
+  });
+
+  it("skips a pop-worthy event that has no target (nothing to anchor a pop over)", () => {
+    const events = [ev({ round: 0, type: "hit", actorId: "P1", damage: 5, hullDamage: 5 })];
+    expect(visualBeatsForRound(events, 0)).toEqual([]);
   });
 });
