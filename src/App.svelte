@@ -467,6 +467,7 @@
   // twin of the old scalar `inventory[item] ?? new Decimal(0)`. addItemQuality deposits
   // into a quality bucket (dev-grant handler uses quality 0). See src/lib/game/inventory.ts.
   import { itemTotal, addItemQuality, QUALITY_TIERS } from "./lib/game/inventory";
+  import { summarizeOfflineProgress, type OfflineSummary } from "./lib/game/offlineSummary";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { deriveStatistics } from "./lib/game/statistics";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
@@ -636,6 +637,19 @@
   // textarea; it stays put until the player explicitly resolves the modal.
   let saveCorruptModalOpen = false;
   let corruptRawSave = "";
+
+  // While-You-Were-Away offline summary (Combat 0.13.0, Phase 13, design Section 17).
+  // A PLAIN let (never a reactive `$:`), set imperatively ONCE in onMount on the
+  // successful-load + offline-advanced path. Holds the pure before/after diff of the
+  // pre-tick and post-tick GameState snapshots (see offlineSummary.ts); null keeps the
+  // modal closed. It is set exactly once at load and only cleared by the Continue
+  // button, so it never re-triggers a render off `state` (no side-effecting reactive).
+  let offlineSummary: OfflineSummary | null = null;
+  // The smallest absence (in real seconds) that is worth interrupting the player with a
+  // modal. Below this the welcome-back LOG line still fires, but a full modal for a few
+  // seconds/minutes of drift would be noise. One minute is the floor (design Section 17
+  // is results-only; this is a UX gate, not a sim value).
+  const OFFLINE_SUMMARY_MIN_SECONDS = 60;
 
   // Fleet Operations captain-selection popup (2026-07-07 Fleet Operations
   // Mission UI), null missionPopupKey means the popup is closed. Selecting a
@@ -1760,8 +1774,26 @@
     if (loadedSave) {
       createdAt = loadedSave.createdAt;
       const offlineSeconds = Math.max(0, (Date.now() - loadedSave.lastSavedAt) / 1000);
-      state = offlineSeconds > 5 ? tick(offlineSeconds, loadedSave.state) : loadedSave.state;
-      if (offlineSeconds > 5) pushLog(`Welcome back. Advanced ${formatNumber(offlineSeconds)}s offline.`);
+      // ⚠️ INVARIANT: the offline advance is this ONE deterministic call. offline == live
+      // hinges on it being byte-identical to the live loop, so we ONLY read state around it
+      // (the pre-tick snapshot is loadedSave.state, the post-tick snapshot is `state`) and
+      // never thread anything through tick() itself. The summary below is a pure diff of
+      // those two snapshots (summarizeOfflineProgress), rolling no RNG and adding no draws.
+      const beforeSnapshot = loadedSave.state;
+      state = offlineSeconds > 5 ? tick(offlineSeconds, beforeSnapshot) : beforeSnapshot;
+      if (offlineSeconds > 5) {
+        pushLog(`Welcome back. Advanced ${formatNumber(offlineSeconds)}s offline.`);
+        // Only surface the full "While you were away" modal for a MEANINGFUL absence, and
+        // only when the advance actually produced something to report (hasContent). A brief
+        // drift, or an absence in which nothing happened, leaves the log line alone with no
+        // modal. This runs on the SUCCESSFUL-load path only; the corrupt-recovery branch
+        // below (which suppresses save) is never reached from here, so the summary can never
+        // pop over a corrupt save or a fresh game.
+        if (offlineSeconds >= OFFLINE_SUMMARY_MIN_SECONDS) {
+          const summary = summarizeOfflineProgress(beforeSnapshot, state, offlineSeconds);
+          if (summary.hasContent) offlineSummary = summary;
+        }
+      }
     } else if (hasRawSave()) {
       // A save EXISTS but failed to load (corrupt). Do NOT let the game overwrite it:
       // suppress autosave and show the recovery modal so the player can grab the raw
@@ -2464,6 +2496,13 @@
   }
   function closeCombatView() {
     combatViewCaptainId = null;
+  }
+
+  // Dismiss the While-You-Were-Away modal (Combat 0.13.0, Phase 13). Display-only:
+  // it mutates no game state, so closing is side-effect free (the offline advance
+  // already ran + persisted at load). Clearing the field to null closes the modal.
+  function dismissOfflineSummary() {
+    offlineSummary = null;
   }
   // The current CaptainState for the open combat view, re-resolved from state each
   // render (null if the captain vanished, e.g. the patrol ended, which closes the
@@ -8969,6 +9008,88 @@
     </div>
   {/if}
 
+  {#if offlineSummary !== null}
+    <!-- While-You-Were-Away offline summary modal (Combat 0.13.0, Phase 13, design
+         Section 17). Reuses the SAME shared .modal-backdrop + focusTrap idiom every
+         other modal uses (Escape closes via dismissOfflineSummary, focus trapped +
+         restored, aria-modal dialog). DISPLAY ONLY: it reads the pure before/after
+         diff (offlineSummary, set once in onMount) and mutates no game state, so
+         opening/closing is side-effect free. Each section renders ONLY when its part
+         of the diff is non-empty, so the modal is never padded with empty rows.
+         Copy is sentence case throughout (no ALL CAPS, no exclamation marks). -->
+    {@const sum = offlineSummary}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="While you were away" use:focusTrap={dismissOfflineSummary}>
+      <Panel class="modal-dialog offline-summary-dialog">
+        <div class="panel-title">While you were away</div>
+
+        <!-- Time away: formatDuration renders a real-seconds span by passing a
+             seconds-per-tick of 1 (ticks * 1 = the seconds we already hold), reusing
+             the ONE span helper rather than hand-formatting. -->
+        <p class="offline-summary-lead">You were away for {formatDuration(sum.secondsAway, 1)}. Here is what your fleet got done.</p>
+
+        <div class="offline-summary-scroll">
+          <!-- Headline stat rows. Each shows only when its value is meaningful. -->
+          {#if sum.missionsCompleted > 0}
+            <div class="offline-summary-row">
+              <span class="offline-summary-row-label">Missions completed</span>
+              <span class="offline-summary-row-value">{formatNumber(sum.missionsCompleted)}</span>
+            </div>
+          {/if}
+          {#if sum.creditsEarned.gt(0)}
+            <div class="offline-summary-row">
+              <span class="offline-summary-row-label">Credits earned</span>
+              <span class="offline-summary-row-value">◈ {formatNumber(sum.creditsEarned)}</span>
+            </div>
+          {/if}
+
+          <!-- Captains that leveled, with the from->to range. -->
+          {#if sum.captainsLeveled.length > 0}
+            <div class="offline-summary-section">
+              <div class="offline-summary-section-title">Captains promoted</div>
+              {#each sum.captainsLeveled as cap (cap.id)}
+                <div class="offline-summary-row">
+                  <span class="offline-summary-row-label">{cap.name}</span>
+                  <span class="offline-summary-row-value">level {formatNumber(cap.fromLevel)} → {formatNumber(cap.toLevel)}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          <!-- Materials gained. Item display name via the ITEMS registry (the same
+               label + bracket convention the Warehouse uses); qty via formatNumber. -->
+          {#if sum.materialsGained.length > 0}
+            <div class="offline-summary-section">
+              <div class="offline-summary-section-title">Materials banked</div>
+              {#each sum.materialsGained as mat (mat.itemId)}
+                <div class="offline-summary-row">
+                  <span class="offline-summary-row-label">[{ITEMS[mat.itemId]?.label ?? mat.itemId}]</span>
+                  <span class="offline-summary-row-value">+{formatNumber(mat.qty)}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          <!-- Ships that limped home into the repair queue while away. -->
+          {#if sum.shipsInRepair.length > 0}
+            <div class="offline-summary-section">
+              <div class="offline-summary-section-title">Ships in repair</div>
+              {#each sum.shipsInRepair as ship (ship.id)}
+                <div class="offline-summary-row">
+                  <span class="offline-summary-row-label">{ship.name}</span>
+                  <span class="offline-summary-row-value offline-summary-repair">limped home, repairing</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <div class="modal-row">
+          <button class="dev-btn" on:click={dismissOfflineSummary}>Continue</button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
   <!-- Warehouse tile tooltip (Phase 2, Group C), a SINGLE fleet-positioned
        element (position:fixed, so it escapes the scroll container's clipping),
        the same one-tooltip pattern the currency chips use. Its content re-derives
@@ -9401,6 +9522,71 @@
     color: var(--color-accent);
     margin-bottom: 12px;
     font-weight: 600;
+  }
+  /* While-You-Were-Away offline summary modal (Combat 0.13.0, Phase 13). Layers on top
+     of the shared .modal-dialog surface. The dialog is width-capped and the section
+     list scrolls INTERNALLY (offline-summary-scroll) so a long materials haul stays
+     inside the modal instead of pushing the Continue button off-screen. All sizing is
+     relative + max-width bound so it reads on mobile (narrow) and desktop alike. */
+  :global(.offline-summary-dialog) {
+    width: min(440px, 92vw);
+    max-width: 92vw;
+  }
+  .offline-summary-lead {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--color-text);
+    margin: 0 0 12px;
+  }
+  /* Internal scroll: cap the section stack's height so the modal never grows past the
+     viewport; overflow scrolls the rows, not the page (scroll-containment invariant). */
+  .offline-summary-scroll {
+    max-height: min(52vh, 420px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+  .offline-summary-section {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 8px;
+  }
+  .offline-summary-section-title {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    margin-bottom: 2px;
+  }
+  /* One label/value row. Wraps gracefully on a narrow screen: the label can grow and
+     the value stays pinned right, so a long material name never clips the count. */
+  .offline-summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 13px;
+    padding: 3px 0;
+    border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  }
+  .offline-summary-row-label {
+    color: var(--color-text);
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .offline-summary-row-value {
+    color: var(--color-accent);
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .offline-summary-repair {
+    color: var(--color-warning, #d9a441);
+    white-space: normal;
+    text-align: right;
   }
   /* The .resource-grid / .resource-grid-3 / .resource-card / .resource-label /
      .resource-value(.locked) family was REMOVED in Phase 4, Task F5, its only
