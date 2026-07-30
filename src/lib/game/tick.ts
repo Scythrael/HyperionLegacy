@@ -1601,7 +1601,8 @@ export function tickCaptainPatrol(
   // Combat 0.13.0 (Phase 10): the loot table for THIS patrol, resolved once. patrolKey is
   // invariant across a relaunch (a relaunch reuses the same patrolKey), so this one table
   // covers every cycle this call advances, exactly like `def` above.
-  const lootTable = lootTableForPatrol(captain.mission.patrolKey);
+  const patrolKey = captain.mission.patrolKey; // captured once; also keys the completed-route tally below
+  const lootTable = lootTableForPatrol(patrolKey);
 
   // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
   // never touch the input), and playerDrones is DEEP-cloned so the between-wave
@@ -1634,6 +1635,10 @@ export function tickCaptainPatrol(
   let creditsAwarded = 0;        // summed credit bounty
   let fleetAdminXpAwarded = 0;   // summed Fleet Admiral XP (rides the existing FA track)
   let captainXpAwarded = 0;      // summed captain XP (folded onto the captain at the end of this call)
+  // Count of full routes WON this call (a patrol "mission completed"). Like extraction's
+  // cyclesCompleted: a single offline call can complete MANY routes (repeat-dispatch relaunch),
+  // so this counts each one and feeds the missionsCompleted lifetime tally below.
+  let routesCompleted = 0;
 
   let remaining = ticksElapsed;
   while (remaining > 0 && mission !== null) {
@@ -1816,6 +1821,9 @@ export function tickCaptainPatrol(
     // Reached only on a non-defeat tick (defeat broke out above). progress lands exactly
     // on routeLength (integer legs), so this fires precisely at route end.
     if (progress >= routeLength) {
+      // A full route flown + player alive = one patrol COMPLETED (won). Count it (win-only: a
+      // defeat broke out above and never reaches here), keyed into missionsCompleted below.
+      routesCompleted += 1;
       if (mission.repeatDispatch && !mission.recalled) {
         // RELAUNCH (Dispatch Repeatedly, not recalled). Spend one round trip's fuel from
         // the shared budget mirroring extraction's auto-repeat rule: tank covers -> spend;
@@ -1911,16 +1919,19 @@ export function tickCaptainPatrol(
   //   - captainXpAwarded: the GROSS captain XP granted this call (the pre-level-up sum, exactly
   //     the "gross before subtraction" semantics extraction records), NOT the leftover xp.
   //   - fleetAdminXpAwarded: the FA XP granted this call (mirrors extraction).
-  //   - missionsCompleted: DELIBERATELY EMPTY. That map is keyed by MissionKey (an extraction
-  //     mission) and counts completed extraction cycles; a patrol is a PatrolKey, not a
-  //     MissionKey, and "waves won / patrols run" is a distinct combat concept with no home in
-  //     this extraction-specific map. Forcing a PatrolKey in would be a semantic stretch, so it
-  //     stays empty until (if ever) a dedicated combat lifetime counter is designed.
+  //   - missionsCompleted: keyed by this run's PatrolKey, counting the full routes WON this call
+  //     (routesCompleted). The map is Record<string, Decimal> keyed by a mission/patrol id, and
+  //     a completed patrol IS a completed mission, so it belongs here (user decision 2026-07-30:
+  //     the offline recap + the Missions Completed stat should count combat patrols, grouped by
+  //     TYPE via the mission->type mapping in offlineSummary.ts). Sparse: absent when no route
+  //     completed this call. (Earlier left empty pending a dedicated combat counter; mixing
+  //     patrol + extraction keys here is safe, both are string ids, unlock-gating reads SPECIFIC
+  //     keys so it is unaffected, and statistics sums the whole map.)
   // WIN-ONLY holds by construction: every accumulator is 0/empty unless a wave was won (the
   // defeat branch breaks before any accrual), so a lost/defeated patrol contributes nothing.
   const lifetimeStatsDelta: MissionLifetimeStatsDelta = {
     itemsGathered: { ...lootMaterials },
-    missionsCompleted: {},
+    missionsCompleted: routesCompleted > 0 ? { [patrolKey]: new Decimal(routesCompleted) } : {},
     creditsEarned: new Decimal(creditsAwarded),
     captainXpAwarded: new Decimal(captainXpAwarded),
     fleetAdminXpAwarded: new Decimal(fleetAdminXpAwarded),

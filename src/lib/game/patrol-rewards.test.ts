@@ -86,8 +86,9 @@ function expectSameInventoryValue(a: GameState, b: GameState): void {
 // Compare the lifetimeStats fields patrol rewards feed BY VALUE. itemsGathered is a Decimal
 // map (compared per-key via .equals, same -0/0 tolerance as inventory); creditsEarned /
 // captainXpAwarded / fleetAdminXpAwarded are Decimal scalars (compared via .toString()).
-// missionsCompleted stays empty for patrols on BOTH paths, so it matches trivially, but it is
-// asserted anyway to catch a future accidental patrol write into that extraction-only map.
+// missionsCompleted now records a WON patrol under its PatrolKey (2026-07-30), so it must match
+// BY VALUE across the two paths (offline == live records the same completions); compared per-key
+// below, not just for presence.
 function expectSameLifetimeStats(a: GameState, b: GameState): void {
   const la = a.lifetimeStats;
   const lb = b.lifetimeStats;
@@ -100,7 +101,12 @@ function expectSameLifetimeStats(a: GameState, b: GameState): void {
   expect(la.creditsEarned.toString()).toBe(lb.creditsEarned.toString());
   expect(la.captainXpAwarded.toString()).toBe(lb.captainXpAwarded.toString());
   expect(la.fleetAdminXpAwarded.toString()).toBe(lb.fleetAdminXpAwarded.toString());
-  expect(Object.keys(la.missionsCompleted)).toEqual(Object.keys(lb.missionsCompleted));
+  const mKeys = new Set([...Object.keys(la.missionsCompleted), ...Object.keys(lb.missionsCompleted)]);
+  for (const k of mKeys) {
+    const va = la.missionsCompleted[k] ?? new Decimal(0);
+    const vb = lb.missionsCompleted[k] ?? new Decimal(0);
+    expect(va.equals(vb), `lifetime missionsCompleted for ${k}`).toBe(true);
+  }
 }
 
 function big(state: GameState, n: number): GameState {
@@ -229,8 +235,12 @@ describe("rewards on WIN only", () => {
     expect(done.lifetimeStats.creditsEarned.gt(0)).toBe(true);
     expect(done.lifetimeStats.captainXpAwarded.gt(0)).toBe(true);
     expect(done.lifetimeStats.fleetAdminXpAwarded.gt(0)).toBe(true);
-    // missionsCompleted stays EMPTY: a patrol is not a MissionKey extraction cycle.
-    expect(Object.keys(done.lifetimeStats.missionsCompleted).length).toBe(0);
+    // ...INCLUDING missionsCompleted: a completed patrol now records +1 under its PatrolKey
+    // (user decision 2026-07-30: patrols count as missions completed, grouped by type in the
+    // offline recap + the Missions Completed stat). One WON 2-wave route = one completion.
+    const mc = done.lifetimeStats.missionsCompleted;
+    expect(Object.keys(mc).length).toBe(1);
+    expect(mc[Object.keys(mc)[0]].toNumber()).toBe(1);
   });
 });
 
