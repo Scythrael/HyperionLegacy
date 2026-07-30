@@ -3,11 +3,12 @@
 Authoritative resume doc for a fresh session. Read this + the memory doc, then continue at the REMAINING WORK below.
 
 ## TL;DR
-- **Branch:** `feat/combat-0.13.0`, tip **`bc2ff03`** (+ this handoff commit). Tree clean, all committed.
-- **Gate now:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, ignore); `npm test` = **1592 passing**; `npm audit` = 0 vulnerabilities; `npm run build` OK.
-- **Deploy state:** devpreview (`origin/staging`) = latest tip (full combat build + P12c Visual mode + 2026-07-29 bug-hunt + security hardening + the 5 quick-call fixes, live for the user to test). **PROD (`origin/main`) = `e282614` = 0.12.1 + hotfixes, UNTOUCHED.** Combat ships as 0.13.0 only after P14 fold-in + user device-test + explicit go.
-- **Done:** the combat epic through the polished COMBAT VIEW (desktop + mobile) + live durability + combat-log OPTIONS + **P12c VISUAL MODE** (animated damage pops). See "What's done" below.
-- **Next (only P13 + P14 remain before ship):** **P13 offline "While You Were Away" summary** -> **P14 fold-in** (HELP entries, 0.13.0 patch notes, APP_VERSION bump, holistic review, then explicit prod go). Durability + Visual mode are DONE. The user is doing devpreview visual passes.
+- **Branch:** `feat/combat-0.13.0`, tip **`eba9f26`** (+ this handoff commit). Tree clean, all committed.
+- **Gate now:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, ignore); `npm test` = **1599 passing**; `npm audit` = 0 vulnerabilities; `npm run build` OK; parity 100%.
+- **Deploy state:** devpreview (`origin/staging`) = latest tip (full combat build + P12c Visual mode + P13 While-You-Were-Away + P14 content + bug-hunt + security hardening + quick-call fixes). **PROD (`origin/main`) = `e282614` = 0.12.1 + hotfixes, UNTOUCHED.** APP_VERSION is now 0.13.0 on the branch. Combat ships as 0.13.0 only after the user's QA passes + explicit prod go.
+- **Done:** the WHOLE combat feature set: sim + combat view (Log + **Visual**) + durability (tuned) + combat-log options + captain identity + **P13 offline summary** + **P14 content** (HELP + 0.13.0 patch note + version). See "What's done" below.
+- **Next: the user runs the QA sheet** (a published artifact, desktop + mobile checklist covering the whole feature set), reports action items, we fix, then explicit prod go. **QA-sheet-before-ship is now standard process** (see memory `feedback_qa_sheet_process`).
+- **⚠️ OPEN DESIGN DECISION (user, 2026-07-30): the OFFLINE MODEL.** User is polling testers between (A) full deterministic simulation offline (current, offline==live byte-identical, the anti-cheat/server-revalidation foundation) vs (B) a cheaper analytical/capped offline (saves processing, but breaks offline==live + the re-simulation seam); user leans B for processing cost. My analysis given to them: B's savings trade away the offline==live invariant + the deterministic-sim anti-cheat foundation the online roadmap counted on; a MIDDLE path (bound/cap full-sim for recent activity, expected-value the deep tail) preserves the invariant while capping cost. **P13's recap UI is DECOUPLED** (it diffs whatever the advance produced, works under either model). NOT YET DECIDED. If B wins, it re-architects offline combat resolution + would need the parity tests reframed. Sequence question open: is the model change part of 0.13.0 or a fast-follow?
 
 ## Read these first
 1. Memory `project_fleet_admiral_combat_0130.md` (phase-by-phase status, every decision + seam; the authoritative running log).
