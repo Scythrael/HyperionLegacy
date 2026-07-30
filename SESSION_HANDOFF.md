@@ -3,8 +3,9 @@
 Authoritative resume doc for a fresh session. Read this + the memory doc, then continue at the REMAINING WORK below.
 
 ## TL;DR
-- **Branch:** `feat/combat-0.13.0`, tip **`eba9f26`** (+ this handoff commit). Tree clean, all committed.
-- **Gate now:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, ignore); `npm test` = **1599 passing**; `npm audit` = 0 vulnerabilities; `npm run build` OK; parity 100%.
+- **Branch:** `feat/combat-0.13.0`, tip **`3219bfe`** (+ this handoff commit). Tree clean, all committed.
+- **Gate now:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, ignore); `npm test` = **1601 passing**; `npm audit` = 0 vulnerabilities; `npm run build` OK; parity 100%.
+- **OFFLINE RECAP FINALIZED (2026-07-30):** the two-mode offline decision landed (Option 1 passive+summary DEFAULT, Option 2 Bonus Ticks opt-in FAST-FOLLOW, see SUGGESTIONS). P13 recap refined per user spec: missions BY TYPE (incl. **Combat** now that patrols are counted, `3219bfe`), FA + per-captain XP (GROSS earned, reconstructed since xp fields reset on level-up), item icon+label. QA sheet artifact updated with a dev-panel accuracy step. Item icons are per-CATEGORY (per-item icons logged tentative in SUGGESTIONS).
 - **Deploy state:** devpreview (`origin/staging`) = latest tip (full combat build + P12c Visual mode + P13 While-You-Were-Away + P14 content + bug-hunt + security hardening + quick-call fixes). **PROD (`origin/main`) = `e282614` = 0.12.1 + hotfixes, UNTOUCHED.** APP_VERSION is now 0.13.0 on the branch. Combat ships as 0.13.0 only after the user's QA passes + explicit prod go.
 - **Done:** the WHOLE combat feature set: sim + combat view (Log + **Visual**) + durability (tuned) + combat-log options + captain identity + **P13 offline summary** + **P14 content** (HELP + 0.13.0 patch note + version). See "What's done" below.
 - **Next: the user runs the QA sheet** (a published artifact, desktop + mobile checklist covering the whole feature set), reports action items, we fix, then explicit prod go. **QA-sheet-before-ship is now standard process** (see memory `feedback_qa_sheet_process`).
