@@ -27,7 +27,7 @@
 // ============================================================================
 
 import Decimal from "break_infinity.js";
-import type { GameState, CaptainState, ShipInstance } from "./model";
+import type { GameState, CaptainState, CaptainStopReason, ShipInstance } from "./model";
 // Static registries + leveling curves (pure DATA / pure math, NOT the sim). MISSIONS/PATROLS
 // classify a completed-mission key into its player-facing type (extraction = gathering, patrol =
 // combat). xpForNextLevel / xpForNextFleetAdminLevel are the SAME curves the sim's level-up fold
@@ -67,6 +67,12 @@ export interface OfflineCaptainProgress {
   name: string;
   xpGained: Decimal;
   levelsGained: number;
+  // OPTIONAL "why did it stop early" hint: set only when this captain TRANSITIONED from
+  // running a mission (before) to idle (after) DURING the window AND the sim stamped a
+  // wall-stop reason (CaptainState.lastStopReason) at that stop. undefined when the captain
+  // is still running, finished cleanly, or was already idle before the window. Read straight
+  // off the AFTER snapshot (a pure diff, no sim contact); the modal maps it to a friendly note.
+  stopReason?: CaptainStopReason;
 }
 
 // One ship that limped home into the repair queue DURING the offline advance, i.e.
@@ -284,11 +290,15 @@ export function summarizeOfflineProgress(
   // level-ups (captain.xp is leftover-toward-next-level, same reset semantics as fleetAdminXp) and
   // keep only captains that actually earned xp (levelsGained may be 0). One compact row each, so
   // the modal's internal scroll fits all captains.
-  const beforeCaptainProgress = new Map<number, { level: number; xp: Decimal }>();
+  // Also capture whether the BEFORE captain was on a mission, so the after-loop can detect the
+  // "had a mission -> now idle" transition that means the captain STOPPED during the window (as
+  // opposed to a captain that was already idle before the player left, which did NOT stop away).
+  const beforeCaptainProgress = new Map<number, { level: number; xp: Decimal; hadMission: boolean }>();
   for (const captain of captainsOf(before)) {
     beforeCaptainProgress.set(captain.id, {
       level: captain.level,
       xp: captain.xp instanceof Decimal ? captain.xp : new Decimal(0),
+      hadMission: captain.mission != null,
     });
   }
   const captainsProgressed: OfflineCaptainProgress[] = [];
@@ -298,11 +308,18 @@ export function summarizeOfflineProgress(
     const afterXp = captain.xp instanceof Decimal ? captain.xp : new Decimal(0);
     const xpGained = xpEarnedAcrossLevels(prev.xp, prev.level, afterXp, captain.level, xpForNextLevel);
     if (xpGained.lte(0)) continue; // only captains that earned xp
+    // "Stopped during the window" = had a mission before AND is idle (mission == null) now. Only
+    // for that transition do we surface the wall-stop reason the sim stamped on the AFTER captain
+    // (fuel / cargo / defeat). A still-running captain, or one that was already idle before the
+    // window, carries no reason here (even if a stale lastStopReason lingers from a past stop).
+    const stoppedDuringWindow = prev.hadMission && captain.mission == null;
+    const stopReason = stoppedDuringWindow ? captain.lastStopReason : undefined;
     captainsProgressed.push({
       id: captain.id,
       name: captain.label,
       xpGained,
       levelsGained: Math.max(0, captain.level - prev.level),
+      ...(stopReason !== undefined ? { stopReason } : {}),
     });
   }
 

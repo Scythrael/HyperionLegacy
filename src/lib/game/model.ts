@@ -1838,6 +1838,15 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
   };
 }
 
+// Combat 0.13.0 (offline recap "why did it stop early"): a TRANSIENT display hint recording
+// the reason a captain's mission ended at a genuine wall-stop during catch-up. "fuel" = ran
+// dry and could not relaunch; "cargo" = a warehouse/material cap idled an extraction run;
+// "defeat" = a patrol was beaten and limped home damaged. Set by the mission-resolution
+// functions in tick.ts at the SAME deterministic stop condition live and offline (so offline
+// stays byte-identical to live), cleared to undefined on any fresh dispatch, and read by the
+// offline summary + recap modal. It is NOT set on a clean completion or a user recall.
+export type CaptainStopReason = "fuel" | "cargo" | "defeat";
+
 export interface CaptainState {
   id: number;
   label: string; // live, user-editable display name (defaults to "Captain N"), edited via renameCaptain (tick.ts) behind validateCaptainName (captainName.ts)
@@ -1853,6 +1862,12 @@ export interface CaptainState {
   statPoints: number; // unspent, earned on level-up, spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
   unlockedCaptainTalents: CaptainTalentKey[]; // this captain's own purchased Captain Talent keys, see buyCaptainTalent (tick.ts)
   spec: CaptainTalentBranch | null; // this captain's chosen Captain Specialization, if any, null means no CAPTAIN_SPEC_BONUS entry applies yet (see that table below)
+  // OPTIONAL transient display hint (offline recap): the reason this captain's mission last
+  // ended at a genuine wall-stop, see CaptainStopReason above. undefined by default (a clean
+  // completion, a recall, or a captain that never stopped leaves it unset). A plain string, so
+  // it rides the `...captain` spread through serialize/hydrateDecimals untouched (NOT a
+  // Decimal) and needs NO SAVE_VERSION bump / migration: an old save simply has it undefined.
+  lastStopReason?: CaptainStopReason;
 }
 
 // Combat 0.13.0 (Phase 9b.5a): narrow a captain's mission union to its EXTRACTION arm, or

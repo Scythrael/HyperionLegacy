@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { freshState, xpForNextLevel, xpForNextFleetAdminLevel, type GameState } from "./model";
+import { freshState, xpForNextLevel, xpForNextFleetAdminLevel, type GameState, type CaptainState } from "./model";
 import { addItemQuality } from "./inventory";
 import { summarizeOfflineProgress } from "./offlineSummary";
 
@@ -141,6 +141,48 @@ describe("summarizeOfflineProgress", () => {
     expect(summary.fleetLevelsGained).toBe(2);
     expect(summary.fleetXpGained.eq(expectedFaXp)).toBe(true);
     expect(summary.hasContent).toBe(true);
+  });
+
+  it("attaches a captain's stopReason when it went mission -> idle DURING the window", () => {
+    const { before, after } = twoFreshStates();
+    // BEFORE: captain 1 is running a mission. AFTER: it has gone idle (mission null) with a fuel
+    // wall-stop stamped by the sim and some xp earned along the way. The transition (had-mission ->
+    // idle) is what marks it as "stopped while away", so the row surfaces stopReason "fuel".
+    before.captains = before.captains.map((c) =>
+      c.id === 1 ? { ...c, mission: { kind: "extraction" } as unknown as CaptainState["mission"] } : c
+    );
+    after.captains = after.captains.map((c) =>
+      c.id === 1 ? { ...c, mission: null, xp: new Decimal(150), lastStopReason: "fuel" as const } : c
+    );
+
+    const summary = summarizeOfflineProgress(before, after, 600);
+    const row = summary.captainsProgressed.find((r) => r.id === 1);
+    expect(row).toBeDefined();
+    expect(row!.stopReason).toBe("fuel");
+  });
+
+  it("does NOT attach a stopReason to a captain still running after the window", () => {
+    const { before, after } = twoFreshStates();
+    // BEFORE and AFTER both on a mission (still running): no had-mission -> idle transition, so even
+    // a lingering lastStopReason from a PAST stop must NOT be surfaced this window.
+    before.captains = before.captains.map((c) =>
+      c.id === 1 ? { ...c, mission: { kind: "extraction" } as unknown as CaptainState["mission"] } : c
+    );
+    after.captains = after.captains.map((c) =>
+      c.id === 1
+        ? {
+            ...c,
+            mission: { kind: "extraction" } as unknown as CaptainState["mission"],
+            xp: new Decimal(150),
+            lastStopReason: "fuel" as const,
+          }
+        : c
+    );
+
+    const summary = summarizeOfflineProgress(before, after, 600);
+    const row = summary.captainsProgressed.find((r) => r.id === 1);
+    expect(row).toBeDefined(); // still listed (it earned xp)
+    expect(row!.stopReason).toBeUndefined();
   });
 
   it("reports a ship that became damaged (limped home) during the advance", () => {

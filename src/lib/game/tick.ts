@@ -49,6 +49,7 @@ import {
   type ShipTypeDef,
   type ShipInstance,
   type CaptainState,
+  type CaptainStopReason,
   type CaptainMissionState,
   type PatrolMissionState,
   type PatrolKey,
@@ -1032,6 +1033,14 @@ export function tickCaptainMission(
   // reward is never needed to fund an auto-buy in the same call that earned it.
   let creditsRemaining = creditsBudget;
   let creditsSpentOnFuel = 0;
+  // Combat 0.13.0 (offline recap "why did it stop early"): the wall-stop reason to stamp onto
+  // the RETURNED captain. Set ONLY at the truly-broke out-of-fuel hard-stop below (the
+  // anti-infinite-fuel floor), NOT on a clean dispatch-once completion and NOT on a recall
+  // (a user recall AND the cap-recall both exit via the shared `mission.recalled` branch, so
+  // this function cannot tell them apart; the CARGO reason is stamped at its deterministic
+  // root, the materialAtCap seam in economyTick, instead). Same deterministic branch live and
+  // offline, touches no RNG/outcome/ordering, so offline stays byte-identical to live.
+  let stopReason: CaptainStopReason | undefined;
 
   // The ship's extractionYieldMult is a MULTIPLIER (1.0 = no change, 1.35 =
   // +35%), but resolvedBonuses' tier yield mults are stored as ADDITIVE deltas
@@ -1229,6 +1238,7 @@ export function tickCaptainMission(
               refuelDelayTicks = REFUEL_PENALTY_TICKS; // +2-tick refuel penalty on this cycle
             } else {
               startNextCycle = false;
+              stopReason = "fuel"; // wall-stop: could not afford the next cycle's fuel
               mission = null; // truly broke: hard-stop (anti-infinite-fuel floor)
             }
           }
@@ -1348,7 +1358,7 @@ export function tickCaptainMission(
   };
 
   return {
-    captain: { ...captain, mission, xp, level, statPoints },
+    captain: { ...captain, mission, xp, level, statPoints, lastStopReason: stopReason ?? captain.lastStopReason },
     homePlanetDelta,
     fleetAdminXpDelta,
     creditsDelta,
@@ -1616,6 +1626,13 @@ export function tickCaptainPatrol(
   // The (possibly fractional) route position, advanced boundary-by-boundary below.
   let progress = mission.progressTicks;
   let shipDamaged = false;
+  // Combat 0.13.0 (offline recap "why did it stop early"): the wall-stop reason to stamp onto
+  // the RETURNED captain, set ONLY at a genuine wall-stop below (limp-home defeat end, or a
+  // truly-broke relaunch), left undefined on a clean completion / recall. Set at the SAME
+  // deterministic branch live and offline, and it touches no RNG draw / outcome / ordering, so
+  // offline stays byte-identical to live. Folded into the return as `stopReason ??
+  // captain.lastStopReason` so a call that does NOT wall-stop preserves whatever was there.
+  let stopReason: CaptainStopReason | undefined;
   // Combat 0.13.0 (Phase 11): the hull points to repair, reported to economyTick ONLY when a
   // limp-home completes this call (0 otherwise). Captured at the defeat instant, carried on
   // the mission through the limp, and read out here when the wreck reaches base.
@@ -1675,6 +1692,7 @@ export function tickCaptainPatrol(
       if (mission.limpTicksRemaining <= 0) {
         shipDamaged = true;
         shipDamageTaken = mission.limpDamage ?? 0; // 0 only on a corrupt/absent capture
+        stopReason = "defeat"; // wall-stop: a defeated patrol limped home and ended damaged
         mission = null;
         break;
       }
@@ -1871,6 +1889,7 @@ export function tickCaptainPatrol(
           progress = 0;
           // Loop continues: any remaining ticks advance the FRESH patrol.
         } else {
+          stopReason = "fuel"; // wall-stop: could not afford a relaunch (anti-infinite-fuel floor)
           mission = null; // truly broke: end (captain idles until refuelled/re-dispatched)
           break;
         }
@@ -1940,7 +1959,7 @@ export function tickCaptainPatrol(
   return {
     // The captain with its patrol advanced AND its won-wave XP/level-ups already folded in
     // (mirrors tickCaptainMission returning the captain with XP pre-folded).
-    captain: { ...captain, mission, xp, level, statPoints },
+    captain: { ...captain, mission, xp, level, statPoints, lastStopReason: stopReason ?? captain.lastStopReason },
     shipDamaged,
     shipDamageTaken,
     fuelSpent,
@@ -2368,11 +2387,23 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     if (materialAtCap(state, MISSIONS[missionKey].primaryMaterial)) {
       if (captain.mission.phase === "ordersReceived") {
         // At base, pre-departure: idle immediately rather than launching a run it can't finish.
-        return { ...captain, mission: null };
+        // Combat 0.13.0 (offline recap): stamp the CARGO stop reason here, this is the
+        // deterministic ROOT of the cargo wall-stop (the materialAtCap seam), the ONLY place
+        // that knows the stop is cap-caused rather than a user recall. Same check live and
+        // offline (both step economyTick(_,1)), display-only string, so parity is unperturbed.
+        return { ...captain, mission: null, lastStopReason: "cargo" as const };
       }
       // Mid-cycle / ship out: flag recalled and let the normal advance below fly it home + end.
       // (No early return, execution continues to the standard per-captain path.)
-      captain = { ...captain, mission: { ...captain.mission, recalled: true } };
+      // Combat 0.13.0 (offline recap): stamp CARGO on the captain ONLY when the cap is what
+      // NEWLY triggers this recall (guard on !recalled), so a pre-existing USER recall flying
+      // home is NOT relabeled "cargo" (a user recall must show no reason). The stamp rides the
+      // `...captain` spread home through tickCaptainMission and persists to the idle end state;
+      // subsequent fly-home ticks re-enter here already-recalled, skip the guard, and leave the
+      // stamp intact. Deterministic (same tick live and offline), display-only, parity-safe.
+      captain = captain.mission.recalled
+        ? { ...captain, mission: { ...captain.mission, recalled: true } }
+        : { ...captain, mission: { ...captain.mission, recalled: true }, lastStopReason: "cargo" as const };
     }
     // Resolve the hull this captain flies and project it to the three mission
     // stats tickCaptainMission consumes (transit/cargo/yield). GameState.ships[]
@@ -2974,6 +3005,9 @@ export function dispatchCaptainOnMission(
       recalled: false,
       refuelDelayTicks,
     },
+    // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh dispatch, so a
+    // captain re-dispatched after a prior fuel/cargo/defeat stop never shows the old reason.
+    lastStopReason: undefined,
   };
   // Tank: buy the shortfall (if any) INTO it, then spend the full round trip, so it nets to
   // (fuel + shortfall - need), i.e. 0 on a short tank or (fuel - need) on a covered one. Credits:
@@ -3222,7 +3256,10 @@ export function dispatchCaptainOnPatrol(
   const mission = freshPatrolMission({ patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType });
 
   const captains = [...state.captains];
-  captains[idx] = { ...captains[idx], mission };
+  // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh patrol dispatch,
+  // mirroring dispatchCaptainOnMission, so a captain re-dispatched after a prior fuel/cargo/
+  // defeat stop never shows the old reason.
+  captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };
   // Tank + credits: buy the shortfall (if any) INTO the tank, then spend the full round
   // trip (nets to 0 on a short tank, fuel-need on a covered one); drop credits by the
   // auto-buy cost (0 when the tank covered it). Both guaranteed >= 0 by the passed gate.

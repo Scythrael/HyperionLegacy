@@ -194,6 +194,9 @@
     type PatrolKey,
     type PatrolMissionState,
     type PatrolPhase,
+    // Combat 0.13.0 (offline recap): the wall-stop reason union, mapped to a friendly note in
+    // the "While you were away" Captains rows (offlineStopReasonNote below).
+    type CaptainStopReason,
   } from "./lib/game/model";
   // Equipment 0.11.0 DEV readout (Debug tab only). The fitment helpers
   // (equippedFor / canFitEquipment / fitEquipment / unfitEquipment /
@@ -1193,6 +1196,21 @@
       // not a raw resource or a finished part, so it gets its own recycle glyph.
       case "salvagedMaterial":
         return "♻️";
+    }
+  }
+
+  // Combat 0.13.0 (offline recap "why did it stop early"): map a captain's wall-stop reason
+  // (offlineSummary attaches it only when the captain went mission -> idle DURING the window) to a
+  // friendly, sentence-case note shown after its XP in the "While you were away" Captains rows. So
+  // a reduced haul reads as an explained early stop, not a bug. No ALL CAPS / "!" / em dashes.
+  function offlineStopReasonNote(reason: CaptainStopReason): string {
+    switch (reason) {
+      case "fuel":
+        return "stopped early, out of fuel";
+      case "cargo":
+        return "stopped early, cargo hold full";
+      case "defeat":
+        return "lost the patrol, ship in repair";
     }
   }
 
@@ -9080,8 +9098,11 @@
               {#each sum.captainsProgressed as cap (cap.id)}
                 <div class="offline-summary-row">
                   <span class="offline-summary-row-label">{cap.name}</span>
+                  <!-- xp + optional levels, then (when the captain stopped early during the window)
+                       a muted note explaining WHY so a reduced haul does not read as a bug. The row
+                       may wrap to a second line on narrow screens; the note stays with the value. -->
                   <span class="offline-summary-row-value"
-                    >+{formatNumber(cap.xpGained)} xp{#if cap.levelsGained > 0}, +{formatNumber(cap.levelsGained)} {cap.levelsGained === 1 ? "level" : "levels"}{/if}</span
+                    >+{formatNumber(cap.xpGained)} xp{#if cap.levelsGained > 0}, +{formatNumber(cap.levelsGained)} {cap.levelsGained === 1 ? "level" : "levels"}{/if}{#if cap.stopReason}<span class="offline-summary-stop-note"> · {offlineStopReasonNote(cap.stopReason)}</span>{/if}</span
                   >
                 </div>
               {/each}
@@ -9632,6 +9653,15 @@
     white-space: nowrap;
     flex-shrink: 0;
     font-variant-numeric: tabular-nums;
+  }
+  /* Combat 0.13.0 (offline recap): the muted "stopped early ..." note appended after a captain's
+     XP. Dimmer than the accent-colored value so it reads as a secondary aside, and allowed to wrap
+     (white-space: normal overrides the value's nowrap) so a long reason drops to a second line on a
+     narrow screen instead of overflowing the row. */
+  .offline-summary-stop-note {
+    color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+    white-space: normal;
+    font-variant-numeric: normal;
   }
   .offline-summary-repair {
     color: var(--color-warning, #d9a441);
