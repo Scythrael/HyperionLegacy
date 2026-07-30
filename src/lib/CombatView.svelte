@@ -24,9 +24,9 @@
   // wave before any has resolved). See currentReplayWaveIndex. As the live patrol
   // advances to a new wave while the view is open, the stream re-targets to it.
   //
-  // MODES. Log-Guided (default) is fully built here. Visual mode (the damage-pop
-  // presentation over the ships) is the NEXT unit (Phase 12c): the toggle renders,
-  // but Visual shows a "coming soon" placeholder. It is NOT built in this unit.
+  // MODES. Log-Guided (default) streams the round-by-round text log. Visual mode (Phase
+  // 12c) plays the SAME streamed replay as animated damage POPS + family-tinted tracers
+  // over the arena ships (see the VISUAL MODE FX DRIVER below). Both are display-only.
   // ============================================================================
 
   import { onDestroy, afterUpdate } from "svelte";
@@ -833,13 +833,17 @@
       return;
     }
     if (!visualActive || watchedKey !== lastVisualKey) {
-      // Just entered visual, or the frozen battle rolled over: sync WITHOUT replaying the
-      // already-streamed rounds (start popping only from the next reveal onward).
+      // Just entered visual, or the frozen battle rolled over. Clear stale FX + re-sync the
+      // cursor, then FALL THROUGH to the play block so a fresh battle's opener still shows.
+      const freshBattle = watchedKey !== lastVisualKey;
       visualActive = true;
       lastVisualKey = watchedKey;
-      lastVisualizedRound = revealedRound;
       clearVisualFx();
-      return;
+      // Fresh battle: start the cursor one BEFORE the current round so the OPENING salvo
+      // (round 0, on a battle watched from its start) pops instead of being skipped. Re-
+      // entering visual on the SAME battle mid-stream: sync to the current round so the
+      // already-seen backlog is not re-popped all at once.
+      lastVisualizedRound = freshBattle ? revealedRound - 1 : revealedRound;
     }
     if (revealedRound > lastVisualizedRound) {
       for (let r = lastVisualizedRound + 1; r <= revealedRound; r++) playRound(r);
