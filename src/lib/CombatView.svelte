@@ -713,6 +713,14 @@
       popTimers.push(setTimeout(() => el.remove(), POP_STATIC_MS));
       return;
     }
+    // Force a synchronous style/layout flush so the browser COMMITS the pop's initial
+    // opacity:1 (from .cv-pop) before we add `.rise` on the next frame. Without this, the
+    // append and the rAF class-add coalesce before the first paint, so the opacity
+    // transition has no prior value to animate from and the pop jumps straight to opacity 0
+    // (invisible) instead of fading in view. (The tracer survives the same coalescing
+    // because it stays a visible dot at its destination even with its travel skipped; a pop
+    // that jumps to opacity 0 does not.) Reading offsetWidth is the standard reflow trigger.
+    void el.offsetWidth;
     // Trigger the rise+fade on the next frame (so the transition runs), then remove.
     rafHandles.push(
       requestAnimationFrame(() => {
@@ -733,6 +741,9 @@
     dot.style.left = `${x0}px`;
     dot.style.top = `${y0}px`;
     fxLayer.appendChild(dot);
+    // Commit the start position before moving it, so the travel transition actually runs
+    // (same reflow trigger + reason as spawnPop; without it the dot jumps to its endpoint).
+    void dot.offsetWidth;
     rafHandles.push(
       requestAnimationFrame(() => {
         dot.style.left = `${x1}px`;
