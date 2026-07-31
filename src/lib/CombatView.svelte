@@ -82,9 +82,9 @@
   // Small, self-describing lookups (Omega 9: rule-based, readable at a glance) so
   // the enum values from the sim render as player-facing words.
   const BAND_LABEL: Record<RangeBand, string> = {
-    short: "Short band",
-    medium: "Medium band",
-    long: "Long band",
+    short: "Short",
+    medium: "Medium",
+    long: "Long",
   };
   const PHASE_LABEL: Record<CombatPhase, string> = {
     detection: "Detection",
@@ -1058,7 +1058,7 @@
           <div class="cvm-rangelabels"><span>Short</span><span>Med</span><span>Long</span></div>
         </div>
         <div class="cvm-block">
-          <span class="cvm-lab">Band</span>
+          <span class="cvm-lab">Weapons Range</span>
           <span class="cvm-band">{rangeBand ? BAND_LABEL[rangeBand] : "..."}</span>
         </div>
         <div class="cvm-block">
