@@ -28,7 +28,7 @@ import {
   type PatrolMissionState,
   type PatrolSystemDurability,
 } from "../model";
-import { dispatchCaptainOnPatrol, economyTick } from "../tick";
+import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines } from "../tick";
 import {
   replayPatrol,
   resolvePatrolWaves,
@@ -48,13 +48,15 @@ const RNG = () => 0.5;
 // never gates the run.
 function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
   const base = freshState();
-  return {
+  // Combat 1.0 (Unit 1.3): seed the combat baseline the retype skipped so a fabricated combat hull
+  // clears the new empty-required-slot dispatch blocker (economy hull -> no-op).
+  return installMissingCombatBaselines({
     ...base,
     nextPatrolSeed: seed,
     fuel: new Decimal(100000),
     credits: new Decimal(100000),
     ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)),
-  };
+  });
 }
 
 function dispatch(state: GameState, repeat: boolean): GameState {

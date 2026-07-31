@@ -56,6 +56,7 @@ import {
 } from "./model";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import type { CraftLine } from "./allocation"; // Task 19: fabricate-line parity fixtures
+import { COMBAT_DEFAULT_LOADOUT } from "./combat/bridge"; // Combat 1.0 (Unit 1.3): per-hull signature weapon
 
 function missionCaptain(
   // Mission Rework (Task 1): widened from the 2 ore-run keys to the full MissionKey
@@ -4102,6 +4103,54 @@ function equipLineState(blueprintKey: string, iterations: number): GameState {
 }
 
 const CRAFTABLE_RARITIES = ["standard", "augmented", "stellar", "radiant"];
+
+// Combat 1.0 (Unit 1.3): a newly-BUILT hull is born with its full Standard-Issue install. An
+// economy hull gets the 4 economy baselines; a COMBAT hull additionally gets the 3 combat baselines
+// (weapon + shield emitter + hull plating), so it is dispatchable the moment it is crewed.
+describe("shipBuild completion installs the combat baseline on a combat hull (Combat 1.0, Unit 1.3)", () => {
+  // Run an in-flight shipBuild(addShip typeKey) to completion and return { state, newShipId }.
+  function buildHull(typeKey: "destroyer" | "prospectorMiner") {
+    const base = freshState();
+    const priorIds = new Set(base.ships.map((s) => s.id));
+    const state = {
+      ...base,
+      activeProcesses: [
+        ...base.activeProcesses,
+        { id: "proc-build", kind: "shipBuild" as const, remainingTicks: 1, durationTicks: 1, effect: { type: "addShip" as const, typeKey } },
+      ],
+    };
+    const { next } = resolveProcesses(state, 1); // exactly completes the 1-tick build
+    const newShip = next.ships.find((s) => !priorIds.has(s.id))!;
+    return { next, newShipId: newShip.id, newShip };
+  }
+
+  it("a newly-built COMBAT hull (destroyer) is born with 7 fitted pieces: 4 economy + 3 combat", () => {
+    const { next, newShipId, newShip } = buildHull("destroyer");
+    expect(newShip.typeKey).toBe("destroyer");
+    const fitted = next.equipment.filter((e) => e.fittedToShipId === newShipId);
+    expect(fitted).toHaveLength(7);
+    // The three required combat slots are all present (dispatchable), plus the four economy slots.
+    expect(fitted.map((e) => e.slotType).sort()).toEqual(
+      ["cargoBay", "ftlDrive", "hullPlating", "reactorCore", "shieldEmitters", "specUtility", "weapon"].sort()
+    );
+    // Exactly ONE of each required combat slot, and the weapon is the destroyer's signature gun.
+    expect(fitted.filter((e) => e.slotType === "weapon")).toHaveLength(1);
+    expect(fitted.filter((e) => e.slotType === "shieldEmitters")).toHaveLength(1);
+    expect(fitted.filter((e) => e.slotType === "hullPlating")).toHaveLength(1);
+    expect(fitted.find((e) => e.slotType === "weapon")!.weaponType).toBe(COMBAT_DEFAULT_LOADOUT.destroyer.weapons[0]);
+  });
+
+  it("a newly-built ECONOMY hull (prospectorMiner) is born with only the 4 economy pieces (no combat gear)", () => {
+    const { next, newShipId, newShip } = buildHull("prospectorMiner");
+    expect(newShip.typeKey).toBe("prospectorMiner");
+    const fitted = next.equipment.filter((e) => e.fittedToShipId === newShipId);
+    expect(fitted).toHaveLength(4);
+    expect(fitted.map((e) => e.slotType).sort()).toEqual(
+      ["cargoBay", "ftlDrive", "reactorCore", "specUtility"].sort()
+    );
+    expect(fitted.some((e) => e.slotType === "weapon")).toBe(false); // an economy hull gets no combat gear
+  });
+});
 
 describe("Fabricator mints real equipment (Task 19)", () => {
   it("a completed EQUIPMENT fabricate mints ONE EquipmentInstance (right slot/blueprint), NO stackable output", () => {

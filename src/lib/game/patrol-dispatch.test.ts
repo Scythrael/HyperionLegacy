@@ -28,6 +28,7 @@ import {
   recallCaptain,
   economyTick,
   patrolWaveParams,
+  installMissingCombatBaselines,
 } from "./tick";
 import { planWaveSchedule } from "./combat/waveSchedule";
 
@@ -36,9 +37,15 @@ const PATROL_KEY = "crimsonReaverSweep";
 // A fresh state whose one starting captain (id 1) flies the given hull instead of the
 // default General Freighter. Retypes ship-1 in place (its Standard-Issue equipment is
 // stat-neutral, so the fold is unaffected). The tank starts full (freshState grant).
+// Combat 1.0 (Unit 1.3): the retype skips the combat baseline a real combat-hull build
+// installs, so re-establish the never-empty combat invariant via installMissingCombatBaselines
+// (economy hull -> no-op). Without it a fabricated combat hull would fail the new dispatch blocker.
 function stateWithHull(typeKey: ShipTypeKey): GameState {
   const base = freshState();
-  return { ...base, ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)) };
+  return installMissingCombatBaselines({
+    ...base,
+    ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)),
+  });
 }
 
 describe("canDispatchPatrol gates (Combat 0.13.0 §S14)", () => {
@@ -84,6 +91,40 @@ describe("canDispatchPatrol gates (Combat 0.13.0 §S14)", () => {
     const base = stateWithHull("destroyer");
     const state = { ...base, fuel: new Decimal(0), credits: new Decimal(0) };
     expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "fuelEmpty" });
+  });
+
+  // Combat 1.0 (Unit 1.3): the empty-required-slot dispatch blocker. A combat hull is born with the
+  // Standard-Issue combat set (stateWithHull seeds it), so the ALLOW case is the default; stripping
+  // a required slot (the only way to reach the block, once the install UI lands) surfaces its reason.
+  it("allows a combat hull carrying all three required combat slots (the born-with-baseline default)", () => {
+    // ship-1 is a destroyer seeded with weapon + shield emitter + hull plating -> dispatchable.
+    expect(canDispatchPatrol(stateWithHull("destroyer"), 1, PATROL_KEY)).toEqual({ ok: true });
+  });
+
+  it("blocks with noWeapon when the weapon slot is stripped bare", () => {
+    const base = stateWithHull("destroyer");
+    // Uninstall (remove from the pool) the ship-1 weapon baseline, leaving the hardpoint empty.
+    const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && e.slotType === "weapon")) };
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noWeapon" });
+  });
+
+  it("blocks with noShieldEmitter when the shield emitter slot is stripped bare", () => {
+    const base = stateWithHull("destroyer");
+    const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && e.slotType === "shieldEmitters")) };
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noShieldEmitter" });
+  });
+
+  it("blocks with noHullPlating when the hull plating slot is stripped bare", () => {
+    const base = stateWithHull("destroyer");
+    const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && e.slotType === "hullPlating")) };
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noHullPlating" });
+  });
+
+  it("surfaces noWeapon FIRST when multiple required slots are stripped (gate order: weapon -> shield -> plating)", () => {
+    const base = stateWithHull("destroyer");
+    // Strip ALL three: the weapon reason surfaces first (cheapest-first gate order).
+    const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && (e.slotType === "weapon" || e.slotType === "shieldEmitters" || e.slotType === "hullPlating"))) };
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noWeapon" });
   });
 });
 
@@ -146,13 +187,15 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
     // counter advanced exactly twice (never reusing a seed).
     const base = stateWithHull("destroyer"); // captain 1 flies a destroyer
     const captain2: CaptainState = { ...freshCaptains(1)[0], id: 2, label: "Captain 2" };
-    const state: GameState = {
+    // Combat 1.0 (Unit 1.3): ship-2 is a SECOND combat hull added inline, so seed its combat
+    // baseline too (installMissingCombatBaselines only touches the newly-added, still-bare ship-2).
+    const state: GameState = installMissingCombatBaselines({
       ...base,
       captains: [...base.captains, captain2],
       ships: [...base.ships, { id: "ship-2", typeKey: "destroyer", assignedCaptainId: 2 }],
       nextCaptainId: 3,
       nextShipId: 3,
-    };
+    });
     const seedStart = state.nextPatrolSeed;
 
     const afterFirst = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false).next;

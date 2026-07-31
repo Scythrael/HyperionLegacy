@@ -40,6 +40,14 @@ import {
   STANDARD_ISSUE_IMPLICIT_MAGNITUDE,
   STANDARD_ISSUE_ILEVEL,
   SLOT_BASE_PHYSICALS,
+  // Combat 1.0 (Unit 1.3): the combat Standard-Issue minter + seeder + baseline magnitudes.
+  generateCombatStandardIssue,
+  seedCombatStandardIssueForShip,
+  COMBAT_STANDARD_ISSUE_SHIELD_CAPACITY,
+  COMBAT_STANDARD_ISSUE_SHIELD_RECHARGE,
+  COMBAT_STANDARD_ISSUE_HULL_STRENGTH,
+  COMBAT_STANDARD_ISSUE_WEAPON_YIELD,
+  COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY,
 } from "./model";
 import type {
   CaptainTalentKey,
@@ -51,6 +59,9 @@ import { fuelNeeded } from "./fuel";
 // Combat 1.0 (Unit 1.2b): the weapon roster, to prove each weapon blueprint's weaponType names a
 // REAL WeaponId (a typo would otherwise only surface at mint time in the Fabricator).
 import { WEAPON_DEFS } from "./combat/weapons";
+// Combat 1.0 (Unit 1.3): the per-hull default loadout, to assert each combat baseline weapon is the
+// hull's signature gun (COMBAT_DEFAULT_LOADOUT[hull].weapons[0]).
+import { COMBAT_DEFAULT_LOADOUT } from "./combat/bridge";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { PIRATE_HULLS } from "./combat/enemyHulls"; // Combat 0.13.0: PATROLS.hullPool ids are validated against this roster
 
@@ -2054,6 +2065,118 @@ describe("seedStandardIssueForShip (0.11.0 Task 20)", () => {
     const allIds = [...first.pieces, ...second.pieces].map((p) => p.id);
     expect(new Set(allIds).size).toBe(8); // all unique across both ships
     expect(second.nextId).toBe(9);
+  });
+});
+
+// The combat Standard-Issue baseline generator (Combat 1.0, Unit 1.3). Like generateStandardIssue
+// (deterministic, no rng, affix-free) but with NON-ZERO combat magnitudes and, for a weapon, a
+// weaponType. Economy-neutral (mass 0 / powerDraw 0) so installing it never moves an economy stat.
+describe("generateCombatStandardIssue (Combat 1.0, Unit 1.3)", () => {
+  it("mints a well-formed shield emitter baseline: NON-ZERO shieldCapacity + shieldRecharge, no weaponType", () => {
+    const piece = generateCombatStandardIssue({ slotType: "shieldEmitters", fittedToShipId: "ship-1", allocateId: () => "equip-1" });
+    expect(piece.slotType).toBe("shieldEmitters");
+    expect(piece.weaponType).toBeUndefined(); // only a weapon piece carries a weaponType
+    expect(piece.rarity).toBe("standard");
+    expect(piece.quality).toBe(0);
+    expect(piece.ascension).toBe("none");
+    expect(piece.blueprintKey).toBeNull();
+    expect(piece.iLevel).toBe(STANDARD_ISSUE_ILEVEL);
+    expect(piece.fittedToShipId).toBe("ship-1");
+    // NON-ZERO combat magnitudes (unlike the economy floor at magnitude 0): pure-gear shields mean a
+    // 0-capacity emitter would leave the ship with no shield pool at all.
+    expect(piece.implicitStats).toEqual({
+      shieldCapacity: COMBAT_STANDARD_ISSUE_SHIELD_CAPACITY,
+      shieldRecharge: COMBAT_STANDARD_ISSUE_SHIELD_RECHARGE,
+    });
+    expect(COMBAT_STANDARD_ISSUE_SHIELD_CAPACITY).toBeGreaterThan(0);
+    expect(piece.rolledStats).toEqual({}); // affix-free baseline
+    expect(piece.durabilityMax).toBe(SLOT_BASE_PHYSICALS.shieldEmitters.durability);
+    expect(piece.durability).toBe(piece.durabilityMax);
+  });
+
+  it("mints a well-formed hull plating baseline: NON-ZERO hullStrength, no weaponType", () => {
+    const piece = generateCombatStandardIssue({ slotType: "hullPlating", fittedToShipId: "ship-1", allocateId: () => "equip-1" });
+    expect(piece.slotType).toBe("hullPlating");
+    expect(piece.weaponType).toBeUndefined();
+    expect(piece.implicitStats).toEqual({ hullStrength: COMBAT_STANDARD_ISSUE_HULL_STRENGTH });
+    expect(COMBAT_STANDARD_ISSUE_HULL_STRENGTH).toBeGreaterThan(0);
+    expect(piece.durabilityMax).toBe(SLOT_BASE_PHYSICALS.hullPlating.durability);
+  });
+
+  it("mints a well-formed weapon baseline: slotType weapon, the given weaponType, weaponYield 0 (base def carries the real stats)", () => {
+    const piece = generateCombatStandardIssue({ slotType: "weapon", weaponType: "autocannon", fittedToShipId: "ship-1", allocateId: () => "equip-1" });
+    expect(piece.slotType).toBe("weapon");
+    expect(piece.weaponType).toBe("autocannon"); // the hull's signature gun, set by the caller
+    expect(piece.implicitStats).toEqual({ weaponYield: COMBAT_STANDARD_ISSUE_WEAPON_YIELD });
+    expect(COMBAT_STANDARD_ISSUE_WEAPON_YIELD).toBe(0); // the base WEAPON_DEF provides the real combat stats
+    expect(piece.durabilityMax).toBe(COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY);
+    expect(piece.durability).toBe(piece.durabilityMax);
+  });
+
+  it("is ECONOMY-NEUTRAL: every combat baseline is mass 0 + powerDraw 0", () => {
+    const shield = generateCombatStandardIssue({ slotType: "shieldEmitters", fittedToShipId: null, allocateId: () => "e" });
+    const plating = generateCombatStandardIssue({ slotType: "hullPlating", fittedToShipId: null, allocateId: () => "e" });
+    const weapon = generateCombatStandardIssue({ slotType: "weapon", weaponType: "autocannon", fittedToShipId: null, allocateId: () => "e" });
+    for (const piece of [shield, plating, weapon]) {
+      expect(piece.mass).toBe(0);
+      expect(piece.powerDraw).toBe(0);
+    }
+  });
+
+  it("is DETERMINISTIC: identical inputs mint an identical piece (safe inside a migration)", () => {
+    const a = generateCombatStandardIssue({ slotType: "weapon", weaponType: "railgun", fittedToShipId: "ship-1", allocateId: () => "equip-1" });
+    const b = generateCombatStandardIssue({ slotType: "weapon", weaponType: "railgun", fittedToShipId: "ship-1", allocateId: () => "equip-1" });
+    expect(a).toEqual(b);
+  });
+
+  it("throws for a weapon baseline with no weaponType (a weapon must know its base def)", () => {
+    expect(() => generateCombatStandardIssue({ slotType: "weapon", fittedToShipId: null, allocateId: () => "equip-1" })).toThrow();
+  });
+});
+
+// The combat parallel to seedStandardIssueForShip: three pieces for a combat hull, none for an
+// economy hull. The caller encodes "is combat" via a nullable signatureWeapon.
+describe("seedCombatStandardIssueForShip (Combat 1.0, Unit 1.3)", () => {
+  it("mints THREE combat baselines (weapon + shield emitter + hull plating) for a combat hull, in a fixed order with monotonic ids", () => {
+    // The signature weapon is what the caller derives from COMBAT_DEFAULT_LOADOUT[hull].weapons[0].
+    const signature = COMBAT_DEFAULT_LOADOUT.destroyer.weapons[0];
+    const { pieces, nextId } = seedCombatStandardIssueForShip("ship-7", signature, 10);
+    expect(pieces).toHaveLength(3);
+    expect(pieces.every((p) => p.fittedToShipId === "ship-7")).toBe(true);
+    expect(pieces.map((p) => p.id)).toEqual(["equip-10", "equip-11", "equip-12"]);
+    // Deterministic mint order: weapon, shieldEmitters, hullPlating.
+    expect(pieces.map((p) => p.slotType)).toEqual(["weapon", "shieldEmitters", "hullPlating"]);
+    // The weapon baseline carries the hull's signature gun.
+    expect(pieces[0].weaponType).toBe(signature);
+    expect(nextId).toBe(13); // advanced past the three minted ids
+  });
+
+  it("mints NOTHING for a non-combat hull (null signature weapon), threading the id straight through", () => {
+    const { pieces, nextId } = seedCombatStandardIssueForShip("ship-7", null, 10);
+    expect(pieces).toEqual([]);
+    expect(nextId).toBe(10); // untouched
+  });
+
+  it("uses each combat hull's own signature gun (destroyer/battleship/carrier)", () => {
+    for (const hull of ["destroyer", "battleship", "carrier"] as const) {
+      const signature = COMBAT_DEFAULT_LOADOUT[hull].weapons[0];
+      const { pieces } = seedCombatStandardIssueForShip("ship-1", signature, 1);
+      expect(pieces[0].slotType).toBe("weapon");
+      expect(pieces[0].weaponType).toBe(signature); // the hull's own first hardpoint weapon
+      expect(WEAPON_DEFS[signature]).toBeDefined(); // and it is a real weapon def
+    }
+  });
+
+  it("installing the combat baseline leaves shipDerivedStats BYTE-IDENTICAL to the bare hull (economy-neutral)", () => {
+    // shipDerivedStats folds ONLY the economy stat keys + drags by fitted MASS. A combat baseline is
+    // mass 0 with combat-only stat lines, so it contributes ZERO to every economy-derived stat: a
+    // combat hull with its full 7-piece install resolves missions IDENTICALLY to the bare hull.
+    const ship = { id: "ship-1", typeKey: "destroyer" as const, assignedCaptainId: 1 };
+    const economy = seedStandardIssueForShip("ship-1", 1).pieces;
+    const combat = seedCombatStandardIssueForShip("ship-1", COMBAT_DEFAULT_LOADOUT.destroyer.weapons[0], 5).pieces;
+    expect(shipDerivedStats(ship, [...economy, ...combat])).toEqual(shipDerivedStats(ship, []));
+    // And the combat pieces alone add nothing either (the load-bearing economy-neutrality claim).
+    expect(shipDerivedStats(ship, combat)).toEqual(shipDerivedStats(ship, []));
   });
 });
 

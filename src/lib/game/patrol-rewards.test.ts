@@ -30,7 +30,7 @@ import {
   type ShipTypeKey,
   type PatrolMissionState,
 } from "./model";
-import { dispatchCaptainOnPatrol, economyTick, deriveWaveSeed, DEFAULT_PATROL_LOOT_TABLE } from "./tick";
+import { dispatchCaptainOnPatrol, economyTick, deriveWaveSeed, DEFAULT_PATROL_LOOT_TABLE, installMissingCombatBaselines } from "./tick";
 import { itemTotal } from "./inventory"; // read an item's TOTAL across quality buckets
 import { rollWaveLoot, type WaveLoot } from "./combat/patrolLoot";
 
@@ -51,13 +51,15 @@ const RNG = () => 0.5;
 // master seed `seed`. Tank + credits topped so fuel never gates (isolates the reward math).
 function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
   const base = freshState();
-  return {
+  // Combat 1.0 (Unit 1.3): seed the combat baseline the retype skipped so a fabricated combat hull
+  // clears the new empty-required-slot dispatch blocker (economy hull -> no-op).
+  return installMissingCombatBaselines({
     ...base,
     nextPatrolSeed: seed,
     fuel: new Decimal(100000),
     credits: new Decimal(100000),
     ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)),
-  };
+  });
 }
 
 function dispatch(state: GameState, repeat: boolean): GameState {

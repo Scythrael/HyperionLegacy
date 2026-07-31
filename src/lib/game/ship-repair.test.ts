@@ -52,6 +52,7 @@ import {
   shipyardBayCount,
   shipBuildSlotCount,
   resolveProcesses,
+  installMissingCombatBaselines,
 } from "./tick";
 
 const PATROL_KEY = "crimsonReaverSweep";
@@ -64,13 +65,15 @@ const RNG = () => 0.5; // constant rng: a patrol/repair-only fleet makes no outc
 // topped up so fuel never confounds the combat-state assertions (mirrors patrol-tick.test.ts).
 function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
   const base = freshState();
-  return {
+  // Combat 1.0 (Unit 1.3): seed the combat baseline the retype skipped so a fabricated combat hull
+  // clears the new empty-required-slot dispatch blocker (economy hull -> no-op).
+  return installMissingCombatBaselines({
     ...base,
     nextPatrolSeed: seed,
     fuel: new Decimal(100000),
     credits: new Decimal(100000),
     ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)),
-  };
+  });
 }
 
 function dispatch(state: GameState, repeat: boolean): GameState {
@@ -233,10 +236,12 @@ describe("damaged hull blocks re-dispatch", () => {
   it("swapping the captain to a HEALTHY hull lets them dispatch again", () => {
     // Add a second, healthy, parked destroyer (ship-2) and reassign the captain to it.
     const base = damagedIdle();
-    const withSpare: GameState = {
+    // Combat 1.0 (Unit 1.3): ship-2 is a healthy combat hull added inline, so seed its combat
+    // baseline (else the swapped-to hull would fail the new dispatch blocker).
+    const withSpare: GameState = installMissingCombatBaselines({
       ...base,
       ships: [...base.ships, { id: "ship-2", typeKey: "destroyer", assignedCaptainId: null }],
-    };
+    });
     const swapped = assignShipToCaptain(withSpare, 1, "ship-2");
     expect(swapped.success).toBe(true);
     // The healthy hull passes the gate (the damaged ship-1 is now parked, no longer flown).

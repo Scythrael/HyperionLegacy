@@ -43,6 +43,11 @@ import {
   // shipBuild completion or a captain-slot unlock is born fully fitted on every live slot
   // (never-empty invariant), the SAME helper freshState + the save migration use.
   seedStandardIssueForShip,
+  // Combat 1.0 (Unit 1.3): the combat parallel, so a newly-built or newly-granted COMBAT hull
+  // is also born with its free Standard-Issue combat set (weapon + shield emitter + hull plating)
+  // installed, keeping it dispatchable past the new empty-required-slot dispatch blocker below.
+  seedCombatStandardIssueForShip,
+  generateCombatStandardIssue,
   type ItemDef,
   type GameState,
   type ShipTypeKey,
@@ -117,7 +122,7 @@ import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
 // resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
-import { combatHullTypeOf, defaultDronesForHull, defaultSystemDurabilityForHull, type CombatHullType } from "./combat/bridge";
+import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, defaultSystemDurabilityForHull, type CombatHullType } from "./combat/bridge";
 import { planWaveSchedule, patrolWaveParams } from "./combat/waveSchedule";
 // Combat 0.13.0 (Phase 12b-1 review): the pure per-wave seed derivation + its four salt
 // constants now live in their own dependency-free combat/ leaf (waveSeed.ts) so the
@@ -3114,6 +3119,63 @@ function freshPatrolMission(args: {
   };
 }
 
+// installMissingCombatBaselines: fill every COMBAT hull in the fleet that is missing its required
+// combat slots with a freshly-minted, fitted Standard-Issue combat set (weapon + shield emitter +
+// hull plating), threading nextEquipmentId forward. Combat 1.0 (Unit 1.3).
+//
+// THE shared "give combat hulls their baseline" fold (Omega 4, DRY): the v33->v34 save migration
+// (save.ts) delegates to it so a pre-combat-gear save's combat hulls become dispatchable on load.
+// It mints the SAME baseline pieces a fresh build installs via seedCombatStandardIssueForShip (both
+// go through generateCombatStandardIssue in the same weapon/shield/plating order), so a migrated
+// and a freshly-built combat hull land on the byte-identical shape. Also the sanctioned way a
+// freshState-derived TEST fixture that retypes a hull into a combat hull re-establishes the
+// never-empty combat invariant the retype skipped.
+//
+// IDEMPOTENT + PER-SLOT: for each combat hull, only the ABSENT required slots are minted + fitted,
+// so re-running installs nothing new (a fully-equipped hull is untouched) AND a partially-stripped
+// hull (once the install UI can strip a single slot) is completed WITHOUT duplicating the slots it
+// still carries. Today build + migration always install the complete set, so a hull has all three
+// or none and this is equivalent to seeding the whole set; the per-slot logic simply future-proofs
+// the seam a later install/uninstall unit would otherwise trip on. An economy hull (combatHullTypeOf
+// null) is never touched. PURE: returns a NEW GameState (or the SAME ref when nothing changed).
+export function installMissingCombatBaselines(state: GameState): GameState {
+  let equipment = state.equipment;
+  let nextEquipmentId = state.nextEquipmentId;
+  let changed = false;
+  for (const ship of state.ships) {
+    const hull = combatHullTypeOf(ship.typeKey);
+    if (hull === null) continue; // economy hull: no combat slots to fill
+    const fitted = equipment.filter((e) => e.fittedToShipId === ship.id);
+    // The three required combat slots, in the deterministic mint order the fresh-build seeder uses
+    // (weapon, shieldEmitters, hullPlating). Mint + fit ONLY the slots this hull is missing, so a
+    // bare hull gets the full set (byte-identical to seedCombatStandardIssueForShip: same order,
+    // same ids) while a partially-stripped hull is completed without duplicating what it still has.
+    const required = [
+      { slotType: "weapon" as const, weaponType: COMBAT_DEFAULT_LOADOUT[hull].weapons[0] },
+      { slotType: "shieldEmitters" as const, weaponType: undefined },
+      { slotType: "hullPlating" as const, weaponType: undefined },
+    ];
+    for (const spec of required) {
+      if (fitted.some((e) => e.slotType === spec.slotType)) continue; // already installed: never double-seed
+      const mintedId = nextEquipmentId; // capture before advancing so allocateId names THIS id
+      equipment = [
+        ...equipment,
+        generateCombatStandardIssue({
+          slotType: spec.slotType,
+          weaponType: spec.weaponType,
+          fittedToShipId: ship.id,
+          allocateId: () => `equip-${mintedId}`,
+        }),
+      ];
+      nextEquipmentId = mintedId + 1;
+      changed = true;
+    }
+  }
+  // Same-ref no-op when every combat hull was already fully equipped (or there are none), so a
+  // caller that re-runs this on an already-migrated state gets back an untouched reference.
+  return changed ? { ...state, equipment, nextEquipmentId } : state;
+}
+
 // The reasons canDispatchPatrol can block, a typed union mirroring DispatchBlockReason
 // (extraction). Member order mirrors the gate order below (cheapest/most-fundamental
 // first). Patrols share the identity/status/fuel gates but SWAP the mission-specific
@@ -3122,13 +3184,20 @@ function freshPatrolMission(args: {
 // freighter/prospector cannot patrol). Unlock/level/reward gates for patrols are a later
 // concern (no locked patrol content this unit), so they are deliberately absent here.
 export type PatrolDispatchBlockReason =
-  | "noCaptain"      // no captain has that id (bad caller / stale reference)
-  | "busy"           // the captain is already on a mission (extraction OR patrol); dispatch is idle-only
-  | "noShip"         // the captain flies no hull, so the trip can't be priced/crewed
-  | "notCombatHull"  // the assigned hull is NOT a combat hull (destroyer/battleship/carrier)
-  | "needsRepair"    // the assigned hull is DAMAGED (lost a patrol) and must be repaired first (Phase 11)
-  | "fuelCapacity"   // the hull's tank is physically too small for the round trip (RANGE)
-  | "fuelEmpty";     // the shared fuel tank can't cover the round trip's cost AND the shortfall is unaffordable (RESOURCE)
+  | "noCaptain"        // no captain has that id (bad caller / stale reference)
+  | "busy"             // the captain is already on a mission (extraction OR patrol); dispatch is idle-only
+  | "noShip"           // the captain flies no hull, so the trip can't be priced/crewed
+  | "notCombatHull"    // the assigned hull is NOT a combat hull (destroyer/battleship/carrier)
+  | "needsRepair"      // the assigned hull is DAMAGED (lost a patrol) and must be repaired first (Phase 11)
+  // Combat 1.0 (Unit 1.3, design S3): a combat hull with an EMPTY required combat slot cannot patrol.
+  // Per-slot reasons (not a single "missingCombatGear") so the UI can name the exact empty slot.
+  // NEVER fires in normal play (every combat hull is born + migrated with the Standard-Issue combat
+  // set installed); it is the guard for when the install UI lets a player strip a required slot bare.
+  | "noWeapon"         // the combat hull has NO weapon installed (needs >=1 to patrol)
+  | "noShieldEmitter"  // the combat hull has NO shield emitter installed (pure-gear shields: no emitter = no shields)
+  | "noHullPlating"    // the combat hull has NO hull plating installed
+  | "fuelCapacity"     // the hull's tank is physically too small for the round trip (RANGE)
+  | "fuelEmpty";       // the shared fuel tank can't cover the round trip's cost AND the shortfall is unaffordable (RESOURCE)
 
 // canDispatchPatrol: THE single consolidated patrol-dispatch gate. Pure predicate, reads
 // state + the static PATROLS/SHIP_TYPES tables, mutates + spends nothing. The ONE source
@@ -3137,8 +3206,8 @@ export type PatrolDispatchBlockReason =
 //
 // GATE ORDER (cheapest/most-fundamental first, determines WHICH reason surfaces when
 // several fail): identity (noCaptain) -> status (busy) -> hull existence (noShip) -> hull
-// CAPABILITY (notCombatHull) -> repair state (needsRepair) -> fuel RANGE (fuelCapacity) ->
-// fuel RESOURCE (fuelEmpty).
+// CAPABILITY (notCombatHull) -> repair state (needsRepair) -> combat GEAR (noWeapon /
+// noShieldEmitter / noHullPlating) -> fuel RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty).
 // notCombatHull is checked right after the hull is resolved (it is a property of the
 // hull, cheaper + more useful to report than any fuel arithmetic). Fuel is priced from
 // the SAME equipment-folded engineEfficiency the extraction gate uses, so a patrol's
@@ -3175,6 +3244,21 @@ export function canDispatchPatrol(
   // valve is assignShipToCaptain: the captain can swap to a healthy hull and dispatch that
   // one; only THIS damaged hull is grounded until its repair completes.
   if (ship.damaged) return { ok: false, reason: "needsRepair" };
+
+  // --- Combat GEAR (Combat 1.0, Unit 1.3, design S3): a combat hull REQUIRES its three required
+  // combat slots filled to patrol: at least one weapon, a shield emitter, and hull plating (queried
+  // off the fittedToShipId authority in state.equipment). Every combat hull is BORN and MIGRATES
+  // with the free Standard-Issue combat set installed (seedCombatStandardIssueForShip), so this
+  // NEVER fires in normal play; it is the guard for when the (later-unit) install/uninstall UI lets
+  // a player strip a required slot bare, honoring the "no shield emitter = no shields / no hull
+  // plating = you die" intent by BLOCKING dispatch rather than flying a defenseless hull. Checked
+  // after needsRepair (a property of the hull's fitment, more fundamental than fuel) and before any
+  // fuel arithmetic. Per-slot reasons so the UI names the exact empty slot.
+  const fittedCombat = state.equipment.filter((e) => e.fittedToShipId === ship.id);
+  if (!fittedCombat.some((e) => e.slotType === "weapon")) return { ok: false, reason: "noWeapon" };
+  if (!fittedCombat.some((e) => e.slotType === "shieldEmitters")) return { ok: false, reason: "noShieldEmitter" };
+  if (!fittedCombat.some((e) => e.slotType === "hullPlating")) return { ok: false, reason: "noHullPlating" };
+
   const shipDef = SHIP_TYPES[ship.typeKey];
 
   // --- Fuel gates: price the round trip from the patrol's transit legs (fuelForRoundTrip),
@@ -6272,6 +6356,20 @@ export function resolveProcesses(
       const seededHull = seedStandardIssueForShip(minted.id, nextEquipmentId);
       equipment = [...equipment, ...seededHull.pieces];
       nextEquipmentId = seededHull.nextId;
+      // Combat 1.0 (Unit 1.3): if the built hull is a COMBAT hull (destroyer/battleship/carrier),
+      // ALSO install its free Standard-Issue combat set (weapon + shield emitter + hull plating)
+      // so it clears the empty-required-slot dispatch blocker (canDispatchPatrol) the moment it is
+      // crewed. Threaded off the ALREADY-advanced nextEquipmentId (economy seed first, combat seed
+      // second) so every minted id stays unique + monotonic across builds and crafts in one resolve.
+      // A non-combat hull resolves to a null signature weapon and mints nothing (clean no-op).
+      const combatHull = combatHullTypeOf(minted.typeKey);
+      const seededCombat = seedCombatStandardIssueForShip(
+        minted.id,
+        combatHull ? COMBAT_DEFAULT_LOADOUT[combatHull].weapons[0] : null,
+        nextEquipmentId
+      );
+      equipment = [...equipment, ...seededCombat.pieces];
+      nextEquipmentId = seededCombat.nextId;
     } else if (process.effect.type === "addEquipment") {
       // Equipment 0.11.0 (Task 19): a completed EQUIPMENT fabricate job MINTS a non-stacking
       // EquipmentInstance (NOT an inventory item, and no stackable output). We look up
@@ -6572,6 +6670,17 @@ export function buyHomeworldTalent(
     // captain is dispatchable immediately, the SAME shared seeder freshState / the save
     // migration / the shipBuild completion use. nextEquipmentId is threaded forward.
     const seededHull = seedStandardIssueForShip(newShipId, state.nextEquipmentId);
+    // Combat 1.0 (Unit 1.3): mirror the shipBuild path and ALSO install the combat baseline when
+    // the granted hull is a combat hull, threaded off the economy seed's advanced id. Today the
+    // granted hull is ALWAYS a generalFreighter (an economy hull), so combatHullTypeOf returns null
+    // and this is a clean no-op that threads the id straight through; the call is here for symmetry
+    // and to stay correct if the grant hull ever becomes a combat hull.
+    const grantCombatHull = combatHullTypeOf("generalFreighter");
+    const seededCombat = seedCombatStandardIssueForShip(
+      newShipId,
+      grantCombatHull ? COMBAT_DEFAULT_LOADOUT[grantCombatHull].weapons[0] : null,
+      seededHull.nextId
+    );
     return {
       next: {
         ...state,
@@ -6580,8 +6689,8 @@ export function buyHomeworldTalent(
         nextShipId: state.nextShipId + 1,
         nextCaptainId: nextId + 1, // Combat 0.13.0 (Task 1.2): consume the monotonic captain-id counter
 
-        equipment: [...state.equipment, ...seededHull.pieces],
-        nextEquipmentId: seededHull.nextId,
+        equipment: [...state.equipment, ...seededHull.pieces, ...seededCombat.pieces],
+        nextEquipmentId: seededCombat.nextId,
         adminPoints,
         unlockedHomeworldTalents,
       },

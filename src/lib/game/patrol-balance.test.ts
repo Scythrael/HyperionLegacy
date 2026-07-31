@@ -36,7 +36,7 @@ import {
   type ShipTypeKey,
   type PatrolMissionState,
 } from "./model";
-import { dispatchCaptainOnPatrol, economyTick } from "./tick";
+import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines } from "./tick";
 
 const PATROL_KEY = "crimsonReaverSweep";
 const DEF = PATROLS[PATROL_KEY];
@@ -61,13 +61,15 @@ const COMBAT_HULLS: ShipTypeKey[] = ["destroyer", "battleship", "carrier"];
 // (Same shape as patrol-tick.test.ts's helper.)
 function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
   const base = freshState();
-  return {
+  // Combat 1.0 (Unit 1.3): seed the combat baseline the retype skipped so a fabricated combat hull
+  // clears the new empty-required-slot dispatch blocker (economy hull -> no-op).
+  return installMissingCombatBaselines({
     ...base,
     nextPatrolSeed: seed,
     fuel: new Decimal(100000),
     credits: new Decimal(100000),
     ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)),
-  };
+  });
 }
 
 // Run ONE starter patrol (Dispatch Once) for a hull + master seed through the REAL

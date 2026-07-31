@@ -220,6 +220,33 @@ describe("on-mission lock", () => {
 // ----------------------------------------------------------------------------
 // equipRequirement gate (specUtility = Prospecting Rig: prospector captain + hull)
 // ----------------------------------------------------------------------------
+// Combat 1.0 (Unit 1.3): canFitEquipment REJECTS installing a combat piece (its baseline is
+// auto-installed, not player-installed yet) and any reserved/unknown slot. Checked first (a pure
+// property of the piece), so it fires regardless of ship/captain/mission state.
+describe("canFitEquipment rejects non-economy slots (Combat 1.0, Unit 1.3)", () => {
+  for (const slotType of ["weapon", "shieldEmitters", "hullPlating"] as const) {
+    it(`rejects a combat ${slotType} piece with combatSlotNotInstallable`, () => {
+      // A destroyer (combat hull) with a spare combat piece in the pool: still rejected, because
+      // combat gear installation is not player-facing yet (the baseline is seeded directly).
+      const piece = makeEquip({ id: "equip-1", slotType, fittedToShipId: null });
+      const state = withHull(withEquipment(freshState(), piece), "destroyer");
+      expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "combatSlotNotInstallable" });
+    });
+  }
+
+  it("rejects a reserved/unknown slot (bridge) with slotNotInstallable", () => {
+    const piece = makeEquip({ id: "equip-1", slotType: "bridge" as EquipmentSlotType, fittedToShipId: null });
+    const state = withEquipment(freshState(), piece);
+    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "slotNotInstallable" });
+  });
+
+  it("still ALLOWS an economy slot (the guard only blocks combat/reserved slots)", () => {
+    const piece = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });
+    const state = withEquipment(freshState(), piece);
+    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: true });
+  });
+});
+
 describe("equipRequirement gate", () => {
   // A specUtility (Prospecting Rig) piece: requires captainSpec prospector + hullSpec prospector.
   const rig = () => makeEquip({ id: "equip-1", slotType: "specUtility", fittedToShipId: null });

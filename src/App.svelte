@@ -2146,6 +2146,12 @@
         return "Assign a combat hull first";
       case "needsRepair":
         return "Ship is damaged, repair it first";
+      case "noWeapon":
+        return "Install a weapon first";
+      case "noShieldEmitter":
+        return "Install a shield emitter first";
+      case "noHullPlating":
+        return "Install hull plating first";
       case "fuelCapacity":
         return "Ship's tank too small for this trip";
       case "fuelEmpty":
@@ -2433,6 +2439,10 @@
         return "captain spec does not match this piece";
       case "captainSpecParked":
         return "assign a matching captain first (hull is parked)";
+      case "combatSlotNotInstallable":
+        return "combat gear install arrives in a later update";
+      case "slotNotInstallable":
+        return "this slot is not installable";
     }
   }
 

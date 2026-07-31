@@ -43,6 +43,7 @@ import {
   deriveWaveSeed,
   patrolPhaseFor,
   canDispatchPatrol,
+  installMissingCombatBaselines,
 } from "./tick";
 import { PATROLS } from "./model";
 import { defaultSystemDurabilityForHull } from "./combat/bridge";
@@ -60,13 +61,15 @@ const RNG = () => 0.5;
 // confound the combat-state assertions).
 function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
   const base = freshState();
-  return {
+  // Combat 1.0 (Unit 1.3): seed the combat baseline the retype skipped so a fabricated combat hull
+  // clears the new empty-required-slot dispatch blocker (economy hull -> no-op).
+  return installMissingCombatBaselines({
     ...base,
     nextPatrolSeed: seed,
     fuel: new Decimal(100000),
     credits: new Decimal(100000),
     ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)),
-  };
+  });
 }
 
 function dispatch(state: GameState, repeat: boolean): GameState {
@@ -158,7 +161,8 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
     function twoPatrolCaptains(seedBase: number, hullA: ShipTypeKey, hullB: ShipTypeKey): GameState {
       const base = freshState();
       const captain2: CaptainState = { ...freshCaptains(1)[0], id: 2, label: "Captain 2" };
-      return {
+      // Combat 1.0 (Unit 1.3): both hulls may be combat hulls, so seed each one's combat baseline.
+      return installMissingCombatBaselines({
         ...base,
         nextPatrolSeed: seedBase,
         fuel: new Decimal(1_000_000),
@@ -170,7 +174,7 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
         ],
         nextCaptainId: 3,
         nextShipId: 3,
-      };
+      });
     }
 
     function runPair(seedBase: number, hullA: ShipTypeKey, hullB: ShipTypeKey) {
@@ -385,13 +389,15 @@ describe("anti-regression: extraction is unperturbed by a patrol captain", () =>
       ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as ShipTypeKey } : s)),
     };
     const captain2: CaptainState = { ...freshCaptains(1)[0], id: 2, label: "Captain 2" };
-    return {
+    // Combat 1.0 (Unit 1.3): ship-1 is a destroyer (combat), so seed its combat baseline; ship-2 is
+    // a freighter (economy, untouched).
+    return installMissingCombatBaselines({
       ...withHull,
       captains: [...withHull.captains, captain2],
       ships: [...withHull.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: 2 }],
       nextCaptainId: 3,
       nextShipId: 3,
-    };
+    });
   }
 
   it("captain 2's extraction outcome is identical whether or not captain 1 flies a patrol", () => {

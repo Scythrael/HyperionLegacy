@@ -17,9 +17,9 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull } from "./combat/bridg
 // shape-preserving, so it is applied on EVERY load with no SAVE_VERSION bump. See
 // clampInventoryToCaps in tick.ts for the full rationale. This is a one-way import (tick.ts
 // never imports save.ts), so it introduces no module cycle.
-import { clampInventoryToCaps } from "./tick";
+import { clampInventoryToCaps, installMissingCombatBaselines } from "./tick";
 
-export const SAVE_VERSION = 33;
+export const SAVE_VERSION = 34;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1319,6 +1319,38 @@ const MIGRATIONS: Record<number, Migration> = {
       }),
     };
   },
+  // v33 -> v34: Standard-Issue COMBAT baseline SEED (Combat 1.0, Unit 1.3, docs/plans/
+  // 2026-07-31-combat-1.0-integration-plan.md). Units 1.1/1.2 added the combat gear slots +
+  // craftable weapons, but no ship carried any combat gear yet. This step fits every EXISTING
+  // COMBAT hull (destroyer/battleship/carrier) out with its free Standard-Issue combat set (one
+  // weapon + one shield emitter + one hull plating), so a migrated combat hull clears the new
+  // empty-required-slot dispatch blocker (canDispatchPatrol) and stays dispatchable. Economy hulls
+  // are untouched (they cannot patrol and have no combat slots).
+  //
+  // - Delegates to the SHARED installMissingCombatBaselines (tick.ts), the SAME fold a fresh ship
+  //   build applies, so a migrated and a freshly-built combat hull land on the byte-identical
+  //   fully-installed shape and can never drift (Omega 4, DRY). Ids are allocated from
+  //   nextEquipmentId and threaded forward across ships, so every minted id is unique + monotonic,
+  //   exactly as the v27->v28 economy Standard-Issue seed does.
+  // - IDEMPOTENT per ship: a combat hull already carrying its three required combat slots is
+  //   SKIPPED (never double-seeded). A genuine v33 save has NO combat gear, so every combat hull is
+  //   seeded once; the skip guards a re-run / chained / hand-edited save (same belt-and-suspenders
+  //   posture as MIGRATIONS[27]).
+  // - ECONOMY-NEUTRAL: the combat baseline is mass 0 / powerDraw 0 with combat-only stat lines, so
+  //   folding it into shipDerivedStats is bit-identical to the bare hull (an in-flight extraction
+  //   mission resolves IDENTICALLY pre/post migration; the offline==live parity fuzz stays green).
+  //   An EquipmentInstance carries no top-level Decimal, so the minted pieces ride hydrateDecimals's
+  //   `...state` spread untouched. `?? []` / `?? 1` guard a partial/hand-edited save (a genuine v33
+  //   save always has both, guaranteed by MIGRATIONS[26]/[27]).
+  // NOTE: on the current feature branch, NOT yet shipped to production, so still editable (the
+  // frozen-once-shipped rule applies only to production-released migrations).
+  33: (state: any): any =>
+    installMissingCombatBaselines({
+      ...state,
+      ships: state.ships ?? [],
+      equipment: state.equipment ?? [],
+      nextEquipmentId: state.nextEquipmentId ?? 1,
+    }),
 };
 
 export function migrate(save: SaveFile): GameState {

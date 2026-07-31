@@ -12,7 +12,7 @@ import { equippedFor } from "./equipment";
 // field read), so it imports those tick.ts helpers directly. Fuel Economy v2 (F5) adds
 // economyTick to prove a CURRENT-version (v21) save's Fuel Depot still refines after a
 // round trip (the "no new migration needed" proof).
-import { canDispatch, missionUnlocked, buyFuel, economyTick, canDispatchPatrol, dispatchCaptainOnPatrol, processShipRepairs } from "./tick";
+import { canDispatch, missionUnlocked, buyFuel, economyTick, canDispatchPatrol, dispatchCaptainOnPatrol, processShipRepairs, installMissingCombatBaselines } from "./tick";
 // Combat 0.13.0 (Phase 11): the loss/repair-loop round-trip test needs a combat hull + a
 // patrol key + the repair tunables to prove the NEW optional repair/limp fields survive a
 // save/load with NO version bump (the absent-is-default posture).
@@ -20,7 +20,7 @@ import { SHIP_TYPES, PATROLS, REPAIR_BASE_TICKS, REPAIR_TICKS_PER_HULL } from ".
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state; this helper is the expected full value (the same source the
 // migration + freshPatrolMission use).
-import { defaultSystemDurabilityForHull } from "./combat/bridge";
+import { defaultSystemDurabilityForHull, COMBAT_DEFAULT_LOADOUT } from "./combat/bridge";
 
 describe("migrate, tickDurationSeconds backfill", () => {
   it("defaults tickDurationSeconds to 10 on a v1 save that predates the field", () => {
@@ -60,7 +60,7 @@ describe("migrate, tickDurationSeconds backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -99,7 +99,7 @@ describe("migrate, research field backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -273,7 +273,7 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -370,7 +370,7 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -476,7 +476,7 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -565,7 +565,7 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -638,7 +638,7 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -701,7 +701,7 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -771,7 +771,7 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -1563,7 +1563,7 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -1771,7 +1771,7 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -2055,7 +2055,7 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -2219,7 +2219,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(33);
+    expect(deserialized!.version).toBe(34);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2241,7 +2241,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -2370,7 +2370,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -2537,7 +2537,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -2728,7 +2728,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -2919,7 +2919,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -3112,7 +3112,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -3289,7 +3289,7 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -3441,7 +3441,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 });
 
@@ -3625,7 +3625,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     // (a v28 save chains all the way through the iLevel backfill at v29->v30 and the
     // nextCaptainId backfill at v30->v31).
     const roundTripped = deserialize(serialize(migrated, 0));
-    expect(roundTripped!.version).toBe(33);
+    expect(roundTripped!.version).toBe(34);
     expect(roundTripped!.version).toBe(SAVE_VERSION);
 
     // Task B1 (equipment storage cap): the SAME v28->v29 body seeds the new
@@ -3684,7 +3684,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
   });
 
   it("freshState seeds equipmentStorageLevel 0 (Task B1), matching the migration's seed on old saves", () => {
@@ -3938,12 +3938,16 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
   // dispatch never gates. Mirrors the Phase 11 block's combatState helper.
   function combatState(): ReturnType<typeof freshState> {
     const base = freshState();
-    return {
+    // Combat 1.0 (Unit 1.3): ship-1 is retyped to a destroyer (combat hull), so seed its combat
+    // baseline via installMissingCombatBaselines, else dispatchCaptainOnPatrol fails the new
+    // empty-required-slot dispatch blocker. The migration's own v33->v34 step is idempotent, so a
+    // save built from this (already carrying combat gear) is skipped, not double-seeded.
+    return installMissingCombatBaselines({
       ...base,
       fuel: new Decimal(100000),
       credits: new Decimal(100000),
       ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as const } : s)),
-    };
+    });
   }
 
   // Build a genuine v32-shaped SaveFile carrying an IN-FLIGHT patrol that LACKS the B2 field:
@@ -3986,7 +3990,7 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     const migrated: any = migrate(save);
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
-    expect(roundTripped!.version).toBe(33);
+    expect(roundTripped!.version).toBe(34);
     // The now-v33 save carries the field; re-migrating keeps it (no re-backfill, no reset).
     const before = (roundTripped!.state as any).captains[0].mission.playerSystemDurability;
     const remigrated: any = migrate(roundTripped as SaveFile);
@@ -4014,7 +4018,63 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     expect(mission.kind).toBe("patrol");
     // No full durability derivable => field stays absent (no crash, no fabricated value).
     expect(mission.playerSystemDurability).toBeUndefined();
-    expect(SAVE_VERSION).toBe(33);
+    expect(SAVE_VERSION).toBe(34);
+  });
+});
+
+// Combat 1.0 (Unit 1.3): the v33 -> v34 combat Standard-Issue baseline seed. Every EXISTING combat
+// hull gets its free weapon + shield emitter + hull plating installed on load, so a pre-combat-gear
+// save's combat hulls clear the new empty-required-slot dispatch blocker. Economy hulls are untouched.
+describe("migrate, Standard-Issue combat baseline seed (v33 -> v34)", () => {
+  // A genuine v33-shaped save: ship-1 is a COMBAT hull (destroyer) carrying ONLY its four economy
+  // Standard-Issue baselines and NO combat gear (the pre-Unit-1.3 shape). Built by retyping
+  // freshState's ship-1 to a destroyer WITHOUT the combat seed, then stamping version 33.
+  function makeV33CombatSave(): SaveFile {
+    const base = freshState();
+    const preGear = { ...base, ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as const } : s)) };
+    const raw = deserialize(serialize(preGear, 0)) as SaveFile;
+    raw.version = 33;
+    return raw;
+  }
+
+  it("seeds an existing combat hull's three combat baselines (weapon + shield + plating) on load", () => {
+    const save = makeV33CombatSave();
+    // Precondition: the v33 destroyer carries ONLY the four economy baselines, no combat gear.
+    const before = (save.state as any).equipment.filter((e: any) => e.fittedToShipId === "ship-1");
+    expect(before).toHaveLength(4);
+    expect(before.some((e: any) => e.slotType === "weapon")).toBe(false);
+
+    const migrated: any = migrate(save);
+    const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
+    expect(fitted).toHaveLength(7); // 4 economy + 3 combat
+    for (const slot of ["weapon", "shieldEmitters", "hullPlating"]) {
+      expect(fitted.filter((e: any) => e.slotType === slot)).toHaveLength(1);
+    }
+    // The seeded weapon is the destroyer's signature gun.
+    expect(fitted.find((e: any) => e.slotType === "weapon").weaponType).toBe(COMBAT_DEFAULT_LOADOUT.destroyer.weapons[0]);
+  });
+
+  it("is IDEMPOTENT: re-migrating a save that already carries combat gear seeds nothing more", () => {
+    const migrated: any = migrate(makeV33CombatSave());
+    const countAfterFirst = migrated.equipment.length;
+    const nextIdAfterFirst = migrated.nextEquipmentId;
+    // Re-stamp to v33 and migrate again: ship-1 already has all three combat slots -> skipped.
+    const reSave = deserialize(serialize(migrated, 0)) as SaveFile;
+    reSave.version = 33;
+    const remigrated: any = migrate(reSave);
+    expect(remigrated.equipment.length).toBe(countAfterFirst); // no double-seed
+    expect(remigrated.nextEquipmentId).toBe(nextIdAfterFirst);
+    expect(remigrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1" && e.slotType === "weapon")).toHaveLength(1);
+  });
+
+  it("leaves an ECONOMY hull untouched (no combat slots seeded)", () => {
+    // freshState's ship-1 stays a generalFreighter: a genuine v33 save with an economy hull.
+    const raw = deserialize(serialize(freshState(), 0)) as SaveFile;
+    raw.version = 33;
+    const migrated: any = migrate(raw);
+    const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
+    expect(fitted).toHaveLength(4); // still only the four economy baselines
+    expect(fitted.some((e: any) => e.slotType === "weapon")).toBe(false);
   });
 });
 
@@ -4064,7 +4124,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(33);
+    expect(save!.version).toBe(34);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
@@ -4113,12 +4173,16 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
   // tank + credits topped up so fuel never gates the dispatch assertions.
   function combatState(): ReturnType<typeof freshState> {
     const base = freshState();
-    return {
+    // Combat 1.0 (Unit 1.3): ship-1 is retyped to a destroyer (combat hull), so seed its combat
+    // baseline via installMissingCombatBaselines, else dispatchCaptainOnPatrol fails the new
+    // empty-required-slot dispatch blocker. The migration's own v33->v34 step is idempotent, so a
+    // save built from this (already carrying combat gear) is skipped, not double-seeded.
+    return installMissingCombatBaselines({
       ...base,
       fuel: new Decimal(100000),
       credits: new Decimal(100000),
       ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as const } : s)),
-    };
+    });
   }
 
   it("(1) an OLD-SHAPED save (no repair/limp fields, in-flight non-defeated patrol) round-trips + stays playable", () => {
@@ -4137,7 +4201,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     const save = deserialize(serialize(inFlight, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(33); // Phase 11 added no bump; the current version is 33 (Unit B2)
+    expect(save!.version).toBe(34); // current version is 34 (Combat 1.0 Unit 1.3 combat-baseline seed)
     const restored = migrate(save);
 
     // Empty repair state survived: the ship reads as healthy, the in-flight patrol is intact
@@ -4174,7 +4238,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     // Round-trip: the damaged flag, repairDamage, AND the in-flight shipRepair (clearShipDamage
     // effect) must all survive JSON with no hydration change.
     const save = deserialize(serialize(withRepair, 0)) as SaveFile;
-    expect(save!.version).toBe(33);
+    expect(save!.version).toBe(34);
     const restored = migrate(save!);
     const shipAfter = restored.ships.find((s) => s.id === "ship-1")!;
     expect(shipAfter.damaged).toBe(true);

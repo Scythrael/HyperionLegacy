@@ -41,6 +41,23 @@ import type {
 } from "./model";
 import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue } from "./model";
 
+// Combat 1.0 (Unit 1.3): the slot-type partitions the fit gate (canFitEquipment) reads. The FOUR
+// economy slots are the ONLY ones installable through this path today. The three combat slots are
+// rejected with their own reason (their baseline is auto-installed, not player-installed yet);
+// every other member of EquipmentSlotType is reserved/unknown and rejected generically. Sets (not
+// arrays) for O(1) membership; typed to EquipmentSlotType so a slot rename is a compile error.
+const ECONOMY_INSTALLABLE_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>([
+  "cargoBay",
+  "ftlDrive",
+  "reactorCore",
+  "specUtility",
+]);
+const COMBAT_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>([
+  "weapon",
+  "shieldEmitters",
+  "hullPlating",
+]);
+
 // ----------------------------------------------------------------------------
 // captainBranchToShipSpec
 // ----------------------------------------------------------------------------
@@ -95,6 +112,14 @@ export function captainBranchToShipSpec(branch: CaptainTalentBranch): ShipSpec {
 //                        captain to satisfy it), a distinct, clearer reason than captainSpec
 export type EquipFitBlockReason =
   | "noInstance"
+  // Combat 1.0 (Unit 1.3): a combat piece (weapon / shieldEmitters / hullPlating) cannot be
+  // installed through this economy fit path yet, and a reserved/unknown slot has no install
+  // support at all. Distinct reasons so the UI can say "combat gear installation arrives in a
+  // later update" vs a generic "this system cannot be installed". The Standard-Issue combat
+  // baselines are seeded DIRECTLY (seedCombatStandardIssueForShip), NOT through canFitEquipment,
+  // so this guard never blocks the auto-install.
+  | "combatSlotNotInstallable"
+  | "slotNotInstallable"
   | "noShip"
   | "onMission"
   | "hullSpec"
@@ -193,6 +218,18 @@ export function canFitEquipment(
   // list keyed by the stable EquipmentInstance.id, like every other id lookup here).
   const instance = state.equipment.find((e) => e.id === instanceId);
   if (!instance) return { ok: false, reason: "noInstance" };
+
+  // --- Installable-slot guard (Combat 1.0, Unit 1.3): only the FOUR economy slots can be installed
+  // through this path. A COMBAT slot (weapon / shieldEmitters / hullPlating) is rejected explicitly:
+  // its Standard-Issue baseline is auto-installed at build/migration (seedCombatStandardIssueForShip,
+  // which does NOT call this gate), and the player-facing install/uninstall of combat gear arrives
+  // in a later unit. A reserved/unknown slot (bridge/quarters/etc., none generated yet) is rejected
+  // too. Checked first (a pure property of the piece, more fundamental than any ship/mission state)
+  // so a bad install is refused before any ship lookup. Without this, weapon (no EQUIPMENT_SLOTS
+  // entry) would fall through to {ok:true}, and shieldEmitters/hullPlating (which DO have entries)
+  // would clear the requirement block and also return {ok:true}.
+  if (COMBAT_SLOT_TYPES.has(instance.slotType)) return { ok: false, reason: "combatSlotNotInstallable" };
+  if (!ECONOMY_INSTALLABLE_SLOTS.has(instance.slotType)) return { ok: false, reason: "slotNotInstallable" };
 
   // --- Ship existence + on-mission lock (shared with unfitEquipment). This also
   // yields the ship reference we need below, but onMissionLock re-finds it to stay
