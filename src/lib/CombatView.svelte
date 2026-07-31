@@ -1097,7 +1097,7 @@
                   <span class="cvm-dl">Systems</span>
                   <span class="cvm-mini">
                     {#each playerSystemPips as sp (sp.pip.id)}
-                      <span class="pip {sp.pip.condition}" title={sp.label}></span>
+                      <span class="cvm-pipinfo"><span class="pip {sp.pip.condition}" title={sp.label}></span>{sp.label}</span>
                     {/each}
                   </span>
                 </div>
@@ -1107,7 +1107,7 @@
                 <span class="cvm-mini">
                   {#if playerSnap && playerSnap.effects.length > 0}
                     {#each playerSnap.effects as e (e.defId)}
-                      <span class="pip {effectPipClass(e.defId)}" title={effectPipTitle(e.defId, e.rank)}>{effectPipGlyph(e.defId)}</span>
+                      <span class="cvm-pipinfo"><span class="pip {effectPipClass(e.defId)}" title={effectPipTitle(e.defId, e.rank)}>{effectPipGlyph(e.defId)}</span>{effectPipTitle(e.defId, e.rank)}</span>
                     {/each}
                   {:else}
                     <span class="cvm-none">none</span>
@@ -1120,7 +1120,7 @@
                     <span class="cvm-dl">{squadron.model}</span>
                     <span class="cvm-mini">
                       {#each dronePips(squadronStatusSummary(squadron)) as dp}
-                        <span class="pip {dp.cls}" title={dp.title}></span>
+                        <span class="cvm-pipinfo"><span class="pip {dp.cls}" title={dp.title}></span>{dp.title}</span>
                       {/each}
                     </span>
                   </div>
@@ -1177,7 +1177,7 @@
                     <span class="cvm-dl">Systems</span>
                     <span class="cvm-mini">
                       {#each ePips as sp (sp.pip.id)}
-                        <span class="pip {sp.pip.condition}" title={sp.label}></span>
+                        <span class="cvm-pipinfo"><span class="pip {sp.pip.condition}" title={sp.label}></span>{sp.label}</span>
                       {/each}
                     </span>
                   </div>
@@ -1187,7 +1187,7 @@
                   <span class="cvm-mini">
                     {#if es && es.effects.length > 0}
                       {#each es.effects as e (e.defId)}
-                        <span class="pip {effectPipClass(e.defId)}" title={effectPipTitle(e.defId, e.rank)}>{effectPipGlyph(e.defId)}</span>
+                        <span class="cvm-pipinfo"><span class="pip {effectPipClass(e.defId)}" title={effectPipTitle(e.defId, e.rank)}>{effectPipGlyph(e.defId)}</span>{effectPipTitle(e.defId, e.rank)}</span>
                       {/each}
                     {:else}
                       <span class="cvm-none">none</span>
@@ -1200,7 +1200,7 @@
                       <span class="cvm-dl">{squadron.model}</span>
                       <span class="cvm-mini">
                         {#each dronePips(squadronStatusSummary(squadron)) as dp}
-                          <span class="pip {dp.cls}" title={dp.title}></span>
+                          <span class="cvm-pipinfo"><span class="pip {dp.cls}" title={dp.title}></span>{dp.title}</span>
                         {/each}
                       </span>
                     </div>
@@ -2043,11 +2043,29 @@
     width: 66px;
     flex-shrink: 0;
   }
+  /* Mobile-only detail pip lists. On touch there is no hover, so each pip is paired
+     with its label text inline (see .cvm-pipinfo). The chips stack in a column so a
+     long label like "Weapon 1: Degraded" reads on its own line without truncating. */
   .cvm-mini {
     display: flex;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 4px;
+    min-width: 0;
+  }
+  /* One labeled chip: the small colored pip (or effect glyph) followed by its text.
+     This is the mobile-native equivalent of the desktop arena's hover tooltip. */
+  .cvm-pipinfo {
+    display: inline-flex;
     align-items: center;
-    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 1.25;
+    color: var(--color-text-secondary);
+  }
+  /* Keep the pip a fixed small colored square and the effect glyph legible inside it. */
+  .cvm-pipinfo .pip {
+    flex-shrink: 0;
   }
   .cvm-none {
     font-size: 9px;
