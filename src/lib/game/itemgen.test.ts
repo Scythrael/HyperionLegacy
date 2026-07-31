@@ -36,7 +36,9 @@ import {
   rollDistinctAffixStats,
   budgetShares,
   generateEquipment,
+  generateWeapon,
 } from "./itemgen";
+import { WEAPON_DEFS } from "./combat/weapons";
 
 // --- Deterministic rng helpers (test-local; NOT part of itemgen) --------------
 
@@ -527,6 +529,108 @@ describe("generateEquipment", () => {
     };
     const snapshot = { ...args };
     generateEquipment(args);
+    expect(args).toEqual(snapshot);
+  });
+});
+
+// --- generateWeapon (Combat 1.0 Unit 1.2) -----------------------------------
+// Weapons are minted separately from economy gear: their identity comes from a base
+// WEAPON_DEF (fixed), and only their power lines (weaponYield implicit + weaponYield /
+// weaponAccuracy affixes) roll, off the SAME budget machinery. These pin that contract:
+// a well-formed weapon instance, determinism, monotonicity, the weapon-only vocabulary,
+// input purity, and the bad-type guard.
+describe("generateWeapon: crafted-weapon minting (Combat 1.0 Unit 1.2)", () => {
+  it("mints a well-formed weapon EquipmentInstance carrying its base type", () => {
+    const w = generateWeapon({
+      weaponType: "railgun",
+      blueprintKey: "railgunBp",
+      iLevel: 20,
+      quality: 2,
+      rarity: "augmented",
+      ascension: "none",
+      rng: mulberry32(3),
+      allocateId: idAllocator(),
+    });
+    expect(w.slotType).toBe("weapon");
+    expect(w.weaponType).toBe("railgun");
+    // The signature weaponYield implicit is always present + positive.
+    expect(w.implicitStats.weaponYield).toBeGreaterThan(0);
+    // powerDraw comes straight off the weapon def (the reactor bite is a type property).
+    expect(w.powerDraw).toBe(WEAPON_DEFS.railgun.powerDraw);
+    // A fresh weapon starts at full, quality-scaled durability off the template ceiling.
+    expect(w.durability).toBe(w.durabilityMax);
+    expect(w.durabilityMax).toBe(
+      Math.round(WEAPON_DEFS.railgun.durabilityMax * (1 + 2 * QUALITY_DURABILITY_BONUS)),
+    );
+    expect(w.fittedToShipId).toBeNull();
+  });
+
+  it("is deterministic under a fixed rng + allocateId", () => {
+    const args = () => ({
+      weaponType: "plasma" as const,
+      blueprintKey: "plasmaBp",
+      iLevel: 15,
+      quality: 3,
+      rarity: "radiant" as const,
+      ascension: "none" as const,
+      rng: mulberry32(9),
+      allocateId: idAllocator(),
+    });
+    expect(generateWeapon(args())).toEqual(generateWeapon(args()));
+  });
+
+  it("is monotonic: a rarer, higher-quality weapon has a larger yield signature", () => {
+    // The weaponYield implicit is pure budget (no rng), so this holds for any stream.
+    const common = { weaponType: "autocannon" as const, blueprintKey: null, iLevel: 20, ascension: "none" as const };
+    const weak = generateWeapon({ ...common, quality: 0, rarity: "standard", rng: mulberry32(1), allocateId: idAllocator() });
+    const strong = generateWeapon({ ...common, quality: 5, rarity: "radiant", rng: mulberry32(1), allocateId: idAllocator() });
+    expect(strong.implicitStats.weaponYield).toBeGreaterThan(weak.implicitStats.weaponYield);
+  });
+
+  it("only ever rolls weapon-vocabulary stats (weaponYield / weaponAccuracy)", () => {
+    const w = generateWeapon({
+      weaponType: "voltaic",
+      blueprintKey: null,
+      iLevel: 25,
+      quality: 4,
+      rarity: "radiant",
+      ascension: "none",
+      rng: mulberry32(7),
+      allocateId: idAllocator(),
+    });
+    const allowed = new Set(["weaponYield", "weaponAccuracy"]);
+    for (const k of Object.keys(w.implicitStats)) expect(allowed.has(k)).toBe(true);
+    for (const k of Object.keys(w.rolledStats)) expect(allowed.has(k)).toBe(true);
+  });
+
+  it("throws on an unknown weapon type (corrupt caller / save)", () => {
+    expect(() =>
+      generateWeapon({
+        weaponType: "notAWeapon" as unknown as "railgun",
+        blueprintKey: null,
+        iLevel: 10,
+        quality: 0,
+        rarity: "standard",
+        ascension: "none",
+        rng: mulberry32(1),
+        allocateId: idAllocator(),
+      }),
+    ).toThrow(/no weapon def/);
+  });
+
+  it("does not mutate its input args (PURE)", () => {
+    const args = {
+      weaponType: "empCannon" as const,
+      blueprintKey: null,
+      iLevel: 18,
+      quality: 1,
+      rarity: "standard" as const,
+      ascension: "none" as const,
+      rng: mulberry32(4),
+      allocateId: idAllocator(),
+    };
+    const snapshot = { ...args };
+    generateWeapon(args);
     expect(args).toEqual(snapshot);
   });
 });

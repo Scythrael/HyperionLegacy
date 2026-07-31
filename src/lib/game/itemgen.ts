@@ -38,6 +38,10 @@ import {
   type EquipmentSlotType,
   type EquipmentVarietyDef,
 } from "./model";
+// Combat 1.0 (Unit 1.2): the weapon roster templates + id union. generateWeapon (below) mints a
+// crafted weapon by rolling power lines off a base WEAPON_DEF. This is a safe one-way import:
+// combat/weapons imports only combat/types + combat/statusEffects, never itemgen, so no cycle.
+import { WEAPON_DEFS, type WeaponId } from "./combat/weapons";
 
 // SLOT_BASE_PHYSICALS moved to model.ts (0.11.0 Task 20) so it sits with the other
 // slot DATA (EQUIPMENT_SLOTS / DEFAULT_EQUIPMENT_VARIETY) and can be read by model's
@@ -326,5 +330,98 @@ export function generateEquipment(a: {
     durabilityMax,
     durability: durabilityMax, // fresh piece starts at full durability
     fittedToShipId: null, // spare in the pool until a later fitting task assigns it
+  };
+}
+
+// ============================================================================
+// Combat 1.0 (Unit 1.2): generateWeapon
+// ----------------------------------------------------------------------------
+// Mint a crafted WEAPON as an EquipmentInstance (slotType "weapon"). A weapon is NOT
+// an economy slot: its identity (family, triangle levers, effect slots, range,
+// cooldown, projectiles, ambush eligibility) is FIXED by its base WEAPON_DEF and is
+// never rolled. Only its power lines roll: a signature weaponYield implicit plus
+// rarity-driven affixes (more yield / accuracy) off a small fixed weapon pool. The
+// SAME budget machinery as economy gear (computeBudget / affixCount / the weighted
+// no-duplicate picker) drives the magnitudes, so a rarer / higher-quality / higher-
+// level weapon is monotonically stronger, exactly like an economy piece.
+//
+// The rolled lines are stored on the instance; the bridge (Unit 1.4) reconstructs a
+// CombatWeapon = WEAPON_DEFS[weaponType] with these lines + quality applied. This
+// minter is SEPARATE from makeWeaponInstance (weapons.ts), which stays a DETERMINISTIC
+// clone for the hardcoded default loadout, so activating crafted weapons never perturbs
+// current combat parity: nothing calls generateWeapon until the craft chain lands (Unit
+// 1.2b), and nothing reads a fitted weapon in combat until the bridge fold (Unit 1.4).
+//
+// PURE + deterministic (injected rng/allocateId), same posture as generateEquipment.
+// ============================================================================
+
+// The weapon roll vocabulary. weaponYield is the signature (implicit) line every crafted
+// weapon carries; the affix pool adds more yield or accuracy. Weapons have no EQUIPMENT_SLOTS
+// variety, so the shared affix picker runs against a NEUTRAL variety (every stat keeps its raw
+// pool weight). FIRST-PASS TUNABLE (the balance pass owns the numbers).
+const WEAPON_IMPLICIT_STAT = "weaponYield";
+const WEAPON_AFFIX_POOL: { stat: string; weight: number }[] = [
+  { stat: "weaponYield", weight: 4 },
+  { stat: "weaponAccuracy", weight: 3 },
+];
+const WEAPON_NEUTRAL_VARIETY: EquipmentVarietyDef = { key: "weapon", label: "Weapon", statRatios: {} };
+
+// First-pass intrinsic mass for a crafted weapon (WEAPON_DEFS carry no mass, and the combat sim
+// never reads mass). Inert until the equipment fold-in drags it against speed, same as the
+// economy slots' base mass. TUNABLE.
+const WEAPON_BASE_MASS = 12;
+
+export function generateWeapon(a: {
+  weaponType: WeaponId;
+  blueprintKey: string | null;
+  iLevel: number;
+  quality: number;
+  rarity: EquipmentRarity;
+  ascension: EquipmentAscension;
+  rng: () => number;
+  allocateId: () => string;
+}): EquipmentInstance {
+  const template = WEAPON_DEFS[a.weaponType];
+  if (template === undefined) {
+    throw new Error(`generateWeapon: no weapon def for "${a.weaponType}"`);
+  }
+
+  // Budget and its implicit/affix split (identical model to economy gear).
+  const budget = computeBudget(a.iLevel, a.quality, rarityIndex(a.rarity));
+  const { implicitShare, affixShare } = budgetShares(budget);
+
+  // --- Implicit: the single weaponYield signature line takes the whole implicit share.
+  const implicitStats: Record<string, number> = { [WEAPON_IMPLICIT_STAT]: Math.round(implicitShare) };
+
+  // --- Rolled affixes: rarity-driven count + the weighted no-duplicate picker, run against
+  // the neutral weapon variety. affixCount FIRST (may draw once for augmented), then the picks,
+  // so the rng stream advances in the same documented order as generateEquipment.
+  const wantAffixes = affixCount(a.rarity, a.rng);
+  const rolledStatKeys = rollDistinctAffixStats(WEAPON_AFFIX_POOL, WEAPON_NEUTRAL_VARIETY, wantAffixes, a.rng);
+  const rolledStats: Record<string, number> = {};
+  const affixEach = rolledStatKeys.length > 0 ? Math.round(affixShare / rolledStatKeys.length) : 0;
+  for (const stat of rolledStatKeys) {
+    rolledStats[stat] = affixEach;
+  }
+
+  // --- Durability: quality-scaled off the weapon template's base ceiling, starts full ----
+  const durabilityMax = Math.round(template.durabilityMax * (1 + a.quality * QUALITY_DURABILITY_BONUS));
+
+  return {
+    id: a.allocateId(),
+    slotType: "weapon",
+    weaponType: a.weaponType,
+    rarity: a.rarity,
+    ascension: a.ascension,
+    quality: a.quality,
+    iLevel: a.iLevel,
+    blueprintKey: a.blueprintKey,
+    implicitStats,
+    rolledStats,
+    mass: WEAPON_BASE_MASS,
+    powerDraw: template.powerDraw, // the weapon's reactor draw (design S10), from its def
+    durabilityMax,
+    durability: durabilityMax, // fresh weapon starts at full durability
+    fittedToShipId: null, // spare in the pool until the install path (Unit 1.3+) assigns it
   };
 }

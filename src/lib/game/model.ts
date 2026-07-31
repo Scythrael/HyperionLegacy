@@ -26,6 +26,10 @@ import type { DroneSquadron } from "./combat/drones";
 // roster by id. Type-only (erased) import, same discipline as CombatStance/DroneSquadron
 // above: model.ts names the id union but takes no runtime dependency on combat/.
 import type { PirateHullId } from "./combat/enemyHulls";
+// Combat 1.0 (Unit 1.2): the weapon-roster id union, for EquipmentInstance.weaponType on a
+// crafted weapon. TYPE-ONLY import (compile-erased), so no runtime cycle, same posture as the
+// combat type imports above (combat/weapons imports only combat/types + statusEffects).
+import type { WeaponId } from "./combat/weapons";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -1007,18 +1011,23 @@ export const BUILD_CONCURRENCY_CAP = 1;
 // here so the union and any exhaustive switches over it are stable before their
 // system lands. Same POPULATED-but-INERT spirit as SHIP_TYPES.moduleSlots.
 export type EquipmentSlotType =
-  // LIVE this patch:
+  // LIVE economy slots:
   | "cargoBay"
   | "ftlDrive"
   | "reactorCore"
   | "specUtility"
-  // RESERVED (defined, no consumer this patch, forward hooks for 0.12.0):
+  // LIVE combat slots (Combat 1.0): shieldEmitters + hullPlating (Unit 1.1) are singletons
+  // that roll through the EQUIPMENT_SLOTS / generateEquipment economy path. weapon (Unit 1.2)
+  // is a MULTI slot (fills a hull's hardpoints) minted through a SEPARATE table (WEAPON_DEFS +
+  // generateWeapon), so it deliberately has NO EQUIPMENT_SLOTS entry.
+  | "shieldEmitters"
+  | "hullPlating"
+  | "weapon"
+  // RESERVED (defined, no consumer yet, forward hooks):
   | "bridge"
   | "quarters"
   | "thrusters"
   | "sensor"
-  | "shieldEmitters"
-  | "hullPlating"
   | "propellantTanks";
 
 // Rarity band of an equipment instance, ascending in power. 0.11.0 only ever
@@ -1050,6 +1059,12 @@ export type EquipmentAscension = "none" | "nova" | "celestial";
 export interface EquipmentInstance {
   id: string;                             // stable unique id, allocated from a GameState counter ("equip-N"), like nextShipId
   slotType: EquipmentSlotType;
+  // Combat 1.0 (Unit 1.2): for a crafted WEAPON (slotType "weapon"), which base weapon type it
+  // is. Its family / triangle / effect slots / range / cooldown come from WEAPON_DEFS[weaponType];
+  // the rolled implicitStats/rolledStats below modify that base, and the bridge (Unit 1.4)
+  // reconstructs the CombatWeapon from the two. Absent on every non-weapon piece. Optional +
+  // additive, so no save migration.
+  weaponType?: WeaponId;
   rarity: EquipmentRarity;
   ascension: EquipmentAscension;          // "none" this patch (see EquipmentAscension)
   quality: number;                        // 0..5 quality rung within the rarity band
