@@ -9096,14 +9096,21 @@
             <div class="offline-summary-section">
               <div class="offline-summary-section-title">Captains</div>
               {#each sum.captainsProgressed as cap (cap.id)}
-                <div class="offline-summary-row">
-                  <span class="offline-summary-row-label">{cap.name}</span>
-                  <!-- xp + optional levels, then (when the captain stopped early during the window)
-                       a muted note explaining WHY so a reduced haul does not read as a bug. The row
-                       may wrap to a second line on narrow screens; the note stays with the value. -->
-                  <span class="offline-summary-row-value"
-                    >+{formatNumber(cap.xpGained)} xp{#if cap.levelsGained > 0}, +{formatNumber(cap.levelsGained)} {cap.levelsGained === 1 ? "level" : "levels"}{/if}{#if cap.stopReason}<span class="offline-summary-stop-note"> · {offlineStopReasonNote(cap.stopReason)}</span>{/if}</span
-                  >
+                <div class="offline-summary-cap">
+                  <!-- Head line: name left, xp + optional levels right. flex-wrap lets the value drop
+                       to its own line rather than crushing a long name to one character per line. -->
+                  <div class="offline-summary-cap-head">
+                    <span class="offline-summary-row-label">{cap.name}</span>
+                    <span class="offline-summary-row-value"
+                      >+{formatNumber(cap.xpGained)} xp{#if cap.levelsGained > 0}, +{formatNumber(cap.levelsGained)} {cap.levelsGained === 1 ? "level" : "levels"}{/if}</span
+                    >
+                  </div>
+                  <!-- When the captain stopped early during the window, a muted note on its OWN line
+                       explaining WHY, so a reduced haul does not read as a bug and never competes with
+                       the name for horizontal space (the char-per-line bug). -->
+                  {#if cap.stopReason}
+                    <div class="offline-summary-stop-note">{offlineStopReasonNote(cap.stopReason)}</div>
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -9643,7 +9650,7 @@
   .offline-summary-row-label {
     color: var(--color-text);
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   /* Material row icon: the SAME per-category glyph the Warehouse tiles render
      (warehouseCategoryGlyph), sat just before the item label so the summary reads like the
@@ -9659,12 +9666,31 @@
     flex-shrink: 0;
     font-variant-numeric: tabular-nums;
   }
-  /* Combat 0.13.0 (offline recap): the muted "stopped early ..." note appended after a captain's
-     XP. Dimmer than the accent-colored value so it reads as a secondary aside, and allowed to wrap
-     (white-space: normal overrides the value's nowrap) so a long reason drops to a second line on a
-     narrow screen instead of overflowing the row. */
+  /* Captain recap block: the name+xp head line plus an optional stop-reason note beneath it. The
+     border sits on the block so a stopped captain's note stays visually grouped with its captain. */
+  .offline-summary-cap {
+    padding: 3px 0;
+    border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  }
+  /* Name left, xp/levels right. flex-wrap is the fix for the char-per-line name bug: when the name
+     and value cannot share one line, the value drops to its own line instead of crushing the name
+     column to a sliver (which forced overflow-wrap to break the name one character at a time). */
+  .offline-summary-cap-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 2px 10px;
+    font-size: 13px;
+  }
+  /* Combat 0.13.0 (offline recap): the muted "stopped early ..." note on its OWN line below the
+     captain's XP. Dimmer + smaller than the accent value so it reads as a secondary aside, and it
+     never competes with the name for horizontal space. */
   .offline-summary-stop-note {
+    display: block;
+    margin-top: 1px;
     color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+    font-size: 12px;
     white-space: normal;
     font-variant-numeric: normal;
   }
