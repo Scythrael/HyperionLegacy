@@ -3600,6 +3600,19 @@ export interface BlueprintDef {
   // equipment blueprint never reaches the stackable-output path (all three already
   // branch on `equipmentOutput`/`isEquipment` first), so the fallback value is inert.
   equipmentOutput?: { slotType: EquipmentSlotType; varietyKey: string };
+  // --- Weapon-output extension (Combat 1.0, Unit 1.2b: the weapon craft chain) ----
+  // A THIRD output SHAPE alongside `equipmentOutput`, and the second one that mints a
+  // non-stacking EquipmentInstance rather than a stackable item. When `weaponOutput` is
+  // PRESENT the Fabricator mints a CRAFTED WEAPON via generateWeapon(...) (itemgen.ts), the
+  // weapon-slot parallel to how an equipment blueprint mints via generateEquipment: the
+  // weapon's identity (family / triangle / effect slots / range / cooldown) is FIXED by its
+  // base WEAPON_DEF, and only its power lines (weaponYield / weaponAccuracy / durability) roll
+  // off the same budget engine. Like an equipment blueprint it consumes `recipe.inputs` and
+  // produces NO stackable item, so it OMITS `recipe.outputItem`/`outputQty` entirely. `weaponType`
+  // names the WEAPON_DEFS entry to mint (a WeaponId, so a typo is a compile error, not a runtime
+  // miss). blueprintKind() classifies this shape as "weapon" (see below), so every Fabricator gate
+  // routes it down the mint-an-instance path, never the stackable-output path.
+  weaponOutput?: { weaponType: WeaponId };
   // --- Unlock-only shape (Combat 0.13.0, Phase 9b: warship research gate) ---------
   // A THIRD blueprint family, on top of the two output families above. An UNLOCK-ONLY
   // blueprint outputs NOTHING craftable: it has no `recipe.outputItem` (no stackable) AND
@@ -3627,11 +3640,25 @@ export interface BlueprintDef {
 // inline at several call sites, where a material-vs-equipment branch classifying on
 // `equipmentOutput === undefined` ALONE would misread an unlock-only blueprint as material if it
 // ever reached that branch unguarded. Routing shape reads through blueprintKind removes that risk.
-export type BlueprintKind = "unlockOnly" | "equipment" | "material";
+export type BlueprintKind = "unlockOnly" | "weapon" | "equipment" | "material";
 export function blueprintKind(bp: BlueprintDef): BlueprintKind {
   if (bp.unlockOnly) return "unlockOnly";   // precedence encoded ONCE, here
+  if (bp.weaponOutput) return "weapon";     // Combat 1.0: a crafted weapon (generateWeapon), before equipment
   if (bp.equipmentOutput) return "equipment";
   return "material";
+}
+
+// Does this blueprint's Fabricator output a non-stacking EquipmentInstance (rather than a
+// stackable inventory item)? TRUE for both an economy EQUIPMENT blueprint (minted via
+// generateEquipment) and a combat WEAPON blueprint (minted via generateWeapon): the two share
+// the Fabricator's "mint an instance" completion path (the addEquipment effect), skip the
+// warehouse MATERIAL cap, and answer to the equipment spare-storage cap instead. Centralizing
+// this two-kind test keeps every fabricate gate (lineJobSpec / canStartLine / startFabricateJob)
+// reading ONE predicate, so a future instance-minting shape is a one-line change here (Omega 4/9).
+// FALSE for a material blueprint (stackable output) and an unlock-only blueprint (crafts nothing).
+export function blueprintMintsEquipmentInstance(bp: BlueprintDef): boolean {
+  const kind = blueprintKind(bp);
+  return kind === "equipment" || kind === "weapon";
 }
 
 // First-pass blueprint set (design §5), tied to the already-scaffolded component
@@ -3895,6 +3922,152 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     recipe: { inputs: { titaniumIngot: 5 } },
     flavor: "A sorting rig that hand-picks the cleanest ore, so the Refinery gets a better feed.",
     unlockHint: "Researched at the Research Lab; crafted at the Fabricator once equipment fabrication comes online.",
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // WEAPON BLUEPRINTS (Combat 1.0, Unit 1.2b: the weapon craft chain) ─────────
+  // The nine v1 combat weapons (three per family; see combat/weapons.ts) as the THIRD
+  // craftable blueprint shape. Each carries `weaponOutput: { weaponType }` (the WEAPON_DEFS
+  // entry the Fabricator mints via generateWeapon) and, exactly like an equipment blueprint,
+  // consumes REFINED materials + fabricated COMPONENTS via `recipe.inputs` (NEVER raw ore, the
+  // "raw -> refine -> fabricate -> equip" ladder) and OMITS `recipe.outputItem`/`outputQty` (the
+  // real output is the minted weapon EquipmentInstance, not a stackable). Keyed `<weaponType>Bp`
+  // like the material/equipment keys. Weapons are NOT read in combat yet (that is Unit 1.4); this
+  // unit only makes them research -> fabricate craftable and visible in the UI.
+  //
+  // TIER = 1 or 2 ONLY. `tier` gates the RESEARCH LAB level required to research the blueprint
+  // (canResearch: bp.tier > research level -> tierLocked), and the Research Lab caps at level 2
+  // (FACILITIES.research has 2 rungs), so a tier-3 weapon blueprint would be permanently un-
+  // researchable, and thus permanently un-craftable. The three basic family staples are tier 1;
+  // the heavier / higher-impact weapons are tier 2 (matching structuralAssemblyBp / the tier-2
+  // equipment lines). A later level-3 Research Lab rung can re-tier upward.
+  //
+  // ⚠️ FIRST-PASS TUNABLE ⚠️ every tier / cost / duration / input amount below is a launch
+  // placeholder in the SAME spirit as the material + equipment blueprints above (and the weapon
+  // stat lines in combat/weapons.ts); real balance lands at the device-check stage. The flavor
+  // one-liner on each states the weapon's locked identity (design S3), the durable contract.
+
+  // --- PARTICLE family (shield-pressure: bleeds hull through shields) ---------
+  plasmaBp: {
+    key: "plasmaBp",
+    label: "Plasma Cannon Blueprint",
+    tier: 1,
+    researchDurationTicks: 80,
+    researchCreditCost: 800,
+    craftDurationTicks: 150,
+    weaponOutput: { weaponType: "plasma" },
+    // The well-rounded particle staple: wafer-dense emitter driven by a pair of couplings.
+    recipe: { inputs: { polysilicateWafer: 2, powerCoupling: 2 } },
+    flavor: "A dependable particle bolt that bleeds hull through shields and leaves a plasma fire smoldering behind it.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
+  },
+  gravitonBp: {
+    key: "gravitonBp",
+    label: "Graviton Emitter Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1500,
+    craftDurationTicks: 300,
+    weaponOutput: { weaponType: "graviton" },
+    // The long-reach particle emitter (engine-disruptor): a wide wafer array on two couplings.
+    recipe: { inputs: { polysilicateWafer: 4, powerCoupling: 2 } },
+    flavor: "A long-reach graviton beam that warps a target's drive manifolds as it burns.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
+  },
+  voltaicBp: {
+    key: "voltaicBp",
+    label: "Voltaic Discharger Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    weaponOutput: { weaponType: "voltaic" },
+    // The anti-shield specialist: heavy coupling draw feeding a dense wafer capacitor bank.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 3 } },
+    flavor: "An arc weapon tuned to overload shield emitters and keep a screen collapsing faster than it can recharge.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
+  },
+
+  // --- KINETIC family (the finishers: hull damage, hard-walled by shields) ----
+  autocannonBp: {
+    key: "autocannonBp",
+    label: "Autocannon Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 600,
+    craftDurationTicks: 120,
+    weaponOutput: { weaponType: "autocannon" },
+    // The cheap sustained workhorse: a titanium receiver on a single frame segment.
+    recipe: { inputs: { titaniumIngot: 3, frameSegment: 1 } },
+    flavor: "A rapid-fire kinetic workhorse: low per-shot punch, but it never stops chewing hull once the shields are down.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
+  },
+  railgunBp: {
+    key: "railgunBp",
+    label: "Railgun Blueprint",
+    tier: 2,
+    researchDurationTicks: 150,
+    researchCreditCost: 1800,
+    craftDurationTicks: 300,
+    weaponOutput: { weaponType: "railgun" },
+    // The precision heavy hitter: a braced titanium rail spine driven by a coupling.
+    recipe: { inputs: { titaniumIngot: 4, frameSegment: 2, powerCoupling: 1 } },
+    flavor: "A precision kinetic slug that punches clean through ablative armor and rattles a target's aim on impact.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
+  },
+  concussionTorpedoBp: {
+    key: "concussionTorpedoBp",
+    label: "Concussion Torpedo Blueprint",
+    tier: 2,
+    researchDurationTicks: 150,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    weaponOutput: { weaponType: "concussionTorpedo" },
+    // The heavy warhead: a full structural assembly wrapping a titanium-framed charge.
+    recipe: { inputs: { titaniumIngot: 3, frameSegment: 2, structuralAssembly: 1 } },
+    flavor: "A ship-killing warhead: slow to reload and swingy to land, but a single hit cripples drives and staggers a hull.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
+  },
+
+  // --- EW family (support/debuff: weak damage, disruptions are the point) -----
+  pointDefenseArrayBp: {
+    key: "pointDefenseArrayBp",
+    label: "Point-Defense Array Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 120,
+    weaponOutput: { weaponType: "pointDefenseArray" },
+    // The light screen weapon: a fast-tracking wafer sensor grid on a single coupling.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 1 } },
+    flavor: "A swarm of fast tracking rounds built to blanket the near sky and swat down incoming drones.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
+  },
+  empCannonBp: {
+    key: "empCannonBp",
+    label: "EMP Cannon Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    weaponOutput: { weaponType: "empCannon" },
+    // The disruption platform: a wafer pulse stack drawing hard on a pair of couplings.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 2 } },
+    flavor: "A low-yield pulse whose real payload is chaos: jammed weapons and dead capacitors across an enemy's systems.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
+  },
+  tachyonBurstEmitterBp: {
+    key: "tachyonBurstEmitterBp",
+    label: "Tachyon Burst Emitter Blueprint",
+    tier: 2,
+    researchDurationTicks: 130,
+    researchCreditCost: 1700,
+    craftDurationTicks: 300,
+    weaponOutput: { weaponType: "tachyonBurstEmitter" },
+    // The best-yield EW emitter (sensor disruptor): a wide wafer lattice on two couplings.
+    recipe: { inputs: { polysilicateWafer: 4, powerCoupling: 2 } },
+    flavor: "A tachyon lance that scrambles targeting sensors and reaches through shields better than any other EW emitter.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
   },
 
   // ══════════════════════════════════════════════════════════════════════════

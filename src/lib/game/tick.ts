@@ -86,6 +86,7 @@ import {
   SHIPYARD_FACILITY_KEY,
   BLUEPRINTS,
   blueprintKind,
+  blueprintMintsEquipmentInstance,
   blueprintUnlocked,
   // Equipment 0.11.0 Task B1: the spare-storage-cap seam. equipmentAtCap is the
   // equipment twin of materialAtCap, consulted by both fabricate gates below to refuse
@@ -157,7 +158,7 @@ import { rollWaveLoot, type PatrolLootTable } from "./combat/patrolLoot";
 // crafted piece's level (clamped by the blueprint-tier cap), generateEquipment rolls the whole
 // EquipmentInstance from an INJECTED seeded rng (so the mint is offline==live reproducible), and
 // EQUIPMENT_ILEVEL_CAP_PER_TIER is the first-pass per-tier level ceiling the mint feeds in.
-import { computeItemLevel, generateEquipment, EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
+import { computeItemLevel, generateEquipment, generateWeapon, EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
 // Equipment 0.11.0 (Task 13/14): equippedFor resolves a ship's fitted pieces so both
 // the mission-resolution seam (economyTick) and the dispatch gate (canDispatch) can
 // fold equipment stats into shipDerivedStats from the SAME single source of truth.
@@ -5049,14 +5050,16 @@ function lineJobSpec(line: CraftLine): CraftLineJobSpec | null {
   // kind === "fabricate"
   const bp = BLUEPRINTS[line.recipeKey];
   if (!bp) return null; // unknown blueprint -> inert line
-  // Task 19: branch on blueprint SHAPE. An EQUIPMENT blueprint mints an EquipmentInstance at
-  // completion (addEquipment); a MATERIAL blueprint deposits its stackable output (addItem,
-  // UNCHANGED). Both consume recipe.inputs identically (that map is meaningful for both shapes).
-  // Classify via blueprintKind (0.13.0 centralized precedence) rather than a bare
-  // `equipmentOutput !== undefined`: identical for all valid data (an unlock-only blueprint never
-  // carries equipmentOutput, and one can never reach here anyway since canStartLine refuses it),
-  // but it cannot silently read an unlock-only shape as equipment even on corrupt data.
-  const isEquipment = blueprintKind(bp) === "equipment";
+  // Task 19: branch on blueprint SHAPE. An EQUIPMENT or WEAPON blueprint mints an
+  // EquipmentInstance at completion (addEquipment); a MATERIAL blueprint deposits its stackable
+  // output (addItem, UNCHANGED). All three consume recipe.inputs identically (that map is
+  // meaningful for every shape). Combat 1.0 (Unit 1.2b): a WEAPON blueprint joins the equipment
+  // path here via blueprintMintsEquipmentInstance (equipment OR weapon), so a crafted weapon
+  // hands off the SAME addEquipment effect (resolveProcesses then mints via generateWeapon vs
+  // generateEquipment on the blueprint's output shape) and SKIPS the warehouse cap like equipment.
+  // For a material or equipment blueprint this is byte-identical to the prior `=== "equipment"`
+  // (material stays false, equipment stays true); it only newly classifies the weapon shape.
+  const isEquipment = blueprintMintsEquipmentInstance(bp);
   // recipe.outputItem/outputQty are OPTIONAL (model.ts): a MATERIAL blueprint always carries
   // them, an EQUIPMENT blueprint OMITS them (its real output is the minted EquipmentInstance).
   // These two locals are INERT on the equipment path (isEquipment skips the cap gate below and
@@ -5366,10 +5369,11 @@ export function canStartLine(
   // Equipment 0.11.0 (Task 19): an EQUIPMENT blueprint (equipmentOutput present) is EXEMPT from
   // the WAREHOUSE cap, it mints an EquipmentInstance and has no stackable output, so the material
   // storage cap must not block it. The SAME exemption stepCraftLine/canFabricate apply.
-  // blueprintKind (0.13.0) classifies the fabricate shape; behavior-identical to the prior
-  // `equipmentOutput !== undefined` here (an unlock-only blueprint was already refused above, so
-  // recipeKey is material or equipment), with precedence now living in one place.
-  const isEquipmentBlueprint = kind === "fabricate" && blueprintKind(BLUEPRINTS[recipeKey]) === "equipment";
+  // Combat 1.0 (Unit 1.2b): a WEAPON blueprint mints an instance too, so blueprintMintsEquipmentInstance
+  // (equipment OR weapon) is the exemption test; behavior-identical to the prior `=== "equipment"`
+  // for material/equipment blueprints (an unlock-only blueprint was already refused above), it only
+  // newly exempts the weapon shape so a weapon craft answers to the equipment cap, not the warehouse cap.
+  const isEquipmentBlueprint = kind === "fabricate" && blueprintMintsEquipmentInstance(BLUEPRINTS[recipeKey]);
   if (!isEquipmentBlueprint) {
     // A non-equipment fabricate line is a MATERIAL blueprint, which always carries recipe.outputItem;
     // the `?? undefined` guard only exists because outputItem is now an optional field (a corrupt/
@@ -5597,18 +5601,20 @@ export function canFabricate(
   // the WAREHOUSE cap, it mints an EquipmentInstance into state.equipment and has no stackable
   // output, so the material storage cap must not block it. Same exemption canStartLine/stepCraftLine
   // apply. blueprintKind === "material" narrows this to a MATERIAL blueprint (unlock-only was
-  // already rejected above, so this is behavior-identical to the prior `equipmentOutput ===
-  // undefined`); a material blueprint always carries recipe.outputItem, the inner `!== undefined`
+  // already rejected above), so an INSTANCE-minting shape falls to the else branch. Combat 1.0
+  // (Unit 1.2b): a WEAPON blueprint is NOT "material" either, so it correctly joins the equipment
+  // path here (its crafted weapon is a SPARE in the capped equipment pool, same as an economy
+  // system). A material blueprint always carries recipe.outputItem, the inner `!== undefined`
   // guard only satisfies the now-optional field type.
   if (blueprintKind(bp) === "material") {
     if (bp.recipe.outputItem !== undefined && materialAtCap(state, bp.recipe.outputItem)) {
       return { ok: false, reason: "storageFull" };
     }
   } else if (equipmentAtCap(state)) {
-    // Equipment 0.11.0 (Task B1): an equipment blueprint mints a SPARE crafted system into the
-    // CAPPED pool. A full spare store refuses the START, the equipment twin of the storageFull stop
-    // above (distinct reason so the F4 UI can surface the equipment cap). Relieved by salvage (C1) /
-    // the storage upgrade (B2). Non-equipment crafts never reach this branch.
+    // Equipment 0.11.0 (Task B1): an EQUIPMENT or WEAPON blueprint mints a SPARE crafted instance
+    // into the CAPPED pool. A full spare store refuses the START, the equipment twin of the
+    // storageFull stop above (distinct reason so the F4 UI can surface the equipment cap). Relieved
+    // by salvage (C1) / the storage upgrade (B2). A material craft never reaches this branch.
     return { ok: false, reason: "equipmentStorageFull" };
   }
 
@@ -5657,18 +5663,19 @@ export function startFabricateJob(
     inputs[itemId] = new Decimal(bp.recipe.inputs[itemId]);
   }
 
-  // Equipment 0.11.0 (Task 19): branch on equipmentOutput. An EQUIPMENT blueprint hands off an
-  // addEquipment(blueprintKey) effect (resolveProcesses mints the EquipmentInstance at completion,
-  // rolling stats off the seeded rng, and grants no stackable output). A MATERIAL
+  // Equipment 0.11.0 (Task 19): branch on the output SHAPE. An EQUIPMENT (or, Combat 1.0 Unit 1.2b,
+  // WEAPON) blueprint hands off an addEquipment(blueprintKey) effect (resolveProcesses mints the
+  // EquipmentInstance at completion, rolling stats off the seeded rng via generateEquipment /
+  // generateWeapon per the blueprint's output shape, and grants no stackable output). A MATERIAL
   // blueprint hands off the UNCHANGED addItem effect (byte-identical to pre-Task-19). The inputs
-  // deduct + startProcess call are otherwise identical for both shapes.
-  // The material branch always has recipe.outputItem/outputQty (only equipment blueprints omit
+  // deduct + startProcess call are otherwise identical for every shape.
+  // The material branch always has recipe.outputItem/outputQty (equipment + weapon blueprints omit
   // them); the `?? ""` / `?? 1` fallbacks are inert there and only satisfy the optional field type.
-  // blueprintKind (0.13.0) selects the effect shape; behavior-identical to the prior
-  // `equipmentOutput !== undefined` (canFabricate above already rejected unlock-only, so bp is
-  // material or equipment here).
+  // blueprintMintsEquipmentInstance (equipment OR weapon) selects the mint effect; behavior-identical
+  // to the prior `=== "equipment"` for material/equipment blueprints (canFabricate above already
+  // rejected unlock-only, so bp is material, equipment, or weapon here).
   const effect: ProcessEffect =
-    blueprintKind(bp) === "equipment"
+    blueprintMintsEquipmentInstance(bp)
       ? { type: "addEquipment", blueprintKey }
       : { type: "addItem", itemId: bp.recipe.outputItem ?? "", amount: new Decimal(bp.recipe.outputQty ?? 1) };
 
@@ -6288,6 +6295,10 @@ export function resolveProcesses(
       // a first-pass per-blueprint-tier cap.
       const bp = BLUEPRINTS[process.effect.blueprintKey];
       const eqOut = bp?.equipmentOutput;
+      // A valid blueprint carries EXACTLY ONE output shape, so this equipment-first / weapon-second
+      // check order is behavior-identical for all real data to blueprintKind's weapon-first
+      // precedence; the two could only differ on a malformed double-shape blueprint, which the data
+      // invariant forbids (and both branches mint an EquipmentInstance either way, no parity gap).
       if (bp !== undefined && eqOut !== undefined) {
         const quality = rollQuality(rng); // draw #1 (see order note above)
         const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
@@ -6313,11 +6324,42 @@ export function resolveProcesses(
         });
         equipment = [...equipment, minted];
         nextEquipmentId = mintedId + 1;
+      } else if (bp !== undefined && bp.weaponOutput !== undefined) {
+        // Combat 1.0 (Unit 1.2b): a completed WEAPON fabricate job mints a crafted weapon as an
+        // EquipmentInstance (slotType "weapon"), the weapon-shape parallel to the equipment branch
+        // above. It draws the SAME rng stream in the SAME documented order (rollQuality #1,
+        // rollCraftedRarity #2, then generateWeapon's internal affixCount + affix picks #3..), and
+        // mirrors the capture-then-advance nextEquipmentId discipline EXACTLY, so the offline==live
+        // parity argument extends unchanged: an else-if means a material or equipment craft draws
+        // BYTE-IDENTICALLY to before (this branch never runs for them), and a weapon craft mints a
+        // bit-identical instance at the same seed offline and live. Only the minter differs
+        // (generateWeapon rolls the weaponYield implicit + weapon affixes off the FIXED base def).
+        const quality = rollQuality(rng); // draw #1 (same order as the equipment branch)
+        const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
+        const iLevel = computeItemLevel({
+          craftingLevel: state.craftingLevel,
+          achievementBoost: 0, // TUNABLE: same first-pass zeros as the equipment branch
+          faTalentBonus: 0,
+          itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER, // first-pass per-tier cap (itemgen.ts)
+        });
+        const mintedId = nextEquipmentId;
+        const minted = generateWeapon({
+          weaponType: bp.weaponOutput.weaponType,
+          blueprintKey: process.effect.blueprintKey,
+          iLevel,
+          quality,
+          rarity,
+          ascension: "none", // base craft: never ascended this patch (see EquipmentAscension)
+          rng, // draws #3.. (affix rolls) off the SAME threaded stream
+          allocateId: () => `equip-${mintedId}`,
+        });
+        equipment = [...equipment, minted];
+        nextEquipmentId = mintedId + 1;
       }
-      // (bp / equipmentOutput missing = a corrupt/hand-edited effect key: mint NOTHING and draw
-      // NOTHING, then drop the job. Mirrors lineJobSpec's "unknown recipe -> inert" guard; it can
-      // only arise from a tampered save, never a real play path, so parity is unaffected, both
-      // paths see the identical corrupt state and both no-op.)
+      // (bp / equipmentOutput / weaponOutput all missing = a corrupt/hand-edited effect key: mint
+      // NOTHING and draw NOTHING, then drop the job. Mirrors lineJobSpec's "unknown recipe -> inert"
+      // guard; it can only arise from a tampered save, never a real play path, so parity is
+      // unaffected, both paths see the identical corrupt state and both no-op.)
     } else if (process.effect.type === "equipmentStorageLevelUp") {
       // Equipment 0.11.0 (Task B2): a completed equipment-storage upgrade bumps the
       // spare-storage LEVEL by 1, so equipmentStorageCap (model.ts) derives the NEXT

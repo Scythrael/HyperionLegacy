@@ -4193,3 +4193,77 @@ describe("Fabricator mints real equipment (Task 19)", () => {
     expect(CRAFTABLE_RARITIES).toContain(jumpedSpare.rarity);
   });
 });
+
+// ============================================================================
+// Fabricator mints real WEAPONS (Combat 1.0, Unit 1.2b: the weapon craft chain)
+// ----------------------------------------------------------------------------
+// The weapon-shape twin of the Task 19 equipment-mint tests above. A completing fabricate
+// job now ALSO branches on the blueprint's weaponOutput: a WEAPON blueprint mints a crafted
+// weapon EquipmentInstance (slotType "weapon", via generateWeapon) into state.equipment as a
+// SPARE, drawing the SAME rng stream in the SAME order as the equipment branch (rollQuality ->
+// rollCraftedRarity -> generateWeapon's affix rolls). These reuse the SAME equipLineState /
+// mulberry32Task19 harness, so the offline==live PARITY assertion is exact: nothing else draws
+// rng (idle captain), so the only draws are the weapon mint's rolls. This locks the new tick.ts
+// branch end-to-end and proves it upholds the offline==live invariant for a weapon craft.
+// ============================================================================
+describe("Fabricator mints real weapons (Combat 1.0, Unit 1.2b)", () => {
+  it("a completed WEAPON fabricate mints ONE weapon EquipmentInstance (slotType weapon, right weaponType/blueprint), NO stackable output", () => {
+    // autocannonBp: titaniumIngot×3 + frameSegment×1 -> weapon/autocannon, 120 ticks (tier 1).
+    const state = equipLineState("autocannonBp", 1);
+    let s = state;
+    const rng = mulberry32Task19(42);
+    for (let i = 0; i < 130; i++) s = economyTick(s, 1, rng); // > 120-tick duration -> completes
+
+    // The four fitted Standard-Issue baselines (equip-1..4) PLUS the one fabricated weapon spare.
+    expect(s.equipment.length).toBe(5);
+    const spares = s.equipment.filter((e) => e.fittedToShipId === null);
+    expect(spares.length).toBe(1);
+    const piece = spares[0];
+    expect(piece.id).toBe("equip-5"); // baselines took equip-1..4, so the weapon is equip-5
+    expect(piece.slotType).toBe("weapon"); // the weapon slot, not an economy slot
+    expect(piece.weaponType).toBe("autocannon"); // autocannonBp.weaponOutput.weaponType
+    expect(piece.blueprintKey).toBe("autocannonBp");
+    expect(piece.fittedToShipId).toBeNull(); // spare in the pool
+    expect(piece.ascension).toBe("none");
+    // Seeded rolls land in their documented ranges, and a real budget was spent, so the signature
+    // weaponYield implicit line is present and a durability ceiling was rolled.
+    expect(piece.quality).toBeGreaterThanOrEqual(0);
+    expect(piece.quality).toBeLessThanOrEqual(5);
+    expect(CRAFTABLE_RARITIES).toContain(piece.rarity);
+    expect(piece.implicitStats.weaponYield).toBeGreaterThan(0);
+    expect(piece.durabilityMax).toBeGreaterThan(0);
+
+    // The id source advanced past the fabricated weapon (5 -> 6), and NO stackable was granted
+    // (a weapon blueprint carries no recipe.outputItem); only the inputs were consumed.
+    expect(s.nextEquipmentId).toBe(6);
+    expect(itemTotal(s.inventory, "titaniumIngot").toString()).toBe("0");
+    expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
+  });
+
+  it("⚠️ offline==live PARITY: a weapon craft completing during tick(span) is BIT-IDENTICAL to stepped economyTick", () => {
+    const SPAN = 160; // > the 120-tick autocannon craft duration
+    const SEED = 123;
+
+    const jumped = tick(SPAN, equipLineState("autocannonBp", 1), mulberry32Task19(SEED));
+    let stepped = equipLineState("autocannonBp", 1);
+    const liveRng = mulberry32Task19(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    expect(jumped.equipment.length).toBe(5);
+    expect(stepped.equipment.length).toBe(5);
+    expect(jumped.nextEquipmentId).toBe(6);
+    expect(stepped.nextEquipmentId).toBe(6);
+
+    const jumpedSpare = jumped.equipment.find((e) => e.fittedToShipId === null)!;
+    const steppedSpare = stepped.equipment.find((e) => e.fittedToShipId === null)!;
+
+    // THE PARITY ASSERTION: the minted weapon instance is deep-equal across the two chunkings.
+    expect(jumpedSpare).toEqual(steppedSpare);
+
+    // NON-VACUITY: a real, well-formed weapon (not two empty pools trivially matching).
+    expect(jumpedSpare.id).toBe("equip-5");
+    expect(jumpedSpare.slotType).toBe("weapon");
+    expect(jumpedSpare.weaponType).toBe("autocannon");
+    expect(CRAFTABLE_RARITIES).toContain(jumpedSpare.rarity);
+  });
+});

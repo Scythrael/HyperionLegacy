@@ -24,6 +24,7 @@ import {
   BLUEPRINTS,
   ITEMS,
   FACILITIES,
+  blueprintKind,
   blueprintUnlocked,
   blueprintResearchable,
   RESEARCH_FACILITY_KEY,
@@ -62,22 +63,31 @@ describe("Research R1, BLUEPRINTS registry is well-formed", () => {
 
   it("every recipe resolves to REAL ITEMS keys, with positive quantities", () => {
     for (const [key, bp] of Object.entries(BLUEPRINTS)) {
-      // THREE blueprint shapes (see BlueprintDef):
+      // FOUR blueprint shapes (see BlueprintDef), classified by blueprintKind:
       //   UNLOCK-ONLY (Combat 0.13.0 warship gate, unlockOnly: true): crafts NOTHING. No output
-      //     of either kind, and EMPTY inputs (the payoff is Shipyard build access, granted by
+      //     of any kind, and EMPTY inputs (the payoff is Shipyard build access, granted by
       //     research). Assert that "produces nothing" shape, then skip the craftable assertions.
-      //   MATERIAL (equipmentOutput absent): produces a stackable, asserts a real outputItem +
+      //   MATERIAL (no output shape): produces a stackable, asserts a real outputItem +
       //     positive outputQty.
       //   EQUIPMENT (equipmentOutput present): mints an EquipmentInstance, OMITS both output
       //     fields entirely (the 0.11.0 cleanup invariant).
-      if (bp.unlockOnly) {
+      //   WEAPON (weaponOutput present, Combat 1.0 Unit 1.2b): mints a crafted weapon
+      //     EquipmentInstance, OMITS both output fields like an equipment blueprint. Its INPUTS are
+      //     still validated below (real ITEMS keys, positive), same as equipment/material.
+      const kind = blueprintKind(bp);
+      if (kind === "unlockOnly") {
         expect(bp.recipe.outputItem, `${key} unlock-only outputItem omitted`).toBeUndefined();
         expect(bp.recipe.outputQty, `${key} unlock-only outputQty omitted`).toBeUndefined();
         expect(bp.equipmentOutput, `${key} unlock-only equipmentOutput omitted`).toBeUndefined();
+        expect(bp.weaponOutput, `${key} unlock-only weaponOutput omitted`).toBeUndefined();
         expect(Object.keys(bp.recipe.inputs).length, `${key} unlock-only has no inputs`).toBe(0);
         continue; // nothing craftable to resolve
       }
-      if (bp.equipmentOutput === undefined) {
+      if (kind === "weapon") {
+        // A weapon blueprint mints via generateWeapon: no stackable output, output fields omitted.
+        expect(bp.recipe.outputItem, `${key} weapon outputItem omitted`).toBeUndefined();
+        expect(bp.recipe.outputQty, `${key} weapon outputQty omitted`).toBeUndefined();
+      } else if (kind === "material") {
         expect(bp.recipe.outputItem, `${key} outputItem present`).toBeDefined();
         expect(ITEMS[bp.recipe.outputItem ?? ""], `${key} outputItem`).toBeDefined();
         expect(bp.recipe.outputQty).toBeGreaterThan(0);
@@ -85,8 +95,8 @@ describe("Research R1, BLUEPRINTS registry is well-formed", () => {
         expect(bp.recipe.outputItem, `${key} equipment outputItem omitted`).toBeUndefined();
         expect(bp.recipe.outputQty, `${key} equipment outputQty omitted`).toBeUndefined();
       }
-      // Every recipe INPUT key of a CRAFTABLE blueprint must be a real registry item with a
-      // positive amount (unlock-only blueprints have no inputs and were skipped above).
+      // Every recipe INPUT key of a CRAFTABLE blueprint (material, equipment, OR weapon) must be a
+      // real registry item with a positive amount (unlock-only blueprints have no inputs, skipped above).
       const inputKeys = Object.keys(bp.recipe.inputs);
       expect(inputKeys.length, `${key} has >=1 input`).toBeGreaterThan(0);
       for (const inputKey of inputKeys) {

@@ -27,6 +27,7 @@ import {
   EQUIPMENT_SLOTS,
   BLUEPRINTS,
   blueprintKind,
+  RESEARCH_FACILITY_KEY,
   DEFAULT_EQUIPMENT_VARIETY,
   LIVE_STAT_KEYS,
   RESERVED_STAT_KEYS,
@@ -47,6 +48,9 @@ import type {
   EquipmentRarity,
 } from "./model";
 import { fuelNeeded } from "./fuel";
+// Combat 1.0 (Unit 1.2b): the weapon roster, to prove each weapon blueprint's weaponType names a
+// REAL WeaponId (a typo would otherwise only surface at mint time in the Fabricator).
+import { WEAPON_DEFS } from "./combat/weapons";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { PIRATE_HULLS } from "./combat/enemyHulls"; // Combat 0.13.0: PATROLS.hullPool ids are validated against this roster
 
@@ -1747,6 +1751,19 @@ describe("blueprintKind classifier", () => {
     expect(blueprintKind(BLUEPRINTS.frameSegmentBp)).toBe("material");
   });
 
+  it("classifies a weapon blueprint (weaponOutput present) as 'weapon' (Combat 1.0, Unit 1.2b)", () => {
+    expect(blueprintKind(BLUEPRINTS.autocannonBp)).toBe("weapon");
+    expect(blueprintKind(BLUEPRINTS.railgunBp)).toBe("weapon");
+  });
+
+  it("precedence: weapon WINS over equipment when (malformed) blueprint carried both", () => {
+    // Data invariant is that a blueprint carries at most one output shape, but the classifier's
+    // documented precedence (unlockOnly -> weapon -> equipment -> material) must resolve a corrupt
+    // double-shape deterministically: weaponOutput is checked before equipmentOutput.
+    const malformed = { ...BLUEPRINTS.autocannonBp, equipmentOutput: { slotType: "cargoBay", varietyKey: "balancedHold" } } as typeof BLUEPRINTS.autocannonBp;
+    expect(blueprintKind(malformed)).toBe("weapon");
+  });
+
   it("precedence: unlockOnly WINS even if a (malformed) blueprint also carried equipmentOutput", () => {
     // Data invariant is that unlock-only blueprints carry no equipmentOutput, but the classifier
     // must still put unlockOnly first so a corrupt/hand-edited shape can never be read as equipment.
@@ -1846,6 +1863,79 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
       expect(slot, `default slot ${slotType}`).toBeDefined();
       const varietyKeys = slot.varieties.map((v) => v.key);
       expect(varietyKeys, `default variety ${varietyKey} of ${slotType}`).toContain(varietyKey);
+    }
+  });
+});
+
+// Combat 1.0 (Unit 1.2b): the NINE WEAPON BLUEPRINTS, the third craftable blueprint shape
+// (weaponOutput present). These guard that every weapon blueprint: names a REAL WeaponId to mint,
+// classifies as "weapon" (so every Fabricator gate routes it down the mint-an-instance path), is
+// tier 1 or 2 (the Research Lab's level-2 ceiling, else it would be permanently un-researchable),
+// carries NO stackable output (recipe.outputItem/outputQty omitted, like an equipment blueprint),
+// and consumes only REAL, non-raw, refine/fabricate-producible inputs with positive amounts. The
+// shared research.test.ts loop already fences the cross-shape invariants over ALL of BLUEPRINTS
+// (including these); this block adds the weapon-only contract on top, the twin of the equipment block.
+describe("Weapon BLUEPRINTS (Combat 1.0, Unit 1.2b)", () => {
+  // The nine weapon blueprint keys, one per WEAPON_DEFS entry, keyed <weaponType>Bp.
+  const WEAPON_BP_KEYS = [
+    "plasmaBp", "gravitonBp", "voltaicBp",
+    "autocannonBp", "railgunBp", "concussionTorpedoBp",
+    "pointDefenseArrayBp", "empCannonBp", "tachyonBurstEmitterBp",
+  ];
+
+  // Every weapon blueprint = a BLUEPRINTS entry carrying `weaponOutput`.
+  const weaponBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.weaponOutput);
+
+  it("defines exactly 9 weapon blueprints, one per WEAPON_DEFS weapon, keyed <weaponType>Bp", () => {
+    expect(weaponBlueprints).toHaveLength(9);
+    const keys = weaponBlueprints.map((bp) => bp.key).sort();
+    expect(keys).toEqual([...WEAPON_BP_KEYS].sort());
+    // Every WEAPON_DEFS weapon has exactly one blueprint whose key is `<weaponType>Bp` and whose
+    // weaponOutput names that weapon, so the roster and the craft chain stay in lockstep.
+    for (const weaponType of Object.keys(WEAPON_DEFS)) {
+      const bp = BLUEPRINTS[`${weaponType}Bp`];
+      expect(bp, `${weaponType} has a <weaponType>Bp blueprint`).toBeDefined();
+      expect(bp.weaponOutput?.weaponType, `${weaponType}Bp mints ${weaponType}`).toBe(weaponType);
+    }
+  });
+
+  it("every weapon blueprint's weaponOutput names a REAL WeaponId, classifies as 'weapon', omits stackable output", () => {
+    for (const bp of weaponBlueprints) {
+      expect(WEAPON_DEFS[bp.weaponOutput!.weaponType as keyof typeof WEAPON_DEFS], `${bp.key} weaponType is a real WeaponId`).toBeDefined();
+      expect(blueprintKind(bp), `${bp.key} classifies as weapon`).toBe("weapon");
+      // Like an equipment blueprint: the real output is the minted weapon instance, no stackable.
+      expect(bp.recipe.outputItem, `${bp.key} no stackable outputItem`).toBeUndefined();
+      expect(bp.recipe.outputQty, `${bp.key} no outputQty`).toBeUndefined();
+      expect(bp.equipmentOutput, `${bp.key} no equipmentOutput (weapon shape only)`).toBeUndefined();
+      // The Warehouse / fabricate UI derives a weapon's display name by stripping " Blueprint" from
+      // this label (App.svelte weaponBlueprintLabel), so the label MUST end in " Blueprint" and
+      // leave a non-empty name, or the UI would render the raw "...Blueprint" text.
+      expect(bp.label.endsWith(" Blueprint"), `${bp.key} label ends in " Blueprint"`).toBe(true);
+      expect(bp.label.replace(/ Blueprint$/, "").length, `${bp.key} non-empty display name`).toBeGreaterThan(0);
+    }
+  });
+
+  it("every weapon blueprint is tier 1 or 2 (researchable at the Research Lab's level-2 ceiling)", () => {
+    // The Research Lab caps at level 2 (FACILITIES.research has 2 rungs); a tier-3 weapon blueprint
+    // would be permanently un-researchable -> permanently un-craftable, so tier MUST be in {1, 2}.
+    const maxResearchLevel = FACILITIES[RESEARCH_FACILITY_KEY].upgrades.length; // 2 today
+    for (const bp of weaponBlueprints) {
+      expect([1, 2], `${bp.key} tier in {1,2}`).toContain(bp.tier);
+      expect(bp.tier, `${bp.key} tier <= research ceiling`).toBeLessThanOrEqual(maxResearchLevel);
+    }
+  });
+
+  it("every weapon blueprint has non-empty inputs: real, non-raw ITEMS keys with positive amounts", () => {
+    for (const bp of weaponBlueprints) {
+      const inputKeys = Object.keys(bp.recipe.inputs);
+      expect(inputKeys.length, `${bp.key} has >=1 input`).toBeGreaterThan(0);
+      for (const inputKey of inputKeys) {
+        expect(ITEMS[inputKey], `${bp.key} input ${inputKey}`).toBeDefined();
+        expect(bp.recipe.inputs[inputKey], `${bp.key} input ${inputKey} amount`).toBeGreaterThan(0);
+        // No weapon consumes RAW ore directly (design: raw -> refine -> fabricate -> equip);
+        // every input is a refined material or a fabricated component.
+        expect(ITEMS[inputKey].category, `${bp.key} input ${inputKey} is not raw`).not.toBe("raw");
+      }
     }
   });
 });

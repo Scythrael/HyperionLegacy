@@ -2763,7 +2763,12 @@
     if (piece.blueprintKey === null) {
       return `Standard-Issue ${EQUIPMENT_SLOTS[piece.slotType]?.label ?? piece.slotType}`;
     }
-    const eqOut = BLUEPRINTS[piece.blueprintKey]?.equipmentOutput;
+    const bp = BLUEPRINTS[piece.blueprintKey];
+    // Combat 1.0 (Unit 1.2b): a crafted WEAPON spare reads as its weapon name (no slot/variety);
+    // an economy system reads as its slot + variety label; the final fallback keeps a hand-edited
+    // save from throwing.
+    if (bp?.weaponOutput) return weaponBlueprintLabel(bp);
+    const eqOut = bp?.equipmentOutput;
     return eqOut ? equipmentOutputLabel(eqOut) : "this system";
   }
 
@@ -3043,18 +3048,33 @@
     return `${slot?.label ?? eq.slotType} · ${variety?.label ?? eq.varietyKey}`;
   }
 
+  // Combat 1.0 (Unit 1.2b): the player-facing NAME of the WEAPON a weapon blueprint crafts, the
+  // weapon-shape parallel to equipmentOutputLabel. A weapon blueprint carries no slot/variety, so
+  // the readable name is its blueprint label with the trailing " Blueprint" stripped (labels are
+  // authored as "<Weapon Name> Blueprint", so this yields "Autocannon", "Point-Defense Array",
+  // etc.). Shared by every fabricate/research/warehouse readout that labels a crafted weapon.
+  function weaponBlueprintLabel(bp: { label: string }): string {
+    return bp.label.replace(/ Blueprint$/, "");
+  }
+
   function commitStartLine(kind: CraftLineKind, recipeKey: string, mode: CraftLineMode) {
     const { next, started } = startLine(state, kind, recipeKey, mode);
     if (!started) return;
     state = next;
     // Task 19: an EQUIPMENT blueprint logs its minted piece's SYSTEM name (slot + variety); it
-    // carries no output item. Refine + material lines log the output item as before.
-    const eqOut = kind === "fabricate" ? BLUEPRINTS[recipeKey]?.equipmentOutput : undefined;
+    // carries no output item. Combat 1.0 (Unit 1.2b): a WEAPON blueprint logs its weapon name.
+    // Refine + material lines log the output item as before.
+    const fabBp = kind === "fabricate" ? BLUEPRINTS[recipeKey] : undefined;
+    const eqOut = fabBp?.equipmentOutput;
     const outputId =
       kind === "refine"
         ? REFINE_RECIPES[recipeKey]?.output.itemId ?? recipeKey
         : BLUEPRINTS[recipeKey]?.recipe.outputItem ?? recipeKey;
-    const outputLabel = eqOut ? equipmentOutputLabel(eqOut) : ITEMS[outputId]?.label ?? outputId;
+    const outputLabel = fabBp?.weaponOutput
+      ? weaponBlueprintLabel(fabBp)
+      : eqOut
+        ? equipmentOutputLabel(eqOut)
+        : ITEMS[outputId]?.label ?? outputId;
     const verb = kind === "refine" ? "Refine" : "Fabricate";
     const desc = mode.kind === "batch" ? `×${mode.remaining}` : "continuous";
     pushLog(`${verb} line started (${desc}) → [${outputLabel}].`);
@@ -4950,7 +4970,7 @@
                     {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                     <div class="mission-card">
                       <div class="research-name">
-                        {#if job.effect.type === "addItem"}Fabricating → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else if job.effect.type === "addEquipment" && BLUEPRINTS[job.effect.blueprintKey]?.equipmentOutput}Fabricating → [{equipmentOutputLabel(BLUEPRINTS[job.effect.blueprintKey].equipmentOutput!)}]{:else}Fabricate job{/if}
+                        {#if job.effect.type === "addItem"}Fabricating → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else if job.effect.type === "addEquipment" && BLUEPRINTS[job.effect.blueprintKey]?.weaponOutput}Fabricating → [{weaponBlueprintLabel(BLUEPRINTS[job.effect.blueprintKey])}]{:else if job.effect.type === "addEquipment" && BLUEPRINTS[job.effect.blueprintKey]?.equipmentOutput}Fabricating → [{equipmentOutputLabel(BLUEPRINTS[job.effect.blueprintKey].equipmentOutput!)}]{:else}Fabricate job{/if}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
@@ -5010,8 +5030,11 @@
                           {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each}
                           <!-- Task 19: an EQUIPMENT blueprint shows its minted piece's SYSTEM name
                                (slot + variety); it carries no recipe.outputItem (optional, omitted).
+                               Combat 1.0 (Unit 1.2b): a WEAPON blueprint shows its weapon name.
                                Only a MATERIAL blueprint has a stackable output to render. -->
-                          {#if bp.equipmentOutput}
+                          {#if bp.weaponOutput}
+                            → [{weaponBlueprintLabel(bp)}]
+                          {:else if bp.equipmentOutput}
                             → [{equipmentOutputLabel(bp.equipmentOutput)}]
                           {:else}
                             → {bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]
@@ -5290,16 +5313,17 @@
                     {@const job = activeResearchProjects.find((p) => p.effect.type === "unlockBlueprint" && p.effect.key === bp.key)}
                     <div class="mission-card">
                       <div class="research-name">{bp.label}</div>
-                      <!-- Recipe line. THREE blueprint shapes (see BlueprintDef): an UNLOCK-ONLY
+                      <!-- Recipe line. FOUR blueprint shapes (see BlueprintDef): an UNLOCK-ONLY
                            blueprint (Combat 0.13.0 warship gate) crafts nothing, so it shows what
                            it UNLOCKS (a hull at the Shipyard) instead of "Crafts: inputs -> output".
                            A MATERIAL blueprint shows its stackable output; an EQUIPMENT blueprint
-                           previews its minted piece's SYSTEM name (slot + variety, no recipe.outputItem). -->
+                           previews its minted piece's SYSTEM name (slot + variety); a WEAPON blueprint
+                           (Combat 1.0, Unit 1.2b) previews its crafted weapon's name. -->
                       {#if blueprintKind(bp) === "unlockOnly"}
                         <div class="research-cost">Unlocks: {hullUnlockedByBlueprint(bp.key) ?? "new build content"} (build at the Shipyard)</div>
                       {:else}
                         <div class="research-cost">
-                          Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]{/if}
+                          Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.weaponOutput}[{weaponBlueprintLabel(bp)}]{:else if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]{/if}
                         </div>
                       {/if}
                       <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
