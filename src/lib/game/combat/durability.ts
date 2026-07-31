@@ -187,6 +187,59 @@ export function ftlSpeedPenaltyPercent(condition: SystemCondition): number {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// DISPLAY HELPER (Combat 0.13.0, combat-view pip tooltips). PURE + unit-tested.
+//
+// systemConditionEffect builds the one-line LIVE COMBAT EFFECT sentence a combat-
+// view ship-system pip tooltip shows for a given system kind + condition. It
+// derives its numbers from the SAME condition-effect constants/functions the sim
+// reads (DEGRADED_WEAPON_DAMAGE_PERCENT, reactorDamagePercent, ftlEvasionPenalty
+// Percent, ftlSpeedPenaltyPercent), so the pip text can never drift from the actual
+// mechanical penalty resolveBattle applies. Display only: returns a plain sentence,
+// mutates nothing, makes no rng draw.
+// ---------------------------------------------------------------------------
+export function systemConditionEffect(
+	kind: "weapon" | "reactor" | "ftl",
+	condition: SystemCondition,
+): string {
+	switch (kind) {
+		case "weapon":
+			switch (condition) {
+				case "nominal":
+					return "Operating normally.";
+				case "degraded":
+					// A degraded weapon deals DEGRADED_WEAPON_DAMAGE_PERCENT of its damage
+					// (the exact lever resolveBattle applies).
+					return `Deals ${DEGRADED_WEAPON_DAMAGE_PERCENT}% of its normal damage.`;
+				case "disrupted":
+					// A disruption riding the weapon (e.g. Coil Dampening) cuts its output
+					// via the separate status-effect lever; the pip flags it here.
+					return "A disruption is riding this weapon, so it fires less effectively.";
+				case "offline":
+					// An offline weapon is skipped in the fire loop entirely.
+					return "Offline: cannot fire at all.";
+			}
+			break;
+		case "reactor": {
+			if (condition === "nominal") return "Operating normally.";
+			// reactorDamagePercent is the GLOBAL weapon-damage multiplier a worn reactor
+			// imposes (power starvation); "softer" is its complement.
+			const power = reactorDamagePercent(condition);
+			const softer = 100 - power;
+			return `Runs at ${power}% power, so every weapon hits about ${softer}% softer.`;
+		}
+		case "ftl": {
+			if (condition === "nominal") return "Operating normally.";
+			const evasion = ftlEvasionPenaltyPercent(condition);
+			const speed = ftlSpeedPenaltyPercent(condition);
+			return `Cuts evasion ${evasion}% and closing speed ${speed}%.`;
+		}
+	}
+	// Unreachable: every kind + condition is handled above. A total return keeps the
+	// function's string contract explicit for the compiler (no implicit undefined).
+	return "Operating normally.";
+}
+
 // Quality is a 0..5 rank (design S9). Clamp defensively so a stray value never
 // produces a nonsense chance/max (Omega 8: no ghost assumptions about inputs).
 const QUALITY_MIN = 0;

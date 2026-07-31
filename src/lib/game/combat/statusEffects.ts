@@ -405,6 +405,61 @@ export function activeStatDelta(
 	return total;
 }
 
+// ---------------------------------------------------------------------------
+// DISPLAY HELPER (Combat 0.13.0, combat-view pip tooltips). PURE + unit-tested.
+//
+// effectDefinition builds the one-line MECHANICAL definition the combat-view pip
+// tooltip shows UNDER an effect's flavor line ("Deals about 20 hull damage per
+// second while it burns.", "Reduces accuracy by 40%."). It reads the SAME def +
+// magnitude constants the sim applies (a DoT's damagePerRankPerRound, a debuff/
+// buff's deltaPercentPerRank), scaled by the pip's live rank, so the sentence can
+// never drift from what tickEffects / activeStatDelta actually do.
+//
+// DISPLAY ONLY: returns a plain, escaped sentence, mutates nothing, makes no rng
+// draw. An unknown def id returns "" (the caller renders no definition line) rather
+// than throwing, because a tooltip must never crash the view over stale display data.
+// ---------------------------------------------------------------------------
+
+// Human-readable name for each debuff/buff target stat, spelled for a sentence
+// ("Reduces <label> by N%."). One entry per StatusEffectStat, so adding a stat to
+// the vocabulary is a COMPILE error here, never a silent blank in a tooltip.
+const STAT_DEFINITION_LABEL: Record<StatusEffectStat, string> = {
+	accuracy: "accuracy",
+	range: "weapon range",
+	maneuver: "maneuverability",
+	speed: "movement speed",
+	damageTaken: "damage taken",
+	attenuation: "shield bleed-through",
+	shieldRecharge: "shield recharge",
+	weaponDamage: "weapon damage",
+	weaponOffline: "weapon jam chance",
+	droneAttackRate: "drone attack rate",
+};
+
+export function effectDefinition(defId: string, rank: number): string {
+	const def = STATUS_EFFECT_DEFS[defId];
+	if (def === undefined) return "";
+	// Clamp to the real rank band (1..MAX_RANK) so a stray rank never prints a
+	// nonsense magnitude; the sim itself never exceeds MAX_RANK.
+	const clampedRank = Math.max(1, Math.min(MAX_RANK, Math.floor(rank)));
+	const mech = def.mechanic;
+	if (mech.type === "dot") {
+		// A DoT deals damagePerRankPerRound * rank hull per ROUND, and one narration
+		// round is TICKS_PER_ROUND tenths = one second (see TICKS_PER_ROUND), so the
+		// per-round figure is also the per-second figure the player feels.
+		const perSecond = mech.damagePerRankPerRound * clampedRank;
+		return `Deals about ${perSecond} hull damage per second while it burns.`;
+	}
+	// statDelta: a NEGATIVE delta degrades the stat (a debuff), a POSITIVE one raises
+	// it (worsens-for-target on damageTaken / attenuation / weaponOffline, or a true
+	// buff like Overcharged Capacitors). The wording follows the delta's sign.
+	const delta = mech.deltaPercentPerRank * clampedRank;
+	const magnitude = Math.abs(delta);
+	const label = STAT_DEFINITION_LABEL[mech.stat];
+	if (delta < 0) return `Reduces ${label} by ${magnitude}%.`;
+	return `Increases ${label} by ${magnitude}%.`;
+}
+
 // The support-drone cleanse chance for an effect at `rank`, HALVING per rank
 // (design S4 / S8: rank1 base, rank2 base/2, rank3 base/4). Integer percent.
 // Consumed by the Phase-8 support kit; defined + tested here as a property of the

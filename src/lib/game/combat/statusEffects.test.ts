@@ -25,6 +25,7 @@ import {
 	cleanseChance,
 	activeStatDelta,
 	applyPercentDelta,
+	effectDefinition,
 	type StatusEffect,
 } from "./statusEffects";
 
@@ -282,5 +283,63 @@ describe("activeStatDelta + applyPercentDelta: magnitude scales + stacks", () =>
 		expect(activeStatDelta(effects, "accuracy")).toBe(-20);
 		expect(activeStatDelta(effects, "shieldRecharge")).toBe(-20);
 		expect(activeStatDelta(effects, "speed")).toBe(0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// effectDefinition: the combat-view tooltip's one-line mechanical definition,
+// derived from the SAME def + magnitude constants the sim applies (design S4). It
+// must scale with rank and read the numbers off the registry, so it can never drift
+// from tickEffects / activeStatDelta.
+// ---------------------------------------------------------------------------
+describe("effectDefinition: tooltip mechanical definition line", () => {
+	it("a DoT reports per-second hull damage scaling with rank", () => {
+		// plasmaFire = 10 hull/round/rank, one round = one second (TICKS_PER_ROUND).
+		expect(effectDefinition("plasmaFire", 1)).toBe(
+			"Deals about 10 hull damage per second while it burns.",
+		);
+		expect(effectDefinition("plasmaFire", 2)).toBe(
+			"Deals about 20 hull damage per second while it burns.",
+		);
+		expect(effectDefinition("plasmaFire", 3)).toBe(
+			"Deals about 30 hull damage per second while it burns.",
+		);
+	});
+
+	it("a NEGATIVE-delta debuff reads as a reduction, scaling with rank", () => {
+		// scatteringField = -20% accuracy per rank.
+		expect(effectDefinition("scatteringField", 1)).toBe("Reduces accuracy by 20%.");
+		expect(effectDefinition("scatteringField", 2)).toBe("Reduces accuracy by 40%.");
+	});
+
+	it("a POSITIVE-delta debuff (worsens the target) reads as an increase", () => {
+		// emitterOverload = +20% damage taken per rank.
+		expect(effectDefinition("emitterOverload", 1)).toBe("Increases damage taken by 20%.");
+		// weaponJam = +20% offline chance per rank -> "weapon jam chance".
+		expect(effectDefinition("weaponJam", 2)).toBe("Increases weapon jam chance by 40%.");
+	});
+
+	it("a buff (positive delta improving the holder) reads as an increase", () => {
+		// overchargedCapacitors = +20% shield recharge per rank.
+		expect(effectDefinition("overchargedCapacitors", 1)).toBe(
+			"Increases shield recharge by 20%.",
+		);
+	});
+
+	it("clamps a stray rank into the 1..MAX_RANK band and returns '' for an unknown def", () => {
+		// rank 0 clamps up to 1, rank 9 clamps down to MAX_RANK (3).
+		expect(effectDefinition("scatteringField", 0)).toBe("Reduces accuracy by 20%.");
+		expect(effectDefinition("scatteringField", 9)).toBe(
+			`Reduces accuracy by ${20 * MAX_RANK}%.`,
+		);
+		expect(effectDefinition("noSuchEffect", 1)).toBe("");
+	});
+
+	it("every registered def yields a non-empty sentence ending in a period", () => {
+		for (const id of Object.keys(STATUS_EFFECT_DEFS)) {
+			const sentence = effectDefinition(id, 1);
+			expect(sentence.length).toBeGreaterThan(0);
+			expect(sentence.endsWith(".")).toBe(true);
+		}
 	});
 });

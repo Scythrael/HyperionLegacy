@@ -30,8 +30,12 @@
   // ============================================================================
 
   import { onDestroy, afterUpdate } from "svelte";
-  import type { GameState, CaptainState } from "./game/model";
+  import type { GameState, CaptainState, EquipmentInstance } from "./game/model";
   import { SHIP_TYPES, FACTIONS } from "./game/model";
+  import { fittedInSlot } from "./game/equipment";
+  // The reusable rarity-bordered equipment card (0.11.0 Phase D). The reactor / ftl
+  // system-condition tooltips embed it for the PLAYER ship's installed piece.
+  import EquipmentTooltip from "./EquipmentTooltip.svelte";
   import {
     replayPatrol,
     foldWaveSnapshots,
@@ -40,10 +44,11 @@
   } from "./game/combat/patrolReplay";
   import { interpolateFlavor } from "./game/combat/flavor";
   import { squadronStatusSummary } from "./game/combat/drones";
-  import { STATUS_EFFECT_DEFS } from "./game/combat/statusEffects";
+  import { STATUS_EFFECT_DEFS, effectDefinition } from "./game/combat/statusEffects";
   import type { CombatEvent, SystemConditionPip } from "./game/combat/types";
   import type { RangeBand, CombatPhase, CombatStance } from "./game/combat/positioning";
   import type { SystemCondition } from "./game/combat/durability";
+  import { systemConditionEffect } from "./game/combat/durability";
   import {
     currentReplayWaveIndex,
     buildNameFor,
@@ -502,6 +507,77 @@
   $: enemySystemPips = systemPipLabels(enemySnap?.systemConditions ?? null);
 
   // ==========================================================================
+  // CLICK / TAP PIP TOOLTIPS (Combat 0.13.0). Every pip (status effect, ship-system
+  // condition, drone) is click/tap-able and toggles a rich inline info panel showing
+  // that pip's content: an effect's flavor + mechanical definition, a system's live
+  // combat effect (plus the equipment card for the PLAYER's reactor / ftl), or a
+  // drone's status line.
+  //
+  // ⚠️ FREEZE-SAFETY (this component hard-froze once on a reactive tick loop). The
+  // open/selected state is a PLAIN `let selectedPipKey`, written ONLY by the click /
+  // keydown handlers below, never by a reactive `$:`. Nothing here measures the DOM,
+  // calls tick(), or schedules a beat, so it cannot re-enter Svelte's flush loop. The
+  // panel is rendered IN-FLOW (a full-width flex item that wraps to its own line inside
+  // the pip row), not a measured/positioned floating popover, so no layout read is ever
+  // needed. A stale key after a wave change simply matches no pip and nothing shows.
+  // ==========================================================================
+  // The key of the single open pip tooltip, or null when none is open. Keys are built
+  // by pipKey() and are unique per side + kind + id, so only one tooltip is ever open.
+  let selectedPipKey: string | null = null;
+
+  // Build a stable, unique key for one pip. `scope` distinguishes the player row from
+  // each enemy row ("p", "e0", "e1", ...) so the same def id on two ships never collides.
+  function pipKey(scope: string, kind: string, id: string): string {
+    return `${scope}:${kind}:${id}`;
+  }
+
+  // Toggle a pip's tooltip: clicking the open pip closes it, clicking another switches.
+  function togglePip(key: string): void {
+    selectedPipKey = selectedPipKey === key ? null : key;
+  }
+
+  // Keyboard activation for a pip (it is a role="button" span, so Enter / Space must
+  // act like a click). stopPropagation keeps the key event from also reaching the
+  // enclosing mobile row button (which would collapse the row).
+  function onPipKeydown(event: KeyboardEvent, key: string): void {
+    if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+      event.preventDefault();
+      event.stopPropagation();
+      togglePip(key);
+    }
+  }
+
+  // Close the open tooltip. Bound to a window click (any click NOT on a pip, since pips
+  // stopPropagation) and to Escape, so "re-click / click elsewhere / Escape" all dismiss.
+  function closeTip(): void {
+    if (selectedPipKey !== null) selectedPipKey = null;
+  }
+  function onWindowKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape") closeTip();
+  }
+
+  // The PLAYER ship's installed reactor + ftl pieces, resolved off the equipment pool
+  // by slot (fittedInSlot is a pure filter). The reactor / ftl system-condition tooltips
+  // embed the EquipmentTooltip card for these; null (no piece installed, e.g. a bridged
+  // enemy or a hand-edited save) falls back to the condition-effect line only. Pure reads
+  // with NO side effect, so they are reactivity-safe.
+  $: playerReactorPiece = playerShip ? fittedInSlot(state, playerShip.id, "reactorCore") : null;
+  $: playerFtlPiece = playerShip ? fittedInSlot(state, playerShip.id, "ftlDrive") : null;
+
+  // The equipment piece to embed for a PLAYER system pip: the reactor / ftl installed
+  // piece, or null for weapons (no installable gear yet) and any non-player pip. Weapons
+  // and enemy systems therefore show the condition-effect sentence ONLY.
+  function equipPieceForSystemPip(
+    isPlayer: boolean,
+    kind: "weapon" | "reactor" | "ftl",
+  ): EquipmentInstance | null {
+    if (!isPlayer) return null;
+    if (kind === "reactor") return playerReactorPiece;
+    if (kind === "ftl") return playerFtlPiece;
+    return null;
+  }
+
+  // ==========================================================================
   // MOBILE ROSTER DERIVATIONS (narrow-screen layout). The mobile block renders a
   // compact row PER enemy (the desktop arena features only the first + lists the
   // rest), so it needs the whole wave's enemy list plus two pure roll-ups: which
@@ -867,6 +943,61 @@
   onDestroy(clearVisualFx);
 </script>
 
+<!-- Window-level dismiss for the pip tooltips: Escape closes the open tooltip, and any
+     click that is NOT on a pip (pips stopPropagation) also closes it ("re-click / click
+     elsewhere / Escape all dismiss"). Both are plain event handlers, never reactive, so
+     they cannot re-enter the flush loop (freeze-safety). -->
+<svelte:window on:keydown={onWindowKeydown} on:click={closeTip} />
+
+<!-- ==========================================================================
+     PIP TOOLTIP SNIPPETS (Combat 0.13.0). One reusable panel per pip kind, rendered
+     IN-FLOW right after the tapped pip (a full-width item that wraps to its own line
+     inside the pip row / detail). Defined once and {@render}ed from every pip location
+     (desktop arena + mobile roster, player + enemy), so the content lives in ONE place.
+     The panels carry no interactive controls, so a click anywhere inside one bubbles to
+     the window dismiss handler and simply closes it. All display-only.
+     ========================================================================== -->
+{#snippet effectTip(defId: string, rank: number)}
+  <div class="cv-tip" role="status">
+    <div class="cv-tip-hd">
+      <span class="pip {effectPipClass(defId)}">{effectPipGlyph(defId)}</span>
+      <span class="cv-tip-title">{effectPipTitle(defId, rank)}</span>
+    </div>
+    {#if STATUS_EFFECT_DEFS[defId]?.flavor}
+      <div class="cv-tip-flavor">{STATUS_EFFECT_DEFS[defId].flavor}</div>
+    {/if}
+    {#if effectDefinition(defId, rank)}
+      <div class="cv-tip-def">{effectDefinition(defId, rank)}</div>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet systemTip(
+  kind: "weapon" | "reactor" | "ftl",
+  label: string,
+  condition: SystemCondition,
+  piece: EquipmentInstance | null,
+)}
+  <div class="cv-tip" role="status">
+    <div class="cv-tip-hd">
+      <span class="pip {condition}"></span>
+      <span class="cv-tip-title">{label}</span>
+    </div>
+    <div class="cv-tip-def">{systemConditionEffect(kind, condition)}</div>
+    {#if piece}
+      <!-- The player's installed reactor / ftl gear card (weapons + enemy systems pass
+           null, so they show the condition effect only). -->
+      <div class="cv-tip-card"><EquipmentTooltip {piece} /></div>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet droneTip(title: string)}
+  <div class="cv-tip" role="status">
+    <div class="cv-tip-def">{title}</div>
+  </div>
+{/snippet}
+
 <!-- The bounded, internally-scrolling dialog surface (mirrors ShipSystemsPanel's
      .ss-dialog: an opaque surface so it stays legible on browsers without
      backdrop blur, and it owns its own scroll rather than growing the page). The
@@ -932,7 +1063,16 @@
           <div class="piprow">
             <span class="lab">Status effects</span>
             {#each playerSnap.effects as e (e.defId)}
-              <span class="pip {effectPipClass(e.defId)}" title={effectPipTitle(e.defId, e.rank)}>{effectPipGlyph(e.defId)}</span>
+              {@const key = pipKey("p", "eff", e.defId)}
+              <span class="pip {effectPipClass(e.defId)}" class:cv-pip-open={selectedPipKey === key}
+                role="button" tabindex="0"
+                aria-pressed={selectedPipKey === key}
+                aria-label={effectPipTitle(e.defId, e.rank)}
+                title={effectPipTitle(e.defId, e.rank)}
+                on:click|stopPropagation={() => togglePip(key)}
+                on:keydown={(ev) => onPipKeydown(ev, key)}
+              >{effectPipGlyph(e.defId)}</span>
+              {#if selectedPipKey === key}{@render effectTip(e.defId, e.rank)}{/if}
             {/each}
           </div>
         {/if}
@@ -941,7 +1081,16 @@
           <div class="piprow">
             <span class="lab">Ship systems</span>
             {#each playerSystemPips as sp (sp.pip.id)}
-              <span class="pip {sp.pip.condition}" title={sp.label}></span>
+              {@const key = pipKey("p", "sys", sp.pip.id)}
+              <span class="pip {sp.pip.condition}" class:cv-pip-open={selectedPipKey === key}
+                role="button" tabindex="0"
+                aria-pressed={selectedPipKey === key}
+                aria-label={sp.label}
+                title={sp.label}
+                on:click|stopPropagation={() => togglePip(key)}
+                on:keydown={(ev) => onPipKeydown(ev, key)}
+              ></span>
+              {#if selectedPipKey === key}{@render systemTip(sp.pip.kind, sp.label, sp.pip.condition, equipPieceForSystemPip(true, sp.pip.kind))}{/if}
             {/each}
           </div>
         {/if}
@@ -950,8 +1099,17 @@
           {#each playerDroneSrc.drones as squadron (squadron.id)}
             <div class="piprow">
               <span class="lab">Drones ({squadron.model} squadron)</span>
-              {#each dronePips(squadronStatusSummary(squadron)) as dp}
-                <span class="pip {dp.cls}" title={dp.title}></span>
+              {#each dronePips(squadronStatusSummary(squadron)) as dp, di}
+                {@const key = pipKey("p", `drn-${squadron.id}`, String(di))}
+                <span class="pip {dp.cls}" class:cv-pip-open={selectedPipKey === key}
+                  role="button" tabindex="0"
+                  aria-pressed={selectedPipKey === key}
+                  aria-label={dp.title}
+                  title={dp.title}
+                  on:click|stopPropagation={() => togglePip(key)}
+                  on:keydown={(ev) => onPipKeydown(ev, key)}
+                ></span>
+                {#if selectedPipKey === key}{@render droneTip(dp.title)}{/if}
               {/each}
             </div>
           {/each}
@@ -997,7 +1155,16 @@
           <div class="piprow">
             <span class="lab">Status effects</span>
             {#each enemySnap.effects as e (e.defId)}
-              <span class="pip {effectPipClass(e.defId)}" title={effectPipTitle(e.defId, e.rank)}>{effectPipGlyph(e.defId)}</span>
+              {@const key = pipKey("e0", "eff", e.defId)}
+              <span class="pip {effectPipClass(e.defId)}" class:cv-pip-open={selectedPipKey === key}
+                role="button" tabindex="0"
+                aria-pressed={selectedPipKey === key}
+                aria-label={effectPipTitle(e.defId, e.rank)}
+                title={effectPipTitle(e.defId, e.rank)}
+                on:click|stopPropagation={() => togglePip(key)}
+                on:keydown={(ev) => onPipKeydown(ev, key)}
+              >{effectPipGlyph(e.defId)}</span>
+              {#if selectedPipKey === key}{@render effectTip(e.defId, e.rank)}{/if}
             {/each}
           </div>
         {/if}
@@ -1006,7 +1173,16 @@
           <div class="piprow">
             <span class="lab">Ship systems</span>
             {#each enemySystemPips as sp (sp.pip.id)}
-              <span class="pip {sp.pip.condition}" title={sp.label}></span>
+              {@const key = pipKey("e0", "sys", sp.pip.id)}
+              <span class="pip {sp.pip.condition}" class:cv-pip-open={selectedPipKey === key}
+                role="button" tabindex="0"
+                aria-pressed={selectedPipKey === key}
+                aria-label={sp.label}
+                title={sp.label}
+                on:click|stopPropagation={() => togglePip(key)}
+                on:keydown={(ev) => onPipKeydown(ev, key)}
+              ></span>
+              {#if selectedPipKey === key}{@render systemTip(sp.pip.kind, sp.label, sp.pip.condition, null)}{/if}
             {/each}
           </div>
         {/if}
@@ -1015,8 +1191,17 @@
           {#each enemyDroneSrc.drones as squadron (squadron.id)}
             <div class="piprow">
               <span class="lab">Drones ({squadron.model} squadron)</span>
-              {#each dronePips(squadronStatusSummary(squadron)) as dp}
-                <span class="pip {dp.cls}" title={dp.title}></span>
+              {#each dronePips(squadronStatusSummary(squadron)) as dp, di}
+                {@const key = pipKey("e0", `drn-${squadron.id}`, String(di))}
+                <span class="pip {dp.cls}" class:cv-pip-open={selectedPipKey === key}
+                  role="button" tabindex="0"
+                  aria-pressed={selectedPipKey === key}
+                  aria-label={dp.title}
+                  title={dp.title}
+                  on:click|stopPropagation={() => togglePip(key)}
+                  on:keydown={(ev) => onPipKeydown(ev, key)}
+                ></span>
+                {#if selectedPipKey === key}{@render droneTip(dp.title)}{/if}
               {/each}
             </div>
           {/each}
@@ -1097,7 +1282,15 @@
                   <span class="cvm-dl">Systems</span>
                   <span class="cvm-mini">
                     {#each playerSystemPips as sp (sp.pip.id)}
-                      <span class="cvm-pipinfo"><span class="pip {sp.pip.condition}" title={sp.label}></span>{sp.label}</span>
+                      {@const key = pipKey("p", "sys", sp.pip.id)}
+                      <span class="cvm-pipinfo" class:cv-chip-open={selectedPipKey === key}
+                        role="button" tabindex="0"
+                        aria-pressed={selectedPipKey === key}
+                        aria-label={sp.label}
+                        on:click|stopPropagation={() => togglePip(key)}
+                        on:keydown={(ev) => onPipKeydown(ev, key)}
+                      ><span class="pip {sp.pip.condition}"></span>{sp.label}</span>
+                      {#if selectedPipKey === key}{@render systemTip(sp.pip.kind, sp.label, sp.pip.condition, equipPieceForSystemPip(true, sp.pip.kind))}{/if}
                     {/each}
                   </span>
                 </div>
@@ -1107,7 +1300,15 @@
                 <span class="cvm-mini">
                   {#if playerSnap && playerSnap.effects.length > 0}
                     {#each playerSnap.effects as e (e.defId)}
-                      <span class="cvm-pipinfo"><span class="pip {effectPipClass(e.defId)}" title={effectPipTitle(e.defId, e.rank)}>{effectPipGlyph(e.defId)}</span>{effectPipTitle(e.defId, e.rank)}</span>
+                      {@const key = pipKey("p", "eff", e.defId)}
+                      <span class="cvm-pipinfo" class:cv-chip-open={selectedPipKey === key}
+                        role="button" tabindex="0"
+                        aria-pressed={selectedPipKey === key}
+                        aria-label={effectPipTitle(e.defId, e.rank)}
+                        on:click|stopPropagation={() => togglePip(key)}
+                        on:keydown={(ev) => onPipKeydown(ev, key)}
+                      ><span class="pip {effectPipClass(e.defId)}">{effectPipGlyph(e.defId)}</span>{effectPipTitle(e.defId, e.rank)}</span>
+                      {#if selectedPipKey === key}{@render effectTip(e.defId, e.rank)}{/if}
                     {/each}
                   {:else}
                     <span class="cvm-none">none</span>
@@ -1119,8 +1320,16 @@
                   <div class="cvm-drow">
                     <span class="cvm-dl">{squadron.model}</span>
                     <span class="cvm-mini">
-                      {#each dronePips(squadronStatusSummary(squadron)) as dp}
-                        <span class="cvm-pipinfo"><span class="pip {dp.cls}" title={dp.title}></span>{dp.title}</span>
+                      {#each dronePips(squadronStatusSummary(squadron)) as dp, di}
+                        {@const key = pipKey("p", `drn-${squadron.id}`, String(di))}
+                        <span class="cvm-pipinfo" class:cv-chip-open={selectedPipKey === key}
+                          role="button" tabindex="0"
+                          aria-pressed={selectedPipKey === key}
+                          aria-label={dp.title}
+                          on:click|stopPropagation={() => togglePip(key)}
+                          on:keydown={(ev) => onPipKeydown(ev, key)}
+                        ><span class="pip {dp.cls}"></span>{dp.title}</span>
+                        {#if selectedPipKey === key}{@render droneTip(dp.title)}{/if}
                       {/each}
                     </span>
                   </div>
@@ -1177,7 +1386,15 @@
                     <span class="cvm-dl">Systems</span>
                     <span class="cvm-mini">
                       {#each ePips as sp (sp.pip.id)}
-                        <span class="cvm-pipinfo"><span class="pip {sp.pip.condition}" title={sp.label}></span>{sp.label}</span>
+                        {@const key = pipKey(`e${i}`, "sys", sp.pip.id)}
+                        <span class="cvm-pipinfo" class:cv-chip-open={selectedPipKey === key}
+                          role="button" tabindex="0"
+                          aria-pressed={selectedPipKey === key}
+                          aria-label={sp.label}
+                          on:click|stopPropagation={() => togglePip(key)}
+                          on:keydown={(ev) => onPipKeydown(ev, key)}
+                        ><span class="pip {sp.pip.condition}"></span>{sp.label}</span>
+                        {#if selectedPipKey === key}{@render systemTip(sp.pip.kind, sp.label, sp.pip.condition, null)}{/if}
                       {/each}
                     </span>
                   </div>
@@ -1187,7 +1404,15 @@
                   <span class="cvm-mini">
                     {#if es && es.effects.length > 0}
                       {#each es.effects as e (e.defId)}
-                        <span class="cvm-pipinfo"><span class="pip {effectPipClass(e.defId)}" title={effectPipTitle(e.defId, e.rank)}>{effectPipGlyph(e.defId)}</span>{effectPipTitle(e.defId, e.rank)}</span>
+                        {@const key = pipKey(`e${i}`, "eff", e.defId)}
+                        <span class="cvm-pipinfo" class:cv-chip-open={selectedPipKey === key}
+                          role="button" tabindex="0"
+                          aria-pressed={selectedPipKey === key}
+                          aria-label={effectPipTitle(e.defId, e.rank)}
+                          on:click|stopPropagation={() => togglePip(key)}
+                          on:keydown={(ev) => onPipKeydown(ev, key)}
+                        ><span class="pip {effectPipClass(e.defId)}">{effectPipGlyph(e.defId)}</span>{effectPipTitle(e.defId, e.rank)}</span>
+                        {#if selectedPipKey === key}{@render effectTip(e.defId, e.rank)}{/if}
                       {/each}
                     {:else}
                       <span class="cvm-none">none</span>
@@ -1199,8 +1424,16 @@
                     <div class="cvm-drow">
                       <span class="cvm-dl">{squadron.model}</span>
                       <span class="cvm-mini">
-                        {#each dronePips(squadronStatusSummary(squadron)) as dp}
-                          <span class="cvm-pipinfo"><span class="pip {dp.cls}" title={dp.title}></span>{dp.title}</span>
+                        {#each dronePips(squadronStatusSummary(squadron)) as dp, di}
+                          {@const key = pipKey(`e${i}`, `drn-${squadron.id}`, String(di))}
+                          <span class="cvm-pipinfo" class:cv-chip-open={selectedPipKey === key}
+                            role="button" tabindex="0"
+                            aria-pressed={selectedPipKey === key}
+                            aria-label={dp.title}
+                            on:click|stopPropagation={() => togglePip(key)}
+                            on:keydown={(ev) => onPipKeydown(ev, key)}
+                          ><span class="pip {dp.cls}"></span>{dp.title}</span>
+                          {#if selectedPipKey === key}{@render droneTip(dp.title)}{/if}
                         {/each}
                       </span>
                     </div>
@@ -1615,6 +1848,84 @@
     background: rgba(90, 122, 133, 0.16);
     border-color: var(--color-text-dim);
     color: var(--color-text-dim);
+  }
+
+  /* ==========================================================================
+     CLICK / TAP PIP TOOLTIPS (Combat 0.13.0). A pip (desktop) or a labeled chip
+     (mobile .cvm-pipinfo) becomes a role="button" trigger; the open one gets an
+     accent ring, and the rich .cv-tip panel renders in-flow on its own full-width
+     line right below it. No positioning/measurement (freeze-safe): the panel is a
+     100%-basis flex item, so it simply wraps to a new line inside the pip row or
+     the mobile detail column. Styled with the shared console theme vars.
+     ========================================================================== */
+  /* Interactive affordance on the trigger pip / chip. Only the role="button" ones
+     get a pointer + focus ring (the decorative inner .pip in a mobile chip does not). */
+  .pip[role="button"],
+  .cvm-pipinfo[role="button"] {
+    cursor: pointer;
+  }
+  .pip[role="button"]:focus-visible,
+  .cvm-pipinfo[role="button"]:focus-visible {
+    outline: 2px solid var(--color-accent-bright);
+    outline-offset: 2px;
+  }
+  /* The open trigger: a soft accent ring so it is clear which pip the panel belongs to. */
+  .pip.cv-pip-open {
+    box-shadow: 0 0 0 2px rgba(var(--color-accent-rgb), 0.55);
+  }
+  .cvm-pipinfo.cv-chip-open {
+    color: var(--color-text-primary);
+    text-shadow: 0 0 6px rgba(var(--color-accent-rgb), 0.4);
+  }
+
+  /* The in-flow tooltip panel. flex-basis:100% forces it onto its own line inside a
+     .piprow (flex-wrap:wrap); width:100% fills the mobile .cvm-mini column. Opaque
+     bordered surface (no blur) so it reads solid on Brave, matching the arena cards. */
+  .cv-tip {
+    flex: 0 0 100%;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 6px;
+    padding: 9px 11px;
+    border: 1px solid var(--color-border-strong, var(--color-border));
+    border-radius: 8px;
+    background: var(--color-bg-deep);
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
+    text-align: left;
+    /* The mobile chips normalize to a small line-height; reset so the panel text is
+       comfortable regardless of which container it renders in. */
+    line-height: 1.45;
+  }
+  .cv-tip-hd {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 5px;
+  }
+  /* The header badge reuses the shared .pip look (kind class for effects, the four-
+     state condition class for systems), so the panel's badge matches its pip. */
+  .cv-tip-hd .pip {
+    flex-shrink: 0;
+  }
+  .cv-tip-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  .cv-tip-flavor {
+    font-style: italic;
+    font-size: 11.5px;
+    color: var(--color-text-secondary);
+    margin-bottom: 4px;
+  }
+  .cv-tip-def {
+    font-size: 12px;
+    color: var(--color-text-primary);
+  }
+  /* The embedded equipment card (player reactor / ftl). A little top gap; the card
+     brings its own rarity border, so no extra chrome here. */
+  .cv-tip-card {
+    margin-top: 8px;
   }
 
   .extra-enemies {

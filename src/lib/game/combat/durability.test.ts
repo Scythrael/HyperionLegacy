@@ -28,6 +28,7 @@ import {
 	FTL_EVASION_PENALTY_OFFLINE,
 	FTL_SPEED_PENALTY_DEGRADED,
 	FTL_SPEED_PENALTY_OFFLINE,
+	systemConditionEffect,
 	type DurableSystem,
 } from "./durability";
 import { makeStreams } from "./rng";
@@ -243,5 +244,61 @@ describe("DEGRADED_WEAPON_DAMAGE_PERCENT: a degraded weapon deals less (but > 0)
 	it("is a reduction (< 100) that still fires (> 0)", () => {
 		expect(DEGRADED_WEAPON_DAMAGE_PERCENT).toBeLessThan(100);
 		expect(DEGRADED_WEAPON_DAMAGE_PERCENT).toBeGreaterThan(0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// systemConditionEffect: the combat-view tooltip's live-effect sentence for a
+// ship-system condition pip. It must read the SAME condition-effect constants the
+// sim applies so the pip text and the mechanical penalty can never disagree.
+// ---------------------------------------------------------------------------
+describe("systemConditionEffect: tooltip live combat-effect line", () => {
+	it("a nominal system of any kind reports operating normally", () => {
+		expect(systemConditionEffect("weapon", "nominal")).toBe("Operating normally.");
+		expect(systemConditionEffect("reactor", "nominal")).toBe("Operating normally.");
+		expect(systemConditionEffect("ftl", "nominal")).toBe("Operating normally.");
+	});
+
+	it("a degraded weapon quotes DEGRADED_WEAPON_DAMAGE_PERCENT; offline cannot fire", () => {
+		expect(systemConditionEffect("weapon", "degraded")).toBe(
+			`Deals ${DEGRADED_WEAPON_DAMAGE_PERCENT}% of its normal damage.`,
+		);
+		expect(systemConditionEffect("weapon", "offline")).toBe("Offline: cannot fire at all.");
+	});
+
+	it("a worn reactor quotes its power percent and the complementary 'softer' figure", () => {
+		// Degraded reactor runs at REACTOR_DAMAGE_PERCENT_DEGRADED (90) -> 10% softer.
+		expect(systemConditionEffect("reactor", "degraded")).toBe(
+			`Runs at ${REACTOR_DAMAGE_PERCENT_DEGRADED}% power, so every weapon hits about ${
+				100 - REACTOR_DAMAGE_PERCENT_DEGRADED
+			}% softer.`,
+		);
+		// Offline reactor runs at REACTOR_DAMAGE_PERCENT_OFFLINE (70) -> 30% softer.
+		expect(systemConditionEffect("reactor", "offline")).toBe(
+			`Runs at ${REACTOR_DAMAGE_PERCENT_OFFLINE}% power, so every weapon hits about ${
+				100 - REACTOR_DAMAGE_PERCENT_OFFLINE
+			}% softer.`,
+		);
+	});
+
+	it("a worn ftl quotes BOTH the evasion and closing-speed penalties", () => {
+		expect(systemConditionEffect("ftl", "degraded")).toBe(
+			`Cuts evasion ${FTL_EVASION_PENALTY_DEGRADED}% and closing speed ${FTL_SPEED_PENALTY_DEGRADED}%.`,
+		);
+		expect(systemConditionEffect("ftl", "offline")).toBe(
+			`Cuts evasion ${FTL_EVASION_PENALTY_OFFLINE}% and closing speed ${FTL_SPEED_PENALTY_OFFLINE}%.`,
+		);
+	});
+
+	it("every kind + condition yields a non-empty sentence ending in a period", () => {
+		const kinds = ["weapon", "reactor", "ftl"] as const;
+		const conditions = ["nominal", "degraded", "disrupted", "offline"] as const;
+		for (const kind of kinds) {
+			for (const condition of conditions) {
+				const sentence = systemConditionEffect(kind, condition);
+				expect(sentence.length).toBeGreaterThan(0);
+				expect(sentence.endsWith(".")).toBe(true);
+			}
+		}
 	});
 });
