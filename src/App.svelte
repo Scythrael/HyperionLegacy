@@ -9610,6 +9610,11 @@
     flex-direction: column;
     gap: 4px;
     margin-bottom: 12px;
+    /* Reserve a right gutter so the right-aligned row VALUES do not run under the scroll bar
+       and clip (mobile). A single padding gutter covers both a classic desktop scrollbar
+       (which sits outside the padding) and a mobile OVERLAY scrollbar (which draws over the
+       edge, now clear of the padded-in content). */
+    padding-right: 12px;
   }
   .offline-summary-section {
     display: flex;
