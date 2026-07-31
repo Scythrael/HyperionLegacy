@@ -1615,20 +1615,22 @@ describe("EquipmentInstance shape + rarityIndex ordering (0.11.0 Task 1)", () =>
   });
 });
 
-// Equipment 0.11.0 Task 2: the 4 LIVE equipment-slot definitions. This is a
+// Equipment 0.11.0 Task 2: the six live equipment-slot definitions. This is a
 // STANDING-RULE guard over the EQUIPMENT_SLOTS table: it pins the structural
 // invariants every slot must hold (exactly 3 varieties, signature + affix stats
-// present) and, critically, fences the stat vocabulary to the 10 keys live THIS
-// patch via an explicit allow-set, so a future task that folds a new stat key
-// into an affixPool or implicit line WITHOUT also registering it here trips this
-// suite instead of silently shipping an un-consumed stat. The reserved slots
-// from Task 1 are deliberately NOT in the table this patch, so the table is
-// asserted to hold exactly the four live slots.
+// present) and, critically, fences the stat vocabulary via an explicit allow-set,
+// so a future task that folds a new stat key into an affixPool or implicit line
+// WITHOUT also registering it here trips this suite instead of silently shipping an
+// un-consumed stat. Combat 1.0 (Unit 1.1) activated the two defensive combat slots
+// (shieldEmitters / hullPlating) + their six stat keys; the table now holds the four
+// economy slots plus those two. The remaining reserved slots (bridge/quarters/etc.)
+// stay out until their systems land.
 describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
-  // The complete stat vocabulary live THIS patch: the 5 live-mapped ship-derived
-  // stats plus the 5 new equipment-only keys. The affixPool and implicitStats of
-  // every slot must draw ONLY from this set (a later task formalizes it into a
-  // real registry; until then this frozen list is the contract).
+  // The complete stat vocabulary live today: the 5 live-mapped ship-derived stats, the
+  // 5 equipment-only economy keys, and (Combat 1.0 Unit 1.1) the 6 defensive combat-gear
+  // keys. The affixPool and implicitStats of every slot must draw ONLY from this set. Kept
+  // deliberately in sync with LIVE_STAT_KEYS (model.ts) as an independent double-check that a
+  // new stat key cannot enter a slot without being registered.
   const ALLOWED_STAT_KEYS = new Set<string>([
     // live-mapped (align with existing ship-derived fields):
     "cargoCapacity",
@@ -1636,17 +1638,24 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     "engineEfficiency",
     "fuelCapacity",
     "extractionYieldMult",
-    // new equipment-only keys:
+    // equipment-only economy keys:
     "powerOutput",
     "massReduction",
     "powerDrawReduction",
     "sensors",
     "materialQualityChance",
+    // Combat 1.0 (Unit 1.1) defensive combat-gear keys (shield emitter + hull plating):
+    "shieldCapacity",
+    "shieldRecharge",
+    "shieldCoherence",
+    "hullStrength",
+    "ablativeArmor",
+    "kineticDampening",
   ]);
 
-  it("holds exactly the four LIVE slots (reserved slots stay out this patch)", () => {
+  it("holds the four economy slots plus the two Combat 1.0 defensive slots", () => {
     expect(Object.keys(EQUIPMENT_SLOTS).sort()).toEqual(
-      ["cargoBay", "ftlDrive", "reactorCore", "specUtility"].sort(),
+      ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating"].sort(),
     );
   });
 
@@ -1681,6 +1690,33 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     expect(req).toBeDefined();
     expect(req?.captainSpec).toBe("prospector");
     expect(req?.hullSpec).toBe("prospector");
+  });
+
+  // Combat 1.0 (Unit 1.1): pin the two defensive combat slots' signature content AND the
+  // parity-critical invariant that they are NOT auto-seeded onto ships this unit (their
+  // absence from DEFAULT_EQUIPMENT_VARIETY is what keeps combat outcomes + save shape
+  // untouched; auto-install onto combat hulls arrives in Unit 1.3).
+  it("the two defensive combat slots carry their signature stats and are not auto-seeded yet", () => {
+    // Shield emitter = the deflector: capacity + recharge signatures.
+    expect(EQUIPMENT_SLOTS.shieldEmitters.implicitStats).toEqual(["shieldCapacity", "shieldRecharge"]);
+    expect(EQUIPMENT_SLOTS.shieldEmitters.varieties.map((v) => v.key)).toEqual(
+      ["capacitorBank", "rechargeArray", "balancedEmitter"],
+    );
+    // Hull plating = the armor: hullStrength signature, ablative + dampening as affixes.
+    expect(EQUIPMENT_SLOTS.hullPlating.implicitStats).toEqual(["hullStrength"]);
+    const platingAffixStats = EQUIPMENT_SLOTS.hullPlating.affixPool.map((a) => a.stat);
+    expect(platingAffixStats).toContain("ablativeArmor");
+    expect(platingAffixStats).toContain("kineticDampening");
+    expect(EQUIPMENT_SLOTS.hullPlating.varieties.map((v) => v.key)).toEqual(
+      ["reinforcedPlating", "ablativePlating", "compositePlating"],
+    );
+    // NOT auto-seeded: combat hulls receive these via the Unit 1.3 install path, not the
+    // global DEFAULT_EQUIPMENT_VARIETY that seeds the four economy slots onto every ship.
+    expect(DEFAULT_EQUIPMENT_VARIETY.shieldEmitters).toBeUndefined();
+    expect(DEFAULT_EQUIPMENT_VARIETY.hullPlating).toBeUndefined();
+    // But base physicals exist (read when a combat piece is generated in Unit 1.2 crafting).
+    expect(SLOT_BASE_PHYSICALS.shieldEmitters).toBeDefined();
+    expect(SLOT_BASE_PHYSICALS.hullPlating).toBeDefined();
   });
 });
 
@@ -1743,8 +1779,12 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
       equipmentBlueprints.map((bp) => `${bp.equipmentOutput!.slotType}/${bp.equipmentOutput!.varietyKey}`),
     );
     expect(pairs.size).toBe(12);
-    for (const [slotType, slot] of Object.entries(EQUIPMENT_SLOTS)) {
-      for (const variety of slot.varieties) {
+    // Combat 1.0 (Unit 1.1): the two defensive combat slots (shieldEmitters / hullPlating)
+    // are defined but not yet craftable (their blueprints land with the craft chain), so
+    // blueprint coverage is asserted over the four ECONOMY slots only.
+    const ECONOMY_SLOTS = ["cargoBay", "ftlDrive", "reactorCore", "specUtility"] as const;
+    for (const slotType of ECONOMY_SLOTS) {
+      for (const variety of EQUIPMENT_SLOTS[slotType].varieties) {
         expect(pairs.has(`${slotType}/${variety.key}`), `${slotType}/${variety.key} has a blueprint`).toBe(true);
       }
     }
@@ -1950,7 +1990,7 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
     }
   });
 
-  it("LIVE_STAT_KEYS holds exactly the 10 live-this-patch keys", () => {
+  it("LIVE_STAT_KEYS holds exactly the 16 live keys (10 economy + 6 Combat 1.0 defensive)", () => {
     // Pins the LIVE vocabulary so a key added/removed here is a deliberate, tested
     // change (the slot table draws only from this set).
     expect([...LIVE_STAT_KEYS].sort()).toEqual(
@@ -1965,6 +2005,13 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
         "massReduction",
         "sensors",
         "materialQualityChance",
+        // Combat 1.0 (Unit 1.1) defensive combat-gear keys (shield emitter + hull plating):
+        "shieldCapacity",
+        "shieldRecharge",
+        "shieldCoherence",
+        "hullStrength",
+        "ablativeArmor",
+        "kineticDampening",
       ].sort(),
     );
   });

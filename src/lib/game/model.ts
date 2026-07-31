@@ -1099,9 +1099,9 @@ export function rarityIndex(rarity: EquipmentRarity): number {
 // slot IS (its signature stats, the affix vocabulary it can roll, its variety
 // families, and any equip gate) so later tasks (generation, fitting, the stat
 // registry, UI) read a stable table instead of hard-coding slot facts. Nothing
-// consumes this yet. Only the FOUR live slots are in the table; the reserved
-// EquipmentSlotType members from Task 1 have no definition this patch (they are
-// added when 0.12.0's fitment grid actually reads them).
+// consumes this yet. Six slots are in the table: the four economy slots plus the two
+// Combat 1.0 (Unit 1.1) defensive slots (shieldEmitters / hullPlating). The remaining
+// reserved EquipmentSlotType members (bridge/quarters/etc.) have no definition yet.
 // ============================================================================
 
 // One "variety" family within a slot: a flavor a rolled piece can belong to
@@ -1145,12 +1145,12 @@ export interface EquipmentSlotDef {
   };
 }
 
-// The FOUR live slots. ⚠️ statRatios and affix WEIGHTS are FIRST-PASS TUNABLE
-// launch placeholders (retuned at the device-check stage, not piecemeal), same
-// spirit as every other economy constant in this file. Each variety's ratios
-// lean toward that variety's quirk; each slot's affix weights bias its signature
-// stat highest. Stat keys are constrained to the 10 live-this-patch keys (the
-// test fences this against an explicit allow-set).
+// The six live slots (four economy + two Combat 1.0 defensive). ⚠️ statRatios and affix
+// WEIGHTS are FIRST-PASS TUNABLE launch placeholders (retuned at the device-check stage,
+// not piecemeal), same spirit as every other economy constant in this file. Each variety's
+// ratios lean toward that variety's quirk; each slot's affix weights bias its signature
+// stat highest. Stat keys are constrained to the 16 live keys (the test fences this against
+// an explicit allow-set).
 export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // CARGO BAY: the hold. Signature stat is raw cargoCapacity; affixes lean cargo
   // with efficiency / yield / mass-shaving as secondary rolls. Universal (no gate).
@@ -1242,6 +1242,65 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
     // hull (both checked by the later fitting task).
     equipRequirement: { captainSpec: "prospector", hullSpec: "prospector" },
   },
+  // COMBAT 1.0 (Unit 1.1): the two DEFENSIVE combat slots, activated from the reserved
+  // EquipmentSlotType members (shieldEmitters / hullPlating). Singleton slots (one each
+  // per combat hull). This unit ONLY defines the slots + their stat vocabulary so itemgen
+  // and the UI read a stable table, exactly as the four economy slots do. They are
+  // deliberately NOT auto-seeded (absent from DEFAULT_EQUIPMENT_VARIETY) and NOT yet
+  // craftable (no blueprint), so nothing generates, installs, or reads one this unit and combat
+  // parity is untouched. Auto-install of Standard-Issue baselines onto combat hulls + the
+  // empty-slot dispatch blocker land in Unit 1.3; the shipToCombatant fold that makes these
+  // stats drive real combat outcomes lands in Unit 1.4. Per-family resist affixes are
+  // deferred to the fold-in (they need the combatant's resist-map modeling); this unit ships
+  // the core defensive vocabulary only. statRatios / affix WEIGHTS are FIRST-PASS TUNABLE,
+  // same spirit as the economy slots.
+  //
+  // SHIELD EMITTER: the deflector. Signature stats are shieldCapacity (the absorb pool) +
+  // shieldRecharge (regen/sec); affixes add shield coherence (attenuation resist) and a
+  // little mass relief. Pure-gear shields (design 5a): the emitter is the SOLE source of a
+  // ship's shield pool, so a stripped slot means no shields (enforced by the Unit 1.3 blocker).
+  shieldEmitters: {
+    slotType: "shieldEmitters",
+    label: "Shield Emitter",
+    implicitStats: ["shieldCapacity", "shieldRecharge"],
+    affixPool: [
+      { stat: "shieldCapacity", weight: 5 },     // signature affix: most likely to roll
+      { stat: "shieldRecharge", weight: 4 },
+      { stat: "shieldCoherence", weight: 2 },
+      { stat: "massReduction", weight: 1 },
+    ],
+    varieties: [
+      // Capacitor Bank: budget into raw absorb pool, the tank emitter.
+      { key: "capacitorBank", label: "Capacitor Bank", statRatios: { shieldCapacity: 0.7, shieldRecharge: 0.2, shieldCoherence: 0.1 } },
+      // Recharge Array: budget into regen, rewards burst/attrition fights.
+      { key: "rechargeArray", label: "Recharge Array", statRatios: { shieldRecharge: 0.65, shieldCapacity: 0.25, shieldCoherence: 0.1 } },
+      // Balanced Emitter: the neutral middle option.
+      { key: "balancedEmitter", label: "Balanced Emitter", statRatios: { shieldCapacity: 0.45, shieldRecharge: 0.4, shieldCoherence: 0.15 } },
+    ],
+  },
+  // HULL PLATING: the armor. Signature stat is hullStrength (adds to the structural HP pool);
+  // affixes add ablative armor (a depleting flat-energy buffer) and kinetic dampening (flat
+  // kinetic % reduction), plus mass relief. Design 6a middle path: the hull keeps a small
+  // intrinsic frame HP and plating provides the bulk of effective HP + all mitigation.
+  hullPlating: {
+    slotType: "hullPlating",
+    label: "Hull Plating",
+    implicitStats: ["hullStrength"],
+    affixPool: [
+      { stat: "hullStrength", weight: 5 },       // signature affix: most likely to roll
+      { stat: "ablativeArmor", weight: 3 },
+      { stat: "kineticDampening", weight: 2 },
+      { stat: "massReduction", weight: 1 },
+    ],
+    varieties: [
+      // Reinforced: budget into raw structural HP, the straight tank plate.
+      { key: "reinforcedPlating", label: "Reinforced Plating", statRatios: { hullStrength: 0.75, ablativeArmor: 0.15, kineticDampening: 0.1 } },
+      // Ablative: budget into the depleting energy-soak buffer.
+      { key: "ablativePlating", label: "Ablative Plating", statRatios: { ablativeArmor: 0.55, hullStrength: 0.3, kineticDampening: 0.15 } },
+      // Composite: an even spread across HP + both mitigations.
+      { key: "compositePlating", label: "Composite Plating", statRatios: { hullStrength: 0.4, ablativeArmor: 0.3, kineticDampening: 0.3 } },
+    ],
+  },
 };
 
 // ============================================================================
@@ -1253,7 +1312,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
 // patch" and "forward vocabulary" is explicit rather than implied.
 // ============================================================================
 
-// LIVE this patch: the 10 stat keys the four live slots (EQUIPMENT_SLOTS above)
+// LIVE today: the 16 stat keys the six live slots (EQUIPMENT_SLOTS above)
 // actually reference across their implicitStats, affixPool, and variety
 // statRatios. The model.test.ts drift guard asserts EVERY stat key in the slot
 // table is a member here, so a stray or typo'd key in the slot data fails the
@@ -1275,6 +1334,16 @@ export const LIVE_STAT_KEYS = [
   "massReduction",
   "sensors",
   "materialQualityChance",
+  // Combat 1.0 (Unit 1.1): the six DEFENSIVE combat-gear stat lines, activated from the
+  // reserved vocabulary when the shield emitter + hull plating slots were defined. shipToCombatant
+  // reads these off installed gear in Unit 1.4; registering them live here lets the slot table's
+  // allow-set accept the two new combat slots' implicit + affix stats.
+  "shieldCapacity",
+  "shieldRecharge",
+  "shieldCoherence",
+  "hullStrength",
+  "ablativeArmor",
+  "kineticDampening",
 ] as const;
 
 // RESERVED forward vocabulary for 0.12.0 (combat / crew / sensor / defense).
@@ -1303,18 +1372,13 @@ export const RESERVED_STAT_KEYS = [
   "weaponAttackRate",
   "weaponAccuracy",
   "weaponProjectileCount",
-  // Defense:
-  "shieldCapacity",
-  "shieldRecharge",
-  // Renamed from bleedthrough / bleedthroughResist (Combat 0.13.0 design S5): the
-  // particle Shield Attenuation signature and its resist counterpart. Still INERT
-  // reserved keys (no runtime consumer yet), so this is a pure identifier rename
-  // with NO save migration needed.
+  // Defense: the particle Shield Attenuation signature stays RESERVED until weapons land in
+  // Unit 1.2 (it is a weapon OFFENSIVE stat, not a defensive gear stat). Renamed from
+  // bleedthrough (Combat 0.13.0 design S5); a pure identifier rename, INERT, no migration. The
+  // six DEFENSIVE gear stats (shieldCapacity, shieldRecharge, shieldCoherence, hullStrength,
+  // ablativeArmor, kineticDampening) MOVED to LIVE_STAT_KEYS in Combat 1.0 Unit 1.1 when the
+  // shield emitter + hull plating slots were activated.
   "shieldAttenuation",
-  "shieldCoherence",
-  "hullStrength",
-  "ablativeArmor",
-  "kineticDampening",
 ] as const;
 
 // Grouped view of the SAME two arrays for a caller that wants the whole
@@ -3874,9 +3938,11 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
 // so the baseline favours no spec. ⚠️ Standard-Issue is GENERATED, not a separate
 // ITEMS def: a later task (Task 20 migration/seed) reads THIS map and mints the
 // quality-0 EquipmentInstance for each slot's default variety at seed time. Keyed
-// by the four LIVE EquipmentSlotType values only (the reserved slots have no
-// varieties this patch). Each value MUST name a real variety of its slot (asserted
-// in model.test.ts).
+// by the four ECONOMY EquipmentSlotType values only. The two Combat 1.0 defensive slots
+// DO have varieties but are deliberately excluded here: they are auto-installed onto combat
+// hulls via the Unit 1.3 path, not seeded onto every ship, which is what keeps combat parity
+// and save shape untouched. Each value MUST name a real variety of its slot (asserted in
+// model.test.ts).
 export const DEFAULT_EQUIPMENT_VARIETY: Record<string, string> = {
   cargoBay: "balancedHold",     // neutral, no favoredSpec
   ftlDrive: "balancedDrive",    // even speed/efficiency split
@@ -3886,8 +3952,9 @@ export const DEFAULT_EQUIPMENT_VARIETY: Record<string, string> = {
 
 // --- Per-slot BASE physical characteristics (0.11.0) -------------------------
 // Intrinsic mass, intrinsic power draw, and base durability BEFORE any roll or
-// quality scaling. Only the four LIVE slots have entries (the reserved
-// EquipmentSlotType members have no generation this patch). These are the values a
+// quality scaling. The four economy slots plus (Combat 1.0 Unit 1.1) the two defensive
+// combat slots have entries; the still-reserved members (bridge/quarters/etc.) have no
+// generation yet. These are the values a
 // rolled massReduction / powerDrawReduction shaves DOWN from (generateEquipment,
 // itemgen.ts), the base durability quality scales UP, and the mass the equipment
 // fold-in (shipDerivedStats) drags speed/efficiency against. FIRST-PASS TUNABLE.
@@ -3901,13 +3968,19 @@ export const DEFAULT_EQUIPMENT_VARIETY: Record<string, string> = {
 // of this file). itemgen.ts re-exports it, so generateEquipment and itemgen.test.ts are
 // unaffected.
 export const SLOT_BASE_PHYSICALS: Record<
-  "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility",
+  "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility" | "shieldEmitters" | "hullPlating",
   { mass: number; powerDraw: number; durability: number }
 > = {
   cargoBay: { mass: 10, powerDraw: 2, durability: 100 },
   ftlDrive: { mass: 8, powerDraw: 4, durability: 100 },
   reactorCore: { mass: 12, powerDraw: 1, durability: 120 },
   specUtility: { mass: 6, powerDraw: 2, durability: 90 },
+  // Combat 1.0 (Unit 1.1): base physicals for the two defensive combat slots. A shield emitter
+  // draws real power (an active deflector); hull plating is heavy + passive (0 draw) with the
+  // highest base durability (it is armor). FIRST-PASS TUNABLE. Read only when a combat piece is
+  // generated (Unit 1.2 crafting); nothing generates one this unit, so these are inert today.
+  shieldEmitters: { mass: 8, powerDraw: 6, durability: 100 },
+  hullPlating: { mass: 20, powerDraw: 0, durability: 160 },
 };
 
 // --- Standard-Issue baseline generation (0.11.0 Task 20) ---------------------
