@@ -1289,7 +1289,7 @@
                         aria-label={sp.label}
                         on:click|stopPropagation={() => togglePip(key)}
                         on:keydown={(ev) => onPipKeydown(ev, key)}
-                      ><span class="pip {sp.pip.condition}"></span>{sp.label}</span>
+                      ><span class="pip {sp.pip.condition}"></span></span>
                       {#if selectedPipKey === key}{@render systemTip(sp.pip.kind, sp.label, sp.pip.condition, equipPieceForSystemPip(true, sp.pip.kind))}{/if}
                     {/each}
                   </span>
@@ -1307,7 +1307,7 @@
                         aria-label={effectPipTitle(e.defId, e.rank)}
                         on:click|stopPropagation={() => togglePip(key)}
                         on:keydown={(ev) => onPipKeydown(ev, key)}
-                      ><span class="pip {effectPipClass(e.defId)}">{effectPipGlyph(e.defId)}</span>{effectPipTitle(e.defId, e.rank)}</span>
+                      ><span class="pip {effectPipClass(e.defId)}">{effectPipGlyph(e.defId)}</span></span>
                       {#if selectedPipKey === key}{@render effectTip(e.defId, e.rank)}{/if}
                     {/each}
                   {:else}
@@ -1328,7 +1328,7 @@
                           aria-label={dp.title}
                           on:click|stopPropagation={() => togglePip(key)}
                           on:keydown={(ev) => onPipKeydown(ev, key)}
-                        ><span class="pip {dp.cls}"></span>{dp.title}</span>
+                        ><span class="pip {dp.cls}"></span></span>
                         {#if selectedPipKey === key}{@render droneTip(dp.title)}{/if}
                       {/each}
                     </span>
@@ -1393,7 +1393,7 @@
                           aria-label={sp.label}
                           on:click|stopPropagation={() => togglePip(key)}
                           on:keydown={(ev) => onPipKeydown(ev, key)}
-                        ><span class="pip {sp.pip.condition}"></span>{sp.label}</span>
+                        ><span class="pip {sp.pip.condition}"></span></span>
                         {#if selectedPipKey === key}{@render systemTip(sp.pip.kind, sp.label, sp.pip.condition, null)}{/if}
                       {/each}
                     </span>
@@ -1411,7 +1411,7 @@
                           aria-label={effectPipTitle(e.defId, e.rank)}
                           on:click|stopPropagation={() => togglePip(key)}
                           on:keydown={(ev) => onPipKeydown(ev, key)}
-                        ><span class="pip {effectPipClass(e.defId)}">{effectPipGlyph(e.defId)}</span>{effectPipTitle(e.defId, e.rank)}</span>
+                        ><span class="pip {effectPipClass(e.defId)}">{effectPipGlyph(e.defId)}</span></span>
                         {#if selectedPipKey === key}{@render effectTip(e.defId, e.rank)}{/if}
                       {/each}
                     {:else}
@@ -1432,7 +1432,7 @@
                             aria-label={dp.title}
                             on:click|stopPropagation={() => togglePip(key)}
                             on:keydown={(ev) => onPipKeydown(ev, key)}
-                          ><span class="pip {dp.cls}"></span>{dp.title}</span>
+                          ><span class="pip {dp.cls}"></span></span>
                           {#if selectedPipKey === key}{@render droneTip(dp.title)}{/if}
                         {/each}
                       </span>
@@ -2359,22 +2359,21 @@
      long label like "Weapon 1: Degraded" reads on its own line without truncating. */
   .cvm-mini {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     min-width: 0;
   }
-  /* One labeled chip: the small colored pip (or effect glyph) followed by its text.
-     This is the mobile-native equivalent of the desktop arena's hover tooltip. */
+  /* One tappable pip chip: just the small colored pip / effect glyph (no inline text). Its
+     info opens in the .cv-tip panel on tap, which is flex 0 0 100% so it wraps onto its own
+     full-width line below the horizontal pip row (the tooltip appears under the row). */
   .cvm-pipinfo {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    line-height: 1.25;
-    color: var(--color-text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
   }
-  /* Keep the pip a fixed small colored square and the effect glyph legible inside it. */
   .cvm-pipinfo .pip {
     flex-shrink: 0;
   }
