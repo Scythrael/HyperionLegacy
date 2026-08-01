@@ -12,12 +12,21 @@ import {
 	shipToCombatant,
 	sampleLoadout,
 	COMBAT_DEFAULT_LOADOUT,
+	weaponInstanceFromGear,
+	frameHp,
 	type CombatShipStats,
 	type CombatHullType,
 } from "./bridge";
 import { resolveBattle } from "./resolveBattle";
 import { engagementForecast } from "./rating";
-import { SHIP_TYPES } from "../model";
+import { makeWeaponInstance } from "./weapons";
+import {
+	SHIP_TYPES,
+	seedCombatStandardIssueForShip,
+	generateCombatStandardIssue,
+	type CombatStandardIssueSpec,
+	type EquipmentInstance,
+} from "../model";
 
 // A representative real hull so the map test rides on live SHIP_TYPES data (if a
 // hull's combat stats change, this test still reads them from the source).
@@ -269,5 +278,143 @@ describe("bridged Combatant is valid resolveBattle input", () => {
 		expect(outcome.rounds).toBeGreaterThan(0);
 		// The log was generated (at least one event).
 		expect(log.length).toBeGreaterThan(0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Combat 1.0 Unit 1.4: the gear FOLD. The load-bearing invariant is BEHAVIOUR
+// PRESERVATION: a Standard-Issue-geared combat hull must produce a combatant
+// byte-identical to the pre-1.4 hull-default combatant, so combat outcomes do not
+// move and the parity fixtures need no re-baseline. These tests are the proof.
+// ---------------------------------------------------------------------------
+
+// Build a hull's behaviour-preserving Standard-Issue combat spec EXACTLY as the tick.ts caller does
+// (full default loadout + the hull's shield stats + plating = hullIntegrity - frameHp). Kept local so
+// the bridge tests exercise the real caller contract without importing tick.ts (a combat leaf must
+// never import UP into the live loop).
+function combatSpecFor(hull: CombatHullType): CombatStandardIssueSpec {
+	const def = SHIP_TYPES[hull];
+	return {
+		signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
+		shieldCapacity: def.shieldCapacity,
+		shieldRecharge: def.shieldRecharge,
+		hullStrength: def.hullIntegrity - frameHp(def.hullIntegrity),
+	};
+}
+
+// The Standard-Issue combat gear a fresh combat hull is born with (Unit 1.3/1.4 seeder output),
+// filtered to the pieces fitted to `shipId` (all of them, here).
+function standardIssueGear(hull: CombatHullType, shipId: string): EquipmentInstance[] {
+	return seedCombatStandardIssueForShip(shipId, combatSpecFor(hull), 1).pieces;
+}
+
+describe("weaponInstanceFromGear (Unit 1.4 weapon reconstruction)", () => {
+	it("reconstructs a Standard-Issue weapon BYTE-IDENTICALLY to makeWeaponInstance", () => {
+		// A Standard-Issue weapon (weaponYield 0, quality 0, durability == durabilityMax == base) must
+		// fold back to the exact template instance, so a Standard-Issue loadout fights unchanged.
+		for (const weaponType of ["autocannon", "plasma", "railgun", "concussionTorpedo", "voltaic", "pointDefenseArray"] as const) {
+			const piece = generateCombatStandardIssue({
+				slotType: "weapon",
+				weaponType,
+				fittedToShipId: "ship-1",
+				allocateId: () => "equip-1",
+			});
+			const reconstructed = weaponInstanceFromGear(piece, `player-w0-${weaponType}`);
+			const template = makeWeaponInstance(weaponType, `player-w0-${weaponType}`);
+			expect(reconstructed).toEqual(template);
+		}
+	});
+
+	it("applies rolled weaponYield (flat, both bounds) + weaponAccuracy on top of the base def", () => {
+		const base = makeWeaponInstance("plasma");
+		const piece = generateCombatStandardIssue({
+			slotType: "weapon",
+			weaponType: "plasma",
+			fittedToShipId: null,
+			allocateId: () => "equip-1",
+		});
+		// Simulate a crafted roll: +5 yield (implicit or affix) and +4 accuracy.
+		piece.rolledStats = { weaponYield: 5, weaponAccuracy: 4 };
+		piece.quality = 3;
+		const w = weaponInstanceFromGear(piece, "w");
+		expect(w.yieldMin).toBe(base.yieldMin + 5);
+		expect(w.yieldMax).toBe(base.yieldMax + 5);
+		expect(w.accuracy).toBe(base.accuracy + 4);
+		expect(w.quality).toBe(3);
+		// Non-rolled identity fields still come straight from the base def.
+		expect(w.family).toBe(base.family);
+		expect(w.range).toBe(base.range);
+		expect(w.effectSlots).toEqual(base.effectSlots);
+	});
+
+	it("throws on a weapon piece with no weaponType (a malformed piece)", () => {
+		const piece = generateCombatStandardIssue({
+			slotType: "weapon",
+			weaponType: "autocannon",
+			fittedToShipId: null,
+			allocateId: () => "equip-1",
+		});
+		delete piece.weaponType;
+		expect(() => weaponInstanceFromGear(piece, "w")).toThrow();
+	});
+});
+
+describe("shipToCombatant gear fold: Standard-Issue is BEHAVIOUR-PRESERVING", () => {
+	it.each(["destroyer", "battleship", "carrier"] as const)(
+		"a Standard-Issue-geared %s produces a combatant BYTE-IDENTICAL to the hull-default combatant",
+		(hull) => {
+			const stats = SHIP_TYPES[hull];
+			const gear = standardIssueGear(hull, "player-ship");
+			// PRESENT path: the ship's Standard-Issue combat set drives every stat.
+			const geared = shipToCombatant({ id: "player-ship", team: "player", stats, hullType: hull, installedGear: gear });
+			// ABSENT path: the pre-1.4 hull-default build.
+			const hullDefault = shipToCombatant({ id: "player-ship", team: "player", stats, hullType: hull });
+			// The WHOLE combatant is byte-identical: hull/shield pools, defensive stats, weapons (ids +
+			// stats), drones, systems. If ANY field diverged, an outcome could move and the parity
+			// fixtures would need a re-baseline (they must not).
+			expect(geared).toEqual(hullDefault);
+		},
+	);
+
+	it("folds each defensive stat off the Standard-Issue gear (spot-check the destroyer)", () => {
+		const stats = SHIP_TYPES.destroyer;
+		const gear = standardIssueGear("destroyer", "player-ship");
+		const c = shipToCombatant({ id: "player-ship", team: "player", stats, hullType: "destroyer", installedGear: gear });
+		// Hull = frame + plating.hullStrength == the hull's total integrity (the frame split cancels).
+		expect(c.hull).toBe(stats.hullIntegrity);
+		expect(c.hullMax).toBe(stats.hullIntegrity);
+		// Shield pool + recharge come from the emitter, equal to the hull's stats for Standard-Issue.
+		expect(c.shieldMax).toBe(stats.shieldCapacity);
+		expect(c.shieldRecharge).toBe(stats.shieldRecharge);
+		// One CombatWeapon per installed weapon piece, in the hull's default loadout order.
+		expect(c.weapons.map((w) => w.weaponType)).toEqual([...COMBAT_DEFAULT_LOADOUT.destroyer.weapons]);
+		// Standard-Issue rolls no defensive affixes, so mitigation is all zero (the regression default).
+		expect(c.shieldCoherence).toBe(0);
+		expect(c.ablativeArmor).toBe(0);
+		expect(c.kineticDampening).toBe(0);
+		expect(c.damageResist).toEqual({ kinetic: 0, particle: 0, ew: 0 });
+		expect(c.disruptionResist).toEqual({ kinetic: 0, particle: 0, ew: 0 });
+	});
+
+	it("crafted gear (better than Standard-Issue) is pure upside: bigger pools + mitigation", () => {
+		const stats = SHIP_TYPES.destroyer;
+		const gear = standardIssueGear("destroyer", "player-ship");
+		// Upgrade the emitter + plating with rolled affixes (a crafted piece), leaving weapons alone.
+		const upgraded = gear.map((p) => {
+			if (p.slotType === "shieldEmitters") {
+				return { ...p, implicitStats: { ...p.implicitStats, shieldCapacity: (p.implicitStats.shieldCapacity ?? 0) + 100 }, rolledStats: { shieldCoherence: 15 } };
+			}
+			if (p.slotType === "hullPlating") {
+				return { ...p, rolledStats: { ablativeArmor: 40, kineticDampening: 12 } };
+			}
+			return p;
+		});
+		const c = shipToCombatant({ id: "player-ship", team: "player", stats, hullType: "destroyer", installedGear: upgraded });
+		expect(c.shieldMax).toBe(stats.shieldCapacity + 100); // implicit + the added capacity
+		expect(c.shieldCoherence).toBe(15);
+		expect(c.ablativeArmor).toBe(40);
+		expect(c.kineticDampening).toBe(12);
+		// Hull is unchanged (plating hullStrength implicit untouched): the affixes are additive upside.
+		expect(c.hull).toBe(stats.hullIntegrity);
 	});
 });

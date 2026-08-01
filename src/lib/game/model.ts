@@ -4325,48 +4325,37 @@ export function seedStandardIssueForShip(
 // fires when a player DELIBERATELY strips a required slot (reachable once the install UI lands
 // in a later unit).
 //
-// ⚠️ NON-ZERO magnitudes, UNLIKE the economy floor. Economy Standard-Issue is stat-neutral
-// (STANDARD_ISSUE_IMPLICIT_MAGNITUDE 0) because its stats are additive bonuses a bare hull can
-// do without. Combat gear is DIFFERENT: shields are pure-gear (design 5a), so a 0-capacity
-// emitter would leave the ship with literally no shield pool. The baseline must therefore carry
-// real, if weak, combat magnitudes. These are FIRST-PASS TUNABLE; Unit 1.6 rebalances them.
-export const COMBAT_STANDARD_ISSUE_SHIELD_CAPACITY = 250; // first-pass tunable, Unit 1.6 rebalances
-export const COMBAT_STANDARD_ISSUE_SHIELD_RECHARGE = 4;   // first-pass tunable, Unit 1.6 rebalances
-export const COMBAT_STANDARD_ISSUE_HULL_STRENGTH = 500;   // first-pass tunable, Unit 1.6 rebalances
-// The Standard-Issue weapon adds NO yield bonus: the real per-shot combat stats come from the
-// base WEAPON_DEFS[weaponType] def (yield/accuracy/range/effect slots), which the Unit 1.4 bridge
+// ⚠️ BEHAVIOUR-PRESERVING PER-HULL magnitudes (Combat 1.0 Unit 1.4, REVISED from the Unit 1.3
+// first-pass placeholders). The Standard-Issue combat set is authored to reproduce each hull's
+// CURRENT (pre-gear) combat profile EXACTLY, so a Standard-Issue-geared ship folds to a combatant
+// byte-identical to the old hull-default combatant and combat outcomes do not move (the Unit 1.4
+// parity re-baseline is a no-op; the deliberate power-curve retune is Unit 1.6). Because the target
+// numbers are PER-HULL (a destroyer's shield != a battleship's), the magnitudes are no longer a
+// module const here: the CALLER (tick.ts, which imports both SHIP_TYPES and COMBAT_DEFAULT_LOADOUT)
+// resolves each hull's shieldCapacity / shieldRecharge / hullStrength + its full weapon loadout and
+// passes them IN. This keeps model.ts from importing combat internals (combatHullTypeOf /
+// COMBAT_DEFAULT_LOADOUT / the frame-HP split), preserving the repo-wide "model never imports combat
+// at runtime" rule. See seedCombatStandardIssueForShip below for the caller contract.
+//
+// The Standard-Issue weapon adds NO yield bonus: the real per-shot combat stats come from the base
+// WEAPON_DEFS[weaponType] def (yield/accuracy/range/effect slots), which the Unit 1.4 bridge
 // reconstructs; the baseline weapon only OCCUPIES the hardpoint so the hull is armed + dispatchable.
-export const COMBAT_STANDARD_ISSUE_WEAPON_YIELD = 0; // first-pass tunable, Unit 1.6 rebalances
+export const COMBAT_STANDARD_ISSUE_WEAPON_YIELD = 0; // no bonus: base WEAPON_DEF carries the real stats
 
 // The weapon baseline's durability ceiling. Mirrors combat/weapons.ts BASE_WEAPON_DURABILITY (100)
 // at quality 0. A small DELIBERATE duplication (a literal, not a runtime import of the value) so
 // model.ts keeps its "never import combat internals at runtime" discipline (see the type-only combat
-// imports at the top of this file). It is inert drift-wise: durability is never lost this unit, does
-// NOT feed shipDerivedStats, and is not read in combat until a later unit, so the two constants
-// cannot diverge in any observable way before the rebalance retunes both.
-export const COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY = 100; // first-pass tunable, Unit 1.6 rebalances
-
-// The signature implicit lines for each of the three combat baseline pieces, at the first-pass
-// magnitudes above. The KEYS match each slot's EQUIPMENT_SLOTS.implicitStats (weapon's implicit is
-// weaponYield, the same signature line generateWeapon stamps), so a baseline is a well-formed piece
-// of its slot, just at the floor.
-const COMBAT_STANDARD_ISSUE_IMPLICITS: Record<
-  "weapon" | "shieldEmitters" | "hullPlating",
-  Record<string, number>
-> = {
-  weapon: { weaponYield: COMBAT_STANDARD_ISSUE_WEAPON_YIELD },
-  shieldEmitters: {
-    shieldCapacity: COMBAT_STANDARD_ISSUE_SHIELD_CAPACITY,
-    shieldRecharge: COMBAT_STANDARD_ISSUE_SHIELD_RECHARGE,
-  },
-  hullPlating: { hullStrength: COMBAT_STANDARD_ISSUE_HULL_STRENGTH },
-};
+// imports at the top of this file). It is behaviour-neutral: the Unit 1.4 bridge reconstruction reads
+// this durabilityMax and a Standard-Issue weapon (durability == durabilityMax == 100) reconstructs
+// byte-identically to makeWeaponInstance (whose template durability is also 100).
+export const COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY = 100; // == combat/weapons.ts BASE_WEAPON_DURABILITY
 
 // Mint ONE combat Standard-Issue baseline EquipmentInstance for a combat slot (weapon /
 // shieldEmitters / hullPlating). Same DETERMINISTIC, rng-free, affix-free posture as
-// generateStandardIssue (it runs inside a save migration where no reproducible rng exists), the
-// difference being the NON-ZERO implicit magnitudes above and, for a weapon, the required
-// weaponType (the hull's signature gun) + slotType "weapon".
+// generateStandardIssue (it runs inside a save migration where no reproducible rng exists). The
+// per-slot signature magnitudes are passed IN by the caller (Unit 1.4, see the note above): a weapon
+// carries its weaponType + a 0 yield bonus; a shield emitter carries the hull's shieldCapacity +
+// shieldRecharge; hull plating carries the hull's plating hullStrength (= hullIntegrity - frame HP).
 //
 // ECONOMY-NEUTRAL (load-bearing, proven by a test): mass 0 + powerDraw 0. shipDerivedStats folds
 // ONLY the economy stat keys (cargoCapacity/fuelCapacity/transitSpeedMult/engineEfficiency/
@@ -4377,11 +4366,17 @@ const COMBAT_STANDARD_ISSUE_IMPLICITS: Record<
 // for shield/plating; COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY for a weapon), a reserved value that
 // also does not feed shipDerivedStats.
 //
-// PURE: a function of (slotType, weaponType, id, fittedToShipId); identical inputs mint an identical
-// piece, exactly what a re-runnable migration requires.
+// PURE: a function of (slotType, weaponType, the passed magnitudes, id, fittedToShipId); identical
+// inputs mint an identical piece, exactly what a re-runnable migration requires.
 export function generateCombatStandardIssue(a: {
   slotType: "weapon" | "shieldEmitters" | "hullPlating";
   weaponType?: WeaponId; // REQUIRED iff slotType === "weapon" (the hull's signature gun); absent otherwise
+  // The per-hull signature magnitudes the caller resolves (Unit 1.4). REQUIRED for their slot:
+  // shieldCapacity + shieldRecharge for a shield emitter; hullStrength for hull plating. Absent for
+  // a weapon (its yield bonus is always 0; the base WEAPON_DEF carries the real stats).
+  shieldCapacity?: number;
+  shieldRecharge?: number;
+  hullStrength?: number;
   fittedToShipId: string | null;
   allocateId: () => string;
 }): EquipmentInstance {
@@ -4395,8 +4390,24 @@ export function generateCombatStandardIssue(a: {
       ? COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY
       : SLOT_BASE_PHYSICALS[a.slotType].durability;
 
-  // Fresh copy of the slot's floor implicit lines (never share the module-level map object).
-  const implicitStats: Record<string, number> = { ...COMBAT_STANDARD_ISSUE_IMPLICITS[a.slotType] };
+  // The slot's signature implicit lines at the passed per-hull magnitudes. A fresh object per call
+  // (never a shared module map). The KEYS match each slot's EQUIPMENT_SLOTS.implicitStats, so a
+  // baseline is a well-formed piece of its slot; the Unit 1.4 bridge reads these off the fitted piece.
+  let implicitStats: Record<string, number>;
+  if (a.slotType === "weapon") {
+    implicitStats = { weaponYield: COMBAT_STANDARD_ISSUE_WEAPON_YIELD };
+  } else if (a.slotType === "shieldEmitters") {
+    if (a.shieldCapacity === undefined || a.shieldRecharge === undefined) {
+      throw new Error(`generateCombatStandardIssue: shieldEmitters requires shieldCapacity + shieldRecharge`);
+    }
+    implicitStats = { shieldCapacity: a.shieldCapacity, shieldRecharge: a.shieldRecharge };
+  } else {
+    // hullPlating
+    if (a.hullStrength === undefined) {
+      throw new Error(`generateCombatStandardIssue: hullPlating requires hullStrength`);
+    }
+    implicitStats = { hullStrength: a.hullStrength };
+  }
 
   const piece: EquipmentInstance = {
     id: a.allocateId(),
@@ -4419,42 +4430,71 @@ export function generateCombatStandardIssue(a: {
   return piece;
 }
 
-// The combat parallel to seedStandardIssueForShip: mint the THREE required combat baselines
-// (weapon + shield emitter + hull plating), all fitted to shipId, ids allocated from startId
-// (capture-then-advance, exactly like the economy seeder), in a DETERMINISTIC mint order
-// (weapon, shieldEmitters, hullPlating) the migration relies on for reproducibility.
+// The per-hull Standard-Issue combat magnitudes the caller resolves and passes in (Combat 1.0
+// Unit 1.4). Grouped as one object so the seeder's signature stays readable as the loadout grows.
+// The CALLER (tick.ts) derives every field from the two combat tables it already imports:
+//   signatureWeapons <- COMBAT_DEFAULT_LOADOUT[hull].weapons        (the FULL default loadout, in order)
+//   shieldCapacity   <- SHIP_TYPES[hull].shieldCapacity
+//   shieldRecharge   <- SHIP_TYPES[hull].shieldRecharge
+//   hullStrength     <- SHIP_TYPES[hull].hullIntegrity - frameHp(hull)   (design 6a; frameHp is a combat leaf)
+// so the Standard-Issue set reproduces the hull's exact pre-gear combat profile (behaviour-preserving).
+export interface CombatStandardIssueSpec {
+  // The hull's FULL default weapon loadout, in order (one baseline weapon minted per entry). Empty
+  // => NOT a combat hull => the seeder mints nothing (a clean no-op for an economy hull).
+  signatureWeapons: WeaponId[];
+  shieldCapacity: number;
+  shieldRecharge: number;
+  hullStrength: number;
+}
+
+// The combat parallel to seedStandardIssueForShip: mint the required combat baselines for a hull
+// (ONE weapon per loadout entry, then the shield emitter, then hull plating), all fitted to shipId,
+// ids allocated from startId (capture-then-advance, exactly like the economy seeder), in a
+// DETERMINISTIC mint order (all weapons in loadout order, then shieldEmitters, then hullPlating) the
+// migration relies on for reproducibility.
 //
-// COMBAT-HULL GATE lives on the CALLER, encoded as `signatureWeapon`: the caller resolves the
-// hull's signature gun via combatHullTypeOf + COMBAT_DEFAULT_LOADOUT (both combat/ values it
-// already imports) and passes it in, OR passes null for a non-combat hull. WHY the caller and not
-// this function: keeping the combatHullTypeOf / COMBAT_DEFAULT_LOADOUT lookups out of model.ts
-// preserves the repo-wide "model.ts never imports combat internals at runtime" rule (the combat
-// leaf modules import model, so a value import back is a cycle risk; see the type-only combat
-// imports at the top of this file). A null signatureWeapon => NOT a combat hull => mint NOTHING
-// (return {pieces:[], nextId:startId}), so an economy hull is a clean no-op and this can be called
-// unconditionally. PURE: builds fresh records + the advanced id, mutates nothing.
+// COMBAT-HULL GATE lives on the CALLER, encoded as `spec.signatureWeapons`: the caller resolves the
+// hull's loadout + per-hull magnitudes via combatHullTypeOf + COMBAT_DEFAULT_LOADOUT + SHIP_TYPES +
+// the combat frame-HP split (all combat/ values it already imports) and passes them in, OR passes an
+// EMPTY signatureWeapons for a non-combat hull. WHY the caller and not this function: keeping the
+// combatHullTypeOf / COMBAT_DEFAULT_LOADOUT / frameHp lookups out of model.ts preserves the repo-wide
+// "model.ts never imports combat internals at runtime" rule (the combat leaf modules import model, so
+// a value import back is a cycle risk; see the type-only combat imports at the top of this file). An
+// empty signatureWeapons => NOT a combat hull => mint NOTHING (return {pieces:[], nextId:startId}), so
+// an economy hull is a clean no-op and this can be called unconditionally. PURE: builds fresh records
+// + the advanced id, mutates nothing.
 export function seedCombatStandardIssueForShip(
   shipId: string,
-  signatureWeapon: WeaponId | null,
+  spec: CombatStandardIssueSpec,
   startId: number
 ): { pieces: EquipmentInstance[]; nextId: number } {
   // Non-combat hull (or an unresolvable one): mint nothing, thread the id straight through.
-  if (signatureWeapon === null) return { pieces: [], nextId: startId };
+  if (spec.signatureWeapons.length === 0) return { pieces: [], nextId: startId };
 
   const pieces: EquipmentInstance[] = [];
   let nextId = startId;
-  // Fixed mint order so the id assignment is deterministic across a fresh build and a migration.
-  const specs: { slotType: "weapon" | "shieldEmitters" | "hullPlating"; weaponType?: WeaponId }[] = [
-    { slotType: "weapon", weaponType: signatureWeapon },
-    { slotType: "shieldEmitters" },
-    { slotType: "hullPlating" },
+  // Fixed mint order so the id assignment is deterministic across a fresh build and a migration:
+  // every weapon in loadout order, THEN the shield emitter, THEN hull plating.
+  const specs: {
+    slotType: "weapon" | "shieldEmitters" | "hullPlating";
+    weaponType?: WeaponId;
+    shieldCapacity?: number;
+    shieldRecharge?: number;
+    hullStrength?: number;
+  }[] = [
+    ...spec.signatureWeapons.map((weaponType) => ({ slotType: "weapon" as const, weaponType })),
+    { slotType: "shieldEmitters", shieldCapacity: spec.shieldCapacity, shieldRecharge: spec.shieldRecharge },
+    { slotType: "hullPlating", hullStrength: spec.hullStrength },
   ];
-  for (const spec of specs) {
+  for (const s of specs) {
     const mintedId = nextId; // capture before advancing so allocateId names THIS id
     pieces.push(
       generateCombatStandardIssue({
-        slotType: spec.slotType,
-        weaponType: spec.weaponType,
+        slotType: s.slotType,
+        weaponType: s.weaponType,
+        shieldCapacity: s.shieldCapacity,
+        shieldRecharge: s.shieldRecharge,
+        hullStrength: s.hullStrength,
         fittedToShipId: shipId,
         allocateId: () => `equip-${mintedId}`,
       })

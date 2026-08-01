@@ -27,7 +27,7 @@ import { shipToCombatant, type CombatHullType, type CombatShipStats } from "./br
 import type { CombatStance } from "./positioning";
 import type { Combatant } from "./types";
 import type { DroneSquadron } from "./drones";
-import type { PatrolSystemDurability } from "../model";
+import type { PatrolSystemDurability, EquipmentInstance } from "../model";
 
 // ---------------------------------------------------------------------------
 // buildPatrolPlayerCombatant -- mint the PLAYER combatant for one patrol wave.
@@ -52,6 +52,15 @@ export function buildPatrolPlayerCombatant(args: {
   hullType: CombatHullType;
   // The player-chosen combat stance carried by every wave.
   stance: CombatStance;
+  // Combat 1.0 (Unit 1.4): the ship's INSTALLED combat gear (state.equipment fitted to the ship),
+  // passed straight through to shipToCombatant so the player combatant's weapons + shield + hull +
+  // defenses come from real gear. OPTIONAL: absent keeps the pre-1.4 hull-default build (used by a
+  // hand-built fixture / a not-yet-geared test). CRITICAL FOR PARITY: the live tick loop and the
+  // display replay BOTH resolve this the SAME way (equippedFor off the SAME GameState) and pass the
+  // SAME array here, so the two paths' combatants stay byte-identical. The order must be stable
+  // wave-to-wave (equippedFor's array order is), so the carry-state's BY-INDEX durability alignment
+  // (applyCarriedSystemDurability) keeps matching the per-wave rebuild.
+  installedGear?: EquipmentInstance[];
   // Between-wave CARRY-STATE (attrition): hull never regens, shield regens toward
   // full between waves, drones carry their losses/replenishment forward.
   carryHull: number;
@@ -65,13 +74,17 @@ export function buildPatrolPlayerCombatant(args: {
   // fresh max (so a stale/hand-edited carry can never exceed the ceiling or go negative).
   carrySystemDurability?: PatrolSystemDurability;
 }): Combatant {
-  // FRESH from the hull defaults (weapons + cooldowns reset each wave).
+  // FRESH per wave (weapons + cooldowns reset each wave). From the ship's INSTALLED gear when the
+  // caller supplies it (Unit 1.4), else the hull defaults (the pre-1.4 build). shipToCombatant mints
+  // fresh, unshared weapon / reactor / ftl objects either way, so the carry-state overrides below
+  // never leak into a shared template.
   const player = shipToCombatant({
     id: args.playerId,
     team: "player",
     stats: args.stats,
     hullType: args.hullType,
     stance: args.stance,
+    installedGear: args.installedGear,
   });
   // OVERRIDE with the carry-state so hull damage + drone losses persist across waves.
   player.hull = args.carryHull;

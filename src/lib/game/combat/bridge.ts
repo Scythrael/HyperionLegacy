@@ -28,10 +28,10 @@
 //      reshaping this function.
 // ============================================================================
 
-import type { ShipTypeDef, PatrolSystemDurability } from "../model";
+import type { ShipTypeDef, PatrolSystemDurability, EquipmentInstance } from "../model";
 import type { Combatant, CombatTeam, CombatWeapon, FamilyResist } from "./types";
 import type { CombatStance } from "./positioning";
-import { makeWeaponInstance, type WeaponId } from "./weapons";
+import { makeWeaponInstance, WEAPON_DEFS, type WeaponId } from "./weapons";
 import { makeSquadron, type DroneRole, type DroneSquadron } from "./drones";
 import { qualityDurabilityMax, type DurableSystem } from "./durability";
 
@@ -51,6 +51,126 @@ const DEFAULT_COMBAT_SPEED = 10;
 // per Combatant so two bridged ships never share a resist map by reference.
 function zeroResist(): FamilyResist {
 	return { kinetic: 0, particle: 0, ew: 0 };
+}
+
+// ---------------------------------------------------------------------------
+// FRAME HP (Combat 1.0 Unit 1.4, design 6a "middle path").
+//
+// A combat hull keeps a SMALL intrinsic frame integrity; hull plating provides the
+// BULK of effective HP plus all mitigation. This fraction is the single named tunable
+// that splits a hull's total structural HP between the intrinsic frame and the plating
+// baseline: frameHp = round(hullIntegrity * COMBAT_FRAME_HP_FRACTION), and the
+// Standard-Issue plating carries the remainder (hullIntegrity - frameHp) so a
+// Standard-Issue-geared ship's hull pool folds back to EXACTLY hullIntegrity
+// (frameHp + remainder == hullIntegrity), i.e. behaviour-preserving.
+//
+// It is the ONE source of truth for the split, read in BOTH directions:
+//   - tick.ts seeds the Standard-Issue plating's hullStrength as hullIntegrity - frameHp.
+//   - shipToCombatant (below) folds hull as frameHp(stats.hullIntegrity) + plating.hullStrength.
+// Keeping frameHp here (a combat leaf) rather than in model.ts preserves the repo rule
+// that model.ts never imports combat internals: model gets the resolved hullStrength
+// value passed IN, and only the combat side computes the frame split.
+export const COMBAT_FRAME_HP_FRACTION = 0.2;
+
+// The intrinsic frame HP for a hull with the given total structural integrity. PURE +
+// integer (Math.round), so the seed side (tick.ts) and the fold side (below) always
+// agree to the byte. See COMBAT_FRAME_HP_FRACTION above for the design intent.
+export function frameHp(hullIntegrity: number): number {
+	return Math.round(hullIntegrity * COMBAT_FRAME_HP_FRACTION);
+}
+
+// The three weapon families a per-family resist affix can name, in a fixed order so a
+// summed resist map is built deterministically. Named once so sumFamilyResist below
+// and any future resist reader share one list.
+const RESIST_FAMILIES = ["kinetic", "particle", "ew"] as const;
+
+// The combined magnitude of one stat line on a piece: its implicit (signature) value
+// PLUS any rolled affix of the same key. A Standard-Issue piece has only implicits
+// (rolledStats {}), so this returns exactly the implicit; a crafted piece adds its
+// rolled affix on top. Absent keys read as 0. PURE.
+function statOf(piece: EquipmentInstance, key: string): number {
+	return (piece.implicitStats[key] ?? 0) + (piece.rolledStats[key] ?? 0);
+}
+
+// The rolled-affix-only magnitude of one stat line (no implicit). Used for the
+// defensive affixes (shieldCoherence / ablativeArmor / kineticDampening) that a slot
+// carries ONLY as an optional rolled affix, never as a signature implicit. A
+// Standard-Issue piece rolls none, so every one of these reads 0 (the pre-1.4
+// hardcoded value), which is what keeps the Standard-Issue fold behaviour-preserving.
+function affixOf(piece: EquipmentInstance | undefined, key: string): number {
+	return piece ? (piece.rolledStats[key] ?? 0) : 0;
+}
+
+// Sum the per-family resist affixes (`${prefix}_${family}`, e.g. "damageResist_kinetic")
+// across every installed piece into one FamilyResist map. FORWARD-WIRED: no gear rolls
+// these keys yet (per-family resist affixes are a later unit's vocabulary), so today
+// this always returns an all-zero map for a Standard-Issue set, matching the pre-1.4
+// hardcoded zeroResist(). Wired now so the fold reads real numbers the moment those
+// affixes exist, without reshaping shipToCombatant. PURE (fresh map per call).
+function sumFamilyResist(gear: EquipmentInstance[], prefix: string): FamilyResist {
+	const resist = zeroResist();
+	for (const piece of gear) {
+		for (const family of RESIST_FAMILIES) {
+			const key = `${prefix}_${family}`;
+			resist[family] += statOf(piece, key);
+		}
+	}
+	return resist;
+}
+
+// ---------------------------------------------------------------------------
+// weaponInstanceFromGear: reconstruct a fireable CombatWeapon from an INSTALLED
+// weapon EquipmentInstance (Combat 1.0 Unit 1.4, design S4).
+//
+// The base type (family / triangle / effect slots / range / cooldown / power draw /
+// ambush eligibility) comes from WEAPON_DEFS[piece.weaponType]; the ROLLED lines on the
+// piece modify that base:
+//   yieldMin/yieldMax += weaponYield   (FLAT, implicit + rolled affix)
+//   accuracy          += weaponAccuracy (rolled affix)
+//   quality           <- piece.quality
+//   durability(Max)   <- the piece (its ceiling is already quality-scaled at mint)
+//
+// BEHAVIOUR-PRESERVING FLOOR (the load-bearing invariant, proven by a unit test): a
+// Standard-Issue weapon (weaponYield 0, weaponAccuracy 0, quality 0, durability ==
+// durabilityMax == the template base) reconstructs BYTE-IDENTICALLY to
+// makeWeaponInstance(weaponType, instanceId): every rolled delta is 0 and every carried
+// value equals the template's, so combat outcomes for a Standard-Issue set do not move.
+//
+// PURE: builds a fresh instance (own effectSlots array, zeroed cooldown accumulator),
+// never mutating the shared WEAPON_DEFS template or the piece.
+// ---------------------------------------------------------------------------
+export function weaponInstanceFromGear(
+	piece: EquipmentInstance,
+	instanceId: string,
+): CombatWeapon {
+	// A weapon piece MUST name its base weapon type (its combat stats come from that def).
+	// This should never fire for a real installed weapon (the seeder + itemgen always set
+	// weaponType), so it is a loud assertion on a malformed piece, not a normal path.
+	if (piece.weaponType === undefined) {
+		throw new Error(`weaponInstanceFromGear: weapon piece "${piece.id}" has no weaponType`);
+	}
+	const template = WEAPON_DEFS[piece.weaponType];
+	// FLAT yield bonus: implicit signature line + any rolled affix of the same key.
+	const weaponYield = statOf(piece, "weaponYield");
+	// Accuracy is a rolled affix only (no signature implicit); absent reads 0.
+	const weaponAccuracy = piece.rolledStats.weaponAccuracy ?? 0;
+	return {
+		...template,
+		id: instanceId,
+		yieldMin: template.yieldMin + weaponYield,
+		yieldMax: template.yieldMax + weaponYield,
+		accuracy: template.accuracy + weaponAccuracy,
+		// Fresh effect-slot array + zeroed cooldown so the sim's per-battle mutation never
+		// leaks into the shared template (mirrors makeWeaponInstance exactly).
+		effectSlots: [...template.effectSlots],
+		cooldownAccumulator: 0,
+		// Durability from the piece (its ceiling was quality-scaled at mint). A fresh combat
+		// weapon opens at the piece's current durability; cross-wave wear is layered on later
+		// by the patrol carry-state (applyCarriedSystemDurability), never here.
+		durability: piece.durability,
+		durabilityMax: piece.durabilityMax,
+		quality: piece.quality,
+	};
 }
 
 // Base durability (design S9) for a bridged ship's REACTOR and FTL/drive, at
@@ -228,6 +348,19 @@ export interface ShipToCombatantArgs {
 	// hullType default (carrier) or are empty. Each element must be a fresh per-battle
 	// squadron (makeSquadron guarantees this).
 	drones?: DroneSquadron[];
+	// The ship's INSTALLED combat gear (Combat 1.0 Unit 1.4): the EquipmentInstance[]
+	// currently fitted to this ship (state.equipment filtered by fittedToShipId). OPTIONAL.
+	// When PRESENT (the PLAYER path), shipToCombatant reads weapons + shield + hull + the
+	// defensive stats OFF this gear instead of the hull defaults / hardcoded zeros: weapons
+	// from the fitted weapon pieces (reconstructed via weaponInstanceFromGear, in installed
+	// order), the shield pool + recharge + coherence from the fitted shieldEmitters piece,
+	// the hull pool (frame + plating.hullStrength) + armor + dampening from the fitted
+	// hullPlating piece, and the resist maps summed across all gear. When ABSENT (enemies,
+	// the durability seed, tests), the EXACT pre-1.4 hull-default behaviour is preserved.
+	// A Standard-Issue set folds BYTE-IDENTICALLY to the absent path (behaviour-preserving).
+	// The caller (live tick loop + display replay) MUST derive this array the SAME way from
+	// the SAME source (equippedFor) so the two paths' combatants stay byte-identical.
+	installedGear?: EquipmentInstance[];
 	// Starting position on the 1D distance axis. Defaults to 0. Pass different
 	// values to open the fight at range.
 	position?: number;
@@ -241,29 +374,38 @@ export interface ShipToCombatantArgs {
 // ---------------------------------------------------------------------------
 // shipToCombatant -- fold a game ship's combat stats into a sim Combatant.
 //
-// STAT MAP (the durable contract of this bridge):
-//   hull, hullMax      <- stats.hullIntegrity   (the structural HP pool)
-//   shield, shieldMax  <- stats.shieldCapacity  (the deflector absorb pool)
-//   shieldRecharge     <- stats.shieldRecharge  (points regenerated per second)
-//   weapons            <- args.weaponLoadout, ELSE COMBAT_DEFAULT_LOADOUT[hullType]
-//   drones             <- args.drones,        ELSE COMBAT_DEFAULT_LOADOUT[hullType]
+// TWO PATHS (Combat 1.0 Unit 1.4):
 //
-// LOADOUT RESOLUTION (design S19): an explicit weaponLoadout / drones ALWAYS wins
-// (tests, dev harness, hardcoded enemies). Otherwise, if hullType names a real
-// combat hull, the default loadout is derived from COMBAT_DEFAULT_LOADOUT and each
-// weapon / squadron is minted FRESH (a per-battle deep clone, so the sim's
-// per-instance mutation never leaks into the shared content templates). With
-// neither supplied, the combatant is unarmed + drone-less (the pre-9a default).
-// ⚠️ SEAM: fitted / crafted weapons + drone pods REPLACING these hull defaults is a
-// later sub-phase (the ship model has no fitted-weapon / hangar-pod field yet).
+// A) installedGear PRESENT (the PLAYER path). Weapons + defenses read the ship's real
+//    fitted combat gear:
+//      weapons            <- installed weapon pieces (weaponInstanceFromGear, install order)
+//      shield, shieldMax  <- installed shieldEmitters.shieldCapacity  (implicit + affix)
+//      shieldRecharge     <- installed shieldEmitters.shieldRecharge  (implicit + affix)
+//      shieldCoherence    <- installed shieldEmitters shieldCoherence affix (?? 0)
+//      hull, hullMax      <- frameHp(stats.hullIntegrity) + installed hullPlating.hullStrength
+//      ablativeArmor      <- installed hullPlating ablativeArmor affix (?? 0)
+//      kineticDampening   <- installed hullPlating kineticDampening affix (?? 0)
+//      damageResist       <- summed per-family resist affixes across all gear (?? 0 each)
+//      disruptionResist   <- summed per-family resist affixes across all gear (?? 0 each)
+//      evasion            <- 0            (no maneuver stat wired this unit; TODO 1.6)
+//      speed              <- DEFAULT_COMBAT_SPEED (unchanged this unit; TODO 1.6)
+//      drones             <- hullType default (drones become gear in Phase 2; unchanged)
+//    A STANDARD-ISSUE set folds BYTE-IDENTICALLY to path B (frameHp + plating.hullStrength
+//    == hullIntegrity, emitter capacity == the hull's shieldCapacity, each weapon
+//    reconstructs to makeWeaponInstance): combat OUTCOMES do not change (behaviour-preserving).
 //
-// TODO-DEFAULTS (no ship field exists yet; integration phase replaces these):
-//   shieldCoherence, ablativeArmor, kineticDampening, evasion  -> 0
-//   damageResist, disruptionResist                             -> all-zero map
-//   speed                                                      -> DEFAULT_COMBAT_SPEED
+// B) installedGear ABSENT (enemies, the durability seed, tests). The EXACT pre-1.4 behaviour:
+//      hull, hullMax      <- stats.hullIntegrity
+//      shield, shieldMax  <- stats.shieldCapacity
+//      shieldRecharge     <- stats.shieldRecharge
+//      weapons            <- args.weaponLoadout, ELSE COMBAT_DEFAULT_LOADOUT[hullType], ELSE []
+//      shieldCoherence / ablativeArmor / kineticDampening / evasion -> 0
+//      damageResist / disruptionResist -> all-zero map ; speed -> DEFAULT_COMBAT_SPEED
+//    An explicit weaponLoadout / drones ALWAYS wins on this path (hardcoded enemies, tests);
+//    otherwise a real hullType derives the default loadout, minting each weapon/squadron FRESH.
 //
 // Reserved-empty (forward-shaped, sim iterates them as no-ops today):
-//   statusEffects: [], drones: []
+//   statusEffects: []
 //   alive: true (a fresh combatant is always alive at battle start)
 // ---------------------------------------------------------------------------
 export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
@@ -274,17 +416,61 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	// weapons explicitly or fly unarmed).
 	const defaults = args.hullType ? COMBAT_DEFAULT_LOADOUT[args.hullType] : undefined;
 
-	// WEAPONS: an explicit loadout wins; otherwise mint fresh instances from the hull
-	// default; otherwise unarmed. Each instance id is suffixed with the combatant id +
-	// slot index so two ships (or two copies of one weapon) never collide on the
-	// id turn-order key (design S1 deterministic ordering).
-	const weapons: CombatWeapon[] =
-		args.weaponLoadout ??
-		(defaults
-			? defaults.weapons.map((weaponId, index) =>
-					makeWeaponInstance(weaponId, `${id}-w${index}-${weaponId}`),
+	// The ship's installed combat gear (the PLAYER path). Undefined for enemies / the
+	// durability seed / tests (path B, byte-identical to pre-1.4).
+	const gear = args.installedGear;
+
+	// WEAPONS. PLAYER path: reconstruct one CombatWeapon per INSTALLED weapon piece, in the
+	// order the pieces appear in `gear` (the caller passes equippedFor()'s array, whose order
+	// is stable wave-to-wave, so the carry-state's by-index durability stays aligned). Each
+	// instance id is `${combatantId}-w${index}-${weaponType}`, the SAME format the hull-default
+	// path below uses, so a Standard-Issue set (whose weapon pieces are in COMBAT_DEFAULT_LOADOUT
+	// order) reconstructs to byte-identical ids + stats. A gear set with no weapon yields [] (the
+	// dispatch blocker guarantees >=1 in normal play). ABSENT path (B): explicit loadout wins,
+	// else the hull default, else unarmed (the pre-9a default).
+	const weapons: CombatWeapon[] = gear
+		? gear
+				.filter((piece) => piece.slotType === "weapon")
+				.map((piece, index) =>
+					weaponInstanceFromGear(piece, `${id}-w${index}-${piece.weaponType}`),
 				)
-			: []);
+		: args.weaponLoadout ??
+			(defaults
+				? defaults.weapons.map((weaponId, index) =>
+						makeWeaponInstance(weaponId, `${id}-w${index}-${weaponId}`),
+					)
+				: []);
+
+	// DEFENSIVE STAT BLOCK. PLAYER path (gear present): read the shield/hull pools + mitigation
+	// off the fitted shieldEmitters / hullPlating pieces; ABSENT path: the pre-1.4 hull-class
+	// pools + hardcoded zeros. A Standard-Issue set folds these BYTE-IDENTICALLY (see the header).
+	const shieldPiece = gear?.find((piece) => piece.slotType === "shieldEmitters");
+	const platingPiece = gear?.find((piece) => piece.slotType === "hullPlating");
+
+	// Hull pool: intrinsic frame + plating (design 6a). ABSENT: the whole hull-class integrity.
+	const hullMax = gear
+		? frameHp(stats.hullIntegrity) + (platingPiece ? statOf(platingPiece, "hullStrength") : 0)
+		: stats.hullIntegrity;
+	// Shield pool + recharge: pure-gear (design 5a). ABSENT: the hull-class shield stats.
+	const shieldMax = gear
+		? shieldPiece
+			? statOf(shieldPiece, "shieldCapacity")
+			: 0
+		: stats.shieldCapacity;
+	const shieldRecharge = gear
+		? shieldPiece
+			? statOf(shieldPiece, "shieldRecharge")
+			: 0
+		: stats.shieldRecharge;
+	// Mitigation affixes: gear affixes on the PLAYER path, hardcoded 0 on the ABSENT path
+	// (affixOf returns 0 for an absent piece, so a Standard-Issue set with no affixes is 0 too).
+	const shieldCoherence = gear ? affixOf(shieldPiece, "shieldCoherence") : 0;
+	const ablativeArmor = gear ? affixOf(platingPiece, "ablativeArmor") : 0;
+	const kineticDampening = gear ? affixOf(platingPiece, "kineticDampening") : 0;
+	// Per-family resist maps: summed across gear on the PLAYER path (all-zero for Standard-Issue,
+	// which rolls no resist affixes), the all-zero regression default on the ABSENT path.
+	const damageResist = gear ? sumFamilyResist(gear, "damageResist") : zeroResist();
+	const disruptionResist = gear ? sumFamilyResist(gear, "disruptionResist") : zeroResist();
 
 	// DRONES: an explicit squadron list wins; otherwise build the hull default's
 	// squadrons fresh (makeSquadron mints independent drone instances, the per-battle
@@ -302,30 +488,31 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		id,
 		team,
 
-		// Hull <- the hull's structural HP pool. Full at battle start.
-		hull: stats.hullIntegrity,
-		hullMax: stats.hullIntegrity,
+		// Hull <- frame + plating (PLAYER) or the hull-class integrity (ABSENT). Full at start.
+		hull: hullMax,
+		hullMax,
 
-		// Shield <- the deflector absorb pool. Full at battle start.
-		shield: stats.shieldCapacity,
-		shieldMax: stats.shieldCapacity,
-		shieldRecharge: stats.shieldRecharge,
+		// Shield <- the emitter's pool (PLAYER) or the hull-class shield (ABSENT). Full at start.
+		shield: shieldMax,
+		shieldMax,
+		shieldRecharge,
 
-		// TODO(integration): no attenuation-resist stat on ships yet. Neutral 0.
-		shieldCoherence: 0,
+		// Attenuation resist <- the emitter's shieldCoherence affix (PLAYER) or 0 (ABSENT).
+		shieldCoherence,
 
-		// TODO(integration): no armor / dampening / evasion stats on ships yet.
-		ablativeArmor: 0,
-		kineticDampening: 0,
+		// Hull-path mitigation <- the plating's affixes (PLAYER) or 0 (ABSENT). Evasion stays 0
+		// this unit on BOTH paths (no maneuver stat wired yet; TODO 1.6).
+		ablativeArmor,
+		kineticDampening,
 		evasion: 0,
 
-		// TODO(integration): no per-family resist stats on ships yet. All-zero maps
-		// (fresh objects, never shared) keep the ship at the regression default.
-		damageResist: zeroResist(),
-		disruptionResist: zeroResist(),
+		// Per-family resist maps <- summed gear affixes (PLAYER; all-zero for Standard-Issue) or
+		// the all-zero regression default (ABSENT). Fresh objects, never shared.
+		damageResist,
+		disruptionResist,
 
 		// Movement on the 1D axis. Position defaults to 0 (co-located); speed to the
-		// placeholder DEFAULT_COMBAT_SPEED (TODO integration: a real maneuver stat).
+		// placeholder DEFAULT_COMBAT_SPEED (TODO 1.6: a real maneuver stat), unchanged this unit.
 		position: args.position ?? 0,
 		speed: args.speed ?? DEFAULT_COMBAT_SPEED,
 		// Stance (design S6): Balanced by default; caller/mission layer overrides.

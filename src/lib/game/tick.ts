@@ -48,8 +48,10 @@ import {
   // installed, keeping it dispatchable past the new empty-required-slot dispatch blocker below.
   seedCombatStandardIssueForShip,
   generateCombatStandardIssue,
+  type CombatStandardIssueSpec,
   type ItemDef,
   type GameState,
+  type EquipmentInstance,
   type ShipTypeKey,
   type ShipTypeDef,
   type ShipInstance,
@@ -122,7 +124,10 @@ import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
 // resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
-import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, defaultSystemDurabilityForHull, type CombatHullType } from "./combat/bridge";
+import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, defaultSystemDurabilityForHull, frameHp, type CombatHullType } from "./combat/bridge";
+// Combat 1.0 (Unit 1.4): WeaponId types the per-hull Standard-Issue weapon loadout the combat
+// baseline seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
+import type { WeaponId } from "./combat/weapons";
 import { planWaveSchedule, patrolWaveParams } from "./combat/waveSchedule";
 // Combat 0.13.0 (Phase 12b-1 review): the pure per-wave seed derivation + its four salt
 // constants now live in their own dependency-free combat/ leaf (waveSeed.ts) so the
@@ -1584,6 +1589,15 @@ export function tickCaptainPatrol(
   // unit (mirrors tickCaptainMission's F3 auto-buy). Default price is the real one.
   creditsBudget: number,
   creditsPerUnit: number = FUEL_CREDITS_PER_UNIT,
+  // Combat 1.0 (Unit 1.4): the ship's INSTALLED combat gear (state.equipment fitted to this ship),
+  // resolved by the caller via equippedFor so the player combatant reads real weapons + shield +
+  // hull + defenses instead of the hull defaults. OPTIONAL: absent (the default) keeps the pre-1.4
+  // hull-default build, so a direct test call with no gear still resolves combat. In normal play
+  // economyTick always passes the ship's fitted set (>=1 weapon + shield + plating, guaranteed by
+  // the dispatch blocker); a Standard-Issue set folds byte-identically to the old hull default.
+  // UNDEFINED (not []) is the absent sentinel: an empty array would mean "gear present but bare"
+  // (no weapons / zero shields), so a not-passed gear falls back to the hull-default build instead.
+  installedGear?: EquipmentInstance[],
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
     captain,
@@ -1724,6 +1738,10 @@ export function tickCaptainPatrol(
         stats: shipDef,
         hullType,
         stance: mission.stance,
+        // Combat 1.0 (Unit 1.4): the ship's INSTALLED combat gear drives weapons + shield + hull +
+        // defenses. The display replay derives this the SAME way (equippedFor off the SAME state), so
+        // the two combatants stay byte-identical (the structural-parity contract this helper enforces).
+        installedGear,
         carryHull: mission.playerHull,
         carryShield: mission.playerShield,
         carryDrones: mission.playerDrones,
@@ -2301,7 +2319,12 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
         // (a no-gear fold is an identity). Only relaunches spend; the first cycle was pre-paid
         // at dispatch, exactly like extraction's first cycle.
         const patrolDef = PATROLS[captain.mission.patrolKey];
-        const patrolStats = patrolShip ? shipDerivedStats(patrolShip, equippedFor(state, patrolShip.id)) : null;
+        // Combat 1.0 (Unit 1.4): the ship's INSTALLED combat gear, resolved ONCE off the SAME
+        // equippedFor source the derived-stats fold uses, then handed to tickCaptainPatrol so the
+        // player combatant reads real weapons + shield + hull + defenses. undefined when there is no
+        // ship (defensive; a patrol always has one), which tickCaptainPatrol treats as the absent path.
+        const patrolGear = patrolShip ? equippedFor(state, patrolShip.id) : undefined;
+        const patrolStats = patrolShip && patrolGear ? shipDerivedStats(patrolShip, patrolGear) : null;
         const patrolFuelPerCycle =
           patrolShip && patrolStats
             ? fuelForRoundTrip(patrolDef.transitOutTicks, patrolDef.transitBackTicks, {
@@ -2315,7 +2338,9 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
           patrolShip,
           fuelBudgetRemaining,
           patrolFuelPerCycle,
-          creditsBudgetRemaining
+          creditsBudgetRemaining,
+          FUEL_CREDITS_PER_UNIT, // explicit so the installedGear arg below lands in the right slot
+          patrolGear
         );
         // Draw down the shared budgets so a later captain sees the reduced values (no
         // double-spend), and sum for the single Decimal tank/credits deductions below.
@@ -3119,9 +3144,41 @@ function freshPatrolMission(args: {
   };
 }
 
+// combatStandardIssueSpecFor: resolve a hull's Standard-Issue combat magnitudes (Combat 1.0 Unit
+// 1.4). THE single caller-side place the combat tables (COMBAT_DEFAULT_LOADOUT + SHIP_TYPES) and the
+// combat frame-HP split (frameHp, a combat leaf) are read to build the behaviour-preserving baseline
+// spec seedCombatStandardIssueForShip consumes, so a fresh build, a captain-grant, and the save
+// migration all derive the IDENTICAL spec (Omega 4, DRY) and can never drift. A non-combat hull
+// resolves to an EMPTY signatureWeapons (the seeder then mints nothing, a clean no-op).
+//
+// WHY per-hull: the Standard-Issue set reproduces each hull's exact pre-gear combat profile
+// (destroyer 600hp/300sh, battleship 1400/600, carrier 1100/500, each hull's full default weapon
+// loadout), so a Standard-Issue-geared ship folds to a combatant byte-identical to the old hull
+// default (behaviour-preserving; the deliberate power-curve retune is Unit 1.6). The plating carries
+// hullIntegrity - frameHp so the fold (frame + plating) lands back on exactly hullIntegrity. PURE.
+function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
+  const hull = combatHullTypeOf(typeKey);
+  if (hull === null) {
+    // Non-combat hull: an empty loadout, so the seeder mints nothing (the magnitudes are unused).
+    return { signatureWeapons: [], shieldCapacity: 0, shieldRecharge: 0, hullStrength: 0 };
+  }
+  const shipDef = SHIP_TYPES[hull];
+  return {
+    // The FULL default loadout (every hardpoint the hull ships with), in order.
+    signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
+    // Pure-gear shields (design 5a): the emitter reproduces the hull's shield pool + recharge.
+    shieldCapacity: shipDef.shieldCapacity,
+    shieldRecharge: shipDef.shieldRecharge,
+    // Plating carries the hull's integrity MINUS the intrinsic frame HP (design 6a middle path), so
+    // the Unit 1.4 fold (frameHp + plating.hullStrength) folds back to exactly hullIntegrity.
+    hullStrength: shipDef.hullIntegrity - frameHp(shipDef.hullIntegrity),
+  };
+}
+
 // installMissingCombatBaselines: fill every COMBAT hull in the fleet that is missing its required
-// combat slots with a freshly-minted, fitted Standard-Issue combat set (weapon + shield emitter +
-// hull plating), threading nextEquipmentId forward. Combat 1.0 (Unit 1.3).
+// combat slots with a freshly-minted, fitted Standard-Issue combat set (its FULL default weapon
+// loadout + shield emitter + hull plating), threading nextEquipmentId forward. Combat 1.0 (Unit 1.3,
+// REVISED Unit 1.4 to mint the full loadout + behaviour-preserving per-hull magnitudes).
 //
 // THE shared "give combat hulls their baseline" fold (Omega 4, DRY): the v33->v34 save migration
 // (save.ts) delegates to it so a pre-combat-gear save's combat hulls become dispatchable on load.
@@ -3146,23 +3203,49 @@ export function installMissingCombatBaselines(state: GameState): GameState {
     const hull = combatHullTypeOf(ship.typeKey);
     if (hull === null) continue; // economy hull: no combat slots to fill
     const fitted = equipment.filter((e) => e.fittedToShipId === ship.id);
-    // The three required combat slots, in the deterministic mint order the fresh-build seeder uses
-    // (weapon, shieldEmitters, hullPlating). Mint + fit ONLY the slots this hull is missing, so a
-    // bare hull gets the full set (byte-identical to seedCombatStandardIssueForShip: same order,
-    // same ids) while a partially-stripped hull is completed without duplicating what it still has.
-    const required = [
-      { slotType: "weapon" as const, weaponType: COMBAT_DEFAULT_LOADOUT[hull].weapons[0] },
-      { slotType: "shieldEmitters" as const, weaponType: undefined },
-      { slotType: "hullPlating" as const, weaponType: undefined },
+    const spec = combatStandardIssueSpecFor(ship.typeKey); // per-hull loadout + magnitudes (behaviour-preserving)
+    // The required combat pieces, in the deterministic mint order the fresh-build seeder uses (every
+    // weapon in loadout order, then shieldEmitters, then hullPlating), each carrying the per-hull
+    // signature magnitude generateCombatStandardIssue needs. Mint + fit ONLY the slots this hull is
+    // missing: a bare hull gets the full set (byte-identical to seedCombatStandardIssueForShip: same
+    // order, same ids), while a partially-stripped hull is completed without duplicating what it has.
+    const required: {
+      slotType: "weapon" | "shieldEmitters" | "hullPlating";
+      weaponType?: WeaponId;
+      shieldCapacity?: number;
+      shieldRecharge?: number;
+      hullStrength?: number;
+    }[] = [
+      ...spec.signatureWeapons.map((weaponType) => ({ slotType: "weapon" as const, weaponType })),
+      { slotType: "shieldEmitters", shieldCapacity: spec.shieldCapacity, shieldRecharge: spec.shieldRecharge },
+      { slotType: "hullPlating", hullStrength: spec.hullStrength },
     ];
-    for (const spec of required) {
-      if (fitted.some((e) => e.slotType === spec.slotType)) continue; // already installed: never double-seed
+    // Track how many weapon pieces are ALREADY fitted so we only mint the MISSING hardpoints (never
+    // double-seed a weapon the hull already carries), while shield/plating stay a per-slot presence
+    // check. In today's all-or-none reality a combat hull has all its weapons or none; this keeps the
+    // seam correct for the later single-slot install/uninstall unit.
+    const weaponsFitted = fitted.filter((e) => e.slotType === "weapon").length;
+    let weaponsSeeded = 0;
+    for (const r of required) {
+      if (r.slotType === "weapon") {
+        // Skip weapon hardpoints already covered by an existing fitted weapon (by count, in order).
+        if (weaponsSeeded < weaponsFitted) {
+          weaponsSeeded += 1;
+          continue;
+        }
+        weaponsSeeded += 1;
+      } else if (fitted.some((e) => e.slotType === r.slotType)) {
+        continue; // shield / plating already installed: never double-seed
+      }
       const mintedId = nextEquipmentId; // capture before advancing so allocateId names THIS id
       equipment = [
         ...equipment,
         generateCombatStandardIssue({
-          slotType: spec.slotType,
-          weaponType: spec.weaponType,
+          slotType: r.slotType,
+          weaponType: r.weaponType,
+          shieldCapacity: r.shieldCapacity,
+          shieldRecharge: r.shieldRecharge,
+          hullStrength: r.hullStrength,
           fittedToShipId: ship.id,
           allocateId: () => `equip-${mintedId}`,
         }),
@@ -6361,11 +6444,12 @@ export function resolveProcesses(
       // so it clears the empty-required-slot dispatch blocker (canDispatchPatrol) the moment it is
       // crewed. Threaded off the ALREADY-advanced nextEquipmentId (economy seed first, combat seed
       // second) so every minted id stays unique + monotonic across builds and crafts in one resolve.
-      // A non-combat hull resolves to a null signature weapon and mints nothing (clean no-op).
-      const combatHull = combatHullTypeOf(minted.typeKey);
+      // A non-combat hull resolves to an empty loadout spec and mints nothing (clean no-op). The
+      // shared combatStandardIssueSpecFor resolves the FULL loadout + behaviour-preserving per-hull
+      // magnitudes (Unit 1.4) from the SAME tables the migration + captain-grant paths use.
       const seededCombat = seedCombatStandardIssueForShip(
         minted.id,
-        combatHull ? COMBAT_DEFAULT_LOADOUT[combatHull].weapons[0] : null,
+        combatStandardIssueSpecFor(minted.typeKey),
         nextEquipmentId
       );
       equipment = [...equipment, ...seededCombat.pieces];
@@ -6675,10 +6759,9 @@ export function buyHomeworldTalent(
     // granted hull is ALWAYS a generalFreighter (an economy hull), so combatHullTypeOf returns null
     // and this is a clean no-op that threads the id straight through; the call is here for symmetry
     // and to stay correct if the grant hull ever becomes a combat hull.
-    const grantCombatHull = combatHullTypeOf("generalFreighter");
     const seededCombat = seedCombatStandardIssueForShip(
       newShipId,
-      grantCombatHull ? COMBAT_DEFAULT_LOADOUT[grantCombatHull].weapons[0] : null,
+      combatStandardIssueSpecFor("generalFreighter"),
       seededHull.nextId
     );
     return {

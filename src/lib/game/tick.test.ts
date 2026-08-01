@@ -4124,20 +4124,22 @@ describe("shipBuild completion installs the combat baseline on a combat hull (Co
     return { next, newShipId: newShip.id, newShip };
   }
 
-  it("a newly-built COMBAT hull (destroyer) is born with 7 fitted pieces: 4 economy + 3 combat", () => {
+  it("a newly-built COMBAT hull (destroyer) is born with its full combat set: 4 economy + (loadout weapons + shield + plating)", () => {
     const { next, newShipId, newShip } = buildHull("destroyer");
     expect(newShip.typeKey).toBe("destroyer");
+    // Combat 1.0 (Unit 1.4): the baseline mints ONE weapon per hull hardpoint (the FULL default
+    // loadout), so a destroyer (2-weapon loadout) is born with 4 economy + 2 weapons + shield + plating.
+    const loadout = COMBAT_DEFAULT_LOADOUT.destroyer.weapons;
     const fitted = next.equipment.filter((e) => e.fittedToShipId === newShipId);
-    expect(fitted).toHaveLength(7);
-    // The three required combat slots are all present (dispatchable), plus the four economy slots.
-    expect(fitted.map((e) => e.slotType).sort()).toEqual(
-      ["cargoBay", "ftlDrive", "hullPlating", "reactorCore", "shieldEmitters", "specUtility", "weapon"].sort()
+    expect(fitted).toHaveLength(4 + loadout.length + 2);
+    // Every required combat slot is present (dispatchable), plus the four economy slots.
+    expect(new Set(fitted.map((e) => e.slotType))).toEqual(
+      new Set(["cargoBay", "ftlDrive", "hullPlating", "reactorCore", "shieldEmitters", "specUtility", "weapon"])
     );
-    // Exactly ONE of each required combat slot, and the weapon is the destroyer's signature gun.
-    expect(fitted.filter((e) => e.slotType === "weapon")).toHaveLength(1);
+    // One weapon per hardpoint (the full loadout, in order), and exactly one shield + one plating.
+    expect(fitted.filter((e) => e.slotType === "weapon").map((e) => e.weaponType)).toEqual([...loadout]);
     expect(fitted.filter((e) => e.slotType === "shieldEmitters")).toHaveLength(1);
     expect(fitted.filter((e) => e.slotType === "hullPlating")).toHaveLength(1);
-    expect(fitted.find((e) => e.slotType === "weapon")!.weaponType).toBe(COMBAT_DEFAULT_LOADOUT.destroyer.weapons[0]);
   });
 
   it("a newly-built ECONOMY hull (prospectorMiner) is born with only the 4 economy pieces (no combat gear)", () => {

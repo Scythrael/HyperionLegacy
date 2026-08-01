@@ -4037,34 +4037,40 @@ describe("migrate, Standard-Issue combat baseline seed (v33 -> v34)", () => {
     return raw;
   }
 
-  it("seeds an existing combat hull's three combat baselines (weapon + shield + plating) on load", () => {
+  it("seeds an existing combat hull's full combat baseline set (all loadout weapons + shield + plating) on load", () => {
     const save = makeV33CombatSave();
     // Precondition: the v33 destroyer carries ONLY the four economy baselines, no combat gear.
     const before = (save.state as any).equipment.filter((e: any) => e.fittedToShipId === "ship-1");
     expect(before).toHaveLength(4);
     expect(before.some((e: any) => e.slotType === "weapon")).toBe(false);
 
+    // Combat 1.0 (Unit 1.4): the baseline now mints one weapon per hull hardpoint (the FULL default
+    // loadout), not just the signature gun, so a destroyer gets its 2 weapons + shield + plating.
+    const loadout = COMBAT_DEFAULT_LOADOUT.destroyer.weapons;
     const migrated: any = migrate(save);
     const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
-    expect(fitted).toHaveLength(7); // 4 economy + 3 combat
-    for (const slot of ["weapon", "shieldEmitters", "hullPlating"]) {
+    expect(fitted).toHaveLength(4 + loadout.length + 2); // 4 economy + (N weapons + shield + plating)
+    expect(fitted.filter((e: any) => e.slotType === "weapon")).toHaveLength(loadout.length);
+    for (const slot of ["shieldEmitters", "hullPlating"]) {
       expect(fitted.filter((e: any) => e.slotType === slot)).toHaveLength(1);
     }
-    // The seeded weapon is the destroyer's signature gun.
-    expect(fitted.find((e: any) => e.slotType === "weapon").weaponType).toBe(COMBAT_DEFAULT_LOADOUT.destroyer.weapons[0]);
+    // The seeded weapons are the destroyer's full loadout, in order.
+    expect(fitted.filter((e: any) => e.slotType === "weapon").map((e: any) => e.weaponType)).toEqual([...loadout]);
   });
 
   it("is IDEMPOTENT: re-migrating a save that already carries combat gear seeds nothing more", () => {
     const migrated: any = migrate(makeV33CombatSave());
     const countAfterFirst = migrated.equipment.length;
     const nextIdAfterFirst = migrated.nextEquipmentId;
-    // Re-stamp to v33 and migrate again: ship-1 already has all three combat slots -> skipped.
+    // Re-stamp to v33 and migrate again: ship-1 already has all its combat slots -> skipped.
     const reSave = deserialize(serialize(migrated, 0)) as SaveFile;
     reSave.version = 33;
     const remigrated: any = migrate(reSave);
     expect(remigrated.equipment.length).toBe(countAfterFirst); // no double-seed
     expect(remigrated.nextEquipmentId).toBe(nextIdAfterFirst);
-    expect(remigrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1" && e.slotType === "weapon")).toHaveLength(1);
+    expect(remigrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1" && e.slotType === "weapon")).toHaveLength(
+      COMBAT_DEFAULT_LOADOUT.destroyer.weapons.length,
+    );
   });
 
   it("leaves an ECONOMY hull untouched (no combat slots seeded)", () => {

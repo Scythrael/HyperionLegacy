@@ -42,7 +42,13 @@ import {
   type PatrolDef,
   type PatrolKey,
   type PatrolSystemDurability,
+  type EquipmentInstance,
 } from "../model";
+// Combat 1.0 (Unit 1.4): the SAME fitted-gear query the live tick loop uses (equippedFor), so the
+// display replay derives the player's installed combat gear byte-identically to the real fight and
+// the two combatants cannot drift. equipment.ts imports only model, so this is a clean down-import
+// (no cycle: it never reaches back into this combat leaf).
+import { equippedFor } from "../equipment";
 import {
   combatHullTypeOf,
   defaultDronesForHull,
@@ -170,6 +176,13 @@ export interface ResolvePatrolWavesInput {
   hullType: CombatHullType;
   // The player's combat stance for every wave.
   stance: CombatStance;
+  // Combat 1.0 (Unit 1.4): the ship's INSTALLED combat gear (equippedFor off the SAME GameState the
+  // live loop reads), passed to buildPatrolPlayerCombatant so the replayed player combatant reads
+  // the same real weapons + shield + hull + defenses the live fight did (byte-identical parity).
+  // OPTIONAL: absent falls back to the hull-default build (used by the low-level resolvePatrolWaves
+  // tests), which for a Standard-Issue set is byte-identical to the geared build. The public
+  // replayPatrol wrapper always passes the ship's real gear.
+  installedGear?: EquipmentInstance[];
   // The persisted master seed every wave's enemy/battle seed derives from.
   masterSeed: number;
   // The faction id, forming each wave's enemy id prefix (`${factionId}-w${waveIndex}`),
@@ -256,6 +269,8 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       stats,
       hullType,
       stance,
+      // Unit 1.4: the same installed gear the live loop passes, so the combatants match byte-for-byte.
+      installedGear: input.installedGear,
       carryHull,
       carryShield,
       carryDrones,
@@ -394,6 +409,9 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
     stats: shipDef,
     hullType,
     stance: mission.stance,
+    // Unit 1.4: the ship's installed combat gear, read the SAME way the live tick loop reads it
+    // (equippedFor off this GameState), so the replayed player combatant matches the real fight.
+    installedGear: equippedFor(state, ship.id),
     masterSeed: mission.masterSeed,
     factionId: mission.factionId,
     def,
