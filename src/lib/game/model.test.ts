@@ -1292,7 +1292,9 @@ describe("ITEMS, Phase 1 seed registry", () => {
     // (b) ADDED 3 exclusive salvage-PRODUCED exotics, anomalousAlloy (raw, +1 -> 14),
     // precursorCircuit (refined, +1 -> 5), intactDataCore (minorComponent, +1 -> 3),
     // bringing the total to 24.
-    // Breakdown of the 24:
+    // Combat 1.0 (Unit 1.7) ADDED the damagedWeaponSystem salvagedMaterial (the patrol-wreck
+    // weapon-crafting-loot drop, salvagedMaterial 1 -> 2), bringing the total to 25.
+    // Breakdown of the 25:
     //   raw (14): commonOre, uncommonMaterial, rareMaterial (the 3 live ore tiers),
     //     deuteriumIce (the live fuel ore), denseOre (T2 stub), 8 future ore/salvage/
     //     forage loot placeholders (intactReactorCore left this bucket), + anomalousAlloy.
@@ -1300,9 +1302,10 @@ describe("ITEMS, Phase 1 seed registry", () => {
     //     future Refinery-output placeholders, + precursorCircuit.
     //   minorComponent (3): 2 future Fabricator-output placeholders + intactDataCore.
     //   majorComponent (1): future Fabricator-output placeholder.
-    //   salvagedMaterial (1): intactReactorCore (the "Damaged Reactor Housing").
+    //   salvagedMaterial (2): intactReactorCore (the "Damaged Reactor Housing") +
+    //     damagedWeaponSystem (the "Damaged Weapon System", Combat 1.0 Unit 1.7).
     const keys = Object.keys(ITEMS);
-    expect(keys).toHaveLength(24);
+    expect(keys).toHaveLength(25);
     const raw = Object.values(ITEMS).filter((i) => i.category === "raw");
     const refined = Object.values(ITEMS).filter((i) => i.category === "refined");
     const minor = Object.values(ITEMS).filter((i) => i.category === "minorComponent");
@@ -1312,7 +1315,7 @@ describe("ITEMS, Phase 1 seed registry", () => {
     expect(refined).toHaveLength(5);
     expect(minor).toHaveLength(3);
     expect(major).toHaveLength(1);
-    expect(salvaged).toHaveLength(1);
+    expect(salvaged).toHaveLength(2);
 
     // Pin the original seed categories directly so a mis-categorized entry is caught.
     expect(ITEMS.commonOre.category).toBe("raw");

@@ -26,13 +26,14 @@
 //      material ids) and is locked by patrol-loot.test.ts, which asserts every
 //      table id resolves to a non-gear ITEMS category.
 //
-// ⚠️ RESERVED, DEFERRED SLOT (design S12): the design wants a GUARANTEED
-// "Damaged [System]" reverse-engineering component per wreck (the Damaged Reactor
-// Housing idiom, e.g. a Damaged EMP Cannon that reverse-engineers into a weapon
-// recipe). That is intentionally NOT emitted here yet: weapon crafting does not
-// exist, so such an item would be DEAD inventory. PatrolLootTable carries a
-// commented reserved field for it; wire it in (and its item + recipe) when weapon
-// crafting lands. See tick.ts's PATROL_LOOT_TABLES for the same note.
+// WEAPON-CRAFTING LOOT (Combat 1.0, Unit 1.7, design S12): the formerly-reserved
+// "Damaged [System]" drop is now WIRED (weapon crafting exists, so the item is no
+// longer dead inventory). PatrolLootTable carries an OPTIONAL `damagedSystem` entry: a
+// CHANCE-gated salvaged-material drop (the Damaged Weapon System) a wreck may yield on
+// top of the guaranteed loot, which SALVAGES into weapon build materials via the
+// existing Damaged Reactor Housing idiom (salvage.ts). It is STILL a MATERIAL, never
+// functional gear (invariant 2 holds), and its draw is LAST so parity for the other
+// loot is untouched. See tick.ts's PATROL_LOOT_TABLES for the concrete drop rate.
 // ============================================================================
 
 import { makeRng } from "./rng";
@@ -52,6 +53,17 @@ export interface LootMaterialEntry {
   itemId: string; // a real ITEMS registry key (material category only)
   minQty: number; // inclusive floor of one roll
   maxQty: number; // inclusive ceiling of one roll (>= minQty)
+}
+
+// A CHANCE-GATED salvaged-material drop: the "Damaged [System]" wreck component (Combat
+// 1.0, Unit 1.7). Unlike the GUARANTEED `salvage` line, this drops only some of the time,
+// so it carries a probability as an integer fraction (chanceNum / chanceDen) rather than a
+// float, matching rng.chance's integer-first contract (design S0: no float in the outcome
+// path). itemId MUST be a real salvagedMaterial ITEM with a SALVAGE_LOOT_POOLS entry (so it
+// can be stripped for parts); it is NEVER installable gear (design S12, no gear from wrecks).
+export interface DamagedSystemEntry extends LootMaterialEntry {
+  chanceNum: number; // numerator of the per-wave drop probability (chanceNum / chanceDen)
+  chanceDen: number; // denominator (> 0); e.g. 1/4 == a modest 25% chance per won wave
 }
 
 // The full per-wave loot definition for one patrol (or, later, one hull class /
@@ -77,12 +89,15 @@ export interface PatrolLootTable {
   // Flat (no draw) so they stay trivially closed-form under batching.
   captainXpPerWave: number;
   fleetAdminXpPerWave: number;
-  // RESERVED (DEFERRED, design S12): a guaranteed "Damaged [System]"
-  // reverse-engineering component, e.g.
-  //   damagedSystem?: LootMaterialEntry;
-  // OMITTED until weapon crafting exists (the item + its reverse-engineer recipe do
-  // not exist yet, so emitting it would be dead inventory). Add the field + a draw
-  // in rollWaveLoot when that lands.
+  // WEAPON-CRAFTING LOOT (Combat 1.0, Unit 1.7, design S12): the formerly-reserved
+  // "Damaged [System]" drop, wired now that weapon crafting exists. A CHANCE-gated
+  // salvaged-material drop the wreck may yield on top of the guaranteed loot; it salvages
+  // into weapon build materials via the existing Damaged Reactor Housing idiom (NOT
+  // functional gear, design S12). OPTIONAL: a table without it (e.g. a test probe table)
+  // rolls exactly as before, and its DRAW is LAST in rollWaveLoot so adding it never
+  // perturbs the salvage/cargo/credit draws of any existing table (parity: the other
+  // loot's draw count and values are byte-identical whether or not this field is present).
+  damagedSystem?: DamagedSystemEntry;
 }
 
 // The concrete reward one won wave produced. materials is itemId -> INTEGER qty
@@ -128,8 +143,24 @@ export function rollWaveLoot(table: PatrolLootTable, seed: number): WaveLoot {
     materials[entry.itemId] = (materials[entry.itemId] ?? 0) + qty;
   }
 
-  // --- Final draw: the credit bounty. ------------------------------------------
+  // --- Draw: the credit bounty. ------------------------------------------------
   const credits = rng.nextRange(table.creditsMin, table.creditsMax);
+
+  // --- Final draw(s): the CHANCE-gated "Damaged [System]" salvage drop (Unit 1.7). ---
+  // Deliberately LAST in the draw order so it never perturbs the salvage/cargo/credit
+  // draws above: a table WITHOUT a damagedSystem (a probe table, or a pre-Unit-1.7 table)
+  // takes ZERO extra draws and rolls byte-identically to before, and even WITH it the
+  // earlier loot is unchanged (only a new materials entry may appear). One rng.chance()
+  // step decides the drop (integer-first, exactly one draw, so draw-counting stays
+  // predictable for parity); ONLY on a hit is a second draw (the qty) taken. Because the
+  // whole roll is a pure function of (table, seed), the drop is identical offline vs live.
+  if (table.damagedSystem) {
+    const ds = table.damagedSystem;
+    if (rng.chance(ds.chanceNum, ds.chanceDen)) {
+      const dsQty = rng.nextRange(ds.minQty, ds.maxQty);
+      materials[ds.itemId] = (materials[ds.itemId] ?? 0) + dsQty;
+    }
+  }
 
   // XP is flat (copied from the table, no draw), so it is trivially identical
   // whether one wave or many resolve in a call.

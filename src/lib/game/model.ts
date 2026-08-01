@@ -3282,6 +3282,29 @@ export const ITEMS: Record<string, ItemDef> = {
     unlockHint: "A rare drop from the Salvage Nearby Skirmish Wreckage run; salvage it for materials (a coming mechanic).",
     flavor: "A cracked, burned-out reactor shell, dead weight to install, but a rich seam of parts to strip.",
   },
+  // WEAPON-CRAFTING LOOT (Combat 1.0, Unit 1.7, design S12): the reserved "Damaged
+  // [System]" wreck drop, wired now that weapon crafting exists (it would have been dead
+  // inventory before). ONE GENERIC item on purpose, mirroring intactReactorCore's own
+  // shape (which is itself a single generic "Damaged Reactor Housing", not one item per
+  // reactor type): a won patrol wave has a modest, seeded CHANCE to drop this, and it
+  // SALVAGES into weapon build materials via the existing salvageSalvagedMaterial path
+  // (its SALVAGE_LOOT_POOLS entry below is themed to the weapon craft chain's feedstock).
+  // Kept a single generic item (not per weapon/shield/plating) because all three would
+  // break down into the SAME shared build-material economy, so three near-identical pools
+  // would be redundant (Omega 4); shields/plating can add their own items if Phase 2/3
+  // ever wants a distinct salvage yield. NO functional gear ever drops from a wreck
+  // (design S12): this is a MATERIAL you strip for parts, never an installable weapon,
+  // which is what protects the crafting loop (combat FEEDS crafting, never bypasses it).
+  // rarity is "uncommon" (display only; the loot pool carries its own per-tier rarity): a
+  // routine combat-wreck drop, more common than the rare Salvage-mission Reactor Housing.
+  damagedWeaponSystem: {
+    label: "Damaged Weapon System",
+    category: "salvagedMaterial",
+    tier: 1,
+    rarity: "uncommon",
+    unlockHint: "A chance drop from won patrol waves; salvage it for weapon build materials.",
+    flavor: "A weapon assembly torn from a wreck, too mangled to install, but its emitters and couplings strip out clean.",
+  },
   fibrousBiomass: {
     label: "Fibrous Biomass",
     category: "raw",
@@ -3449,9 +3472,12 @@ export const ITEMS: Record<string, ItemDef> = {
 // ============================================================================
 
 // The set of salvaged-material item ids that HAVE a loot pool. A string-literal union
-// (only the Damaged Reactor Housing this patch) so the pool record is exhaustive and a
-// future salvaged material added without a pool is a compile error, not a silent gap.
-export type SalvagedMaterialItemId = "intactReactorCore";
+// so the pool record is exhaustive and a salvaged material added without a pool is a
+// compile error, not a silent gap. Two members now: the Damaged Reactor Housing (rare
+// Salvage-mission drop) and the Damaged Weapon System (Combat 1.0 Unit 1.7 patrol-wreck
+// drop). Each MUST carry a SALVAGE_LOOT_POOLS entry below (the Record over this union
+// enforces it) so salvageSalvagedMaterial can strip it for parts.
+export type SalvagedMaterialItemId = "intactReactorCore" | "damagedWeaponSystem";
 
 // One weighted DROP within a tier: which item, and its relative weight against the
 // other drops in the SAME tier. The staple (common outcome) carries a large weight;
@@ -3531,6 +3557,67 @@ export const SALVAGE_LOOT_POOLS: Record<SalvagedMaterialItemId, SalvageLootTier[
     },
     // RESERVED above radiant: luminous / constellar tiers are intentionally NOT
     // populated this patch (the EquipmentRarity ladder already carries the names).
+  ],
+  // The Damaged Weapon System (Combat 1.0 Unit 1.7 patrol-wreck drop). SAME tiered
+  // structure + guardrail philosophy as the Reactor Housing above, but themed to the
+  // WEAPON CRAFT CHAIN's feedstock (polysilicateWafer / powerCoupling / frameSegment /
+  // structuralAssembly, the refined + component inputs the weapon BLUEPRINTS consume),
+  // so stripping a wreck's weapon feeds building a real one. High tiers share the same
+  // exclusive salvage exotics as the Reactor Housing (they are generic salvage payoffs,
+  // not reactor-specific). Every weight/quality is FIRST-PASS TUNABLE, same spirit as
+  // the Reactor Housing pool.
+  damagedWeaponSystem: [
+    // STANDARD (index 0, quality 0): the reliable, modest outcome a fresh player always
+    // reaches. Staple = polysilicateWafer (the core refined weapon feedstock), with a
+    // super-rare sprinkle of a fabricated powerCoupling (guardrail weight).
+    {
+      tier: "standard",
+      weight: 1000,
+      quality: 0,
+      drops: [
+        { itemId: "polysilicateWafer", weight: 1000 }, // refined weapon feedstock staple
+        { itemId: "powerCoupling", weight: 2 },        // super-rare component (guardrail weight)
+      ],
+    },
+    // AUGMENTED (index 1, quality 1): staple = powerCoupling (the other common weapon
+    // input), plus super-rare higher components.
+    {
+      tier: "augmented",
+      weight: 300,
+      quality: 1,
+      drops: [
+        { itemId: "powerCoupling", weight: 1000 },     // common weapon component staple
+        { itemId: "frameSegment", weight: 2 },         // super-rare component
+        { itemId: "structuralAssembly", weight: 2 },   // super-rare component
+      ],
+    },
+    // STELLAR (index 2, quality 3): the first EXCLUSIVE-exotic tier. anomalousAlloy
+    // (salvage-only) dominates; refined/components remain super-rare.
+    {
+      tier: "stellar",
+      weight: 40,
+      quality: 3,
+      drops: [
+        { itemId: "anomalousAlloy", weight: 1000 },    // exclusive exotic, tier payoff
+        { itemId: "polysilicateWafer", weight: 3 },    // super-rare refined
+        { itemId: "frameSegment", weight: 3 },         // super-rare component
+      ],
+    },
+    // RADIANT (index 3, quality 4): the top of this patch's ladder, steep odds. The
+    // rarest exclusive exotics dominate; one super-rare component keeps the guardrail
+    // consistent across tiers.
+    {
+      tier: "radiant",
+      weight: 5,
+      quality: 4,
+      drops: [
+        { itemId: "precursorCircuit", weight: 600 },   // exclusive exotic (epic)
+        { itemId: "intactDataCore", weight: 400 },     // exclusive exotic (legendary)
+        { itemId: "powerCoupling", weight: 2 },        // super-rare component
+      ],
+    },
+    // RESERVED above radiant: luminous / constellar tiers intentionally unpopulated,
+    // same as the Reactor Housing pool.
   ],
 };
 

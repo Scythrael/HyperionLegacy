@@ -16,7 +16,7 @@
 import { describe, it, expect } from "vitest";
 import { rollWaveLoot, type PatrolLootTable, type LootMaterialEntry } from "./combat/patrolLoot";
 import { PATROL_LOOT_TABLES, DEFAULT_PATROL_LOOT_TABLE } from "./tick";
-import { ITEMS, type ItemCategory } from "./model";
+import { ITEMS, SALVAGE_LOOT_POOLS, type ItemCategory, type SalvagedMaterialItemId } from "./model";
 
 // The MATERIAL categories a wreck may drop. Deliberately EXCLUDES shipModule / shipSystem
 // (installable gear) so a table listing one of those, or the roller ever emitting one, fails
@@ -29,9 +29,13 @@ const MATERIAL_CATEGORIES: ItemCategory[] = [
   "salvagedMaterial",
 ];
 
-// Every id a table can produce (the guaranteed salvage id + every cargo-pool id).
+// Every id a table can produce (the guaranteed salvage id + every cargo-pool id + the
+// optional chance-gated Damaged [System] drop, Unit 1.7). Including damagedSystem keeps the
+// "roller never emits an id outside its table" guard honest now that a wreck can drop it.
 function allTableItemIds(table: PatrolLootTable): string[] {
-  return [table.salvage.itemId, ...table.cargoPool.map((e) => e.itemId)];
+  const ids = [table.salvage.itemId, ...table.cargoPool.map((e) => e.itemId)];
+  if (table.damagedSystem) ids.push(table.damagedSystem.itemId);
+  return ids;
 }
 
 // A tiny hand-built table with DISTINCT, easily-checked bands, so the bounds assertions do
@@ -93,6 +97,78 @@ describe("rollWaveLoot: bounds + flat XP", () => {
         expect(loot.materials[id]).toBeLessThanOrEqual(maxPossible);
         expect(Number.isInteger(loot.materials[id])).toBe(true);
       }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Weapon-crafting loot: the chance-gated "Damaged [System]" drop (Combat 1.0, Unit 1.7).
+// ---------------------------------------------------------------------------
+describe("Damaged [System] weapon-crafting loot (Unit 1.7)", () => {
+  // A probe table with a GUARANTEED (1/1) damaged-system drop, so the deterministic +
+  // qty-band assertions do not depend on the (tunable) shipping chance.
+  const CERTAIN_DROP: PatrolLootTable = {
+    ...PROBE_TABLE,
+    damagedSystem: { itemId: "damagedWeaponSystem", chanceNum: 1, chanceDen: 1, minQty: 1, maxQty: 3 },
+  };
+
+  it("the shipping table's Damaged [System] id is a real salvagedMaterial WITH a loot pool (salvages into materials, is not gear)", () => {
+    const ds = DEFAULT_PATROL_LOOT_TABLE.damagedSystem;
+    expect(ds, "the starter patrol table must carry a Damaged [System] drop").toBeDefined();
+    if (!ds) return;
+    // It is a MATERIAL you strip for parts, never installable gear (design S12).
+    expect(ITEMS[ds.itemId]?.category).toBe("salvagedMaterial");
+    // ...and it carries a loot pool, so salvageSalvagedMaterial can strip it (not dead inventory).
+    expect(SALVAGE_LOOT_POOLS[ds.itemId as SalvagedMaterialItemId]?.length).toBeGreaterThan(0);
+  });
+
+  it("a guaranteed-chance drop is deterministic and its qty stays within the declared band", () => {
+    const id = CERTAIN_DROP.damagedSystem!.itemId;
+    for (let seed = 0; seed < 300; seed++) {
+      const loot = rollWaveLoot(CERTAIN_DROP, seed);
+      // Same (table, seed) => byte-identical (offline == live), including the new draw.
+      expect(loot).toEqual(rollWaveLoot(CERTAIN_DROP, seed));
+      // At 1/1 it ALWAYS drops, within [minQty, maxQty] and an integer.
+      const qty = loot.materials[id] ?? 0;
+      expect(qty).toBeGreaterThanOrEqual(CERTAIN_DROP.damagedSystem!.minQty);
+      expect(qty).toBeLessThanOrEqual(CERTAIN_DROP.damagedSystem!.maxQty);
+      expect(Number.isInteger(qty)).toBe(true);
+    }
+  });
+
+  it("on the shipping table the drop is CHANCE-gated: it happens on some seeds, not all, at roughly the configured rate (bounded)", () => {
+    const ds = DEFAULT_PATROL_LOOT_TABLE.damagedSystem!;
+    const N = 2000;
+    let drops = 0;
+    for (let seed = 0; seed < N; seed++) {
+      if ((rollWaveLoot(DEFAULT_PATROL_LOOT_TABLE, seed).materials[ds.itemId] ?? 0) > 0) drops++;
+    }
+    // Neither always nor never (it is a genuine chance), and the observed rate sits near the
+    // configured chanceNum/chanceDen. A generous band absorbs sampling noise while still
+    // proving the rate is the intended MODEST one, not a certainty or a rarity.
+    const rate = drops / N;
+    const expected = ds.chanceNum / ds.chanceDen;
+    expect(rate).toBeGreaterThan(0);
+    expect(rate).toBeLessThan(1);
+    expect(Math.abs(rate - expected)).toBeLessThan(0.05);
+  });
+
+  it("adding the Damaged [System] draw does NOT perturb the salvage / cargo / credit loot (parity for existing loot)", () => {
+    // The draw is LAST, so a table WITH the field must produce IDENTICAL salvage/cargo/credit
+    // loot to the same table WITHOUT it: only a new damaged-system materials entry may appear.
+    const withField = DEFAULT_PATROL_LOOT_TABLE;
+    const withoutField: PatrolLootTable = { ...withField, damagedSystem: undefined };
+    const dsId = withField.damagedSystem!.itemId;
+    for (let seed = 0; seed < 500; seed++) {
+      const a = rollWaveLoot(withField, seed);
+      const b = rollWaveLoot(withoutField, seed);
+      // Strip the (only) new key from a's materials; everything else must be byte-identical.
+      const aOther = { ...a.materials };
+      delete aOther[dsId];
+      expect(aOther).toEqual(b.materials);
+      expect(a.credits).toBe(b.credits);
+      expect(a.captainXp).toBe(b.captainXp);
+      expect(a.fleetAdminXp).toBe(b.fleetAdminXp);
     }
   });
 });

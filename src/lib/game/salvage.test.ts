@@ -314,6 +314,48 @@ describe("salvageSalvagedMaterial: a seeded roll deposits the expected tier+item
   });
 });
 
+describe("salvageSalvagedMaterial: the Damaged Weapon System salvages into weapon build materials (Combat 1.0, Unit 1.7)", () => {
+  // The weapon-crafting-loot drop wired in Unit 1.7. It reuses the Damaged Reactor
+  // Housing idiom EXACTLY (a salvagedMaterial item with a SALVAGE_LOOT_POOLS entry), so
+  // the existing salvageSalvagedMaterial path strips it for parts with no new code.
+  const WEAPON_SYSTEM = "damagedWeaponSystem";
+
+  it("is a real salvagedMaterial ITEM with its own loot pool (the crafting-loot idiom is wired, not gear)", () => {
+    // It must be a MATERIAL you strip, never installable gear (design S12, no gear from wrecks).
+    expect(ITEMS[WEAPON_SYSTEM]?.category).toBe("salvagedMaterial");
+    // ...and it MUST carry a loot pool, or salvageSalvagedMaterial would reject it.
+    expect(SALVAGE_LOOT_POOLS[WEAPON_SYSTEM]?.length).toBeGreaterThan(0);
+  });
+
+  it("rng [0,0] strips it into the low tier's weapon-material staple and consumes one unit", () => {
+    const base = freshState();
+    const state: GameState = {
+      ...base,
+      fleetAdminLevel: 1, // fresh FA level: only the standard tier is eligible
+      inventory: { ...base.inventory, [WEAPON_SYSTEM]: [new Decimal(2)] },
+    };
+    const lowTier = SALVAGE_LOOT_POOLS[WEAPON_SYSTEM][0];
+    const staple = lowTier.drops[0]; // the reliable weapon-feedstock staple
+
+    // rng()=0 picks the first eligible tier, then its first drop (the staple).
+    const result = salvageSalvagedMaterial(state, WEAPON_SYSTEM, seqRng([0, 0]));
+    if (!("rolled" in result) || !result.rolled) throw new Error("expected a roll");
+
+    // The drop is the staple, deposited at the tier's quality, and it is itself a BUILD
+    // MATERIAL (refined/component), i.e. weapon feedstock, never functional gear.
+    expect(result.rolled.itemId).toBe(staple.itemId);
+    expect(["raw", "refined", "minorComponent", "majorComponent"]).toContain(
+      ITEMS[result.rolled.itemId].category,
+    );
+    expect(getBucket(result.next.inventory, staple.itemId, lowTier.quality).toNumber()).toBe(1);
+    expect(result.recovered[staple.itemId]).toBe(1);
+
+    // Exactly ONE Weapon System consumed (2 -> 1), input state untouched (immutability).
+    expect(itemTotal(result.next.inventory, WEAPON_SYSTEM).toNumber()).toBe(1);
+    expect(itemTotal(state.inventory, WEAPON_SYSTEM).toNumber()).toBe(2);
+  });
+});
+
 describe("salvageSalvagedMaterial: rejects invalid targets as a same-ref no-op + reason (Task C2)", () => {
   it("rejects a NON-salvagedMaterial item id", () => {
     const state = stateWithHousing(1, 1);

@@ -1445,11 +1445,13 @@ export { deriveWaveSeed } from "./combat/waveSeed";
 // (raw/refined/component/salvagedMaterial), NEVER a shipModule/shipSystem/equipment. This
 // protects the crafting loop; patrol-loot.test.ts locks the invariant against every table id.
 //
-// ⚠️ RESERVED, DEFERRED (design S12): a guaranteed "Damaged [System]" reverse-engineering
-// component (the Damaged Reactor Housing idiom) belongs here once WEAPON CRAFTING exists.
-// It is OMITTED now because that recipe does not exist, so the item would be dead inventory.
-// PatrolLootTable carries a commented `damagedSystem?` slot; wire it (item + recipe + a draw
-// in rollWaveLoot) when weapon crafting lands.
+// WEAPON-CRAFTING LOOT (Combat 1.0, Unit 1.7, design S12): the formerly-reserved
+// "Damaged [System]" drop is now WIRED via the table's `damagedSystem` slot (weapon
+// crafting exists, so the item feeds a real loop). It is the Damaged Reactor Housing
+// idiom for weapons: a CHANCE-gated salvaged-material drop (the Damaged Weapon System)
+// that salvages into weapon build materials. Still a MATERIAL, never functional gear
+// (design S12); its draw is LAST in rollWaveLoot so the salvage/cargo/credit values above
+// stay byte-identical (parity untouched for the existing loot).
 // Exported so patrol-loot.test.ts can lock the tables' contract directly (every id resolves
 // to a non-gear ITEMS category; the no-functional-gear invariant), the same export-for-tests
 // rationale as foldXpLevelUps / MAX_LEVEL_UPS_PER_TICK.
@@ -1478,6 +1480,14 @@ export const DEFAULT_PATROL_LOOT_TABLE: PatrolLootTable = {
   // (xpForNextFleetAdminLevel(1) is 750, so FA still lags, per its design intent).
   captainXpPerWave: 20,
   fleetAdminXpPerWave: 10,
+  // WEAPON-CRAFTING LOOT (Combat 1.0, Unit 1.7): a MODEST, chance-gated Damaged Weapon
+  // System drop (a wreck's mangled gun stripped for parts). 1 in 4 won waves (25%) => a
+  // won 2-wave patrol drops one ~44% of the time on average, so it is a welcome extra, not
+  // a reliable feed (design S12: combat FEEDS crafting, does not trivialize it). Salvages
+  // into weapon build materials via SALVAGE_LOOT_POOLS.damagedWeaponSystem. FIRST-PASS
+  // TUNABLE (raise chanceNum / widen the qty band at the S20 loot-rate pass). itemId is a
+  // salvagedMaterial (NOT gear): the no-functional-gear invariant (design S12) still holds.
+  damagedSystem: { itemId: "damagedWeaponSystem", chanceNum: 1, chanceDen: 4, minQty: 1, maxQty: 1 },
 };
 
 export const PATROL_LOOT_TABLES: Record<PatrolKey, PatrolLootTable> = {
