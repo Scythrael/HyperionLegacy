@@ -284,7 +284,7 @@ describe("defeat-path parity (guaranteed loss)", () => {
 // start. This case exercises the DEFEAT branch through the PUBLIC replayPatrol, which by
 // contract always starts FULL HULL, and compares it side-by-side to a real live limp-home
 // for the same patrol + seed. No production change is needed: a full-hull DESTROYER
-// genuinely LOSES the shipped starter patrol (crimsonReaverSweep) at masterSeed 79
+// genuinely LOSES the shipped starter patrol (crimsonReaverSweep) at masterSeed 47
 // (empirically found by scanning seeds 1..3000; battleship/carrier win every sampled seed,
 // and destroyer wins the 12 seeds the main parity fuzz above happens to sample, which is
 // why that fuzz never reaches a full-hull defeat). This locks that the public replay's
@@ -292,13 +292,21 @@ describe("defeat-path parity (guaranteed loss)", () => {
 //
 // NOTE (Phase 12b Unit B1): the old defeat seed (331) was re-baselined here. Wiring live
 // system durability added combat-stream draws on every connecting hit, which legitimately
-// shifted the per-seed RNG schedule, so 331 no longer defeats a full-hull destroyer. 79 is
-// the re-scanned replacement; the parity ASSERTIONS below are unchanged (still a genuine
-// full-hull defeat, replay == live), only the seed literal moved to a still-true value.
+// shifted the per-seed RNG schedule, so 331 no longer defeats a full-hull destroyer. 79 was
+// the re-scanned replacement.
+//
+// NOTE (Combat 1.0 Unit 1.5): re-baselined again, 79 -> 47. Lighting the five Phase-1 status
+// effects added a second effect slot to Plasma (Harmonic Gap) whose per-connecting-shot proc
+// roll draws once more from the combat stream, plus wired the Emitter Overload / Harmonic Gap
+// / Weapon Jam readers. Because the destroyer AND the enemy corsair carrier both field Plasma,
+// the per-seed schedule shifted, so 79 no longer defeats a full-hull destroyer. 47 is the
+// re-scanned replacement (first defeat in the same 1..3000 scan, a genuine defeat under BOTH
+// the public replay and the live limp-home). The parity ASSERTIONS below are unchanged (still
+// a genuine full-hull defeat, replay == live); only the seed literal moved to a still-true value.
 // ---------------------------------------------------------------------------
 describe("defeat-path parity through the PUBLIC entry (replayPatrol)", () => {
   // masterSeed where a full-hull destroyer loses crimsonReaverSweep (see block note).
-  const DEFEAT_SEED = 79;
+  const DEFEAT_SEED = 47;
 
   it("replayPatrol early-stops on a real full-hull defeat exactly as the live limp-home does", () => {
     const dispatched = dispatch(patrolState("destroyer", DEFEAT_SEED), false);

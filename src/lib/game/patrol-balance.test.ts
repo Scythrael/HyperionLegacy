@@ -104,9 +104,11 @@ function winRate(typeKey: ShipTypeKey): { wins: number; rate: number } {
 
 // THE LOCKING THRESHOLD. Each hull must clear the starter on at least this fraction of
 // sampled seeds. As measured after Phase 12b Unit B1 wired LIVE SYSTEM DURABILITY, the
-// win rates are: destroyer 99.5% (199/200), battleship 100% (200/200), carrier 100%
-// (200/200). Wiring durability wear added combat-stream draws that shifted the per-seed
-// schedule, nudging the destroyer off its old 200/200 by a single unlucky seed; NO
+// win rates are: destroyer 99.0% (198/200), battleship 100% (200/200), carrier 100%
+// (200/200). Wiring durability wear (Phase 12b) and then Combat 1.0 Unit 1.5 status-effect
+// completion (the enemy carrier's plasma now inflicts Harmonic Gap on the player) each added
+// combat-stream draws that shifted the per-seed schedule, nudging the destroyer off its old
+// 200/200 by a couple of unlucky seeds; NO
 // constant re-tune was required (durability is intentionally low-impact within one short
 // starter battle, base 100 ceiling; cross-wave attrition is Unit B2). We assert >= 0.95
 // rather than a brittle == 1.0 so a trivial future sim tweak that flips a single unlucky

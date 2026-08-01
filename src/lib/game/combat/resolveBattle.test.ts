@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from "vitest";
 import { resolveBattle, applyProjectileDamage, fireWeapon } from "./resolveBattle";
+import { makeWeaponInstance } from "./weapons";
 import { bandFor } from "./positioning";
 import { makeStreams } from "./rng";
 import type { DurableSystem } from "./durability";
@@ -1407,6 +1408,148 @@ describe("status effects: applied accuracy debuff reduces hit rate", () => {
 		expect(hits(debuffed)).toBeLessThan(hits(clean));
 		// Sanity: the clean attacker at 90% actually landed plenty of hits.
 		expect(hits(clean)).toBeGreaterThan(0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// COMBAT 1.0 (Unit 1.5): the five newly-live status effects. THREE readers are wired
+// here (Emitter Overload +damageTaken, Harmonic Gap +attenuation, Weapon Jam offline
+// chance); THREE weapon SOURCES are added in weapons.ts (Sensor Power Drain -> Tachyon,
+// Coil Dampening -> Graviton, Harmonic Gap -> Plasma; the -range and -weaponDamage
+// readers already existed). Each test below proves the effect now CHANGES an outcome,
+// deterministically (pure applyProjectileDamage helper calls, or a seeded sim), and is
+// parity-safe by construction (the readers make no cosmetic-stream draw; the jam roll
+// is on the combat stream, ungated by generateLog).
+// ---------------------------------------------------------------------------
+describe("Combat 1.0 Unit 1.5: Emitter Overload reader (+damageTaken)", () => {
+	it("a target under Emitter Overload takes MORE damage from the same shot", () => {
+		// Pure applyProjectileDamage: an identical kinetic shot (no shields/armor, so the
+		// debuff is the ONLY variable) vs a clean target and one carrying a rank-1 Emitter
+		// Overload (+20% damage taken). A bare kinetic shot uses the vs-Armor column (+10%):
+		// raw 100 -> 110. The overloaded target then scales UP by +20% -> 132.
+		const clean = makeCombatant({ hull: 1000, hullMax: 1000 });
+		const overloaded = makeCombatant({
+			hull: 1000,
+			hullMax: 1000,
+			statusEffects: [
+				{ defId: "emitterOverload", rank: 1, remainingDeciSec: 100, dotBank: 0 },
+			],
+		});
+		const c = applyProjectileDamage(clean, "kinetic", 0, 0, 100);
+		const o = applyProjectileDamage(overloaded, "kinetic", 0, 0, 100);
+		expect(c.dealt).toBe(110);
+		expect(o.dealt).toBe(132); // 110 * 1.20
+		expect(o.dealt).toBeGreaterThan(c.dealt);
+	});
+
+	it("does nothing to a target without the effect (byte-identical no-op)", () => {
+		const clean = makeCombatant({ hull: 1000, hullMax: 1000 });
+		expect(applyProjectileDamage(clean, "kinetic", 0, 0, 100).dealt).toBe(110);
+	});
+});
+
+describe("Combat 1.0 Unit 1.5: Harmonic Gap reader (+attenuation)", () => {
+	it("a particle shot bleeds MORE through a target carrying Harmonic Gap", () => {
+		// Same particle shot (weapon shieldAttenuation 20) vs a fully-shielded target, once
+		// clean and once with a rank-2 Harmonic Gap (+40% attenuation). Clean net atten =
+		// 20%; gapped = 20 + 40 = 60%. Particle vs shielded uses +10% (raw 100 -> 110), so
+		// clean bleeds floor(110*20/100)=22 to hull, gapped floor(110*60/100)=66.
+		const shielded = () =>
+			makeCombatant({
+				hull: 1000,
+				hullMax: 1000,
+				shield: 1000,
+				shieldMax: 1000,
+			});
+		const clean = shielded();
+		const gapped = makeCombatant({
+			...shielded(),
+			statusEffects: [
+				{ defId: "harmonicGap", rank: 2, remainingDeciSec: 100, dotBank: 0 },
+			],
+		});
+		const c = applyProjectileDamage(clean, "particle", 20, 0, 100);
+		const g = applyProjectileDamage(gapped, "particle", 20, 0, 100);
+		expect(c.hullDealt).toBe(22);
+		expect(g.hullDealt).toBe(66);
+		expect(g.hullDealt).toBeGreaterThan(c.hullDealt);
+		expect(g.attenuated).toBe(true);
+	});
+});
+
+describe("Combat 1.0 Unit 1.5: Weapon Jam reader (weaponOffline chance)", () => {
+	it("a jammed attacker fires fewer shots than a clean one (seeded, aggregated)", () => {
+		// Same battle + seed; the ONLY difference is the attacker carries a long-lived
+		// rank-3 Weapon Jam (60% offline chance per shot). A jammed weapon skips its shot
+		// (still consuming its cooldown), so over a spread of seeds the jammed attacker
+		// fires strictly fewer total shots. Both targets are unkillable so each run gets
+		// the same firing OPPORTUNITY (both run to the tick cap), isolating the jam. Each
+		// seed is deterministic; the aggregate makes the strict inequality robust.
+		const build = (jam: boolean) => (): BattleParticipants =>
+			oneVsOne(
+				{
+					hull: 1000000,
+					hullMax: 1000000,
+					weapons: [
+						makeWeapon({ id: "pw", yield: 1, accuracy: 100, cooldownDeciSec: 5 }),
+					],
+					statusEffects: jam
+						? [{ defId: "weaponJam", rank: 3, remainingDeciSec: 1000000, dotBank: 0 }]
+						: [],
+				},
+				{ hull: 1000000, hullMax: 1000000, weapons: [] },
+			);
+		const shotsFired = (jam: boolean): number => {
+			let total = 0;
+			for (let seed = 0; seed < 20; seed++) {
+				const r = resolveBattle(build(jam)(), seed, { generateLog: true });
+				total += r.log.filter(
+					(e) => e.actorId === "P1" && (e.type === "hit" || e.type === "evade"),
+				).length;
+			}
+			return total;
+		};
+		const jammed = shotsFired(true);
+		const clean = shotsFired(false);
+		expect(clean).toBeGreaterThan(0);
+		expect(jammed).toBeLessThan(clean);
+	});
+});
+
+describe("Combat 1.0 Unit 1.5: roster weapons inflict their newly-sourced effect", () => {
+	// Fire a roster weapon at a durable, shielded target across many seeds via the real
+	// shot pipeline; its second effect slot must LAND at least once (proving the SOURCE
+	// assignment feeds the proc pipeline end to end). Deterministic per seed, aggregated
+	// for robustness. The pre-existing -range / -weaponDamage readers plus these sources
+	// are what make Sensor Power Drain + Coil Dampening live.
+	const timesInflicted = (weaponId: Parameters<typeof makeWeaponInstance>[0], defId: string): number => {
+		let applied = 0;
+		for (let seed = 0; seed < 40; seed++) {
+			const { combat } = makeStreams(seed);
+			const self = makeCombatant({ id: "S" });
+			const target = makeCombatant({
+				id: "T",
+				hull: 1000000,
+				hullMax: 1000000,
+				shield: 1000000,
+				shieldMax: 1000000,
+			});
+			const shot = fireWeapon(self, target, makeWeaponInstance(weaponId), combat);
+			if (shot.appliedEffects.includes(defId)) applied++;
+		}
+		return applied;
+	};
+
+	it("Tachyon Burst Emitter inflicts Sensor Power Drain", () => {
+		expect(timesInflicted("tachyonBurstEmitter", "sensorPowerDrain")).toBeGreaterThan(0);
+	});
+
+	it("Graviton inflicts Coil Dampening", () => {
+		expect(timesInflicted("graviton", "coilDampening")).toBeGreaterThan(0);
+	});
+
+	it("Plasma inflicts Harmonic Gap", () => {
+		expect(timesInflicted("plasma", "harmonicGap")).toBeGreaterThan(0);
 	});
 });
 

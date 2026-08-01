@@ -452,10 +452,27 @@ export function applyProjectileDamage(
 	// number. Integer floor math, clamped 0..100, so 0 resist is a no-op (the
 	// regression default that keeps every zero-resist fixture byte-identical).
 	const damageResistPct = Math.max(0, Math.min(100, target.damageResist[family]));
-	const dmg =
+	const dmgAfterResist =
 		damageResistPct > 0
 			? Math.floor((dmgAfterTriangle * (100 - damageResistPct)) / 100)
 			: dmgAfterTriangle;
+
+	// PHASE 1 (Combat 1.0, Unit 1.5) DEBUFF READER: Emitter Overload (+damageTaken).
+	// A target whose shield emitters are cascading takes MORE damage from every shot
+	// (design S4/S8). Read the VICTIM's summed damageTaken delta (a POSITIVE percent,
+	// +20 per rank) and scale the post-triangle, post-resist damage UP by it. WHY here,
+	// right alongside the family damage resist: this is the single mitigation site every
+	// damage channel (weapon shots, drone overflow, reflects, drone volleys) routes
+	// through, so one read makes the debuff bite honestly everywhere it should. It was a
+	// shown-a-lie until now (Voltaic procs it + a pip shows, but nothing read it). PARITY:
+	// pure integer scaling of an already-integer number, NO combat-stream draw, and a
+	// zero delta is a no-op (applyPercentDelta(x, 0) === x), so an unafflicted target is
+	// byte-identical (offline == live holds and every zero-effect fixture is unchanged).
+	const damageTakenDelta = activeStatDelta(target.statusEffects, "damageTaken");
+	const dmg =
+		damageTakenDelta !== 0
+			? applyPercentDelta(dmgAfterResist, damageTakenDelta)
+			: dmgAfterResist;
 
 	// Track total damage actually removed from the target (for logging + the
 	// aggregate the caller sums), and whether this projectile attenuated.
@@ -476,9 +493,20 @@ export function applyProjectileDamage(
 		// Kinetic + EW never attenuate (their signature is armor-pen / disruption).
 		let toShields = dmg;
 		if (family === "particle") {
+			// PHASE 1 (Combat 1.0, Unit 1.5) DEBUFF READER: Harmonic Gap (+attenuation).
+			// A harmonic gap torn in the VICTIM's screen lets MORE particle fire slip
+			// straight to the hull-path (design S4: "particle fire slips through the
+			// screen"). Read the victim's summed attenuation delta (+20 per rank) and ADD
+			// it to THIS weapon's shieldAttenuation before the coherence subtraction, so a
+			// gapped target bleeds through more of every particle shot. Particle-only by
+			// construction (we are inside the particle branch), which matches the effect's
+			// fiction. It had no reader (and no source) until Unit 1.5; both land now.
+			// PARITY: pure integer read, NO combat-stream draw; a zero delta leaves the net
+			// attenuation exactly as before, so a gap-free target is byte-identical.
+			const harmonicGapDelta = activeStatDelta(target.statusEffects, "attenuation");
 			const netAttenPct = Math.max(
 				0,
-				weaponShieldAttenuation - target.shieldCoherence,
+				weaponShieldAttenuation + harmonicGapDelta - target.shieldCoherence,
 			);
 			if (netAttenPct > 0) {
 				const bypass = Math.floor((dmg * netAttenPct) / 100);
@@ -1709,6 +1737,17 @@ export function resolveBattle(
 			// to each weapon's range at the gate below.
 			const rangeDelta = activeStatDelta(self.statusEffects, "range");
 
+
+			// PHASE 1 (Combat 1.0, Unit 1.5) DEBUFF READER: Weapon Jam (weaponOffline).
+			// A ship whose feed mechanisms are seized has a per-shot CHANCE each of its
+			// weapons coughs and fires nothing (design S4). weaponOffline is a chance
+			// (integer percent, +20 per rank), summed ONCE per combatant here; the per-
+			// weapon roll happens at the fire gate below (so each weapon jams
+			// independently). It is 0 whenever the ship carries no jam (the common case),
+			// which is the parity guard: an unjammed ship makes NO extra combat draw and
+			// stays byte-identical. Weapon Jam procs from EMP Cannon but the firing loop
+			// ignored it until now; this lights the reader.
+			const weaponOfflineChance = activeStatDelta(self.statusEffects, "weaponOffline");
 			// PHASE C: weapons. Advance each weapon's cooldown clock by dt; fire any
 			// that have both come off cooldown AND have the target in range.
 			for (const weapon of self.weapons) {
@@ -1736,6 +1775,25 @@ export function resolveBattle(
 					if (weapon.cooldownAccumulator > weapon.cooldownDeciSec) {
 						weapon.cooldownAccumulator = weapon.cooldownDeciSec;
 					}
+					continue;
+				}
+
+				// PHASE 1 (Combat 1.0, Unit 1.5) WEAPON JAM (design S4): a jammed owner's
+				// weapon has a per-shot chance to seize and fire nothing. Rolled on the COMBAT
+				// stream HERE, exactly when the weapon is otherwise ready + in range, so a jam
+				// is a real lost firing opportunity. A jammed attempt STILL consumes its cooldown
+				// (the gun coughed and must recharge), so the debuff genuinely costs a shot rather
+				// than free-retrying every 0.1s tick until an unjammed roll passes. DRAW ORDER +
+				// PARITY: the roll is drawn ONLY when the owner actually carries a jam chance
+				// (weaponOfflineChance > 0) and sits immediately BEFORE this weapon's fireWeapon
+				// draws, so the schedule is deterministic and identical offline vs live (combat
+				// stream, ungated by generateLog); an unjammed ship draws nothing and is byte-
+				// identical to before this reader existed.
+				if (
+					weaponOfflineChance > 0 &&
+					combat.chance(Math.min(100, weaponOfflineChance), 100)
+				) {
+					weapon.cooldownAccumulator -= weapon.cooldownDeciSec;
 					continue;
 				}
 

@@ -129,8 +129,13 @@ function def(
 
 // Plasma: the moderate, well-rounded particle staple. Middling everything with a
 // healthy attenuation so it always chips hull through shields.
-// Effect: strong Plasma Fire DoT (its signature burn), high proc + escalation so
-// Plasma reliably stacks the burn (design S3 "strong Plasma Fire DoT").
+// Effect slot 1: strong Plasma Fire DoT (its signature burn), high proc + escalation
+// so Plasma reliably stacks the burn (design S3 "strong Plasma Fire DoT").
+// Effect slot 2 (Combat 1.0, Unit 1.5): Harmonic Gap (+shield attenuation on the
+// target). A shield-bleed particle weapon is the natural home for a debuff that opens
+// a gap for MORE particle fire to slip through, so Plasma's own attenuation + the
+// growing gap compound: the more it hits, the more each shot bleeds hull. A moderate
+// secondary (below the signature burn), matching the roster's first-pass tuning.
 export const PLASMA: CombatWeapon = def("plasma", "particle", {
 	yieldMin: 18,
 	yieldMax: 26,
@@ -140,13 +145,18 @@ export const PLASMA: CombatWeapon = def("plasma", "particle", {
 	range: RANGE_MEDIUM,
 	powerDraw: 20, // mid-cost particle staple
 	shieldAttenuation: 30, // solid bleed-through
-	effectSlots: [fx("plasmaFire", 60, 40)], // signature burn, stacks readily
+	effectSlots: [fx("plasmaFire", 60, 40), fx("harmonicGap", 45, 30)],
 });
 
 // Graviton: a longer-reach particle emitter, slightly lower yield/rate, modest
 // attenuation. The "engine-disruptor" flavor lands in Phase 4.
-// Effect: engine disruption (Manifold Overheat, -maneuver) per its "engine-
-// disruptor" identity (design S3). Moderate proc; single-slot focus.
+// Effect slot 1: engine disruption (Manifold Overheat, -maneuver) per its "engine-
+// disruptor" identity (design S3).
+// Effect slot 2 (Combat 1.0, Unit 1.5): Coil Dampening (-outgoing weapon damage on
+// the target). A gravitic emitter that warps the target's firing coils reads as a
+// soft-power debuff, so Graviton becomes a control emitter: it slows the target's
+// thrusters AND saps its guns. A leaner secondary (below the primary), matching the
+// roster's first-pass tuning.
 export const GRAVITON: CombatWeapon = def("graviton", "particle", {
 	yieldMin: 14,
 	yieldMax: 20,
@@ -156,7 +166,7 @@ export const GRAVITON: CombatWeapon = def("graviton", "particle", {
 	range: RANGE_LONG,
 	powerDraw: 18, // slightly leaner long-reach emitter
 	shieldAttenuation: 25,
-	effectSlots: [fx("manifoldOverheat", 45, 30)], // engine disruptor
+	effectSlots: [fx("manifoldOverheat", 45, 30), fx("coilDampening", 40, 25)],
 });
 
 // Voltaic: the anti-shield specialist. High yield that the particle +10%-vs-
@@ -292,9 +302,14 @@ export const EMP_CANNON: CombatWeapon = def("empCannon", "ew", {
 // 4 and, if still wanted as a raw-damage lever, a per-weapon triangle override in
 // the balance pass. Its stats below give it the best direct yield of the EW
 // family as a stand-in for that identity.
-// Effect: Scattering Field (sensor -accuracy) per design S3 ("sensor
-// disruptions"). A single strong sensor-disruption slot; its vs-shields buff
-// identity is still parked for the balance pass (see the TODO above).
+// Effect slot 1: Scattering Field (sensor -accuracy) per design S3 ("sensor
+// disruptions"). Its vs-shields buff identity is still parked for the balance pass
+// (see the TODO above).
+// Effect slot 2 (Combat 1.0, Unit 1.5): Sensor Power Drain (-effective range on the
+// target). A sensor-disruptor emitter is the natural home for a debuff that browns
+// out the target's arrays and closes its horizon, so Tachyon becomes the dedicated
+// sensor-warfare weapon: it blinds targeting AND shrinks reach. A strong secondary
+// (both slots are sensor disruptions, its whole identity), matching first-pass tuning.
 export const TACHYON_BURST_EMITTER: CombatWeapon = def(
 	"tachyonBurstEmitter",
 	"ew",
@@ -306,7 +321,7 @@ export const TACHYON_BURST_EMITTER: CombatWeapon = def(
 		projectileCount: 1,
 		range: RANGE_MEDIUM,
 		powerDraw: 20, // best-yield EW emitter, mid draw
-		effectSlots: [fx("scatteringField", 55, 35)],
+		effectSlots: [fx("scatteringField", 55, 35), fx("sensorPowerDrain", 50, 30)],
 	},
 );
 

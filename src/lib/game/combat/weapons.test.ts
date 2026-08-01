@@ -17,11 +17,13 @@ import {
 	WEAPON_DEFS,
 	makeWeaponInstance,
 	PLASMA,
+	GRAVITON,
 	VOLTAIC,
 	RAILGUN,
 	AUTOCANNON,
 	CONCUSSION_TORPEDO,
 	POINT_DEFENSE_ARRAY,
+	TACHYON_BURST_EMITTER,
 } from "./weapons";
 import { DISRUPTIONS } from "./statusEffects";
 import type { CombatWeapon, WeaponFamily } from "./types";
@@ -151,6 +153,40 @@ describe("weapon roster: locked identities (design S3)", () => {
 		expect(POINT_DEFENSE_ARRAY.family).toBe("ew");
 		expect(POINT_DEFENSE_ARRAY.projectileCount).toBeGreaterThanOrEqual(3);
 		expect(POINT_DEFENSE_ARRAY.accuracy).toBeGreaterThanOrEqual(90);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// COMBAT 1.0 (Unit 1.5): the three status effects that had a READER but no weapon
+// SOURCE are given a home on a second effect slot, lighting them up in battle. These
+// lock the SOURCE assignment (the durable identity contract), keeping each weapon's
+// existing first slot. The effect-free weapons (Autocannon, Point-Defense Array) stay
+// effect-free by design (S3), so their identity is not diluted.
+// ---------------------------------------------------------------------------
+describe("weapon roster: Combat 1.0 Unit 1.5 newly-sourced effects", () => {
+	it("Plasma sources Harmonic Gap (its second slot), keeping Plasma Fire", () => {
+		const ids = PLASMA.effectSlots.map((s) => s.defId);
+		expect(ids).toContain("plasmaFire");
+		expect(ids).toContain("harmonicGap");
+	});
+
+	it("Graviton sources Coil Dampening (its second slot), keeping Manifold Overheat", () => {
+		const ids = GRAVITON.effectSlots.map((s) => s.defId);
+		expect(ids).toContain("manifoldOverheat");
+		expect(ids).toContain("coilDampening");
+	});
+
+	it("Tachyon Burst Emitter sources Sensor Power Drain (its second slot), keeping Scattering Field", () => {
+		const ids = TACHYON_BURST_EMITTER.effectSlots.map((s) => s.defId);
+		expect(ids).toContain("scatteringField");
+		expect(ids).toContain("sensorPowerDrain");
+	});
+
+	it("the deliberately effect-free weapons stay effect-free (design S3)", () => {
+		// Autocannon (pure sustained hull DPS) + Point-Defense Array (anti-drone screen)
+		// carry NO effect slots by design; Unit 1.5 must not dilute that identity.
+		expect(AUTOCANNON.effectSlots.length).toBe(0);
+		expect(POINT_DEFENSE_ARRAY.effectSlots.length).toBe(0);
 	});
 });
 
