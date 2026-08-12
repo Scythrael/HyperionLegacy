@@ -329,6 +329,8 @@
         return "this system cannot be installed";
       case "hardpointsFull":
         return "all weapon hardpoints are full (uninstall a weapon first)";
+      case "baysFull":
+        return "all drone bays are full (uninstall a drone pod first)";
     }
   }
 

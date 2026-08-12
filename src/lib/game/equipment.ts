@@ -61,12 +61,14 @@ import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue } from "./model";
 //
 // ECONOMY_INSTALLABLE_SLOTS: the four economy slots. They are the NEVER-EMPTY slots (uninstall
 // restores a Standard-Issue baseline) and every one is a SINGLETON.
-// COMBAT_SLOT_TYPES: the three combat slots. Combat 1.0 (Unit 1.8a) OPENS these to player install
-// (they were rejected in Unit 1.3 while only the auto-installed baseline existed). They are the
-// ALLOW-EMPTY slots (uninstall leaves the slot bare, so the dispatch blocker is reachable).
+// COMBAT_SLOT_TYPES: the combat slots (weapon/shieldEmitters/hullPlating + Combat 1.0 Unit 2.2
+// droneBay). Combat 1.0 OPENS these to player install (they were rejected in Unit 1.3 while only the
+// auto-installed baseline existed). They are the ALLOW-EMPTY slots (uninstall leaves the slot bare;
+// for the three REQUIRED slots that makes the dispatch blocker reachable, and a drone bay is simply
+// optional-empty).
 // MULTI_SLOT_TYPES: the slots that hold MORE THAN ONE piece per ship (weapon fills the hull's
-// hardpoints). A slotType NOT in this set is a singleton (at most one piece per ship-slot). Kept as
-// its own set (rather than "weapon" hard-coded at each site) so a future multi slot is a one-line add.
+// hardpoints; droneBay fills the hull's drone bays). A slotType NOT in this set is a singleton (at
+// most one piece per ship-slot). Kept as its own set so a future multi slot is a one-line add.
 const ECONOMY_INSTALLABLE_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>([
   "cargoBay",
   "ftlDrive",
@@ -77,8 +79,9 @@ const COMBAT_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotT
   "weapon",
   "shieldEmitters",
   "hullPlating",
+  "droneBay",
 ]);
-const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["weapon"]);
+const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["weapon", "droneBay"]);
 
 // ----------------------------------------------------------------------------
 // captainBranchToShipSpec
@@ -148,7 +151,12 @@ export type EquipFitBlockReason =
   // (SHIP_TYPES[hull].weaponHardpoints) are already full. Weapon is the one MULTI slot, so unlike a
   // singleton (which just swaps) an over-cap install has nowhere to go; the player must uninstall a
   // weapon first. Only ever returned for a weapon piece.
-  | "hardpointsFull";
+  | "hardpointsFull"
+  // Combat 1.0 (Unit 2.2): a DRONE POD cannot be installed because the hull's drone bays
+  // (SHIP_TYPES[hull].droneBays, non-zero only on a carrier) are already full, or the hull has no
+  // bays at all (droneBays 0). droneBay is a MULTI slot like weapon; over-cap has nowhere to go.
+  // Only ever returned for a droneBay piece.
+  | "baysFull";
 
 // ----------------------------------------------------------------------------
 // equippedFor
@@ -315,6 +323,19 @@ export function canFitEquipment(
       (e) => e.fittedToShipId === shipId && e.slotType === "weapon" && e.id !== instanceId
     ).length;
     if (otherWeapons >= cap) return { ok: false, reason: "hardpointsFull" };
+  }
+
+  // --- Drone bay capacity (Combat 1.0, Unit 2.2): droneBay is the other MULTI slot. A hull holds UP
+  // TO SHIP_TYPES[hull].droneBays drone pods (non-zero only on a carrier); installing ADDS one. So the
+  // install is refused when the OTHER pods already fill every bay, OR the hull has no bays at all
+  // (droneBays absent/0, e.g. a destroyer). Counts pods EXCLUDING this instance (re-install no-op),
+  // same posture as the weapon check above.
+  if (instance.slotType === "droneBay") {
+    const cap = SHIP_TYPES[ship.typeKey].droneBays ?? 0;
+    const otherPods = state.equipment.filter(
+      (e) => e.fittedToShipId === shipId && e.slotType === "droneBay" && e.id !== instanceId
+    ).length;
+    if (otherPods >= cap) return { ok: false, reason: "baysFull" };
   }
 
   return { ok: true };

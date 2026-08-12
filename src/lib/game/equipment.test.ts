@@ -253,6 +253,53 @@ describe("canFitEquipment opens the combat slots (Combat 1.0, Unit 1.8a)", () =>
   });
 });
 
+describe("drone-bay MULTI slot capacity (Combat 1.0, Unit 2.2)", () => {
+  // A carrier has SHIP_TYPES.carrier.droneBays = 2 bays; a destroyer has none (droneBays absent -> 0).
+  function pod(id: string, fittedToShipId: string | null): EquipmentInstance {
+    return makeEquip({ id, slotType: "droneBay", droneRole: "attack", fittedToShipId });
+  }
+
+  it("installs pods onto a carrier up to the bay cap, blocking the (cap+1)th with baysFull", () => {
+    let state = withHull(
+      withEquipment(freshState(), pod("pod-1", null), pod("pod-2", null), pod("pod-3", null)),
+      "carrier",
+    );
+    expect(canFitEquipment(state, "ship-1", "pod-1")).toEqual({ ok: true });
+    state = fitEquipment(state, "ship-1", "pod-1");
+    expect(canFitEquipment(state, "ship-1", "pod-2")).toEqual({ ok: true });
+    state = fitEquipment(state, "ship-1", "pod-2");
+    // Both bays now full (2 >= 2): the third is blocked.
+    expect(canFitEquipment(state, "ship-1", "pod-3")).toEqual({ ok: false, reason: "baysFull" });
+  });
+
+  it("blocks a pod on a hull with no bays (destroyer, droneBays 0)", () => {
+    const state = withHull(withEquipment(freshState(), pod("pod-1", null)), "destroyer");
+    expect(canFitEquipment(state, "ship-1", "pod-1")).toEqual({ ok: false, reason: "baysFull" });
+  });
+
+  it("ADDS pods (MULTI slot), never evicting a sibling", () => {
+    let state = withHull(withEquipment(freshState(), pod("pod-1", null), pod("pod-2", null)), "carrier");
+    state = fitEquipment(state, "ship-1", "pod-1");
+    state = fitEquipment(state, "ship-1", "pod-2");
+    const fitted = state.equipment.filter((e) => e.fittedToShipId === "ship-1" && e.slotType === "droneBay");
+    expect(fitted.map((e) => e.id).sort()).toEqual(["pod-1", "pod-2"]);
+  });
+
+  it("uninstalls a specific pod, leaving the bay empty (allow-empty, no baseline restore)", () => {
+    let state = withHull(withEquipment(freshState(), pod("pod-1", "ship-1"), pod("pod-2", "ship-1")), "carrier");
+    state = unfitEquipmentInstance(state, "ship-1", "pod-1");
+    const fitted = state.equipment.filter((e) => e.fittedToShipId === "ship-1" && e.slotType === "droneBay");
+    expect(fitted.map((e) => e.id)).toEqual(["pod-2"]);
+    expect(state.equipment.find((e) => e.id === "pod-1")?.fittedToShipId).toBeNull(); // now a spare
+  });
+
+  it("a re-install check of an already-fitted pod is not miscounted against the cap", () => {
+    const state = withHull(withEquipment(freshState(), pod("pod-1", "ship-1"), pod("pod-2", "ship-1")), "carrier");
+    // Both bays occupied, but re-checking pod-1 (already fitted) excludes itself, so it is still ok.
+    expect(canFitEquipment(state, "ship-1", "pod-1")).toEqual({ ok: true });
+  });
+});
+
 describe("equipRequirement gate", () => {
   // A specUtility (Prospecting Rig) piece: requires captainSpec prospector + hullSpec prospector.
   const rig = () => makeEquip({ id: "equip-1", slotType: "specUtility", fittedToShipId: null });

@@ -140,6 +140,10 @@ export interface ShipTypeDef {
   shieldCapacity: number;
   shieldRecharge: number;
   weaponHardpoints: number;
+  // Combat 1.0 (Unit 2.2): drone-bay count, the MULTI-slot cap for installing drone pods. OPTIONAL:
+  // non-zero only on a carrier (its built-in hangar bays, design S8); absent/0 on every other hull
+  // (a destroyer/battleship carries no bays). Read by canFitEquipment (equipment.ts) as the pod cap.
+  droneBays?: number;
   cost: { credits: number } | null; // null = not purchasable
   // Shipyard (Phase 5, Task S1, design §6): the BILL OF MATERIALS + credits + build
   // TIME to CONSTRUCT this hull at the Shipyard. Acquisition now runs through timed
@@ -821,7 +825,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // hardpoints for built-in hangar bays). Its offense is its drone screen, NOT its
     // guns. Default loadout = 1 weapon + an Attack squadron (see COMBAT_DEFAULT_LOADOUT;
     // the carrier's built-in bay count lives there too until the hangar-gear system).
-    hullIntegrity: 1100, shieldCapacity: 500, shieldRecharge: 7, weaponHardpoints: 2,
+    hullIntegrity: 1100, shieldCapacity: 500, shieldRecharge: 7, weaponHardpoints: 2, droneBays: 2,
     cost: { credits: 800 },
     // Heavy BOM (a big hull), just under the battleship. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 10, structuralAssembly: 4 }, credits: 4800, durationTicks: 1150 },

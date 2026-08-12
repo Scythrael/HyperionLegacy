@@ -2448,6 +2448,8 @@
         return "this slot is not installable";
       case "hardpointsFull":
         return "all weapon hardpoints are full (uninstall a weapon first)";
+      case "baysFull":
+        return "all drone bays are full (uninstall a drone pod first)";
     }
   }
 
