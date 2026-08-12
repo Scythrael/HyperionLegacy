@@ -168,7 +168,7 @@ import { rollWaveLoot, type PatrolLootTable } from "./combat/patrolLoot";
 // crafted piece's level (clamped by the blueprint-tier cap), generateEquipment rolls the whole
 // EquipmentInstance from an INJECTED seeded rng (so the mint is offline==live reproducible), and
 // EQUIPMENT_ILEVEL_CAP_PER_TIER is the first-pass per-tier level ceiling the mint feeds in.
-import { computeItemLevel, generateEquipment, generateWeapon, EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
+import { computeItemLevel, generateEquipment, generateWeapon, generateDronePod, EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
 // Equipment 0.11.0 (Task 13/14): equippedFor resolves a ship's fitted pieces so both
 // the mission-resolution seam (economyTick) and the dispatch gate (canDispatch) can
 // fold equipment stats into shipDerivedStats from the SAME single source of truth.
@@ -6547,10 +6547,42 @@ export function resolveProcesses(
         });
         equipment = [...equipment, minted];
         nextEquipmentId = mintedId + 1;
+      } else if (bp !== undefined && bp.droneOutput !== undefined) {
+        // Combat 1.0 (Unit 2.1b): a completed DRONE fabricate job mints a crafted drone pod as an
+        // EquipmentInstance (slotType "droneBay"), the drone-shape parallel to the equipment + weapon
+        // branches above. It draws the SAME rng stream in the SAME documented order (rollQuality #1,
+        // rollCraftedRarity #2, then generateDronePod's internal affixCount + affix picks #3..), and
+        // mirrors the capture-then-advance nextEquipmentId discipline EXACTLY, so the offline==live
+        // parity argument extends unchanged: an else-if means a material / equipment / weapon craft
+        // draws BYTE-IDENTICALLY to before (this branch never runs for them, and droneOutput
+        // blueprints did not exist until this unit), and a drone craft mints a bit-identical instance
+        // at the same seed offline and live. Only the minter differs (generateDronePod rolls the
+        // droneHp implicit + drone affixes off the FIXED role template).
+        const quality = rollQuality(rng); // draw #1 (same order as the equipment/weapon branches)
+        const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
+        const iLevel = computeItemLevel({
+          craftingLevel: state.craftingLevel,
+          achievementBoost: 0, // TUNABLE: same first-pass zeros as the equipment/weapon branches
+          faTalentBonus: 0,
+          itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER, // first-pass per-tier cap (itemgen.ts)
+        });
+        const mintedId = nextEquipmentId;
+        const minted = generateDronePod({
+          droneRole: bp.droneOutput.role,
+          blueprintKey: process.effect.blueprintKey,
+          iLevel,
+          quality,
+          rarity,
+          ascension: "none", // base craft: never ascended this patch (see EquipmentAscension)
+          rng, // draws #3.. (affix rolls) off the SAME threaded stream
+          allocateId: () => `equip-${mintedId}`,
+        });
+        equipment = [...equipment, minted];
+        nextEquipmentId = mintedId + 1;
       }
-      // (bp / equipmentOutput / weaponOutput all missing = a corrupt/hand-edited effect key: mint
-      // NOTHING and draw NOTHING, then drop the job. Mirrors lineJobSpec's "unknown recipe -> inert"
-      // guard; it can only arise from a tampered save, never a real play path, so parity is
+      // (bp / equipmentOutput / weaponOutput / droneOutput all missing = a corrupt/hand-edited effect
+      // key: mint NOTHING and draw NOTHING, then drop the job. Mirrors lineJobSpec's "unknown recipe
+      // -> inert" guard; it can only arise from a tampered save, never a real play path, so parity is
       // unaffected, both paths see the identical corrupt state and both no-op.)
     } else if (process.effect.type === "equipmentStorageLevelUp") {
       // Equipment 0.11.0 (Task B2): a completed equipment-storage upgrade bumps the

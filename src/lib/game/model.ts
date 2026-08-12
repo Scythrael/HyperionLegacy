@@ -3716,6 +3716,22 @@ export interface BlueprintDef {
   // miss). blueprintKind() classifies this shape as "weapon" (see below), so every Fabricator gate
   // routes it down the mint-an-instance path, never the stackable-output path.
   weaponOutput?: { weaponType: WeaponId };
+  // --- Drone-output extension (Combat 1.0, Unit 2.1b: the drone-pod craft chain) ------
+  // A FIFTH output SHAPE, the DRONE-POD analogue of `weaponOutput`, and the third one that mints a
+  // non-stacking EquipmentInstance rather than a stackable item. When `droneOutput` is PRESENT the
+  // Fabricator mints a CRAFTED DRONE POD via generateDronePod(...) (itemgen.ts), exactly as a weapon
+  // blueprint mints via generateWeapon and an equipment blueprint via generateEquipment: the pod's
+  // identity (the squadron ROLE it deploys, and that role's fixed per-drone base behavior, hp /
+  // family / accuracy / yield / range / evasion / cooldown) is FIXED by the drone ROLE_TEMPLATE, and
+  // only its power lines (droneHp / droneAccuracy / durability) roll off the same budget engine. Like
+  // a weapon/equipment blueprint it consumes `recipe.inputs` and produces NO stackable item, so it
+  // OMITS `recipe.outputItem`/`outputQty` entirely. `role` names the drone ROLE_TEMPLATE entry to
+  // mint (a DroneRole, so a typo is a compile error, not a runtime miss). blueprintKind() classifies
+  // this shape as "drone" (see below), so every Fabricator gate routes it down the mint-an-instance
+  // path (via blueprintMintsEquipmentInstance), never the stackable-output path. Pods are NOT read in
+  // combat yet (no hangar-bay install, no bridge fold); this unit only makes them research ->
+  // fabricate craftable and visible in the UI, mirroring how weapons landed in Unit 1.2b.
+  droneOutput?: { role: DroneRole };
   // --- Unlock-only shape (Combat 0.13.0, Phase 9b: warship research gate) ---------
   // A THIRD blueprint family, on top of the two output families above. An UNLOCK-ONLY
   // blueprint outputs NOTHING craftable: it has no `recipe.outputItem` (no stackable) AND
@@ -3743,25 +3759,30 @@ export interface BlueprintDef {
 // inline at several call sites, where a material-vs-equipment branch classifying on
 // `equipmentOutput === undefined` ALONE would misread an unlock-only blueprint as material if it
 // ever reached that branch unguarded. Routing shape reads through blueprintKind removes that risk.
-export type BlueprintKind = "unlockOnly" | "weapon" | "equipment" | "material";
+export type BlueprintKind = "unlockOnly" | "weapon" | "drone" | "equipment" | "material";
 export function blueprintKind(bp: BlueprintDef): BlueprintKind {
   if (bp.unlockOnly) return "unlockOnly";   // precedence encoded ONCE, here
   if (bp.weaponOutput) return "weapon";     // Combat 1.0: a crafted weapon (generateWeapon), before equipment
+  if (bp.droneOutput) return "drone";       // Combat 1.0 (Unit 2.1b): a crafted drone pod (generateDronePod). Slotted
+                                            // right after weapon because BOTH are separate-table instance minters (their
+                                            // own def tables, no EQUIPMENT_SLOTS entry), so the precedence is:
+                                            // unlockOnly -> weapon -> drone -> equipment -> material.
   if (bp.equipmentOutput) return "equipment";
   return "material";
 }
 
 // Does this blueprint's Fabricator output a non-stacking EquipmentInstance (rather than a
-// stackable inventory item)? TRUE for both an economy EQUIPMENT blueprint (minted via
-// generateEquipment) and a combat WEAPON blueprint (minted via generateWeapon): the two share
-// the Fabricator's "mint an instance" completion path (the addEquipment effect), skip the
-// warehouse MATERIAL cap, and answer to the equipment spare-storage cap instead. Centralizing
-// this two-kind test keeps every fabricate gate (lineJobSpec / canStartLine / startFabricateJob)
-// reading ONE predicate, so a future instance-minting shape is a one-line change here (Omega 4/9).
-// FALSE for a material blueprint (stackable output) and an unlock-only blueprint (crafts nothing).
+// stackable inventory item)? TRUE for an economy EQUIPMENT blueprint (minted via
+// generateEquipment), a combat WEAPON blueprint (minted via generateWeapon), and a combat DRONE
+// blueprint (minted via generateDronePod, Combat 1.0 Unit 2.1b): all three share the Fabricator's
+// "mint an instance" completion path (the addEquipment effect), skip the warehouse MATERIAL cap,
+// and answer to the equipment spare-storage cap instead. Centralizing this test keeps every
+// fabricate gate (lineJobSpec / canStartLine / startFabricateJob) reading ONE predicate, so a
+// future instance-minting shape is a one-line change here (Omega 4/9). FALSE for a material
+// blueprint (stackable output) and an unlock-only blueprint (crafts nothing).
 export function blueprintMintsEquipmentInstance(bp: BlueprintDef): boolean {
   const kind = blueprintKind(bp);
-  return kind === "equipment" || kind === "weapon";
+  return kind === "equipment" || kind === "weapon" || kind === "drone";
 }
 
 // First-pass blueprint set (design §5), tied to the already-scaffolded component
@@ -4170,6 +4191,73 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     // The best-yield EW emitter (sensor disruptor): a wide wafer lattice on two couplings.
     recipe: { inputs: { polysilicateWafer: 4, powerCoupling: 2 } },
     flavor: "A tachyon lance that scrambles targeting sensors and reaches through shields better than any other EW emitter.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // DRONE-POD BLUEPRINTS (Combat 1.0, Unit 2.1b: the drone-pod craft chain) ───
+  // The three drone-pod roles (attack / defense / support; see combat/drones.ts ROLE_TEMPLATE) as
+  // the FIFTH craftable blueprint shape, the DRONE analogue of the nine weapon blueprints above.
+  // Each carries `droneOutput: { role }` (the ROLE_TEMPLATE entry the Fabricator mints via
+  // generateDronePod) and, exactly like a weapon/equipment blueprint, consumes REFINED materials +
+  // fabricated COMPONENTS via `recipe.inputs` (NEVER raw ore, the "raw -> refine -> fabricate ->
+  // equip" ladder) and OMITS `recipe.outputItem`/`outputQty` (the real output is the minted pod
+  // EquipmentInstance, not a stackable). Keyed `<role>DronePodBp` (attackDronePodBp, etc.), matching
+  // the `<weaponType>Bp` weapon convention. Pods are NOT read in combat yet (no hangar-bay install,
+  // no bridge fold); this unit only makes them research -> fabricate craftable and visible in the UI.
+  //
+  // TIER = 1 or 2 ONLY, for the SAME reason as the weapon blueprints: `tier` gates the RESEARCH LAB
+  // level required to research the blueprint, and the Research Lab caps at level 2, so a tier-3 pod
+  // would be permanently un-researchable, thus permanently un-craftable. Attack (the entry role) is
+  // tier 1; the more specialized defense + support roles are tier 2.
+  //
+  // RECIPES are electronics-heavy (design S8: a drone squadron is a swarm of small sensor-and-
+  // thruster craft): lean polysilicateWafer (the avionics/sensor mass) + powerCoupling (squadron
+  // power + launch energy) + frameSegment (the airframes/launch racks). No titanium slugs or heavy
+  // warheads, this is a hangar unit, not a gun.
+  //
+  // ⚠️ FIRST-PASS TUNABLE ⚠️ every tier / cost / duration / input amount below is a launch
+  // placeholder in the SAME spirit as the weapon + material + equipment blueprints (and the drone
+  // ROLE_TEMPLATE stat lines in combat/drones.ts); real balance lands at the device-check stage. The
+  // flavor one-liner on each states the role's locked identity (design S8), the durable contract.
+
+  attackDronePodBp: {
+    key: "attackDronePodBp",
+    label: "Attack Drone Pod Blueprint",
+    tier: 1,
+    researchDurationTicks: 80,
+    researchCreditCost: 800,
+    craftDurationTicks: 160,
+    droneOutput: { role: "attack" },
+    // The strike swarm: sensor wafers for target-lock, couplings for punch, frames for the racks.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 2, frameSegment: 1 } },
+    flavor: "A pod of strike drones that swarm a target and chew hull once its screen is down, the carrier's offensive fist.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
+  },
+  defenseDronePodBp: {
+    key: "defenseDronePodBp",
+    label: "Defense Drone Pod Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    droneOutput: { role: "defense" },
+    // The interceptor screen: a denser sensor lattice (more wafers) to track and swat incoming fire.
+    recipe: { inputs: { polysilicateWafer: 4, powerCoupling: 2, frameSegment: 1 } },
+    flavor: "A pod of interceptor drones that picket the near sky, deflecting incoming fire and shielding the carrier behind them.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
+  },
+  supportDronePodBp: {
+    key: "supportDronePodBp",
+    label: "Support Drone Pod Blueprint",
+    tier: 2,
+    researchDurationTicks: 130,
+    researchCreditCost: 1700,
+    craftDurationTicks: 300,
+    droneOutput: { role: "support" },
+    // The repair/utility swarm: extra frame segments for the manipulator arms that do the fieldwork.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 2, frameSegment: 2 } },
+    flavor: "A pod of utility drones that patch hull and scrub disruptions mid-fight: no guns, all field repair and support.",
     unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
   },
 

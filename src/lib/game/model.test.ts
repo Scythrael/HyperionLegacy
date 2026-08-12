@@ -57,6 +57,10 @@ import { fuelNeeded } from "./fuel";
 // Combat 1.0 (Unit 1.2b): the weapon roster, to prove each weapon blueprint's weaponType names a
 // REAL WeaponId (a typo would otherwise only surface at mint time in the Fabricator).
 import { WEAPON_DEFS } from "./combat/weapons";
+// Combat 1.0 (Unit 2.1b): the drone ROLE_TEMPLATE + DroneRole union, to prove each drone-pod
+// blueprint's droneOutput.role names a REAL drone role (a typo would otherwise only surface at
+// mint time in the Fabricator, exactly as for a weapon blueprint's weaponType).
+import { ROLE_TEMPLATE, type DroneRole } from "./combat/drones";
 // Combat 1.0 (Unit 1.3/1.4): the per-hull default loadout + the frame-HP split, to build the
 // behaviour-preserving per-hull baseline spec and assert the plating hullStrength math.
 import { COMBAT_DEFAULT_LOADOUT, frameHp } from "./combat/bridge";
@@ -1768,11 +1772,31 @@ describe("blueprintKind classifier", () => {
     expect(blueprintKind(BLUEPRINTS.railgunBp)).toBe("weapon");
   });
 
+  it("classifies a drone-pod blueprint (droneOutput present) as 'drone' (Combat 1.0, Unit 2.1b)", () => {
+    expect(blueprintKind(BLUEPRINTS.attackDronePodBp)).toBe("drone");
+    expect(blueprintKind(BLUEPRINTS.defenseDronePodBp)).toBe("drone");
+    expect(blueprintKind(BLUEPRINTS.supportDronePodBp)).toBe("drone");
+  });
+
   it("precedence: weapon WINS over equipment when (malformed) blueprint carried both", () => {
     // Data invariant is that a blueprint carries at most one output shape, but the classifier's
-    // documented precedence (unlockOnly -> weapon -> equipment -> material) must resolve a corrupt
-    // double-shape deterministically: weaponOutput is checked before equipmentOutput.
+    // documented precedence (unlockOnly -> weapon -> drone -> equipment -> material) must resolve a
+    // corrupt double-shape deterministically: weaponOutput is checked before equipmentOutput.
     const malformed = { ...BLUEPRINTS.autocannonBp, equipmentOutput: { slotType: "cargoBay", varietyKey: "balancedHold" } } as typeof BLUEPRINTS.autocannonBp;
+    expect(blueprintKind(malformed)).toBe("weapon");
+  });
+
+  it("precedence: drone WINS over equipment when (malformed) blueprint carried both", () => {
+    // Same precedence contract as the weapon case: droneOutput is checked before equipmentOutput,
+    // so a corrupt double-shape (drone + equipment) resolves deterministically to "drone".
+    const malformed = { ...BLUEPRINTS.attackDronePodBp, equipmentOutput: { slotType: "cargoBay", varietyKey: "balancedHold" } } as typeof BLUEPRINTS.attackDronePodBp;
+    expect(blueprintKind(malformed)).toBe("drone");
+  });
+
+  it("precedence: weapon WINS over drone when a (malformed) blueprint carried both", () => {
+    // weaponOutput is checked before droneOutput (both are separate-table instance minters, but the
+    // documented order slots weapon first), so a corrupt double-shape resolves to "weapon".
+    const malformed = { ...BLUEPRINTS.attackDronePodBp, weaponOutput: { weaponType: "autocannon" } } as typeof BLUEPRINTS.attackDronePodBp;
     expect(blueprintKind(malformed)).toBe("weapon");
   });
 
@@ -1920,8 +1944,8 @@ describe("Weapon BLUEPRINTS (Combat 1.0, Unit 1.2b)", () => {
       expect(bp.recipe.outputQty, `${bp.key} no outputQty`).toBeUndefined();
       expect(bp.equipmentOutput, `${bp.key} no equipmentOutput (weapon shape only)`).toBeUndefined();
       // The Warehouse / fabricate UI derives a weapon's display name by stripping " Blueprint" from
-      // this label (App.svelte weaponBlueprintLabel), so the label MUST end in " Blueprint" and
-      // leave a non-empty name, or the UI would render the raw "...Blueprint" text.
+      // this label (App.svelte craftedInstanceBlueprintLabel), so the label MUST end in " Blueprint"
+      // and leave a non-empty name, or the UI would render the raw "...Blueprint" text.
       expect(bp.label.endsWith(" Blueprint"), `${bp.key} label ends in " Blueprint"`).toBe(true);
       expect(bp.label.replace(/ Blueprint$/, "").length, `${bp.key} non-empty display name`).toBeGreaterThan(0);
     }
@@ -1946,6 +1970,80 @@ describe("Weapon BLUEPRINTS (Combat 1.0, Unit 1.2b)", () => {
         expect(bp.recipe.inputs[inputKey], `${bp.key} input ${inputKey} amount`).toBeGreaterThan(0);
         // No weapon consumes RAW ore directly (design: raw -> refine -> fabricate -> equip);
         // every input is a refined material or a fabricated component.
+        expect(ITEMS[inputKey].category, `${bp.key} input ${inputKey} is not raw`).not.toBe("raw");
+      }
+    }
+  });
+});
+
+// Combat 1.0 (Unit 2.1b): the THREE DRONE-POD BLUEPRINTS, the fifth craftable blueprint shape
+// (droneOutput present), the drone analogue of the nine-weapon-blueprints block above. These guard
+// that every drone blueprint: names a REAL DroneRole to mint, classifies as "drone" (so every
+// Fabricator gate routes it down the mint-an-instance path), is tier 1 or 2 (the Research Lab's
+// level-2 ceiling, else it would be permanently un-researchable), carries NO stackable output
+// (recipe.outputItem/outputQty omitted, like a weapon/equipment blueprint), and consumes only REAL,
+// non-raw, refine/fabricate-producible inputs with positive amounts. The shared research.test.ts
+// loop already fences the cross-shape invariants over ALL of BLUEPRINTS (including these); this
+// block adds the drone-only contract on top, the twin of the weapon block.
+describe("Drone-pod BLUEPRINTS (Combat 1.0, Unit 2.1b)", () => {
+  // The three drone-pod blueprint keys, one per drone role, keyed <role>DronePodBp.
+  const DRONE_BP_KEYS = ["attackDronePodBp", "defenseDronePodBp", "supportDronePodBp"];
+  // The three drone roles, one blueprint each. Kept as a literal so a NEW role that gains no
+  // blueprint (or a blueprint for a dropped role) trips the one-per-role assertion below.
+  const DRONE_ROLES: DroneRole[] = ["attack", "defense", "support"];
+
+  // Every drone-pod blueprint = a BLUEPRINTS entry carrying `droneOutput`.
+  const droneBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.droneOutput);
+
+  it("defines exactly 3 drone-pod blueprints, one per drone role, keyed <role>DronePodBp", () => {
+    expect(droneBlueprints).toHaveLength(3);
+    const keys = droneBlueprints.map((bp) => bp.key).sort();
+    expect(keys).toEqual([...DRONE_BP_KEYS].sort());
+    // Every drone role has exactly one blueprint whose key is `<role>DronePodBp` and whose
+    // droneOutput names that role, so the role roster and the craft chain stay in lockstep.
+    for (const role of DRONE_ROLES) {
+      const bp = BLUEPRINTS[`${role}DronePodBp`];
+      expect(bp, `${role} has a <role>DronePodBp blueprint`).toBeDefined();
+      expect(bp.droneOutput?.role, `${role}DronePodBp mints role ${role}`).toBe(role);
+    }
+  });
+
+  it("every drone-pod blueprint's droneOutput names a REAL DroneRole, classifies as 'drone', omits stackable output", () => {
+    for (const bp of droneBlueprints) {
+      expect(ROLE_TEMPLATE[bp.droneOutput!.role], `${bp.key} role is a real DroneRole`).toBeDefined();
+      expect(blueprintKind(bp), `${bp.key} classifies as drone`).toBe("drone");
+      // Like a weapon blueprint: the real output is the minted pod instance, no stackable.
+      expect(bp.recipe.outputItem, `${bp.key} no stackable outputItem`).toBeUndefined();
+      expect(bp.recipe.outputQty, `${bp.key} no outputQty`).toBeUndefined();
+      expect(bp.weaponOutput, `${bp.key} no weaponOutput (drone shape only)`).toBeUndefined();
+      expect(bp.equipmentOutput, `${bp.key} no equipmentOutput (drone shape only)`).toBeUndefined();
+      // The Warehouse / fabricate UI derives a pod's display name by stripping " Blueprint" from
+      // this label (App.svelte craftedInstanceBlueprintLabel), so the label MUST end in " Blueprint"
+      // and leave a non-empty name, or the UI would render the raw "...Blueprint" text.
+      expect(bp.label.endsWith(" Blueprint"), `${bp.key} label ends in " Blueprint"`).toBe(true);
+      expect(bp.label.replace(/ Blueprint$/, "").length, `${bp.key} non-empty display name`).toBeGreaterThan(0);
+    }
+  });
+
+  it("every drone-pod blueprint is tier 1 or 2 (researchable at the Research Lab's level-2 ceiling)", () => {
+    // The Research Lab caps at level 2 (FACILITIES.research has 2 rungs); a tier-3 drone blueprint
+    // would be permanently un-researchable -> permanently un-craftable, so tier MUST be in {1, 2}.
+    const maxResearchLevel = FACILITIES[RESEARCH_FACILITY_KEY].upgrades.length; // 2 today
+    for (const bp of droneBlueprints) {
+      expect([1, 2], `${bp.key} tier in {1,2}`).toContain(bp.tier);
+      expect(bp.tier, `${bp.key} tier <= research ceiling`).toBeLessThanOrEqual(maxResearchLevel);
+    }
+  });
+
+  it("every drone-pod blueprint has non-empty inputs: real, non-raw ITEMS keys with positive amounts", () => {
+    for (const bp of droneBlueprints) {
+      const inputKeys = Object.keys(bp.recipe.inputs);
+      expect(inputKeys.length, `${bp.key} has >=1 input`).toBeGreaterThan(0);
+      for (const inputKey of inputKeys) {
+        expect(ITEMS[inputKey], `${bp.key} input ${inputKey}`).toBeDefined();
+        expect(bp.recipe.inputs[inputKey], `${bp.key} input ${inputKey} amount`).toBeGreaterThan(0);
+        // No pod consumes RAW ore directly (design: raw -> refine -> fabricate -> equip); every
+        // input is a refined material or a fabricated component (drones are electronics-heavy).
         expect(ITEMS[inputKey].category, `${bp.key} input ${inputKey} is not raw`).not.toBe("raw");
       }
     }

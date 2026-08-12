@@ -74,19 +74,24 @@ describe("Research R1, BLUEPRINTS registry is well-formed", () => {
       //   WEAPON (weaponOutput present, Combat 1.0 Unit 1.2b): mints a crafted weapon
       //     EquipmentInstance, OMITS both output fields like an equipment blueprint. Its INPUTS are
       //     still validated below (real ITEMS keys, positive), same as equipment/material.
+      //   DRONE (droneOutput present, Combat 1.0 Unit 2.1b): mints a crafted drone pod
+      //     EquipmentInstance, OMITS both output fields exactly like a weapon blueprint. Its INPUTS
+      //     are still validated below, same as weapon/equipment/material.
       const kind = blueprintKind(bp);
       if (kind === "unlockOnly") {
         expect(bp.recipe.outputItem, `${key} unlock-only outputItem omitted`).toBeUndefined();
         expect(bp.recipe.outputQty, `${key} unlock-only outputQty omitted`).toBeUndefined();
         expect(bp.equipmentOutput, `${key} unlock-only equipmentOutput omitted`).toBeUndefined();
         expect(bp.weaponOutput, `${key} unlock-only weaponOutput omitted`).toBeUndefined();
+        expect(bp.droneOutput, `${key} unlock-only droneOutput omitted`).toBeUndefined();
         expect(Object.keys(bp.recipe.inputs).length, `${key} unlock-only has no inputs`).toBe(0);
         continue; // nothing craftable to resolve
       }
-      if (kind === "weapon") {
-        // A weapon blueprint mints via generateWeapon: no stackable output, output fields omitted.
-        expect(bp.recipe.outputItem, `${key} weapon outputItem omitted`).toBeUndefined();
-        expect(bp.recipe.outputQty, `${key} weapon outputQty omitted`).toBeUndefined();
+      if (kind === "weapon" || kind === "drone") {
+        // A weapon/drone blueprint mints via generateWeapon/generateDronePod: no stackable output,
+        // output fields omitted (the real output is the minted EquipmentInstance).
+        expect(bp.recipe.outputItem, `${key} ${kind} outputItem omitted`).toBeUndefined();
+        expect(bp.recipe.outputQty, `${key} ${kind} outputQty omitted`).toBeUndefined();
       } else if (kind === "material") {
         expect(bp.recipe.outputItem, `${key} outputItem present`).toBeDefined();
         expect(ITEMS[bp.recipe.outputItem ?? ""], `${key} outputItem`).toBeDefined();
@@ -95,8 +100,8 @@ describe("Research R1, BLUEPRINTS registry is well-formed", () => {
         expect(bp.recipe.outputItem, `${key} equipment outputItem omitted`).toBeUndefined();
         expect(bp.recipe.outputQty, `${key} equipment outputQty omitted`).toBeUndefined();
       }
-      // Every recipe INPUT key of a CRAFTABLE blueprint (material, equipment, OR weapon) must be a
-      // real registry item with a positive amount (unlock-only blueprints have no inputs, skipped above).
+      // Every recipe INPUT key of a CRAFTABLE blueprint (material, equipment, weapon, OR drone) must
+      // be a real registry item with a positive amount (unlock-only blueprints have no inputs, skipped above).
       const inputKeys = Object.keys(bp.recipe.inputs);
       expect(inputKeys.length, `${key} has >=1 input`).toBeGreaterThan(0);
       for (const inputKey of inputKeys) {

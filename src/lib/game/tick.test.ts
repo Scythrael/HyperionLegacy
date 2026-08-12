@@ -4318,3 +4318,78 @@ describe("Fabricator mints real weapons (Combat 1.0, Unit 1.2b)", () => {
     expect(CRAFTABLE_RARITIES).toContain(jumpedSpare.rarity);
   });
 });
+
+// ============================================================================
+// Fabricator mints real DRONE PODS (Combat 1.0, Unit 2.1b: the drone-pod craft chain)
+// ----------------------------------------------------------------------------
+// The drone-shape twin of the weapon-mint tests above. A completing fabricate job now ALSO branches
+// on the blueprint's droneOutput: a DRONE blueprint mints a crafted drone pod EquipmentInstance
+// (slotType "droneBay", via generateDronePod) into state.equipment as a SPARE, drawing the SAME rng
+// stream in the SAME order as the equipment + weapon branches (rollQuality -> rollCraftedRarity ->
+// generateDronePod's affix rolls). These reuse the SAME equipLineState / mulberry32Task19 harness,
+// so the offline==live PARITY assertion is exact: nothing else draws rng (idle captain), so the only
+// draws are the pod mint's rolls. This locks the new tick.ts branch end-to-end and proves it upholds
+// the offline==live invariant for a drone craft.
+// ============================================================================
+describe("Fabricator mints real drone pods (Combat 1.0, Unit 2.1b)", () => {
+  it("a completed DRONE fabricate mints ONE drone-pod EquipmentInstance (slotType droneBay, right role/blueprint), NO stackable output", () => {
+    // attackDronePodBp: polysilicateWafer×3 + powerCoupling×2 + frameSegment×1 -> droneBay/attack, 160 ticks (tier 1).
+    const state = equipLineState("attackDronePodBp", 1);
+    let s = state;
+    const rng = mulberry32Task19(42);
+    for (let i = 0; i < 170; i++) s = economyTick(s, 1, rng); // > 160-tick duration -> completes
+
+    // The four fitted Standard-Issue baselines (equip-1..4) PLUS the one fabricated pod spare.
+    expect(s.equipment.length).toBe(5);
+    const spares = s.equipment.filter((e) => e.fittedToShipId === null);
+    expect(spares.length).toBe(1);
+    const piece = spares[0];
+    expect(piece.id).toBe("equip-5"); // baselines took equip-1..4, so the pod is equip-5
+    expect(piece.slotType).toBe("droneBay"); // the drone-bay slot, not an economy/weapon slot
+    expect(piece.droneRole).toBe("attack"); // attackDronePodBp.droneOutput.role
+    expect(piece.blueprintKey).toBe("attackDronePodBp");
+    expect(piece.fittedToShipId).toBeNull(); // spare in the pool
+    expect(piece.ascension).toBe("none");
+    // Seeded rolls land in their documented ranges, and a real budget was spent, so the signature
+    // droneHp implicit line is present and a durability ceiling was rolled.
+    expect(piece.quality).toBeGreaterThanOrEqual(0);
+    expect(piece.quality).toBeLessThanOrEqual(5);
+    expect(CRAFTABLE_RARITIES).toContain(piece.rarity);
+    expect(piece.implicitStats.droneHp).toBeGreaterThan(0);
+    expect(piece.durabilityMax).toBeGreaterThan(0);
+
+    // The id source advanced past the fabricated pod (5 -> 6), and NO stackable was granted
+    // (a drone blueprint carries no recipe.outputItem); only the inputs were consumed.
+    expect(s.nextEquipmentId).toBe(6);
+    expect(itemTotal(s.inventory, "polysilicateWafer").toString()).toBe("0");
+    expect(itemTotal(s.inventory, "powerCoupling").toString()).toBe("0");
+    expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
+  });
+
+  it("⚠️ offline==live PARITY: a drone craft completing during tick(span) is BIT-IDENTICAL to stepped economyTick", () => {
+    const SPAN = 200; // > the 160-tick attack-drone-pod craft duration
+    const SEED = 123;
+
+    const jumped = tick(SPAN, equipLineState("attackDronePodBp", 1), mulberry32Task19(SEED));
+    let stepped = equipLineState("attackDronePodBp", 1);
+    const liveRng = mulberry32Task19(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    expect(jumped.equipment.length).toBe(5);
+    expect(stepped.equipment.length).toBe(5);
+    expect(jumped.nextEquipmentId).toBe(6);
+    expect(stepped.nextEquipmentId).toBe(6);
+
+    const jumpedSpare = jumped.equipment.find((e) => e.fittedToShipId === null)!;
+    const steppedSpare = stepped.equipment.find((e) => e.fittedToShipId === null)!;
+
+    // THE PARITY ASSERTION: the minted pod instance is deep-equal across the two chunkings.
+    expect(jumpedSpare).toEqual(steppedSpare);
+
+    // NON-VACUITY: a real, well-formed drone pod (not two empty pools trivially matching).
+    expect(jumpedSpare.id).toBe("equip-5");
+    expect(jumpedSpare.slotType).toBe("droneBay");
+    expect(jumpedSpare.droneRole).toBe("attack");
+    expect(CRAFTABLE_RARITIES).toContain(jumpedSpare.rarity);
+  });
+});
