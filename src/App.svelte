@@ -211,6 +211,11 @@
     canFitEquipment,
     fitEquipment,
     unfitEquipment,
+    // Combat 1.0 (Unit 1.8b): the player-facing Ship Systems panel now uninstalls BY
+    // INSTANCE id (a weapon is a MULTI slot, so "uninstall the weapon" needs an id).
+    // unfitEquipmentInstance uninstalls the exact piece (economy never-empty restore,
+    // combat allow-empty). The dev harness below still uses the by-slotType unfitEquipment.
+    unfitEquipmentInstance,
     type EquipFitBlockReason,
   } from "./lib/game/equipment";
   import { generateEquipment } from "./lib/game/itemgen";
@@ -2567,16 +2572,18 @@
     pushLog(`Installed system ${instanceId} on ${devShipLabel(shipId)}.`);
   }
 
-  // UNINSTALL the system in a ship's slot back to storage. unfitEquipment THROWS
-  // on the on-mission lock (caught here); otherwise it returns the current system
-  // to the pool AND auto-refits a fresh Standard-Issue baseline (the never-empty
-  // invariant, Task 20), so it ALWAYS returns a new state, there is no empty-slot
-  // no-op to special-case. Persists the swap.
-  function uninstallSystem(shipId: string, slotType: EquipmentSlotType) {
+  // UNINSTALL one specific installed system BY INSTANCE ID (Combat 1.0, Unit 1.8b).
+  // The panel now targets the exact piece the player tapped (required for weapons, a
+  // MULTI slot). unfitEquipmentInstance THROWS on the on-mission lock (caught here);
+  // otherwise an ECONOMY slot returns the piece to storage AND auto-refits a fresh
+  // Standard-Issue baseline (never-empty), while a COMBAT slot is left bare (allow-empty,
+  // so the dispatch blocker is reachable). Either way it returns a new state, so there is
+  // no empty-slot no-op to special-case. Persists the change.
+  function uninstallSystem(shipId: string, instanceId: string) {
     try {
-      state = unfitEquipment(state, shipId, slotType);
+      state = unfitEquipmentInstance(state, shipId, instanceId);
       doSave();
-      pushLog(`Uninstalled ${slotType} system on ${devShipLabel(shipId)}.`);
+      pushLog(`Uninstalled system ${instanceId} on ${devShipLabel(shipId)}.`);
     } catch (e) {
       pushLog(`Cannot uninstall system: ${(e as Error).message}`);
     }

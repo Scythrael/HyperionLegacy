@@ -38,6 +38,16 @@
   import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats } from "./game/model";
   import type { EquipFitBlockReason } from "./game/equipment";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
+  // Combat 1.0 (Unit 1.8b): the combat-fit read helpers. combatHullTypeOf gates the
+  // combat-only surfaces (weapon strip + banner + combat readout) to real combat hulls;
+  // computeCombatReadout folds the installed combat gear into the readout the panel
+  // shows; weaponDisplayName + WEAPON_DEFS resolve a weapon's player-facing name +
+  // family (for the family-color dot). These are READ-ONLY: the panel presents them,
+  // it never reimplements the combat fold (that stays in combat/bridge.ts).
+  import { combatHullTypeOf, type CombatHullType } from "./game/combat/bridge";
+  import { computeCombatReadout, type RequiredCombatSlot } from "./game/combatFit";
+  import { weaponDisplayName } from "./game/combat/combatView";
+  import { WEAPON_DEFS } from "./game/combat/weapons";
   // The SAME reusable rarity-bordered card the Warehouse Ship Systems bay uses (D1).
   // Reused here so a fitted slot's readout shows the piece's identity + granted stats
   // in EXACTLY the format the bay does, one card component, no second stat renderer to
@@ -51,7 +61,13 @@
   export let state: GameState;
   export let shipId: string;
   export let onInstall: (shipId: string, instanceId: string) => void;
-  export let onUninstall: (shipId: string, slotType: EquipmentSlotType) => void;
+  // Combat 1.0 (Unit 1.8b): uninstall is now BY INSTANCE ID, not by slotType. A weapon
+  // is a MULTI slot (several pieces per hull), so "uninstall the weapon" is ambiguous
+  // without an id; the host routes this to unfitEquipmentInstance, which uninstalls the
+  // exact piece the player tapped (economy slots keep the never-empty restore, combat
+  // slots are left bare). Every slot, singleton or weapon, uninstalls through this one
+  // instance-targeted callback (the "one consistent flow" directive).
+  export let onUninstall: (shipId: string, instanceId: string) => void;
   export let onClose: () => void;
 
   // --- Slot layout ------------------------------------------------------------
@@ -81,11 +97,14 @@
     { slotType: "thrusters", code: "THR", label: "Thrusters", live: false, top: 25, left: 68 },
     { slotType: "cargoBay", code: "CRG", label: "Cargo Bay", live: true, top: 41, left: 50 },
     // FLANK ROW across the engineering hull + nacelles (far left -> far right):
-    { slotType: "shieldEmitters", code: "SHD", label: "Shield Emitters", live: false, top: 59, left: 13 },
+    // Combat 1.0 (Unit 1.8b): shieldEmitters + hullPlating are now LIVE (installable). They
+    // are SINGLETONS exactly like the economy slots (install replaces, uninstall leaves the
+    // slot bare), so they reuse the identical selected-slot + spare-pool flow below.
+    { slotType: "shieldEmitters", code: "SHD", label: "Shield Emitter", live: true, top: 59, left: 13 },
     { slotType: "propellantTanks", code: "PRP", label: "Propellant Tanks", live: false, top: 59, left: 35 },
     { slotType: "reactorCore", code: "RCT", label: "Reactor Core", live: true, top: 59, left: 50 },
     { slotType: "specUtility", code: "SUS", label: "Spec Utility", live: true, prospectorOnly: true, top: 59, left: 65 },
-    { slotType: "hullPlating", code: "HUL", label: "Hull Plating", live: false, top: 59, left: 87 },
+    { slotType: "hullPlating", code: "HUL", label: "Hull Plating", live: true, top: 59, left: 87 },
     { slotType: "ftlDrive", code: "FTL", label: "FTL Drive", live: true, top: 90, left: 50 },
   ];
 
@@ -113,16 +132,24 @@
   };
 
   // --- Local UI state ---------------------------------------------------------
-  // The currently opened slot (its install/uninstall control is shown), or null.
+  // The currently opened SINGLETON slot (economy + shieldEmitters + hullPlating);
+  // its install/uninstall control is shown, or null when none is open.
   let selectedSlot: string | null = null;
+  // The currently opened WEAPON HARDPOINT cell (Combat 1.0, Unit 1.8b): the 0-based
+  // index of the tapped hardpoint, or null. Kept SEPARATE from selectedSlot because a
+  // weapon is a MULTI slot (many pieces share slotType "weapon"), so a single slotType
+  // key cannot identify which hardpoint is open. selectedSlot and selectedHardpoint are
+  // MUTUALLY EXCLUSIVE (selecting one clears the other) so only ONE control shows.
+  let selectedHardpoint: number | null = null;
 
-  // Reset the open slot whenever the panel switches to a different ship, so a
+  // Reset the open selections whenever the panel switches to a different ship, so a
   // stale selection from the previous ship never carries over. Guarded on a
   // change of `shipId` only (not a general reactive) so it cannot loop.
   let lastShipId: string | null = null;
   $: if (shipId !== lastShipId) {
     lastShipId = shipId;
     selectedSlot = null;
+    selectedHardpoint = null;
   }
 
   // --- Derived reads ----------------------------------------------------------
@@ -148,8 +175,16 @@
   $: isProspectorHull = shipDef?.spec === "prospector";
   $: onMission = assignedCaptain !== null && assignedCaptain.mission !== null;
 
-  // The slots actually shown for THIS hull (drops specUtility on non-Prospectors).
-  $: visibleSlots = SLOT_LAYOUT.filter((s) => !s.prospectorOnly || isProspectorHull);
+  // The slots actually shown for THIS hull: drop specUtility on non-Prospectors, and
+  // drop the combat singleton slots (shield emitter / hull plating) on non-combat hulls.
+  // The combat slots are gated to combat hulls to match the weapon strip / blocker banner /
+  // combat readout (all isCombatHull-gated): an economy hull can never patrol, so showing it
+  // installable combat gear would be a dead-end trap with no combat readout to explain it.
+  $: visibleSlots = SLOT_LAYOUT.filter((s) => {
+    if (s.prospectorOnly && !isProspectorHull) return false;
+    if ((s.slotType === "shieldEmitters" || s.slotType === "hullPlating") && !isCombatHull) return false;
+    return true;
+  });
 
   // Reactive per-slot "what is installed here" map, keyed by slotType. CRITICAL
   // for correct redraws: the slot NODES (their gold install-status dot + hover
@@ -191,18 +226,43 @@
   }
   $: liveStatRows = baseStats && fitStats ? buildLiveRows(baseStats, fitStats) : [];
 
-  // The Defensive-section rows (INERT 0.12.0 placeholders). No equipment folds
-  // into these this patch, so base == fitted; we just print the hull base value.
-  $: defensiveRows = shipDef
-    ? [
-        { label: "Hull Integrity", value: shipDef.hullIntegrity },
-        { label: "Shield Capacity", value: shipDef.shieldCapacity },
-        { label: "Shield Recharge Rate", value: shipDef.shieldRecharge },
-      ]
-    : [];
+  // --- Combat reads (Combat 1.0, Unit 1.8b) -----------------------------------
+  // A ship is a COMBAT hull (destroyer/battleship/carrier) or not. combatHullTypeOf
+  // returns the CombatHullType or null; only combat hulls get the weapon strip, the
+  // dispatch-blocker banner, and the combat readout (an economy hull can never patrol
+  // and carries no combat gear, so those surfaces would be meaningless on one).
+  $: combatHullType = ship ? combatHullTypeOf(ship.typeKey) : null;
+  $: isCombatHull = combatHullType !== null;
 
-  // Reserved bottom-bar counts, capped at 7 empty display slots each.
-  $: weaponCount = shipDef ? Math.min(7, shipDef.weaponHardpoints) : 0;
+  // The folded combat readout (hull frame+plating, shield pool/recharge, mounted
+  // weapons, and which required slots are still empty). Derived from the SAME
+  // fittedPieces the live stats use, so it recomputes on every install/uninstall.
+  // Null for a non-combat hull (no combat section is shown there).
+  $: combatReadout =
+    ship && shipDef && isCombatHull
+      ? computeCombatReadout(fittedPieces, shipDef.hullIntegrity, shipDef.weaponHardpoints)
+      : null;
+
+  // The installed weapons, in fitted order, one per filled hardpoint cell (Combat
+  // 1.0, Unit 1.8b). Empty cells run from mountedWeapons.length up to the hull's cap.
+  $: mountedWeapons = combatReadout ? combatReadout.mountedWeapons : [];
+  $: hardpointCap = combatReadout ? combatReadout.hardpointCap : 0;
+  // hardpointsFull: every hardpoint is occupied, so no further weapon can be installed
+  // (the strip disables install + shows "hardpoints full"). Mirrors canFitEquipment's
+  // hardpointsFull gate so the two never disagree.
+  $: hardpointsFull = combatReadout !== null && mountedWeapons.length >= hardpointCap;
+
+  // The spare WEAPONS in storage (fittedToShipId null), the install pool for an empty
+  // hardpoint. Weapons are the one MULTI slot, so this is queried by slotType directly
+  // (parallel to selectedSpares for the singleton slots).
+  $: spareWeapons = equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === "weapon");
+
+  // The required combat slots still EMPTY (drives the dispatch-blocker banner). Empty
+  // array => the ship's required combat slots are all filled (dispatchable, slot-wise).
+  $: missingRequired = combatReadout ? combatReadout.missingRequired : [];
+
+  // Reserved bottom-bar module count, capped at 7 empty display slots (weapons moved
+  // to the live hardpoint strip; modules stay reserved for a later combat unit).
   $: moduleCount = shipDef ? Math.min(7, shipDef.moduleSlots) : 0;
 
   // The selected slot's context (only meaningful for a LIVE slot).
@@ -281,17 +341,97 @@
     return fitted ? `${meta.label}: ${pieceDesc(fitted)}` : `${meta.label}: empty`;
   }
 
+  // --- Combat display helpers (Combat 1.0, Unit 1.8b) -------------------------
+  // Player-facing label for each required combat slot, for the dispatch-blocker
+  // banner. Total over RequiredCombatSlot (a switch, no default) so a new required
+  // slot is a compile error here rather than a silent blank in the banner.
+  function requiredSlotLabel(slot: RequiredCombatSlot): string {
+    switch (slot) {
+      case "weapon":
+        return "a weapon";
+      case "shieldEmitters":
+        return "a shield emitter";
+      case "hullPlating":
+        return "hull plating";
+    }
+  }
+
+  // The dispatch-blocker sentence BODY (the markup prepends a bold "Cannot patrol:"):
+  // "install a weapon, a shield emitter and hull plating to make this ship dispatchable."
+  // Built from the missing-required list so it names EXACTLY the empty slots (the same
+  // slots canDispatchPatrol would block on). Only shown when the list is non-empty (see
+  // the {#if} in the markup), so this always has >=1 item.
+  function blockerText(missing: RequiredCombatSlot[]): string {
+    const parts = missing.map(requiredSlotLabel);
+    const list =
+      parts.length === 1
+        ? parts[0]
+        : parts.length === 2
+          ? `${parts[0]} and ${parts[1]}`
+          : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+    return `install ${list} to make this ship dispatchable.`;
+  }
+
+  // A weapon's FAMILY color for the strip's family dot. The three families read a
+  // stable, distinct color regardless of the user's theme accent: kinetic -> warning
+  // (amber), particle -> accent (cyan), ew -> a fixed violet (the same purple the
+  // EquipmentTooltip uses for its radiant rung). WEAPON_DEFS owns the family; an
+  // unknown/absent weaponType falls back to the dim text color (never blank).
+  function weaponFamilyColor(weaponType: string | undefined): string {
+    const family = weaponType ? WEAPON_DEFS[weaponType as keyof typeof WEAPON_DEFS]?.family : undefined;
+    switch (family) {
+      case "kinetic":
+        return "var(--color-warning)";
+      case "particle":
+        return "var(--color-accent)";
+      case "ew":
+        return "#a855f7";
+      default:
+        return "var(--color-text-dim)";
+    }
+  }
+
+  // A weapon piece's display NAME (weapons.ts roster name via weaponDisplayName) and
+  // its rarity + iL sub-line, for the strip cell + the offense readout.
+  function weaponName(piece: EquipmentInstance): string {
+    return weaponDisplayName(piece.weaponType);
+  }
+  function weaponSub(piece: EquipmentInstance): string {
+    const rar = piece.rarity.charAt(0).toUpperCase() + piece.rarity.slice(1);
+    return `${rar} · iL ${piece.iLevel}`;
+  }
+  // A weapon's yield range for the offense readout: the base template yield (WEAPON_DEFS)
+  // plus the piece's weaponYield bonus (implicit signature + rolled affix), matching the
+  // combat/bridge weaponInstanceFromGear fold so the readout equals what the sim fires.
+  function weaponYieldRange(piece: EquipmentInstance): string {
+    const def = piece.weaponType ? WEAPON_DEFS[piece.weaponType as keyof typeof WEAPON_DEFS] : undefined;
+    if (!def) return "";
+    const bonus = (piece.implicitStats.weaponYield ?? 0) + (piece.rolledStats.weaponYield ?? 0);
+    return `${def.yieldMin + bonus}-${def.yieldMax + bonus}`;
+  }
+
   // --- Interaction ------------------------------------------------------------
   // Clicking a slot toggles its control open/closed. Reserved slots still open
-  // (to show their "reserved" note), so the click target is consistent.
+  // (to show their "reserved" note), so the click target is consistent. Selecting a
+  // singleton slot CLEARS any open hardpoint (mutual exclusivity: one control at a time).
   function selectSlot(meta: SlotMeta): void {
+    selectedHardpoint = null;
     selectedSlot = selectedSlot === meta.slotType ? null : meta.slotType;
+  }
+  // Clicking a weapon hardpoint cell toggles its control open/closed, clearing any open
+  // singleton slot (mutual exclusivity). The index identifies WHICH hardpoint is open.
+  function selectHardpoint(index: number): void {
+    selectedSlot = null;
+    selectedHardpoint = selectedHardpoint === index ? null : index;
   }
   function handleInstall(instanceId: string): void {
     onInstall(shipId, instanceId);
   }
-  function handleUninstall(slotType: EquipmentSlotType): void {
-    onUninstall(shipId, slotType);
+  // Uninstall BY INSTANCE (Combat 1.0, Unit 1.8b): the host routes this to
+  // unfitEquipmentInstance, so a weapon uninstalls the exact tapped piece and an economy
+  // slot still gets its never-empty Standard-Issue restore. One flow for every slot.
+  function handleUninstall(instanceId: string): void {
+    onUninstall(shipId, instanceId);
   }
 </script>
 
@@ -325,6 +465,18 @@
       </div>
       <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">✕</button>
     </header>
+
+    <!-- DISPATCH-BLOCKER BANNER (Combat 1.0, Unit 1.8b): a combat hull with any required
+         combat slot stripped bare (no weapon / no shield emitter / no hull plating) cannot
+         patrol, so a red banner names the missing slot(s). Mirrors canDispatchPatrol's
+         per-slot gate, so what the banner says here is exactly what dispatch would block on.
+         Only rendered for a combat hull that is actually missing a required slot. -->
+    {#if isCombatHull && missingRequired.length > 0}
+      <div class="ss-blocker" role="alert">
+        <span class="ss-blocker-dot" aria-hidden="true"></span>
+        <span><strong>Cannot patrol:</strong> {blockerText(missingRequired)}</span>
+      </div>
+    {/if}
 
     <div class="ss-main">
       <!-- LEFT: the ship graphic with overlaid slots + the selected slot control. -->
@@ -370,6 +522,43 @@
           {/each}
         </div>
 
+        <!-- WEAPON HARDPOINTS STRIP (Combat 1.0, Unit 1.8b): one cell per hardpoint on a
+             combat hull (destroyer 4 / battleship 6 / carrier 2). A filled cell shows the
+             installed weapon's family-color dot + name + rarity + iL; an empty cell reads
+             "install a weapon". Tapping a cell opens its control below (same flow as a
+             slot). Only combat hulls have hardpoints, so the strip is combat-hull-only. -->
+        {#if isCombatHull}
+          <div class="ss-hardpoints">
+            <div class="ss-hardpoints-title">
+              Weapon hardpoints · {mountedWeapons.length}/{hardpointCap}
+              {#if hardpointsFull}<span class="ss-hp-full">hardpoints full</span>{/if}
+            </div>
+            <div class="ss-hp-row">
+              {#each Array.from({ length: hardpointCap }) as _, hpIndex (hpIndex)}
+                {@const weapon = mountedWeapons[hpIndex] ?? null}
+                <button
+                  class="ss-hp"
+                  class:filled={!!weapon}
+                  class:empty={!weapon}
+                  class:selected={selectedHardpoint === hpIndex}
+                  on:click={() => selectHardpoint(hpIndex)}
+                >
+                  <span class="ss-hp-slot">HP {hpIndex + 1}</span>
+                  {#if weapon}
+                    <span class="ss-hp-name">
+                      <span class="ss-fam" style="background: {weaponFamilyColor(weapon.weaponType)};"></span>{weaponName(weapon)}
+                    </span>
+                    <span class="ss-hp-sub">{weaponSub(weapon)}</span>
+                  {:else}
+                    <span class="ss-hp-name ss-hp-empty-name">empty</span>
+                    <span class="ss-hp-sub">install a weapon</span>
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
         <!-- Selected-slot control: install / uninstall for a live slot, or the
              reserved note for a 0.12.0 slot. Nothing shown until a slot is
              tapped, keeping the graphic uncluttered by default. -->
@@ -393,7 +582,7 @@
                       class="ss-btn ss-btn-uninstall"
                       disabled={onMission}
                       title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
-                      on:click={() => handleUninstall(selectedMeta.slotType)}
+                      on:click={() => handleUninstall(fitted.id)}
                     >
                       Uninstall
                     </button>
@@ -432,8 +621,65 @@
               {/if}
             {/if}
           </div>
+        {:else if selectedHardpoint !== null}
+          <!-- WEAPON HARDPOINT control (Combat 1.0, Unit 1.8b): the SAME flow as a slot,
+               keyed by the hardpoint index instead of a slotType. A filled hardpoint shows
+               its weapon's EquipmentTooltip + an Uninstall (by instance id); an empty
+               hardpoint shows the spare-weapon pool to install from (each install routed
+               through canFitEquipment, so a full hull disables further installs). -->
+          {@const weapon = mountedWeapons[selectedHardpoint] ?? null}
+          <div class="ss-control">
+            <div class="ss-control-title">Weapon Hardpoint {selectedHardpoint + 1}</div>
+            {#if weapon}
+              <div class="ss-fitted-tt">
+                <EquipmentTooltip piece={weapon}>
+                  <button
+                    class="ss-btn ss-btn-uninstall"
+                    disabled={onMission}
+                    title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+                    on:click={() => handleUninstall(weapon.id)}
+                  >
+                    Uninstall
+                  </button>
+                </EquipmentTooltip>
+              </div>
+            {:else}
+              <p class="ss-note">Hardpoint empty. Install a spare weapon from storage below.</p>
+            {/if}
+
+            <!-- Spare weapons in storage. Each install routes through canFitEquipment, so a
+                 hull whose hardpoints are all full disables every install with the
+                 "hardpoints full" reason (the hardpointsFull gate). -->
+            <div class="ss-spares-label">Storage · weapons</div>
+            {#if spareWeapons.length === 0}
+              <p class="ss-note ss-note-dim">No spare weapons in storage.</p>
+            {:else}
+              {#each spareWeapons as spare (spare.id)}
+                {@const gate = canFitEquipment(safeState, shipId, spare.id)}
+                <div class="ss-spare-row">
+                  <div class="ss-fitted-info">
+                    <div class="ss-fitted-name">
+                      <span class="ss-fam" style="background: {weaponFamilyColor(spare.weaponType)};"></span>{weaponName(spare)}
+                    </div>
+                    <div class="ss-fitted-sub">{weaponSub(spare)}</div>
+                  </div>
+                  <button
+                    class="ss-btn ss-btn-install"
+                    disabled={!gate.ok}
+                    title={gate.ok ? `Install ${spare.id}` : reasonText(gate.reason)}
+                    on:click={() => handleInstall(spare.id)}
+                  >
+                    {gate.ok ? "Install" : "Blocked"}
+                  </button>
+                </div>
+                {#if !gate.ok}
+                  <div class="ss-blocked-reason">{reasonText(gate.reason)}</div>
+                {/if}
+              {/each}
+            {/if}
+          </div>
         {:else}
-          <p class="ss-note ss-note-dim ss-control-hint">Tap a slot on the hull to install or uninstall a system.</p>
+          <p class="ss-note ss-note-dim ss-control-hint">Tap a slot or hardpoint to install or uninstall a system.</p>
         {/if}
       </div>
 
@@ -458,46 +704,66 @@
           </div>
         {/each}
 
-        <!-- Defensive section: exists from day one, but explicitly PENDING the
-             0.12.0 combat update (inert placeholders, not broken). -->
-        <div class="ss-stats-section-title ss-defensive-title">
-          DEFENSIVE
-          <span class="ss-pending-badge">pending combat · 0.12.0</span>
-        </div>
-        {#each defensiveRows as row (row.label)}
+        <!-- COMBAT READOUT (Combat 1.0, Unit 1.8b): REAL now (formerly the inert 0.12.0
+             placeholder). Every value is derived from the ship's INSTALLED combat gear via
+             computeCombatReadout, so it changes as the player installs / uninstalls. Only a
+             combat hull carries combat gear, so the section is combat-hull-only. -->
+        {#if combatReadout}
+          <div class="ss-stats-section-title ss-defensive-title">DEFENSE</div>
+          <!-- Hull integrity = intrinsic frame + installed hull plating (design 6a). The
+               breakdown is shown so the plating's contribution reads at a glance. -->
           <div class="ss-stat-row">
-            <span class="ss-stat-label">{row.label}</span>
-            <span class="ss-stat-val ss-stat-inert">{fmtFlat(row.value)}</span>
+            <span class="ss-stat-label">Hull integrity</span>
+            <span class="ss-stat-val ss-stat-fitted ss-stat-val-auto">
+              {fmtFlat(combatReadout.hullTotal)}
+              <span class="ss-stat-breakdown">(frame {fmtFlat(combatReadout.frameHp)} + plating {fmtFlat(combatReadout.platingHp)})</span>
+            </span>
           </div>
-        {/each}
+          <div class="ss-stat-row">
+            <span class="ss-stat-label">Shield capacity</span>
+            <span class="ss-stat-val ss-stat-fitted">{fmtFlat(combatReadout.shieldCapacity)}</span>
+          </div>
+          <div class="ss-stat-row">
+            <span class="ss-stat-label">Shield recharge</span>
+            <span class="ss-stat-val ss-stat-fitted">{fmtFlat(combatReadout.shieldRecharge)} / s</span>
+          </div>
+          <div class="ss-stat-row">
+            <span class="ss-stat-label">Ablative armor</span>
+            <span class="ss-stat-val">{fmtFlat(combatReadout.ablativeArmor)}</span>
+          </div>
+
+          <div class="ss-stats-section-title ss-defensive-title">OFFENSE</div>
+          <div class="ss-stat-row">
+            <span class="ss-stat-label">Weapons mounted</span>
+            <span class="ss-stat-val ss-stat-fitted">{mountedWeapons.length} / {hardpointCap}</span>
+          </div>
+          {#each mountedWeapons as weapon (weapon.id)}
+            <div class="ss-stat-row">
+              <span class="ss-stat-label">
+                <span class="ss-fam" style="background: {weaponFamilyColor(weapon.weaponType)};"></span>{weaponName(weapon)}
+              </span>
+              <span class="ss-stat-val">{weaponYieldRange(weapon)}</span>
+            </div>
+          {/each}
+        {/if}
       </div>
     </div>
 
-    <!-- BOTTOM BAR: reserved weapon + module rows (empty this patch, 0.12.0). -->
+    <!-- BOTTOM BAR: reserved MODULE row. Weapons moved to the live hardpoint strip
+         above (Combat 1.0, Unit 1.8b); modules stay reserved for a later combat unit. -->
     <div class="ss-bottom">
-      <div class="ss-bottom-row">
-        <span class="ss-bottom-label">WEAPONS</span>
-        <div class="ss-bottom-slots">
-          {#each Array.from({ length: weaponCount }) as _, wi}
-            <span class="ss-hardpoint" title="Weapon hardpoint, reserved for 0.12.0">✦</span>
-          {/each}
-          {#if weaponCount === 0}
-            <span class="ss-note ss-note-dim">none on this hull</span>
-          {/if}
-        </div>
-      </div>
       <div class="ss-bottom-row">
         <span class="ss-bottom-label">MODULES</span>
         <div class="ss-bottom-slots">
           {#each Array.from({ length: moduleCount }) as _, mi}
-            <span class="ss-hardpoint ss-module" title="Module slot, reserved for 0.12.0">◇</span>
+            <span class="ss-hardpoint ss-module" title="Module slot, reserved for a later combat update">◇</span>
           {/each}
           {#if moduleCount === 0}
             <span class="ss-note ss-note-dim">none on this hull</span>
           {/if}
         </div>
       </div>
-      <div class="ss-bottom-note">Weapons and modules are reserved for the 0.12.0 combat update. Count varies by hull.</div>
+      <div class="ss-bottom-note">Modules are reserved for a later combat update. Count varies by hull.</div>
     </div>
   {/if}
 </div>
@@ -726,6 +992,119 @@
     box-shadow: 0 0 4px var(--color-warning);
   }
 
+  /* DISPATCH-BLOCKER BANNER (Combat 1.0, Unit 1.8b): a red danger strip below the
+     header when a required combat slot is empty. Reads the danger token so it recolors
+     with the theme; opaque wash over the deep bg (no blur) for Brave legibility. */
+  .ss-blocker {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 14px 0;
+    padding: 9px 12px;
+    background: rgba(248, 113, 113, 0.1);
+    border: 1px solid rgba(248, 113, 113, 0.45);
+    color: var(--color-danger);
+    font-size: 12px;
+    line-height: 1.4;
+    flex-shrink: 0;
+  }
+  .ss-blocker-dot {
+    flex: 0 0 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-danger);
+  }
+  .ss-blocker strong {
+    color: var(--color-danger);
+  }
+
+  /* WEAPON HARDPOINTS STRIP (Combat 1.0, Unit 1.8b): one cell per hardpoint, laid out
+     in a wrapping row below the ship graphic. */
+  .ss-hardpoints {
+    margin-top: 2px;
+  }
+  .ss-hardpoints-title {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .ss-hp-full {
+    color: var(--color-danger);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .ss-hp-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  /* One hardpoint cell: a small tap target showing the installed weapon or an empty
+     prompt. Filled cells read the accent; empty cells are dashed + dim. */
+  .ss-hp {
+    flex: 1 1 92px;
+    min-width: 88px;
+    text-align: left;
+    padding: 7px 8px;
+    background: var(--color-bg-deep);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .ss-hp.filled {
+    border-color: rgba(var(--color-accent-rgb), 0.6);
+  }
+  .ss-hp.empty {
+    border-style: dashed;
+    opacity: 0.75;
+  }
+  .ss-hp.selected {
+    border-color: var(--color-accent-bright);
+    box-shadow: 0 0 0 2px rgba(var(--color-accent-rgb), 0.4);
+    opacity: 1;
+  }
+  .ss-hp-slot {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+  }
+  .ss-hp-name {
+    font-size: 12px;
+    color: var(--color-text-primary);
+    display: flex;
+    align-items: center;
+  }
+  .ss-hp-empty-name {
+    color: var(--color-text-dim);
+    font-style: italic;
+  }
+  .ss-hp-sub {
+    font-size: 10px;
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+  }
+  /* Weapon FAMILY color dot (kinetic/particle/ew), used in the strip cell, the spare
+     list, and the offense readout. The color is set inline (weaponFamilyColor). */
+  .ss-fam {
+    display: inline-block;
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    margin-right: 5px;
+  }
+
   /* SELECTED-SLOT CONTROL */
   .ss-control {
     border: 1px solid rgba(var(--color-accent-rgb), 0.25);
@@ -821,13 +1200,6 @@
     align-items: baseline;
     gap: 8px;
   }
-  .ss-pending-badge {
-    font-size: 9px;
-    color: var(--color-text-dim);
-    text-transform: none;
-    letter-spacing: 0;
-    font-style: italic;
-  }
   .ss-stats-head {
     display: flex;
     align-items: center;
@@ -873,13 +1245,17 @@
   .ss-stat-val.down {
     color: var(--color-danger);
   }
-  /* Inert defensive value: spans the base/fitted/delta columns, dimmed to read
-     as "not live yet". (colspan is not valid on a span; the flex-grow here does
-     the visual spanning.) */
-  .ss-stat-inert {
+  /* Combat readout value that carries an inline breakdown (the hull integrity
+     frame+plating split): auto width instead of the fixed 64px stat column, so the
+     breakdown text sits on the same line rather than clipping. */
+  .ss-stat-val-auto {
     flex: 0 0 auto;
-    min-width: 192px;
+    text-align: right;
+  }
+  /* The dim frame+plating breakdown after the hull total. */
+  .ss-stat-breakdown {
     color: var(--color-text-dim);
+    font-size: 10px;
   }
 
   /* BOTTOM BAR */
