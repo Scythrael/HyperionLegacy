@@ -42,6 +42,13 @@ import {
 // crafted weapon by rolling power lines off a base WEAPON_DEF. This is a safe one-way import:
 // combat/weapons imports only combat/types + combat/statusEffects, never itemgen, so no cycle.
 import { WEAPON_DEFS, type WeaponId } from "./combat/weapons";
+// Combat 1.0 (Unit 2.1a): the drone ROLE_TEMPLATE + role id union, for generateDronePod (below),
+// the DRONE analogue of generateWeapon. It mints a crafted drone pod by rolling power lines and
+// validates the requested role against ROLE_TEMPLATE (the pod's fixed base def, mirroring how
+// generateWeapon validates against WEAPON_DEFS). Safe one-way value import: combat/drones imports
+// only combat/positioning + combat/types, never itemgen or model, so no cycle (same posture as
+// the combat/weapons import above).
+import { ROLE_TEMPLATE, type DroneRole } from "./combat/drones";
 
 // SLOT_BASE_PHYSICALS moved to model.ts (0.11.0 Task 20) so it sits with the other
 // slot DATA (EQUIPMENT_SLOTS / DEFAULT_EQUIPMENT_VARIETY) and can be read by model's
@@ -423,5 +430,119 @@ export function generateWeapon(a: {
     durabilityMax,
     durability: durabilityMax, // fresh weapon starts at full durability
     fittedToShipId: null, // spare in the pool until the install path (Unit 1.3+) assigns it
+  };
+}
+
+// ============================================================================
+// Combat 1.0 (Unit 2.1a): generateDronePod
+// ----------------------------------------------------------------------------
+// Mint a crafted DRONE POD as an EquipmentInstance (slotType "droneBay"). A pod is NOT an
+// economy slot: its identity (the squadron ROLE it deploys, and that role's fixed per-drone base
+// behavior, hp/family/accuracy/yield/range/evasion/cooldown + the defensive fields) is FIXED by
+// the drone ROLE_TEMPLATE and is never rolled. Only its POWER lines roll: a signature droneHp
+// implicit plus rarity-driven affixes (more hp / accuracy) off a small fixed pool. The SAME budget
+// machinery as economy + weapon gear (computeBudget / affixCount / the weighted no-duplicate
+// picker) drives the magnitudes, so a rarer / higher-quality / higher-level pod is monotonically
+// stronger, exactly like a weapon or an economy piece.
+//
+// WHY droneHp is the SIGNATURE (not droneYield): yield is 0 for the support role (design S8: a
+// support squadron has no offense, its kit is repair/cleanse), so it cannot be the UNIVERSAL power
+// line every pod carries. droneHp is positive and power-meaningful for ALL THREE roles: a tougher
+// squadron survives incoming fire and keeps contributing (offense, deflection, or support pulses)
+// longer, whatever its mode. So droneHp is the honest role-agnostic signature, precisely mirroring
+// how weaponYield is the universal weapon signature. The affix pool adds more droneHp or
+// droneAccuracy (accuracy governs both attack strikes and defense-picket fire); both are drone-
+// namespaced keys, distinct from weaponYield/weaponAccuracy, so a later bridge fold maps them onto
+// the squadron's droneHp/accuracy fields unambiguously.
+//
+// The rolled lines are stored on the instance; a later bridge fold reconstructs a DroneSquadron =
+// makeSquadron(role) with these lines + quality applied. This minter is SEPARATE from makeDronePod
+// (drones.ts), which stays a DETERMINISTIC clone for the hardcoded default carrier loadout, so
+// activating crafted pods never perturbs current combat parity: nothing calls generateDronePod
+// until the drone craft chain lands (Unit 2.1b), and nothing reads a fitted pod in combat until
+// the later bridge fold.
+//
+// PURE + deterministic (injected rng/allocateId), same posture as generateWeapon.
+// ============================================================================
+
+// The drone-pod roll vocabulary. droneHp is the signature (implicit) line every crafted pod
+// carries; the affix pool adds more hp or accuracy. Pods have no EQUIPMENT_SLOTS variety, so the
+// shared affix picker runs against a NEUTRAL variety (every stat keeps its raw pool weight), the
+// same neutral-variety treatment generateWeapon uses. FIRST-PASS TUNABLE (the balance pass owns
+// the numbers). Weights mirror the weapon pool (signature stat heavier than accuracy).
+const DRONE_POD_IMPLICIT_STAT = "droneHp";
+const DRONE_POD_AFFIX_POOL: { stat: string; weight: number }[] = [
+  { stat: "droneHp", weight: 4 },
+  { stat: "droneAccuracy", weight: 3 },
+];
+const DRONE_POD_NEUTRAL_VARIETY: EquipmentVarietyDef = { key: "dronePod", label: "Drone Pod", statRatios: {} };
+
+// First-pass intrinsic physicals for a crafted drone pod (ROLE_TEMPLATE carries none: those fields
+// are per-DRONE combat stats, not the pod-as-item's mass/power/durability). A pod is a hangar unit
+// with real heft, draws reactor power to run its squadron, and wears like any other combat gear.
+// The combat sim never reads pod mass/powerDraw yet (inert until the equipment fold-in), and a
+// fresh pod starts at full, quality-scaled durability off this base ceiling. All FIRST-PASS
+// TUNABLE, same posture as WEAPON_BASE_MASS and SLOT_BASE_PHYSICALS.
+const DRONE_POD_BASE_MASS = 14;
+// Exported so the minter tests can pin the pod's physical contract exactly (the weapon tests pin
+// theirs off the exported WEAPON_DEFS; a pod has no external def table, so its bases live here).
+export const DRONE_POD_BASE_POWER_DRAW = 10;
+export const DRONE_POD_BASE_DURABILITY = 100;
+
+export function generateDronePod(a: {
+  droneRole: DroneRole;
+  blueprintKey: string | null;
+  iLevel: number;
+  quality: number;
+  rarity: EquipmentRarity;
+  ascension: EquipmentAscension;
+  rng: () => number;
+  allocateId: () => string;
+}): EquipmentInstance {
+  // Validate the role against the drone template (the pod's fixed base def), mirroring how
+  // generateWeapon validates a weaponType against WEAPON_DEFS. A corrupt caller / save that passes
+  // an unknown role indexes to undefined here and is rejected, rather than minting a pod the bridge
+  // could not later reconstruct a squadron for.
+  if (ROLE_TEMPLATE[a.droneRole] === undefined) {
+    throw new Error(`generateDronePod: no drone template for role "${a.droneRole}"`);
+  }
+
+  // Budget and its implicit/affix split (identical model to economy + weapon gear).
+  const budget = computeBudget(a.iLevel, a.quality, rarityIndex(a.rarity));
+  const { implicitShare, affixShare } = budgetShares(budget);
+
+  // --- Implicit: the single droneHp signature line takes the whole implicit share.
+  const implicitStats: Record<string, number> = { [DRONE_POD_IMPLICIT_STAT]: Math.round(implicitShare) };
+
+  // --- Rolled affixes: rarity-driven count + the weighted no-duplicate picker, run against the
+  // neutral pod variety. affixCount FIRST (may draw once for augmented), then the picks, so the rng
+  // stream advances in the same documented order as generateEquipment / generateWeapon.
+  const wantAffixes = affixCount(a.rarity, a.rng);
+  const rolledStatKeys = rollDistinctAffixStats(DRONE_POD_AFFIX_POOL, DRONE_POD_NEUTRAL_VARIETY, wantAffixes, a.rng);
+  const rolledStats: Record<string, number> = {};
+  const affixEach = rolledStatKeys.length > 0 ? Math.round(affixShare / rolledStatKeys.length) : 0;
+  for (const stat of rolledStatKeys) {
+    rolledStats[stat] = affixEach;
+  }
+
+  // --- Durability: quality-scaled off the pod's first-pass base ceiling, starts full ----
+  const durabilityMax = Math.round(DRONE_POD_BASE_DURABILITY * (1 + a.quality * QUALITY_DURABILITY_BONUS));
+
+  return {
+    id: a.allocateId(),
+    slotType: "droneBay",
+    droneRole: a.droneRole,
+    rarity: a.rarity,
+    ascension: a.ascension,
+    quality: a.quality,
+    iLevel: a.iLevel,
+    blueprintKey: a.blueprintKey,
+    implicitStats,
+    rolledStats,
+    mass: DRONE_POD_BASE_MASS,
+    powerDraw: DRONE_POD_BASE_POWER_DRAW,
+    durabilityMax,
+    durability: durabilityMax, // fresh pod starts at full durability
+    fittedToShipId: null, // spare in the pool until the install path (Unit 2.1b+) assigns it
   };
 }

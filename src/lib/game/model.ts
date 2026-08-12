@@ -21,7 +21,12 @@ import { QUALITY_TIERS } from "./inventory";
 // note in combat/enemyHulls.ts: the discriminated mission union must NAME these shapes,
 // but naming a type costs nothing at runtime. Same erased-import discipline as CraftLine.
 import type { CombatStance } from "./combat/positioning";
-import type { DroneSquadron } from "./combat/drones";
+// Combat 1.0 (Unit 2.1a): DroneRole joins the existing DroneSquadron type-only import so
+// EquipmentInstance.droneRole (below) can name which squadron role a crafted drone pod deploys.
+// Still a TYPE-ONLY (compile-erased) import, so model.ts gains NO runtime dependency on combat/
+// drones and no import cycle appears (combat/drones imports only combat/positioning + combat/types
+// at runtime, never model or itemgen). Same erased-import discipline as CombatStance/WeaponId.
+import type { DroneSquadron, DroneRole } from "./combat/drones";
 // Combat 0.13.0 (Phase 9b.5a): PatrolDef.hullPool references the pirate ENEMY hull
 // roster by id. Type-only (erased) import, same discipline as CombatStance/DroneSquadron
 // above: model.ts names the id union but takes no runtime dependency on combat/.
@@ -1020,9 +1025,13 @@ export type EquipmentSlotType =
   // that roll through the EQUIPMENT_SLOTS / generateEquipment economy path. weapon (Unit 1.2)
   // is a MULTI slot (fills a hull's hardpoints) minted through a SEPARATE table (WEAPON_DEFS +
   // generateWeapon), so it deliberately has NO EQUIPMENT_SLOTS entry.
+  // droneBay (Unit 2.1a) is likewise a MULTI slot (a hull has several hangar bays, one pod each,
+  // design S9 / DECISION 9a) minted through its OWN separate table (the drone ROLE_TEMPLATE +
+  // generateDronePod), the DRONE analogue of weapon: so it too has NO EQUIPMENT_SLOTS entry.
   | "shieldEmitters"
   | "hullPlating"
   | "weapon"
+  | "droneBay"
   // RESERVED (defined, no consumer yet, forward hooks):
   | "bridge"
   | "quarters"
@@ -1065,6 +1074,13 @@ export interface EquipmentInstance {
   // reconstructs the CombatWeapon from the two. Absent on every non-weapon piece. Optional +
   // additive, so no save migration.
   weaponType?: WeaponId;
+  // Combat 1.0 (Unit 2.1a): for a crafted DRONE POD (slotType "droneBay"), which squadron ROLE it
+  // deploys (attack / defense / support). Its per-drone base behavior (hp/family/accuracy/yield/
+  // range/evasion/cooldown + the defensive fields) comes from the drone ROLE_TEMPLATE[droneRole];
+  // the rolled implicitStats/rolledStats below modify that base, and a later bridge fold
+  // reconstructs the DroneSquadron from the two. This is the DRONE analogue of weaponType. Absent
+  // on every non-pod piece. Optional + additive, so no save migration.
+  droneRole?: DroneRole;
   rarity: EquipmentRarity;
   ascension: EquipmentAscension;          // "none" this patch (see EquipmentAscension)
   quality: number;                        // 0..5 quality rung within the rarity band

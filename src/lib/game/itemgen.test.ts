@@ -37,6 +37,9 @@ import {
   budgetShares,
   generateEquipment,
   generateWeapon,
+  generateDronePod,
+  DRONE_POD_BASE_POWER_DRAW,
+  DRONE_POD_BASE_DURABILITY,
 } from "./itemgen";
 import { WEAPON_DEFS } from "./combat/weapons";
 
@@ -631,6 +634,110 @@ describe("generateWeapon: crafted-weapon minting (Combat 1.0 Unit 1.2)", () => {
     };
     const snapshot = { ...args };
     generateWeapon(args);
+    expect(args).toEqual(snapshot);
+  });
+});
+
+// --- generateDronePod (Combat 1.0 Unit 2.1a) --------------------------------
+// Drone pods are minted separately from economy + weapon gear: their identity comes from the drone
+// ROLE_TEMPLATE (fixed), and only their power lines (droneHp implicit + droneHp / droneAccuracy
+// affixes) roll, off the SAME budget machinery. These pin that contract: a well-formed pod instance
+// carrying its role, determinism, monotonicity, the drone-only vocabulary, input purity, and the
+// bad-role guard. Mirrors the generateWeapon suite exactly.
+describe("generateDronePod: crafted-drone-pod minting (Combat 1.0 Unit 2.1a)", () => {
+  it("mints a well-formed droneBay EquipmentInstance carrying its role", () => {
+    const p = generateDronePod({
+      droneRole: "attack",
+      blueprintKey: "attackPodBp",
+      iLevel: 20,
+      quality: 2,
+      rarity: "augmented",
+      ascension: "none",
+      rng: mulberry32(3),
+      allocateId: idAllocator(),
+    });
+    expect(p.slotType).toBe("droneBay");
+    expect(p.droneRole).toBe("attack");
+    // The signature droneHp implicit is always present + positive.
+    expect(p.implicitStats.droneHp).toBeGreaterThan(0);
+    // powerDraw is the pod's first-pass flat base (a hangar bay running a squadron draws power).
+    expect(p.powerDraw).toBe(DRONE_POD_BASE_POWER_DRAW);
+    // A fresh pod starts at full, quality-scaled durability off the pod base ceiling.
+    expect(p.durability).toBe(p.durabilityMax);
+    expect(p.durabilityMax).toBe(
+      Math.round(DRONE_POD_BASE_DURABILITY * (1 + 2 * QUALITY_DURABILITY_BONUS)),
+    );
+    expect(p.fittedToShipId).toBeNull();
+    // No weaponType leaks onto a pod (droneRole is the pod's identity field, not weaponType).
+    expect(p.weaponType).toBeUndefined();
+  });
+
+  it("is deterministic under a fixed rng + allocateId", () => {
+    const args = () => ({
+      droneRole: "defense" as const,
+      blueprintKey: "defensePodBp",
+      iLevel: 15,
+      quality: 3,
+      rarity: "radiant" as const,
+      ascension: "none" as const,
+      rng: mulberry32(9),
+      allocateId: idAllocator(),
+    });
+    expect(generateDronePod(args())).toEqual(generateDronePod(args()));
+  });
+
+  it("is monotonic: a rarer, higher-quality pod has a larger hp signature", () => {
+    // The droneHp implicit is pure budget (no rng), so this holds for any stream.
+    const common = { droneRole: "support" as const, blueprintKey: null, iLevel: 20, ascension: "none" as const };
+    const weak = generateDronePod({ ...common, quality: 0, rarity: "standard", rng: mulberry32(1), allocateId: idAllocator() });
+    const strong = generateDronePod({ ...common, quality: 5, rarity: "radiant", rng: mulberry32(1), allocateId: idAllocator() });
+    expect(strong.implicitStats.droneHp).toBeGreaterThan(weak.implicitStats.droneHp);
+  });
+
+  it("only ever rolls drone-vocabulary stats (droneHp / droneAccuracy)", () => {
+    const p = generateDronePod({
+      droneRole: "attack",
+      blueprintKey: null,
+      iLevel: 25,
+      quality: 4,
+      rarity: "radiant",
+      ascension: "none",
+      rng: mulberry32(7),
+      allocateId: idAllocator(),
+    });
+    const allowed = new Set(["droneHp", "droneAccuracy"]);
+    for (const k of Object.keys(p.implicitStats)) expect(allowed.has(k)).toBe(true);
+    for (const k of Object.keys(p.rolledStats)) expect(allowed.has(k)).toBe(true);
+  });
+
+  it("throws on an unknown drone role (corrupt caller / save)", () => {
+    expect(() =>
+      generateDronePod({
+        droneRole: "notARole" as unknown as "attack",
+        blueprintKey: null,
+        iLevel: 10,
+        quality: 0,
+        rarity: "standard",
+        ascension: "none",
+        rng: mulberry32(1),
+        allocateId: idAllocator(),
+      }),
+    ).toThrow(/no drone template/);
+  });
+
+  it("does not mutate its input args (PURE)", () => {
+    const args = {
+      droneRole: "support" as const,
+      blueprintKey: null,
+      iLevel: 18,
+      quality: 1,
+      rarity: "standard" as const,
+      ascension: "none" as const,
+      rng: mulberry32(4),
+      allocateId: idAllocator(),
+    };
+    const snapshot = { ...args };
+    generateDronePod(args);
     expect(args).toEqual(snapshot);
   });
 });

@@ -247,7 +247,11 @@ const ROLE_MODELS: Record<DroneRole, string[]> = {
 };
 
 // The per-role stat template. These become the squadron's per-drone stats.
-interface RoleTemplate {
+// EXPORTED (Combat 1.0 Unit 2.1a) so the itemgen drone-pod minter (generateDronePod) can look a
+// role up here to VALIDATE it and treat this as the pod's fixed "base def", the DRONE analogue of
+// WEAPON_DEFS for generateWeapon. Export-only: adds NO runtime behavior, so combat parity is
+// untouched (nothing in the sim reads it differently).
+export interface RoleTemplate {
 	droneHp: number;
 	family: WeaponFamily;
 	accuracy: number;
@@ -269,7 +273,7 @@ interface RoleTemplate {
 //   Support -> like defense but NO offense in 7a (yield 0); its kit is 7b utility.
 // FIRST-PASS + TUNABLE (design S20). The relative ordering (attack > defense >
 // support offense) is the durable identity contract; the exact integers move.
-const ROLE_TEMPLATE: Record<DroneRole, RoleTemplate> = {
+export const ROLE_TEMPLATE: Record<DroneRole, RoleTemplate> = {
 	attack: {
 		droneHp: 20,
 		family: "kinetic", // TODO(balance): per-role families
