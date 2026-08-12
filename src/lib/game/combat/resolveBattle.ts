@@ -1794,6 +1794,34 @@ export function resolveBattle(
 					combat.chance(Math.min(100, weaponOfflineChance), 100)
 				) {
 					weapon.cooldownAccumulator -= weapon.cooldownDeciSec;
+					// COMBAT 1.0 POLISH (display-only): narrate the jam so a seized weapon
+					// is distinguishable in the scrolling log from one merely on cooldown
+					// (previously a jam surfaced ONLY via the status pip). This is built
+					// STRICTLY under generateLog and flavored off the COSMETIC stream via
+					// attachFlavor, so it draws NOTHING from the combat stream: the jam
+					// OUTCOME (the combat-stream roll above + this skip) is already decided
+					// and stays byte-identical whether or not the log is built. Offline
+					// (generateLog:false) never enters this block, so parity is preserved.
+					// The weapon is named through the family / weaponType flavor layers,
+					// exactly like every other weapon line (no {weapon} placeholder exists).
+					if (generateLog) {
+						log.push(
+							attachFlavor(
+								{
+									tDeciSec: t,
+									round,
+									type: "jam",
+									// Actor only: a jam affects the FIRING ship, not a target
+									// (mirrors the target-less "destroyed" event shape).
+									actorId: self.id,
+									result: "jam",
+									family: weapon.family,
+									weaponType: weapon.weaponType,
+								},
+								cosmetic,
+							),
+						);
+					}
 					continue;
 				}
 

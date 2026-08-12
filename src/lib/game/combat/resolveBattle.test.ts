@@ -1516,6 +1516,73 @@ describe("Combat 1.0 Unit 1.5: Weapon Jam reader (weaponOffline chance)", () => 
 	});
 });
 
+// ---------------------------------------------------------------------------
+// COMBAT 1.0 POLISH: the DISPLAY-ONLY Weapon Jam log event. When a jammed
+// weapon's per-shot roll seizes it (the Unit 1.5 skip), the sim now pushes a
+// "jam" event so the log shows the jam instead of it looking like plain
+// cooldown. Built ONLY under generateLog + flavored off the COSMETIC stream, so
+// it MUST be outcome-neutral: winner + surviving ships byte-identical live vs
+// offline, exactly like the flavor field and the damage-split fields above.
+// ---------------------------------------------------------------------------
+describe("resolveBattle Weapon Jam log event (display-only, outcome-neutral)", () => {
+	// A rank-3 Weapon Jam (60% offline chance) on a fast-firing player vs an
+	// unkillable, unarmed enemy: the player gets many firing opportunities (so jams
+	// are near-certain across a battle) and neither ship dies, so live and offline
+	// run the identical combat schedule to the tick cap. This isolates the jam
+	// event as the ONLY live-vs-offline difference.
+	const build = (): BattleParticipants =>
+		oneVsOne(
+			{
+				hull: 1000000,
+				hullMax: 1000000,
+				weapons: [makeWeapon({ id: "pw", yield: 1, accuracy: 100, cooldownDeciSec: 5 })],
+				statusEffects: [
+					{ defId: "weaponJam", rank: 3, remainingDeciSec: 1000000, dotBank: 0 },
+				],
+			},
+			{ hull: 1000000, hullMax: 1000000, weapons: [] },
+		);
+
+	it("emits a flavored, actor-only jam event under generateLog", () => {
+		const live = resolveBattle(build(), 4242, { generateLog: true });
+		const jams = live.log.filter((e) => e.type === "jam");
+		// The seeded battle jams at least once (60% per shot over ~120 opportunities).
+		expect(jams.length).toBeGreaterThan(0);
+		for (const j of jams) {
+			// The firing ship is the actor; a jam affects no target (target-less shape).
+			expect(j.actorId).toBe("P1");
+			expect(j.targetId).toBeUndefined();
+			// It carries a non-empty COSMETIC-selected flavor template (proving it went
+			// through attachFlavor, the cosmetic-only path).
+			expect(j.flavor).toBeDefined();
+			expect(j.flavor && j.flavor.length).toBeGreaterThan(0);
+		}
+	});
+
+	it("offline builds no log (and therefore no jam events)", () => {
+		const offline = resolveBattle(build(), 4242, { generateLog: false });
+		expect(offline.log.length).toBe(0);
+	});
+
+	it("is OUTCOME-NEUTRAL: outcome + finalCombatants byte-identical live vs offline", () => {
+		const live = resolveBattle(build(), 4242, { generateLog: true });
+		const offline = resolveBattle(build(), 4242, { generateLog: false });
+		// The jam event is pure narration: despite the extra cosmetic draws it triggers,
+		// the combat-stream-driven results are byte-identical.
+		expect(offline.outcome).toEqual(live.outcome);
+		expect(offline.finalCombatants).toEqual(live.finalCombatants);
+	});
+
+	it("outcome-neutrality holds across many seeds (fuzz)", () => {
+		for (let seed = 1; seed <= 40; seed++) {
+			const live = resolveBattle(build(), seed, { generateLog: true });
+			const offline = resolveBattle(build(), seed, { generateLog: false });
+			expect(offline.outcome).toEqual(live.outcome);
+			expect(offline.finalCombatants).toEqual(live.finalCombatants);
+		}
+	});
+});
+
 describe("Combat 1.0 Unit 1.5: roster weapons inflict their newly-sourced effect", () => {
 	// Fire a roster weapon at a durable, shielded target across many seeds via the real
 	// shot pipeline; its second effect slot must LAND at least once (proving the SOURCE

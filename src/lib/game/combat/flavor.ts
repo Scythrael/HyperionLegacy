@@ -65,6 +65,7 @@ export type FlavorCategory =
 	| "evade"
 	| "effectApplied"
 	| "dot"
+	| "jam"
 	| "ambush"
 	| "destruction"
 	| "droneVolley"
@@ -258,6 +259,35 @@ const POOLS: Record<FlavorCategory, FlavorPool> = {
 		],
 	},
 
+	// A weapon that JAMMED and fired nothing (Weapon Jam disruption, design S4).
+	// DISPLAY-ONLY: the skip already resolved on the combat stream; this only
+	// narrates it. Actor-only wording (a jam affects the firing ship, no target),
+	// so the templates reference {actor} only. The family + weaponType layers name
+	// the seized weapon the same way every other weapon line does.
+	jam: {
+		generic: [
+			"{actor}'s weapon seizes, the shot lost to a jam.",
+			"A feed jam chokes {actor}'s gun, no round leaves the tube.",
+			"{actor}'s mount locks up, the salvo dies before it fires.",
+			"{actor}'s weapon jams and fails to fire.",
+			"{actor}'s firing cycle stalls, nothing comes off the rail.",
+		],
+		family: {
+			kinetic: [
+				"{actor}'s autoloader jams, the round stuck in the breech.",
+				"{actor}'s slugs bind in the feed and the gun falls silent.",
+			],
+			particle: [
+				"{actor}'s emitters misfire, the beam guttering out before it forms.",
+			],
+			ew: ["{actor}'s disruptor shorts out mid-charge, firing nothing."],
+		},
+		weaponType: {
+			railgun: ["{actor}'s railgun seizes on the rails, the shot lost."],
+			autocannon: ["{actor}'s autocannon jams, the belt snarled in the feed."],
+		},
+	},
+
 	// A surprise opening salvo (ambush / decloak).
 	ambush: {
 		generic: [
@@ -391,6 +421,8 @@ export function flavorCategory(event: CombatEvent): FlavorCategory {
 			return "effectApplied";
 		case "dot":
 			return "dot";
+		case "jam":
+			return "jam";
 		case "destroyed":
 			return "destruction";
 		case "droneVolley":

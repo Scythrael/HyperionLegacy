@@ -149,6 +149,7 @@ describe("flavorCategory derivation", () => {
 		expect(flavorCategory(ev({ type: "ambush" }))).toBe("ambush");
 		expect(flavorCategory(ev({ type: "effectApplied" }))).toBe("effectApplied");
 		expect(flavorCategory(ev({ type: "dot" }))).toBe("dot");
+		expect(flavorCategory(ev({ type: "jam" }))).toBe("jam");
 		expect(flavorCategory(ev({ type: "destroyed" }))).toBe("destruction");
 		expect(flavorCategory(ev({ type: "droneVolley" }))).toBe("droneVolley");
 		expect(flavorCategory(ev({ type: "droneSupport" }))).toBe("droneSupport");

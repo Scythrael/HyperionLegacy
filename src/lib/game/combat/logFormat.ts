@@ -81,6 +81,11 @@ function formatEvent(
 			const rank = ev.effectRank && ev.effectRank > 1 ? ` ${ev.effectRank}` : "";
 			return `${ev.effectDefId ?? "A burn"}${rank} sears ${target} for ${ev.damage ?? 0} this round.`;
 		}
+		case "jam":
+			// A weapon jammed and fired nothing (Weapon Jam disruption). Only reached
+			// for a hand-built event with no flavor; real sim events carry a flavor
+			// line and render above. Actor-only: a jam affects the firing ship, no target.
+			return `${actor}'s weapon jams and fails to fire.`;
 		case "destroyed":
 			return `${target} is destroyed!`;
 		default:
