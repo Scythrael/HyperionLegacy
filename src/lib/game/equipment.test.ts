@@ -5,8 +5,14 @@
 // Covers the pure state-transform helpers in equipment.ts:
 //   - equippedFor / fittedInSlot  (queries over the fittedToShipId authority)
 //   - canFitEquipment             (the fitment gate + typed block reasons)
-//   - fitEquipment                (atomic single-slot swap)
-//   - unfitEquipment              (evict to the pool + auto-refit Standard-Issue)
+//   - fitEquipment                (ADD for a multi weapon slot / atomic swap for a singleton)
+//   - unfitEquipment              (economy: evict to the pool + auto-refit Standard-Issue)
+//   - unfitEquipmentInstance      (uninstall by id: economy never-empty / combat allow-empty)
+//
+// Combat 1.0 (Unit 1.8a) adds the combat-gear fit logic: weapon is a MULTI slot (fills the hull's
+// hardpoints, install ADDS, over-cap blocks with hardpointsFull); shieldEmitters + hullPlating are
+// singletons; combat slots ALLOW EMPTY on uninstall (no Standard-Issue re-fit) so the dispatch
+// blocker is reachable, while ECONOMY slots stay never-empty. See the last describe block.
 //
 // The one thing every test here is really pinning: EquipmentInstance.fittedToShipId
 // is the SINGLE SOURCE OF TRUTH for fitment (mirrors ShipInstance.assignedCaptainId),
@@ -28,6 +34,7 @@ import {
   canFitEquipment,
   fitEquipment,
   unfitEquipment,
+  unfitEquipmentInstance,
   captainBranchToShipSpec,
 } from "./equipment";
 
@@ -220,17 +227,16 @@ describe("on-mission lock", () => {
 // ----------------------------------------------------------------------------
 // equipRequirement gate (specUtility = Prospecting Rig: prospector captain + hull)
 // ----------------------------------------------------------------------------
-// Combat 1.0 (Unit 1.3): canFitEquipment REJECTS installing a combat piece (its baseline is
-// auto-installed, not player-installed yet) and any reserved/unknown slot. Checked first (a pure
-// property of the piece), so it fires regardless of ship/captain/mission state.
-describe("canFitEquipment rejects non-economy slots (Combat 1.0, Unit 1.3)", () => {
+// Combat 1.0 (Unit 1.8a): canFitEquipment now OPENS the three combat slots to player install
+// (Unit 1.3 rejected them while only the auto-installed baseline existed). Reserved/unknown slots
+// are still rejected generically (slotNotInstallable); the combatSlotNotInstallable reason is gone.
+describe("canFitEquipment opens the combat slots (Combat 1.0, Unit 1.8a)", () => {
   for (const slotType of ["weapon", "shieldEmitters", "hullPlating"] as const) {
-    it(`rejects a combat ${slotType} piece with combatSlotNotInstallable`, () => {
-      // A destroyer (combat hull) with a spare combat piece in the pool: still rejected, because
-      // combat gear installation is not player-facing yet (the baseline is seeded directly).
+    it(`ALLOWS a spare combat ${slotType} piece on a combat hull`, () => {
+      // A destroyer (combat hull, 4 hardpoints) with a spare combat piece in the pool: now installable.
       const piece = makeEquip({ id: "equip-1", slotType, fittedToShipId: null });
       const state = withHull(withEquipment(freshState(), piece), "destroyer");
-      expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "combatSlotNotInstallable" });
+      expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: true });
     });
   }
 
@@ -240,7 +246,7 @@ describe("canFitEquipment rejects non-economy slots (Combat 1.0, Unit 1.3)", () 
     expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "slotNotInstallable" });
   });
 
-  it("still ALLOWS an economy slot (the guard only blocks combat/reserved slots)", () => {
+  it("still ALLOWS an economy slot (the guard only blocks reserved/unknown slots)", () => {
     const piece = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });
     const state = withEquipment(freshState(), piece);
     expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: true });
@@ -374,5 +380,149 @@ describe("unfitEquipment", () => {
     // The cargoBay slot is auto-refit; the ftlDrive slot still holds equip-2. Two pieces fitted.
     expect(fittedInSlot(next, "ship-1", "cargoBay")?.blueprintKey).toBeNull(); // fresh Standard-Issue
     expect(fittedInSlot(next, "ship-1", "ftlDrive")?.id).toBe("equip-2");
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Combat gear fit logic (Combat 1.0, Unit 1.8a)
+// ----------------------------------------------------------------------------
+// weapon is a MULTI slot: install ADDS to the hull's hardpoints; over-cap blocks with
+// hardpointsFull. shieldEmitters + hullPlating are singletons (install replaces). Uninstall
+// is BY INSTANCE id and combat slots ALLOW EMPTY (no Standard-Issue re-fit), while economy
+// slots stay never-empty even through the instance path.
+
+describe("combat weapon: MULTI slot install (add, not swap)", () => {
+  it("installing a weapon ADDS it and does NOT evict a sibling weapon", () => {
+    const w1 = makeEquip({ id: "equip-1", slotType: "weapon", fittedToShipId: "ship-1" }); // already mounted
+    const w2 = makeEquip({ id: "equip-2", slotType: "weapon", fittedToShipId: null }); // spare
+    const state = withHull(withEquipment(freshState(), w1, w2), "destroyer"); // 4 hardpoints
+
+    const next = fitEquipment(state, "ship-1", "equip-2");
+
+    // BOTH weapons are mounted (add, not the singleton swap):
+    const mounted = equippedFor(next, "ship-1").filter((e) => e.slotType === "weapon");
+    expect(mounted.map((e) => e.id).sort()).toEqual(["equip-1", "equip-2"]);
+  });
+
+  it("ALLOWS filling the last open hardpoint (under the cap)", () => {
+    // Carrier: 2 hardpoints, one already mounted -> a second spare still fits.
+    const w1 = makeEquip({ id: "equip-1", slotType: "weapon", fittedToShipId: "ship-1" });
+    const w2 = makeEquip({ id: "equip-2", slotType: "weapon", fittedToShipId: null });
+    const state = withHull(withEquipment(freshState(), w1, w2), "carrier");
+    expect(canFitEquipment(state, "ship-1", "equip-2")).toEqual({ ok: true });
+  });
+
+  it("blocks the (cap+1)th weapon with hardpointsFull (gate + throw)", () => {
+    // Carrier: 2 hardpoints. Fill both, then a third spare is refused.
+    const w1 = makeEquip({ id: "equip-1", slotType: "weapon", fittedToShipId: "ship-1" });
+    const w2 = makeEquip({ id: "equip-2", slotType: "weapon", fittedToShipId: "ship-1" });
+    const w3 = makeEquip({ id: "equip-3", slotType: "weapon", fittedToShipId: null }); // over cap
+    const state = withHull(withEquipment(freshState(), w1, w2, w3), "carrier");
+
+    expect(equippedFor(state, "ship-1").filter((e) => e.slotType === "weapon")).toHaveLength(2);
+    expect(canFitEquipment(state, "ship-1", "equip-3")).toEqual({ ok: false, reason: "hardpointsFull" });
+    expect(() => fitEquipment(state, "ship-1", "equip-3")).toThrow(/hardpointsFull/);
+  });
+});
+
+describe("combat shield/plating: SINGLETON install (replace)", () => {
+  it("installing a shield emitter REPLACES the current one (evicts it to the pool)", () => {
+    const old = makeEquip({ id: "equip-1", slotType: "shieldEmitters", fittedToShipId: "ship-1" });
+    const fresh = makeEquip({ id: "equip-2", slotType: "shieldEmitters", fittedToShipId: null });
+    const state = withHull(withEquipment(freshState(), old, fresh), "destroyer");
+
+    const next = fitEquipment(state, "ship-1", "equip-2");
+
+    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull(); // evicted
+    expect(next.equipment.find((e) => e.id === "equip-2")?.fittedToShipId).toBe("ship-1");
+    // Exactly one emitter fitted (singleton, not additive):
+    const inSlot = equippedFor(next, "ship-1").filter((e) => e.slotType === "shieldEmitters");
+    expect(inSlot.map((e) => e.id)).toEqual(["equip-2"]);
+  });
+
+  it("installing hull plating REPLACES the current plating (singleton)", () => {
+    const old = makeEquip({ id: "equip-1", slotType: "hullPlating", fittedToShipId: "ship-1" });
+    const fresh = makeEquip({ id: "equip-2", slotType: "hullPlating", fittedToShipId: null });
+    const state = withHull(withEquipment(freshState(), old, fresh), "destroyer");
+
+    const next = fitEquipment(state, "ship-1", "equip-2");
+
+    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
+    const inSlot = equippedFor(next, "ship-1").filter((e) => e.slotType === "hullPlating");
+    expect(inSlot.map((e) => e.id)).toEqual(["equip-2"]);
+  });
+});
+
+describe("combat gear: ALLOW-EMPTY uninstall (unfitEquipmentInstance)", () => {
+  it("uninstalling a specific weapon leaves the OTHER weapons mounted, mints NO baseline", () => {
+    const w1 = makeEquip({ id: "equip-1", slotType: "weapon", fittedToShipId: "ship-1" });
+    const w2 = makeEquip({ id: "equip-2", slotType: "weapon", fittedToShipId: "ship-1" });
+    const state = withHull(withEquipment(freshState(), w1, w2), "destroyer");
+
+    const next = unfitEquipmentInstance(state, "ship-1", "equip-1");
+
+    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull(); // spare now
+    expect(next.equipment.find((e) => e.id === "equip-2")?.fittedToShipId).toBe("ship-1"); // stays mounted
+    expect(equippedFor(next, "ship-1").map((e) => e.id)).toEqual(["equip-2"]);
+    expect(next.equipment).toHaveLength(2); // nothing minted (allow-empty)
+    expect(next.nextEquipmentId).toBe(state.nextEquipmentId); // counter untouched
+  });
+
+  it("uninstalling a required combat slot leaves it EMPTY (the dispatch blocker becomes reachable)", () => {
+    // The sole shield emitter, uninstalled: unlike an economy slot, NOTHING refills it.
+    const shield = makeEquip({ id: "equip-1", slotType: "shieldEmitters", fittedToShipId: "ship-1" });
+    const state = withHull(withEquipment(freshState(), shield), "destroyer");
+
+    const next = unfitEquipmentInstance(state, "ship-1", "equip-1");
+
+    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
+    // The slot is EMPTY -> canDispatchPatrol (Unit 1.3) would return noShieldEmitter:
+    expect(fittedInSlot(next, "ship-1", "shieldEmitters")).toBeNull();
+    expect(equippedFor(next, "ship-1")).toHaveLength(0);
+    expect(next.nextEquipmentId).toBe(state.nextEquipmentId); // no mint
+  });
+
+  it("uninstalling the LAST weapon leaves the hull with zero weapons", () => {
+    const w1 = makeEquip({ id: "equip-1", slotType: "weapon", fittedToShipId: "ship-1" });
+    const state = withHull(withEquipment(freshState(), w1), "destroyer");
+
+    const next = unfitEquipmentInstance(state, "ship-1", "equip-1");
+
+    expect(equippedFor(next, "ship-1").filter((e) => e.slotType === "weapon")).toHaveLength(0);
+  });
+});
+
+describe("unfitEquipmentInstance: economy stays NEVER-EMPTY + guards", () => {
+  it("uninstalling an economy piece by id STILL restores a Standard-Issue baseline (unchanged)", () => {
+    const crafted = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: "prospectorHoldBp", fittedToShipId: "ship-1" });
+    const state = { ...withEquipment(freshState(), crafted), nextEquipmentId: 42 };
+
+    const next = unfitEquipmentInstance(state, "ship-1", "equip-1");
+
+    // Crafted piece returns to the pool; a fresh Standard-Issue holds the slot (never-empty).
+    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
+    const fittedNow = equippedFor(next, "ship-1");
+    expect(fittedNow).toHaveLength(1);
+    expect(fittedNow[0].slotType).toBe("cargoBay");
+    expect(fittedNow[0].blueprintKey).toBeNull();
+    expect(fittedNow[0].id).toBe("equip-42");
+    expect(next.nextEquipmentId).toBe(43);
+  });
+
+  it("throws on the on-mission lock", () => {
+    const fitted = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: "ship-1" });
+    const state = withCaptainOnMission(withEquipment(freshState(), fitted));
+    expect(() => unfitEquipmentInstance(state, "ship-1", "equip-1")).toThrow(/onMission/);
+  });
+
+  it("throws for an unknown instance id (noInstance)", () => {
+    const state = withHull(withEquipment(freshState()), "destroyer"); // empty pool
+    expect(() => unfitEquipmentInstance(state, "ship-1", "equip-nope")).toThrow(/noInstance/);
+  });
+
+  it("throws when the instance is not installed on the target ship (stale/bad call)", () => {
+    const spare = makeEquip({ id: "equip-1", slotType: "weapon", fittedToShipId: null }); // spare, not on ship
+    const state = withHull(withEquipment(freshState(), spare), "destroyer");
+    expect(() => unfitEquipmentInstance(state, "ship-1", "equip-1")).toThrow(/not installed/);
   });
 });

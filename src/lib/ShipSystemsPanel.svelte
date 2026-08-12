@@ -265,10 +265,10 @@
         return "captain specialization does not match";
       case "captainSpecParked":
         return "assign a matching captain first (hull is parked)";
-      case "combatSlotNotInstallable":
-        return "combat gear installation arrives in a later update";
       case "slotNotInstallable":
         return "this system cannot be installed";
+      case "hardpointsFull":
+        return "all weapon hardpoints are full (uninstall a weapon first)";
     }
   }
 

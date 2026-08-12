@@ -22,14 +22,29 @@
 //   - No item-gen internals / crafting / quality / migration / UI (unfit calls the shared
 //     model.ts generateStandardIssue rather than reimplementing minting).
 //
+// COMBAT 1.0 (Unit 1.8a) EXTENSION: this file now installs COMBAT gear too, on the SAME
+// fittedToShipId authority. Two shapes join the four singleton economy slots:
+//   - weapon is a MULTI slot: a hull holds UP TO SHIP_TYPES[hull].weaponHardpoints weapon
+//     pieces at once. Installing ADDS a weapon (it does not evict a sibling); the gate
+//     blocks the (cap+1)th with a new "hardpointsFull" reason.
+//   - shieldEmitters + hullPlating are SINGLETONS, exactly like the economy slots (install
+//     replaces the current piece in that slot).
+// NEVER-EMPTY vs ALLOW-EMPTY split (the key combat behavior): ECONOMY slots keep the
+// never-empty invariant (uninstall restores a Standard-Issue baseline). COMBAT slots ALLOW
+// EMPTY: uninstalling a combat piece just returns it to the spare pool, leaving the slot
+// bare. This is REQUIRED so the dispatch blocker (canDispatchPatrol, Unit 1.3) is reachable
+// ("strip a required combat slot -> cannot patrol"); the stripped baseline sits in the pool
+// and can be re-installed, so it is a recoverable state, never a permanent brick.
+//
 // Contents (Functions -> types -> queries -> gate -> mutators):
 //   captainBranchToShipSpec  the CaptainTalentBranch -> ShipSpec bridge the gate needs
 //   EquipFitBlockReason      the typed block-reason union (mirrors DispatchBlockReason)
 //   equippedFor              query: the pieces fitted to a ship
 //   fittedInSlot             query: the piece in one ship-slot, or null
 //   canFitEquipment          the fitment gate (pure predicate + typed reason)
-//   fitEquipment             ATOMIC single-slot swap
-//   unfitEquipment           evict a slot's piece to the pool + auto-refit Standard-Issue
+//   fitEquipment             ADD (multi weapon) / atomic single-slot swap (singleton)
+//   unfitEquipment           evict a slot's piece to the pool + auto-refit Standard-Issue (economy)
+//   unfitEquipmentInstance   uninstall ONE piece by id (economy never-empty / combat allow-empty)
 // ============================================================================
 
 import type {
@@ -41,11 +56,17 @@ import type {
 } from "./model";
 import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue } from "./model";
 
-// Combat 1.0 (Unit 1.3): the slot-type partitions the fit gate (canFitEquipment) reads. The FOUR
-// economy slots are the ONLY ones installable through this path today. The three combat slots are
-// rejected with their own reason (their baseline is auto-installed, not player-installed yet);
-// every other member of EquipmentSlotType is reserved/unknown and rejected generically. Sets (not
-// arrays) for O(1) membership; typed to EquipmentSlotType so a slot rename is a compile error.
+// The slot-type partitions the fit gate (canFitEquipment) and the mutators read. Sets (not arrays)
+// for O(1) membership; typed to EquipmentSlotType so a slot rename is a compile error.
+//
+// ECONOMY_INSTALLABLE_SLOTS: the four economy slots. They are the NEVER-EMPTY slots (uninstall
+// restores a Standard-Issue baseline) and every one is a SINGLETON.
+// COMBAT_SLOT_TYPES: the three combat slots. Combat 1.0 (Unit 1.8a) OPENS these to player install
+// (they were rejected in Unit 1.3 while only the auto-installed baseline existed). They are the
+// ALLOW-EMPTY slots (uninstall leaves the slot bare, so the dispatch blocker is reachable).
+// MULTI_SLOT_TYPES: the slots that hold MORE THAN ONE piece per ship (weapon fills the hull's
+// hardpoints). A slotType NOT in this set is a singleton (at most one piece per ship-slot). Kept as
+// its own set (rather than "weapon" hard-coded at each site) so a future multi slot is a one-line add.
 const ECONOMY_INSTALLABLE_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>([
   "cargoBay",
   "ftlDrive",
@@ -57,6 +78,7 @@ const COMBAT_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotT
   "shieldEmitters",
   "hullPlating",
 ]);
+const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["weapon"]);
 
 // ----------------------------------------------------------------------------
 // captainBranchToShipSpec
@@ -112,19 +134,21 @@ export function captainBranchToShipSpec(branch: CaptainTalentBranch): ShipSpec {
 //                        captain to satisfy it), a distinct, clearer reason than captainSpec
 export type EquipFitBlockReason =
   | "noInstance"
-  // Combat 1.0 (Unit 1.3): a combat piece (weapon / shieldEmitters / hullPlating) cannot be
-  // installed through this economy fit path yet, and a reserved/unknown slot has no install
-  // support at all. Distinct reasons so the UI can say "combat gear installation arrives in a
-  // later update" vs a generic "this system cannot be installed". The Standard-Issue combat
-  // baselines are seeded DIRECTLY (seedCombatStandardIssueForShip), NOT through canFitEquipment,
-  // so this guard never blocks the auto-install.
-  | "combatSlotNotInstallable"
+  // A reserved/unknown slot (bridge/quarters/thrusters/sensor/propellantTanks, none generated yet)
+  // has no install support at all and is rejected generically. Combat 1.0 (Unit 1.8a) REMOVED the
+  // former "combatSlotNotInstallable" member: the three combat slots (weapon / shieldEmitters /
+  // hullPlating) are now player-installable, so that reason is no longer produced.
   | "slotNotInstallable"
   | "noShip"
   | "onMission"
   | "hullSpec"
   | "captainSpec"
-  | "captainSpecParked";
+  | "captainSpecParked"
+  // Combat 1.0 (Unit 1.8a): a WEAPON cannot be installed because the hull's weapon hardpoints
+  // (SHIP_TYPES[hull].weaponHardpoints) are already full. Weapon is the one MULTI slot, so unlike a
+  // singleton (which just swaps) an over-cap install has nowhere to go; the player must uninstall a
+  // weapon first. Only ever returned for a weapon piece.
+  | "hardpointsFull";
 
 // ----------------------------------------------------------------------------
 // equippedFor
@@ -206,9 +230,10 @@ export function onMissionLock(
 // reason shown), the same single-source posture canDispatch has for dispatch.
 //
 // GATE ORDER (cheapest / most-fundamental first, and determines WHICH reason
-// surfaces when several fail): instance exists (noInstance) -> ship exists +
-// on-mission lock (noShip / onMission) -> the slot's equipRequirement, hull first
-// then captain (hullSpec / captainSpec / captainSpecParked).
+// surfaces when several fail): instance exists (noInstance) -> slot is installable
+// (slotNotInstallable) -> ship exists + on-mission lock (noShip / onMission) -> the
+// slot's equipRequirement, hull first then captain (hullSpec / captainSpec /
+// captainSpecParked) -> weapon hardpoint capacity (hardpointsFull, weapon only).
 export function canFitEquipment(
   state: GameState,
   shipId: string,
@@ -219,17 +244,16 @@ export function canFitEquipment(
   const instance = state.equipment.find((e) => e.id === instanceId);
   if (!instance) return { ok: false, reason: "noInstance" };
 
-  // --- Installable-slot guard (Combat 1.0, Unit 1.3): only the FOUR economy slots can be installed
-  // through this path. A COMBAT slot (weapon / shieldEmitters / hullPlating) is rejected explicitly:
-  // its Standard-Issue baseline is auto-installed at build/migration (seedCombatStandardIssueForShip,
-  // which does NOT call this gate), and the player-facing install/uninstall of combat gear arrives
-  // in a later unit. A reserved/unknown slot (bridge/quarters/etc., none generated yet) is rejected
-  // too. Checked first (a pure property of the piece, more fundamental than any ship/mission state)
-  // so a bad install is refused before any ship lookup. Without this, weapon (no EQUIPMENT_SLOTS
-  // entry) would fall through to {ok:true}, and shieldEmitters/hullPlating (which DO have entries)
-  // would clear the requirement block and also return {ok:true}.
-  if (COMBAT_SLOT_TYPES.has(instance.slotType)) return { ok: false, reason: "combatSlotNotInstallable" };
-  if (!ECONOMY_INSTALLABLE_SLOTS.has(instance.slotType)) return { ok: false, reason: "slotNotInstallable" };
+  // --- Installable-slot guard: the FOUR economy slots AND the three combat slots (weapon /
+  // shieldEmitters / hullPlating) are player-installable. Combat 1.0 (Unit 1.8a) OPENED the combat
+  // slots here (Unit 1.3 rejected them while only the auto-installed baseline existed). A
+  // reserved/unknown slot (bridge/quarters/etc., none generated yet) is still rejected generically.
+  // Checked early (a pure property of the piece, more fundamental than any ship/mission state) so a
+  // bad install is refused before any ship lookup. Without this, a reserved slot (no EQUIPMENT_SLOTS
+  // entry, no combat handling) would fall through to {ok:true}.
+  if (!ECONOMY_INSTALLABLE_SLOTS.has(instance.slotType) && !COMBAT_SLOT_TYPES.has(instance.slotType)) {
+    return { ok: false, reason: "slotNotInstallable" };
+  }
 
   // --- Ship existence + on-mission lock (shared with unfitEquipment). This also
   // yields the ship reference we need below, but onMissionLock re-finds it to stay
@@ -279,13 +303,29 @@ export function canFitEquipment(
     // The others layer on when a slot that uses them ships.
   }
 
+  // --- Weapon hardpoint capacity (Combat 1.0, Unit 1.8a): weapon is the one MULTI slot. A hull holds
+  // UP TO SHIP_TYPES[hull].weaponHardpoints weapons; installing ADDS one (fitEquipment does not evict a
+  // sibling). So the install is refused only when the OTHER weapons already fitted to this ship fill
+  // every hardpoint. We count weapons EXCLUDING this instance so a re-install of an already-fitted
+  // weapon (a UI no-op) is never miscounted as needing an extra slot. Checked LAST: a wrong-hull/captain
+  // requirement (more fundamental) surfaces before a capacity block, and only a weapon reaches here.
+  if (instance.slotType === "weapon") {
+    const cap = SHIP_TYPES[ship.typeKey].weaponHardpoints;
+    const otherWeapons = state.equipment.filter(
+      (e) => e.fittedToShipId === shipId && e.slotType === "weapon" && e.id !== instanceId
+    ).length;
+    if (otherWeapons >= cap) return { ok: false, reason: "hardpointsFull" };
+  }
+
   return { ok: true };
 }
 
 // ----------------------------------------------------------------------------
 // fitEquipment
 // ----------------------------------------------------------------------------
-// Fit a spare piece to a ship, as an ATOMIC SINGLE-SLOT SWAP. Guarded by
+// Fit a spare piece to a ship. A SINGLETON slot (economy + shieldEmitters +
+// hullPlating) is an atomic single-slot swap; a MULTI slot (weapon) ADDS the piece
+// to the ship's hardpoints (up to the cap, vetted by the gate). Guarded by
 // canFitEquipment: on a blocked fit it THROWS with the reason token.
 //
 // WHY THROW (judgment call, flagged in the report) rather than the { next, success }
@@ -295,11 +335,18 @@ export function canFitEquipment(
 // FIRST to decide whether the fit button is even enabled, so a throw here is a
 // defensive assertion on an already-vetted call, not the player-facing failure path.
 //
-// ATOMIC SWAP: a slot holds AT MOST ONE piece. Fitting a new piece into a slot that
-// is already occupied on that ship EVICTS the current occupant back to the spare
-// pool (its fittedToShipId set to null) in the SAME transition that fits the new
-// one, so the slot is never briefly double-occupied and the pool never briefly loses
-// the evicted piece. Both edits happen in one .map() over the immutable pool.
+// TWO INSTALL SHAPES, branched on the slot (Combat 1.0, Unit 1.8a):
+//
+// MULTI slot (weapon): a hull holds UP TO its weaponHardpoints weapons. Installing ADDS
+// the incoming weapon and does NOT evict any sibling weapon, so a partly-armed hull fills
+// its remaining hardpoints one gun at a time. The hardpoint cap is enforced by
+// canFitEquipment (hardpointsFull) BEFORE we get here, so this branch just sets fitment.
+//
+// SINGLETON slot (the four economy slots + shieldEmitters + hullPlating): a slot holds AT
+// MOST ONE piece, so installing a new piece into an already-occupied slot on that ship
+// EVICTS the current occupant back to the spare pool (its fittedToShipId set to null) in
+// the SAME transition that fits the new one, so the slot is never briefly double-occupied
+// and the pool never briefly loses the evicted piece. Both edits happen in one .map().
 export function fitEquipment(state: GameState, shipId: string, instanceId: string): GameState {
   const gate = canFitEquipment(state, shipId, instanceId);
   if (!gate.ok) {
@@ -308,11 +355,19 @@ export function fitEquipment(state: GameState, shipId: string, instanceId: strin
     throw new Error(`fitEquipment blocked: ${gate.reason}`);
   }
 
-  // gate.ok guarantees the instance exists; resolve its slotType so we know which
-  // slot on this ship to clear.
+  // gate.ok guarantees the instance exists; resolve its slotType so we know how to install it.
   const incoming = state.equipment.find((e) => e.id === instanceId)!;
   const slotType = incoming.slotType;
 
+  // MULTI slot (weapon): ADD the piece, evicting nothing. The cap is already vetted by the gate.
+  if (MULTI_SLOT_TYPES.has(slotType)) {
+    const equipment = state.equipment.map((e) =>
+      e.id === instanceId ? { ...e, fittedToShipId: shipId } : e
+    );
+    return { ...state, equipment };
+  }
+
+  // SINGLETON slot: atomic swap, evicting the current occupant of the SAME slot on this ship.
   const equipment = state.equipment.map((e) => {
     // The incoming piece: fit it to this ship.
     if (e.id === instanceId) return { ...e, fittedToShipId: shipId };
@@ -349,6 +404,12 @@ export function fitEquipment(state: GameState, shipId: string, instanceId: strin
 // If the slot is already EMPTY (nothing fitted), there is nothing to evict; the slot
 // is nonetheless brought into the never-empty invariant by minting a Standard-Issue
 // into it, so a same-ref no-op is NOT returned in that case (the slot gains a baseline).
+//
+// COMBAT 1.0 (Unit 1.8a) SCOPE: this is the ECONOMY / SINGLETON uninstall path and it stays
+// never-empty. It is UNCHANGED (its economy callers rely on the exact behavior above). It must
+// NOT be called on a combat slot: generateStandardIssue only mints economy baselines (it throws
+// for a combat/reserved slotType), AND combat slots are ALLOW-EMPTY, not never-empty. Combat gear
+// (and, in general, any uninstall-by-instance) goes through unfitEquipmentInstance below.
 export function unfitEquipment(
   state: GameState,
   shipId: string,
@@ -371,6 +432,83 @@ export function unfitEquipment(
   const mintedId = state.nextEquipmentId;
   const replacement = generateStandardIssue({
     slotType,
+    fittedToShipId: shipId,
+    allocateId: () => `equip-${mintedId}`,
+  });
+
+  return {
+    ...state,
+    equipment: [...evicted, replacement],
+    nextEquipmentId: mintedId + 1,
+  };
+}
+
+// ----------------------------------------------------------------------------
+// unfitEquipmentInstance
+// ----------------------------------------------------------------------------
+// Uninstall ONE specific piece BY ITS INSTANCE ID (Combat 1.0, Unit 1.8a). This is the
+// uniform "uninstall the thing the player tapped" entry point the combat-fit UI (Unit 1.8b)
+// calls for EVERY slot, so the interaction is one consistent flow. It is instance-targeted
+// (not slot-targeted) because a MULTI weapon slot holds several pieces, so "uninstall the
+// weapon" is ambiguous without an id; targeting the id works for singletons too.
+//
+// Guarded by the SAME on-mission lock as fitEquipment / unfitEquipment (via onMissionLock),
+// and THROWS with the reason token when that lock blocks (same WHY THROW rationale: the
+// bare-GameState signature makes a silent no-op indistinguishable from a real change, an
+// observability hole, Omega 14). It also THROWS on a stale/bad call (unknown instance, or an
+// instance not actually fitted to this ship): the UI only ever offers uninstall on a piece it
+// already lists as fitted here, so these are defensive assertions on a vetted call, not the
+// player-facing failure path.
+//
+// THE NEVER-EMPTY vs ALLOW-EMPTY SPLIT (the key combat behavior), decided by the piece's slot:
+// - ECONOMY slot (cargoBay / ftlDrive / reactorCore / specUtility): NEVER-EMPTY. The piece is
+//   evicted to the pool AND a fresh Standard-Issue baseline is minted into the slot, exactly
+//   like unfitEquipment, so economy behavior is identical whichever entry point is used.
+// - COMBAT slot (weapon / shieldEmitters / hullPlating): ALLOW-EMPTY. The piece just becomes a
+//   spare (fittedToShipId -> null); NOTHING is minted to replace it, so the slot is left bare.
+//   This is REQUIRED so canDispatchPatrol's blocker is reachable ("strip a required combat slot
+//   -> cannot patrol"); the stripped piece sits in the pool and can be re-installed, so it is a
+//   recoverable state, not a permanent brick.
+//
+// PURE: returns a new GameState (and, for the economy path, an advanced nextEquipmentId),
+// mutates nothing.
+export function unfitEquipmentInstance(
+  state: GameState,
+  shipId: string,
+  instanceId: string
+): GameState {
+  const lock = onMissionLock(state, shipId);
+  if (!lock.ok) {
+    throw new Error(`unfitEquipmentInstance blocked: ${lock.reason}`);
+  }
+
+  // Identity: the piece must exist and must actually be fitted to THIS ship (an uninstall of a
+  // spare, or of a piece on another ship, is a stale/bad call, refused loudly).
+  const occupant = state.equipment.find((e) => e.id === instanceId);
+  if (!occupant) {
+    throw new Error(`unfitEquipmentInstance blocked: noInstance (${instanceId})`);
+  }
+  if (occupant.fittedToShipId !== shipId) {
+    throw new Error(
+      `unfitEquipmentInstance blocked: instance ${instanceId} is not installed on ship ${shipId}`
+    );
+  }
+
+  // Evict the targeted piece to the pool. The slot (or, for a weapon, that one hardpoint) is now bare.
+  const evicted = state.equipment.map((e) =>
+    e.id === instanceId ? { ...e, fittedToShipId: null } : e
+  );
+
+  // COMBAT slot: ALLOW-EMPTY. The piece is now a spare; nothing replaces it. Done.
+  if (COMBAT_SLOT_TYPES.has(occupant.slotType)) {
+    return { ...state, equipment: evicted };
+  }
+
+  // ECONOMY slot: NEVER-EMPTY. Mint + fit a fresh Standard-Issue so the slot is never left empty,
+  // mirroring unfitEquipment exactly (same "equip-N" capture-then-advance mint idiom).
+  const mintedId = state.nextEquipmentId;
+  const replacement = generateStandardIssue({
+    slotType: occupant.slotType,
     fittedToShipId: shipId,
     allocateId: () => `equip-${mintedId}`,
   });
