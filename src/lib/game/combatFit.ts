@@ -39,6 +39,14 @@ export interface CombatReadout {
   mountedWeapons: EquipmentInstance[];
   // The hull's weapon hardpoint cap (SHIP_TYPES[hull].weaponHardpoints).
   hardpointCap: number;
+  // Combat 1.0 (Unit 2.4): installed DRONE POD pieces (slotType "droneBay"), in fitted
+  // order, one per filled bay cell, EXACTLY as mountedWeapons does for hardpoints. Empty
+  // on any hull with no bays (a non-carrier), so the panel's drone strip stays carrier-only.
+  mountedPods: EquipmentInstance[];
+  // The hull's drone bay cap (SHIP_TYPES[hull].droneBays; 0 on a non-carrier). The DRONE
+  // analogue of hardpointCap. Drone bays are OPTIONAL (unlike the three required combat
+  // slots), so this never contributes to missingRequired below.
+  droneBayCap: number;
   // The installed singleton combat pieces (null when the slot is stripped bare).
   shieldEmitter: EquipmentInstance | null;
   hullPlating: EquipmentInstance | null;
@@ -67,18 +75,27 @@ function statOf(piece: EquipmentInstance, key: string): number {
 
 // computeCombatReadout: fold a ship's INSTALLED combat gear + its hull stats into
 // the readout the panel renders. `gear` is the pieces fitted to the ship
-// (equippedFor()'s array), `hullIntegrity` is SHIP_TYPES[hull].hullIntegrity, and
-// `hardpointCap` is SHIP_TYPES[hull].weaponHardpoints. PURE.
+// (equippedFor()'s array), `hullIntegrity` is SHIP_TYPES[hull].hullIntegrity,
+// `hardpointCap` is SHIP_TYPES[hull].weaponHardpoints, and `droneBayCap` is
+// SHIP_TYPES[hull].droneBays (0 on a non-carrier). PURE.
+//
+// droneBayCap defaults to 0 so a caller that does not care about drones (an economy
+// context, or an older 3-arg call site) reads a carrier-free readout unchanged, and
+// only the carrier panel passes the real bay count.
 export function computeCombatReadout(
   gear: EquipmentInstance[],
   hullIntegrity: number,
-  hardpointCap: number
+  hardpointCap: number,
+  droneBayCap = 0
 ): CombatReadout {
   // Partition the fitted gear by combat slot. Weapons keep their fitted order (a
   // MULTI slot); shield + plating are singletons (at most one each per ship).
   const mountedWeapons = gear.filter((p) => p.slotType === "weapon");
   const shieldEmitter = gear.find((p) => p.slotType === "shieldEmitters") ?? null;
   const hullPlating = gear.find((p) => p.slotType === "hullPlating") ?? null;
+  // Drone pods are the OTHER MULTI slot (Combat 1.0, Unit 2.4): keep their fitted order,
+  // one per bay cell, EXACTLY as weapons above. A non-carrier fits none, so this is [].
+  const mountedPods = gear.filter((p) => p.slotType === "droneBay");
 
   // Hull pool (design 6a): frame is intrinsic; plating carries the remainder.
   const frame = frameHp(hullIntegrity);
@@ -102,6 +119,8 @@ export function computeCombatReadout(
   return {
     mountedWeapons,
     hardpointCap,
+    mountedPods,
+    droneBayCap,
     shieldEmitter,
     hullPlating,
     frameHp: frame,

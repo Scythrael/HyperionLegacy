@@ -109,4 +109,38 @@ describe("computeCombatReadout", () => {
     expect(withArmor.ablativeArmor).toBe(40);
     expect(computeCombatReadout([], 600, 4).ablativeArmor).toBe(0);
   });
+
+  // Drone pods (Combat 1.0, Unit 2.4): the DRONE analogue of the weapon assertions
+  // above. mountedPods mirrors mountedWeapons (fitted order, one per bay cell) and
+  // droneBayCap mirrors hardpointCap; drone bays are OPTIONAL, so they never change
+  // missingRequired.
+
+  it("counts mounted drone pods in fitted order and exposes the drone bay cap", () => {
+    // Carrier-like: 2 hardpoints, 2 drone bays. Two pods installed, in order.
+    const gear = [
+      piece("droneBay", { id: "d1", droneRole: "attack" }),
+      piece("droneBay", { id: "d2", droneRole: "defense" }),
+    ];
+    const r = computeCombatReadout(gear, 1100, 2, 2);
+    expect(r.mountedPods.map((p) => p.id)).toEqual(["d1", "d2"]);
+    expect(r.droneBayCap).toBe(2);
+  });
+
+  it("defaults droneBayCap to 0 and mountedPods to [] on a hull with no bays (3-arg call)", () => {
+    // A non-carrier combat hull: the 3-arg call site (no bay count) reads a carrier-free
+    // readout, and gear that carries no droneBay piece mounts no pods.
+    const gear = [piece("weapon", { weaponType: "autocannon" })];
+    const r = computeCombatReadout(gear, 600, 4);
+    expect(r.droneBayCap).toBe(0);
+    expect(r.mountedPods).toEqual([]);
+  });
+
+  it("does not let installed drone pods affect the required-slot missing list", () => {
+    // A carrier with only pods installed (no weapon / emitter / plating) is still missing
+    // every REQUIRED combat slot: drone bays are optional and never satisfy a requirement.
+    const gear = [piece("droneBay", { droneRole: "support" })];
+    const r = computeCombatReadout(gear, 1100, 2, 2);
+    expect(r.missingRequired).toEqual(["weapon", "shieldEmitters", "hullPlating"]);
+    expect(r.mountedPods.length).toBe(1);
+  });
 });

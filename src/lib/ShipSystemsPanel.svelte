@@ -141,6 +141,12 @@
   // key cannot identify which hardpoint is open. selectedSlot and selectedHardpoint are
   // MUTUALLY EXCLUSIVE (selecting one clears the other) so only ONE control shows.
   let selectedHardpoint: number | null = null;
+  // The currently opened DRONE BAY cell (Combat 1.0, Unit 2.4): the 0-based index of the
+  // tapped bay, or null. EXACTLY parallel to selectedHardpoint (a drone bay is the OTHER
+  // MULTI slot, so an index, not a slotType, identifies which bay is open), and part of
+  // the same MUTUAL EXCLUSIVITY set as selectedSlot + selectedHardpoint (selecting any one
+  // clears the other two) so only ONE control ever shows.
+  let selectedBay: number | null = null;
 
   // Reset the open selections whenever the panel switches to a different ship, so a
   // stale selection from the previous ship never carries over. Guarded on a
@@ -150,6 +156,7 @@
     lastShipId = shipId;
     selectedSlot = null;
     selectedHardpoint = null;
+    selectedBay = null;
   }
 
   // --- Derived reads ----------------------------------------------------------
@@ -240,7 +247,16 @@
   // Null for a non-combat hull (no combat section is shown there).
   $: combatReadout =
     ship && shipDef && isCombatHull
-      ? computeCombatReadout(fittedPieces, shipDef.hullIntegrity, shipDef.weaponHardpoints)
+      ? computeCombatReadout(
+          fittedPieces,
+          shipDef.hullIntegrity,
+          shipDef.weaponHardpoints,
+          // Drone bays are carrier-only (SHIP_TYPES[hull].droneBays is absent/0 elsewhere);
+          // the readout carries mountedPods + droneBayCap so the drone strip + DRONES section
+          // read from the SAME fold as the weapon strip. Nullish-guarded to 0 for a combat
+          // hull with no bays (destroyer / battleship).
+          shipDef.droneBays ?? 0
+        )
       : null;
 
   // The installed weapons, in fitted order, one per filled hardpoint cell (Combat
@@ -260,6 +276,27 @@
   // The required combat slots still EMPTY (drives the dispatch-blocker banner). Empty
   // array => the ship's required combat slots are all filled (dispatchable, slot-wise).
   $: missingRequired = combatReadout ? combatReadout.missingRequired : [];
+
+  // --- Drone bay reads (Combat 1.0, Unit 2.4) --------------------------------------
+  // EXACTLY mirrors the weapon-hardpoint reads above, for the OTHER MULTI slot (droneBay).
+  // The installed drone pods, in fitted order, one per filled bay cell. Empty cells run
+  // from mountedPods.length up to the bay cap.
+  $: mountedPods = combatReadout ? combatReadout.mountedPods : [];
+  $: droneBayCap = combatReadout ? combatReadout.droneBayCap : 0;
+  // hasDroneBays: this hull actually has drone bays (carriers only; droneBays > 0). Gates
+  // the whole drone strip + the DRONES readout section, the way isCombatHull gates the
+  // weapon surfaces, so a non-carrier never shows an empty drone strip it can never fill.
+  $: hasDroneBays = droneBayCap > 0;
+  // baysFull: every drone bay is occupied, so no further pod can be installed (the strip
+  // disables install + shows "bays full"). Mirrors canFitEquipment's baysFull gate so the
+  // two never disagree. The droneBayCap > 0 guard keeps it false on a non-carrier (where
+  // 0 pods >= 0 bays would otherwise read "full"), though the strip is hidden there anyway.
+  $: baysFull = combatReadout !== null && droneBayCap > 0 && mountedPods.length >= droneBayCap;
+
+  // The spare DRONE PODS in storage (fittedToShipId null), the install pool for an empty
+  // bay. Pods are a MULTI slot, so this is queried by slotType directly (parallel to
+  // spareWeapons for weapons).
+  $: sparePods = equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === "droneBay");
 
   // Reserved bottom-bar module count, capped at 7 empty display slots (weapons moved
   // to the live hardpoint strip; modules stay reserved for a later combat unit).
@@ -412,19 +449,74 @@
     return `${def.yieldMin + bonus}-${def.yieldMax + bonus}`;
   }
 
+  // --- Drone display helpers (Combat 1.0, Unit 2.4) ---------------------------
+  // The DRONE analogue of weaponFamilyColor / weaponName / weaponSub above. A pod's
+  // identity in the strip is its squadron ROLE (attack / defense / support), so these
+  // resolve the role color dot, the role name, and the rarity + iL sub-line. Typed on a
+  // plain string (like weaponFamilyColor's weaponType) so no combat/ type is needed here.
+  //
+  // Role -> a stable, distinct indicator color, read as theme tokens so it recolors with
+  // the theme: attack -> danger (its offense identity), defense -> accent (its shielding
+  // identity), support -> success (its repair identity). An absent/unknown role falls back
+  // to the dim text color (never blank), exactly as weaponFamilyColor does for a bad family.
+  function droneRoleColor(role: string | undefined): string {
+    switch (role) {
+      case "attack":
+        return "var(--color-danger)";
+      case "defense":
+        return "var(--color-accent)";
+      case "support":
+        return "var(--color-success)";
+      default:
+        return "var(--color-text-dim)";
+    }
+  }
+  // A pod's player-facing ROLE name (Attack / Defense / Support). Fallback "Drone pod" for
+  // an absent/unknown role, mirroring weaponName's "weapons" fallback (never blank).
+  function droneRoleName(role: string | undefined): string {
+    switch (role) {
+      case "attack":
+        return "Attack";
+      case "defense":
+        return "Defense";
+      case "support":
+        return "Support";
+      default:
+        return "Drone pod";
+    }
+  }
+  // A pod's rarity + iL sub-line, IDENTICAL in shape to weaponSub (a pod carries rarity /
+  // iLevel like any piece). Kept as its own explicit helper, parallel to weaponSub, so the
+  // drone strip reads self-describingly rather than borrowing a weapon-named function.
+  function podSub(piece: EquipmentInstance): string {
+    const rar = piece.rarity.charAt(0).toUpperCase() + piece.rarity.slice(1);
+    return `${rar} · iL ${piece.iLevel}`;
+  }
+
   // --- Interaction ------------------------------------------------------------
   // Clicking a slot toggles its control open/closed. Reserved slots still open
   // (to show their "reserved" note), so the click target is consistent. Selecting a
   // singleton slot CLEARS any open hardpoint (mutual exclusivity: one control at a time).
   function selectSlot(meta: SlotMeta): void {
     selectedHardpoint = null;
+    selectedBay = null;
     selectedSlot = selectedSlot === meta.slotType ? null : meta.slotType;
   }
   // Clicking a weapon hardpoint cell toggles its control open/closed, clearing any open
-  // singleton slot (mutual exclusivity). The index identifies WHICH hardpoint is open.
+  // singleton slot + drone bay (mutual exclusivity). The index identifies WHICH hardpoint
+  // is open.
   function selectHardpoint(index: number): void {
     selectedSlot = null;
+    selectedBay = null;
     selectedHardpoint = selectedHardpoint === index ? null : index;
+  }
+  // Clicking a drone bay cell toggles its control open/closed, clearing any open singleton
+  // slot + weapon hardpoint (mutual exclusivity). The index identifies WHICH bay is open.
+  // EXACTLY parallel to selectHardpoint (a drone bay is the other MULTI slot).
+  function selectBay(index: number): void {
+    selectedSlot = null;
+    selectedHardpoint = null;
+    selectedBay = selectedBay === index ? null : index;
   }
   function handleInstall(instanceId: string): void {
     onInstall(shipId, instanceId);
@@ -561,6 +653,43 @@
           </div>
         {/if}
 
+        <!-- DRONE BAYS STRIP (Combat 1.0, Unit 2.4): the DRONE analogue of the weapon
+             hardpoints strip above, shown ONLY on a hull with drone bays (carriers). One
+             cell per bay; a filled cell shows the installed pod's role-color dot + role name
+             (Attack / Defense / Support) + rarity + iL; an empty cell reads "install a drone
+             pod". Tapping a cell opens its control below (same flow as a hardpoint). -->
+        {#if hasDroneBays}
+          <div class="ss-bays">
+            <div class="ss-bays-title">
+              Drone bays · {mountedPods.length}/{droneBayCap}
+              {#if baysFull}<span class="ss-bay-full">bays full</span>{/if}
+            </div>
+            <div class="ss-bay-row">
+              {#each Array.from({ length: droneBayCap }) as _, bayIndex (bayIndex)}
+                {@const pod = mountedPods[bayIndex] ?? null}
+                <button
+                  class="ss-bay"
+                  class:filled={!!pod}
+                  class:empty={!pod}
+                  class:selected={selectedBay === bayIndex}
+                  on:click={() => selectBay(bayIndex)}
+                >
+                  <span class="ss-bay-slot">BAY {bayIndex + 1}</span>
+                  {#if pod}
+                    <span class="ss-bay-name">
+                      <span class="ss-fam" style="background: {droneRoleColor(pod.droneRole)};"></span>{droneRoleName(pod.droneRole)}
+                    </span>
+                    <span class="ss-bay-sub">{podSub(pod)}</span>
+                  {:else}
+                    <span class="ss-bay-name ss-bay-empty-name">empty</span>
+                    <span class="ss-bay-sub">install a drone pod</span>
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
         <!-- Selected-slot control: install / uninstall for a live slot, or the
              reserved note for a 0.12.0 slot. Nothing shown until a slot is
              tapped, keeping the graphic uncluttered by default. -->
@@ -680,8 +809,65 @@
               {/each}
             {/if}
           </div>
+        {:else if selectedBay !== null}
+          <!-- DRONE BAY control (Combat 1.0, Unit 2.4): the SAME flow as a weapon hardpoint,
+               keyed by the bay index instead of a hardpoint index. A filled bay shows its
+               pod's EquipmentTooltip + an Uninstall (by instance id); an empty bay shows the
+               spare-pod pool to install from (each install routed through canFitEquipment, so
+               a carrier whose bays are all full disables further installs with baysFull). -->
+          {@const pod = mountedPods[selectedBay] ?? null}
+          <div class="ss-control">
+            <div class="ss-control-title">Drone Bay {selectedBay + 1}</div>
+            {#if pod}
+              <div class="ss-fitted-tt">
+                <EquipmentTooltip piece={pod}>
+                  <button
+                    class="ss-btn ss-btn-uninstall"
+                    disabled={onMission}
+                    title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+                    on:click={() => handleUninstall(pod.id)}
+                  >
+                    Uninstall
+                  </button>
+                </EquipmentTooltip>
+              </div>
+            {:else}
+              <p class="ss-note">Bay empty. Install a spare drone pod from storage below.</p>
+            {/if}
+
+            <!-- Spare drone pods in storage. Each install routes through canFitEquipment, so a
+                 carrier whose bays are all full disables every install with the "bays full"
+                 reason (the baysFull gate). -->
+            <div class="ss-spares-label">Storage · drone pods</div>
+            {#if sparePods.length === 0}
+              <p class="ss-note ss-note-dim">No spare drone pods in storage.</p>
+            {:else}
+              {#each sparePods as spare (spare.id)}
+                {@const gate = canFitEquipment(safeState, shipId, spare.id)}
+                <div class="ss-spare-row">
+                  <div class="ss-fitted-info">
+                    <div class="ss-fitted-name">
+                      <span class="ss-fam" style="background: {droneRoleColor(spare.droneRole)};"></span>{droneRoleName(spare.droneRole)}
+                    </div>
+                    <div class="ss-fitted-sub">{podSub(spare)}</div>
+                  </div>
+                  <button
+                    class="ss-btn ss-btn-install"
+                    disabled={!gate.ok}
+                    title={gate.ok ? `Install ${spare.id}` : reasonText(gate.reason)}
+                    on:click={() => handleInstall(spare.id)}
+                  >
+                    {gate.ok ? "Install" : "Blocked"}
+                  </button>
+                </div>
+                {#if !gate.ok}
+                  <div class="ss-blocked-reason">{reasonText(gate.reason)}</div>
+                {/if}
+              {/each}
+            {/if}
+          </div>
         {:else}
-          <p class="ss-note ss-note-dim ss-control-hint">Tap a slot or hardpoint to install or uninstall a system.</p>
+          <p class="ss-note ss-note-dim ss-control-hint">Tap a slot, hardpoint, or drone bay to install or uninstall a system.</p>
         {/if}
       </div>
 
@@ -747,6 +933,26 @@
               <span class="ss-stat-val">{weaponYieldRange(weapon)}</span>
             </div>
           {/each}
+
+          <!-- DRONES readout (Combat 1.0, Unit 2.4): carrier-only (droneBayCap > 0),
+               consistent with the OFFENSE / DEFENSE sections above. A "Bays used N / cap"
+               summary row plus one row per installed pod naming its role, derived from the
+               SAME computeCombatReadout fold, so it changes as pods are installed / uninstalled. -->
+          {#if droneBayCap > 0}
+            <div class="ss-stats-section-title ss-defensive-title">DRONES</div>
+            <div class="ss-stat-row">
+              <span class="ss-stat-label">Bays used</span>
+              <span class="ss-stat-val ss-stat-fitted">{mountedPods.length} / {droneBayCap}</span>
+            </div>
+            {#each mountedPods as pod (pod.id)}
+              <div class="ss-stat-row">
+                <span class="ss-stat-label">
+                  <span class="ss-fam" style="background: {droneRoleColor(pod.droneRole)};"></span>{droneRoleName(pod.droneRole)}
+                </span>
+                <span class="ss-stat-val">{podSub(pod)}</span>
+              </div>
+            {/each}
+          {/if}
         {/if}
       </div>
     </div>
@@ -1105,6 +1311,84 @@
     height: 7px;
     border-radius: 2px;
     margin-right: 5px;
+  }
+
+  /* DRONE BAYS STRIP (Combat 1.0, Unit 2.4): the DRONE analogue of the weapon hardpoints
+     strip, one cell per bay in a wrapping row below the hardpoints strip. Kept as its own
+     explicit .ss-bay* class set (parallel to .ss-hp*) so a bay is independently tunable and
+     the markup reads self-describingly, rather than borrowing the hardpoint classes. */
+  .ss-bays {
+    margin-top: 2px;
+  }
+  .ss-bays-title {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .ss-bay-full {
+    color: var(--color-danger);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .ss-bay-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  /* One drone bay cell: a small tap target showing the installed pod or an empty prompt.
+     Filled cells read the accent; empty cells are dashed + dim. Mirrors .ss-hp. */
+  .ss-bay {
+    flex: 1 1 92px;
+    min-width: 88px;
+    text-align: left;
+    padding: 7px 8px;
+    background: var(--color-bg-deep);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .ss-bay.filled {
+    border-color: rgba(var(--color-accent-rgb), 0.6);
+  }
+  .ss-bay.empty {
+    border-style: dashed;
+    opacity: 0.75;
+  }
+  .ss-bay.selected {
+    border-color: var(--color-accent-bright);
+    box-shadow: 0 0 0 2px rgba(var(--color-accent-rgb), 0.4);
+    opacity: 1;
+  }
+  .ss-bay-slot {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+  }
+  .ss-bay-name {
+    font-size: 12px;
+    color: var(--color-text-primary);
+    display: flex;
+    align-items: center;
+  }
+  .ss-bay-empty-name {
+    color: var(--color-text-dim);
+    font-style: italic;
+  }
+  .ss-bay-sub {
+    font-size: 10px;
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
   }
 
   /* SELECTED-SLOT CONTROL */
