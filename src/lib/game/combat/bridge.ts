@@ -361,6 +361,40 @@ export function defaultDronesForHull(hullType: CombatHullType, idPrefix: string)
   );
 }
 
+// ---------------------------------------------------------------------------
+// installedDronesForPatrol: build a patrol's carry-state drone squadrons from a ship's INSTALLED
+// drone-pod gear (Combat 1.0 Unit 2.3b). The INSTALLED-GEAR analogue of defaultDronesForHull: instead
+// of the hull's DEFAULT drone screen, it reconstructs one fightable squadron per installed droneBay pod
+// (in equippedFor's stable install order) via squadronFromPod, so a CRAFTED pod's bigger / defense /
+// support squadron actually reaches a real patrol (2.3a reconstructed it in shipToCombatant, but the
+// live patrol path discarded that in favour of this carry-state seed; 2.3b makes the seed itself read
+// the pods).
+//
+// THE single source of truth both patrol drone seeds read: the LIVE dispatch / relaunch
+// (tick.ts freshPatrolMission) AND the display replay (patrolReplay.ts) call THIS with the SAME
+// installed gear (equippedFor) and the SAME idPrefix, so the two carry byte-identical drones across
+// every wave (the structural-parity contract, mirroring how buildPatrolPlayerCombatant is shared).
+//
+// BYTE-IDENTITY FLOOR (why swapping this in for defaultDronesForHull is behaviour-preserving): each
+// squadron's id sub-format is `${idPrefix}-${role}${index}`, the EXACT format defaultDronesForHull
+// produces. A Standard-Issue carrier carries exactly ONE droneBay pod (its attack pod, quality 0),
+// which squadronFromPod reconstructs BYTE-IDENTICALLY to makeSquadron("attack", undefined, 0) at the
+// same id (Unit 2.3a's proven equality), so it folds to the same single default squadron. A
+// destroyer / battleship has 0 bays -> 0 pods -> an EMPTY array, exactly what defaultDronesForHull
+// returns for them. So for every Standard-Issue set the seed is unchanged (no patrol-outcome fixture
+// moves); only a CRAFTED pod (quality > 0 / defense / support) changes what takes the field.
+//
+// PURE: filters the passed gear and maps to fresh squadrons (squadronFromPod mints independent
+// instances), mutating nothing.
+export function installedDronesForPatrol(
+  installedGear: EquipmentInstance[],
+  idPrefix: string,
+): DroneSquadron[] {
+  return installedGear
+    .filter((piece) => piece.slotType === "droneBay")
+    .map((pod, index) => squadronFromPod(pod, `${idPrefix}-${pod.droneRole}${index}`));
+}
+
 // defaultSystemDurabilityForHull: build a combat hull's FULL (no-wear) per-system durability
 // carry-state, for a patrol's persisted PatrolMissionState.playerSystemDurability. Combat
 // 0.13.0 (Phase 12b Unit B2): freshPatrolMission seeds this at dispatch/relaunch and the

@@ -124,7 +124,7 @@ import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
 // resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
-import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, defaultSystemDurabilityForHull, frameHp, type CombatHullType } from "./combat/bridge";
+import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, installedDronesForPatrol, defaultSystemDurabilityForHull, frameHp, type CombatHullType } from "./combat/bridge";
 // Combat 1.0 (Unit 1.4): WeaponId types the per-hull Standard-Issue weapon loadout the combat
 // baseline seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
 import type { WeaponId } from "./combat/weapons";
@@ -1922,6 +1922,9 @@ export function tickCaptainPatrol(
             repeatDispatch: mission.repeatDispatch,
             shipDef,
             hullType,
+            // Unit 2.3b: the SAME installed gear this tick already resolved, so a relaunched cycle's
+            // drone carry-state seeds from the ship's installed pods identically to a fresh dispatch.
+            installedGear,
           });
           progress = 0;
           // Loop continues: any remaining ticks advance the FRESH patrol.
@@ -3119,11 +3122,18 @@ function freshPatrolMission(args: {
   // The ship's static combat stats, for the FULL carry-state pools (hull + shield); the
   // same SHIP_TYPES entry bridge.ts's shipToCombatant reads.
   shipDef: ShipTypeDef;
-  // The resolved combat hull type, for the hull's DEFAULT drone screen (a carrier's Attack
-  // squadron; EMPTY for destroyer/battleship).
+  // The resolved combat hull type, for the hull's DEFAULT drone screen fallback (a carrier's Attack
+  // squadron; EMPTY for destroyer/battleship) when no installed gear is supplied.
   hullType: CombatHullType;
+  // Combat 1.0 (Unit 2.3b): the ship's INSTALLED combat gear (equippedFor off the SAME GameState the
+  // dispatch / relaunch path already reads for fuel + stats). Its droneBay pods seed the patrol's drone
+  // carry-state (installedDronesForPatrol), so a CRAFTED pod actually reaches the field. OPTIONAL:
+  // absent (a direct test call with no gear) falls back to the hull DEFAULT screen, which for a
+  // Standard-Issue set is byte-identical to the installed-pod build. In normal play BOTH call sites
+  // pass the ship's real fitted gear, so a Standard-Issue carrier is seeded byte-identically to before.
+  installedGear?: EquipmentInstance[];
 }): PatrolMissionState {
-  const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType } = args;
+  const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear } = args;
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
   // could disagree with patrolKey).
   const def = PATROLS[patrolKey];
@@ -3142,12 +3152,17 @@ function freshPatrolMission(args: {
     nextWaveIndex: 0,
     wavesWon: 0,
     wavesLost: 0,
-    // Carry-state seeded to FULL: hull/shield from the hull's combat stats, and the hull's
-    // default drones (a carrier's screen; empty otherwise). The drone id prefix is keyed to
-    // the master seed so ids are stable + unique per patrol cycle.
+    // Carry-state seeded to FULL: hull/shield from the hull's combat stats, and the drones the ship
+    // actually carries. Combat 1.0 (Unit 2.3b): seed from the ship's INSTALLED droneBay pods
+    // (installedDronesForPatrol) so a CRAFTED pod's squadron reaches the patrol; fall back to the hull
+    // DEFAULT screen only when no gear was supplied (a direct test call), which for a Standard-Issue set
+    // is byte-identical. The drone id prefix is keyed to the master seed so ids are stable + unique per
+    // patrol cycle, and identical between this live seed and the display replay's (structural parity).
     playerHull: shipDef.hullIntegrity,
     playerShield: shipDef.shieldCapacity,
-    playerDrones: defaultDronesForHull(hullType, `patrol-${masterSeed}-p`),
+    playerDrones: installedGear
+      ? installedDronesForPatrol(installedGear, `patrol-${masterSeed}-p`)
+      : defaultDronesForHull(hullType, `patrol-${masterSeed}-p`),
     // Carry-state seeded to FULL system durability (Phase 12b Unit B2): every weapon + the
     // reactor + the ftl at their fresh ceilings (no wear), the same "start clean" a fresh
     // dispatch AND a relaunch both want. Wear accumulates from here across the cycle's waves.
@@ -3432,8 +3447,12 @@ export function dispatchCaptainOnPatrol(
   const shipDef = SHIP_TYPES[ship.typeKey];
   const hullType = combatHullTypeOf(ship.typeKey)!; // non-null: canDispatchPatrol passed notCombatHull
 
+  // The ship's INSTALLED combat gear, resolved ONCE here: it prices the fuel (via engineEfficiency
+  // below) AND seeds the patrol's drone carry-state from the installed droneBay pods (Unit 2.3b), so
+  // both read the identical fitted set (no chance of a second equippedFor call drifting).
+  const installedGear = equippedFor(state, ship.id);
   // Price the first cycle's fuel from the SAME folded engineEfficiency the gate + 9b.5b use.
-  const dispatchStats = shipDerivedStats(ship, equippedFor(state, ship.id));
+  const dispatchStats = shipDerivedStats(ship, installedGear);
   const need = fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
     ...shipDef,
     engineEfficiency: dispatchStats.engineEfficiency,
@@ -3455,7 +3474,7 @@ export function dispatchCaptainOnPatrol(
   // wave schedule from masterSeed + def, seeds the full hull/shield/drone carry-state, and
   // keys the drone id prefix to masterSeed. Dispatch passes the dispatch-time stance /
   // masterSeed / repeatDispatch.
-  const mission = freshPatrolMission({ patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType });
+  const mission = freshPatrolMission({ patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear });
 
   const captains = [...state.captains];
   // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh patrol dispatch,

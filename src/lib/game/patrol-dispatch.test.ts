@@ -20,6 +20,7 @@ import {
   type CaptainState,
   type PatrolMissionState,
   type ShipTypeKey,
+  type EquipmentInstance,
 } from "./model";
 import {
   canDispatchPatrol,
@@ -31,6 +32,7 @@ import {
   installMissingCombatBaselines,
 } from "./tick";
 import { planWaveSchedule } from "./combat/waveSchedule";
+import { defaultDronesForHull, squadronFromPod } from "./combat/bridge";
 
 const PATROL_KEY = "crimsonReaverSweep";
 
@@ -164,6 +166,7 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
 
   it("seeds a carrier's default drone screen into the patrol carry-state", () => {
     const state = stateWithHull("carrier");
+    const seedBefore = state.nextPatrolSeed; // the master seed this dispatch will draw (drone id prefix)
     const result = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false);
     expect(result.success).toBe(true);
     const mission = result.next.captains[0].mission as PatrolMissionState;
@@ -171,6 +174,49 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
     expect(mission.playerDrones.length).toBe(1);
     expect(mission.playerDrones[0].role).toBe("attack");
     expect(mission.playerHull).toBe(SHIP_TYPES.carrier.hullIntegrity);
+    // Combat 1.0 (Unit 2.3b): a Standard-Issue carrier now seeds its carry-state from its INSTALLED
+    // attack pod, which must be BYTE-IDENTICAL to the old hull-default seed (defaultDronesForHull), so
+    // no patrol-outcome fixture moves. The id prefix is keyed to the drawn master seed.
+    expect(mission.playerDrones).toEqual(defaultDronesForHull("carrier", `patrol-${seedBefore}-p`));
+  });
+
+  it("Unit 2.3b: a CRAFTED defense pod installed on a carrier reaches the patrol carry-state", () => {
+    // Start from a Standard-Issue carrier (one fitted attack droneBay pod), then REPLACE that pod with a
+    // crafted DEFENSE pod in the same bay: a bigger (quality 2) screen with a +droneHp affix. This is the
+    // capability 2.3b unlocks: before, the dispatch seed came from defaultDronesForHull (always the hull's
+    // ATTACK default), so a crafted pod never reached a real patrol; now the seed reads the installed pod.
+    const base = stateWithHull("carrier");
+    const attackPod = base.equipment.find(
+      (e) => e.fittedToShipId === "ship-1" && e.slotType === "droneBay",
+    )!;
+    const craftedDefense: EquipmentInstance = {
+      ...attackPod,
+      droneRole: "defense",
+      quality: 2,
+      implicitStats: { ...attackPod.implicitStats },
+      rolledStats: { ...attackPod.rolledStats, droneHp: 10 },
+    };
+    const state: GameState = {
+      ...base,
+      equipment: base.equipment.map((e) => (e.id === attackPod.id ? craftedDefense : e)),
+    };
+
+    const seedBefore = state.nextPatrolSeed;
+    const result = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false);
+    expect(result.success).toBe(true);
+    const mission = result.next.captains[0].mission as PatrolMissionState;
+
+    // The patrol now carries a DEFENSE squadron (not the hull-default attack screen): the crafted pod
+    // reached the field.
+    expect(mission.playerDrones.length).toBe(1);
+    expect(mission.playerDrones[0].role).toBe("defense");
+    // And it is the EXACT reconstruction the combat bridge produces from that pod (one source of truth),
+    // keyed to the patrol's master seed, so the live seed and the display replay stay byte-identical.
+    expect(mission.playerDrones[0]).toEqual(
+      squadronFromPod(craftedDefense, `patrol-${seedBefore}-p-defense0`),
+    );
+    // It is NOT the old default attack screen (proving the installed pod, not the hull default, drove it).
+    expect(mission.playerDrones).not.toEqual(defaultDronesForHull("carrier", `patrol-${seedBefore}-p`));
   });
 
   it("a blocked dispatch is a same-ref no-op carrying the block reason", () => {

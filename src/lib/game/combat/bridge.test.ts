@@ -15,6 +15,8 @@ import {
 	weaponInstanceFromGear,
 	squadronFromPod,
 	tierFromPod,
+	defaultDronesForHull,
+	installedDronesForPatrol,
 	frameHp,
 	type CombatShipStats,
 	type CombatHullType,
@@ -428,6 +430,69 @@ describe("squadronFromPod (Unit 2.3a drone reconstruction)", () => {
 		});
 		delete pod.droneRole;
 		expect(() => squadronFromPod(pod)).toThrow();
+	});
+});
+
+describe("installedDronesForPatrol (Unit 2.3b patrol drone carry-state seed)", () => {
+	// A Standard-Issue carrier carries exactly ONE droneBay pod (its attack pod, quality 0). Seeding
+	// the patrol carry-state from that installed pod must land BYTE-IDENTICALLY on the old hull-default
+	// seed (defaultDronesForHull), so swapping the seed source moves no patrol-outcome fixture.
+	it("Standard-Issue carrier pod seeds BYTE-IDENTICALLY to defaultDronesForHull (no fixture moves)", () => {
+		const prefix = "patrol-7-p";
+		// A weapon + shield + the one attack drone pod: only the droneBay pod must drive the seed.
+		const attackPod = generateCombatStandardIssue({
+			slotType: "droneBay",
+			droneRole: "attack",
+			fittedToShipId: "ship-1",
+			allocateId: () => "equip-1",
+		});
+		const weapon = generateCombatStandardIssue({
+			slotType: "weapon",
+			weaponType: "pointDefenseArray",
+			fittedToShipId: "ship-1",
+			allocateId: () => "equip-2",
+		});
+		const seeded = installedDronesForPatrol([weapon, attackPod], prefix);
+		// One squadron (the non-droneBay weapon is filtered out), byte-identical to the hull default.
+		expect(seeded).toEqual(defaultDronesForHull("carrier", prefix));
+	});
+
+	// A destroyer / battleship carries NO drone bays, so no pod -> an empty carry-state, exactly what
+	// defaultDronesForHull returns for those hulls (they never fielded drones; still unchanged).
+	it("a gear set with no drone pods seeds an EMPTY carry-state (destroyer/battleship unchanged)", () => {
+		const weapon = generateCombatStandardIssue({
+			slotType: "weapon",
+			weaponType: "autocannon",
+			fittedToShipId: "ship-1",
+			allocateId: () => "equip-1",
+		});
+		expect(installedDronesForPatrol([weapon], "patrol-9-p")).toEqual([]);
+		expect(installedDronesForPatrol([weapon], "patrol-9-p")).toEqual(
+			defaultDronesForHull("destroyer", "patrol-9-p"),
+		);
+	});
+
+	// The NEW capability: a CRAFTED defense pod installed into a carrier bay reaches the patrol seed as
+	// a DEFENSE squadron (not the hull-default attack screen), reconstructed identically to squadronFromPod.
+	it("a crafted DEFENSE pod seeds a defense squadron (the crafted screen reaches the patrol)", () => {
+		const prefix = "patrol-11-p";
+		const defensePod = generateCombatStandardIssue({
+			slotType: "droneBay",
+			droneRole: "defense",
+			fittedToShipId: "ship-1",
+			allocateId: () => "equip-1",
+		});
+		// Simulate a crafted roll: quality 2 (a bigger screen) + a +10 droneHp affix.
+		defensePod.quality = 2;
+		defensePod.rolledStats = { droneHp: 10 };
+		const seeded = installedDronesForPatrol([defensePod], prefix);
+		expect(seeded.length).toBe(1);
+		expect(seeded[0].role).toBe("defense");
+		// The seed is the SAME reconstruction shipToCombatant / the bridge fold uses (one source of truth):
+		// squadronFromPod with the per-patrol `${prefix}-${role}${index}` id.
+		expect(seeded[0]).toEqual(squadronFromPod(defensePod, `${prefix}-defense0`));
+		// It is NOT the carrier's default attack screen (the crafted pod genuinely changed what fields).
+		expect(seeded).not.toEqual(defaultDronesForHull("carrier", prefix));
 	});
 });
 

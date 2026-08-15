@@ -51,7 +51,7 @@ import {
 import { equippedFor } from "../equipment";
 import {
   combatHullTypeOf,
-  defaultDronesForHull,
+  installedDronesForPatrol,
   defaultSystemDurabilityForHull,
   type CombatHullType,
   type CombatShipStats,
@@ -399,19 +399,27 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   const shipDef = SHIP_TYPES[ship.typeKey];
   const def = PATROLS[mission.patrolKey];
 
-  // The FULL initial carry-state (mirrors freshPatrolMission): full hull, full shield,
-  // and the hull's default drone screen keyed to the master seed (a carrier's Attack
-  // squadron; empty for a non-carrier). These are freshly built, so no input is shared.
-  const startDrones = defaultDronesForHull(hullType, `patrol-${mission.masterSeed}-p`);
+  // The ship's INSTALLED combat gear, read the SAME way the live tick loop reads it (equippedFor off
+  // this GameState). Resolved ONCE and used for BOTH the player combatant's weapons/shield/hull/defenses
+  // (Unit 1.4) AND the initial drone carry-state (Unit 2.3b) below, so the replay's two drone-seeding
+  // and combatant-building reads can never drift from each other or from the live fight.
+  const installedGear = equippedFor(state, ship.id);
+
+  // The FULL initial carry-state (mirrors freshPatrolMission exactly): full hull, full shield, and the
+  // drones the ship's INSTALLED droneBay pods field, keyed to the master seed (Unit 2.3b). Built from
+  // the SAME installedDronesForPatrol + idPrefix the live seed uses, so a crafted pod's squadron shows
+  // in the replay identically to the real patrol; a Standard-Issue carrier is byte-identical to the old
+  // default-screen seed. Freshly built, so no input is shared.
+  const startDrones = installedDronesForPatrol(installedGear, `patrol-${mission.masterSeed}-p`);
 
   const resolved = resolvePatrolWaves({
     playerId: ship.id,
     stats: shipDef,
     hullType,
     stance: mission.stance,
-    // Unit 1.4: the ship's installed combat gear, read the SAME way the live tick loop reads it
-    // (equippedFor off this GameState), so the replayed player combatant matches the real fight.
-    installedGear: equippedFor(state, ship.id),
+    // Unit 1.4: the ship's installed combat gear (resolved once above), so the replayed player
+    // combatant matches the real fight byte-for-byte.
+    installedGear,
     masterSeed: mission.masterSeed,
     factionId: mission.factionId,
     def,
