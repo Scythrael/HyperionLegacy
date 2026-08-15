@@ -19,7 +19,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull } from "./combat/bridg
 // never imports save.ts), so it introduces no module cycle.
 import { clampInventoryToCaps, installMissingCombatBaselines } from "./tick";
 
-export const SAVE_VERSION = 34;
+export const SAVE_VERSION = 35;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1345,6 +1345,34 @@ const MIGRATIONS: Record<number, Migration> = {
   // NOTE: on the current feature branch, NOT yet shipped to production, so still editable (the
   // frozen-once-shipped rule applies only to production-released migrations).
   33: (state: any): any =>
+    installMissingCombatBaselines({
+      ...state,
+      ships: state.ships ?? [],
+      equipment: state.equipment ?? [],
+      nextEquipmentId: state.nextEquipmentId ?? 1,
+    }),
+  // v34 -> v35: Standard-Issue DRONE-POD baseline SEED (Combat 1.0, Unit 2.3a, docs/plans/
+  // 2026-07-31-combat-1.0-integration-plan.md Phase 2). Unit 2.3a made the combat sim read a ship's
+  // INSTALLED drone pods as its squadrons; a v34 carrier carries its weapon/shield/plating baseline
+  // (from MIGRATIONS[33]) but NO drone pod yet, so without this step a migrated carrier would fold to
+  // ZERO drones (a regression from its default attack squadron). This step APPENDS the free
+  // Standard-Issue attack drone pod to every EXISTING carrier missing one (droneBays > 0), so a
+  // migrated carrier fields the SAME one attack squadron it did before (behaviour-preserving).
+  // Destroyers/battleships (no bays) and economy hulls are untouched.
+  //
+  // - Delegates to the SAME SHARED installMissingCombatBaselines (tick.ts) a fresh build uses, which
+  //   is now Unit-2.3a-aware: it SKIPS the weapon/shield/plating a v34 carrier already carries and
+  //   mints ONLY the missing drone pod, threading nextEquipmentId forward (unique + monotonic ids;
+  //   the existing pieces keep theirs). Omega 4 (DRY): migrated and freshly-built carriers converge.
+  // - IDEMPOTENT per ship: a carrier already carrying its attack pod is SKIPPED (the per-bay count
+  //   check), so a re-run / chained / hand-edited save never double-seeds. Same belt-and-suspenders
+  //   posture as MIGRATIONS[27]/[33].
+  // - ECONOMY-NEUTRAL: the drone-pod baseline is mass 0 / powerDraw 0 (like every combat baseline),
+  //   so shipDerivedStats is bit-identical to before and the offline==live parity fuzz stays green.
+  //   An EquipmentInstance carries no top-level Decimal, so the minted pod rides hydrateDecimals's
+  //   `...state` spread untouched. NOTE: on the current feature branch, NOT yet shipped to
+  //   production, so still editable (the frozen-once-shipped rule applies only to prod migrations).
+  34: (state: any): any =>
     installMissingCombatBaselines({
       ...state,
       ships: state.ships ?? [],

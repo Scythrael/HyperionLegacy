@@ -128,6 +128,9 @@ import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, default
 // Combat 1.0 (Unit 1.4): WeaponId types the per-hull Standard-Issue weapon loadout the combat
 // baseline seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
 import type { WeaponId } from "./combat/weapons";
+// Combat 1.0 (Unit 2.3a): DroneRole types the per-hull Standard-Issue drone-pod roles the same
+// seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
+import type { DroneRole } from "./combat/drones";
 import { planWaveSchedule, patrolWaveParams } from "./combat/waveSchedule";
 // Combat 0.13.0 (Phase 12b-1 review): the pure per-wave seed derivation + its four salt
 // constants now live in their own dependency-free combat/ leaf (waveSeed.ts) so the
@@ -3169,13 +3172,17 @@ function freshPatrolMission(args: {
 function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
   const hull = combatHullTypeOf(typeKey);
   if (hull === null) {
-    // Non-combat hull: an empty loadout, so the seeder mints nothing (the magnitudes are unused).
-    return { signatureWeapons: [], shieldCapacity: 0, shieldRecharge: 0, hullStrength: 0 };
+    // Non-combat hull: an empty loadout (+ no drone roles), so the seeder mints nothing.
+    return { signatureWeapons: [], droneRoles: [], shieldCapacity: 0, shieldRecharge: 0, hullStrength: 0 };
   }
   const shipDef = SHIP_TYPES[hull];
   return {
     // The FULL default loadout (every hardpoint the hull ships with), in order.
     signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
+    // The hull's default drone-pod roles (Unit 2.3a): a carrier is ["attack"] (its one built-in
+    // attack squadron), a destroyer/battleship is [] (no bays). Sourced from the SAME default-loadout
+    // table the ABSENT-path drone build reads, so a Standard-Issue carrier folds to its default screen.
+    droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
     // Pure-gear shields (design 5a): the emitter reproduces the hull's shield pool + recharge.
     shieldCapacity: shipDef.shieldCapacity,
     shieldRecharge: shipDef.shieldRecharge,
@@ -3187,8 +3194,9 @@ function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
 
 // installMissingCombatBaselines: fill every COMBAT hull in the fleet that is missing its required
 // combat slots with a freshly-minted, fitted Standard-Issue combat set (its FULL default weapon
-// loadout + shield emitter + hull plating), threading nextEquipmentId forward. Combat 1.0 (Unit 1.3,
-// REVISED Unit 1.4 to mint the full loadout + behaviour-preserving per-hull magnitudes).
+// loadout + shield emitter + hull plating + its default drone pods), threading nextEquipmentId
+// forward. Combat 1.0 (Unit 1.3, REVISED Unit 1.4 for the full loadout + behaviour-preserving
+// per-hull magnitudes, and Unit 2.3a to also seed a carrier's Standard-Issue attack drone pod).
 //
 // THE shared "give combat hulls their baseline" fold (Omega 4, DRY): the v33->v34 save migration
 // (save.ts) delegates to it so a pre-combat-gear save's combat hulls become dispatchable on load.
@@ -3220,8 +3228,9 @@ export function installMissingCombatBaselines(state: GameState): GameState {
     // missing: a bare hull gets the full set (byte-identical to seedCombatStandardIssueForShip: same
     // order, same ids), while a partially-stripped hull is completed without duplicating what it has.
     const required: {
-      slotType: "weapon" | "shieldEmitters" | "hullPlating";
+      slotType: "weapon" | "shieldEmitters" | "hullPlating" | "droneBay";
       weaponType?: WeaponId;
+      droneRole?: DroneRole;
       shieldCapacity?: number;
       shieldRecharge?: number;
       hullStrength?: number;
@@ -3229,13 +3238,20 @@ export function installMissingCombatBaselines(state: GameState): GameState {
       ...spec.signatureWeapons.map((weaponType) => ({ slotType: "weapon" as const, weaponType })),
       { slotType: "shieldEmitters", shieldCapacity: spec.shieldCapacity, shieldRecharge: spec.shieldRecharge },
       { slotType: "hullPlating", hullStrength: spec.hullStrength },
+      // Combat 1.0 (Unit 2.3a): the hull's default drone pods LAST (after plating), so the v34->v35
+      // migration only APPENDS the new pod to an existing carrier (its weapon/shield/plating ids are
+      // untouched). A carrier is ["attack"], a destroyer/battleship [] (no bays).
+      ...spec.droneRoles.map((droneRole) => ({ slotType: "droneBay" as const, droneRole })),
     ];
-    // Track how many weapon pieces are ALREADY fitted so we only mint the MISSING hardpoints (never
-    // double-seed a weapon the hull already carries), while shield/plating stay a per-slot presence
-    // check. In today's all-or-none reality a combat hull has all its weapons or none; this keeps the
-    // seam correct for the later single-slot install/uninstall unit.
+    // Track how many weapon AND drone-pod pieces are ALREADY fitted so we only mint the MISSING ones
+    // (never double-seed a hardpoint / bay the hull already carries), by COUNT + in order. Shield /
+    // plating stay a per-slot presence check (they are singletons). In today's all-or-none reality a
+    // combat hull has all its weapons/pods or none; the count logic keeps the seam correct for the
+    // later single-slot install/uninstall unit.
     const weaponsFitted = fitted.filter((e) => e.slotType === "weapon").length;
+    const droneBaysFitted = fitted.filter((e) => e.slotType === "droneBay").length;
     let weaponsSeeded = 0;
+    let droneBaysSeeded = 0;
     for (const r of required) {
       if (r.slotType === "weapon") {
         // Skip weapon hardpoints already covered by an existing fitted weapon (by count, in order).
@@ -3244,6 +3260,13 @@ export function installMissingCombatBaselines(state: GameState): GameState {
           continue;
         }
         weaponsSeeded += 1;
+      } else if (r.slotType === "droneBay") {
+        // Skip drone bays already covered by an existing fitted pod (by count, in order).
+        if (droneBaysSeeded < droneBaysFitted) {
+          droneBaysSeeded += 1;
+          continue;
+        }
+        droneBaysSeeded += 1;
       } else if (fitted.some((e) => e.slotType === r.slotType)) {
         continue; // shield / plating already installed: never double-seed
       }
@@ -3253,6 +3276,7 @@ export function installMissingCombatBaselines(state: GameState): GameState {
         generateCombatStandardIssue({
           slotType: r.slotType,
           weaponType: r.weaponType,
+          droneRole: r.droneRole,
           shieldCapacity: r.shieldCapacity,
           shieldRecharge: r.shieldRecharge,
           hullStrength: r.hullStrength,

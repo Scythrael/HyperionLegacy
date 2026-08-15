@@ -173,6 +173,86 @@ export function weaponInstanceFromGear(
 	};
 }
 
+// ---------------------------------------------------------------------------
+// tierFromPod: map an installed drone pod's QUALITY (0..5) to a hangar squadron TIER
+// (Combat 1.0 Unit 2.3a, design 6a/S8 "hangar-tier squadron scaling"). makeSquadron
+// scales squadron SIZE by tier (ROLE_BASE_SIZE + tier * TIER_SIZE_STEP), so a higher-
+// quality pod fields a bigger screen, monotonically, the drone analogue of a weapon's
+// quality raising its durability ceiling.
+//
+// BEHAVIOUR-PRESERVING FLOOR (load-bearing): a Standard-Issue pod is quality 0, so this
+// returns tier 0 and makeSquadron(role, undefined, 0) is the carrier's CURRENT default
+// squadron. The quality->tier curve above 0 is FIRST-PASS TUNABLE (the balance pass owns
+// it); only the quality-0 == tier-0 floor is a hard contract. Clamped + floored so a
+// malformed/negative quality can never produce a negative tier.
+export function tierFromPod(pod: EquipmentInstance): number {
+	return Math.max(0, Math.floor(pod.quality));
+}
+
+// ---------------------------------------------------------------------------
+// squadronFromPod: reconstruct a fightable DroneSquadron from an INSTALLED drone-pod
+// EquipmentInstance (Combat 1.0 Unit 2.3a, design 9/S8). The DRONE analogue of
+// weaponInstanceFromGear.
+//
+// The base per-drone behaviour (family / accuracy / yield / range / evasion / cooldown +
+// the 7b defensive fields) comes from makeSquadron(pod.droneRole, undefined, tierFromPod(pod)),
+// i.e. the drone ROLE_TEMPLATE[role] scaled by the pod's hangar tier; the pod's ROLLED lines
+// then modify that base:
+//   droneHp       += implicit droneHp + rolled droneHp affix  (raises squadron.droneHp AND every
+//                                                               drone's hpMax/hp, kept full at spawn)
+//   accuracy      += rolled droneAccuracy affix               (raises the squadron's hit chance)
+//
+// BEHAVIOUR-PRESERVING FLOOR (the load-bearing invariant, proven by a unit test): a Standard-Issue
+// pod (droneRole "attack", implicit droneHp 0, no affixes, quality 0) reconstructs BYTE-IDENTICALLY
+// to makeSquadron("attack", undefined, 0), the carrier's current default squadron: tier 0 (quality
+// 0), every rolled delta 0, so nothing is added and the fold is a no-op. This is why lighting up
+// the drone fold does not move combat outcomes for a Standard-Issue-podded carrier.
+//
+// ⚠️ SCOPE (2.3a vs 2.3b): this fold is what shipToCombatant returns, but the LIVE patrol path
+// (buildPatrolPlayerCombatant, patrolWave.ts) OVERRIDES a combatant's drones with the persisted
+// per-wave carry-state, and that carry-state is seeded at dispatch from defaultDronesForHull, NOT
+// from installed pods. So a CRAFTED pod's squadron (bigger screen, +droneHp) is reconstructed here
+// but discarded in a real patrol until Unit 2.3b rewires the dispatch seed + carry-state to use
+// squadronFromPod-from-installed-pods. It is invisible for Standard-Issue (defaultDronesForHull ==
+// squadronFromPod(the Standard-Issue pod)), which is exactly why 2.3a stays behaviour-preserving.
+// Once 2.3b lands, installing a crafted defense/support pod reaches the field and the DORMANT
+// defense/support/reflect/smart-reflect behaviours fire automatically (makeSquadron already carries
+// the deflect/reflect fields and resolveBattle already reads them, so no SIM code changes, only the
+// dispatch seed).
+//
+// `idPrefix` scopes the squadron id (two bays of the same role never collide). Omitted -> makeSquadron
+// defaults it to the role, so squadronFromPod(pod) alone reads as the role's default-named squadron
+// (this is the exact form the byte-identity test compares against makeSquadron("attack", undefined, 0)).
+//
+// PURE: builds a fresh squadron (own drone array), never mutating the pod or any shared template.
+// ---------------------------------------------------------------------------
+export function squadronFromPod(pod: EquipmentInstance, idPrefix?: string): DroneSquadron {
+	// A drone pod MUST name its squadron role (its combat stats come from that template). This should
+	// never fire for a real installed pod (the seeder + itemgen always set droneRole), so it is a loud
+	// assertion on a malformed piece, not a normal path (mirrors weaponInstanceFromGear's guard).
+	if (pod.droneRole === undefined) {
+		throw new Error(`squadronFromPod: drone pod "${pod.id}" has no droneRole`);
+	}
+	const squadron = makeSquadron(pod.droneRole, undefined, tierFromPod(pod), idPrefix);
+	// The pod's rolled POWER lines (implicit signature + any rarity affix). Absent keys read 0, so a
+	// Standard-Issue pod (implicit droneHp 0, rolledStats {}) contributes 0 to both -> the fold is a
+	// no-op and the squadron stays byte-identical to the makeSquadron base.
+	const droneHpBonus = (pod.implicitStats.droneHp ?? 0) + (pod.rolledStats.droneHp ?? 0);
+	const droneAccuracyBonus = pod.rolledStats.droneAccuracy ?? 0;
+	if (droneHpBonus !== 0) {
+		// Raise the squadron's template hp AND every spawned drone's ceiling, kept full at battle start.
+		squadron.droneHp += droneHpBonus;
+		for (const drone of squadron.drones) {
+			drone.hpMax += droneHpBonus;
+			drone.hp = drone.hpMax;
+		}
+	}
+	if (droneAccuracyBonus !== 0) {
+		squadron.accuracy += droneAccuracyBonus;
+	}
+	return squadron;
+}
+
 // Base durability (design S9) for a bridged ship's REACTOR and FTL/drive, at
 // quality 0. The ship model has no per-hull durability stat yet (that arrives with
 // the crafted-equipment bridge), so these are shared first-pass ceilings, mirroring
@@ -389,10 +469,11 @@ export interface ShipToCombatantArgs {
 //      disruptionResist   <- summed per-family resist affixes across all gear (?? 0 each)
 //      evasion            <- 0            (no maneuver stat wired this unit; TODO 1.6)
 //      speed              <- DEFAULT_COMBAT_SPEED (unchanged this unit; TODO 1.6)
-//      drones             <- hullType default (drones become gear in Phase 2; unchanged)
+//      drones             <- installed drone-pod squadrons (squadronFromPod per droneBay pod, Unit 2.3a)
 //    A STANDARD-ISSUE set folds BYTE-IDENTICALLY to path B (frameHp + plating.hullStrength
 //    == hullIntegrity, emitter capacity == the hull's shieldCapacity, each weapon
-//    reconstructs to makeWeaponInstance): combat OUTCOMES do not change (behaviour-preserving).
+//    reconstructs to makeWeaponInstance, each drone pod reconstructs to the hull's default
+//    squadron): combat OUTCOMES do not change (behaviour-preserving).
 //
 // B) installedGear ABSENT (enemies, the durability seed, tests). The EXACT pre-1.4 behaviour:
 //      hull, hullMax      <- stats.hullIntegrity
@@ -472,17 +553,25 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	const damageResist = gear ? sumFamilyResist(gear, "damageResist") : zeroResist();
 	const disruptionResist = gear ? sumFamilyResist(gear, "disruptionResist") : zeroResist();
 
-	// DRONES: an explicit squadron list wins; otherwise build the hull default's
-	// squadrons fresh (makeSquadron mints independent drone instances, the per-battle
-	// deep clone); otherwise none. idPrefix is combatant-scoped so two carriers never
-	// share a squadron id. Tier 0 (base) for now; hangar-tier scaling is Phase 9/12.
-	const drones: DroneSquadron[] =
-		args.drones ??
-		(defaults
-			? defaults.droneRoles.map((role, index) =>
-					makeSquadron(role, undefined, 0, `${id}-${role}${index}`),
-				)
-			: []);
+	// DRONES (Combat 1.0 Unit 2.3a). PLAYER path (gear present): field one squadron per INSTALLED
+	// drone-pod (slotType "droneBay"), reconstructed via squadronFromPod in the order the pods appear
+	// in `gear` (equippedFor's stable order). The squadron id is `${id}-${role}${index}`, the SAME
+	// format the hull-default path below uses, so a Standard-Issue carrier (one attack pod) folds to a
+	// squadron BYTE-IDENTICAL to the default (squadronFromPod at quality 0 == makeSquadron(role, ...,
+	// 0)); a non-carrier has 0 bays -> 0 pods -> no drones. A crafted defense/support pod lights up its
+	// dormant behaviours automatically (resolveBattle already reads those squadron fields). ABSENT path
+	// (enemies / durability seed / tests): an explicit `drones` wins, else the hull default's squadrons
+	// minted fresh (makeSquadron -> independent per-battle drone instances, tier 0), else none.
+	const drones: DroneSquadron[] = gear
+		? gear
+				.filter((piece) => piece.slotType === "droneBay")
+				.map((pod, index) => squadronFromPod(pod, `${id}-${pod.droneRole}${index}`))
+		: args.drones ??
+			(defaults
+				? defaults.droneRoles.map((role, index) =>
+						makeSquadron(role, undefined, 0, `${id}-${role}${index}`),
+					)
+				: []);
 
 	return {
 		id,

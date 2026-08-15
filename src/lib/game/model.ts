@@ -4545,6 +4545,23 @@ export const COMBAT_STANDARD_ISSUE_WEAPON_YIELD = 0; // no bonus: base WEAPON_DE
 // byte-identically to makeWeaponInstance (whose template durability is also 100).
 export const COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY = 100; // == combat/weapons.ts BASE_WEAPON_DURABILITY
 
+// The Standard-Issue DRONE POD adds NO droneHp bonus (Combat 1.0 Unit 2.3a). The per-drone combat
+// stats (hp/family/accuracy/yield/range/evasion/cooldown + the defensive fields) come from the drone
+// ROLE_TEMPLATE[role], which the Unit 2.3a bridge (squadronFromPod) reconstructs; the baseline pod
+// only OCCUPIES a bay so a carrier fields its default squadron. droneHp is the pod's SIGNATURE line
+// (the drone analogue of weaponYield, see itemgen.generateDronePod), so a 0 signature is the
+// behaviour-preserving floor: squadronFromPod(a Standard-Issue attack pod) reconstructs
+// BYTE-IDENTICALLY to makeSquadron("attack", undefined, 0), the carrier's current default squadron.
+export const COMBAT_STANDARD_ISSUE_DRONE_HP = 0; // no bonus: base ROLE_TEMPLATE carries the real stats
+
+// The drone-pod baseline's durability ceiling. Mirrors itemgen.ts DRONE_POD_BASE_DURABILITY (100) at
+// quality 0, a small DELIBERATE literal duplication (not a runtime import) so model.ts keeps its
+// "never import combat/itemgen internals at runtime" discipline. Behaviour-neutral: a DroneSquadron
+// carries NO durability field, so a pod's durability never enters squadronFromPod's reconstruction
+// (unlike a weapon, whose durability the bridge DOES read); it exists only so the pod is a well-formed
+// wearable item like every other combat baseline.
+export const COMBAT_STANDARD_ISSUE_DRONE_DURABILITY = 100; // == itemgen.ts DRONE_POD_BASE_DURABILITY
+
 // Mint ONE combat Standard-Issue baseline EquipmentInstance for a combat slot (weapon /
 // shieldEmitters / hullPlating). Same DETERMINISTIC, rng-free, affix-free posture as
 // generateStandardIssue (it runs inside a save migration where no reproducible rng exists). The
@@ -4564,11 +4581,16 @@ export const COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY = 100; // == combat/weapons
 // PURE: a function of (slotType, weaponType, the passed magnitudes, id, fittedToShipId); identical
 // inputs mint an identical piece, exactly what a re-runnable migration requires.
 export function generateCombatStandardIssue(a: {
-  slotType: "weapon" | "shieldEmitters" | "hullPlating";
+  slotType: "weapon" | "shieldEmitters" | "hullPlating" | "droneBay";
   weaponType?: WeaponId; // REQUIRED iff slotType === "weapon" (the hull's signature gun); absent otherwise
+  // The squadron ROLE a drone-pod baseline deploys (Combat 1.0 Unit 2.3a). REQUIRED iff slotType ===
+  // "droneBay" (the drone analogue of weaponType: the base ROLE_TEMPLATE[role] carries the real
+  // per-drone stats, this only names WHICH role); absent for every other slot.
+  droneRole?: DroneRole;
   // The per-hull signature magnitudes the caller resolves (Unit 1.4). REQUIRED for their slot:
   // shieldCapacity + shieldRecharge for a shield emitter; hullStrength for hull plating. Absent for
-  // a weapon (its yield bonus is always 0; the base WEAPON_DEF carries the real stats).
+  // a weapon (its yield bonus is always 0; the base WEAPON_DEF carries the real stats) and for a
+  // drone pod (its droneHp bonus is always 0; the base ROLE_TEMPLATE carries the real stats).
   shieldCapacity?: number;
   shieldRecharge?: number;
   hullStrength?: number;
@@ -4579,18 +4601,31 @@ export function generateCombatStandardIssue(a: {
     // A weapon baseline must know WHICH gun it is (its combat stats come from that base def).
     throw new Error(`generateCombatStandardIssue: slotType "weapon" requires a weaponType`);
   }
-  // Durability base: the slot's reserved base for shield/plating; the weapon const for a weapon.
+  if (a.slotType === "droneBay" && a.droneRole === undefined) {
+    // A drone-pod baseline must know WHICH role it fields (its combat stats come from that template).
+    throw new Error(`generateCombatStandardIssue: slotType "droneBay" requires a droneRole`);
+  }
+  // Durability base: the weapon const for a weapon, the drone-pod const for a pod, else the slot's
+  // reserved base (shield/plating). droneBay + weapon have NO SLOT_BASE_PHYSICALS entry (they are not
+  // economy slots; their bases live as combat consts here), so both are special-cased first.
   const durabilityBase =
     a.slotType === "weapon"
       ? COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY
-      : SLOT_BASE_PHYSICALS[a.slotType].durability;
+      : a.slotType === "droneBay"
+        ? COMBAT_STANDARD_ISSUE_DRONE_DURABILITY
+        : SLOT_BASE_PHYSICALS[a.slotType].durability;
 
   // The slot's signature implicit lines at the passed per-hull magnitudes. A fresh object per call
-  // (never a shared module map). The KEYS match each slot's EQUIPMENT_SLOTS.implicitStats, so a
-  // baseline is a well-formed piece of its slot; the Unit 1.4 bridge reads these off the fitted piece.
+  // (never a shared module map). The KEYS match each slot's signature stat (weaponYield / droneHp /
+  // shieldCapacity+shieldRecharge / hullStrength), so a baseline is a well-formed piece of its slot;
+  // the Unit 1.4/2.3a bridge reads these off the fitted piece.
   let implicitStats: Record<string, number>;
   if (a.slotType === "weapon") {
     implicitStats = { weaponYield: COMBAT_STANDARD_ISSUE_WEAPON_YIELD };
+  } else if (a.slotType === "droneBay") {
+    // Drone pod: droneHp is the signature line (see itemgen.generateDronePod); the Standard-Issue
+    // bonus is 0 so squadronFromPod reconstructs the carrier's default squadron byte-identically.
+    implicitStats = { droneHp: COMBAT_STANDARD_ISSUE_DRONE_HP };
   } else if (a.slotType === "shieldEmitters") {
     if (a.shieldCapacity === undefined || a.shieldRecharge === undefined) {
       throw new Error(`generateCombatStandardIssue: shieldEmitters requires shieldCapacity + shieldRecharge`);
@@ -4622,6 +4657,8 @@ export function generateCombatStandardIssue(a: {
   };
   // weaponType lives ONLY on a weapon piece (the guard above proves it is defined here).
   if (a.weaponType !== undefined) piece.weaponType = a.weaponType;
+  // droneRole lives ONLY on a drone-pod piece (the guard above proves it is defined for a droneBay).
+  if (a.droneRole !== undefined) piece.droneRole = a.droneRole;
   return piece;
 }
 
@@ -4629,6 +4666,7 @@ export function generateCombatStandardIssue(a: {
 // Unit 1.4). Grouped as one object so the seeder's signature stays readable as the loadout grows.
 // The CALLER (tick.ts) derives every field from the two combat tables it already imports:
 //   signatureWeapons <- COMBAT_DEFAULT_LOADOUT[hull].weapons        (the FULL default loadout, in order)
+//   droneRoles       <- COMBAT_DEFAULT_LOADOUT[hull].droneRoles     (Unit 2.3a; carrier ["attack"], else [])
 //   shieldCapacity   <- SHIP_TYPES[hull].shieldCapacity
 //   shieldRecharge   <- SHIP_TYPES[hull].shieldRecharge
 //   hullStrength     <- SHIP_TYPES[hull].hullIntegrity - frameHp(hull)   (design 6a; frameHp is a combat leaf)
@@ -4637,6 +4675,10 @@ export interface CombatStandardIssueSpec {
   // The hull's FULL default weapon loadout, in order (one baseline weapon minted per entry). Empty
   // => NOT a combat hull => the seeder mints nothing (a clean no-op for an economy hull).
   signatureWeapons: WeaponId[];
+  // The hull's default drone-pod roles, in order (Combat 1.0 Unit 2.3a; one Standard-Issue drone pod
+  // minted per entry, in a bay). A CARRIER is ["attack"] (its one built-in attack squadron); a
+  // destroyer/battleship is [] (no bays). Empty for a non-combat hull too (it mints nothing anyway).
+  droneRoles: DroneRole[];
   shieldCapacity: number;
   shieldRecharge: number;
   hullStrength: number;
@@ -4669,10 +4711,14 @@ export function seedCombatStandardIssueForShip(
   const pieces: EquipmentInstance[] = [];
   let nextId = startId;
   // Fixed mint order so the id assignment is deterministic across a fresh build and a migration:
-  // every weapon in loadout order, THEN the shield emitter, THEN hull plating.
+  // every weapon in loadout order, THEN the shield emitter, THEN hull plating, THEN every drone pod
+  // in role order (Combat 1.0 Unit 2.3a). The drone pods come LAST so the pre-2.3a id sequence
+  // (weapon/shield/plating) is unchanged: a save that already carries those keeps their ids, and the
+  // v34->v35 migration only appends the new drone pod (no id renumbering).
   const specs: {
-    slotType: "weapon" | "shieldEmitters" | "hullPlating";
+    slotType: "weapon" | "shieldEmitters" | "hullPlating" | "droneBay";
     weaponType?: WeaponId;
+    droneRole?: DroneRole;
     shieldCapacity?: number;
     shieldRecharge?: number;
     hullStrength?: number;
@@ -4680,6 +4726,7 @@ export function seedCombatStandardIssueForShip(
     ...spec.signatureWeapons.map((weaponType) => ({ slotType: "weapon" as const, weaponType })),
     { slotType: "shieldEmitters", shieldCapacity: spec.shieldCapacity, shieldRecharge: spec.shieldRecharge },
     { slotType: "hullPlating", hullStrength: spec.hullStrength },
+    ...spec.droneRoles.map((droneRole) => ({ slotType: "droneBay" as const, droneRole })),
   ];
   for (const s of specs) {
     const mintedId = nextId; // capture before advancing so allocateId names THIS id
@@ -4687,6 +4734,7 @@ export function seedCombatStandardIssueForShip(
       generateCombatStandardIssue({
         slotType: s.slotType,
         weaponType: s.weaponType,
+        droneRole: s.droneRole,
         shieldCapacity: s.shieldCapacity,
         shieldRecharge: s.shieldRecharge,
         hullStrength: s.hullStrength,

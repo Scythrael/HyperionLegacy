@@ -13,6 +13,8 @@ import {
 	sampleLoadout,
 	COMBAT_DEFAULT_LOADOUT,
 	weaponInstanceFromGear,
+	squadronFromPod,
+	tierFromPod,
 	frameHp,
 	type CombatShipStats,
 	type CombatHullType,
@@ -20,6 +22,7 @@ import {
 import { resolveBattle } from "./resolveBattle";
 import { engagementForecast } from "./rating";
 import { makeWeaponInstance } from "./weapons";
+import { makeSquadron } from "./drones";
 import {
 	SHIP_TYPES,
 	seedCombatStandardIssueForShip,
@@ -289,13 +292,16 @@ describe("bridged Combatant is valid resolveBattle input", () => {
 // ---------------------------------------------------------------------------
 
 // Build a hull's behaviour-preserving Standard-Issue combat spec EXACTLY as the tick.ts caller does
-// (full default loadout + the hull's shield stats + plating = hullIntegrity - frameHp). Kept local so
-// the bridge tests exercise the real caller contract without importing tick.ts (a combat leaf must
-// never import UP into the live loop).
+// (full default loadout + default drone roles + the hull's shield stats + plating = hullIntegrity -
+// frameHp). Kept local so the bridge tests exercise the real caller contract without importing tick.ts
+// (a combat leaf must never import UP into the live loop).
 function combatSpecFor(hull: CombatHullType): CombatStandardIssueSpec {
 	const def = SHIP_TYPES[hull];
 	return {
 		signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
+		// Unit 2.3a: the hull's default drone-pod roles (carrier ["attack"], else []), so the seeded
+		// carrier gear includes its attack pod and the fold reproduces its default squadron.
+		droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
 		shieldCapacity: def.shieldCapacity,
 		shieldRecharge: def.shieldRecharge,
 		hullStrength: def.hullIntegrity - frameHp(def.hullIntegrity),
@@ -356,6 +362,72 @@ describe("weaponInstanceFromGear (Unit 1.4 weapon reconstruction)", () => {
 		});
 		delete piece.weaponType;
 		expect(() => weaponInstanceFromGear(piece, "w")).toThrow();
+	});
+});
+
+describe("squadronFromPod (Unit 2.3a drone reconstruction)", () => {
+	it("reconstructs a Standard-Issue attack pod BYTE-IDENTICALLY to makeSquadron('attack', undefined, 0)", () => {
+		// The carrier's default squadron is makeSquadron("attack", undefined, 0). A Standard-Issue pod
+		// (droneRole attack, implicit droneHp 0, no affixes, quality 0 -> tier 0) must fold back to EXACTLY
+		// that squadron, so a Standard-Issue-podded carrier fights unchanged (the behaviour-preserving floor).
+		const pod = generateCombatStandardIssue({
+			slotType: "droneBay",
+			droneRole: "attack",
+			fittedToShipId: "ship-1",
+			allocateId: () => "equip-1",
+		});
+		// No idPrefix, so both default the id to the role ("attackSquadron"): the pure byte-identity check.
+		expect(squadronFromPod(pod)).toEqual(makeSquadron("attack", undefined, 0));
+	});
+
+	it("Standard-Issue is byte-identical for EVERY role (attack/defense/support), quality 0 == tier 0", () => {
+		for (const role of ["attack", "defense", "support"] as const) {
+			const pod = generateCombatStandardIssue({
+				slotType: "droneBay",
+				droneRole: role,
+				fittedToShipId: null,
+				allocateId: () => "equip-1",
+			});
+			expect(tierFromPod(pod)).toBe(0); // quality-0 floor
+			expect(squadronFromPod(pod)).toEqual(makeSquadron(role, undefined, 0));
+		}
+	});
+
+	it("applies rolled droneHp (squadron + every drone hp) and droneAccuracy on top of the base template", () => {
+		const base = makeSquadron("attack", undefined, 0);
+		const pod = generateCombatStandardIssue({
+			slotType: "droneBay",
+			droneRole: "attack",
+			fittedToShipId: null,
+			allocateId: () => "equip-1",
+		});
+		// Simulate a crafted roll: +7 droneHp (implicit signature was 0) and +5 droneAccuracy.
+		pod.implicitStats = { droneHp: 7 };
+		pod.rolledStats = { droneAccuracy: 5 };
+		pod.quality = 2;
+		const sq = squadronFromPod(pod, "ship-a-attack0");
+		expect(sq.droneHp).toBe(base.droneHp + 7);
+		expect(sq.accuracy).toBe(base.accuracy + 5);
+		// Every drone's ceiling rose by the droneHp bonus and spawns full.
+		for (const drone of sq.drones) {
+			expect(drone.hpMax).toBe(base.droneHp + 7);
+			expect(drone.hp).toBe(drone.hpMax);
+		}
+		// quality 2 -> tier 2 -> a larger screen (ROLE_BASE_SIZE + tier * TIER_SIZE_STEP).
+		expect(sq.drones.length).toBe(base.drones.length + 2);
+		// The idPrefix scopes the squadron id (so two carriers never collide).
+		expect(sq.id).toBe("ship-a-attack0Squadron");
+	});
+
+	it("throws on a drone pod with no droneRole (a malformed piece)", () => {
+		const pod = generateCombatStandardIssue({
+			slotType: "droneBay",
+			droneRole: "attack",
+			fittedToShipId: null,
+			allocateId: () => "equip-1",
+		});
+		delete pod.droneRole;
+		expect(() => squadronFromPod(pod)).toThrow();
 	});
 });
 

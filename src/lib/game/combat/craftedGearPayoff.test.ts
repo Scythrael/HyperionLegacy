@@ -61,6 +61,8 @@ function combatSpecFor(hull: CombatHullType): CombatStandardIssueSpec {
 	const def = SHIP_TYPES[hull];
 	return {
 		signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
+		// Unit 2.3a: the hull's default drone-pod roles (destroyer under test has none).
+		droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
 		shieldCapacity: def.shieldCapacity,
 		shieldRecharge: def.shieldRecharge,
 		hullStrength: def.hullIntegrity - frameHp(def.hullIntegrity),

@@ -45,6 +45,9 @@ import {
   seedCombatStandardIssueForShip,
   COMBAT_STANDARD_ISSUE_WEAPON_YIELD,
   COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY,
+  // Combat 1.0 (Unit 2.3a): the Standard-Issue DRONE-POD baseline magnitudes.
+  COMBAT_STANDARD_ISSUE_DRONE_HP,
+  COMBAT_STANDARD_ISSUE_DRONE_DURABILITY,
   type CombatStandardIssueSpec,
 } from "./model";
 import type {
@@ -2215,11 +2218,33 @@ describe("generateCombatStandardIssue (Combat 1.0, Unit 1.3/1.4)", () => {
     expect(piece.durability).toBe(piece.durabilityMax);
   });
 
+  it("mints a well-formed DRONE-POD baseline: slotType droneBay, the given role, droneHp 0 (Unit 2.3a)", () => {
+    const piece = generateCombatStandardIssue({ slotType: "droneBay", droneRole: "attack", fittedToShipId: "ship-1", allocateId: () => "equip-1" });
+    expect(piece.slotType).toBe("droneBay");
+    expect(piece.droneRole).toBe("attack"); // the hull's default squadron role, set by the caller
+    expect(piece.weaponType).toBeUndefined(); // only a weapon piece carries a weaponType
+    expect(piece.rarity).toBe("standard");
+    expect(piece.quality).toBe(0); // the quality-0 floor -> tierFromPod 0 -> the default squadron
+    expect(piece.blueprintKey).toBeNull();
+    // droneHp is the signature line (the drone analogue of weaponYield); the Standard-Issue bonus is 0
+    // so the base ROLE_TEMPLATE carries the real per-drone stats and squadronFromPod is a no-op fold.
+    expect(piece.implicitStats).toEqual({ droneHp: COMBAT_STANDARD_ISSUE_DRONE_HP });
+    expect(COMBAT_STANDARD_ISSUE_DRONE_HP).toBe(0);
+    expect(piece.rolledStats).toEqual({}); // affix-free baseline
+    expect(piece.durabilityMax).toBe(COMBAT_STANDARD_ISSUE_DRONE_DURABILITY);
+    expect(piece.durability).toBe(piece.durabilityMax);
+  });
+
+  it("throws for a drone-pod baseline with no droneRole (a pod must know its base template)", () => {
+    expect(() => generateCombatStandardIssue({ slotType: "droneBay", fittedToShipId: null, allocateId: () => "e" })).toThrow();
+  });
+
   it("is ECONOMY-NEUTRAL: every combat baseline is mass 0 + powerDraw 0", () => {
     const shield = generateCombatStandardIssue({ slotType: "shieldEmitters", shieldCapacity: 300, shieldRecharge: 10, fittedToShipId: null, allocateId: () => "e" });
     const plating = generateCombatStandardIssue({ slotType: "hullPlating", hullStrength: 480, fittedToShipId: null, allocateId: () => "e" });
     const weapon = generateCombatStandardIssue({ slotType: "weapon", weaponType: "autocannon", fittedToShipId: null, allocateId: () => "e" });
-    for (const piece of [shield, plating, weapon]) {
+    const dronePod = generateCombatStandardIssue({ slotType: "droneBay", droneRole: "attack", fittedToShipId: null, allocateId: () => "e" });
+    for (const piece of [shield, plating, weapon, dronePod]) {
       expect(piece.mass).toBe(0);
       expect(piece.powerDraw).toBe(0);
     }
@@ -2243,6 +2268,8 @@ function specFor(hull: "destroyer" | "battleship" | "carrier"): CombatStandardIs
   const def = SHIP_TYPES[hull];
   return {
     signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
+    // Unit 2.3a: the hull's default drone-pod roles (carrier ["attack"], destroyer/battleship []).
+    droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
     shieldCapacity: def.shieldCapacity,
     shieldRecharge: def.shieldRecharge,
     hullStrength: def.hullIntegrity - frameHp(def.hullIntegrity),
@@ -2271,7 +2298,7 @@ describe("seedCombatStandardIssueForShip (Combat 1.0, Unit 1.3/1.4)", () => {
   });
 
   it("mints NOTHING for a non-combat hull (empty signatureWeapons), threading the id straight through", () => {
-    const { pieces, nextId } = seedCombatStandardIssueForShip("ship-7", { signatureWeapons: [], shieldCapacity: 0, shieldRecharge: 0, hullStrength: 0 }, 10);
+    const { pieces, nextId } = seedCombatStandardIssueForShip("ship-7", { signatureWeapons: [], droneRoles: [], shieldCapacity: 0, shieldRecharge: 0, hullStrength: 0 }, 10);
     expect(pieces).toEqual([]);
     expect(nextId).toBe(10); // untouched
   });
@@ -2283,6 +2310,21 @@ describe("seedCombatStandardIssueForShip (Combat 1.0, Unit 1.3/1.4)", () => {
       const weaponPieces = pieces.filter((p) => p.slotType === "weapon");
       expect(weaponPieces.map((p) => p.weaponType)).toEqual(spec.signatureWeapons); // the hull's own hardpoints, in order
       for (const wp of weaponPieces) expect(WEAPON_DEFS[wp.weaponType!]).toBeDefined(); // each is a real weapon def
+    }
+  });
+
+  it("seeds a CARRIER its Standard-Issue attack drone pod LAST (after plating), and none for others (Unit 2.3a)", () => {
+    // The carrier's default loadout is 1 weapon + shield + plating + 1 attack drone pod = 5 pieces,
+    // the drone pod minted LAST so the pre-2.3a weapon/shield/plating id sequence is unchanged.
+    const carrier = seedCombatStandardIssueForShip("ship-9", specFor("carrier"), 20).pieces;
+    expect(carrier.map((p) => p.slotType)).toEqual(["weapon", "shieldEmitters", "hullPlating", "droneBay"]);
+    const pod = carrier.find((p) => p.slotType === "droneBay")!;
+    expect(pod.droneRole).toBe("attack");
+    expect(pod.fittedToShipId).toBe("ship-9");
+    // A destroyer / battleship has no bays, so no drone pod is minted.
+    for (const hull of ["destroyer", "battleship"] as const) {
+      const pieces = seedCombatStandardIssueForShip("ship-1", specFor(hull), 1).pieces;
+      expect(pieces.some((p) => p.slotType === "droneBay")).toBe(false);
     }
   });
 
