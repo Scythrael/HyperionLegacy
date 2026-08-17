@@ -32,11 +32,28 @@ import Decimal from "break_infinity.js";
 import {
   freshState,
   PATROLS,
+  SHIP_TYPES,
+  seedCombatStandardIssueForShip,
   type GameState,
   type ShipTypeKey,
   type PatrolMissionState,
+  type CombatStandardIssueSpec,
+  type EquipmentInstance,
 } from "./model";
 import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines } from "./tick";
+// Combat 1.0 Unit 2.5b (the SHOWCASE-PATROL block below only): the forecast path App.svelte's
+// dispatch card shows, so the block asserts the exact Threat Assessment band a player reads.
+import {
+  COMBAT_DEFAULT_LOADOUT,
+  frameHp,
+  installedDronesForPatrol,
+  defaultSystemDurabilityForHull,
+  type CombatHullType,
+} from "./combat/bridge";
+import { resolvePatrolWaves } from "./combat/patrolReplay";
+import { threatAssessment } from "./combat/threatAssessment";
+import { generateWeapon, generateEquipment, generateDronePod } from "./itemgen";
+import type { WeaponId } from "./combat/weapons";
 
 const PATROL_KEY = "crimsonReaverSweep";
 const DEF = PATROLS[PATROL_KEY];
@@ -138,5 +155,175 @@ describe("STARTER PATROL BALANCE: winnable by all three tactician hulls", () => 
           `the starter patrol must be reliably winnable by every tactician hull's default loadout`,
       ).toBeGreaterThanOrEqual(MIN_WIN_RATE);
     }
+  });
+});
+
+// ============================================================================
+// SHOWCASE PATROL BALANCE: the tougher Crimson-Reaver Warband (Combat 1.0 Unit 2.5b).
+//
+// WHAT THIS LOCKS (the opposite promise from the block above): the entry Sweep must be
+// reliably WINNABLE by every hull's default loadout; the Warband must be a REAL FIGHT that
+// makes the mechanics VISIBLE. Three invariants, all measured through the REAL sim:
+//
+//   1. MID BAND on free gear: a carrier flying its Standard-Issue loadout reads a mid Threat
+//      Assessment tier (NOT "Guaranteed"), a real fight with losses expected. This is the
+//      whole reason the patrol exists (the Sweep is a guaranteed win for every hull, so
+//      drones / gear / the bands never matter there).
+//   2. CRAFTED GEAR MATTERS: installing good crafted gear pushes that same carrier's band UP
+//      toward Guaranteed (a strictly higher win rate).
+//   3. DRONES MATTER: a carrier fielding its drone screen reads a clearly higher win rate than
+//      the same carrier with its bays empty (the corsair-heavy pool is where drones swing it).
+//
+// WHY THE FORECAST PATH (resolvePatrolWaves), NOT the economyTick loop the block above uses:
+// this block asserts the DISPLAYED Threat Assessment band, so it drives the EXACT path
+// App.svelte's dispatch card runs (resolvePatrolWaves swept over FORECAST_SEED + i, then
+// threatAssessment). That path is parity-proven to the live loop (patrolReplay.test.ts), and it
+// takes installedGear directly, so the crafted / drones comparisons need no live gear-install
+// plumbing. For the record, the live economyTick loop (the block above's method) measures this
+// same patrol's Standard-Issue win rates at destroyer ~22% / battleship ~52% / carrier ~76% over
+// 200 seeds, matching the forecast bands below (the two paths agree, as the parity proof requires).
+// ============================================================================
+
+// The exact fixed forecast seed + sample count App.svelte's patrolForecastFor uses (App.svelte
+// FORECAST_SEED = 0x5a4d, DEFAULT_SAMPLES = 64), so this block reads the SAME band a player sees.
+const WARBAND_KEY = "crimsonReaverWarband";
+const WARBAND_DEF = PATROLS[WARBAND_KEY];
+const FORECAST_SEED = 0x5a4d;
+const FORECAST_SAMPLES = 64;
+
+// Standard-Issue gear (the quality-0 free floor), built EXACTLY as the tick.ts dispatch does
+// (full default loadout + the hull's shield/plating/drone-pod baseline). Same shape as
+// craftedGearPayoff.test.ts's helper, so this block exercises the real seeder output.
+function combatSpecFor(hull: CombatHullType): CombatStandardIssueSpec {
+  const def = SHIP_TYPES[hull];
+  return {
+    signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
+    droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
+    shieldCapacity: def.shieldCapacity,
+    shieldRecharge: def.shieldRecharge,
+    hullStrength: def.hullIntegrity - frameHp(def.hullIntegrity),
+  };
+}
+function standardIssueGear(hull: CombatHullType, shipId: string): EquipmentInstance[] {
+  return seedCombatStandardIssueForShip(shipId, combatSpecFor(hull), 1).pieces;
+}
+
+// A tiny seeded PRNG (test-local, exactly like craftedGearPayoff.test.ts) so the crafted mint
+// is fully reproducible with zero Math.random.
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function idAllocator(prefix: string): () => string {
+  let n = 0;
+  return () => `${prefix}-${n++}`;
+}
+
+// A GOOD crafted set of the SAME slot shape as Standard-Issue (same weapons + one emitter + one
+// plating, plus a crafted attack pod for the carrier), minted through the REAL itemgen path at a
+// mid-high item level / q5 / radiant roll. Any win-rate gap vs Standard-Issue is gear POWER alone.
+function craftedGear(hull: CombatHullType, shipId: string): EquipmentInstance[] {
+  const rng = mulberry32(90210);
+  const alloc = idAllocator("crafted");
+  const rarity = "radiant" as const;
+  const quality = 5;
+  const weapons = COMBAT_DEFAULT_LOADOUT[hull].weapons.map((weaponType: WeaponId) =>
+    generateWeapon({ weaponType, blueprintKey: null, iLevel: 40, quality, rarity, ascension: "none", rng, allocateId: alloc }),
+  );
+  const emitter = generateEquipment({ slotType: "shieldEmitters", varietyKey: "capacitorBank", blueprintKey: null, iLevel: 90, quality, rarity, ascension: "none", rng, allocateId: alloc });
+  const plating = generateEquipment({ slotType: "hullPlating", varietyKey: "reinforcedPlating", blueprintKey: null, iLevel: 90, quality, rarity, ascension: "none", rng, allocateId: alloc });
+  const pieces: EquipmentInstance[] = [...weapons, emitter, plating];
+  // Carrier: mint a crafted attack pod so its drone screen scales with gear too.
+  if (COMBAT_DEFAULT_LOADOUT[hull].droneRoles.length > 0) {
+    pieces.push(generateDronePod({ droneRole: "attack", blueprintKey: null, iLevel: 90, quality, rarity, ascension: "none", rng, allocateId: alloc }));
+  }
+  return pieces.map((p) => ({ ...p, fittedToShipId: shipId }));
+}
+
+// Run the EXACT forecast sweep App.svelte runs for one hull + installed gear, returning the win
+// rate + resolved Threat Assessment tier. A sample is a WIN iff the full patrol cycle was never
+// defeated (survived every scheduled wave), the same discriminator patrolForecastFor uses.
+function forecast(hull: CombatHullType, installedGear: EquipmentInstance[]): { rate: number; tier: string } {
+  const shipDef = SHIP_TYPES[hull];
+  const startDrones = installedDronesForPatrol(installedGear, `forecast-${WARBAND_KEY}-p`);
+  const startSystemDurability = defaultSystemDurabilityForHull(hull, shipDef);
+  let wins = 0;
+  for (let i = 0; i < FORECAST_SAMPLES; i++) {
+    const result = resolvePatrolWaves({
+      playerId: "ship-1", stats: shipDef, hullType: hull, stance: "balanced", installedGear,
+      masterSeed: FORECAST_SEED + i, factionId: WARBAND_DEF.factionId, def: WARBAND_DEF,
+      startHull: shipDef.hullIntegrity, startShield: shipDef.shieldCapacity, startDrones, startSystemDurability,
+    });
+    if (!result.defeated) wins += 1;
+  }
+  return { rate: wins / FORECAST_SAMPLES, tier: threatAssessment(wins, FORECAST_SAMPLES).tier };
+}
+
+describe("SHOWCASE PATROL BALANCE: the Crimson-Reaver Warband makes the mechanics matter", () => {
+  it("a Standard-Issue carrier lands in a MID threat band (a real fight, not Guaranteed)", () => {
+    const si = forecast("carrier", standardIssueGear("carrier", "ship-1"));
+    // eslint-disable-next-line no-console
+    console.log(`[showcase-patrol] carrier Standard-Issue = ${(si.rate * 100).toFixed(1)}% (${si.tier})`);
+    // RANGE assertion (not a brittle point value): the free-gear carrier must be a REAL FIGHT.
+    // Measured ~0.75 (worthy). The band (0.40, 0.85) keeps it strictly out of both the "Not
+    // Advised" floor below 0.40 (unwinnable-feeling) and the >= 0.80... note the ceiling is 0.85 so
+    // it also stays clear of a near-certain win; a Standard-Issue carrier reading "Guaranteed" here
+    // would mean the patrol failed its purpose (mechanics never forced), the exact wall this guards.
+    expect(si.rate, `SI carrier win rate ${(si.rate * 100).toFixed(1)}% must sit in the mid band`).toBeGreaterThan(0.40);
+    expect(si.rate, `SI carrier win rate ${(si.rate * 100).toFixed(1)}% must not be a near-certain win`).toBeLessThan(0.85);
+    // And it must never be the crown "Guaranteed" tier on free gear (the categorical form of the same promise).
+    expect(si.tier).not.toBe("guaranteed");
+  });
+
+  it("installing good crafted gear pushes the carrier's band UP toward Guaranteed", () => {
+    const si = forecast("carrier", standardIssueGear("carrier", "ship-1"));
+    const crafted = forecast("carrier", craftedGear("carrier", "ship-1"));
+    // eslint-disable-next-line no-console
+    console.log(`[showcase-patrol] carrier crafted = ${(crafted.rate * 100).toFixed(1)}% (${crafted.tier}) vs SI ${(si.rate * 100).toFixed(1)}%`);
+    // THE PAYOFF: better gear -> strictly more wins on the SAME patrol. Measured SI ~0.75 -> crafted 1.0.
+    expect(crafted.rate, "crafted carrier must win the warband strictly more often than Standard-Issue").toBeGreaterThan(si.rate);
+    // And crafted must reach the top of the ladder (toward / at Guaranteed): a strong signal, not a nudge.
+    expect(crafted.rate, "good crafted gear must lift the carrier to a near-certain win").toBeGreaterThanOrEqual(0.90);
+  });
+
+  it("a carrier fielding drones reads a clearly better band than one with empty bays", () => {
+    const withDrones = forecast("carrier", standardIssueGear("carrier", "ship-1"));
+    // Strip the drone-bay pieces from the Standard-Issue set: an otherwise-identical carrier with
+    // its hangars empty (so installedDronesForPatrol yields no squadrons -> no drone screen).
+    const baysEmpty = standardIssueGear("carrier", "ship-1").filter((p) => p.slotType !== "droneBay");
+    const noDrones = forecast("carrier", baysEmpty);
+    // eslint-disable-next-line no-console
+    console.log(`[showcase-patrol] carrier drones ON = ${(withDrones.rate * 100).toFixed(1)}% vs bays EMPTY = ${(noDrones.rate * 100).toFixed(1)}%`);
+    // Drones must SWING the fight against the corsair-heavy pool: a clear, non-noise lift (measured
+    // ~0.75 vs ~0.56, a ~19pt gap). Assert a margin, not just strictly-greater, so the invariant is
+    // "drones meaningfully help" rather than "drones help by a single unlucky seed".
+    expect(withDrones.rate - noDrones.rate, "a carrier's drone screen must clearly improve its odds vs the corsair pool").toBeGreaterThan(0.08);
+  });
+
+  it("hull choice matters: the glass-cannon destroyer reads a harder band than the tankier battleship", () => {
+    // The point of the Warband is that WHICH hull you send now matters. The destroyer is a striker
+    // (thin hull, big guns), not an anti-swarm platform, so on this corsair-heavy pool it must read
+    // the HARDEST band of the combat hulls, while the battleship sits in a mid "real fight" band.
+    // These lock the documented spread (measured destroyer ~16% / battleship ~55% / carrier ~75%) so
+    // a future gear or rating change cannot silently collapse it (e.g. flatten every hull to the
+    // same band, or push the destroyer to a literal 0-win "Impossible" wall that reads as broken).
+    const destroyer = forecast("destroyer", standardIssueGear("destroyer", "ship-1"));
+    const battleship = forecast("battleship", standardIssueGear("battleship", "ship-1"));
+    // eslint-disable-next-line no-console
+    console.log(`[showcase-patrol] destroyer SI = ${(destroyer.rate * 100).toFixed(1)}% (${destroyer.tier}) vs battleship SI = ${(battleship.rate * 100).toFixed(1)}% (${battleship.tier})`);
+    // The destroyer must be strictly the harder read of the two, but never a 0% Impossible wall (a
+    // slim chance still exists; the band just warns you off).
+    expect(destroyer.rate, "the glass-cannon destroyer must read harder than the battleship on this patrol").toBeLessThan(battleship.rate);
+    expect(destroyer.rate, "the destroyer must still have a real (if slim) chance, never a 0% Impossible wall").toBeGreaterThan(0.02);
+    // The battleship holds the middle: a genuine fight on free gear, neither a long shot nor a lock.
+    expect(battleship.rate, "the battleship must be a mid-band real fight, not a near-certain loss").toBeGreaterThan(0.30);
+    expect(battleship.rate, "the battleship on free gear must not be a near-certain win").toBeLessThan(0.85);
+    expect(battleship.tier, "the battleship on free gear must not read the crown Guaranteed tier").not.toBe("guaranteed");
   });
 });

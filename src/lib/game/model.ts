@@ -648,9 +648,14 @@ export interface PatrolDef {
 // The starting patrol roster, keyed by id (map-key IS the identity, like MISSIONS; no
 // separate `id` field). Add an entry here (growing PatrolKey) when a new patrol is
 // authored; never repurpose an existing key (a persisted PatrolMissionState.patrolKey
-// references it). ONE starter patrol this unit: a low-tier sweep against the Crimson
-// Reavers, drawing MOSTLY lone raiders (the odd lone marauder), 2 waves of 1 enemy.
-// Sized so the wave window (8 ticks) comfortably holds maxWaves (2).
+// references it). TWO patrols this unit: the gentle entry SWEEP (mostly lone raiders,
+// 2 waves of 1) AND a tougher SHOWCASE warband (corsair/carrier-heavy, up to 2 enemies a
+// wave) added in Combat 1.0 Unit 2.5b. There is NO unlock/gating field on PatrolDef (the
+// UI enumerates Object.entries(PATROLS) with no lock, and dispatch is gated only by hull /
+// fuel), so BOTH patrols are always visible; the per-patrol Threat Assessment band is what
+// steers a new player away from the harder one (it reads a mid / cautionary tier for a
+// Standard-Issue hull instead of "Guaranteed"), which is exactly the mechanic 2.5b exists to
+// surface. Sized so each patrol's wave window comfortably holds its maxWaves.
 export const PATROLS: Record<string, PatrolDef> = {
   // CRIMSON-REAVER SWEEP: the entry patrol. A short local sweep (3-tick legs) through an
   // 8-tick contested window, fighting 2 light waves of a SINGLE ship each (mostly raiders,
@@ -681,6 +686,52 @@ export const PATROLS: Record<string, PatrolDef> = {
     rollWindowTicks: 8,
     transitBackTicks: 3,
     waveChanceNumerator: 30,
+    waveChanceDenominator: 100,
+  },
+
+  // CRIMSON-REAVER WARBAND: the tougher SHOWCASE patrol (Combat 1.0 Unit 2.5b). WHY IT EXISTS:
+  // the entry Sweep above is deliberately trivial (every tactician hull wins at ~100% on offense
+  // alone), so drones, the Threat Assessment bands, and crafted gear never actually MATTER in it.
+  // This warband is the first patrol where they do. It is a DEEPER, corsair-tender-heavy raid:
+  // longer transit legs (5 ticks each vs the Sweep's 3, so it costs meaningfully more fuel) into a
+  // longer contested window fighting 2-3 waves of 1-2 ships each, drawn from a pool led by the
+  // CORSAIR CARRIER (the drone tender) so a fight actually fields enemy drones.
+  //
+  // ⚠️ BALANCE, MEASURED (Unit 2.5b, tuned against the post-2.5a gear math via the SAME seeded
+  // forecast App.svelte shows, resolvePatrolWaves over 64 fixed seeds, and re-confirmed on the live
+  // economyTick loop over 200 seeds): with FREE Standard-Issue gear the appropriate anti-corsair
+  // hulls land in a MID band, a real fight, not a guaranteed win: the battleship reads "It's Time to
+  // Toss the Dice" (~55%) and the carrier "A Worthy Adversary" (~75%). The thin destroyer striker
+  // reads "Extreme Challenge" (~15%) ON PURPOSE: it is a glass cannon, not an anti-swarm hull, and
+  // the whole point of this patrol is that hull choice + gear + drones now MATTER (see the
+  // showcasePatrol block in patrol-balance.test.ts, which locks the carrier mid-band + the crafted
+  // and drone lifts). A carrier fielding its drone screen reads a full band better than one with its
+  // bays empty (~75% vs ~56%), and installing good crafted gear pushes every hull up toward
+  // Guaranteed. FIRST-PASS + TUNABLE: the global difficulty curve (design S20) revisits these later.
+  crimsonReaverWarband: {
+    label: "Crimson-Reaver Warband",
+    factionId: "crimsonReavers",
+    // CORSAIR-CARRIER-LED pool (uniform pick over this list): 1 corsair carrier : 1 marauder : 2
+    // raiders. The corsair carrier is the tough drone-tender that makes enemy drones (and therefore
+    // the player's anti-drone weapons) matter; the marauder is the medium gun-line threat; the two
+    // raiders keep some waves lighter so the patrol is a real fight rather than an unwinnable wall.
+    // FIRST-PASS + TUNABLE (S20): shift the ratio / add a hull to move the curve.
+    hullPool: ["corsairCarrier", "marauder", "raider", "raider"],
+    // 2-3 waves of 1-2 enemies each. maxWaves 3 + enemyCountMax 2 is the "up to 2 enemies a wave"
+    // step-up the Sweep never has (it is 2 waves of exactly 1); the 1..2 count band keeps some waves
+    // single-enemy so hull attrition stays survivable for the appropriate hulls. FIRST-PASS + TUNABLE.
+    minWaves: 2,
+    maxWaves: 3,
+    enemyCountMin: 1,
+    enemyCountMax: 2,
+    // Longer route than the Sweep (5-tick legs vs 3): a deeper raid that costs more fuel (fuel is
+    // DERIVED from the transit legs, fuel.ts). rollWindowTicks 12 comfortably holds maxWaves (3).
+    transitOutTicks: 5,
+    rollWindowTicks: 12,
+    transitBackTicks: 5,
+    // A denser contested window than the Sweep (45% vs 30% per eligible tick) so the up-to-3 waves
+    // actually materialise across the window rather than leaning on the catch-up floor. TUNABLE.
+    waveChanceNumerator: 45,
     waveChanceDenominator: 100,
   },
 };

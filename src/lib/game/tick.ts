@@ -1493,10 +1493,45 @@ export const DEFAULT_PATROL_LOOT_TABLE: PatrolLootTable = {
   damagedSystem: { itemId: "damagedWeaponSystem", chanceNum: 1, chanceDen: 4, minQty: 1, maxQty: 1 },
 };
 
+// The tougher Crimson-Reaver Warband's OWN richer loot table (Combat 1.0 Unit 2.5b). It reuses
+// the SAME roller + the SAME existing material ids (no invented keys, no functional gear, design
+// S12 still holds); every band is a MODEST STEP UP from the default entry table to match the
+// patrol's higher fuel cost + real combat risk. FIRST-PASS TUNABLE (the S20 loot-rate pass owns
+// the final magnitudes). Kept beside the default so a maintainer sees the two side by side.
+export const WARBAND_PATROL_LOOT_TABLE: PatrolLootTable = {
+  // More wreck salvage per won wave (2-4 vs 1-2): a corsair tender is a bigger hull to strip.
+  salvage: { itemId: "intactReactorCore", minQty: 2, maxQty: 4 },
+  // The SAME cargo pool ids as the entry table (all real material keys), with slightly fatter qty
+  // bands: a warband wreck's hold is richer. Uniform pick, then a qty roll per pick.
+  cargoPool: [
+    { itemId: "scrapAlloy", minQty: 3, maxQty: 7 },      // raw (recoveredTech): battlefield scrap
+    { itemId: "commonOre", minQty: 3, maxQty: 7 },        // raw (oresMetals): structural ore
+    { itemId: "titaniumIngot", minQty: 2, maxQty: 4 },    // refined: salvaged refined stock
+    { itemId: "frameSegment", minQty: 1, maxQty: 3 },     // minorComponent: a recovered strut
+    { itemId: "powerCoupling", minQty: 1, maxQty: 3 },    // minorComponent: a recovered junction
+  ],
+  // 2-3 cargo picks (vs 1-2): more waves + bigger wrecks yield a bit more cargo.
+  cargoPicksMin: 2,
+  cargoPicksMax: 3,
+  // A fatter bounty band (30-70 vs 10-30): a 2-3 wave warband nets meaningfully more credits than
+  // the 2-wave Sweep, on the order of a couple of the toughest missions' payout, not a windfall.
+  creditsMin: 30,
+  creditsMax: 70,
+  // More XP per won wave than the Sweep (35 / 18 vs 20 / 10): the tougher fight pays a bigger
+  // captain + Fleet Admiral XP reward for the real risk. Flat (no draw), so trivially closed-form.
+  captainXpPerWave: 35,
+  fleetAdminXpPerWave: 18,
+  // A better-than-even Damaged Weapon System drop (2 in 5 won waves, qty 1-2, vs the Sweep's 1 in 4
+  // qty 1): a corsair-heavy warband is a richer feed for the weapon-craft chain, still a MATERIAL
+  // that SALVAGES into build parts (never functional gear, design S12). FIRST-PASS TUNABLE (S20).
+  damagedSystem: { itemId: "damagedWeaponSystem", chanceNum: 2, chanceDen: 5, minQty: 1, maxQty: 2 },
+};
+
 export const PATROL_LOOT_TABLES: Record<PatrolKey, PatrolLootTable> = {
-  // The entry patrol uses the default table (one starter patrol this unit). A tougher patrol
-  // added later gets its OWN richer entry here (bigger bands / rarer pool) with no roller change.
+  // The entry patrol uses the default table. The tougher warband (Unit 2.5b) gets its OWN richer
+  // entry (bigger bands + a better damaged-system feed) with no roller change.
   crimsonReaverSweep: DEFAULT_PATROL_LOOT_TABLE,
+  crimsonReaverWarband: WARBAND_PATROL_LOOT_TABLE,
 };
 
 // Resolve the loot table for a patrol, falling back to the default so a future PATROLS key
