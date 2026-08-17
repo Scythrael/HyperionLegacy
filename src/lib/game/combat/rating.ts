@@ -198,7 +198,11 @@ export function battleRating(combatant: Combatant): number {
 // S11): more samples tighten the estimate but cost more sim runs. 64 is a
 // first-pass balance (a ~+/-6% standard error near 50%, cheap enough for a
 // mission-select card). TUNABLE by the caller via options.samples.
-const DEFAULT_SAMPLES = 64;
+//
+// EXPORTED (Unit 2.4 review): the Patrol dispatch card's Threat Assessment forecast reuses
+// this exact sample count for its own full-cycle sweep, so exporting it keeps the two from
+// drifting (the card imports this value instead of copying the literal).
+export const DEFAULT_SAMPLES = 64;
 
 // Options for the forecast. Both optional so the common call site is just
 // engagementForecast(player, enemy).
@@ -214,10 +218,19 @@ export interface EngagementForecastOptions {
 	baseSeed?: number;
 }
 
-// The forecast result: the win % (rounded integer 0..100) and the sample count
-// it was computed from (so the UI can show confidence / "over N battles").
+// The forecast result: the win % (rounded integer 0..100), the RAW win COUNT, and
+// the sample count it was computed from (so the UI can show confidence / "over N
+// battles").
+//
+// WHY EXPOSE `wins` (Combat 1.0 Unit 2.4): the Threat Assessment band (threatAssessment.ts)
+// needs the exact win/loss COUNT, not the rounded percent, to enforce its zero-loss
+// guard. "Guaranteed Victory" requires wins === samples (literally zero losses), and a
+// 199/200 sample rounds to winPercent 100 yet must NOT read as Guaranteed. Only the raw
+// count can distinguish "rounded to 100%" from "actually lost nothing", so the count is
+// returned alongside the percent. winPercent is unchanged (existing callers keep working).
 export interface EngagementForecast {
 	winPercent: number;
+	wins: number;
 	samples: number;
 }
 
@@ -248,7 +261,12 @@ export interface EngagementForecast {
 // tunable there (accuracy vs the cost of N sims).
 export function engagementForecast(
 	player: Combatant,
-	enemy: Combatant,
+	// The opponent(s). A single enemy Combatant (the pre-Unit-2.4 shape, still valid)
+	// OR a whole enemy WAVE as a Combatant[] (Combat 1.0 Unit 2.4). The dispatch-card
+	// forecast passes the generated patrol wave, which can field several hulls, so the
+	// forecast simulates the SAME enemy team the real dispatch faces, not just one hull.
+	// Normalized to an array below; a single Combatant behaves exactly as before.
+	enemy: Combatant | Combatant[],
 	options?: EngagementForecastOptions,
 ): EngagementForecast {
 	// Resolve options. Clamp samples to at least 1 so we never divide by zero and
@@ -257,10 +275,15 @@ export function engagementForecast(
 	const samples = Math.max(1, Math.floor(options?.samples ?? DEFAULT_SAMPLES));
 	const baseSeed = options?.baseSeed ?? 0;
 
+	// Normalize the opponent(s) to an enemy team array. A single Combatant becomes a
+	// one-element team (byte-identical to the pre-2.4 [player, enemy] participant set);
+	// an array is spread as the full enemy team.
+	const enemies = Array.isArray(enemy) ? enemy : [enemy];
+
 	// The participant set is the same for every sample; resolveBattle clones it
 	// internally, so building it ONCE and reusing it is safe and avoids per-sample
 	// allocation. The player's team drives what counts as a win.
-	const participants = { combatants: [player, enemy] };
+	const participants = { combatants: [player, ...enemies] };
 	const playerTeam = player.team;
 
 	let wins = 0;
@@ -283,5 +306,7 @@ export function engagementForecast(
 	// deterministic win count.
 	const winPercent = Math.round((wins / samples) * 100);
 
-	return { winPercent, samples };
+	// Return the RAW win count alongside the percent (Unit 2.4): the Threat Assessment
+	// band needs the exact count for its zero-loss guard (see the interface doc).
+	return { winPercent, wins, samples };
 }

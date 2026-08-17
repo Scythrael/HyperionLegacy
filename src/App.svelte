@@ -192,6 +192,11 @@
     // `mission.kind === "patrol"` (there is no patrolMissionOf helper, and the
     // discriminant narrows cleanly at each site).
     type PatrolKey,
+    // Combat 1.0 (Unit 2.4): ShipInstance types the resolved patrol ship, PatrolDef the
+    // patrol, both passed to the advisory forecast helper (battleRating + Threat
+    // Assessment on the dispatch card).
+    type ShipInstance,
+    type PatrolDef,
     type PatrolMissionState,
     type PatrolPhase,
     // Combat 0.13.0 (offline recap): the wall-stop reason union, mapped to a friendly note in
@@ -229,7 +234,14 @@
   // this bridge import: it narrows an assigned hull's typeKey to a combat hull
   // (destroyer/battleship/carrier) or null, so the dispatch card can show the
   // read-only "combat hull" check that mirrors canDispatchPatrol's notCombatHull gate.
-  import { shipToCombatant, sampleLoadout, combatHullTypeOf } from "./lib/game/combat/bridge";
+  import {
+    shipToCombatant,
+    sampleLoadout,
+    combatHullTypeOf,
+    installedDronesForPatrol,
+    defaultSystemDurabilityForHull,
+    type CombatHullType,
+  } from "./lib/game/combat/bridge";
   import { resolveBattle } from "./lib/game/combat/resolveBattle";
   import { formatCombatLog } from "./lib/game/combat/logFormat";
   // Combat 0.13.0 (Phase 9b.5d): PIRATE_HULLS supplies the enemy-hull display names
@@ -237,6 +249,23 @@
   // stance choice fed to dispatchCaptainOnPatrol.
   import { PIRATE_HULLS } from "./lib/game/combat/enemyHulls";
   import type { CombatStance } from "./lib/game/combat/positioning";
+  // Combat 1.0 (Unit 2.4): the two ADVISORY dispatch-card readouts. battleRating is the
+  // "how geared am I" scalar; threatAssessment maps a seeded FULL-PATROL win/loss tally
+  // into the named, colored Threat band the card shows (the exact win % is deliberately
+  // NOT surfaced). DEFAULT_SAMPLES is rating.ts's sample count, imported (not copied) so
+  // the card's forecast sweep and the engine default cannot drift.
+  //
+  // Unit 2.4 review (multi-wave honesty): the forecast runs the REAL FULL patrol cycle via
+  // resolvePatrolWaves (patrolReplay.ts) rather than a single generated wave, so hull /
+  // shield / drone / durability attrition carries between waves and a "win" means the ship
+  // survived EVERY wave. resolvePatrolWaves is the same pure, display-only, parity-proven
+  // resolver the combat-view replay uses; it composes the shared per-wave leaves
+  // (buildPatrolPlayerCombatant + generateEnemyWaveDetailed + resolveBattle) and never
+  // touches the live tick loop. The forecast drives it from a FIXED seed, never the live
+  // patrol master seed. All display-only + pure.
+  import { battleRating, DEFAULT_SAMPLES } from "./lib/game/combat/rating";
+  import { threatAssessment, type ThreatAssessment } from "./lib/game/combat/threatAssessment";
+  import { resolvePatrolWaves } from "./lib/game/combat/patrolReplay";
   // Equipment 0.11.0 Phase D (2026-07-20): salvageEquipment(state, id) recycles ONE
   // spare CRAFTED system back into a fraction of its crafting inputs, returning a
   // SalvageResult (discriminated on `ok`: success carries { next, recovered }, reject
@@ -2092,6 +2121,163 @@
   }
   function setPatrolRepeat(patrolKey: PatrolKey, repeat: boolean) {
     patrolRepeatByKey = { ...patrolRepeatByKey, [patrolKey]: repeat };
+  }
+
+  // --- Combat Patrols ADVISORY readouts (Combat 1.0, Unit 2.4) --------------------
+  // The dispatch card shows two advisory numbers for the selected captain's ship:
+  //   1. BATTLE RATING (battleRating): an opponent-agnostic "how geared am I" scalar.
+  //   2. THREAT ASSESSMENT (threatAssessment): a named, colored BAND derived from a
+  //      seeded FULL-PATROL sim of that ship vs THIS patrol's whole wave cycle.
+  // Both are ADVISORY only; the player can dispatch regardless (the card says so).
+  //
+  // MULTI-WAVE HONESTY (Unit 2.4 review): a real patrol fights MULTIPLE scheduled waves and
+  // carries hull / shield / drone / durability ATTRITION between them, so a single-wave read
+  // (fresh full health each time) is systematically OPTIMISTIC on a multi-wave patrol, and
+  // the "Guaranteed Victory" crown is the sharpest overclaim (it would assert zero losses a
+  // single wave never actually tested across the full route). So the forecast runs the REAL
+  // FULL cycle: resolvePatrolWaves (patrolReplay.ts) resolves every scheduled wave with the
+  // SAME carry-state the live loop uses, and a sample counts as a WIN only if the ship
+  // survives ALL waves (result.defeated === false). This is the same pure, parity-proven
+  // resolver the combat-view replay calls (it composes buildPatrolPlayerCombatant +
+  // generateEnemyWaveDetailed + resolveBattle); it does NOT touch the live tick loop.
+  //
+  // DISPLAY-ONLY + PARITY-SAFE (the hard Unit 2.4 constraint): this is a SEPARATE seeded
+  // sim run purely for the UI. Every sample derives its masterSeed from the FIXED forecast
+  // seed (FORECAST_SEED + sampleIndex), NEVER the live patrol's master seed, so it can
+  // neither consume nor perturb the real dispatch RNG stream or the actual patrol outcome.
+  // It mutates no game state: shipToCombatant / installedDronesForPatrol mint fresh objects,
+  // resolvePatrolWaves clones its carry-state on entry, and resolveBattle deep-clones its
+  // participants internally. resolveBattle and the live loop are untouched.
+  //
+  // CACHING (the Svelte legacy-$: freeze footgun guard): the forecast is DEFAULT_SAMPLES
+  // full-patrol sims (each a handful of seeded battles), and the {@const} that calls it in
+  // the {#each PATROLS} card re-evaluates on EVERY reactive flush (every tick reassigns
+  // `state`). Running the sim on every flush would burn the CPU for a number that only
+  // changes on a loadout / ship / patrol / stance change. So this MEMOIZES on a TIGHT
+  // signature: patrolKey + shipId + stance + the installed-gear ids + a per-gear DURABILITY
+  // digest. The heavy sim runs ONLY when that signature changes; every other flush is a
+  // cheap signature build + a Map hit that returns the cached readout. The cache is a plain
+  // Map mutated IN PLACE (never reassigned), so it is invisible to Svelte's reactivity and
+  // cannot itself trigger a re-render (no loop).
+  //
+  // ⚠️ CACHE-VALIDITY CONTRACT (Unit 2.4 review): this memo is correct ONLY while (a) the
+  // PATROLS defs are static consts (a def retune mid-session would not bust the key) AND (b)
+  // an EquipmentInstance id fully determines its combat stats. Today (b) holds AND gear
+  // durability is constant (never drops this patch), so the durability digest is a no-op.
+  // But resolveBattle reads piece.durability and this epic is heading toward PERSISTENT
+  // on-gear durability (see model.ts "never drops this patch" / weapons-as-gear notes): once
+  // a worn/repaired weapon keeps its id but changes stats, an id-only key would go STALE.
+  // Folding the durability digest into the signature NOW is cheap forward insurance so that
+  // day cannot silently show a wrong band.
+  //
+  // The `state` arg is passed so the calling {@const} statically depends on `state` and
+  // thus re-runs when a gear install/uninstall reassigns it (that is what lets the readout
+  // refresh after a loadout change); the memo keeps that per-flush re-run cheap.
+  const FORECAST_SEED = 0x5a4d; // fixed, display-only; deliberately NOT any live seed
+
+  interface PatrolForecastReadout {
+    rating: number;
+    assessment: ThreatAssessment;
+  }
+
+  // One cache slot per patrol key: { signature, value }. A matching signature returns the
+  // cached readout with no sim run; a changed signature recomputes and replaces the slot.
+  // A `const` Map mutated via .set (never reassigned) so Svelte legacy reactivity never
+  // tracks it (an in-place Map mutation is not an assignment), keeping it a pure memo.
+  const patrolForecastCache = new Map<PatrolKey, { signature: string; value: PatrolForecastReadout }>();
+
+  function patrolForecastFor(
+    _state: typeof state, // referenced by the caller {@const} so a state change re-runs it
+    patrolKey: PatrolKey,
+    def: PatrolDef,
+    ship: ShipInstance | null,
+    hullType: CombatHullType | null,
+    stance: CombatStance,
+  ): PatrolForecastReadout | null {
+    // Only a combat hull gets a readout (a patrol requires a combat hull anyway). No ship
+    // or a non-combat hull -> no readout (the card simply omits the strip).
+    if (ship === null || hullType === null) return null;
+
+    // The ship's INSTALLED combat gear, read the SAME way the live dispatch reads it
+    // (equippedFor off the current state), so the forecast's player combatant is geared
+    // exactly like the real patrol's would be.
+    const installedGear = equippedFor(state, ship.id);
+
+    // TIGHT memo signature: everything that changes the forecast, and nothing that does
+    // not. Gear ids capture install/uninstall (crafted pieces are immutable once minted,
+    // so an id list identifies the loadout TODAY); stance + ship + patrol complete it. The
+    // trailing per-gear DURABILITY digest is forward insurance (see the header's cache-
+    // validity contract): durability is constant this patch so it never changes the key
+    // now, but once on-gear durability persists (0.12.0 weapons-as-gear), a worn/repaired
+    // piece keeps its id while its combat stats change, and only this digest would bust the
+    // stale cache. Cheap to include now, no behavior change today.
+    const gearIds = installedGear.map((g) => g.id).join(",");
+    const durabilityDigest = installedGear.map((g) => g.durability).join(",");
+    const signature = `${patrolKey}::${ship.id}::${stance}::${gearIds}::${durabilityDigest}`;
+    const cached = patrolForecastCache.get(patrolKey);
+    if (cached && cached.signature === signature) return cached.value;
+
+    // MISS: run the display-only seeded forecast. The ship's static combat stats are shared
+    // by both readouts below.
+    const shipDef = SHIP_TYPES[ship.typeKey];
+
+    // BATTLE RATING: the opponent-agnostic "how geared" scalar. Built via shipToCombatant
+    // at FULL health (a loadout score, not a live-health score), which is exactly what the
+    // rating wants. ⚠️ LOCKSTEP NOTE (Unit 2.4 review): this is the ONLY place the forecast
+    // builds a player combatant directly from shipToCombatant; the WIN-RATE sim below builds
+    // its per-wave player through the SHARED buildPatrolPlayerCombatant leaf (inside
+    // resolvePatrolWaves). If a future unit adds a term to that shared player-build leaf
+    // (e.g. a captain-skill modifier), THIS rating build must be updated in lockstep, or the
+    // Battle Rating number silently drifts away from what the sim actually fights.
+    const player = shipToCombatant({
+      id: ship.id,
+      team: "player",
+      stats: shipDef,
+      hullType,
+      stance,
+      installedGear,
+    });
+    const rating = battleRating(player);
+
+    // THREAT ASSESSMENT: run DEFAULT_SAMPLES FULL-PATROL sims and count how many survive the
+    // WHOLE wave cycle (not just one wave). The starting carry-state mirrors freshPatrolMission
+    // exactly (full hull, full shield, the ship's installed-pod drones, no system wear), and
+    // resolvePatrolWaves carries attrition between waves the SAME way the live loop does. A
+    // sample is a WIN only if it never got defeated across all waves, so the "Guaranteed
+    // Victory" crown now means "zero losses across the FULL patrol", not "zero losses in one
+    // representative wave" (the multi-wave honesty fix).
+    //
+    // The drone id prefix and factionId are FIXED, display-only strings (never the live
+    // master seed): factionId is def.factionId (the same pinned faction the live cycle
+    // fights, so the enemy id -> turn-order is representative), and the drone prefix is a
+    // forecast-scoped constant. Each sample's masterSeed is FORECAST_SEED + i, a deterministic
+    // sweep off the fixed forecast seed, so the band is stable and never draws from live state.
+    const startDrones = installedDronesForPatrol(installedGear, `forecast-${patrolKey}-p`);
+    const startSystemDurability = defaultSystemDurabilityForHull(hullType, shipDef);
+    let wins = 0;
+    for (let i = 0; i < DEFAULT_SAMPLES; i++) {
+      const result = resolvePatrolWaves({
+        playerId: ship.id,
+        stats: shipDef,
+        hullType,
+        stance,
+        installedGear,
+        masterSeed: FORECAST_SEED + i,
+        factionId: def.factionId,
+        def,
+        startHull: shipDef.hullIntegrity,
+        startShield: shipDef.shieldCapacity,
+        startDrones,
+        startSystemDurability,
+      });
+      // A full-patrol WIN = survived every scheduled wave (never limped home defeated).
+      if (!result.defeated) wins += 1;
+    }
+    const value: PatrolForecastReadout = { rating, assessment: threatAssessment(wins, DEFAULT_SAMPLES) };
+    // In-place Map mutation (not a reassignment) so this write is invisible to Svelte's
+    // reactivity and cannot re-trigger the render that is evaluating this {@const}.
+    patrolForecastCache.set(patrolKey, { signature, value });
+    return value;
   }
 
   // Captain-picker modal (mirrors openMissionPopup/closeMissionPopup): patrolPickerKey
@@ -7737,6 +7923,14 @@
                 {@const fuelCost = selectedShip ? patrolFuelCost(patrolKey, selectedShip) : null}
                 {@const stance = patrolStanceByKey[patrolKey] ?? "balanced"}
                 {@const repeat = patrolRepeatByKey[patrolKey] ?? false}
+                <!-- Combat 1.0 (Unit 2.4): the combat hull class (null for a non-combat
+                     hull / no ship) and the ADVISORY forecast readout. `state` is passed
+                     to patrolForecastFor so this {@const} statically depends on it and
+                     re-runs on a loadout change (a gear install reassigns state); the
+                     helper MEMOIZES so that per-flush re-run is cheap (see its header).
+                     forecast is null unless a combat hull is assigned. -->
+                {@const hullType = selectedShip ? combatHullTypeOf(selectedShip.typeKey) : null}
+                {@const forecast = patrolForecastFor(state, patrolKey, def, selectedShip, hullType, stance)}
                 <div class="mission-card">
                   <div class="research-name">{def.label}</div>
                   {#if faction}
@@ -7793,6 +7987,45 @@
                     {:else}
                       <div class="mission-req-line" style="color: var(--color-danger)">No ship assigned</div>
                     {/if}
+                  {/if}
+
+                  <!-- ADVISORY readouts (Combat 1.0, Unit 2.4): the ship's Battle Rating
+                       (a "how geared am I" scalar) and the Threat Assessment band for THIS
+                       patrol (a seeded forecast vs the patrol's enemies, shown as a named
+                       colored chip, never a raw win %). Both advisory: the note + the always-
+                       enabled Dispatch button below make clear you can dispatch regardless.
+                       Only shown for a combat hull (forecast is null otherwise). -->
+                  {#if forecast !== null}
+                    <div class="patrol-readouts">
+                      <div class="patrol-readout-row">
+                        <span class="mission-col-label" style="margin: 0">Battle Rating</span>
+                        <span class="battle-rating-value">{formatNumber(forecast.rating)}</span>
+                      </div>
+                      <div class="patrol-readout-row">
+                        <span class="mission-col-label" style="margin: 0">Threat Assessment</span>
+                        <span class="threat-chip-wrap">
+                          <!-- A real <button> (natively focusable, no tabindex) so the
+                               tooltip opens on hover AND on tap/focus without the a11y
+                               noninteractive-tabindex warning. type="button" => never
+                               submits; it takes no click action, it only discloses the
+                               tooltip. aria-label folds the whole advisory for readers. -->
+                          <button
+                            type="button"
+                            class="threat-chip"
+                            style="--threat-color: {forecast.assessment.colorHex}"
+                            aria-label={`Threat Assessment: ${forecast.assessment.name}. ${forecast.assessment.fuzzyRange}. ${forecast.assessment.voice}`}
+                          >
+                            <span class="threat-chip-icon" aria-hidden="true">{forecast.assessment.icon}</span>
+                            <span class="threat-chip-name">{forecast.assessment.name}</span>
+                          </button>
+                          <span class="threat-tooltip" role="tooltip">
+                            <span class="threat-tooltip-range">{forecast.assessment.fuzzyRange}</span>
+                            <span class="threat-tooltip-voice">{forecast.assessment.voice}</span>
+                          </span>
+                        </span>
+                      </div>
+                      <div class="patrol-readout-note">Advisory only. You can dispatch regardless.</div>
+                    </div>
                   {/if}
 
                   <!-- STANCE selector (segmented, default Balanced). Three .dev-btn options
@@ -9887,6 +10120,84 @@
      accent look (same object the shop/dispatch primary actions use); only the
      full-width block layout + top spacing are added here. */
   .patrol-dispatch-btn { width: 100%; margin-top: 10px; }
+
+  /* Combat 1.0 (Unit 2.4) ADVISORY readouts: Battle Rating scalar + Threat Assessment
+     band chip. The surrounding chrome uses THEME tokens; only the chip's accent (the
+     --threat-color inline var) comes from the fixed band ramp (green good, red bad),
+     which is a semantic scale that must read the same in every theme. */
+  .patrol-readouts {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    background: var(--color-panel-bg-strong);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .patrol-readout-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .battle-rating-value {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--color-accent-bright);
+    font-variant-numeric: tabular-nums;
+  }
+  .patrol-readout-note {
+    font-size: 11px;
+    font-style: italic;
+    color: var(--color-text-secondary);
+  }
+  /* Chip + tooltip. The wrap is the positioning context + the hover/focus target; the
+     tooltip is shown on wrap :hover AND :focus-within (tap focuses the chip on mobile,
+     which has no hover), so the fuzzy range + tactical-officer voice reach both inputs. */
+  .threat-chip-wrap { position: relative; display: inline-flex; }
+  .threat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    /* Reset the native <button> chrome so the chip renders from our tokens only. */
+    font-family: inherit;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid var(--threat-color);
+    /* A faint wash of the band color behind the solid-color border + text. */
+    background: color-mix(in srgb, var(--threat-color) 16%, transparent);
+    color: var(--threat-color);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: help;
+    white-space: nowrap;
+    border-radius: 2px;
+  }
+  .threat-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .threat-chip-icon { font-size: 13px; line-height: 1; }
+  .threat-tooltip {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    right: 0;
+    z-index: 20;
+    width: max-content;
+    max-width: 240px;
+    padding: 8px 10px;
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    /* Tooltip chrome uses THEME tokens (it is a panel, not part of the band ramp). */
+    background: var(--color-panel-bg);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    text-align: left;
+    white-space: normal;
+  }
+  .threat-chip-wrap:hover .threat-tooltip,
+  .threat-chip-wrap:focus-within .threat-tooltip { display: flex; }
+  .threat-tooltip-range { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
+  .threat-tooltip-voice { font-size: 12px; font-style: italic; color: var(--color-text-secondary); }
   /* Header row: portrait placeholder beside the name + exp sub-line. */
   .mission-card-header { display: flex; gap: 12px; align-items: center; }
   /* Descendant selector (specificity 0,2,0) shrinks the shared portrait for

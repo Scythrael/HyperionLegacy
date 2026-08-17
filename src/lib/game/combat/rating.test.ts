@@ -360,3 +360,52 @@ describe("engagementForecast purity", () => {
 		expect(enemy).toEqual(enemyBefore);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Combat 1.0 Unit 2.4: the forecast now also returns the RAW win COUNT (for the
+// Threat Assessment zero-loss guard) and accepts a multi-enemy WAVE (a Combatant[]).
+// ---------------------------------------------------------------------------
+describe("engagementForecast wins count (Unit 2.4)", () => {
+	it("returns wins consistent with winPercent (round(wins/samples*100))", () => {
+		const { player, enemy } = mirrorMatchup();
+		const r = engagementForecast(player, enemy, { samples: 64, baseSeed: 7 });
+		expect(r.wins).toBeGreaterThanOrEqual(0);
+		expect(r.wins).toBeLessThanOrEqual(r.samples);
+		expect(r.winPercent).toBe(Math.round((r.wins / r.samples) * 100));
+	});
+
+	it("a dominant player wins every sample (wins === samples)", () => {
+		const { player, enemy } = dominantMatchup();
+		const r = engagementForecast(player, enemy, { samples: 32, baseSeed: 3 });
+		expect(r.wins).toBe(r.samples); // the zero-loss case the guard reserves Guaranteed for
+	});
+
+	it("a hopeless player wins none (wins === 0)", () => {
+		const { player, enemy } = hopelessMatchup();
+		const r = engagementForecast(player, enemy, { samples: 32, baseSeed: 3 });
+		expect(r.wins).toBe(0); // the Impossible case
+	});
+});
+
+describe("engagementForecast multi-enemy wave (Unit 2.4)", () => {
+	it("accepts a Combatant[] and simulates the whole enemy team", () => {
+		// A single fragile enemy the dominant player crushes; add a SECOND identical
+		// enemy and the player should still win, but the two-enemy team is a harder
+		// fight, so its win count must be <= the single-enemy count (more incoming DPS).
+		const { player, enemy } = dominantMatchup();
+		const enemy2 = { ...enemy, id: "E2", weapons: enemy.weapons.map((w) => ({ ...w, id: "ew2" })) };
+		const single = engagementForecast(player, enemy, { samples: 48, baseSeed: 9 });
+		const pair = engagementForecast(player, [enemy, enemy2], { samples: 48, baseSeed: 9 });
+		expect(pair.samples).toBe(48);
+		expect(pair.wins).toBeLessThanOrEqual(single.wins);
+	});
+
+	it("a single Combatant and a one-element array give identical results", () => {
+		// The array normalization must be byte-identical to the pre-2.4 single-enemy path.
+		const { player, enemy } = mirrorMatchup();
+		const scalar = engagementForecast(player, enemy, { samples: 40, baseSeed: 4 });
+		const asArray = engagementForecast(player, [enemy], { samples: 40, baseSeed: 4 });
+		expect(asArray.wins).toBe(scalar.wins);
+		expect(asArray.winPercent).toBe(scalar.winPercent);
+	});
+});
