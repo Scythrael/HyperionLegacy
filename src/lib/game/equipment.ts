@@ -75,7 +75,13 @@ const ECONOMY_INSTALLABLE_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<Equipm
   "reactorCore",
   "specUtility",
 ]);
-const COMBAT_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>([
+// EXPORTED (Combat 1.0 softlock guard): salvage.ts reads this SAME set to decide which
+// spare Standard-Issue baselines are non-salvageable (a free combat piece must never be
+// destroyable, so "uninstall -> re-install from the pool" is always available, see the
+// unfitEquipmentInstance ALLOW-EMPTY note below and salvage.ts isSalvageable). Exporting
+// the existing set keeps ONE source of truth for "which slots are combat slots"; a slot
+// added or renamed here updates both the fit gate and the salvage guard at once.
+export const COMBAT_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>([
   "weapon",
   "shieldEmitters",
   "hullPlating",
@@ -489,7 +495,11 @@ export function unfitEquipment(
 //   spare (fittedToShipId -> null); NOTHING is minted to replace it, so the slot is left bare.
 //   This is REQUIRED so canDispatchPatrol's blocker is reachable ("strip a required combat slot
 //   -> cannot patrol"); the stripped piece sits in the pool and can be re-installed, so it is a
-//   recoverable state, not a permanent brick.
+//   recoverable state, not a permanent brick. That recoverability is ENFORCED, not just hoped for:
+//   a spare Standard-Issue COMBAT baseline (blueprintKey null, combat slot) is NON-salvageable
+//   (salvage.ts isSalvageable / salvageEquipment refuse it), so the one free fallback piece can
+//   never be deleted out from under the "re-install it" escape hatch. Crafted combat gear stays
+//   fully salvageable; only the free baseline is protected.
 //
 // PURE: returns a new GameState (and, for the economy path, an advanced nextEquipmentId),
 // mutates nothing.

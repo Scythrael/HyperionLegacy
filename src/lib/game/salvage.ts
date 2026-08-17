@@ -45,13 +45,15 @@
 // ============================================================================
 
 import Decimal from "break_infinity.js";
-import type { GameState, EquipmentRarity, SalvagedMaterialItemId, SalvageLootTier } from "./model";
+import type { GameState, EquipmentRarity, EquipmentInstance, SalvagedMaterialItemId, SalvageLootTier } from "./model";
 import { BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS, HOMEWORLD_TALENTS, SHIP_TYPES } from "./model";
 import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
 // onMissionLock is the equipment fitment's shared "is this ship's captain out on a
 // mission?" guard. salvageShip (below) reuses it verbatim so a hull that is locked for
 // FITMENT mid-mission is locked for SALVAGE too, one source of truth for that lock.
-import { onMissionLock } from "./equipment";
+// COMBAT_SLOT_TYPES is the SAME set the fit gate uses to decide combat vs economy slots;
+// isSalvageable (below) reads it so "which slots are combat slots" has ONE definition.
+import { onMissionLock, COMBAT_SLOT_TYPES } from "./equipment";
 
 // ----------------------------------------------------------------------------
 // salvageTalentBonus (0.11.0 Storage/Salvage, Task C4)
@@ -131,11 +133,18 @@ export interface SalvageRoll {
 }
 
 // The reasons a salvage is refused.
-//   Equipment recycle (salvageEquipment), a spare system (crafted OR baseline) qualifies:
+//   Equipment recycle (salvageEquipment):
 //     notFound             no equipment piece with that id
 //     fitted               the piece is fitted to a ship (unfit it first)
-//   (A Standard-Issue baseline is NOT refused: it salvages as a zero-reward declutter,
-//    see salvageEquipment below. So there is no baseline-specific reject reason.)
+//     combatBaseline       the piece is a spare Standard-Issue COMBAT baseline (blueprintKey
+//                          null + a combat slot). It is protected from salvage: it is the free
+//                          fallback that keeps "uninstall a combat slot -> re-install it from the
+//                          pool" always available, so canDispatchPatrol's blocker is never a
+//                          permanent brick (see the unfitEquipmentInstance ALLOW-EMPTY note in
+//                          equipment.ts, and isSalvageable below). A spare ECONOMY baseline is
+//                          NOT refused here: it salvages as a zero-reward declutter (see
+//                          salvageEquipment), because economy slots restore a baseline in-slot on
+//                          uninstall and are not a dispatch-blocker requirement.
 //   Salvaged-material loot roll (salvageSalvagedMaterial):
 //     notSalvagedMaterial  the item id is not a `salvagedMaterial` category item (only
 //                          salvaged materials carry a loot pool)
@@ -147,10 +156,41 @@ export interface SalvageRoll {
 export type SalvageRejectReason =
   | "notFound"
   | "fitted"
+  | "combatBaseline"
   | "notSalvagedMaterial"
   | "noneHeld"
   | "shipNotFound"
   | "shipOnMission";
+
+// ----------------------------------------------------------------------------
+// isSalvageable (Combat 1.0 softlock guard)
+// ----------------------------------------------------------------------------
+// The ONE predicate that decides whether a SPARE equipment piece may be salvaged. It is
+// the single source of truth shared by BOTH the UI gate (App.svelte, which shows/hides the
+// Salvage button) AND salvageEquipment's own defense-in-depth reject below, so the two can
+// never disagree about what is protected.
+//
+// A piece is NON-salvageable iff it is a spare Standard-Issue COMBAT baseline:
+//   blueprintKey === null            it was SEEDED (the free craft-less floor), not crafted, AND
+//   COMBAT_SLOT_TYPES.has(slotType)  it lives in a combat slot (weapon / shieldEmitters /
+//                                    hullPlating / droneBay).
+// Such a piece is the free fallback that makes "uninstall a combat slot -> re-install it from
+// the pool" always available; deleting it would let a player permanently strand a hull's patrol
+// capability (canDispatchPatrol -> noWeapon / noShieldEmitter / noHullPlating with no cheap
+// recovery), breaking the recoverability the ALLOW-EMPTY combat slots promise.
+//
+// EVERYTHING ELSE is salvageable: any CRAFTED piece (blueprintKey !== null, combat or economy)
+// recycles for materials, and a spare ECONOMY baseline salvages as a zero-reward declutter (an
+// economy slot restores its baseline in-slot on uninstall, so its spare is genuinely disposable
+// and is not a dispatch-blocker requirement). This function does NOT consider fitment or existence:
+// callers pass a real spare piece; salvageEquipment applies the notFound / fitted checks separately.
+//
+// PURE: reads two fields of the piece, allocates nothing, mutates nothing.
+export function isSalvageable(piece: EquipmentInstance): boolean {
+  const isStandardIssueCombatBaseline =
+    piece.blueprintKey === null && COMBAT_SLOT_TYPES.has(piece.slotType);
+  return !isStandardIssueCombatBaseline;
+}
 
 // ----------------------------------------------------------------------------
 // salvageEquipment
@@ -173,10 +213,11 @@ export type SalvageRejectReason =
 // whatever the caller passed" option from the task, chosen over making the param the
 // sole hook because it guarantees auto-apply without any caller-side wiring.
 //
-// REJECTS (same-ref no-op + reason) only when the target is missing or fitted. A spare
-// piece is always salvageable: a CRAFTED spare recovers a rolled fraction of its recipe
-// inputs; a Standard-Issue BASELINE has no recipe, so it salvages as a zero-reward
-// DECLUTTER (removed, recovers nothing), see the baseline branch below.
+// REJECTS (same-ref no-op + reason) when the target is missing (notFound), fitted (fitted),
+// or a protected combat baseline (combatBaseline, see isSalvageable above and the guard below).
+// Otherwise a spare piece is salvageable: a CRAFTED spare recovers a rolled fraction of its
+// recipe inputs; a spare ECONOMY Standard-Issue baseline has no recipe, so it salvages as a
+// zero-reward DECLUTTER (removed, recovers nothing), see the baseline branch below.
 export function salvageEquipment(
   state: GameState,
   instanceId: string,
@@ -193,16 +234,28 @@ export function salvageEquipment(
   if (piece.fittedToShipId !== null) {
     return { ok: false, next: state, reason: "fitted" };
   }
-  // Standard-Issue baseline (blueprintKey null): free + craft-less, so there is no
-  // recipe to refund. Rather than block it, salvage it as a pure DECLUTTER (user
+  // PROTECTED COMBAT BASELINE (Combat 1.0 softlock guard): a spare Standard-Issue combat
+  // baseline (blueprintKey null + a combat slot) is NON-salvageable and refused here, BEFORE
+  // the economy-baseline declutter branch below. This is the defense-in-depth half of the fix
+  // (the UI also hides the Salvage button via isSalvageable, but the engine must refuse it too
+  // so no code path can delete the piece): destroying it would let a player permanently strand a
+  // hull's patrol capability with no cheap recovery. isSalvageable is the shared predicate the UI
+  // reads, so the gate and this reject can never disagree. Only economy baselines fall through to
+  // the declutter branch (their slot restores a baseline on uninstall, so a spare one is disposable).
+  if (!isSalvageable(piece)) {
+    return { ok: false, next: state, reason: "combatBaseline" };
+  }
+  // Spare ECONOMY Standard-Issue baseline (blueprintKey null, and NOT a combat slot, since a
+  // combat baseline was already refused by the isSalvageable guard above): free + craft-less, so
+  // there is no recipe to refund. Rather than block it, salvage it as a pure DECLUTTER (user
   // decision 2026-07-21): remove the spare baseline and recover NOTHING. The zero
   // reward is deliberate and load-bearing: baselines are free (a spare one can be
   // produced at no material cost), so ANY payout here would be a farmable resource
   // source (Omega 6). An empty `recovered` map tells the caller to render a
   // "discarded, no materials" outcome instead of a recovery summary. This only ever
-  // runs on a SPARE baseline: a fitted one is caught by the `fitted` guard above, and
-  // the live-slot never-empty invariant is untouched (this removes a pool spare, not
-  // a slot occupant).
+  // runs on a SPARE economy baseline: a fitted one is caught by the `fitted` guard above, a
+  // combat one by the isSalvageable guard above, and the live-slot never-empty invariant is
+  // untouched (this removes a pool spare, not a slot occupant).
   if (piece.blueprintKey === null) {
     const equipment = state.equipment.filter((e) => e.id !== instanceId);
     return { ok: true, next: { ...state, equipment }, recovered: {} };

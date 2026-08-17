@@ -24,6 +24,7 @@ import {
   salvageSalvagedMaterial,
   salvageShip,
   salvageTalentBonus,
+  isSalvageable,
   SALVAGE_FRACTION_MIN,
   SALVAGE_FRACTION_MAX,
   SALVAGE_QUALITY_BONUS_PER_TIER,
@@ -169,6 +170,69 @@ describe("salvageEquipment: a spare Standard-Issue baseline salvages as a zero-r
     // (deliberate, so a free baseline can never be a farmable material source).
     expect(Object.keys(result.recovered)).toHaveLength(0);
     expect(result.next.inventory).toBe(state.inventory);
+  });
+});
+
+// Build ONE spare COMBAT piece (weapon / shieldEmitters / hullPlating). generateStandardIssue
+// throws for a combat slot (it mints economy baselines only), so we start from a valid economy
+// Standard-Issue baseline and override ONLY the two fields the salvage guard reads: slotType (a
+// combat slot) and blueprintKey (null = protected Standard-Issue baseline; a real key = crafted,
+// still salvageable). Always a SPARE (fittedToShipId null) so the notFound / fitted guards pass
+// and the combat-baseline guard is what is exercised.
+function makeCombatPiece(opts: {
+  slotType: EquipmentSlotType;
+  crafted: boolean;
+  id: string;
+}): EquipmentInstance {
+  const base = generateStandardIssue({
+    slotType: "cargoBay",
+    fittedToShipId: null,
+    allocateId: () => opts.id,
+  });
+  return {
+    ...base,
+    slotType: opts.slotType,
+    blueprintKey: opts.crafted ? SALVAGE_BP : null,
+    fittedToShipId: null,
+  };
+}
+
+describe("salvageEquipment: SOFTLOCK GUARD, a Standard-Issue COMBAT baseline is non-salvageable", () => {
+  // The three REQUIRED combat slots whose empty state blocks canDispatchPatrol. A free baseline
+  // in any of them must survive so "uninstall -> re-install from the pool" is always available.
+  const combatSlots: EquipmentSlotType[] = ["weapon", "shieldEmitters", "hullPlating"];
+
+  it("isSalvageable returns false AND salvageEquipment refuses it (same-ref no-op) WITHOUT removing the piece", () => {
+    for (const slotType of combatSlots) {
+      const piece = makeCombatPiece({ slotType, crafted: false, id: `sib-${slotType}` });
+      const state = stateWith([piece]);
+
+      // The shared predicate (the SAME one the UI Salvage-button gate reads) refuses it.
+      expect(isSalvageable(piece)).toBe(false);
+
+      // The engine refuses it too (defense in depth): a same-ref no-op with the clear reason,
+      // and the protected piece is STILL in the pool (never deleted).
+      const result = salvageEquipment(state, piece.id, () => 0.5);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("expected the combat baseline to be refused");
+      expect(result.reason).toBe("combatBaseline");
+      expect(result.next).toBe(state); // SAME reference: no state change
+      expect(result.next.equipment.find((e) => e.id === piece.id)).toBeDefined();
+    }
+  });
+
+  it("a CRAFTED combat piece (blueprintKey set) IS still salvageable and is consumed", () => {
+    const crafted = makeCombatPiece({ slotType: "weapon", crafted: true, id: "cc-weapon" });
+    const state = stateWith([crafted]);
+
+    // Crafted gear stays fully salvageable, combat or not.
+    expect(isSalvageable(crafted)).toBe(true);
+
+    const result = salvageEquipment(state, "cc-weapon", () => 0.5);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected the crafted combat piece to salvage");
+    // Consumed from the pool (the recycle path removed it).
+    expect(result.next.equipment.find((e) => e.id === "cc-weapon")).toBeUndefined();
   });
 });
 

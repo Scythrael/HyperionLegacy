@@ -284,7 +284,7 @@
   // the ship path), reject is the same same-ref + reason convention. doSalvageShip below
   // reassigns state + logs the recovered materials, credits, and returned systems. It is
   // INSTANT this patch and slated to become a timed teardown later (see salvage.ts).
-  import { salvageEquipment, salvageSalvagedMaterial, salvageShip, type SalvageRejectReason } from "./lib/game/salvage";
+  import { salvageEquipment, salvageSalvagedMaterial, salvageShip, isSalvageable, type SalvageRejectReason } from "./lib/game/salvage";
   import {
     tick,
     // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
@@ -2804,13 +2804,15 @@
 
   // The resolved selected piece (or null). Reactive on the pool, so if the
   // selected piece is salvaged the tooltip auto-hides even without an explicit
-  // clear. EVERY spare in this bay is salvageable now: a crafted spare recycles for
-  // materials, and a Standard-Issue baseline salvages as a zero-reward declutter
-  // (2026-07-21). Fitted pieces are absent from this list entirely, so any selected
-  // piece here is a valid target. This predicate gates the Salvage button.
+  // clear. Fitted pieces are absent from this list entirely (spares only), so the
+  // only spare that is NOT salvageable is a protected Standard-Issue COMBAT baseline
+  // (the free fallback that must stay re-installable, see salvage.ts isSalvageable):
+  // a crafted spare recycles for materials, and a spare economy baseline salvages as a
+  // zero-reward declutter. This predicate gates the Salvage button; it shares the SAME
+  // isSalvageable helper the salvage engine refuses on, so UI and engine never disagree.
   $: selectedSystem =
     selectedSystemId !== null ? baySpareSystems.find((p) => p.id === selectedSystemId) ?? null : null;
-  $: selectedIsSalvageable = selectedSystem !== null;
+  $: selectedIsSalvageable = selectedSystem !== null && isSalvageable(selectedSystem);
 
   // Toggle a tile's selection (clicking the open tile closes it), matching the
   // slot-select toggle idiom ShipSystemsPanel uses.
@@ -2819,15 +2821,18 @@
   }
 
   // Human sentence for a salvage REJECT reason. Exhaustive over SalvageRejectReason
-  // (a switch, no default) so a new reason is a compile error here. Only notFound /
-  // fitted are reachable from the bay's system salvage (a spare baseline no longer
-  // rejects, it declutters), but the salvaged-material reasons are covered for totality.
+  // (a switch, no default) so a new reason is a compile error here. From the bay's
+  // system salvage, notFound / fitted / combatBaseline are reachable (a spare economy
+  // baseline declutters instead of rejecting); the salvaged-material reasons are covered
+  // for totality.
   function salvageRejectText(reason: SalvageRejectReason): string {
     switch (reason) {
       case "notFound":
         return "that system no longer exists";
       case "fitted":
         return "the system is installed on a ship (uninstall it first)";
+      case "combatBaseline":
+        return "Standard-Issue combat gear cannot be salvaged (re-install it, or replace it with crafted gear)";
       case "notSalvagedMaterial":
         return "that item is not a salvaged material";
       case "noneHeld":
@@ -6135,10 +6140,13 @@
             </Panel>
 
             <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
-                 inline. A spare crafted system gets a Salvage button in the
-                 tooltip's action slot (routes through requestSalvage("system", ...)
-                 -> the shared confirm modal); baselines get NONE (nothing to
-                 refund). -->
+                 inline. A SALVAGEABLE spare (any crafted system, or a spare economy
+                 Standard-Issue baseline) gets a Salvage button in the tooltip's action
+                 slot (routes through requestSalvage("system", ...) -> the shared confirm
+                 modal). A protected Standard-Issue COMBAT baseline is NON-salvageable
+                 (selectedIsSalvageable is false via isSalvageable): it gets NO button, just
+                 a short explanation, so the free fallback piece can never be destroyed and
+                 "uninstall -> re-install from the pool" stays available. -->
             {#if selectedSystem}
               {@const sys = selectedSystem}
               <Panel>
@@ -6151,7 +6159,7 @@
                       Salvage
                     </button>
                   {:else}
-                    <span class="systems-salvage-none">Standard-Issue baseline, nothing to salvage.</span>
+                    <span class="systems-salvage-none">Standard-Issue combat gear cannot be salvaged. Re-install it on a hull, or replace it with crafted gear.</span>
                   {/if}
                 </EquipmentTooltip>
               </Panel>
