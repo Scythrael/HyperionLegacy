@@ -6874,11 +6874,10 @@ export function buyHomeworldTalent(
     // captain is dispatchable immediately, the SAME shared seeder freshState / the save
     // migration / the shipBuild completion use. nextEquipmentId is threaded forward.
     const seededHull = seedStandardIssueForShip(newShipId, state.nextEquipmentId);
-    // Combat 1.0 (Unit 1.3): mirror the shipBuild path and ALSO install the combat baseline when
-    // the granted hull is a combat hull, threaded off the economy seed's advanced id. Today the
-    // granted hull is ALWAYS a generalFreighter (an economy hull), so combatHullTypeOf returns null
-    // and this is a clean no-op that threads the id straight through; the call is here for symmetry
-    // and to stay correct if the grant hull ever becomes a combat hull.
+    // Combat 1.0: mirror the shipBuild path and ALSO install the combat baseline, threaded off the
+    // economy seed's advanced id. Today the granted hull is ALWAYS a generalFreighter; every hull is
+    // now combat-capable, so this seeds its weak Standard-Issue combat set (one autocannon + shield +
+    // plating), leaving the granted freighter dispatchable to combat patrols like any other hull.
     const seededCombat = seedCombatStandardIssueForShip(
       newShipId,
       combatStandardIssueSpecFor("generalFreighter"),

@@ -4104,10 +4104,11 @@ function equipLineState(blueprintKey: string, iterations: number): GameState {
 
 const CRAFTABLE_RARITIES = ["standard", "augmented", "stellar", "radiant"];
 
-// Combat 1.0 (Unit 1.3): a newly-BUILT hull is born with its full Standard-Issue install. An
-// economy hull gets the 4 economy baselines; a COMBAT hull additionally gets the 3 combat baselines
-// (weapon + shield emitter + hull plating), so it is dispatchable the moment it is crewed.
-describe("shipBuild completion installs the combat baseline on a combat hull (Combat 1.0, Unit 1.3)", () => {
+// Combat 1.0 (Unit 1.3): a newly-BUILT hull is born with its full Standard-Issue install. Since
+// "every hull is combat-capable", EVERY hull now gets the 4 economy baselines PLUS its combat set
+// (weapon(s) + shield emitter + hull plating), so it is dispatchable the moment it is crewed. A
+// combat hull gets its strong loadout; an economy hull gets its WEAK 1-autocannon set (no drones).
+describe("shipBuild completion installs the combat baseline on every hull (Combat 1.0, Unit 1.3)", () => {
   // Run an in-flight shipBuild(addShip typeKey) to completion and return { state, newShipId }.
   function buildHull(typeKey: "destroyer" | "prospectorMiner") {
     const base = freshState();
@@ -4142,15 +4143,22 @@ describe("shipBuild completion installs the combat baseline on a combat hull (Co
     expect(fitted.filter((e) => e.slotType === "hullPlating")).toHaveLength(1);
   });
 
-  it("a newly-built ECONOMY hull (prospectorMiner) is born with only the 4 economy pieces (no combat gear)", () => {
+  it("a newly-built ECONOMY hull (prospectorMiner) is born with its WEAK combat set: 4 economy + (1 autocannon + shield + plating)", () => {
     const { next, newShipId, newShip } = buildHull("prospectorMiner");
     expect(newShip.typeKey).toBe("prospectorMiner");
+    // "Every hull is combat-capable": the miner is born with its 4 economy baselines PLUS its weak
+    // combat set (its 1-autocannon default loadout + shield emitter + hull plating), so it is
+    // dispatchable when crewed, just STRICTLY INFERIOR to a warship. No drone pod (drones stay
+    // carrier-only, builtInBays 0).
+    const loadout = COMBAT_DEFAULT_LOADOUT.prospectorMiner.weapons;
     const fitted = next.equipment.filter((e) => e.fittedToShipId === newShipId);
-    expect(fitted).toHaveLength(4);
-    expect(fitted.map((e) => e.slotType).sort()).toEqual(
-      ["cargoBay", "ftlDrive", "reactorCore", "specUtility"].sort()
+    expect(fitted).toHaveLength(4 + loadout.length + 2); // 4 economy + 1 weapon + shield + plating
+    expect(new Set(fitted.map((e) => e.slotType))).toEqual(
+      new Set(["cargoBay", "ftlDrive", "hullPlating", "reactorCore", "shieldEmitters", "specUtility", "weapon"])
     );
-    expect(fitted.some((e) => e.slotType === "weapon")).toBe(false); // an economy hull gets no combat gear
+    // Its weapon is the outgunned autocannon default (NOT a combat hull's kit), and no drone bay.
+    expect(fitted.filter((e) => e.slotType === "weapon").map((e) => e.weaponType)).toEqual([...loadout]);
+    expect(fitted.some((e) => e.slotType === "droneBay")).toBe(false); // no drones for economy hulls
   });
 });
 

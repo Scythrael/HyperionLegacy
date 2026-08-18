@@ -3,7 +3,7 @@ import Decimal from "break_infinity.js";
 import LZString from "lz-string";
 import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
-import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY, seedCombatStandardIssueForShip } from "./model";
+import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY, seedCombatStandardIssueForShip, type ShipTypeKey } from "./model";
 // Task 20 v27->v28: the Standard-Issue seed proves stat-neutrality by comparing a
 // migrated ship's derived stats WITH its seeded gear against the bare hull.
 import { equippedFor } from "./equipment";
@@ -60,7 +60,7 @@ describe("migrate, tickDurationSeconds backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -99,7 +99,7 @@ describe("migrate, research field backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -273,7 +273,7 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -370,7 +370,7 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -476,7 +476,7 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -565,7 +565,7 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -638,7 +638,7 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -701,7 +701,7 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -771,7 +771,7 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -1563,7 +1563,7 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -1771,7 +1771,7 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -2055,7 +2055,7 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -2219,7 +2219,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(35);
+    expect(deserialized!.version).toBe(36);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2241,7 +2241,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -2370,7 +2370,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -2537,7 +2537,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -2728,7 +2728,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -2919,7 +2919,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -3112,7 +3112,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -3289,7 +3289,7 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -3346,15 +3346,17 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     const migrated: any = migrate(save);
 
     // --- MIGRATIONS[26] seeds the four equipment-feature FIELDS; the full chain then runs
-    // MIGRATIONS[27], which SEEDS Standard-Issue onto this save's one ship. migrate() always
-    // runs the whole chain to SAVE_VERSION, so the observable end state carries the four
-    // Standard-Issue baselines for "ship-1" (equip-1..4, all fitted), nextEquipmentId at 5,
+    // MIGRATIONS[27], which SEEDS the four economy Standard-Issue baselines onto this save's
+    // one ship, AND MIGRATIONS[35] ("every hull is combat-capable"), which fits that economy
+    // freighter with its WEAK combat set (1 weapon + shield emitter + hull plating = 3 more).
+    // migrate() always runs the whole chain to SAVE_VERSION, so the observable end state carries
+    // 4 economy + 3 combat baselines for "ship-1" (equip-1..7, all fitted), nextEquipmentId at 8,
     // and the crafting fields backfilled + hydrated. ---
-    expect(migrated.equipment).toHaveLength(4); // ship-1's Standard-Issue baseline, one per live slot
+    expect(migrated.equipment).toHaveLength(7); // 4 economy Standard-Issue + 3 weak combat baselines
     expect(migrated.equipment.every((e: any) => e.fittedToShipId === "ship-1")).toBe(true);
     expect(migrated.equipment.every((e: any) => e.blueprintKey === null)).toBe(true);
     expect(typeof migrated.nextEquipmentId).toBe("number");
-    expect(migrated.nextEquipmentId).toBe(5); // advanced past the four minted ids
+    expect(migrated.nextEquipmentId).toBe(8); // advanced past the seven minted ids
     expect(migrated.craftingLevel).toBe(1);
     expect(migrated.craftingXp instanceof Decimal).toBe(true); // hydrated to a LIVE Decimal, not a string/NaN
     expect(migrated.craftingXp.equals(0)).toBe(true);
@@ -3380,11 +3382,14 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
   });
 
   it("matches freshState() exactly for the four equipment fields (a migrated v26 save and a fresh v27 game agree)", () => {
-    // Anti-regression parity: whatever freshState() seeds for the equipment fields, the migration
+    // Anti-regression parity: whatever a NEW game seeds for the equipment fields, the migration
     // must produce the IDENTICAL shape, or a returning player and a new player diverge. Builds a
     // minimal v26 save (bucketed inventory, all eight facilities, no equipment fields) and compares
-    // its migrated result against a live freshState().
-    const fresh = freshState();
+    // its migrated result against a live new game. Since "every hull is combat-capable", a real new
+    // game is installMissingCombatBaselines(freshState()) (the same App.svelte wraps freshState with,
+    // and the same fold MIGRATIONS[35] runs), so the parity comparison seeds the fresh side the same
+    // way: both carry the economy hull's 4 economy + 3 weak combat baselines (Omega 4, DRY).
+    const fresh = installMissingCombatBaselines(freshState());
     const legacyState: any = {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
@@ -3400,8 +3405,8 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     const save: SaveFile = { version: 26, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
     const migrated: any = migrate(save);
 
-    expect(migrated.equipment).toEqual(fresh.equipment); // []
-    expect(migrated.nextEquipmentId).toBe(fresh.nextEquipmentId); // 1
+    expect(migrated.equipment).toEqual(fresh.equipment); // 4 economy + 3 weak combat baselines
+    expect(migrated.nextEquipmentId).toBe(fresh.nextEquipmentId); // 8
     expect(migrated.craftingLevel).toBe(fresh.craftingLevel); // 1
     expect(migrated.craftingXp.equals(fresh.craftingXp)).toBe(true); // Decimal(0)
     expect(migrated.craftingXp instanceof Decimal).toBe(true);
@@ -3441,7 +3446,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
@@ -3489,14 +3494,22 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
   it("fits EVERY existing ship out with a Standard-Issue baseline on all four live slots (never empty, ids unique + threaded)", () => {
     const migrated: any = migrate(makeV27MultiShipSave());
 
-    // Three ships × four live slots = twelve baselines, ids equip-1..12 unique + monotonic.
-    expect(migrated.equipment).toHaveLength(12);
+    // The full chain runs past the v27->v28 economy seed all the way to SAVE_VERSION, so each of
+    // the three economy ships now carries its four economy Standard-Issue baselines PLUS its weak
+    // combat set ("every hull is combat-capable": 1 weapon + shield emitter + hull plating = 3).
+    // Three ships × (4 economy + 3 combat) = 21 baselines, ids unique + monotonic.
+    expect(migrated.equipment).toHaveLength(21);
     const ids = migrated.equipment.map((e: any) => e.id);
-    expect(new Set(ids).size).toBe(12); // all unique
-    expect(migrated.nextEquipmentId).toBe(13); // advanced past all twelve
+    expect(new Set(ids).size).toBe(21); // all unique
+    expect(migrated.nextEquipmentId).toBe(22); // advanced past all twenty-one
 
     for (const shipId of ["ship-1", "ship-2", "ship-3"]) {
-      const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === shipId);
+      // This test owns the ECONOMY Standard-Issue seed; restrict to the four economy live slots
+      // (the weak combat baselines that also ride on the ship are the v33->v34 / v35->v36 seeds'
+      // concern, asserted in their own blocks).
+      const fitted = migrated.equipment.filter(
+        (e: any) => e.fittedToShipId === shipId && LIVE_SLOTS.includes(e.slotType),
+      );
       // Exactly one piece per live slot, every one a craft-less quality-0 Standard baseline.
       expect(fitted.map((e: any) => e.slotType).sort()).toEqual([...LIVE_SLOTS].sort());
       for (const piece of fitted) {
@@ -3538,13 +3551,16 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
 
   it("matches freshState() exactly for the single starting ship (a migrated v27 save and a fresh v28 game agree)", () => {
     // Anti-regression parity: a returning single-ship player and a brand-new player must land
-    // on the byte-identical fully-fitted shape (both go through the SAME shared seeder).
-    const fresh = freshState();
+    // on the byte-identical fully-fitted shape (both go through the SAME shared seeder). Since
+    // "every hull is combat-capable", a real new game is installMissingCombatBaselines(freshState())
+    // (App.svelte wraps freshState with the same fold the migration runs), so the fresh side seeds
+    // its economy hull's weak combat set too: economy Standard-Issue + weak combat baselines both.
+    const fresh = installMissingCombatBaselines(freshState());
     const singleShip = makeV27MultiShipSave();
     singleShip.state.ships = [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }];
     const migrated: any = migrate(singleShip);
-    expect(migrated.equipment).toEqual(fresh.equipment); // same four baselines, same ids, same fitment
-    expect(migrated.nextEquipmentId).toBe(fresh.nextEquipmentId); // 5
+    expect(migrated.equipment).toEqual(fresh.equipment); // 4 economy + 3 combat baselines, same ids, same install state
+    expect(migrated.nextEquipmentId).toBe(fresh.nextEquipmentId); // 8
   });
 
   it("is IDEMPOTENT per-ship: a ship that already carries fitted gear is not re-seeded", () => {
@@ -3562,13 +3578,20 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
     save.state.nextEquipmentId = 100;
     const migrated: any = migrate(save);
 
-    // ship-1 keeps its single pre-existing piece (NOT re-seeded to four); ship-2 gets four.
+    // ECONOMY seed (v27->v28): ship-1 keeps its single pre-existing piece (NOT re-seeded to four
+    // economy baselines); ship-2 gets its four. COMBAT seed (the shared installMissingCombatBaselines,
+    // now every-hull-aware): both economy hulls ALSO gain their weak combat set (weapon + shield +
+    // plating = 3), which is per-SLOT idempotent so it never disturbs the economy pieces. So ship-1
+    // ends at 1 economy + 3 combat = 4, and ship-2 at 4 economy + 3 combat = 7.
     const ship1 = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
     const ship2 = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-2");
-    expect(ship1).toHaveLength(1);
-    expect(ship1[0].id).toBe("equip-99");
-    expect(ship2).toHaveLength(4);
-    expect(migrated.nextEquipmentId).toBe(104); // four minted from 100
+    expect(ship1).toHaveLength(4);
+    expect(ship1.some((e: any) => e.id === "equip-99")).toBe(true); // the pre-existing economy piece survives
+    expect(ship1.filter((e: any) => LIVE_SLOTS.includes(e.slotType))).toHaveLength(1); // economy NOT re-seeded
+    expect(ship2).toHaveLength(7);
+    // ship-2 mints 4 economy (100..103) at v27->v28, then the combat seed mints 3 for ship-1
+    // (104..106) + 3 for ship-2 (107..109), so the counter advances to 110.
+    expect(migrated.nextEquipmentId).toBe(110);
   });
 });
 
@@ -3625,7 +3648,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     // (a v28 save chains all the way through the iLevel backfill at v29->v30 and the
     // nextCaptainId backfill at v30->v31).
     const roundTripped = deserialize(serialize(migrated, 0));
-    expect(roundTripped!.version).toBe(35);
+    expect(roundTripped!.version).toBe(36);
     expect(roundTripped!.version).toBe(SAVE_VERSION);
 
     // Task B1 (equipment storage cap): the SAME v28->v29 body seeds the new
@@ -3684,7 +3707,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 
   it("freshState seeds equipmentStorageLevel 0 (Task B1), matching the migration's seed on old saves", () => {
@@ -3755,15 +3778,24 @@ describe("migrate, equipment iLevel backfill (v29 -> v30)", () => {
       pieceNoILevel("equip-2", "haulerHoldBp"), // crafted  -> 1
     ]);
     const migrated: any = migrate(save);
-    expect(migrated.equipment.map((e: any) => e.iLevel)).toEqual([1, 1]);
+    // This test owns the v29->v30 iLevel backfill on the two PRE-EXISTING pieces; the full chain
+    // also appends the economy hull's weak combat baselines ("every hull is combat-capable", all at
+    // the Standard-Issue iLevel floor 1), which are noise here, so filter to the two original ids.
+    const originals = migrated.equipment.filter((e: any) => e.id === "equip-1" || e.id === "equip-2");
+    expect(originals.map((e: any) => e.iLevel)).toEqual([1, 1]);
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
   });
 
-  it("is a no-op for an empty equipment pool", () => {
+  it("is a no-op for an empty equipment pool (only the every-hull combat baselines appear)", () => {
     const save = makeV29Save([]);
     const migrated: any = migrate(save);
-    expect(migrated.equipment).toEqual([]);
+    // The iLevel backfill has NOTHING to backfill on an empty pool. The full chain then fits the
+    // save's one economy hull with its weak combat set ("every hull is combat-capable"): the only
+    // pieces present are craft-less Standard-Issue baselines (blueprintKey null) at the iLevel floor
+    // 1, never a backfilled crafted piece, so the iLevel step remained a clean no-op.
+    expect(migrated.equipment.every((e: any) => e.blueprintKey === null && e.iLevel === 1)).toBe(true);
+    expect(migrated.equipment.some((e: any) => e.slotType === "weapon")).toBe(true); // the weak combat set landed
   });
 });
 
@@ -3990,7 +4022,7 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     const migrated: any = migrate(save);
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
-    expect(roundTripped!.version).toBe(35);
+    expect(roundTripped!.version).toBe(36);
     // The now-v33 save carries the field; re-migrating keeps it (no re-backfill, no reset).
     const before = (roundTripped!.state as any).captains[0].mission.playerSystemDurability;
     const remigrated: any = migrate(roundTripped as SaveFile);
@@ -4005,26 +4037,30 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     expect(migrated.captains[0].mission).toBeNull();
   });
 
-  it("degrades safely on a corrupt/non-combat hull: leaves the field absent, no throw", () => {
-    // A hand-edited/corrupt v32 save: an in-flight patrol whose assigned ship is somehow a
-    // NON-combat hull (canDispatchPatrol never allows this in normal play). The migration
-    // cannot derive a full durability from a non-combat hull, so `if (!ship || !hullType)`
-    // leaves the field ABSENT rather than throwing; the build path later treats absent as
-    // full. This locks the last uncovered migration branch (the degrade-safe posture).
+  it("degrades safely on a corrupt/unknown hull: leaves the field absent, no throw", () => {
+    // A hand-edited/corrupt v32 save: an in-flight patrol whose assigned ship carries an UNKNOWN
+    // typeKey (not any real hull). Since "every hull is combat-capable" now, an economy hull DOES
+    // derive a durability, so the degrade branch is reached only by a typeKey combatHullTypeOf
+    // cannot resolve at all. The migration cannot derive a full durability from it, so
+    // `if (!ship || !hullType)` leaves the field ABSENT rather than throwing; the build path later
+    // treats absent as full. This locks the last uncovered migration branch (the degrade-safe posture).
     const save = makeV32PatrolSave();
-    (save.state as any).ships[0].typeKey = "generalFreighter";
+    (save.state as any).ships[0].typeKey = "corruptGhostHull";
     const migrated: any = migrate(save);
     const mission = migrated.captains[0].mission;
     expect(mission.kind).toBe("patrol");
     // No full durability derivable => field stays absent (no crash, no fabricated value).
     expect(mission.playerSystemDurability).toBeUndefined();
-    expect(SAVE_VERSION).toBe(35);
+    expect(SAVE_VERSION).toBe(36);
   });
 });
 
 // Combat 1.0 (Unit 1.3): the v33 -> v34 combat Standard-Issue baseline seed. Every EXISTING combat
 // hull gets its free weapon + shield emitter + hull plating installed on load, so a pre-combat-gear
-// save's combat hulls clear the new empty-required-slot dispatch blocker. Economy hulls are untouched.
+// save's combat hulls clear the new empty-required-slot dispatch blocker. NOTE ("every hull is
+// combat-capable"): the shared installMissingCombatBaselines this delegates to now also seeds the
+// ECONOMY hulls their WEAK combat set (asserted in the economy case below), not just the three combat
+// hulls; the same fold runs here and at the v35->v36 step for saves that skip past this one.
 describe("migrate, Standard-Issue combat baseline seed (v33 -> v34)", () => {
   // A genuine v33-shaped save: ship-1 is a COMBAT hull (destroyer) carrying ONLY its four economy
   // Standard-Issue baselines and NO combat gear (the pre-Unit-1.3 shape). Built by retyping
@@ -4073,14 +4109,24 @@ describe("migrate, Standard-Issue combat baseline seed (v33 -> v34)", () => {
     );
   });
 
-  it("leaves an ECONOMY hull untouched (no combat slots seeded)", () => {
-    // freshState's ship-1 stays a generalFreighter: a genuine v33 save with an economy hull.
+  it("seeds an ECONOMY hull its WEAK combat set (every hull is combat-capable)", () => {
+    // freshState's ship-1 stays a generalFreighter: a genuine v33 save with an economy hull. Since
+    // "every hull is combat-capable", the shared seeder now fits it out with its WEAK combat set too
+    // (its 1-autocannon default loadout + shield emitter + hull plating = 3 pieces, NO drone pod), so
+    // an old economy ship becomes dispatchable on load, just STRICTLY INFERIOR to a combat hull.
     const raw = deserialize(serialize(freshState(), 0)) as SaveFile;
     raw.version = 33;
     const migrated: any = migrate(raw);
     const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
-    expect(fitted).toHaveLength(4); // still only the four economy baselines
-    expect(fitted.some((e: any) => e.slotType === "weapon")).toBe(false);
+    expect(fitted).toHaveLength(7); // 4 economy baselines + 3 weak combat baselines
+    // Its combat weapons are the freighter's WEAK default loadout (the outgunned autocannon set),
+    // NOT a combat hull's kit, and it gets NO drone pod (drones stay carrier-only).
+    expect(fitted.filter((e: any) => e.slotType === "weapon").map((e: any) => e.weaponType)).toEqual([
+      ...COMBAT_DEFAULT_LOADOUT.generalFreighter.weapons,
+    ]);
+    expect(fitted.filter((e: any) => e.slotType === "shieldEmitters")).toHaveLength(1);
+    expect(fitted.filter((e: any) => e.slotType === "hullPlating")).toHaveLength(1);
+    expect(fitted.some((e: any) => e.slotType === "droneBay")).toBe(false); // no drones for economy hulls
   });
 });
 
@@ -4173,6 +4219,91 @@ describe("migrate, Standard-Issue drone-pod baseline seed (v34 -> v35)", () => {
   });
 });
 
+// "Every hull is combat-capable" (user decision): the v35 -> v36 EVERY-HULL combat baseline seed.
+// A save that is ALREADY at v35 (past the combat-hull seeds of MIGRATIONS[33]/[34]) still has its
+// ECONOMY hulls combat-BARE, because those seeds only touched combat hulls before the concept was
+// widened. MIGRATIONS[35] fits every existing economy hull with its WEAK combat set on load, so an
+// old economy ship becomes dispatchable, just strictly inferior to a warship.
+describe("migrate, every-hull combat baseline seed (v35 -> v36)", () => {
+  // A genuine v35-shaped save: ship-1 is an ECONOMY hull (generalFreighter) carrying ONLY its four
+  // economy Standard-Issue baselines and NO combat gear (the pre-widening economy shape). Built from
+  // freshState (which seeds only the economy baselines), stamped version 35.
+  function makeV35EconomySave(typeKey: ShipTypeKey): SaveFile {
+    const base = freshState();
+    const preState = {
+      ...base,
+      ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)),
+    };
+    const raw = deserialize(serialize(preState, 0)) as SaveFile;
+    raw.version = 35;
+    return raw;
+  }
+
+  it("seeds an existing v35 economy hull its WEAK combat set on load (weapon + shield + plating, no drone)", () => {
+    const save = makeV35EconomySave("generalFreighter");
+    // Precondition: the v35 freighter carries ONLY the four economy baselines, no combat gear.
+    const before = (save.state as any).equipment.filter((e: any) => e.fittedToShipId === "ship-1");
+    expect(before).toHaveLength(4);
+    expect(before.some((e: any) => e.slotType === "weapon")).toBe(false);
+
+    const migrated: any = migrate(save);
+    const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
+    // Now 4 economy + the weak combat set (its 1-autocannon default loadout + shield + plating = 3).
+    expect(fitted).toHaveLength(7);
+    expect(fitted.filter((e: any) => e.slotType === "weapon").map((e: any) => e.weaponType)).toEqual([
+      ...COMBAT_DEFAULT_LOADOUT.generalFreighter.weapons,
+    ]);
+    expect(fitted.filter((e: any) => e.slotType === "shieldEmitters")).toHaveLength(1);
+    expect(fitted.filter((e: any) => e.slotType === "hullPlating")).toHaveLength(1);
+    expect(fitted.some((e: any) => e.slotType === "droneBay")).toBe(false); // drones stay carrier-only
+    // Its shield/plating magnitudes come from the freighter's own SHIP_TYPES stats (the weak, honest
+    // profile), NOT a combat hull's: the plating carries hullIntegrity - frameHp, the emitter the hull
+    // shield pool. Just prove they are the freighter's numbers, not a warship's, via presence + fold.
+    const withGear = shipDerivedStats(migrated.ships[0], equippedFor(migrated, "ship-1"));
+    const bareHull = shipDerivedStats(migrated.ships[0], []);
+    expect(withGear).toEqual(bareHull); // combat baselines are economy-neutral (mass 0 / powerDraw 0)
+  });
+
+  it("seeds ALL four economy hull types their weak combat set (every hull is combat-capable)", () => {
+    for (const hull of ["generalFreighter", "prospectorHauler", "prospectorRunner", "prospectorMiner"] as ShipTypeKey[]) {
+      const migrated: any = migrate(makeV35EconomySave(hull));
+      const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
+      // Each gets its 1-weapon default loadout + shield + plating (all economy hulls: 1 hardpoint gun).
+      expect(
+        fitted.filter((e: any) => e.slotType === "weapon").map((e: any) => e.weaponType),
+        `${hull} weak loadout`,
+      ).toEqual([...COMBAT_DEFAULT_LOADOUT[hull as keyof typeof COMBAT_DEFAULT_LOADOUT].weapons]);
+      expect(fitted.some((e: any) => e.slotType === "shieldEmitters"), `${hull} shield`).toBe(true);
+      expect(fitted.some((e: any) => e.slotType === "hullPlating"), `${hull} plating`).toBe(true);
+      expect(fitted.some((e: any) => e.slotType === "droneBay"), `${hull} no drone`).toBe(false);
+    }
+  });
+
+  it("is IDEMPOTENT + leaves an existing combat hull's full set untouched (additive)", () => {
+    // A v35 save with a combat hull already carrying its full combat set must NOT be double-seeded by
+    // MIGRATIONS[35] (per-slot idempotence), and re-migrating changes nothing. Uses stateWithHull's
+    // shape: a destroyer already fully seeded, restamped to v35.
+    const base = installMissingCombatBaselines({
+      ...freshState(),
+      ships: freshState().ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as const } : s)),
+    });
+    const raw = deserialize(serialize(base, 0)) as SaveFile;
+    raw.version = 35;
+    const migrated: any = migrate(raw);
+    const countAfterFirst = migrated.equipment.length;
+    const nextIdAfterFirst = migrated.nextEquipmentId;
+    // The destroyer keeps EXACTLY its full loadout (no extra weapon/shield/plating minted).
+    const destroyerWeapons = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1" && e.slotType === "weapon");
+    expect(destroyerWeapons).toHaveLength(COMBAT_DEFAULT_LOADOUT.destroyer.weapons.length);
+    // Re-stamp to v35 and migrate again: nothing more is seeded (idempotent).
+    const reSave = deserialize(serialize(migrated, 0)) as SaveFile;
+    reSave.version = 35;
+    const remigrated: any = migrate(reSave);
+    expect(remigrated.equipment.length).toBe(countAfterFirst);
+    expect(remigrated.nextEquipmentId).toBe(nextIdAfterFirst);
+  });
+});
+
 // Fuel Economy v2 (F5): the "no new migration needed" PROOF. F1-F4 added NO new persistent
 // state beyond what MIGRATIONS[20] (v20->v21) already seeds:
 //   - F1 renames are LABEL-ONLY (item/facility KEYS unchanged) -> nothing to migrate.
@@ -4219,7 +4350,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(35);
+    expect(save!.version).toBe(36);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
@@ -4296,7 +4427,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     const save = deserialize(serialize(inFlight, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(35); // current version is 35 (Combat 1.0 Unit 2.3a drone-pod baseline seed)
+    expect(save!.version).toBe(36); // current version is 36 (every-hull combat baseline seed)
     const restored = migrate(save);
 
     // Empty repair state survived: the ship reads as healthy, the in-flight patrol is intact
@@ -4333,7 +4464,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     // Round-trip: the damaged flag, repairDamage, AND the in-flight shipRepair (clearShipDamage
     // effect) must all survive JSON with no hydration change.
     const save = deserialize(serialize(withRepair, 0)) as SaveFile;
-    expect(save!.version).toBe(35);
+    expect(save!.version).toBe(36);
     const restored = migrate(save!);
     const shipAfter = restored.ships.find((s) => s.id === "ship-1")!;
     expect(shipAfter.damaged).toBe(true);

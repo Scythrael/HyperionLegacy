@@ -39,9 +39,10 @@ const PATROL_KEY = "crimsonReaverSweep";
 // A fresh state whose one starting captain (id 1) flies the given hull instead of the
 // default General Freighter. Retypes ship-1 in place (its Standard-Issue equipment is
 // stat-neutral, so the fold is unaffected). The tank starts full (freshState grant).
-// Combat 1.0 (Unit 1.3): the retype skips the combat baseline a real combat-hull build
-// installs, so re-establish the never-empty combat invariant via installMissingCombatBaselines
-// (economy hull -> no-op). Without it a fabricated combat hull would fail the new dispatch blocker.
+// Combat 1.0 (Unit 1.3): the retype skips the combat baseline a real build installs, so
+// re-establish the never-empty combat invariant via installMissingCombatBaselines. Since
+// "every hull is combat-capable", this now seeds the WEAK combat set for an economy hull too
+// (no longer a no-op), so any retyped hull ends up dispatchable exactly like a real build/migration.
 function stateWithHull(typeKey: ShipTypeKey): GameState {
   const base = freshState();
   return installMissingCombatBaselines({
@@ -51,10 +52,22 @@ function stateWithHull(typeKey: ShipTypeKey): GameState {
 }
 
 describe("canDispatchPatrol gates (Combat 0.13.0 §S14)", () => {
-  it("blocks a non-combat hull (freighter) with notCombatHull", () => {
-    const state = freshState(); // default captain flies a General Freighter
-    const gate = canDispatchPatrol(state, 1, PATROL_KEY);
-    expect(gate).toEqual({ ok: false, reason: "notCombatHull" });
+  it("allows an economy hull (freighter) now that every hull is combat-capable", () => {
+    // "Every hull is combat-capable" (user decision): an economy hull carrying its weak Standard-
+    // Issue combat set (stateWithHull seeds it via installMissingCombatBaselines) is DISPATCHABLE,
+    // no longer blocked as a non-combat hull. Its inferiority to a warship is a BALANCE property
+    // (the weak loadout -> low win bands, patrol-balance.test.ts owns that), not a dispatch gate.
+    const state = stateWithHull("generalFreighter");
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: true });
+  });
+
+  it("still blocks a BARE economy hull (no combat gear installed) with the required-slot guard", () => {
+    // A raw freshState() freighter is NOT combat-seeded (freshState seeds only the economy Standard-
+    // Issue; the real new-game path wraps it with installMissingCombatBaselines, and a live save is
+    // seeded by the migration). With its required combat slots empty it trips the SAME required-slot
+    // guard a stripped combat hull would: noWeapon. This is the "a stripped hull cannot launch" floor.
+    const state = freshState();
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noWeapon" });
   });
 
   it("allows a combat hull (destroyer) with a full tank", () => {
@@ -220,10 +233,13 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
   });
 
   it("a blocked dispatch is a same-ref no-op carrying the block reason", () => {
-    const state = freshState(); // freighter -> notCombatHull
+    // A raw freshState() freighter is combat-BARE (freshState seeds no combat gear), so dispatch is
+    // blocked by the required-slot guard (noWeapon), not by a hull-capability gate anymore. The point
+    // of THIS test is the same-ref no-op convention on ANY blocked dispatch, which still holds.
+    const state = freshState();
     const result = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false);
     expect(result.success).toBe(false);
-    expect(result.reason).toBe("notCombatHull");
+    expect(result.reason).toBe("noWeapon");
     expect(result.next).toBe(state); // exact same reference, nothing mutated
   });
 
@@ -325,4 +341,38 @@ describe("economyTick kind routing (Combat 0.13.0 §S14)", () => {
     // the 1-tick ordersReceived phase.
     expect(c2Both.phase).not.toBe("ordersReceived");
   });
+});
+
+// ============================================================================
+// EVERY HULL IS COMBAT-CAPABLE: economy hulls seed a WEAK combat set + are dispatchable.
+//
+// The user decision made concrete at the dispatch seam: each economy hull, once it carries
+// its Standard-Issue combat set (a fresh build / a migrated save / the seeder here install
+// it), holds a NON-EMPTY combat set (>= 1 weapon + a shield emitter + hull plating) so its
+// three required combat slots are fillable, and canDispatchPatrol clears it for launch. The
+// STRICT-INFERIORITY balance promise (its weak loadout -> low win bands) is a separate,
+// machine-checked contract in patrol-balance.test.ts; here we only lock DISPATCHABILITY.
+// ============================================================================
+describe("EVERY HULL IS COMBAT-CAPABLE: economy hulls seed a weak combat set and dispatch", () => {
+  const ECONOMY_HULLS: ShipTypeKey[] = [
+    "generalFreighter",
+    "prospectorHauler",
+    "prospectorRunner",
+    "prospectorMiner",
+  ];
+
+  for (const hull of ECONOMY_HULLS) {
+    it(`${hull} seeds a non-empty combat set (weapon + shield + plating) and is dispatchable`, () => {
+      const state = stateWithHull(hull);
+      const fitted = state.equipment.filter((e) => e.fittedToShipId === "ship-1");
+      // A NON-EMPTY combat set: at least one weapon, plus the shield emitter + hull plating that the
+      // required-slot dispatch guard checks. (Economy hulls get NO drone bay: drones stay carrier-only.)
+      expect(fitted.some((e) => e.slotType === "weapon")).toBe(true);
+      expect(fitted.some((e) => e.slotType === "shieldEmitters")).toBe(true);
+      expect(fitted.some((e) => e.slotType === "hullPlating")).toBe(true);
+      expect(fitted.some((e) => e.slotType === "droneBay")).toBe(false);
+      // Its three required combat slots filled + a full tank => canDispatchPatrol clears it.
+      expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: true });
+    });
+  }
 });

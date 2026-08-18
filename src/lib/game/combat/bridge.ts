@@ -28,7 +28,7 @@
 //      reshaping this function.
 // ============================================================================
 
-import type { ShipTypeDef, PatrolSystemDurability, EquipmentInstance } from "../model";
+import type { ShipTypeDef, ShipTypeKey, PatrolSystemDurability, EquipmentInstance } from "../model";
 import type { Combatant, CombatTeam, CombatWeapon, FamilyResist } from "./types";
 import type { CombatStance } from "./positioning";
 import { makeWeaponInstance, WEAPON_DEFS, type WeaponId } from "./weapons";
@@ -281,10 +281,15 @@ function freshSystem(baseDurability: number): DurableSystem {
 // (Omega 9: readable as rule-based data). ⚠️ EVERY CHOICE IS FIRST-PASS + TUNABLE
 // (design S20 owns the balance pass); the per-hull COMMENT is the durable intent.
 //
-// The three combat hull classes (a subset of ShipTypeKey, model.ts). Named on its
-// own so the loadout map + the bridge's hullType arg are keyed exactly to the
-// hulls that HAVE a combat default, not every economy hull.
-export type CombatHullType = "destroyer" | "battleship" | "carrier";
+// EVERY hull is combat-capable (user decision, "every hull is combat-capable"): a
+// freighter/hauler/runner/miner now also fields a WEAK Standard-Issue combat set and
+// can be dispatched to patrols, it is just STRICTLY INFERIOR to a purpose-built combat
+// hull (see the economy entries in COMBAT_DEFAULT_LOADOUT below). So CombatHullType is
+// now ALIASED to the full ShipTypeKey union rather than the old three-hull subset. WHY
+// an alias, not a hand-listed union: it makes COMBAT_DEFAULT_LOADOUT (a Record keyed on
+// CombatHullType) EXHAUSTIVE by compile check, so adding a new hull to ShipTypeKey is a
+// compile error here until that hull is given a default loadout (Omega 8: no silent gap).
+export type CombatHullType = ShipTypeKey;
 
 // One hull's default kit. Stored as ROLE / ID lists (not pre-built instances) so
 // the bridge mints a FRESH weapon/squadron per combatant at build time (never a
@@ -307,6 +312,49 @@ export interface CombatDefaultLoadout {
 }
 
 export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout> = {
+	// --- ECONOMY HULLS ("every hull is combat-capable") -----------------------------
+	// Each of the four economy hulls ships a WEAK Standard-Issue combat set so it is
+	// DISPATCHABLE to patrols but STRICTLY INFERIOR to a purpose-built warship of
+	// comparable investment (user decision: "you will never outperform a destroyer of
+	// similar capability"). The weakness lever is the WEAPON loadout ONLY: the hull /
+	// shield stats come straight from SHIP_TYPES (unchanged), and the guns are the
+	// autocannon, the weakest raw-damage weapon in the roster (weapons.ts: 6-10 yield),
+	// deliberately fewer than the hull's weaponHardpoints. NO drone bays (drones stay a
+	// CARRIER-only capability, builtInBays 0). The exact gun COUNTS below were tuned
+	// against the REAL patrol sim (patrol-balance.test.ts): every economy hull's
+	// Standard-Issue win rate lands BELOW the destroyer's on BOTH the Sweep and the
+	// Warband, so an economy hull never rivals a combat hull. ⚠️ TUNABLE (same first-
+	// pass spirit as the combat-hull entries below); the durable intent is "clearly
+	// outgunned, drone-less, still dispatchable".
+	//
+	// FREIGHTER: the toughest-framed economy hull's sibling; 1 autocannon (it has 2
+	// hardpoints, but a single weak gun keeps it clearly outgunned). No drones.
+	generalFreighter: {
+		weapons: ["autocannon"],
+		droneRoles: [],
+		builtInBays: 0,
+	},
+	// HAULER: the biggest hull (700 integrity) but the most toothless kit, exactly 1
+	// autocannon, so its tankiness alone can NEVER carry it to a combat hull's win rate
+	// (a big hull with almost no offense loses the hull%-tiebreak race it survives to).
+	prospectorHauler: {
+		weapons: ["autocannon"],
+		droneRoles: [],
+		builtInBays: 0,
+	},
+	// RUNNER: fast + fragile (1 hardpoint); 1 autocannon. No drones.
+	prospectorRunner: {
+		weapons: ["autocannon"],
+		droneRoles: [],
+		builtInBays: 0,
+	},
+	// PROSPECTOR/MINER: mid frame (1 hardpoint); 1 autocannon. No drones.
+	prospectorMiner: {
+		weapons: ["autocannon"],
+		droneRoles: [],
+		builtInBays: 0,
+	},
+	// --- COMBAT HULLS (unchanged: byte-identical parity with the pre-widening data) ---
 	// DESTROYER: a fast striker. 2 FAST weapons (a low-cooldown kinetic workhorse +
 	// a particle chipper that bleeds hull through shields), leaving its remaining
 	// hardpoints (4 total) open for fitment. No drones.
@@ -336,15 +384,18 @@ export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout
 };
 
 // combatHullTypeOf: narrow a ShipTypeKey (passed as a plain string) to a CombatHullType,
-// or null if the hull is NOT a combat hull. Combat 0.13.0 (Phase 9b.5a): patrol dispatch
-// (tick.ts canDispatchPatrol) gates on the assigned ship being a combat hull, and needs
-// the CombatHullType to look up its default drone loadout. The three combat hull ShipType
-// keys ARE exactly the CombatHullType members (destroyer/battleship/carrier), so this is a
-// direct membership narrow. An economy hull (freighter/hauler/runner/miner) returns null.
-// PURE. Kept here (not model.ts) because CombatHullType + COMBAT_DEFAULT_LOADOUT live here.
+// or null if the string is not a known hull at all. Since "every hull is combat-capable"
+// (CombatHullType === ShipTypeKey, and COMBAT_DEFAULT_LOADOUT now carries an entry for
+// EVERY hull), this returns non-null for all seven hulls, economy AND combat: it is the
+// shared "resolve this typeKey to a hull that has a combat loadout" narrow the patrol +
+// seeding paths use. A genuinely unknown / corrupt typeKey (not in the loadout table)
+// still returns null, so downstream callers keep a defensive no-op path. Membership is
+// tested against COMBAT_DEFAULT_LOADOUT's own keys so the two can never drift (adding a
+// hull's loadout entry automatically makes it resolvable here). PURE. Kept here (not
+// model.ts) because CombatHullType + COMBAT_DEFAULT_LOADOUT live here.
 export function combatHullTypeOf(typeKey: string): CombatHullType | null {
-  return typeKey === "destroyer" || typeKey === "battleship" || typeKey === "carrier"
-    ? typeKey
+  return Object.prototype.hasOwnProperty.call(COMBAT_DEFAULT_LOADOUT, typeKey)
+    ? (typeKey as CombatHullType)
     : null;
 }
 

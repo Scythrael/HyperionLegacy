@@ -19,7 +19,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull } from "./combat/bridg
 // never imports save.ts), so it introduces no module cycle.
 import { clampInventoryToCaps, installMissingCombatBaselines } from "./tick";
 
-export const SAVE_VERSION = 35;
+export const SAVE_VERSION = 36;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1373,6 +1373,38 @@ const MIGRATIONS: Record<number, Migration> = {
   //   `...state` spread untouched. NOTE: on the current feature branch, NOT yet shipped to
   //   production, so still editable (the frozen-once-shipped rule applies only to prod migrations).
   34: (state: any): any =>
+    installMissingCombatBaselines({
+      ...state,
+      ships: state.ships ?? [],
+      equipment: state.equipment ?? [],
+      nextEquipmentId: state.nextEquipmentId ?? 1,
+    }),
+  // v35 -> v36: EVERY-HULL combat baseline SEED ("every hull is combat-capable", user
+  // decision). Units 1.x/2.3 seeded the combat baseline for COMBAT hulls only; economy
+  // hulls (generalFreighter/prospectorHauler/prospectorRunner/prospectorMiner) were left
+  // combat-bare because they could not patrol. That gate is now lifted: every hull ships a
+  // WEAK Standard-Issue combat set and is dispatchable. This step fits every EXISTING economy
+  // hull out with its weak combat set (its default weapon loadout + shield emitter + hull
+  // plating; economy hulls get NO drone pod, builtInBays 0), so an old economy ship becomes
+  // dispatchable on load and clears the empty-required-slot dispatch blocker (canDispatchPatrol).
+  //
+  // - Delegates to the SAME SHARED installMissingCombatBaselines (tick.ts) MIGRATIONS[33]/[34]
+  //   and a fresh build use. It is now every-hull-aware (combatHullTypeOf resolves ALL hulls),
+  //   so it seeds the economy hulls it previously skipped while re-running the combat hulls as a
+  //   pure no-op (they already carry their full set: the per-slot idempotence guard skips them).
+  //   Omega 4 (DRY): a migrated and a freshly-built economy hull converge on the byte-identical
+  //   weak combat set (both go through generateCombatStandardIssue in the same order + ids).
+  // - ADDITIVE + IDEMPOTENT: existing combat hulls and any already-seeded economy hull are
+  //   untouched (only ABSENT required slots are minted); a re-run / chained / hand-edited save
+  //   never double-seeds. Same belt-and-suspenders posture as MIGRATIONS[27]/[33]/[34].
+  // - ECONOMY-NEUTRAL: every combat baseline is mass 0 / powerDraw 0 with combat-only stat
+  //   lines, so folding it into shipDerivedStats is bit-identical to the bare economy hull (an
+  //   in-flight extraction mission resolves IDENTICALLY pre/post migration; the offline==live
+  //   parity fuzz stays green). An EquipmentInstance carries no top-level Decimal, so the minted
+  //   pieces ride hydrateDecimals's `...state` spread untouched. `?? []` / `?? 1` guard a
+  //   partial/hand-edited save. NOTE: on the current feature branch, NOT yet shipped to
+  //   production, so still editable (the frozen-once-shipped rule applies only to prod migrations).
+  35: (state: any): any =>
     installMissingCombatBaselines({
       ...state,
       ships: state.ships ?? [],

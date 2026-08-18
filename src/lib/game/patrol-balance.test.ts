@@ -327,3 +327,84 @@ describe("SHOWCASE PATROL BALANCE: the Crimson-Reaver Warband makes the mechanic
     expect(battleship.tier, "the battleship on free gear must not read the crown Guaranteed tier").not.toBe("guaranteed");
   });
 });
+
+// ============================================================================
+// ECONOMY HULLS ARE STRICTLY INFERIOR ("every hull is combat-capable", user decision).
+//
+// WHAT THIS LOCKS: every economy hull (freighter/hauler/runner/miner), flying its WEAK
+// Standard-Issue combat set, is DISPATCHABLE but STRICTLY INFERIOR to a purpose-built
+// combat hull ("you will never outperform a destroyer of similar capability"). The
+// machine-checked promise: on BOTH patrols, each economy hull's Standard-Issue win rate
+// is BELOW the DESTROYER's (the weakest combat hull), and therefore far below the
+// battleship/carrier. A hauler surviving the easy Sweep is fine; it must not rival a
+// combat hull anywhere. This guards against a future loadout/stat tune silently letting an
+// economy hull match a warship, the exact wall this feature exists to prevent.
+//
+// HOW IT MEASURES: the SAME REAL forecast sim (resolvePatrolWaves) the SHOWCASE block uses,
+// swept over the same FORECAST_SEED + i for N=FORECAST_SAMPLES, on BOTH the entry Sweep and
+// the tougher Warband. Measured spread (N=64), documented so a maintainer sees the headroom:
+//   Sweep   : destroyer ~98% | freighter ~67% hauler ~80% runner ~67% miner ~67%
+//   Warband : destroyer ~18% | freighter ~2%  hauler ~3%  runner ~1%  miner ~1%
+// The gaps (an ~18pt Sweep gap, a ~15pt Warband gap on the tankiest economy hull) are wide,
+// so the strict "< destroyer" inequality is robust to sampling noise at this N.
+// ============================================================================
+
+// The two patrols the inferiority contract spans, each measured through the real forecast sim.
+const SWEEP_KEY = "crimsonReaverSweep";
+const SWEEP_DEF = PATROLS[SWEEP_KEY];
+const ECONOMY_HULLS: ShipTypeKey[] = [
+  "generalFreighter",
+  "prospectorHauler",
+  "prospectorRunner",
+  "prospectorMiner",
+];
+
+// forecast(), but for an ARBITRARY patrol def (the file's forecast is Warband-only). Same real
+// sweep, so a rate here is directly comparable to the destroyer's on the same patrol.
+function forecastOnPatrol(
+  patrolDef: typeof SWEEP_DEF,
+  patrolKey: string,
+  hull: CombatHullType,
+): { rate: number; tier: string } {
+  const shipDef = SHIP_TYPES[hull];
+  const gear = standardIssueGear(hull, "ship-1");
+  const startDrones = installedDronesForPatrol(gear, `inferiority-${patrolKey}-p`);
+  const startSystemDurability = defaultSystemDurabilityForHull(hull, shipDef);
+  let wins = 0;
+  for (let i = 0; i < FORECAST_SAMPLES; i++) {
+    const result = resolvePatrolWaves({
+      playerId: "ship-1", stats: shipDef, hullType: hull, stance: "balanced", installedGear: gear,
+      masterSeed: FORECAST_SEED + i, factionId: patrolDef.factionId, def: patrolDef,
+      startHull: shipDef.hullIntegrity, startShield: shipDef.shieldCapacity, startDrones, startSystemDurability,
+    });
+    if (!result.defeated) wins += 1;
+  }
+  return { rate: wins / FORECAST_SAMPLES, tier: threatAssessment(wins, FORECAST_SAMPLES).tier };
+}
+
+describe("ECONOMY HULLS ARE STRICTLY INFERIOR: Standard-Issue win rate below the destroyer's on both patrols", () => {
+  for (const [patrolKey, patrolDef] of [
+    [SWEEP_KEY, SWEEP_DEF] as const,
+    [WARBAND_KEY, WARBAND_DEF] as const,
+  ]) {
+    it(`${patrolKey}: every economy hull wins strictly less often than the destroyer`, () => {
+      const destroyer = forecastOnPatrol(patrolDef, patrolKey, "destroyer");
+      for (const hull of ECONOMY_HULLS) {
+        const eco = forecastOnPatrol(patrolDef, patrolKey, hull);
+        // eslint-disable-next-line no-console
+        console.log(
+          `[inferiority] ${patrolKey.padEnd(20)} ${hull.padEnd(18)} ${(eco.rate * 100).toFixed(1).padStart(5)}% ` +
+            `vs destroyer ${(destroyer.rate * 100).toFixed(1)}%`,
+        );
+        // THE contract: an economy hull's free-gear win rate is strictly below the DESTROYER's
+        // (the weakest combat hull) on this patrol, so it never rivals a purpose-built warship.
+        expect(
+          eco.rate,
+          `${hull} Standard-Issue win rate ${(eco.rate * 100).toFixed(1)}% must be BELOW the destroyer's ` +
+            `${(destroyer.rate * 100).toFixed(1)}% on ${patrolKey} (economy hulls are strictly inferior)`,
+        ).toBeLessThan(destroyer.rate);
+      }
+    });
+  }
+});
+

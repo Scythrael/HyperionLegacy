@@ -306,6 +306,13 @@
     canDispatchPatrol,
     dispatchCaptainOnPatrol,
     type PatrolDispatchBlockReason,
+    // "Every hull is combat-capable": freshState() seeds only the economy Standard-Issue
+    // (model.ts cannot import the combat tables at runtime), so a brand-new game's starting
+    // freighter is combat-BARE. This shared seeder installs every hull's Standard-Issue
+    // combat set (now including the economy hulls' weak set), the SAME fold the save
+    // migration + a fresh build use, so a new game's starter is dispatchable exactly like a
+    // loaded/migrated save. Applied to freshState() at every new-game site via newGame() below.
+    installMissingCombatBaselines,
     applyFleetAdminXp,
     // Ships, Stats Foundation (Task 11 UI), the remaining pure ship action
     // wired into the Sector Space > Starbase Docks panel below.
@@ -602,7 +609,10 @@
   // gone. RadialWeb.svelte now owns talent layout/labels/positioning; nothing
   // in App.svelte needs branch-depth math anymore.
 
-  let state: GameState = freshState();
+  // "Every hull is combat-capable": seed the starting freighter's weak Standard-Issue
+  // combat set so a brand-new game's hull is dispatchable (freshState alone leaves it
+  // combat-bare; see the installMissingCombatBaselines import note above).
+  let state: GameState = installMissingCombatBaselines(freshState());
   let createdAt = Date.now();
   let currentTheme: ThemeName = "cyan";
   let tickBarEnabled = true;
@@ -3739,7 +3749,9 @@
 
   function resetSave() {
     clearSave();
-    state = freshState();
+    // Seed the fresh starter's weak Standard-Issue combat set (see newGame rationale at
+    // the initial `state` declaration): a reset game's hull is dispatchable like a new one.
+    state = installMissingCombatBaselines(freshState());
     createdAt = Date.now();
     pushLog("Save reset.");
   }
@@ -3821,7 +3833,9 @@
   // offered, never automatically.
   function startFreshFromCorrupt() {
     clearSave();
-    state = freshState();
+    // Seed the fresh starter's weak Standard-Issue combat set (see newGame rationale at
+    // the initial `state` declaration) so the recovered game's hull is dispatchable.
+    state = installMissingCombatBaselines(freshState());
     createdAt = Date.now();
     suppressSave = false;
     saveCorruptModalOpen = false;
