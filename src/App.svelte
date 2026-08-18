@@ -284,7 +284,7 @@
   // the ship path), reject is the same same-ref + reason convention. doSalvageShip below
   // reassigns state + logs the recovered materials, credits, and returned systems. It is
   // INSTANT this patch and slated to become a timed teardown later (see salvage.ts).
-  import { salvageEquipment, salvageSalvagedMaterial, salvageShip, isSalvageable, type SalvageRejectReason } from "./lib/game/salvage";
+  import { salvageEquipment, salvageSalvagedMaterial, salvageShip, type SalvageRejectReason } from "./lib/game/salvage";
   import {
     tick,
     // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
@@ -2804,15 +2804,17 @@
 
   // The resolved selected piece (or null). Reactive on the pool, so if the
   // selected piece is salvaged the tooltip auto-hides even without an explicit
-  // clear. Fitted pieces are absent from this list entirely (spares only), so the
-  // only spare that is NOT salvageable is a protected Standard-Issue COMBAT baseline
-  // (the free fallback that must stay re-installable, see salvage.ts isSalvageable):
-  // a crafted spare recycles for materials, and a spare economy baseline salvages as a
-  // zero-reward declutter. This predicate gates the Salvage button; it shares the SAME
-  // isSalvageable helper the salvage engine refuses on, so UI and engine never disagree.
+  // clear. Fitted pieces are absent from this list entirely (spares only), so EVERY
+  // spare in this bay has an active removal action: a CRAFTED spare (blueprintKey set)
+  // SALVAGES for a fraction of its materials, and a Standard-Issue baseline (blueprintKey
+  // null, combat OR economy) is DESTROYED as a zero-reward declutter (the always-available
+  // storage escape valve). The two only differ in the action LABEL / helper text below,
+  // decided by selectedIsBaseline, not by whether removal is allowed.
   $: selectedSystem =
     selectedSystemId !== null ? baySpareSystems.find((p) => p.id === selectedSystemId) ?? null : null;
-  $: selectedIsSalvageable = selectedSystem !== null && isSalvageable(selectedSystem);
+  // A Standard-Issue baseline (no blueprint) is DESTROYED (zero reward); a crafted piece
+  // is SALVAGED (returns components). Drives the button label + helper text below.
+  $: selectedIsBaseline = selectedSystem !== null && selectedSystem.blueprintKey === null;
 
   // Toggle a tile's selection (clicking the open tile closes it), matching the
   // slot-select toggle idiom ShipSystemsPanel uses.
@@ -2822,17 +2824,15 @@
 
   // Human sentence for a salvage REJECT reason. Exhaustive over SalvageRejectReason
   // (a switch, no default) so a new reason is a compile error here. From the bay's
-  // system salvage, notFound / fitted / combatBaseline are reachable (a spare economy
-  // baseline declutters instead of rejecting); the salvaged-material reasons are covered
-  // for totality.
+  // system salvage only notFound / fitted are reachable (a spare baseline, combat or
+  // economy, is DESTROYED as a declutter rather than rejected); the salvaged-material and
+  // ship reasons are covered for totality.
   function salvageRejectText(reason: SalvageRejectReason): string {
     switch (reason) {
       case "notFound":
         return "that system no longer exists";
       case "fitted":
         return "the system is installed on a ship (uninstall it first)";
-      case "combatBaseline":
-        return "Standard-Issue combat gear cannot be salvaged (re-install it, or replace it with crafted gear)";
       case "notSalvagedMaterial":
         return "that item is not a salvaged material";
       case "noneHeld":
@@ -6140,26 +6140,25 @@
             </Panel>
 
             <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
-                 inline. A SALVAGEABLE spare (any crafted system, or a spare economy
-                 Standard-Issue baseline) gets a Salvage button in the tooltip's action
-                 slot (routes through requestSalvage("system", ...) -> the shared confirm
-                 modal). A protected Standard-Issue COMBAT baseline is NON-salvageable
-                 (selectedIsSalvageable is false via isSalvageable): it gets NO button, just
-                 a short explanation, so the free fallback piece can never be destroyed and
-                 "uninstall -> re-install from the pool" stays available. -->
+                 inline. EVERY spare has an active removal action in the tooltip's action
+                 slot (both route through requestSalvage("system", ...) -> the shared confirm
+                 modal, which narrates discard-vs-parts on its own). The LABEL differs by
+                 piece kind (selectedIsBaseline): a CRAFTED spare shows "Salvage" (returns a
+                 fraction of its components); a Standard-Issue baseline shows "Destroy" plus
+                 helper text making clear it clears space but yields nothing. Destroy is the
+                 always-available storage escape valve, so no spare can ever become un-removable. -->
             {#if selectedSystem}
               {@const sys = selectedSystem}
               <Panel>
                 <EquipmentTooltip piece={sys}>
-                  {#if selectedIsSalvageable}
-                    <button
-                      class="buy-btn systems-salvage-btn"
-                      on:click={() => requestSalvage("system", sys.id, systemSalvageName(sys))}
-                    >
-                      Salvage
-                    </button>
-                  {:else}
-                    <span class="systems-salvage-none">Standard-Issue combat gear cannot be salvaged. Re-install it on a hull, or replace it with crafted gear.</span>
+                  <button
+                    class="buy-btn systems-salvage-btn"
+                    on:click={() => requestSalvage("system", sys.id, systemSalvageName(sys))}
+                  >
+                    {selectedIsBaseline ? "Destroy" : "Salvage"}
+                  </button>
+                  {#if selectedIsBaseline}
+                    <span class="systems-salvage-none">Standard-Issue gear can be destroyed to clear space, but yields no components.</span>
                   {/if}
                 </EquipmentTooltip>
               </Panel>
@@ -10147,6 +10146,11 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+    /* Allow the value/chip to DROP to its own line when the label + a long chip name
+       (the widest being "Guaranteed Victory") would overflow the card's right padding
+       edge at narrow widths. Without this the nowrap threat-chip spilled ~10px past the
+       card. The 10px gap doubles as the row-gap for the wrapped line. */
+    flex-wrap: wrap;
   }
   .battle-rating-value {
     font-size: 15px;
@@ -10188,7 +10192,11 @@
     position: absolute;
     bottom: calc(100% + 6px);
     right: 0;
-    z-index: 20;
+    /* High z-index resolved INSIDE the wrap's own stacking context (elevated on hover/
+       focus-within below). Was z-index:20 against the ROOT, where later-painted sibling
+       cards (Stance row and everything below) painted over it; scoping it to the elevated
+       wrap makes it paint above them. */
+    z-index: 60;
     width: max-content;
     max-width: 240px;
     padding: 8px 10px;
@@ -10202,6 +10210,14 @@
     text-align: left;
     white-space: normal;
   }
+  /* Elevate the wrap into its OWN stacking context (z-index != auto) ONLY while the
+     tooltip is open, so the tooltip's z-index:60 resolves against the wrap and paints
+     ABOVE later-painted sibling cards. Off-hover the wrap stays z-index:auto (no stacking
+     context, so nothing about the normal paint order changes). No transformed/overflow-
+     hidden ancestor clips it (.patrol-readouts/.mission-card/.tab-scroll-area/.tab-body/
+     .frame set no transform or z-index), so this elevation is sufficient. */
+  .threat-chip-wrap:hover,
+  .threat-chip-wrap:focus-within { z-index: 40; }
   .threat-chip-wrap:hover .threat-tooltip,
   .threat-chip-wrap:focus-within .threat-tooltip { display: flex; }
   .threat-tooltip-range { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
