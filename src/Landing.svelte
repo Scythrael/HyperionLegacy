@@ -44,7 +44,7 @@
       <h1 class="hero-title">Hyperion Legacy</h1>
       <!-- TAGLINE (flagged for user approval) -->
       <p class="hero-tagline">
-        Command a fleet across the dark &mdash; dispatch captains, mine the
+        Command a fleet across the dark: dispatch captains, mine the
         sector, and build your way to the stars, even while you sleep.
       </p>
 
@@ -75,8 +75,8 @@
         <p class="blurb-text">
           Hyperion Legacy is a fleet-management idle game. Dispatch captains on
           missions across the sector, grow a self-sufficient homeworld economy,
-          and work your way up to building starships of your own &mdash;
-          progress ticks onward whether you're watching or away.
+          and work your way up to building starships of your own.
+          Progress ticks onward whether you're watching or away.
         </p>
       </Panel>
     </section>
