@@ -1,34 +1,50 @@
 <script lang="ts">
   // ============================================================================
   // ShipSystemsPanel.svelte
-  // Author: Claude (Opus 4.8) | 2026-07-18
+  // Author: Claude (Opus 4.8) | 2026-07-18, reworked 2026-08-21 (Combat 1.0 QA round 1)
   //
-  // The REAL, player-facing "Ship Systems" screen for one selected ship (the
-  // 0.11.0 equipment-fitting UI, replacing the DEV_MODE-only harness in
-  // App.svelte for actual play). It is a pure PRESENTATION + INTERACTION piece:
+  // The REAL, player-facing "Ship Systems" screen for one selected ship. It is a
+  // pure PRESENTATION + INTERACTION piece:
   //   - It READS live state through the already-tested equipment helpers
   //     (equippedFor / fittedInSlot / canFitEquipment) and the derived-stat
-  //     projection (shipDerivedStats). It does NOT reimplement any game logic.
-  //   - It never mutates game state directly. Install / Uninstall bubble UP to
-  //     the host (App.svelte) via the onInstall / onUninstall callbacks, so the
-  //     single source of truth for the fit + its persistence (fitEquipment /
-  //     unfitEquipment + doSave) stays in one place. When the host reassigns the
-  //     `state` prop after a fit, every derived value below recomputes.
+  //     projection (shipDerivedStats) plus the combat fold (computeCombatReadout).
+  //     It does NOT reimplement any game logic.
+  //   - It never mutates game state directly. Install / Uninstall / Repair bubble
+  //     UP to the host (App.svelte) via callbacks, so the single source of truth
+  //     for the installed loadout + its persistence stays in one place. When the host reassigns
+  //     the `state` prop after an action, every derived value below recomputes.
   //
-  // USER-FACING WORDING: this screen says "Ship Systems" and "Install/Uninstall".
+  // 2026-08-21 REWORK (QA round 1 items 3/4/5/8), matches the user-approved mockup
+  // (scratchpad ship-systems-rework-mockup.html):
+  //   - Every installable slot, hardpoint and drone bay is now an ICON TILE
+  //     (rarity-colored top border + corner dot + variety glyph + iLevel badge),
+  //     grouped by function (Weapons / Defense / Ship Systems / Drone Bays).
+  //   - A filled tile's detail is a FLOATING EquipmentTooltip shown on hover
+  //     (desktop) or tap (mobile), with an Install / Uninstall button injected into
+  //     the tooltip's action <slot> (QA #8: no inline detail div pushing content
+  //     down). The floating wrapper is JS-positioned so the tooltip is always
+  //     CLAMPED inside the viewport (flip above/below + horizontal clamp), a hard
+  //     acceptance requirement. EquipmentTooltip.svelte itself is UNCHANGED.
+  //   - Tapping a slot opens the spare-pool PICKER (spares are tiles too, each with
+  //     its own tooltip); tapping a spare installs it. One consistent flow for every
+  //     slot type (QA #4).
+  //   - The right column splits stats into titled CATEGORIES shown for ALL hulls:
+  //     Combat / Prospecting / Logistics / Exploration (placeholder) (QA #5).
+  //   - A DAMAGED ship shows a prominent repair banner (progress bar + ETA + a
+  //     manual Repair trigger) and BLOCKS install + uninstall until repaired (QA #3).
+  //
+  // Every hull is now combat-capable (the model-layer commit made combatHullTypeOf
+  // non-null for all hulls: an economy hull carries a weak Standard-Issue combat set
+  // and is dispatchable), so the combat slots / weapon strip / combat readout render
+  // for ALL hulls. Drone bays stay CARRIER-ONLY (a hangar capacity, not a universal
+  // slot), gated by hasDroneBays.
+  //
+  // USER-FACING WORDING: this screen says "Ship Systems" and "Install / Uninstall".
   // The CODE vocabulary underneath is unchanged (equipment / fitEquipment /
   // EquipmentInstance); only the display strings differ.
-  //
-  // Layout (matches the user-approved mockup):
-  //   HEADER  , title + hull name + commanding captain (portrait placeholder).
-  //   MAIN    , LEFT: an SVG placeholder ship with the singleton system slots
-  //             overlaid at their hull positions + the install/uninstall control
-  //             for the selected slot. RIGHT: a scrollable, categorized stats
-  //             panel (Live section = real base-vs-fitted deltas; Defensive
-  //             section = inert 0.12.0 combat placeholders).
-  //   BOTTOM  , reserved WEAPONS + MODULES rows (empty, 0.12.0).
   // ============================================================================
 
+  import { onMount, onDestroy, tick } from "svelte";
   import type {
     GameState,
     EquipmentInstance,
@@ -38,90 +54,81 @@
   import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats } from "./game/model";
   import type { EquipFitBlockReason } from "./game/equipment";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
-  // Combat 1.0 (Unit 1.8b): the combat-fit read helpers. combatHullTypeOf gates the
-  // combat-only surfaces (weapon strip + banner + combat readout) to real combat hulls;
-  // computeCombatReadout folds the installed combat gear into the readout the panel
-  // shows; weaponDisplayName + WEAPON_DEFS resolve a weapon's player-facing name +
-  // family (for the family-color dot). These are READ-ONLY: the panel presents them,
-  // it never reimplements the combat fold (that stays in combat/bridge.ts).
-  import { combatHullTypeOf, type CombatHullType } from "./game/combat/bridge";
+  // The combat-loadout read helpers. combatHullTypeOf resolves the hull's combat class
+  // (now non-null for every hull); computeCombatReadout folds the installed combat
+  // gear into the readout the panel shows; weaponDisplayName + WEAPON_DEFS resolve a
+  // weapon's player-facing name + family. shipToCombatant + battleRating build the
+  // ship's advisory Battle Rating from the SAME installed gear the sim would fight
+  // (single source of truth). These are READ-ONLY: the panel presents them, it never
+  // reimplements the combat fold (that stays in combat/bridge.ts).
+  import { combatHullTypeOf, shipToCombatant } from "./game/combat/bridge";
   import { computeCombatReadout, type RequiredCombatSlot } from "./game/combatFit";
   import { weaponDisplayName } from "./game/combat/combatView";
   import { WEAPON_DEFS } from "./game/combat/weapons";
-  // The SAME reusable rarity-bordered card the Warehouse Ship Systems bay uses (D1).
-  // Reused here so a fitted slot's readout shows the piece's identity + granted stats
-  // in EXACTLY the format the bay does, one card component, no second stat renderer to
-  // drift. The Uninstall control is injected into its footer <slot>.
-  import EquipmentTooltip from "./EquipmentTooltip.svelte";
+  import { battleRating } from "./game/combat/rating";
+  import { formatNumber } from "./game/format";
+  // The SAME reusable rarity-bordered card the Warehouse Ship Systems bay uses, plus
+  // its module-exported single-source helpers (rarity color + variety glyph). Reused
+  // here so a tile + its tooltip read the piece's identity in EXACTLY the format the
+  // bay does, one card component, no second renderer to drift. The Install / Uninstall
+  // control is injected into the card's footer <slot>. EquipmentTooltip is UNCHANGED.
+  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon } from "./EquipmentTooltip.svelte";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship
-  // this panel is fitting. The three callbacks route every side-effect back to
-  // the host so persistence + logging happen exactly once, in App.svelte.
+  // this panel installs systems on. The callbacks route every side-effect back to the host
+  // so persistence + logging happen exactly once, in App.svelte.
   export let state: GameState;
   export let shipId: string;
   export let onInstall: (shipId: string, instanceId: string) => void;
-  // Combat 1.0 (Unit 1.8b): uninstall is now BY INSTANCE ID, not by slotType. A weapon
-  // is a MULTI slot (several pieces per hull), so "uninstall the weapon" is ambiguous
-  // without an id; the host routes this to unfitEquipmentInstance, which uninstalls the
-  // exact piece the player tapped (economy slots keep the never-empty restore, combat
-  // slots are left bare). Every slot, singleton or weapon, uninstalls through this one
-  // instance-targeted callback (the "one consistent flow" directive).
+  // Uninstall is BY INSTANCE ID (a weapon is a MULTI slot, so "uninstall the weapon"
+  // is ambiguous without an id). The host routes this to unfitEquipmentInstance.
   export let onUninstall: (shipId: string, instanceId: string) => void;
+  // Manual repair trigger (QA #3). The host runs the SAME auto-repair pass
+  // (processShipRepairs) immediately so the player can kick a repair off without
+  // waiting a tick; when no Shipyard bay is free it is a safe no-op and the banner
+  // explains the wait. Augments (never replaces) the existing auto-repair.
+  export let onRepair: (shipId: string) => void;
   export let onClose: () => void;
 
-  // --- Slot layout ------------------------------------------------------------
-  // The 11 SINGLETON system slots and where they sit on the overhead ship
-  // graphic. `top`/`left` are PERCENTAGES of the graphic box (which matches the
-  // SVG's 300x400 viewBox), used to absolutely position each node's CENTER.
-  //   live          , true for the four slots that actually accept gear this
-  //                   patch (cargoBay / ftlDrive / reactorCore / specUtility).
-  //                   The rest are RESERVED (0.12.0 combat/crew), shown as
-  //                   dimmed, non-installable nodes so the grid is complete now.
-  //   prospectorOnly, specUtility (the Prospecting Rig slot) exists only on
-  //                   Prospector hulls (design doc: the Freighter has no Spec
-  //                   Utility slot), so it is hidden on non-Prospector hulls.
-  type SlotMeta = {
-    slotType: EquipmentSlotType;
-    code: string; // short node code (SNS / COK / ...)
-    label: string; // full slot name shown in the hover tooltip
-    live: boolean;
-    prospectorOnly?: boolean;
-    top: number; // % of the graphic box (node center)
-    left: number; // % of the graphic box (node center)
-  };
-  const SLOT_LAYOUT: SlotMeta[] = [
-    { slotType: "sensor", code: "SNS", label: "Sensor Array", live: false, top: 5, left: 50 },
-    { slotType: "bridge", code: "BRG", label: "Bridge Module", live: false, top: 24, left: 50 },
-    { slotType: "quarters", code: "QTR", label: "Crew Quarters", live: false, top: 25, left: 32 },
-    { slotType: "thrusters", code: "THR", label: "Thrusters", live: false, top: 25, left: 68 },
-    { slotType: "cargoBay", code: "CRG", label: "Cargo Bay", live: true, top: 41, left: 50 },
-    // FLANK ROW across the engineering hull + nacelles (far left -> far right):
-    // Combat 1.0 (Unit 1.8b): shieldEmitters + hullPlating are now LIVE (installable). They
-    // are SINGLETONS exactly like the economy slots (install replaces, uninstall leaves the
-    // slot bare), so they reuse the identical selected-slot + spare-pool flow below.
-    { slotType: "shieldEmitters", code: "SHD", label: "Shield Emitter", live: true, top: 59, left: 13 },
-    { slotType: "propellantTanks", code: "PRP", label: "Propellant Tanks", live: false, top: 59, left: 35 },
-    { slotType: "reactorCore", code: "RCT", label: "Reactor Core", live: true, top: 59, left: 50 },
-    { slotType: "specUtility", code: "SUS", label: "Spec Utility", live: true, prospectorOnly: true, top: 59, left: 65 },
-    { slotType: "hullPlating", code: "HUL", label: "Hull Plating", live: true, top: 59, left: 87 },
-    { slotType: "ftlDrive", code: "FTL", label: "FTL Drive", live: true, top: 90, left: 50 },
+  // --- Slot metadata ----------------------------------------------------------
+  // The installable SINGLETON slots, grouped by function to match the mockup. Each
+  // slot holds at most one piece (install replaces, uninstall leaves it bare for a
+  // combat slot or auto-restores a Standard-Issue baseline for an economy slot).
+  //   prospectorOnly, specUtility (the Prospecting Rig slot) exists only on Prospector
+  //                   hulls (design: the Freighter has no Spec Utility slot).
+  type SlotMeta = { slotType: EquipmentSlotType; label: string; prospectorOnly?: boolean };
+  // DEFENSE singletons (combat): shown for every hull (all hulls are combat-capable).
+  const DEFENSE_SLOTS: SlotMeta[] = [
+    { slotType: "shieldEmitters", label: "Shield Emitter" },
+    { slotType: "hullPlating", label: "Hull Plating" },
+  ];
+  // SHIP-SYSTEM singletons (economy): the four live economy slots.
+  const SYSTEM_SLOTS: SlotMeta[] = [
+    { slotType: "cargoBay", label: "Cargo Bay" },
+    { slotType: "ftlDrive", label: "FTL Drive" },
+    { slotType: "reactorCore", label: "Reactor Core" },
+    { slotType: "specUtility", label: "Spec Utility", prospectorOnly: true },
   ];
 
-  // Short, human-readable label for each live equipment stat key, used in the
-  // compact system descriptors below (the piece's signature stat line).
-  const STAT_LABEL: Record<string, string> = {
-    cargoCapacity: "Cargo",
-    transitSpeedMult: "FTL Speed",
-    engineEfficiency: "Fuel Eff",
-    fuelCapacity: "Fuel Cap",
-    extractionYieldMult: "Yield",
-    powerOutput: "Power",
-    massReduction: "-Mass",
-    powerDrawReduction: "-Draw",
-    sensors: "Sensors",
-    materialQualityChance: "Mat Quality",
-  };
+  // A stable per-slotType glyph for the combat slots (weapon / shield / plating /
+  // drone), which carry no economy "variety" and so are not covered by the shared
+  // equipmentIcon map. Economy slots fall through to equipmentIcon (the single-source
+  // variety glyph), so cargo / FTL / reactor / rig tiles stay identical to the bay.
+  function tileIcon(piece: EquipmentInstance): string {
+    switch (piece.slotType) {
+      case "weapon":
+        return "\u{1F52B}"; // pistol: a mounted weapon
+      case "shieldEmitters":
+        return "\u{1F6E1}\u{FE0F}"; // shield
+      case "hullPlating":
+        return "\u{1F9F1}"; // brick: hull plating
+      case "droneBay":
+        return "\u{1F6F0}\u{FE0F}"; // satellite: a drone squadron pod
+      default:
+        return equipmentIcon(piece); // economy slots -> the shared variety glyph
+    }
+  }
 
   // Captain-specialization display names (the CaptainTalentBranch -> title map the
   // spec cards already establish). Shown as flavor under the commanding captain.
@@ -132,45 +139,60 @@
   };
 
   // --- Local UI state ---------------------------------------------------------
-  // The currently opened SINGLETON slot (economy + shieldEmitters + hullPlating);
-  // its install/uninstall control is shown, or null when none is open.
-  let selectedSlot: string | null = null;
-  // The currently opened WEAPON HARDPOINT cell (Combat 1.0, Unit 1.8b): the 0-based
-  // index of the tapped hardpoint, or null. Kept SEPARATE from selectedSlot because a
-  // weapon is a MULTI slot (many pieces share slotType "weapon"), so a single slotType
-  // key cannot identify which hardpoint is open. selectedSlot and selectedHardpoint are
-  // MUTUALLY EXCLUSIVE (selecting one clears the other) so only ONE control shows.
+  // The currently OPEN slot for the install picker. Exactly one of these three is
+  // ever non-null (they are mutually exclusive), so only one picker shows:
+  //   selectedSlot      , a singleton slotType (economy or combat singleton)
+  //   selectedHardpoint , a 0-based weapon hardpoint index (weapons are a MULTI slot)
+  //   selectedBay       , a 0-based drone bay index (drone pods are a MULTI slot)
+  let selectedSlot: EquipmentSlotType | null = null;
   let selectedHardpoint: number | null = null;
-  // The currently opened DRONE BAY cell (Combat 1.0, Unit 2.4): the 0-based index of the
-  // tapped bay, or null. EXACTLY parallel to selectedHardpoint (a drone bay is the OTHER
-  // MULTI slot, so an index, not a slotType, identifies which bay is open), and part of
-  // the same MUTUAL EXCLUSIVITY set as selectedSlot + selectedHardpoint (selecting any one
-  // clears the other two) so only ONE control ever shows.
   let selectedBay: number | null = null;
 
-  // Reset the open selections whenever the panel switches to a different ship, so a
-  // stale selection from the previous ship never carries over. Guarded on a
-  // change of `shipId` only (not a general reactive) so it cannot loop.
+  // The floating EquipmentTooltip currently shown (hover on desktop, tap-pin on
+  // mobile). `action` picks which button is injected into the card's footer.
+  //   pinned, opened by a tap/click (persists until dismissed) vs a transient hover.
+  type TipAction = "install" | "uninstall";
+  let activeTip: { piece: EquipmentInstance; action: TipAction; el: HTMLElement } | null = null;
+  let tipPinned = false;
+  // The floating wrapper element + its JS-computed viewport-clamped position. Kept
+  // invisible (tipVisible false) for one frame after opening so it can be MEASURED
+  // before it is placed, so it never flashes in the wrong spot.
+  let tipEl: HTMLDivElement | undefined;
+  let tipLeft = 0;
+  let tipTop = 0;
+  let tipVisible = false;
+  // Does this device have a hover-capable pointer (a real mouse / trackpad)? On such
+  // devices the tooltip is already previewed on hover, so we do NOT pin on click:
+  // pinning exists only so a TOUCH tap can reveal a tile's detail (a coarse pointer
+  // cannot hover). Gating the pin to coarse pointers is what lets a desktop user hover
+  // the spare tiles in the just-opened install picker and see their stats even after
+  // clicking a filled slot (QA follow-up: a pin used to suppress every later hover).
+  // Guarded for jsdom / SSR where matchMedia may be absent (then treated as touch).
+  const hoverCapable =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(hover: hover)").matches;
+
+  // Reset every open selection + the floating tooltip whenever the panel switches to
+  // a different ship, so nothing stale carries over. Guarded on a change of `shipId`
+  // only (not a general reactive) so it cannot loop.
   let lastShipId: string | null = null;
   $: if (shipId !== lastShipId) {
     lastShipId = shipId;
     selectedSlot = null;
     selectedHardpoint = null;
     selectedBay = null;
+    activeTip = null;
+    tipPinned = false;
+    tipVisible = false;
   }
 
   // --- Derived reads ----------------------------------------------------------
-  // DELIBERATE render-boundary defense, diverging from the engine's fail-loud posture
-  // ON PURPOSE. The equipment pool is guaranteed present (freshState seeds it + the
-  // v27->v28 migration backfills every save), so the ENGINE (tick.ts / save.ts) reads
-  // state.equipment directly and THROWS on a genuinely-missing pool, because a missing
-  // pool there is a real bug that would corrupt economy math. A UI RENDER is different:
-  // a malformed / partially-migrated state reaching this panel should degrade to an
-  // empty "no gear" view rather than white-screen the whole app, so this one surface
-  // keeps the `?? []` guard.
+  // DELIBERATE render-boundary defense: a malformed / partially-migrated state
+  // reaching this panel should degrade to an empty "no gear" view rather than
+  // white-screen the whole app, so this one surface keeps the `?? []` guard (the
+  // engine reads state.equipment directly and throws, on purpose, elsewhere).
   $: equipmentPool = state.equipment ?? [];
-  // A state view with a guaranteed-present equipment array for the helper calls
-  // (equippedFor / fittedInSlot / canFitEquipment all read state.equipment).
   $: safeState = { ...state, equipment: equipmentPool };
 
   $: ship = state.ships.find((s) => s.id === shipId) ?? null;
@@ -182,31 +204,21 @@
   $: isProspectorHull = shipDef?.spec === "prospector";
   $: onMission = assignedCaptain !== null && assignedCaptain.mission !== null;
 
-  // The slots actually shown for THIS hull: drop specUtility on non-Prospectors, and
-  // drop the combat singleton slots (shield emitter / hull plating) on non-combat hulls.
-  // The combat slots are gated to combat hulls to match the weapon strip / blocker banner /
-  // combat readout (all isCombatHull-gated): an economy hull can never patrol, so showing it
-  // installable combat gear would be a dead-end trap with no combat readout to explain it.
-  $: visibleSlots = SLOT_LAYOUT.filter((s) => {
-    if (s.prospectorOnly && !isProspectorHull) return false;
-    if ((s.slotType === "shieldEmitters" || s.slotType === "hullPlating") && !isCombatHull) return false;
-    return true;
-  });
+  // The SHIP-SYSTEM singleton slots actually shown for THIS hull: the Spec Utility
+  // slot is Prospector-only, so it is dropped on other hulls. The Defense singletons
+  // and the weapon strip show on every hull (all hulls are combat-capable now).
+  $: visibleSystemSlots = SYSTEM_SLOTS.filter((s) => !s.prospectorOnly || isProspectorHull);
 
-  // Reactive per-slot "what is installed here" map, keyed by slotType. CRITICAL
-  // for correct redraws: the slot NODES (their gold install-status dot + hover
-  // tooltip) must recompute when a fit changes, but Svelte only tracks the
-  // reactive variables it sees SYNTACTICALLY in a template expression. A helper
-  // like fittedInSlot(...) reads `safeState` INSIDE the function, hiding that
-  // dependency from the compiler, so a title/class bound to such a call would go
-  // stale after an install/uninstall. Precomputing this map (a real reactive var
-  // that DOES change when safeState/ship change) and reading map[slotType] in the
-  // template makes the dependency visible, so the nodes refresh correctly. Only
-  // live slots can hold a piece; reserved slots map to null.
+  // Reactive per-slot "what is installed here" map, keyed by slotType. CRITICAL for
+  // correct redraws: reading fittedInSlot(...) inside a template expression hides the
+  // safeState dependency from the compiler, so a tile bound to such a call would go
+  // stale after an install / uninstall. Precomputing this real reactive var (that DOES
+  // change when safeState / ship change) and reading map[slotType] in the template
+  // makes the dependency visible, so the tiles refresh correctly.
   $: fittedBySlot = (() => {
     const map: Record<string, EquipmentInstance | null> = {};
-    for (const meta of SLOT_LAYOUT) {
-      map[meta.slotType] = ship && meta.live ? fittedInSlot(safeState, shipId, meta.slotType) : null;
+    for (const meta of [...DEFENSE_SLOTS, ...SYSTEM_SLOTS]) {
+      map[meta.slotType] = ship ? fittedInSlot(safeState, shipId, meta.slotType) : null;
     }
     return map;
   })();
@@ -216,138 +228,134 @@
   $: fittedPieces = ship ? equippedFor(safeState, shipId) : [];
   $: fitStats = ship ? shipDerivedStats(ship, fittedPieces) : null;
 
-  // The Live-section rows (real numbers). `kind` picks the formatter: percent for
-  // the multiplier / 0-based-bonus stats, flat for capacities / power / mass.
+  // The economy stat rows (real numbers). `kind` picks the formatter: percent for the
+  // multiplier / 0-based-bonus stats, flat for capacities / power / mass. Split into
+  // Prospecting (the two prospecting-relevant stats) and Logistics (the rest) for the
+  // categorized right column, each row keeping its base -> installed delta.
   type StatRow = { label: string; base: number; fitted: number; kind: "flat" | "pct" };
   function buildLiveRows(base: ShipDerivedStats, fit: ShipDerivedStats): StatRow[] {
     return [
+      { label: "Extraction Yield", base: base.extractionYieldMult, fitted: fit.extractionYieldMult, kind: "pct" },
       { label: "Cargo Capacity", base: base.cargoCapacity, fitted: fit.cargoCapacity, kind: "flat" },
       { label: "FTL Speed", base: base.transitSpeedMult, fitted: fit.transitSpeedMult, kind: "pct" },
       { label: "Fuel Efficiency", base: base.engineEfficiency, fitted: fit.engineEfficiency, kind: "pct" },
       { label: "Fuel Capacity", base: base.fuelCapacity, fitted: fit.fuelCapacity, kind: "flat" },
-      { label: "Extraction Yield", base: base.extractionYieldMult, fitted: fit.extractionYieldMult, kind: "pct" },
       { label: "Power Output", base: base.powerOutput, fitted: fit.powerOutput, kind: "flat" },
       { label: "Power Draw", base: base.powerDraw, fitted: fit.powerDraw, kind: "flat" },
       { label: "Mass", base: base.mass, fitted: fit.mass, kind: "flat" },
     ];
   }
   $: liveStatRows = baseStats && fitStats ? buildLiveRows(baseStats, fitStats) : [];
+  const PROSPECTING_LABELS = new Set(["Extraction Yield", "Cargo Capacity"]);
+  $: prospectingRows = liveStatRows.filter((r) => PROSPECTING_LABELS.has(r.label));
+  $: logisticsRows = liveStatRows.filter((r) => !PROSPECTING_LABELS.has(r.label));
 
-  // --- Combat reads (Combat 1.0, Unit 1.8b) -----------------------------------
-  // A ship is a COMBAT hull (destroyer/battleship/carrier) or not. combatHullTypeOf
-  // returns the CombatHullType or null; only combat hulls get the weapon strip, the
-  // dispatch-blocker banner, and the combat readout (an economy hull can never patrol
-  // and carries no combat gear, so those surfaces would be meaningless on one).
+  // --- Combat reads -----------------------------------------------------------
+  // combatHullTypeOf now returns non-null for every hull, so isCombatHull is true for
+  // all hulls: the combat slots, the weapon strip and the combat readout render on an
+  // economy hull too (it carries a weak Standard-Issue combat set). Only DRONE BAYS
+  // stay carrier-only (see hasDroneBays).
   $: combatHullType = ship ? combatHullTypeOf(ship.typeKey) : null;
   $: isCombatHull = combatHullType !== null;
 
   // The folded combat readout (hull frame+plating, shield pool/recharge, mounted
-  // weapons, and which required slots are still empty). Derived from the SAME
-  // fittedPieces the live stats use, so it recomputes on every install/uninstall.
-  // Null for a non-combat hull (no combat section is shown there).
+  // weapons + pods, and which required slots are still empty). Derived from the SAME
+  // fittedPieces the economy stats use, so it recomputes on every install / uninstall.
   $: combatReadout =
     ship && shipDef && isCombatHull
-      ? computeCombatReadout(
-          fittedPieces,
-          shipDef.hullIntegrity,
-          shipDef.weaponHardpoints,
-          // Drone bays are carrier-only (SHIP_TYPES[hull].droneBays is absent/0 elsewhere);
-          // the readout carries mountedPods + droneBayCap so the drone strip + DRONES section
-          // read from the SAME fold as the weapon strip. Nullish-guarded to 0 for a combat
-          // hull with no bays (destroyer / battleship).
-          shipDef.droneBays ?? 0
+      ? computeCombatReadout(fittedPieces, shipDef.hullIntegrity, shipDef.weaponHardpoints, shipDef.droneBays ?? 0)
+      : null;
+
+  $: mountedWeapons = combatReadout ? combatReadout.mountedWeapons : [];
+  $: hardpointCap = combatReadout ? combatReadout.hardpointCap : 0;
+  $: spareWeapons = equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === "weapon");
+  $: missingRequired = combatReadout ? combatReadout.missingRequired : [];
+
+  // Drone reads (carrier-only). hasDroneBays gates the whole drone strip + the DRONES
+  // readout, so a non-carrier never shows an empty drone strip it can never fill.
+  $: mountedPods = combatReadout ? combatReadout.mountedPods : [];
+  $: droneBayCap = combatReadout ? combatReadout.droneBayCap : 0;
+  $: hasDroneBays = droneBayCap > 0;
+  $: sparePods = equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === "droneBay");
+
+  // The ship's advisory Battle Rating: build the SAME player Combatant the dispatch
+  // card + sim build (installed gear folded in) and score it. Null only if the hull
+  // does not resolve to a combat class (a corrupt typeKey). Recomputes with the installed loadout.
+  $: battleRatingValue =
+    ship && shipDef && combatHullType
+      ? battleRating(
+          shipToCombatant({ id: ship.id, team: "player", stats: shipDef, hullType: combatHullType, installedGear: fittedPieces }),
         )
       : null;
 
-  // The installed weapons, in fitted order, one per filled hardpoint cell (Combat
-  // 1.0, Unit 1.8b). Empty cells run from mountedWeapons.length up to the hull's cap.
-  $: mountedWeapons = combatReadout ? combatReadout.mountedWeapons : [];
-  $: hardpointCap = combatReadout ? combatReadout.hardpointCap : 0;
-  // hardpointsFull: every hardpoint is occupied, so no further weapon can be installed
-  // (the strip disables install + shows "hardpoints full"). Mirrors canFitEquipment's
-  // hardpointsFull gate so the two never disagree.
-  $: hardpointsFull = combatReadout !== null && mountedWeapons.length >= hardpointCap;
+  // --- Repair reads (QA #3) ---------------------------------------------------
+  // A ship is DAMAGED after limping home from a lost patrol (ship.damaged). While
+  // true, install + uninstall are BLOCKED and a repair banner is shown. The auto-
+  // repair pass (tick.ts processShipRepairs) starts a shipRepair process whenever a
+  // Shipyard bay is free; we surface that process's live progress + ETA, or explain
+  // the wait when every bay is busy.
+  $: shipDamaged = ship?.damaged === true;
+  $: repairProcess =
+    ship
+      ? state.activeProcesses.find(
+          (p) => p.kind === "shipRepair" && p.effect.type === "clearShipDamage" && p.effect.shipId === shipId,
+        ) ?? null
+      : null;
+  $: repairRunning = repairProcess !== null;
+  $: repairProgress =
+    repairProcess && repairProcess.durationTicks > 0
+      ? (repairProcess.durationTicks - repairProcess.remainingTicks) / repairProcess.durationTicks
+      : 0;
+  $: repairEtaSeconds = repairProcess ? Math.max(0, repairProcess.remainingTicks) * state.tickDurationSeconds : 0;
 
-  // The spare WEAPONS in storage (fittedToShipId null), the install pool for an empty
-  // hardpoint. Weapons are the one MULTI slot, so this is queried by slotType directly
-  // (parallel to selectedSpares for the singleton slots).
-  $: spareWeapons = equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === "weapon");
-
-  // The required combat slots still EMPTY (drives the dispatch-blocker banner). Empty
-  // array => the ship's required combat slots are all filled (dispatchable, slot-wise).
-  $: missingRequired = combatReadout ? combatReadout.missingRequired : [];
-
-  // --- Drone bay reads (Combat 1.0, Unit 2.4) --------------------------------------
-  // EXACTLY mirrors the weapon-hardpoint reads above, for the OTHER MULTI slot (droneBay).
-  // The installed drone pods, in fitted order, one per filled bay cell. Empty cells run
-  // from mountedPods.length up to the bay cap.
-  $: mountedPods = combatReadout ? combatReadout.mountedPods : [];
-  $: droneBayCap = combatReadout ? combatReadout.droneBayCap : 0;
-  // hasDroneBays: this hull actually has drone bays (carriers only; droneBays > 0). Gates
-  // the whole drone strip + the DRONES readout section, the way isCombatHull gates the
-  // weapon surfaces, so a non-carrier never shows an empty drone strip it can never fill.
-  $: hasDroneBays = droneBayCap > 0;
-  // baysFull: every drone bay is occupied, so no further pod can be installed (the strip
-  // disables install + shows "bays full"). Mirrors canFitEquipment's baysFull gate so the
-  // two never disagree. The droneBayCap > 0 guard keeps it false on a non-carrier (where
-  // 0 pods >= 0 bays would otherwise read "full"), though the strip is hidden there anyway.
-  $: baysFull = combatReadout !== null && droneBayCap > 0 && mountedPods.length >= droneBayCap;
-
-  // The spare DRONE PODS in storage (fittedToShipId null), the install pool for an empty
-  // bay. Pods are a MULTI slot, so this is queried by slotType directly (parallel to
-  // spareWeapons for weapons).
-  $: sparePods = equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === "droneBay");
-
-  // Reserved bottom-bar module count, capped at 7 empty display slots (weapons moved
-  // to the live hardpoint strip; modules stay reserved for a later combat unit).
-  $: moduleCount = shipDef ? Math.min(7, shipDef.moduleSlots) : 0;
-
-  // The selected slot's context (only meaningful for a LIVE slot).
-  $: selectedMeta = selectedSlot ? visibleSlots.find((s) => s.slotType === selectedSlot) ?? null : null;
-  $: selectedFitted =
-    selectedSlot && ship ? fittedInSlot(safeState, shipId, selectedSlot as EquipmentSlotType) : null;
-  $: selectedSpares = selectedSlot
-    ? equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === selectedSlot)
-    : [];
+  // --- Install picker reads ---------------------------------------------------
+  // The spare pool + label for whichever slot is currently open. One picker at a time
+  // (the three selections are mutually exclusive), so this reads the active one.
+  $: pickerActive = selectedSlot !== null || selectedHardpoint !== null || selectedBay !== null;
+  $: pickerSpares =
+    selectedSlot !== null
+      ? equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === selectedSlot)
+      : selectedHardpoint !== null
+        ? spareWeapons
+        : selectedBay !== null
+          ? sparePods
+          : [];
+  $: pickerLabel =
+    selectedSlot !== null
+      ? EQUIPMENT_SLOTS[selectedSlot]?.label ?? selectedSlot
+      : selectedHardpoint !== null
+        ? "Weapon"
+        : selectedBay !== null
+          ? "Drone Pod"
+          : "";
 
   // --- Formatting helpers -----------------------------------------------------
-  // shipDerivedStats returns PLAIN numbers (not Decimals), so we format locally.
   function fmtFlat(v: number): string {
     return Number.isInteger(v) ? v.toString() : v.toFixed(1);
   }
-  function fmtPct(v: number): string {
-    return (v * 100).toFixed(0) + "%";
+  function fmtStatValue(row: StatRow): string {
+    return row.kind === "pct" ? "×" + row.fitted.toFixed(2) : fmtFlat(Number(row.fitted.toFixed(1)));
   }
-  // The signed base->fitted change, or null when it is effectively zero (so the
-  // row simply omits a delta rather than showing "+0"). Percent stats report in
-  // percentage POINTS; flat stats report the raw difference.
+  // The signed base -> installed change, or null when it is effectively zero (so a row
+  // simply omits the note rather than showing "+0"). Percent stats report in points.
   function fmtDelta(row: StatRow): string | null {
     const d = row.fitted - row.base;
     if (Math.abs(d) < 1e-9) return null;
     const sign = d > 0 ? "+" : "";
-    if (row.kind === "pct") return `${sign}${(d * 100).toFixed(1)} pts`;
-    return `${sign}${fmtFlat(Number(d.toFixed(1)))}`;
+    if (row.kind === "pct") return `${sign}${(d * 100).toFixed(0)} pts`;
+    return `${sign}${fmtFlat(Number(d.toFixed(1)))} gear`;
   }
-  function fmtStat(row: StatRow, which: "base" | "fitted"): string {
-    const v = which === "base" ? row.base : row.fitted;
-    return row.kind === "pct" ? fmtPct(v) : fmtFlat(v);
-  }
-
-  // Compact one-line descriptor for a system: rarity + quality + its signature
-  // implicit stat, plus mass / power draw. Enough to tell two spares apart.
-  function pieceDesc(p: EquipmentInstance): string {
-    const keys = Object.keys(p.implicitStats);
-    const sig =
-      keys.length > 0 ? ` ${STAT_LABEL[keys[0]] ?? keys[0]} +${p.implicitStats[keys[0]].toFixed(1)}` : "";
-    return `${p.rarity} q${p.quality}${sig}`;
-  }
-  function pieceSubline(p: EquipmentInstance): string {
-    return `mass ${p.mass.toFixed(0)} · draw ${p.powerDraw.toFixed(0)}`;
+  // Repair ETA in the mockup's "~3m 20s left" shape (seconds only under a minute).
+  function formatEta(sec: number): string {
+    const s = Math.max(0, Math.ceil(sec));
+    if (s < 60) return `~${s}s left`;
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return r === 0 ? `~${m}m left` : `~${m}m ${r}s left`;
   }
 
-  // Human-readable text for a blocked-install reason (mirrors the dev panel's
-  // mapper). Total over EquipFitBlockReason (a switch, no default) so a new token
-  // surfaces as a compile error here rather than a silent blank.
+  // Human-readable text for a blocked-install reason. Total over EquipFitBlockReason
+  // (a switch, no default) so a new token surfaces as a compile error here.
   function reasonText(reason: EquipFitBlockReason): string {
     switch (reason) {
       case "noInstance":
@@ -371,19 +379,9 @@
     }
   }
 
-  // Tooltip text for a slot node: full slot name + what is installed (live) or a
-  // "reserved" note. Takes the resolved fitted piece (from the reactive
-  // fittedBySlot map) as an ARG so the compiler tracks the dependency at the call
-  // site, rather than reading state inside here (see fittedBySlot above).
-  function slotTitle(meta: SlotMeta, fitted: EquipmentInstance | null): string {
-    if (!meta.live) return `${meta.label}: reserved (0.12.0 combat update)`;
-    return fitted ? `${meta.label}: ${pieceDesc(fitted)}` : `${meta.label}: empty`;
-  }
-
-  // --- Combat display helpers (Combat 1.0, Unit 1.8b) -------------------------
+  // --- Combat display helpers -------------------------------------------------
   // Player-facing label for each required combat slot, for the dispatch-blocker
-  // banner. Total over RequiredCombatSlot (a switch, no default) so a new required
-  // slot is a compile error here rather than a silent blank in the banner.
+  // banner. Total over RequiredCombatSlot (a switch, no default).
   function requiredSlotLabel(slot: RequiredCombatSlot): string {
     switch (slot) {
       case "weapon":
@@ -394,12 +392,7 @@
         return "hull plating";
     }
   }
-
-  // The dispatch-blocker sentence BODY (the markup prepends a bold "Cannot patrol:"):
-  // "install a weapon, a shield emitter and hull plating to make this ship dispatchable."
-  // Built from the missing-required list so it names EXACTLY the empty slots (the same
-  // slots canDispatchPatrol would block on). Only shown when the list is non-empty (see
-  // the {#if} in the markup), so this always has >=1 item.
+  // The dispatch-blocker sentence BODY (the markup prepends a bold "Cannot patrol:").
   function blockerText(missing: RequiredCombatSlot[]): string {
     const parts = missing.map(requiredSlotLabel);
     const list =
@@ -411,11 +404,8 @@
     return `install ${list} to make this ship dispatchable.`;
   }
 
-  // A weapon's FAMILY color for the strip's family dot. The three families read a
-  // stable, distinct color regardless of the user's theme accent: kinetic -> warning
-  // (amber), particle -> accent (cyan), ew -> a fixed violet (the same purple the
-  // EquipmentTooltip uses for its radiant rung). WEAPON_DEFS owns the family; an
-  // unknown/absent weaponType falls back to the dim text color (never blank).
+  // A weapon's FAMILY color for the offense readout dot (kinetic amber / particle
+  // accent / ew violet), read as stable tokens so it holds across the theme accent.
   function weaponFamilyColor(weaponType: string | undefined): string {
     const family = weaponType ? WEAPON_DEFS[weaponType as keyof typeof WEAPON_DEFS]?.family : undefined;
     switch (family) {
@@ -429,36 +419,19 @@
         return "var(--color-text-dim)";
     }
   }
-
-  // A weapon piece's display NAME (weapons.ts roster name via weaponDisplayName) and
-  // its rarity + iL sub-line, for the strip cell + the offense readout.
   function weaponName(piece: EquipmentInstance): string {
     return weaponDisplayName(piece.weaponType);
   }
-  function weaponSub(piece: EquipmentInstance): string {
-    const rar = piece.rarity.charAt(0).toUpperCase() + piece.rarity.slice(1);
-    return `${rar} · iL ${piece.iLevel}`;
-  }
-  // A weapon's yield range for the offense readout: the base template yield (WEAPON_DEFS)
-  // plus the piece's weaponYield bonus (implicit signature + rolled affix), matching the
-  // combat/bridge weaponInstanceFromGear fold so the readout equals what the sim fires.
+  // A weapon's yield range for the offense readout: the base template yield plus the
+  // piece's weaponYield bonus, matching the sim's weaponInstanceFromGear fold.
   function weaponYieldRange(piece: EquipmentInstance): string {
     const def = piece.weaponType ? WEAPON_DEFS[piece.weaponType as keyof typeof WEAPON_DEFS] : undefined;
     if (!def) return "";
     const bonus = (piece.implicitStats.weaponYield ?? 0) + (piece.rolledStats.weaponYield ?? 0);
     return `${def.yieldMin + bonus}-${def.yieldMax + bonus}`;
   }
-
-  // --- Drone display helpers (Combat 1.0, Unit 2.4) ---------------------------
-  // The DRONE analogue of weaponFamilyColor / weaponName / weaponSub above. A pod's
-  // identity in the strip is its squadron ROLE (attack / defense / support), so these
-  // resolve the role color dot, the role name, and the rarity + iL sub-line. Typed on a
-  // plain string (like weaponFamilyColor's weaponType) so no combat/ type is needed here.
-  //
-  // Role -> a stable, distinct indicator color, read as theme tokens so it recolors with
-  // the theme: attack -> danger (its offense identity), defense -> accent (its shielding
-  // identity), support -> success (its repair identity). An absent/unknown role falls back
-  // to the dim text color (never blank), exactly as weaponFamilyColor does for a bad family.
+  // A drone pod's role color + name for the DRONES readout (attack danger / defense
+  // accent / support success).
   function droneRoleColor(role: string | undefined): string {
     switch (role) {
       case "attack":
@@ -471,8 +444,6 @@
         return "var(--color-text-dim)";
     }
   }
-  // A pod's player-facing ROLE name (Attack / Defense / Support). Fallback "Drone pod" for
-  // an absent/unknown role, mirroring weaponName's "weapons" fallback (never blank).
   function droneRoleName(role: string | undefined): string {
     switch (role) {
       case "attack":
@@ -485,47 +456,179 @@
         return "Drone pod";
     }
   }
-  // A pod's rarity + iL sub-line, IDENTICAL in shape to weaponSub (a pod carries rarity /
-  // iLevel like any piece). Kept as its own explicit helper, parallel to weaponSub, so the
-  // drone strip reads self-describingly rather than borrowing a weapon-named function.
-  function podSub(piece: EquipmentInstance): string {
-    const rar = piece.rarity.charAt(0).toUpperCase() + piece.rarity.slice(1);
-    return `${rar} · iL ${piece.iLevel}`;
+
+  // --- Floating tooltip: JS viewport clamping (hard requirement) ---------------
+  // The mockup's pure-CSS tooltips clip off the page edge; production MUST keep the
+  // tooltip fully inside the viewport regardless of which tile it anchors to (top row,
+  // bottom row, right edge, mobile). We render ONE floating wrapper at fixed position
+  // and compute its coordinates from the anchor tile's rect + the tooltip's measured
+  // size + the viewport: prefer above the tile, flip below when there is no room, and
+  // clamp horizontally (and, as a final safety, vertically) within a small margin. The
+  // wrapper is position:fixed so it escapes the panel's inner scroll clipping. This
+  // lives HERE, around EquipmentTooltip, so EquipmentTooltip itself stays unchanged.
+  //
+  // CLAMP DEPENDENCY (see the matching note on .ss-tip-float in the style block): the
+  // left/top below are VIEWPORT coordinates, which line up with this fixed element only
+  // while the host .modal-backdrop stays a full-viewport, origin (0,0), unbordered,
+  // untransformed fixed element (its backdrop-filter is what makes it the containing
+  // block for position:fixed). A very tall tooltip is capped by the CSS max-height, and
+  // because we read offsetHeight AFTER that cap, the vertical clamp here already fits
+  // the (capped) element inside the 8px top / 8px bottom margins with no extra math.
+  const TIP_MARGIN = 8; // min gap from any viewport edge (px)
+  const TIP_GAP = 8; // gap between the tile and the tooltip (px)
+
+  function positionTip(): void {
+    if (!activeTip || !tipEl) return;
+    const anchor = activeTip.el.getBoundingClientRect();
+    const tw = tipEl.offsetWidth;
+    const th = tipEl.offsetHeight;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Horizontal: center on the tile, then clamp so neither edge leaves the viewport.
+    let left = anchor.left + anchor.width / 2 - tw / 2;
+    left = Math.max(TIP_MARGIN, Math.min(left, vw - tw - TIP_MARGIN));
+
+    // Vertical: prefer ABOVE the tile. If it would clip the top, flip BELOW; if below
+    // also clips the bottom, keep whichever fits and clamp into the visible band.
+    let top = anchor.top - th - TIP_GAP;
+    if (top < TIP_MARGIN) {
+      const below = anchor.bottom + TIP_GAP;
+      top = below + th <= vh - TIP_MARGIN ? below : Math.min(top, vh - th - TIP_MARGIN);
+    }
+    top = Math.max(TIP_MARGIN, Math.min(top, vh - th - TIP_MARGIN));
+
+    tipLeft = left;
+    tipTop = top;
+    tipVisible = true;
   }
 
+  // Open the floating tooltip for a piece. Rendered invisibly for one frame, then
+  // measured + positioned + shown, so it never flashes at the wrong spot. Blocked
+  // while the ship is damaged (tiles are locked then).
+  async function openTip(piece: EquipmentInstance, action: TipAction, el: HTMLElement, pinned: boolean): Promise<void> {
+    if (shipDamaged) return;
+    activeTip = { piece, action, el };
+    // A pin only sticks on a coarse (touch) pointer. On a hover-capable device the
+    // click still opens the tooltip, but leaving it UNPINNED means a subsequent hover
+    // (e.g. onto a spare tile in the picker) can replace it, so desktop previewing is
+    // never blocked by an earlier click. Touch keeps the pin so a tap reveals detail.
+    tipPinned = pinned && !hoverCapable;
+    tipVisible = false;
+    await tick();
+    positionTip();
+  }
+  // Close the tooltip. A pinned (tapped) tooltip ignores a transient (hover-out) close
+  // so it stays put until it is explicitly dismissed (force) or replaced.
+  function closeTip(force = false): void {
+    if (tipPinned && !force) return;
+    activeTip = null;
+    tipPinned = false;
+    tipVisible = false;
+  }
+  // Desktop hover preview: only when nothing is pinned (a pin outranks a hover).
+  function hoverTip(piece: EquipmentInstance, action: TipAction, el: HTMLElement): void {
+    if (tipPinned) return;
+    void openTip(piece, action, el, false);
+  }
+  function hoverOut(): void {
+    closeTip(false);
+  }
+  // Keep the fixed tooltip glued to its tile as the panel / window scrolls or resizes
+  // (capture:true catches the inner column's scroll, which does not bubble to window).
+  function reflowTip(): void {
+    if (activeTip) positionTip();
+  }
+  // Outside-press dismiss for a PINNED (touch) tooltip: a press that lands neither on
+  // the anchor tile nor inside the tooltip itself closes the pin. This is safe for the
+  // host modal because the Ship Systems .modal-backdrop has NO backdrop click-close
+  // handler (App.svelte), so this only hides the floating tooltip: it never closes the
+  // modal and never touches its focus trap. A press on the tile toggles via the tile's
+  // own click, and a press on a spare tile still installs (its click runs after this).
+  function onOutsidePointerDown(e: Event): void {
+    if (!tipPinned || !activeTip) return;
+    const target = e.target as Node | null;
+    if (target && (activeTip.el.contains(target) || (tipEl && tipEl.contains(target)))) return;
+    closeTip(true);
+  }
+  onMount(() => {
+    window.addEventListener("scroll", reflowTip, true);
+    window.addEventListener("resize", reflowTip);
+    window.addEventListener("pointerdown", onOutsidePointerDown, true);
+  });
+  onDestroy(() => {
+    window.removeEventListener("scroll", reflowTip, true);
+    window.removeEventListener("resize", reflowTip);
+    window.removeEventListener("pointerdown", onOutsidePointerDown, true);
+  });
+
   // --- Interaction ------------------------------------------------------------
-  // Clicking a slot toggles its control open/closed. Reserved slots still open
-  // (to show their "reserved" note), so the click target is consistent. Selecting a
-  // singleton slot CLEARS any open hardpoint (mutual exclusivity: one control at a time).
-  function selectSlot(meta: SlotMeta): void {
+  // Selecting a slot / hardpoint / bay opens its install picker, clearing the other
+  // two (mutual exclusivity) and closing any open tooltip. Re-selecting the same one
+  // toggles the picker closed.
+  function selectSlot(slotType: EquipmentSlotType): void {
+    const willOpen = selectedSlot !== slotType;
     selectedHardpoint = null;
     selectedBay = null;
-    selectedSlot = selectedSlot === meta.slotType ? null : meta.slotType;
+    selectedSlot = willOpen ? slotType : null;
+    closeTip(true);
   }
-  // Clicking a weapon hardpoint cell toggles its control open/closed, clearing any open
-  // singleton slot + drone bay (mutual exclusivity). The index identifies WHICH hardpoint
-  // is open.
   function selectHardpoint(index: number): void {
+    const willOpen = selectedHardpoint !== index;
     selectedSlot = null;
     selectedBay = null;
-    selectedHardpoint = selectedHardpoint === index ? null : index;
+    selectedHardpoint = willOpen ? index : null;
+    closeTip(true);
   }
-  // Clicking a drone bay cell toggles its control open/closed, clearing any open singleton
-  // slot + weapon hardpoint (mutual exclusivity). The index identifies WHICH bay is open.
-  // EXACTLY parallel to selectHardpoint (a drone bay is the other MULTI slot).
   function selectBay(index: number): void {
+    const willOpen = selectedBay !== index;
     selectedSlot = null;
     selectedHardpoint = null;
-    selectedBay = selectedBay === index ? null : index;
+    selectedBay = willOpen ? index : null;
+    closeTip(true);
   }
+
+  // Clicking a SLOT tile (singleton / hardpoint / bay): open (toggle) its picker, and
+  // for a FILLED tile also pin its floating tooltip so a mobile tap reveals the piece
+  // detail + Uninstall (QA #8). Empty tiles just open the picker. Locked while damaged.
+  function clickSingleton(e: MouseEvent, meta: SlotMeta, fitted: EquipmentInstance | null): void {
+    if (shipDamaged) return;
+    const willOpen = selectedSlot !== meta.slotType;
+    selectSlot(meta.slotType);
+    if (willOpen && fitted) void openTip(fitted, "uninstall", e.currentTarget as HTMLElement, true);
+  }
+  function clickHardpoint(e: MouseEvent, index: number, weapon: EquipmentInstance | null): void {
+    if (shipDamaged) return;
+    const willOpen = selectedHardpoint !== index;
+    selectHardpoint(index);
+    if (willOpen && weapon) void openTip(weapon, "uninstall", e.currentTarget as HTMLElement, true);
+  }
+  function clickBay(e: MouseEvent, index: number, pod: EquipmentInstance | null): void {
+    if (shipDamaged) return;
+    const willOpen = selectedBay !== index;
+    selectBay(index);
+    if (willOpen && pod) void openTip(pod, "uninstall", e.currentTarget as HTMLElement, true);
+  }
+  // Clicking a SPARE tile installs it directly (the "tap a spare to install" flow); the
+  // spare's floating tooltip (hover) also carries an Install button for the same action.
+  function clickSpare(spare: EquipmentInstance): void {
+    if (shipDamaged) return;
+    handleInstall(spare.id);
+  }
+
   function handleInstall(instanceId: string): void {
     onInstall(shipId, instanceId);
+    selectedSlot = null;
+    selectedHardpoint = null;
+    selectedBay = null;
+    closeTip(true);
   }
-  // Uninstall BY INSTANCE (Combat 1.0, Unit 1.8b): the host routes this to
-  // unfitEquipmentInstance, so a weapon uninstalls the exact tapped piece and an economy
-  // slot still gets its never-empty Standard-Issue restore. One flow for every slot.
   function handleUninstall(instanceId: string): void {
     onUninstall(shipId, instanceId);
+    closeTip(true);
+  }
+  function handleRepair(): void {
+    onRepair(shipId);
   }
 </script>
 
@@ -535,7 +638,7 @@
          modal; show a recoverable message with a way out. -->
     <div class="ss-header">
       <div class="ss-title">SHIP SYSTEMS</div>
-      <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">✕</button>
+      <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">&#10005;</button>
     </div>
     <p class="ss-empty">This ship is no longer available.</p>
   {:else}
@@ -549,22 +652,43 @@
             <div class="ss-captain-name">{assignedCaptain.label}</div>
             <div class="ss-captain-spec">
               {assignedCaptain.spec ? SPEC_LABEL[assignedCaptain.spec] ?? assignedCaptain.spec : "No specialization"}
-              {#if onMission}· on mission (install locked){/if}
+              {#if onMission}&middot; on mission (install locked){/if}
             </div>
           {:else}
             <div class="ss-captain-name ss-parked">Unassigned / Parked</div>
           {/if}
         </div>
-        <div class="ss-portrait" aria-hidden="true">{assignedCaptain ? "🧑‍🚀" : "⚓"}</div>
+        <div class="ss-portrait" aria-hidden="true">{assignedCaptain ? "\u{1F9D1}‍\u{1F680}" : "⚓"}</div>
       </div>
-      <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">✕</button>
+      <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">&#10005;</button>
     </header>
 
-    <!-- DISPATCH-BLOCKER BANNER (Combat 1.0, Unit 1.8b): a combat hull with any required
-         combat slot stripped bare (no weapon / no shield emitter / no hull plating) cannot
-         patrol, so a red banner names the missing slot(s). Mirrors canDispatchPatrol's
-         per-slot gate, so what the banner says here is exactly what dispatch would block on.
-         Only rendered for a combat hull that is actually missing a required slot. -->
+    <!-- DAMAGED BANNER (QA #3): a prominent repair strip while the ship is damaged. It
+         states the install lock, shows the running repair's progress + ETA, and offers
+         a manual Repair trigger. When every Shipyard bay is busy no process exists yet,
+         so it explains the wait (the auto-repair claims a bay the instant one frees). -->
+    {#if shipDamaged}
+      <div class="ss-repair" role="status">
+        <div class="ss-repair-top"><span aria-hidden="true">&#128295;</span> Ship damaged &middot; returned from a lost patrol</div>
+        <div class="ss-repair-msg">Your ship is damaged. It needs repair before you can install new ship systems.</div>
+        {#if repairRunning}
+          <div class="ss-repair-row">
+            <div class="ss-repair-bar"><i style="width: {Math.round(repairProgress * 100)}%"></i></div>
+            <div class="ss-repair-eta">{formatEta(repairEtaSeconds)}</div>
+          </div>
+        {:else}
+          <div class="ss-repair-row">
+            <div class="ss-repair-wait">Waiting for a free repair bay at the Shipyard.</div>
+            <button class="ss-repair-btn" on:click={handleRepair}>Repair now</button>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- DISPATCH-BLOCKER BANNER: a combat hull with any required combat slot stripped
+         bare cannot patrol, so a red banner names the missing slot(s). Every hull is a
+         combat hull now, so this can show on an economy hull whose combat gear was
+         uninstalled. Mirrors canDispatchPatrol's per-slot gate. -->
     {#if isCombatHull && missingRequired.length > 0}
       <div class="ss-blocker" role="alert">
         <span class="ss-blocker-dot" aria-hidden="true"></span>
@@ -573,417 +697,352 @@
     {/if}
 
     <div class="ss-main">
-      <!-- LEFT: the ship graphic with overlaid slots + the selected slot control. -->
-      <div class="ss-ship-col">
-        <div class="ss-graphic">
-          <!-- Overhead placeholder hull: saucer + bridge, engineering hull, two
-               nacelles with pylons, and an aft deflector. Decorative only; every
-               stroke/fill reads a theme token so it repaints on theme switch. -->
-          <svg class="ss-svg" viewBox="0 0 300 400" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <!-- nacelle pylons (drawn first, behind the hull) -->
-            <line x1="130" y1="210" x2="65" y2="235" class="ss-svg-pylon" />
-            <line x1="170" y1="210" x2="235" y2="235" class="ss-svg-pylon" />
-            <!-- nacelles -->
-            <rect x="52" y="175" width="26" height="150" rx="13" class="ss-svg-hull" />
-            <rect x="222" y="175" width="26" height="150" rx="13" class="ss-svg-hull" />
-            <!-- engineering hull -->
-            <rect x="120" y="150" width="60" height="175" rx="20" class="ss-svg-hull" />
-            <!-- aft deflector -->
-            <ellipse cx="150" cy="352" rx="20" ry="10" class="ss-svg-accent" />
-            <!-- saucer + bridge -->
-            <ellipse cx="150" cy="95" rx="92" ry="62" class="ss-svg-hull" />
-            <circle cx="150" cy="95" r="13" class="ss-svg-accent" />
-          </svg>
-
-          <!-- Slot nodes overlaid at their hull positions. Absolute, centered on
-               top/left. Each is a real button (tap opens its control) with a
-               native title tooltip and an install-status dot. -->
-          {#each visibleSlots as meta (meta.slotType)}
-            {@const fitted = fittedBySlot[meta.slotType]}
-            <button
-              class="ss-slot"
-              class:live={meta.live}
-              class:reserved={!meta.live}
-              class:installed={!!fitted}
-              class:selected={selectedSlot === meta.slotType}
-              style="top: {meta.top}%; left: {meta.left}%;"
-              title={slotTitle(meta, fitted)}
-              on:click={() => selectSlot(meta)}
-            >
-              <span class="ss-slot-code">{meta.code}</span>
-              <span class="ss-slot-dot" class:on={!!fitted}></span>
-            </button>
-          {/each}
+      <!-- LEFT: the function-grouped install tiles + the spare-pool picker. -->
+      <div class="ss-fit-col">
+        <!-- WEAPONS: one tile per hardpoint (every hull has hardpoints now). -->
+        <div class="ss-group">
+          <div class="ss-group-head">
+            Weapons <span class="ss-group-cap">{mountedWeapons.length} / {hardpointCap} hardpoints</span>
+          </div>
+          <div class="ss-tiles">
+            {#each Array.from({ length: hardpointCap }) as _, hpIndex (hpIndex)}
+              {@const weapon = mountedWeapons[hpIndex] ?? null}
+              {#if weapon}
+                <button
+                  type="button"
+                  class="ss-tile"
+                  class:sel={selectedHardpoint === hpIndex}
+                  class:locked={shipDamaged}
+                  disabled={shipDamaged}
+                  style="--tc: {equipmentRarityColor(weapon.rarity)}"
+                  aria-label={`Weapon hardpoint: ${weaponName(weapon)}, iL ${weapon.iLevel}`}
+                  on:click={(e) => clickHardpoint(e, hpIndex, weapon)}
+                  on:mouseenter={(e) => hoverTip(weapon, "uninstall", e.currentTarget)}
+                  on:mouseleave={hoverOut}
+                  on:focus={(e) => hoverTip(weapon, "uninstall", e.currentTarget)}
+                  on:blur={hoverOut}
+                >
+                  <span class="ss-tile-dot"></span>
+                  <span class="ss-tile-ic">{tileIcon(weapon)}</span>
+                  <span class="ss-tile-il">iL {weapon.iLevel}</span>
+                </button>
+              {:else}
+                <button
+                  type="button"
+                  class="ss-tile ss-tile-empty"
+                  class:sel={selectedHardpoint === hpIndex}
+                  class:locked={shipDamaged}
+                  disabled={shipDamaged}
+                  title="Empty hardpoint, tap to install a weapon"
+                  on:click={(e) => clickHardpoint(e, hpIndex, null)}
+                >
+                  <span class="ss-tile-ic">+</span>
+                  <span class="ss-tile-il">empty</span>
+                </button>
+              {/if}
+            {/each}
+          </div>
         </div>
 
-        <!-- WEAPON HARDPOINTS STRIP (Combat 1.0, Unit 1.8b): one cell per hardpoint on a
-             combat hull (destroyer 4 / battleship 6 / carrier 2). A filled cell shows the
-             installed weapon's family-color dot + name + rarity + iL; an empty cell reads
-             "install a weapon". Tapping a cell opens its control below (same flow as a
-             slot). Only combat hulls have hardpoints, so the strip is combat-hull-only. -->
-        {#if isCombatHull}
-          <div class="ss-hardpoints">
-            <div class="ss-hardpoints-title">
-              Weapon hardpoints · {mountedWeapons.length}/{hardpointCap}
-              {#if hardpointsFull}<span class="ss-hp-full">hardpoints full</span>{/if}
-            </div>
-            <div class="ss-hp-row">
-              {#each Array.from({ length: hardpointCap }) as _, hpIndex (hpIndex)}
-                {@const weapon = mountedWeapons[hpIndex] ?? null}
+        <!-- DEFENSE: shield emitter + hull plating singletons (combat, all hulls). -->
+        <div class="ss-group">
+          <div class="ss-group-head">Defense</div>
+          <div class="ss-tiles">
+            {#each DEFENSE_SLOTS as meta (meta.slotType)}
+              {@const fitted = fittedBySlot[meta.slotType]}
+              {#if fitted}
                 <button
-                  class="ss-hp"
-                  class:filled={!!weapon}
-                  class:empty={!weapon}
-                  class:selected={selectedHardpoint === hpIndex}
-                  on:click={() => selectHardpoint(hpIndex)}
+                  type="button"
+                  class="ss-tile"
+                  class:sel={selectedSlot === meta.slotType}
+                  class:locked={shipDamaged}
+                  disabled={shipDamaged}
+                  style="--tc: {equipmentRarityColor(fitted.rarity)}"
+                  aria-label={`${meta.label}: ${fitted.rarity} grade, iL ${fitted.iLevel}`}
+                  on:click={(e) => clickSingleton(e, meta, fitted)}
+                  on:mouseenter={(e) => hoverTip(fitted, "uninstall", e.currentTarget)}
+                  on:mouseleave={hoverOut}
+                  on:focus={(e) => hoverTip(fitted, "uninstall", e.currentTarget)}
+                  on:blur={hoverOut}
                 >
-                  <span class="ss-hp-slot">HP {hpIndex + 1}</span>
-                  {#if weapon}
-                    <span class="ss-hp-name">
-                      <span class="ss-fam" style="background: {weaponFamilyColor(weapon.weaponType)};"></span>{weaponName(weapon)}
-                    </span>
-                    <span class="ss-hp-sub">{weaponSub(weapon)}</span>
-                  {:else}
-                    <span class="ss-hp-name ss-hp-empty-name">empty</span>
-                    <span class="ss-hp-sub">install a weapon</span>
-                  {/if}
+                  <span class="ss-tile-dot"></span>
+                  <span class="ss-tile-ic">{tileIcon(fitted)}</span>
+                  <span class="ss-tile-il">iL {fitted.iLevel}</span>
                 </button>
-              {/each}
-            </div>
+              {:else}
+                <button
+                  type="button"
+                  class="ss-tile ss-tile-empty"
+                  class:sel={selectedSlot === meta.slotType}
+                  class:locked={shipDamaged}
+                  disabled={shipDamaged}
+                  title={`Empty ${meta.label}, tap to install`}
+                  on:click={(e) => clickSingleton(e, meta, null)}
+                >
+                  <span class="ss-tile-ic">+</span>
+                  <span class="ss-tile-il">empty</span>
+                </button>
+              {/if}
+            {/each}
           </div>
-        {/if}
+        </div>
 
-        <!-- DRONE BAYS STRIP (Combat 1.0, Unit 2.4): the DRONE analogue of the weapon
-             hardpoints strip above, shown ONLY on a hull with drone bays (carriers). One
-             cell per bay; a filled cell shows the installed pod's role-color dot + role name
-             (Attack / Defense / Support) + rarity + iL; an empty cell reads "install a drone
-             pod". Tapping a cell opens its control below (same flow as a hardpoint). -->
+        <!-- SHIP SYSTEMS: the economy singleton slots (never truly empty, an uninstall
+             auto-restores a Standard-Issue baseline). -->
+        <div class="ss-group">
+          <div class="ss-group-head">
+            Ship Systems <span class="ss-group-cap">{visibleSystemSlots.length} slots</span>
+          </div>
+          <div class="ss-tiles">
+            {#each visibleSystemSlots as meta (meta.slotType)}
+              {@const fitted = fittedBySlot[meta.slotType]}
+              {#if fitted}
+                <button
+                  type="button"
+                  class="ss-tile"
+                  class:sel={selectedSlot === meta.slotType}
+                  class:locked={shipDamaged}
+                  disabled={shipDamaged}
+                  style="--tc: {equipmentRarityColor(fitted.rarity)}"
+                  aria-label={`${meta.label}: ${fitted.rarity} grade, iL ${fitted.iLevel}`}
+                  on:click={(e) => clickSingleton(e, meta, fitted)}
+                  on:mouseenter={(e) => hoverTip(fitted, "uninstall", e.currentTarget)}
+                  on:mouseleave={hoverOut}
+                  on:focus={(e) => hoverTip(fitted, "uninstall", e.currentTarget)}
+                  on:blur={hoverOut}
+                >
+                  <span class="ss-tile-dot"></span>
+                  <span class="ss-tile-ic">{tileIcon(fitted)}</span>
+                  <span class="ss-tile-il">iL {fitted.iLevel}</span>
+                </button>
+              {:else}
+                <button
+                  type="button"
+                  class="ss-tile ss-tile-empty"
+                  class:sel={selectedSlot === meta.slotType}
+                  class:locked={shipDamaged}
+                  disabled={shipDamaged}
+                  title={`Empty ${meta.label}, tap to install`}
+                  on:click={(e) => clickSingleton(e, meta, null)}
+                >
+                  <span class="ss-tile-ic">+</span>
+                  <span class="ss-tile-il">empty</span>
+                </button>
+              {/if}
+            {/each}
+          </div>
+        </div>
+
+        <!-- DRONE BAYS: carrier-only (a hangar capacity, not a universal slot). -->
         {#if hasDroneBays}
-          <div class="ss-bays">
-            <div class="ss-bays-title">
-              Drone bays · {mountedPods.length}/{droneBayCap}
-              {#if baysFull}<span class="ss-bay-full">bays full</span>{/if}
+          <div class="ss-group">
+            <div class="ss-group-head">
+              Drone Bays <span class="ss-group-cap">{mountedPods.length} / {droneBayCap} bays</span>
             </div>
-            <div class="ss-bay-row">
+            <div class="ss-tiles">
               {#each Array.from({ length: droneBayCap }) as _, bayIndex (bayIndex)}
                 {@const pod = mountedPods[bayIndex] ?? null}
-                <button
-                  class="ss-bay"
-                  class:filled={!!pod}
-                  class:empty={!pod}
-                  class:selected={selectedBay === bayIndex}
-                  on:click={() => selectBay(bayIndex)}
-                >
-                  <span class="ss-bay-slot">BAY {bayIndex + 1}</span>
-                  {#if pod}
-                    <span class="ss-bay-name">
-                      <span class="ss-fam" style="background: {droneRoleColor(pod.droneRole)};"></span>{droneRoleName(pod.droneRole)}
-                    </span>
-                    <span class="ss-bay-sub">{podSub(pod)}</span>
-                  {:else}
-                    <span class="ss-bay-name ss-bay-empty-name">empty</span>
-                    <span class="ss-bay-sub">install a drone pod</span>
-                  {/if}
-                </button>
+                {#if pod}
+                  <button
+                    type="button"
+                    class="ss-tile"
+                    class:sel={selectedBay === bayIndex}
+                    class:locked={shipDamaged}
+                    disabled={shipDamaged}
+                    style="--tc: {equipmentRarityColor(pod.rarity)}"
+                    aria-label={`Drone bay: ${droneRoleName(pod.droneRole)}, iL ${pod.iLevel}`}
+                    on:click={(e) => clickBay(e, bayIndex, pod)}
+                    on:mouseenter={(e) => hoverTip(pod, "uninstall", e.currentTarget)}
+                    on:mouseleave={hoverOut}
+                    on:focus={(e) => hoverTip(pod, "uninstall", e.currentTarget)}
+                    on:blur={hoverOut}
+                  >
+                    <span class="ss-tile-dot"></span>
+                    <span class="ss-tile-ic">{tileIcon(pod)}</span>
+                    <span class="ss-tile-il">iL {pod.iLevel}</span>
+                  </button>
+                {:else}
+                  <button
+                    type="button"
+                    class="ss-tile ss-tile-empty"
+                    class:sel={selectedBay === bayIndex}
+                    class:locked={shipDamaged}
+                    disabled={shipDamaged}
+                    title="Empty drone bay, tap to install a pod"
+                    on:click={(e) => clickBay(e, bayIndex, null)}
+                  >
+                    <span class="ss-tile-ic">+</span>
+                    <span class="ss-tile-il">empty</span>
+                  </button>
+                {/if}
               {/each}
             </div>
           </div>
         {/if}
 
-        <!-- Selected-slot control: install / uninstall for a live slot, or the
-             reserved note for a 0.12.0 slot. Nothing shown until a slot is
-             tapped, keeping the graphic uncluttered by default. -->
-        {#if selectedMeta}
-          <div class="ss-control">
-            <div class="ss-control-title">{selectedMeta.label}</div>
-
-            {#if !selectedMeta.live}
-              <p class="ss-note">Reserved for the 0.12.0 combat update. No system to install yet.</p>
+        <!-- INSTALL PICKER (the reduced ss-control, QA #8): opens when a slot is tapped.
+             The spares are TILES too, each with its own hover tooltip + Install button;
+             tapping a spare tile installs it. One consistent flow for every slot type. -->
+        {#if pickerActive}
+          <div class="ss-picker">
+            <div class="ss-picker-head">Install &middot; {pickerLabel}</div>
+            {#if shipDamaged}
+              <p class="ss-note ss-note-dim">Repair the ship before installing new ship systems.</p>
+            {:else if pickerSpares.length === 0}
+              <p class="ss-note ss-note-dim">No spare {pickerLabel} systems in storage. Fabricate one, or uninstall from another ship.</p>
             {:else}
-              <!-- Currently installed system (if any): the reusable EquipmentTooltip
-                   surfaces its full identity + granted stats INLINE (D1's inline
-                   approach, not a fragile floating hover), with the Uninstall control
-                   injected into the card's footer <slot>. The spare-install list below
-                   is the swap path (install a different spare into this slot). -->
-              {#if selectedFitted}
-                {@const fitted = selectedFitted}
-                <div class="ss-fitted-tt">
-                  <EquipmentTooltip piece={fitted}>
-                    <button
-                      class="ss-btn ss-btn-uninstall"
-                      disabled={onMission}
-                      title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
-                      on:click={() => handleUninstall(fitted.id)}
-                    >
-                      Uninstall
-                    </button>
-                  </EquipmentTooltip>
-                </div>
-              {:else}
-                <p class="ss-note">Slot empty. Install a spare system from storage below.</p>
-              {/if}
-
-              <!-- Spare systems of this slot type, each with an Install action
-                   (disabled + reasoned when canFitEquipment blocks it). -->
-              <div class="ss-spares-label">Storage · {selectedMeta.label} systems</div>
-              {#if selectedSpares.length === 0}
-                <p class="ss-note ss-note-dim">No spare {selectedMeta.label} systems in storage.</p>
-              {:else}
-                {#each selectedSpares as spare (spare.id)}
+              <div class="ss-tiles">
+                {#each pickerSpares as spare (spare.id)}
                   {@const gate = canFitEquipment(safeState, shipId, spare.id)}
-                  <div class="ss-spare-row">
-                    <div class="ss-fitted-info">
-                      <div class="ss-fitted-name">{pieceDesc(spare)}</div>
-                      <div class="ss-fitted-sub">{pieceSubline(spare)}</div>
-                    </div>
-                    <button
-                      class="ss-btn ss-btn-install"
-                      disabled={!gate.ok}
-                      title={gate.ok ? `Install ${spare.id}` : reasonText(gate.reason)}
-                      on:click={() => handleInstall(spare.id)}
-                    >
-                      {gate.ok ? "Install" : "Blocked"}
-                    </button>
-                  </div>
-                  {#if !gate.ok}
-                    <div class="ss-blocked-reason">{reasonText(gate.reason)}</div>
-                  {/if}
+                  <button
+                    type="button"
+                    class="ss-tile"
+                    class:blocked={!gate.ok}
+                    style="--tc: {equipmentRarityColor(spare.rarity)}"
+                    disabled={!gate.ok}
+                    title={gate.ok ? undefined : reasonText(gate.reason)}
+                    on:click={() => clickSpare(spare)}
+                    on:mouseenter={(e) => hoverTip(spare, "install", e.currentTarget)}
+                    on:mouseleave={hoverOut}
+                    on:focus={(e) => hoverTip(spare, "install", e.currentTarget)}
+                    on:blur={hoverOut}
+                  >
+                    <span class="ss-tile-dot"></span>
+                    <span class="ss-tile-ic">{tileIcon(spare)}</span>
+                    <span class="ss-tile-il">iL {spare.iLevel}</span>
+                  </button>
                 {/each}
-              {/if}
-            {/if}
-          </div>
-        {:else if selectedHardpoint !== null}
-          <!-- WEAPON HARDPOINT control (Combat 1.0, Unit 1.8b): the SAME flow as a slot,
-               keyed by the hardpoint index instead of a slotType. A filled hardpoint shows
-               its weapon's EquipmentTooltip + an Uninstall (by instance id); an empty
-               hardpoint shows the spare-weapon pool to install from (each install routed
-               through canFitEquipment, so a full hull disables further installs). -->
-          {@const weapon = mountedWeapons[selectedHardpoint] ?? null}
-          <div class="ss-control">
-            <div class="ss-control-title">Weapon Hardpoint {selectedHardpoint + 1}</div>
-            {#if weapon}
-              <div class="ss-fitted-tt">
-                <EquipmentTooltip piece={weapon}>
-                  <button
-                    class="ss-btn ss-btn-uninstall"
-                    disabled={onMission}
-                    title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
-                    on:click={() => handleUninstall(weapon.id)}
-                  >
-                    Uninstall
-                  </button>
-                </EquipmentTooltip>
               </div>
-            {:else}
-              <p class="ss-note">Hardpoint empty. Install a spare weapon from storage below.</p>
-            {/if}
-
-            <!-- Spare weapons in storage. Each install routes through canFitEquipment, so a
-                 hull whose hardpoints are all full disables every install with the
-                 "hardpoints full" reason (the hardpointsFull gate). -->
-            <div class="ss-spares-label">Storage · weapons</div>
-            {#if spareWeapons.length === 0}
-              <p class="ss-note ss-note-dim">No spare weapons in storage.</p>
-            {:else}
-              {#each spareWeapons as spare (spare.id)}
-                {@const gate = canFitEquipment(safeState, shipId, spare.id)}
-                <div class="ss-spare-row">
-                  <div class="ss-fitted-info">
-                    <div class="ss-fitted-name">
-                      <span class="ss-fam" style="background: {weaponFamilyColor(spare.weaponType)};"></span>{weaponName(spare)}
-                    </div>
-                    <div class="ss-fitted-sub">{weaponSub(spare)}</div>
-                  </div>
-                  <button
-                    class="ss-btn ss-btn-install"
-                    disabled={!gate.ok}
-                    title={gate.ok ? `Install ${spare.id}` : reasonText(gate.reason)}
-                    on:click={() => handleInstall(spare.id)}
-                  >
-                    {gate.ok ? "Install" : "Blocked"}
-                  </button>
-                </div>
-                {#if !gate.ok}
-                  <div class="ss-blocked-reason">{reasonText(gate.reason)}</div>
-                {/if}
-              {/each}
-            {/if}
-          </div>
-        {:else if selectedBay !== null}
-          <!-- DRONE BAY control (Combat 1.0, Unit 2.4): the SAME flow as a weapon hardpoint,
-               keyed by the bay index instead of a hardpoint index. A filled bay shows its
-               pod's EquipmentTooltip + an Uninstall (by instance id); an empty bay shows the
-               spare-pod pool to install from (each install routed through canFitEquipment, so
-               a carrier whose bays are all full disables further installs with baysFull). -->
-          {@const pod = mountedPods[selectedBay] ?? null}
-          <div class="ss-control">
-            <div class="ss-control-title">Drone Bay {selectedBay + 1}</div>
-            {#if pod}
-              <div class="ss-fitted-tt">
-                <EquipmentTooltip piece={pod}>
-                  <button
-                    class="ss-btn ss-btn-uninstall"
-                    disabled={onMission}
-                    title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
-                    on:click={() => handleUninstall(pod.id)}
-                  >
-                    Uninstall
-                  </button>
-                </EquipmentTooltip>
-              </div>
-            {:else}
-              <p class="ss-note">Bay empty. Install a spare drone pod from storage below.</p>
-            {/if}
-
-            <!-- Spare drone pods in storage. Each install routes through canFitEquipment, so a
-                 carrier whose bays are all full disables every install with the "bays full"
-                 reason (the baysFull gate). -->
-            <div class="ss-spares-label">Storage · drone pods</div>
-            {#if sparePods.length === 0}
-              <p class="ss-note ss-note-dim">No spare drone pods in storage.</p>
-            {:else}
-              {#each sparePods as spare (spare.id)}
-                {@const gate = canFitEquipment(safeState, shipId, spare.id)}
-                <div class="ss-spare-row">
-                  <div class="ss-fitted-info">
-                    <div class="ss-fitted-name">
-                      <span class="ss-fam" style="background: {droneRoleColor(spare.droneRole)};"></span>{droneRoleName(spare.droneRole)}
-                    </div>
-                    <div class="ss-fitted-sub">{podSub(spare)}</div>
-                  </div>
-                  <button
-                    class="ss-btn ss-btn-install"
-                    disabled={!gate.ok}
-                    title={gate.ok ? `Install ${spare.id}` : reasonText(gate.reason)}
-                    on:click={() => handleInstall(spare.id)}
-                  >
-                    {gate.ok ? "Install" : "Blocked"}
-                  </button>
-                </div>
-                {#if !gate.ok}
-                  <div class="ss-blocked-reason">{reasonText(gate.reason)}</div>
-                {/if}
-              {/each}
+              <p class="ss-note ss-note-dim">Tap a spare to install it. Hover for its stats.</p>
             {/if}
           </div>
         {:else}
-          <p class="ss-note ss-note-dim ss-control-hint">Tap a slot, hardpoint, or drone bay to install or uninstall a system.</p>
+          <p class="ss-note ss-note-dim ss-picker-hint">Tap a slot to install or uninstall a system. Hover a tile for its details.</p>
         {/if}
       </div>
 
-      <!-- RIGHT: the scrollable, categorized stats panel. -->
+      <!-- RIGHT: the categorized, scrollable stats panel (QA #5). -->
       <div class="ss-stats-col">
-        <div class="ss-stats-section-title">SHIP STATS</div>
-        <div class="ss-stats-head">
-          <span class="ss-stats-head-label"></span>
-          <span class="ss-stats-head-col">Base</span>
-          <span class="ss-stats-head-col">Installed</span>
-          <span class="ss-stats-head-col ss-delta-col">Δ</span>
-        </div>
-        {#each liveStatRows as row (row.label)}
-          {@const delta = fmtDelta(row)}
-          <div class="ss-stat-row">
-            <span class="ss-stat-label">{row.label}</span>
-            <span class="ss-stat-val">{fmtStat(row, "base")}</span>
-            <span class="ss-stat-val ss-stat-fitted">{fmtStat(row, "fitted")}</span>
-            <span class="ss-stat-val ss-delta-col" class:up={delta && !delta.startsWith("-")} class:down={delta && delta.startsWith("-")}>
-              {delta ?? ""}
-            </span>
-          </div>
-        {/each}
-
-        <!-- COMBAT READOUT (Combat 1.0, Unit 1.8b): REAL now (formerly the inert 0.12.0
-             placeholder). Every value is derived from the ship's INSTALLED combat gear via
-             computeCombatReadout, so it changes as the player installs / uninstalls. Only a
-             combat hull carries combat gear, so the section is combat-hull-only. -->
+        <!-- COMBAT: the folded combat readout, shown for every hull. Hull integrity
+             carries its frame + plating breakdown so a low number reads as weak gear,
+             not damage (QA #3). -->
         {#if combatReadout}
-          <div class="ss-stats-section-title ss-defensive-title">DEFENSE</div>
-          <!-- Hull integrity = intrinsic frame + installed hull plating (design 6a). The
-               breakdown is shown so the plating's contribution reads at a glance. -->
-          <div class="ss-stat-row">
-            <span class="ss-stat-label">Hull integrity</span>
-            <span class="ss-stat-val ss-stat-fitted ss-stat-val-auto">
-              {fmtFlat(combatReadout.hullTotal)}
-              <span class="ss-stat-breakdown">(frame {fmtFlat(combatReadout.frameHp)} + plating {fmtFlat(combatReadout.platingHp)})</span>
-            </span>
-          </div>
-          <div class="ss-stat-row">
-            <span class="ss-stat-label">Shield capacity</span>
-            <span class="ss-stat-val ss-stat-fitted">{fmtFlat(combatReadout.shieldCapacity)}</span>
-          </div>
-          <div class="ss-stat-row">
-            <span class="ss-stat-label">Shield recharge</span>
-            <span class="ss-stat-val ss-stat-fitted">{fmtFlat(combatReadout.shieldRecharge)} / s</span>
-          </div>
-          <div class="ss-stat-row">
-            <span class="ss-stat-label">Ablative armor</span>
-            <span class="ss-stat-val">{fmtFlat(combatReadout.ablativeArmor)}</span>
-          </div>
-
-          <div class="ss-stats-section-title ss-defensive-title">OFFENSE</div>
-          <div class="ss-stat-row">
-            <span class="ss-stat-label">Weapons mounted</span>
-            <span class="ss-stat-val ss-stat-fitted">{mountedWeapons.length} / {hardpointCap}</span>
-          </div>
-          {#each mountedWeapons as weapon (weapon.id)}
-            <div class="ss-stat-row">
-              <span class="ss-stat-label">
-                <span class="ss-fam" style="background: {weaponFamilyColor(weapon.weaponType)};"></span>{weaponName(weapon)}
+          <div class="ss-cat">
+            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#9876;&#65039;</span> Combat</div>
+            <div class="ss-srow">
+              <span class="ss-sk">Hull integrity</span>
+              <span class="ss-sv">
+                {fmtFlat(combatReadout.hullTotal)}
+                <small>(frame {fmtFlat(combatReadout.frameHp)} + plating {fmtFlat(combatReadout.platingHp)})</small>
               </span>
-              <span class="ss-stat-val">{weaponYieldRange(weapon)}</span>
             </div>
-          {/each}
-
-          <!-- DRONES readout (Combat 1.0, Unit 2.4): carrier-only (droneBayCap > 0),
-               consistent with the OFFENSE / DEFENSE sections above. A "Bays used N / cap"
-               summary row plus one row per installed pod naming its role, derived from the
-               SAME computeCombatReadout fold, so it changes as pods are installed / uninstalled. -->
-          {#if droneBayCap > 0}
-            <div class="ss-stats-section-title ss-defensive-title">DRONES</div>
-            <div class="ss-stat-row">
-              <span class="ss-stat-label">Bays used</span>
-              <span class="ss-stat-val ss-stat-fitted">{mountedPods.length} / {droneBayCap}</span>
-            </div>
-            {#each mountedPods as pod (pod.id)}
-              <div class="ss-stat-row">
-                <span class="ss-stat-label">
-                  <span class="ss-fam" style="background: {droneRoleColor(pod.droneRole)};"></span>{droneRoleName(pod.droneRole)}
-                </span>
-                <span class="ss-stat-val">{podSub(pod)}</span>
+            <div class="ss-srow"><span class="ss-sk">Shield capacity</span><span class="ss-sv">{fmtFlat(combatReadout.shieldCapacity)}</span></div>
+            <div class="ss-srow"><span class="ss-sk">Shield recharge</span><span class="ss-sv">{fmtFlat(combatReadout.shieldRecharge)} / s</span></div>
+            <div class="ss-srow"><span class="ss-sk">Weapons mounted</span><span class="ss-sv">{mountedWeapons.length} / {hardpointCap}</span></div>
+            {#each mountedWeapons as weapon (weapon.id)}
+              <div class="ss-srow ss-srow-sub">
+                <span class="ss-sk"><span class="ss-fam" style="background: {weaponFamilyColor(weapon.weaponType)}"></span>{weaponName(weapon)}</span>
+                <span class="ss-sv ss-sv-dim">{weaponYieldRange(weapon)}</span>
               </div>
             {/each}
-          {/if}
+            {#if combatReadout.ablativeArmor > 0}
+              <div class="ss-srow"><span class="ss-sk">Ablative armor</span><span class="ss-sv">{fmtFlat(combatReadout.ablativeArmor)}</span></div>
+            {/if}
+            {#if battleRatingValue !== null}
+              <div class="ss-srow"><span class="ss-sk">Battle Rating</span><span class="ss-sv ss-sv-accent">{formatNumber(battleRatingValue)}</span></div>
+            {/if}
+            <!-- DRONES: carrier-only, from the same fold. -->
+            {#if hasDroneBays}
+              <div class="ss-srow"><span class="ss-sk">Drone bays used</span><span class="ss-sv">{mountedPods.length} / {droneBayCap}</span></div>
+              {#each mountedPods as pod (pod.id)}
+                <div class="ss-srow ss-srow-sub">
+                  <span class="ss-sk"><span class="ss-fam" style="background: {droneRoleColor(pod.droneRole)}"></span>{droneRoleName(pod.droneRole)}</span>
+                  <span class="ss-sv ss-sv-dim">iL {pod.iLevel}</span>
+                </div>
+              {/each}
+            {/if}
+          </div>
         {/if}
-      </div>
-    </div>
 
-    <!-- BOTTOM BAR: reserved MODULE row. Weapons moved to the live hardpoint strip
-         above (Combat 1.0, Unit 1.8b); modules stay reserved for a later combat unit. -->
-    <div class="ss-bottom">
-      <div class="ss-bottom-row">
-        <span class="ss-bottom-label">MODULES</span>
-        <div class="ss-bottom-slots">
-          {#each Array.from({ length: moduleCount }) as _, mi}
-            <span class="ss-hardpoint ss-module" title="Module slot, reserved for a later combat update">◇</span>
+        <!-- PROSPECTING: the two prospecting stats, each with its base -> installed
+             gear delta (kept from the old base-vs-installed rows). -->
+        <div class="ss-cat">
+          <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#9935;</span> Prospecting</div>
+          {#each prospectingRows as row (row.label)}
+            {@const delta = fmtDelta(row)}
+            <div class="ss-srow">
+              <span class="ss-sk">{row.label}</span>
+              <span class="ss-sv">{fmtStatValue(row)}{#if delta}<small> ({delta})</small>{/if}</span>
+            </div>
           {/each}
-          {#if moduleCount === 0}
-            <span class="ss-note ss-note-dim">none on this hull</span>
-          {/if}
+        </div>
+
+        <!-- LOGISTICS: the remaining economy stats (FTL / fuel / power / mass), each
+             with its base -> installed delta. Kept so the base-vs-installed comparison
+             the old panel showed is not lost (the mockup folded these away). -->
+        <div class="ss-cat">
+          <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#128666;</span> Logistics</div>
+          {#each logisticsRows as row (row.label)}
+            {@const delta = fmtDelta(row)}
+            <div class="ss-srow">
+              <span class="ss-sk">{row.label}</span>
+              <span class="ss-sv">{fmtStatValue(row)}{#if delta}<small> ({delta})</small>{/if}</span>
+            </div>
+          {/each}
+        </div>
+
+        <!-- EXPLORATION: a forward placeholder, dimmed (user decision). -->
+        <div class="ss-cat ss-cat-soon">
+          <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#128301;</span> Exploration <span class="ss-cat-soon-tag">Coming soon</span></div>
+          <p class="ss-cat-placeholder">Exploration systems and stats arrive in a later update.</p>
         </div>
       </div>
-      <div class="ss-bottom-note">Modules are reserved for a later combat update. Count varies by hull.</div>
+    </div>
+  {/if}
+
+  <!-- FLOATING TOOLTIP: one JS-positioned wrapper around the reusable EquipmentTooltip,
+       clamped inside the viewport (see positionTip). The Install / Uninstall button is
+       injected into EquipmentTooltip's action <slot>; EquipmentTooltip is unchanged. -->
+  {#if activeTip}
+    {@const tipPiece = activeTip.piece}
+    {@const tipAction = activeTip.action}
+    <div
+      class="ss-tip-float"
+      bind:this={tipEl}
+      role="tooltip"
+      style="left: {tipLeft}px; top: {tipTop}px; visibility: {tipVisible ? 'visible' : 'hidden'}"
+    >
+      <EquipmentTooltip piece={tipPiece}>
+        {#if tipAction === "uninstall"}
+          <button
+            class="ss-btn ss-btn-uninstall"
+            disabled={onMission || shipDamaged}
+            title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+            on:click={() => handleUninstall(tipPiece.id)}
+          >
+            Uninstall
+          </button>
+        {:else}
+          {@const gate = canFitEquipment(safeState, shipId, tipPiece.id)}
+          <button
+            class="ss-btn ss-btn-install"
+            disabled={!gate.ok || shipDamaged}
+            title={gate.ok ? undefined : reasonText(gate.reason)}
+            on:click={() => handleInstall(tipPiece.id)}
+          >
+            {gate.ok ? "Install" : "Blocked"}
+          </button>
+        {/if}
+      </EquipmentTooltip>
     </div>
   {/if}
 </div>
 
 <style>
-  /* The dialog is the panel body itself (NOT wrapped in Panel.svelte, so these
-     scoped styles actually reach it). OPAQUE background: an accent wash layered
-     over the solid --color-bg-mid, so it reads as solid on Brave, which lacks
-     backdrop-filter (never rely on blur for legibility). max-height:100% bounds
-     it against the fixed .modal-backdrop (which is already viewport-sized), so
-     no new hard 100vh/100dvh is introduced here (scroll-containment invariant).
-     Flex column: header + bottom stay pinned, .ss-main flexes and scrolls. */
+  /* The dialog is the panel body itself (NOT wrapped in Panel.svelte). OPAQUE
+     background so it reads solid on Brave (no backdrop-filter). max-height:100%
+     bounds it against the fixed .modal-backdrop (scroll-containment invariant).
+     Flex column: header + banners stay pinned, .ss-main flexes and scrolls. */
   .ss-dialog {
     display: flex;
     flex-direction: column;
@@ -1040,7 +1099,6 @@
     font-size: 10px;
     color: var(--color-text-secondary);
   }
-  /* Portrait placeholder: mirrors .mission-portrait-frame's dashed accent box. */
   .ss-portrait {
     flex: 0 0 44px;
     height: 44px;
@@ -1067,142 +1125,70 @@
     border-color: var(--color-accent);
   }
 
-  /* MAIN: two columns on wide screens; the stats column scrolls independently.
-     On narrow (mobile) screens the columns stack and .ss-main itself scrolls, so
-     the whole thing stays usable on a phone. min-height:0 lets the flex children
-     actually shrink and hand scrolling to the inner overflow (the standard idiom
-     the app shell already relies on). */
-  .ss-main {
+  /* DAMAGED REPAIR BANNER (QA #3): a danger-toned strip below the header. */
+  .ss-repair {
+    flex-shrink: 0;
+    padding: 11px 14px;
+    border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.25);
+    background: rgba(248, 113, 113, 0.12);
+  }
+  .ss-repair-top {
     display: flex;
-    gap: 14px;
-    padding: 12px 14px;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--color-danger);
+  }
+  .ss-repair-msg {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin: 4px 0 8px;
+    line-height: 1.4;
+  }
+  .ss-repair-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .ss-repair-bar {
     flex: 1;
-    min-height: 0;
+    height: 8px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.08);
     overflow: hidden;
   }
-  .ss-ship-col {
-    flex: 0 0 46%;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    overflow-y: auto;
-    scrollbar-width: none;
-  }
-  .ss-ship-col::-webkit-scrollbar {
-    display: none;
-  }
-  .ss-stats-col {
-    flex: 1;
-    min-width: 0;
-    overflow-y: auto;
-    scrollbar-width: none;
-  }
-  .ss-stats-col::-webkit-scrollbar {
-    display: none;
-  }
-  @media (max-width: 720px) {
-    .ss-main {
-      flex-direction: column;
-      overflow-y: auto;
-    }
-    .ss-ship-col,
-    .ss-stats-col {
-      flex: none;
-      width: auto;
-      overflow: visible;
-    }
-  }
-
-  /* SHIP GRAPHIC + overlaid slots. The box holds the SVG (full width, auto
-     height by its 300x400 ratio) and the absolutely-positioned nodes. */
-  .ss-graphic {
-    position: relative;
-    width: 100%;
-    max-width: 300px;
-    margin: 0 auto;
-    aspect-ratio: 300 / 400;
-  }
-  .ss-svg {
-    width: 100%;
-    height: 100%;
+  .ss-repair-bar i {
     display: block;
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-warning), var(--color-success));
   }
-  .ss-svg-hull {
-    fill: rgba(var(--color-accent-rgb), 0.05);
-    stroke: rgba(var(--color-accent-rgb), 0.35);
-    stroke-width: 1.5;
+  .ss-repair-eta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-dim);
+    white-space: nowrap;
   }
-  .ss-svg-accent {
-    fill: rgba(var(--color-accent-rgb), 0.14);
-    stroke: rgba(var(--color-accent-rgb), 0.45);
-    stroke-width: 1;
-  }
-  .ss-svg-pylon {
-    stroke: rgba(var(--color-accent-rgb), 0.3);
-    stroke-width: 6;
-  }
-
-  /* One slot node: a small chamfered box (clip-path cuts the corners) centered on
-     its top/left. Shows the code + an install-status dot. */
-  .ss-slot {
-    position: absolute;
-    transform: translate(-50%, -50%);
-    width: 40px;
-    height: 30px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 2px;
-    padding: 0;
-    background: var(--color-bg-deep);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
-    clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
-    cursor: pointer;
+  .ss-repair-wait {
+    flex: 1;
+    font-size: 12px;
     color: var(--color-text-secondary);
   }
-  .ss-slot.live {
-    border-color: rgba(var(--color-accent-rgb), 0.6);
-    color: var(--color-accent);
+  .ss-repair-btn {
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 650;
+    padding: 6px 13px;
+    cursor: pointer;
+    border: 1px solid var(--color-warning);
+    background: rgba(251, 191, 36, 0.14);
+    color: var(--color-warning);
   }
-  .ss-slot.installed {
-    background: rgba(var(--color-accent-rgb), 0.16);
-    color: var(--color-accent-bright);
-  }
-  /* Reserved slots read as the quieter, unavailable state (same opacity dim the
-     app uses for locked content), but stay tappable to show their reserved note. */
-  .ss-slot.reserved {
-    border-style: dashed;
-    opacity: 0.55;
-  }
-  .ss-slot.selected {
-    border-color: var(--color-accent-bright);
-    box-shadow: 0 0 0 2px rgba(var(--color-accent-rgb), 0.4);
-    opacity: 1;
-  }
-  .ss-slot-code {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    line-height: 1;
-    letter-spacing: 0.5px;
-  }
-  .ss-slot-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
-    background: transparent;
-  }
-  /* Installed indicator: a filled GOLD dot (design), distinct from the accent. */
-  .ss-slot-dot.on {
-    background: var(--color-warning);
-    border-color: var(--color-warning);
-    box-shadow: 0 0 4px var(--color-warning);
+  .ss-repair-btn:hover {
+    background: rgba(251, 191, 36, 0.24);
   }
 
-  /* DISPATCH-BLOCKER BANNER (Combat 1.0, Unit 1.8b): a red danger strip below the
-     header when a required combat slot is empty. Reads the danger token so it recolors
-     with the theme; opaque wash over the deep bg (no blur) for Brave legibility. */
+  /* DISPATCH-BLOCKER BANNER: a red danger strip when a required combat slot is empty. */
   .ss-blocker {
     display: flex;
     align-items: center;
@@ -1227,83 +1213,242 @@
     color: var(--color-danger);
   }
 
-  /* WEAPON HARDPOINTS STRIP (Combat 1.0, Unit 1.8b): one cell per hardpoint, laid out
-     in a wrapping row below the ship graphic. */
-  .ss-hardpoints {
-    margin-top: 2px;
-  }
-  .ss-hardpoints-title {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--color-text-dim);
-    margin-bottom: 6px;
+  /* MAIN: two columns on wide screens; each column scrolls independently. On narrow
+     (mobile) screens the columns stack and .ss-main itself scrolls. min-height:0 lets
+     the flex children shrink and hand scrolling to the inner overflow. */
+  .ss-main {
     display: flex;
-    align-items: baseline;
-    gap: 8px;
+    gap: 14px;
+    padding: 12px 14px;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
-  .ss-hp-full {
-    color: var(--color-danger);
-    text-transform: none;
-    letter-spacing: 0;
-  }
-  .ss-hp-row {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  /* One hardpoint cell: a small tap target showing the installed weapon or an empty
-     prompt. Filled cells read the accent; empty cells are dashed + dim. */
-  .ss-hp {
-    flex: 1 1 92px;
-    min-width: 88px;
-    text-align: left;
-    padding: 7px 8px;
-    background: var(--color-bg-deep);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
-    color: var(--color-text-secondary);
-    cursor: pointer;
+  .ss-fit-col {
+    flex: 0 0 52%;
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 14px;
+    overflow-y: auto;
+    scrollbar-width: none;
   }
-  .ss-hp.filled {
-    border-color: rgba(var(--color-accent-rgb), 0.6);
+  .ss-fit-col::-webkit-scrollbar {
+    display: none;
   }
-  .ss-hp.empty {
-    border-style: dashed;
-    opacity: 0.75;
+  .ss-stats-col {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
   }
-  .ss-hp.selected {
-    border-color: var(--color-accent-bright);
-    box-shadow: 0 0 0 2px rgba(var(--color-accent-rgb), 0.4);
-    opacity: 1;
+  .ss-stats-col::-webkit-scrollbar {
+    display: none;
   }
-  .ss-hp-slot {
+  @media (max-width: 720px) {
+    .ss-main {
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .ss-fit-col,
+    .ss-stats-col {
+      flex: none;
+      width: auto;
+      overflow: visible;
+    }
+  }
+
+  /* FUNCTION GROUP (Weapons / Defense / Ship Systems / Drone Bays). */
+  .ss-group-head {
     font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.5px;
+    font-size: 10px;
+    letter-spacing: 0.13em;
     text-transform: uppercase;
     color: var(--color-text-dim);
-  }
-  .ss-hp-name {
-    font-size: 12px;
-    color: var(--color-text-primary);
+    margin-bottom: 8px;
     display: flex;
     align-items: center;
+    gap: 8px;
   }
-  .ss-hp-empty-name {
+  .ss-group-cap {
+    margin-left: auto;
+    font-size: 9px;
+    color: var(--color-text-dim);
+    letter-spacing: 0.05em;
+  }
+  .ss-tiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* ONE ICON TILE: rarity-colored top border + corner dot (--tc), variety glyph, iL
+     badge. Mirrors App.svelte's .systems-tile (the Warehouse bay) so the two read
+     alike. A real <button> so it is keyboard-focusable with no a11y tabindex warning. */
+  .ss-tile {
+    position: relative;
+    width: 60px;
+    height: 60px;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid var(--color-border);
+    border-top: 3px solid var(--tc, var(--color-border));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 4px;
+    cursor: pointer;
+    font-family: var(--font-body);
+    transition: border-color 0.12s, transform 0.1s;
+  }
+  .ss-tile:hover,
+  .ss-tile:focus-visible {
+    border-color: var(--color-border-strong);
+    transform: translateY(-1px);
+    outline: none;
+  }
+  .ss-tile.sel {
+    box-shadow: 0 0 0 2px var(--color-accent);
+    border-color: var(--color-accent);
+  }
+  .ss-tile-dot {
+    position: absolute;
+    top: 5px;
+    right: 6px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--tc, var(--color-text-dim));
+  }
+  .ss-tile-ic {
+    font-size: 24px;
+    line-height: 1;
+  }
+  .ss-tile-il {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: var(--color-text-secondary);
+  }
+  /* An empty slot: dashed, dim, a "+" affordance. */
+  .ss-tile-empty {
+    border-top-color: var(--color-border);
+    border-style: dashed;
+    background: transparent;
+  }
+  .ss-tile-empty .ss-tile-ic {
+    font-size: 22px;
+    color: var(--color-text-dim);
+  }
+  .ss-tile-empty .ss-tile-il {
+    color: var(--color-text-dim);
+  }
+  /* A spare that cannot be installed right now (gate blocked): dimmed + not-allowed. */
+  .ss-tile.blocked {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  /* Locked while the ship is damaged: dimmed, non-interactive (QA #3). */
+  .ss-tile.locked,
+  .ss-tile:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .ss-tile.blocked:disabled {
+    opacity: 0.4;
+  }
+
+  /* INSTALL PICKER (the reduced ss-control): a dashed panel holding spare tiles. */
+  .ss-picker {
+    border: 1px dashed rgba(var(--color-accent-rgb), 0.35);
+    background: var(--color-bg-deep);
+    padding: 11px;
+  }
+  .ss-picker-head {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+    margin-bottom: 9px;
+  }
+  .ss-picker-hint {
+    text-align: center;
+    padding: 8px 0 2px;
+  }
+
+  /* STATS CATEGORY (Combat / Prospecting / Logistics / Exploration). */
+  .ss-cat {
+    margin-bottom: 14px;
+  }
+  .ss-cat-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-accent);
+    margin-bottom: 6px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.2);
+  }
+  .ss-cat-glyph {
+    font-size: 14px;
+  }
+  .ss-cat-soon {
+    opacity: 0.55;
+  }
+  .ss-cat-soon-tag {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    font-weight: 400;
+  }
+  .ss-cat-placeholder {
+    font-size: 11px;
     color: var(--color-text-dim);
     font-style: italic;
+    padding: 4px 0;
+    margin: 0;
   }
-  .ss-hp-sub {
-    font-size: 10px;
+  .ss-srow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 12px;
+    padding: 3px 0;
+  }
+  .ss-srow-sub {
+    padding-left: 10px;
+  }
+  .ss-sk {
     color: var(--color-text-secondary);
-    font-family: var(--font-mono);
+    display: flex;
+    align-items: center;
+    min-width: 0;
   }
-  /* Weapon FAMILY color dot (kinetic/particle/ew), used in the strip cell, the spare
-     list, and the offense readout. The color is set inline (weaponFamilyColor). */
+  .ss-sv {
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .ss-sv small {
+    color: var(--color-text-dim);
+    font-size: 10px;
+  }
+  .ss-sv-accent {
+    color: var(--color-accent-bright);
+  }
+  .ss-sv-dim {
+    color: var(--color-text-secondary);
+  }
+  /* Weapon-family / drone-role indicator dot in the readout (color set inline). */
   .ss-fam {
     display: inline-block;
     flex: 0 0 auto;
@@ -1313,152 +1458,19 @@
     margin-right: 5px;
   }
 
-  /* DRONE BAYS STRIP (Combat 1.0, Unit 2.4): the DRONE analogue of the weapon hardpoints
-     strip, one cell per bay in a wrapping row below the hardpoints strip. Kept as its own
-     explicit .ss-bay* class set (parallel to .ss-hp*) so a bay is independently tunable and
-     the markup reads self-describingly, rather than borrowing the hardpoint classes. */
-  .ss-bays {
-    margin-top: 2px;
-  }
-  .ss-bays-title {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--color-text-dim);
-    margin-bottom: 6px;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  .ss-bay-full {
-    color: var(--color-danger);
-    text-transform: none;
-    letter-spacing: 0;
-  }
-  .ss-bay-row {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  /* One drone bay cell: a small tap target showing the installed pod or an empty prompt.
-     Filled cells read the accent; empty cells are dashed + dim. Mirrors .ss-hp. */
-  .ss-bay {
-    flex: 1 1 92px;
-    min-width: 88px;
-    text-align: left;
-    padding: 7px 8px;
-    background: var(--color-bg-deep);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-  .ss-bay.filled {
-    border-color: rgba(var(--color-accent-rgb), 0.6);
-  }
-  .ss-bay.empty {
-    border-style: dashed;
-    opacity: 0.75;
-  }
-  .ss-bay.selected {
-    border-color: var(--color-accent-bright);
-    box-shadow: 0 0 0 2px rgba(var(--color-accent-rgb), 0.4);
-    opacity: 1;
-  }
-  .ss-bay-slot {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--color-text-dim);
-  }
-  .ss-bay-name {
-    font-size: 12px;
-    color: var(--color-text-primary);
-    display: flex;
-    align-items: center;
-  }
-  .ss-bay-empty-name {
-    color: var(--color-text-dim);
-    font-style: italic;
-  }
-  .ss-bay-sub {
-    font-size: 10px;
-    color: var(--color-text-secondary);
-    font-family: var(--font-mono);
-  }
-
-  /* SELECTED-SLOT CONTROL */
-  .ss-control {
-    border: 1px solid rgba(var(--color-accent-rgb), 0.25);
-    background: var(--color-bg-deep);
-    padding: 10px;
-  }
-  .ss-control-title {
-    font-size: 12px;
-    color: var(--color-accent-bright);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 8px;
-  }
-  .ss-control-hint {
-    text-align: center;
-    padding: 10px 0 2px;
-  }
-  /* Inline fitted-system tooltip wrapper: a little breathing room below the control
-     title. The card supplies its own border/padding, so only margin is needed here. */
-  .ss-fitted-tt {
-    margin: 4px 0 2px;
-  }
-  /* (.ss-fitted-row was retired when the fitted-system readout became the inline
-     EquipmentTooltip; .ss-spare-row keeps this shared row layout for the spares list.) */
-  .ss-spare-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 0;
-    border-top: 1px solid rgba(var(--color-accent-rgb), 0.12);
-  }
-  .ss-fitted-info {
-    flex: 1;
-    min-width: 0;
-  }
-  .ss-fitted-name {
-    font-size: 11px;
-    color: var(--color-text-primary);
-  }
-  .ss-fitted-sub {
-    font-size: 10px;
-    color: var(--color-text-dim);
-    font-family: var(--font-mono);
-  }
-  .ss-spares-label {
-    font-size: 10px;
-    color: var(--color-text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-top: 10px;
-    margin-bottom: 2px;
-  }
-  .ss-blocked-reason {
-    font-size: 10px;
-    color: var(--color-danger);
-    padding-bottom: 4px;
-  }
+  /* ACTION BUTTONS injected into the floating tooltip's footer slot. */
   .ss-btn {
     flex: 0 0 auto;
-    padding: 6px 10px;
+    padding: 6px 12px;
     font-size: 11px;
+    font-weight: 650;
     cursor: pointer;
-    background: rgba(var(--color-accent-rgb), 0.1);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    background: rgba(var(--color-accent-rgb), 0.12);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.5);
     color: var(--color-accent-bright);
   }
   .ss-btn:hover:not(:disabled) {
-    background: rgba(var(--color-accent-rgb), 0.2);
+    background: rgba(var(--color-accent-rgb), 0.22);
   }
   .ss-btn:disabled {
     opacity: 0.4;
@@ -1466,131 +1478,48 @@
   }
   .ss-btn-uninstall {
     color: var(--color-danger);
-    border-color: rgba(248, 113, 113, 0.4);
-    background: rgba(248, 113, 113, 0.08);
+    border-color: rgba(248, 113, 113, 0.5);
+    background: rgba(248, 113, 113, 0.1);
+  }
+  .ss-btn-uninstall:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.2);
   }
 
-  /* STATS PANEL */
-  .ss-stats-section-title {
-    font-size: 11px;
-    letter-spacing: 0.5px;
-    color: var(--color-accent);
-    text-transform: uppercase;
-    border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    padding-bottom: 4px;
-    margin-bottom: 6px;
-  }
-  .ss-defensive-title {
-    margin-top: 16px;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  .ss-stats-head {
-    display: flex;
-    align-items: center;
-    font-size: 10px;
-    color: var(--color-text-dim);
-    text-transform: uppercase;
-    padding-bottom: 2px;
-  }
-  .ss-stats-head-label {
-    flex: 1;
-  }
-  .ss-stats-head-col {
-    flex: 0 0 64px;
-    text-align: right;
-  }
-  .ss-stat-row {
-    display: flex;
-    align-items: center;
-    padding: 4px 0;
-    border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.08);
-  }
-  .ss-stat-label {
-    flex: 1;
-    font-size: 11px;
-    color: var(--color-text-secondary);
-  }
-  .ss-stat-val {
-    flex: 0 0 64px;
-    text-align: right;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--color-text-primary);
-  }
-  .ss-stat-fitted {
-    color: var(--color-accent-bright);
-  }
-  .ss-delta-col {
-    flex: 0 0 64px;
-  }
-  .ss-stat-val.up {
-    color: var(--color-success);
-  }
-  .ss-stat-val.down {
-    color: var(--color-danger);
-  }
-  /* Combat readout value that carries an inline breakdown (the hull integrity
-     frame+plating split): auto width instead of the fixed 64px stat column, so the
-     breakdown text sits on the same line rather than clipping. */
-  .ss-stat-val-auto {
-    flex: 0 0 auto;
-    text-align: right;
-  }
-  /* The dim frame+plating breakdown after the hull total. */
-  .ss-stat-breakdown {
-    color: var(--color-text-dim);
-    font-size: 10px;
-  }
+  /* FLOATING TOOLTIP WRAPPER: position:fixed so it escapes the panel's inner scroll
+     clipping; JS sets left/top (viewport-clamped) + toggles visibility. High z-index
+     so it sits above the modal surface.
 
-  /* BOTTOM BAR */
-  .ss-bottom {
-    flex-shrink: 0;
-    border-top: 1px solid rgba(var(--color-accent-rgb), 0.25);
-    padding: 10px 14px;
-  }
-  .ss-bottom-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 6px;
-  }
-  .ss-bottom-label {
-    flex: 0 0 72px;
-    font-size: 10px;
-    letter-spacing: 0.5px;
-    color: var(--color-text-secondary);
-    text-transform: uppercase;
-  }
-  .ss-bottom-slots {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-  .ss-hardpoint {
-    width: 26px;
-    height: 26px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    border: 1px dashed rgba(var(--color-accent-rgb), 0.35);
-    color: var(--color-text-dim);
-    opacity: 0.7;
-  }
-  .ss-bottom-note {
-    font-size: 10px;
-    color: var(--color-text-dim);
-    margin-top: 2px;
+     CLAMP DEPENDENCY (do not break): positionTip() computes left/top in VIEWPORT
+     coordinates and this element is position:fixed, so the two only coincide while the
+     nearest fixed-positioning containing block is the viewport itself. The host
+     .modal-backdrop (App.svelte) provides that: its backdrop-filter makes it the
+     containing block for position:fixed descendants, and it is a full-viewport,
+     origin (0,0), unbordered, untransformed fixed element (position:fixed; inset:0),
+     so its padding box top-left sits exactly at viewport (0,0). If .modal-backdrop
+     ever gains a border, a transform, or stops covering the whole viewport, this
+     tooltip's placement math goes wrong and must be revisited.
+
+     max-height caps an over-tall tooltip (a legendary piece with many rolled affixes
+     on a short/landscape phone) to the viewport minus the 8px top + 8px bottom margins
+     positionTip() reserves, and overflow-y lets the capped tooltip scroll INTERNALLY
+     instead of clipping off the bottom edge unreachably. positionTip() reads
+     offsetHeight AFTER this cap applies, so its vertical clamp already fits the capped
+     element inside those margins with no extra math. */
+  .ss-tip-float {
+    position: fixed;
+    z-index: 60;
+    width: 244px;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    pointer-events: auto;
   }
 
   /* Shared small-note text. */
   .ss-note {
     font-size: 11px;
     color: var(--color-text-secondary);
-    margin: 4px 0;
+    margin: 8px 0 0;
     line-height: 1.4;
   }
   .ss-note-dim {

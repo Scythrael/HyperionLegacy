@@ -466,6 +466,7 @@
     foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
     addToInventory, // Phase 1 Task 5: the shared inventory add seam, called by BOTH tick() and this live loop so live loot delivery writes inventory/discovered byte-identically to offline catch-up (drift-proof)
     resolveProcesses, // Phase 1 Task 9: the SINGLE timed-process completion resolver, called by BOTH tick() and this live loop with the SAME ticksElapsed so process completion + lump FA XP resolve identically live and offline (drift-proof)
+    processShipRepairs, // Combat 1.0 (QA #3): the auto-repair pass. The Ship Systems panel's manual "Repair now" trigger runs THIS immediately (via repairShipNow) so a damaged hull can claim a free Shipyard bay without waiting a tick; a safe no-op when every bay is busy.
     LOOT_MATERIAL_KEYS,
     describeCaptainTalentEffect,
     describeHomeworldTalentEffect,
@@ -2344,7 +2345,11 @@
       case "noShip":
         return "Captain has no ship assigned";
       case "notCombatHull":
-        return "Assign a combat hull first";
+        // Every hull is combat-capable now, so canDispatchPatrol only returns this for an
+        // UNRECOGNIZED hull (a corrupt / hand-edited typeKey), never for a normal freighter.
+        // The case stays for exhaustiveness (the reason union still carries the token); the
+        // wording is neutral so a freighter never reads as "not a combat hull".
+        return "Ship hull is not recognized";
       case "needsRepair":
         return "Ship is damaged, repair it first";
       case "noWeapon":
@@ -2785,6 +2790,28 @@
     } catch (e) {
       pushLog(`Cannot uninstall system: ${(e as Error).message}`);
     }
+  }
+
+  // MANUAL REPAIR trigger (Combat 1.0, QA #3). The Ship Systems panel's "Repair now"
+  // button routes here. A damaged hull is already auto-repaired by processShipRepairs
+  // every economyTick whenever a Shipyard bay is free; this runs the SAME pass NOW so
+  // the player can kick a repair off immediately (up to a tick sooner) and, when every
+  // bay is busy, get an explicit reason instead of silence. It adds VISIBILITY + a
+  // manual trigger without replacing the auto-repair: it starts no more than the auto
+  // pass would, respects the same free-bay accounting + deterministic queue order, and
+  // needs NO new tick action (reuses the existing exported pass). A no-op (same state
+  // reference) when nothing can start, in which case the ship stays queued.
+  function repairShipNow(shipId: string) {
+    state = processShipRepairs(state);
+    doSave();
+    const running = state.activeProcesses.some(
+      (p) => p.kind === "shipRepair" && p.effect.type === "clearShipDamage" && p.effect.shipId === shipId,
+    );
+    pushLog(
+      running
+        ? `Repairing ${devShipLabel(shipId)} at the Shipyard.`
+        : `No free Shipyard bay to repair ${devShipLabel(shipId)} yet; it will start when a bay frees.`,
+    );
   }
 
   // ── Ship Systems bay (Equipment 0.11.0 Phase D, Warehouse "Ship Systems" tab) ──
@@ -7992,8 +8019,11 @@
 
                   <!-- Assigned ship, READ-ONLY. You pick the captain; their assigned hull
                        comes with them (reassign at the Drydock). Shows the hull's combat
-                       stats + a combat-hull check that mirrors the notCombatHull gate: a
-                       non-combat hull is flagged here AND blocks Dispatch below. -->
+                       stats. Every hull is combat-capable now (an economy hull carries a
+                       weak Standard-Issue set), so this reads "Dispatchable" plainly rather
+                       than labelling a freighter a "Combat hull"; a true combat hull is
+                       still far stronger, but the dispatch gate below is what actually
+                       blocks (missing gear / fuel / repair), not the hull class. -->
                   {#if selectedCaptain !== null}
                     <div class="mission-col-label" style="margin-top: 8px">Ship (from the captain)</div>
                     {#if selectedShipDef !== null}
@@ -8003,7 +8033,7 @@
                         &middot; {selectedShipDef.weaponHardpoints} guns
                       </div>
                       <div class="mission-req-line" style="color: {isCombatHull ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {#if isCombatHull}Combat hull{:else}Not a combat hull, assign a combat hull first{/if}
+                        {#if isCombatHull}Dispatchable{:else}Unknown hull class{/if}
                       </div>
                     {:else}
                       <div class="mission-req-line" style="color: var(--color-danger)">No ship assigned</div>
@@ -9123,6 +9153,7 @@
         shipId={shipSystemsShipId}
         onInstall={installSystem}
         onUninstall={uninstallSystem}
+        onRepair={repairShipNow}
         onClose={closeShipSystems}
       />
     </div>
