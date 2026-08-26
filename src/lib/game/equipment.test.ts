@@ -154,7 +154,10 @@ describe("fitEquipment", () => {
   });
 
   it("ATOMIC SWAP: fitting a second piece of the SAME slot unfits the first (first back to pool, only the second fitted)", () => {
-    const first = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: "ship-1" }); // already in the cargo slot
+    // The displaced piece is CRAFTED (blueprintKey non-null): a crafted occupant is real, recoverable
+    // inventory, so the swap evicts it to the pool. (A displaced Standard-Issue BASELINE is instead
+    // DESTROYED, covered by its own test below.)
+    const first = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: "prospectorHoldBp", rarity: "radiant", fittedToShipId: "ship-1" }); // already in the cargo slot
     const second = makeEquip({ id: "equip-2", slotType: "cargoBay", fittedToShipId: null }); // spare, same slot
     const state = withEquipment(freshState(), first, second);
 
@@ -170,7 +173,9 @@ describe("fitEquipment", () => {
   });
 
   it("does NOT disturb a DIFFERENT slot on the same ship when swapping", () => {
-    const cargo = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: "ship-1" });
+    // Displaced cargo piece is CRAFTED so the swap evicts it to the pool (see the note above); the
+    // test's concern is slot isolation, not the baseline-destroy path.
+    const cargo = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: "prospectorHoldBp", rarity: "radiant", fittedToShipId: "ship-1" });
     const drive = makeEquip({ id: "equip-2", slotType: "ftlDrive", fittedToShipId: "ship-1" });
     const newCargo = makeEquip({ id: "equip-3", slotType: "cargoBay", fittedToShipId: null });
     const state = withEquipment(freshState(), cargo, drive, newCargo);
@@ -182,6 +187,38 @@ describe("fitEquipment", () => {
     // Only the cargo slot swapped:
     expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
     expect(next.equipment.find((e) => e.id === "equip-3")?.fittedToShipId).toBe("ship-1");
+  });
+
+  it("DESTROYS a displaced ECONOMY Standard-Issue baseline (it is the free floor, not a collectible spare)", () => {
+    // Installing a crafted economy piece over a Standard-Issue baseline must DROP the baseline
+    // entirely, NOT evict it to the pool. Evicting it was the install half of the duplication bug: it
+    // turned the free floor into a spare that then accumulated on every install/uninstall cycle.
+    const baseline = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: null, fittedToShipId: "ship-1" }); // the floor
+    const crafted = makeEquip({ id: "equip-2", slotType: "cargoBay", blueprintKey: "prospectorHoldBp", rarity: "radiant", fittedToShipId: null }); // spare to install
+    const state = withEquipment(freshState(), baseline, crafted);
+
+    const next = fitEquipment(state, "ship-1", "equip-2");
+
+    // The baseline is GONE from the pool entirely (destroyed, not a spare):
+    expect(next.equipment.find((e) => e.id === "equip-1")).toBeUndefined();
+    // The crafted piece is the sole occupant of the cargo slot:
+    expect(equippedFor(next, "ship-1").map((e) => e.id)).toEqual(["equip-2"]);
+    // Net item count: 2 -> 1 (the free baseline was consumed by the install, no spare created).
+    expect(next.equipment).toHaveLength(1);
+  });
+
+  it("does NOT destroy a displaced COMBAT baseline (combat slots are allow-empty, their baselines are recoverable)", () => {
+    // A shieldEmitters baseline is a real, re-installable spare on the allow-empty combat slots, so a
+    // swap must EVICT it to the pool, never destroy it (unlike the economy floor above).
+    const combatBaseline = makeEquip({ id: "equip-1", slotType: "shieldEmitters", blueprintKey: null, fittedToShipId: "ship-1" });
+    const fresh = makeEquip({ id: "equip-2", slotType: "shieldEmitters", blueprintKey: "hardenedShieldBp", rarity: "radiant", fittedToShipId: null });
+    const state = withHull(withEquipment(freshState(), combatBaseline, fresh), "destroyer");
+
+    const next = fitEquipment(state, "ship-1", "equip-2");
+
+    // The combat baseline is EVICTED (still present, now a spare), not destroyed:
+    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
+    expect(next.equipment).toHaveLength(2);
   });
 });
 
@@ -386,21 +423,23 @@ describe("unfitEquipment", () => {
     expect(next.nextEquipmentId).toBe(43); // counter advanced
   });
 
-  it("unfitting a STANDARD-ISSUE slot leaves a Standard-Issue fitted (idempotent-ish: stat-identical, new id + spare)", () => {
-    // The occupant is itself a Standard-Issue baseline (blueprintKey null).
+  it("unfitting a STANDARD-ISSUE baseline is a NO-OP (never creates an extra baseline)", () => {
+    // The occupant is itself a Standard-Issue baseline (blueprintKey null): the free slot FLOOR, not
+    // collectible inventory. Uninstalling it must NOT evict it to the pool and must NOT mint a
+    // replacement (the old behavior did both, net-creating one baseline per call, the duplication bug).
     const baseline = makeEquip({ id: "equip-1", slotType: "ftlDrive", blueprintKey: null, fittedToShipId: "ship-1" });
     const state = { ...withEquipment(freshState(), baseline), nextEquipmentId: 7 };
 
     const next = unfitEquipment(state, "ship-1", "ftlDrive");
 
-    // The old baseline is in the pool; a fresh baseline (new id) holds the slot.
-    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
+    // The SAME baseline stays fitted; nothing pooled, nothing minted, counter untouched.
+    expect(next.equipment).toHaveLength(1);
     const fittedNow = equippedFor(next, "ship-1");
     expect(fittedNow).toHaveLength(1);
+    expect(fittedNow[0].id).toBe("equip-1"); // same instance, not a fresh mint
     expect(fittedNow[0].slotType).toBe("ftlDrive");
     expect(fittedNow[0].blueprintKey).toBeNull();
-    expect(fittedNow[0].id).toBe("equip-7");
-    expect(next.nextEquipmentId).toBe(8);
+    expect(next.nextEquipmentId).toBe(7); // counter did NOT advance
   });
 
   it("brings an ALREADY-EMPTY slot into the never-empty invariant by minting a Standard-Issue", () => {
@@ -416,7 +455,9 @@ describe("unfitEquipment", () => {
   });
 
   it("only unfits the named slot, leaving other fitted slots intact", () => {
-    const cargo = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: "ship-1" });
+    // Cargo occupant is CRAFTED so unfitting it exercises the real evict-and-refit path (a baseline
+    // occupant would be a no-op); the test's concern is slot isolation of the ftlDrive piece.
+    const cargo = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: "prospectorHoldBp", rarity: "radiant", fittedToShipId: "ship-1" });
     const drive = makeEquip({ id: "equip-2", slotType: "ftlDrive", fittedToShipId: "ship-1" });
     const state = { ...withEquipment(freshState(), cargo, drive), nextEquipmentId: 50 };
 
@@ -572,4 +613,83 @@ describe("unfitEquipmentInstance: economy stays NEVER-EMPTY + guards", () => {
     const state = withHull(withEquipment(freshState(), spare), "destroyer");
     expect(() => unfitEquipmentInstance(state, "ship-1", "equip-1")).toThrow(/not installed/);
   });
+});
+
+// ----------------------------------------------------------------------------
+// DUPLICATION-EXPLOIT REGRESSION (integrity): uninstalling an economy slot must
+// NEVER net-create an item. Two reported repros, plus the invariant across all four
+// economy slots.
+// ----------------------------------------------------------------------------
+describe("economy uninstall never net-creates an item (dupe regression)", () => {
+  // Repro A: tapping Uninstall on a Standard-Issue baseline used to evict it to the pool AND mint a
+  // fresh one (1 -> 2), repeatable forever. It must now be a NO-OP.
+  it("Repro A: uninstalling an economy Standard-Issue baseline leaves the item count UNCHANGED", () => {
+    const baseline = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: null, fittedToShipId: "ship-1" });
+    const state = { ...withEquipment(freshState(), baseline), nextEquipmentId: 50 };
+
+    const next = unfitEquipmentInstance(state, "ship-1", "equip-1");
+
+    expect(next.equipment).toHaveLength(1); // no dupe: still exactly one item
+    expect(next.equipment[0].id).toBe("equip-1"); // the SAME instance, still fitted
+    expect(next.equipment[0].fittedToShipId).toBe("ship-1");
+    expect(next.nextEquipmentId).toBe(50); // nothing minted
+  });
+
+  it("Repro A repeated: N uninstalls in a row stay FLAT (no unlimited baselines)", () => {
+    const baseline = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: null, fittedToShipId: "ship-1" });
+    let state: GameState = { ...withEquipment(freshState(), baseline), nextEquipmentId: 50 };
+
+    for (let i = 0; i < 10; i++) {
+      state = unfitEquipmentInstance(state, "ship-1", "equip-1");
+      expect(state.equipment).toHaveLength(1); // count never grows
+    }
+    expect(state.nextEquipmentId).toBe(50); // counter never advanced across all 10 taps
+    expect(equippedFor(state, "ship-1")).toHaveLength(1); // slot still holds exactly the baseline
+  });
+
+  // Repro B: install a crafted economy piece, then uninstall it. The crafted must come back as a
+  // spare, the slot must hold EXACTLY ONE baseline, and the total item count must be net-0 vs before
+  // the install (no baseline conjured from nothing).
+  it("Repro B: crafted economy install-then-uninstall round-trip is net-0 items", () => {
+    const baseline = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: null, fittedToShipId: "ship-1" }); // the slot floor
+    const crafted = makeEquip({ id: "equip-2", slotType: "cargoBay", blueprintKey: "prospectorHoldBp", rarity: "radiant", fittedToShipId: null }); // player's gear, a spare
+    const before: GameState = { ...withEquipment(freshState(), baseline, crafted), nextEquipmentId: 100 };
+    const countBefore = before.equipment.length; // 2
+
+    // Install the crafted piece (destroys the displaced baseline), then uninstall it.
+    const installed = fitEquipment(before, "ship-1", "equip-2");
+    const after = unfitEquipmentInstance(installed, "ship-1", "equip-2");
+
+    // The crafted piece is present and back in the pool (unfitted):
+    const craftedAfter = after.equipment.find((e) => e.id === "equip-2");
+    expect(craftedAfter?.fittedToShipId).toBeNull();
+    expect(craftedAfter?.blueprintKey).toBe("prospectorHoldBp");
+
+    // The slot holds EXACTLY ONE baseline (a freshly minted Standard-Issue):
+    const fitted = equippedFor(after, "ship-1");
+    expect(fitted).toHaveLength(1);
+    expect(fitted[0].slotType).toBe("cargoBay");
+    expect(fitted[0].blueprintKey).toBeNull();
+
+    // Net-0: the total item count is unchanged vs before the install (the original baseline was
+    // consumed on install, one replacement minted on uninstall). NO extra baseline anywhere.
+    expect(after.equipment).toHaveLength(countBefore);
+    const baselines = after.equipment.filter((e) => e.slotType === "cargoBay" && e.blueprintKey === null);
+    expect(baselines).toHaveLength(1); // exactly one baseline in existence, not two
+  });
+
+  // The fix lives in generic economy code (any economy slotType), so ftl/reactor/spec are covered by
+  // the same branch, not just cargoBay. Prove the no-op holds for each of the four economy slots.
+  for (const slotType of ["cargoBay", "ftlDrive", "reactorCore", "specUtility"] as const) {
+    it(`baseline uninstall is a no-op for the ${slotType} economy slot too`, () => {
+      const baseline = makeEquip({ id: "equip-1", slotType, blueprintKey: null, fittedToShipId: "ship-1" });
+      const state = { ...withEquipment(freshState(), baseline), nextEquipmentId: 77 };
+
+      const next = unfitEquipmentInstance(state, "ship-1", "equip-1");
+
+      expect(next.equipment).toHaveLength(1);
+      expect(next.equipment[0].id).toBe("equip-1");
+      expect(next.nextEquipmentId).toBe(77);
+    });
+  }
 });

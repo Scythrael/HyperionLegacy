@@ -388,17 +388,47 @@ export function fitEquipment(state: GameState, shipId: string, instanceId: strin
     return { ...state, equipment };
   }
 
-  // SINGLETON slot: atomic swap, evicting the current occupant of the SAME slot on this ship.
-  const equipment = state.equipment.map((e) => {
-    // The incoming piece: fit it to this ship.
-    if (e.id === instanceId) return { ...e, fittedToShipId: shipId };
-    // The current occupant of the SAME slot on the SAME ship: evict to the pool.
-    if (e.fittedToShipId === shipId && e.slotType === slotType) {
-      return { ...e, fittedToShipId: null };
-    }
-    // Everything else (other ships, other slots, spares): untouched.
-    return e;
-  });
+  // SINGLETON slot: atomic swap. The incoming piece takes the slot; the current occupant of the SAME
+  // slot on this ship is displaced. HOW it is displaced depends on WHAT the occupant is, and this is
+  // one half of the "install / uninstall can never net-create an item" integrity rule:
+  //   - An ECONOMY Standard-Issue BASELINE (economy slot + blueprintKey === null) is the free,
+  //     non-collectible slot FLOOR, not real inventory (salvage.ts discards it on ship salvage,
+  //     EquipmentTooltip labels it "Standard-Issue"). Installing over it DESTROYS it (it is dropped
+  //     from the pool entirely), so the free baseline can never pile up as a spare. This exactly
+  //     mirrors unfitEquipmentInstance re-MINTING one baseline when a CRAFTED economy piece is
+  //     uninstalled, so a full install-then-uninstall round-trip of a crafted economy piece is
+  //     net-zero items. (Before this guard, the displaced baseline was evicted to the pool as a
+  //     spare, which is the install half of the reported duplication bug.)
+  //   - Anything else (a CRAFTED economy piece, or a COMBAT singleton baseline/crafted) is real,
+  //     recoverable inventory: it is EVICTED to the spare pool (fittedToShipId -> null), unchanged.
+  //     Combat baselines are deliberately recoverable spares on the allow-empty combat slots, so they
+  //     are NOT destroyed here.
+  //
+  // `displaced` is the SAME-slot piece on this ship that is NOT the incoming piece; the
+  // `id !== instanceId` guard makes a re-install of the already-fitted piece a safe no-op rather than
+  // a self-destroy.
+  const displaced = state.equipment.find(
+    (e) => e.fittedToShipId === shipId && e.slotType === slotType && e.id !== instanceId
+  );
+  const destroyDisplacedBaseline =
+    displaced !== undefined &&
+    ECONOMY_INSTALLABLE_SLOTS.has(displaced.slotType) &&
+    displaced.blueprintKey === null;
+
+  const equipment = state.equipment
+    // Drop a displaced ECONOMY baseline entirely (the free floor is not a collectible spare).
+    .filter((e) => !(destroyDisplacedBaseline && e.id === displaced!.id))
+    .map((e) => {
+      // The incoming piece: fit it to this ship.
+      if (e.id === instanceId) return { ...e, fittedToShipId: shipId };
+      // A CRAFTED / combat occupant of the SAME slot on the SAME ship: evict to the pool. (An economy
+      // baseline occupant was already dropped by the filter above, so it never reaches this branch.)
+      if (e.fittedToShipId === shipId && e.slotType === slotType) {
+        return { ...e, fittedToShipId: null };
+      }
+      // Everything else (other ships, other slots, spares): untouched.
+      return e;
+    });
 
   return { ...state, equipment };
 }
@@ -419,9 +449,11 @@ export function fitEquipment(state: GameState, shipId: string, instanceId: strin
 // nextEquipmentId (the same monotonic "equip-N" counter every mint site spends).
 // - Unfitting a CRAFTED piece: the crafted piece returns to the pool as a spare, and
 //   a Standard-Issue takes the slot (the player keeps their gear, the slot stays live).
-// - Unfitting a STANDARD-ISSUE piece: the old baseline returns to the pool and a fresh
-//   baseline takes the slot, so the slot still holds a Standard-Issue afterward
-//   ("idempotent-ish": stat-identical result, a new id + one extra baseline spare).
+// - Unfitting a STANDARD-ISSUE BASELINE: the baseline is the free, non-collectible slot
+//   FLOOR, not real inventory, so uninstalling it is a NO-OP. The same instance stays
+//   fitted, nothing is evicted to the pool, nothing is minted, and the counter does not
+//   advance. (The old behavior evicted the baseline to the pool AND minted a fresh one,
+//   which net-created one extra baseline every call, the reported duplication bug.)
 // If the slot is already EMPTY (nothing fitted), there is nothing to evict; the slot
 // is nonetheless brought into the never-empty invariant by minting a Standard-Issue
 // into it, so a same-ref no-op is NOT returned in that case (the slot gains a baseline).
@@ -441,15 +473,28 @@ export function unfitEquipment(
     throw new Error(`unfitEquipment blocked: ${lock.reason}`);
   }
 
-  // Evict the current occupant (if any) to the pool. The slot is now empty.
+  // Identify the current occupant (if any) of this ship's slot.
   const occupant = state.equipment.find((e) => e.fittedToShipId === shipId && e.slotType === slotType);
+
+  // NON-CREATE GUARD (integrity, same rule as unfitEquipmentInstance): an economy Standard-Issue
+  // BASELINE (blueprintKey === null) is the free slot FLOOR, not collectible inventory. Uninstalling
+  // it the old way evicted it to the pool AND minted a replacement, netting one EXTRA baseline every
+  // time. Since the slot already holds a baseline, uninstalling a baseline is a NO-OP: the same
+  // instance stays fitted, nothing is pooled or minted, the counter does not advance. (All four
+  // economy slots this function serves are never-empty singletons, so a present occupant is always an
+  // economy piece; a baseline occupant is exactly the floor.)
+  if (occupant && occupant.blueprintKey === null) {
+    return state;
+  }
+
+  // Evict a CRAFTED occupant (if any) to the pool. The slot is now empty.
   const evicted = occupant
     ? state.equipment.map((e) => (e.id === occupant.id ? { ...e, fittedToShipId: null } : e))
     : state.equipment;
 
-  // Mint + fit a fresh Standard-Issue so the slot is never left empty. The id is
-  // captured before advancing the counter, mirroring every other "equip-N" mint site
-  // (freshState / the migration / the tick.ts build + unlock paths).
+  // Mint + fit a fresh Standard-Issue so the slot is never left empty (this also FILLS a slot that was
+  // already empty, occupant undefined). The id is captured before advancing the counter, mirroring
+  // every other "equip-N" mint site (freshState / the migration / the tick.ts build + unlock paths).
   const mintedId = state.nextEquipmentId;
   const replacement = generateStandardIssue({
     slotType,
@@ -482,9 +527,13 @@ export function unfitEquipment(
 // player-facing failure path.
 //
 // THE NEVER-EMPTY vs ALLOW-EMPTY SPLIT (the key combat behavior), decided by the piece's slot:
-// - ECONOMY slot (cargoBay / ftlDrive / reactorCore / specUtility): NEVER-EMPTY. The piece is
-//   evicted to the pool AND a fresh Standard-Issue baseline is minted into the slot, exactly
-//   like unfitEquipment, so economy behavior is identical whichever entry point is used.
+// - ECONOMY slot (cargoBay / ftlDrive / reactorCore / specUtility): NEVER-EMPTY, with a NON-CREATE
+//   guard. A CRAFTED piece is evicted to the pool AND a fresh Standard-Issue baseline is minted into
+//   the slot (net-zero: that minted baseline replaces the one fitEquipment destroyed on install). But
+//   a Standard-Issue BASELINE (blueprintKey === null) is the free, non-collectible floor, so
+//   uninstalling it is a NO-OP (same instance stays fitted, nothing pooled or minted). This mirrors
+//   unfitEquipment, so economy behavior is identical whichever entry point is used. (The old path
+//   always evicted-and-minted, which duplicated a baseline every time a baseline was uninstalled.)
 // - COMBAT slot (weapon / shieldEmitters / hullPlating): ALLOW-EMPTY. The piece just becomes a
 //   spare (fittedToShipId -> null); NOTHING is minted to replace it, so the slot is left bare.
 //   This is REQUIRED so canDispatchPatrol's blocker is reachable ("strip a required combat slot
@@ -528,8 +577,27 @@ export function unfitEquipmentInstance(
     return { ...state, equipment: evicted };
   }
 
-  // ECONOMY slot: NEVER-EMPTY. Mint + fit a fresh Standard-Issue so the slot is never left empty,
-  // mirroring unfitEquipment exactly (same "equip-N" capture-then-advance mint idiom).
+  // ECONOMY slot from here down: NEVER-EMPTY.
+  //
+  // NON-CREATE GUARD (integrity, the reported duplication fix): an economy Standard-Issue BASELINE
+  // (blueprintKey === null) is the free slot FLOOR, not collectible inventory. Uninstalling it the
+  // old way evicted it to the pool AND minted a replacement baseline, netting one EXTRA baseline every
+  // single time (tap Uninstall on a Standard-Issue Cargo Hold -> two baselines; repeatable forever ->
+  // unlimited baselines). Because the slot already holds a baseline and the baseline is not real
+  // inventory, uninstalling a baseline is a NO-OP: the SAME instance stays fitted, nothing is evicted
+  // to the pool, nothing is minted, and the id counter does not advance. (The panel still offers
+  // Uninstall on a filled tile; this makes that a harmless no-op for the floor instead of a dupe.) We
+  // return the ORIGINAL state, not `evicted` (which already nulled the occupant), so the baseline
+  // stays exactly where it was fitted.
+  if (occupant.blueprintKey === null) {
+    return state;
+  }
+
+  // A CRAFTED economy piece: it was evicted to the pool above (the player keeps their gear), and a
+  // fresh Standard-Issue baseline is minted into the now-empty slot so the slot stays live. Net item
+  // delta is ZERO across a full install-then-uninstall of a crafted economy piece: the minted
+  // baseline simply replaces the baseline that fitEquipment DESTROYED when this crafted piece was
+  // installed over it. Same "equip-N" capture-then-advance mint idiom as unfitEquipment.
   const mintedId = state.nextEquipmentId;
   const replacement = generateStandardIssue({
     slotType: occupant.slotType,
