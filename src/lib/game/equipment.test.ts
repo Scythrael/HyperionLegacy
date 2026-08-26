@@ -580,21 +580,19 @@ describe("combat gear: ALLOW-EMPTY uninstall (unfitEquipmentInstance)", () => {
   });
 });
 
-describe("unfitEquipmentInstance: economy stays NEVER-EMPTY + guards", () => {
-  it("uninstalling an economy piece by id STILL restores a Standard-Issue baseline (unchanged)", () => {
+describe("unfitEquipmentInstance: economy is now ALLOW-EMPTY + guards", () => {
+  it("uninstalling a CRAFTED economy piece pools it and leaves the slot EMPTY (no baseline minted)", () => {
     const crafted = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: "prospectorHoldBp", fittedToShipId: "ship-1" });
     const state = { ...withEquipment(freshState(), crafted), nextEquipmentId: 42 };
 
     const next = unfitEquipmentInstance(state, "ship-1", "equip-1");
 
-    // Crafted piece returns to the pool; a fresh Standard-Issue holds the slot (never-empty).
+    // Crafted piece returns to the pool; the slot is left EMPTY (allow-empty, nothing minted). An
+    // empty economy slot is economically identical to the old Standard-Issue baseline (both +0).
     expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
-    const fittedNow = equippedFor(next, "ship-1");
-    expect(fittedNow).toHaveLength(1);
-    expect(fittedNow[0].slotType).toBe("cargoBay");
-    expect(fittedNow[0].blueprintKey).toBeNull();
-    expect(fittedNow[0].id).toBe("equip-42");
-    expect(next.nextEquipmentId).toBe(43);
+    expect(equippedFor(next, "ship-1")).toHaveLength(0);
+    expect(next.equipment).toHaveLength(1); // just the pooled crafted spare, no baseline
+    expect(next.nextEquipmentId).toBe(42); // counter untouched (no mint)
   });
 
   it("throws on the on-mission lock", () => {
@@ -616,41 +614,40 @@ describe("unfitEquipmentInstance: economy stays NEVER-EMPTY + guards", () => {
 });
 
 // ----------------------------------------------------------------------------
-// DUPLICATION-EXPLOIT REGRESSION (integrity): uninstalling an economy slot must
-// NEVER net-create an item. Two reported repros, plus the invariant across all four
-// economy slots.
+// INTEGRITY: uninstalling an economy slot must NEVER net-create an item (the reported
+// dupe). Economy slots are now ALLOW-EMPTY, so a baseline is DESTROYED on uninstall
+// (count drops, never grows) and a crafted piece just pools with the slot left empty.
+// The old "baseline uninstall mints a dupe" exploit is impossible because no branch mints.
 // ----------------------------------------------------------------------------
-describe("economy uninstall never net-creates an item (dupe regression)", () => {
-  // Repro A: tapping Uninstall on a Standard-Issue baseline used to evict it to the pool AND mint a
-  // fresh one (1 -> 2), repeatable forever. It must now be a NO-OP.
-  it("Repro A: uninstalling an economy Standard-Issue baseline leaves the item count UNCHANGED", () => {
+describe("economy uninstall never net-creates an item (integrity)", () => {
+  // Tapping Uninstall on a Standard-Issue baseline used to evict it to the pool AND mint a fresh one
+  // (1 -> 2), repeatable forever. It now DESTROYS the free floor: count 1 -> 0, and the slot empties.
+  it("uninstalling an economy Standard-Issue baseline DESTROYS it (count 1 -> 0, slot empty)", () => {
     const baseline = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: null, fittedToShipId: "ship-1" });
     const state = { ...withEquipment(freshState(), baseline), nextEquipmentId: 50 };
 
     const next = unfitEquipmentInstance(state, "ship-1", "equip-1");
 
-    expect(next.equipment).toHaveLength(1); // no dupe: still exactly one item
-    expect(next.equipment[0].id).toBe("equip-1"); // the SAME instance, still fitted
-    expect(next.equipment[0].fittedToShipId).toBe("ship-1");
+    expect(next.equipment).toHaveLength(0); // free floor destroyed, not pooled or duplicated
+    expect(equippedFor(next, "ship-1")).toHaveLength(0); // slot empty
     expect(next.nextEquipmentId).toBe(50); // nothing minted
   });
 
-  it("Repro A repeated: N uninstalls in a row stay FLAT (no unlimited baselines)", () => {
+  it("the old dupe loop is impossible: the destroyed baseline is gone, so re-uninstall throws", () => {
     const baseline = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: null, fittedToShipId: "ship-1" });
-    let state: GameState = { ...withEquipment(freshState(), baseline), nextEquipmentId: 50 };
+    const state: GameState = { ...withEquipment(freshState(), baseline), nextEquipmentId: 50 };
 
-    for (let i = 0; i < 10; i++) {
-      state = unfitEquipmentInstance(state, "ship-1", "equip-1");
-      expect(state.equipment).toHaveLength(1); // count never grows
-    }
-    expect(state.nextEquipmentId).toBe(50); // counter never advanced across all 10 taps
-    expect(equippedFor(state, "ship-1")).toHaveLength(1); // slot still holds exactly the baseline
+    const after = unfitEquipmentInstance(state, "ship-1", "equip-1");
+    expect(after.equipment).toHaveLength(0);
+    // Tapping Uninstall again used to mint another baseline; now the instance no longer exists, so a
+    // second uninstall is a stale call that THROWS instead of creating anything.
+    expect(() => unfitEquipmentInstance(after, "ship-1", "equip-1")).toThrow(/noInstance/);
   });
 
-  // Repro B: install a crafted economy piece, then uninstall it. The crafted must come back as a
-  // spare, the slot must hold EXACTLY ONE baseline, and the total item count must be net-0 vs before
-  // the install (no baseline conjured from nothing).
-  it("Repro B: crafted economy install-then-uninstall round-trip is net-0 items", () => {
+  // Install a crafted economy piece, then uninstall it. The crafted comes back as a spare, the slot is
+  // left EMPTY (no baseline restored), and the total item count NEVER GROWS (the consumed baseline is
+  // gone, so exactly the crafted remains). This is the anti-dupe property in the allow-empty world.
+  it("crafted economy install-then-uninstall pools the crafted, empties the slot, count never grows", () => {
     const baseline = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: null, fittedToShipId: "ship-1" }); // the slot floor
     const crafted = makeEquip({ id: "equip-2", slotType: "cargoBay", blueprintKey: "prospectorHoldBp", rarity: "radiant", fittedToShipId: null }); // player's gear, a spare
     const before: GameState = { ...withEquipment(freshState(), baseline, crafted), nextEquipmentId: 100 };
@@ -665,30 +662,26 @@ describe("economy uninstall never net-creates an item (dupe regression)", () => 
     expect(craftedAfter?.fittedToShipId).toBeNull();
     expect(craftedAfter?.blueprintKey).toBe("prospectorHoldBp");
 
-    // The slot holds EXACTLY ONE baseline (a freshly minted Standard-Issue):
-    const fitted = equippedFor(after, "ship-1");
-    expect(fitted).toHaveLength(1);
-    expect(fitted[0].slotType).toBe("cargoBay");
-    expect(fitted[0].blueprintKey).toBeNull();
+    // The slot is EMPTY (allow-empty: no baseline restored):
+    expect(equippedFor(after, "ship-1")).toHaveLength(0);
 
-    // Net-0: the total item count is unchanged vs before the install (the original baseline was
-    // consumed on install, one replacement minted on uninstall). NO extra baseline anywhere.
-    expect(after.equipment).toHaveLength(countBefore);
+    // Count NEVER grows (no dupe); the consumed baseline is gone, so exactly the crafted spare remains.
+    expect(after.equipment.length).toBeLessThanOrEqual(countBefore);
+    expect(after.equipment).toHaveLength(1);
     const baselines = after.equipment.filter((e) => e.slotType === "cargoBay" && e.blueprintKey === null);
-    expect(baselines).toHaveLength(1); // exactly one baseline in existence, not two
+    expect(baselines).toHaveLength(0); // no baseline conjured or restored
   });
 
-  // The fix lives in generic economy code (any economy slotType), so ftl/reactor/spec are covered by
-  // the same branch, not just cargoBay. Prove the no-op holds for each of the four economy slots.
+  // The allow-empty destroy lives in generic economy code (any economy slotType), so ftl/reactor/spec
+  // are covered by the same branch, not just cargoBay. Prove the destroy holds for all four.
   for (const slotType of ["cargoBay", "ftlDrive", "reactorCore", "specUtility"] as const) {
-    it(`baseline uninstall is a no-op for the ${slotType} economy slot too`, () => {
+    it(`baseline uninstall destroys the free floor for the ${slotType} economy slot too`, () => {
       const baseline = makeEquip({ id: "equip-1", slotType, blueprintKey: null, fittedToShipId: "ship-1" });
       const state = { ...withEquipment(freshState(), baseline), nextEquipmentId: 77 };
 
       const next = unfitEquipmentInstance(state, "ship-1", "equip-1");
 
-      expect(next.equipment).toHaveLength(1);
-      expect(next.equipment[0].id).toBe("equip-1");
+      expect(next.equipment).toHaveLength(0);
       expect(next.nextEquipmentId).toBe(77);
     });
   }

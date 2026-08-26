@@ -2776,12 +2776,12 @@
   }
 
   // UNINSTALL one specific installed system BY INSTANCE ID (Combat 1.0, Unit 1.8b).
-  // The panel now targets the exact piece the player tapped (required for weapons, a
-  // MULTI slot). unfitEquipmentInstance THROWS on the on-mission lock (caught here);
-  // otherwise an ECONOMY slot returns the piece to storage AND auto-refits a fresh
-  // Standard-Issue baseline (never-empty), while a COMBAT slot is left bare (allow-empty,
-  // so the dispatch blocker is reachable). Either way it returns a new state, so there is
-  // no empty-slot no-op to special-case. Persists the change.
+  // The panel targets the exact piece the player tapped (required for weapons, a MULTI
+  // slot). unfitEquipmentInstance THROWS on the on-mission lock (caught here); otherwise
+  // every slot is now ALLOW-EMPTY (user call 2026-08-26): a CRAFTED piece returns to
+  // storage and the slot is left empty; an ECONOMY baseline (the free +0 floor) is
+  // destroyed and the slot left empty; a COMBAT baseline pools (kept re-armable for the
+  // dispatch blocker). Either way it returns a new state. Persists the change.
   function uninstallSystem(shipId: string, instanceId: string) {
     try {
       state = unfitEquipmentInstance(state, shipId, instanceId);
