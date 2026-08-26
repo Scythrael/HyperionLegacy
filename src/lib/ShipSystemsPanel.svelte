@@ -115,6 +115,29 @@
     { slotType: "specUtility", label: "Spec Utility", prospectorOnly: true },
   ];
 
+  // The four economy slot types, as an O(1)-membership Set. Mirrors equipment.ts's
+  // ECONOMY_INSTALLABLE_SLOTS (kept local here rather than imported so this UI predicate
+  // has no cross-module coupling); typed to EquipmentSlotType so a slot rename is a
+  // compile error. Used ONLY by isEconomyBaseline below.
+  const ECONOMY_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>([
+    "cargoBay",
+    "ftlDrive",
+    "reactorCore",
+    "specUtility",
+  ]);
+
+  // isEconomyBaseline(piece): is this piece an economy Standard-Issue baseline (the
+  // never-empty slot FLOOR)? True when the slot is one of the four economy slots AND the
+  // piece is craft-less (blueprintKey === null). WHY THIS EXISTS: unfitEquipmentInstance
+  // (equipment.ts) treats uninstalling an economy baseline as a deliberate NO-OP (the
+  // duplication fix, the floor is not collectible inventory), so the panel must NOT offer
+  // an Uninstall button on such a tile: tapping it does nothing, which reads as broken on
+  // mobile. A COMBAT baseline lives on an allow-empty slot and IS genuinely uninstallable,
+  // so it is deliberately EXCLUDED here (only economy baselines lose the Uninstall action).
+  function isEconomyBaseline(piece: EquipmentInstance): boolean {
+    return piece.blueprintKey === null && ECONOMY_SLOT_TYPES.has(piece.slotType);
+  }
+
   // A stable per-slotType glyph for the combat slots (weapon / shield / plating /
   // drone), which carry no economy "variety" and so are not covered by the shared
   // equipmentIcon map. Economy slots fall through to equipmentIcon (the single-source
@@ -1068,14 +1091,22 @@
     >
       <EquipmentTooltip piece={tipPiece}>
         {#if tipAction === "uninstall"}
-          <button
-            class="ss-btn ss-btn-uninstall"
-            disabled={onMission || shipDamaged}
-            title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
-            on:click={() => handleUninstall(tipPiece.id)}
-          >
-            Uninstall
-          </button>
+          {#if isEconomyBaseline(tipPiece)}
+            <!-- Economy Standard-Issue baseline: the never-empty slot FLOOR. Uninstalling
+                 it is a deliberate no-op (unfitEquipmentInstance), so we render a static
+                 explanatory line INSTEAD of a dead Uninstall button (which read as broken
+                 on mobile). Installing a real system over it still works normally. -->
+            <p class="ss-baseline-note">Standard-Issue baseline. Install a system to replace it.</p>
+          {:else}
+            <button
+              class="ss-btn ss-btn-uninstall"
+              disabled={onMission || shipDamaged}
+              title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+              on:click={() => handleUninstall(tipPiece.id)}
+            >
+              Uninstall
+            </button>
+          {/if}
         {:else}
           {@const gate = canFitEquipment(safeState, shipId, tipPiece.id)}
           <button
@@ -1537,6 +1568,17 @@
   }
   .ss-btn-uninstall:hover:not(:disabled) {
     background: rgba(248, 113, 113, 0.2);
+  }
+  /* Static explanatory line shown in the tooltip footer for an economy baseline (in
+     place of the Uninstall button, which would be a dead no-op there). Dim + compact so
+     it reads as informational, not actionable. */
+  .ss-baseline-note {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 4px 0;
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--color-text-secondary);
   }
 
   /* FLOATING TOOLTIP WRAPPER: position:fixed so it escapes the panel's inner scroll

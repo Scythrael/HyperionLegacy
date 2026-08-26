@@ -60,7 +60,7 @@ describe("migrate, tickDurationSeconds backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -99,7 +99,7 @@ describe("migrate, research field backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -273,7 +273,7 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -370,7 +370,7 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -476,7 +476,7 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -565,7 +565,7 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -638,7 +638,7 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -701,7 +701,7 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -771,7 +771,7 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -1563,7 +1563,7 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -1771,7 +1771,7 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -2055,7 +2055,7 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -2219,7 +2219,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(36);
+    expect(deserialized!.version).toBe(37);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2241,7 +2241,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -2370,7 +2370,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -2537,7 +2537,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -2728,7 +2728,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -2919,7 +2919,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -3112,7 +3112,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -3289,7 +3289,7 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -3446,7 +3446,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -3648,7 +3648,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     // (a v28 save chains all the way through the iLevel backfill at v29->v30 and the
     // nextCaptainId backfill at v30->v31).
     const roundTripped = deserialize(serialize(migrated, 0));
-    expect(roundTripped!.version).toBe(36);
+    expect(roundTripped!.version).toBe(37);
     expect(roundTripped!.version).toBe(SAVE_VERSION);
 
     // Task B1 (equipment storage cap): the SAME v28->v29 body seeds the new
@@ -3707,7 +3707,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 
   it("freshState seeds equipmentStorageLevel 0 (Task B1), matching the migration's seed on old saves", () => {
@@ -4022,7 +4022,7 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     const migrated: any = migrate(save);
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
-    expect(roundTripped!.version).toBe(36);
+    expect(roundTripped!.version).toBe(37);
     // The now-v33 save carries the field; re-migrating keeps it (no re-backfill, no reset).
     const before = (roundTripped!.state as any).captains[0].mission.playerSystemDurability;
     const remigrated: any = migrate(roundTripped as SaveFile);
@@ -4051,7 +4051,7 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     expect(mission.kind).toBe("patrol");
     // No full durability derivable => field stays absent (no crash, no fabricated value).
     expect(mission.playerSystemDurability).toBeUndefined();
-    expect(SAVE_VERSION).toBe(36);
+    expect(SAVE_VERSION).toBe(37);
   });
 });
 
@@ -4304,6 +4304,100 @@ describe("migrate, every-hull combat baseline seed (v35 -> v36)", () => {
   });
 });
 
+// Warehouse declutter fix: the v36 -> v37 orphaned ECONOMY baseline spare cleanup. A now-fixed
+// duplication bug (unfitEquipmentInstance used to evict an economy baseline to the pool AND mint a
+// replacement) left economy Standard-Issue baselines (blueprintKey null, on an economy slot) sitting
+// FREE in the spare pool (fittedToShipId null), where they should NEVER be (they are the never-empty
+// slot floor). They cluttered the Warehouse display, which lists ALL spares, while spareEquipmentCount
+// counts only spare CRAFTED pieces, so the player saw many systems but "1 / N spare". MIGRATIONS[36]
+// removes exactly those orphans on load and preserves everything else.
+describe("migrate, orphaned economy baseline spare cleanup (v36 -> v37)", () => {
+  // Minimal EquipmentInstance factory. The migration reads ONLY fittedToShipId / blueprintKey /
+  // slotType, but a fuller shape keeps the fixture realistic (and it rides hydrateDecimals's
+  // `...state` spread untouched, EquipmentInstance carries no top-level Decimal). Cast to any so the
+  // test is not coupled to the full interface.
+  function mkPiece(id: string, slotType: string, blueprintKey: string | null, fittedToShipId: string | null): any {
+    return {
+      id, slotType, blueprintKey, fittedToShipId,
+      rarity: "standard", ascension: "none", quality: 0, iLevel: 1,
+      implicitStats: {}, rolledStats: {}, mass: 0, powerDraw: 0,
+      durabilityMax: 100, durability: 100,
+    };
+  }
+
+  // A genuine v36-shaped save whose equipment pool holds one of EACH category, so the test proves the
+  // filter removes ONLY the orphaned economy baseline spares and preserves everything else. Built from
+  // freshState (whose own seeded equipment is REPLACED by this custom pool) and stamped version 36, so
+  // migrate() runs EXACTLY the 36 -> 37 step (there is no MIGRATIONS[37]).
+  function makeV36Save(): SaveFile {
+    const base = freshState();
+    const equipment = [
+      // ORPHANED economy baseline spares (the clutter) -> MUST be dropped (all four economy slots):
+      mkPiece("orphan-cargo", "cargoBay", null, null),
+      mkPiece("orphan-ftl", "ftlDrive", null, null),
+      mkPiece("orphan-reactor", "reactorCore", null, null),
+      mkPiece("orphan-spec", "specUtility", null, null),
+      // CRAFTED economy spare -> SURVIVES (real fabricated gear in storage; blueprintKey set):
+      mkPiece("crafted-cargo", "cargoBay", "balancedHoldBlueprint", null),
+      // COMBAT baseline spares on the allow-empty combat slots -> SURVIVE (legitimately recoverable):
+      mkPiece("combat-weapon", "weapon", null, null),
+      mkPiece("combat-shield", "shieldEmitters", null, null),
+      mkPiece("combat-plating", "hullPlating", null, null),
+      mkPiece("combat-drone", "droneBay", null, null),
+      // FITTED economy baseline -> SURVIVES (lives on its ship's slot; fittedToShipId set):
+      mkPiece("fitted-econ-baseline", "cargoBay", null, "ship-1"),
+      // FITTED crafted economy piece -> SURVIVES:
+      mkPiece("fitted-econ-crafted", "ftlDrive", "sprintDriveBlueprint", "ship-1"),
+    ];
+    const preState = { ...base, equipment };
+    const raw = deserialize(serialize(preState, 0)) as SaveFile;
+    raw.version = 36;
+    return raw;
+  }
+
+  it("removes the orphaned economy baseline spares and lands at v37", () => {
+    const migrated: any = migrate(makeV36Save());
+    const ids = new Set(migrated.equipment.map((e: any) => e.id));
+    // The four orphaned economy baseline spares are GONE.
+    expect(ids.has("orphan-cargo")).toBe(false);
+    expect(ids.has("orphan-ftl")).toBe(false);
+    expect(ids.has("orphan-reactor")).toBe(false);
+    expect(ids.has("orphan-spec")).toBe(false);
+    // Re-serializing the migrated state stamps the CURRENT version (37): migrate() ran the 36 -> 37
+    // step (proven by the removals above) and then stopped (no MIGRATIONS[37]).
+    const stamped = deserialize(serialize(migrated, 0)) as SaveFile;
+    expect(stamped.version).toBe(37);
+    expect(SAVE_VERSION).toBe(37);
+  });
+
+  it("preserves crafted spares, combat baseline spares, and every fitted piece", () => {
+    const migrated: any = migrate(makeV36Save());
+    const ids = new Set(migrated.equipment.map((e: any) => e.id));
+    // Crafted economy spare survives (blueprintKey set).
+    expect(ids.has("crafted-cargo")).toBe(true);
+    // Combat baseline spares (allow-empty combat slots) survive.
+    expect(ids.has("combat-weapon")).toBe(true);
+    expect(ids.has("combat-shield")).toBe(true);
+    expect(ids.has("combat-plating")).toBe(true);
+    expect(ids.has("combat-drone")).toBe(true);
+    // Fitted pieces (baseline AND crafted) survive.
+    expect(ids.has("fitted-econ-baseline")).toBe(true);
+    expect(ids.has("fitted-econ-crafted")).toBe(true);
+    // Exactly the four orphans were removed: 11 pieces in, 7 out.
+    expect(migrated.equipment).toHaveLength(7);
+  });
+
+  it("is IDEMPOTENT: re-migrating an already-cleaned v36-shaped save removes nothing more", () => {
+    const migrated: any = migrate(makeV36Save());
+    const countAfterFirst = migrated.equipment.length;
+    // Re-stamp the cleaned state back to v36 and migrate again: no orphans remain, so nothing changes.
+    const reSave = deserialize(serialize(migrated, 0)) as SaveFile;
+    reSave.version = 36;
+    const remigrated: any = migrate(reSave);
+    expect(remigrated.equipment.length).toBe(countAfterFirst);
+  });
+});
+
 // Fuel Economy v2 (F5): the "no new migration needed" PROOF. F1-F4 added NO new persistent
 // state beyond what MIGRATIONS[20] (v20->v21) already seeds:
 //   - F1 renames are LABEL-ONLY (item/facility KEYS unchanged) -> nothing to migrate.
@@ -4350,7 +4444,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(36);
+    expect(save!.version).toBe(37);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
@@ -4427,7 +4521,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     const save = deserialize(serialize(inFlight, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(36); // current version is 36 (every-hull combat baseline seed)
+    expect(save!.version).toBe(37); // current version is 37 (orphaned economy baseline spare cleanup)
     const restored = migrate(save);
 
     // Empty repair state survived: the ship reads as healthy, the in-flight patrol is intact
@@ -4464,7 +4558,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     // Round-trip: the damaged flag, repairDamage, AND the in-flight shipRepair (clearShipDamage
     // effect) must all survive JSON with no hydration change.
     const save = deserialize(serialize(withRepair, 0)) as SaveFile;
-    expect(save!.version).toBe(36);
+    expect(save!.version).toBe(37);
     const restored = migrate(save!);
     const shipAfter = restored.ships.find((s) => s.id === "ship-1")!;
     expect(shipAfter.damaged).toBe(true);

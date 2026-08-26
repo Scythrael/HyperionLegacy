@@ -19,7 +19,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull } from "./combat/bridg
 // never imports save.ts), so it introduces no module cycle.
 import { clampInventoryToCaps, installMissingCombatBaselines } from "./tick";
 
-export const SAVE_VERSION = 36;
+export const SAVE_VERSION = 37;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1411,6 +1411,50 @@ const MIGRATIONS: Record<number, Migration> = {
       equipment: state.equipment ?? [],
       nextEquipmentId: state.nextEquipmentId ?? 1,
     }),
+  // v36 -> v37: DROP orphaned ECONOMY Standard-Issue baseline SPARES (declutter fix). An
+  // economy baseline (blueprintKey === null, on one of the four economy slots cargoBay /
+  // ftlDrive / reactorCore / specUtility) is the never-empty slot FLOOR: it should ALWAYS
+  // be fitted to a ship, never sit free-floating in the spare pool. A now-fixed duplication
+  // bug (unfitEquipmentInstance used to evict an economy baseline to the pool AND mint a
+  // replacement) left ORPHANED economy baseline spares (fittedToShipId === null) cluttering
+  // the Warehouse "Ship Equipment" display, which lists ALL spares, while spareEquipmentCount
+  // (model.ts) counts only spare CRAFTED pieces, so the player saw e.g. ~14 cargo systems but
+  // "1 / 150 spare". This one-time migration removes exactly those orphans.
+  //
+  // FILTER (keep a piece UNLESS it is an orphaned economy baseline): drop iff
+  //   fittedToShipId === null   (a SPARE, never a fitted piece)
+  //   AND blueprintKey === null (a Standard-Issue BASELINE, never a crafted piece)
+  //   AND slotType is an ECONOMY slot (cargoBay / ftlDrive / reactorCore / specUtility).
+  //
+  // DELIBERATELY PRESERVED (all ride through untouched):
+  //   - COMBAT baseline spares (weapon / shieldEmitters / hullPlating / droneBay): those are
+  //     legitimately recoverable spares on the allow-empty combat slots (uninstall leaves the
+  //     slot bare and the baseline sits in the pool as a real, re-installable piece), so they
+  //     are NOT orphans and must stay.
+  //   - CRAFTED spares (blueprintKey !== null): real player-fabricated gear in storage.
+  //   - Every FITTED piece (fittedToShipId set), baseline or crafted, economy or combat: it
+  //     lives on its ship's slot and is never touched here.
+  //
+  // PURE + additive: rebuilds only the `equipment` array (a filtered copy), every OTHER
+  // GameState field rides through untouched on the `...state` spread. An EquipmentInstance
+  // carries no top-level Decimal, so the surviving pieces ride hydrateDecimals's `...state`
+  // spread untouched, hydrateDecimals needs NO change. IDEMPOTENT: a save with no orphaned
+  // economy baseline spares (a fresh game, or an already-migrated v37) keeps every piece, so
+  // re-running is a no-op beyond the array copy. `?? []` guards a partial / hand-edited save.
+  // NOTE: on the current feature branch, NOT yet shipped to production, so still editable (the
+  // frozen-once-shipped rule applies only to production-released migrations).
+  36: (state: any): any => {
+    // The four economy slot types: an economy baseline should never be a free-floating spare.
+    const ECONOMY_SLOT_TYPES = new Set(["cargoBay", "ftlDrive", "reactorCore", "specUtility"]);
+    const equipment = (state.equipment ?? []).filter((piece: any) => {
+      const isOrphanedEconomyBaseline =
+        piece.fittedToShipId === null &&
+        piece.blueprintKey === null &&
+        ECONOMY_SLOT_TYPES.has(piece.slotType);
+      return !isOrphanedEconomyBaseline; // keep everything EXCEPT the orphaned economy baseline spares
+    });
+    return { ...state, equipment };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {
