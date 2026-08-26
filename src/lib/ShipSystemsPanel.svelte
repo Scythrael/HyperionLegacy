@@ -73,6 +73,10 @@
   // bay does, one card component, no second renderer to drift. The Install / Uninstall
   // control is injected into the card's footer <slot>. EquipmentTooltip is UNCHANGED.
   import EquipmentTooltip, { equipmentRarityColor, equipmentIcon } from "./EquipmentTooltip.svelte";
+  // Shared PURE viewport-clamp math for the floating tooltip (prefer-above / flip-below
+  // / clamp). Extracted so this panel and the Combat View pip tooltips share ONE clamp
+  // implementation; the measure + await-tick + reflow flow below stays local.
+  import { clampFloatingTip } from "./floatingTip";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship
@@ -509,24 +513,21 @@
 
   function positionTip(): void {
     if (!activeTip || !tipEl) return;
+    // Measure the anchor tile + the (already max-height-capped) tooltip, then defer
+    // the prefer-above / flip-below / clamp arithmetic to the shared pure helper so
+    // this panel and the Combat View share ONE clamp implementation. The measuring +
+    // await-tick reveal + reflow wiring stay here (they touch the DOM and this
+    // panel's state); only the math moved out (behavior-preserving extraction).
     const anchor = activeTip.el.getBoundingClientRect();
-    const tw = tipEl.offsetWidth;
-    const th = tipEl.offsetHeight;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    // Horizontal: center on the tile, then clamp so neither edge leaves the viewport.
-    let left = anchor.left + anchor.width / 2 - tw / 2;
-    left = Math.max(TIP_MARGIN, Math.min(left, vw - tw - TIP_MARGIN));
-
-    // Vertical: prefer ABOVE the tile. If it would clip the top, flip BELOW; if below
-    // also clips the bottom, keep whichever fits and clamp into the visible band.
-    let top = anchor.top - th - TIP_GAP;
-    if (top < TIP_MARGIN) {
-      const below = anchor.bottom + TIP_GAP;
-      top = below + th <= vh - TIP_MARGIN ? below : Math.min(top, vh - th - TIP_MARGIN);
-    }
-    top = Math.max(TIP_MARGIN, Math.min(top, vh - th - TIP_MARGIN));
+    const { left, top } = clampFloatingTip({
+      anchorRect: anchor,
+      tipWidth: tipEl.offsetWidth,
+      tipHeight: tipEl.offsetHeight,
+      viewportW: window.innerWidth,
+      viewportH: window.innerHeight,
+      margin: TIP_MARGIN,
+      gap: TIP_GAP,
+    });
 
     tipLeft = left;
     tipTop = top;
