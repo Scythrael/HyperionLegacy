@@ -587,7 +587,8 @@
   // host modal because the Ship Systems .modal-backdrop has NO backdrop click-close
   // handler (App.svelte), so this only hides the floating tooltip: it never closes the
   // modal and never touches its focus trap. A press on the tile toggles via the tile's
-  // own click, and a press on a spare tile still installs (its click runs after this).
+  // own click, and a press on a spare tile pins that spare's tooltip (its click runs
+  // after this and re-opens the tooltip onto the tapped tile).
   function onOutsidePointerDown(e: Event): void {
     if (!tipPinned || !activeTip) return;
     const target = e.target as Node | null;
@@ -654,11 +655,16 @@
     selectBay(index);
     if (willOpen && pod) void openTip(pod, "uninstall", e.currentTarget as HTMLElement, true);
   }
-  // Clicking a SPARE tile installs it directly (the "tap a spare to install" flow); the
-  // spare's floating tooltip (hover) also carries an Install button for the same action.
-  function clickSpare(spare: EquipmentInstance): void {
+  // Clicking a SPARE tile OPENS + PINS its floating tooltip (the same "see the stats,
+  // then confirm" flow a FILLED tile already uses for Uninstall), rather than installing
+  // on the spot. The spare tooltip renders the Install button in EquipmentTooltip's action
+  // slot; THAT button is the real install action (it calls handleInstall). This gives a
+  // deliberate confirm step that matters most on MOBILE, where a direct tap-installs was
+  // easy to misfire. openTip pins only on a coarse (touch) pointer, so desktop keeps its
+  // hover preview and a keyboard Enter/Space (which fires this same click) pins like a tap.
+  function clickSpare(e: MouseEvent, spare: EquipmentInstance): void {
     if (shipDamaged) return;
-    handleInstall(spare.id);
+    void openTip(spare, "install", e.currentTarget as HTMLElement, true);
   }
 
   function handleInstall(instanceId: string): void {
@@ -926,8 +932,9 @@
         {/if}
 
         <!-- INSTALL PICKER (the reduced ss-control, QA #8): opens when a slot is tapped.
-             The spares are TILES too, each with its own hover tooltip + Install button;
-             tapping a spare tile installs it. One consistent flow for every slot type. -->
+             The spares are TILES too, each with its own tooltip + Install button; tapping
+             a spare tile OPENS + PINS that tooltip so the player sees the stats and then
+             installs from its Install button. One consistent flow for every slot type. -->
         {#if pickerActive}
           <div class="ss-picker">
             <div class="ss-picker-head">Install &middot; {pickerLabel}</div>
@@ -946,7 +953,7 @@
                     style="--tc: {equipmentRarityColor(spare.rarity)}"
                     disabled={!gate.ok}
                     title={gate.ok ? undefined : reasonText(gate.reason)}
-                    on:click={() => clickSpare(spare)}
+                    on:click={(e) => clickSpare(e, spare)}
                     on:mouseenter={(e) => hoverTip(spare, "install", e.currentTarget)}
                     on:mouseleave={hoverOut}
                     on:focus={(e) => hoverTip(spare, "install", e.currentTarget)}
@@ -958,7 +965,7 @@
                   </button>
                 {/each}
               </div>
-              <p class="ss-note ss-note-dim">Tap a spare to install it. Hover for its stats.</p>
+              <p class="ss-note ss-note-dim">Tap a spare to view its stats, then Install. Hover for a preview.</p>
             {/if}
           </div>
         {:else}
