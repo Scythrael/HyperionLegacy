@@ -161,6 +161,36 @@
   let tipLeft = 0;
   let tipTop = 0;
   let tipVisible = false;
+  // GRACE-DELAY hide for the HOVER (unpinned) tooltip. The floating tooltip is a
+  // detached position:fixed element sitting a small gap (TIP_GAP) off the tile, and it
+  // carries the Install / Uninstall button (pointer-events:auto). On a hover-capable
+  // device the tooltip is NOT pinned, so a naive "hide on the tile's pointerleave"
+  // fires the instant the cursor starts crossing that gap toward the button, killing
+  // the tooltip before the cursor can reach it (the button was unreachable, the bug
+  // this addresses). The standard interactive-hover-tooltip fix: on pointerleave do not
+  // hide at once, schedule the hide after a short grace window via a cancelable timer,
+  // and cancel that timer when the cursor lands on the tooltip (or on another tile).
+  // The pinned (touch) path is unaffected: the scheduled close routes through
+  // closeTip(false), which a pin ignores. Guarded / cleared on destroy (no leak).
+  const TIP_HIDE_GRACE_MS = 275; // cursor travel window from tile to floating tooltip
+  let tipHideTimer: ReturnType<typeof setTimeout> | null = null;
+  // Cancel a pending grace-delay hide (cursor re-entered a tile or the tooltip itself).
+  function cancelTipHide(): void {
+    if (tipHideTimer !== null) {
+      clearTimeout(tipHideTimer);
+      tipHideTimer = null;
+    }
+  }
+  // Schedule the hover tooltip to hide after the grace window, cancelable. Routes
+  // through closeTip(false) so a PINNED (touch) tooltip is left alone (mobile tap-pin
+  // still dismisses via re-tap / outside-press, never by this timer).
+  function scheduleTipHide(): void {
+    cancelTipHide();
+    tipHideTimer = setTimeout(() => {
+      tipHideTimer = null;
+      closeTip(false);
+    }, TIP_HIDE_GRACE_MS);
+  }
   // Does this device have a hover-capable pointer (a real mouse / trackpad)? On such
   // devices the tooltip is already previewed on hover, so we do NOT pin on click:
   // pinning exists only so a TOUCH tap can reveal a tile's detail (a coarse pointer
@@ -508,6 +538,9 @@
   // while the ship is damaged (tiles are locked then).
   async function openTip(piece: EquipmentInstance, action: TipAction, el: HTMLElement, pinned: boolean): Promise<void> {
     if (shipDamaged) return;
+    // A fresh open (hover swap, click-pin, or picker open) supersedes any pending
+    // grace-delay hide, so a stale timer can never close the tooltip we just opened.
+    cancelTipHide();
     activeTip = { piece, action, el };
     // A pin only sticks on a coarse (touch) pointer. On a hover-capable device the
     // click still opens the tooltip, but leaving it UNPINNED means a subsequent hover
@@ -522,17 +555,26 @@
   // so it stays put until it is explicitly dismissed (force) or replaced.
   function closeTip(force = false): void {
     if (tipPinned && !force) return;
+    // Actually closing now, so drop any pending grace-delay hide (it would be a no-op
+    // once activeTip is null, but clearing it keeps the timer state honest / leak-free).
+    cancelTipHide();
     activeTip = null;
     tipPinned = false;
     tipVisible = false;
   }
-  // Desktop hover preview: only when nothing is pinned (a pin outranks a hover).
+  // Desktop hover preview: only when nothing is pinned (a pin outranks a hover). Entering
+  // ANOTHER tile during the grace window cancels the pending hide and swaps the preview
+  // (openTip cancels it), so moving between tiles keeps the spare-hover-preview working.
   function hoverTip(piece: EquipmentInstance, action: TipAction, el: HTMLElement): void {
     if (tipPinned) return;
     void openTip(piece, action, el, false);
   }
+  // Pointer / focus left the tile. Do NOT hide at once: schedule the grace-delay hide so
+  // the cursor can travel the gap onto the floating tooltip (which cancels it on enter)
+  // to reach the Install / Uninstall button. A pinned (touch) tooltip is untouched: the
+  // scheduled close routes through closeTip(false), which a pin ignores.
   function hoverOut(): void {
-    closeTip(false);
+    scheduleTipHide();
   }
   // Keep the fixed tooltip glued to its tile as the panel / window scrolls or resizes
   // (capture:true catches the inner column's scroll, which does not bubble to window).
@@ -560,6 +602,8 @@
     window.removeEventListener("scroll", reflowTip, true);
     window.removeEventListener("resize", reflowTip);
     window.removeEventListener("pointerdown", onOutsidePointerDown, true);
+    // Clear any pending grace-delay hide timer so it cannot fire after teardown (leak).
+    cancelTipHide();
   });
 
   // --- Interaction ------------------------------------------------------------
@@ -1011,6 +1055,8 @@
       bind:this={tipEl}
       role="tooltip"
       style="left: {tipLeft}px; top: {tipTop}px; visibility: {tipVisible ? 'visible' : 'hidden'}"
+      on:pointerenter={cancelTipHide}
+      on:pointerleave={scheduleTipHide}
     >
       <EquipmentTooltip piece={tipPiece}>
         {#if tipAction === "uninstall"}
@@ -1513,6 +1559,14 @@
     max-height: calc(100vh - 16px);
     overflow-y: auto;
     pointer-events: auto;
+    /* SOLID OPAQUE backing so nothing behind the tooltip bleeds through. The inner
+       EquipmentTooltip .et card already declares an opaque background, but it stays
+       PRESERVE-UNCHANGED, so we guarantee opacity from the wrapper: a solid theme dark
+       (never an rgba with alpha). The .et card is SQUARE (no border-radius) and, with
+       the global box-sizing:border-box, fills this 244px wrapper exactly, so a square
+       (unrounded) backing sits precisely behind it and no opaque backing pokes outside
+       the card's border. */
+    background: var(--color-bg-deep);
   }
 
   /* Shared small-note text. */
