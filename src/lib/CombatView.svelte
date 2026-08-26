@@ -507,23 +507,48 @@
   $: enemySystemPips = systemPipLabels(enemySnap?.systemConditions ?? null);
 
   // ==========================================================================
-  // CLICK / TAP PIP TOOLTIPS (Combat 0.13.0). Every pip (status effect, ship-system
-  // condition, drone) is click/tap-able and toggles a rich inline info panel showing
-  // that pip's content: an effect's flavor + mechanical definition, a system's live
-  // combat effect (plus the equipment card for the PLAYER's reactor / ftl), or a
-  // drone's status line.
+  // HOVER + PIN PIP TOOLTIPS (Combat 0.13.0). Every pip (status effect, ship-system
+  // condition, drone) shows a rich inline info panel with that pip's content: an
+  // effect's flavor + mechanical definition, a system's live combat effect (plus the
+  // equipment card for the PLAYER's reactor / ftl), or a drone's status line.
   //
-  // ⚠️ FREEZE-SAFETY (this component hard-froze once on a reactive tick loop). The
-  // open/selected state is a PLAIN `let selectedPipKey`, written ONLY by the click /
-  // keydown handlers below, never by a reactive `$:`. Nothing here measures the DOM,
-  // calls tick(), or schedules a beat, so it cannot re-enter Svelte's flush loop. The
-  // panel is rendered IN-FLOW (a full-width flex item that wraps to its own line inside
-  // the pip row), not a measured/positioned floating popover, so no layout read is ever
-  // needed. A stale key after a wave change simply matches no pip and nothing shows.
+  // TWO WAYS TO OPEN, one visible panel:
+  //   - HOVER (desktop, hover-capable pointers only): mouseenter opens the pip's
+  //     tooltip, mouseleave closes it again. This is the transient, no-commitment view.
+  //   - PIN (click / tap / Enter / Space): togglePip PINS the tooltip open so it stays
+  //     through a mouseleave. A pinned pip closes on re-click, on pinning another pip,
+  //     or via the outside-click / Escape close. Tap is the ONLY open path on touch
+  //     devices (no hover), so pin doubles as the mobile show/hide.
+  //
+  // selectedPipKey is the single "which panel is visible" key the template reads; it is
+  // set by EITHER a hover or a pin. tipPinned records whether the currently shown panel
+  // was pinned (so hover in/out leaves it alone) versus merely hovered (so mouseleave
+  // dismisses it). hoverCapable gates the hover path off on touch so a tap never races a
+  // synthetic hover; the pin path is always live.
+  //
+  // ⚠️ FREEZE-SAFETY (this component hard-froze once on a reactive tick loop). All three
+  // of these are PLAIN `let`s written ONLY by the pointer / keydown handlers below, never
+  // by a reactive `$:`. Nothing here measures the DOM, calls tick(), or schedules a beat,
+  // so it cannot re-enter Svelte's flush loop. The panel is rendered IN-FLOW (a full-width
+  // flex item that wraps to its own line inside the pip row), not a measured/positioned
+  // floating popover, so no layout read is ever needed. No timers or listeners are added
+  // here (the hover handlers are declarative on:mouseenter/on:mouseleave, auto-torn-down by
+  // Svelte), so there is nothing extra to clean up on destroy. A stale key after a wave
+  // change simply matches no pip and nothing shows.
   // ==========================================================================
   // The key of the single open pip tooltip, or null when none is open. Keys are built
   // by pipKey() and are unique per side + kind + id, so only one tooltip is ever open.
   let selectedPipKey: string | null = null;
+  // True when the visible tooltip was PINNED by a click / tap / keyboard (so hover
+  // in/out does not disturb it); false when it is only a transient hover preview.
+  let tipPinned = false;
+  // Whether this pointer supports true hover (desktop mouse) vs touch. Gates the hover
+  // open/close so a touch tap relies solely on the pin path and never double-fires with a
+  // synthetic mouseenter. Guarded for SSR / jsdom (no window / no matchMedia -> false).
+  const hoverCapable =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(hover: hover)").matches;
 
   // Build a stable, unique key for one pip. `scope` distinguishes the player row from
   // each enemy row ("p", "e0", "e1", ...) so the same def id on two ships never collides.
@@ -531,14 +556,41 @@
     return `${scope}:${kind}:${id}`;
   }
 
-  // Toggle a pip's tooltip: clicking the open pip closes it, clicking another switches.
+  // PIN toggle (click / tap / keyboard). Pinning the already-pinned pip closes it;
+  // pinning any other pip (or a pip currently only hovered) pins that one instead.
   function togglePip(key: string): void {
-    selectedPipKey = selectedPipKey === key ? null : key;
+    if (selectedPipKey === key && tipPinned) {
+      // Re-activating the pinned pip dismisses it.
+      selectedPipKey = null;
+      tipPinned = false;
+    } else {
+      // Pin this pip open (switching the pin off any other pip, and promoting a mere
+      // hover of this pip into a committed pin).
+      selectedPipKey = key;
+      tipPinned = true;
+    }
+  }
+
+  // HOVER open (mouseenter). Transient preview: show this pip's tooltip. Skipped on touch
+  // pointers (hoverCapable false) and while a pip is PINNED, so hovering elsewhere never
+  // steals a pinned panel.
+  function onPipEnter(key: string): void {
+    if (!hoverCapable || tipPinned) return;
+    selectedPipKey = key;
+  }
+
+  // HOVER close (mouseleave). Clears the transient preview when the pointer leaves the pip
+  // that opened it. Skipped on touch and while pinned (a pinned panel survives mouseleave).
+  // The selectedPipKey === key guard avoids clobbering a panel that a fast enter->leave on a
+  // neighbor already re-pointed at a different pip.
+  function onPipLeave(key: string): void {
+    if (!hoverCapable || tipPinned) return;
+    if (selectedPipKey === key) selectedPipKey = null;
   }
 
   // Keyboard activation for a pip (it is a role="button" span, so Enter / Space must
-  // act like a click). stopPropagation keeps the key event from also reaching the
-  // enclosing mobile row button (which would collapse the row).
+  // act like a click). It PINS via togglePip. stopPropagation keeps the key event from
+  // also reaching the enclosing mobile row button (which would collapse the row).
   function onPipKeydown(event: KeyboardEvent, key: string): void {
     if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
       event.preventDefault();
@@ -547,10 +599,14 @@
     }
   }
 
-  // Close the open tooltip. Bound to a window click (any click NOT on a pip, since pips
-  // stopPropagation) and to Escape, so "re-click / click elsewhere / Escape" all dismiss.
+  // Close the open tooltip (pin or hover). Bound to a window click (any click NOT on a pip,
+  // since pips stopPropagation) and to Escape, so "re-click / click elsewhere / Escape" all
+  // dismiss and also drop the pin.
   function closeTip(): void {
-    if (selectedPipKey !== null) selectedPipKey = null;
+    if (selectedPipKey !== null) {
+      selectedPipKey = null;
+      tipPinned = false;
+    }
   }
   function onWindowKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") closeTip();
@@ -1070,6 +1126,8 @@
                 aria-label={effectPipTitle(e.defId, e.rank)}
                 title={effectPipTitle(e.defId, e.rank)}
                 on:click|stopPropagation={() => togglePip(key)}
+                on:mouseenter={() => onPipEnter(key)}
+                on:mouseleave={() => onPipLeave(key)}
                 on:keydown={(ev) => onPipKeydown(ev, key)}
               >{effectPipGlyph(e.defId)}</span>
               {#if selectedPipKey === key}{@render effectTip(e.defId, e.rank)}{/if}
@@ -1088,6 +1146,8 @@
                 aria-label={sp.label}
                 title={sp.label}
                 on:click|stopPropagation={() => togglePip(key)}
+                on:mouseenter={() => onPipEnter(key)}
+                on:mouseleave={() => onPipLeave(key)}
                 on:keydown={(ev) => onPipKeydown(ev, key)}
               ></span>
               {#if selectedPipKey === key}{@render systemTip(sp.pip.kind, sp.label, sp.pip.condition, equipPieceForSystemPip(true, sp.pip.kind))}{/if}
@@ -1107,6 +1167,8 @@
                   aria-label={dp.title}
                   title={dp.title}
                   on:click|stopPropagation={() => togglePip(key)}
+                  on:mouseenter={() => onPipEnter(key)}
+                  on:mouseleave={() => onPipLeave(key)}
                   on:keydown={(ev) => onPipKeydown(ev, key)}
                 ></span>
                 {#if selectedPipKey === key}{@render droneTip(dp.title)}{/if}
@@ -1162,6 +1224,8 @@
                 aria-label={effectPipTitle(e.defId, e.rank)}
                 title={effectPipTitle(e.defId, e.rank)}
                 on:click|stopPropagation={() => togglePip(key)}
+                on:mouseenter={() => onPipEnter(key)}
+                on:mouseleave={() => onPipLeave(key)}
                 on:keydown={(ev) => onPipKeydown(ev, key)}
               >{effectPipGlyph(e.defId)}</span>
               {#if selectedPipKey === key}{@render effectTip(e.defId, e.rank)}{/if}
@@ -1180,6 +1244,8 @@
                 aria-label={sp.label}
                 title={sp.label}
                 on:click|stopPropagation={() => togglePip(key)}
+                on:mouseenter={() => onPipEnter(key)}
+                on:mouseleave={() => onPipLeave(key)}
                 on:keydown={(ev) => onPipKeydown(ev, key)}
               ></span>
               {#if selectedPipKey === key}{@render systemTip(sp.pip.kind, sp.label, sp.pip.condition, null)}{/if}
@@ -1199,6 +1265,8 @@
                   aria-label={dp.title}
                   title={dp.title}
                   on:click|stopPropagation={() => togglePip(key)}
+                  on:mouseenter={() => onPipEnter(key)}
+                  on:mouseleave={() => onPipLeave(key)}
                   on:keydown={(ev) => onPipKeydown(ev, key)}
                 ></span>
                 {#if selectedPipKey === key}{@render droneTip(dp.title)}{/if}
@@ -1288,6 +1356,8 @@
                         aria-pressed={selectedPipKey === key}
                         aria-label={sp.label}
                         on:click|stopPropagation={() => togglePip(key)}
+                        on:mouseenter={() => onPipEnter(key)}
+                        on:mouseleave={() => onPipLeave(key)}
                         on:keydown={(ev) => onPipKeydown(ev, key)}
                       ><span class="pip {sp.pip.condition}"></span></span>
                       {#if selectedPipKey === key}{@render systemTip(sp.pip.kind, sp.label, sp.pip.condition, equipPieceForSystemPip(true, sp.pip.kind))}{/if}
@@ -1306,6 +1376,8 @@
                         aria-pressed={selectedPipKey === key}
                         aria-label={effectPipTitle(e.defId, e.rank)}
                         on:click|stopPropagation={() => togglePip(key)}
+                        on:mouseenter={() => onPipEnter(key)}
+                        on:mouseleave={() => onPipLeave(key)}
                         on:keydown={(ev) => onPipKeydown(ev, key)}
                       ><span class="pip {effectPipClass(e.defId)}">{effectPipGlyph(e.defId)}</span></span>
                       {#if selectedPipKey === key}{@render effectTip(e.defId, e.rank)}{/if}
@@ -1327,6 +1399,8 @@
                           aria-pressed={selectedPipKey === key}
                           aria-label={dp.title}
                           on:click|stopPropagation={() => togglePip(key)}
+                          on:mouseenter={() => onPipEnter(key)}
+                          on:mouseleave={() => onPipLeave(key)}
                           on:keydown={(ev) => onPipKeydown(ev, key)}
                         ><span class="pip {dp.cls}"></span></span>
                         {#if selectedPipKey === key}{@render droneTip(dp.title)}{/if}
@@ -1392,6 +1466,8 @@
                           aria-pressed={selectedPipKey === key}
                           aria-label={sp.label}
                           on:click|stopPropagation={() => togglePip(key)}
+                          on:mouseenter={() => onPipEnter(key)}
+                          on:mouseleave={() => onPipLeave(key)}
                           on:keydown={(ev) => onPipKeydown(ev, key)}
                         ><span class="pip {sp.pip.condition}"></span></span>
                         {#if selectedPipKey === key}{@render systemTip(sp.pip.kind, sp.label, sp.pip.condition, null)}{/if}
@@ -1410,6 +1486,8 @@
                           aria-pressed={selectedPipKey === key}
                           aria-label={effectPipTitle(e.defId, e.rank)}
                           on:click|stopPropagation={() => togglePip(key)}
+                          on:mouseenter={() => onPipEnter(key)}
+                          on:mouseleave={() => onPipLeave(key)}
                           on:keydown={(ev) => onPipKeydown(ev, key)}
                         ><span class="pip {effectPipClass(e.defId)}">{effectPipGlyph(e.defId)}</span></span>
                         {#if selectedPipKey === key}{@render effectTip(e.defId, e.rank)}{/if}
@@ -1431,6 +1509,8 @@
                             aria-pressed={selectedPipKey === key}
                             aria-label={dp.title}
                             on:click|stopPropagation={() => togglePip(key)}
+                            on:mouseenter={() => onPipEnter(key)}
+                            on:mouseleave={() => onPipLeave(key)}
                             on:keydown={(ev) => onPipKeydown(ev, key)}
                           ><span class="pip {dp.cls}"></span></span>
                           {#if selectedPipKey === key}{@render droneTip(dp.title)}{/if}
