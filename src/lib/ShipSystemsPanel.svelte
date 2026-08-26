@@ -1573,7 +1573,12 @@
      place of the Uninstall button, which would be a dead no-op there). Dim + compact so
      it reads as informational, not actionable. */
   .ss-baseline-note {
-    flex: 0 0 auto;
+    /* Fill the flex .et-foot row (flex-basis:100%) and allow shrink; min-width:0
+       overrides the flex min-width:auto default so the sentence WRAPS to the
+       tooltip width instead of taking its full single-line width and clipping
+       off the right edge on narrow mobile viewports. */
+    flex: 1 1 100%;
+    min-width: 0;
     margin: 0;
     padding: 4px 0;
     font-size: 11px;
