@@ -4,7 +4,7 @@ _Last updated: 2026-08-27. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*
 
 ## Where things stand RIGHT NOW
 
-- **Branch:** `feat/combat-0.13.0`. **Staging tip = `4e607d9`** (pushed to `origin/staging` = devpreview). **PROD (`origin/main`) UNTOUCHED at `e282614`** (v30, 0.12.1).
+- **Branch:** `feat/combat-0.13.0`. **Staging tip = `3cf9c9e`** (pushed to `origin/staging` = devpreview). **PROD (`origin/main`) UNTOUCHED at `e282614`** (v30, 0.12.1).
 - **SAVE_VERSION = 39.** Migrations `MIGRATIONS[37]`/`[38]` are on staging but NOT yet on prod, so still editable until the promotion. Once promoted, they freeze.
 - **Gates green at the tip:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, unrelated), `npx vitest run -t "parit"` = 101, `npx vitest run` = 1834 passed / 70 files.
 
@@ -14,12 +14,18 @@ _Last updated: 2026-08-27. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*
 2. **Offense gate** (commit `e66175e`): a capReached (60s) timeout can only be won by a team that actually reduced the other's hull. Weaponless ships can no longer false-win by out-tanking (sim + Threat Assessment both honest); closed a patrol-farm exploit.
 3. **Renamable ships** (`df406e9`): click-to-edit name in the ShipSystemsPanel header; `renameShip` in tick.ts; `handleRenameShip` in App.svelte; additive `name?` field, no migration.
 4. **Review + fix-pass** (commit `4e607d9`): 3-lens holistic review found NO blockers. Added a roster-wide SI byte-identity guard test + pre-freeze comment corrections.
+5. **Tooltip opacity fix** (commit `3cf9c9e`): the recurring mobile "tooltip overlap" was root-caused (the threat tooltip used the 32%-opaque `--color-panel-bg`, so card content bled through; NOT position/z-index). Fixed with an opaque surface (same idiom as `.currency-tooltip`). Full opaque-tooltip-token standardization deferred to the 0.13.1 tooltip redesign (logged).
 
-## Awaiting the user
+## QA status
 
-- **User's on-device QA pass**, then an explicit go, then ONE prod promotion (v30 -> v39). QA checklist (refreshed to v39): https://claude.ai/code/artifact/386d9489-faef-4271-98a9-2b9b656e3f19
-- Most logic is PRE-VERIFIED (byte-identity, crafted-beats-SI, transfer-exploit-dead, weaponless-loses, migration-safety). The user's pass is the visual / interaction / mobile steps.
-- User may run a **Fable** session for a final quick bug check before promotion.
+- **User's on-device DELTA QA pass = PASSED (2026-08-27).** Only the two changed areas since the prior 100% run (offense gate + shield Effectiveness-% swap) needed re-checking; both confirmed good on-device. Delta checklist: https://claude.ai/code/artifact/00649e52-f05c-4762-a52e-14b3b699658b (full sheet, mostly redundant now: https://claude.ai/code/artifact/386d9489-faef-4271-98a9-2b9b656e3f19).
+- Logic was PRE-VERIFIED by tests + the 3-lens review; the on-device pass confirmed the visual/interaction side.
+
+## Remaining before prod promotion
+
+- **User's Fable session** for a final quick bug check (in progress / next).
+- Then the user's **explicit go**, then ONE prod promotion (v30 -> v39). Nothing touches `main` until then.
+- Open observation from QA (logged, not yet actioned): "4 guns" vs "No weapon installed" wording on the dispatch ship line (confirm it is hardpoint capacity, not a bug).
 
 ## Known deferrals (already logged in SUGGESTIONS.md, do NOT re-litigate)
 
