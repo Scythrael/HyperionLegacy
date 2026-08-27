@@ -62,7 +62,7 @@
   // (single source of truth). These are READ-ONLY: the panel presents them, it never
   // reimplements the combat fold (that stays in combat/bridge.ts).
   import { combatHullTypeOf, shipToCombatant } from "./game/combat/bridge";
-  import { computeCombatReadout, type RequiredCombatSlot } from "./game/combatFit";
+  import { computeCombatReadout } from "./game/combatFit";
   import { weaponDisplayName } from "./game/combat/combatView";
   import { WEAPON_DEFS } from "./game/combat/weapons";
   import { battleRating } from "./game/combat/rating";
@@ -279,10 +279,10 @@
       { label: "Mass", base: base.mass, fitted: fit.mass, kind: "flat" },
     ];
   }
+  // All economy stat rows, shown together under the "Exploration / Prospecting" readout
+  // section (the mockup's grouping): extraction + cargo + FTL + fuel + power + mass, each
+  // keeping its base -> installed delta so the comparison the panel has always shown holds.
   $: liveStatRows = baseStats && fitStats ? buildLiveRows(baseStats, fitStats) : [];
-  const PROSPECTING_LABELS = new Set(["Extraction Yield", "Cargo Capacity"]);
-  $: prospectingRows = liveStatRows.filter((r) => PROSPECTING_LABELS.has(r.label));
-  $: logisticsRows = liveStatRows.filter((r) => !PROSPECTING_LABELS.has(r.label));
 
   // --- Combat reads -----------------------------------------------------------
   // combatHullTypeOf now returns non-null for every hull, so isCombatHull is true for
@@ -297,13 +297,22 @@
   // fittedPieces the economy stats use, so it recomputes on every install / uninstall.
   $: combatReadout =
     ship && shipDef && isCombatHull
-      ? computeCombatReadout(fittedPieces, shipDef.hullIntegrity, shipDef.weaponHardpoints, shipDef.droneBays ?? 0)
+      ? computeCombatReadout(fittedPieces, shipDef, shipDef.weaponHardpoints, shipDef.droneBays ?? 0)
       : null;
 
   $: mountedWeapons = combatReadout ? combatReadout.mountedWeapons : [];
   $: hardpointCap = combatReadout ? combatReadout.hardpointCap : 0;
   $: spareWeapons = equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === "weapon");
-  $: missingRequired = combatReadout ? combatReadout.missingRequired : [];
+
+  // Combat-gear readiness (combat-defense rework, Unit 3/6, design S5 "inform, don't forbid"):
+  //   - The REACTOR is the ONLY hard dispatch block. A ship with an empty reactorCore slot has no
+  //     power and physically cannot be dispatched (canDispatchPatrol: noReactor). Read off the same
+  //     fittedBySlot map the tiles use.
+  //   - A missing WEAPON is a non-blocking ADVISORY: the ship can dispatch but cannot return fire.
+  //   - Missing plating / shield emitter are OPTIONAL, silent player choices (a bare hull keeps its
+  //     innate armor; no emitter simply means 0 shields), surfaced in the Defensive readout, not a banner.
+  $: reactorMissing = ship !== null && fittedBySlot["reactorCore"] == null;
+  $: noWeaponInstalled = combatReadout ? combatReadout.missingRequired.includes("weapon") : false;
 
   // Drone reads (carrier-only). hasDroneBays gates the whole drone strip + the DRONES
   // readout, so a non-carrier never shows an empty drone strip it can never fill.
@@ -414,30 +423,6 @@
   }
 
   // --- Combat display helpers -------------------------------------------------
-  // Player-facing label for each required combat slot, for the dispatch-blocker
-  // banner. Total over RequiredCombatSlot (a switch, no default).
-  function requiredSlotLabel(slot: RequiredCombatSlot): string {
-    switch (slot) {
-      case "weapon":
-        return "a weapon";
-      case "shieldEmitters":
-        return "a shield emitter";
-      case "hullPlating":
-        return "hull plating";
-    }
-  }
-  // The dispatch-blocker sentence BODY (the markup prepends a bold "Cannot patrol:").
-  function blockerText(missing: RequiredCombatSlot[]): string {
-    const parts = missing.map(requiredSlotLabel);
-    const list =
-      parts.length === 1
-        ? parts[0]
-        : parts.length === 2
-          ? `${parts[0]} and ${parts[1]}`
-          : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-    return `install ${list} to make this ship dispatchable.`;
-  }
-
   // A weapon's FAMILY color for the offense readout dot (kinetic amber / particle
   // accent / ew violet), read as stable tokens so it holds across the theme accent.
   function weaponFamilyColor(weaponType: string | undefined): string {
@@ -736,14 +721,21 @@
       </div>
     {/if}
 
-    <!-- DISPATCH-BLOCKER BANNER: a combat hull with any required combat slot stripped
-         bare cannot patrol, so a red banner names the missing slot(s). Every hull is a
-         combat hull now, so this can show on an economy hull whose combat gear was
-         uninstalled. Mirrors canDispatchPatrol's per-slot gate. -->
-    {#if isCombatHull && missingRequired.length > 0}
+    <!-- READINESS BANNERS (combat-defense rework, design S5 "inform, don't forbid"): the
+         ONLY hard dispatch block is an empty reactor (no power = cannot fly), so a stripped
+         reactorCore shows a red blocker. A missing weapon is a non-blocking ADVISORY (the ship
+         can dispatch, it just cannot return fire). Missing plating / shields are optional and
+         raise no banner (their absence is shown in the Defensive readout). At most one banner
+         shows, the reactor block taking precedence over the weapon advisory. -->
+    {#if reactorMissing}
       <div class="ss-blocker" role="alert">
         <span class="ss-blocker-dot" aria-hidden="true"></span>
-        <span><strong>Cannot patrol:</strong> {blockerText(missingRequired)}</span>
+        <span><strong>Cannot dispatch:</strong> no reactor core installed. A reactor powers the ship, so install one before dispatching.</span>
+      </div>
+    {:else if isCombatHull && noWeaponInstalled}
+      <div class="ss-advisory" role="status">
+        <span class="ss-advisory-dot" aria-hidden="true"></span>
+        <span><strong>No weapon installed:</strong> this ship cannot return fire in combat. You can still dispatch it.</span>
       </div>
     {/if}
 
@@ -975,35 +967,78 @@
 
       <!-- RIGHT: the categorized, scrollable stats panel (QA #5). -->
       <div class="ss-stats-col">
-        <!-- COMBAT: the folded combat readout, shown for every hull. Hull integrity
-             carries its frame + plating breakdown so a low number reads as weak gear,
-             not damage (QA #3). -->
+        <!-- COMBAT READOUT (combat-defense rework, Unit 6): split so the innate-vs-gear
+             composition is legible. INNATE = the hull's own stats; SYSTEMS = the installed
+             gear grouped Offensive / Defensive / Support; the DEFENSIVE totals show their
+             composition (innate armor + plating, emitter cap x amplification) so a low or
+             high number reads as gear + hull, never as damage. Shown for every hull. -->
         {#if combatReadout}
+          <!-- INNATE: the hull's own stats (its armor pool, the emitter amplification it
+               applies, and its hardpoint / drone-bay capacity). -->
           <div class="ss-cat">
-            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#9876;&#65039;</span> Combat</div>
-            <div class="ss-srow">
-              <span class="ss-sk">Hull integrity</span>
-              <span class="ss-sv">
-                {fmtFlat(combatReadout.hullTotal)}
-                <small>(frame {fmtFlat(combatReadout.frameHp)} + plating {fmtFlat(combatReadout.platingHp)})</small>
-              </span>
+            <div class="ss-cat-head">
+              <span class="ss-cat-glyph" aria-hidden="true">&#128640;</span> Innate
+              <span class="ss-cat-note">the hull itself</span>
             </div>
-            <div class="ss-srow"><span class="ss-sk">Shield capacity</span><span class="ss-sv">{fmtFlat(combatReadout.shieldCapacity)}</span></div>
-            <div class="ss-srow"><span class="ss-sk">Shield recharge</span><span class="ss-sv">{fmtFlat(combatReadout.shieldRecharge)} / s</span></div>
-            <div class="ss-srow"><span class="ss-sk">Weapons mounted</span><span class="ss-sv">{mountedWeapons.length} / {hardpointCap}</span></div>
+            <div class="ss-srow"><span class="ss-sk">Hull armor</span><span class="ss-sv">{fmtFlat(combatReadout.innateHullArmor)}</span></div>
+            <div class="ss-srow"><span class="ss-sk">Shield amplification</span><span class="ss-sv">&times;{(1 + combatReadout.innateShieldCapMult).toFixed(1)} <small>cap</small></span></div>
+            <div class="ss-srow"><span class="ss-sk">Recharge amplification</span><span class="ss-sv">&times;{(1 + combatReadout.innateShieldRechargeMult).toFixed(1)} <small>regen</small></span></div>
+            <div class="ss-srow"><span class="ss-sk">Weapon hardpoints</span><span class="ss-sv">{hardpointCap}</span></div>
+            <div class="ss-srow"><span class="ss-sk">Drone bays</span><span class="ss-sv">{droneBayCap}</span></div>
+          </div>
+
+          <!-- SYSTEMS - OFFENSIVE: the installed weapons + the mounted / cap count + the
+               advisory Battle Rating from the same folded loadout. -->
+          <div class="ss-cat">
+            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#9876;&#65039;</span> Systems &middot; Offensive</div>
             {#each mountedWeapons as weapon (weapon.id)}
               <div class="ss-srow ss-srow-sub">
                 <span class="ss-sk"><span class="ss-fam" style="background: {weaponFamilyColor(weapon.weaponType)}"></span>{weaponName(weapon)}</span>
                 <span class="ss-sv ss-sv-dim">{weaponYieldRange(weapon)}</span>
               </div>
             {/each}
-            {#if combatReadout.ablativeArmor > 0}
-              <div class="ss-srow"><span class="ss-sk">Ablative armor</span><span class="ss-sv">{fmtFlat(combatReadout.ablativeArmor)}</span></div>
+            {#if mountedWeapons.length === 0}
+              <p class="ss-cat-placeholder">No weapon installed: this ship cannot return fire.</p>
             {/if}
+            <div class="ss-srow"><span class="ss-sk">Weapons mounted</span><span class="ss-sv">{mountedWeapons.length} / {hardpointCap}</span></div>
             {#if battleRatingValue !== null}
               <div class="ss-srow"><span class="ss-sk">Battle Rating</span><span class="ss-sv ss-sv-accent">{formatNumber(battleRatingValue)}</span></div>
             {/if}
-            <!-- DRONES: carrier-only, from the same fold. -->
+          </div>
+
+          <!-- SYSTEMS - DEFENSIVE: the composed hull + shield totals, each showing its
+               innate + gear split (hull = innate + plating; shield = emitter cap x
+               amplification), so the source of each number is visible. -->
+          <div class="ss-cat">
+            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#128737;&#65039;</span> Systems &middot; Defensive</div>
+            <div class="ss-srow">
+              <span class="ss-sk">Hull integrity</span>
+              <span class="ss-sv">
+                {fmtFlat(combatReadout.hullTotal)}
+                <small>= {fmtFlat(combatReadout.innateHullArmor)} innate{#if combatReadout.platingHullStrength > 0} + {fmtFlat(combatReadout.platingHullStrength)} plating{/if}</small>
+              </span>
+            </div>
+            {#if combatReadout.shieldEmitter}
+              <div class="ss-srow">
+                <span class="ss-sk">Shield capacity</span>
+                <span class="ss-sv">{fmtFlat(combatReadout.shieldTotal)} <small>= {fmtFlat(combatReadout.emitterCap)} &times; {(1 + combatReadout.innateShieldCapMult).toFixed(1)}</small></span>
+              </div>
+              <div class="ss-srow">
+                <span class="ss-sk">Shield recharge</span>
+                <span class="ss-sv">{fmtFlat(combatReadout.rechargeTotal)} / s <small>= {fmtFlat(combatReadout.emitterRecharge)} &times; {(1 + combatReadout.innateShieldRechargeMult).toFixed(1)}</small></span>
+              </div>
+            {:else}
+              <div class="ss-srow"><span class="ss-sk">Shield capacity</span><span class="ss-sv ss-sv-dim">none &middot; no emitter installed</span></div>
+            {/if}
+            {#if combatReadout.ablativeArmor > 0}
+              <div class="ss-srow"><span class="ss-sk">Ablative armor</span><span class="ss-sv">{fmtFlat(combatReadout.ablativeArmor)}</span></div>
+            {/if}
+          </div>
+
+          <!-- SYSTEMS - SUPPORT: the installed drone pods (carrier-only). A hull with no
+               bays shows a "no drone bays" empty state rather than an empty group. -->
+          <div class="ss-cat">
+            <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#128752;&#65039;</span> Systems &middot; Support</div>
             {#if hasDroneBays}
               <div class="ss-srow"><span class="ss-sk">Drone bays used</span><span class="ss-sv">{mountedPods.length} / {droneBayCap}</span></div>
               {#each mountedPods as pod (pod.id)}
@@ -1012,41 +1047,26 @@
                   <span class="ss-sv ss-sv-dim">iL {pod.iLevel}</span>
                 </div>
               {/each}
+              {#if mountedPods.length === 0}
+                <p class="ss-cat-placeholder">No drone pods installed.</p>
+              {/if}
+            {:else}
+              <p class="ss-cat-placeholder">No drone bays on this hull: support systems unavailable.</p>
             {/if}
           </div>
         {/if}
 
-        <!-- PROSPECTING: the two prospecting stats, each with its base -> installed
-             gear delta (kept from the old base-vs-installed rows). -->
+        <!-- EXPLORATION / PROSPECTING: the economy stats (extraction, cargo, FTL, fuel,
+             power, mass), each with its base -> installed gear delta preserved. -->
         <div class="ss-cat">
-          <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#9935;</span> Prospecting</div>
-          {#each prospectingRows as row (row.label)}
+          <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#9935;</span> Exploration / Prospecting</div>
+          {#each liveStatRows as row (row.label)}
             {@const delta = fmtDelta(row)}
             <div class="ss-srow">
               <span class="ss-sk">{row.label}</span>
               <span class="ss-sv">{fmtStatValue(row)}{#if delta}<small> ({delta})</small>{/if}</span>
             </div>
           {/each}
-        </div>
-
-        <!-- LOGISTICS: the remaining economy stats (FTL / fuel / power / mass), each
-             with its base -> installed delta. Kept so the base-vs-installed comparison
-             the old panel showed is not lost (the mockup folded these away). -->
-        <div class="ss-cat">
-          <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#128666;</span> Logistics</div>
-          {#each logisticsRows as row (row.label)}
-            {@const delta = fmtDelta(row)}
-            <div class="ss-srow">
-              <span class="ss-sk">{row.label}</span>
-              <span class="ss-sv">{fmtStatValue(row)}{#if delta}<small> ({delta})</small>{/if}</span>
-            </div>
-          {/each}
-        </div>
-
-        <!-- EXPLORATION: a forward placeholder, dimmed (user decision). -->
-        <div class="ss-cat ss-cat-soon">
-          <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#128301;</span> Exploration <span class="ss-cat-soon-tag">Coming soon</span></div>
-          <p class="ss-cat-placeholder">Exploration systems and stats arrive in a later update.</p>
         </div>
       </div>
     </div>
@@ -1272,6 +1292,33 @@
     color: var(--color-danger);
   }
 
+  /* WEAPON ADVISORY BANNER (design S5 "inform, don't forbid"): an amber, non-blocking
+     note. Distinct from the red .ss-blocker so a player reads "you can still dispatch,
+     but you cannot return fire", not "you are blocked". */
+  .ss-advisory {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 14px 0;
+    padding: 9px 12px;
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.45);
+    color: var(--color-warning);
+    font-size: 12px;
+    line-height: 1.4;
+    flex-shrink: 0;
+  }
+  .ss-advisory-dot {
+    flex: 0 0 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-warning);
+  }
+  .ss-advisory strong {
+    color: var(--color-warning);
+  }
+
   /* MAIN: two columns on wide screens; each column scrolls independently. On narrow
      (mobile) screens the columns stack and .ss-main itself scrolls. min-height:0 lets
      the flex children shrink and hand scrolling to the inner overflow. */
@@ -1455,10 +1502,8 @@
   .ss-cat-glyph {
     font-size: 14px;
   }
-  .ss-cat-soon {
-    opacity: 0.55;
-  }
-  .ss-cat-soon-tag {
+  /* Small dim subtitle after a category name (e.g. Innate "the hull itself"). */
+  .ss-cat-note {
     margin-left: auto;
     font-family: var(--font-mono);
     font-size: 9px;
