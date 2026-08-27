@@ -3366,13 +3366,16 @@ export type PatrolDispatchBlockReason =
   | "noShip"           // the captain flies no hull, so the trip can't be priced/crewed
   | "notCombatHull"    // the assigned hull is NOT a combat hull (destroyer/battleship/carrier)
   | "needsRepair"      // the assigned hull is DAMAGED (lost a patrol) and must be repaired first (Phase 11)
-  // Combat 1.0 (Unit 1.3, design S3): a combat hull with an EMPTY required combat slot cannot patrol.
-  // Per-slot reasons (not a single "missingCombatGear") so the UI can name the exact empty slot.
-  // NEVER fires in normal play (every combat hull is born + migrated with the Standard-Issue combat
-  // set installed); it is the guard for when the install UI lets a player strip a required slot bare.
-  | "noWeapon"         // the combat hull has NO weapon installed (needs >=1 to patrol)
-  | "noShieldEmitter"  // the combat hull has NO shield emitter installed (pure-gear shields: no emitter = no shields)
-  | "noHullPlating"    // the combat hull has NO hull plating installed
+  // Combat-defense rework (BUG-U6, Unit 3, design S5 "Blockers by realism"): the ONLY hard combat-
+  // dispatch requirement is a reactor. A reactorCore is an economy slot that recently became
+  // strippable-to-empty, so an empty reactor is now REACHABLE. No power = the ship cannot set a
+  // course or engage: a physical impossibility, not a tradeoff, so it is a HARD block. Weapons are
+  // NO LONGER a block: a weaponless "battering ram" is a valid (bad) player choice, surfaced as a
+  // NON-blocking advisory instead (see `noWeaponAdvisory` on the ok result below). Plating and shield
+  // emitter are NO LONGER blocks either: a bare hull keeps its innateHullArmor (design 3a) and a hull
+  // with no emitter simply flies with 0 shields (emitters ARE the shield source), both silent player
+  // choices. So the old noWeapon / noShieldEmitter / noHullPlating block reasons are DELETED here.
+  | "noReactor"        // the ship's reactorCore slot is EMPTY (no power = cannot dispatch; physically impossible)
   | "fuelCapacity"     // the hull's tank is physically too small for the round trip (RANGE)
   | "fuelEmpty";       // the shared fuel tank can't cover the round trip's cost AND the shortfall is unaffordable (RESOURCE)
 
@@ -3383,17 +3386,21 @@ export type PatrolDispatchBlockReason =
 //
 // GATE ORDER (cheapest/most-fundamental first, determines WHICH reason surfaces when
 // several fail): identity (noCaptain) -> status (busy) -> hull existence (noShip) -> hull
-// CAPABILITY (notCombatHull) -> repair state (needsRepair) -> combat GEAR (noWeapon /
-// noShieldEmitter / noHullPlating) -> fuel RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty).
-// notCombatHull is checked right after the hull is resolved (it is a property of the
-// hull, cheaper + more useful to report than any fuel arithmetic). Fuel is priced from
-// the SAME equipment-folded engineEfficiency the extraction gate uses, so a patrol's
-// dispatch estimate matches what 9b.5b will burn.
+// CAPABILITY (notCombatHull) -> repair state (needsRepair) -> POWER (noReactor) -> fuel
+// RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty). notCombatHull is checked right after
+// the hull is resolved (it is a property of the hull, cheaper + more useful to report than
+// any fuel arithmetic). Fuel is priced from the SAME equipment-folded engineEfficiency the
+// extraction gate uses, so a patrol's dispatch estimate matches what 9b.5b will burn.
+//
+// Combat-defense rework (Unit 3): the reactor is the ONLY hard combat-gear block (no power =
+// physically cannot fly). A missing weapon is not a block, it is surfaced as a NON-blocking
+// advisory on the ok result (`noWeaponAdvisory`, rendered as a persistent note on the dispatch
+// card). Missing plating / shield emitter are silent player choices (no block, no advisory).
 export function canDispatchPatrol(
   state: GameState,
   captainId: number,
   patrolKey: PatrolKey
-): { ok: true } | { ok: false; reason: PatrolDispatchBlockReason } {
+): { ok: true; noWeaponAdvisory?: boolean } | { ok: false; reason: PatrolDispatchBlockReason } {
   // --- Identity + status: the captain must exist and be idle (dispatch is idle-only).
   // Found by stable id, not array index (mirrors canDispatch). `mission !== null` covers
   // BOTH kinds, so a captain already on an extraction mission OR a patrol is "busy".
@@ -3422,19 +3429,22 @@ export function canDispatchPatrol(
   // one; only THIS damaged hull is grounded until its repair completes.
   if (ship.damaged) return { ok: false, reason: "needsRepair" };
 
-  // --- Combat GEAR (Combat 1.0, Unit 1.3, design S3): a combat hull REQUIRES its three required
-  // combat slots filled to patrol: at least one weapon, a shield emitter, and hull plating (queried
-  // off the fittedToShipId authority in state.equipment). Every combat hull is BORN and MIGRATES
-  // with the free Standard-Issue combat set installed (seedCombatStandardIssueForShip), so this
-  // NEVER fires in normal play; it is the guard for when the (later-unit) install/uninstall UI lets
-  // a player strip a required slot bare, honoring the "no shield emitter = no shields / no hull
-  // plating = you die" intent by BLOCKING dispatch rather than flying a defenseless hull. Checked
-  // after needsRepair (a property of the hull's fitment, more fundamental than fuel) and before any
-  // fuel arithmetic. Per-slot reasons so the UI names the exact empty slot.
-  const fittedCombat = state.equipment.filter((e) => e.fittedToShipId === ship.id);
-  if (!fittedCombat.some((e) => e.slotType === "weapon")) return { ok: false, reason: "noWeapon" };
-  if (!fittedCombat.some((e) => e.slotType === "shieldEmitters")) return { ok: false, reason: "noShieldEmitter" };
-  if (!fittedCombat.some((e) => e.slotType === "hullPlating")) return { ok: false, reason: "noHullPlating" };
+  // --- POWER (Combat-defense rework, Unit 3, design S5): the ONLY hard combat-gear block. A ship
+  // with an EMPTY reactorCore slot has no power, so it physically cannot set a course or engage:
+  // dispatch is REFUSED. The reactorCore is an economy slot that became strippable-to-empty in a
+  // recent unit, so this state is now reachable (before that a ship always carried its economy
+  // Standard-Issue reactor and this never fired). Checked after needsRepair (a property of the
+  // hull's fitment, more fundamental than fuel) and before any fuel arithmetic (no power = no trip
+  // regardless of the tank). Queried off the fittedToShipId authority in state.equipment.
+  const fittedGear = state.equipment.filter((e) => e.fittedToShipId === ship.id);
+  if (!fittedGear.some((e) => e.slotType === "reactorCore")) return { ok: false, reason: "noReactor" };
+
+  // --- Weapon ADVISORY (design S5 "inform, don't forbid"): a ship with NO weapon installed CAN still
+  // dispatch (a weaponless "battering ram" is a valid, bad player choice). It does NOT block; instead
+  // we flag `noWeaponAdvisory` on the ok result so the dispatch card can render a PERSISTENT note
+  // ("No weapon installed. You won't be able to return fire."). Plating + shield emitter are silent
+  // choices (no block, no advisory): a bare hull keeps its innateHullArmor, and no emitter = 0 shields.
+  const noWeaponAdvisory = !fittedGear.some((e) => e.slotType === "weapon");
 
   const shipDef = SHIP_TYPES[ship.typeKey];
 
@@ -3461,7 +3471,10 @@ export function canDispatchPatrol(
     if (state.credits.lt(cost)) return { ok: false, reason: "fuelEmpty" };
   }
 
-  return { ok: true };
+  // Dispatchable. Carry the weapon advisory (only present when true) so the card can persistently
+  // warn a weaponless dispatch without ever blocking it. Omitted (undefined) when a weapon IS
+  // installed, so callers asserting a plain { ok: true } stay unchanged.
+  return noWeaponAdvisory ? { ok: true, noWeaponAdvisory: true } : { ok: true };
 }
 
 // dispatchCaptainOnPatrol: put an idle captain onto a patrol. A THIN WRAPPER over

@@ -21,6 +21,7 @@ import {
   type PatrolMissionState,
   type ShipTypeKey,
   type EquipmentInstance,
+  seedStandardIssueForShip,
 } from "./model";
 import {
   canDispatchPatrol,
@@ -61,13 +62,13 @@ describe("canDispatchPatrol gates (Combat 0.13.0 §S14)", () => {
     expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: true });
   });
 
-  it("still blocks a BARE economy hull (no combat gear installed) with the required-slot guard", () => {
-    // A raw freshState() freighter is NOT combat-seeded (freshState seeds only the economy Standard-
-    // Issue; the real new-game path wraps it with installMissingCombatBaselines, and a live save is
-    // seeded by the migration). With its required combat slots empty it trips the SAME required-slot
-    // guard a stripped combat hull would: noWeapon. This is the "a stripped hull cannot launch" floor.
+  it("DISPATCHES a bare economy hull (no combat gear) now that only a reactor is required", () => {
+    // Combat-defense rework (Unit 3): a raw freshState() freighter is NOT combat-seeded (no weapon /
+    // shield / plating), but it DOES carry its economy Standard-Issue reactor. Under the new blockers
+    // (reactor is the ONLY hard block; weapon = advisory; plating/shield = silent choices) it is now
+    // DISPATCHABLE, with the weapon advisory flagged. The old noWeapon block is deleted.
     const state = freshState();
-    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noWeapon" });
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: true, noWeaponAdvisory: true });
   });
 
   it("allows a combat hull (destroyer) with a full tank", () => {
@@ -108,38 +109,54 @@ describe("canDispatchPatrol gates (Combat 0.13.0 §S14)", () => {
     expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "fuelEmpty" });
   });
 
-  // Combat 1.0 (Unit 1.3): the empty-required-slot dispatch blocker. A combat hull is born with the
-  // Standard-Issue combat set (stateWithHull seeds it), so the ALLOW case is the default; stripping
-  // a required slot (the only way to reach the block, once the install UI lands) surfaces its reason.
-  it("allows a combat hull carrying all three required combat slots (the born-with-baseline default)", () => {
-    // ship-1 is a destroyer seeded with weapon + shield emitter + hull plating -> dispatchable.
+  // Combat-defense rework (Unit 3, design S5 "Blockers by realism"): the ONLY hard combat-gear block
+  // is a reactor (no power = physically cannot fly). A combat hull is born with the Standard-Issue set
+  // (stateWithHull seeds weapon + shield + plating + the economy reactor), so the ALLOW case is the
+  // default. Weapons are now a non-blocking advisory; plating + shield emitter are silent choices.
+  it("allows a combat hull carrying its full baseline (the born-with-baseline default)", () => {
+    // ship-1 is a destroyer seeded with weapon + shield emitter + hull plating + reactor -> dispatchable,
+    // and it HAS a weapon so no advisory flag is set (a plain { ok: true }).
     expect(canDispatchPatrol(stateWithHull("destroyer"), 1, PATROL_KEY)).toEqual({ ok: true });
   });
 
-  it("blocks with noWeapon when the weapon slot is stripped bare", () => {
+  it("HARD-BLOCKS with noReactor when the reactor slot is stripped bare (no power)", () => {
     const base = stateWithHull("destroyer");
-    // Uninstall (remove from the pool) the ship-1 weapon baseline, leaving the hardpoint empty.
+    // Uninstall the ship-1 reactor baseline, leaving the reactorCore slot empty. This is the sole
+    // hard combat-dispatch block: no power means the ship physically cannot set a course.
+    const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && e.slotType === "reactorCore")) };
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noReactor" });
+  });
+
+  it("DISPATCHES with a weapon advisory when the weapon slot is stripped bare (inform, don't forbid)", () => {
+    const base = stateWithHull("destroyer");
+    // Uninstall the ship-1 weapon baseline, leaving the hardpoint empty. Under the new blockers this is
+    // NOT a block: a weaponless "battering ram" is a valid (bad) choice, surfaced as gate.noWeaponAdvisory.
     const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && e.slotType === "weapon")) };
-    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noWeapon" });
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: true, noWeaponAdvisory: true });
   });
 
-  it("blocks with noShieldEmitter when the shield emitter slot is stripped bare", () => {
+  it("DISPATCHES silently when the shield emitter slot is stripped bare (no block, no advisory)", () => {
     const base = stateWithHull("destroyer");
+    // No emitter = 0 shields (emitters ARE the shield source), a silent player choice: dispatchable with
+    // NO advisory (the ship still has a weapon, so noWeaponAdvisory is omitted -> a plain { ok: true }).
     const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && e.slotType === "shieldEmitters")) };
-    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noShieldEmitter" });
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: true });
   });
 
-  it("blocks with noHullPlating when the hull plating slot is stripped bare", () => {
+  it("DISPATCHES silently when the hull plating slot is stripped bare (bare hull keeps innate armor)", () => {
     const base = stateWithHull("destroyer");
+    // A bare hull keeps its innateHullArmor (design 3a), so flying without plating is a silent choice:
+    // dispatchable with NO advisory (a weapon is still installed).
     const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && e.slotType === "hullPlating")) };
-    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noHullPlating" });
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: true });
   });
 
-  it("surfaces noWeapon FIRST when multiple required slots are stripped (gate order: weapon -> shield -> plating)", () => {
+  it("HARD-BLOCKS on the reactor even when weapon/shield/plating are ALSO stripped (reactor is the only block)", () => {
     const base = stateWithHull("destroyer");
-    // Strip ALL three: the weapon reason surfaces first (cheapest-first gate order).
-    const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && (e.slotType === "weapon" || e.slotType === "shieldEmitters" || e.slotType === "hullPlating"))) };
-    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noWeapon" });
+    // Strip weapon + shield + plating + reactor: the reactor block wins (it is the ONLY hard block, and
+    // the missing weapon/shield/plating no longer produce block reasons at all).
+    const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && (e.slotType === "weapon" || e.slotType === "shieldEmitters" || e.slotType === "hullPlating" || e.slotType === "reactorCore"))) };
+    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noReactor" });
   });
 });
 
@@ -233,13 +250,14 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
   });
 
   it("a blocked dispatch is a same-ref no-op carrying the block reason", () => {
-    // A raw freshState() freighter is combat-BARE (freshState seeds no combat gear), so dispatch is
-    // blocked by the required-slot guard (noWeapon), not by a hull-capability gate anymore. The point
-    // of THIS test is the same-ref no-op convention on ANY blocked dispatch, which still holds.
-    const state = freshState();
+    // Combat-defense rework (Unit 3): a bare freighter is now DISPATCHABLE (only a reactor is required),
+    // so to exercise a genuine block we strip the reactor -> noReactor (the sole hard combat-gear block).
+    // The point of THIS test is the same-ref no-op convention on ANY blocked dispatch, which still holds.
+    const base = freshState();
+    const state = { ...base, equipment: base.equipment.filter((e) => !(e.fittedToShipId === "ship-1" && e.slotType === "reactorCore")) };
     const result = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false);
     expect(result.success).toBe(false);
-    expect(result.reason).toBe("noWeapon");
+    expect(result.reason).toBe("noReactor");
     expect(result.next).toBe(state); // exact same reference, nothing mutated
   });
 
@@ -249,12 +267,17 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
     // counter advanced exactly twice (never reusing a seed).
     const base = stateWithHull("destroyer"); // captain 1 flies a destroyer
     const captain2: CaptainState = { ...freshCaptains(1)[0], id: 2, label: "Captain 2" };
-    // Combat 1.0 (Unit 1.3): ship-2 is a SECOND combat hull added inline, so seed its combat
-    // baseline too (installMissingCombatBaselines only touches the newly-added, still-bare ship-2).
+    // Combat 1.0 (Unit 1.3): ship-2 is a SECOND combat hull added inline. It needs BOTH its economy
+    // Standard-Issue (seedStandardIssueForShip -> includes the reactorCore the new Unit 3 noReactor
+    // block requires) AND its combat baseline (installMissingCombatBaselines -> weapon/shield/plating),
+    // exactly as a real built ship gets both, so it is fully dispatchable.
+    const ship2Economy = seedStandardIssueForShip("ship-2", base.nextEquipmentId);
     const state: GameState = installMissingCombatBaselines({
       ...base,
       captains: [...base.captains, captain2],
       ships: [...base.ships, { id: "ship-2", typeKey: "destroyer", assignedCaptainId: 2 }],
+      equipment: [...base.equipment, ...ship2Economy.pieces],
+      nextEquipmentId: ship2Economy.nextId,
       nextCaptainId: 3,
       nextShipId: 3,
     });

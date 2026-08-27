@@ -2355,12 +2355,11 @@
         return "Ship hull is not recognized";
       case "needsRepair":
         return "Ship is damaged, repair it first";
-      case "noWeapon":
-        return "Install a weapon first";
-      case "noShieldEmitter":
-        return "Install a shield emitter first";
-      case "noHullPlating":
-        return "Install hull plating first";
+      case "noReactor":
+        // Combat-defense rework (Unit 3): the ONLY hard combat-gear block. No reactor installed =
+        // no power = the ship physically cannot set a course. Missing weapon/plating/shields are
+        // NOT blocks now (weapon = a persistent advisory below; plating/shields = silent choices).
+        return "Install a reactor first (no power)";
       case "fuelCapacity":
         return "Ship's tank too small for this trip";
       case "fuelEmpty":
@@ -8131,6 +8130,16 @@
                        reason (notCombatHull / needsRepair / fuel gates / busy / no captain). -->
                   {#if gate !== null && !gate.ok}
                     <div class="research-cost" style="color: var(--color-danger)">⚠ {patrolDispatchBlockMessage(gate.reason)}</div>
+                  {/if}
+
+                  <!-- Weapon ADVISORY (Combat-defense rework, Unit 3, design S5 "inform, don't
+                       forbid"): a PERSISTENT, non-blocking note (not a confirm dialog, user call)
+                       shown when the dispatchable ship carries NO weapon. canDispatchPatrol flags
+                       gate.noWeaponAdvisory on its ok result; dispatch stays ENABLED (the button
+                       reads gate.ok, which is true here). Warning color, distinct from the danger
+                       block-reason above: this is a bad-but-allowed choice, not a refusal. -->
+                  {#if gate !== null && gate.ok && gate.noWeaponAdvisory}
+                    <div class="research-cost" style="color: var(--color-warning)">⚠ No weapon installed. You won't be able to return fire.</div>
                   {/if}
 
                   <button

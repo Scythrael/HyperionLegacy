@@ -25,10 +25,12 @@
 import type { EquipmentInstance } from "./model";
 import { frameHp } from "./combat/bridge";
 
-// The three REQUIRED combat slots a combat hull must have filled to patrol. This
-// list is the panel's mirror of tick.ts canDispatchPatrol's per-slot gate order
-// (noWeapon -> noShieldEmitter -> noHullPlating), so the banner names the exact
-// same missing slots the dispatch gate would block on.
+// The three combat slots the ShipSystemsPanel readiness banner reports as empty.
+// NOTE (Combat-defense rework, Unit 3): these are NO LONGER hard dispatch requirements.
+// canDispatchPatrol now hard-blocks ONLY on an empty reactor; a missing weapon is a
+// non-blocking dispatch advisory, and a missing shield emitter / hull plating are silent
+// player choices. This banner stays a "combat completeness" readout for the install panel
+// (what is still worth installing), independent of what actually gates a launch.
 export type RequiredCombatSlot = "weapon" | "shieldEmitters" | "hullPlating";
 
 // The fully-derived combat readout for one ship, everything the panel's combat

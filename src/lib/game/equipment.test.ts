@@ -584,7 +584,8 @@ describe("combat gear: ALLOW-EMPTY uninstall (unfitEquipmentInstance)", () => {
     const next = unfitEquipmentInstance(state, "ship-1", "equip-1");
 
     expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
-    // The slot is EMPTY -> canDispatchPatrol (Unit 1.3) would return noShieldEmitter:
+    // The slot is EMPTY. (Combat-defense rework, Unit 3: an empty shield emitter no longer blocks
+    // dispatch. It just means 0 shields, a silent player choice; the reactor is the only hard block.)
     expect(fittedInSlot(next, "ship-1", "shieldEmitters")).toBeNull();
     expect(equippedFor(next, "ship-1")).toHaveLength(0);
     expect(next.nextEquipmentId).toBe(state.nextEquipmentId); // no mint

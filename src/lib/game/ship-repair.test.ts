@@ -39,6 +39,7 @@ import {
   type ShipTypeKey,
   type PatrolMissionState,
   type TimedProcess,
+  seedStandardIssueForShip,
 } from "./model";
 import {
   dispatchCaptainOnPatrol,
@@ -236,11 +237,16 @@ describe("damaged hull blocks re-dispatch", () => {
   it("swapping the captain to a HEALTHY hull lets them dispatch again", () => {
     // Add a second, healthy, parked destroyer (ship-2) and reassign the captain to it.
     const base = damagedIdle();
-    // Combat 1.0 (Unit 1.3): ship-2 is a healthy combat hull added inline, so seed its combat
-    // baseline (else the swapped-to hull would fail the new dispatch blocker).
+    // Combat 1.0 (Unit 1.3): ship-2 is a healthy combat hull added inline. It needs BOTH its economy
+    // Standard-Issue (seedStandardIssueForShip -> includes the reactorCore the new Unit 3 noReactor
+    // block requires) AND its combat baseline (installMissingCombatBaselines), exactly as a real built
+    // ship gets both, else the swapped-to hull would fail the dispatch gate on the missing reactor.
+    const ship2Economy = seedStandardIssueForShip("ship-2", base.nextEquipmentId);
     const withSpare: GameState = installMissingCombatBaselines({
       ...base,
       ships: [...base.ships, { id: "ship-2", typeKey: "destroyer", assignedCaptainId: null }],
+      equipment: [...base.equipment, ...ship2Economy.pieces],
+      nextEquipmentId: ship2Economy.nextId,
     });
     const swapped = assignShipToCaptain(withSpare, 1, "ship-2");
     expect(swapped.success).toBe(true);
