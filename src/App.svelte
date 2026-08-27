@@ -1094,7 +1094,10 @@
   // Consumables families are now compact locked "coming soon" markers inline in
   // that tab, preserving the combat-roadmap signal without a nested tab layer.
   // The reserved-slot chip labels live in LOGISTICS_RESERVED_GOODS below.
-  const LOGISTICS_RESERVED_GOODS: string[] = ["Weapons", "Modules", "Consumables"];
+  // Combat 1.0 (BUG-U2): "Weapons" dropped, they are now craftable + real and show in the Ship
+  // Systems bay above (BUG-U1), so a "coming soon" chip for them is stale. Modules + Consumables
+  // remain genuine reserved families with no engine yet.
+  const LOGISTICS_RESERVED_GOODS: string[] = ["Modules", "Consumables"];
 
   // The warehouse TIERS that have their own facility + cap system today (design
   // §3.1: each tier is its own facility). Drives the Upgrade tab's per-tier
@@ -2819,7 +2822,19 @@
   // plus any Standard-Issue baselines (dimmed). Fitted systems live on their ships
   // (managed in ShipSystemsPanel), so they are deliberately NOT listed here. The
   // four LIVE slots are shown in a fixed order so the grouped grid is stable.
-  const BAY_SLOT_ORDER: EquipmentSlotType[] = ["cargoBay", "ftlDrive", "reactorCore", "specUtility"];
+  const BAY_SLOT_ORDER: EquipmentSlotType[] = [
+    "cargoBay", "ftlDrive", "reactorCore", "specUtility",
+    // Combat 1.0 (BUG-U1): crafted combat gear IS ship equipment and must show in this bay too, it
+    // was invisible while this list was economy-only. shieldEmitters/hullPlating carry EQUIPMENT_SLOTS
+    // labels; weapon + droneBay live in separate tables (WEAPON_DEFS / drone roles) so they take a
+    // display label from BAY_SLOT_LABEL_FALLBACK below.
+    "weapon", "shieldEmitters", "hullPlating", "droneBay",
+  ];
+  // Display-label fallback for the combat slots not present in EQUIPMENT_SLOTS.
+  const BAY_SLOT_LABEL_FALLBACK: Partial<Record<EquipmentSlotType, string>> = {
+    weapon: "Weapons",
+    droneBay: "Drone Bays",
+  };
 
   // The tile the player has selected -> its EquipmentTooltip is surfaced inline
   // below the grid. null = nothing selected (grid only). Cleared whenever the
@@ -2835,7 +2850,7 @@
   // display label (single source: EQUIPMENT_SLOTS) for its section heading.
   $: baySystemGroups = BAY_SLOT_ORDER.map((slot) => ({
     slot,
-    label: EQUIPMENT_SLOTS[slot]?.label ?? slot,
+    label: EQUIPMENT_SLOTS[slot]?.label ?? BAY_SLOT_LABEL_FALLBACK[slot] ?? slot,
     pieces: baySpareSystems.filter((p) => p.slotType === slot),
   })).filter((g) => g.pieces.length > 0);
 
