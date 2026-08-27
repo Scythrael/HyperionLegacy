@@ -350,6 +350,97 @@ describe("engagementForecast honesty (advisory bands)", () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// WEAPON COVERAGE (the weaponless-ship fix). The dispatch-card Threat Assessment
+// band is driven by these win counts, so these tests pin the honest ordering the
+// fix restores: a ship that cannot fire must forecast near-hopeless, more weapons
+// never lower the forecast, and drone offense is a small real residual, not zero.
+//
+// ROOT of the fix (combat/resolveBattle.ts): a capReached timeout is now decided
+// only among teams that actually DAMAGED the other, so a tanky weaponless ship can
+// no longer steal a stalemate it never fought. See that file's tiebreakByHullPercent.
+// ---------------------------------------------------------------------------
+describe("engagementForecast weapon coverage (weaponless-ship fix)", () => {
+	// A too-weak enemy that cannot crack a very tanky player inside the 60s cap, so
+	// the fight TIMES OUT. This is exactly the case the old tiebreak mis-scored: a
+	// weaponless player used to "win" the timeout on hull%. A 100000-hull player is
+	// used so the enemy's popgun can never eliminate it, forcing the capReached path.
+	function stalemateEnemy(): Combatant {
+		return makeCombatant({
+			id: "E1",
+			team: "enemy",
+			hull: 300,
+			shield: 0,
+			weapons: [makeWeapon({ id: "ew", yield: 3 })],
+		});
+	}
+	function tankyPlayer(weapons: CombatWeapon[], drones: Combatant["drones"] = []): Combatant {
+		return makeCombatant({ id: "P1", team: "player", hull: 100000, shield: 0, weapons, drones });
+	}
+
+	it("a WEAPONLESS player forecasts far below an ARMED one (zero vs a near-sweep)", () => {
+		const enemy = stalemateEnemy();
+		const weaponless = engagementForecast(tankyPlayer([]), enemy, { samples: 64, baseSeed: 21 });
+		const armed = engagementForecast(
+			tankyPlayer([makeWeapon({ id: "pw", yield: 10 })]),
+			enemy,
+			{ samples: 64, baseSeed: 21 },
+		);
+		// It can no longer steal the timeout: a ship that draws no blood wins nothing.
+		expect(weaponless.wins).toBe(0);
+		// The same hull with a real gun draws blood and takes the stalemate every time.
+		expect(armed.wins).toBeGreaterThan(weaponless.wins);
+		expect(armed.wins).toBe(armed.samples);
+	});
+
+	it("a weaponless CARRIER forecasts a small residual ABOVE a bare weaponless hull", () => {
+		const enemy = stalemateEnemy();
+		const bare = engagementForecast(tankyPlayer([]), enemy, { samples: 64, baseSeed: 21 });
+		const carrier = engagementForecast(
+			tankyPlayer([], [makeSquadron("attack")]),
+			enemy,
+			{ samples: 64, baseSeed: 21 },
+		);
+		// A bare hull wins nothing; the carrier's drones draw blood, so it has a real
+		// (nonzero) path to win the stalemate the bare hull does not.
+		expect(bare.wins).toBe(0);
+		expect(carrier.wins).toBeGreaterThan(bare.wins);
+	});
+
+	// A THREATENING enemy (it CAN kill the player near the cap) turns weapon strength
+	// into a genuine win-rate gradient: no offense loses outright, a weak gun wins only
+	// some seeds, a strong gun wins nearly all. Proves "a partially-armed ship reads
+	// between weaponless and fully-armed".
+	it("a partially-armed player forecasts BETWEEN weaponless and fully-armed", () => {
+		const enemy = makeCombatant({
+			id: "E1",
+			team: "enemy",
+			hull: 250,
+			shield: 0,
+			weapons: [makeWeapon({ id: "ew", yield: 9 })],
+		});
+		const racer = (weapons: CombatWeapon[]) =>
+			makeCombatant({ id: "P1", team: "player", hull: 250, shield: 0, weapons });
+
+		const none = engagementForecast(racer([]), enemy, { samples: 64, baseSeed: 33 });
+		const partial = engagementForecast(
+			racer([makeWeapon({ id: "pw", yield: 8 })]),
+			enemy,
+			{ samples: 64, baseSeed: 33 },
+		);
+		const full = engagementForecast(
+			racer([makeWeapon({ id: "pw", yield: 30 })]),
+			enemy,
+			{ samples: 64, baseSeed: 33 },
+		);
+		// Monotone by offense, with the partial strictly in the middle.
+		expect(none.wins).toBe(0);
+		expect(partial.wins).toBeGreaterThan(none.wins);
+		expect(partial.wins).toBeLessThan(full.wins);
+		expect(full.wins).toBeGreaterThan(partial.wins);
+	});
+});
+
 describe("engagementForecast purity", () => {
 	it("does not mutate the player or enemy inputs", () => {
 		const { player, enemy } = dominantMatchup();

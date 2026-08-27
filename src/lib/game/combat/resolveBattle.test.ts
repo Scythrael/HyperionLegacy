@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from "vitest";
 import { resolveBattle, applyProjectileDamage, fireWeapon } from "./resolveBattle";
+import { makeSquadron } from "./drones";
 import { makeWeaponInstance } from "./weapons";
 import { bandFor } from "./positioning";
 import { makeStreams } from "./rng";
@@ -652,6 +653,67 @@ describe("resolveBattle termination", () => {
 		expect(outcome.winner).toBe("player");
 		// Should be a quick kill, far under the 60-round cap.
 		expect(outcome.rounds).toBeLessThan(60);
+	});
+});
+
+describe("resolveBattle capReached OFFENSE GATE (weaponless-ship fix)", () => {
+	// THE BUG THIS GUARDS: a battle that neither side can end inside 60s hits the
+	// hard cap and is decided by hull%. A tanky but WEAPONLESS ship, against an enemy
+	// too weak to crack it, used to WIN that timeout purely for being tankier, so
+	// the dispatch card's Threat Assessment showed a ship that cannot fire as a real
+	// threat ("A Worthy Adversary"). The fix: a team that dealt ZERO hull damage did
+	// not win the fight, it merely out-lasted one it could never win, so it cannot
+	// take the tiebreak.
+
+	it("a tanky WEAPONLESS player does NOT win the timeout (it drew no blood)", () => {
+		// 100000-hull weaponless player vs a 300-hull enemy whose yield-3 popgun cannot
+		// grind that hull down inside 60s => the cap fires. The player deals nothing; the
+		// enemy at least chips it, so the enemy takes the stalemate.
+		const p = oneVsOne(
+			{ hull: 100000, hullMax: 100000, weapons: [] },
+			{ hull: 300, hullMax: 300, weapons: [makeWeapon({ id: "ew", yield: 3 })] },
+		);
+		const { outcome } = resolveBattle(p, 4242);
+		expect(outcome.reason).toBe("capReached"); // neither could be eliminated
+		expect(outcome.winner).toBe("enemy"); // only the enemy dealt hull damage
+	});
+
+	it("giving that same player one weapon flips it back to a timeout WIN", () => {
+		// Identical stalemate, but the player now carries a single yield-3 weapon: it
+		// draws blood, clears the offense gate, and wins the timeout on hull% (it is far
+		// tankier). Proves the gate is OFFENSE-scoped, not a blanket nerf of tanky ships.
+		const p = oneVsOne(
+			{ hull: 100000, hullMax: 100000, weapons: [makeWeapon({ id: "pw", yield: 3 })] },
+			{ hull: 300, hullMax: 300, weapons: [makeWeapon({ id: "ew", yield: 3 })] },
+		);
+		const { outcome } = resolveBattle(p, 4242);
+		expect(outcome.winner).toBe("player");
+	});
+
+	it("two WEAPONLESS tanks draw the timeout (neither dealt any damage)", () => {
+		// With no offense on either side the fight is a genuine no-contest: the timeout
+		// is a DRAW, not a win for whichever hull happens to be bigger.
+		const p = oneVsOne(
+			{ hull: 100000, hullMax: 100000, weapons: [] },
+			{ hull: 50000, hullMax: 50000, weapons: [] },
+		);
+		const { outcome } = resolveBattle(p, 4242);
+		expect(outcome.reason).toBe("capReached");
+		expect(outcome.winner).toBe("draw");
+	});
+
+	it("a weaponless CARRIER can still win the timeout via DRONE damage (the residual)", () => {
+		// A carrier with an attack squadron but NO ship weapons still deals real hull
+		// damage through its drones, so it clears the offense gate a bare hull cannot.
+		// This is the "a carrier keeps a sliver, a bare destroyer reads near-zero"
+		// distinction: drone offense counts as drawing blood.
+		const p = oneVsOne(
+			{ hull: 100000, hullMax: 100000, weapons: [], drones: [makeSquadron("attack")] },
+			{ hull: 100000, hullMax: 100000, weapons: [] },
+		);
+		const { outcome } = resolveBattle(p, 4242);
+		expect(outcome.reason).toBe("capReached"); // drones cannot fell a 100k hull in 60s
+		expect(outcome.winner).toBe("player"); // ...but they drew blood; the bare enemy did not
 	});
 });
 

@@ -1196,32 +1196,89 @@ function fireSquadron(
 	};
 }
 
-// Compute the winner when the hard tick cap is reached: the team with the
-// highest TOTAL hull% remaining (design S1 tiebreak). Percentages are compared
-// as integer cross-multiplications to avoid any float, and an exact tie yields
-// "draw". Deterministic given the final combatant state.
+// Compute the winner when the hard tick cap is reached. A stalemate is decided by
+// the team with the highest TOTAL hull% remaining (design S1 tiebreak), BUT ONLY
+// among teams that actually DAMAGED the other during the battle (the OFFENSE GATE,
+// below). Percentages are compared as integer cross-multiplications to avoid any
+// float, and an exact tie yields "draw". Deterministic given the final combatant
+// state + the captured start-hull snapshot.
+//
+// THE OFFENSE GATE (the weaponless-ship fix): a fight you could not fight is not a
+// fight you won. A team that dealt ZERO hull damage to the other never threatened
+// it; it merely out-lasted a stalemate it could never break. Crowning it "winner"
+// purely for being tankier is a lie the dispatch-card Threat Assessment surfaced as
+// a decent band on a WEAPONLESS ship ("A Worthy Adversary" on a ship that cannot
+// fire). So a team that drew no blood cannot take the tiebreak:
+//   - only the player damaged the enemy      -> player wins (it alone made progress)
+//   - only the enemy damaged the player       -> enemy wins
+//   - NEITHER team damaged the other          -> draw (no one fought)
+//   - BOTH teams traded hull damage           -> the original hull% tiebreak decides
+// A weaponless, drone-less player reduces no enemy hull, so it can never win a
+// timeout: with a real (armed) enemy it reads as a loss, exactly as the honest sim
+// should score it. A carrier whose DRONES chip the enemy still "dealt damage", so it
+// keeps its small residual chance, matching the design intent (a carrier keeps a
+// sliver, a bare destroyer reads near-zero).
+//
+// PARITY (offline == live): this reads only the final + start hull state, draws no
+// RNG, and runs identically whether or not the log is built, so the outcome stays
+// byte-identical live vs offline (the flagship invariant).
+//
+// `startHullById` maps each combatant id -> its hull at battle OPEN (captured after
+// the deterministic clone, before the ambush opener or any tick could change it), so
+// "dealt damage" means "reduced the other side's hull below where THIS battle started",
+// robust even when a caller opens a combatant already damaged (e.g. a multi-wave
+// patrol carrying hull attrition between waves).
 function tiebreakByHullPercent(
 	combatants: Combatant[],
+	startHullById: Map<string, number>,
 ): "player" | "enemy" | "draw" {
 	// Sum hull and hullMax per team; team hull% = sumHull / sumHullMax.
 	let playerHull = 0;
 	let playerMax = 0;
 	let enemyHull = 0;
 	let enemyMax = 0;
+	// Whether each team inflicted ANY hull damage on the OTHER team this battle. A
+	// combatant that lost hull below its start was damaged by the opposing team, so
+	// its team's OPPONENT "dealt damage".
+	let playerDealtDamage = false; // the player reduced some enemy ship's hull
+	let enemyDealtDamage = false; //  the enemy reduced some player ship's hull
 	for (const c of combatants) {
 		// Clamp negative hull to 0 for the ratio (a corpse contributes 0, not a
 		// negative that would skew the sum).
 		const hull = Math.max(0, c.hull);
+		// Fall back to hullMax if a start snapshot is somehow missing (never expected;
+		// every combatant is captured at open), so a missing entry cannot false-positive.
+		const startHull = startHullById.get(c.id) ?? c.hullMax;
+		const tookHullDamage = c.hull < startHull;
 		if (c.team === "player") {
 			playerHull += hull;
 			playerMax += c.hullMax;
+			// A damaged player ship means the ENEMY dealt hull damage.
+			if (tookHullDamage) enemyDealtDamage = true;
 		} else {
 			enemyHull += hull;
 			enemyMax += c.hullMax;
+			// A damaged enemy ship means the PLAYER dealt hull damage.
+			if (tookHullDamage) playerDealtDamage = true;
 		}
 	}
-	// Guard against divide-by-zero maxes (empty team): treat 0-max as 0%.
-	// Compare playerHull/playerMax vs enemyHull/enemyMax via cross-multiply:
+
+	// OFFENSE GATE (see the header): only a team that actually drew blood can win the
+	// stalemate. These three branches handle the one-sided + no-contact cases before
+	// the hull% comparison, which is reserved for a genuine two-way slugging match.
+	// FIRST-PASS TUNABLE (design S20 balance pass): the threshold is "ANY hull damage
+	// at all" (> 0). A later pass could require a MINIMUM share of the enemy's hull
+	// (e.g. a trickle-damage popgun that chips 1 point in 60s should perhaps still not
+	// count as winning), but "any damage" is the simplest honest first cut and cleanly
+	// separates a weaponless ship (exactly zero) from an armed or drone-bearing one.
+	if (playerDealtDamage && !enemyDealtDamage) return "player";
+	if (enemyDealtDamage && !playerDealtDamage) return "enemy";
+	if (!playerDealtDamage && !enemyDealtDamage) return "draw";
+
+	// BOTH teams traded hull damage: the ORIGINAL design tiebreak decides it on
+	// remaining hull% (the tankier survivor of a real fight wins). Guard against
+	// divide-by-zero maxes (empty team): treat 0-max as 0%. Compare
+	// playerHull/playerMax vs enemyHull/enemyMax via cross-multiply:
 	//   player% > enemy%  <=>  playerHull * enemyMax > enemyHull * playerMax
 	const left = playerHull * enemyMax;
 	const right = enemyHull * playerMax;
@@ -1551,6 +1608,17 @@ export function resolveBattle(
 	// stable per battle, so this order is identical on every run and every
 	// device, which every deterministic roll downstream depends on.
 	combatants.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+	// START-HULL SNAPSHOT for the capReached OFFENSE GATE (see tiebreakByHullPercent).
+	// Captured HERE (after the deterministic clone + sort, but BEFORE the ambush
+	// opener or any tick can change hull), so the tiebreak can tell whether each team
+	// actually damaged the other DURING this battle (not merely "is below max", which a
+	// multi-wave patrol's carried hull attrition would false-positive). Read-only; drawn
+	// from no RNG, so it cannot perturb the combat stream (parity: offline == live).
+	const startHullById = new Map<string, number>();
+	for (const c of combatants) {
+		startHullById.set(c.id, c.hull);
+	}
 
 	// Per-combatant fixed-point accumulators (movement + shield banking).
 	const accumulators = new Map<string, Accumulators>();
@@ -2299,9 +2367,11 @@ export function resolveBattle(
 		// Objective resolved before the cap: a clean elimination/decision.
 		outcome = { winner: decided, reason: "eliminated", rounds };
 	} else {
-		// Hit the hard cap without a decision: tiebreak by hull% (deterministic).
+		// Hit the hard cap without a decision: tiebreak by hull% among teams that
+		// actually damaged the other (the OFFENSE GATE; see tiebreakByHullPercent).
+		// A weaponless, drone-less team drew no blood and so cannot win the timeout.
 		outcome = {
-			winner: tiebreakByHullPercent(combatants),
+			winner: tiebreakByHullPercent(combatants, startHullById),
 			reason: "capReached",
 			rounds,
 		};
