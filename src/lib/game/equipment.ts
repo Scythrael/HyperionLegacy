@@ -528,25 +528,26 @@ export function unfitEquipment(
 // already lists as fitted here, so these are defensive assertions on a vetted call, not the
 // player-facing failure path.
 //
-// ALL SLOTS ARE NOW ALLOW-EMPTY (economy unified with combat, user call 2026-08-26). The only
-// per-slot difference is how a Standard-Issue BASELINE is disposed of, because only combat has a
-// dispatch blocker to keep re-armable:
-// - COMBAT slot (weapon / shieldEmitters / hullPlating): the piece just becomes a spare
-//   (fittedToShipId -> null); nothing replaces it, so the slot is left bare. REQUIRED so
-//   canDispatchPatrol's blocker is reachable ("strip a required combat slot -> cannot patrol"); the
-//   stripped piece (crafted OR baseline) sits in the pool and can be re-installed, so it is a
-//   recoverable state, not a permanent brick. A spare combat baseline can also be destroyed for
-//   nothing in the Salvage Bay (the zero-reward declutter, salvage.ts salvageEquipment).
-// - ECONOMY slot (cargoBay / ftlDrive / reactorCore / specUtility): also left EMPTY, which is
-//   economically identical to a baseline (both fold to +0). A CRAFTED piece POOLS (recoverable
-//   spare); a Standard-Issue BASELINE is DESTROYED outright (dropped from state, not pooled) so the
-//   free floor never re-clutters the warehouse. No blocker exists on economy slots, so there is
-//   nothing to keep recoverable. See the per-branch notes below.
+// ALL SLOTS ARE NOW ALLOW-EMPTY AND UNIFORM (economy unified with combat, user calls 2026-08-26).
+// Uninstalling ANY piece, economy or combat, crafted or Standard-Issue baseline, does the SAME thing:
+// evict it to the spare pool (fittedToShipId -> null) and leave the slot (or, for a weapon, that one
+// hardpoint) EMPTY. Nothing is minted; nothing is destroyed. Consequences:
+//   - Whatever you take off is RECOVERABLE: it sits in storage and the install picker lists any
+//     fittedToShipId===null piece of the slot's type (baselines included), so it can be re-installed.
+//     This is REQUIRED for economy too: an earlier version DESTROYED an economy baseline on uninstall
+//     as anti-clutter, but that made the free floor VANISH with no way back (there is no baseline
+//     blueprint to fabricate), which read as a lost item, the user-reported "nowhere to be found".
+//   - An empty ECONOMY slot is economically identical to a baseline (both fold to +0 in
+//     equipmentStatMods), so stripping one costs no stats. An empty required COMBAT slot instead
+//     trips canDispatchPatrol's blocker, a reachable "re-install something" state, not a brick.
+//   - Bulk declutter of worthless baseline spares is a SEPARATE, opt-in concern: destroy in the
+//     Salvage Bay today (salvage.ts), auto-salvage rules in 0.13.1. We do NOT pay for it by silently
+//     deleting what the player uninstalled.
 //
-// NON-CREATE INTEGRITY: every branch only POOLS or DESTROYS, never mints, so no path can net-create
-// an item (the reported duplication bug cannot recur).
+// NON-CREATE INTEGRITY: this only ever MOVES a piece to the pool, never mints, so no path can
+// net-create an item (the reported duplication bug cannot recur).
 //
-// PURE: returns a new GameState, mutates nothing (no branch advances nextEquipmentId any more).
+// PURE: returns a new GameState, mutates nothing (nextEquipmentId is never advanced here any more).
 export function unfitEquipmentInstance(
   state: GameState,
   shipId: string,
@@ -569,39 +570,15 @@ export function unfitEquipmentInstance(
     );
   }
 
-  // Evict the targeted piece to the pool. The slot (or, for a weapon, that one hardpoint) is now bare.
-  const evicted = state.equipment.map((e) =>
-    e.id === instanceId ? { ...e, fittedToShipId: null } : e
-  );
-
-  // COMBAT slot: ALLOW-EMPTY. The piece is now a spare; nothing replaces it. Done.
-  if (COMBAT_SLOT_TYPES.has(occupant.slotType)) {
-    return { ...state, equipment: evicted };
-  }
-
-  // ECONOMY slot from here down: now ALLOW-EMPTY too (user call 2026-08-26). A system you install
-  // you can strip back to EMPTY, with no forced Standard-Issue floor left behind. This is safe and
-  // lossless because an EMPTY economy slot is economically identical to a Standard-Issue baseline:
-  // both fold to +0 on top of the hull's base stats in equipmentStatMods (the baseline's slot
-  // signature is +0), so removing either changes no derived stat. Removing the forced floor also
-  // deletes a whole category of "why can't I take this off" friction with no downside.
-  //
-  // NON-CREATE INTEGRITY still holds (this path only ever POOLS or DESTROYS, never mints): there is
-  // no way to net-create an item here, so the reported duplication bug cannot recur.
-  //
-  // - A Standard-Issue BASELINE (blueprintKey === null) is the free, worthless slot FLOOR, not real
-  //   inventory. Uninstalling it DESTROYS it (dropped from state entirely, NOT pooled) so it can
-  //   never re-clutter the warehouse as a spare, and the slot is left empty. We filter it straight
-  //   out of state.equipment rather than using `evicted` (which only nulled its fittedToShipId, i.e.
-  //   pooled it). ⚠️ This DIFFERS from a COMBAT baseline, which POOLS on uninstall (above): a stripped
-  //   combat slot trips canDispatchPatrol's blocker and must stay re-armable, so its baseline is kept
-  //   recoverable; an empty economy slot has no blocker, so there is nothing to recover and pooling a
-  //   free floor would be pure clutter (the exact pain the user reported).
-  // - A CRAFTED economy piece was already evicted to the pool above (the player keeps their gear as a
-  //   recoverable spare); the slot is simply left EMPTY. Nothing is minted. (Previously a fresh
-  //   baseline was minted into the slot to keep it "never empty"; that forced floor is gone.)
-  if (occupant.blueprintKey === null) {
-    return { ...state, equipment: state.equipment.filter((e) => e.id !== instanceId) };
-  }
-  return { ...state, equipment: evicted };
+  // Evict the targeted piece to the spare pool, leaving the slot (or, for a weapon, that one
+  // hardpoint) EMPTY. UNIFORM for every slot and every piece (see the header): the pooled piece,
+  // baseline or crafted, is a re-installable spare, so nothing the player uninstalls is ever lost.
+  // (`occupant.blueprintKey` / `occupant.slotType` no longer branch anything here; occupant is used
+  // only by the identity guards above.)
+  return {
+    ...state,
+    equipment: state.equipment.map((e) =>
+      e.id === instanceId ? { ...e, fittedToShipId: null } : e
+    ),
+  };
 }
