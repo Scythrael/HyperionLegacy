@@ -21,6 +21,12 @@ import { describe, it, expect } from "vitest";
 import {
   EQUIPMENT_SLOTS,
   rarityIndex,
+  // Combat-defense rework (Unit 4): the FLAT, hull-independent Standard-Issue defensive floor
+  // that the first crafted tier must clear (crafted plating > SI iff hullStrength > SI_PLATING_HP,
+  // crafted emitter > SI iff shieldCapacity > SI_EMITTER_CAP).
+  SI_PLATING_HP,
+  SI_EMITTER_CAP,
+  SI_EMITTER_RECHARGE,
   type EquipmentVarietyDef,
 } from "./model";
 import {
@@ -364,6 +370,90 @@ describe("generateEquipment", () => {
       const total = [...Object.values(item.implicitStats), ...Object.values(item.rolledStats)].reduce((a, b) => a + b, 0);
       expect(total, `${varietyKey} has positive stats`).toBeGreaterThan(0);
     }
+  });
+
+  // ==========================================================================
+  // Combat-defense rework (Unit 4): the first crafted tier of each defensive slot
+  // is ALWAYS a few points above the flat Standard-Issue floor, and it scales up.
+  //
+  // WHY this is the load-bearing guarantee: the rework made the SI defensive floor a
+  // FLAT, hull-independent value (SI_PLATING_HP / SI_EMITTER_CAP = 100), and the bridge
+  // fold adds/amplifies SI and crafted gear by the SAME innate stats, so a crafted piece
+  // beats SI on EVERY hull iff its RAW magnitude clears that flat floor. The user principle
+  // (design #3) is that crafting is NEVER pointless: the lowest craftable roll must already
+  // beat SI. We assert the RELATIONSHIP (> SI floor, and high > low), NOT magic magnitudes,
+  // so the 0.16.0 balance pass can re-dial the curve without churning this test.
+  // ==========================================================================
+  describe("crafted defensive gear always beats the flat Standard-Issue floor (Unit 4)", () => {
+    // The LOWEST craftable roll: a tier-1 blueprint at the lowest crafting level clamps to
+    // iLevel 1 (computeItemLevel floor), quality 0, and standard rarity (rollCraftedRarity's
+    // floor). This is the weakest piece the game can ever mint for these slots.
+    const LOWEST_ILEVEL = 1;
+
+    it("the lowest-tier crafted shield emitter out-caps Standard-Issue and clears the recharge floor", () => {
+      const emitter = generateEquipment({
+        slotType: "shieldEmitters",
+        varietyKey: "balancedEmitter", // the tier-1 workhorse variety
+        blueprintKey: "balancedEmitterBp",
+        iLevel: LOWEST_ILEVEL,
+        quality: 0,
+        rarity: "standard",
+        ascension: "none",
+        rng: mulberry32(1),
+        allocateId: idAllocator(),
+      });
+      // Raw shieldCapacity beats the flat SI cap floor -> beats SI on ANY hull (innate mult scales both).
+      expect(emitter.implicitStats.shieldCapacity).toBeGreaterThan(SI_EMITTER_CAP);
+      // Recharge is not "boosted" but must at least reach the SI recharge floor at first tier.
+      expect(emitter.implicitStats.shieldRecharge).toBeGreaterThanOrEqual(SI_EMITTER_RECHARGE);
+    });
+
+    it("the lowest-tier crafted hull plating out-armors Standard-Issue", () => {
+      const plating = generateEquipment({
+        slotType: "hullPlating",
+        varietyKey: "reinforcedPlating", // the tier-1 workhorse variety
+        blueprintKey: "reinforcedPlatingBp",
+        iLevel: LOWEST_ILEVEL,
+        quality: 0,
+        rarity: "standard",
+        ascension: "none",
+        rng: mulberry32(2),
+        allocateId: idAllocator(),
+      });
+      // Raw hullStrength beats the flat SI plating floor -> beats SI on ANY hull (innate armor is additive).
+      expect(plating.implicitStats.hullStrength).toBeGreaterThan(SI_PLATING_HP);
+    });
+
+    it("a high-iLevel q5/radiant defensive piece scales substantially above the lowest tier", () => {
+      // Top reachable roll: tier-2 iLevel cap (EQUIPMENT_ILEVEL_CAP_PER_TIER * 2 = 40), quality 5, radiant.
+      const HIGH_ILEVEL = 40;
+      const highEmitter = generateEquipment({
+        slotType: "shieldEmitters", varietyKey: "capacitorBank", blueprintKey: "capacitorBankBp",
+        iLevel: HIGH_ILEVEL, quality: 5, rarity: "radiant", ascension: "none",
+        rng: mulberry32(3), allocateId: idAllocator(),
+      });
+      const lowEmitter = generateEquipment({
+        slotType: "shieldEmitters", varietyKey: "balancedEmitter", blueprintKey: "balancedEmitterBp",
+        iLevel: LOWEST_ILEVEL, quality: 0, rarity: "standard", ascension: "none",
+        rng: mulberry32(3), allocateId: idAllocator(),
+      });
+      const highPlating = generateEquipment({
+        slotType: "hullPlating", varietyKey: "compositePlating", blueprintKey: "compositePlatingBp",
+        iLevel: HIGH_ILEVEL, quality: 5, rarity: "radiant", ascension: "none",
+        rng: mulberry32(4), allocateId: idAllocator(),
+      });
+      const lowPlating = generateEquipment({
+        slotType: "hullPlating", varietyKey: "reinforcedPlating", blueprintKey: "reinforcedPlatingBp",
+        iLevel: LOWEST_ILEVEL, quality: 0, rarity: "standard", ascension: "none",
+        rng: mulberry32(4), allocateId: idAllocator(),
+      });
+      // Scaling works: the high roll is meaningfully bigger than the floor roll (relationship, not a magic number).
+      expect(highEmitter.implicitStats.shieldCapacity).toBeGreaterThan(lowEmitter.implicitStats.shieldCapacity);
+      expect(highPlating.implicitStats.hullStrength).toBeGreaterThan(lowPlating.implicitStats.hullStrength);
+      // And it comfortably clears the flat SI floor (at least ~2x it), so high-tier gear is a real upgrade.
+      expect(highEmitter.implicitStats.shieldCapacity).toBeGreaterThan(SI_EMITTER_CAP * 2);
+      expect(highPlating.implicitStats.hullStrength).toBeGreaterThan(SI_PLATING_HP * 2);
+    });
   });
 
   it("stores the input iLevel on the instance (persisted so the UI can show item power at a glance)", () => {

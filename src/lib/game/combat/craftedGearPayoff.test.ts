@@ -119,25 +119,26 @@ const CRAFTED_RARITY = "radiant" as const;
 //    Battle Rating sane (a huge weapon-yield roll balloons the rating without adding proof).
 const CRAFTED_WEAPON_ILEVEL = 40;
 //
-//  - SHIELD + PLATING float on the HULL'S ENTIRE authored defense: the Standard-Issue emitter
-//    + plating do not carry a token stat, they carry the hull's whole pre-gear shield / hull as
-//    their implicit (design 5a/6a: shield + hull are pure-gear, and the baseline reproduces the
-//    hull's profile so Standard-Issue is behaviour-preserving). For the destroyer that is a 300
-//    shieldCapacity floor and a 480 hullStrength floor. Combat 1.0 Unit 2.5a boosted the CRAFTED
-//    defensive implicit (itemgen CRAFTED_DEFENSE_IMPLICIT_MULT) precisely so crafted defensive
-//    gear OVERTAKES those floors by MID item level instead of only at iLvl ~260: a q5 crafted
-//    plate now clears 480 at roughly iLvl 65 and a q5 crafted emitter clears 300 at roughly iLvl
-//    81 (the earlier-crossover proof lives in the dedicated "mid item level" test below, which
-//    asserts a MID-iLevel crafted set already out-tanks Standard-Issue). This end-to-end payoff
-//    proof deliberately keeps a HIGH iLevel so the crafted set DOMINATES the floor on every stat
-//    with unambiguous margin (its win-rate signal must not sit near the crossover); the exact
-//    magnitudes remain the S15/S20 tuning pass's to finalize.
+//  - SHIELD + PLATING now float on a FLAT, hull-independent Standard-Issue floor. The combat-defense
+//    rework moved the hull's own defense into its INNATE stats (innateHullArmor is ADDED to
+//    plating.hullStrength; innateShieldCapMult AMPLIFIES emitter.shieldCapacity), so the Standard-Issue
+//    gear carries only the fixed dials SI_PLATING_HP = 100 and SI_EMITTER_CAP = 100, the SAME on every
+//    hull. A crafted piece therefore beats Standard-Issue iff its RAW hullStrength / shieldCapacity
+//    clears 100, and the innate stats add/amplify SI and crafted equally, so the raw comparison is
+//    hull-independent. Combat-defense rework Unit 4 re-tuned the crafted defensive implicit (itemgen
+//    craftedDefensiveImplicit, replacing the deleted CRAFTED_DEFENSE_IMPLICIT_MULT hack) so even the
+//    FIRST crafted tier (iLevel 1, q0, standard) clears 100 with margin (~109 raw), and it scales up
+//    from there (the first-tier-above-SI proof lives in itemgen.test.ts; the MID-iLevel out-tank proof
+//    lives in the dedicated test below). This end-to-end payoff proof deliberately keeps a HIGH iLevel
+//    so the crafted set DOMINATES the floor on every stat with unambiguous margin (its win-rate signal
+//    must not sit near the crossover); the exact magnitudes remain the 0.16.0 balance pass's to finalize.
 const CRAFTED_DEFENSE_ILEVEL = 260;
 
-// A MID item level for the Unit 2.5a crossover proof: high enough that a q5 crafted defensive set
-// already out-tanks the Standard-Issue destroyer floor (the WHOLE point of 2.5a: crafted gear is an
-// upgrade, not a downgrade), but far below the dominance level above. At q5 / radiant the folded
-// pools here are hullMax ~852 vs SI 600 and shieldMax ~396 vs SI 300, a clear upgrade.
+// A MID item level for the crafted-upgrade proof: high enough that a q5 crafted defensive set already
+// out-tanks the Standard-Issue destroyer (crafted gear is an upgrade, not a downgrade), but far below
+// the dominance level above. Under the re-tuned curve a q5 / radiant iLevel-60 emitter + plating each
+// roll a raw ~434 (well above the flat 100 SI floor), so once folded through the destroyer's innate
+// stats the crafted pools sit comfortably above the Standard-Issue destroyer.
 const CRAFTED_DEFENSE_MID_ILEVEL = 60;
 
 // `defenseILevel` is the item level minted for the emitter + plating; it defaults to the high
@@ -275,14 +276,13 @@ describe("Combat 1.0 Unit 1.6: crafted gear pays off end-to-end (craft -> instal
 		expect(craftedRating).toBeGreaterThan(siRating);
 	});
 
-	// ---- PROOF (a2), Combat 1.0 Unit 2.5a: crafted defensive gear at a MID item level is an
+	// ---- PROOF (a2), combat-defense rework Unit 4: crafted defensive gear at a MID item level is an
 	// UPGRADE over the free Standard-Issue floor, not a downgrade. ----
-	// This is the whole point of Unit 2.5a. BEFORE the CRAFTED_DEFENSE_IMPLICIT_MULT boost, a
-	// mid-iLevel crafted defensive set folded to SMALLER pools than Standard-Issue (crafted iL60
-	// q5 was hullMax ~345 / shieldMax ~141, both BELOW the SI 600 / 300 floor), so crafting mid-
-	// tier defensive gear made a ship WEAKER. After the boost the same mid-iLevel set folds to
-	// hullMax ~852 and shieldMax ~396, both comfortably ABOVE the Standard-Issue destroyer, so a
-	// crafted piece is a clear survivability upgrade well before the old iLvl ~260 crossover.
+	// Under the re-tuned defensive curve (itemgen craftedDefensiveImplicit) the Standard-Issue floor is
+	// a flat, hull-independent 100 shieldCapacity / 100 hullStrength, and even a MID-iLevel q5 crafted
+	// set rolls raw magnitudes far above it (~434 each at iLevel 60), so once folded through the
+	// destroyer's innate stats the crafted pools sit comfortably ABOVE the Standard-Issue destroyer.
+	// (The first-crafted-tier-above-SI guarantee at the LOWEST roll is proven directly in itemgen.test.ts.)
 	it("crafted defensive gear at a MID item level already out-tanks the Standard-Issue destroyer", () => {
 		const midCraftedPlayer = shipToCombatant({
 			id: SHIP_ID,

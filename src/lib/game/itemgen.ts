@@ -88,58 +88,76 @@ export const RARITY_MULT = 1.15;
 export const IMPLICIT_BUDGET_SHARE = 0.5;
 
 // ----------------------------------------------------------------------------
-// Combat 1.0 (Unit 2.5a): crafted DEFENSIVE-implicit scaling boost.
+// Combat-defense rework (Unit 4): crafted DEFENSIVE-implicit magnitudes.
 //
-// THE PROBLEM this fixes: the two defensive slots are unlike every other slot. A
-// Standard-Issue (free, quality-0, iLevel-1) baseline in EVERY OTHER slot carries a
-// near-token magnitude, so any crafted piece beats it immediately. But a Standard-Issue
-// hull-plating / shield-emitter baseline carries the hull's ENTIRE authored defense
-// (design 5a/6a): for a destroyer that is a hullStrength of hullIntegrity - frameHp =
-// 600 - 120 = 480, and a full shieldCapacity of 300. Meanwhile a crafted defensive
-// implicit scales only linearly off item level:
-//   hullPlating   hullStrength  implicit ~= iLevel * QUALITY_MULT^quality * RARITY_MULT^rarityIdx
-//   shieldEmitters shieldCapacity implicit ~= iLevel * 0.5 * QUALITY_MULT^q * RARITY_MULT^r
-//     (halved because the shield-emitter implicit BUDGET_SHARE is split across TWO implicit
-//      lines, shieldCapacity + shieldRecharge, so each carries only a quarter of the budget).
-// Without a boost a quality-5 crafted plate does not overtake the 480 floor until iLvl ~260,
-// so mid-iLevel crafted defensive gear is a survivability DOWNGRADE versus the free baseline,
-// which is backwards: crafting should always be an upgrade.
+// WHY these two implicit lines are special (and do NOT ride the shared budget curve
+// every other slot uses): the combat-defense rework made the Standard-Issue defensive
+// floor a FLAT, hull-independent value. model.ts now dials SI_PLATING_HP = 100 (hull),
+// SI_EMITTER_CAP = 100 (shield), SI_EMITTER_RECHARGE = 3, the SAME on every hull, because
+// the hull's own contribution moved into its INNATE stats: the bridge fold composes
+// hull = innateHullArmor + plating.hullStrength (plating is ADDED to innate armor) and
+// shield = emitter.shieldCapacity * (1 + innateShieldCapMult) (the emitter is AMPLIFIED
+// by the hull). So a crafted defensive piece beats Standard-Issue iff its RAW magnitude
+// clears that flat floor: crafted plating > SI iff hullStrength > 100, crafted emitter > SI
+// iff shieldCapacity > 100. The innate stats add to / amplify SI and crafted EQUALLY, so
+// the raw comparison is hull-independent (beat 100 and you beat SI on ANY hull).
 //
-// THE FIX (the ONLY lever this unit touches, by locked design): multiply the CRAFTED
-// defensive implicit magnitude by this constant, applied STRICTLY to the primary defensive
-// implicit of the two defensive slots (the hullStrength implicit for hullPlating and the
-// shieldCapacity implicit for shieldEmitters). Nothing about the Standard-Issue baselines,
-// the hull frame fraction (COMBAT_FRAME_HP_FRACTION), or the rating weights moves, so every
-// Standard-Issue combatant stays byte-identical (parity + SI balance fixtures unchanged) and
-// ONLY crafted defensive gear gets stronger, out-scaling the SI floor by mid item level.
+// THE USER PRINCIPLE (hard requirement, design principle #3): the FIRST crafted tier is
+// ALWAYS a few points above Standard-Issue. There is never a case where a crafted defensive
+// item is not worth making. The shared budget line is useless here: it starts near 1 point
+// at iLevel 1 (budget = iLevel * PER_LEVEL_BUDGET * ...), far BELOW the flat 100 floor. So
+// these two slots get their OWN floored magnitude curve: a BASE that already sits a few points
+// above the SI floor at the lowest craftable roll (iLevel 1, quality 0, standard rarity, the
+// crafting floor from rollCraftedRarity), plus a per-iLevel slope, then compounded by the SAME
+// quality/rarity multipliers computeBudget uses so a higher-quality / rarer / higher-iLevel
+// piece scales up monotonically.
 //
-// VALUE (10, INTERIM bump 2026-08-26 from the original 4): the original 4 put the q5 crossover at
-// ~iLvl 65 (plate) / ~81 (emitter) implicit-alone, ~60 folded (implicit + affixes). That was fine
-// IN ISOLATION but broke once the craftable shield/plating BLUEPRINTS landed: those blueprints are
-// tier 1-2, and item level is capped at blueprintTier * 20 (EQUIPMENT_ILEVEL_CAP_PER_TIER), so a
-// crafted defensive piece tops out at iLvl 40 (tier 2, the Research-Lab-level-2 ceiling), BELOW the
-// ~60 folded crossover. Net effect: crafted defense could NEVER reach the free Standard-Issue floor,
-// a STRICT downgrade at every reachable iLevel, the exact "crafting must always be an upgrade"
-// failure this unit exists to prevent (reported by the user testing a crafted Balanced Emitter at
-// ~10% of the SI shield capacity). Raising the multiplier to 10 pulls the folded crossover down to
-// ~iLvl 24, INSIDE the reachable iLvl-40 cap: a maxed tier-2 crafted piece is now a clear upgrade, a
-// mid-crafting piece a sidegrade, a low-crafting-level piece still below the floor (intended
-// progression, not a dead end). SAFE within the reachable range: tier caps hold crafted defense at
-// iLvl <= 40, so the "very tanky at iLvl 200+" endgame the original comment warned about is
-// UNREACHABLE, and a larger multiplier cannot create absurd endgame shields, it only lifts the
-// iLvl <= 40 band into viability. Standard-Issue baselines / frame fraction / rating weights still
-// do NOT move, so every SI combatant stays byte-identical (parity + SI balance fixtures unchanged);
-// ONLY crafted defensive gear gets stronger. ⚠️ EXPLICITLY PROVISIONAL / INTERIM: the whole
-// crafted-defense-vs-SI-floor curve (this multiplier, the per-tier iLevel caps, the flat SI-floor
-// magnitudes, the tier gating) is deferred to the 0.16.0 balance pass for a holistic re-tune; this
-// bump just makes the defense-craft loop testable and non-broken meanwhile.
+// This REPLACES the interim CRAFTED_DEFENSE_IMPLICIT_MULT = 10 hack (deleted). That hack
+// multiplied the shared budget-derived implicit purely to clear the OLD huge per-hull floor
+// (200-880, the hull's whole authored defense baked into SI gear). With the floor now a flat
+// 100 the hack is obsolete, and a dedicated curve gives painfully-explicit control over the
+// first-tier-just-above-SI guarantee instead of relying on a crossover buried in the budget math.
 //
-// WHY shieldRecharge is NOT boosted: the Standard-Issue emitter's shieldRecharge floor is tiny
-// (the destroyer's is 10), and a crafted shieldRecharge implicit (a quarter of the budget, same
-// share as shieldCapacity) already dwarfs 10 by low iLevel with no help. Only the two LARGE floors
-// (hullStrength 480, shieldCapacity 300) need the boost, so the multiplier is scoped to exactly
-// those two lines and shieldRecharge is left to scale on its own.
-export const CRAFTED_DEFENSE_IMPLICIT_MULT = 10;
+// NOTE on budget: for these two slots the implicit magnitude no longer draws from the piece's
+// implicitShare (the shared budget's implicit half is simply unused here); the AFFIX lines still
+// draw from affixShare as normal. This is the same posture the old x10 mult had (it also broke
+// strict budget conservation for these slots) and is deliberate: the defensive implicit is an
+// independent, floored bonus, not a budget slice.
+//
+// ⚠️ FIRST-PASS TUNABLE: the exact BASE / PER_LEVEL numbers are launch placeholders; the 0.16.0
+// balance pass refines the curve. What is STRUCTURAL (and must not regress): the lowest craftable
+// roll clears the flat SI floor, and the magnitude rises with iLevel / quality / rarity.
+// ----------------------------------------------------------------------------
+
+// hullStrength (plating) + shieldCapacity (emitter): the two LARGE defensive implicits. Both
+// share ONE curve keyed to the flat SI cap floor of 100. At the lowest craftable roll (iLevel 1,
+// quality 0, standard rarity -> rarityIndex 1, so the base is already multiplied by RARITY_MULT^1)
+// this yields ~109 raw, a few points above the 100 floor; at the top reachable roll (iLevel 40 =
+// the tier-2 EQUIPMENT_ILEVEL_CAP, quality 5, radiant) it yields ~377 raw, ~3.5x the floor. TUNABLE.
+export const CRAFTED_DEFENSE_CAP_BASE = 94;       // flat component: sits just above the 100 floor after the standard-rarity 1.15x
+export const CRAFTED_DEFENSE_CAP_PER_LEVEL = 1;   // per-iLevel growth added on top of the base
+
+// shieldRecharge (the emitter's SECOND implicit): a much smaller stat (SI floor is only 3), so it
+// rides its own tiny curve rather than the cap curve (the magnitudes differ by ~30x). At the lowest
+// craftable roll this yields ~4 raw, above the SI recharge floor of 3, and scales up gently. It was
+// never over-boosted before (the old mult deliberately skipped it), and it stays modest here. TUNABLE.
+export const CRAFTED_DEFENSE_RECHARGE_BASE = 3;
+export const CRAFTED_DEFENSE_RECHARGE_PER_LEVEL = 0.2;
+
+// craftedDefensiveImplicit: the floored magnitude for one defensive implicit line.
+// (base + perLevel * iLevel), compounded by the SAME quality/rarity multipliers computeBudget
+// uses, rounded to a whole point. Monotonic non-decreasing in iLevel, quality, and rarity (every
+// multiplier is >= 1 and Math.round is non-decreasing), which the first-tier-above-SI guarantee
+// and the "higher roll is a bigger piece" contract both rely on. PURE arithmetic.
+export function craftedDefensiveImplicit(
+  base: number,
+  perLevel: number,
+  iLevel: number,
+  quality: number,
+  rarityIdx: number,
+): number {
+  return Math.round((base + perLevel * iLevel) * QUALITY_MULT ** quality * RARITY_MULT ** rarityIdx);
+}
 
 // Per-quality-rung durability bonus: durabilityMax = base * (1 + quality * this).
 // At 0.2 a quality-5 piece has double (1 + 5*0.2 = 2x) the base durability. Kept
@@ -341,19 +359,31 @@ export function generateEquipment(a: {
   const implicitStats: Record<string, number> = {};
   const implicitCount = slotDef.implicitStats.length;
   const implicitEach = implicitCount > 0 ? Math.round(implicitShare / implicitCount) : 0;
+  const rarityIdx = rarityIndex(a.rarity);
   for (const stat of slotDef.implicitStats) {
-    // Combat 1.0 (Unit 2.5a): boost ONLY the primary defensive implicit of the two defensive
-    // slots (hullPlating.hullStrength, shieldEmitters.shieldCapacity) by CRAFTED_DEFENSE_IMPLICIT_MULT,
-    // so crafted defensive gear out-scales the Standard-Issue floor (which holds the hull's ENTIRE
-    // authored defense) by mid item level. Strictly scoped by (slotType, stat) so weapons, drones,
-    // the economy slots (cargo/ftl/reactor/specUtility), AND the emitter's shieldRecharge line are
-    // all untouched. See CRAFTED_DEFENSE_IMPLICIT_MULT for the crossover math and the why.
-    const isBoostedDefensiveImplicit =
-      (a.slotType === "hullPlating" && stat === "hullStrength") ||
-      (a.slotType === "shieldEmitters" && stat === "shieldCapacity");
-    implicitStats[stat] = isBoostedDefensiveImplicit
-      ? Math.round(implicitEach * CRAFTED_DEFENSE_IMPLICIT_MULT)
-      : implicitEach;
+    // Combat-defense rework (Unit 4): the three DEFENSIVE implicit lines do NOT use the shared
+    // budget-derived implicitEach. Their Standard-Issue floor is a FLAT, hull-independent value
+    // (SI_PLATING_HP / SI_EMITTER_CAP = 100, SI_EMITTER_RECHARGE = 3), so each rides a dedicated
+    // FLOORED curve (craftedDefensiveImplicit) that guarantees the first crafted tier is a few
+    // points above that floor and scales up with iLevel/quality/rarity. Strictly scoped by
+    // (slotType, stat): every OTHER slot (weapons via generateWeapon, drones via generateDronePod,
+    // and the economy slots cargo/ftl/reactor/specUtility here) keeps the shared implicitEach.
+    // See the CRAFTED_DEFENSE_* constants above for the why and the worked first/high-tier numbers.
+    if (a.slotType === "hullPlating" && stat === "hullStrength") {
+      implicitStats[stat] = craftedDefensiveImplicit(
+        CRAFTED_DEFENSE_CAP_BASE, CRAFTED_DEFENSE_CAP_PER_LEVEL, a.iLevel, a.quality, rarityIdx,
+      );
+    } else if (a.slotType === "shieldEmitters" && stat === "shieldCapacity") {
+      implicitStats[stat] = craftedDefensiveImplicit(
+        CRAFTED_DEFENSE_CAP_BASE, CRAFTED_DEFENSE_CAP_PER_LEVEL, a.iLevel, a.quality, rarityIdx,
+      );
+    } else if (a.slotType === "shieldEmitters" && stat === "shieldRecharge") {
+      implicitStats[stat] = craftedDefensiveImplicit(
+        CRAFTED_DEFENSE_RECHARGE_BASE, CRAFTED_DEFENSE_RECHARGE_PER_LEVEL, a.iLevel, a.quality, rarityIdx,
+      );
+    } else {
+      implicitStats[stat] = implicitEach;
+    }
   }
 
   // --- Rolled affix lines: rarity decides how many, picker decides which ------
