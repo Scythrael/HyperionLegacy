@@ -54,7 +54,7 @@ import type {
   ShipSpec,
   CaptainTalentBranch,
 } from "./model";
-import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue, isStandardIssueBaseline } from "./model";
+import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue } from "./model";
 
 // The slot-type partitions the fit gate (canFitEquipment) and the mutators read. Sets (not arrays)
 // for O(1) membership; typed to EquipmentSlotType so a slot rename is a compile error.
@@ -388,54 +388,32 @@ export function fitEquipment(state: GameState, shipId: string, instanceId: strin
     return { ...state, equipment };
   }
 
-  // SINGLETON slot: atomic swap. The incoming piece takes the slot; the current occupant of the SAME
-  // slot on this ship is displaced. HOW it is displaced depends on WHAT the occupant is, and this is
-  // one half of the "install / uninstall can never net-create an item" integrity rule:
-  //   - An ECONOMY Standard-Issue BASELINE (economy slot + blueprintKey === null) is the free,
-  //     non-collectible slot FLOOR, not real inventory (salvage.ts discards it on ship salvage,
-  //     EquipmentTooltip labels it "Standard-Issue"). Installing over it DESTROYS it (it is dropped
-  //     from the pool entirely), so the free baseline can never pile up as a spare. (Before this
-  //     guard, the displaced baseline was evicted to the pool as a spare, the install half of the
-  //     reported duplication bug.) NOTE: since economy slots became ALLOW-EMPTY, uninstalling the
-  //     CRAFTED piece later does NOT re-mint a baseline (the slot just goes empty), so a crafted
-  //     round-trip nets -1 free baseline overall. That is intentional and harmless: a baseline is a
-  //     worthless +0 floor, empty == baseline economically, and this path still only ever DESTROYS,
-  //     never creates, so the non-dupe integrity rule holds.
-  //   - Anything else (a CRAFTED economy piece, or a COMBAT singleton baseline/crafted) is real,
-  //     recoverable inventory: it is EVICTED to the spare pool (fittedToShipId -> null), unchanged.
-  //     Combat baselines are deliberately recoverable spares on the allow-empty combat slots, so they
-  //     are NOT destroyed here.
+  // SINGLETON slot: atomic swap. The incoming piece takes the slot; ANY current occupant of the SAME
+  // slot on this ship is DISPLACED and EVICTED to the spare pool (fittedToShipId -> null). Nothing is
+  // ever DESTROYED here, for any occupant, economy or combat, baseline or crafted or dev-granted.
   //
-  // `displaced` is the SAME-slot piece on this ship that is NOT the incoming piece; the
-  // `id !== instanceId` guard makes a re-install of the already-fitted piece a safe no-op rather than
-  // a self-destroy.
-  const displaced = state.equipment.find(
-    (e) => e.fittedToShipId === shipId && e.slotType === slotType && e.id !== instanceId
-  );
-  // Destroy the displaced piece ONLY if it is a genuine economy Standard-Issue FLOOR. Uses the
-  // strict isStandardIssueBaseline predicate (blueprintKey null AND rarity "standard"), NOT bare
-  // blueprintKey===null: dev-granted gear is also blueprintKey null but RADIANT, and destroying it
-  // here silently deleted valuable items. A dev/crafted displaced piece falls through to the eviction
-  // branch below and is POOLED (recoverable), never destroyed.
-  const destroyDisplacedBaseline =
-    displaced !== undefined &&
-    ECONOMY_INSTALLABLE_SLOTS.has(displaced.slotType) &&
-    isStandardIssueBaseline(displaced);
-
-  const equipment = state.equipment
-    // Drop a displaced ECONOMY baseline entirely (the free floor is not a collectible spare).
-    .filter((e) => !(destroyDisplacedBaseline && e.id === displaced!.id))
-    .map((e) => {
-      // The incoming piece: fit it to this ship.
-      if (e.id === instanceId) return { ...e, fittedToShipId: shipId };
-      // A CRAFTED / combat occupant of the SAME slot on the SAME ship: evict to the pool. (An economy
-      // baseline occupant was already dropped by the filter above, so it never reaches this branch.)
-      if (e.fittedToShipId === shipId && e.slotType === slotType) {
-        return { ...e, fittedToShipId: null };
-      }
-      // Everything else (other ships, other slots, spares): untouched.
-      return e;
-    });
+  // ⚠️ NO AUTO-DELETE (user principle 2026-08-26, reported repeatedly): the game must never make a
+  // player's item vanish. An earlier version DESTROYED a displaced economy Standard-Issue baseline on
+  // install as an anti-clutter measure; a player installing a crafted reactor over the free baseline
+  // saw the baseline "vanish into thin air", which reads as data loss even for a worthless +0 floor.
+  // So the displaced piece now ALWAYS becomes a recoverable spare that the install picker re-offers.
+  // Bulk declutter of worthless baseline spares is OPT-IN only (Salvage Bay "Destroy" + the 0.13.1
+  // auto-salvage rules), never an automatic side effect of installing gear.
+  //
+  // DUPE-SAFE: this only ever MOVES pieces (incoming -> fitted, displaced -> pool), never mints, and
+  // uninstall likewise never re-mints (allow-empty), so a full install/uninstall round-trip is item-
+  // count-neutral. The `id !== instanceId` guard on the eviction makes a re-install of the already-
+  // fitted piece a safe no-op rather than a self-evict.
+  const equipment = state.equipment.map((e) => {
+    // The incoming piece: fit it to this ship.
+    if (e.id === instanceId) return { ...e, fittedToShipId: shipId };
+    // Any OTHER occupant of the SAME slot on this ship (the displaced piece): evict to the spare pool.
+    if (e.fittedToShipId === shipId && e.slotType === slotType) {
+      return { ...e, fittedToShipId: null };
+    }
+    // Everything else (other ships, other slots, spares): untouched.
+    return e;
+  });
 
   return { ...state, equipment };
 }
