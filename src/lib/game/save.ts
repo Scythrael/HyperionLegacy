@@ -4,7 +4,7 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline } from "./model";
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
 // hull's combat class and defaultSystemDurabilityForHull builds its FULL (no-wear) durability
@@ -19,7 +19,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull } from "./combat/bridg
 // never imports save.ts), so it introduces no module cycle.
 import { clampInventoryToCaps, installMissingCombatBaselines } from "./tick";
 
-export const SAVE_VERSION = 37;
+export const SAVE_VERSION = 38;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1432,6 +1432,76 @@ const MIGRATIONS: Record<number, Migration> = {
   // hand-edited save needs). The version bump is retained so v37 saves already written on staging stay
   // valid. Any legacy dupe-bug orphan baselines simply ride through as harmless, re-installable spares.
   36: (state: any): any => ({ ...state, equipment: state.equipment ?? [] }),
+  // v37 -> v38: Standard-Issue COMBAT baseline RE-STAT (combat-defense rework BUG-U6, design
+  // 2026-08-27-combat-defense-rework-design.md sections 4 + 7). The rework moved a hull's defense
+  // out of its Standard-Issue GEAR and into DERIVED innate ship stats: SI combat gear is now a
+  // MODEST, FIXED floor (the SI_PLATING_HP / SI_EMITTER_CAP / SI_EMITTER_RECHARGE dials, model.ts),
+  // the SAME on every hull, and the bridge fold is now `hull = innateHullArmor + plating.hullStrength`
+  // (innate armor is derived per-hull, NOT stored, so there is NO per-ship innate field to backfill).
+  //
+  // THE PROBLEM this repairs: a save written BEFORE the rework carries SI combat baselines minted at
+  // the OLD per-hull magnitudes (SI plating hullStrength = hullIntegrity - frameHp, e.g. 480 or 880;
+  // SI emitter shieldCapacity = the hull's FULL value, e.g. 200 or 500). Loaded under the NEW additive
+  // fold, an old carrier's 880 plating would fold to `innate 1000 + 880 = 1880` hull -> WRONG (badly
+  // inflated). This step re-stats every SI combat baseline down to the fixed dials so a loaded ship
+  // folds byte-identically to a freshly built one.
+  //
+  // WHAT IS RE-STATTED (magnitudes live in piece.implicitStats, see generateCombatStandardIssue in
+  // model.ts, the SAME locations set here so a migrated baseline == a freshly minted one, Omega 4):
+  //   - a hullPlating baseline -> implicitStats.hullStrength   = SI_PLATING_HP     (100)
+  //   - a shieldEmitters baseline -> implicitStats.shieldCapacity = SI_EMITTER_CAP  (100)
+  //                                  implicitStats.shieldRecharge  = SI_EMITTER_RECHARGE (3)
+  // Whether the piece is FITTED or a SPARE is irrelevant (both fold the same magnitudes), so both are
+  // re-statted; only the slotType + the strict-baseline test below gate what is touched.
+  //
+  // WHAT IS LEFT UNTOUCHED (deliberate):
+  //   - WEAPON + droneBay baselines: the rework did NOT re-stat weapons/drones (their signature lines
+  //     are unchanged, a fixed 0-bonus over the base def/template), so their implicits stay as minted.
+  //   - CRAFTED gear (blueprintKey set): keeps its stored magnitudes, a dev-only artifact the 0.16.0
+  //     balance pass owns (prod has no crafted defensive gear); a save migration must never silently
+  //     re-stat a player's crafted item.
+  //   - all economy gear (cargoBay/ftlDrive/reactorCore/specUtility) and any other slot.
+  //
+  // STRICT BASELINE TEST via the SHARED isStandardIssueBaseline (model.ts) = blueprintKey === null &&
+  // rarity === "standard". This is SAFETY-CRITICAL: `blueprintKey === null` ALONE also matches dev-
+  // granted RADIANT gear (devGrantEquipment mints it blueprintKey null while being an iL-400 keeper),
+  // and re-statting one of those down to the SI floor would silently gut a valuable item, the exact
+  // false-positive that predicate exists to prevent. Requiring rarity "standard" excludes every dev /
+  // crafted / loot piece, so only a genuine free baseline is ever touched.
+  //
+  // IDEMPOTENT: a save whose baselines already carry the new magnitudes (a fresh game; an already-
+  // migrated save; or a prod v30 save whose baselines were seeded by the v33/34/35 chain, which calls
+  // the now-updated generateCombatStandardIssue at these same dials) is re-statted to the IDENTICAL
+  // values, a value-level no-op. Re-running changes nothing.
+  //
+  // An EquipmentInstance carries no top-level Decimal (implicitStats magnitudes are PLAIN numbers), so
+  // the re-statted pieces ride hydrateDecimals's `...state` spread untouched, hydrateDecimals needs NO
+  // change. `?? []` guards a partial / hand-edited save. Every OTHER field rides through on the outer
+  // `...state` spread. NOTE: on the current feature branch, NOT yet shipped to production, so still
+  // editable (the frozen-once-shipped rule applies only to production-released migrations).
+  37: (state: any): any => {
+    const equipment = (state.equipment ?? []).map((piece: any) => {
+      // Only a genuine free Standard-Issue baseline is a re-stat candidate (strict predicate: never a
+      // dev radiant / crafted / loot piece). Everything else rides through untouched.
+      if (!isStandardIssueBaseline(piece)) return piece;
+      // hull-plating baseline: overwrite hullStrength to the fixed floor (the fold ADDS this to innate
+      // armor). Spread the existing implicits so no other line on the piece is dropped.
+      if (piece.slotType === "hullPlating") {
+        return { ...piece, implicitStats: { ...piece.implicitStats, hullStrength: SI_PLATING_HP } };
+      }
+      // shield-emitter baseline: overwrite cap + recharge to the fixed floor (the fold SCALES these by
+      // the hull's innate mults).
+      if (piece.slotType === "shieldEmitters") {
+        return {
+          ...piece,
+          implicitStats: { ...piece.implicitStats, shieldCapacity: SI_EMITTER_CAP, shieldRecharge: SI_EMITTER_RECHARGE },
+        };
+      }
+      // A standard baseline of any OTHER slot (weapon / droneBay / economy) is left exactly as minted.
+      return piece;
+    });
+    return { ...state, equipment };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {
