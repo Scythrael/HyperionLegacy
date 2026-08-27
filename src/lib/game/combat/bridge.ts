@@ -461,10 +461,19 @@ export function installedDronesForPatrol(
 export function defaultSystemDurabilityForHull(
   hullType: CombatHullType,
   stats: CombatShipStats,
+  installedGear?: EquipmentInstance[],
 ): PatrolSystemDurability {
-  // Build the hull's fresh default combatant once and read its full ceilings. id/team are
-  // irrelevant here (nothing is fought), so any stable literal is fine.
-  const fresh = shipToCombatant({ id: "durability-seed", team: "player", stats, hullType });
+  // Build the hull's fresh combatant once and read its full ceilings. id/team are irrelevant here
+  // (nothing is fought), so any stable literal is fine.
+  // ⚠️ THREAD installedGear (audit fix): the seed's per-weapon durabilityMax (and count/order) MUST
+  // match the REAL geared combatant the patrol fights. Passing gear was missed here (the sibling
+  // playerDrones seed was threaded in Unit 2.3b), so the seed defaulted to hull-default quality-0
+  // weapons (max 100); a crafted quality>0 weapon (durabilityMax up to 200) was then CLAMPED to 100
+  // on wave 1 by applyCarriedSystemDurability, opening it Degraded (<=60%) and forcing reduced
+  // damage across the whole patrol, strictly worse than a free Standard-Issue weapon. With gear
+  // threaded, seed == real ceiling and the wave-1 apply is a no-op (full). undefined gear falls to
+  // the hull-default path (byte-identical for a Standard-Issue set), so enemies/tests are unchanged.
+  const fresh = shipToCombatant({ id: "durability-seed", team: "player", stats, hullType, installedGear });
   return {
     weapons: fresh.weapons.map((weapon) => weapon.durabilityMax),
     // A real combat hull always carries both (shipToCombatant builds them); the `?? 0` guards

@@ -429,7 +429,7 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
     // FULL system durability at the cycle's opening (Phase 12b Unit B2): the replay reconstructs
     // from the initial no-wear state, exactly as freshPatrolMission seeded the live cycle, so
     // both accumulate identical wear across the waves.
-    startSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef),
+    startSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear),
   });
 
   return {

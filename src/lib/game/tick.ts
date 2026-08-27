@@ -3201,7 +3201,7 @@ function freshPatrolMission(args: {
     // Carry-state seeded to FULL system durability (Phase 12b Unit B2): every weapon + the
     // reactor + the ftl at their fresh ceilings (no wear), the same "start clean" a fresh
     // dispatch AND a relaunch both want. Wear accumulates from here across the cycle's waves.
-    playerSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef),
+    playerSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear),
     recalled: false,
     repeatDispatch,
   };
