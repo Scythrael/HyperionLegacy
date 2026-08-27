@@ -113,23 +113,33 @@ export const IMPLICIT_BUDGET_SHARE = 0.5;
 // Standard-Issue combatant stays byte-identical (parity + SI balance fixtures unchanged) and
 // ONLY crafted defensive gear gets stronger, out-scaling the SI floor by mid item level.
 //
-// VALUE (4): chosen from the crossover math so a max-quality (q5) crafted plate overtakes the
-// destroyer's 480 hullStrength floor at roughly iLvl 65, and a q5 crafted emitter overtakes the
-// 300 shieldCapacity floor at roughly iLvl 81 (the emitter naturally crosses a bit later because
-// its implicit carries only a quarter of the budget, an accepted asymmetry). Those two crossover
-// iLevels are for the IMPLICIT LINE ALONE; a real crafted piece also carries rolled affix
-// hullStrength/shieldCapacity on top, so the FOLDED pool (implicit + affixes) overtakes the floor
-// noticeably earlier than these numbers (e.g. an iLvl 60 q5/radiant set already exceeds SI on both
-// pools, per the craftedGearPayoff mid-iLevel test). Endgame scaling climbs well past the SI floor
-// (very tanky at iLvl 200+), which is intended. FIRST-PASS TUNABLE, same device-check posture as
-// every other constant here.
+// VALUE (10, INTERIM bump 2026-08-26 from the original 4): the original 4 put the q5 crossover at
+// ~iLvl 65 (plate) / ~81 (emitter) implicit-alone, ~60 folded (implicit + affixes). That was fine
+// IN ISOLATION but broke once the craftable shield/plating BLUEPRINTS landed: those blueprints are
+// tier 1-2, and item level is capped at blueprintTier * 20 (EQUIPMENT_ILEVEL_CAP_PER_TIER), so a
+// crafted defensive piece tops out at iLvl 40 (tier 2, the Research-Lab-level-2 ceiling), BELOW the
+// ~60 folded crossover. Net effect: crafted defense could NEVER reach the free Standard-Issue floor,
+// a STRICT downgrade at every reachable iLevel, the exact "crafting must always be an upgrade"
+// failure this unit exists to prevent (reported by the user testing a crafted Balanced Emitter at
+// ~10% of the SI shield capacity). Raising the multiplier to 10 pulls the folded crossover down to
+// ~iLvl 24, INSIDE the reachable iLvl-40 cap: a maxed tier-2 crafted piece is now a clear upgrade, a
+// mid-crafting piece a sidegrade, a low-crafting-level piece still below the floor (intended
+// progression, not a dead end). SAFE within the reachable range: tier caps hold crafted defense at
+// iLvl <= 40, so the "very tanky at iLvl 200+" endgame the original comment warned about is
+// UNREACHABLE, and a larger multiplier cannot create absurd endgame shields, it only lifts the
+// iLvl <= 40 band into viability. Standard-Issue baselines / frame fraction / rating weights still
+// do NOT move, so every SI combatant stays byte-identical (parity + SI balance fixtures unchanged);
+// ONLY crafted defensive gear gets stronger. ⚠️ EXPLICITLY PROVISIONAL / INTERIM: the whole
+// crafted-defense-vs-SI-floor curve (this multiplier, the per-tier iLevel caps, the flat SI-floor
+// magnitudes, the tier gating) is deferred to the 0.16.0 balance pass for a holistic re-tune; this
+// bump just makes the defense-craft loop testable and non-broken meanwhile.
 //
 // WHY shieldRecharge is NOT boosted: the Standard-Issue emitter's shieldRecharge floor is tiny
 // (the destroyer's is 10), and a crafted shieldRecharge implicit (a quarter of the budget, same
 // share as shieldCapacity) already dwarfs 10 by low iLevel with no help. Only the two LARGE floors
 // (hullStrength 480, shieldCapacity 300) need the boost, so the multiplier is scoped to exactly
 // those two lines and shieldRecharge is left to scale on its own.
-export const CRAFTED_DEFENSE_IMPLICIT_MULT = 4;
+export const CRAFTED_DEFENSE_IMPLICIT_MULT = 10;
 
 // Per-quality-rung durability bonus: durabilityMax = base * (1 + quality * this).
 // At 0.2 a quality-5 piece has double (1 + 5*0.2 = 2x) the base durability. Kept
