@@ -19,7 +19,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull } from "./combat/bridg
 // never imports save.ts), so it introduces no module cycle.
 import { clampInventoryToCaps, installMissingCombatBaselines } from "./tick";
 
-export const SAVE_VERSION = 38;
+export const SAVE_VERSION = 39;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1498,6 +1498,58 @@ const MIGRATIONS: Record<number, Migration> = {
         };
       }
       // A standard baseline of any OTHER slot (weapon / droneBay / economy) is left exactly as minted.
+      return piece;
+    });
+    return { ...state, equipment };
+  },
+  // v38 -> v39: Standard-Issue SHIELD baseline RE-STAT to the shield REFERENCES (combat-defense rework
+  // addendum, design 2026-08-27-combat-defense-rework-design.md; HYBRID model, user-locked 2026-08-27).
+  // The rework's SECOND pass made the SHIELD stats multiplicative via an EFFECTIVENESS ratio (finalStat =
+  // installedEmitter * authoredShield/REF), with SI emitters providing EXACTLY each shield reference, so
+  // the SI shield dials moved UP: SI_EMITTER_CAP = REF_SHIELD_CAPACITY (300), SI_EMITTER_RECHARGE =
+  // REF_SHIELD_RECHARGE (6). HULL STAYS ADDITIVE (user-locked: a bare hull keeps a nonzero frame), so
+  // SI_PLATING_HP STAYS 100 and this step does NOT touch hullPlating.hullStrength.
+  //
+  // THE PROBLEM this repairs: a save written under the INTERIM v38 magnitudes carries SI shield baselines
+  // at shieldCapacity 100 / shieldRecharge 3 (the old flat floor). Loaded under the multiplicative shield
+  // fold, a 100-cap SI emitter on a destroyer would fold to 100 * (300/300) = 100 shield -> WRONG (should
+  // be 300). This step re-stats every SI SHIELD baseline UP to the references so a loaded ship's shields
+  // fold byte-identically to a freshly built one. Hull needs no re-stat: the additive SI plating stayed at
+  // 100, and the prior v38 (MIGRATIONS[37]) already set it there.
+  //
+  // WHAT IS RE-STATTED (magnitudes live in piece.implicitStats, the SAME locations generateCombatStandardIssue
+  // sets so a migrated baseline == a freshly minted one, Omega 4):
+  //   - a shieldEmitters baseline -> implicitStats.shieldCapacity = SI_EMITTER_CAP      (300)
+  //                                  implicitStats.shieldRecharge  = SI_EMITTER_RECHARGE (6)
+  //
+  // WHAT IS LEFT UNTOUCHED (deliberate): hullPlating baselines (hull is additive; SI_PLATING_HP stays 100,
+  // set by the prior v38 step); weapon + droneBay baselines; CRAFTED gear (blueprintKey set) keeps its
+  // stored magnitudes; all economy gear; any other slot.
+  //
+  // STRICT BASELINE TEST via the SHARED isStandardIssueBaseline (blueprintKey === null && rarity ===
+  // "standard"). SAFETY-CRITICAL: this EXCLUDES a dev-minted RADIANT item (devGrantEquipment mints it
+  // blueprintKey null but rarity "radiant", NOT "standard"), so re-statting can never gut a valuable dev
+  // keeper. Requiring rarity "standard" is the whole guard; do NOT weaken it.
+  //
+  // v38 IS LEFT UNEDITED (it may already have run on a device): this v39 step simply OVERWRITES the shield
+  // fields to the new values on top of whatever v38 wrote. IDEMPOTENT: a save whose shield baselines already
+  // carry the references (a fresh game seeded by the updated generateCombatStandardIssue; an already-migrated
+  // save) is re-statted to the IDENTICAL values, a value-level no-op. Re-running changes nothing. `?? []`
+  // guards a partial / hand-edited save; every other field rides through on the outer `...state` spread.
+  38: (state: any): any => {
+    const equipment = (state.equipment ?? []).map((piece: any) => {
+      // Only a genuine free Standard-Issue baseline is a re-stat candidate (strict predicate: never a
+      // dev radiant / crafted / loot piece). Everything else rides through untouched.
+      if (!isStandardIssueBaseline(piece)) return piece;
+      // shield-emitter baseline: overwrite cap + recharge to the references (the fold MULTIPLIES these by
+      // the hull's shield effectivenesses). Spread the existing implicits so no other line is dropped.
+      if (piece.slotType === "shieldEmitters") {
+        return {
+          ...piece,
+          implicitStats: { ...piece.implicitStats, shieldCapacity: SI_EMITTER_CAP, shieldRecharge: SI_EMITTER_RECHARGE },
+        };
+      }
+      // Every OTHER slot (hullPlating [additive, untouched] / weapon / droneBay / economy) is left as minted.
       return piece;
     });
     return { ...state, equipment };

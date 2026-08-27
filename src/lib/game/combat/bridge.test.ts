@@ -17,7 +17,7 @@ import {
 	tierFromPod,
 	defaultDronesForHull,
 	installedDronesForPatrol,
-	hullInnateDefense,
+	hullDefenseComposition,
 	type CombatShipStats,
 	type CombatHullType,
 } from "./bridge";
@@ -301,9 +301,9 @@ describe("bridged Combatant is valid resolveBattle input", () => {
 // Build a hull's Standard-Issue combat spec EXACTLY as the tick.ts caller does (full default loadout +
 // default drone roles + the FIXED SI-gear dials). Kept local so the bridge tests exercise the real
 // caller contract without importing tick.ts (a combat leaf must never import UP into the live loop).
-// The defensive magnitudes are the hull-independent SI dials (combat-defense rework); the hull's
-// identity now lives in its innate stats (hullInnateDefense), which the fold recomposes so an SI set
-// still lands on the hull's authored totals (byte-identical).
+// The defensive magnitudes are the hull-independent SI dials (SI plating floor + the shield references);
+// the hull's identity lives in its bare frame (additive) + its shield effectiveness (hullDefenseComposition),
+// which the fold adds/multiplies so an SI set still lands on the hull's authored totals (byte-identical).
 function combatSpecFor(hull: CombatHullType): CombatStandardIssueSpec {
 	return {
 		signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
@@ -523,12 +523,12 @@ describe("shipToCombatant gear fold: Standard-Issue is BEHAVIOUR-PRESERVING", ()
 		const stats = SHIP_TYPES.destroyer;
 		const gear = standardIssueGear("destroyer", "player-ship");
 		const c = shipToCombatant({ id: "player-ship", team: "player", stats, hullType: "destroyer", installedGear: gear });
-		// Hull = innateHullArmor + SI plating.hullStrength == the hull's total integrity (the innate
-		// split cancels the fixed SI plating: (hullIntegrity - SI_PLATING_HP) + SI_PLATING_HP).
+		// Hull = the hull's bare frame + SI plating.hullStrength == the hull's integrity (innateHullArmor
+		// = hullIntegrity - SI_PLATING_HP, then + SI_PLATING_HP cancels to hullIntegrity; additive).
 		expect(c.hull).toBe(stats.hullIntegrity);
 		expect(c.hullMax).toBe(stats.hullIntegrity);
-		// Shield pool + recharge = the SI emitter SCALED by the hull's innate mult, which recomposes to
-		// exactly the hull's authored stats for Standard-Issue (SI_EMITTER_CAP * shieldCapacity/SI_EMITTER_CAP).
+		// Shield pool + recharge = the SI emitter MULTIPLIED by the hull's shield effectiveness, which recomposes
+		// to exactly the hull's authored stats for Standard-Issue (SI_EMITTER_CAP * shieldCapacity/REF_SHIELD_CAPACITY).
 		expect(c.shieldMax).toBe(stats.shieldCapacity);
 		expect(c.shieldRecharge).toBe(stats.shieldRecharge);
 		// One CombatWeapon per installed weapon piece, in the hull's default loadout order.
@@ -555,11 +555,10 @@ describe("shipToCombatant gear fold: Standard-Issue is BEHAVIOUR-PRESERVING", ()
 			return p;
 		});
 		const c = shipToCombatant({ id: "player-ship", team: "player", stats, hullType: "destroyer", installedGear: upgraded });
-		// Combat-defense rework: the emitter's raw cap (SI floor + the crafted +100) is SCALED by the
-		// hull's innate shield-cap mult, so a bigger emitter is worth MORE on a combat hull than its raw
-		// number ("wired for shields"). Expected = (SI_EMITTER_CAP + 100) * (1 + innateShieldCapMult).
-		const innate = hullInnateDefense(stats);
-		expect(c.shieldMax).toBe((SI_EMITTER_CAP + 100) * (1 + innate.innateShieldCapMult));
+		// Combat-defense rework: the emitter's raw cap (SI floor + the crafted +100) is MULTIPLIED by the
+		// hull's shield-cap effectiveness. Expected = (SI_EMITTER_CAP + 100) * shieldCapEffectiveness.
+		const comp = hullDefenseComposition(stats);
+		expect(c.shieldMax).toBe((SI_EMITTER_CAP + 100) * comp.shieldCapEffectiveness);
 		// It is still strict UPSIDE over the Standard-Issue floor (the whole point: crafting pays off).
 		expect(c.shieldMax).toBeGreaterThan(stats.shieldCapacity);
 		expect(c.shieldCoherence).toBe(15);
@@ -572,39 +571,71 @@ describe("shipToCombatant gear fold: Standard-Issue is BEHAVIOUR-PRESERVING", ()
 });
 
 // ---------------------------------------------------------------------------
-// Combat-defense rework (2026-08-27): the innate-defense split. hullInnateDefense derives the hull's
-// own contribution from its authored SHIP_TYPES totals against the FIXED SI-gear dials, calibrated so an
-// SI set recomposes byte-identical. These tests pin that calibration + the "no emitter -> shield 0" rule.
+// Combat-defense rework (2026-08-27, HYBRID model): hullDefenseComposition derives each hull's bare frame
+// (additive: authored - SI_PLATING_HP) + its shield-cap / recharge effectiveness ratios (authored / REF)
+// from its SHIP_TYPES totals, calibrated (SI plating == the floor, SI emitter == the reference) so an SI
+// set recomposes byte-identical. These tests pin: the additive hull (a bare hull keeps a nonzero frame),
+// the shield-effectiveness spread (glass < 100% / mid == 100% / tanky > 100%), the byte-identity fold, the
+// "no emitter -> shield 0" rule, and the taming of the old runaway-shield compounding.
 // ---------------------------------------------------------------------------
-describe("hullInnateDefense + the innate/gear composition", () => {
-	it("derives the destroyer's innate defense so an SI set recomposes to its authored totals", () => {
+describe("hullDefenseComposition + the hull-additive / shield-effectiveness composition", () => {
+	it("derives the destroyer's composition so an SI set recomposes to its authored totals", () => {
 		const stats = SHIP_TYPES.destroyer; // 600 hull / 300 shield / 10 recharge
-		const innate = hullInnateDefense(stats);
-		// innateHullArmor = hullIntegrity - SI_PLATING_HP; caps/recharge are mults on the SI dial.
-		expect(innate.innateHullArmor).toBe(stats.hullIntegrity - SI_PLATING_HP); // 500
-		expect(innate.innateShieldCapMult).toBe(stats.shieldCapacity / SI_EMITTER_CAP - 1); // 2
-		expect(innate.innateShieldRechargeMult).toBe(stats.shieldRecharge / SI_EMITTER_RECHARGE - 1); // 10/3 - 1
+		const comp = hullDefenseComposition(stats);
+		// Hull is ADDITIVE: the bare frame = authored - SI_PLATING_HP. Shields are ratios = authored / REF.
+		expect(comp.innateHullArmor).toBe(stats.hullIntegrity - SI_PLATING_HP); // 500 (nonzero bare frame)
+		expect(comp.shieldCapEffectiveness).toBe(stats.shieldCapacity / SI_EMITTER_CAP); // 1.0 (destroyer IS the reference)
+		expect(comp.shieldRechargeEffectiveness).toBe(stats.shieldRecharge / SI_EMITTER_RECHARGE); // 10/6 (fast-regen striker)
 		// Recomposition against the SI-gear floor lands EXACTLY on the authored totals (byte-identical).
-		expect(innate.innateHullArmor + SI_PLATING_HP).toBe(stats.hullIntegrity);
-		expect(SI_EMITTER_CAP * (1 + innate.innateShieldCapMult)).toBe(stats.shieldCapacity);
-		expect(SI_EMITTER_RECHARGE * (1 + innate.innateShieldRechargeMult)).toBe(stats.shieldRecharge);
+		expect(comp.innateHullArmor + SI_PLATING_HP).toBe(stats.hullIntegrity);
+		expect(SI_EMITTER_CAP * comp.shieldCapEffectiveness).toBe(stats.shieldCapacity);
+		expect(SI_EMITTER_RECHARGE * comp.shieldRechargeEffectiveness).toBe(stats.shieldRecharge);
 	});
 
-	it("an SI player ship folds to hull == hullIntegrity, shield == shieldCapacity, recharge == shieldRecharge", () => {
-		// The direct statement of the Unit 1 parity contract for a representative combat hull.
+	it("spans the roster: shield-cap effectiveness glass < 100%, mid == 100%, tanky > 100%; bare frame always nonzero", () => {
+		// The shield reference is the mid combat hull (destroyer): it reads 100% on cap. A light hull (runner)
+		// reads below 100%; a capital hull (battleship) reads above. This is the intuitive Effectiveness %
+		// the rework introduced (a tame ~0.5..2.0x, never the old x5 amplifier). Hull is additive: every hull
+		// keeps a nonzero bare frame, scaling with its authored integrity.
+		expect(hullDefenseComposition(SHIP_TYPES.destroyer).shieldCapEffectiveness).toBe(1);
+		expect(hullDefenseComposition(SHIP_TYPES.prospectorRunner).shieldCapEffectiveness).toBeLessThan(1); // 150/300 = 0.5
+		expect(hullDefenseComposition(SHIP_TYPES.battleship).shieldCapEffectiveness).toBeGreaterThan(1); // 600/300 = 2.0
+		// Additive bare frame: nonzero for every hull, and ordered by authored integrity.
+		expect(hullDefenseComposition(SHIP_TYPES.prospectorRunner).innateHullArmor).toBeGreaterThan(0); // 300 - 100 = 200
+		expect(hullDefenseComposition(SHIP_TYPES.destroyer).innateHullArmor).toBe(500);
+		expect(hullDefenseComposition(SHIP_TYPES.battleship).innateHullArmor).toBe(1300); // 1400 - 100
+	});
+
+	it("an SI ship of several hull types folds byte-identical to its authored hull / shield / recharge", () => {
+		// The direct statement of the parity contract, across a glass / mid / tanky hull.
+		for (const hull of ["prospectorRunner", "destroyer", "battleship"] as const) {
+			const stats = SHIP_TYPES[hull];
+			const gear = standardIssueGear(hull, "player-ship");
+			const c = shipToCombatant({ id: "player-ship", team: "player", stats, hullType: hull, installedGear: gear });
+			expect(c.hull).toBe(stats.hullIntegrity);
+			expect(c.hullMax).toBe(stats.hullIntegrity);
+			expect(c.shieldMax).toBe(stats.shieldCapacity);
+			expect(c.shieldRecharge).toBe(stats.shieldRecharge);
+		}
+	});
+
+	it("a hull with NO plating folds to its nonzero bare frame (never 0, user-locked)", () => {
+		// User-locked: a ship without hull plating still has a bare frame (armored, not an exposed space
+		// frame). A gear set of just a weapon + emitter (no hullPlating) must fold hull to innateHullArmor
+		// alone, a NONZERO number, while shields still compose off the emitter.
 		const stats = SHIP_TYPES.destroyer;
-		const gear = standardIssueGear("destroyer", "player-ship");
-		const c = shipToCombatant({ id: "player-ship", team: "player", stats, hullType: "destroyer", installedGear: gear });
-		expect(c.hull).toBe(stats.hullIntegrity);
-		expect(c.hullMax).toBe(stats.hullIntegrity);
-		expect(c.shieldMax).toBe(stats.shieldCapacity);
-		expect(c.shieldRecharge).toBe(stats.shieldRecharge);
+		const full = standardIssueGear("destroyer", "player-ship");
+		const noPlating = full.filter((p) => p.slotType !== "hullPlating");
+		const c = shipToCombatant({ id: "player-ship", team: "player", stats, hullType: "destroyer", installedGear: noPlating });
+		expect(c.hullMax).toBe(stats.hullIntegrity - SI_PLATING_HP); // 500, the bare frame
+		expect(c.hullMax).toBeGreaterThan(0); // NEVER 0
+		expect(c.shieldMax).toBe(stats.shieldCapacity); // shields intact (emitter still installed)
 	});
 
 	it("a hull with NO shield emitter installed folds to shield 0 (emitters ARE the shield source)", () => {
-		// Design 3b/5: the innate mult amplifies an emitter; with none there is nothing to amplify. A
-		// gear set of just a weapon + plating (no shieldEmitters) must fold to zero shield + recharge,
-		// while the hull pool still stands (innateHullArmor + plating, a bare hull is still armored).
+		// The emitter is the shield source; with none there is nothing to scale. A gear set of just a
+		// weapon + plating (no shieldEmitters) must fold to zero shield + recharge, while the hull pool
+		// still stands (bare frame + SI plating).
 		const stats = SHIP_TYPES.destroyer;
 		const full = standardIssueGear("destroyer", "player-ship");
 		const noEmitter = full.filter((p) => p.slotType !== "shieldEmitters");
@@ -612,7 +643,32 @@ describe("hullInnateDefense + the innate/gear composition", () => {
 		expect(c.shieldMax).toBe(0);
 		expect(c.shield).toBe(0);
 		expect(c.shieldRecharge).toBe(0);
-		// The hull pool is unaffected: innate armor + the SI plating still recompose to full integrity.
+		// The hull pool is unaffected: the bare frame + SI plating still recomposes to full integrity.
 		expect(c.hullMax).toBe(stats.hullIntegrity);
+	});
+
+	it("tames the old runaway shield: a crafted emitter + affix on a tanky hull is a SMALL multiple", () => {
+		// The bug the rework fixes: the retired 1+mult form reached x5 on a capital hull, so an installed
+		// emitter (+ its rolled cap affix) compounded into runaway shields. Now the multiplier is the tame
+		// effectiveness ratio (battleship shield-cap effectiveness == 2.0, not 5.0), so the SAME crafted
+		// emitter yields a far smaller multiple of its raw cap. Prove the folded shield is at most ~2x the
+		// installed cap (the roster max), where the old model would have produced ~5x.
+		const stats = SHIP_TYPES.battleship;
+		const gear = standardIssueGear("battleship", "player-ship");
+		// A crafted emitter: SI cap floor + a big rolled cap affix (a chunky iL8-style roll).
+		const craftedCap = SI_EMITTER_CAP + 200;
+		const upgraded = gear.map((p) =>
+			p.slotType === "shieldEmitters"
+				? { ...p, implicitStats: { ...p.implicitStats, shieldCapacity: craftedCap } }
+				: p,
+		);
+		const c = shipToCombatant({ id: "player-ship", team: "player", stats, hullType: "battleship", installedGear: upgraded });
+		const comp = hullDefenseComposition(stats);
+		// The folded shield is EXACTLY the installed cap x the tame effectiveness (2.0), not the old x5.
+		expect(c.shieldMax).toBe(craftedCap * comp.shieldCapEffectiveness);
+		expect(comp.shieldCapEffectiveness).toBeLessThanOrEqual(2); // the roster's max cap effectiveness
+		// The old model would have been craftedCap * 5 (the battleship's retired x5 amplifier); prove the
+		// new fold is far below that runaway figure.
+		expect(c.shieldMax).toBeLessThan(craftedCap * 3);
 	});
 });

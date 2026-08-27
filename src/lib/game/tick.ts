@@ -48,10 +48,11 @@ import {
   // installed, keeping it dispatchable past the new empty-required-slot dispatch blocker below.
   seedCombatStandardIssueForShip,
   generateCombatStandardIssue,
-  // Combat-defense rework (2026-08-27): the FIXED Standard-Issue gear dials. The SI combat
-  // baseline now carries these hull-INDEPENDENT magnitudes (was the old per-hull hullIntegrity -
-  // frameHp / full shieldCapacity); the bridge derives each hull's innate side so an SI set still
-  // recomposes to the hull's exact pre-gear totals (byte-identical).
+  // Combat-defense rework (2026-08-27, HYBRID model): the FIXED Standard-Issue gear dials (SI_PLATING_HP =
+  // 100 additive hull floor; SI_EMITTER_CAP = 300, SI_EMITTER_RECHARGE = 6, the shield references). The SI
+  // combat baseline carries these hull-INDEPENDENT magnitudes; the bridge ADDS the plating to the hull's
+  // bare frame and MULTIPLIES the emitter by the hull's shield effectiveness, so an SI set still recomposes
+  // to the hull's exact pre-gear totals (byte-identical).
   SI_PLATING_HP,
   SI_EMITTER_CAP,
   SI_EMITTER_RECHARGE,
@@ -3221,14 +3222,14 @@ function freshPatrolMission(args: {
 // all derive the IDENTICAL spec (Omega 4, DRY) and can never drift. A non-combat hull resolves to an
 // EMPTY signatureWeapons (the seeder then mints nothing, a clean no-op).
 //
-// The DEFENSIVE magnitudes are now the FIXED SI-gear dials (SI_PLATING_HP / SI_EMITTER_CAP /
-// SI_EMITTER_RECHARGE), the SAME on every hull, NOT the old per-hull hullIntegrity - frameHp /
-// full shieldCapacity. Each hull's defense IDENTITY moved to its INNATE stats (bridge.ts
-// hullInnateDefense), derived from SHIP_TYPES so the fold recomposes an SI set to the hull's exact
-// pre-gear totals: hull = innateHullArmor + SI_PLATING_HP == hullIntegrity; shield = SI_EMITTER_CAP *
-// (1 + innateShieldCapMult) == shieldCapacity; recharge likewise. So a Standard-Issue-geared ship
-// still folds byte-identical to the old hull default (parity + balance fixtures do not move), while a
-// crafted ship now beats a modest, reachable floor instead of the hull's whole authored defense. PURE.
+// The DEFENSIVE magnitudes are the FIXED SI-gear dials (SI_PLATING_HP / SI_EMITTER_CAP /
+// SI_EMITTER_RECHARGE), the SAME on every hull. Each hull's defense IDENTITY (bridge.ts
+// hullDefenseComposition) is HYBRID: its bare frame (innateHullArmor = authored - SI_PLATING_HP, ADDED
+// to plating) + its shield EFFECTIVENESS ratios (authored / REF). The fold recomposes an SI set to the
+// hull's exact pre-gear totals: hull = innateHullArmor + SI_PLATING_HP == hullIntegrity; shield =
+// SI_EMITTER_CAP * shieldCapacity/REF_SHIELD_CAPACITY == shieldCapacity; recharge likewise. So a
+// Standard-Issue-geared ship still folds byte-identical to the old hull default (parity + balance
+// fixtures do not move), while a crafted ship now beats a modest, reachable floor. PURE.
 function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
   const hull = combatHullTypeOf(typeKey);
   if (hull === null) {
@@ -3242,10 +3243,10 @@ function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
     // attack squadron), a destroyer/battleship is [] (no bays). Sourced from the SAME default-loadout
     // table the ABSENT-path drone build reads, so a Standard-Issue carrier folds to its default screen.
     droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
-    // FIXED SI-gear dials (same on every hull). The emitter's cap/recharge are the raw SI floor; the
-    // bridge SCALES them by the hull's innate shield mults in the fold (an SI destroyer's 100-cap
-    // emitter recomposes to its 300 shield). The plating's hullStrength is the raw SI floor; the
-    // bridge ADDS it to the hull's innate armor (100 + innate 500 == the destroyer's 600 hull).
+    // FIXED SI-gear dials (same on every hull). The bridge MULTIPLIES the emitter's cap/recharge by the
+    // hull's shield effectiveness (an SI destroyer's 300-cap emitter x its 100% cap-effectiveness recomposes
+    // to its 300 shield). The plating's hullStrength (100) is ADDED to the hull's bare frame (100 + a
+    // destroyer's 500 frame == its 600 hull).
     shieldCapacity: SI_EMITTER_CAP,
     shieldRecharge: SI_EMITTER_RECHARGE,
     hullStrength: SI_PLATING_HP,

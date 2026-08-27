@@ -1,25 +1,30 @@
 // ============================================================================
 // combatFit.test.ts -- unit tests for the pure combat-fit readout helpers.
 // Author: Claude (Opus 4.8) | 2026-08-12
-// Reworked 2026-08-27 (combat-defense rework, Unit 6): the readout folds defense
-// as innate ship stats + item gear (matching shipToCombatant), so these cover the
-// innate armor + shield-amplification split, the composed hull/shield totals, the
-// weapon + drone-pod lists, and the still-empty combat-slot list. All pure, no DOM.
+// Reworked 2026-08-27 (combat-defense rework, HYBRID model): the readout folds defense as the hull's
+// bare frame + installed plating (ADDITIVE) and the installed emitter x the hull's shield effectiveness
+// (matching shipToCombatant), so these cover the bare-frame armor, the shield-cap / recharge effectiveness
+// ratios, the composed hull/shield totals, the weapon + drone-pod lists, and the still-empty combat-slot
+// list. All pure, no DOM.
 //
-// The hull stat inputs below use the design's calibration + SI dials
-// (SI_PLATING_HP=100, SI_EMITTER_CAP=100, SI_EMITTER_RECHARGE=3), so a "destroyer"
-// hull (integrity 600 / shield cap 300 / recharge 6) derives innateHullArmor 500,
-// innateShieldCapMult 2.0 (300/100 - 1), innateShieldRechargeMult 1.0 (6/3 - 1).
+// The hull stat inputs below: the "destroyer" (cap 300 / recharge 6) IS the shield reference, so it reads
+// 100% shield/recharge effectiveness; a TANKY hull reads 200% and a GLASS hull 50%. Hull is additive:
+// innateHullArmor = hullIntegrity - SI_PLATING_HP (100), so the destroyer's bare frame is 500.
 // ============================================================================
 
 import { describe, it, expect } from "vitest";
 import type { EquipmentInstance, EquipmentSlotType } from "./model";
+import { SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE } from "./model";
 import type { CombatShipStats } from "./combat/bridge";
 import { computeCombatReadout } from "./combatFit";
 
-// A "destroyer" hull's combat stats: integrity 600, shield cap 300, recharge 6. Derives
-// innateHullArmor 500, innateShieldCapMult 2.0, innateShieldRechargeMult 1.0 (clean values).
+// The MID combat hull == the shield reference, so it reads 100% shield/recharge effectiveness. Its bare
+// frame (additive) = 600 - SI_PLATING_HP(100) = 500.
 const DESTROYER: CombatShipStats = { hullIntegrity: 600, shieldCapacity: 300, shieldRecharge: 6 };
+// A TANKY hull: 2x the shield reference -> 200% shield/recharge effectiveness; bare frame = 1200 - 100 = 1100.
+const TANKY: CombatShipStats = { hullIntegrity: 1200, shieldCapacity: 600, shieldRecharge: 12 };
+// A GLASS hull: 0.5x the shield reference -> 50% shield/recharge effectiveness; bare frame = 300 - 100 = 200.
+const GLASS: CombatShipStats = { hullIntegrity: 300, shieldCapacity: 150, shieldRecharge: 3 };
 // A "carrier" hull's combat stats (used only for the drone-bay assertions).
 const CARRIER: CombatShipStats = { hullIntegrity: 1100, shieldCapacity: 500, shieldRecharge: 7 };
 
@@ -49,44 +54,66 @@ function piece(
 }
 
 describe("computeCombatReadout", () => {
-  it("exposes the hull's innate stats derived from its authored totals + the SI dials", () => {
-    const r = computeCombatReadout([], DESTROYER, 4);
-    expect(r.innateHullArmor).toBe(500); // 600 - SI_PLATING_HP(100)
-    expect(r.innateShieldCapMult).toBe(2); // 300 / SI_EMITTER_CAP(100) - 1
-    expect(r.innateShieldRechargeMult).toBe(1); // 6 / SI_EMITTER_RECHARGE(3) - 1
+  it("exposes the hull's bare frame (additive) + shield effectiveness ratios (mid 100%, glass 50%, tanky 200%)", () => {
+    const mid = computeCombatReadout([], DESTROYER, 4);
+    expect(mid.innateHullArmor).toBe(500); // 600 - SI_PLATING_HP(100), additive bare frame
+    expect(mid.shieldCapEffectiveness).toBe(1); // 300 / REF_SHIELD_CAPACITY(300)
+    expect(mid.shieldRechargeEffectiveness).toBe(1); // 6 / REF_SHIELD_RECHARGE(6)
+
+    const glass = computeCombatReadout([], GLASS, 1);
+    expect(glass.innateHullArmor).toBe(200); // 300 - 100
+    expect(glass.shieldCapEffectiveness).toBe(0.5);
+    expect(glass.shieldRechargeEffectiveness).toBe(0.5);
+
+    const tanky = computeCombatReadout([], TANKY, 6);
+    expect(tanky.innateHullArmor).toBe(1100); // 1200 - 100
+    expect(tanky.shieldCapEffectiveness).toBe(2);
+    expect(tanky.shieldRechargeEffectiveness).toBe(2);
   });
 
-  it("folds hull = innateHullArmor + plating.hullStrength (implicit + rolled)", () => {
-    // Plating carries 380 implicit + 100 rolled = 480, added to the innate 500 armor = 980.
+  it("folds hull = innateHullArmor + plating.hullStrength (implicit + rolled, ADDITIVE)", () => {
+    // Plating carries 380 implicit + 100 rolled = 480; on the TANKY hull (bare frame 1100) the total
+    // hull is 1100 + 480 = 1580 (additive, independent of any shield effectiveness).
     const gear = [
       piece("hullPlating", { implicitStats: { hullStrength: 380 }, rolledStats: { hullStrength: 100 } }),
     ];
-    const r = computeCombatReadout(gear, DESTROYER, 4);
-    expect(r.innateHullArmor).toBe(500);
+    const r = computeCombatReadout(gear, TANKY, 4);
+    expect(r.innateHullArmor).toBe(1100);
     expect(r.platingHullStrength).toBe(480);
-    expect(r.hullTotal).toBe(980);
+    expect(r.hullTotal).toBe(1580);
+  });
+
+  it("an UNPLATED ship folds to its nonzero bare frame, never 0 (user-locked)", () => {
+    // No hull plating installed: hullTotal is the bare frame alone (innateHullArmor), a nonzero number
+    // (a bare hull is armored, not an exposed space frame). platingHullStrength is 0.
+    const r = computeCombatReadout([piece("weapon", { weaponType: "autocannon" })], DESTROYER, 4);
+    expect(r.hullPlating).toBeNull();
+    expect(r.platingHullStrength).toBe(0);
+    expect(r.innateHullArmor).toBe(500);
+    expect(r.hullTotal).toBe(500); // NOT 0
   });
 
   it("a Standard-Issue plating recomposes to the hull's authored integrity (byte-identical)", () => {
-    // SI plating hullStrength == SI_PLATING_HP(100): innate 500 + 100 = 600 = authored integrity.
-    const r = computeCombatReadout([piece("hullPlating", { implicitStats: { hullStrength: 100 } })], DESTROYER, 4);
-    expect(r.hullTotal).toBe(600);
+    // SI plating hullStrength == SI_PLATING_HP(100), ADDED to the bare frame: destroyer 500 + 100 = 600,
+    // tanky 1100 + 100 = 1200, both the authored integrity (byte-identical).
+    expect(computeCombatReadout([piece("hullPlating", { implicitStats: { hullStrength: SI_PLATING_HP } })], DESTROYER, 4).hullTotal).toBe(600);
+    expect(computeCombatReadout([piece("hullPlating", { implicitStats: { hullStrength: SI_PLATING_HP } })], TANKY, 4).hullTotal).toBe(1200);
   });
 
-  it("amplifies the emitter cap/recharge by the hull's innate shield mults; 0 when stripped", () => {
-    // Emitter cap 100 implicit + 20 rolled = 120, recharge 5. capMult 2.0 -> shield 120 x 3 = 360;
-    // rechMult 1.0 -> recharge 5 x 2 = 10. The raw cap/recharge are exposed alongside the totals.
+  it("scales the emitter cap/recharge by the hull's shield effectiveness; 0 when stripped", () => {
+    // Emitter cap 100 implicit + 20 rolled = 120, recharge 5. On the TANKY hull (200% shield/recharge
+    // effectiveness): shield 120 x 2 = 240, recharge 5 x 2 = 10. Raw cap/recharge exposed alongside.
     const withEmitter = computeCombatReadout(
       [piece("shieldEmitters", { implicitStats: { shieldCapacity: 100, shieldRecharge: 5 }, rolledStats: { shieldCapacity: 20 } })],
-      DESTROYER,
+      TANKY,
       4
     );
     expect(withEmitter.emitterCap).toBe(120);
     expect(withEmitter.emitterRecharge).toBe(5);
-    expect(withEmitter.shieldTotal).toBe(360);
+    expect(withEmitter.shieldTotal).toBe(240);
     expect(withEmitter.rechargeTotal).toBe(10);
 
-    // No emitter: there is nothing to amplify, so every shield figure is 0 (emitters ARE the source).
+    // No emitter: there is nothing to scale, so every shield figure is 0 (emitters ARE the source).
     const bare = computeCombatReadout([], DESTROYER, 4);
     expect(bare.emitterCap).toBe(0);
     expect(bare.emitterRecharge).toBe(0);
@@ -96,10 +123,10 @@ describe("computeCombatReadout", () => {
   });
 
   it("a Standard-Issue emitter recomposes to the hull's authored shield (byte-identical)", () => {
-    // SI emitter cap == SI_EMITTER_CAP(100), recharge == SI_EMITTER_RECHARGE(3): 100 x 3 = 300,
-    // 3 x 2 = 6, both the destroyer's authored shieldCapacity / shieldRecharge.
+    // SI emitter cap == SI_EMITTER_CAP, recharge == SI_EMITTER_RECHARGE: on the reference (100%) hull
+    // it folds to exactly the destroyer's authored shieldCapacity 300 / shieldRecharge 6.
     const r = computeCombatReadout(
-      [piece("shieldEmitters", { implicitStats: { shieldCapacity: 100, shieldRecharge: 3 } })],
+      [piece("shieldEmitters", { implicitStats: { shieldCapacity: SI_EMITTER_CAP, shieldRecharge: SI_EMITTER_RECHARGE } })],
       DESTROYER,
       4
     );

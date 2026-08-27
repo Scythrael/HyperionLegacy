@@ -4719,36 +4719,68 @@ export const COMBAT_STANDARD_ISSUE_DRONE_HP = 0; // no bonus: base ROLE_TEMPLATE
 export const COMBAT_STANDARD_ISSUE_DRONE_DURABILITY = 100; // == itemgen.ts DRONE_POD_BASE_DURABILITY
 
 // ---------------------------------------------------------------------------
-// SI-GEAR FIXED DIALS (combat-defense rework, design sections 4 + 11, LOCKED 2026-08-27).
+// DEFENSE COMPOSITION: SHIELD REFERENCES + SI-GEAR FIXED DIALS
+// (combat-defense rework, design addendum 2026-08-27; HYBRID model, user-locked 2026-08-27).
 //
-// The Standard-Issue combat GEAR is now a MODEST, FIXED floor: the SAME magnitudes on EVERY
-// hull, no longer the hull's ENTIRE authored defense baked into the plating/emitter. This is the
-// structural fix for BUG-U6 (a per-hull SI floor so large that crafted gear never beat "free").
-// A hull's defense is now INNATE ship stats + item-based gear; these three dials are the item
-// side's Standard-Issue floor, and the bridge (combat/bridge.ts hullInnateDefense) derives each
-// hull's INNATE side from its authored SHIP_TYPES totals so the two halves recompose to EXACTLY
-// today's numbers for an SI ship (byte-identical: SI parity + balance fixtures do not move; see the
-// calibration proof in bridge.ts). Only crafted ships gain.
+// THE MODEL is HYBRID by defensive stat, because a user-locked decision requires a bare hull to keep a
+// nonzero bare frame (a ship without plating is armored, not an exposed space frame), while shields have
+// no source without an emitter.
 //
-//   SI plating  hullStrength  = SI_PLATING_HP       ADDS to the hull's innateHullArmor.
-//   SI emitter  shieldCapacity = SI_EMITTER_CAP     is SCALED by the hull's innateShieldCapMult.
-//   SI emitter  shieldRecharge = SI_EMITTER_RECHARGE is SCALED by the hull's innateShieldRechargeMult.
+//   HULL is ADDITIVE. hull = innateHullArmor + installed plating.hullStrength, where the hull's own bare
+//   frame innateHullArmor = authoredHullIntegrity - SI_PLATING_HP. With NO plating the hull is still the
+//   nonzero innateHullArmor (never 0). SI_PLATING_HP is a small FIXED floor (100), the SAME on every hull.
 //
-// ⚠️ FIRST-PASS + TUNABLE (design 11): these are the worked-table starting dials; the 0.16.0
-// balance pass may re-dial them. They live in model.ts (not the combat leaf) because the SI-gear
-// SEED reads them (tick.ts combatStandardIssueSpecFor mints the baselines at these magnitudes), and
-// model.ts owns the item-mint constants; the bridge imports them to keep the innate/gear split on
-// ONE source of truth (change a dial here and both the seed and the innate derivation move together).
-export const SI_PLATING_HP = 100; // fixed SI hull-plating hullStrength, same on every hull
-export const SI_EMITTER_CAP = 100; // fixed SI shield-emitter shieldCapacity, same on every hull
-export const SI_EMITTER_RECHARGE = 3; // fixed SI shield-emitter shieldRecharge, same on every hull
+//   SHIELD CAPACITY + RECHARGE are MULTIPLICATIVE via an EFFECTIVENESS ratio. Each has a fixed REFERENCE
+//   REF_S (the authored value of the representative MID combat hull), and effectiveness_S = authoredValue_S
+//   / REF_S (freely below or above 100%: a glass hull < 100%, a capital hull > 100%). SI gear provides
+//   EXACTLY REF_S for its stat, and the fold multiplies the INSTALLED emitter's raw stat by the hull's
+//   effectiveness: finalStat_S = installedGear_S * effectiveness_S(hull). With NO emitter the shield is 0
+//   (an emitter is the shield SOURCE). This REPLACES the retired LARGE 1+mult shield multiplier (up to x5)
+//   whose amplification compounded a crafted emitter + its affixes into runaway shields; the effectiveness
+//   ratio is the intuitive, tame lever (roster ~0.5x to 2.0x, never x5).
+//
+// THE SHIELD REFERENCE CHOICE. The reference is the DESTROYER (the mid combat hull, roster median) for
+// shield capacity, so it reads exactly 100%. For shield RECHARGE the destroyer is the deliberate fast-regen
+// outlier (its "quick shields" identity, authored 10, the roster max), so the reference is the roster MEDIAN
+// recharge (6, shared by the miner + battleship). Resulting per-hull shield effectiveness across the current
+// 7-hull roster (SHIP_TYPES): shield cap 50% (runner) .. 200% (battleship), recharge 67% .. 167%. The mid
+// combat hull reads ~100% on both.
+//
+// BYTE-IDENTITY (why parity + balance fixtures do not move). An SI ship's plating hullStrength == SI_PLATING_HP,
+// so hull = (authored - SI_PLATING_HP) + SI_PLATING_HP == authored EXACTLY (additive, integer-exact). Its
+// emitter's raw stat == REF_S, so shield = REF_S * (authored / REF_S) == authored EXACTLY (the REF*(authored/REF)
+// round-trip is exact for every current roster value; verified in bridge.test.ts, no rounding applied). So an
+// SI ship recomposes to today's authored numbers and combat is byte-identical for SI sets; only CRAFTED gear gains.
+//
+// ANTI-CHEAT SEAM (comment only, NOT built): for the MULTIPLICATIVE stats (shield cap + recharge), the roster's
+// MAXIMUM effectiveness together with the crafted-defense curve caps (itemgen.ts CRAFTED_DEFENSE_CAP_* /
+// CRAFTED_DEFENSE_RECHARGE_*) defines the MAXIMUM LEGITIMATE folded value (max legit = maxCraftedGear_S *
+// maxEffectiveness_S). A future item-legitimacy pass (0.14.0 online / anti-cheat) can flag any shield item or
+// folded shield stat exceeding that ceiling. Hull is additive (no effectiveness ceiling there). No validation today.
+//
+// ⚠️ FIRST-PASS + TUNABLE (design 11): the 0.16.0 balance pass may re-dial. These live in model.ts (not the
+// combat leaf) because the SI-gear SEED reads the dials (tick.ts combatStandardIssueSpecFor mints the baselines
+// at these magnitudes) and model.ts owns the item-mint constants; the bridge imports the shield references to
+// keep the effectiveness derivation on ONE source of truth (change a value here and both the seed and the fold move).
+
+// REF_S: the SHIELD reference (mid combat hull) authored value. The divisor in effectiveness_S =
+// authoredValue_S / REF_S. Hull is additive and has NO reference (its identity is innateHullArmor).
+export const REF_SHIELD_CAPACITY = 300; // destroyer's shieldCapacity (mid combat hull)
+export const REF_SHIELD_RECHARGE = 6;   // roster-median shieldRecharge (destroyer's 10 is the fast-regen outlier)
+
+// SI plating carries a small FIXED hull floor (additive: added to the bare frame). SI emitter provides EXACTLY
+// each shield reference, so an SI shield fold reproduces the hull's authored value.
+export const SI_PLATING_HP = 100;                      // fixed SI hull-plating hullStrength (additive floor), same on every hull
+export const SI_EMITTER_CAP = REF_SHIELD_CAPACITY;     // fixed SI shield-emitter shieldCapacity, same on every hull
+export const SI_EMITTER_RECHARGE = REF_SHIELD_RECHARGE; // fixed SI shield-emitter shieldRecharge, same on every hull
 
 // Mint ONE combat Standard-Issue baseline EquipmentInstance for a combat slot (weapon /
 // shieldEmitters / hullPlating). Same DETERMINISTIC, rng-free, affix-free posture as
 // generateStandardIssue (it runs inside a save migration where no reproducible rng exists). The
 // per-slot signature magnitudes are passed IN by the caller (Unit 1.4, see the note above): a weapon
-// carries its weaponType + a 0 yield bonus; a shield emitter carries the hull's shieldCapacity +
-// shieldRecharge; hull plating carries the hull's plating hullStrength (= hullIntegrity - frame HP).
+// carries its weaponType + a 0 yield bonus; a shield emitter carries the fixed SI cap + recharge
+// (REF_SHIELD_CAPACITY / REF_SHIELD_RECHARGE, MULTIPLIED by the hull's shield effectiveness in the fold);
+// hull plating carries the fixed SI hullStrength (SI_PLATING_HP = 100, ADDED to the hull's bare frame).
 //
 // ECONOMY-NEUTRAL (load-bearing, proven by a test): mass 0 + powerDraw 0. shipDerivedStats folds
 // ONLY the economy stat keys (cargoCapacity/fuelCapacity/transitSpeedMult/engineEfficiency/
@@ -4848,13 +4880,14 @@ export function generateCombatStandardIssue(a: {
 // stays readable as the loadout grows. The CALLER (tick.ts) derives every field:
 //   signatureWeapons <- COMBAT_DEFAULT_LOADOUT[hull].weapons        (the FULL default loadout, in order)
 //   droneRoles       <- COMBAT_DEFAULT_LOADOUT[hull].droneRoles     (Unit 2.3a; carrier ["attack"], else [])
-//   shieldCapacity   <- SI_EMITTER_CAP        (FIXED dial, same on every hull; the emitter is then
-//                                              SCALED by the hull's innate shield-cap mult in the fold)
-//   shieldRecharge   <- SI_EMITTER_RECHARGE   (FIXED dial; scaled by the hull's innate recharge mult)
-//   hullStrength     <- SI_PLATING_HP         (FIXED dial; ADDED to the hull's innate armor in the fold)
+//   shieldCapacity   <- SI_EMITTER_CAP        (FIXED dial == REF_SHIELD_CAPACITY, same on every hull; the
+//                                              emitter is then MULTIPLIED by the hull's shield-cap effectiveness)
+//   shieldRecharge   <- SI_EMITTER_RECHARGE   (FIXED dial == REF_SHIELD_RECHARGE; multiplied by recharge effectiveness)
+//   hullStrength     <- SI_PLATING_HP         (FIXED dial == 100; ADDED to the hull's bare frame innateHullArmor)
 // The magnitudes are no longer per-hull (that was the BUG-U6 floor): each hull's defense identity now
-// lives in its INNATE stats (bridge.ts hullInnateDefense), derived so an SI set still recomposes to the
-// hull's exact pre-gear totals (byte-identical; see the calibration proof in combat/bridge.ts).
+// lives in its bare frame (innateHullArmor, additive) + its shield EFFECTIVENESS ratios (bridge.ts
+// hullDefenseComposition), calibrated so an SI set still recomposes to the hull's exact pre-gear totals
+// (byte-identical; see the proof in combat/bridge.ts).
 export interface CombatStandardIssueSpec {
   // The hull's FULL default weapon loadout, in order (one baseline weapon minted per entry). Empty
   // => NOT a combat hull => the seeder mints nothing (a clean no-op for an economy hull).

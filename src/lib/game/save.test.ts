@@ -3,7 +3,7 @@ import Decimal from "break_infinity.js";
 import LZString from "lz-string";
 import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
-import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY, seedCombatStandardIssueForShip, type ShipTypeKey } from "./model";
+import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY, seedCombatStandardIssueForShip, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, type ShipTypeKey } from "./model";
 // Task 20 v27->v28: the Standard-Issue seed proves stat-neutrality by comparing a
 // migrated ship's derived stats WITH its seeded gear against the bare hull.
 import { equippedFor } from "./equipment";
@@ -60,7 +60,7 @@ describe("migrate, tickDurationSeconds backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -99,7 +99,7 @@ describe("migrate, research field backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -273,7 +273,7 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -370,7 +370,7 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -476,7 +476,7 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -565,7 +565,7 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -638,7 +638,7 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -701,7 +701,7 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -771,7 +771,7 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -1563,7 +1563,7 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -1771,7 +1771,7 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -2055,7 +2055,7 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -2219,7 +2219,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(38);
+    expect(deserialized!.version).toBe(39);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2241,7 +2241,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -2370,7 +2370,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -2537,7 +2537,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -2728,7 +2728,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -2919,7 +2919,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -3112,7 +3112,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -3289,7 +3289,7 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -3446,7 +3446,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -3648,7 +3648,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     // (a v28 save chains all the way through the iLevel backfill at v29->v30 and the
     // nextCaptainId backfill at v30->v31).
     const roundTripped = deserialize(serialize(migrated, 0));
-    expect(roundTripped!.version).toBe(38);
+    expect(roundTripped!.version).toBe(39);
     expect(roundTripped!.version).toBe(SAVE_VERSION);
 
     // Task B1 (equipment storage cap): the SAME v28->v29 body seeds the new
@@ -3707,7 +3707,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 
   it("freshState seeds equipmentStorageLevel 0 (Task B1), matching the migration's seed on old saves", () => {
@@ -4022,7 +4022,7 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     const migrated: any = migrate(save);
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
-    expect(roundTripped!.version).toBe(38);
+    expect(roundTripped!.version).toBe(39);
     // The now-v33 save carries the field; re-migrating keeps it (no re-backfill, no reset).
     const before = (roundTripped!.state as any).captains[0].mission.playerSystemDurability;
     const remigrated: any = migrate(roundTripped as SaveFile);
@@ -4051,7 +4051,7 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     expect(mission.kind).toBe("patrol");
     // No full durability derivable => field stays absent (no crash, no fabricated value).
     expect(mission.playerSystemDurability).toBeUndefined();
-    expect(SAVE_VERSION).toBe(38);
+    expect(SAVE_VERSION).toBe(39);
   });
 });
 
@@ -4369,8 +4369,8 @@ describe("migrate, v36 -> v37 is a no-op pass-through (deletes nothing)", () => 
     }
     expect(migrated.equipment).toHaveLength(inputCount); // NOTHING removed
     const stamped = deserialize(serialize(migrated, 0)) as SaveFile;
-    expect(stamped.version).toBe(38);
-    expect(SAVE_VERSION).toBe(38);
+    expect(stamped.version).toBe(39);
+    expect(SAVE_VERSION).toBe(39);
   });
 
   it("REGRESSION: a dev-shaped radiant null-blueprint economy spare is NOT deleted on load", () => {
@@ -4391,16 +4391,16 @@ describe("migrate, v36 -> v37 is a no-op pass-through (deletes nothing)", () => 
   });
 });
 
-// v37 -> v38: Standard-Issue COMBAT baseline RE-STAT (combat-defense rework BUG-U6, save.ts
-// MIGRATIONS[37]). Saves written BEFORE the rework carry SI combat baselines at the OLD per-hull
-// magnitudes (SI plating hullStrength = hullIntegrity - frameHp, e.g. 880 on a carrier; SI emitter
-// shieldCapacity = the hull's FULL value, e.g. 500). Under the NEW additive fold (hull = innate +
-// plating.hullStrength) those inflate the hull, so the migration re-stats every GENUINE SI combat
-// baseline down to the fixed dials (SI_PLATING_HP 100 / SI_EMITTER_CAP 100 / SI_EMITTER_RECHARGE 3).
-// These tests lock: the re-stat happens (fitted OR spare), a dev-shaped RADIANT null-blueprint piece
-// is NEVER re-statted, weapon + crafted gear is untouched, the save lands at v38, and re-running is a
-// value-level no-op.
-describe("migrate, Standard-Issue combat baseline re-stat (v37 -> v38)", () => {
+// Standard-Issue COMBAT baseline RE-STAT via the migration chain (combat-defense rework, save.ts
+// MIGRATIONS[37] then [38]). A save written BEFORE the rework carries SI combat baselines at OLD per-hull
+// magnitudes (SI plating hullStrength e.g. 880 on a carrier; SI emitter cap e.g. 500). Stamped at v37,
+// migrate() runs the full chain to the current version: MIGRATIONS[37] (v38 step) re-stats plating +
+// emitter to the current SI dials (SI_PLATING_HP 100 additive floor; SI_EMITTER_CAP 300 / SI_EMITTER_RECHARGE
+// 6, the shield references), then MIGRATIONS[38] (v39 step) re-stats emitters again to the same shield
+// references (plating untouched). So the baselines land at the SI dials. These tests lock: the re-stat
+// happens (fitted OR spare), a dev-shaped RADIANT null-blueprint piece is NEVER re-statted, weapon + crafted
+// gear is untouched, the save lands at the current version, and re-running is a value-level no-op.
+describe("migrate, Standard-Issue combat baseline re-stat (v37 chain -> SI dials)", () => {
   // EquipmentInstance factory that lets a test seed arbitrary implicitStats (the magnitudes the
   // re-stat overwrites) plus rarity / blueprintKey / fittedToShipId (to exercise the strict-baseline
   // gate and the fitted-vs-spare cases). Cast any so the fixture is not coupled to the full interface.
@@ -4452,13 +4452,13 @@ describe("migrate, Standard-Issue combat baseline re-stat (v37 -> v38)", () => {
     return raw;
   }
 
-  it("re-stats every SI combat DEFENSE baseline to the fixed dials (100 / 100 / 3), fitted or spare", () => {
+  it("re-stats every SI combat DEFENSE baseline to the SI dials (plating 100 / cap 300 / recharge 6), fitted or spare", () => {
     const migrated: any = migrate(makeV37Save());
     const byId = (id: string) => migrated.equipment.find((e: any) => e.id === id);
-    expect(byId("si-plating-fitted").implicitStats.hullStrength).toBe(100);
-    expect(byId("si-plating-spare").implicitStats.hullStrength).toBe(100);
-    expect(byId("si-emitter-fitted").implicitStats.shieldCapacity).toBe(100);
-    expect(byId("si-emitter-fitted").implicitStats.shieldRecharge).toBe(3);
+    expect(byId("si-plating-fitted").implicitStats.hullStrength).toBe(SI_PLATING_HP);
+    expect(byId("si-plating-spare").implicitStats.hullStrength).toBe(SI_PLATING_HP);
+    expect(byId("si-emitter-fitted").implicitStats.shieldCapacity).toBe(SI_EMITTER_CAP);
+    expect(byId("si-emitter-fitted").implicitStats.shieldRecharge).toBe(SI_EMITTER_RECHARGE);
   });
 
   it("does NOT re-stat a dev-shaped radiant null-blueprint piece, a crafted piece, or a weapon baseline", () => {
@@ -4469,11 +4469,11 @@ describe("migrate, Standard-Issue combat baseline re-stat (v37 -> v38)", () => {
     expect(byId("si-weapon").implicitStats.weaponYield).toBe(0); // weapon baseline untouched
   });
 
-  it("lands at v38 after a full round-trip", () => {
+  it("lands at the current version after a full round-trip", () => {
     const migrated: any = migrate(makeV37Save());
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
-    expect(roundTripped!.version).toBe(38);
+    expect(roundTripped!.version).toBe(39);
   });
 
   it("is IDEMPOTENT: re-migrating an already-re-statted save changes nothing", () => {
@@ -4482,14 +4482,111 @@ describe("migrate, Standard-Issue combat baseline re-stat (v37 -> v38)", () => {
     reSave.version = 37;
     const remigrated: any = migrate(reSave);
     const byId = (state: any, id: string) => state.equipment.find((e: any) => e.id === id);
-    // Values already at the dials -> the re-stat overwrites them with the IDENTICAL values (no-op).
-    expect(byId(remigrated, "si-plating-fitted").implicitStats.hullStrength).toBe(100);
-    expect(byId(remigrated, "si-emitter-fitted").implicitStats.shieldCapacity).toBe(100);
-    expect(byId(remigrated, "si-emitter-fitted").implicitStats.shieldRecharge).toBe(3);
+    // Values already at the references -> the re-stat overwrites them with the IDENTICAL values (no-op).
+    expect(byId(remigrated, "si-plating-fitted").implicitStats.hullStrength).toBe(SI_PLATING_HP);
+    expect(byId(remigrated, "si-emitter-fitted").implicitStats.shieldCapacity).toBe(SI_EMITTER_CAP);
+    expect(byId(remigrated, "si-emitter-fitted").implicitStats.shieldRecharge).toBe(SI_EMITTER_RECHARGE);
     // And the untouched categories are still exactly as the first migration left them.
     expect(byId(remigrated, "dev-radiant-plating").implicitStats.hullStrength).toBe(2000);
     expect(byId(remigrated, "crafted-plating").implicitStats.hullStrength).toBe(640);
     expect(remigrated.equipment.length).toBe(migrated.equipment.length);
+  });
+});
+
+// v38 -> v39: the SHIELD re-stat (combat-defense rework addendum, HYBRID model, save.ts MIGRATIONS[38]).
+// A device that already ran the INTERIM v38 step carries SI SHIELD baselines at the interim flat floor
+// (shieldCapacity 100 / shieldRecharge 3, written when the shield dials were 100/3). Loaded under the new
+// code, migrate() sees version 38 and runs ONLY MIGRATIONS[38], which re-stats every GENUINE SI SHIELD
+// baseline UP to the references (SI_EMITTER_CAP 300 / SI_EMITTER_RECHARGE 6) so a loaded ship's shields
+// fold byte-identical to a freshly built one. HULL STAYS ADDITIVE: hullPlating.hullStrength is NOT touched
+// (SI_PLATING_HP stays 100). This test stamps a save at v38 (so ONLY the new step runs) and locks: the
+// SHIELD re-stat happens (fitted OR spare emitter), hull plating is UNTOUCHED, a dev-shaped RADIANT
+// null-blueprint piece is NEVER re-statted, crafted + weapon gear is untouched, and it is idempotent.
+describe("migrate, HYBRID-model Standard-Issue SHIELD re-stat (v38 -> v39)", () => {
+  function mkPiece(
+    id: string,
+    slotType: string,
+    implicitStats: Record<string, number>,
+    opts: { blueprintKey?: string | null; fittedToShipId?: string | null; rarity?: string } = {}
+  ): any {
+    const rarity = opts.rarity ?? "standard";
+    return {
+      id, slotType,
+      blueprintKey: opts.blueprintKey ?? null,
+      fittedToShipId: opts.fittedToShipId ?? null,
+      rarity, ascension: "none", quality: rarity === "standard" ? 0 : 5, iLevel: rarity === "standard" ? 1 : 400,
+      implicitStats: { ...implicitStats }, rolledStats: {}, mass: 0, powerDraw: 0,
+      durabilityMax: 100, durability: 100,
+    };
+  }
+
+  // A SENTINEL plating hullStrength that is NOT 100, so an assertion that it survives unchanged PROVES the
+  // migration does not touch hullPlating (a re-stat to SI_PLATING_HP would change it away from this value).
+  const PLATING_SENTINEL = 55;
+
+  // A v38-shaped save: an SI emitter baseline at the INTERIM shield floor (cap 100 / recharge 3), an SI
+  // plating baseline at a NON-100 SENTINEL (to prove hull is untouched), plus a dev radiant null-blueprint
+  // plating (must survive un-restatted), a crafted plating, and a weapon baseline. Stamped to v38 so
+  // migrate() runs ONLY the v38->v39 step.
+  function makeV38Save(): SaveFile {
+    const base = freshState();
+    const equipment = [
+      mkPiece("si-plating-fitted", "hullPlating", { hullStrength: PLATING_SENTINEL }, { fittedToShipId: "ship-1" }),
+      mkPiece("si-emitter-fitted", "shieldEmitters", { shieldCapacity: 100, shieldRecharge: 3 }, { fittedToShipId: "ship-1" }),
+      mkPiece("si-emitter-spare", "shieldEmitters", { shieldCapacity: 100, shieldRecharge: 3 }),
+      // DEV-shaped radiant null-blueprint emitter -> NEVER re-statted (strict baseline gate, rarity != standard):
+      mkPiece("dev-radiant-emitter", "shieldEmitters", { shieldCapacity: 2000, shieldRecharge: 99 }, { rarity: "radiant" }),
+      // CRAFTED emitter (blueprintKey set) -> keeps its stored magnitude:
+      mkPiece("crafted-emitter", "shieldEmitters", { shieldCapacity: 311, shieldRecharge: 7 }, { blueprintKey: "balancedEmitterBlueprint" }),
+      // WEAPON baseline -> untouched:
+      mkPiece("si-weapon", "weapon", { weaponYield: 0 }, { fittedToShipId: "ship-1" }),
+    ];
+    const preState = {
+      ...base,
+      ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "carrier" as const } : s)),
+      equipment,
+    };
+    const raw = deserialize(serialize(preState, 0)) as SaveFile;
+    raw.version = 38;
+    return raw;
+  }
+
+  it("re-stats every interim SI SHIELD baseline UP to the references (cap 300 / recharge 6), fitted or spare", () => {
+    const migrated: any = migrate(makeV38Save());
+    const byId = (id: string) => migrated.equipment.find((e: any) => e.id === id);
+    expect(byId("si-emitter-fitted").implicitStats.shieldCapacity).toBe(SI_EMITTER_CAP);
+    expect(byId("si-emitter-fitted").implicitStats.shieldRecharge).toBe(SI_EMITTER_RECHARGE);
+    expect(byId("si-emitter-spare").implicitStats.shieldCapacity).toBe(SI_EMITTER_CAP);
+    expect(byId("si-emitter-spare").implicitStats.shieldRecharge).toBe(SI_EMITTER_RECHARGE);
+  });
+
+  it("does NOT touch hull plating (hull is additive): an SI plating baseline survives unchanged", () => {
+    const migrated: any = migrate(makeV38Save());
+    const byId = (id: string) => migrated.equipment.find((e: any) => e.id === id);
+    // The sentinel (55, not 100) is untouched -> the step left hullPlating.hullStrength alone.
+    expect(byId("si-plating-fitted").implicitStats.hullStrength).toBe(PLATING_SENTINEL);
+  });
+
+  it("does NOT re-stat a dev-shaped radiant null-blueprint emitter, a crafted emitter, or a weapon baseline", () => {
+    const migrated: any = migrate(makeV38Save());
+    const byId = (id: string) => migrated.equipment.find((e: any) => e.id === id);
+    expect(byId("dev-radiant-emitter").implicitStats.shieldCapacity).toBe(2000); // radiant survives untouched
+    expect(byId("crafted-emitter").implicitStats.shieldCapacity).toBe(311); // crafted keeps its magnitude
+    expect(byId("si-weapon").implicitStats.weaponYield).toBe(0); // weapon baseline untouched
+  });
+
+  it("lands at the current version and is IDEMPOTENT", () => {
+    const migrated: any = migrate(makeV38Save());
+    const roundTripped = deserialize(serialize(migrated, 0)) as SaveFile;
+    expect(roundTripped.version).toBe(SAVE_VERSION);
+    expect(roundTripped.version).toBe(39);
+    // Re-stamp to v38 and re-run: shield values already at the references -> identical (no-op); plating untouched.
+    roundTripped.version = 38;
+    const remigrated: any = migrate(roundTripped);
+    const byId = (id: string) => remigrated.equipment.find((e: any) => e.id === id);
+    expect(byId("si-emitter-fitted").implicitStats.shieldCapacity).toBe(SI_EMITTER_CAP);
+    expect(byId("si-emitter-fitted").implicitStats.shieldRecharge).toBe(SI_EMITTER_RECHARGE);
+    expect(byId("si-plating-fitted").implicitStats.hullStrength).toBe(PLATING_SENTINEL);
   });
 });
 
@@ -4539,7 +4636,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(38);
+    expect(save!.version).toBe(39);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
@@ -4616,7 +4713,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     const save = deserialize(serialize(inFlight, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(38); // current version is 38 (Standard-Issue combat baseline re-stat)
+    expect(save!.version).toBe(39); // current version is 39 (Effectiveness-% Standard-Issue re-stat)
     const restored = migrate(save);
 
     // Empty repair state survived: the ship reads as healthy, the in-flight patrol is intact
@@ -4653,7 +4750,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     // Round-trip: the damaged flag, repairDamage, AND the in-flight shipRepair (clearShipDamage
     // effect) must all survive JSON with no hydration change.
     const save = deserialize(serialize(withRepair, 0)) as SaveFile;
-    expect(save!.version).toBe(38);
+    expect(save!.version).toBe(39);
     const restored = migrate(save!);
     const shipAfter = restored.ships.find((s) => s.id === "ship-1")!;
     expect(shipAfter.damaged).toBe(true);

@@ -373,16 +373,16 @@ describe("generateEquipment", () => {
   });
 
   // ==========================================================================
-  // Combat-defense rework (Unit 4): the first crafted tier of each defensive slot
+  // Combat-defense rework (HYBRID model): the first crafted tier of each defensive slot
   // is ALWAYS a few points above the flat Standard-Issue floor, and it scales up.
   //
-  // WHY this is the load-bearing guarantee: the rework made the SI defensive floor a
-  // FLAT, hull-independent value (SI_PLATING_HP / SI_EMITTER_CAP = 100), and the bridge
-  // fold adds/amplifies SI and crafted gear by the SAME innate stats, so a crafted piece
-  // beats SI on EVERY hull iff its RAW magnitude clears that flat floor. The user principle
-  // (design #3) is that crafting is NEVER pointless: the lowest craftable roll must already
-  // beat SI. We assert the RELATIONSHIP (> SI floor, and high > low), NOT magic magnitudes,
-  // so the 0.16.0 balance pass can re-dial the curve without churning this test.
+  // WHY this is the load-bearing guarantee: the rework made the SI defensive floor a FLAT,
+  // hull-independent value per stat (SI_PLATING_HP = 100 additive hull floor, SI_EMITTER_CAP = 300,
+  // SI_EMITTER_RECHARGE = 6, the shield references). The bridge ADDS the plating to the bare frame and
+  // MULTIPLIES the emitter by the hull's shield effectiveness, so a crafted piece beats SI on EVERY hull
+  // iff its RAW magnitude clears that flat floor. The user principle (design #3) is that crafting is NEVER
+  // pointless: the lowest craftable roll must already beat SI. We assert the RELATIONSHIP (> SI floor, and
+  // high > low), NOT magic magnitudes, so the 0.16.0 balance pass can re-dial the curves without churning this test.
   // ==========================================================================
   describe("crafted defensive gear always beats the flat Standard-Issue floor (Unit 4)", () => {
     // The LOWEST craftable roll: a tier-1 blueprint at the lowest crafting level clamps to
@@ -402,7 +402,7 @@ describe("generateEquipment", () => {
         rng: mulberry32(1),
         allocateId: idAllocator(),
       });
-      // Raw shieldCapacity beats the flat SI cap floor -> beats SI on ANY hull (innate mult scales both).
+      // Raw shieldCapacity beats the flat SI cap floor -> beats SI on ANY hull (effectiveness scales both).
       expect(emitter.implicitStats.shieldCapacity).toBeGreaterThan(SI_EMITTER_CAP);
       // Recharge is not "boosted" but must at least reach the SI recharge floor at first tier.
       expect(emitter.implicitStats.shieldRecharge).toBeGreaterThanOrEqual(SI_EMITTER_RECHARGE);
@@ -420,7 +420,7 @@ describe("generateEquipment", () => {
         rng: mulberry32(2),
         allocateId: idAllocator(),
       });
-      // Raw hullStrength beats the flat SI plating floor -> beats SI on ANY hull (innate armor is additive).
+      // Raw hullStrength beats the flat SI plating floor -> beats SI on ANY hull (the bare frame is added to both).
       expect(plating.implicitStats.hullStrength).toBeGreaterThan(SI_PLATING_HP);
     });
 

@@ -120,3 +120,51 @@ Existing saves carry per-hull SI baselines with the OLD large magnitudes + ships
 - ✅ **Stat display = the four groups (Innate / Offensive / Defensive / Support / Exploration-Prospecting), and it is MOCKUP-GATED** — build a mockup + get confirmation before the Unit 6 UI build.
 
 Design is SIGNED OFF. Build proceeds subagent-driven, phased, gate-green per unit; Unit 6 (stat display) waits on its mockup.
+
+## 12. ADDENDUM (2026-08-27): the HYBRID model (SUPERSEDES sections 3, 4 shield composition + section 11 shield dials)
+
+The interim composition above (a standalone additive `innateHullArmor` for hull, plus a LARGE `1 + mult` shield multiplier that reached x5 on a battleship) shipped a real problem on the SHIELD side: the large shield multiplier amplified the INSTALLED emitter AND its rolled affixes, so a modest crafted emitter compounded into runaway shields (an iL8 crafted emitter tripled a freighter's regen). This addendum replaces the SHIELD lever with an intuitive, tame effectiveness ratio, while HULL STAYS ADDITIVE (a user-locked decision: a ship without hull plating must still have a nonzero bare frame, it is armored, not an exposed space frame). The dispatch blockers (section 5), the advisory wording, and the three-group stat display (section 6) are UNCHANGED in intent.
+
+A brief history note: a first pass of this addendum made ALL THREE stats multiplicative (hull included, with a `REF_HULL_INTEGRITY = 600` and `SI_PLATING_HP = 600`). That was reverted for hull on 2026-08-27 because a plating-uninstalled ship then folded to 0 hull, violating the bare-frame decision. Hull returned to additive; the shield work was kept exactly. The model below is the shipped result.
+
+### 12a. The HYBRID model
+- HULL is ADDITIVE. `hull = innateHullArmor + installed plating.hullStrength`, where the hull's bare frame `innateHullArmor = authoredHullIntegrity - SI_PLATING_HP`. With NO plating the hull is still the nonzero `innateHullArmor` (never 0). `SI_PLATING_HP = 100`, a small FIXED additive floor, the same on every hull.
+- SHIELD CAPACITY + RECHARGE are MULTIPLICATIVE via an EFFECTIVENESS ratio. For each shield stat S, a fixed `REF_S` is the authored value of the representative MID combat hull, and `effectiveness_S(hull) = authoredValue_S / REF_S` (freely below or above 100%). SI gear provides EXACTLY `REF_S`, and the fold is `finalStat_S = installedEmitter_S * effectiveness_S(hull)`. With NO emitter the shield is 0 (an emitter is the shield SOURCE).
+```
+hull   = innateHullArmor + installed plating.hullStrength              (bare frame alone, still nonzero, with no plating)
+shield = installed emitter.shieldCapacity  * shieldCapEffectiveness    (0 with no emitter; emitter is the shield source)
+rech   = installed emitter.shieldRecharge  * shieldRechargeEffectiveness (0 with no emitter)
+```
+The enemy / no-gear path is UNCHANGED (enemies use authored stats directly, they install no gear).
+
+### 12b. The shield reference choice
+`REF_SHIELD_CAPACITY = 300`, `REF_SHIELD_RECHARGE = 6`. Hull has NO reference (it is additive; its identity is the bare frame).
+
+The reference is the DESTROYER (the mid combat hull, tier 2, roster median) for shield capacity, so it reads exactly 100%. For shield RECHARGE the destroyer is the deliberate fast-regen outlier (its "quick shields" identity, authored at 10, the roster max), so the reference is the roster MEDIAN recharge (6, shared by the miner and battleship). Resulting per-hull composition across the current 7-hull roster (bare frame = authored hull - 100):
+
+| Hull | authored hull / cap / rech | bare frame | cap eff | rech eff |
+|---|---|---|---|---|
+| generalFreighter | 500 / 200 / 5 | 400 | 67% | 83% |
+| prospectorHauler | 700 / 250 / 4 | 600 | 83% | 67% |
+| prospectorRunner | 300 / 150 / 8 | 200 | 50% | 133% |
+| prospectorMiner | 450 / 180 / 6 | 350 | 60% | 100% |
+| destroyer (shield REF) | 600 / 300 / 10 | 500 | 100% | 167% |
+| battleship | 1400 / 600 / 6 | 1300 | 200% | 100% |
+| carrier | 1100 / 500 / 7 | 1000 | 167% | 117% |
+
+The mid combat hull anchors 100% on shield cap. Recharge lands cleanly inside the nominal 67% to 200% band. Shield cap dips to 50% (runner) at the low tail because the authored shield span is wider than 3x; the destroyer anchor at 100% is the principled centre. Every bare frame is nonzero.
+
+### 12c. Byte-identity (why parity + balance fixtures do not move)
+For HULL: an SI ship's plating hullStrength equals `SI_PLATING_HP`, so `hull = (authored - SI_PLATING_HP) + SI_PLATING_HP = authored` EXACTLY (additive, integer-exact). For SHIELDS: an SI ship's emitter raw stat equals `REF_S`, so `shield = REF_S * (authored / REF_S) = authored` EXACTLY (the `REF * (authored / REF)` round-trip is exact for every current roster value; verified in bridge.test.ts, so NO rounding is applied to the fold). An SI ship therefore recomposes to today's authored numbers, combat is byte-identical for SI sets, the `parit` invariant stays at 101, and only CRAFTED gear gains.
+
+### 12d. Crafted-defense curves (itemgen.ts)
+The plating and shield-cap floors DIVERGE (plating floor 100 additive, shield-cap floor 300), so the two large defensive implicits ride SEPARATE floored curves; recharge keeps its own tiny curve (floor 6). First crafted tier (the lowest craftable roll: iLevel 1, quality 0, standard rarity) lands a few points above each floor: plating 109 (floor 100), shield cap 311 (floor 300), recharge 7 (floor 6). Every first crafted tier still clears Standard-Issue, so a crafted defensive item is always worth making.
+
+### 12e. The v39 save migration
+`SAVE_VERSION` bumped 38 to 39. `MIGRATIONS[38]` re-stats every genuine Standard-Issue SHIELD baseline (gated by the strict `isStandardIssueBaseline` predicate, blueprintKey null AND rarity "standard", so a dev-minted radiant item is never caught) UP to the references: emitter shieldCapacity to `SI_EMITTER_CAP` (300) and shieldRecharge to `SI_EMITTER_RECHARGE` (6). It does NOT touch hullPlating.hullStrength (hull is additive; `SI_PLATING_HP` stays 100, set by the prior v38 step). Weapon, drone, crafted, and economy pieces are untouched. Idempotent. The existing `MIGRATIONS[37]` (v38 step) is left unedited (it may already have run on a device); v39 overwrites a device's interim shield baselines to the references.
+
+### 12f. Stat display language (combatFit.ts + ShipSystemsPanel.svelte)
+The Innate section shows the hull's bare frame ("Hull frame", a nonzero number) plus the two shield ratios as an EFFECTIVENESS percentage (Shield Effectiveness, Recharge Effectiveness). The Defensive section shows the hull total as the ADDITIVE composition "Hull integrity: 509 = 400 frame + 109 plating" (a plating-uninstalled ship shows just the frame, still nonzero), and each shield total as "installed x effectiveness", for example "Shield capacity: 285 = 300 installed x 95%". Effectiveness may read below or above 100%. The old "x N.N amplification" innate rows are gone. The section structure (Innate / Systems Offensive-Defensive-Support / Exploration-Prospecting) and the click-to-edit ship-name header are unchanged; EquipmentTooltip.svelte is untouched.
+
+### 12g. Anti-cheat seam (comment only, not built)
+For the MULTIPLICATIVE stats (shield cap + recharge), the roster's maximum effectiveness together with the crafted-defense curve caps defines the maximum legitimate folded value. A future item-legitimacy pass can flag any shield item or folded shield stat exceeding it. Hull is additive (no effectiveness ceiling there). Documented near the reference constants in model.ts; no validation runs today.

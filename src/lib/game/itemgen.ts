@@ -88,60 +88,64 @@ export const RARITY_MULT = 1.15;
 export const IMPLICIT_BUDGET_SHARE = 0.5;
 
 // ----------------------------------------------------------------------------
-// Combat-defense rework (Unit 4): crafted DEFENSIVE-implicit magnitudes.
+// Combat-defense rework (HYBRID model): crafted DEFENSIVE-implicit magnitudes.
 //
-// WHY these two implicit lines are special (and do NOT ride the shared budget curve
+// WHY these three implicit lines are special (and do NOT ride the shared budget curve
 // every other slot uses): the combat-defense rework made the Standard-Issue defensive
-// floor a FLAT, hull-independent value. model.ts now dials SI_PLATING_HP = 100 (hull),
-// SI_EMITTER_CAP = 100 (shield), SI_EMITTER_RECHARGE = 3, the SAME on every hull, because
-// the hull's own contribution moved into its INNATE stats: the bridge fold composes
-// hull = innateHullArmor + plating.hullStrength (plating is ADDED to innate armor) and
-// shield = emitter.shieldCapacity * (1 + innateShieldCapMult) (the emitter is AMPLIFIED
-// by the hull). So a crafted defensive piece beats Standard-Issue iff its RAW magnitude
-// clears that flat floor: crafted plating > SI iff hullStrength > 100, crafted emitter > SI
-// iff shieldCapacity > 100. The innate stats add to / amplify SI and crafted EQUALLY, so
-// the raw comparison is hull-independent (beat 100 and you beat SI on ANY hull).
+// floor a FLAT, hull-independent value per stat. model.ts dials SI_PLATING_HP = 100 (hull,
+// an ADDITIVE floor), SI_EMITTER_CAP = 300 (shield cap == REF_SHIELD_CAPACITY),
+// SI_EMITTER_RECHARGE = 6 (recharge == REF_SHIELD_RECHARGE), the SAME on every hull. The
+// bridge fold composes hull = innateHullArmor + plating.hullStrength (plating ADDED to the
+// bare frame) and shield = emitter.shieldCapacity * shieldCapEffectiveness (the emitter
+// MULTIPLIED by the hull's shield effectiveness). So a crafted defensive piece beats
+// Standard-Issue iff its RAW magnitude clears that flat floor: crafted plating > SI iff
+// hullStrength > SI_PLATING_HP (100), crafted emitter > SI iff shieldCapacity > SI_EMITTER_CAP (300).
+// The frame is ADDED and the shield effectiveness scales SI and crafted EQUALLY, so each raw
+// comparison is hull-independent (beat the floor and you beat SI on ANY hull).
 //
 // THE USER PRINCIPLE (hard requirement, design principle #3): the FIRST crafted tier is
 // ALWAYS a few points above Standard-Issue. There is never a case where a crafted defensive
 // item is not worth making. The shared budget line is useless here: it starts near 1 point
-// at iLevel 1 (budget = iLevel * PER_LEVEL_BUDGET * ...), far BELOW the flat 100 floor. So
-// these two slots get their OWN floored magnitude curve: a BASE that already sits a few points
+// at iLevel 1 (budget = iLevel * PER_LEVEL_BUDGET * ...), far BELOW the flat floors. So these
+// three lines get their OWN floored magnitude curves: a BASE that already sits a few points
 // above the SI floor at the lowest craftable roll (iLevel 1, quality 0, standard rarity, the
 // crafting floor from rollCraftedRarity), plus a per-iLevel slope, then compounded by the SAME
 // quality/rarity multipliers computeBudget uses so a higher-quality / rarer / higher-iLevel
 // piece scales up monotonically.
 //
-// This REPLACES the interim CRAFTED_DEFENSE_IMPLICIT_MULT = 10 hack (deleted). That hack
-// multiplied the shared budget-derived implicit purely to clear the OLD huge per-hull floor
-// (200-880, the hull's whole authored defense baked into SI gear). With the floor now a flat
-// 100 the hack is obsolete, and a dedicated curve gives painfully-explicit control over the
-// first-tier-just-above-SI guarantee instead of relying on a crossover buried in the budget math.
+// WHY plating + shield cap ride SEPARATE curves: their floors DIVERGE (plating floor 100 additive,
+// shield-cap floor 300 effectiveness), so a single curve cannot clear both. Plating rides
+// CRAFTED_DEFENSE_HULL_*, shield cap rides CRAFTED_DEFENSE_CAP_*, recharge rides its own tiny
+// CRAFTED_DEFENSE_RECHARGE_* (floor only 6).
 //
-// NOTE on budget: for these two slots the implicit magnitude no longer draws from the piece's
+// NOTE on budget: for these lines the implicit magnitude no longer draws from the piece's
 // implicitShare (the shared budget's implicit half is simply unused here); the AFFIX lines still
-// draw from affixShare as normal. This is the same posture the old x10 mult had (it also broke
-// strict budget conservation for these slots) and is deliberate: the defensive implicit is an
-// independent, floored bonus, not a budget slice.
+// draw from affixShare as normal. Deliberate: the defensive implicit is an independent, floored
+// bonus, not a budget slice.
 //
 // ⚠️ FIRST-PASS TUNABLE: the exact BASE / PER_LEVEL numbers are launch placeholders; the 0.16.0
-// balance pass refines the curve. What is STRUCTURAL (and must not regress): the lowest craftable
-// roll clears the flat SI floor, and the magnitude rises with iLevel / quality / rarity.
+// balance pass refines the curves. What is STRUCTURAL (and must not regress): the lowest craftable
+// roll clears its flat SI floor, and the magnitude rises with iLevel / quality / rarity.
 // ----------------------------------------------------------------------------
 
-// hullStrength (plating) + shieldCapacity (emitter): the two LARGE defensive implicits. Both
-// share ONE curve keyed to the flat SI cap floor of 100. At the lowest craftable roll (iLevel 1,
-// quality 0, standard rarity -> rarityIndex 1, so the base is already multiplied by RARITY_MULT^1)
-// this yields ~109 raw, a few points above the 100 floor; at the top reachable roll (iLevel 40 =
-// the tier-2 EQUIPMENT_ILEVEL_CAP, quality 5, radiant) it yields ~377 raw, ~3.5x the floor. TUNABLE.
-export const CRAFTED_DEFENSE_CAP_BASE = 94;       // flat component: sits just above the 100 floor after the standard-rarity 1.15x
-export const CRAFTED_DEFENSE_CAP_PER_LEVEL = 1;   // per-iLevel growth added on top of the base
+// hullStrength (plating): keyed to the flat SI plating floor of 100 (SI_PLATING_HP, the ADDITIVE
+// bare-frame floor). At the lowest craftable roll (iLevel 1, quality 0, standard rarity -> rarityIndex
+// 1, so the base is already multiplied by RARITY_MULT^1) this yields ~109 raw, a few points above the
+// 100 floor; at the top reachable roll (iLevel 40 = the tier-2 EQUIPMENT_ILEVEL_CAP, quality 5, radiant)
+// it yields ~377 raw, ~3.5x the floor. TUNABLE.
+export const CRAFTED_DEFENSE_HULL_BASE = 94;      // flat component: sits just above the 100 floor after the standard-rarity 1.15x
+export const CRAFTED_DEFENSE_HULL_PER_LEVEL = 1;  // per-iLevel growth added on top of the base
 
-// shieldRecharge (the emitter's SECOND implicit): a much smaller stat (SI floor is only 3), so it
-// rides its own tiny curve rather than the cap curve (the magnitudes differ by ~30x). At the lowest
-// craftable roll this yields ~4 raw, above the SI recharge floor of 3, and scales up gently. It was
-// never over-boosted before (the old mult deliberately skipped it), and it stays modest here. TUNABLE.
-export const CRAFTED_DEFENSE_RECHARGE_BASE = 3;
+// shieldCapacity (emitter): keyed to the flat SI cap floor of 300 (SI_EMITTER_CAP == REF_SHIELD_CAPACITY,
+// a MULTIPLICATIVE reference). At the lowest craftable roll this yields ~311 raw, a few points above the
+// 300 floor; at the top reachable roll (iLevel 40, quality 5, radiant) ~1254 raw, ~4.2x the floor. TUNABLE.
+export const CRAFTED_DEFENSE_CAP_BASE = 267;      // flat component: clears the 300 floor after the standard-rarity 1.15x
+export const CRAFTED_DEFENSE_CAP_PER_LEVEL = 3;   // per-iLevel growth added on top of the base
+
+// shieldRecharge (the emitter's SECOND implicit): a much smaller stat (SI floor is only 6), so it
+// rides its own tiny curve rather than the cap curve (the magnitudes differ by ~50x). At the lowest
+// craftable roll this yields ~7 raw, above the SI recharge floor of 6, and scales up gently. TUNABLE.
+export const CRAFTED_DEFENSE_RECHARGE_BASE = 6;
 export const CRAFTED_DEFENSE_RECHARGE_PER_LEVEL = 0.2;
 
 // craftedDefensiveImplicit: the floored magnitude for one defensive implicit line.
@@ -361,17 +365,18 @@ export function generateEquipment(a: {
   const implicitEach = implicitCount > 0 ? Math.round(implicitShare / implicitCount) : 0;
   const rarityIdx = rarityIndex(a.rarity);
   for (const stat of slotDef.implicitStats) {
-    // Combat-defense rework (Unit 4): the three DEFENSIVE implicit lines do NOT use the shared
-    // budget-derived implicitEach. Their Standard-Issue floor is a FLAT, hull-independent value
-    // (SI_PLATING_HP / SI_EMITTER_CAP = 100, SI_EMITTER_RECHARGE = 3), so each rides a dedicated
-    // FLOORED curve (craftedDefensiveImplicit) that guarantees the first crafted tier is a few
-    // points above that floor and scales up with iLevel/quality/rarity. Strictly scoped by
-    // (slotType, stat): every OTHER slot (weapons via generateWeapon, drones via generateDronePod,
-    // and the economy slots cargo/ftl/reactor/specUtility here) keeps the shared implicitEach.
-    // See the CRAFTED_DEFENSE_* constants above for the why and the worked first/high-tier numbers.
+    // Combat-defense rework (HYBRID model): the three DEFENSIVE implicit lines do NOT use the shared
+    // budget-derived implicitEach. Their Standard-Issue floor is a FLAT, hull-independent value per stat
+    // (SI_PLATING_HP = 100 additive, SI_EMITTER_CAP = 300, SI_EMITTER_RECHARGE = 6), so each rides a
+    // dedicated FLOORED curve (craftedDefensiveImplicit) that guarantees the first crafted tier is a few
+    // points above that floor and scales up with iLevel/quality/rarity. Strictly scoped by (slotType,
+    // stat): every OTHER slot (weapons via generateWeapon, drones via generateDronePod, and the economy
+    // slots cargo/ftl/reactor/specUtility here) keeps the shared implicitEach. Plating + shield cap use
+    // DIFFERENT curves (their floors diverge, 100 vs 300); see the CRAFTED_DEFENSE_* constants above for
+    // the why and the worked first/high-tier numbers.
     if (a.slotType === "hullPlating" && stat === "hullStrength") {
       implicitStats[stat] = craftedDefensiveImplicit(
-        CRAFTED_DEFENSE_CAP_BASE, CRAFTED_DEFENSE_CAP_PER_LEVEL, a.iLevel, a.quality, rarityIdx,
+        CRAFTED_DEFENSE_HULL_BASE, CRAFTED_DEFENSE_HULL_PER_LEVEL, a.iLevel, a.quality, rarityIdx,
       );
     } else if (a.slotType === "shieldEmitters" && stat === "shieldCapacity") {
       implicitStats[stat] = craftedDefensiveImplicit(

@@ -29,11 +29,12 @@
 // ============================================================================
 
 import type { ShipTypeDef, ShipTypeKey, PatrolSystemDurability, EquipmentInstance } from "../model";
-// Combat-defense rework (2026-08-27): the FIXED SI-gear dials, imported as VALUES (model.ts owns the
-// item-mint constants; a combat leaf importing model values is the allowed direction, model never
-// imports combat at runtime). hullInnateDefense below derives each hull's innate side against these so
-// the innate + SI-gear halves recompose to the hull's authored totals (byte-identical for an SI ship).
-import { SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE } from "../model";
+// Combat-defense rework (2026-08-27, HYBRID model): the SI hull-plating floor + the shield REFERENCE
+// constants, imported as VALUES (model.ts owns the item-mint constants; a combat leaf importing model
+// values is the allowed direction, model never imports combat at runtime). hullDefenseComposition below
+// derives the hull's bare frame (authored - SI_PLATING_HP, additive) + its shield effectiveness ratios
+// (authored / REF), so the fold recomposes an SI ship's gear to the hull's authored totals (byte-identical).
+import { SI_PLATING_HP, REF_SHIELD_CAPACITY, REF_SHIELD_RECHARGE } from "../model";
 import type { Combatant, CombatTeam, CombatWeapon, FamilyResist } from "./types";
 import type { CombatStance } from "./positioning";
 import { makeWeaponInstance, WEAPON_DEFS, type WeaponId } from "./weapons";
@@ -62,12 +63,12 @@ function zeroResist(): FamilyResist {
 // FRAME HP (Combat 1.0 Unit 1.4, design 6a "middle path").
 //
 // ⚠️ LEGACY as of the combat-defense rework (2026-08-27): this frame/plating split is NO LONGER the
-// combat hull-pool fold. The rework replaced it with innate ship armor + item plating (see
-// hullInnateDefense + shipToCombatant below): the SI plating now carries a FIXED SI_PLATING_HP and the
-// hull's identity moved to innateHullArmor. frameHp is kept ONLY because the ShipSystemsPanel readout
-// (combatFit.ts) still renders a "frame + plating" hull breakdown; that panel is reworked to the
-// innate/gear split in the Unit 6 stat-display pass (mockup-gated), and this function retires with it.
-// Retained meanwhile so the display keeps compiling; the combat sim no longer reads it.
+// combat hull-pool fold. The rework replaced it with the HYBRID model (see hullDefenseComposition +
+// shipToCombatant below): hull = innateHullArmor (bare frame = authored - SI_PLATING_HP) + installed
+// plating.hullStrength (additive), while shields are multiplicative via effectiveness ratios. frameHp is
+// now UNUSED by both the combat fold and the ShipSystemsPanel readout (combatFit.ts folds the same
+// composition); it is retained only so its own unit test + this documented history survive until a
+// dedicated cleanup removes it. The combat sim no longer reads it.
 //
 // A combat hull keeps a SMALL intrinsic frame integrity; the fraction below splits a hull's total
 // structural HP between the intrinsic frame and the (legacy) plating baseline:
@@ -81,36 +82,43 @@ export function frameHp(hullIntegrity: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// hullInnateDefense: derive a hull's INNATE combat defense (combat-defense rework, design 3a + 4).
+// hullDefenseComposition: derive a hull's combat-defense composition (combat-defense rework, design
+// addendum 2026-08-27; HYBRID model, user-locked 2026-08-27).
 //
-// A hull's defense = INNATE ship stats + item-based gear. This PURE helper is the innate side: it
-// reads the hull's AUTHORED SHIP_TYPES totals (hullIntegrity / shieldCapacity / shieldRecharge) and
-// splits out what the hull ITSELF contributes, given the FIXED SI-gear dials as the item floor:
-//   innateHullArmor         = hullIntegrity   - SI_PLATING_HP        (a flat HP pool, ADDED to plating)
-//   innateShieldCapMult     = shieldCapacity  / SI_EMITTER_CAP - 1   (a MULTIPLIER on the emitter cap)
-//   innateShieldRechargeMult= shieldRecharge  / SI_EMITTER_RECHARGE - 1 (a MULTIPLIER on emitter regen)
+// This PURE helper reads the hull's AUTHORED SHIP_TYPES totals (hullIntegrity / shieldCapacity /
+// shieldRecharge) and returns the hull's own side of the fold, HYBRID by stat:
+//   innateHullArmor            = hullIntegrity  - SI_PLATING_HP     (a bare-frame HP pool, ADDED to plating)
+//   shieldCapEffectiveness     = shieldCapacity / REF_SHIELD_CAPACITY (a MULTIPLIER on the emitter cap)
+//   shieldRechargeEffectiveness = shieldRecharge / REF_SHIELD_RECHARGE (a MULTIPLIER on the emitter regen)
 //
-// THE CALIBRATION (why the rework is byte-identical, design 4): with an SI emitter (cap == SI_EMITTER_CAP)
-// the fold shield = SI_EMITTER_CAP * (1 + innateShieldCapMult) = shieldCapacity exactly; with SI plating
-// (hullStrength == SI_PLATING_HP) the fold hull = innateHullArmor + SI_PLATING_HP = hullIntegrity exactly;
-// recharge likewise. So an SI ship recomposes to today's authored numbers (parity + balance fixtures do
-// not move), while a CRAFTED emitter/plating rides the SAME innate stats and genuinely gains. The mult
-// form is deliberate: a combat hull amplifies an emitter more than an economy hull ("wired for shields"),
-// and with NO emitter there is nothing to amplify (the fold yields shield 0).
+// WHY HYBRID (user-locked): a ship WITHOUT hull plating must still have a nonzero BARE FRAME (it is armored,
+// not an exposed space frame), so hull stays ADDITIVE (bare frame + plating; bare frame alone with no
+// plating). Shields have no source without an emitter, so shield cap + recharge are MULTIPLICATIVE via an
+// effectiveness ratio and fold to 0 with no emitter.
 //
-// DERIVED, not stored: the rework does NOT persist per-ship innate fields yet (a deferred seam, design 9);
-// this recomputes from the hull totals each fold. NOTE the innate values are floats (e.g. a 10/3 recharge
-// mult); the recomposition still lands on the exact authored integer for every current hull (verified).
-export interface HullInnateDefense {
+// THE CALIBRATION (why the rework is byte-identical). For hull: SI plating hullStrength == SI_PLATING_HP, so
+// hull = (hullIntegrity - SI_PLATING_HP) + SI_PLATING_HP == hullIntegrity exactly. For shields: SI emitter
+// cap == REF_SHIELD_CAPACITY / recharge == REF_SHIELD_RECHARGE, so shield = REF_S * (authored_S / REF_S) ==
+// authored_S exactly. So an SI ship recomposes to today's authored numbers (parity + balance fixtures do not
+// move), while CRAFTED plating/emitters ride the SAME frame/effectiveness and genuinely gain. Unlike the
+// retired 1+mult shield form (which reached x5 and compounded a crafted emitter + affixes into runaway
+// shields), the effectiveness ratio is a tame ~0.5..2.0x that reads as an intuitive percentage.
+//
+// DERIVED, not stored: the rework does NOT persist per-ship fields (a deferred seam, design 9); this
+// recomputes from the hull totals each fold. NOTE the shield ratios are floats (e.g. a 10/6 recharge
+// effectiveness); the SI recomposition still lands on the exact authored integer for every current hull
+// and stat (the additive hull is integer-exact; REF*(authored/REF) round-trips exactly here; verified in
+// bridge.test.ts, no rounding needed).
+export interface HullDefenseComposition {
 	innateHullArmor: number;
-	innateShieldCapMult: number;
-	innateShieldRechargeMult: number;
+	shieldCapEffectiveness: number;
+	shieldRechargeEffectiveness: number;
 }
-export function hullInnateDefense(stats: CombatShipStats): HullInnateDefense {
+export function hullDefenseComposition(stats: CombatShipStats): HullDefenseComposition {
 	return {
 		innateHullArmor: stats.hullIntegrity - SI_PLATING_HP,
-		innateShieldCapMult: stats.shieldCapacity / SI_EMITTER_CAP - 1,
-		innateShieldRechargeMult: stats.shieldRecharge / SI_EMITTER_RECHARGE - 1,
+		shieldCapEffectiveness: stats.shieldCapacity / REF_SHIELD_CAPACITY,
+		shieldRechargeEffectiveness: stats.shieldRecharge / REF_SHIELD_RECHARGE,
 	};
 }
 
@@ -562,8 +570,8 @@ export interface ShipToCombatantArgs {
 	// When PRESENT (the PLAYER path), shipToCombatant reads weapons + shield + hull + the
 	// defensive stats OFF this gear instead of the hull defaults / hardcoded zeros: weapons
 	// from the fitted weapon pieces (reconstructed via weaponInstanceFromGear, in installed
-	// order), the shield pool + recharge (each SCALED by the hull's innate shield mult) + coherence
-	// from the fitted shieldEmitters piece, the hull pool (innate armor + plating.hullStrength) + armor
+	// order), the shield pool + recharge (each MULTIPLIED by the hull's shield effectiveness) + coherence
+	// from the fitted shieldEmitters piece, the hull pool (innateHullArmor + plating.hullStrength) + armor
 	// + dampening from the fitted hullPlating piece, and the resist maps summed across all gear. When ABSENT (enemies,
 	// the durability seed, tests), the EXACT pre-1.4 hull-default behaviour is preserved.
 	// A Standard-Issue set folds BYTE-IDENTICALLY to the absent path (behaviour-preserving).
@@ -588,9 +596,9 @@ export interface ShipToCombatantArgs {
 // A) installedGear PRESENT (the PLAYER path). Weapons + defenses read the ship's real
 //    fitted combat gear:
 //      weapons            <- installed weapon pieces (weaponInstanceFromGear, install order)
-//      hull, hullMax      <- innateHullArmor + installed hullPlating.hullStrength (plating OPTIONAL)
-//      shield, shieldMax  <- installed shieldEmitters.shieldCapacity * (1 + innateShieldCapMult); 0 if none
-//      shieldRecharge     <- installed shieldEmitters.shieldRecharge  * (1 + innateShieldRechargeMult); 0 if none
+//      hull, hullMax      <- innateHullArmor + installed hullPlating.hullStrength; bare frame if no plating
+//      shield, shieldMax  <- installed shieldEmitters.shieldCapacity * shield-cap effectiveness; 0 if none
+//      shieldRecharge     <- installed shieldEmitters.shieldRecharge  * shield-recharge effectiveness; 0 if none
 //      shieldCoherence    <- installed shieldEmitters shieldCoherence affix (?? 0)
 //      ablativeArmor      <- installed hullPlating ablativeArmor affix (?? 0)
 //      kineticDampening   <- installed hullPlating kineticDampening affix (?? 0)
@@ -600,7 +608,7 @@ export interface ShipToCombatantArgs {
 //      speed              <- DEFAULT_COMBAT_SPEED (unchanged this unit; TODO 1.6)
 //      drones             <- installed drone-pod squadrons (squadronFromPod per droneBay pod, Unit 2.3a)
 //    A STANDARD-ISSUE set folds BYTE-IDENTICALLY to path B (innateHullArmor + SI_PLATING_HP
-//    == hullIntegrity, SI_EMITTER_CAP * (1 + innateShieldCapMult) == the hull's shieldCapacity,
+//    == hullIntegrity, SI_EMITTER_CAP * shieldCapacity/REF_SHIELD_CAPACITY == the hull's shieldCapacity,
 //    recharge likewise, each weapon reconstructs to makeWeaponInstance, each drone pod reconstructs
 //    to the hull's default squadron): combat OUTCOMES do not change (behaviour-preserving).
 //
@@ -657,30 +665,31 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	const shieldPiece = gear?.find((piece) => piece.slotType === "shieldEmitters");
 	const platingPiece = gear?.find((piece) => piece.slotType === "hullPlating");
 
-	// The hull's INNATE defense (combat-defense rework, design 3a/3c), derived from its authored
-	// SHIP_TYPES totals. Used ONLY on the PLAYER (gear) path: innate armor is ADDED to plating, and the
-	// innate shield mults SCALE an installed emitter. Cheap + pure; the ABSENT (enemy) path ignores it,
-	// keeping enemy composition byte-identical (enemies have no innate-stat rework).
-	const innate = hullInnateDefense(stats);
+	// The hull's combat-defense composition (combat-defense rework, HYBRID model), derived from its authored
+	// SHIP_TYPES totals. Used ONLY on the PLAYER (gear) path: the bare frame is ADDED to installed plating,
+	// and the shield effectivenesses MULTIPLY an installed emitter. Cheap + pure; the ABSENT (enemy) path
+	// ignores it, keeping enemy composition byte-identical (enemies install no gear).
+	const comp = hullDefenseComposition(stats);
 
-	// Hull pool: innate ship armor + installed plating (design 3c; plating OPTIONAL, a bare hull is
-	// still armored). ABSENT: the whole hull-class integrity. An SI set folds innateHullArmor +
-	// SI_PLATING_HP == hullIntegrity (byte-identical).
+	// Hull pool: the hull's bare frame (innateHullArmor) + the installed plating's raw hullStrength (ADDITIVE;
+	// plating OPTIONAL, a bare hull keeps its nonzero frame, user-locked: never an exposed space frame).
+	// ABSENT: the whole hull-class integrity. An SI set folds innateHullArmor + SI_PLATING_HP == hullIntegrity
+	// (byte-identical, integer-exact).
 	const hullMax = gear
-		? innate.innateHullArmor + (platingPiece ? statOf(platingPiece, "hullStrength") : 0)
+		? comp.innateHullArmor + (platingPiece ? statOf(platingPiece, "hullStrength") : 0)
 		: stats.hullIntegrity;
-	// Shield pool + recharge: an installed emitter SCALED by the hull's innate shield mult (design 3c,
-	// "wired for shields"). With NO emitter there is nothing to amplify -> shield 0. ABSENT: the
-	// hull-class shield stats. An SI set folds SI_EMITTER_CAP * (1 + innateShieldCapMult) ==
+	// Shield pool + recharge: the installed emitter's raw cap/recharge * the hull's shield effectiveness.
+	// With NO emitter there is nothing to scale -> shield 0 (an emitter is the shield SOURCE). ABSENT: the
+	// hull-class shield stats. An SI set folds SI_EMITTER_CAP * (shieldCapacity / REF_SHIELD_CAPACITY) ==
 	// shieldCapacity (byte-identical; recharge likewise).
 	const shieldMax = gear
 		? shieldPiece
-			? statOf(shieldPiece, "shieldCapacity") * (1 + innate.innateShieldCapMult)
+			? statOf(shieldPiece, "shieldCapacity") * comp.shieldCapEffectiveness
 			: 0
 		: stats.shieldCapacity;
 	const shieldRecharge = gear
 		? shieldPiece
-			? statOf(shieldPiece, "shieldRecharge") * (1 + innate.innateShieldRechargeMult)
+			? statOf(shieldPiece, "shieldRecharge") * comp.shieldRechargeEffectiveness
 			: 0
 		: stats.shieldRecharge;
 	// Mitigation affixes: gear affixes on the PLAYER path, hardcoded 0 on the ABSENT path
@@ -717,7 +726,7 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		id,
 		team,
 
-		// Hull <- frame + plating (PLAYER) or the hull-class integrity (ABSENT). Full at start.
+		// Hull <- bare frame + plating (PLAYER) or the hull-class integrity (ABSENT). Full at start.
 		hull: hullMax,
 		hullMax,
 

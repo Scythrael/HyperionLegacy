@@ -364,7 +364,7 @@
   $: combatHullType = ship ? combatHullTypeOf(ship.typeKey) : null;
   $: isCombatHull = combatHullType !== null;
 
-  // The folded combat readout (hull frame+plating, shield pool/recharge, mounted
+  // The folded combat readout (hull = frame + plating, shield pool/recharge, mounted
   // weapons + pods, and which required slots are still empty). Derived from the SAME
   // fittedPieces the economy stats use, so it recomputes on every install / uninstall.
   $: combatReadout =
@@ -382,7 +382,8 @@
   //     fittedBySlot map the tiles use.
   //   - A missing WEAPON is a non-blocking ADVISORY: the ship can dispatch but cannot return fire.
   //   - Missing plating / shield emitter are OPTIONAL, silent player choices (a bare hull keeps its
-  //     innate armor; no emitter simply means 0 shields), surfaced in the Defensive readout, not a banner.
+  //     nonzero frame armor; no emitter means 0 shields, an emitter being the shield source), surfaced
+  //     in the Defensive readout, not a banner.
   $: reactorMissing = ship !== null && fittedBySlot["reactorCore"] == null;
   $: noWeaponInstalled = combatReadout ? combatReadout.missingRequired.includes("weapon") : false;
 
@@ -447,6 +448,12 @@
   // --- Formatting helpers -----------------------------------------------------
   function fmtFlat(v: number): string {
     return Number.isInteger(v) ? v.toString() : v.toFixed(1);
+  }
+  // A defensive-stat EFFECTIVENESS ratio (combat-defense "Effectiveness %" model) as a whole-percent
+  // string, e.g. 1.2 -> "120%", 0.667 -> "67%". May read below or above 100% (a glass hull is < 100%,
+  // a capital hull > 100%). Rounded to the nearest point so the readout stays clean.
+  function fmtPct(ratio: number): string {
+    return `${Math.round(ratio * 100)}%`;
   }
   function fmtStatValue(row: StatRow): string {
     return row.kind === "pct" ? "×" + row.fitted.toFixed(2) : fmtFlat(Number(row.fitted.toFixed(1)));
@@ -1067,22 +1074,24 @@
 
       <!-- RIGHT: the categorized, scrollable stats panel (QA #5). -->
       <div class="ss-stats-col">
-        <!-- COMBAT READOUT (combat-defense rework, Unit 6): split so the innate-vs-gear
-             composition is legible. INNATE = the hull's own stats; SYSTEMS = the installed
-             gear grouped Offensive / Defensive / Support; the DEFENSIVE totals show their
-             composition (innate armor + plating, emitter cap x amplification) so a low or
-             high number reads as gear + hull, never as damage. Shown for every hull. -->
+        <!-- COMBAT READOUT (combat-defense rework, HYBRID model): split so the hull-vs-gear
+             composition is legible. INNATE = the hull's own contribution (its bare frame armor + its
+             shield effectiveness ratios); SYSTEMS = the installed gear grouped Offensive / Defensive /
+             Support; the DEFENSIVE totals show their composition (hull = frame + plating; shield =
+             emitter x effectiveness) so a low or high number reads as hull + gear, never as damage.
+             Shown for every hull. -->
         {#if combatReadout}
-          <!-- INNATE: the hull's own stats (its armor pool, the emitter amplification it
-               applies, and its hardpoint / drone-bay capacity). -->
+          <!-- INNATE: the hull's own defense contribution: its bare frame HP (armored even with no
+               plating) + how well it fields shields (effectiveness, freely below or above 100%) + its
+               hardpoint / drone-bay capacity. -->
           <div class="ss-cat">
             <div class="ss-cat-head">
               <span class="ss-cat-glyph" aria-hidden="true">&#128640;</span> Innate
               <span class="ss-cat-note">the hull itself</span>
             </div>
-            <div class="ss-srow"><span class="ss-sk">Hull armor</span><span class="ss-sv">{fmtFlat(combatReadout.innateHullArmor)}</span></div>
-            <div class="ss-srow"><span class="ss-sk">Shield amplification</span><span class="ss-sv">&times;{(1 + combatReadout.innateShieldCapMult).toFixed(1)} <small>cap</small></span></div>
-            <div class="ss-srow"><span class="ss-sk">Recharge amplification</span><span class="ss-sv">&times;{(1 + combatReadout.innateShieldRechargeMult).toFixed(1)} <small>regen</small></span></div>
+            <div class="ss-srow"><span class="ss-sk">Hull frame</span><span class="ss-sv">{fmtFlat(combatReadout.innateHullArmor)}</span></div>
+            <div class="ss-srow"><span class="ss-sk">Shield Effectiveness</span><span class="ss-sv">{fmtPct(combatReadout.shieldCapEffectiveness)} <small>cap</small></span></div>
+            <div class="ss-srow"><span class="ss-sk">Recharge Effectiveness</span><span class="ss-sv">{fmtPct(combatReadout.shieldRechargeEffectiveness)} <small>regen</small></span></div>
             <div class="ss-srow"><span class="ss-sk">Weapon hardpoints</span><span class="ss-sv">{hardpointCap}</span></div>
             <div class="ss-srow"><span class="ss-sk">Drone bays</span><span class="ss-sv">{droneBayCap}</span></div>
           </div>
@@ -1106,26 +1115,24 @@
             {/if}
           </div>
 
-          <!-- SYSTEMS - DEFENSIVE: the composed hull + shield totals, each showing its
-               innate + gear split (hull = innate + plating; shield = emitter cap x
-               amplification), so the source of each number is visible. -->
+          <!-- SYSTEMS - DEFENSIVE: the composed hull + shield totals. Hull is ADDITIVE (bare frame +
+               plating; the frame alone, still nonzero, when no plating is installed). Shield is the
+               emitter cap x the hull's shield effectiveness. Each shows its split so the source of the
+               number is visible. -->
           <div class="ss-cat">
             <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#128737;&#65039;</span> Systems &middot; Defensive</div>
             <div class="ss-srow">
               <span class="ss-sk">Hull integrity</span>
-              <span class="ss-sv">
-                {fmtFlat(combatReadout.hullTotal)}
-                <small>= {fmtFlat(combatReadout.innateHullArmor)} innate{#if combatReadout.platingHullStrength > 0} + {fmtFlat(combatReadout.platingHullStrength)} plating{/if}</small>
-              </span>
+              <span class="ss-sv">{fmtFlat(combatReadout.hullTotal)} <small>= {fmtFlat(combatReadout.innateHullArmor)} frame{#if combatReadout.platingHullStrength > 0} + {fmtFlat(combatReadout.platingHullStrength)} plating{/if}</small></span>
             </div>
             {#if combatReadout.shieldEmitter}
               <div class="ss-srow">
                 <span class="ss-sk">Shield capacity</span>
-                <span class="ss-sv">{fmtFlat(combatReadout.shieldTotal)} <small>= {fmtFlat(combatReadout.emitterCap)} &times; {(1 + combatReadout.innateShieldCapMult).toFixed(1)}</small></span>
+                <span class="ss-sv">{fmtFlat(combatReadout.shieldTotal)} <small>= {fmtFlat(combatReadout.emitterCap)} installed &times; {fmtPct(combatReadout.shieldCapEffectiveness)}</small></span>
               </div>
               <div class="ss-srow">
                 <span class="ss-sk">Shield recharge</span>
-                <span class="ss-sv">{fmtFlat(combatReadout.rechargeTotal)} / s <small>= {fmtFlat(combatReadout.emitterRecharge)} &times; {(1 + combatReadout.innateShieldRechargeMult).toFixed(1)}</small></span>
+                <span class="ss-sv">{fmtFlat(combatReadout.rechargeTotal)} / s <small>= {fmtFlat(combatReadout.emitterRecharge)} installed &times; {fmtPct(combatReadout.shieldRechargeEffectiveness)}</small></span>
               </div>
             {:else}
               <div class="ss-srow"><span class="ss-sk">Shield capacity</span><span class="ss-sv ss-sv-dim">none &middot; no emitter installed</span></div>
