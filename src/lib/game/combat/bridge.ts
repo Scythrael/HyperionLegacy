@@ -76,7 +76,10 @@ function zeroResist(): FamilyResist {
 export const COMBAT_FRAME_HP_FRACTION = 0.2;
 
 // The intrinsic frame HP for a hull with the given total structural integrity. PURE + integer
-// (Math.round). LEGACY: read only by the panel readout now (see the note above), not the combat fold.
+// (Math.round). UNUSED IN PRODUCTION (corrected 2026-08-27): neither the combat fold nor combatFit.ts /
+// the ShipSystemsPanel readout calls it (the HYBRID rework replaced the frame/plating split). frameHp /
+// COMBAT_FRAME_HP_FRACTION are now referenced ONLY by tests (save.test.ts baseline fixtures + this
+// documented history), retained solely so those fixtures keep compiling until a dedicated cleanup removes it.
 export function frameHp(hullIntegrity: number): number {
 	return Math.round(hullIntegrity * COMBAT_FRAME_HP_FRACTION);
 }

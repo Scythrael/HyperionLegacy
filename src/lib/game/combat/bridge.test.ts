@@ -34,6 +34,10 @@ import {
 	SI_PLATING_HP,
 	SI_EMITTER_CAP,
 	SI_EMITTER_RECHARGE,
+	// The shield REFERENCE denominators, so the round-trip guard below asserts the SAME authored/REF
+	// ratio the production fold (hullDefenseComposition) uses, not a reimplementation of it.
+	REF_SHIELD_CAPACITY,
+	REF_SHIELD_RECHARGE,
 	type CombatStandardIssueSpec,
 	type EquipmentInstance,
 } from "../model";
@@ -670,5 +674,37 @@ describe("hullDefenseComposition + the hull-additive / shield-effectiveness comp
 		// The old model would have been craftedCap * 5 (the battleship's retired x5 amplifier); prove the
 		// new fold is far below that runaway figure.
 		expect(c.shieldMax).toBeLessThan(craftedCap * 3);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// SI byte-identity round-trip guard (bounded fix pass 2026-08-27).
+//
+// PURPOSE: make the currently-untested byte-identity invariant EXPLICIT. For EVERY hull in the SHIP_TYPES
+// roster, the Standard-Issue defensive fold must recompose to that hull's AUTHORED SHIP_TYPES totals
+// EXACTLY (integer-equal). That exact recomposition is the whole reason the combat-defense rework left a
+// Standard-Issue ship's combat stats (and every parity / balance fixture) unmoved. Enumerating the FULL
+// roster (never a hardcoded 7 hulls) means a future 0.16.0 constant re-dial, OR a newly-added roster hull
+// whose stats break an SI round-trip, FAILS THIS TEST instead of silently shipping wrong Standard-Issue
+// stats. It is built on the REAL fold helper (hullDefenseComposition) + the REAL model constants, so it
+// tracks the production math rather than a private reimplementation of it.
+// ---------------------------------------------------------------------------
+describe("SI defensive fold recomposes byte-identically to authored hull stats for the WHOLE roster", () => {
+	it("round-trips hull / shield cap / shield recharge EXACTLY (integer-equal) for every SHIP_TYPES entry", () => {
+		for (const stats of Object.values(SHIP_TYPES)) {
+			const comp = hullDefenseComposition(stats);
+			// The helper's shield ratios ARE authored / REF (pinned against the imported reference constants,
+			// so the multiplicative round-trips below are meaningful rather than self-referential).
+			expect(comp.shieldCapEffectiveness).toBe(stats.shieldCapacity / REF_SHIELD_CAPACITY);
+			expect(comp.shieldRechargeEffectiveness).toBe(stats.shieldRecharge / REF_SHIELD_RECHARGE);
+			// HULL (additive): the derived bare frame (authored - SI_PLATING_HP) + the SI plating floor
+			// recomposes to the authored integrity, integer-exact.
+			expect(comp.innateHullArmor + SI_PLATING_HP).toBe(stats.hullIntegrity);
+			// SHIELD CAP (multiplicative): SI emitter cap x the hull's cap effectiveness round-trips to the
+			// authored cap exactly (verified exact for all current hulls; a hull whose ratio broke it fails here).
+			expect(SI_EMITTER_CAP * comp.shieldCapEffectiveness).toBe(stats.shieldCapacity);
+			// SHIELD RECHARGE (multiplicative): SI emitter recharge x recharge effectiveness round-trips exactly.
+			expect(SI_EMITTER_RECHARGE * comp.shieldRechargeEffectiveness).toBe(stats.shieldRecharge);
+		}
 	});
 });

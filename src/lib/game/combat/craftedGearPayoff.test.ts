@@ -120,12 +120,13 @@ const CRAFTED_RARITY = "radiant" as const;
 const CRAFTED_WEAPON_ILEVEL = 40;
 //
 //  - SHIELD + PLATING now float on a FLAT, hull-independent Standard-Issue floor. The combat-defense
-//    rework moved the hull's own defense into its INNATE stats (innateHullArmor is ADDED to
-//    plating.hullStrength; innateShieldCapMult AMPLIFIES emitter.shieldCapacity), so the Standard-Issue
-//    gear carries only the fixed dials SI_PLATING_HP = 100 and SI_EMITTER_CAP = 100, the SAME on every
-//    hull. A crafted piece therefore beats Standard-Issue iff its RAW hullStrength / shieldCapacity
-//    clears 100, and the innate stats add/amplify SI and crafted equally, so the raw comparison is
-//    hull-independent. Combat-defense rework Unit 4 re-tuned the crafted defensive implicit (itemgen
+//    rework moved the hull's own defense into its INNATE composition (HYBRID, corrected 2026-08-27:
+//    innateHullArmor, the hull's bare frame, is ADDED to plating.hullStrength; the shield is the installed
+//    emitter cap MULTIPLIED by the hull's shield effectiveness = authored / REF, NOT the retired
+//    innateShieldCapMult amplifier), so the Standard-Issue gear carries only the fixed dials
+//    SI_PLATING_HP = 100 and SI_EMITTER_CAP = 300, the SAME on every hull. A crafted piece therefore beats
+//    Standard-Issue iff its RAW hullStrength clears 100 or its RAW shieldCapacity clears 300, and the frame
+//    is added / the effectiveness scales SI and crafted equally, so each raw comparison is hull-independent. Combat-defense rework Unit 4 re-tuned the crafted defensive implicit (itemgen
 //    craftedDefensiveImplicit, replacing the deleted CRAFTED_DEFENSE_IMPLICIT_MULT hack) so even the
 //    FIRST crafted tier (iLevel 1, q0, standard) clears 100 with margin (~109 raw), and it scales up
 //    from there (the first-tier-above-SI proof lives in itemgen.test.ts; the MID-iLevel out-tank proof

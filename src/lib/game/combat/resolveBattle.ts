@@ -1228,6 +1228,15 @@ function fireSquadron(
 // "dealt damage" means "reduced the other side's hull below where THIS battle started",
 // robust even when a caller opens a combatant already damaged (e.g. a multi-wave
 // patrol carrying hull attrition between waves).
+//
+// HONEST CAVEAT (bounded fix pass 2026-08-27): this end-vs-start proxy compares only the FINAL hull to
+// the START hull, so damage that was later HEALED BACK (support-drone repair) is MASKED: a hull that was
+// chipped then healed to (or above) its start reads as "no damage dealt". Consequence: a weaponless,
+// support-heavy ship whose only offense was chipped-then-healed hull can DRAW a timeout it arguably
+// should lose. It can never WIN on this proxy (a net-zero-or-restored hull change never counts as damage
+// dealt), so the miss stays inside the design envelope (a draw, not a stolen win). An exact per-team
+// damage-APPLICATION latch (counting damage the moment it lands, before any heal) is deferred to the
+// 0.16.0 balance pass.
 function tiebreakByHullPercent(
 	combatants: Combatant[],
 	startHullById: Map<string, number>,

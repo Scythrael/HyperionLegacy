@@ -404,8 +404,11 @@ describe("generateEquipment", () => {
       });
       // Raw shieldCapacity beats the flat SI cap floor -> beats SI on ANY hull (effectiveness scales both).
       expect(emitter.implicitStats.shieldCapacity).toBeGreaterThan(SI_EMITTER_CAP);
-      // Recharge is not "boosted" but must at least reach the SI recharge floor at first tier.
-      expect(emitter.implicitStats.shieldRecharge).toBeGreaterThanOrEqual(SI_EMITTER_RECHARGE);
+      // Recharge sits a few points ABOVE the SI recharge floor at the first tier (design invariant:
+      // crafting is never merely equal to Standard-Issue). First-crafted recharge is 7 > 6, so strict
+      // `>` holds today and guards the "above SI" invariant properly (a curve re-dial that only tied
+      // the floor would now FAIL here instead of quietly shipping a pointless first-tier recharge).
+      expect(emitter.implicitStats.shieldRecharge).toBeGreaterThan(SI_EMITTER_RECHARGE);
     });
 
     it("the lowest-tier crafted hull plating out-armors Standard-Issue", () => {

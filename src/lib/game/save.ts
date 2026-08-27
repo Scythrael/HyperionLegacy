@@ -1449,8 +1449,15 @@ const MIGRATIONS: Record<number, Migration> = {
   // WHAT IS RE-STATTED (magnitudes live in piece.implicitStats, see generateCombatStandardIssue in
   // model.ts, the SAME locations set here so a migrated baseline == a freshly minted one, Omega 4):
   //   - a hullPlating baseline -> implicitStats.hullStrength   = SI_PLATING_HP     (100)
-  //   - a shieldEmitters baseline -> implicitStats.shieldCapacity = SI_EMITTER_CAP  (100)
-  //                                  implicitStats.shieldRecharge  = SI_EMITTER_RECHARGE (3)
+  //   - a shieldEmitters baseline -> implicitStats.shieldCapacity = SI_EMITTER_CAP     (300)
+  //                                  implicitStats.shieldRecharge  = SI_EMITTER_RECHARGE (6)
+  // CORRECTED (bounded fix pass 2026-08-27): the emitter parentheticals above are the LIVE constants,
+  // now 300 / 6. This step reads SI_EMITTER_CAP / SI_EMITTER_RECHARGE BY REFERENCE, so it writes today's
+  // 300 / 6, NOT the old flat floor an earlier interim build carried (100 / 3). That is IDENTICAL to what
+  // MIGRATIONS[38] (v38->v39) writes: the later step re-applies the SAME cap / recharge as belt-and-
+  // suspenders for a device stuck at exactly v38 from the interim build (it ran this step while the
+  // constants were still 100 / 3, so its SI shields need the up-stat), while a device arriving here on the
+  // current build already lands on 300 / 6, making the v38 pass an idempotent no-op for it.
   // Whether the piece is FITTED or a SPARE is irrelevant (both fold the same magnitudes), so both are
   // re-statted; only the slotType + the strict-baseline test below gate what is touched.
   //

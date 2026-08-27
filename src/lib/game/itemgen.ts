@@ -138,7 +138,7 @@ export const CRAFTED_DEFENSE_HULL_PER_LEVEL = 1;  // per-iLevel growth added on 
 
 // shieldCapacity (emitter): keyed to the flat SI cap floor of 300 (SI_EMITTER_CAP == REF_SHIELD_CAPACITY,
 // a MULTIPLICATIVE reference). At the lowest craftable roll this yields ~311 raw, a few points above the
-// 300 floor; at the top reachable roll (iLevel 40, quality 5, radiant) ~1254 raw, ~4.2x the floor. TUNABLE.
+// 300 floor; at the top reachable roll (iLevel 40, quality 5, radiant) ~1090 raw, ~3.6x the floor. TUNABLE.
 export const CRAFTED_DEFENSE_CAP_BASE = 267;      // flat component: clears the 300 floor after the standard-rarity 1.15x
 export const CRAFTED_DEFENSE_CAP_PER_LEVEL = 3;   // per-iLevel growth added on top of the base
 
