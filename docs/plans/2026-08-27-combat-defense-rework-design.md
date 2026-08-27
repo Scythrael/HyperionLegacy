@@ -114,7 +114,9 @@ Existing saves carry per-hull SI baselines with the OLD large magnitudes + ships
 6. **Stat display** — the Innate / Offensive-Defensive-Support / Exploration restructure (⚠️ mockup-gate the UI per repo rule).
 7. **Holistic review** + QA sheet, then it clears the 0.13.0 debut blocker.
 
-## 11. Open decisions to lock at sign-off
-- The three fixed SI-gear dials (`SI_PLATING_HP`, `SI_EMITTER_CAP`, `SI_EMITTER_RECHARGE`) — the table uses 100/100/3 as a starting point.
-- Whether the advisory is a one-time confirm or a persistent dispatch-card note.
-- Stat-display: confirm the four groups + that it needs a mockup before UI build.
+## 11. Decisions — LOCKED (user sign-off 2026-08-27)
+- ✅ **SI-gear dials = `SI_PLATING_HP=100`, `SI_EMITTER_CAP=100`, `SI_EMITTER_RECHARGE=3`** (the worked table's starting values). First-pass; the 0.16.0 balance pass may re-dial.
+- ✅ **Weapon advisory = a PERSISTENT note on the dispatch card** (not a one-time confirm dialog).
+- ✅ **Stat display = the four groups (Innate / Offensive / Defensive / Support / Exploration-Prospecting), and it is MOCKUP-GATED** — build a mockup + get confirmation before the Unit 6 UI build.
+
+Design is SIGNED OFF. Build proceeds subagent-driven, phased, gate-green per unit; Unit 6 (stat display) waits on its mockup.
