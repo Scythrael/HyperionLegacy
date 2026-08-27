@@ -1812,34 +1812,38 @@ describe("blueprintKind classifier", () => {
 });
 
 describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
-  // The 12 (slot, variety) pairs the equipment blueprints must cover, derived
+  // The 18 (slot, variety) pairs the equipment blueprints must cover, derived
   // straight from EQUIPMENT_SLOTS so this stays in lockstep with the slot table.
+  // Combat 1.0: the two defensive combat slots (shieldEmitters / hullPlating) became
+  // craftable too, so their 6 varieties join the 12 economy ones (18 total).
   const EQUIP_BP_KEYS = [
     "prospectorHoldBp", "balancedHoldBp", "haulerHoldBp",
     "sprintDriveBp", "economyDriveBp", "balancedDriveBp",
     "highOutputCoreBp", "efficientCoreBp", "balancedCoreBp",
     "yieldRigBp", "surveyRigBp", "refineryFeedRigBp",
+    "balancedEmitterBp", "rechargeArrayBp", "capacitorBankBp",
+    "reinforcedPlatingBp", "ablativePlatingBp", "compositePlatingBp",
   ];
 
   // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`.
   const equipmentBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.equipmentOutput);
 
-  it("defines exactly 12 equipment blueprints, one per (live slot × variety)", () => {
-    expect(equipmentBlueprints).toHaveLength(12);
+  it("defines exactly 18 equipment blueprints, one per (equipmentOutput slot × variety)", () => {
+    expect(equipmentBlueprints).toHaveLength(18);
     // The named set matches the derived key list (no missing / extra entry).
     const keys = equipmentBlueprints.map((bp) => bp.key).sort();
     expect(keys).toEqual([...EQUIP_BP_KEYS].sort());
     // And there is exactly one blueprint per (slotType, varietyKey) pair, covering
-    // every variety of every live slot with no duplicates.
+    // every variety of every equipmentOutput slot with no duplicates.
     const pairs = new Set(
       equipmentBlueprints.map((bp) => `${bp.equipmentOutput!.slotType}/${bp.equipmentOutput!.varietyKey}`),
     );
-    expect(pairs.size).toBe(12);
-    // Combat 1.0 (Unit 1.1): the two defensive combat slots (shieldEmitters / hullPlating)
-    // are defined but not yet craftable (their blueprints land with the craft chain), so
-    // blueprint coverage is asserted over the four ECONOMY slots only.
-    const ECONOMY_SLOTS = ["cargoBay", "ftlDrive", "reactorCore", "specUtility"] as const;
-    for (const slotType of ECONOMY_SLOTS) {
+    expect(pairs.size).toBe(18);
+    // COVERAGE GUARD: every variety of every installable equipment slot (the four economy slots
+    // PLUS the two defensive combat slots) must have a craftable blueprint. This is the assertion
+    // that would have caught the shipped gap where shieldEmitters / hullPlating had none.
+    const EQUIP_BP_SLOTS = ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating"] as const;
+    for (const slotType of EQUIP_BP_SLOTS) {
       for (const variety of EQUIPMENT_SLOTS[slotType].varieties) {
         expect(pairs.has(`${slotType}/${variety.key}`), `${slotType}/${variety.key} has a blueprint`).toBe(true);
       }

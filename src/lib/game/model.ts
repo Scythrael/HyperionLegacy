@@ -4317,6 +4317,103 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   },
 
   // ══════════════════════════════════════════════════════════════════════════
+  // COMBAT DEFENSE BLUEPRINTS (shield emitters + hull plating) ────────────────
+  // The DEFENSIVE half of craftable combat gear, the counterpart to the weapon
+  // blueprints above. Unit 1.1 activated the shieldEmitters + hullPlating SLOTS
+  // (EQUIPMENT_SLOTS, each with its 3 varieties) and Unit 2.5a even tuned CRAFTED
+  // defense scaling, but the research/craft RECIPES were never written, so the gear
+  // was un-obtainable in play (only the free Standard-Issue baseline existed). These
+  // 6 blueprints close that gap. They are ORDINARY equipmentOutput blueprints, the
+  // SAME shape + generateEquipment mint path as the economy systems, one per variety,
+  // so they auto-appear in Research (the UIs enumerate Object.keys(BLUEPRINTS)) and
+  // mint a named, variety-resolved crafted piece, NOT a separate weapon/drone table.
+  //
+  // TIER = 1 or 2 ONLY (the Research Lab caps at level 2, same constraint as the
+  // weapon/drone blueprints): the two workhorse varieties per slot are T1, the premium
+  // capacity/composite variety is T2.
+  //
+  // RECIPES (thematic): shields are ENERGY tech (powerCoupling + polysilicateWafer, like
+  // the reactor cores); plating is ARMOR (titaniumIngot + frameSegment + structuralAssembly,
+  // like the kinetic weapons). ⚠️ FIRST-PASS TUNABLE: every tier / cost / duration / input
+  // below is a launch placeholder; real balance lands in the dedicated balance patch (0.16.0).
+
+  // --- SHIELD EMITTERS (energy screen: couplings + sensor wafers) ---
+  balancedEmitterBp: {
+    key: "balancedEmitterBp",
+    label: "Balanced Emitter Blueprint",
+    tier: 1,
+    researchDurationTicks: 70,
+    researchCreditCost: 850,
+    craftDurationTicks: 160,
+    equipmentOutput: { slotType: "shieldEmitters", varietyKey: "balancedEmitter" },
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 2, titaniumIngot: 1 } },
+    flavor: "An even-handed emitter: a solid screen that recharges at a sensible clip, nothing specialized, nothing weak.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
+  },
+  rechargeArrayBp: {
+    key: "rechargeArrayBp",
+    label: "Recharge Array Blueprint",
+    tier: 1,
+    researchDurationTicks: 80,
+    researchCreditCost: 900,
+    craftDurationTicks: 170,
+    equipmentOutput: { slotType: "shieldEmitters", varietyKey: "rechargeArray" },
+    recipe: { inputs: { powerCoupling: 2, polysilicateWafer: 3 } },
+    flavor: "A fast-cycling emitter tuned to bring the screen back up between volleys: less raw capacity, quicker recovery.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
+  },
+  capacitorBankBp: {
+    key: "capacitorBankBp",
+    label: "Capacitor Bank Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1700,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "shieldEmitters", varietyKey: "capacitorBank" },
+    recipe: { inputs: { powerCoupling: 3, polysilicateWafer: 3, structuralAssembly: 1 } },
+    flavor: "A deep reservoir of a shield: a heavy capacitor stack that soaks an enormous hit before the screen ever fails.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
+  },
+
+  // --- HULL PLATING (armor: titanium + framing + structure) ---
+  reinforcedPlatingBp: {
+    key: "reinforcedPlatingBp",
+    label: "Reinforced Plating Blueprint",
+    tier: 1,
+    researchDurationTicks: 70,
+    researchCreditCost: 850,
+    craftDurationTicks: 160,
+    equipmentOutput: { slotType: "hullPlating", varietyKey: "reinforcedPlating" },
+    recipe: { inputs: { titaniumIngot: 3, frameSegment: 1 } },
+    flavor: "Straightforward structural armor: thick titanium over a braced frame, more hull to grind through, plain and tough.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
+  },
+  ablativePlatingBp: {
+    key: "ablativePlatingBp",
+    label: "Ablative Plating Blueprint",
+    tier: 1,
+    researchDurationTicks: 80,
+    researchCreditCost: 900,
+    craftDurationTicks: 170,
+    equipmentOutput: { slotType: "hullPlating", varietyKey: "ablativePlating" },
+    recipe: { inputs: { titaniumIngot: 2, frameSegment: 2 } },
+    flavor: "A sacrificial energy-shedding layer: it boils away under fire to spare the hull beneath, trading mass for a burn buffer.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator once it comes online.",
+  },
+  compositePlatingBp: {
+    key: "compositePlatingBp",
+    label: "Composite Plating Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1700,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "hullPlating", varietyKey: "compositePlating" },
+    recipe: { inputs: { titaniumIngot: 3, frameSegment: 2, structuralAssembly: 1 } },
+    flavor: "A layered composite: hull, ablative shedding, and kinetic dampening married into one plate that answers every damage type.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator once it comes online.",
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
   // WARSHIP HULL BLUEPRINTS (Combat 0.13.0, Phase 9b: warship research gate) ──
   // UNLOCK-ONLY blueprints (unlockOnly: true, see BlueprintDef): they craft NOTHING.
   // Researching one flips a hull's ShipTypeDef.requiresBlueprint gate open, so the entry

@@ -340,6 +340,32 @@ describe("generateEquipment", () => {
     expect(item.durability).toBe(item.durabilityMax);
   });
 
+  it("mints every craftable shield-emitter + hull-plating variety as a valid, non-empty piece (Combat 1.0 defense gear)", () => {
+    // Regression for the shipped gap where shieldEmitters / hullPlating had no blueprints at all: prove
+    // the fabricate mint path (generateEquipment) produces a well-formed, positively-statted piece for
+    // EVERY defensive variety, so the 6 new blueprints actually craft usable gear (not a +0 dud).
+    const defenseVarieties: { slotType: "shieldEmitters" | "hullPlating"; varietyKey: string }[] = [
+      { slotType: "shieldEmitters", varietyKey: "balancedEmitter" },
+      { slotType: "shieldEmitters", varietyKey: "rechargeArray" },
+      { slotType: "shieldEmitters", varietyKey: "capacitorBank" },
+      { slotType: "hullPlating", varietyKey: "reinforcedPlating" },
+      { slotType: "hullPlating", varietyKey: "ablativePlating" },
+      { slotType: "hullPlating", varietyKey: "compositePlating" },
+    ];
+    for (const { slotType, varietyKey } of defenseVarieties) {
+      const item = generateEquipment({
+        slotType, varietyKey, blueprintKey: `${varietyKey}Bp`,
+        iLevel: 40, quality: 3, rarity: "radiant", ascension: "none",
+        rng: mulberry32(11), allocateId: idAllocator(),
+      });
+      expect(item.slotType, `${varietyKey} slotType`).toBe(slotType);
+      expect(item.durability, `${varietyKey} durability`).toBe(item.durabilityMax);
+      // A crafted defensive piece carries real, positive stats (better than the +0 Standard-Issue floor).
+      const total = [...Object.values(item.implicitStats), ...Object.values(item.rolledStats)].reduce((a, b) => a + b, 0);
+      expect(total, `${varietyKey} has positive stats`).toBeGreaterThan(0);
+    }
+  });
+
   it("stores the input iLevel on the instance (persisted so the UI can show item power at a glance)", () => {
     // iLevel was previously consumed by computeBudget then DISCARDED. It is now stored on the
     // instance verbatim so the Ship Systems tiles / tooltip can render "iL N" without recomputing.

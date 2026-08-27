@@ -177,10 +177,18 @@
   // resolved falls back to the slot label (never blank).
   $: name = (() => {
     if (piece.blueprintKey === null) return "Standard-Issue";
-    const eqOut = BLUEPRINTS[piece.blueprintKey]?.equipmentOutput;
-    if (!eqOut) return EQUIPMENT_SLOTS[piece.slotType]?.label ?? piece.slotType;
-    const variety = EQUIPMENT_SLOTS[eqOut.slotType]?.varieties.find((v) => v.key === eqOut.varietyKey);
-    return variety?.label ?? eqOut.varietyKey;
+    const bp = BLUEPRINTS[piece.blueprintKey];
+    // EQUIPMENT (economy + shield/plating): name = the minted variety's label. Unchanged path.
+    const eqOut = bp?.equipmentOutput;
+    if (eqOut) {
+      const variety = EQUIPMENT_SLOTS[eqOut.slotType]?.varieties.find((v) => v.key === eqOut.varietyKey);
+      return variety?.label ?? eqOut.varietyKey;
+    }
+    // WEAPONS (weaponOutput) + DRONES (droneOutput) have no equipmentOutput/variety, so they used to
+    // fall through to the slot label ("weapon" / "drone bay"). Derive their display name from the
+    // blueprint's own label instead ("Railgun Blueprint" -> "Railgun"), which every blueprint carries.
+    if (bp?.label) return bp.label.replace(/\s+Blueprint$/, "");
+    return EQUIPMENT_SLOTS[piece.slotType]?.label ?? piece.slotType;
   })();
 
   // "{Rarity} Grade" over "{Slot} System" (the top-right identity block). Rarity
