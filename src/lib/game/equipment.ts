@@ -54,7 +54,7 @@ import type {
   ShipSpec,
   CaptainTalentBranch,
 } from "./model";
-import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue } from "./model";
+import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue, isStandardIssueBaseline } from "./model";
 
 // The slot-type partitions the fit gate (canFitEquipment) and the mutators read. Sets (not arrays)
 // for O(1) membership; typed to EquipmentSlotType so a slot rename is a compile error.
@@ -468,7 +468,12 @@ export function unfitEquipment(
   // instance stays fitted, nothing is pooled or minted, the counter does not advance. (All four
   // economy slots this function serves are never-empty singletons, so a present occupant is always an
   // economy piece; a baseline occupant is exactly the floor.)
-  if (occupant && occupant.blueprintKey === null) {
+  // ⚠️ Uses the STRICT isStandardIssueBaseline predicate (blueprintKey null AND rarity "standard"),
+  // not bare blueprintKey===null (audit AUDIT-3, defense-in-depth): a dev-granted radiant spare is
+  // also blueprintKey null; treating it as a floor here would wrongly no-op a dev "reset" on it.
+  // This is a DEV-only slot-based helper so it is not player-reachable, but aligning every
+  // baseline-classifying site to the one strict predicate prevents per-site drift.
+  if (occupant && isStandardIssueBaseline(occupant)) {
     return state;
   }
 

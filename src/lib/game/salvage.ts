@@ -148,6 +148,10 @@ export interface SalvageRoll {
 export type SalvageRejectReason =
   | "notFound"
   | "fitted"
+  // A recipe-less NON-baseline spare (blueprintKey null but not a standard-rarity floor, e.g. a
+  // dev-granted radiant item): no recipe to refund and not a declutterable baseline, so it is
+  // refused rather than destroyed for nothing. Dev-only reachable in a shipped build.
+  | "noRecipe"
   | "notSalvagedMaterial"
   | "noneHeld"
   | "shipNotFound"
@@ -209,9 +213,23 @@ export function salvageEquipment(
   // caller to render a "discarded, no materials" outcome instead of a recovery summary. This only
   // ever runs on a SPARE baseline: a fitted one is caught by the `fitted` guard above, and the
   // live-slot never-empty invariant is untouched (this removes a pool spare, not a slot occupant).
-  if (piece.blueprintKey === null) {
+  // ⚠️ Uses the STRICT isStandardIssueBaseline predicate (blueprintKey null AND rarity "standard"),
+  // NOT bare blueprintKey===null (audit fix, AUDIT-2): dev-granted gear is also blueprintKey null but
+  // RADIANT, and the raw test would zero-DESTROY such a valuable spare. The sibling salvageShip in
+  // this file already uses this predicate (below); salvageEquipment was the one missed destroy site.
+  if (isStandardIssueBaseline(piece)) {
     const equipment = state.equipment.filter((e) => e.id !== instanceId);
     return { ok: true, next: { ...state, equipment }, recovered: {} };
+  }
+
+  // A RECIPE-LESS non-baseline piece: blueprintKey null but NOT a standard-rarity floor (e.g. a
+  // dev-granted radiant spare, devGrantEquipment). It has no recipe to refund AND is not a
+  // declutterable Standard-Issue baseline, so REFUSE rather than (a) silently destroy a valuable item
+  // for nothing or (b) crash the `BLUEPRINTS[piece.blueprintKey].recipe` read below on a null key.
+  // The piece stays in the pool, recoverable. Dev-only in a shipped build (prod has no null-blueprint
+  // non-standard item), but a correctness + data-safety guard regardless. (audit AUDIT-2)
+  if (piece.blueprintKey === null) {
+    return { ok: false, next: state, reason: "noRecipe" };
   }
 
   // --- Compute the recovery fraction ----------------------------------------

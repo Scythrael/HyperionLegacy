@@ -2870,6 +2870,8 @@
         return "that system no longer exists";
       case "fitted":
         return "the system is installed on a ship (uninstall it first)";
+      case "noRecipe":
+        return "that system has no recipe to break down (nothing to recover)";
       case "notSalvagedMaterial":
         return "that item is not a salvaged material";
       case "noneHeld":

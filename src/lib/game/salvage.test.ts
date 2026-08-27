@@ -153,6 +153,23 @@ describe("salvageEquipment: rejects non-salvageable targets as a same-ref no-op 
     expect(result.next.equipment.find((e) => e.id === "fit-1")).toBeDefined();
   });
 
+  it("REFUSES a recipe-less NON-baseline spare (dev-shaped radiant, blueprintKey null) instead of destroying/crashing (AUDIT-2)", () => {
+    // A dev-granted radiant spare is blueprintKey null but NOT a standard-rarity floor. The old
+    // `blueprintKey===null -> destroy` silently deleted it; the naive one-line fix would crash the
+    // materials read (BLUEPRINTS[null].recipe). Correct behavior: REFUSE with reason noRecipe, leaving
+    // the valuable item in the pool.
+    const devRadiant: EquipmentInstance = {
+      ...makePiece({ slotType: "cargoBay", fitted: false, crafted: false, quality: 5, id: "dev-1" }),
+      rarity: "radiant",
+    };
+    const state = stateWith([devRadiant]);
+    const result = salvageEquipment(state, "dev-1", () => 0.5);
+    expect("reason" in result).toBe(true);
+    if ("reason" in result) expect(result.reason).toBe("noRecipe");
+    expect(result.next).toBe(state); // same-ref no-op: NOT destroyed
+    expect(result.next.equipment.find((e) => e.id === "dev-1")).toBeDefined(); // still in the pool, recoverable
+  });
+
 });
 
 describe("salvageEquipment: a spare Standard-Issue baseline salvages as a zero-reward declutter (2026-07-21)", () => {
