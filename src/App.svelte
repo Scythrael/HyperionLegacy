@@ -10311,8 +10311,14 @@
     display: none;
     flex-direction: column;
     gap: 4px;
-    /* Tooltip chrome uses THEME tokens (it is a panel, not part of the band ramp). */
-    background: var(--color-panel-bg);
+    /* OPAQUE background: the SAME 2026-07-09 fix already applied to .currency-tooltip.
+       The shared --color-panel-bg is only 32% opaque (right for a large panel over the
+       starfield, wrong for a tooltip): a see-through tooltip lets the card content behind
+       it bleed through and scramble the text, which is the REAL cause of the "tooltip
+       overlap" reports on mobile, not z-index or position (both were already correct).
+       Layer a faint themed accent wash over an OPAQUE dark base so it fully occludes
+       content yet still matches the console tint. Matches .currency-tooltip exactly. */
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
     border: 1px solid rgba(var(--color-accent-rgb), 0.35);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
     text-align: left;
