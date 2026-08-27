@@ -5000,6 +5000,25 @@ export function equipmentStorageCap(state: GameState): number {
   return cap;
 }
 
+// isStandardIssueBaseline(piece): is this piece a genuine free Standard-Issue slot FLOOR?
+//
+// ⚠️ SAFETY-CRITICAL PREDICATE. Several paths DESTROY or DISCARD a "baseline" (install-over-baseline
+// in equipment.ts, hull salvage in salvage.ts, and historically a load-time migration). Those paths
+// used `blueprintKey === null` ALONE as the test, but that is NOT sufficient: dev-granted gear
+// (devGrantEquipment, App.svelte) is also minted with blueprintKey null while being a RADIANT iL-400
+// item the player expects to keep. Treating "no blueprint" as "worthless, safe to delete" silently
+// destroyed those items (the reported data loss). A false positive here DELETES a valuable item, so
+// this predicate is deliberately STRICT: a real baseline is ALWAYS rarity "standard" (generateStandardIssue
+// hardcodes it), so requiring standard rarity excludes every dev / crafted / loot item, which are never
+// standard-with-no-blueprint. A false NEGATIVE (a real baseline not matching) is SAFE: the baseline
+// simply survives as a harmless spare, never lost. When in doubt, DO NOT classify as a baseline.
+//
+// (0.14.0 online: the truly robust fix is an explicit item `origin` field so provenance is stored, not
+// inferred, which also gates dev/injected items for anti-cheat. Until then this predicate is the floor.)
+export function isStandardIssueBaseline(piece: EquipmentInstance): boolean {
+  return piece.blueprintKey === null && piece.rarity === "standard";
+}
+
 // spareEquipmentCount(state): how many systems currently OCCUPY spare storage, the
 // numerator of the "spare X / cap" display and the denominator of the cap enforcement.
 // The cap counts ONLY spare CRAFTED systems: fittedToShipId === null (unfitted, in the

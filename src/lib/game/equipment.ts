@@ -54,7 +54,7 @@ import type {
   ShipSpec,
   CaptainTalentBranch,
 } from "./model";
-import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue } from "./model";
+import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue, isStandardIssueBaseline } from "./model";
 
 // The slot-type partitions the fit gate (canFitEquipment) and the mutators read. Sets (not arrays)
 // for O(1) membership; typed to EquipmentSlotType so a slot rename is a compile error.
@@ -412,10 +412,15 @@ export function fitEquipment(state: GameState, shipId: string, instanceId: strin
   const displaced = state.equipment.find(
     (e) => e.fittedToShipId === shipId && e.slotType === slotType && e.id !== instanceId
   );
+  // Destroy the displaced piece ONLY if it is a genuine economy Standard-Issue FLOOR. Uses the
+  // strict isStandardIssueBaseline predicate (blueprintKey null AND rarity "standard"), NOT bare
+  // blueprintKey===null: dev-granted gear is also blueprintKey null but RADIANT, and destroying it
+  // here silently deleted valuable items. A dev/crafted displaced piece falls through to the eviction
+  // branch below and is POOLED (recoverable), never destroyed.
   const destroyDisplacedBaseline =
     displaced !== undefined &&
     ECONOMY_INSTALLABLE_SLOTS.has(displaced.slotType) &&
-    displaced.blueprintKey === null;
+    isStandardIssueBaseline(displaced);
 
   const equipment = state.equipment
     // Drop a displaced ECONOMY baseline entirely (the free floor is not a collectible spare).

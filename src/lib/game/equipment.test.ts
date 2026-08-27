@@ -207,6 +207,25 @@ describe("fitEquipment", () => {
     expect(next.equipment).toHaveLength(1);
   });
 
+  it("does NOT destroy a displaced DEV/valuable null-blueprint economy piece (only a genuine baseline is dropped)", () => {
+    // REGRESSION (reported data loss): a dev-granted item (devGrantEquipment) is minted blueprintKey
+    // null but RADIANT iL 400. It is NOT a Standard-Issue floor, so installing a crafted piece over it
+    // must EVICT it to the pool (recoverable), never destroy it. The destroy path uses the strict
+    // isStandardIssueBaseline predicate (blueprintKey null AND rarity "standard"), which a radiant dev
+    // item can never match, so it survives.
+    const devItem = makeEquip({ id: "equip-1", slotType: "cargoBay", blueprintKey: null, rarity: "radiant", iLevel: 400, quality: 5, fittedToShipId: "ship-1" });
+    const crafted = makeEquip({ id: "equip-2", slotType: "cargoBay", blueprintKey: "prospectorHoldBp", rarity: "radiant", fittedToShipId: null });
+    const state = withEquipment(freshState(), devItem, crafted);
+
+    const next = fitEquipment(state, "ship-1", "equip-2");
+
+    // The dev item SURVIVES, evicted to the pool (not destroyed):
+    expect(next.equipment.find((e) => e.id === "equip-1")?.fittedToShipId).toBeNull();
+    expect(next.equipment.find((e) => e.id === "equip-1")?.rarity).toBe("radiant");
+    expect(next.equipment).toHaveLength(2); // both pieces present, nothing deleted
+    expect(equippedFor(next, "ship-1").map((e) => e.id)).toEqual(["equip-2"]); // crafted now fitted
+  });
+
   it("does NOT destroy a displaced COMBAT baseline (combat slots are allow-empty, their baselines are recoverable)", () => {
     // A shieldEmitters baseline is a real, re-installable spare on the allow-empty combat slots, so a
     // swap must EVICT it to the pool, never destroy it (unlike the economy floor above).

@@ -46,7 +46,7 @@
 
 import Decimal from "break_infinity.js";
 import type { GameState, EquipmentRarity, SalvagedMaterialItemId, SalvageLootTier } from "./model";
-import { BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS, HOMEWORLD_TALENTS, SHIP_TYPES } from "./model";
+import { BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS, HOMEWORLD_TALENTS, SHIP_TYPES, isStandardIssueBaseline } from "./model";
 import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
 // onMissionLock is the equipment fitment's shared "is this ship's captain out on a
 // mission?" guard. salvageShip (below) reuses it verbatim so a hull that is locked for
@@ -475,13 +475,15 @@ export function salvageShip(
   // --- Return crafted systems to the spare pool; discard baselines ----------
   // fittedToShipId is the SINGLE SOURCE OF TRUTH for where a piece lives (model.ts). For the
   // pieces fitted to THIS hull:
-  //   crafted   (blueprintKey !== null)  -> unfit to the spare pool (set fittedToShipId null),
-  //                                         so the player NEVER loses hard-crafted gear when a
-  //                                         hull is scrapped, it survives as a reusable spare.
-  //   baseline  (blueprintKey === null)  -> DISCARDED (dropped from the array). Standard-Issue
-  //                                         is free + craftless, so there is nothing to preserve;
-  //                                         the never-empty invariant mints a fresh one for any
-  //                                         OTHER hull that needs it, not this destroyed one.
+  //   genuine Standard-Issue FLOOR (isStandardIssueBaseline) -> DISCARDED (dropped from the array).
+  //                                         It is free + craftless, so there is nothing to preserve.
+  //   EVERYTHING ELSE fitted here (crafted AND dev/valuable) -> unfit to the spare pool (set
+  //                                         fittedToShipId null), so the player NEVER loses gear when
+  //                                         a hull is scrapped; it survives as a reusable spare.
+  // ⚠️ Uses the STRICT isStandardIssueBaseline predicate (blueprintKey null AND rarity "standard"),
+  // NOT bare blueprintKey===null: dev-granted gear is also blueprintKey null but RADIANT, and
+  // discarding it here silently deleted valuable items on a hull scrap. A false-negative (a real
+  // baseline recovered as a spare) is harmless; a false-positive would delete a real item.
   // Pieces fitted to a DIFFERENT ship (or already spare) are untouched.
   //
   // NOTE (equipment-cap overflow, allowed): the returned crafted spares may push the spare
@@ -490,11 +492,11 @@ export function salvageShip(
   // cannot craft more until they trim the pool (via salvageEquipment) back under the cap; no
   // spare is ever destroyed by the cap here.
   const equipment = state.equipment
-    // Drop this hull's free baselines.
-    .filter((e) => !(e.fittedToShipId === shipId && e.blueprintKey === null))
-    // Unfit this hull's crafted systems back to the spare pool.
+    // Drop ONLY this hull's genuine Standard-Issue floors.
+    .filter((e) => !(e.fittedToShipId === shipId && isStandardIssueBaseline(e)))
+    // Recover EVERY other piece on this hull (crafted AND dev/valuable) to the spare pool.
     .map((e) =>
-      e.fittedToShipId === shipId && e.blueprintKey !== null ? { ...e, fittedToShipId: null } : e
+      e.fittedToShipId === shipId && !isStandardIssueBaseline(e) ? { ...e, fittedToShipId: null } : e
     );
 
   // --- Unassign the captain --------------------------------------------------

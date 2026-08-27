@@ -4304,49 +4304,47 @@ describe("migrate, every-hull combat baseline seed (v35 -> v36)", () => {
   });
 });
 
-// Warehouse declutter fix: the v36 -> v37 orphaned ECONOMY baseline spare cleanup. A now-fixed
-// duplication bug (unfitEquipmentInstance used to evict an economy baseline to the pool AND mint a
-// replacement) left economy Standard-Issue baselines (blueprintKey null, on an economy slot) sitting
-// FREE in the spare pool (fittedToShipId null), where they should NEVER be (they are the never-empty
-// slot floor). They cluttered the Warehouse display, which lists ALL spares, while spareEquipmentCount
-// counts only spare CRAFTED pieces, so the player saw many systems but "1 / N spare". MIGRATIONS[36]
-// removes exactly those orphans on load and preserves everything else.
-describe("migrate, orphaned economy baseline spare cleanup (v36 -> v37)", () => {
-  // Minimal EquipmentInstance factory. The migration reads ONLY fittedToShipId / blueprintKey /
-  // slotType, but a fuller shape keeps the fixture realistic (and it rides hydrateDecimals's
-  // `...state` spread untouched, EquipmentInstance carries no top-level Decimal). Cast to any so the
-  // test is not coupled to the full interface.
-  function mkPiece(id: string, slotType: string, blueprintKey: string | null, fittedToShipId: string | null): any {
+// v36 -> v37 was NEUTERED to a pure pass-through (save.ts MIGRATIONS[36]). It originally DELETED
+// "orphaned economy baseline spares" on load by the `blueprintKey === null` heuristic, but that ALSO
+// matched dev-granted radiant gear (also blueprintKey null), silently destroying valuable items (the
+// reported data loss). Its premise is obsolete anyway (economy slots are ALLOW-EMPTY, so an economy
+// baseline spare is a legitimate re-installable item, not an orphan). These tests LOCK IN that the
+// migration now deletes NOTHING: every piece survives and the save still lands at v37.
+describe("migrate, v36 -> v37 is a no-op pass-through (deletes nothing)", () => {
+  // Minimal EquipmentInstance factory. `rarity` is a parameter so the fixture can include a dev-shaped
+  // RADIANT null-blueprint piece (the item class that the old cull wrongly destroyed). Cast to any so
+  // the test is not coupled to the full interface.
+  function mkPiece(id: string, slotType: string, blueprintKey: string | null, fittedToShipId: string | null, rarity = "standard"): any {
     return {
       id, slotType, blueprintKey, fittedToShipId,
-      rarity: "standard", ascension: "none", quality: 0, iLevel: 1,
+      rarity, ascension: "none", quality: rarity === "standard" ? 0 : 5, iLevel: rarity === "standard" ? 1 : 400,
       implicitStats: {}, rolledStats: {}, mass: 0, powerDraw: 0,
       durabilityMax: 100, durability: 100,
     };
   }
 
-  // A genuine v36-shaped save whose equipment pool holds one of EACH category, so the test proves the
-  // filter removes ONLY the orphaned economy baseline spares and preserves everything else. Built from
-  // freshState (whose own seeded equipment is REPLACED by this custom pool) and stamped version 36, so
-  // migrate() runs EXACTLY the 36 -> 37 step (there is no MIGRATIONS[37]).
+  // A v36-shaped save whose pool holds one of EACH category, INCLUDING a dev-shaped radiant economy
+  // spare (blueprintKey null but rarity "radiant"): under the old cull it vanished; it must now survive.
   function makeV36Save(): SaveFile {
     const base = freshState();
     const equipment = [
-      // ORPHANED economy baseline spares (the clutter) -> MUST be dropped (all four economy slots):
+      // Formerly-culled "orphaned economy baseline spares" -> now PRESERVED (legitimate re-installable spares):
       mkPiece("orphan-cargo", "cargoBay", null, null),
       mkPiece("orphan-ftl", "ftlDrive", null, null),
       mkPiece("orphan-reactor", "reactorCore", null, null),
       mkPiece("orphan-spec", "specUtility", null, null),
-      // CRAFTED economy spare -> SURVIVES (real fabricated gear in storage; blueprintKey set):
+      // DEV-shaped radiant economy spare (blueprintKey null, rarity radiant, iL 400) -> MUST survive
+      // (the exact reported data-loss case: the old cull deleted this as if it were a baseline):
+      mkPiece("dev-radiant-cargo", "cargoBay", null, null, "radiant"),
+      // CRAFTED economy spare -> survives:
       mkPiece("crafted-cargo", "cargoBay", "balancedHoldBlueprint", null),
-      // COMBAT baseline spares on the allow-empty combat slots -> SURVIVE (legitimately recoverable):
+      // COMBAT baseline spares -> survive:
       mkPiece("combat-weapon", "weapon", null, null),
       mkPiece("combat-shield", "shieldEmitters", null, null),
       mkPiece("combat-plating", "hullPlating", null, null),
       mkPiece("combat-drone", "droneBay", null, null),
-      // FITTED economy baseline -> SURVIVES (lives on its ship's slot; fittedToShipId set):
+      // FITTED pieces -> survive:
       mkPiece("fitted-econ-baseline", "cargoBay", null, "ship-1"),
-      // FITTED crafted economy piece -> SURVIVES:
       mkPiece("fitted-econ-crafted", "ftlDrive", "sprintDriveBlueprint", "ship-1"),
     ];
     const preState = { ...base, equipment };
@@ -4355,42 +4353,37 @@ describe("migrate, orphaned economy baseline spare cleanup (v36 -> v37)", () => 
     return raw;
   }
 
-  it("removes the orphaned economy baseline spares and lands at v37", () => {
-    const migrated: any = migrate(makeV36Save());
+  it("PRESERVES every piece (nothing deleted) and lands at v37", () => {
+    const before = makeV36Save();
+    const inputCount = before.state.equipment.length; // 12
+    const migrated: any = migrate(before);
     const ids = new Set(migrated.equipment.map((e: any) => e.id));
-    // The four orphaned economy baseline spares are GONE.
-    expect(ids.has("orphan-cargo")).toBe(false);
-    expect(ids.has("orphan-ftl")).toBe(false);
-    expect(ids.has("orphan-reactor")).toBe(false);
-    expect(ids.has("orphan-spec")).toBe(false);
-    // Re-serializing the migrated state stamps the CURRENT version (37): migrate() ran the 36 -> 37
-    // step (proven by the removals above) and then stopped (no MIGRATIONS[37]).
+    // Every single input id survives, including the four former "orphans" AND the dev radiant item.
+    for (const id of [
+      "orphan-cargo", "orphan-ftl", "orphan-reactor", "orphan-spec",
+      "dev-radiant-cargo", "crafted-cargo",
+      "combat-weapon", "combat-shield", "combat-plating", "combat-drone",
+      "fitted-econ-baseline", "fitted-econ-crafted",
+    ]) {
+      expect(ids.has(id)).toBe(true);
+    }
+    expect(migrated.equipment).toHaveLength(inputCount); // NOTHING removed
     const stamped = deserialize(serialize(migrated, 0)) as SaveFile;
     expect(stamped.version).toBe(37);
     expect(SAVE_VERSION).toBe(37);
   });
 
-  it("preserves crafted spares, combat baseline spares, and every fitted piece", () => {
+  it("REGRESSION: a dev-shaped radiant null-blueprint economy spare is NOT deleted on load", () => {
     const migrated: any = migrate(makeV36Save());
-    const ids = new Set(migrated.equipment.map((e: any) => e.id));
-    // Crafted economy spare survives (blueprintKey set).
-    expect(ids.has("crafted-cargo")).toBe(true);
-    // Combat baseline spares (allow-empty combat slots) survive.
-    expect(ids.has("combat-weapon")).toBe(true);
-    expect(ids.has("combat-shield")).toBe(true);
-    expect(ids.has("combat-plating")).toBe(true);
-    expect(ids.has("combat-drone")).toBe(true);
-    // Fitted pieces (baseline AND crafted) survive.
-    expect(ids.has("fitted-econ-baseline")).toBe(true);
-    expect(ids.has("fitted-econ-crafted")).toBe(true);
-    // Exactly the four orphans were removed: 11 pieces in, 7 out.
-    expect(migrated.equipment).toHaveLength(7);
+    const dev = migrated.equipment.find((e: any) => e.id === "dev-radiant-cargo");
+    expect(dev).toBeDefined(); // the reported data loss must never recur
+    expect(dev.rarity).toBe("radiant");
+    expect(dev.iLevel).toBe(400);
   });
 
-  it("is IDEMPOTENT: re-migrating an already-cleaned v36-shaped save removes nothing more", () => {
+  it("is IDEMPOTENT: re-migrating changes nothing", () => {
     const migrated: any = migrate(makeV36Save());
     const countAfterFirst = migrated.equipment.length;
-    // Re-stamp the cleaned state back to v36 and migrate again: no orphans remain, so nothing changes.
     const reSave = deserialize(serialize(migrated, 0)) as SaveFile;
     reSave.version = 36;
     const remigrated: any = migrate(reSave);
