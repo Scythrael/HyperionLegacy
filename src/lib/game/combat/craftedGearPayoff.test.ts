@@ -33,7 +33,6 @@ import { describe, it, expect } from "vitest";
 import {
 	shipToCombatant,
 	COMBAT_DEFAULT_LOADOUT,
-	frameHp,
 	type CombatHullType,
 } from "./bridge";
 import { engagementForecast, battleRating } from "./rating";
@@ -41,6 +40,10 @@ import { makeWeaponInstance, type WeaponId } from "./weapons";
 import {
 	SHIP_TYPES,
 	seedCombatStandardIssueForShip,
+	// Combat-defense rework: the FIXED SI-gear dials the local SI-spec mirror mints at.
+	SI_PLATING_HP,
+	SI_EMITTER_CAP,
+	SI_EMITTER_RECHARGE,
 	type CombatStandardIssueSpec,
 	type EquipmentInstance,
 } from "../model";
@@ -54,18 +57,20 @@ const HULL: CombatHullType = "destroyer";
 const SHIP_ID = "ship-1";
 
 // -- Standard-Issue gear (the quality-0 floor), built EXACTLY as the tick.ts caller
-// does (full default loadout + hull shield stats + plating = hullIntegrity - frameHp).
-// Mirrors bridge.test.ts's local helper so this file exercises the real seeder output
-// without importing tick.ts (a combat leaf must never import UP into the live loop).
+// does (full default loadout + the FIXED SI-gear dials). Mirrors bridge.test.ts's local
+// helper so this file exercises the real seeder output without importing tick.ts (a
+// combat leaf must never import UP into the live loop). Combat-defense rework: the SI
+// defensive magnitudes are the hull-independent dials; the hull's innate stats (applied in
+// the fold) recompose an SI set to its authored totals, and a crafted emitter is amplified
+// by the same innate mult (so crafted defense clears the modest SI floor with real margin).
 function combatSpecFor(hull: CombatHullType): CombatStandardIssueSpec {
-	const def = SHIP_TYPES[hull];
 	return {
 		signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
 		// Unit 2.3a: the hull's default drone-pod roles (destroyer under test has none).
 		droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
-		shieldCapacity: def.shieldCapacity,
-		shieldRecharge: def.shieldRecharge,
-		hullStrength: def.hullIntegrity - frameHp(def.hullIntegrity),
+		shieldCapacity: SI_EMITTER_CAP,
+		shieldRecharge: SI_EMITTER_RECHARGE,
+		hullStrength: SI_PLATING_HP,
 	};
 }
 

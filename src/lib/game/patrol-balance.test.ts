@@ -34,6 +34,10 @@ import {
   PATROLS,
   SHIP_TYPES,
   seedCombatStandardIssueForShip,
+  // Combat-defense rework: the FIXED SI-gear dials the local SI-spec mirror mints at.
+  SI_PLATING_HP,
+  SI_EMITTER_CAP,
+  SI_EMITTER_RECHARGE,
   type GameState,
   type ShipTypeKey,
   type PatrolMissionState,
@@ -45,7 +49,6 @@ import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines } f
 // dispatch card shows, so the block asserts the exact Threat Assessment band a player reads.
 import {
   COMBAT_DEFAULT_LOADOUT,
-  frameHp,
   installedDronesForPatrol,
   defaultSystemDurabilityForHull,
   type CombatHullType,
@@ -192,16 +195,17 @@ const FORECAST_SEED = 0x5a4d;
 const FORECAST_SAMPLES = 64;
 
 // Standard-Issue gear (the quality-0 free floor), built EXACTLY as the tick.ts dispatch does
-// (full default loadout + the hull's shield/plating/drone-pod baseline). Same shape as
-// craftedGearPayoff.test.ts's helper, so this block exercises the real seeder output.
+// (full default loadout + the FIXED SI-gear dials). Same shape as craftedGearPayoff.test.ts's
+// helper, so this block exercises the real seeder output. Combat-defense rework: the SI defensive
+// magnitudes are hull-independent; the fold recomposes an SI set to the hull's authored totals via
+// the hull's innate stats, so the win-rate bands below are unchanged (byte-identical SI combatant).
 function combatSpecFor(hull: CombatHullType): CombatStandardIssueSpec {
-  const def = SHIP_TYPES[hull];
   return {
     signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
     droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
-    shieldCapacity: def.shieldCapacity,
-    shieldRecharge: def.shieldRecharge,
-    hullStrength: def.hullIntegrity - frameHp(def.hullIntegrity),
+    shieldCapacity: SI_EMITTER_CAP,
+    shieldRecharge: SI_EMITTER_RECHARGE,
+    hullStrength: SI_PLATING_HP,
   };
 }
 function standardIssueGear(hull: CombatHullType, shipId: string): EquipmentInstance[] {

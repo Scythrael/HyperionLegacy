@@ -4710,6 +4710,31 @@ export const COMBAT_STANDARD_ISSUE_DRONE_HP = 0; // no bonus: base ROLE_TEMPLATE
 // wearable item like every other combat baseline.
 export const COMBAT_STANDARD_ISSUE_DRONE_DURABILITY = 100; // == itemgen.ts DRONE_POD_BASE_DURABILITY
 
+// ---------------------------------------------------------------------------
+// SI-GEAR FIXED DIALS (combat-defense rework, design sections 4 + 11, LOCKED 2026-08-27).
+//
+// The Standard-Issue combat GEAR is now a MODEST, FIXED floor: the SAME magnitudes on EVERY
+// hull, no longer the hull's ENTIRE authored defense baked into the plating/emitter. This is the
+// structural fix for BUG-U6 (a per-hull SI floor so large that crafted gear never beat "free").
+// A hull's defense is now INNATE ship stats + item-based gear; these three dials are the item
+// side's Standard-Issue floor, and the bridge (combat/bridge.ts hullInnateDefense) derives each
+// hull's INNATE side from its authored SHIP_TYPES totals so the two halves recompose to EXACTLY
+// today's numbers for an SI ship (byte-identical: SI parity + balance fixtures do not move; see the
+// calibration proof in bridge.ts). Only crafted ships gain.
+//
+//   SI plating  hullStrength  = SI_PLATING_HP       ADDS to the hull's innateHullArmor.
+//   SI emitter  shieldCapacity = SI_EMITTER_CAP     is SCALED by the hull's innateShieldCapMult.
+//   SI emitter  shieldRecharge = SI_EMITTER_RECHARGE is SCALED by the hull's innateShieldRechargeMult.
+//
+// ⚠️ FIRST-PASS + TUNABLE (design 11): these are the worked-table starting dials; the 0.16.0
+// balance pass may re-dial them. They live in model.ts (not the combat leaf) because the SI-gear
+// SEED reads them (tick.ts combatStandardIssueSpecFor mints the baselines at these magnitudes), and
+// model.ts owns the item-mint constants; the bridge imports them to keep the innate/gear split on
+// ONE source of truth (change a dial here and both the seed and the innate derivation move together).
+export const SI_PLATING_HP = 100; // fixed SI hull-plating hullStrength, same on every hull
+export const SI_EMITTER_CAP = 100; // fixed SI shield-emitter shieldCapacity, same on every hull
+export const SI_EMITTER_RECHARGE = 3; // fixed SI shield-emitter shieldRecharge, same on every hull
+
 // Mint ONE combat Standard-Issue baseline EquipmentInstance for a combat slot (weapon /
 // shieldEmitters / hullPlating). Same DETERMINISTIC, rng-free, affix-free posture as
 // generateStandardIssue (it runs inside a save migration where no reproducible rng exists). The
@@ -4810,15 +4835,18 @@ export function generateCombatStandardIssue(a: {
   return piece;
 }
 
-// The per-hull Standard-Issue combat magnitudes the caller resolves and passes in (Combat 1.0
-// Unit 1.4). Grouped as one object so the seeder's signature stays readable as the loadout grows.
-// The CALLER (tick.ts) derives every field from the two combat tables it already imports:
+// The Standard-Issue combat magnitudes the caller resolves and passes in (Combat 1.0 Unit 1.4,
+// REVISED by the combat-defense rework 2026-08-27). Grouped as one object so the seeder's signature
+// stays readable as the loadout grows. The CALLER (tick.ts) derives every field:
 //   signatureWeapons <- COMBAT_DEFAULT_LOADOUT[hull].weapons        (the FULL default loadout, in order)
 //   droneRoles       <- COMBAT_DEFAULT_LOADOUT[hull].droneRoles     (Unit 2.3a; carrier ["attack"], else [])
-//   shieldCapacity   <- SHIP_TYPES[hull].shieldCapacity
-//   shieldRecharge   <- SHIP_TYPES[hull].shieldRecharge
-//   hullStrength     <- SHIP_TYPES[hull].hullIntegrity - frameHp(hull)   (design 6a; frameHp is a combat leaf)
-// so the Standard-Issue set reproduces the hull's exact pre-gear combat profile (behaviour-preserving).
+//   shieldCapacity   <- SI_EMITTER_CAP        (FIXED dial, same on every hull; the emitter is then
+//                                              SCALED by the hull's innate shield-cap mult in the fold)
+//   shieldRecharge   <- SI_EMITTER_RECHARGE   (FIXED dial; scaled by the hull's innate recharge mult)
+//   hullStrength     <- SI_PLATING_HP         (FIXED dial; ADDED to the hull's innate armor in the fold)
+// The magnitudes are no longer per-hull (that was the BUG-U6 floor): each hull's defense identity now
+// lives in its INNATE stats (bridge.ts hullInnateDefense), derived so an SI set still recomposes to the
+// hull's exact pre-gear totals (byte-identical; see the calibration proof in combat/bridge.ts).
 export interface CombatStandardIssueSpec {
   // The hull's FULL default weapon loadout, in order (one baseline weapon minted per entry). Empty
   // => NOT a combat hull => the seeder mints nothing (a clean no-op for an economy hull).

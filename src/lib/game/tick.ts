@@ -48,6 +48,13 @@ import {
   // installed, keeping it dispatchable past the new empty-required-slot dispatch blocker below.
   seedCombatStandardIssueForShip,
   generateCombatStandardIssue,
+  // Combat-defense rework (2026-08-27): the FIXED Standard-Issue gear dials. The SI combat
+  // baseline now carries these hull-INDEPENDENT magnitudes (was the old per-hull hullIntegrity -
+  // frameHp / full shieldCapacity); the bridge derives each hull's innate side so an SI set still
+  // recomposes to the hull's exact pre-gear totals (byte-identical).
+  SI_PLATING_HP,
+  SI_EMITTER_CAP,
+  SI_EMITTER_RECHARGE,
   type CombatStandardIssueSpec,
   type ItemDef,
   type GameState,
@@ -124,7 +131,7 @@ import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
 // resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
-import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, installedDronesForPatrol, defaultSystemDurabilityForHull, frameHp, type CombatHullType } from "./combat/bridge";
+import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, installedDronesForPatrol, defaultSystemDurabilityForHull, type CombatHullType } from "./combat/bridge";
 // Combat 1.0 (Unit 1.4): WeaponId types the per-hull Standard-Issue weapon loadout the combat
 // baseline seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
 import type { WeaponId } from "./combat/weapons";
@@ -3208,24 +3215,26 @@ function freshPatrolMission(args: {
 }
 
 // combatStandardIssueSpecFor: resolve a hull's Standard-Issue combat magnitudes (Combat 1.0 Unit
-// 1.4). THE single caller-side place the combat tables (COMBAT_DEFAULT_LOADOUT + SHIP_TYPES) and the
-// combat frame-HP split (frameHp, a combat leaf) are read to build the behaviour-preserving baseline
-// spec seedCombatStandardIssueForShip consumes, so a fresh build, a captain-grant, and the save
-// migration all derive the IDENTICAL spec (Omega 4, DRY) and can never drift. A non-combat hull
-// resolves to an EMPTY signatureWeapons (the seeder then mints nothing, a clean no-op).
+// 1.4, REVISED by the combat-defense rework 2026-08-27). THE single caller-side place the combat
+// loadout table (COMBAT_DEFAULT_LOADOUT) is read to build the baseline spec
+// seedCombatStandardIssueForShip consumes, so a fresh build, a captain-grant, and the save migration
+// all derive the IDENTICAL spec (Omega 4, DRY) and can never drift. A non-combat hull resolves to an
+// EMPTY signatureWeapons (the seeder then mints nothing, a clean no-op).
 //
-// WHY per-hull: the Standard-Issue set reproduces each hull's exact pre-gear combat profile
-// (destroyer 600hp/300sh, battleship 1400/600, carrier 1100/500, each hull's full default weapon
-// loadout), so a Standard-Issue-geared ship folds to a combatant byte-identical to the old hull
-// default (behaviour-preserving; the deliberate power-curve retune is Unit 1.6). The plating carries
-// hullIntegrity - frameHp so the fold (frame + plating) lands back on exactly hullIntegrity. PURE.
+// The DEFENSIVE magnitudes are now the FIXED SI-gear dials (SI_PLATING_HP / SI_EMITTER_CAP /
+// SI_EMITTER_RECHARGE), the SAME on every hull, NOT the old per-hull hullIntegrity - frameHp /
+// full shieldCapacity. Each hull's defense IDENTITY moved to its INNATE stats (bridge.ts
+// hullInnateDefense), derived from SHIP_TYPES so the fold recomposes an SI set to the hull's exact
+// pre-gear totals: hull = innateHullArmor + SI_PLATING_HP == hullIntegrity; shield = SI_EMITTER_CAP *
+// (1 + innateShieldCapMult) == shieldCapacity; recharge likewise. So a Standard-Issue-geared ship
+// still folds byte-identical to the old hull default (parity + balance fixtures do not move), while a
+// crafted ship now beats a modest, reachable floor instead of the hull's whole authored defense. PURE.
 function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
   const hull = combatHullTypeOf(typeKey);
   if (hull === null) {
     // Non-combat hull: an empty loadout (+ no drone roles), so the seeder mints nothing.
     return { signatureWeapons: [], droneRoles: [], shieldCapacity: 0, shieldRecharge: 0, hullStrength: 0 };
   }
-  const shipDef = SHIP_TYPES[hull];
   return {
     // The FULL default loadout (every hardpoint the hull ships with), in order.
     signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
@@ -3233,12 +3242,13 @@ function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
     // attack squadron), a destroyer/battleship is [] (no bays). Sourced from the SAME default-loadout
     // table the ABSENT-path drone build reads, so a Standard-Issue carrier folds to its default screen.
     droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
-    // Pure-gear shields (design 5a): the emitter reproduces the hull's shield pool + recharge.
-    shieldCapacity: shipDef.shieldCapacity,
-    shieldRecharge: shipDef.shieldRecharge,
-    // Plating carries the hull's integrity MINUS the intrinsic frame HP (design 6a middle path), so
-    // the Unit 1.4 fold (frameHp + plating.hullStrength) folds back to exactly hullIntegrity.
-    hullStrength: shipDef.hullIntegrity - frameHp(shipDef.hullIntegrity),
+    // FIXED SI-gear dials (same on every hull). The emitter's cap/recharge are the raw SI floor; the
+    // bridge SCALES them by the hull's innate shield mults in the fold (an SI destroyer's 100-cap
+    // emitter recomposes to its 300 shield). The plating's hullStrength is the raw SI floor; the
+    // bridge ADDS it to the hull's innate armor (100 + innate 500 == the destroyer's 600 hull).
+    shieldCapacity: SI_EMITTER_CAP,
+    shieldRecharge: SI_EMITTER_RECHARGE,
+    hullStrength: SI_PLATING_HP,
   };
 }
 

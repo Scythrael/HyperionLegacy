@@ -48,6 +48,10 @@ import {
   // Combat 1.0 (Unit 2.3a): the Standard-Issue DRONE-POD baseline magnitudes.
   COMBAT_STANDARD_ISSUE_DRONE_HP,
   COMBAT_STANDARD_ISSUE_DRONE_DURABILITY,
+  // Combat-defense rework: the FIXED SI-gear dials the local SI-spec mirror mints at.
+  SI_PLATING_HP,
+  SI_EMITTER_CAP,
+  SI_EMITTER_RECHARGE,
   type CombatStandardIssueSpec,
 } from "./model";
 import type {
@@ -64,9 +68,9 @@ import { WEAPON_DEFS } from "./combat/weapons";
 // blueprint's droneOutput.role names a REAL drone role (a typo would otherwise only surface at
 // mint time in the Fabricator, exactly as for a weapon blueprint's weaponType).
 import { ROLE_TEMPLATE, type DroneRole } from "./combat/drones";
-// Combat 1.0 (Unit 1.3/1.4): the per-hull default loadout + the frame-HP split, to build the
-// behaviour-preserving per-hull baseline spec and assert the plating hullStrength math.
-import { COMBAT_DEFAULT_LOADOUT, frameHp } from "./combat/bridge";
+// Combat 1.0 (Unit 1.3/1.4): the per-hull default loadout, to build the Standard-Issue baseline spec
+// (combat-defense rework: the defensive magnitudes are now the FIXED SI-gear dials, not a frame split).
+import { COMBAT_DEFAULT_LOADOUT } from "./combat/bridge";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { PIRATE_HULLS } from "./combat/enemyHulls"; // Combat 0.13.0: PATROLS.hullPool ids are validated against this roster
 
@@ -2265,18 +2269,17 @@ describe("generateCombatStandardIssue (Combat 1.0, Unit 1.3/1.4)", () => {
   });
 });
 
-// A behaviour-preserving per-hull baseline spec (Combat 1.0 Unit 1.4), built exactly as the tick.ts
-// caller does: the FULL default loadout + the hull's shield stats + the plating hullStrength
-// (hullIntegrity - frameHp). Kept local so these model tests exercise the real caller contract.
+// A Standard-Issue baseline spec (Combat 1.0 Unit 1.4, REVISED by the combat-defense rework), built
+// exactly as the tick.ts caller does: the FULL default loadout + the FIXED SI-gear dials (same on
+// every hull). Kept local so these model tests exercise the real caller contract.
 function specFor(hull: "destroyer" | "battleship" | "carrier"): CombatStandardIssueSpec {
-  const def = SHIP_TYPES[hull];
   return {
     signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
     // Unit 2.3a: the hull's default drone-pod roles (carrier ["attack"], destroyer/battleship []).
     droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
-    shieldCapacity: def.shieldCapacity,
-    shieldRecharge: def.shieldRecharge,
-    hullStrength: def.hullIntegrity - frameHp(def.hullIntegrity),
+    shieldCapacity: SI_EMITTER_CAP,
+    shieldRecharge: SI_EMITTER_RECHARGE,
+    hullStrength: SI_PLATING_HP,
   };
 }
 
