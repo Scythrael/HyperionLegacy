@@ -6,6 +6,7 @@ import {
   dispatchCaptainOnMission,
   recallCaptain,
   renameCaptain,
+  renameShip,
   assignShipToCaptain,
   buyCaptainTalent,
   buyHomeworldTalent,
@@ -54,6 +55,7 @@ import {
   type ProcessEffect,
   type EquipmentInstance,
 } from "./model";
+import { MAX_CAPTAIN_NAME } from "./captainName"; // Renamable Ships: shared name-length ceiling (renameShip reuses the captain-name gate)
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import type { CraftLine } from "./allocation"; // Task 19: fabricate-line parity fixtures
 import { COMBAT_DEFAULT_LOADOUT } from "./combat/bridge"; // Combat 1.0 (Unit 1.3): per-hull signature weapon
@@ -2055,6 +2057,70 @@ describe("renameCaptain", () => {
     expect(success).toBe(false);
     expect(reason).toBe("notFound");
     expect(next).toBe(state); // same reference, untouched
+  });
+});
+
+describe("renameShip", () => {
+  it("sets the ship's custom name to the validated (trimmed) value", () => {
+    const state = freshState(); // ships[0] is "ship-1", generalFreighter, initially unnamed
+    const next = renameShip(state, "ship-1", "  ISS Vanguard  ");
+    expect(next.ships[0].name).toBe("ISS Vanguard"); // trimmed + stored
+    expect(next).not.toBe(state); // new state on a successful set
+  });
+
+  it("collapses internal whitespace runs (shared validateCaptainName cleaning)", () => {
+    const state = freshState();
+    const next = renameShip(state, "ship-1", "ISS    Vanguard");
+    expect(next.ships[0].name).toBe("ISS Vanguard");
+  });
+
+  it("clears the custom name back to the hull default when given an empty/whitespace name", () => {
+    const named = renameShip(freshState(), "ship-1", "ISS Vanguard");
+    expect(named.ships[0].name).toBe("ISS Vanguard");
+    const cleared = renameShip(named, "ship-1", "   ");
+    // Cleared ships drop the `name` key entirely, so they read as undefined (hull default).
+    expect(cleared.ships[0].name).toBeUndefined();
+    expect("name" in cleared.ships[0]).toBe(false);
+  });
+
+  it("is a no-op (same reference) when clearing an already-unnamed ship", () => {
+    const state = freshState();
+    const next = renameShip(state, "ship-1", "");
+    expect(next).toBe(state); // nothing to change, no allocation
+  });
+
+  it("respects the max length: an over-long name is rejected, leaving state unchanged", () => {
+    const state = freshState();
+    const tooLong = "A".repeat(MAX_CAPTAIN_NAME + 1); // one past the shared ceiling
+    const next = renameShip(state, "ship-1", tooLong);
+    expect(next).toBe(state); // rejected as a silent no-op (same reference)
+    expect(next.ships[0].name).toBeUndefined(); // no name was set
+  });
+
+  it("accepts a name exactly at the max length", () => {
+    const state = freshState();
+    const atLimit = "A".repeat(MAX_CAPTAIN_NAME);
+    const next = renameShip(state, "ship-1", atLimit);
+    expect(next.ships[0].name).toBe(atLimit);
+  });
+
+  it("rejects an invalid-charset name (silent no-op, same reference)", () => {
+    const state = freshState();
+    const next = renameShip(state, "ship-1", "na@me");
+    expect(next).toBe(state);
+    expect(next.ships[0].name).toBeUndefined();
+  });
+
+  it("is immutable: it does not mutate the incoming ship object", () => {
+    const state = freshState();
+    renameShip(state, "ship-1", "ISS Vanguard");
+    expect(state.ships[0].name).toBeUndefined(); // original untouched
+  });
+
+  it("returns the same state reference for an unknown ship id, rather than throwing", () => {
+    const state = freshState();
+    const next = renameShip(state, "ship-999", "Ghost");
+    expect(next).toBe(state);
   });
 });
 

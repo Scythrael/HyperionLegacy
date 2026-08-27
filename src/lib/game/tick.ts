@@ -3622,6 +3622,67 @@ export function renameCaptain(
   return { next: { ...state, captains }, success: true };
 }
 
+// Sets (or CLEARS) a ship's optional custom name (Renamable Ships). Pure +
+// immutable: returns a NEW GameState with ONLY the matching ship replaced
+// (matched by stable id, never by array index, so a reordered fleet still hits
+// the right hull); every other ship object is carried by reference, untouched.
+// It never throws on a bad id.
+//
+// This is the ship analogue of renameCaptain above and routes through the SAME
+// validateCaptainName courtesy chokepoint (captainName.ts), so ship and captain
+// names share one seam, one char/length/profanity ruleset, and one future
+// server-side moderation hook. The length ceiling is therefore MAX_CAPTAIN_NAME
+// (24), reused deliberately rather than a second ad-hoc limit.
+//
+// CONTRACT (differs from renameCaptain on purpose, hence a distinct helper):
+//   - Return type is a PLAIN GameState (not { next, success, reason }). A custom
+//     ship name is a pure convenience label with no gameplay effect, so the caller
+//     needs only the resulting state, not a reason code.
+//   - The input is TRIMMED. An empty / whitespace-only name is a valid request
+//     that CLEARS the custom name back to the hull-type default (the `name` key is
+//     dropped entirely, so a cleared ship is byte-identical to a never-named one).
+//   - A non-empty name is run through validateCaptainName. On rejection (too long,
+//     bad charset, punctuation-only, or profanity) the state is returned UNCHANGED
+//     (same reference), a silent no-op. The rename UI feeds this from a
+//     length-capped input, so the reachable rejection paths are charset/profanity,
+//     which simply leave the current name in place (the input visibly reverts).
+//   - An unknown shipId, or an empty-clear on an already-unnamed ship, is a no-op
+//     that returns the SAME state reference (no needless allocation).
+export function renameShip(
+  state: GameState,
+  shipId: string,
+  rawName: string,
+): GameState {
+  // Locate the target hull by STABLE id, not array position. Unknown id is a
+  // no-op returning the same reference (matches renameCaptain / assignShipToCaptain).
+  const idx = state.ships.findIndex((s) => s.id === shipId);
+  if (idx === -1) return state;
+
+  const trimmed = rawName.trim();
+
+  // CLEAR path: an empty / whitespace-only name drops the custom name so the ship
+  // falls back to its hull-type label. If it is already unnamed there is nothing
+  // to change, so return the same reference untouched.
+  if (trimmed.length === 0) {
+    if (state.ships[idx].name === undefined) return state;
+    const ships = [...state.ships];
+    // Drop the `name` key entirely (rest-destructure) so a cleared ship matches a
+    // freshly built, never-named ship exactly (no lingering `name: undefined`).
+    const { name: _cleared, ...withoutName } = ships[idx];
+    ships[idx] = withoutName;
+    return { ...state, ships };
+  }
+
+  // SET path: run the shared courtesy validation. On rejection, leave state
+  // unchanged (same reference); the UI keeps showing the current name.
+  const result = validateCaptainName(trimmed);
+  if (!result.ok) return state;
+
+  const ships = [...state.ships];
+  ships[idx] = { ...ships[idx], name: result.value };
+  return { ...state, ships };
+}
+
 // Assigns a ship to a captain under the "captains always have a hull; swapping
 // is an ATOMIC REPLACE" model (Ships, Stats Foundation, Task 8). ShipInstance
 // .assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies what, this

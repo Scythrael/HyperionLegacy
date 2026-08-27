@@ -385,6 +385,13 @@
     // validation (it calls validateCaptainName internally), the UI never
     // duplicates it, it only maps the reason to a human message.
     renameCaptain,
+    // Renamable Ships: the pure ship-rename seam. UNLIKE renameCaptain it returns a
+    // PLAIN GameState (a ship name is a cosmetic label with no gameplay effect, so
+    // the caller needs only the resulting state). It trims the input, CLEARS the
+    // name on an empty/whitespace request, and silently no-ops (same state ref) on a
+    // rejected name. doRenameShip below applies the reassign-state + pushLog + doSave
+    // pattern, diffing the ship's display name before/after to log what happened.
+    renameShip,
     RESPEC_COST_CREDITS,
     // captainCommonYieldMult / captainUncommonYieldMult / fleetRareYieldMult were
     // removed here (2026-07-15): their ONLY consumer was the captain popup's
@@ -2814,6 +2821,31 @@
         ? `Repairing ${devShipLabel(shipId)} at the Shipyard.`
         : `No free Shipyard bay to repair ${devShipLabel(shipId)} yet; it will start when a bay frees.`,
     );
+  }
+
+  // RENAME (or clear) a ship's custom name (Renamable Ships). The Ship Systems panel's
+  // click-to-edit title routes the RAW draft here. renameShip (the pure seam) trims it,
+  // validates it against the SAME captain-name gate, and treats an empty/whitespace draft
+  // as CLEARING the custom name back to the hull default. It returns the SAME state
+  // reference when nothing changed (unknown id, a rejected charset/profanity name, or a
+  // clear on an already-unnamed ship), so we save + log ONLY on a real change. We diff the
+  // ship's DISPLAY name (custom name ?? hull label) so the log states what happened.
+  function handleRenameShip(shipId: string, name: string) {
+    const before = state.ships.find((s) => s.id === shipId);
+    if (!before) return;
+    const previousDisplay = before.name ?? SHIP_TYPES[before.typeKey]?.label ?? shipId;
+    const next = renameShip(state, shipId, name);
+    if (next === state) return; // no change (rejected / no-op / unknown id): skip save + log
+    state = next;
+    const after = next.ships.find((s) => s.id === shipId);
+    const hullLabel = after ? SHIP_TYPES[after.typeKey]?.label ?? shipId : shipId;
+    const cleared = after?.name === undefined; // empty draft dropped the custom name
+    pushLog(
+      cleared
+        ? `[${previousDisplay}] Custom name cleared; now shown as ${hullLabel}.`
+        : `[${previousDisplay}] Renamed to: ${after?.name}.`,
+    );
+    doSave();
   }
 
   // ── Ship Systems bay (Equipment 0.11.0 Phase D, Warehouse "Ship Systems" tab) ──
@@ -7248,7 +7280,9 @@
                   </div>
                 </div>
                 <div class="roster-card-lines">
-                  <div class="roster-card-line">Ship: {rosterShip === null ? "None" : SHIP_TYPES[rosterShip.typeKey].label}</div>
+                  <!-- Renamable Ships: show the custom name (with the hull class in
+                       parens so the hull stays visible), else just the hull label. -->
+                  <div class="roster-card-line">Ship: {rosterShip === null ? "None" : rosterShip.name ? `${rosterShip.name} (${SHIP_TYPES[rosterShip.typeKey].label})` : SHIP_TYPES[rosterShip.typeKey].label}</div>
                   <div class="roster-card-line">
                     {#if captain.mission === null}
                       Status: Idle
@@ -9144,7 +9178,9 @@
                    {#if swapPickerCaptainId !== null} guard); trailing ! for the
                    same non-narrowing-in-nested-closure reason as the Assign
                    picker above. -->
-              <button class="dev-btn" on:click={() => doAssignShip(swapPickerCaptainId!, ship.id)}>{SHIP_TYPES[ship.typeKey].label}</button>
+              <!-- Renamable Ships: label the pick by custom name when set (with the
+                   hull class in parens), so two same-type parked hulls are distinct. -->
+              <button class="dev-btn" on:click={() => doAssignShip(swapPickerCaptainId!, ship.id)}>{ship.name ? `${ship.name} (${SHIP_TYPES[ship.typeKey].label})` : SHIP_TYPES[ship.typeKey].label}</button>
             {/each}
           </div>
         {/if}
@@ -9180,6 +9216,7 @@
         onInstall={installSystem}
         onUninstall={uninstallSystem}
         onRepair={repairShipNow}
+        onRename={handleRenameShip}
         onClose={closeShipSystems}
       />
     </div>

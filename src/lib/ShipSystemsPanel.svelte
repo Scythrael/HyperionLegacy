@@ -52,6 +52,11 @@
     ShipDerivedStats,
   } from "./game/model";
   import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats } from "./game/model";
+  // Renamable Ships: the shared name-length ceiling, so this panel's rename input
+  // is capped at EXACTLY the same limit renameShip (the pure seam) enforces. One
+  // source of truth for the number, no drift between the input's maxlength and the
+  // validation the save runs.
+  import { MAX_CAPTAIN_NAME } from "./game/captainName";
   import type { EquipFitBlockReason } from "./game/equipment";
   import { equippedFor, fittedInSlot, canFitEquipment } from "./game/equipment";
   // The combat-loadout read helpers. combatHullTypeOf resolves the hull's combat class
@@ -93,6 +98,12 @@
   // waiting a tick; when no Shipyard bay is free it is a safe no-op and the banner
   // explains the wait. Augments (never replaces) the existing auto-repair.
   export let onRepair: (shipId: string) => void;
+  // Renamable Ships: routes a rename (or a clear) back to the host, which runs the
+  // pure renameShip seam + doSave + pushLog exactly once. The panel owns only the
+  // in-progress edit UI (the draft string + focus); it never mutates state itself.
+  // `name` is the RAW draft: an empty / whitespace string is a valid request that
+  // CLEARS the custom name back to the hull default (renameShip handles the trim).
+  export let onRename: (shipId: string, name: string) => void;
   export let onClose: () => void;
 
   // --- Slot metadata ----------------------------------------------------------
@@ -237,6 +248,67 @@
       : null;
   $: isProspectorHull = shipDef?.spec === "prospector";
   $: onMission = assignedCaptain !== null && assignedCaptain.mission !== null;
+
+  // --- Ship name (Renamable Ships) --------------------------------------------
+  // The header title is the ship's DISPLAY name: its custom `name` if set, else the
+  // hull-type label (e.g. "General Freighter"). `shipHasCustomName` gates the hull-
+  // class SUBTITLE so an UN-named ship does not show its hull label twice (title +
+  // subtitle) -- a renamed ship shows name-over-class, an un-named ship shows just
+  // the class as the title.
+  $: shipDisplayName = ship ? (ship.name ?? shipDef?.label ?? shipId) : "";
+  $: shipHasCustomName = ship?.name !== undefined && ship.name.length > 0;
+
+  // Click-to-edit state for the name. `editingName` swaps the title text for an
+  // input; `nameDraft` two-way binds it; `nameInputEl` is focused after the swap.
+  // Kept LOCAL: the panel owns only the in-progress edit, the commit routes through
+  // onRename -> renameShip (the pure seam that trims / validates / clears).
+  let editingName = false;
+  let nameDraft = "";
+  let nameInputEl: HTMLInputElement | null = null;
+
+  // Enter edit mode: seed the draft with the CURRENT custom name (empty when the
+  // ship is un-named, so the placeholder shows the hull label and Enter-on-empty
+  // simply leaves it un-named). Focus + select after the DOM swaps in the input.
+  async function startNameEdit(): Promise<void> {
+    if (!ship) return;
+    nameDraft = ship.name ?? "";
+    editingName = true;
+    await tick();
+    nameInputEl?.focus();
+    nameInputEl?.select();
+  }
+
+  // Commit the draft. Guarded so the blur that Enter/Escape triggers (both call
+  // .blur() after already flipping editingName) does NOT double-fire. Sending the
+  // raw draft is intentional: renameShip trims it, and an empty draft CLEARS the
+  // name back to the hull default. On a rejected name (charset / profanity) the
+  // host's state does not change, so shipDisplayName re-derives to the old name and
+  // the title visibly reverts.
+  function commitNameEdit(): void {
+    if (!editingName) return;
+    editingName = false;
+    onRename(shipId, nameDraft);
+  }
+
+  // Abandon the edit without committing (Escape). Leaves the stored name untouched.
+  function cancelNameEdit(): void {
+    editingName = false;
+    nameDraft = "";
+  }
+
+  // Enter saves, Escape cancels. Both blur the input; the guard in commitNameEdit
+  // keeps the follow-on blur from committing a second time (or committing a cancel).
+  function onNameKeydown(event: KeyboardEvent): void {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitNameEdit();
+      nameInputEl?.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      cancelNameEdit();
+      nameInputEl?.blur();
+    }
+  }
 
   // The SHIP-SYSTEM singleton slots actually shown for THIS hull: the Spec Utility
   // slot is Prospector-only, so it is dropped on other hulls. The Defense singletons
@@ -683,7 +755,35 @@
       <div class="ss-title">SHIP SYSTEMS</div>
       <div class="ss-ident">
         <div class="ss-ident-text">
-          <div class="ss-hull-name">{shipDef.label}</div>
+          <!-- Renamable Ships: the ship's DISPLAY name is a click-to-edit title.
+               Click it (or tab to it + Enter) to reveal an input; Enter or blur
+               saves via onRename, Escape cancels. The hull class shows beneath as a
+               subtitle ONLY when a custom name is set, so an un-named ship shows its
+               hull label once (as the title) rather than twice. -->
+          {#if editingName}
+            <input
+              class="ss-name-input"
+              type="text"
+              bind:this={nameInputEl}
+              bind:value={nameDraft}
+              maxlength={MAX_CAPTAIN_NAME}
+              placeholder={shipDef.label}
+              aria-label="Ship name"
+              on:keydown={onNameKeydown}
+              on:blur={commitNameEdit}
+            />
+          {:else}
+            <button
+              type="button"
+              class="ss-hull-name ss-name-btn"
+              on:click={startNameEdit}
+              title="Rename this ship"
+              aria-label={`Ship name: ${shipDisplayName}. Click to rename.`}
+            >{shipDisplayName}</button>
+          {/if}
+          {#if shipHasCustomName}
+            <div class="ss-hull-class">{shipDef.label}</div>
+          {/if}
           {#if assignedCaptain}
             <div class="ss-captain-name">{assignedCaptain.label}</div>
             <div class="ss-captain-spec">
@@ -1164,6 +1264,54 @@
   .ss-hull-name {
     font-size: 12px;
     color: var(--color-text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  /* Renamable Ships: the title doubles as a click-to-edit control. Styled as bare
+     text (no button chrome) so it reads as a heading, with a subtle affordance on
+     hover / focus. Right-aligned to match the ss-ident-text column. */
+  .ss-name-btn {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    cursor: pointer;
+    text-align: right;
+    border-radius: 3px;
+    transition: color 0.12s ease, background 0.12s ease;
+  }
+  .ss-name-btn:hover {
+    color: var(--color-accent-bright);
+  }
+  .ss-name-btn:focus-visible {
+    outline: 1px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  /* The inline rename input, sized to sit in place of the title text. */
+  .ss-name-input {
+    font-family: var(--font-body, inherit);
+    font-size: 12px;
+    color: var(--color-text-primary);
+    background: var(--color-bg-inset, rgba(0, 0, 0, 0.25));
+    border: 1px solid var(--color-accent);
+    border-radius: 3px;
+    padding: 2px 6px;
+    text-align: right;
+    letter-spacing: 0.5px;
+    width: 15ch;
+    max-width: 100%;
+  }
+  .ss-name-input:focus {
+    outline: none;
+    border-color: var(--color-accent-bright);
+  }
+  /* The hull-class subtitle shown beneath a CUSTOM name (so a renamed ship still
+     states what hull it is). Matches the dim, small treatment of the captain spec. */
+  .ss-hull-class {
+    font-size: 10px;
+    color: var(--color-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }

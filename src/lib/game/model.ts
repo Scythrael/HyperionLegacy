@@ -970,7 +970,15 @@ export interface ShipInstance {
   id: string;                       // stable unique id, allocated from GameState.nextShipId ("ship-N")
   typeKey: ShipTypeKey;
   assignedCaptainId: number | null; // SINGLE SOURCE OF TRUTH for assignment; null = parked/available
-  name?: string;                    // player naming deferred
+  // Optional player-chosen ship name (Renamable Ships). ADDITIVE + OPTIONAL: absent
+  // means the ship shows its hull-type label (SHIP_TYPES[typeKey].label) as its display
+  // name, so a pre-feature save (and every never-renamed ship) reads as undefined and
+  // needs NO save migration (a plain optional string serializes cleanly; JSON drops an
+  // undefined key). Written ONLY through renameShip (tick.ts) behind the same
+  // validateCaptainName courtesy gate captain names use; an empty/whitespace rename
+  // CLEARS it back to undefined (the hull-label default). The player-facing display name
+  // is `name ?? SHIP_TYPES[typeKey].label`, and the hull class stays visible as a subtitle.
+  name?: string;
   // Combat 0.13.0 (Phase 9b.5c): set true when a PATROL this ship flew ended in DEFEAT
   // (the wave loop in tick.ts flags it). OPTIONAL so absent === not damaged: a pre-9b.5c
   // save (and every ship that never lost a patrol) reads as undefined, so NO save
