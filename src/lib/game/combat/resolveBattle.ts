@@ -253,8 +253,14 @@ function cloneParticipants(participants: BattleParticipants): BattleParticipants
 			// same battle). Undefined stays undefined (a systemless fixture is unchanged).
 			reactor: c.reactor !== undefined ? { ...c.reactor } : undefined,
 			ftl: c.ftl !== undefined ? { ...c.ftl } : undefined,
-			// Fresh statusEffects array so in-sim mutation is isolated.
-			statusEffects: [...c.statusEffects],
+			// Fresh statusEffects array AND fresh per-effect objects (audit AUDIT-4): tickEffects
+			// mutates effect instances in place (dotBudget, stacks, remaining, etc.), so a shallow
+			// array over the SAME element objects would leak those writes back into the caller,
+			// exactly like the weapons/reactor/ftl/drones deep-copies above. Not currently reachable
+			// as a wrong outcome (no caller re-reads a pre-clone effect after the sim), but aligned for
+			// purity + a safe second resolve of the same battle. Effects are plain data, so a spread
+			// per element is a full clone.
+			statusEffects: c.statusEffects.map((e) => ({ ...e })),
 			// Phase 7a: DEEP-copy each squadron AND its per-drone list. The sim mutates
 			// squadron.cooldownAccumulator + each drone's hp/alive/status, so a shallow
 			// copy would leak those writes back into the caller (breaking purity + a
