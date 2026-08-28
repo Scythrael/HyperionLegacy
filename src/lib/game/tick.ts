@@ -2976,6 +2976,24 @@ export function tick(deltaSeconds: number, state: GameState, rng: () => number =
   // span it advances the sub-tick residue, exactly as one big call's trailing fraction
   // would. Summed, wholeSteps*1 + frac == clampedTicks, so the deterministic economy
   // lands identically to a single economyTick(state, clampedTicks) call.
+  //
+  // KNOWN-LEGACY PRECISION (documented 2026-08-27, no behavior change): the parity
+  // guarantee above is exact for the SPAN-SCALED, closed-form economy (mission phase
+  // progress, captain/FA/crafting XP, credits, gameTimeSeconds, and resolveProcesses'
+  // countdowns, which all scale by the tick span). It is NOT exact for the ONCE-PER-CALL
+  // process passes economyTick runs at its tail: processRefineLines / processFabricateLines
+  // / processFuelPipelines / processShipRepairs each run a FULL auto-start pass per
+  // economyTick CALL, independent of the span length. So this trailing frac call fires those
+  // passes ONE extra time, on a SUB-TICK span (frac < 1). A batch/job/repair they auto-start
+  // there begins up to ~1 whole tick EARLY versus the live cadence (App.svelte calls
+  // economyTick(state, 1) once per whole tick, so live only ever auto-starts on a whole-tick
+  // boundary). The effect is bounded to at most one such early start per offline catch-up (a
+  // single trailing frac), it never double-processes a running job (resolveProcesses is
+  // span-scaled and already advanced the whole steps), and it self-corrects on the next whole
+  // tick, so it is a negligible, accepted precision artifact of the step-forward foundation,
+  // not a correctness bug. Left AS-IS deliberately: eliminating it would require a separate
+  // offline code path that bypasses economyTick, reintroducing the exact live-vs-offline drift
+  // this per-tick stepping exists to prevent (see this function's header, design §2.2).
   const frac = clampedTicks - wholeSteps;
   if (frac > 0) {
     next = economyTick(next, frac, rng);
