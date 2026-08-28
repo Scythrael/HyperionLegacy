@@ -4,7 +4,7 @@ _Last updated: 2026-08-28. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*
 
 ## Where things stand RIGHT NOW
 
-- **Branch:** `feat/combat-0.13.0`. **Staging tip = `d23e174`** (pushed to `origin/staging` = devpreview). **PROD (`origin/main`) UNTOUCHED at `e282614`** (v30, 0.12.1).
+- **Branch:** `feat/combat-0.13.0`. **Staging tip = `cf2bc8c`** (pushed to `origin/staging` = devpreview 2026-08-28). Last QA'd CODE state = `6276723` (the Fable-fix tip `d23e174` plus the DEV-PANEL q4/q5 mint); everything after it on the branch is docs-only EXCEPT the save-persist safeguard (`29ebd0f`). **PROD (`origin/main`) UNTOUCHED at `e282614`** (v30, 0.12.1). For a CLEAN Combat 1.0 promotion, promote `e2416db` (last commit before the safeguard, code-identical to `6276723`); to include the safeguard, promote the tip.
 - **SAVE_VERSION = 39.** Migrations `MIGRATIONS[37]`/`[38]` are on staging but NOT yet on prod, so still editable until the promotion. Once promoted, they freeze.
 - **Gates green at the tip:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, unrelated), `npx vitest run -t "parit"` = 101, `npx vitest run` = 1881 passed / 74 files (was 1872/72 before the save-persist safeguard below).
 
