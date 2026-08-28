@@ -3588,6 +3588,10 @@
         return `Captain level ${mission.requiresCaptainLevel} required`;
       case "cargo":
         return `Needs cargo ${mission.requiresCargoCapacity}`;
+      case "materialAtCap":
+        // Warehouse for this mission's primary material is full, so the haul would be lost
+        // and the captain would auto-idle after one wasted round trip. Block before that.
+        return "Warehouse full for this material";
       case "fuelCapacity":
         return "Ship's tank too small for this trip";
       case "fuelEmpty":

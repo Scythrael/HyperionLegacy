@@ -2953,6 +2953,9 @@ export function tick(deltaSeconds: number, state: GameState, rng: () => number =
 //   captainLevel, the captain's level is below MISSIONS[key].requiresCaptainLevel
 //   cargo       , the captain's ship cargoCapacity is below requiresCargoCapacity
 //   noShip      , the captain flies no hull, so the trip can't be priced/carried
+//   materialAtCap, the mission's primary material is already at its warehouse cap, so the
+//                  run's haul would land over a full warehouse and the auto-stop would idle
+//                  the captain on the very next tick after burning a round trip's fuel
 //   fuelCapacity, the hull's tank is physically too small for the round trip (RANGE)
 //   fuelEmpty   , the shared fuel tank can't cover the round trip's cost (RESOURCE)
 // NOTE: there is deliberately NO `credits` reason. Dispatch itself spends FUEL, not
@@ -2966,6 +2969,7 @@ export type DispatchBlockReason =
   | "cargo"
   | "noShip"
   | "needsRepair"
+  | "materialAtCap"
   | "fuelCapacity"
   | "fuelEmpty";
 
@@ -2982,9 +2986,11 @@ export type DispatchBlockReason =
 // reason surfaces when several fail at once (ok itself is order-independent, all must
 // pass): identity (noCaptain) -> status (busy) -> unlock (locked) -> captain capability
 // (captainLevel) -> hull existence (noShip) -> repair state (needsRepair) -> hull capability
-// (cargo) -> fuel RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty). captainLevel is checked BEFORE noShip on
-// purpose: it's a property of the CAPTAIN alone, needs no hull, and is the more useful
-// thing to tell the player first.
+// (cargo) -> warehouse (materialAtCap) -> fuel RANGE (fuelCapacity) -> fuel RESOURCE (fuelEmpty).
+// captainLevel is checked BEFORE noShip on purpose: it's a property of the CAPTAIN alone,
+// needs no hull, and is the more useful thing to tell the player first. materialAtCap sits
+// just before the fuel gates: it's a transient logistics condition (the destination
+// warehouse is full), reported after the fixed capability gates but before we look at fuel.
 export function canDispatch(
   state: GameState,
   captainId: number,
@@ -3039,6 +3045,19 @@ export function canDispatch(
   // semantics as the captain-level gate above.
   if (mission.requiresCargoCapacity !== undefined && stats.cargoCapacity < mission.requiresCargoCapacity) {
     return { ok: false, reason: "cargo" };
+  }
+
+  // --- Warehouse gate (fix: dispatch at material cap burns a round-trip's fuel, 2026-08-27).
+  // If this mission's PRIMARY material is already AT its warehouse cap, the run cannot usefully
+  // complete: economyTick's auto-stop (the materialAtCap seam below) would idle the captain on
+  // the very NEXT tick, but dispatchCaptainOnMission has by then already SPENT the first cycle's
+  // fuel (and possibly auto-bought a shortfall), which is never refunded, so a dispatch at cap
+  // silently burned a round trip. Blocking it HERE, pre-spend, is the root-cause fix. This reads
+  // the SAME materialAtCap(state, primaryMaterial) seam the auto-stop uses, so the dispatch gate
+  // and the mid-run auto-stop agree exactly. BELOW cap (the universal case until 1M+ is
+  // stockpiled) this is false and dispatch behavior is byte-identical to before.
+  if (materialAtCap(state, mission.primaryMaterial)) {
+    return { ok: false, reason: "materialAtCap" };
   }
 
   // --- Fuel gates (Task 5, folded in here). fuelNeeded reads the BASE mission's transit

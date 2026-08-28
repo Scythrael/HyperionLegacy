@@ -110,6 +110,32 @@ describe("canDispatch, one reason per unmet condition (gate order)", () => {
     expect(canDispatch(state, 1, "shortOreRun")).toEqual({ ok: false, reason: "noShip" });
   });
 
+  it("materialAtCap, the mission's primary material is already at its warehouse cap (checked before fuel)", () => {
+    // fix (2026-08-27): dispatching a run whose primary material is already at cap used to
+    // succeed, burn a round trip's fuel, then auto-stop the captain on the next tick with no
+    // refund. canDispatch now blocks it up front. shortOreRun's primaryMaterial is commonOre;
+    // seed it far above its tier cap so materialAtCap fires. Fuel is left plentiful so this is
+    // genuinely the materialAtCap gate (which is ordered BEFORE the fuel gates), not fuelEmpty.
+    const state = freshState();
+    state.fuel = new Decimal(1_000_000);
+    state.inventory = { ...state.inventory, commonOre: [new Decimal("1e50")] }; // >> tier-1 cap
+    expect(canDispatch(state, 1, "shortOreRun")).toEqual({ ok: false, reason: "materialAtCap" });
+  });
+
+  it("materialAtCap block spends NO fuel (the round-trip burn the fix prevents)", () => {
+    // The whole point of the gate: a capped-material dispatch must not spend fuel. Assert the
+    // same-ref no-op + reason + that the tank is untouched.
+    const state = freshState();
+    const startFuel = new Decimal(1_000_000);
+    state.fuel = startFuel;
+    state.inventory = { ...state.inventory, commonOre: [new Decimal("1e50")] };
+    const { next, success, reason } = dispatchCaptainOnMission(state, 1, "shortOreRun");
+    expect(success).toBe(false);
+    expect(reason).toBe("materialAtCap");
+    expect(next).toBe(state); // same-ref no-op, nothing spent
+    expect(next.fuel.eq(startFuel)).toBe(true); // NOT one round trip poorer
+  });
+
   it("fuelCapacity, the hull's tank is physically too small for one round trip (RANGE)", () => {
     const state = freshState();
     state.fuel = new Decimal(1_000_000); // plenty in the shared tank -> isolate RANGE from RESOURCE
