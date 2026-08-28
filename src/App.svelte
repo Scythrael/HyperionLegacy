@@ -6142,7 +6142,8 @@
                  tiles + the inline EquipmentTooltip Salvage action, and the
                  Salvaged Materials select-to-salvage tiles + action. All reads/
                  actions still route through the SAME requestSalvage/confirmSalvage
-                 flow and shared select state; EquipmentTooltip is reused unchanged. -->
+                 flow and shared select state; EquipmentTooltip is reused as-is here (its
+                 only branch change was the df53dd5 weapon/drone blueprint name resolver). -->
             <!-- SALVAGE (moved VERBATIM from the old Stores Salvage Bay, 0.11.2
                  Task 11): the dedicated home for the two Salvage actions. NOTHING
                  here is new machinery or new styling; it reuses the SAME tiles,
@@ -6900,7 +6901,8 @@
                fabricate gate + storage engine use (spareEquipmentCount /
                equipmentStorageCap / canUpgradeEquipmentStorage /
                startEquipmentStorageUpgrade / salvageEquipment), and the
-               EquipmentTooltip is reused unchanged. -->
+               EquipmentTooltip is reused as-is (its only branch change was the df53dd5
+               weapon/drone blueprint name resolver). -->
           {@const bayCap = equipmentStorageCap(state)}
           {@const baySpare = spareEquipmentCount(state)}
           {@const upgradeCheck = canUpgradeEquipmentStorage(state)}

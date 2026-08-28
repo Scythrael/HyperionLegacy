@@ -24,7 +24,10 @@
   //     the tooltip's action <slot> (QA #8: no inline detail div pushing content
   //     down). The floating wrapper is JS-positioned so the tooltip is always
   //     CLAMPED inside the viewport (flip above/below + horizontal clamp), a hard
-  //     acceptance requirement. EquipmentTooltip.svelte itself is UNCHANGED.
+  //     acceptance requirement. EquipmentTooltip.svelte was deliberately extended on
+  //     this branch (commit df53dd5) to resolve weapon/drone blueprint display names;
+  //     it is otherwise preserved as-is (this panel injects the action button via slot,
+  //     it does not modify the card's internals).
   //   - Tapping a slot opens the spare-pool PICKER (spares are tiles too, each with
   //     its own tooltip); tapping a spare installs it. One consistent flow for every
   //     slot type (QA #4).
@@ -76,7 +79,9 @@
   // its module-exported single-source helpers (rarity color + variety glyph). Reused
   // here so a tile + its tooltip read the piece's identity in EXACTLY the format the
   // bay does, one card component, no second renderer to drift. The Install / Uninstall
-  // control is injected into the card's footer <slot>. EquipmentTooltip is UNCHANGED.
+  // control is injected into the card's footer <slot>. EquipmentTooltip was extended on
+  // this branch (commit df53dd5) for weapon/drone blueprint name resolution and is
+  // otherwise preserved.
   import EquipmentTooltip, { equipmentRarityColor, equipmentIcon } from "./EquipmentTooltip.svelte";
   // Shared PURE viewport-clamp math for the floating tooltip (prefer-above / flip-below
   // / clamp). Extracted so this panel and the Combat View pip tooltips share ONE clamp
@@ -573,7 +578,8 @@
   // size + the viewport: prefer above the tile, flip below when there is no room, and
   // clamp horizontally (and, as a final safety, vertically) within a small margin. The
   // wrapper is position:fixed so it escapes the panel's inner scroll clipping. This
-  // lives HERE, around EquipmentTooltip, so EquipmentTooltip itself stays unchanged.
+  // lives HERE, around EquipmentTooltip, so the card's internals stay untouched (the
+  // only edit to EquipmentTooltip on this branch was the df53dd5 blueprint name resolver).
   //
   // CLAMP DEPENDENCY (see the matching note on .ss-tip-float in the style block): the
   // left/top below are VIEWPORT coordinates, which line up with this fixed element only
@@ -1191,7 +1197,8 @@
 
   <!-- FLOATING TOOLTIP: one JS-positioned wrapper around the reusable EquipmentTooltip,
        clamped inside the viewport (see positionTip). The Install / Uninstall button is
-       injected into EquipmentTooltip's action <slot>; EquipmentTooltip is unchanged. -->
+       injected into EquipmentTooltip's action <slot>; EquipmentTooltip's internals are
+       preserved apart from the df53dd5 weapon/drone blueprint name resolver. -->
   {#if activeTip}
     {@const tipPiece = activeTip.piece}
     {@const tipAction = activeTip.action}
