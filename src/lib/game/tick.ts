@@ -4595,7 +4595,9 @@ export type ShipBuildBlockReason =
 // player yet), placed right after `notFounded` and before the concurrency/resource gates so
 // "you have not unlocked this hull" reads before "the yard is busy" or "you cannot afford it".
 // The storage gate sits at START (here) so a build never begins that could not be parked on
-// completion, resolveProcesses can then park unconditionally (see its addShip branch).
+// completion. resolveProcesses' addShip branch ALSO re-checks the cap at completion (fix: docks
+// capacity exceedable 9/8) and HOLDS the finished build if a dock was consumed mid-build (a
+// captain-slot talent grant), so the docks invariant cannot be exceeded even across that window.
 export function canBuildShip(
   state: GameState,
   typeKey: string
@@ -6645,10 +6647,24 @@ export function resolveProcesses(
       // from nextShipId as "ship-N" (the SAME scheme freshState / buyShip use), then
       // nextShipId is bumped so ids stay monotonic and are never reused. assignedCaptainId
       // is null (PARKED, the player assigns it via the Docks). Appended on a FRESH ships
-      // array (immutable, mirroring the accumulators above). Storage was gated at START
-      // (canBuildShip's storageFull reason), so a build that reached completion always has
-      // room, we park UNCONDITIONALLY here rather than re-checking shipStorageCapacity
-      // (a completion-time drop would silently destroy a build the player already paid for).
+      // array (immutable, mirroring the accumulators above).
+      //
+      // DOCKS-CAP RE-CHECK (fix: docks capacity exceedable 9/8, 2026-08-27). Storage is gated
+      // at START (canBuildShip's storageFull reason), but a hull could still be minted OVER the
+      // cap in the window between a build starting and completing: a captain-slot talent grant
+      // adds a ship while a build is in flight (start-gate saw room, talent saw room, both then
+      // land -> cap + 1). Rather than PARK the hull over cap (breaking the invariant) or DROP it
+      // (silently destroying a build the player already paid for), we HOLD the finished build:
+      // keep the process in stillActive (with its already-decremented countdown, so it stays
+      // "done") and skip both the mint and the XP lump this call. It re-attempts the park every
+      // tick and lands the hull the moment a dock frees (the player salvages a hull or expands
+      // the docks). This draws NO rng, so offline (one big resolve) and live (many small steps)
+      // hold IDENTICALLY, preserving parity. In normal play this never fires (the talent grant
+      // is now blocked when the docks are full), so it is a defensive backstop, not a routine path.
+      if (ships.length >= shipStorageCapacity) {
+        stillActive.push({ ...process, remainingTicks });
+        continue; // skip mint + the XP lump at the loop tail; retry next tick
+      }
       // Closed-form: fires exactly ONCE on the completion that drops the process, so one big
       // resolve and many small ones mint the identical hull with the identical id.
       const minted: ShipInstance = {
@@ -6984,6 +7000,18 @@ export function buyHomeworldTalent(
   const adminPoints = state.adminPoints - talent.cost;
 
   if (talent.effect.type === "unlockCaptainSlot") {
+    // DOCKS-CAP GUARD (fix: docks capacity exceedable 9/8, 2026-08-27). A captain-slot unlock
+    // GRANTS a General Freighter (below), a ship-adding path that BYPASSES the shipBuild
+    // start-gate (canBuildShip's storageFull reason). Granting REGARDLESS of shipStorageCapacity
+    // let the fleet exceed the docks cap (e.g. 8 hulls parked at an 8-cap, then a captain unlock
+    // mints a 9th). Block the unlock when the docks are already FULL, refunding via the same
+    // same-ref/success:false convention every other precondition here uses (adminPoints are
+    // NOT charged because we return the ORIGINAL state, discarding the locals computed above).
+    // The player must free a dock (salvage a hull) or expand the docks first, mirroring how a
+    // full warehouse blocks a build. AT capacity counts as full, matching canBuildShip's `>=`.
+    if (state.ships.length >= state.shipStorageCapacity) {
+      return { next: state, success: false };
+    }
     // Gated ENTIRELY on the node's own `talent.cost` in adminPoints, checked
     // above, confirmed with the user that Homeworld Talents (fleet-wide
     // Fleet Admiral prestige) are deliberately independent of any individual
@@ -7001,9 +7029,9 @@ export function buyHomeworldTalent(
     ];
     // Every captain always has exactly one assigned ship (invariant enforced at
     // new-game, migration, and HERE). A newly-unlocked captain is granted a
-    // General Freighter, assigned to them, REGARDLESS of shipStorageCapacity --
-    // a captain must have a hull to be dispatchable (cap is 8 > the current 4-
-    // captain ceiling, so this never conflicts today).
+    // General Freighter, assigned to them. This grant is now GATED by the docks-cap
+    // guard at the top of this branch (a captain cannot be unlocked when the docks are
+    // full), so it can no longer push the fleet past shipStorageCapacity.
     const newShipId = `ship-${state.nextShipId}`;
     const ships = [
       ...state.ships,

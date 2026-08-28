@@ -2290,6 +2290,26 @@ describe("buyHomeworldTalent", () => {
     expect(next.nextCaptainId).toBe(5); // counter advanced by exactly 1
   });
 
+  // fix (docks capacity exceedable 9/8, 2026-08-27): a captain-slot unlock GRANTS a Freighter,
+  // a ship-adding path that bypasses the shipBuild start-gate. Granting regardless of the docks
+  // cap let the fleet exceed it. The guard now blocks the unlock when the docks are full.
+  it("unlockCaptainSlot is BLOCKED when the docks are full (no over-cap ship grant, adminPoints refunded)", () => {
+    const state = freshState();
+    state.adminPoints = 10;
+    state.shipStorageCapacity = state.ships.length; // docks exactly FULL (freshState seeds 1 hull)
+    const withHub = buyHomeworldTalent(state, "fleetLogisticsHub").next; // hub cost 1, adds NO ship -> docks stay full
+    const shipsBefore = withHub.ships.length;
+    const captainsBefore = withHub.captains.length;
+    const adminBefore = withHub.adminPoints;
+    const { next, success } = buyHomeworldTalent(withHub, "fleetLogisticsSlot1"); // unlockCaptainSlot at full docks
+    expect(success).toBe(false);
+    expect(next).toBe(withHub); // same-ref no-op: the grant is refused
+    expect(next.ships.length).toBe(shipsBefore); // no 9th hull minted over the cap
+    expect(next.ships.length).toBeLessThanOrEqual(next.shipStorageCapacity); // docks invariant intact
+    expect(next.captains.length).toBe(captainsBefore); // no captain unlocked
+    expect(next.adminPoints).toBe(adminBefore); // adminPoints NOT charged (refunded)
+  });
+
   it("fails if adminPoints are insufficient (even for a learnable node)", () => {
     const state = freshState();
     state.adminPoints = 0; // fleetLogisticsHub costs 1; adjacency gate passes (hub), cost gate fails
