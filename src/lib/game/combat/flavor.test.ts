@@ -195,6 +195,16 @@ describe("interpolateFlavor binding", () => {
 		const e = ev({ type: "hit" });
 		expect(interpolateFlavor("{actor}{bogus}!", e, nameFor)).toBe("Ravenscar!");
 	});
+
+	it("clamps the {hull} token at 0 for an overkilled ship (negative sim hull never renders)", () => {
+		// The sim deliberately leaves hull negative on an overkill kill (see resolveBattle.ts:
+		// hull may go below 0; the death check reads `alive`, not a clamped value). The log
+		// line is DISPLAY, so it must never interpolate a negative hull like "-13".
+		const e = ev({ type: "destroyed", actorId: "P1", targetId: "E1", hullAfter: -13 });
+		const out = interpolateFlavor("{target} hull {hull}.", e, nameFor);
+		expect(out).toBe("Marauder hull 0.");
+		expect(out).not.toContain("-");
+	});
 });
 
 describe("death-sequence wording is reachable (approved mockup)", () => {

@@ -849,8 +849,13 @@
   }
   // Round a pool value for the "X / Y" readout (hull/shield are integers in the
   // sim, but a defensive round keeps the readout clean if one ever carries a float).
+  // DISPLAY-side clamp at 0: the sim deliberately leaves hull NEGATIVE on an overkill
+  // kill (resolveBattle.ts leaves it below 0 and the death check reads `alive`, never a
+  // clamped value), so a destroyed ship would otherwise read "Hull -13 / 120". Every
+  // caller here is a Hull/Shield pool readout, none of which is ever legitimately below
+  // 0, so clamping in this one display helper is safe. The engine is NOT touched.
   function num(v: number): string {
-    return String(Math.round(v));
+    return String(Math.max(0, Math.round(v)));
   }
 
   // --- Mode toggle ------------------------------------------------------------

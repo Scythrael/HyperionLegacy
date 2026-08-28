@@ -555,7 +555,11 @@ export function interpolateFlavor(
 		effect: effectLabel(event.effectDefId),
 		rank: rankSuffix(event.effectRank),
 		shield: String(event.shieldAfter ?? 0),
-		hull: String(event.hullAfter ?? 0),
+		// DISPLAY-side clamp at 0: the sim deliberately leaves hull NEGATIVE on an
+		// overkill kill (resolveBattle.ts, death check reads `alive`), so without this a
+		// log line would interpolate e.g. "Hull -13". The engine value is untouched; only
+		// this rendered string is clamped.
+		hull: String(Math.max(0, event.hullAfter ?? 0)),
 		// Drone/projectile connect count (droneVolley + intercept narration).
 		count: String(event.projectilesHit ?? 0),
 	};
