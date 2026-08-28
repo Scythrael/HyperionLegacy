@@ -479,9 +479,9 @@ function unavailableReplay(): PatrolReplay {
 // into an ordered list of per-round snapshots: applying every event with round <= N
 // yields the arena state AT round N. It reads ONLY what the event stream genuinely
 // carries: per-combatant hull / shield (from each event's hullAfter / shieldAfter),
-// active status effects (from effectApplied / dot applications, removed on droneCleanse
-// AND effectExpired), and the per-round range / band / phase readout (from Phase 12b's
-// "roundState" events). It does NOT invent anything the stream does not provide.
+// active status effects (created by effectApplied, rank-refreshed by dot ticks, removed on
+// droneCleanse AND effectExpired), and the per-round range / band / phase readout (from
+// Phase 12b's "roundState" events). It does NOT invent anything the stream does not provide.
 //
 // ⚠️ WHAT THE STREAM CANNOT FEED (reported honestly, NOT fabricated here): the event
 // stream still carries no absolute per-squadron drone pip counts (online/disrupted/
@@ -614,20 +614,42 @@ export function foldWaveSnapshots(
       if (ev.shieldAfter !== undefined) shield.set(ev.targetId, ev.shieldAfter);
     }
 
-    // Status-effect application: effectApplied (a weapon landed a disruption/DoT) and dot
-    // (a per-round DoT tick line) both carry the def id + rank on the afflicted target.
-    if ((ev.type === "effectApplied" || ev.type === "dot") && ev.effectDefId && ev.targetId) {
+    // Status-effect APPLICATION: effectApplied is emitted every time a weapon lands a
+    // disruption / DoT (resolveBattle logs one per applied effect at application time), so
+    // it is the authoritative "the pip exists now" signal. It CREATES or refreshes the pip.
+    if (ev.type === "effectApplied" && ev.effectDefId && ev.targetId) {
       const m = effects.get(ev.targetId) ?? new Map<string, number>();
       m.set(ev.effectDefId, ev.effectRank ?? 1);
       effects.set(ev.targetId, m);
     }
 
-    // NOTE: effect REMOVALS (droneCleanse / effectExpired) are NOT applied here. They run
-    // in a SECOND pass per round (applyRemoval below) so a round-N removal wins over that
-    // same round's aggregated `dot` line. The dot line is flushed at the round N+1 boundary
-    // but stamped round N, so within the bucket it can TRAIL the effectExpired event; a
-    // single-pass fold would let the trailing dot re-add the pip the expiry just dropped
-    // (the DoT pip over-report). Two passes make the end-of-round-N snapshot correct.
+    // A `dot` line is the per-round AGGREGATE tick of a DoT that effectApplied (or the
+    // baseline) already established, so it only REFRESHES the rank of an already-present
+    // pip -- it never creates one. This is what keeps the fold correct in log order despite
+    // the dot line's artificial position: the aggregated dot is flushed at the round N+1
+    // boundary but stamped round N, so within round N's bucket it TRAILS that round's real-
+    // time events (including an effectExpired). If dot could create a pip, a dot trailing an
+    // expiry would resurrect the just-dropped pip (the DoT over-report). Guarding it to
+    // "update existing only" drops that resurrection while still letting a genuine same-
+    // round re-application survive (see the removal handling below). The dot's hull / shield
+    // pools still moved above, unconditionally.
+    if (ev.type === "dot" && ev.effectDefId && ev.targetId) {
+      const m = effects.get(ev.targetId);
+      if (m && m.has(ev.effectDefId)) m.set(ev.effectDefId, ev.effectRank ?? 1);
+    }
+
+    // Status-effect REMOVAL (a support-drone cleanse OR a natural expiry). Processed inline
+    // in log order alongside the applications above, so the LAST real-time lifecycle event
+    // for an effect wins: an expiry FOLLOWED by a genuine effectApplied in the same round
+    // keeps the pip (the re-applied effect survives), while an application FOLLOWED by an
+    // expiry correctly drops it. The trailing aggregate dot cannot re-add it (see above).
+    if (
+      (ev.type === "droneCleanse" || ev.type === "effectExpired") &&
+      ev.effectDefId &&
+      ev.targetId
+    ) {
+      effects.get(ev.targetId)?.delete(ev.effectDefId);
+    }
 
     // Per-round arena readout (Phase 12b "roundState"): the actor's range (distance +
     // band) and engagement phase. Keyed by the ACTOR (the ship the readout is for), which
@@ -649,31 +671,17 @@ export function foldWaveSnapshots(
     }
   };
 
-  // SECOND-PASS applier: effect removals only (a support-drone cleanse OR a natural expiry,
-  // Phase 12b). Run AFTER every addition in the same round (see the note in applyEvent) so a
-  // round-N expiry/cleanse strips the pip even when that round's trailing `dot` line re-adds
-  // it. This is what actually fixes the DoT pip over-report (a pip lingering past its real
-  // duration); a single-pass, event-order fold does not, because the aggregated dot line is
-  // stamped round N but ordered after the effectExpired within the bucket.
-  const applyRemoval = (ev: CombatEvent): void => {
-    if (
-      (ev.type === "droneCleanse" || ev.type === "effectExpired") &&
-      ev.effectDefId &&
-      ev.targetId
-    ) {
-      effects.get(ev.targetId)?.delete(ev.effectDefId);
-    }
-  };
-
   // Fold round by round, emitting one snapshot per round from 0..maxRound. If the log is
   // empty and no baseline was given, this yields a single round-0 snapshot with no
-  // combatants (graceful, not a throw). Two passes per round: additions first, then removals,
-  // so an expiry wins over its own round's final dot line (see applyRemoval).
+  // combatants (graceful, not a throw). A SINGLE pass per round in log order is now correct:
+  // applications, removals, and the rank-only dot refresh are all handled in applyEvent, and
+  // because a dot can only refresh (never create) a pip, the end-of-round state reflects the
+  // LAST real-time lifecycle event -- so a same-round re-application survives AND a trailing
+  // dot never resurrects an expired pip.
   const snapshots: RoundSnapshot[] = [];
   for (let round = 0; round <= maxRound; round++) {
     const bucket = byRound.get(round) ?? [];
     for (const ev of bucket) applyEvent(ev);
-    for (const ev of bucket) applyRemoval(ev);
     snapshots.push(
       snapshotOf(round, hull, shield, effects, range, phase, systemConditions),
     );

@@ -514,11 +514,12 @@ describe("foldWaveSnapshots (per-round arena state)", () => {
     expect(snaps[2].combatants["E1"].effects).toEqual([]);
   });
 
-  it("drops a DoT pip on expiry even when the round's dot line TRAILS the effectExpired (two-pass fold)", () => {
-    // The regression the two-pass fold fixes: a per-round aggregated `dot` line is flushed
+  it("drops a DoT pip on expiry even when the round's dot line TRAILS the effectExpired", () => {
+    // The regression the fold guards against: a per-round aggregated `dot` line is flushed
     // at the round N+1 boundary but stamped round N, so within round N's bucket it can be
-    // ordered AFTER the effectExpired. A single-pass, event-order fold let that trailing dot
-    // RE-ADD the just-expired pip (the DoT over-report). Additions-then-removals must win.
+    // ordered AFTER the effectExpired. A naive fold that let the dot line CREATE a pip would
+    // re-add the just-expired pip (the DoT over-report). The fold keeps the dot as a rank-
+    // only refresh of an already-present pip, so a dot trailing an expiry cannot resurrect it.
     const log: CombatEvent[] = [
       { tDeciSec: 5, round: 0, type: "effectApplied", actorId: "P", targetId: "E1", effectDefId: "plasmaFire", effectRank: 2 },
       { tDeciSec: 10, round: 0, type: "dot", targetId: "E1", effectDefId: "plasmaFire", effectRank: 2, damage: 6, hullAfter: 94 },
@@ -532,6 +533,27 @@ describe("foldWaveSnapshots (per-round arena state)", () => {
     expect(snaps[0].combatants["E1"].effects).toEqual([{ defId: "plasmaFire", rank: 2 }]);
     // Round 1: expiry wins over the trailing dot line, so the pip is dropped (not re-added).
     expect(snaps[1].combatants["E1"].effects).toEqual([]);
+  });
+
+  it("keeps a pip that EXPIRES then is genuinely RE-APPLIED within the same round", () => {
+    // The log-order fold must let the LAST real-time lifecycle event win. Within one round an
+    // effect can wear off (effectExpired) and then a fresh shot can land it again
+    // (effectApplied). A fold that ran every removal AFTER every addition would wrongly strip
+    // the re-applied pip; processing in log order keeps it. The trailing aggregate dot (rank-
+    // only refresh) neither adds nor removes, so it does not disturb the result.
+    const log: CombatEvent[] = [
+      { tDeciSec: 3, round: 0, type: "effectApplied", actorId: "P", targetId: "E1", effectDefId: "plasmaFire", effectRank: 1 },
+      // Round 1: the first instance expires, then a new shot re-applies it (now rank 2),
+      // then the round's aggregated dot line trails.
+      { tDeciSec: 14, round: 1, type: "effectExpired", targetId: "E1", effectDefId: "plasmaFire", effectRank: 1 },
+      { tDeciSec: 16, round: 1, type: "effectApplied", actorId: "P", targetId: "E1", effectDefId: "plasmaFire", effectRank: 2 },
+      { tDeciSec: 20, round: 1, type: "dot", targetId: "E1", effectDefId: "plasmaFire", effectRank: 2, damage: 6, hullAfter: 80 },
+    ];
+    const snaps = foldWaveSnapshots(log);
+    // Round 0: the pip is present at rank 1.
+    expect(snaps[0].combatants["E1"].effects).toEqual([{ defId: "plasmaFire", rank: 1 }]);
+    // Round 1: the re-application survives the earlier same-round expiry, at the new rank 2.
+    expect(snaps[1].combatants["E1"].effects).toEqual([{ defId: "plasmaFire", rank: 2 }]);
   });
 
   it("a REAL replayed wave folds populated range + phase from the sim's roundState stream", () => {
