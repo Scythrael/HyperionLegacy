@@ -8135,7 +8135,7 @@
                       <div class="mission-req-line">
                         {selectedShipDef.label}: hull {formatNumber(selectedShipDefense ? selectedShipDefense.hullMax : selectedShipDef.hullIntegrity)}
                         &middot; shield {formatNumber(selectedShipDefense ? selectedShipDefense.shieldMax : selectedShipDef.shieldCapacity)}
-                        &middot; {selectedShipDef.weaponHardpoints} guns
+                        &middot; {selectedShipDef.weaponHardpoints} hardpoints
                       </div>
                       <div class="mission-req-line" style="color: {isCombatHull ? 'var(--color-success)' : 'var(--color-danger)'}">
                         {#if isCombatHull}Dispatchable{:else}Unknown hull class{/if}
