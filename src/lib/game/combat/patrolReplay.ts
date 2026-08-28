@@ -635,7 +635,7 @@ export function foldWaveSnapshots(
 
     // A `dot` line is the per-round AGGREGATE tick of a DoT that effectApplied (or the
     // baseline) already established, so it only REFRESHES the rank of an already-present
-    // pip -- it never creates one. This is what keeps the fold correct in log order despite
+    // pip: it never creates one. This is what keeps the fold correct in log order despite
     // the dot line's artificial position: the aggregated dot is flushed at the round N+1
     // boundary but stamped round N, so within round N's bucket it TRAILS that round's real-
     // time events (including an effectExpired). If dot could create a pip, a dot trailing an
@@ -686,7 +686,7 @@ export function foldWaveSnapshots(
   // combatants (graceful, not a throw). A SINGLE pass per round in log order is now correct:
   // applications, removals, and the rank-only dot refresh are all handled in applyEvent, and
   // because a dot can only refresh (never create) a pip, the end-of-round state reflects the
-  // LAST real-time lifecycle event -- so a same-round re-application survives AND a trailing
+  // LAST real-time lifecycle event, so a same-round re-application survives AND a trailing
   // dot never resurrects an expired pip.
   const snapshots: RoundSnapshot[] = [];
   for (let round = 0; round <= maxRound; round++) {
