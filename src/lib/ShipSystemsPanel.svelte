@@ -230,6 +230,11 @@
     activeTip = null;
     tipPinned = false;
     tipVisible = false;
+    // Also drop any in-progress rename edit, so an open name draft never commits onto
+    // the newly-shown ship (commit() reads the live shipId + nameDraft). Latent today
+    // (the modal blocks switching mid-edit) but a real footgun the moment that changes.
+    editingName = false;
+    nameDraft = "";
   }
 
   // --- Derived reads ----------------------------------------------------------
