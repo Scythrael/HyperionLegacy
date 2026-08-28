@@ -132,7 +132,7 @@ import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
 // resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
-import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, installedDronesForPatrol, defaultSystemDurabilityForHull, type CombatHullType } from "./combat/bridge";
+import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, installedDronesForPatrol, defaultSystemDurabilityForHull, foldedPlayerDefense, type CombatHullType } from "./combat/bridge";
 // Combat 1.0 (Unit 1.4): WeaponId types the per-hull Standard-Issue weapon loadout the combat
 // baseline seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
 import type { WeaponId } from "./combat/weapons";
@@ -1689,6 +1689,14 @@ export function tickCaptainPatrol(
   // covers every cycle this call advances, exactly like `def` above.
   const patrolKey = captain.mission.patrolKey; // captured once; also keys the completed-route tally below
   const lootTable = lootTableForPatrol(patrolKey);
+  // Combat-defense BLOCKER fix (2026-08-27): the ship's FOLDED defensive carry-pools (hullMax /
+  // shieldMax / shieldRecharge), derived from the SAME installed-gear fold the wave combatant fights
+  // with (foldedPlayerDefense -> shipToCombatant). The between-wave shield regen (its cap clamp) and
+  // the limp-home damage below MUST use these, not the raw authored SHIP_TYPES stats, or a crafted
+  // emitter's above-authored shield is stripped on the first quiet tick and a crafted-plated hull's
+  // limp damage goes negative. Computed once (pure). For a Standard-Issue set (or absent gear) this
+  // folds byte-identically to the authored stats, so parity + SI fixtures do not move.
+  const foldedDefense = foldedPlayerDefense(shipDef, installedGear);
 
   // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
   // never touch the input), and playerDrones is DEEP-cloned so the between-wave
@@ -1876,12 +1884,15 @@ export function tickCaptainPatrol(
         // DEFEAT (Combat 0.13.0, Phase 11, design S13): the patrol does NOT end instantly.
         // The wreck must LIMP HOME first (2x the return leg), so instead of ending we switch
         // to the "limpingHome" phase and seed the countdown. Capture the hull DAMAGE now = the
-        // hull points that must be RESTORED to reach full again = hullIntegrity minus the
-        // surviving hull. The surviving hull is floored at 0 because a killing blow can drive
-        // the carry-state hull NEGATIVE (overkill), and you cannot repair "more than a full
+        // hull points that must be RESTORED to reach full again = the FOLDED hull max (bare frame +
+        // installed plating, the same pool the wave combatant fought with) minus the surviving hull.
+        // Using the folded max (not the raw authored hullIntegrity) is the BLOCKER fix: a crafted-
+        // plated ship fights above authored hull, so an authored-based subtraction went NEGATIVE for
+        // it (a negative repairDamage). The surviving hull is floored at 0 because a killing blow can
+        // drive the carry-state hull NEGATIVE (overkill), and you cannot repair "more than a full
         // hull", so overkill past 0 must not inflate the repair. On a normal loss the hull is
-        // <= 0, so this is the FULL hull integrity; a rare cap-tiebreak loss with residual hull
-        // yields less. Always in [0, hullIntegrity]. The ship is flagged damaged only when the
+        // <= 0, so this is the FULL folded hull; a rare cap-tiebreak loss with residual hull
+        // yields less. Always in [0, foldedDefense.hullMax]. The ship is flagged damaged only when the
         // limp completes (the limp branch above), NOT here. A defeat is NEVER auto-repeated
         // (design), the limp just ends the mission when it lands. `continue` (not break): the
         // loop keeps advancing so the limp countdown runs; if `remaining` is exhausted first,
@@ -1889,13 +1900,16 @@ export function tickCaptainPatrol(
         mission.wavesLost += 1;
         mission.phase = "limpingHome";
         mission.limpTicksRemaining = limpHomeTicks;
-        mission.limpDamage = shipDef.hullIntegrity - Math.max(0, mission.playerHull);
+        mission.limpDamage = foldedDefense.hullMax - Math.max(0, mission.playerHull);
         continue;
       }
     } else {
       // ---- BETWEEN-WAVE RECOVERY (no battle this route tick, design S14). -------------
-      // Shields regen toward capacity at the hull's per-tick recharge; HULL DOES NOT
-      // REGEN (attrition). Drones replenish (carrier only; the array is empty otherwise,
+      // Shields regen toward the FOLDED shield cap at the FOLDED per-tick recharge (both from
+      // foldedDefense: the SAME installed-gear pools the wave combatant fights with, NOT the raw
+      // authored stats: a crafted emitter recharges above authored cap, so an authored clamp
+      // here stripped it away); HULL DOES NOT REGEN (attrition). Drones replenish (carrier only;
+      // the array is empty otherwise,
       // so this loop is a no-op for a non-carrier). replenishDrones only touches
       // disrupted/destroyed drones, so an undamaged screen is untouched. Parity-safe under
       // batching BY CONSTRUCTION: this runs once per whole-tick crossing, and we advance
@@ -1903,9 +1917,9 @@ export function tickCaptainPatrol(
       // Shield regen via the SHARED leaf (combat/patrolWave.ts) the display replay also
       // applies, so the between-wave carry-state stays byte-identical across the two paths.
       mission.playerShield = regenPatrolShield(
-        shipDef.shieldCapacity,
+        foldedDefense.shieldMax,
         mission.playerShield,
-        shipDef.shieldRecharge,
+        foldedDefense.shieldRecharge,
       );
       for (const squadron of mission.playerDrones) {
         replenishDrones(squadron, squadron.droneReplenishRate);
@@ -3180,6 +3194,13 @@ function freshPatrolMission(args: {
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
   // could disagree with patrolKey).
   const def = PATROLS[patrolKey];
+  // Combat-defense BLOCKER fix (2026-08-27): seed the FULL hull/shield carry-pools from the FOLDED
+  // installed-gear defense (foldedPlayerDefense -> shipToCombatant), NOT the raw authored SHIP_TYPES
+  // stats. A crafted-plated hull / crafted emitter fights above authored, so an authored seed opened
+  // wave 1 below its real pool and the first buildPatrolPlayerCombatant override clamped it there.
+  // For a Standard-Issue set (or absent gear) this folds byte-identically to the authored stats, so
+  // no SI patrol fixture / parity outcome moves.
+  const folded = foldedPlayerDefense(shipDef, installedGear);
   return {
     kind: "patrol",
     patrolKey,
@@ -3195,14 +3216,15 @@ function freshPatrolMission(args: {
     nextWaveIndex: 0,
     wavesWon: 0,
     wavesLost: 0,
-    // Carry-state seeded to FULL: hull/shield from the hull's combat stats, and the drones the ship
+    // Carry-state seeded to FULL: hull/shield from the FOLDED installed-gear defense (folded above,
+    // the SAME pool the wave combatant fights with), and the drones the ship
     // actually carries. Combat 1.0 (Unit 2.3b): seed from the ship's INSTALLED droneBay pods
     // (installedDronesForPatrol) so a CRAFTED pod's squadron reaches the patrol; fall back to the hull
     // DEFAULT screen only when no gear was supplied (a direct test call), which for a Standard-Issue set
     // is byte-identical. The drone id prefix is keyed to the master seed so ids are stable + unique per
     // patrol cycle, and identical between this live seed and the display replay's (structural parity).
-    playerHull: shipDef.hullIntegrity,
-    playerShield: shipDef.shieldCapacity,
+    playerHull: folded.hullMax,
+    playerShield: folded.shieldMax,
     playerDrones: installedGear
       ? installedDronesForPatrol(installedGear, `patrol-${masterSeed}-p`)
       : defaultDronesForHull(hullType, `patrol-${masterSeed}-p`),

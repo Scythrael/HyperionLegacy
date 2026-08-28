@@ -787,6 +787,50 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 }
 
 // ---------------------------------------------------------------------------
+// foldedPlayerDefense: the player ship's FOLDED defensive carry-pools (hullMax / shieldMax /
+// shieldRecharge), derived from the SAME installed-gear fold the sim actually fights with
+// (combat-defense BLOCKER fix, 2026-08-27).
+//
+// WHY THIS EXISTS. The in-battle combatant reads its hull / shield / recharge OFF installed gear
+// (shipToCombatant: hullMax = innateHullArmor + plating.hullStrength; shieldMax = emitterCap *
+// shieldCapEffectiveness; shieldRecharge = emitterRecharge * shieldRechargeEffectiveness). But every
+// PERSISTENT patrol carry surface (the wave-1 hull/shield seed, the between-wave shield regen and its
+// cap clamp, the limp-home damage) and the dispatch forecast previously seeded from the RAW AUTHORED
+// SHIP_TYPES stats, silently negating crafted plating/emitters across a patrol and biasing the
+// forecast pessimistic. This ONE helper folds those pools the SAME way the sim does, so the live loop,
+// the display replay, the forecast, and the dispatch card all seed from ONE source of truth and can
+// never drift apart again.
+//
+// HOW: it builds the ship's fresh combatant via shipToCombatant (the EXACT fold the sim uses, the same
+// "read a fresh combatant's ceilings" posture defaultSystemDurabilityForHull already uses for the
+// durability seed) and reads its hullMax / shieldMax / shieldRecharge. Reusing shipToCombatant rather
+// than re-deriving the fold math inline is precisely what makes drift impossible.
+//
+// BYTE-IDENTITY FLOOR: a Standard-Issue set folds to the authored stats exactly (the calibration in
+// hullDefenseComposition: innateHullArmor + SI_PLATING_HP == hullIntegrity; REF * (authored / REF) ==
+// authored), and installedGear ABSENT falls to shipToCombatant's authored (pre-1.4) path, so every
+// existing SI fixture + the parity gate are unchanged BY CONSTRUCTION. hullType is intentionally
+// omitted: it drives only weapons / drones, which do not affect the hull/shield/recharge DEFENSE
+// pools this helper returns. PURE: reads only the passed stats + gear, mutates nothing.
+export interface FoldedPlayerDefense {
+	hullMax: number;
+	shieldMax: number;
+	shieldRecharge: number;
+}
+export function foldedPlayerDefense(
+	stats: CombatShipStats,
+	installedGear?: EquipmentInstance[],
+): FoldedPlayerDefense {
+	// A throwaway id/team: nothing is fought here, we only read the folded defense ceilings.
+	const combatant = shipToCombatant({ id: "defense-fold", team: "player", stats, installedGear });
+	return {
+		hullMax: combatant.hullMax,
+		shieldMax: combatant.shieldMax,
+		shieldRecharge: combatant.shieldRecharge,
+	};
+}
+
+// ---------------------------------------------------------------------------
 // sampleLoadout -- an illustrative 3-weapon loadout spanning all three families.
 //
 // ⚠️ THIS IS A DEV / TEST STAND-IN, NOT REAL FITMENT. The game does not yet mount

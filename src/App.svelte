@@ -240,6 +240,7 @@
     combatHullTypeOf,
     installedDronesForPatrol,
     defaultSystemDurabilityForHull,
+    foldedPlayerDefense,
     type CombatHullType,
   } from "./lib/game/combat/bridge";
   import { resolveBattle } from "./lib/game/combat/resolveBattle";
@@ -2274,7 +2275,17 @@
     // forecast-scoped constant. Each sample's masterSeed is FORECAST_SEED + i, a deterministic
     // sweep off the fixed forecast seed, so the band is stable and never draws from live state.
     const startDrones = installedDronesForPatrol(installedGear, `forecast-${patrolKey}-p`);
-    const startSystemDurability = defaultSystemDurabilityForHull(hullType, shipDef);
+    // Combat-defense BLOCKER fix (2026-08-27): THREAD installedGear into the durability seed. The live
+    // seed (tick.ts freshPatrolMission) and the replay (patrolReplay.ts) both pass gear here; omitting
+    // it clamped a crafted quality-4/5 weapon (durabilityMax up to 200) to the hull-default 100 on the
+    // forecast's wave 1, opening it Degraded (<=60%) so the forecast fired at reduced damage while the
+    // real patrol fired at full, biasing the band pessimistic. For a Standard-Issue set this is byte-
+    // identical to the absent path (bridge.ts documents that equality on the live seed).
+    const startSystemDurability = defaultSystemDurabilityForHull(hullType, shipDef, installedGear);
+    // The FOLDED full hull/shield start pools (the SAME installed-gear fold the sim fights with, and the
+    // SAME seed freshPatrolMission uses live), NOT the raw authored SHIP_TYPES stats. Byte-identical for
+    // a Standard-Issue set; a crafted-plated/emitter ship now forecasts from its real folded pools.
+    const startDefense = foldedPlayerDefense(shipDef, installedGear);
     let wins = 0;
     for (let i = 0; i < DEFAULT_SAMPLES; i++) {
       const result = resolvePatrolWaves({
@@ -2286,8 +2297,8 @@
         masterSeed: FORECAST_SEED + i,
         factionId: def.factionId,
         def,
-        startHull: shipDef.hullIntegrity,
-        startShield: shipDef.shieldCapacity,
+        startHull: startDefense.hullMax,
+        startShield: startDefense.shieldMax,
         startDrones,
         startSystemDurability,
       });
@@ -8013,6 +8024,12 @@
                 {@const selectedShip = selectedCaptain !== null ? state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null : null}
                 {@const selectedShipDef = selectedShip ? SHIP_TYPES[selectedShip.typeKey] : null}
                 {@const isCombatHull = selectedShip ? combatHullTypeOf(selectedShip.typeKey) !== null : false}
+                <!-- Combat-defense BLOCKER fix (2026-08-27): the ship's FOLDED hull/shield readout, from
+                     the SAME installed-gear fold the sim actually fights with (foldedPlayerDefense off
+                     equippedFor), so the card shows the real pools a crafted-plated hull / crafted emitter
+                     brings to the patrol, not the raw authored SHIP_TYPES stats. Byte-identical for a
+                     Standard-Issue set. null when no ship / hull is assigned. -->
+                {@const selectedShipDefense = selectedShip !== null && selectedShipDef !== null ? foldedPlayerDefense(selectedShipDef, equippedFor(state, selectedShip.id)) : null}
                 <!-- The dispatch GATE for the selected captain, canDispatchPatrol (the ONE
                      source of truth dispatchCaptainOnPatrol also consults). null until a
                      captain is picked; the Dispatch button + reason text below read it, so
@@ -8078,8 +8095,8 @@
                     <div class="mission-col-label" style="margin-top: 8px">Ship (from the captain)</div>
                     {#if selectedShipDef !== null}
                       <div class="mission-req-line">
-                        {selectedShipDef.label}: hull {formatNumber(selectedShipDef.hullIntegrity)}
-                        &middot; shield {formatNumber(selectedShipDef.shieldCapacity)}
+                        {selectedShipDef.label}: hull {formatNumber(selectedShipDefense ? selectedShipDefense.hullMax : selectedShipDef.hullIntegrity)}
+                        &middot; shield {formatNumber(selectedShipDefense ? selectedShipDefense.shieldMax : selectedShipDef.shieldCapacity)}
                         &middot; {selectedShipDef.weaponHardpoints} guns
                       </div>
                       <div class="mission-req-line" style="color: {isCombatHull ? 'var(--color-success)' : 'var(--color-danger)'}">

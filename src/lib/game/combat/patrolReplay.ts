@@ -53,6 +53,7 @@ import {
   combatHullTypeOf,
   installedDronesForPatrol,
   defaultSystemDurabilityForHull,
+  foldedPlayerDefense,
   type CombatHullType,
   type CombatShipStats,
 } from "./bridge";
@@ -215,6 +216,15 @@ export interface ResolvePatrolWavesResult {
 export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatrolWavesResult {
   const { playerId, stats, hullType, stance, masterSeed, factionId, def } = input;
 
+  // Combat-defense BLOCKER fix (2026-08-27): the FOLDED shield cap + recharge for the between-wave
+  // regen below, derived from the SAME installed-gear fold the wave combatant fights with
+  // (foldedPlayerDefense -> shipToCombatant), NOT the raw authored SHIP_TYPES stats. A crafted emitter
+  // recharges above authored cap, so clamping the regen to authored stripped it away. The live tick
+  // loop folds the identical value (tick.ts foldedDefense), keeping the two paths byte-identical. For a
+  // Standard-Issue set (or the low-level tests' absent gear) this folds to the authored stats exactly,
+  // so no existing replay/parity outcome moves.
+  const foldedDefense = foldedPlayerDefense(stats, input.installedGear);
+
   // The wave schedule: a pure function of the master seed + def params, IDENTICAL to
   // the array freshPatrolMission persisted at dispatch (same call), so the replay's
   // wave ticks match the live cycle's exactly.
@@ -257,7 +267,7 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
     // recovery that many times so the carry-state entering this wave is byte-identical.
     const recoveryTicks = routeTick - prevWaveTick - 1;
     for (let r = 0; r < recoveryTicks; r++) {
-      carryShield = regenPatrolShield(stats.shieldCapacity, carryShield, stats.shieldRecharge);
+      carryShield = regenPatrolShield(foldedDefense.shieldMax, carryShield, foldedDefense.shieldRecharge);
       for (const squadron of carryDrones) {
         replenishDrones(squadron, squadron.droneReplenishRate);
       }
@@ -412,6 +422,13 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   // default-screen seed. Freshly built, so no input is shared.
   const startDrones = installedDronesForPatrol(installedGear, `patrol-${mission.masterSeed}-p`);
 
+  // Combat-defense BLOCKER fix (2026-08-27): the FULL hull/shield start pools folded from the ship's
+  // INSTALLED gear (the SAME pool the wave combatant fights with, and the SAME seed freshPatrolMission
+  // uses live), NOT the raw authored SHIP_TYPES stats. A Standard-Issue set folds to the authored stats
+  // exactly, so an SI replay is byte-identical to before; a crafted-plated/emitter ship now opens the
+  // replay at its real folded pools, matching the live cycle it is reproducing.
+  const startDefense = foldedPlayerDefense(shipDef, installedGear);
+
   const resolved = resolvePatrolWaves({
     playerId: ship.id,
     stats: shipDef,
@@ -423,8 +440,8 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
     masterSeed: mission.masterSeed,
     factionId: mission.factionId,
     def,
-    startHull: shipDef.hullIntegrity,
-    startShield: shipDef.shieldCapacity,
+    startHull: startDefense.hullMax,
+    startShield: startDefense.shieldMax,
     startDrones,
     // FULL system durability at the cycle's opening (Phase 12b Unit B2): the replay reconstructs
     // from the initial no-wear state, exactly as freshPatrolMission seeded the live cycle, so
