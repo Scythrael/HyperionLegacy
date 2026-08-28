@@ -15,7 +15,7 @@
 // ============================================================================
 
 import type { CombatEvent, Combatant, WeaponFamily } from "./types";
-import { BAND_LONG } from "./positioning";
+import { BAND_LONG, effectiveHp } from "./positioning";
 import type { SquadronStatusSummary } from "./drones";
 import { STATUS_EFFECT_DEFS } from "./statusEffects";
 // Type-only import (no runtime dependency, so no import cycle): the mobile roster
@@ -176,15 +176,30 @@ export function logSpeedToMs(speed: LogSpeed): number {
 }
 
 // ---------------------------------------------------------------------------
-// targetEnemyId: which living enemy the sim is focus-firing this round.
+// targetEnemyId: which living enemy the sim is focus-firing this round, for the
+// mobile roster's TARGET marker.
 //
-// The battle sim focus-fires the enemy with the LOWEST current hull, so the
-// mobile roster marks that ship as the TARGET. This is a pure read of the wave's
-// enemy combatants against the current folded snapshot: each enemy's CURRENT hull
-// is its snapshot hull (falling back to its wave-start hull before the first
-// snapshot exists, or when a snapshot never carried a hull for it). A destroyed
-// enemy (hull <= 0) can never be the target. Ties break to the FIRST enemy in
-// wave order (stable), matching the deterministic sim's own turn-order tiebreak.
+// The battle sim's target policy (positioning.ts selectTarget) focus-fires the
+// living enemy with the LOWEST EFFECTIVE HP. Shields soak before hull, so "how
+// hard to kill right now" is shield + hull (design S6), NOT bare hull. An exact
+// tie breaks to the LOWEST id (order-independent determinism). This marker
+// mirrors that same criterion off the folded snapshot, reusing the sim's
+// effectiveHp so the two share ONE definition and never drift: a partly-shielded
+// enemy is no longer marked just because its raw hull number is the smallest.
+//
+// ONE criterion the sim applies that the display snapshot CANNOT reproduce: the
+// sim PREFERS an enemy currently in weapon range over a lower-HP enemy still out
+// of range. That needs per-combatant positions plus the shooter's weapon ranges,
+// which the snapshot does not carry (only hull / shield / effects / the range to
+// each combatant's OWN target). selectTarget is therefore not cleanly callable
+// from the view layer, so its effective-HP + id criterion is mirrored here
+// instead. Current patrol content fields exactly one enemy per wave, where the
+// target is unambiguous and the marker is exact; a hypothetical multi-enemy wave
+// with an in-range split is the only case where the marker could still differ.
+//
+// Each enemy's CURRENT hull / shield is its snapshot value (falling back to its
+// wave-start pool before the first snapshot exists, or when a snapshot never
+// carried one). A destroyed enemy (hull <= 0) can never be the target.
 //
 // RETURNS the target enemy's id, or null when every enemy is destroyed (or the
 // wave has no enemies).
@@ -194,15 +209,20 @@ export function targetEnemyId(
   snap: RoundSnapshot | null,
 ): string | null {
   let bestId: string | null = null;
-  let bestHull = Number.POSITIVE_INFINITY;
+  let bestHp = Number.POSITIVE_INFINITY;
   for (const enemy of enemies) {
     // Nullish (null snapshot value OR no snapshot yet) falls back to the wave-start
-    // hull, so a never-targeted enemy still reports its opening pool.
-    const hull = snap?.combatants[enemy.id]?.hull ?? enemy.hull;
-    if (hull <= 0) continue; // destroyed, not a valid focus-fire target
-    // Strict < keeps the FIRST enemy on a tie (stable, matches the sim tiebreak).
-    if (hull < bestHull) {
-      bestHull = hull;
+    // pool, so a never-targeted enemy still reports its opening hull / shield.
+    const curHull = snap?.combatants[enemy.id]?.hull ?? enemy.hull;
+    if (curHull <= 0) continue; // destroyed, not a valid focus-fire target
+    const curShield = snap?.combatants[enemy.id]?.shield ?? enemy.shield;
+    // Reuse the sim's effectiveHp (shield + hull) off the current pools so the
+    // marker and the sim agree on "lowest effective HP" by construction.
+    const hp = effectiveHp({ ...enemy, hull: curHull, shield: curShield });
+    // Lower effective HP wins; on an exact tie the LOWER id wins, matching
+    // selectTarget's deterministic, order-independent isBetterTarget tiebreak.
+    if (hp < bestHp || (hp === bestHp && bestId !== null && enemy.id < bestId)) {
+      bestHp = hp;
       bestId = enemy.id;
     }
   }

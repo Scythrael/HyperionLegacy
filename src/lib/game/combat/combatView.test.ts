@@ -159,16 +159,25 @@ describe("logSpeedToMs", () => {
   });
 });
 
-// A minimal enemy Combatant: targetEnemyId / enemyWaveTally read only id + hull,
-// so the rest stays a cast rather than a full literal.
-function enemy(id: string, hull: number): Combatant {
-  return { id, hull } as unknown as Combatant;
+// A minimal enemy Combatant: targetEnemyId / enemyWaveTally read only id + hull +
+// shield (shield now counts toward effective HP), so the rest stays a cast rather
+// than a full literal. shield defaults to 0 for the hull-only cases.
+function enemy(id: string, hull: number, shield = 0): Combatant {
+  return { id, hull, shield } as unknown as Combatant;
 }
-// A minimal RoundSnapshot carrying only the per-enemy hulls the helpers read.
+// A minimal RoundSnapshot carrying the per-enemy hulls the helpers read (shield 0).
 function snapOf(hulls: Record<string, number>): RoundSnapshot {
   const combatants: RoundSnapshot["combatants"] = {};
   for (const [id, hull] of Object.entries(hulls)) {
-    combatants[id] = { id, hull } as unknown as RoundSnapshot["combatants"][string];
+    combatants[id] = { id, hull, shield: 0 } as unknown as RoundSnapshot["combatants"][string];
+  }
+  return { round: 0, combatants };
+}
+// A RoundSnapshot carrying BOTH hull and shield per enemy, for the effective-HP cases.
+function snapOfHS(entries: Record<string, { hull: number; shield: number }>): RoundSnapshot {
+  const combatants: RoundSnapshot["combatants"] = {};
+  for (const [id, { hull, shield }] of Object.entries(entries)) {
+    combatants[id] = { id, hull, shield } as unknown as RoundSnapshot["combatants"][string];
   }
   return { round: 0, combatants };
 }
@@ -179,18 +188,33 @@ describe("targetEnemyId", () => {
   it("returns null when there are no enemies", () => {
     expect(targetEnemyId([], snapOf({}))).toBe(null);
   });
-  it("falls back to wave-start hull before any snapshot (lowest wins)", () => {
-    // No snapshot: foe-b and foe-c tie at 120, foe-b wins on stable order.
+  it("falls back to wave-start pool before any snapshot (lowest effective HP wins)", () => {
+    // No snapshot: foe-b and foe-c tie at 120 effective HP; the LOWER id (foe-b) wins.
     expect(targetEnemyId(enemies, null)).toBe("foe-b");
   });
-  it("marks the living enemy with the LOWEST current snapshot hull", () => {
-    // foe-a chewed down to 40 is now the lowest-hull living ship.
+  it("marks the living enemy with the LOWEST current effective HP", () => {
+    // foe-a chewed down to 40 (shield 0) is now the lowest-effective-HP living ship.
     expect(targetEnemyId(enemies, snapOf({ "foe-a": 40, "foe-b": 120, "foe-c": 120 }))).toBe(
       "foe-a",
     );
   });
+  it("counts shield toward effective HP (shields soak before hull)", () => {
+    // foe-b has the lowest HULL (60) but a 100 shield, so its effective HP is 160;
+    // foe-a at 100 hull / 0 shield is effective HP 100 and is the real focus target.
+    // Bare-hull logic would wrongly mark foe-b.
+    const es = [enemy("foe-a", 100), enemy("foe-b", 60)];
+    expect(
+      targetEnemyId(es, snapOfHS({ "foe-a": { hull: 100, shield: 0 }, "foe-b": { hull: 60, shield: 100 } })),
+    ).toBe("foe-a");
+  });
+  it("breaks an effective-HP tie to the LOWEST id, not wave order", () => {
+    // Wave order is [zeta, alpha] but they tie at 50 effective HP, so the lower id
+    // (alpha) is the target, matching selectTarget's order-independent tiebreak.
+    const es = [enemy("zeta", 50), enemy("alpha", 50)];
+    expect(targetEnemyId(es, null)).toBe("alpha");
+  });
   it("skips destroyed enemies (hull <= 0) when picking the target", () => {
-    // foe-b is destroyed; the lowest LIVING hull is foe-c at 90.
+    // foe-b is destroyed; the lowest LIVING effective HP is foe-c at 90.
     expect(
       targetEnemyId(enemies, snapOf({ "foe-a": 200, "foe-b": 0, "foe-c": 90 })),
     ).toBe("foe-c");
