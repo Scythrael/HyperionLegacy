@@ -177,6 +177,40 @@ describe("dispatchCaptainOnMission, consumes canDispatch (reason exposed + fuel 
     expect(next.captains[0].mission).toBe(null);
   });
 
+  // fix (1-ULP negative fuel from Decimal/number netting, 2026-08-27): the dispatch fuel
+  // netting is `state.fuel.plus(shortfall).minus(need)`, where `shortfall` is a PLAIN JS
+  // NUMBER (need - fuel.toNumber()). On a short tank that mixes number + Decimal arithmetic and
+  // can leave a tiny NEGATIVE residue (~ -1e-13) instead of an exact 0. Decimal.max(0, ...) now
+  // floors it. This fixture (a fractional `need` via a specific engineEfficiency + a short tank)
+  // genuinely triggers the residue, proven NON-VACUOUS by the raw-netting assertion below.
+  it("floors the short-tank fuel netting at 0 (no 1-ULP negative)", () => {
+    const state = freshState();
+    state.fuel = new Decimal(13); // SHORT (need is ~45.4 below), so the auto-buy netting path runs
+    state.credits = new Decimal(100_000); // plenty to auto-buy the affordable shortfall
+    // A fractional need is what exposes the number/Decimal mismatch. need = 50 / (1 + eff);
+    // this eff makes need = 45.44570419936485, which nets -1e-13 against a 13-fuel tank.
+    const TRIGGER_EFF = 0.10021400000000001;
+    const original = SHIP_TYPES.generalFreighter.engineEfficiency;
+    try {
+      SHIP_TYPES.generalFreighter.engineEfficiency = TRIGGER_EFF;
+      const need = fuelNeeded(MISSIONS.shortOreRun, SHIP_TYPES.generalFreighter);
+      // NON-VACUITY GUARD: replicate the exact PRE-floor netting and confirm it really is
+      // negative for this fixture. If a constant retune ever makes this non-negative, THIS
+      // assertion fails loudly so the fixture is refreshed rather than silently going vacuous.
+      const rawNetting = new Decimal(13).plus(need - 13).minus(need);
+      expect(rawNetting.lt(0)).toBe(true); // the bug this test guards genuinely reproduces here
+      expect(rawNetting.gte(new Decimal("-1e-9"))).toBe(true); // and it is a 1-ULP residue, not a real deficit
+
+      const { next, success } = dispatchCaptainOnMission(state, 1, "shortOreRun");
+      expect(success).toBe(true);
+      // The floor: the tank lands at EXACTLY 0, never the raw sub-zero residue.
+      expect(next.fuel.gte(0)).toBe(true);
+      expect(next.fuel.eq(0)).toBe(true);
+    } finally {
+      SHIP_TYPES.generalFreighter.engineEfficiency = original; // restore the shared table
+    }
+  });
+
   it("surfaces the `locked` reason (Task-6 unlock gate still fires via canDispatch)", () => {
     // USER REVISION: no mission is locked at the level-1 seed, so drop missionControl
     // below the ore run's unlockLevel 1 to trigger the still-live `locked` code path.

@@ -3161,11 +3161,15 @@ export function dispatchCaptainOnMission(
   // (fuel + shortfall - need), i.e. 0 on a short tank or (fuel - need) on a covered one. Credits:
   // drop by the auto-buy cost (0 when the tank covered it, so .minus(0) is a value no-op). Both
   // guaranteed >= 0 by canDispatch (fuelCapacity + fuelEmpty gates passed).
+  // 1-ULP FLOOR (fix: negative fuel from Decimal/number netting, 2026-08-27): `shortfall` is a
+  // plain JS number (need - state.fuel.toNumber()), so on a short tank the netting mixes a
+  // number with Decimal fuel/need and can leave a tiny NEGATIVE residue (~ -1e-15) instead of an
+  // exact 0. Decimal.max(0, ...) floors it so the tank can never round to a sub-zero balance.
   return {
     next: {
       ...state,
       captains,
-      fuel: state.fuel.plus(shortfall).minus(need),
+      fuel: Decimal.max(0, state.fuel.plus(shortfall).minus(need)),
       credits: state.credits.minus(cost),
     },
     success: true,
@@ -3610,11 +3614,14 @@ export function dispatchCaptainOnPatrol(
   // trip (nets to 0 on a short tank, fuel-need on a covered one); drop credits by the
   // auto-buy cost (0 when the tank covered it). Both guaranteed >= 0 by the passed gate.
   // nextPatrolSeed increments so this master seed is never reused.
+  // 1-ULP FLOOR (fix: negative fuel from Decimal/number netting, 2026-08-27): same as
+  // dispatchCaptainOnMission, `shortfall` is a plain JS number so the short-tank netting can
+  // leave a tiny negative residue; Decimal.max(0, ...) floors the tank at 0.
   return {
     next: {
       ...state,
       captains,
-      fuel: state.fuel.plus(shortfall).minus(need),
+      fuel: Decimal.max(0, state.fuel.plus(shortfall).minus(need)),
       credits: state.credits.minus(cost),
       nextPatrolSeed: state.nextPatrolSeed + 1,
     },
