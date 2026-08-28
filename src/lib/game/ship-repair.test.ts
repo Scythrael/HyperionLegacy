@@ -39,8 +39,10 @@ import {
   type ShipTypeKey,
   type PatrolMissionState,
   type TimedProcess,
+  type EquipmentInstance,
   seedStandardIssueForShip,
 } from "./model";
+import { foldedPlayerDefense } from "./combat/bridge"; // folded-hull-fallback consistency check
 import {
   dispatchCaptainOnPatrol,
   dispatchCaptainOnMission,
@@ -276,12 +278,46 @@ describe("ship repair timed process", () => {
     expect(shipRepairDurationTicks(heavier)).toBeGreaterThan(shipRepairDurationTicks(ship));
   });
 
-  it("shipRepairDurationTicks falls back to full hull integrity when repairDamage is absent", () => {
+  it("shipRepairDurationTicks falls back to full hull integrity when repairDamage is absent (no gear known)", () => {
     // Defensive: a `damaged` ship with no capture (a hand-edited/legacy save) is still repairable.
+    // With NO installed gear passed (the pure ship-only overload), the fallback keeps the authored
+    // hullIntegrity, byte-identical to before the folded-fallback fix.
     const ship: ShipInstance = { id: "ship-1", typeKey: "destroyer", assignedCaptainId: null, damaged: true };
     expect(shipRepairDurationTicks(ship)).toBe(
       REPAIR_BASE_TICKS + Math.ceil(SHIP_TYPES.destroyer.hullIntegrity * REPAIR_TICKS_PER_HULL),
     );
+  });
+
+  it("shipRepairDurationTicks fallback folds INSTALLED plating (upgraded hull -> longer repair)", () => {
+    // fix (2026-08-27): repairDamage is captured from the FOLDED hull max (foldedPlayerDefense),
+    // so its no-capture fallback must fold installed plating too when the gear is known (as
+    // processShipRepairs now passes it). An UPGRADED hull-plating piece raises hullMax above the
+    // authored hullIntegrity, so the fallback repair-time scales to the real, bigger hull.
+    const plating: EquipmentInstance = {
+      id: "big-plate-1",
+      slotType: "hullPlating",
+      rarity: "standard",
+      ascension: "none",
+      quality: 0,
+      iLevel: 1,
+      blueprintKey: null,
+      implicitStats: {},
+      rolledStats: { hullStrength: 300 }, // >> SI plating (100), so folded hullMax > hullIntegrity
+      mass: 0,
+      powerDraw: 0,
+      durabilityMax: 100,
+      durability: 100,
+      fittedToShipId: "ship-1",
+    };
+    const ship: ShipInstance = { id: "ship-1", typeKey: "destroyer", assignedCaptainId: null, damaged: true }; // NO capture
+    const foldedMax = foldedPlayerDefense(SHIP_TYPES.destroyer, [plating]).hullMax;
+    expect(foldedMax).toBeGreaterThan(SHIP_TYPES.destroyer.hullIntegrity); // upgraded plating => bigger hull
+    // The fallback sizes to the FOLDED max, not the smaller authored hullIntegrity.
+    expect(shipRepairDurationTicks(ship, [plating])).toBe(
+      REPAIR_BASE_TICKS + Math.ceil(foldedMax * REPAIR_TICKS_PER_HULL),
+    );
+    // Strictly longer than the unfolded (authored-hull) fallback the pure overload still gives.
+    expect(shipRepairDurationTicks(ship, [plating])).toBeGreaterThan(shipRepairDurationTicks(ship));
   });
 
   it("processShipRepairs auto-starts ONE shipRepair job for a damaged hull, sized to the damage", () => {

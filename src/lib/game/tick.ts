@@ -4780,12 +4780,23 @@ export function startShipBuild(
 // FIXED at process creation (like shipBuildDurationTicks), so a repair job is closed-form:
 // resolveProcesses decrements the countdown by whole ticks and one big offline resolve
 // crosses zero at the identical point as many small live steps. `repairDamage` is the hull
-// points the ship lost (captured at the defeat instant); a defensive fallback to the hull's
-// full integrity keeps a `damaged` ship with no capture (a hand-edited save) repairable.
-// PURE: reads the ship + the static SHIP_TYPES table, mutates nothing.
-export function shipRepairDurationTicks(ship: ShipInstance): number {
+// points the ship lost (captured at the defeat instant); a defensive fallback keeps a
+// `damaged` ship with no capture (a hand-edited/legacy save) repairable.
+//
+// FOLDED-HULL FALLBACK (fix, 2026-08-27): `repairDamage` is captured at the defeat instant from
+// the FOLDED hull max (foldedPlayerDefense -> hullMax), so it already accounts for installed
+// plating. The fallback now mirrors that WHEN the ship's installed gear is known: processShipRepairs
+// passes equippedFor(state, ship.id), so an upgraded-plating hull's no-capture fallback is sized to
+// the FOLDED max it can actually lose, not the smaller AUTHORED hullIntegrity. With gear UNKNOWN
+// (the pure ship-only overload, used by unit tests) it keeps the authored hullIntegrity, byte-
+// identical to before. For a Standard-Issue hull the folded max EQUALS hullIntegrity, so the
+// production path is unchanged there too; only upgraded plating (a bigger real hull) differs.
+// PURE: reads the ship + static SHIP_TYPES + the passed gear, mutates nothing.
+export function shipRepairDurationTicks(ship: ShipInstance, installedGear: EquipmentInstance[] = []): number {
   const shipDef = SHIP_TYPES[ship.typeKey];
-  const damage = ship.repairDamage ?? shipDef.hullIntegrity;
+  const damage =
+    ship.repairDamage ??
+    (installedGear.length > 0 ? foldedPlayerDefense(shipDef, installedGear).hullMax : shipDef.hullIntegrity);
   return REPAIR_BASE_TICKS + Math.ceil(damage * REPAIR_TICKS_PER_HULL);
 }
 
@@ -4841,10 +4852,18 @@ export function processShipRepairs(state: GameState): GameState {
     // startProcess's affordability gate is vacuously satisfied and it just pushes the
     // "shipRepair" TimedProcess whose completion effect { clearShipDamage } lowers the ship's
     // damaged flag (resolveProcesses). The duration is FIXED here from the captured damage.
-    const { next, started } = startProcess(working, "shipRepair", {}, shipRepairDurationTicks(ship), {
-      type: "clearShipDamage",
-      shipId: ship.id,
-    });
+    // Pass the ship's INSTALLED gear so a no-capture fallback (fix, 2026-08-27) sizes to the
+    // FOLDED hull max (equipment is invariant across this pass, so read it off `state`).
+    const { next, started } = startProcess(
+      working,
+      "shipRepair",
+      {},
+      shipRepairDurationTicks(ship, equippedFor(state, ship.id)),
+      {
+        type: "clearShipDamage",
+        shipId: ship.id,
+      },
+    );
     if (!started) break; // defensive: empty inputs never reject, so this only guards a future gated repair
     // ⚠️ QUEUE-JUMP POLICY (decide deliberately WHEN repair gains a cost): today `break` is
     // pure plumbing, mirrored from processFuelPipelines where it is safe because every fuel
