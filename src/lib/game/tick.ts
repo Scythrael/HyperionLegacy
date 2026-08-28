@@ -2238,19 +2238,33 @@ export function addToInventory(
   // QUALITY ROUTING (Task 9b): `quality` is the tier the CALLER already rolled for THIS
   // deposit (rollQuality, model.ts); it defaults to 0 so every non-production caller (the
   // warehouse-cap tests, any future non-rolled add) is byte-identical to before. The
-  // rolled tier is only honored for a POSITIVE delta (real produced material). A NON-
-  // positive delta is the defensive over-cap RE-CLAMP (or a zero no-op): it must drain the
-  // total back DOWN, so it stays on bucket 0 exactly as the Task-9a code did, never writing
-  // a NEGATIVE balance into a high (possibly empty) tier and never GROWING the bucket array
-  // for a no-op. Since a production add always has amount >= 0 and the clamp keeps the prior
-  // total <= cap, the delta is non-negative in every real deposit, so the rolled tier is
-  // what actually receives produced material; the bucket-0 branch is a guard, not a path
-  // normal play reaches.
+  // rolled tier is only honored for a POSITIVE delta (real produced material).
+  //
+  // OVER-CAP RE-CLAMP DRAIN (fix: bucket-0 negative quality, 2026-08-27): a NEGATIVE delta
+  // is the defensive over-cap re-clamp (priorTotal already exceeds cap, reachable because
+  // salvage deposits go through addItemQuality directly and bypass this clamp). It must pull
+  // the total back DOWN to cap. The old code wrote the whole negative delta onto bucket 0,
+  // which drove bucket 0 NEGATIVE whenever the overflow lived in higher tiers (bucket 0 held
+  // less than the drain), leaving a permanently negative per-quality readout that never
+  // healed. We now drain the overflow LOWEST-quality-first via removeItemLowestFirst (the
+  // same tested consume helper clampInventoryToCaps uses), so the stack lands at exactly cap
+  // with NO bucket going negative, and the player keeps their best stock. The delta >= 0
+  // path is UNCHANGED and byte-identical: a positive delta lands on the rolled tier, a zero
+  // delta is a no-op on bucket 0 (never growing the array for a full-warehouse discard).
   const priorTotal = itemTotal(inventory, itemId);
   const clampedTotal = Decimal.min(priorTotal.plus(amount), cap);
   const delta = clampedTotal.minus(priorTotal);
-  const depositTier = delta.gt(0) ? quality : 0;
-  const nextInventory = addItemQuality(inventory, itemId, delta, depositTier);
+  let nextInventory: Record<string, Decimal[]>;
+  if (delta.lt(0)) {
+    // Over-cap re-clamp: drain the overflow (priorTotal - cap) lowest-quality-first so no
+    // bucket is left negative, instead of dumping the negative onto bucket 0.
+    nextInventory = removeItemLowestFirst(inventory, itemId, delta.neg());
+  } else {
+    // delta >= 0: real produced material lands on the rolled tier; a zero delta is a
+    // bucket-0 no-op (byte-identical to the pre-fix path, no array growth).
+    const depositTier = delta.gt(0) ? quality : 0;
+    nextInventory = addItemQuality(inventory, itemId, delta, depositTier);
+  }
   // DISCOVERY IS GATED ON THE REQUESTED amount (unchanged): receiving a positive
   // amount reveals the item even if the clamp discarded all of it.
   const nextDiscovered =

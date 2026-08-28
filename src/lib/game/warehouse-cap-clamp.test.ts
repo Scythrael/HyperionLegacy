@@ -102,6 +102,30 @@ describe("warehouse cap clamp, addToInventory clamps producer deposits at the it
     // An item id with no ITEMS entry fails OPEN to the uncapped sentinel.
     expect(itemCap(state, "totallyUnknownItemXYZ").equals(UNCAPPED_SENTINEL)).toBe(true);
   });
+
+  // (6) OVER-CAP RE-CLAMP without a negative bucket (fix: bucket-0 negative quality,
+  //     2026-08-27). A quality inventory can sit ABOVE cap because salvage deposits go
+  //     through addItemQuality directly and bypass this clamp. When such an over-cap
+  //     stack is next touched, addToInventory re-clamps it down to cap. The OLD code wrote
+  //     the whole negative delta onto bucket 0, driving bucket 0 negative whenever the
+  //     overflow lived in higher tiers (a permanently negative per-quality readout that
+  //     never healed). The fix drains the overflow LOWEST-quality-first, so the stack lands
+  //     at exactly cap with NO bucket negative.
+  it("re-clamps an over-cap quality inventory to cap with NO bucket going negative", () => {
+    const state = freshState();
+    const cap = itemCap(state, "commonOre");
+    // Seed OVER cap with the overflow parked in a HIGHER tier: bucket 0 holds only 5, but
+    // the overflow is 105 (total = cap + 105). The old bucket-0 write would land bucket 0
+    // at 5 - 105 = -100. A zero-amount add is enough to trigger the defensive re-clamp.
+    const inventory: Record<string, Decimal[]> = { commonOre: [new Decimal(5), cap.plus(100)] };
+    const { inventory: next } = addToInventory(inventory, ["commonOre"], "commonOre", new Decimal(0), cap);
+    // Lands EXACTLY at cap.
+    expect(itemTotal(next, "commonOre").equals(cap)).toBe(true);
+    // And CRUCIALLY: not a single bucket is negative (the regression the fix prevents).
+    for (const bucket of next["commonOre"]) {
+      expect(bucket.gte(0)).toBe(true);
+    }
+  });
 });
 
 describe("warehouse cap clamp, ⚠️ offline parity across a cap-crossing mission span", () => {
