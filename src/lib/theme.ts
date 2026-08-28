@@ -1,5 +1,9 @@
 // Theme persistence, a display preference, deliberately separate from
 // src/lib/game/save.ts's save-file contract so it survives a "delete save."
+//
+// localStorage is reached through safeStorage (guarded get/set) so a blocked or
+// full store degrades to "no persistence" (the default theme) instead of throwing.
+import { safeGetItem, safeSetItem } from "./safeStorage";
 
 export const THEME_NAMES = ["cyan", "green", "blue", "red", "white", "gray"] as const;
 export type ThemeName = (typeof THEME_NAMES)[number];
@@ -27,10 +31,10 @@ export function isValidTheme(name: string | null): name is ThemeName {
 }
 
 export function loadTheme(): ThemeName {
-  const raw = localStorage.getItem(THEME_KEY);
+  const raw = safeGetItem(THEME_KEY);
   return isValidTheme(raw) ? raw : DEFAULT_THEME;
 }
 
 export function saveTheme(name: ThemeName): void {
-  localStorage.setItem(THEME_KEY, name);
+  safeSetItem(THEME_KEY, name);
 }

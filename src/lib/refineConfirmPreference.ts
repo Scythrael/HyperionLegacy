@@ -9,14 +9,18 @@
 // turns it off either via the modal's own "Don't show this again" checkbox or the
 // System -> Options toggle, and can re-enable it from that same toggle. Default
 // TRUE mirrors loadTickBarEnabled's "absent key reads as the ON default".
+//
+// localStorage is reached through safeStorage (guarded get/set) so a blocked or
+// full store degrades to "no persistence" (the ON default) instead of throwing.
+import { safeGetItem, safeSetItem } from "./safeStorage";
 
 const REFINE_CONFIRM_ENABLED_KEY = "fleet_admiral_refine_confirm_enabled";
 
 export function loadRefineConfirmEnabled(): boolean {
-  const raw = localStorage.getItem(REFINE_CONFIRM_ENABLED_KEY);
+  const raw = safeGetItem(REFINE_CONFIRM_ENABLED_KEY);
   return raw === null ? true : raw === "true";
 }
 
 export function saveRefineConfirmEnabled(enabled: boolean): void {
-  localStorage.setItem(REFINE_CONFIRM_ENABLED_KEY, String(enabled));
+  safeSetItem(REFINE_CONFIRM_ENABLED_KEY, String(enabled));
 }

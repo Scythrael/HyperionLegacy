@@ -7,14 +7,18 @@
 // clock timers on every "N remaining" / "Duration" readout. DEFAULT FALSE:
 // most players want just the clock ("01:39 remaining"); the tick counts are an
 // opt-in power-user detail.
+//
+// localStorage is reached through safeStorage (guarded get/set) so a blocked or
+// full store degrades to "no persistence" (the OFF default) instead of throwing.
+import { safeGetItem, safeSetItem } from "./safeStorage";
 
 const TICK_COUNTS_SHOWN_KEY = "fleet_admiral_show_tick_counts";
 
 export function loadShowTickCounts(): boolean {
-  const raw = localStorage.getItem(TICK_COUNTS_SHOWN_KEY);
+  const raw = safeGetItem(TICK_COUNTS_SHOWN_KEY);
   return raw === null ? false : raw === "true";
 }
 
 export function saveShowTickCounts(enabled: boolean): void {
-  localStorage.setItem(TICK_COUNTS_SHOWN_KEY, String(enabled));
+  safeSetItem(TICK_COUNTS_SHOWN_KEY, String(enabled));
 }

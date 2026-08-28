@@ -4,7 +4,12 @@
 // default is ALL tiers (safe: confirm everything until the player opts out of the
 // low tiers). salvageNeedsConfirm(quality) answers "does salvaging an item of this
 // quality need a confirm?" for the Salvage Bay UI.
+//
+// localStorage is reached through safeStorage (guarded get/set) so a blocked or
+// full store degrades to "no persistence" (the confirm-everything default) instead
+// of throwing. The JSON.parse below was already guarded; the accessor now is too.
 import { QUALITY_TIERS } from "./game/inventory";
+import { safeGetItem, safeSetItem } from "./safeStorage";
 
 const SALVAGE_CONFIRM_QUALITIES_KEY = "fleet_admiral_salvage_confirm_qualities";
 
@@ -17,7 +22,7 @@ const SALVAGE_CONFIRM_QUALITIES_KEY = "fleet_admiral_salvage_confirm_qualities";
 const ALL_QUALITIES: number[] = Array.from({ length: QUALITY_TIERS }, (_, i) => i);
 
 export function loadSalvageConfirmQualities(): number[] {
-  const raw = localStorage.getItem(SALVAGE_CONFIRM_QUALITIES_KEY);
+  const raw = safeGetItem(SALVAGE_CONFIRM_QUALITIES_KEY);
   if (raw === null) return [...ALL_QUALITIES];
   try {
     const parsed = JSON.parse(raw);
@@ -32,7 +37,7 @@ export function loadSalvageConfirmQualities(): number[] {
 }
 
 export function saveSalvageConfirmQualities(qualities: number[]): void {
-  localStorage.setItem(SALVAGE_CONFIRM_QUALITIES_KEY, JSON.stringify(qualities));
+  safeSetItem(SALVAGE_CONFIRM_QUALITIES_KEY, JSON.stringify(qualities));
 }
 
 export function salvageNeedsConfirm(quality: number): boolean {

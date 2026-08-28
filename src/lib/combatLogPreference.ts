@@ -21,6 +21,12 @@
 // No em dashes / no "--" as punctuation (project rule): commas, periods, parens only.
 // ============================================================================
 
+// localStorage is reached through safeStorage (guarded get/set) so a blocked or full
+// store (blocked site data, Safari private mode) degrades to "no persistence" (each
+// loader's documented default) instead of throwing. This is load-bearing: these
+// loaders run at CombatView mount, so a bare throw here took the whole panel down.
+import { safeGetItem, safeSetItem } from "./safeStorage";
+
 // --- combatLogStyle: how each log line reads --------------------------------
 // "default"   -> the layered cosmetic flavor narration (flavor.ts), the current look.
 // "simplified"-> a distilled, plain damage report (attacker, weapon, shield/hull
@@ -31,13 +37,13 @@ const COMBAT_LOG_STYLE_KEY = "fleet_admiral_combat_log_style";
 export function loadCombatLogStyle(): CombatLogStyle {
   // Only the one non-default token is honored; anything else (absent, corrupt, a
   // foreign value) falls back to "default".
-  return localStorage.getItem(COMBAT_LOG_STYLE_KEY) === "simplified"
+  return safeGetItem(COMBAT_LOG_STYLE_KEY) === "simplified"
     ? "simplified"
     : "default";
 }
 
 export function saveCombatLogStyle(style: CombatLogStyle): void {
-  localStorage.setItem(COMBAT_LOG_STYLE_KEY, style);
+  safeSetItem(COMBAT_LOG_STYLE_KEY, style);
 }
 
 // --- combatDamageColors: color-code the damage numbers ----------------------
@@ -48,11 +54,11 @@ const COMBAT_DAMAGE_COLORS_KEY = "fleet_admiral_combat_damage_colors";
 
 export function loadCombatDamageColors(): boolean {
   // Default false: only the exact "true" token enables it (absent/corrupt => off).
-  return localStorage.getItem(COMBAT_DAMAGE_COLORS_KEY) === "true";
+  return safeGetItem(COMBAT_DAMAGE_COLORS_KEY) === "true";
 }
 
 export function saveCombatDamageColors(enabled: boolean): void {
-  localStorage.setItem(COMBAT_DAMAGE_COLORS_KEY, String(enabled));
+  safeSetItem(COMBAT_DAMAGE_COLORS_KEY, String(enabled));
 }
 
 // --- combatLogSpeed: log-stream cadence -------------------------------------
@@ -69,11 +75,11 @@ const COMBAT_LOG_SPEED_KEY = "fleet_admiral_combat_log_speed";
 export function loadCombatLogSpeed(): CombatLogSpeed {
   // Default "slow" (readable). Only the explicit "fast" token selects the skim pace, so an
   // absent / corrupt value falls back to the readable default.
-  return localStorage.getItem(COMBAT_LOG_SPEED_KEY) === "fast" ? "fast" : "slow";
+  return safeGetItem(COMBAT_LOG_SPEED_KEY) === "fast" ? "fast" : "slow";
 }
 
 export function saveCombatLogSpeed(speed: CombatLogSpeed): void {
-  localStorage.setItem(COMBAT_LOG_SPEED_KEY, speed);
+  safeSetItem(COMBAT_LOG_SPEED_KEY, speed);
 }
 
 // --- combatAutoScroll: pin the log to the newest line -----------------------
@@ -83,11 +89,11 @@ export function saveCombatLogSpeed(speed: CombatLogSpeed): void {
 const COMBAT_AUTO_SCROLL_KEY = "fleet_admiral_combat_auto_scroll";
 
 export function loadCombatAutoScroll(): boolean {
-  const raw = localStorage.getItem(COMBAT_AUTO_SCROLL_KEY);
+  const raw = safeGetItem(COMBAT_AUTO_SCROLL_KEY);
   // Default TRUE when unset; otherwise only the exact "false" token disables it.
   return raw === null ? true : raw !== "false";
 }
 
 export function saveCombatAutoScroll(enabled: boolean): void {
-  localStorage.setItem(COMBAT_AUTO_SCROLL_KEY, String(enabled));
+  safeSetItem(COMBAT_AUTO_SCROLL_KEY, String(enabled));
 }

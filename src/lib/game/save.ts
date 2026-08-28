@@ -18,6 +18,15 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull } from "./combat/bridg
 // clampInventoryToCaps in tick.ts for the full rationale. This is a one-way import (tick.ts
 // never imports save.ts), so it introduces no module cycle.
 import { clampInventoryToCaps, installMissingCombatBaselines } from "./tick";
+// Guarded localStorage access (blocked site data / quota-exceeded degrade to "no
+// persistence" instead of throwing). Save WRITES already sat inside try/catch; the
+// bare READ/remove accessors here (loadFromLocalStorage, exportRawSave, hasRawSave,
+// clearSave) did not, so a blocked store threw out of the load path. Routing every
+// accessor through safeStorage guards all of them WITHOUT changing save/load
+// behavior on a working store: a failed read reads as "no save" (start fresh) and a
+// failed write reports false exactly as the old catch did. One-way import (safeStorage
+// imports nothing from game/), so no module cycle.
+import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 
 export const SAVE_VERSION = 39;
 export const SAVE_KEY = "fleet_admiral_save";
@@ -1633,16 +1642,22 @@ export function deserialize(raw: string): SaveFile | null {
 
 export function saveToLocalStorage(state: GameState, createdAt: number): boolean {
   try {
-    localStorage.setItem(SAVE_KEY, serialize(state, createdAt));
-    localStorage.setItem(`${SAVE_KEY}_created_at`, String(createdAt));
-    return true;
+    // safeSetItem returns false on a blocked/full store instead of throwing. The
+    // outer try/catch is kept because serialize() (not the write) could still throw
+    // on a pathological state, in which case this reports false exactly as before.
+    // The return reflects the PRIMARY save write: a blocked store fails both writes
+    // together, so keying the boolean off the main SAVE_KEY write preserves the old
+    // "true only when the save persisted" contract.
+    const persisted = safeSetItem(SAVE_KEY, serialize(state, createdAt));
+    safeSetItem(`${SAVE_KEY}_created_at`, String(createdAt));
+    return persisted;
   } catch {
     return false;
   }
 }
 
 export function loadFromLocalStorage(): { state: GameState; lastSavedAt: number; createdAt: number } | null {
-  const raw = localStorage.getItem(SAVE_KEY);
+  const raw = safeGetItem(SAVE_KEY);
   if (!raw) return null;
   const save = deserialize(raw);
   if (!save) return null;
@@ -1662,7 +1677,7 @@ export function loadFromLocalStorage(): { state: GameState; lastSavedAt: number;
 }
 
 export function exportRawSave(): string | null {
-  return localStorage.getItem(SAVE_KEY);
+  return safeGetItem(SAVE_KEY);
 }
 
 // Distinguishes "no save exists" from "a save exists but failed to load".
@@ -1672,7 +1687,7 @@ export function exportRawSave(): string | null {
 // IS present, and therefore treat a null load as CORRUPT (offer recovery) rather
 // than EMPTY (start fresh and let autosave overwrite the unloadable raw).
 export function hasRawSave(): boolean {
-  return localStorage.getItem(SAVE_KEY) !== null;
+  return safeGetItem(SAVE_KEY) !== null;
 }
 
 // Browser-side convenience: export the raw save AND trigger a file download.
@@ -1705,16 +1720,15 @@ export function downloadRawSave(): boolean {
 export function importRawSave(raw: string): boolean {
   const save = deserialize(raw);
   if (!save) return false;
-  try {
-    localStorage.setItem(SAVE_KEY, raw);
-    localStorage.setItem(`${SAVE_KEY}_created_at`, String(save.created_at));
-    return true;
-  } catch {
-    return false;
-  }
+  // safeSetItem returns false on a blocked/full store instead of throwing (the old
+  // try/catch's job). Key the boolean off the PRIMARY save write so a blocked store,
+  // which fails both writes together, reports false exactly as before.
+  const persisted = safeSetItem(SAVE_KEY, raw);
+  safeSetItem(`${SAVE_KEY}_created_at`, String(save.created_at));
+  return persisted;
 }
 
 export function clearSave(): void {
-  localStorage.removeItem(SAVE_KEY);
-  localStorage.removeItem(`${SAVE_KEY}_created_at`);
+  safeRemoveItem(SAVE_KEY);
+  safeRemoveItem(`${SAVE_KEY}_created_at`);
 }
