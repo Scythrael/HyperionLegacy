@@ -4,9 +4,9 @@ _Last updated: 2026-08-27. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*
 
 ## Where things stand RIGHT NOW
 
-- **Branch:** `feat/combat-0.13.0`. **Staging tip = `3cf9c9e`** (pushed to `origin/staging` = devpreview). **PROD (`origin/main`) UNTOUCHED at `e282614`** (v30, 0.12.1).
+- **Branch:** `feat/combat-0.13.0`. **Staging tip = `d23e174`** (pushed to `origin/staging` = devpreview). **PROD (`origin/main`) UNTOUCHED at `e282614`** (v30, 0.12.1).
 - **SAVE_VERSION = 39.** Migrations `MIGRATIONS[37]`/`[38]` are on staging but NOT yet on prod, so still editable until the promotion. Once promoted, they freeze.
-- **Gates green at the tip:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, unrelated), `npx vitest run -t "parit"` = 101, `npx vitest run` = 1834 passed / 70 files.
+- **Gates green at the tip:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, unrelated), `npx vitest run -t "parit"` = 101, `npx vitest run` = 1872 passed / 72 files.
 
 ## What shipped to staging this session (the combat-defense epic)
 
@@ -23,13 +23,13 @@ _Last updated: 2026-08-27. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*
 
 ## Remaining before prod promotion
 
-- **Fable bug-check pass: DONE (2026-08-27).** Full-codebase sweep (5 parallel subsystem reviews + independent verification of every MAJOR+ claim). Full findings + ranked fix plan for the Opus session: `docs/plans/2026-08-27-fable-bugcheck-plan-of-attack.md`. Headlines:
-  - Migration chain 30->39 CLEAN; live-loop vs tick() drift CLEAN; gates re-verified green (0 errors / 1834 tests / parity 101).
-  - **1 BLOCKER (recommend HOLDING promotion until fixed):** patrol carry-state + forecast seeds use authored SHIP_TYPES stats, not the installed-gear fold, so crafted plating/emitters are silently negated across patrol waves and the forecast opens crafted weapons pre-worn (tick.ts 3204/1905/1892, patrolReplay.ts 260/426, patrolWave.ts 162, App.svelte 2277/2289). Parity holds (all paths consistently wrong together), which is why 1834 tests + QA missed it.
-  - 5 MAJORs: Delete-Save crash (stale activeCaptainIndex), Escape double-close (rename input + pip tooltip vs backdrop focusTrap), negative hull readout on overkill, bare localStorage crash surface, last-ship salvage softlock guard (pre-existing in prod).
-  - 15+ MINORs in the plan's P2 ledger + 4 design decisions needing the user's call (incl.: EquipmentTooltip WAS modified on-branch by user commit df53dd5 despite the preserve-unchanged constraint; bless or revert).
-  - "4 guns" observation RESOLVED: it is `weaponHardpoints` (mount capacity), not a bug; wording tweak optional.
-- **Next:** Opus fix session executes the plan (T1 first), then refreshed gates + a short on-device patrol delta-QA with crafted defense gear, then the user's **explicit go**, then ONE prod promotion (v30 -> v39). Nothing touches `main` until then.
+- **Fable bug-check pass + Opus fix session: BOTH DONE (2026-08-27).** The Fable pass (`docs/plans/2026-08-27-fable-bugcheck-plan-of-attack.md`) found 1 blocker + 5 MAJORs + a ~15-item P2 ledger; the Opus session then fixed the ENTIRE ledger. 31 commits on staging (`b479c38` T1 through `d23e174`), each one-fix-one-commit and gated (check 0, parity EXACTLY 101, suite grew 1834 -> 1872), whole session "--"-clean.
+  - **T1 BLOCKER FIXED (`b479c38`):** every patrol carry-state + forecast surface now folds installed gear via one shared helper `foldedPlayerDefense` (which calls `shipToCombatant`, the exact sim fold). Crafted plating/emitters finally work in patrols. SI byte-identical, so parity held.
+  - **All 5 MAJORs fixed:** Delete-Save crash (`3eb8d0e`), Escape ownership via capture-phase (`0224325`), negative hull display clamp (`ed70732`), localStorage hardening via a shared `safeStorage` wrapper (`772fe8a`), last-ship salvage softlock guard (`38679fa`).
+  - **All P2 items fixed** (tick.ts economy/hygiene x10, combat-sim rounding + mid-turn liveness, display/UI x8) EXCEPT the reactor gate (below). The 0.16.0 crafted-float deferral was pulled FORWARD and resolved (`d9bbf3b` rounds the fold to integers, so the "507.4" decimal is gone).
+  - **Design decisions actioned:** EquipmentTooltip `df53dd5` BLESSED (stale "unchanged" comments corrected, `cfffc13`; the file itself stays as the user left it); "4 guns" -> "4 hardpoints" (`9abf53f`); crafted-vs-SI mass asymmetry accepted for the debut, magnitude tuning deferred to 0.16.0 (SUGGESTIONS).
+- **ONE open item: reactor-gate direction (P2-3), awaiting the user's call.** The recovery trace confirmed extending the patrol reactor-block to extraction WOULD open a narrow softlock corner (single hull + empty reactor slot + no spare + empty wallet, with extraction being the only income). Claude recommends **(A) keep it patrol-only** (soften the rationale comment, zero behavior change, zero softlock risk); alternative **(B) extend + add an always-available "restore Standard-Issue reactor" action**. NOT built; A changes no behavior, so the promotion is not blocked on it.
+- **Next:** user runs the on-device crafted-gear DELTA QA on staging (patrol combat WITH crafted defensive gear installed, the exact thing T1 fixed and which the earlier QA could not have caught), gives the reactor A/B call, then the **explicit go**, then ONE prod promotion (v30 -> v39). Nothing touches `main` until then.
 
 ## Known deferrals (already logged in SUGGESTIONS.md, do NOT re-litigate)
 
