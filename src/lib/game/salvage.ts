@@ -48,9 +48,9 @@ import Decimal from "break_infinity.js";
 import type { GameState, EquipmentRarity, SalvagedMaterialItemId, SalvageLootTier } from "./model";
 import { BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS, HOMEWORLD_TALENTS, SHIP_TYPES, isStandardIssueBaseline } from "./model";
 import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
-// onMissionLock is the equipment fitment's shared "is this ship's captain out on a
+// onMissionLock is the equipment install system's shared "is this ship's captain out on a
 // mission?" guard. salvageShip (below) reuses it verbatim so a hull that is locked for
-// FITMENT mid-mission is locked for SALVAGE too, one source of truth for that lock.
+// INSTALLING mid-mission is locked for SALVAGE too, one source of truth for that lock.
 import { onMissionLock } from "./equipment";
 
 // ----------------------------------------------------------------------------
@@ -144,7 +144,7 @@ export interface SalvageRoll {
 //   Ship salvage (salvageShip), tearing a whole hull down for parts:
 //     shipNotFound         no ship in the fleet with that id
 //     shipOnMission        the ship's assigned captain is out on an active mission, so
-//                          the hull cannot be torn apart mid-flight (same lock fitment uses)
+//                          the hull cannot be torn apart mid-flight (same lock install uses)
 //     lastShip             this is the fleet's ONLY hull (state.ships.length === 1). Tearing
 //                          it down would leave the player with no ship AND all mission income
 //                          stopped, then facing a 2000-credit + FA-level-3 Shipyard re-founding:
@@ -474,7 +474,7 @@ export type SalvageShipResult =
 //
 // REJECTS (same-ref no-op + reason): the ship id must resolve to a real hull (shipNotFound),
 // its assigned captain must NOT be on an active mission (shipOnMission, via the shared
-// onMissionLock guard reused from the fitment system), and it must NOT be the fleet's ONLY
+// onMissionLock guard reused from the install system), and it must NOT be the fleet's ONLY
 // hull (lastShip). Only then is a reward computed and a new state built.
 //
 // LAST-HULL GUARD (peace-design softlock block): salvaging the fleet's only ship strands the
@@ -495,9 +495,9 @@ export function salvageShip(
   if (!ship) {
     return { ok: false, next: state, reason: "shipNotFound" };
   }
-  // On-mission lock: reuse the fitment system's shared guard (Omega 4, DRY) so a hull whose
+  // On-mission lock: reuse the install system's shared guard (Omega 4, DRY) so a hull whose
   // captain is out flying cannot be torn apart mid-mission, the SAME rule that blocks changing
-  // its fitment. The ship is known to exist here (checked above), so any block onMissionLock
+  // its installed systems. The ship is known to exist here (checked above), so any block onMissionLock
   // reports is specifically the on-mission case; map it to this file's reason vocabulary.
   const lock = onMissionLock(state, shipId);
   if (!lock.ok) {
