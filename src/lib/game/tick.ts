@@ -1119,6 +1119,17 @@ export function tickCaptainMission(
       ticksToApply = requiredTicks - mission.phaseProgressTicks;
     }
 
+    // SHRUNK-PHASE FLOOR (fix: negative ticksToApply, 2026-08-27). If a phase's requiredTicks
+    // SHRANK between versions (a mission-def retune, or a stored phaseProgressTicks that now
+    // exceeds the new phase length), ticksLeftInPhase (and the snap recompute above) go NEGATIVE.
+    // Applying a negative ticksToApply would REWIND phaseProgressTicks, INCREASE `remaining`
+    // (remaining -= negative), and drive wholeTicksElapsed negative (corrupting captain-XP/time
+    // accounting). Floor it at 0: an over-progressed phase applies nothing this step and simply
+    // COMPLETES on the >= requiredTicks check below (advancing to the next phase). Normal play is
+    // unaffected (ticksToApply is already >= 0 whenever phaseProgressTicks <= requiredTicks), so
+    // this is a no-op on the parity paths and only rescues the cross-version shrink.
+    ticksToApply = Math.max(0, ticksToApply);
+
     // Task 4: count the WHOLE ticks this step crosses, for captain-XP accrual.
     // Same floor-boundary device as the extracting loot rolls below, but applied
     // in EVERY phase (XP accrues whenever the mission is in progress, not only

@@ -287,6 +287,30 @@ describe("tickCaptainMission, phase progression", () => {
   });
 });
 
+describe("tickCaptainMission, shrunk-phase floor (negative ticksToApply guard)", () => {
+  // fix (2026-08-27): a save whose stored phaseProgressTicks EXCEEDS the CURRENT phase length
+  // (a phase whose requiredTicks shrank between versions) produced a NEGATIVE ticksToApply.
+  // Applying it rewound phaseProgressTicks, BALLOONED `remaining` (remaining -= negative, so a
+  // 1-tick step ballooned to ~76 ticks of extra extraction), and could drive the whole-tick
+  // XP/time counter negative. Flooring ticksToApply at 0 makes the over-progressed phase apply
+  // NOTHING and simply COMPLETE (via the >= requiredTicks check), so the spill lands cleanly.
+  it("an over-progressed phase applies 0 ticks (not negative), completes, and does not balloon remaining", () => {
+    const base = freshCaptains(1)[0];
+    // transitOut for shortOreRun is 25 ticks; seed progress FAR past it (stale/shrunk phase).
+    base.mission = { ...missionCaptain("shortOreRun"), phase: "transitOut", phaseProgressTicks: 100 };
+    const { captain, fleetAdminXpDelta } = tickCaptainMission(1, base, ALWAYS_MIN_ROLL);
+    const mission = captain.mission as CaptainMissionState;
+    expect(mission).not.toBeNull();
+    // The over-progressed transitOut phase COMPLETED (advanced to extracting), not rewound.
+    expect(mission.phase).toBe("extracting");
+    // Only the single legitimate spill tick landed in extracting. Without the floor, the
+    // ballooned remaining (~76) would have driven this to ~75.5 (and fired ~75 loot rolls).
+    expect(mission.phaseProgressTicks).toBeLessThanOrEqual(1 + 1e-6);
+    // The shrunk phase contributed 0 whole ticks, never a negative, so XP is never corrupted.
+    expect(fleetAdminXpDelta).toBeGreaterThanOrEqual(0);
+  });
+});
+
 describe("tickCaptainMission, extraction loot rolls", () => {
   // shortOreRun: extractionRatePerTick 1, uncommonChance 0.019, rareChance 0.001.
   // A constant rng of 0.5 fails BOTH occurrence checks every roll (hand-verify:
