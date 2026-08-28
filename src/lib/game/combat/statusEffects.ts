@@ -310,6 +310,12 @@ export const DISRUPTIONS: Record<string, StatusEffectDef> = {
 		"#e57373",
 	),
 	// Drones --------------------------------------------------------------
+	// RESERVED, NOT YET WIRED (design S4 catalog / "[applied Phase 8: drones]"). `inhibit`
+	// is the drones-category member of the twelve-entry S4 disruption catalog (locked by
+	// statusEffects.test.ts), staged so the registry + the droneAttackRate stat path are real
+	// and testable now, exactly like the reserved BUFFS table below. Nothing PROCS or READS it
+	// yet: no sim code applies inhibit and no stat resolver consumes droneAttackRate. It is a
+	// deliberate seam awaiting the Phase 8 drone-disruption wiring, NOT dead code, so it stays.
 	inhibit: debuffDef(
 		"inhibit",
 		"drones",
