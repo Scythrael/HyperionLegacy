@@ -675,6 +675,48 @@ describe("hullDefenseComposition + the hull-additive / shield-effectiveness comp
 		// new fold is far below that runaway figure.
 		expect(c.shieldMax).toBeLessThan(craftedCap * 3);
 	});
+
+	it("rounds a crafted emitter on a non-reference hull to INTEGER shieldMax / shieldRecharge (never fractional)", () => {
+		// INTEGER-AT-THE-FOLD guard (design S0.4, 2026-08-27). On a NON-reference hull the shield-effectiveness
+		// ratio is fractional (prospectorRunner's cap effectiveness is 150/300 = 0.5), so an emitter with an ODD
+		// raw cap yields a FRACTIONAL raw product. The fold must ROUND it: the folded pools are whole numbers so
+		// the carry-state, regen, offense gate, and panel never see a float.
+		const stats = SHIP_TYPES.prospectorRunner;
+		const comp = hullDefenseComposition(stats);
+		const gear = standardIssueGear("prospectorRunner", "player-ship");
+		// Odd raw cap + odd raw recharge, chosen so the raw products are NOT whole numbers (proving the round
+		// genuinely fires, not a vacuous integer that was already integer).
+		const craftedCap = SI_EMITTER_CAP + 5; // odd -> * 0.5 cap effectiveness is a .5 fraction
+		const craftedRecharge = SI_EMITTER_RECHARGE + 1;
+		const upgraded = gear.map((p) =>
+			p.slotType === "shieldEmitters"
+				? {
+						...p,
+						implicitStats: {
+							...p.implicitStats,
+							shieldCapacity: craftedCap,
+							shieldRecharge: craftedRecharge,
+						},
+					}
+				: p,
+		);
+		const c = shipToCombatant({
+			id: "player-ship",
+			team: "player",
+			stats,
+			hullType: "prospectorRunner",
+			installedGear: upgraded,
+		});
+		// The raw cap product IS fractional here (proof the test exercises the rounding path).
+		expect(Number.isInteger(craftedCap * comp.shieldCapEffectiveness)).toBe(false);
+		// Every folded defensive pool is a whole number.
+		expect(Number.isInteger(c.shieldMax)).toBe(true);
+		expect(Number.isInteger(c.shieldRecharge)).toBe(true);
+		expect(Number.isInteger(c.hullMax)).toBe(true);
+		// And each equals Math.round of its raw fold (the exact rounding contract).
+		expect(c.shieldMax).toBe(Math.round(craftedCap * comp.shieldCapEffectiveness));
+		expect(c.shieldRecharge).toBe(Math.round(craftedRecharge * comp.shieldRechargeEffectiveness));
+	});
 });
 
 // ---------------------------------------------------------------------------

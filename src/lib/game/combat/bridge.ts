@@ -674,25 +674,40 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	// ignores it, keeping enemy composition byte-identical (enemies install no gear).
 	const comp = hullDefenseComposition(stats);
 
+	// INTEGER-AT-THE-FOLD (design S0.4 "never floats", pulled forward 2026-08-27). The crafted (gear) branch
+	// below MULTIPLIES an emitter's raw cap/recharge by the hull's shield-effectiveness RATIO (a float, e.g. a
+	// battleship's 5/6 recharge effectiveness), which yields a FLOAT pool. We ROUND every crafted defensive pool
+	// to a whole number RIGHT HERE, so the integer invariant holds in ONE place for every downstream reader: the
+	// T1 carry-state pools, advanceShieldRegen (which otherwise silently FLOORS a fractional recharge, e.g. a
+	// 6.9/s regen ticking as 6/s), applyProjectileDamage's shield-overflow into hull, the offense-gate hull
+	// comparison, and the panel readout (no more "507.4"). Rounding mode is Math.round: the codebase's pool /
+	// stat sizing convention (frameHp() and craftedDefensiveImplicit() both Math.round); the per-tick Math.floor
+	// calls downstream are DELTA quantizations, not pool-size sizing. SI byte-identity is UNTOUCHED by
+	// construction: an SI set recomposes to the hull's AUTHORED INTEGER totals (SI_EMITTER_CAP *
+	// (shieldCapacity / REF_SHIELD_CAPACITY) == shieldCapacity exactly, etc.), so Math.round is a no-op on it.
+	// The ABSENT (enemy) branch reads the authored integer stats directly and is likewise unaffected.
+
 	// Hull pool: the hull's bare frame (innateHullArmor) + the installed plating's raw hullStrength (ADDITIVE;
 	// plating OPTIONAL, a bare hull keeps its nonzero frame, user-locked: never an exposed space frame).
 	// ABSENT: the whole hull-class integrity. An SI set folds innateHullArmor + SI_PLATING_HP == hullIntegrity
-	// (byte-identical, integer-exact).
+	// (byte-identical, integer-exact). Both terms are integer at mint today (authored integrity minus the
+	// integer SI_PLATING_HP, plus the round()'d plating hullStrength), so Math.round here is a defensive no-op
+	// that keeps the "integer pool" guarantee LOCAL and self-evident instead of relying on a cross-module proof.
 	const hullMax = gear
-		? comp.innateHullArmor + (platingPiece ? statOf(platingPiece, "hullStrength") : 0)
+		? Math.round(comp.innateHullArmor + (platingPiece ? statOf(platingPiece, "hullStrength") : 0))
 		: stats.hullIntegrity;
-	// Shield pool + recharge: the installed emitter's raw cap/recharge * the hull's shield effectiveness.
-	// With NO emitter there is nothing to scale -> shield 0 (an emitter is the shield SOURCE). ABSENT: the
-	// hull-class shield stats. An SI set folds SI_EMITTER_CAP * (shieldCapacity / REF_SHIELD_CAPACITY) ==
-	// shieldCapacity (byte-identical; recharge likewise).
+	// Shield pool + recharge: the installed emitter's raw cap/recharge * the hull's shield effectiveness, ROUNDED
+	// to an integer (see the INTEGER-AT-THE-FOLD note above). With NO emitter there is nothing to scale ->
+	// shield 0 (an emitter is the shield SOURCE). ABSENT: the hull-class shield stats. An SI set folds
+	// SI_EMITTER_CAP * (shieldCapacity / REF_SHIELD_CAPACITY) == shieldCapacity (byte-identical; recharge likewise).
 	const shieldMax = gear
 		? shieldPiece
-			? statOf(shieldPiece, "shieldCapacity") * comp.shieldCapEffectiveness
+			? Math.round(statOf(shieldPiece, "shieldCapacity") * comp.shieldCapEffectiveness)
 			: 0
 		: stats.shieldCapacity;
 	const shieldRecharge = gear
 		? shieldPiece
-			? statOf(shieldPiece, "shieldRecharge") * comp.shieldRechargeEffectiveness
+			? Math.round(statOf(shieldPiece, "shieldRecharge") * comp.shieldRechargeEffectiveness)
 			: 0
 		: stats.shieldRecharge;
 	// Mitigation affixes: gear affixes on the PLAYER path, hardcoded 0 on the ABSENT path
