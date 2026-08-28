@@ -3050,6 +3050,12 @@ export type DispatchBlockReason =
 // needs no hull, and is the more useful thing to tell the player first. materialAtCap sits
 // just before the fuel gates: it's a transient logistics condition (the destination
 // warehouse is full), reported after the fixed capability gates but before we look at fuel.
+//
+// NO REACTOR GATE HERE, on purpose (design P2-3, user call 2026-08-28): unlike canDispatchPatrol,
+// extraction dispatch does NOT require an installed reactorCore. Extraction is the universal income
+// source, so keeping it ungated guarantees a reactor-less player can always earn ore and then craft
+// a reactor, so a reactor-less state can never become an unrecoverable softlock. See
+// canDispatchPatrol's POWER block for the full rationale.
 export function canDispatch(
   state: GameState,
   captainId: number,
@@ -3550,11 +3556,20 @@ export function canDispatchPatrol(
 
   // --- POWER (Combat-defense rework, Unit 3, design S5): the ONLY hard combat-gear block. A ship
   // with an EMPTY reactorCore slot has no power, so it physically cannot set a course or engage:
-  // dispatch is REFUSED. The reactorCore is an economy slot that became strippable-to-empty in a
-  // recent unit, so this state is now reachable (before that a ship always carried its economy
+  // patrol dispatch is REFUSED. The reactorCore is an economy slot that became strippable-to-empty
+  // in a recent unit, so this state is now reachable (before that a ship always carried its economy
   // Standard-Issue reactor and this never fired). Checked after needsRepair (a property of the
-  // hull's fitment, more fundamental than fuel) and before any fuel arithmetic (no power = no trip
-  // regardless of the tank). Queried off the fittedToShipId authority in state.equipment.
+  // hull's installed systems, more fundamental than fuel) and before any fuel arithmetic (no power
+  // = no trip regardless of the tank). Queried off the fittedToShipId authority in state.equipment.
+  //
+  // DELIBERATE ASYMMETRY (design P2-3, user call 2026-08-28): EXTRACTION dispatch (canDispatch) does
+  // NOT require a reactor, and that gap is INTENTIONAL, not an oversight. Extraction is the game's
+  // universal income source, and reactors are craftable from facilities (materials + credits, no
+  // dispatch needed). Keeping extraction ungated guarantees a reactor-less player can always earn ore
+  // and then craft a reactor, so a reactor-less state is NEVER an unrecoverable softlock. Extending
+  // this block to extraction would open exactly that softlock corner (single hull, empty reactor slot,
+  // no spare, empty wallet, no way to earn out), which the peace-override forbids. The reactor block
+  // stays PATROL-ONLY on purpose.
   const fittedGear = state.equipment.filter((e) => e.fittedToShipId === ship.id);
   if (!fittedGear.some((e) => e.slotType === "reactorCore")) return { ok: false, reason: "noReactor" };
 
