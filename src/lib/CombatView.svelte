@@ -841,8 +841,14 @@
   // embed the EquipmentTooltip card for these; null (no piece installed, e.g. a bridged
   // enemy or a hand-edited save) falls back to the condition-effect line only. Pure reads
   // with NO side effect, so they are reactivity-safe.
-  $: playerReactorPiece = playerShip ? fittedInSlot(state, playerShip.id, "reactorCore") : null;
-  $: playerFtlPiece = playerShip ? fittedInSlot(state, playerShip.id, "ftlDrive") : null;
+  // Render-boundary defense (mirrors ShipSystemsPanel's safeState at :246): fittedInSlot
+  // reads state.equipment.find(...) directly, so a malformed / partially-migrated save with
+  // a missing equipment pool would throw and white-screen the view. Resolve these pieces off
+  // a state whose equipment pool is guaranteed an array; every other CombatView read is a
+  // pure replay that never touches the pool.
+  $: safeState = { ...state, equipment: state.equipment ?? [] };
+  $: playerReactorPiece = playerShip ? fittedInSlot(safeState, playerShip.id, "reactorCore") : null;
+  $: playerFtlPiece = playerShip ? fittedInSlot(safeState, playerShip.id, "ftlDrive") : null;
 
   // The equipment piece to embed for a PLAYER system pip: the reactor / ftl installed
   // piece, or null for weapons (no installable gear yet) and any non-player pip. Weapons

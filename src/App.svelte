@@ -6735,7 +6735,7 @@
                 <div class="roster-card-head">
                   <div class="roster-card-glyph" aria-hidden="true">🚀</div>
                   <div class="roster-card-heading">
-                    <div class="research-name">{def.label}</div>
+                    <div class="research-name">{def?.label ?? ship.typeKey}</div>
                     <div class="roster-card-sub">Captain: {shipCaptain === null ? "Parked" : shipCaptain.label}</div>
                   </div>
                 </div>
@@ -6790,7 +6790,7 @@
             >
               ← Ships
             </button>
-            <div class="research-name roster-detail-name">{def.label}</div>
+            <div class="research-name roster-detail-name">{def?.label ?? ship.typeKey}</div>
           </div>
 
           <!-- SHIP IDENTITY (composed read, cheap fields only). Hull type, the
@@ -6799,7 +6799,7 @@
                Ship Installs modal (the paper-doll), NOT duplicated here. -->
           <Panel>
             <div class="panel-title">SHIP</div>
-            <div class="research-name">{def.label}</div>
+            <div class="research-name">{def?.label ?? ship.typeKey}</div>
             <div class="research-cost">Captain: {assignedCaptain === null ? "None, parked" : assignedCaptain.label}</div>
             <div class="research-cost">
               {#if assignedCaptain === null}
@@ -6878,7 +6878,7 @@
                   : state.ships.length === 1
                     ? "Cannot salvage your last ship: your fleet would be left with no hull"
                     : "Break down this hull for parts"}
-                on:click={() => requestSalvage("ship", ship.id, def.label)}
+                on:click={() => requestSalvage("ship", ship.id, def?.label ?? ship.typeKey)}
               >
                 Salvage
               </button>
@@ -7329,7 +7329,7 @@
                 <div class="roster-card-lines">
                   <!-- Renamable Ships: show the custom name (with the hull class in
                        parens so the hull stays visible), else just the hull label. -->
-                  <div class="roster-card-line">Ship: {rosterShip === null ? "None" : rosterShip.name ? `${rosterShip.name} (${SHIP_TYPES[rosterShip.typeKey].label})` : SHIP_TYPES[rosterShip.typeKey].label}</div>
+                  <div class="roster-card-line">Ship: {rosterShip === null ? "None" : rosterShip.name ? `${rosterShip.name} (${SHIP_TYPES[rosterShip.typeKey]?.label ?? rosterShip.typeKey})` : SHIP_TYPES[rosterShip.typeKey]?.label ?? rosterShip.typeKey}</div>
                   <div class="roster-card-line">
                     {#if captain.mission === null}
                       Status: Idle
