@@ -585,3 +585,29 @@ describe("pure helpers", () => {
     expect(patrolPhaseFor(DEF, DEF.transitOutTicks + DEF.rollWindowTicks)).toBe("transitBack");
   });
 });
+
+describe("economyTick, unknown PATROL key inert guard (save cannot brick)", () => {
+  // fix (2026-08-27): the patrol counterpart of the extraction unknown-key guard. A save can
+  // carry a patrol whose patrolKey no longer exists in PATROLS (renamed/removed between versions).
+  // PATROLS[key].transitOutTicks (the patrol arm) and tickCaptainPatrol's own def lookup would then
+  // read undefined and THROW on every tick, bricking the save. The routing seam drops such a
+  // captain to idle (inert self-heal) instead.
+  it("a patrol with an unknown patrolKey does NOT throw and is dropped to idle", () => {
+    // Dispatch a REAL patrol first (valid state), then corrupt its key to a removed one.
+    const dispatched = dispatch(patrolState("destroyer", 7), false);
+    const mission = patrolOf(dispatched) as PatrolMissionState;
+    expect(mission).not.toBeNull();
+    const corrupted: GameState = {
+      ...dispatched,
+      captains: dispatched.captains.map((c, i) =>
+        i === 0 ? { ...c, mission: { ...mission, patrolKey: "removedPatrolXYZ" as PatrolMissionState["patrolKey"] } } : c,
+      ),
+    };
+    let next: GameState | undefined;
+    expect(() => {
+      next = economyTick(corrupted, 1, RNG);
+    }).not.toThrow();
+    // Inert: the captain is idled rather than crashing the whole economy tick.
+    expect(next!.captains[0].mission).toBe(null);
+  });
+});

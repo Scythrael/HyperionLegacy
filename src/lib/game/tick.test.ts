@@ -311,6 +311,35 @@ describe("tickCaptainMission, shrunk-phase floor (negative ticksToApply guard)",
   });
 });
 
+describe("economyTick, unknown mission key inert guard (save cannot brick)", () => {
+  // fix (2026-08-27): a save can carry a mission whose key no longer exists in MISSIONS (renamed
+  // or removed between versions). Every downstream lookup (MISSIONS[key].primaryMaterial, the
+  // auto-stop; tickCaptainMission's rawMissionDef) would read undefined and THROW on every tick,
+  // bricking the save. The routing seam now drops such a captain to idle (inert self-heal).
+  it("an extraction mission with an unknown key does NOT throw and is dropped to idle", () => {
+    const state = freshState();
+    state.captains[0] = {
+      ...state.captains[0],
+      // A key that has no MISSIONS entry (simulating a removed/renamed mission across versions).
+      mission: { ...missionCaptain("shortOreRun"), missionKey: "removedMissionXYZ" as MissionKey },
+    };
+    let next: GameState | undefined;
+    expect(() => {
+      next = economyTick(state, 1, () => 0.5);
+    }).not.toThrow();
+    // Inert: the captain is idled, available for re-dispatch on a valid mission, not crashed.
+    expect(next!.captains[0].mission).toBe(null);
+  });
+
+  it("a VALID extraction mission is untouched by the guard (advances normally)", () => {
+    // Control: the guard must not disturb a known key. A valid mission still advances.
+    const state = freshState();
+    state.captains[0] = { ...state.captains[0], mission: missionCaptain("shortOreRun") };
+    const next = economyTick(state, 1, () => 0.5);
+    expect(next.captains[0].mission).not.toBe(null); // still on its (valid) mission
+  });
+});
+
 describe("tickCaptainMission, extraction loot rolls", () => {
   // shortOreRun: extractionRatePerTick 1, uncommonChance 0.019, rareChance 0.001.
   // A constant rng of 0.5 fails BOTH occurrence checks every roll (hand-verify:

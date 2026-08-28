@@ -2388,6 +2388,24 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   const damagedShips = new Map<string, number>();
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
+    // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
+    // 2026-08-27). A save can carry a mission whose key no longer exists in MISSIONS / PATROLS (a
+    // key renamed or removed between versions). EVERY downstream lookup would then read `undefined`
+    // and throw, BRICKING the save on every single tick: MISSIONS[missionKey].primaryMaterial (the
+    // auto-stop below), PATROLS[patrolKey].transitOutTicks (the patrol arm below), and
+    // tickCaptainMission's own rawMissionDef. Both tick helpers are called ONLY from inside this
+    // map, so guarding HERE covers all three crash sites at once. Mirror lineJobSpec's inert-on-
+    // unknown-key posture (skip/no-op instead of crash): drop the captain to IDLE (mission -> null)
+    // so the fleet SELF-HEALS and the captain is re-dispatchable on a valid mission next tick,
+    // rather than the whole economy throwing. Keyed by mission kind so the correct table is
+    // consulted; a NEW kind is a compile error at the exhaustive switch below, not silently here.
+    const missionKeyKnown =
+      captain.mission.kind === "patrol"
+        ? PATROLS[captain.mission.patrolKey] !== undefined
+        : MISSIONS[captain.mission.missionKey] !== undefined;
+    if (!missionKeyKnown) {
+      return { ...captain, mission: null };
+    }
     // Combat 0.13.0 (Phase 9b.5a): ROUTE by mission KIND. CaptainState.mission is now a
     // discriminated union, so the per-captain economy step branches on the tag. An
     // EXHAUSTIVE switch with an assertNever default makes a future MissionKind a COMPILE
