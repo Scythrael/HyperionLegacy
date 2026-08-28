@@ -693,7 +693,21 @@
     }
   }
   function onWindowKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape") closeTip();
+    if (event.key !== "Escape") return;
+    // Escape ownership. When a pip tooltip is pinned/open, Escape's job is to dismiss
+    // JUST that tooltip, not the whole Combat View. This listener runs in the CAPTURE
+    // phase (see the |capture modifier on svelte:window below), so it sees Escape BEFORE
+    // the modal-backdrop's focusTrap does. Stopping propagation here (only while a tip is
+    // actually open) keeps that trap from ALSO firing closeCombatView on the same
+    // keypress. A plain bubble-phase stopPropagation could not do this: the focusTrap
+    // lives on the modal-backdrop, a DESCENDANT of window, so in the bubble phase it
+    // fires first and the view is already closing before a window handler runs. When no
+    // tooltip is open there is nothing to consume, so Escape falls through to the trap
+    // and closes the view as before.
+    if (selectedPipKey === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeTip();
   }
 
   // Reflow the floating pip card on scroll (capture) + resize while it is open, and tear
@@ -1162,7 +1176,7 @@
      click that is NOT on a pip (pips stopPropagation) also closes it ("re-click / click
      elsewhere / Escape all dismiss"). Both are plain event handlers, never reactive, so
      they cannot re-enter the flush loop (freeze-safety). -->
-<svelte:window on:keydown={onWindowKeydown} on:click={closeTip} />
+<svelte:window on:keydown|capture={onWindowKeydown} on:click={closeTip} />
 
 <!-- ==========================================================================
      PIP TOOLTIP SNIPPETS (Combat 0.13.0). One reusable card per pip kind. Defined once

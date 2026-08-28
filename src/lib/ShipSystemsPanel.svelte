@@ -305,6 +305,11 @@
       nameInputEl?.blur();
     } else if (event.key === "Escape") {
       event.preventDefault();
+      // This handler only exists while a rename edit is active, so Escape always has
+      // its own thing to cancel here. Stop it bubbling to the focusTrap backdrop, or
+      // the one keypress would BOTH cancel the edit AND close the whole Ship Systems
+      // panel. (Enter needs no such guard: the trap ignores every key but Escape/Tab.)
+      event.stopPropagation();
       cancelNameEdit();
       nameInputEl?.blur();
     }

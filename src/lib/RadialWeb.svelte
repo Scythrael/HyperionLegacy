@@ -494,9 +494,17 @@
    * so it never swallows Escape for anything else on the page.
    */
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape" && openTooltipKey !== null) {
-      closeTooltip();
-    }
+    if (e.key !== "Escape" || openTooltipKey === null) return;
+    // Escape ownership. This node tooltip lives inside a focus-trapped talent modal
+    // whose backdrop closes on Escape. Run in the CAPTURE phase (see the |capture
+    // modifier on svelte:window below) and stop propagation ONLY while a tooltip is
+    // actually open, so one Escape dismisses just the tooltip instead of ALSO collapsing
+    // the whole modal. A bubble-phase stop could not do this: the trap sits on an
+    // ANCESTOR backdrop and fires first in the bubble phase. With no tooltip open we do
+    // nothing and let Escape fall through to the trap, closing the modal as before.
+    e.preventDefault();
+    e.stopPropagation();
+    closeTooltip();
   }
 
   // --- Derived: the visible subgraph ----------------------------------------
@@ -780,7 +788,7 @@
 
 <!-- Escape-to-close for the Task 11 tooltip. handleKeydown is a no-op unless a
      tooltip is open, so this window listener never interferes with other keys. -->
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window on:keydown|capture={handleKeydown} />
 
 <!-- Viewport: the clipped window onto the world. Fills its parent. Task 10's
      pan gestures attach here via Pointer Events (unified mouse+touch+stylus).
