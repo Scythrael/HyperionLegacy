@@ -2769,12 +2769,20 @@
     offlineSummary = null;
   }
   // The current CaptainState for the open combat view, re-resolved from state each
-  // render (null if the captain vanished, e.g. the patrol ended, which closes the
-  // view gracefully via the #if guard below).
-  $: combatViewCaptain =
-    combatViewCaptainId !== null
-      ? state.captains.find((c) => c.id === combatViewCaptainId) ?? null
-      : null;
+  // render, or null when the view should auto-close via the {#if combatViewCaptain
+  // !== null} guard below. It resolves to null in two cases: the captain id no longer
+  // matches a captain (defensive; captains are never removed today), OR the watched
+  // captain is no longer on a patrol. A Dispatch-Once patrol sets mission -> null when
+  // its single cycle completes (model.ts), which previously left the view open on the
+  // patrol's now-dead wave pointers; nulling here closes it gracefully. A repeating
+  // patrol relaunches into a fresh patrol mission atomically, so mission stays a patrol
+  // across cycles and the view keeps streaming rather than flickering closed.
+  $: combatViewCaptain = (() => {
+    if (combatViewCaptainId === null) return null;
+    const c = state.captains.find((cap) => cap.id === combatViewCaptainId) ?? null;
+    if (c === null || c.mission === null || c.mission.kind !== "patrol") return null;
+    return c;
+  })();
 
   // INSTALL a spare system into a ship's slot. Same wiring idiom as the dev
   // harness's devFitEquipment (and every other do* handler): check the gate
