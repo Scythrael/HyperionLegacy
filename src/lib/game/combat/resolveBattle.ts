@@ -1834,6 +1834,18 @@ export function resolveBattle(
 			// PHASE C: weapons. Advance each weapon's cooldown clock by dt; fire any
 			// that have both come off cooldown AND have the target in range.
 			for (const weapon of self.weapons) {
+				// MID-TURN LIVENESS (Combat 1.0 correctness fix, 2026-08-27). Re-check both
+				// actors AT THE POINT OF ACTION, because fireWeapon below can flip an `alive`
+				// flag mid-salvo: a PARTICLE shot reflected by the target's drone screen bounces
+				// back and can KILL this attacker (self), and an earlier weapon in this same
+				// salvo can kill the target. Once either is dead we STOP the salvo: a reflect-
+				// killed attacker fires no further shots (honouring the tick-death comment at the
+				// top of the loop), and a corpse absorbs no more of this turn's salvo. We do NOT
+				// re-select a target here (the once-per-turn selection policy is unchanged): all
+				// remaining weapons share this one dead target, so `break` ends the salvo. Reads
+				// only the deterministic `alive` flag + draws NO RNG, so offline == live == replay
+				// still agree (the fewer draws happen identically on every path).
+				if (!self.alive || !target.alive) break;
 				// PHASE 12b UNIT B1 (design S9): an OFFLINE weapon (durability depleted) is
 				// down and cannot fire. Skip it entirely (it does not even accrue cooldown);
 				// in B1 durability only decreases within a battle, so once offline it stays
@@ -2088,6 +2100,14 @@ export function resolveBattle(
 				// KIT (Mode 3): a support squadron's pulse repairs the owner + cleanses
 				// disruptions instead of firing. Offense (attack/defense volleys) is 7a.
 				for (const squadron of self.drones) {
+					// MID-TURN LIVENESS (Combat 1.0 correctness fix, 2026-08-27). This ship may
+					// have been reflect-killed in the weapon phase above; a dead ship runs NO
+					// squadrons this tick. This is the guard that stops a support pulse from
+					// healing a DEAD hull above 0 (the drone loop follows the weapon loop, so
+					// without it a corpse could repair itself the tick it died). Deterministic,
+					// no RNG draw, so offline == live == replay agree. `break`: a dead self does
+					// nothing for the rest of its turn.
+					if (!self.alive) break;
 					// Advance the squadron's firing clock by dt (no combat draw).
 					squadron.cooldownAccumulator += DT_DECISEC;
 					// Not yet ready to volley / pulse.
@@ -2155,6 +2175,16 @@ export function resolveBattle(
 						continue;
 					}
 
+					// MID-TURN LIVENESS (Combat 1.0 correctness fix, 2026-08-27): the shared
+					// target may have died earlier this turn (a weapon in the salvo above, or a
+					// prior offense squadron here). An OFFENSE volley must not pour into a corpse.
+					// Placed AFTER the utility branch on purpose: a support squadron heals its
+					// OWN ship and does not care whether the enemy target is dead, so only the
+					// firing path is gated. `continue` (not break) so any LATER support squadron
+					// on this ship still runs its pulse. We do NOT re-select (once-per-turn policy
+					// unchanged); reads the deterministic `alive` flag, draws NO RNG (live ==
+					// replay).
+					if (!target.alive) continue;
 					// Reach gate: owner-to-target distance vs the squadron's range. Out of reach
 					// CAPS the accumulator at the ready threshold (like a weapon, see PHASE C) so
 					// the volley fires the instant the owner closes into range WITHOUT banking a

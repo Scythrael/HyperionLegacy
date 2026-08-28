@@ -2390,3 +2390,123 @@ describe("B1 condition-pip emission (display-only, outcome-neutral)", () => {
 		expect(live.finalCombatants).toEqual(offline.finalCombatants);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// MID-TURN LIVENESS (Combat 1.0 correctness fix, 2026-08-27). The turn loop
+// selects a target ONCE per turn and used to never re-check liveness inside the
+// weapon / drone loops. Three consequences this suite pins:
+//   1. A ship killed by its OWN reflected shot must fire no FURTHER shots that turn.
+//   2. A target killed earlier in the salvo must absorb no further hits (no corpse-
+//      shooting).
+//   3. A support pulse must not heal a ship that died mid-turn (dead hull stays dead).
+// Every roll below is FORCED (accuracy 100, interceptChance/reflectChance 100, flat
+// yields), so the scenarios are deterministic without seed hunting; the guards read
+// only the `alive` flag and draw no RNG, so live == offline == replay still agree.
+// ---------------------------------------------------------------------------
+describe("resolveBattle mid-turn liveness", () => {
+	// A defense screen that ALWAYS deflects AND reflects a particle shot straight
+	// back at the attacker (smartReflect off), so a fragile attacker kills itself.
+	function alwaysReflectDefense() {
+		return {
+			...makeSquadron("defense", 1),
+			interceptChance: 100,
+			reflectChance: 100,
+			smartReflect: false,
+		};
+	}
+
+	it("a reflect-killed attacker fires NO further shots that turn", () => {
+		// P1 has TWO particle weapons, both ready on tick 1 (cooldown == the tick). Its
+		// FIRST shot is reflected by E1's screen for 50, killing the 10-hull P1. The
+		// second weapon must NOT fire: with the fix P1 lands exactly ONE shot this turn.
+		const battle: BattleParticipants = {
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					hull: 10,
+					weapons: [
+						makeWeapon({ id: "pw1", family: "particle", yield: 50, cooldownDeciSec: 1, accuracy: 100 }),
+						makeWeapon({ id: "pw2", family: "particle", yield: 50, cooldownDeciSec: 1, accuracy: 100 }),
+					],
+				}),
+				// E1 just sits and reflects (no weapons of its own to confound the count).
+				makeCombatant({ id: "E1", team: "enemy", hull: 1000, weapons: [], drones: [alwaysReflectDefense()] }),
+			],
+		};
+		const { log, finalCombatants } = resolveBattle(battle, 1, { generateLog: true });
+		const p1 = finalCombatants.find((c) => c.id === "P1")!;
+		// The reflect killed P1.
+		expect(p1.alive).toBe(false);
+		expect(p1.hull).toBeLessThanOrEqual(0);
+		// P1 fired EXACTLY ONE shot (weapon 1). Every fired shot emits one hit/evade
+		// event; a second would mean the dead ship fired weapon 2 (the bug).
+		const p1Shots = log.filter(
+			(e) => e.actorId === "P1" && (e.type === "hit" || e.type === "evade"),
+		);
+		expect(p1Shots.length).toBe(1);
+	});
+
+	it("a target killed mid-salvo absorbs NO further hits (no corpse-shooting)", () => {
+		// P1 has two kinetic weapons, both ready tick 1; the FIRST kills the 50-hull E1.
+		// The second must NOT fire into the corpse: P1 lands exactly ONE hit on E1.
+		const battle: BattleParticipants = {
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					hull: 1000,
+					weapons: [
+						makeWeapon({ id: "kw1", family: "kinetic", yield: 100, cooldownDeciSec: 1, accuracy: 100 }),
+						makeWeapon({ id: "kw2", family: "kinetic", yield: 100, cooldownDeciSec: 1, accuracy: 100 }),
+					],
+				}),
+				makeCombatant({ id: "E1", team: "enemy", hull: 50, weapons: [] }),
+			],
+		};
+		const { log, finalCombatants } = resolveBattle(battle, 1, { generateLog: true });
+		const e1 = finalCombatants.find((c) => c.id === "E1")!;
+		expect(e1.alive).toBe(false);
+		// Exactly ONE damaging hit from P1 landed on E1 (the killing shot); the second
+		// weapon saw the corpse and held fire.
+		const hitsOnE1 = log.filter(
+			(e) => e.type === "hit" && e.actorId === "P1" && e.targetId === "E1",
+		);
+		expect(hitsOnE1.length).toBe(1);
+		// And E1 is destroyed exactly once (not a second "destroyed" from a redundant shot).
+		const e1Destroyed = log.filter((e) => e.type === "destroyed" && e.targetId === "E1");
+		expect(e1Destroyed.length).toBe(1);
+	});
+
+	it("a support pulse does NOT heal a ship that died earlier in the same turn", () => {
+		// P1 carries a support squadron PRELOADED to pulse on tick 1 (accumulator at the
+		// period, so +dt makes it ready). But P1's particle shot is reflected for 50 and
+		// kills the 10-hull P1 in the WEAPON phase, BEFORE the drone phase. The pulse must
+		// be skipped: a dead hull stays dead (the bug would repair it back above 0).
+		const support = {
+			...makeSquadron("support", 1),
+			supportHullRepair: 100, // a big heal so the bug would clearly lift hull above 0
+			cooldownAccumulator: 20, // == the support period, so tick 1 would pulse if reached
+		};
+		const battle: BattleParticipants = {
+			combatants: [
+				makeCombatant({
+					id: "P1",
+					team: "player",
+					hull: 10,
+					weapons: [makeWeapon({ id: "pw", family: "particle", yield: 50, cooldownDeciSec: 1, accuracy: 100 })],
+					drones: [support],
+				}),
+				makeCombatant({ id: "E1", team: "enemy", hull: 1000, weapons: [], drones: [alwaysReflectDefense()] }),
+			],
+		};
+		const { log, finalCombatants } = resolveBattle(battle, 1, { generateLog: true });
+		const p1 = finalCombatants.find((c) => c.id === "P1")!;
+		// P1 died to the reflect and was NOT healed back to life.
+		expect(p1.alive).toBe(false);
+		expect(p1.hull).toBeLessThanOrEqual(0);
+		// No support pulse (droneSupport) event fired for the dead P1.
+		const p1Support = log.filter((e) => e.type === "droneSupport" && e.actorId === "P1");
+		expect(p1Support.length).toBe(0);
+	});
+});
