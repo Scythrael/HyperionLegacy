@@ -19,6 +19,7 @@
   import App from "./App.svelte";
   import Landing from "./Landing.svelte";
   import UpdateBanner from "./UpdateBanner.svelte";
+  import SavePersistWarning from "./SavePersistWarning.svelte";
   import { startUpdatePolling } from "./lib/updateDetector";
 
   const LANDING_ROUTE = "/game/hl";
@@ -81,6 +82,11 @@
        the header was the problem). The banner renders nothing unless an update is
        available, so it has zero footprint until then. -->
   <div class="app-shell">
+    <!-- Save-persist warning sits ABOVE the update banner: losing unsaved progress
+         is more urgent than a version-refresh prompt. Renders nothing unless a save
+         write has failed, so it has zero footprint in the normal case. Game view
+         only, the landing page runs no game loop and writes no save. -->
+    <SavePersistWarning />
     <UpdateBanner />
     <!-- No in-game "back" affordance: it overlapped the player portrait, and the
          browser back button / editing the URL still return to the landing page.

@@ -1709,6 +1709,36 @@ export function downloadRawSave(): boolean {
   return true;
 }
 
+// Download the CURRENT in-memory state as a save file, serializing it DIRECTLY
+// rather than reading localStorage the way downloadRawSave (via exportRawSave)
+// does. This exists specifically for the save-persist FAILURE path: when the
+// store is blocked or full, downloadRawSave is useless, it either returns false
+// (a blocked store cannot even be read) or hands back the LAST PERSISTED save,
+// which is stale (it is missing everything the player has done since writes began
+// failing). This function bypasses the store entirely and serializes the live
+// state the player is actually looking at, so the SavePersistWarning banner can
+// offer a working escape hatch that captures their real, current progress.
+//
+// Mirrors downloadRawSave's blob/anchor/click mechanics; the ONE difference is the
+// source of the bytes (serialize(state, createdAt) here vs exportRawSave() there).
+// serialize() could in principle throw on a pathological state, so the whole body
+// is guarded and returns false on failure, matching saveToLocalStorage's posture.
+export function downloadLiveSave(state: GameState, createdAt: number): boolean {
+  try {
+    const raw = serialize(state, createdAt);
+    const blob = new Blob([raw], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `fleet-admiral-save-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Counterpart to exportRawSave, writes a previously-exported raw save
 // string back into localStorage, after confirming it actually deserializes
 // (rejects garbage/corrupt input rather than silently corrupting the

@@ -1,12 +1,20 @@
 # Session Handoff — The First Cause (fleet-admiral)
 
-_Last updated: 2026-08-27. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*\_LOCKED / \*\_STATUS docs before working._
+_Last updated: 2026-08-28. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*\_LOCKED / \*\_STATUS docs before working._
 
 ## Where things stand RIGHT NOW
 
 - **Branch:** `feat/combat-0.13.0`. **Staging tip = `d23e174`** (pushed to `origin/staging` = devpreview). **PROD (`origin/main`) UNTOUCHED at `e282614`** (v30, 0.12.1).
 - **SAVE_VERSION = 39.** Migrations `MIGRATIONS[37]`/`[38]` are on staging but NOT yet on prod, so still editable until the promotion. Once promoted, they freeze.
-- **Gates green at the tip:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, unrelated), `npx vitest run -t "parit"` = 101, `npx vitest run` = 1872 passed / 72 files.
+- **Gates green at the tip:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, unrelated), `npx vitest run -t "parit"` = 101, `npx vitest run` = 1881 passed / 74 files (was 1872/72 before the save-persist safeguard below).
+
+## ⚑ UNCOMMITTED THIS SESSION (2026-08-28): save-persist safeguard
+
+- **6 working-tree files, intentional, NOT yet committed (user held the commit to fold into the full QA pass).** Do NOT `git checkout` them.
+  - `src/lib/game/save.ts` (new `downloadLiveSave`), `src/lib/savePersist.ts` (new store bridge), `src/lib/savePersist.test.ts` (new, 4 tests), `src/App.svelte` (`doSave` now captures the write boolean + registers the live exporter), `src/SavePersistWarning.svelte` (new banner), `src/Root.svelte` (mounts it).
+  - **What it does:** `doSave` used to discard `saveToLocalStorage`'s boolean, so a blocked/full mobile store failed silently and a reload wiped everything since the last successful write. Now a failed write raises a loud, non-dismissable, self-clearing banner whose Export serializes LIVE state directly (bypassing the dead/stale localStorage). Verified end-to-end in a live browser (banner raise on a blocked store, live-state export of a real 2164-byte save, self-clear on recovery). No SAVE_VERSION bump (UI + wiring only). Commits with the promotion bundle.
+- **Captain "data-loss" investigation (this session): concluded NO code bug.** `renameCaptain` writes `label`, serialize/deserialize round-trip it, the slot-unlock preserves existing labels, and the offline recap reads the live `label` (all confirmed by reading the code + the user's own save bytes). The user's "vanished Picard" was an IMPORT of a pre-naming July save (which never held the custom names) plus the mobile silent-save-fail above; the three uploaded saves are all July-derived and contain no "Picard". This safeguard is the fix for the silent-save-fail half.
+- **QA report updated (same artifact URL):** https://claude.ai/code/artifact/8db980f1-6f3d-4c62-b2e8-1c7a216a88d9 now has a "Save Persistence" category in Part A (6 rows: 5 machine-verified, 1 device). Totals: 161 cases, 145 machine-verified, 16 device.
 
 ## What shipped to staging this session (the combat-defense epic)
 

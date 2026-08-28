@@ -536,7 +536,12 @@
   import { summarizeOfflineProgress, type OfflineSummary } from "./lib/game/offlineSummary";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { deriveStatistics } from "./lib/game/statistics";
-  import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
+  import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, downloadLiveSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
+  // Save-persist warning bridge: doSave reports write success/failure into
+  // savePersistFailed (the banner in Root.svelte subscribes), and we register a
+  // live-state exporter so the banner's "Export save" downloads CURRENT progress
+  // even when localStorage is unreachable. See src/lib/savePersist.ts.
+  import { savePersistFailed, registerLiveSaveExporter } from "./lib/savePersist";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
@@ -1829,9 +1834,27 @@
   // Resets to false naturally on the reload (fresh module instance).
   let suppressSave = false;
 
+  // Tracks whether the LAST save write persisted, so doSave only touches the
+  // savePersistFailed store on an actual transition (ok -> fail or fail -> ok).
+  // doSave runs every autosave cycle plus on teardown; a writable.set fires all
+  // subscribers unconditionally (svelte does not dedupe), so writing the store
+  // every tick would needlessly re-evaluate the banner's reactive block. Starting
+  // true assumes a fresh session persists fine until a write actually fails.
+  let lastSavePersisted = true;
+
   function doSave() {
     if (suppressSave) return;
-    saveToLocalStorage(state, createdAt);
+    // Capture the write result instead of discarding it (the old silent-loss hole):
+    // a blocked or full store returns false here, and on mobile that meant progress
+    // lived only in memory until a reload wiped it, with zero warning. Surface the
+    // failure through the store ONLY when the persisted-state changes, so the
+    // SavePersistWarning banner raises on the first failure and clears itself the
+    // moment writes recover.
+    const persisted = saveToLocalStorage(state, createdAt);
+    if (persisted !== lastSavePersisted) {
+      lastSavePersisted = persisted;
+      savePersistFailed.set(!persisted);
+    }
   }
 
   onMount(() => {
@@ -1856,6 +1879,14 @@
     // salvageConfirmQualities is already loaded at its declaration (it drives only
     // the checkbox display, and the actual gating reads the persisted set directly
     // via salvageNeedsConfirm), so it does not need a second load here.
+
+    // Register the live-state exporter the SavePersistWarning banner's "Export save"
+    // button invokes. The closure reads the reactive `state` / `createdAt` at CALL
+    // time (not now), so a click later exports the player's CURRENT progress, and it
+    // serializes directly (downloadLiveSave) rather than reading the blocked/stale
+    // localStorage. Registered before the load below so it is ready the instant any
+    // save can fail.
+    registerLiveSaveExporter(() => downloadLiveSave(state, createdAt));
 
     const loadedSave = loadFromLocalStorage();
     if (loadedSave) {
@@ -2648,6 +2679,19 @@
     };
     doSave();
     pushLog(`[DEV] Minted crafted ${piece.id}: ${bp.label} (${piece.slotType} · ${piece.rarity} q${piece.quality} · iL${piece.iLevel} · bp ${piece.blueprintKey}).`);
+  }
+
+  // [DEV] Non-destructively preview the SavePersistWarning banner. Flips ONLY the
+  // display store (savePersistFailed); it does NOT touch real saving, so
+  // saveToLocalStorage keeps running and persisting normally the whole time. That
+  // makes it safe to toggle on a real device (mobile, where there is no console) to
+  // eyeball the red banner, confirm the safe-area inset / danger border / readability,
+  // and test its Export button, with ZERO risk to the player's data. Toggle again to
+  // clear it (the banner has no player-facing dismiss by design); a reload also clears
+  // it. The doSave change-guard leaves this forced value alone because real saves keep
+  // SUCCEEDING (lastSavePersisted stays true, so doSave never rewrites the store).
+  function devToggleSavePersistBanner() {
+    savePersistFailed.update((shown) => !shown);
   }
 
   // --- [DEV] Combat 0.13.0 test battle (Debug tab only) --------------------
@@ -8867,6 +8911,17 @@
           <div class="dev-row">
             <button class="dev-btn" on:click={doSave}>Save now</button>
             <button class="dev-btn danger" on:click={resetSave}>Reset save</button>
+          </div>
+          <!-- [DEV] Non-destructive preview of the SavePersistWarning banner (see
+               devToggleSavePersistBanner). Flips ONLY the display flag; real saving is
+               untouched, so it is safe to toggle on a real phone (no console needed) to
+               verify the banner's mobile render + Export button. Toggle again to clear it
+               (the banner has no player-facing dismiss by design). -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Save warning</span>
+            <button class="dev-btn" on:click={devToggleSavePersistBanner}>
+              {$savePersistFailed ? "Hide save-persist banner" : "Preview save-persist banner"}
+            </button>
           </div>
         </Panel>
 
