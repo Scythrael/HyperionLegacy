@@ -318,10 +318,20 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       { generateLog: true },
     );
 
-    // Read the player + enemies out of the id-SORTED finalCombatants BY ID (never by
-    // index). finalCombatants members are the sim's private clones (safe to keep).
+    // Read the player + enemies out of finalCombatants BY ID (never by index).
+    // finalCombatants members are the sim's private clones (safe to keep).
     const playerEnd = finalCombatants.find((c) => c.id === playerId);
-    const enemyEnd = finalCombatants.filter((c) => c.id !== playerId);
+    // enemyEnd MUST stay aligned by index to enemyStart / enemyHullIds / enemyLabels (the
+    // combat view reads wave.enemyEnd[i] against enemyLabels[i]). resolveBattle returns
+    // finalCombatants sorted LEXICOGRAPHICALLY by id, so a plain filter would order
+    // "...-e10" before "...-e2" the moment a wave fields 10+ enemies, desyncing every
+    // enemy's final bars from its name. Rebuild enemyEnd in enemyStart's GENERATION order by
+    // looking each started enemy's final state up by id (robust to the id format; no numeric
+    // id parsing). The filter is defensive: the sim never drops a combatant, so every
+    // started enemy resolves.
+    const enemyEnd = enemyStart
+      .map((start) => finalCombatants.find((c) => c.id === start.id))
+      .filter((c): c is Combatant => c !== undefined);
 
     // The EXACT live-loop win test: the objective named "player" AND the player is
     // actually alive with hull > 0 (a cap-tiebreak "player" with a dead player, or a
