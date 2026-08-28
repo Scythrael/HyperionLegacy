@@ -23,9 +23,13 @@ _Last updated: 2026-08-27. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*
 
 ## Remaining before prod promotion
 
-- **User's Fable session** for a final quick bug check (in progress / next).
-- Then the user's **explicit go**, then ONE prod promotion (v30 -> v39). Nothing touches `main` until then.
-- Open observation from QA (logged, not yet actioned): "4 guns" vs "No weapon installed" wording on the dispatch ship line (confirm it is hardpoint capacity, not a bug).
+- **Fable bug-check pass: DONE (2026-08-27).** Full-codebase sweep (5 parallel subsystem reviews + independent verification of every MAJOR+ claim). Full findings + ranked fix plan for the Opus session: `docs/plans/2026-08-27-fable-bugcheck-plan-of-attack.md`. Headlines:
+  - Migration chain 30->39 CLEAN; live-loop vs tick() drift CLEAN; gates re-verified green (0 errors / 1834 tests / parity 101).
+  - **1 BLOCKER (recommend HOLDING promotion until fixed):** patrol carry-state + forecast seeds use authored SHIP_TYPES stats, not the installed-gear fold, so crafted plating/emitters are silently negated across patrol waves and the forecast opens crafted weapons pre-worn (tick.ts 3204/1905/1892, patrolReplay.ts 260/426, patrolWave.ts 162, App.svelte 2277/2289). Parity holds (all paths consistently wrong together), which is why 1834 tests + QA missed it.
+  - 5 MAJORs: Delete-Save crash (stale activeCaptainIndex), Escape double-close (rename input + pip tooltip vs backdrop focusTrap), negative hull readout on overkill, bare localStorage crash surface, last-ship salvage softlock guard (pre-existing in prod).
+  - 15+ MINORs in the plan's P2 ledger + 4 design decisions needing the user's call (incl.: EquipmentTooltip WAS modified on-branch by user commit df53dd5 despite the preserve-unchanged constraint; bless or revert).
+  - "4 guns" observation RESOLVED: it is `weaponHardpoints` (mount capacity), not a bug; wording tweak optional.
+- **Next:** Opus fix session executes the plan (T1 first), then refreshed gates + a short on-device patrol delta-QA with crafted defense gear, then the user's **explicit go**, then ONE prod promotion (v30 -> v39). Nothing touches `main` until then.
 
 ## Known deferrals (already logged in SUGGESTIONS.md, do NOT re-litigate)
 
