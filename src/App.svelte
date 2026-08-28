@@ -123,6 +123,11 @@
     // so the panel can't drift from what the backend enforces.
     BLUEPRINTS,
     blueprintKind,
+    // [DEV] combat-gear mint (Debug tab only): the filter that picks out the
+    // blueprints whose Fabricator output is a non-stacking EquipmentInstance
+    // (weapon / drone / economy + defensive equipment), so the dev mint selector
+    // lists exactly the craftable GEAR blueprints and nothing stackable.
+    blueprintMintsEquipmentInstance,
     blueprintUnlocked,
     RESEARCH_FACILITY_KEY,
     // Fabricator (Phase 4, Task F4 UI), the stable "fabricator" facility key the
@@ -224,6 +229,14 @@
     type EquipFitBlockReason,
   } from "./lib/game/equipment";
   import { generateEquipment } from "./lib/game/itemgen";
+  // [DEV] combat-gear mint (Debug tab only): the dev-only helper that mints a REAL
+  // crafted EquipmentInstance off a blueprint at a CHOSEN quality / iLevel / rarity
+  // (the QA path for conjuring a q4 / q5 weapon / emitter / plating / drone pod that
+  // random crafting rarely rolls). Reuses the SAME generators the Fabricator uses, so
+  // the minted piece is shape-identical to genuinely-crafted gear; it just takes the
+  // quality/iLevel/rarity as explicit args instead of rolling them off the seeded
+  // stream, and never touches the parity-critical tick path. See devMint.ts.
+  import { devMintFromBlueprint } from "./lib/game/devMint";
   // Combat 0.13.0 dev harness (Debug tab only): the ship->Combatant bridge
   // (shipToCombatant + the illustrative sampleLoadout), the sim entry point
   // (resolveBattle), and the plain dev log renderer (formatCombatLog). These wire
@@ -2564,6 +2577,77 @@
     };
     doSave();
     pushLog(`[DEV] Granted spare ${piece.id}: ${EQUIPMENT_SLOTS[slot].label} / ${varietyKey} (${piece.rarity} q${piece.quality}).`);
+  }
+
+  // ===== [DEV] Combat-gear mint at a CHOSEN quality (Debug tab only) =========
+  // The QA counterpart to devGrantEquipment above. devGrantEquipment mints a FIXED
+  // radiant / q5 / iL-400 spare with blueprintKey null (the craft-less high-visibility
+  // path). That is fine for eyeballing the base-vs-fitted stat delta, but it CANNOT
+  // produce the thing combat QA actually needs: a REAL crafted weapon / shield emitter
+  // / hull plating / drone pod at a SPECIFIC quality (especially q4 and q5) to exercise
+  // the crafted-gear-drives-combat features. Random crafting rolls quality (rollQuality)
+  // and rarely reaches the top rungs, so this control lets the developer pick them.
+  //
+  // It mints OFF A REAL BLUEPRINT (devMintFromBlueprint dispatches to the same
+  // generateWeapon / generateDronePod / generateEquipment the Fabricator uses), so the
+  // piece is shape-identical to genuinely-crafted gear AND carries a REAL blueprintKey:
+  // it is never a Standard-Issue baseline (isStandardIssueBaseline is false), it counts
+  // against the spare-storage cap like any crafted system, and it is salvage-safe (a
+  // real key resolves in BLUEPRINTS). Lands in the spare pool ready to INSTALL.
+
+  // Which gear blueprint the next mint uses. Seeded to the first weapon blueprint so
+  // the selector is never in an invalid state on first render (plasmaBp is a tier-1
+  // weapon, always present in BLUEPRINTS).
+  let devMintBlueprintKey: string = "plasmaBp";
+  // The CHOSEN quality (0..5), iLevel, and rarity for the next mint. Quality/iLevel
+  // default high (q5 / iL-40, the tier-2 cap) so the common QA case is one click; the
+  // developer dials them down for lower-tier tests. Rarity spans the craftable band
+  // Standard..Radiant (the exact set rollCraftedRarity produces in real play).
+  let devMintQuality: number = 5;
+  let devMintILevel: number = 40;
+  let devMintRarity: EquipmentRarity = "radiant";
+
+  // The iLevel and rarity option lists the dev picker offers. iLevel presets bracket
+  // the real reachable range: 1 (the crafting floor), 20 (the tier-1 cap), 40 (the
+  // tier-2 cap == EQUIPMENT_ILEVEL_CAP_PER_TIER * 2). Rarity is the craftable band.
+  const DEV_MINT_ILEVELS: number[] = [1, 20, 40];
+  const DEV_MINT_RARITIES: EquipmentRarity[] = ["standard", "augmented", "stellar", "radiant"];
+
+  // Mint one crafted spare for the selected blueprint at the chosen quality/iLevel/
+  // rarity and add it to the pool (fittedToShipId null, set inside the generators).
+  // allocateId mints "equip-N" off the GameState counter; we bump nextEquipmentId by
+  // one in the SAME immutable transition, exactly as devGrantEquipment does. rng is
+  // Math.random (a live roll for the affix picks only; quality/iLevel/rarity are the
+  // developer's explicit choice). Persists eagerly via doSave().
+  function devMintGear() {
+    const bp = BLUEPRINTS[devMintBlueprintKey];
+    if (bp === undefined) {
+      pushLog(`[DEV] Mint aborted: no blueprint "${devMintBlueprintKey}".`);
+      return;
+    }
+    const mintedId = "equip-" + state.nextEquipmentId;
+    const piece = devMintFromBlueprint({
+      blueprint: bp,
+      iLevel: devMintILevel,
+      quality: devMintQuality,
+      rarity: devMintRarity,
+      rng: Math.random,
+      allocateId: () => mintedId,
+    });
+    // devMintFromBlueprint returns null only for a non-gear blueprint (material /
+    // unlock-only), which the selector never offers (it lists only gear blueprints),
+    // but guard anyway so a bad key logs instead of throwing.
+    if (piece === null) {
+      pushLog(`[DEV] Mint aborted: "${devMintBlueprintKey}" is not a gear blueprint.`);
+      return;
+    }
+    state = {
+      ...state,
+      equipment: [...state.equipment, piece],
+      nextEquipmentId: state.nextEquipmentId + 1,
+    };
+    doSave();
+    pushLog(`[DEV] Minted crafted ${piece.id}: ${bp.label} (${piece.slotType} · ${piece.rarity} q${piece.quality} · iL${piece.iLevel} · bp ${piece.blueprintKey}).`);
   }
 
   // --- [DEV] Combat 0.13.0 test battle (Debug tab only) --------------------
@@ -8822,6 +8906,46 @@
             </select>
             <button class="dev-btn" on:click={() => devGrantEquipment(devEqSlot, devEqVariety)}>
               + Grant radiant q5 spare
+            </button>
+          </div>
+
+          <!-- MINT crafted combat gear at a CHOSEN quality (Combat 1.0 QA). Unlike
+               the fixed radiant/q5 GRANT above, this mints a REAL crafted piece off a
+               blueprint at a selectable slot (via the blueprint) / quality (0..5, so q4
+               and q5 are reachable) / iLevel / rarity. The piece carries a real
+               blueprintKey (NOT a Standard-Issue baseline) and lands in the spare pool
+               ready to INSTALL. Blueprint list = every GEAR blueprint (weapon / drone /
+               economy + defensive equipment); the slot is implied by the blueprint. See
+               devMintGear + devMintFromBlueprint. -->
+          <div class="dev-row">
+            <span class="dev-label">Mint gear</span>
+            <select class="dev-btn" bind:value={devMintBlueprintKey}>
+              {#each Object.entries(BLUEPRINTS).filter(([, bp]) => blueprintMintsEquipmentInstance(bp)) as [bpKey, bp]}
+                <option value={bpKey}>{bp.label} ({blueprintKind(bp)})</option>
+              {/each}
+            </select>
+          </div>
+          <div class="dev-row">
+            <span class="dev-label">Quality</span>
+            <select class="dev-btn" bind:value={devMintQuality}>
+              {#each [0, 1, 2, 3, 4, 5] as q}
+                <option value={q}>q{q}</option>
+              {/each}
+            </select>
+            <span class="dev-label">iLevel</span>
+            <select class="dev-btn" bind:value={devMintILevel}>
+              {#each DEV_MINT_ILEVELS as lvl}
+                <option value={lvl}>iL{lvl}</option>
+              {/each}
+            </select>
+            <span class="dev-label">Rarity</span>
+            <select class="dev-btn" bind:value={devMintRarity}>
+              {#each DEV_MINT_RARITIES as r}
+                <option value={r}>{r}</option>
+              {/each}
+            </select>
+            <button class="dev-btn" on:click={devMintGear}>
+              + Mint crafted spare
             </button>
           </div>
 
