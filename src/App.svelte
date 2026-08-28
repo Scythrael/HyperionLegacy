@@ -3839,6 +3839,17 @@
     // the initial `state` declaration): a reset game's hull is dispatchable like a new one.
     state = installMissingCombatBaselines(freshState());
     createdAt = Date.now();
+    // A fresh state ships a SINGLE captain (index 0). If the player had captain #2+
+    // selected, activeCaptainIndex/personnelRosterView still point past the new roster,
+    // so `activeCaptain = state.captains[activeCaptainIndex]` goes undefined and the
+    // Personnel captain view white-screens on activeCaptain.label/.level/.xp. Return
+    // Personnel to its grid root, re-seat the active captain on the only one that exists,
+    // and close every captain-scoped modal so none can re-open against a stale target.
+    activeCaptainIndex = 0;
+    personnelRosterView = "grid";
+    captainTalentsModalOpen = false;
+    captainRespecModalOpen = false;
+    captainRenameModalOpen = false;
     pushLog("Save reset.");
   }
 
@@ -3923,6 +3934,9 @@
     // the initial `state` declaration) so the recovered game's hull is dispatchable.
     state = installMissingCombatBaselines(freshState());
     createdAt = Date.now();
+    // Mirror resetSave()'s index reset for hygiene: the recovered state also has a single
+    // captain, so re-seat the selection at index 0 rather than trust whatever it was.
+    activeCaptainIndex = 0;
     suppressSave = false;
     saveCorruptModalOpen = false;
     doSave();
