@@ -2011,7 +2011,19 @@ export function tickCaptainPatrol(
   }
 
   // Persist the (possibly fractional) route position onto the surviving mission.
-  if (mission !== null) mission.progressTicks = progress;
+  // LIMP-HOME CLAMP (fix: limp progress exceeds route length, 2026-08-27): while a defeated patrol
+  // is LIMPING home its whole-tick advance keeps incrementing `progress` PAST routeLength, because
+  // the limp is a SEPARATE countdown (limpTicksRemaining) and the limp branch `continue`s past the
+  // completion check that otherwise caps progress at routeLength. Persisting that raw value let the
+  // UI render a >100% progress bar. Clamp the persisted position to routeLength for a limping
+  // patrol so the bar tops out at 100%. DISPLAY-ONLY: the limp END is driven by limpTicksRemaining
+  // (unchanged), never by progress, and the clamp is applied identically on one big offline call
+  // and many small live calls, so closed-form parity is preserved. Non-limp phases never exceed
+  // routeLength here (the completion check relaunches/ends at route end), so they are untouched.
+  if (mission !== null) {
+    mission.progressTicks =
+      mission.phase === "limpingHome" ? Math.min(progress, routeLength) : progress;
+  }
 
   // ---- CAPTAIN XP + level-ups (Combat 0.13.0, Phase 10, design S12). --------------------
   // Fold the summed per-won-wave captain XP onto the captain, then resolve level-ups through

@@ -318,6 +318,42 @@ describe("defeat handling", () => {
     // NO relaunch consumed a seed (a defeat is terminal), so the counter is unchanged.
     expect(done.nextPatrolSeed).toBe(seedAtDispatch);
   });
+
+  // fix (limp progress exceeds route length, 2026-08-27): while limping home the whole-tick
+  // advance keeps incrementing progressTicks past routeLength (the limp is a separate countdown
+  // and the limp branch skips the completion check that caps progress). Persisting that raw value
+  // let the UI show a >100% progress bar. The persisted position is now clamped to routeLength.
+  it("a limping patrol never persists progress beyond the route length (bar caps at 100%)", () => {
+    const dispatched = dispatch(patrolState("destroyer", 9), false);
+    const cap = dispatched.captains[0];
+    const m = cap.mission as PatrolMissionState;
+    // Force a mid-limp state: near route end, still crawling home (limpTicksRemaining high enough
+    // that 3 ticks will NOT finish the limp, so the mission persists and progress is persisted).
+    const limping: GameState = {
+      ...dispatched,
+      captains: [
+        {
+          ...cap,
+          mission: {
+            ...m,
+            phase: "limpingHome",
+            progressTicks: ROUTE_LEN - 1, // 13, just under the 14-tick route
+            limpTicksRemaining: 5, // still limping after 3 ticks (5 - 3 = 2)
+            limpDamage: 10,
+            playerHull: 5,
+          },
+        },
+      ],
+    };
+    // 3 whole ticks push the RAW progress to 16 (13 -> 16), well past the 14-tick route.
+    const after = stepped(limping, 3);
+    const mm = patrolOf(after);
+    expect(mm).not.toBeNull(); // still limping (not yet home)
+    expect(mm!.phase).toBe("limpingHome");
+    // The clamp: persisted progress caps at routeLength, so the UI progress bar tops out at 100%.
+    expect(mm!.progressTicks).toBeLessThanOrEqual(ROUTE_LEN);
+    expect(mm!.progressTicks).toBe(ROUTE_LEN); // pinned exactly at the cap (would be 16 pre-fix)
+  });
 });
 
 // ---------------------------------------------------------------------------
