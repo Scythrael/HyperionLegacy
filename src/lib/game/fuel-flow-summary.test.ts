@@ -24,12 +24,19 @@ import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { fuelFlowSummary } from "./tick";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
+import { fuelNeeded } from "./fuel"; // folded-burn match assertion
 import {
   freshState,
   FUEL_TANK_BASE_CAP,
+  SHIP_TYPES,
+  MISSIONS,
+  shipDerivedStats,
+  effectiveMissionDef,
+  requiredTicksForPhase,
   type GameState,
   type CaptainMissionState,
   type MissionPhase,
+  type EquipmentInstance,
 } from "./model";
 
 // A fresh state with a chosen Fuel Depot (fuelStorage) level, ice reserve, and
@@ -157,5 +164,78 @@ describe("fuelFlowSummary, production ceiling vs effective (ice gate)", () => {
     expect(summary.effectiveProductionPerTick).toBe(0);
     expect(summary.hasIce).toBe(false); // pipelines <= 0 -> no ice gate passes
     expect(summary.refiningActive).toBe(false);
+  });
+});
+
+// ============================================================================
+// FOLDED-STATS BURN (fix: fuelFlowSummary used UNFOLDED hull stats, 2026-08-27).
+// The top-bar burn/net was priced at the BASELINE hull while the engine burns from the
+// EQUIPMENT-FOLDED engineEfficiency / transitSpeedMult, so a geared ship could read
+// "sufficient" while the tank actually drained. The summary now folds installed gear.
+// ============================================================================
+describe("fuelFlowSummary, burnPerTick uses equipment-folded stats", () => {
+  // An FTL/engine piece fitted to ship-1 that raises engineEfficiency (the stat the tick engine
+  // burns from). mass 0 isolates the engineEfficiency fold from any mass drag on transit speed.
+  function efficiencyDrive(): EquipmentInstance {
+    return {
+      id: "eff-drive-1",
+      slotType: "ftlDrive",
+      rarity: "standard",
+      ascension: "none",
+      quality: 0,
+      iLevel: 1,
+      blueprintKey: null,
+      implicitStats: {},
+      rolledStats: { engineEfficiency: 5 }, // large boost -> clearly lower folded burn
+      mass: 0,
+      powerDraw: 0,
+      durabilityMax: 100,
+      durability: 100,
+      fittedToShipId: "ship-1",
+    };
+  }
+
+  it("a fitted efficiency drive LOWERS the displayed burn (before the fix, gear had no effect)", () => {
+    const base = burningState({ deuteriumIce: 0, fuel: 100 });
+    const geared: GameState = { ...base, equipment: [...base.equipment, efficiencyDrive()] };
+    const baseBurn = fuelFlowSummary(base).burnPerTick;
+    const gearedBurn = fuelFlowSummary(geared).burnPerTick;
+    expect(baseBurn).toBeGreaterThan(0);
+    // The fix: the folded efficiency drive reduces the shown burn. Pre-fix (UNFOLDED SHIP_TYPES
+    // stats) these would be EQUAL because gear was ignored.
+    expect(gearedBurn).toBeLessThan(baseBurn);
+    expect(gearedBurn).toBeGreaterThan(0);
+  });
+
+  it("burnPerTick EXACTLY matches the engine's folded burn (fuelNeeded at folded eff / folded cycle)", () => {
+    const geared: GameState = (() => {
+      const base = burningState({ deuteriumIce: 0, fuel: 100 });
+      return { ...base, equipment: [...base.equipment, efficiencyDrive()] };
+    })();
+    const gearedBurn = fuelFlowSummary(geared).burnPerTick;
+
+    // Independently reconstruct the burn the tick engine actually draws: fuelNeeded priced at the
+    // FOLDED engineEfficiency, amortized over the FOLDED cycle length. This is the exact figure
+    // economyTick's extraction arm spends per real tick.
+    const ship = geared.ships.find((s) => s.assignedCaptainId === 1)!;
+    const folded = shipDerivedStats(
+      ship,
+      geared.equipment.filter((e) => e.fittedToShipId === ship.id),
+    );
+    const baseMission = MISSIONS.shortOreRun;
+    const effDef = effectiveMissionDef(baseMission, folded);
+    const PHASES: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
+    const cycleTicks = PHASES.reduce((t, p) => t + requiredTicksForPhase(p, effDef), 0);
+    const expected =
+      fuelNeeded(baseMission, { ...SHIP_TYPES[ship.typeKey], engineEfficiency: folded.engineEfficiency }) / cycleTicks;
+
+    expect(gearedBurn).toBeCloseTo(expected, 10);
+    // Non-vacuity: the folded burn genuinely differs from the OLD unfolded computation.
+    const unfoldedCycle = PHASES.reduce(
+      (t, p) => t + requiredTicksForPhase(p, effectiveMissionDef(baseMission, shipDerivedStats(ship))),
+      0,
+    );
+    const unfolded = fuelNeeded(baseMission, SHIP_TYPES[ship.typeKey]) / unfoldedCycle;
+    expect(expected).not.toBeCloseTo(unfolded, 6);
   });
 });

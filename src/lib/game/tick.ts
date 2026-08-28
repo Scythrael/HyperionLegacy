@@ -6257,11 +6257,16 @@ export function processFuelPipelines(state: GameState): GameState {
 // so this length cannot drift from the engine's actual cycle.
 const FUEL_CYCLE_PHASES: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
 
-// Total ticks in ONE full round-trip cycle of `baseMission` when flown by `ship`,
-// summed over all five phases of the ship-adjusted def (effectiveMissionDef
-// rescales transit by the hull's speed). Guards a 0/negative sum at the call site.
-function missionCycleTicks(baseMission: MissionDef, ship: ShipInstance): number {
-  const eff = effectiveMissionDef(baseMission, shipDerivedStats(ship));
+// Total ticks in ONE full round-trip cycle of `baseMission` when flown at `shipStats`,
+// summed over all five phases of the ship-adjusted def (effectiveMissionDef rescales
+// transit by the hull's speed). Guards a 0/negative sum at the call site.
+// FOLDED-STATS FIX (2026-08-27): takes the caller's ALREADY-FOLDED ShipDerivedStats (gear
+// applied) rather than re-deriving UNFOLDED stats from a ShipInstance. The tick engine
+// advances a mission on the EQUIPMENT-FOLDED transitSpeedMult (effectiveMissionDef with the
+// folded shipStats), so the cadence the burn is amortized over must be the folded one too, or
+// a geared hull's displayed burn/tick drifts from the burn the engine actually draws.
+function missionCycleTicks(baseMission: MissionDef, shipStats: ShipDerivedStats): number {
+  const eff = effectiveMissionDef(baseMission, shipStats);
   return FUEL_CYCLE_PHASES.reduce((total, phase) => total + requiredTicksForPhase(phase, eff), 0);
 }
 
@@ -6315,16 +6320,28 @@ export function fuelFlowSummary(state: GameState): FuelFlowSummary {
     // Combat 0.13.0 (Phase 9b.5c): the fuel-runway burn estimate now knows BOTH arms.
     // PATROL: a patrol burns its two transit legs' fuel over one route; amortize one round
     // trip's fuel over the whole route length (transitOut + rollWindow + transitBack) for a
-    // per-real-tick rate, the direct twin of the extraction term below. Uses the UNFOLDED
-    // SHIP_TYPES stats, matching the extraction term's fuelNeeded convention (an estimate,
-    // not the exact per-cycle spend the tick loop draws). A hull-less patrol captain burns 0.
+    // per-real-tick rate, the direct twin of the extraction term below.
+    // FOLDED-STATS FIX (2026-08-27): price the round trip from the EQUIPMENT-FOLDED
+    // engineEfficiency the patrol tick loop actually burns from (economyTick's patrol arm builds
+    // fuelForRoundTrip with shipDerivedStats(patrolShip, equippedFor(...)).engineEfficiency), not
+    // the UNFOLDED SHIP_TYPES stat, so a geared hull's displayed burn matches the real spend. The
+    // route length is the fixed integer legs (patrols are NOT speed-scaled), so only the fuel cost
+    // folds. A hull-less patrol captain burns 0.
     if (captain.mission.kind === "patrol") {
       const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
       if (!ship) return sum;
       const def = PATROLS[captain.mission.patrolKey];
       const routeTicks = def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks;
       if (routeTicks <= 0) return sum;
-      return sum + fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, SHIP_TYPES[ship.typeKey]) / routeTicks;
+      const foldedEff = shipDerivedStats(ship, equippedFor(state, ship.id)).engineEfficiency;
+      return (
+        sum +
+        fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
+          ...SHIP_TYPES[ship.typeKey],
+          engineEfficiency: foldedEff,
+        }) /
+          routeTicks
+      );
     }
     // ANY OTHER non-extraction kind is SKIPPED (a future kind that burns fuel must be added
     // EXPLICITLY here, like the patrol arm just above; this site is NOT a compile-time
@@ -6335,9 +6352,19 @@ export function fuelFlowSummary(state: GameState): FuelFlowSummary {
     const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
     if (!ship) return sum;
     const baseMission = MISSIONS[extractionMission.missionKey];
-    const cycleTicks = missionCycleTicks(baseMission, ship);
+    // FOLDED-STATS FIX (2026-08-27): resolve the SAME equipment-folded stats the tick engine
+    // burns from (shipDerivedStats(ship, equippedFor(state, ship.id)), the exact seam economyTick
+    // uses). Both the per-cycle fuel COST (folded engineEfficiency, so an efficiency drive lowers
+    // it) AND the cycle LENGTH (folded transitSpeedMult) must be the folded figures, or a geared
+    // ship's top-bar burn/net reads "sufficient" while the engine actually drains the tank faster.
+    // Display-only: the EMA runway is measured separately and is unaffected.
+    const folded = shipDerivedStats(ship, equippedFor(state, ship.id));
+    const cycleTicks = missionCycleTicks(baseMission, folded);
     if (cycleTicks <= 0) return sum;
-    return sum + fuelNeeded(baseMission, SHIP_TYPES[ship.typeKey]) / cycleTicks;
+    return (
+      sum +
+      fuelNeeded(baseMission, { ...SHIP_TYPES[ship.typeKey], engineEfficiency: folded.engineEfficiency }) / cycleTicks
+    );
   }, 0);
 
   const netPerTick = effectiveProductionPerTick - burnPerTick;
