@@ -700,7 +700,14 @@ function shipSalvageState(captainMission: CaptainMissionState | null = null): Ga
 describe("salvageShip: breaks down an idle hull (Task ship-salvage)", () => {
   it("removes the ship, returns crafted systems as spares, discards baselines, deposits ~% components at quality 0, refunds ~% credits, and unassigns the captain", () => {
     const rngValue = 0.5; // fraction = 0.30 + 0.5*0.10 = 0.35 (band only, no quality/talent for a hull)
-    const state = shipSalvageState();
+    // TWO hulls: the last-ship guard refuses salvaging the fleet's ONLY ship, so a successful
+    // teardown needs a spare hull present. ship-2 is a bare idle freighter (no captain, no
+    // equipment) that the assertions below never inspect, so it only satisfies length > 1.
+    const base = shipSalvageState();
+    const state: GameState = {
+      ...base,
+      ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }],
+    };
     const startCredits = state.credits.toNumber();
 
     const result = salvageShip(state, "ship-1", () => rngValue);
@@ -763,5 +770,40 @@ describe("salvageShip: rejects invalid targets as a same-ref no-op + reason (Tas
     if (result.ok) return;
     expect(result.reason).toBe("shipNotFound");
     expect(result.next).toBe(state);
+  });
+});
+
+// The last-hull softlock guard: salvaging the fleet's ONLY ship would strand the player with no
+// hull, no mission income, and a costly Shipyard re-founding, a practical softlock. salvageShip
+// refuses it outright as a same-ref no-op (nothing destroyed or mutated). freshState seeds exactly
+// one hull, so the default fixture already reproduces the length===1 condition.
+describe("salvageShip: refuses to break down the fleet's only hull (last-ship softlock guard)", () => {
+  it("returns the lastShip reason as a same-ref, byte-identical no-op when state.ships.length === 1", () => {
+    const state = shipSalvageState(); // freshState seeds a single hull, ship-1
+    expect(state.ships.length).toBe(1); // precondition: this IS the last ship
+
+    const result = salvageShip(state, "ship-1", () => 0.5);
+    expect(result.ok).toBe(false);
+    if (result.ok) return; // narrow for the type checker
+    expect(result.reason).toBe("lastShip");
+    // SAME reference: the strongest form of "state left byte-identical", nothing was rebuilt.
+    expect(result.next).toBe(state);
+    // The hull is still present (not torn down) and the fleet is not emptied.
+    expect(result.next.ships.find((s) => s.id === "ship-1")).toBeDefined();
+    expect(result.next.ships.length).toBe(1);
+  });
+
+  it("still allows salvaging when a second hull is present (guard is length-based, not identity-based)", () => {
+    const base = shipSalvageState();
+    const state: GameState = {
+      ...base,
+      ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }],
+    };
+    const result = salvageShip(state, "ship-1", () => 0.5);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // ship-1 torn down, ship-2 remains as the fleet's surviving hull.
+    expect(result.next.ships.find((s) => s.id === "ship-1")).toBeUndefined();
+    expect(result.next.ships.find((s) => s.id === "ship-2")).toBeDefined();
   });
 });

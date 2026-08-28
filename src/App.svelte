@@ -2937,6 +2937,8 @@
         return "that ship no longer exists";
       case "shipOnMission":
         return "the ship's captain is on a mission (recall first)";
+      case "lastShip":
+        return "your fleet would be left with no hull (this is your last ship)";
     }
   }
 
@@ -6852,10 +6854,18 @@
                 </button>
               {/if}
 
+              <!-- Salvage is BLOCKED for the fleet's only hull (state.ships.length === 1): tearing
+                   it down would strand the player with no ship and no mission income, a practical
+                   softlock (salvageShip enforces the same lastShip guard server-side). Disabled +
+                   reason here mirrors the on-mission block so the player sees WHY before clicking. -->
               <button
                 class="dev-btn danger"
-                disabled={onMission}
-                title={onMission ? "On a mission, recall first" : "Break down this hull for parts"}
+                disabled={onMission || state.ships.length === 1}
+                title={onMission
+                  ? "On a mission, recall first"
+                  : state.ships.length === 1
+                    ? "Cannot salvage your last ship: your fleet would be left with no hull"
+                    : "Break down this hull for parts"}
                 on:click={() => requestSalvage("ship", ship.id, def.label)}
               >
                 Salvage

@@ -145,6 +145,11 @@ export interface SalvageRoll {
 //     shipNotFound         no ship in the fleet with that id
 //     shipOnMission        the ship's assigned captain is out on an active mission, so
 //                          the hull cannot be torn apart mid-flight (same lock fitment uses)
+//     lastShip             this is the fleet's ONLY hull (state.ships.length === 1). Tearing
+//                          it down would leave the player with no ship AND all mission income
+//                          stopped, then facing a 2000-credit + FA-level-3 Shipyard re-founding:
+//                          a practical softlock. Refused outright, no dev-mode escape hatch (a
+//                          peace-design guarantee, not a balance knob).
 export type SalvageRejectReason =
   | "notFound"
   | "fitted"
@@ -155,7 +160,8 @@ export type SalvageRejectReason =
   | "notSalvagedMaterial"
   | "noneHeld"
   | "shipNotFound"
-  | "shipOnMission";
+  | "shipOnMission"
+  | "lastShip";
 
 // ----------------------------------------------------------------------------
 // salvageEquipment
@@ -467,9 +473,17 @@ export type SalvageShipResult =
 // above: this is a live instant action, so a real random roll is correct here).
 //
 // REJECTS (same-ref no-op + reason): the ship id must resolve to a real hull (shipNotFound),
-// and its assigned captain must NOT be on an active mission (shipOnMission, via the shared
-// onMissionLock guard reused from the fitment system). Only then is a reward computed and a
-// new state built.
+// its assigned captain must NOT be on an active mission (shipOnMission, via the shared
+// onMissionLock guard reused from the fitment system), and it must NOT be the fleet's ONLY
+// hull (lastShip). Only then is a reward computed and a new state built.
+//
+// LAST-HULL GUARD (peace-design softlock block): salvaging the fleet's only ship strands the
+// player with no hull and no mission income, then a 2000-credit + FA-level-3 Shipyard re-founding
+// to get back in the game, a practical softlock. So a length===1 fleet is refused outright. There
+// is deliberately NO dev-mode escape hatch: this is a hard player-protection guarantee, not a
+// tunable. It is checked AFTER shipNotFound/shipOnMission so those more specific, actionable
+// reasons win when they also apply (e.g. a lone hull that is out on a mission reports "recall
+// first", the step the player can actually take).
 export function salvageShip(
   state: GameState,
   shipId: string,
@@ -488,6 +502,15 @@ export function salvageShip(
   const lock = onMissionLock(state, shipId);
   if (!lock.ok) {
     return { ok: false, next: state, reason: "shipOnMission" };
+  }
+  // Last-hull guard: refuse to tear down the fleet's ONLY ship. Doing so would leave the player
+  // with zero hulls (all mission income stopped) facing a 2000-credit + FA-level-3 Shipyard
+  // re-founding, a practical softlock and a peace-design violation. Same-ref no-op + reason, like
+  // the guards above, so nothing is destroyed or mutated on refuse. No dev-mode bypass by design:
+  // this is a hard player-protection floor. Checked LAST so shipNotFound/shipOnMission (the more
+  // specific, actionable reasons) take precedence when they also hold.
+  if (state.ships.length === 1) {
+    return { ok: false, next: state, reason: "lastShip" };
   }
 
   // --- Return crafted systems to the spare pool; discard baselines ----------
