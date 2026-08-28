@@ -597,6 +597,55 @@
     return `${scope}:${kind}:${id}`;
   }
 
+  // The set of pip keys the arena / roster is CURRENTLY rendering, rebuilt reactively from
+  // the SAME sources the pip rows iterate (the player row + every wave enemy, scoped
+  // "e{index}" exactly as the mobile roster keys them; the desktop featured-enemy scope
+  // "e0" coincides with wave index 0, and the desktop "additional hostiles" strip renders
+  // no pips, so index-scoped keys cover both layouts). The single floating tooltip wrapper
+  // and reflowPipTip consult this so a pip that has since disappeared (most commonly a
+  // status effect wearing off mid-wave) stops leaving its card stuck on screen and stops
+  // reflowPipTip from measuring a now-detached anchor.
+  //
+  // WHY a derived read instead of clearing selectedPipKey: this component's reactivity
+  // contract (see the pip-tooltip freeze note above and the expandedId note below) forbids
+  // writing the tooltip state vars from a reactive `$:` (that risks the flush loop that once
+  // froze this tab). The established idiom is that a stale key "matches no live element" and
+  // therefore renders nothing: every `selectedPipKey === key` consumer already honors it.
+  // The tooltip wrapper was the ONE consumer rendering off the tipData snapshot regardless,
+  // so livePipKeys simply extends the same idiom there. Pure derived READ: no DOM
+  // measurement and no write to tooltip state, so it cannot re-enter the flush loop.
+  $: livePipKeys = (() => {
+    const keys = new Set<string>();
+    // Player row pips: status effects, ship-system conditions, and one pip per drone.
+    if (playerSnap) for (const e of playerSnap.effects) keys.add(pipKey("p", "eff", e.defId));
+    for (const sp of playerSystemPips) keys.add(pipKey("p", "sys", sp.pip.id));
+    if (playerDroneSrc) {
+      for (const squadron of playerDroneSrc.drones) {
+        const pipCount = dronePips(squadronStatusSummary(squadron)).length;
+        for (let di = 0; di < pipCount; di++) keys.add(pipKey("p", `drn-${squadron.id}`, String(di)));
+      }
+    }
+    // Enemy row pips, scoped "e{index}" for every enemy in the wave. The drone source
+    // mirrors enemyDroneSource(i) but reads `settled` / `wave` DIRECTLY here so both are
+    // tracked dependencies of this derivation (static-analysis reactivity cannot see reads
+    // that happen inside a called function).
+    waveEnemies.forEach((enemy, i) => {
+      const es = snap ? snap.combatants[enemy.id] ?? null : null;
+      if (es) for (const e of es.effects) keys.add(pipKey(`e${i}`, "eff", e.defId));
+      for (const sp of systemPipLabels(es?.systemConditions ?? null)) {
+        keys.add(pipKey(`e${i}`, "sys", sp.pip.id));
+      }
+      const droneSrc = (settled && wave ? wave.enemyEnd[i] : undefined) ?? enemy;
+      for (const squadron of droneSrc.drones) {
+        const pipCount = dronePips(squadronStatusSummary(squadron)).length;
+        for (let di = 0; di < pipCount; di++) {
+          keys.add(pipKey(`e${i}`, `drn-${squadron.id}`, String(di)));
+        }
+      }
+    });
+    return keys;
+  })();
+
   // OPEN the floating card for a pip: record which pip + what to render + the anchor, then
   // render invisibly for ONE frame (tipVisible false), await the tick, measure + place +
   // show. The single DOM-measuring path (plus reflowPipTip); kept out of any `$:` so it
@@ -632,7 +681,9 @@
   // (capture:true catches the inner scroll, which does not bubble to window). Measures
   // only while a card is open. Registered in onMount, removed in onDestroy (below).
   function reflowPipTip(): void {
-    if (selectedPipKey !== null && tipData) positionPipTip();
+    // Only reposition while the open pip is still live; a key that no longer resolves to a
+    // rendered pip (e.g. its effect expired) has a detached anchor we must not measure.
+    if (selectedPipKey !== null && tipData && livePipKeys.has(selectedPipKey)) positionPipTip();
   }
 
   // PIN toggle (click / tap / keyboard). Pinning the already-pinned pip closes it;
@@ -1815,7 +1866,7 @@
        so it shares the modal-backdrop stacking context and sits above the arena / log via
        z-index. Measured after an awaited tick (see openPipTip) and reflowed on scroll /
        resize; hidden for the first frame so it never flashes at 0,0. -->
-  {#if selectedPipKey !== null && tipData}
+  {#if selectedPipKey !== null && tipData && livePipKeys.has(selectedPipKey)}
     <div
       class="cv-tip-float"
       bind:this={tipFloatEl}
