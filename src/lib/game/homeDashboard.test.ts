@@ -19,6 +19,8 @@ import Decimal from "break_infinity.js";
 import {
   freshState,
   freshCaptainStack,
+  BLUEPRINTS,
+  SHIP_TYPES,
   type GameState,
   type CaptainState,
   type TimedProcess,
@@ -261,9 +263,124 @@ describe("buildHomeDashboard, in-progress list (Unit 1)", () => {
     }
   });
 
-  it("leaves needsOrders / locked / allCaughtUp as Unit 1 stubs", () => {
+  it("reports this all-busy state as caught up (Unit 2), locked still a Unit 3 stub", () => {
+    // Unit 2 now computes needsOrders / allCaughtUp (they were Unit 1 stubs). For THIS
+    // seeded state nothing is actionable: captains 1 + 2 are on missions (busy), the one
+    // idle captain (Charlie, id 3) has no assigned hull (noShip), the sole research slot is
+    // busy (p-research), the refinery + shipyard are level 0 (unbuilt/unfounded), and the
+    // fabricator has nothing researched to craft. So there are no prompts and the board is
+    // caught up. `locked` stays [] until Unit 3 fills it.
     expect(model.needsOrders).toEqual([]);
+    expect(model.allCaughtUp).toBe(true);
     expect(model.locked).toEqual([]);
+  });
+});
+
+// ============================================================================
+// Unit 2: NEEDS YOUR ORDERS (idle + actionable) + allCaughtUp
+//
+// Locks the idle-and-actionable detection: a slot surfaces a prompt ONLY when the game's
+// own START gate says it can start something there right now, and idle-but-nothing-available
+// surfaces NOTHING. States are built BY HAND from freshState() (credits 0, fuel full,
+// refinery/shipyard level 0, research/fabricator level 1, captain 1 idle with a General
+// Freighter) and mutated to force one exact condition each, so every gate outcome is
+// deterministic. Prompts are located by id (never array index) so ordering changes don't
+// break these.
+// ============================================================================
+
+// Locate a prompt by id (undefined = the slot produced no prompt, the whole point of several
+// cases below), so each assertion reads by id, not position.
+function promptById(model: ReturnType<typeof buildHomeDashboard>, id: string) {
+  return model.needsOrders.find((p) => p.id === id);
+}
+
+describe("buildHomeDashboard, needs-orders + caught-up (Unit 2)", () => {
+  it("surfaces the captain-dispatch prompt for a fresh admiral (idle captain + full tank), not caught up", () => {
+    // freshState: captain 1 is idle, flies the seeded General Freighter, and the tank is
+    // full, so a gathering mission is dispatchable. That one actionable slot must produce
+    // the aggregate captain prompt routed to gathering, and the board is NOT caught up.
+    const model = buildHomeDashboard(freshState());
+    const captain = promptById(model, "idle-captain");
+    expect(captain).toBeDefined();
+    expect(captain!.jumpTarget).toBe("gathering");
     expect(model.allCaughtUp).toBe(false);
+  });
+
+  it("produces NO prompt anywhere and reports caught up when nothing is actionable", () => {
+    // A structurally-blank fleet: no captains (nothing to dispatch) and every facility at
+    // level 0 (unbuilt), so researchSlotCount / fabricateSlotCount / refineSlotCount are all
+    // 0 (noSlot for every craft/research gate) and the shipyard is unfounded (notFounded).
+    // Every gate is blocked at its structural check, INDEPENDENT of credits/inventory, so no
+    // slot is actionable. That is the caught-up state: zero prompts, allCaughtUp true.
+    // (Note the Local Asteroid run costs zero fuel by design, so a captain WITH a hull is
+    // always dispatchable; this state removes the captains to reach a true nothing-actionable
+    // board rather than trying to strand a captain, which the anti-softlock run forbids.)
+    const blank = {
+      ...freshState(),
+      captains: [],
+      facilities: {
+        refinery: { level: 0 },
+        warehouseT1: { level: 0 },
+        warehouseT2: { level: 0 },
+        fuelStorage: { level: 0 },
+        missionControl: { level: 0 },
+        research: { level: 0 },
+        fabricator: { level: 0 },
+        shipyard: { level: 0 },
+      },
+    };
+    const model = buildHomeDashboard(blank);
+    expect(model.needsOrders).toEqual([]);
+    expect(model.allCaughtUp).toBe(true);
+  });
+
+  it("surfaces the research prompt when a free research slot has an affordable blueprint", () => {
+    // Fresh research lab (level 1, one free slot, nothing researched) + credits to spare:
+    // at least one tier-1 blueprint becomes researchable-and-affordable, so canResearch ok
+    // for it and the research prompt appears, routed to research.
+    const flush = { ...freshState(), credits: new Decimal(1e12) };
+    const model = buildHomeDashboard(flush);
+    const research = promptById(model, "idle-research");
+    expect(research).toBeDefined();
+    expect(research!.jumpTarget).toBe("research");
+    expect(model.allCaughtUp).toBe(false);
+  });
+
+  it("produces NO research prompt when every blueprint is already researched (nothing available)", () => {
+    // A free research slot + ample credits, but EVERY blueprint is already researched, so
+    // canResearch returns alreadyResearched for all of them. The idle slot has nothing to
+    // start, so it must NOT dead-end on an empty picker: no research prompt.
+    const allResearched = {
+      ...freshState(),
+      credits: new Decimal(1e12),
+      researchedBlueprints: Object.keys(BLUEPRINTS),
+    };
+    const model = buildHomeDashboard(allResearched);
+    expect(promptById(model, "idle-research")).toBeUndefined();
+  });
+
+  it("surfaces the shipyard prompt only while a dock is free, and drops it when docks are full", () => {
+    // A founded shipyard (level 1), a General Freighter's full BOM in stock, and ample
+    // credits: with a free dock (1 ship < capacity 8) canBuildShip ok, so the shipyard
+    // prompt appears. Filling the docks (capacity == ships.length) must make it disappear,
+    // proving the docks-full case surfaces NO prompt (canBuildShip's storageFull gate).
+    const freighterBom = SHIP_TYPES.generalFreighter.buildRecipe.components; // { frameSegment, powerCoupling }
+    const base = freshState();
+    const buildable = {
+      ...base,
+      credits: new Decimal(1e12),
+      facilities: { ...base.facilities, shipyard: { level: 1 } },
+      inventory: {
+        ...base.inventory,
+        frameSegment: [new Decimal(freighterBom.frameSegment + 10)],
+        powerCoupling: [new Decimal(freighterBom.powerCoupling + 10)],
+      },
+      shipStorageCapacity: 8, // one seeded ship, plenty of free docks
+    };
+    expect(promptById(buildHomeDashboard(buildable), "idle-shipyard")).toBeDefined();
+
+    // Same state, but the docks are full (capacity == the one seeded ship): no prompt.
+    const docksFull = { ...buildable, shipStorageCapacity: buildable.ships.length };
+    expect(promptById(buildHomeDashboard(docksFull), "idle-shipyard")).toBeUndefined();
   });
 });

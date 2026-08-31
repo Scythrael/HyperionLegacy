@@ -33,15 +33,32 @@ import {
   type PatrolPhase,
   type MissionPhase,
   type ShipInstance,
+  type MissionKey,
+  type PatrolKey,
   ITEMS,
   BLUEPRINTS,
   SHIP_TYPES,
   FACILITIES,
   FACTIONS,
   MISSIONS,
+  PATROLS,
+  REFINE_RECIPES,
   requiredTicksForPhase,
   extractionMissionOf,
 } from "./model";
+
+// The game's REAL "can I start this?" gates (Unit 2). Each is the single source of truth
+// the corresponding setup UI's Start/Dispatch button already reads, so the dashboard's
+// idle-and-actionable detection asks the EXACT questions the pickers ask (design Section 7:
+// reuse the availability logic, never re-derive economy math). See buildNeedsOrders below
+// for how each gate's own idle/slot condition is folded into "actionable".
+import {
+  canDispatch,
+  canDispatchPatrol,
+  canResearch,
+  canStartLine,
+  canBuildShip,
+} from "./tick";
 
 // ---------------------------------------------------------------------------
 // Public shapes
@@ -403,14 +420,156 @@ function rowForPatrol(captain: CaptainState, patrol: PatrolMissionState, state: 
 }
 
 // ---------------------------------------------------------------------------
+// NEEDS YOUR ORDERS: idle + actionable detection (Unit 2)
+//
+// THE RULE (design Section 7): a slot becomes a prompt ONLY when it is BOTH idle (no job
+// running there / the captain has no mission) AND actionable (there is genuinely something
+// the player could start there right now). An idle slot with NOTHING available (all
+// blueprints researched, no affordable recipe, docks full, no dispatchable mission) yields
+// NO prompt, so a prompt never dead-ends on an empty picker; allCaughtUp is simply "no
+// prompts anywhere" (see the builder).
+//
+// NO RE-DERIVED ECONOMY MATH (the critical constraint): every predicate below REUSES the
+// game's own single-source START gate, the EXACT function the setup UI's Start/Dispatch
+// button reads, so the caught-up state cannot lie (it asks the same questions the pickers
+// ask). Crucially, each of those gates ALREADY FOLDS IN the idle/slot condition for its
+// slot type, so "idle AND actionable" collapses to "the real gate returns ok for at least
+// one candidate", there is no separate isIdle predicate to keep in sync:
+//   - Captain : canDispatch (tick.ts) returns `busy` for a captain already on a mission,
+//               so only a genuinely-idle captain can produce an ok; canDispatchPatrol is
+//               the combat twin. Both fold in the fuel + unlock + hull gates too.
+//   - Research: canResearch (tick.ts) returns `noSlot` when every research slot is busy,
+//               so an ok already implies a FREE slot (idle) plus a researchable, affordable
+//               blueprint.
+//   - Refinery / Fabricator: canStartLine (tick.ts) returns `noSlot` when the facility's
+//               lines already fill its slot count, so an ok implies a FREE bay plus an
+//               affordable recipe. (The older canFabricate/startRefineJob "jobs" path is
+//               RETIRED from the UI, App.svelte:348 + :469: the LIVE model is Material
+//               Lines, so canStartLine is the current Start-button source of truth. count 1
+//               is the minimal startable unit the per-slot configurator itself gates on.)
+//   - Shipyard: canBuildShip (tick.ts) folds in `notFounded` (shipyard established), `noSlot`
+//               (no build already running), and `storageFull` (a free dock, i.e. docks NOT
+//               full) plus full BOM + credit affordability, so a single ok answers "idle AND
+//               a dock is free AND a hull is affordable" outright.
+//
+// One prompt per slot TYPE (not per candidate): a facility with several free bays still
+// routes to one place, so one prompt suffices; the captain prompt aggregates the idle-and-
+// dispatchable captains into a single count (they all land in the same Operations tab).
+// ---------------------------------------------------------------------------
+
+// Build the NEEDS YOUR ORDERS prompt list: one prompt per slot type that is idle AND
+// actionable right now. PURE (reads state + the static registries, mutates nothing). An
+// empty result means nothing is actionable anywhere, which the builder turns into the
+// allCaughtUp banner state. Each `.some(...)` short-circuits on the first ok candidate, so
+// a busy/unavailable slot costs only as many gate calls as it takes to find the first ok
+// (or to exhaust a small static registry), keeping this cheap enough for the once-per-tick
+// derivation (design Section 10).
+function buildNeedsOrders(state: GameState): Prompt[] {
+  const prompts: Prompt[] = [];
+
+  // --- Captain (idle = mission == null): one aggregate prompt when at least one IDLE
+  // captain can be dispatched on some unlocked mission (canDispatch) or patrol
+  // (canDispatchPatrol). canGather short-circuits on the first dispatchable mission;
+  // canPatrol is asked ONLY when no gathering mission is available for that captain (a
+  // combat-only hull), so a freighter never pays the patrol scan.
+  const missionKeys = Object.keys(MISSIONS) as MissionKey[];
+  const patrolKeys = Object.keys(PATROLS) as PatrolKey[];
+  let dispatchableCaptains = 0;
+  let anyGathering = false; // any idle captain that can start a GATHERING mission
+  for (const captain of state.captains) {
+    const canGather = missionKeys.some((k) => canDispatch(state, captain.id, k).ok);
+    const canPatrol = canGather
+      ? false
+      : patrolKeys.some((k) => canDispatchPatrol(state, captain.id, k).ok);
+    if (canGather || canPatrol) {
+      dispatchableCaptains += 1;
+      if (canGather) anyGathering = true;
+    }
+  }
+  if (dispatchableCaptains > 0) {
+    prompts.push({
+      id: "idle-captain",
+      icon: "dispatch",
+      label:
+        dispatchableCaptains === 1
+          ? "A captain is awaiting orders"
+          : `${dispatchableCaptains} captains are awaiting orders`,
+      detail: null,
+      // Route to gathering when ANY idle captain can gather (the primary income path); fall
+      // to combat only when no idle captain can gather but at least one can patrol.
+      jumpTarget: anyGathering ? "gathering" : "combat",
+    });
+  }
+
+  // --- Research (idle = a free research slot): a prompt when some unresearched, prereq-met,
+  // affordable blueprint can be started. canResearch's noSlot gate folds in the free-slot
+  // (idle) condition, so an ok answers both halves at once.
+  if (Object.keys(BLUEPRINTS).some((k) => canResearch(state, k).ok)) {
+    prompts.push({
+      id: "idle-research",
+      icon: "research",
+      label: "Research bay idle",
+      detail: null,
+      jumpTarget: "research",
+    });
+  }
+
+  // --- Refinery (idle = a free refine bay): a prompt when some refine recipe can start now.
+  // count 1 is the minimal startable unit (the SAME gate + count the per-slot configurator's
+  // Start button reads, App.svelte:5235); canStartLine's noSlot gate folds in the free-bay
+  // (idle) condition.
+  if (Object.keys(REFINE_RECIPES).some((k) => canStartLine(state, "refine", k, 1).ok)) {
+    prompts.push({
+      id: "idle-refinery",
+      icon: "refine",
+      label: "Refinery bay idle",
+      detail: null,
+      jumpTarget: "refinery",
+    });
+  }
+
+  // --- Fabricator (idle = a free fabricate bay): same shape as refinery, over the blueprint
+  // registry on the "fabricate" line kind (App.svelte:5534 uses the identical gate + count).
+  if (Object.keys(BLUEPRINTS).some((k) => canStartLine(state, "fabricate", k, 1).ok)) {
+    prompts.push({
+      id: "idle-fabricator",
+      icon: "fabricate",
+      label: "Fabricator bay idle",
+      detail: null,
+      jumpTarget: "fabricator",
+    });
+  }
+
+  // --- Shipyard (idle = founded + no active build): a prompt when a hull can be built RIGHT
+  // NOW. canBuildShip folds in founded (notFounded), a free build slot (noSlot), a FREE DOCK
+  // (storageFull blocks when ships.length >= shipStorageCapacity), and full BOM + credit
+  // affordability, so a single ok answers "idle AND a dock is free AND a hull is affordable".
+  if (Object.keys(SHIP_TYPES).some((k) => canBuildShip(state, k).ok)) {
+    prompts.push({
+      id: "idle-shipyard",
+      icon: "shipBuild",
+      label: "Shipyard idle",
+      detail: null,
+      jumpTarget: "shipyard",
+    });
+  }
+
+  return prompts;
+}
+
+// ---------------------------------------------------------------------------
 // The builder
 // ---------------------------------------------------------------------------
 
 // Derive the Home dashboard view model from GameState. PURE: reads state, allocates a
-// fresh model, mutates nothing. UNIT 1 fills the IN-PROGRESS list ONLY; needsOrders,
-// locked, and allCaughtUp are deliberate stubs (Units 2 and 3). The signature is
-// intentionally (state) only for now: Units 2/3 will add a `derived` counts argument
-// (design Section 5) rather than have Unit 1 carry an unused ghost parameter.
+// fresh model, mutates nothing. UNIT 1 fills the IN-PROGRESS list; UNIT 2 fills needsOrders
+// (idle AND actionable slots, via buildNeedsOrders) + allCaughtUp (no prompts anywhere);
+// `locked` remains a Unit 3 stub. The signature stays (state) only: a `derived` counts
+// argument (design Section 5) proved UNNECESSARY, the availability gates buildNeedsOrders
+// reuses already compute their own slot counts internally (researchSlotCount /
+// fabricateSlotCount / refineSlotCount / shipBuildSlotCount), so threading counts in would
+// only duplicate what the gates already do. If a future unit needs a precomputed count for
+// display, add it then rather than carry an unused ghost parameter now.
 //
 // IN-PROGRESS assembly order: every generic TimedProcess first (in state order), then
 // each captain currently on a mission (patrol or extraction). Idle captains (mission ==
@@ -439,10 +598,16 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
     }
   }
 
+  // Unit 2: the idle-and-actionable prompts. allCaughtUp is exactly "no prompts anywhere"
+  // (design Section 7 outcome 3): every bay is busy or has nothing available, so the UI
+  // shows the earned-breather banner instead of a prompt list. This is independent of
+  // whether anything is IN PROGRESS, an all-busy fleet with no new work is still caught up.
+  const needsOrders = buildNeedsOrders(state);
+
   return {
-    needsOrders: [], // STUB: Unit 2 (idle detection + isActionable predicates)
+    needsOrders,
     inProgress,
     locked: [],      // STUB: Unit 3 (locked slots)
-    allCaughtUp: false, // STUB: Unit 2 (nothing actionable anywhere)
+    allCaughtUp: needsOrders.length === 0,
   };
 }
