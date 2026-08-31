@@ -208,6 +208,12 @@
     // the "While you were away" Captains rows (offlineStopReasonNote below).
     type CaptainStopReason,
   } from "./lib/game/model";
+  // Home dashboard (0.13.1, Unit 3): JumpTarget is the destination union that types
+  // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
+  // lockstep with the pure model's Section-8 destinations, adding a destination there forces
+  // a compile error in the switch until it is handled. buildHomeDashboard itself is wired in
+  // Unit 5; this type-only import is all Unit 3 needs.
+  import type { JumpTarget } from "./lib/game/homeDashboard";
   // Equipment 0.11.0 DEV readout (Debug tab only). The fitment helpers
   // (equippedFor / canFitEquipment / fitEquipment / unfitEquipment /
   // fittedInSlot) and the pure generator (generateEquipment) are the SAME
@@ -2138,6 +2144,72 @@
     state = next;
     pushLog(`[${captain.label}] Recall ordered, returning to base from: ${missionLabel}.`);
     doSave();
+  }
+
+  // Home dashboard (0.13.1, Unit 3): the SINGLE nav-dispatch entry point the Home board's
+  // rows + prompts call to route into a setup tab (design Section 8). It performs ONLY the
+  // tab-switch assignments, nothing else (no dispatch, no economy, no side effect), so Home
+  // stays a pure launcher: the setup always happens in its one canonical tab. One typed
+  // switch over JumpTarget (the pure model's destination union) means adding a destination
+  // there forces a compile error here until it is handled (the `never` guard below). The
+  // facilities assignments mirror the Facilities dashboard cards' own nav (activeFoundryFacility
+  // + facilitiesView = "console", App.svelte:4896-4897 etc.); Home additionally sets each
+  // facility's ACTION sub-tab so the player lands ready to act (research list / refine orders
+  // / craft / build), not on the facility's Overview. Wired to actual buttons in Unit 5.
+  function jumpToActivity(target: JumpTarget): void {
+    switch (target) {
+      // Operations bucket: the two captain-mission arms (design Section 8).
+      case "gathering":
+        activeTab = "fleetOperations";
+        activeOperationsTab = "gathering";
+        break;
+      case "combat":
+        activeTab = "fleetOperations";
+        activeOperationsTab = "combat";
+        break;
+      // Facilities bucket: the console view + the specific foundry facility + its action
+      // sub-tab. activeTab -> "facilities" IS required here because Home is a different
+      // program than the dashboard cards (which live inside Facilities, so they never set it).
+      case "research":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "research";
+        activeResearchSubTab = "research";
+        break;
+      case "refinery":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "refinery";
+        activeRefinerySubTab = "orders";
+        break;
+      case "fabricator":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "fabricator";
+        activeFabricatorSubTab = "craft";
+        break;
+      case "shipyard":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "shipyard";
+        activeShipyardSubTab = "build";
+        break;
+      case "fuelDepot":
+        // The Fuel Depot has no action sub-tab worth pre-selecting (topping up is passive),
+        // so it opens on the facility's default view, matching the dashboard card's nav.
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "fuelStorage";
+        break;
+      default: {
+        // Exhaustiveness guard: a JumpTarget added to the union without a case above makes
+        // `target` fail to narrow to `never`, a COMPILE error, so this switch can never
+        // silently ignore a new destination.
+        const _exhaustive: never = target;
+        void _exhaustive;
+        break;
+      }
+    }
   }
 
   // Fleet Operations captain-selection popup handlers (2026-07-07 Fleet

@@ -263,16 +263,21 @@ describe("buildHomeDashboard, in-progress list (Unit 1)", () => {
     }
   });
 
-  it("reports this all-busy state as caught up (Unit 2), locked still a Unit 3 stub", () => {
+  it("reports this all-busy state as caught up (Unit 2), and now fills locked (Unit 3)", () => {
     // Unit 2 now computes needsOrders / allCaughtUp (they were Unit 1 stubs). For THIS
     // seeded state nothing is actionable: captains 1 + 2 are on missions (busy), the one
     // idle captain (Charlie, id 3) has no assigned hull (noShip), the sole research slot is
     // busy (p-research), the refinery + shipyard are level 0 (unbuilt/unfounded), and the
     // fabricator has nothing researched to craft. So there are no prompts and the board is
-    // caught up. `locked` stays [] until Unit 3 fills it.
+    // caught up.
     expect(model.needsOrders).toEqual([]);
     expect(model.allCaughtUp).toBe(true);
-    expect(model.locked).toEqual([]);
+    // Unit 3 now fills locked (it was a Unit 1/2 stub). This state is freshState-based, so
+    // locked carries the four reserved coming-soon features PLUS the level-0 facilities; it
+    // is no longer empty. The exact contents are locked down in the Unit 3 block below; here
+    // we only prove the stub is gone and a known coming-soon slot is present.
+    expect(model.locked.length).toBeGreaterThan(0);
+    expect(model.locked.some((s) => s.id === "locked-crewEquipment")).toBe(true);
   });
 });
 
@@ -382,5 +387,100 @@ describe("buildHomeDashboard, needs-orders + caught-up (Unit 2)", () => {
     // Same state, but the docks are full (capacity == the one seeded ship): no prompt.
     const docksFull = { ...buildable, shipStorageCapacity: buildable.ships.length };
     expect(promptById(buildHomeDashboard(docksFull), "idle-shipyard")).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// Unit 3: NOT YET UNLOCKED (locked / coming-soon chips)
+//
+// Locks buildLocked's two sources (design Section 6): the STATIC reserved coming-soon
+// features (always present, independent of save state) and the DERIVED not-yet-built
+// facilities (any facility at level 0). States are built BY HAND from freshState() and
+// mutated to force one exact facility-level shape each, so the level-0 vs leveled split is
+// deterministic. Chips are located by id (never array index) so ordering changes don't
+// break these.
+// ============================================================================
+
+// Locate a locked chip by id (undefined = no such chip), so each assertion reads by id.
+function lockedById(model: ReturnType<typeof buildHomeDashboard>, id: string) {
+  return model.locked.find((s) => s.id === id);
+}
+
+// A facilities map with EVERY facility built (level 1), so buildLocked emits NO facility
+// chips and only the static reserved features remain. Mirrors freshState's facility key set.
+function allBuiltFacilities() {
+  return {
+    refinery: { level: 1 },
+    warehouseT1: { level: 1 },
+    warehouseT2: { level: 1 },
+    fuelStorage: { level: 1 },
+    missionControl: { level: 1 },
+    research: { level: 1 },
+    fabricator: { level: 1 },
+    shipyard: { level: 1 },
+  };
+}
+
+describe("buildHomeDashboard, locked slots (Unit 3)", () => {
+  it("always surfaces the reserved coming-soon features, regardless of facility levels", () => {
+    // Every facility built (no facility chips), so ONLY the static reserved features remain.
+    // All four must be present with their mirrored labels, and none of the remaining chips
+    // is a facility chip.
+    const allBuilt = { ...freshState(), facilities: allBuiltFacilities() };
+    const model = buildHomeDashboard(allBuilt);
+
+    const crew = lockedById(model, "locked-crewEquipment");
+    const achievements = lockedById(model, "locked-achievements");
+    const completion = lockedById(model, "locked-completion");
+    const leaderboards = lockedById(model, "locked-leaderboards");
+    expect(crew?.label).toBe("Crew Equipment");
+    expect(achievements?.label).toBe("Achievements");
+    expect(completion?.label).toBe("Completion");
+    expect(leaderboards?.label).toBe("Leaderboards");
+    // Reserved features read as "Coming soon".
+    expect(crew?.note).toBe("Coming soon");
+    // With every facility at level 1, there are no facility chips at all.
+    expect(model.locked.some((s) => s.id.startsWith("locked-facility-"))).toBe(false);
+    // Exactly the four reserved features, nothing else.
+    expect(model.locked.length).toBe(4);
+  });
+
+  it("surfaces a level-0 facility as a not-built chip and omits a leveled one", () => {
+    // freshState seeds the Refinery + Shipyard at level 0 (unbuilt/unfounded) and the
+    // Research Lab at level 1 (built). So the Refinery + Shipyard get chips; Research does not.
+    const model = buildHomeDashboard(freshState());
+
+    const refinery = lockedById(model, "locked-facility-refinery");
+    expect(refinery).toBeDefined();
+    expect(refinery!.label).toBe("Refinery");   // real FACILITIES label, not the raw key
+    expect(refinery!.note).toBe("Not built yet");
+
+    // The Shipyard reads with the game's FOUNDING language, not "built".
+    const shipyard = lockedById(model, "locked-facility-shipyard");
+    expect(shipyard).toBeDefined();
+    expect(shipyard!.note).toBe("Not founded yet");
+
+    // A leveled facility (Research Lab, level 1) contributes NO chip.
+    expect(lockedById(model, "locked-facility-research")).toBeUndefined();
+
+    // And NOT every level-0 facility: warehouseT1 + fuelStorage are OPERATIONAL at level 0
+    // (usable cap / storage from the start), and warehouseT2 is an internal tier, so none of
+    // them may get a "not built" chip (that would mislead about a working facility). Only the
+    // genuinely-foundable-from-scratch set (refinery + shipyard) surfaces.
+    expect(lockedById(model, "locked-facility-warehouseT1")).toBeUndefined();
+    expect(lockedById(model, "locked-facility-fuelStorage")).toBeUndefined();
+    expect(lockedById(model, "locked-facility-warehouseT2")).toBeUndefined();
+  });
+
+  it("orders the reserved features before the facility chips", () => {
+    // Design Section 6 order: reserved coming-soon features first, then not-built facilities.
+    const model = buildHomeDashboard(freshState());
+    const firstFacilityIndex = model.locked.findIndex((s) => s.id.startsWith("locked-facility-"));
+    const lastReservedIndex = model.locked.reduce(
+      (acc, s, i) => (s.id.startsWith("locked-facility-") ? acc : i),
+      -1,
+    );
+    // Every reserved feature sits ahead of the first facility chip.
+    expect(lastReservedIndex).toBeLessThan(firstFacilityIndex);
   });
 });

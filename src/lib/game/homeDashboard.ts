@@ -558,13 +558,90 @@ function buildNeedsOrders(state: GameState): Prompt[] {
 }
 
 // ---------------------------------------------------------------------------
+// NOT YET UNLOCKED: the locked / coming-soon chips (Unit 3)
+//
+// TWO sources, in this order (design Section 6):
+//   1. RESERVED features the game ALREADY marks locked in its own nav (the ConsoleTabs
+//      carrying `locked: true`). These are STATIC (independent of save state): the reserved
+//      Logistics "Crew Equipment" tab (App.svelte:1059) and the three reserved Home meta
+//      tabs Achievements / Completion / Leaderboards (App.svelte:8545-8547, the reserved-tab
+//      comment at App.svelte:790). Labels are mirrored VERBATIM so a rename of the real tab
+//      is a one-place edit there + here (KEEP IN SYNC, same discipline as the phase-label
+//      maps above). This is a CURATED subset of every `locked:true` tab, matching the
+//      design's Section-6 pick (the meta / coming-soon features), NOT every locked sub-tab
+//      in the app (Exploration / Battlespace / mission tiers are gameplay-tier locks the
+//      dashboard intentionally does not surface here).
+//   2. NOT-YET-BUILT facilities, DERIVED from state: any facility sitting at level 0 (its
+//      founding / first-build rung not yet bought). In a fresh save that is the Refinery and
+//      the Shipyard (plus the level-0-seeded Warehouse tiers and Fuel Depot, see the review
+//      FLAG in the build report). Each renders with the real FACILITIES[key].label.
+// ---------------------------------------------------------------------------
+
+// The reserved coming-soon nav features, mirrored from the app's own `locked: true`
+// ConsoleTabs (cited above). STATIC: these do not depend on GameState, so they always
+// appear on the board until the corresponding feature actually ships (at which point the
+// real tab loses `locked: true` and its entry here is removed in the same edit). Held as a
+// module constant (allocated once) and SPREAD into a fresh array per call, so the shared
+// list is never mutated and buildLocked stays pure.
+const RESERVED_COMING_SOON: LockedSlot[] = [
+  { id: "locked-crewEquipment", icon: "crewEquipment", label: "Crew Equipment", note: "Coming soon" },
+  { id: "locked-achievements", icon: "achievements", label: "Achievements", note: "Coming soon" },
+  { id: "locked-completion", icon: "completion", label: "Completion", note: "Coming soon" },
+  { id: "locked-leaderboards", icon: "leaderboards", label: "Leaderboards", note: "Coming soon" },
+];
+
+// The friendly "why is this dimmed" note for a level-0 facility. The Shipyard uses the
+// game's own FOUNDING language (canBuildShip's notFounded gate, tick.ts; the "FOUNDING rung"
+// in model.ts), so it reads "Not founded yet"; every other facility reads "Not built yet"
+// (the Facilities dashboard card's own "Status: Not built" idiom, App.svelte:4904). A tiny
+// explicit mapping rather than a new data field, so it needs no model change.
+function facilityLockedNote(facilityKey: string): string {
+  return facilityKey === "shipyard" ? "Not founded yet" : "Not built yet";
+}
+
+// The facilities a player BUILDS FROM SCRATCH (founding), and ONLY these belong in the
+// not-yet-built chip list. NOT every level-0 facility: warehouseT1 and fuelStorage are
+// OPERATIONAL at level 0 (their cap / storage is usable from the start, per their model.ts
+// notes), so a "Not built yet" chip would LIE about a facility that is already working;
+// warehouseT2 is an internal storage tier the player does not found as a separate building.
+// So this is a curated allowlist (refinery + shipyard, the design's examples and the two
+// real founding rungs), keyed off level 0 so a founded one drops off automatically. A future
+// foundable facility is added here EXPLICITLY, which is safer than a raw level-0 scan that
+// would re-admit the operational-at-0 facilities.
+const NOT_YET_BUILT_FACILITIES = ["refinery", "shipyard"] as const;
+
+// Build the NOT YET UNLOCKED chip list (design Section 6): the static reserved features
+// first, then one chip per not-yet-built FOUNDABLE facility (a NOT_YET_BUILT_FACILITIES entry
+// still at level 0). PURE (reads state, mutates nothing, spreads the shared constant). A
+// facility at level >= 1 (built / founded) contributes nothing. The label comes from the
+// shared FACILITIES registry (never re-typed here), falling back to the raw key rather than
+// rendering "undefined" if the registry somehow lacks the facility.
+function buildLocked(state: GameState): LockedSlot[] {
+  const locked: LockedSlot[] = [...RESERVED_COMING_SOON];
+
+  for (const facilityKey of NOT_YET_BUILT_FACILITIES) {
+    if ((state.facilities[facilityKey]?.level ?? 0) === 0) {
+      locked.push({
+        id: `locked-facility-${facilityKey}`,
+        icon: "facility",
+        label: FACILITIES[facilityKey]?.label ?? facilityKey,
+        note: facilityLockedNote(facilityKey),
+      });
+    }
+  }
+
+  return locked;
+}
+
+// ---------------------------------------------------------------------------
 // The builder
 // ---------------------------------------------------------------------------
 
 // Derive the Home dashboard view model from GameState. PURE: reads state, allocates a
 // fresh model, mutates nothing. UNIT 1 fills the IN-PROGRESS list; UNIT 2 fills needsOrders
 // (idle AND actionable slots, via buildNeedsOrders) + allCaughtUp (no prompts anywhere);
-// `locked` remains a Unit 3 stub. The signature stays (state) only: a `derived` counts
+// UNIT 3 fills `locked` (reserved coming-soon features + level-0 facilities, via
+// buildLocked). The signature stays (state) only: a `derived` counts
 // argument (design Section 5) proved UNNECESSARY, the availability gates buildNeedsOrders
 // reuses already compute their own slot counts internally (researchSlotCount /
 // fabricateSlotCount / refineSlotCount / shipBuildSlotCount), so threading counts in would
@@ -604,10 +681,15 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
   // whether anything is IN PROGRESS, an all-busy fleet with no new work is still caught up.
   const needsOrders = buildNeedsOrders(state);
 
+  // Unit 3: the not-yet-unlocked chips (reserved coming-soon nav features + any level-0
+  // facility). Independent of needsOrders / inProgress: a locked slot is a "here's what's
+  // coming" affordance, not an action, so it never affects allCaughtUp.
+  const locked = buildLocked(state);
+
   return {
     needsOrders,
     inProgress,
-    locked: [],      // STUB: Unit 3 (locked slots)
+    locked,
     allCaughtUp: needsOrders.length === 0,
   };
 }
