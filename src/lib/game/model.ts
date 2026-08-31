@@ -2104,8 +2104,10 @@ export type ProcessEffect =
   // is the ONE difference between a "fuelRefineJob" and an inventory "refineJob":
   // both consume an atomic input at start (deduct-at-start, startProcess) and run a
   // fixed countdown, but this effect targets the capped fuel tank instead of an item
-  // key. resolveProcesses adds it to state.fuel on completion (may overshoot fuelCap
-  // by up to one batch, the SAME soft-cap behavior addItem has vs. a warehouse cap).
+  // key. resolveProcesses adds it to state.fuel on completion, CLAMPED at fuelCap
+  // (a batch legally starts while the tank is below cap, so its full output could
+  // otherwise overshoot; Decimal.min tops the tank to EXACTLY the cap and discards the
+  // excess, the SAME overflow-discard addToInventory does at a warehouse cap).
   | { type: "addFuel"; amount: Decimal }
   // Research (Task R3, design §3): a completed research project unlocks its blueprint by
   // adding `key` to state.researchedBlueprints (resolveProcesses, idempotent, no dup).

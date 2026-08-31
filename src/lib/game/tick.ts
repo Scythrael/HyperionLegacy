@@ -6749,12 +6749,19 @@ export function resolveProcesses(
       }
     } else if (process.effect.type === "addFuel") {
       // Fuel Economy v2 (F2): a completed Fuel Depot pipeline batch deposits its
-      // output into the fuel TANK (not inventory). Plain Decimal add, may overshoot
-      // fuelCap by up to one batch (soft cap; re-gated next tick), the SAME behavior
-      // addItem has vs. a warehouse cap. No discovery / lifetime accrual (fuel is a
-      // currency, not a catalog item). Closed-form: fires exactly ONCE on the
-      // completion that drops the process, so one big resolve == many small ones.
-      fuel = fuel.plus(process.effect.amount);
+      // output into the fuel TANK (not inventory). CLAMPED at fuelCap: a batch legally
+      // STARTS while the tank is below cap (the pipeline's TANK-FULL gate, line 6244),
+      // so its full output could otherwise push the tank PAST the cap on completion
+      // (e.g. 496 + a 100 batch = 596 / 500). Decimal.min tops the tank up to EXACTLY
+      // the cap instead; the overshoot beyond it is discarded, the SAME overflow-discard
+      // addToInventory does at a warehouse cap, so fuel and inventory stay consistent
+      // (the older comment here calling this a "soft cap like addItem" predated addItem
+      // being fixed to clamp, so it was stale). This trims only the single top-up batch:
+      // the start gate already stops NEW batches at cap, and missions burn fuel so the
+      // tank drops and batches resume, so this can never softlock. No discovery / lifetime
+      // accrual (fuel is a currency, not a catalog item). Closed-form: fires exactly ONCE
+      // on the completion that drops the process, so one big resolve == many small ones.
+      fuel = Decimal.min(fuelCap(state), fuel.plus(process.effect.amount));
     } else if (process.effect.type === "unlockBlueprint") {
       // Research (Task R3): a completed research project UNLOCKS its blueprint by appending
       // the key to researchedBlueprints. IDEMPOTENT, guarded on `.includes` so a duplicate

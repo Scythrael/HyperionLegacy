@@ -183,6 +183,21 @@ describe("auto-stop, tank full (fuel >= fuelCap)", () => {
   });
 });
 
+describe("deposit clamp, a batch started below cap tops up to EXACTLY the cap (no overshoot)", () => {
+  it("ANTI-REGRESSION: a completing batch clamps at fuelCap instead of overshooting (450 + a 100 batch -> 500, not 550)", () => {
+    // The tank at 450 is BELOW the level-0 cap (500), so a batch legally starts (the
+    // TANK-FULL start gate only blocks at/above cap). On completion the batch would
+    // deposit its full 100 fuel and reach 550 WITHOUT the clamp; Decimal.min(fuelCap, ...)
+    // tops the tank to exactly 500 instead, discarding the overshoot the same way an
+    // inventory deposit discards overflow at a warehouse cap. Regression guard for the
+    // reported 496 -> 596 / 500 overflow.
+    const state = depotState({ deuteriumIce: 100, fuel: 450, fuelStorageLevel: 0 });
+    const afterDone = stepTicks(state, 11); // batch starts tick 1, completes tick 11
+    expect(afterDone.fuel.toString()).toBe(String(FUEL_TANK_BASE_CAP)); // 500, clamped (pre-fix: 550)
+    expect(afterDone.fuel.lte(fuelCap(afterDone))).toBe(true); // invariant: fuel never exceeds the cap
+  });
+});
+
 describe("auto-stop, ice out (Deuterium Ice < batch input); no ice stranded", () => {
   it("pauses (starts no batch) when ice < the batch input, leaving the ice UNTOUCHED (not stranded)", () => {
     // 49 ice, batch needs 50 -> no batch can start; the 49 must remain (gate BEFORE consuming).
