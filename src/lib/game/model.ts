@@ -212,6 +212,22 @@ export type HomePlanetMaterialKey = LootMaterialKey;
 
 export type MissionPhase = "ordersReceived" | "transitOut" | "extracting" | "transitBack" | "unloading";
 
+// Display-only phase labels for a gathering mission's phase readout (0.13.1 DRY
+// consolidation). PREVIOUSLY duplicated: a file-local const in App.svelte
+// (MISSION_PHASE_LABEL) AND a verbatim mirror in homeDashboard.ts. Both drew the
+// SAME labels, so a drift between them could only ever be a bug; hoisting the map
+// here makes model.ts the SINGLE SOURCE both import. Must stay in sync with the
+// MissionPhase union above: a phase added there without an entry here is a compile
+// error (Record<MissionPhase, string> is exhaustive), which is the whole point of
+// moving it next to the type it keys on.
+export const MISSION_PHASE_LABEL: Record<MissionPhase, string> = {
+  ordersReceived: "Orders Received",
+  transitOut: "Transiting Out",
+  extracting: "Extracting",
+  transitBack: "Transiting Back",
+  unloading: "Unloading",
+};
+
 // Named (not an inline union), matching this file's convention for every
 // other small enum (ShipType, CaptainTalentBranch, HomeworldTalentBranch) --
 // gives future consumers (e.g. a tier-badge component) something to import
@@ -1540,6 +1556,19 @@ export interface CaptainMissionState {
 // ship is flagged damaged. A pre-P11 save never carries this phase (it is only ever written
 // by new code), so widening the union needs no migration.
 export type PatrolPhase = "transitOut" | "engaging" | "transitBack" | "limpingHome";
+
+// Display-only phase labels for a combat patrol's phase readout (0.13.1 DRY
+// consolidation, the patrol counterpart to MISSION_PHASE_LABEL above). PREVIOUSLY
+// duplicated in App.svelte AND homeDashboard.ts; hoisted here as the single source
+// both import. "limpingHome" is the DEFEAT state (the ship lost and is limping its
+// wreck home to repair), phrased as a plain player-facing label. Must stay in sync
+// with the PatrolPhase union: a new phase without an entry here is a compile error.
+export const PATROL_PHASE_LABEL: Record<PatrolPhase, string> = {
+  transitOut: "Transiting Out",
+  engaging: "Engaging",
+  transitBack: "Returning",
+  limpingHome: "Limping Home",
+};
 
 // The player ship's per-SYSTEM DURABILITY carry-state (Combat 0.13.0, Phase 12b Unit B2,
 // design S9), persisted on PatrolMissionState.playerSystemDurability so wear ACCUMULATES

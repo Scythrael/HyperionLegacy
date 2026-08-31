@@ -31,7 +31,6 @@ import {
   type CaptainState,
   type PatrolMissionState,
   type PatrolPhase,
-  type MissionPhase,
   type ShipInstance,
   type MissionKey,
   type PatrolKey,
@@ -43,6 +42,8 @@ import {
   MISSIONS,
   PATROLS,
   REFINE_RECIPES,
+  MISSION_PHASE_LABEL,
+  PATROL_PHASE_LABEL,
   requiredTicksForPhase,
   extractionMissionOf,
 } from "./model";
@@ -148,33 +149,13 @@ export interface HomeDashboardModel {
 }
 
 // ---------------------------------------------------------------------------
-// Phase-label maps (local mirror)
+// Phase-label maps
 //
-// WHY these live here and not imported: App.svelte's MISSION_PHASE_LABEL /
-// PATROL_PHASE_LABEL are file-local `const`s (not exported), and this pure module
-// must not depend on the Svelte component. They are duplicated here verbatim so the
-// module stays UI-agnostic and testable. KEEP IN SYNC: a phase added to MissionPhase
-// or PatrolPhase in model.ts must be added in BOTH places (App.svelte and here); a
-// missing entry renders "undefined". A future consolidation could move these maps into
-// model.ts as the single source, that is a deferred nicety, not Unit 1's job.
+// MISSION_PHASE_LABEL / PATROL_PHASE_LABEL now live in model.ts as the SINGLE source
+// both this pure module and App.svelte import (0.13.1 DRY consolidation, Unit 5). They
+// used to be duplicated (a file-local mirror here + one in App.svelte); the shared
+// consts eliminate the drift risk. Imported at the top of this file.
 // ---------------------------------------------------------------------------
-
-// Mirrors App.svelte:611-617 (MISSION_PHASE_LABEL).
-const MISSION_PHASE_LABEL: Record<MissionPhase, string> = {
-  ordersReceived: "Orders Received",
-  transitOut: "Transiting Out",
-  extracting: "Extracting",
-  transitBack: "Transiting Back",
-  unloading: "Unloading",
-};
-
-// Mirrors App.svelte:625-630 (PATROL_PHASE_LABEL).
-const PATROL_PHASE_LABEL: Record<PatrolPhase, string> = {
-  transitOut: "Transiting Out",
-  engaging: "Engaging",
-  transitBack: "Returning",
-  limpingHome: "Limping Home",
-};
 
 // ---------------------------------------------------------------------------
 // Small pure helpers

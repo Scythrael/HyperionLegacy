@@ -112,6 +112,12 @@
     FACILITIES,
     REFINE_RECIPES,
     ITEMS,
+    // Display-only phase-label maps (0.13.1 DRY consolidation): the mission +
+    // patrol phase readouts. FORMERLY file-local consts here AND mirrored in
+    // homeDashboard.ts; both are now imported from model.ts (the single source),
+    // so the Home board and the source panels can never drift on a phase label.
+    MISSION_PHASE_LABEL,
+    PATROL_PHASE_LABEL,
     // Research (Task R5 UI), the static blueprint table + the pure "is it
     // researched?" reader the Research Lab panel below iterates/reads. BLUEPRINTS
     // is the SINGLE source the Research sub-tab groups by tier (label / tier /
@@ -164,7 +170,6 @@
     // selectedCategory navigation state (see type import below).
     type GameState,
     type MissionKey,
-    type MissionPhase,
     type LootMaterialKey,
     type CaptainTalentBranch,
     type CaptainTalentKey,
@@ -203,17 +208,24 @@
     type ShipInstance,
     type PatrolDef,
     type PatrolMissionState,
-    type PatrolPhase,
     // Combat 0.13.0 (offline recap): the wall-stop reason union, mapped to a friendly note in
     // the "While you were away" Captains rows (offlineStopReasonNote below).
     type CaptainStopReason,
   } from "./lib/game/model";
-  // Home dashboard (0.13.1, Unit 3): JumpTarget is the destination union that types
+  // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
   // lockstep with the pure model's Section-8 destinations, adding a destination there forces
-  // a compile error in the switch until it is handled. buildHomeDashboard itself is wired in
-  // Unit 5; this type-only import is all Unit 3 needs.
-  import type { JumpTarget } from "./lib/game/homeDashboard";
+  // a compile error in the switch until it is handled. buildHomeDashboard is the pure
+  // derivation the Home Overview renders from (Unit 5, wired into the reactive
+  // dashboardModel below); the Row/Prompt/LockedSlot types shape the render loops.
+  import {
+    buildHomeDashboard,
+    type JumpTarget,
+    type ActivityRow,
+    type Prompt,
+    type LockedSlot,
+    type HomeDashboardModel,
+  } from "./lib/game/homeDashboard";
   // Equipment 0.11.0 DEV readout (Debug tab only). The fitment helpers
   // (equippedFor / canFitEquipment / fitEquipment / unfitEquipment /
   // fittedInSlot) and the pure generator (generateEquipment) are the SAME
@@ -608,32 +620,10 @@
   // refactor Landing, so the two references are intentionally kept in sync by hand.
   const DISCORD_INVITE_URL = "https://discord.gg/rcY7uqchTC";
 
-  // Display-only phase labels for the MISSIONS panel's phase readout. Purely
-  // a UI concern, nothing outside this file needs to map a MissionPhase to
-  // display text, so it lives here rather than in model.ts. Must stay in
-  // sync with MissionPhase's literal union, a new phase added there
-  // without a matching entry here would silently render "undefined" instead
-  // of a label.
-  const MISSION_PHASE_LABEL: Record<MissionPhase, string> = {
-    ordersReceived: "Orders Received",
-    transitOut: "Transiting Out",
-    extracting: "Extracting",
-    transitBack: "Transiting Back",
-    unloading: "Unloading",
-  };
-
-  // Combat 0.13.0 (Phase 9b.5d): display-only labels for a patrol's PatrolPhase, the
-  // patrol counterpart to MISSION_PHASE_LABEL. Same UI-only rationale (nothing outside
-  // this file maps a phase to text) and the same "keep in sync with the literal union"
-  // caveat: a new PatrolPhase added in model.ts without an entry here would render
-  // "undefined". "limpingHome" is the DEFEAT state (the ship lost and is limping its
-  // wreck home to repair), phrased as a plain player-facing label.
-  const PATROL_PHASE_LABEL: Record<PatrolPhase, string> = {
-    transitOut: "Transiting Out",
-    engaging: "Engaging",
-    transitBack: "Returning",
-    limpingHome: "Limping Home",
-  };
+  // Phase-label maps (MISSION_PHASE_LABEL / PATROL_PHASE_LABEL) moved to model.ts
+  // in the 0.13.1 DRY consolidation and imported at the top of this <script>; they
+  // are the SINGLE source shared with homeDashboard.ts's Home board. Used unchanged
+  // by the MISSIONS / Combat Patrols phase readouts below.
 
   // Radial Skill Web (Task 11b) removed the depth-row talent rendering that
   // lived here: the CAPTAIN_TALENT_BRANCH_LABEL map (keyed on the removed
@@ -2210,6 +2200,43 @@
         break;
       }
     }
+  }
+
+  // Home dashboard (0.13.1, Unit 5): map the pure model's flat icon HINT strings to a
+  // display glyph. buildHomeDashboard emits an icon as a semantic hint ("refine",
+  // "patrol", "research", ...) rather than a UI asset, so the glyph choice stays a pure
+  // view concern here (and can be re-skinned without touching the model). Glyph picks
+  // mirror the approved mockup (scratchpad/home-dashboard-mockup.html). An UNMAPPED hint
+  // falls back to a neutral dot rather than rendering the raw hint text, so a future model
+  // icon can never leak a bare keyword onto the board. NOTE: locked chips do NOT use this,
+  // they render a fixed lock glyph per design Section 9 (see the markup below).
+  const HOME_ICON_GLYPH: Record<string, string> = {
+    // In-progress + prompt hints (the generic-process + mission + idle-slot set).
+    refine: "⚙️",       // Refinery line
+    fabricate: "🔧",    // Fabricator bay
+    research: "🔬",     // Research Lab
+    shipBuild: "🚧",    // Shipyard build
+    fuel: "⛽",         // Fuel Depot
+    facility: "🛠️",     // a facility upgrade (or a locked/not-built facility chip)
+    storage: "📦",      // Ship Systems storage upgrade
+    docks: "⚓",        // docks-capacity expansion
+    repair: "🔨",       // ship repair at the Shipyard
+    extraction: "⛏️",   // captain on a gathering / extraction mission
+    patrol: "⚔️",       // captain on a combat patrol
+    dispatch: "👤",     // idle captain awaiting orders (the dispatch prompt)
+  };
+
+  // Resolve an icon hint to its glyph, neutral-dot fallback for any unmapped hint.
+  function homeIconGlyph(hint: string): string {
+    return HOME_ICON_GLYPH[hint] ?? "•";
+  }
+
+  // Guarded jump for an IN-PROGRESS row (0.13.1, Unit 5). A row whose jumpTarget is null
+  // is a plain, non-navigable status row (rendered as a <div>, not a <button>), so this is
+  // only ever reached with a real target; the explicit null-guard keeps the call type-safe
+  // (jumpToActivity takes a JumpTarget, not JumpTarget | null) without a non-null assertion.
+  function jumpToActivityRow(target: JumpTarget | null): void {
+    if (target !== null) jumpToActivity(target);
   }
 
   // Fleet Operations captain-selection popup handlers (2026-07-07 Fleet
@@ -4169,6 +4196,15 @@
   // deriveStatistics (statistics.ts). Reactive on `state` so the readout refreshes
   // each tick as lifetime totals, play time, and roster counts change.
   $: stats = deriveStatistics(state);
+
+  // Home > Overview dashboard derivation (0.13.1, Unit 5). ONE pure derivation of the
+  // whole mission-control board from `state` (design Section 5 / Section 10): the Home
+  // Overview markup below renders straight from this model and NEVER re-scans state per
+  // row, so the board stays cheap under the once-per-tick churn. Reactive on `state`, so
+  // every job's progress + ETA, every idle prompt, and the caught-up state refresh live
+  // as the fleet ticks. buildHomeDashboard is a pure function (homeDashboard.ts); all the
+  // hard derivation + availability logic lives there and is unit-tested in node.
+  $: dashboardModel = buildHomeDashboard(state);
   // Fleet-wide tick readout (collapsed from per-captain activeCycle/
   // activeBarSeconds/activeTickProgress/activeTickRemaining during the UI
   // Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md).
@@ -8624,11 +8660,168 @@
       <div class="tab-scroll-area">
 
         {#if activeHomeTab === "overview"}
-        <!-- Overview: the console landing, kept lean (the design warns against
-             overloading an overview); at-a-glance readouts can be added later. -->
+        <!-- Overview: the Home mission-control DASHBOARD (0.13.1, Unit 5). Replaces the
+             former "pick a tab above" placeholder. Renders STRAIGHT from the reactive
+             dashboardModel (buildHomeDashboard, homeDashboard.ts) and never re-scans state
+             per row (design Section 5 / 10). Three attention-first sections (design
+             Section 4): NEEDS YOUR ORDERS (actionable-idle amber prompts, or the earned
+             "all caught up" banner) on top, IN PROGRESS (every running job + mission) in the
+             middle, NOT YET UNLOCKED (dimmed coming-soon chips) at the bottom. Every prompt
+             and every navigable row is a real <button> that routes via jumpToActivity (the
+             single nav-dispatch entry point); the board NEVER rebuilds a setup UI, it only
+             launches into the canonical tab (design Section 2 hard constraint). Colors use
+             the theme CSS tokens (amber = --color-warning "ready", green = --color-success
+             "caught up", accent = --color-accent), so the board re-hues with the player's
+             chosen theme. -->
+
+        <!-- Shared compact IN-PROGRESS row body (icon + labels + phase/meta/ETA + a slim
+             progress bar, or dual hull/shield bars for a combat patrol). A snippet so the
+             navigable (<button>) and the plain-status (<div>) variants render an identical
+             body without duplicating it. Honest progress (design Section 4): a timed job
+             shows a real MM:SS via remainingReadout off the raw ticks the model carries; a
+             patrol shows waves + hull/shield and NO fabricated countdown. -->
+        {#snippet homeRowBody(row: ActivityRow)}
+          <span class="home-ico" aria-hidden="true">{homeIconGlyph(row.icon)}</span>
+          <span class="home-row-body">
+            <span class="home-l1">{row.primaryLabel}</span>
+            <span class="home-l2">
+              <!-- Phase chip: the mission's phase (extraction / patrol carry a secondaryLabel;
+                   a timed job does not). The defeat phase ("limpingHome") styles danger-red,
+                   mirroring the source combat card's own treatment. -->
+              {#if row.secondaryLabel !== null}
+                <span
+                  class="home-phase"
+                  class:home-phase-danger={row.combat !== null && row.combat.phase === "limpingHome"}
+                >{row.secondaryLabel}</span>
+              {/if}
+              <!-- Combat meta: waves resolved of total (a patrol has no clock ETA). -->
+              {#if row.combat !== null}
+                <span class="home-meta">Waves {row.combat.wavesResolved} / {row.combat.totalWaves}</span>
+              {/if}
+              <!-- ETA: MM:SS remaining for any timed job / extraction phase (never a patrol).
+                   Reuses the app-wide remainingReadout with the player's tick-count preference,
+                   the SAME formatter the source panels use, so the clock can't drift. An
+                   extraction reports PER-PHASE time, so it reads "... in phase". -->
+              {#if row.remainingTicks !== null && row.durationTicks !== null}
+                <span class="home-eta">{remainingReadout(row.remainingTicks, row.durationTicks, showTickCounts, state.tickDurationSeconds)}{row.kind === "extraction" ? " in phase" : ""}</span>
+              {/if}
+            </span>
+            {#if row.combat !== null}
+              <!-- Dual hull / shield bars (fractions pre-clamped 0..1 in the model). -->
+              <span class="home-duo" aria-hidden="true">
+                <span class="home-b home-b-hull"><i style="width:{row.combat.hullFraction * 100}%"></i></span>
+                <span class="home-b home-b-shield"><i style="width:{row.combat.shieldFraction * 100}%"></i></span>
+              </span>
+            {:else}
+              <!-- Single progress bar (elapsed / duration, clamped so it never overflows). -->
+              <span class="home-bar" aria-hidden="true"><i style="width:{Math.min(100, row.progress * 100)}%"></i></span>
+            {/if}
+          </span>
+        {/snippet}
+
         <Panel>
           <div class="panel-title">COMMAND HOME</div>
-          <p class="prestige-text">Welcome, Admiral. This is your command home, the whole game at a glance. Pick a tab above.</p>
+          <p class="home-dash-sub">
+            Your fleet at a glance · {dashboardModel.needsOrders.length} {dashboardModel.needsOrders.length === 1 ? "needs" : "need"} orders · {dashboardModel.inProgress.length} running
+          </p>
+
+          <!-- ============ NEEDS YOUR ORDERS (actionable-idle prompts) ============ -->
+          <section class="home-sec">
+            <div class="home-sec-hd">
+              <span class="home-sec-h">Needs your orders</span>
+              {#if dashboardModel.needsOrders.length > 0}
+                <span class="home-sec-count">{dashboardModel.needsOrders.length}</span>
+              {/if}
+              <span class="home-sec-rule"></span>
+            </div>
+
+            {#if dashboardModel.needsOrders.length > 0}
+              <div class="home-needs">
+                {#each dashboardModel.needsOrders as prompt (prompt.id)}
+                  <!-- The WHOLE prompt is one button (no nested interactive elements): tapping
+                       anywhere on it, or the "Go" affordance, routes to its setup tab. -->
+                  <button
+                    type="button"
+                    class="home-prompt"
+                    on:click={() => jumpToActivity(prompt.jumpTarget)}
+                    aria-label={`${prompt.label}. Go to setup.`}
+                  >
+                    <span class="home-pulse" aria-hidden="true"></span>
+                    <span class="home-ico" aria-hidden="true">{homeIconGlyph(prompt.icon)}</span>
+                    <span class="home-prompt-txt">
+                      <span class="home-l1">{prompt.label}</span>
+                      {#if prompt.detail !== null}<span class="home-prompt-detail">{prompt.detail}</span>{/if}
+                    </span>
+                    <span class="home-go" aria-hidden="true">Go →</span>
+                  </button>
+                {/each}
+              </div>
+            {:else if dashboardModel.allCaughtUp}
+              <!-- Earned-breather state (design Section 7 outcome 3): nothing actionable
+                   anywhere, so the section says so, calm green, never an empty box. -->
+              <div class="home-caughtup">
+                <span class="home-caughtup-check" aria-hidden="true">✓</span>
+                <div>
+                  <div class="home-caughtup-title">All caught up, Admiral</div>
+                  <div class="home-caughtup-sub">Every bay's busy and nothing new is available. Enjoy the quiet.</div>
+                </div>
+              </div>
+            {/if}
+          </section>
+
+          <!-- ============ IN PROGRESS (every running job + mission) ============ -->
+          {#if dashboardModel.inProgress.length > 0}
+            <section class="home-sec">
+              <div class="home-sec-hd">
+                <span class="home-sec-h">In progress</span>
+                <span class="home-sec-count">{dashboardModel.inProgress.length}</span>
+                <span class="home-sec-rule"></span>
+              </div>
+              <div class="home-prog">
+                {#each dashboardModel.inProgress as row (row.id)}
+                  {#if row.jumpTarget !== null}
+                    <!-- Navigable row: a real button that jumps to view the activity. -->
+                    <button
+                      type="button"
+                      class="home-row"
+                      on:click={() => jumpToActivityRow(row.jumpTarget)}
+                      aria-label={`View ${row.primaryLabel}`}
+                    >
+                      {@render homeRowBody(row)}
+                      <span class="home-chev" aria-hidden="true">›</span>
+                    </button>
+                  {:else}
+                    <!-- Non-navigable status row (no Section-8 destination): a plain div,
+                         no chevron, no hover, not focusable. -->
+                    <div class="home-row home-row-static">
+                      {@render homeRowBody(row)}
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+            </section>
+          {/if}
+
+          <!-- ============ NOT YET UNLOCKED (dimmed coming-soon chips) ============ -->
+          {#if dashboardModel.locked.length > 0}
+            <section class="home-sec home-sec-last">
+              <div class="home-sec-hd">
+                <span class="home-sec-h">Not yet unlocked</span>
+                <span class="home-sec-rule"></span>
+              </div>
+              <div class="home-locked">
+                {#each dashboardModel.locked as slot (slot.id)}
+                  <!-- Non-interactive dimmed chip (design Section 9): a fixed lock glyph +
+                       the feature name + an optional "coming soon" / unlock note. -->
+                  <div class="home-lock">
+                    <span class="home-lock-ico" aria-hidden="true">🔒</span>
+                    <span class="home-lock-l">{slot.label}</span>
+                    {#if slot.note !== null}<span class="home-lock-note">{slot.note}</span>{/if}
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {/if}
         </Panel>
         {/if}
 
@@ -11300,5 +11493,230 @@
 
   @media (prefers-reduced-motion: reduce) {
     .warehouse-tile.full { animation: none; }
+  }
+
+  /* ============================================================================
+     HOME MISSION-CONTROL DASHBOARD (0.13.1, Unit 5)
+     The Home > Overview board. Styling mirrors the approved mockup
+     (scratchpad/home-dashboard-mockup.html) but every color is a THEME TOKEN
+     (never a mockup hex), so the board re-hues with the player's chosen theme.
+     Amber (--color-warning) = "ready for orders"; green (--color-success) =
+     "caught up"; accent (--color-accent) = running work; danger (--color-danger)
+     = the combat defeat phase. Semantic warning/success/danger tokens are stable
+     across themes, so the amber/green tints (via color-mix) read consistently.
+     ============================================================================ */
+
+  /* Sub-line under COMMAND HOME: the at-a-glance counts. */
+  .home-dash-sub {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-dim);
+    margin: 0 0 14px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A dashboard section (Needs Orders / In Progress / Not Yet Unlocked). */
+  .home-sec { margin: 0 0 16px; }
+  .home-sec-last { margin-bottom: 4px; }
+  .home-sec-hd { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+  .home-sec-h {
+    font-family: var(--font-display);
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+  }
+  .home-sec-count {
+    font-size: 10px;
+    color: var(--color-text-dim);
+    font-variant-numeric: tabular-nums;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid var(--color-border);
+    border-radius: 20px;
+    padding: 1px 7px;
+  }
+  /* The thin divider that fills the rest of the header row. */
+  .home-sec-rule { flex: 1; height: 1px; background: var(--color-border); }
+
+  /* --- NEEDS YOUR ORDERS: amber "ready" prompts (each a full-width button) --- */
+  .home-needs { display: flex; flex-direction: column; gap: 7px; }
+  .home-prompt {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 11px;
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+    border-radius: 8px;
+    /* Button reset: inherit type, left-align, real pointer. */
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .home-prompt:hover { border-color: color-mix(in srgb, var(--color-warning) 55%, transparent); }
+  .home-prompt:focus-visible { outline: 2px solid var(--color-warning); outline-offset: 2px; }
+  /* Soft-pulsing amber dot (gated by prefers-reduced-motion at the bottom). */
+  .home-pulse {
+    width: 8px;
+    height: 8px;
+    border-radius: 99px;
+    background: var(--color-warning);
+    flex: none;
+    animation: home-pulse 2.4s ease-out infinite;
+  }
+  @keyframes home-pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-warning) 45%, transparent); }
+    70% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--color-warning) 0%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-warning) 0%, transparent); }
+  }
+  .home-prompt-txt { flex: 1; min-width: 0; }
+  .home-prompt-detail { display: block; font-size: 10.5px; color: var(--color-warning); letter-spacing: 0.02em; margin-top: 1px; }
+  /* The "Go" affordance (a styled span inside the button, NOT a nested button). */
+  .home-go {
+    flex: none;
+    font-family: var(--font-display);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-bg-deep);
+    background: var(--color-warning);
+    border-radius: 6px;
+    padding: 6px 11px;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+
+  /* Caught-up banner: calm green, the earned breather. */
+  .home-caughtup {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--color-success) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
+    border-radius: 8px;
+  }
+  .home-caughtup-check { font-size: 18px; color: var(--color-success); flex: none; }
+  .home-caughtup-title { font-family: var(--font-display); font-size: 12.5px; color: var(--color-success); }
+  .home-caughtup-sub { font-size: 10.5px; color: var(--color-text-secondary); margin-top: 2px; }
+
+  /* --- IN PROGRESS: compact rows in a two-column grid (mockup) --- */
+  /* Two equal columns on desktop, collapsing to a single column on mobile (the
+     mockup's breakpoint). minmax(0, 1fr) (NOT a bare 1fr) lets each cell shrink
+     BELOW its content's min-content width, so a long primary label ellipsizes
+     inside its cell instead of forcing the grid wider than its container: this is
+     what guarantees the board never triggers horizontal body scroll, on any width. */
+  .home-prog {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+  /* Mobile: one column. 560px matches the app's other narrow-layout breakpoints
+     (see UpdateBanner), so a phone (~375px) always gets the single-column stack. */
+  @media (max-width: 560px) {
+    .home-prog { grid-template-columns: 1fr; }
+  }
+  .home-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+    padding: 9px 11px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .home-row:hover {
+    border-color: var(--color-border-strong);
+    background: rgba(var(--color-accent-rgb), 0.10);
+  }
+  .home-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  /* Plain status row (null jumpTarget): not interactive, no hover/pointer. */
+  .home-row-static { cursor: default; }
+  .home-row-static:hover { border-color: var(--color-border); background: var(--color-panel-bg-strong); }
+
+  /* Row icon (shared with prompts). */
+  .home-ico { font-size: 15px; flex: none; width: 18px; text-align: center; }
+
+  .home-row-body { flex: 1; min-width: 0; }
+  /* Primary label ellipsizes rather than widening the cell (no horizontal scroll). */
+  .home-l1 {
+    display: block;
+    font-size: 11.5px;
+    color: var(--color-text-primary);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .home-l2 { display: flex; align-items: center; gap: 7px; margin-top: 4px; }
+  .home-phase { font-size: 10px; color: var(--color-accent); letter-spacing: 0.02em; white-space: nowrap; }
+  /* The combat defeat phase reads danger-red (matches the source combat card). */
+  .home-phase-danger { color: var(--color-danger); }
+  .home-meta { font-size: 10px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  /* ETA pinned right, monospaced tabular for a stable clock. */
+  .home-eta {
+    margin-left: auto;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    flex: none;
+  }
+  .home-chev { flex: none; color: var(--color-text-dim); font-size: 15px; }
+
+  /* Slim single progress bar. */
+  .home-bar {
+    display: block;
+    height: 3px;
+    border-radius: 3px;
+    background: var(--color-bg-deep);
+    overflow: hidden;
+    margin-top: 6px;
+  }
+  .home-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--color-accent); }
+  /* Dual hull / shield bars for a combat patrol. */
+  .home-duo { display: flex; gap: 5px; margin-top: 6px; }
+  .home-b { flex: 1; height: 3px; border-radius: 3px; background: var(--color-bg-deep); overflow: hidden; }
+  .home-b > i { display: block; height: 100%; }
+  .home-b-hull > i { background: var(--color-warning); }
+  .home-b-shield > i { background: var(--color-accent); }
+
+  /* --- NOT YET UNLOCKED: dimmed, non-interactive chips --- */
+  .home-locked { display: flex; flex-wrap: wrap; gap: 7px; }
+  .home-lock {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 10px;
+    background: var(--color-panel-bg-strong);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: 7px;
+    opacity: 0.6;
+  }
+  .home-lock-ico { font-size: 12px; }
+  .home-lock-l { font-size: 10.5px; color: var(--color-text-dim); }
+  .home-lock-note {
+    font-size: 9px;
+    color: var(--color-text-dim);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 0 6px;
+  }
+
+  /* Reduced-motion: kill the amber prompt pulse (design / a11y requirement). */
+  @media (prefers-reduced-motion: reduce) {
+    .home-pulse { animation: none; }
   }
 </style>
