@@ -441,6 +441,50 @@ export function fleetRareYieldMult(state: GameState): number {
   }, 0);
 }
 
+// --- Crafting 0.13.3 (Phase 1 Unit 1.2): queue depth ------------------------
+// docs/plans/2026-09-01-crafting-0.13.3-design.md §5.2.
+//
+// The BASE queued-order capacity every player has before spending a single
+// adminPoint. Deliberately 1, not 0: a feature that ships invisible to everyone
+// who has not bought a talent is a feature nobody discovers, and the talent that
+// unlocks it is then a talent nobody knows to want. One free queued slot is the
+// taste; the fleetLogisticsQueue1/2/3 chain is the investment.
+export const QUEUE_DEPTH_BASE = 1;
+
+// How many orders may sit WAITING at one queue-capable facility right now.
+//
+// TWO RULES THIS ENCODES, both from design §5.2, both easy to get wrong later:
+//
+//   1. DEPTH IS PER FACILITY, NOT A SHARED POOL. The returned number applies to
+//      EACH QueueFacilityKey independently: a depth of 2 means the Refinery may
+//      hold 2 waiting orders AND the Fabricator may hold 2 of its own, it is
+//      never split between them. A shared pool would let a full Refinery queue
+//      silently block the Fabricator, with no console able to explain why.
+//      Callers therefore enforce this by counting only the entries in
+//      state.processQueue whose `facility` matches (Unit 1.3), never the array
+//      length as a whole.
+//
+//   2. THE ACTIVE JOB DOES NOT CONSUME A QUEUE SLOT. This counts NOT-YET-STARTED
+//      orders only; work already running is governed by the facility's own SLOT
+//      count (refineSlotCount / fabricateSlotCount). Slots and depth stay two
+//      orthogonal, separately legible resources: "3 lines running, 1 waiting".
+//
+// DERIVE ON READ, never stored: exactly like salvageTalentBonus (salvage.ts) and
+// fleetRareYieldMult above, this reduces over the learned talent keys and reads the
+// grant straight off each node's effect payload, so no save field can go stale and
+// a respec shrinks depth the same tick it refunds the points. SUMMING (rather than
+// short-circuiting on the first match) is the forward-compatible half: a 4th chain
+// rung, or a node granting +2 at once, lands with zero change here, the same
+// property MAX_UNLOCKABLE_CAPTAINS gets from counting nodes instead of hardcoding 4.
+//
+// PURE: reads state, allocates nothing, mutates nothing.
+export function queueDepth(state: GameState): number {
+  return state.unlockedHomeworldTalents.reduce((depth, key) => {
+    const effect = HOMEWORLD_TALENTS[key].effect;
+    return effect.type === "queueDepth" ? depth + effect.depth : depth;
+  }, QUEUE_DEPTH_BASE);
+}
+
 // Progression Pacing Rework (Task 3, docs/plans/2026-07-11-progression-pacing-
 // rework-*): the SHARED per-tick XP RATE helper. Returns how much XP one whole
 // extraction tick of `missionKey` is worth RIGHT NOW, for THIS captain (and,
@@ -559,6 +603,13 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
     // the recycle recovery, the ceiling as a "+N tier" reach on the loot roll.
     case "salvageBoost":
       return `+${(effect.yieldBonus * 100).toFixed(0)}% salvage recovery, +${effect.ceilingBonus} loot tier reach`;
+    // Crafting 0.13.3 (Phase 1 Unit 1.2): the queue-depth chain. "per facility" is
+    // load-bearing in this string, not filler: the grant applies to EVERY
+    // queue-capable facility independently (design §5.2), and a tooltip reading
+    // just "+1 queued order" would read as one shared slot across the whole base,
+    // which is the exact misunderstanding the per-facility model exists to avoid.
+    case "queueDepth":
+      return `+${effect.depth} queued order per facility`;
     // Radial Skill Web (Task 3): the gateway-hub effect, mirroring the captain
     // side's `none` case above. Homeland Defense / Citizenry hubs carry
     // `{ type: "none" }` because their categories' real mechanics (a defense /

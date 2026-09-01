@@ -5735,6 +5735,17 @@ export type HomeworldTalentEffect =
   // so the tunable values (SALVAGE_TALENT_* consts below) are the single source of
   // truth, no second copy of the numbers in the salvage engine.
   | { type: "salvageBoost"; yieldBonus: number; ceilingBonus: number }
+  // Crafting 0.13.3 (Phase 1 Unit 1.2, design §5.2): the "RAM is expensive" queue
+  // depth grant. Each learned node adds `depth` QUEUED order slots to EVERY
+  // queue-capable facility (QueueFacilityKey above), stacked on QUEUE_DEPTH_BASE.
+  //
+  // WHY a number payload instead of a bare marker like unlockCaptainSlot: the depth
+  // helper (queueDepth, tick.ts) SUMS this payload across the learned nodes rather
+  // than counting matching nodes, so a later node granting +2 at once needs zero
+  // engine change. The value is seeded from QUEUE_DEPTH_PER_NODE (below) so the
+  // tunable lives in exactly one place, the same single-source discipline the
+  // SALVAGE_TALENT_* consts give salvageBoost.
+  | { type: "queueDepth"; depth: number }
   // Radial Skill Web (Task 3): a genuinely-null gateway effect, added to mirror
   // CaptainTalentEffect's own `none` member (Task 2) exactly. Used by the
   // Homeland Defense and Citizenry hubs, which are "learn me first" seeds for
@@ -6001,6 +6012,13 @@ export type HomeworldTalentKey =
   | "economyTrickle"
   // fleetLogistics: the combined Fleet-Admiral salvage talent (0.11.0 Task C4)
   | "fleetLogisticsSalvage"
+  // fleetLogistics: the queue-depth chain (Crafting 0.13.3, Phase 1 Unit 1.2).
+  // Three NEW keys only, nothing renamed, so existing saves' unlockedHomeworldTalents
+  // stay valid with no migration (talents persist BY KEY, the same reason the Task 3
+  // web rewrite and the Task C4 salvage node needed none).
+  | "fleetLogisticsQueue1"
+  | "fleetLogisticsQueue2"
+  | "fleetLogisticsQueue3"
   // industry, hub + one existing content node
   | "industryHub"
   | "industryBonusOutput";
@@ -6019,6 +6037,14 @@ export type HomeworldTalentKey =
 export const SALVAGE_TALENT_YIELD_BONUS = 0.1;
 export const SALVAGE_TALENT_CEILING_BONUS = 1;
 
+// Crafting 0.13.3 (Phase 1 Unit 1.2, design §5.2): how much queue depth ONE node of
+// the fleetLogisticsQueue1/2/3 chain grants. SINGLE SOURCE OF TRUTH: each node embeds
+// this in its `queueDepth` effect payload and tick.ts's queueDepth() helper sums those
+// payloads back, so retuning the grant is a one-line edit here (exactly how the
+// SALVAGE_TALENT_* consts above feed salvageBoost). +1 per node is the design's
+// proposal: depth is a scarce, deliberately-bought resource, not a free-flowing one.
+export const QUEUE_DEPTH_PER_NODE = 1;
+
 export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & { effect: HomeworldTalentEffect }> = {
   // --- fleetLogistics, the rich category ------------------------------
   // hub -> Slot1 -> Slot2 -> Slot3 (the slot-unlock chain), plus Yield off hub.
@@ -6029,7 +6055,13 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     x: 0,
     y: 0,
     isHub: true,
-    neighbors: ["fleetLogisticsSlot1", "fleetLogisticsYield"],
+    // Three spokes off the one rich category's hub: the captain-slot chain runs
+    // up-left, Requisitions/Salvage up-right, and the 0.13.3 queue-depth chain
+    // down-left. Hanging the queue chain off the HUB (rather than deeper, past
+    // Requisitions) is the "you upgrade the machine, the whole machine gets deeper
+    // buffers" fiction from design §5.2: scheduling capacity is a Fleet Command
+    // property, not a downstream consequence of salvage or requisitions.
+    neighbors: ["fleetLogisticsSlot1", "fleetLogisticsYield", "fleetLogisticsQueue1"],
     // A modest real starter effect (mirrors the captain prospectorHub, which
     // carries a real commonYieldMult on the one rich tree), rareYieldMult is
     // thematically apt for a logistics/requisitions category.
@@ -6120,6 +6152,59 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     },
     flavor:
       "A dedicated salvage corps strips every wreck and spare hull to the bolt, and knows where the rare tech hides.",
+  },
+  // Crafting 0.13.3 (Phase 1 Unit 1.2, design §5.2): the QUEUE-DEPTH chain, the
+  // "RAM is expensive" investment track. Authored to MIRROR the fleetLogisticsSlot1/2/3
+  // chain above in every structural respect, because that chain is the established
+  // precedent for a 3-rung escalating Fleet-Logistics ladder:
+  //   - identical adminPoint costs (3 / 5 / 8),
+  //   - identical Fleet-Admiral-level walls (rung 1 UNGATED so the first upgrade is
+  //     reachable early, then L5, then L25; enforced in buyHomeworldTalent, tick.ts),
+  //   - a straight-line adjacency chain hanging off the hub, one hop per rung,
+  //   - the same 140/80 web-space step per rung, laid DOWN-left where the slot chain
+  //     runs UP-left, so the two ladders read as a mirrored pair and neither crosses
+  //     the Requisitions/Salvage spoke on the right.
+  // A 4th rung later needs NO engine change: queueDepth() (tick.ts) sums payloads.
+  //
+  // EFFECT SCOPE, worth stating next to the data: each rung grants its depth to EVERY
+  // queue-capable facility independently (design §5.2 chose per-facility over a shared
+  // pool so one facility's queue can never silently starve another's).
+  fleetLogisticsQueue1: {
+    branch: "fleetLogistics",
+    label: "Standing Orders (2nd queued slot)",
+    cost: 3,
+    x: -180,
+    y: 120,
+    neighbors: ["fleetLogisticsHub", "fleetLogisticsQueue2"],
+    effect: { type: "queueDepth", depth: QUEUE_DEPTH_PER_NODE },
+    // No requiresFleetAdminLevel: like the first captain-slot rung, the first queue
+    // rung is intentionally ungated (it still costs adminPoints and needs adjacency).
+    flavor:
+      "A second order buffer, wired into the scheduler. Memory this fast is never cheap, and Fleet Command pays in full.",
+  },
+  fleetLogisticsQueue2: {
+    branch: "fleetLogistics",
+    label: "Standing Orders (3rd queued slot)",
+    cost: 5,
+    x: -320,
+    y: 200,
+    neighbors: ["fleetLogisticsQueue1", "fleetLogisticsQueue3"],
+    effect: { type: "queueDepth", depth: QUEUE_DEPTH_PER_NODE },
+    requiresFleetAdminLevel: 5,
+    flavor:
+      "Another bank of scheduling core, requisitioned at the usual outrageous price. Three orders can wait their turn now.",
+  },
+  fleetLogisticsQueue3: {
+    branch: "fleetLogistics",
+    label: "Standing Orders (4th queued slot)",
+    cost: 8,
+    x: -440,
+    y: 280,
+    neighbors: ["fleetLogisticsQueue2"],
+    effect: { type: "queueDepth", depth: QUEUE_DEPTH_PER_NODE },
+    requiresFleetAdminLevel: 25,
+    flavor:
+      "The deepest buffer the yard's schedulers will admit exists. Line up the whole shift and walk away.",
   },
   // --- homelandDefense, hub-only gateway stub -------------------------
   homelandDefenseHub: {
