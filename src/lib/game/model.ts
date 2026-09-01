@@ -2123,7 +2123,17 @@ export function extractionMissionOf(captain: CaptainState): CaptainMissionState 
 // tuned FA-XP source. Its completion effect is the NEW `addShip` ProcessEffect (a
 // ship is NOT an inventory item, so it cannot reuse addItem). One build slot this
 // pass (shipBuildSlotCount, tick.ts).
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "shipRepair";
+// Crafting 0.13.3 (Phase 2, Unit 2.2, design §7.1): "salvageJob" is a TIMED recycle run
+// by the Salvage Bay. Salvage used to be an instant, live-only action; making it a timed
+// process is what lets it be QUEUED like every other production job. It reuses the SAME
+// countdown/completion machinery; only its completion effect differs (salvageResolve,
+// below) and only its consume TIMING differs (salvage is the one kind that consumes its
+// input at COMPLETION rather than at start, which is why its target is protected by a
+// derived reservation instead of by an up-front deduction, design §7.3).
+// It grants NEITHER XP axis. See PROCESS_XP_AWARDS (tick.ts) for the reasoning, which is
+// load-bearing: salvage returns only a fraction of what went in, so paying XP for it would
+// turn craft, recycle, craft into an XP faucet.
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "shipRepair" | "salvageJob";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -2201,7 +2211,29 @@ export type ProcessEffect =
   // Decimal (shipId is a plain string), so hydrateDecimals (save.ts) skips it via its
   // `"amount" in effect` guard and it round-trips through JSON as {type,shipId} strings. A
   // stale shipId (the ship was salvaged mid-repair) is a harmless no-op in the resolver.
-  | { type: "clearShipDamage"; shipId: string };
+  | { type: "clearShipDamage"; shipId: string }
+  // Crafting 0.13.3 (Phase 2, Unit 2.2, design §7.1 + §7.3): a completed "salvageJob"
+  // RESOLVES its target, meaning it consumes the target AND grants the recovery in one
+  // atomic step at completion. `target` is the SAME SalvageTargetRef a queued salvage
+  // order carries (declared below with the queue schema), so an order promotes into a
+  // process without reshaping its payload and one target type serves both halves of the
+  // pipeline: there is exactly one definition of "what a salvage points at", which is
+  // what lets the derived reservation (reservation.ts) bin a QUEUED and an IN-FLIGHT
+  // salvage through the identical code path.
+  //
+  // WHY THE TARGET AND NOT A PRE-COMPUTED PAYLOAD: consuming at completion means the
+  // process must still be able to find the thing it is recycling when it lands, so it
+  // carries the id, not a snapshot of the reward. That is also what makes a STALE target
+  // (a hull lost or already recycled while the job ran) a fail-safe no-op instead of a
+  // phantom payout, the same posture clearShipDamage documents just above.
+  //
+  // NO DECIMAL ON THIS EFFECT, VERIFIED: SalvageTargetRef's three arms are plain id
+  // strings only (see its own declaration), so hydrateDecimals (save.ts) skips this
+  // effect via its `"amount" in effect` guard, exactly like unlockBlueprint / addShip /
+  // clearShipDamage, and it round-trips through JSON as {type,target:{kind,id}} strings.
+  // Keep it that way: a Decimal added here without a matching revive in save.ts would
+  // load back as a bare string and throw on the first arithmetic.
+  | { type: "salvageResolve"; target: SalvageTargetRef };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
@@ -3010,6 +3042,109 @@ export interface AutoSalvageRules {
 // default keeps the engine free of a dependency on a UI-preference module.
 export function freshSalvageConfirmQualities(): number[] {
   return Array.from({ length: QUALITY_TIERS }, (_, i) => i);
+}
+
+// --- Crafting 0.13.3 (Phase 2 Unit 2.2): salvage DURATION -------------------
+// docs/plans/2026-09-01-crafting-0.13.3-design.md §7.2.
+//
+// How long a queued salvage takes once it is promoted into a "salvageJob".
+//
+// WHY THESE LIVE IN model.ts AND NOT IN THE RECYCLE MODULE: duration is pure ARITHMETIC
+// over numbers the caller already holds (an iLevel, a quality tier, a build recipe's own
+// duration). It touches none of the recycle internals, draws no rng, and reads no state,
+// so it can sit next to the rest of the queue schema where both the engine and the later
+// consoles can reach it without either importing the other. Keeping it here also keeps it
+// unit-testable on its own, before anything can create a job (Unit 2.4).
+//
+// ⚠️ EVERY CONSTANT BELOW IS A FIRST-PASS TUNABLE, not a balance-tested number, the same
+// status CRAFTING_XP_PER_DURATION_TICK carries. The shape (a floor plus a linear term in
+// iLevel plus a linear term in quality) is the deliberate part; the coefficients are
+// expected to move once the Salvage Bay is playable.
+//
+// SHAPE INVARIANT, load-bearing for the countdown: every function here returns a WHOLE
+// number of ticks, at least 1. TimedProcess.remainingTicks is decremented by whole ticks
+// and a duration of 0 would complete on the very tick it started (and a fractional one
+// would never land exactly on 0), so the ceil and the floor of 1 are correctness, not
+// polish.
+
+// The floor: what the cheapest possible recycle costs in ticks. Design §7.2's "the lowest
+// tier salvage takes about 5 seconds", and one tick is one second at the default cadence.
+export const SALVAGE_BASE_TICKS = 5;
+
+// Ticks added per point of the target's iLevel. Fractional on purpose: iLevel climbs in
+// large steps, so a whole tick per point would dominate the formula. The sum is ceil'd.
+export const SALVAGE_TICKS_PER_ILEVEL = 0.5;
+
+// Ticks added per quality tier (0..QUALITY_TIERS-1). Weighted heavier than iLevel because
+// quality is the axis the player feels: a Q5 piece should visibly take longer to break
+// down than a Q0 one of the same iLevel.
+export const SALVAGE_TICKS_PER_QUALITY = 2;
+
+// A salvaged-material loot roll is FLAT, with no iLevel or quality to scale on (a
+// salvaged material is a stackable inventory item, not a rolled instance). Held as its
+// own constant rather than reusing SALVAGE_BASE_TICKS even though the two are equal
+// today, because they answer different questions and will be tuned apart.
+export const SALVAGE_MATERIAL_TICKS = 5;
+
+// A hull teardown takes this SHARE of the time the hull took to build. Expressed as a
+// divisor (3 = one third) so the relationship to the build is readable at the call site.
+// This is what finally delivers the timed teardown the instant recycle path has been
+// waiting for since the 0.11.1 emergency escape valve shipped.
+export const SALVAGE_SHIP_BUILD_DIVISOR = 3;
+
+// What salvageDurationTicks needs to know about a target, per arm.
+//
+// This deliberately mirrors SalvageTargetRef's three `kind`s while carrying NUMBERS
+// instead of IDS. The split is the point: a TargetRef says WHICH thing (an id, which is
+// all a save should store), a DurationSpec says WHAT IT COSTS (the numbers already read
+// off that thing). Keeping them separate is what makes the duration math pure, so it
+// needs no GameState, no equipment lookup and no recipe table to be tested. The caller
+// (Unit 2.3/2.4) does the one lookup and hands the numbers over.
+export type SalvageDurationSpec =
+  | { kind: "equipment"; iLevel: number; quality: number }
+  | { kind: "material" }
+  | { kind: "ship"; buildDurationTicks: number };
+
+// The ONE duration function, exhaustive over the three arms with no default branch, so a
+// fourth salvage target arm becomes a COMPILE ERROR here rather than a target that
+// silently gets some other arm's duration. Same posture as reservation.ts's bin().
+//
+// Per arm (design §7.2):
+//   equipment  base + iLevel * per-iLevel + quality * per-quality, rounded UP
+//   material   flat (a loot roll has no iLevel or quality to scale on)
+//   ship       a share of the hull's OWN build time, so a battleship teardown costs more
+//              than a frigate teardown without a second table to keep in sync
+//
+// DEFENSIVE ON EVERY INPUT: a hand-edited save, a legacy piece minted before iLevel
+// existed, or a hull type with no build recipe can all present undefined, a negative or a
+// NaN. A NaN duration would produce a countdown that never reaches 0, meaning a Salvage
+// Bay slot occupied forever with no player action that can clear it. Clamping each input
+// (and flooring the result at 1) turns every one of those into the base duration, which
+// is merely wrong-ish rather than a soft lock.
+//
+// PURE and DETERMINISTIC: no rng, no state, no clock. That is what lets the same duration
+// be computed on the live path and the offline path and agree exactly.
+export function salvageDurationTicks(spec: SalvageDurationSpec): number {
+  switch (spec.kind) {
+    case "equipment": {
+      const safeILevel = Number.isFinite(spec.iLevel) && spec.iLevel > 0 ? spec.iLevel : 0;
+      const safeQuality = Number.isFinite(spec.quality) && spec.quality > 0 ? spec.quality : 0;
+      const raw =
+        SALVAGE_BASE_TICKS +
+        safeILevel * SALVAGE_TICKS_PER_ILEVEL +
+        safeQuality * SALVAGE_TICKS_PER_QUALITY;
+      return Math.max(1, Math.ceil(raw));
+    }
+    case "material":
+      return Math.max(1, Math.ceil(SALVAGE_MATERIAL_TICKS));
+    case "ship": {
+      const build = spec.buildDurationTicks;
+      // No usable build time falls back to the FLOOR, not to 0: an unknown hull should
+      // still take a moment to tear down, and 0 would complete on its own start tick.
+      if (!Number.isFinite(build) || build <= 0) return SALVAGE_BASE_TICKS;
+      return Math.max(1, Math.ceil(build / SALVAGE_SHIP_BUILD_DIVISOR));
+    }
+  }
 }
 
 export interface GameState {

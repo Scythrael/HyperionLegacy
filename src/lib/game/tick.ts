@@ -770,6 +770,26 @@ const PROCESS_XP_AWARDS: Record<TimedProcessKind, { fleetAdmin: boolean; craftin
   // production job, so it must not farm FA or crafting XP (a defeat-repair-redispatch loop
   // could otherwise be an XP faucet). It joins fuelRefineJob as the only neither-axis kind.
   shipRepair:              { fleetAdmin: false, crafting: false },
+  // Crafting 0.13.3 (Phase 2 Unit 2.2, design §7.1): a salvageJob grants NEITHER axis,
+  // and the crafting-false half is the load-bearing one.
+  //
+  // WHY NO CRAFTING XP: recycling returns 30 to 40 percent of an item's original inputs.
+  // If breaking a piece down also paid crafting XP, then craft -> recycle -> craft would
+  // be a closed loop that pays XP on every lap while only ever destroying value: the
+  // player would earn crafting levels for materials they already spent, at roughly a
+  // third of the cost each time around, producing nothing. That is an XP FAUCET, and it
+  // is the exact failure mode fuelRefineJob and shipRepair are excluded to prevent.
+  // Salvage is RECOVERY, not production, and only production feeds the crafting axis.
+  //
+  // WHY NO FLEET ADMIRAL XP EITHER: the FA axis rewards finite, high-value builds (that
+  // is why researchProject / fabricateJob / shipBuild were flipped true in 0.12.1).
+  // Recycling is endlessly repeatable by construction, since every craft creates another
+  // thing that can be recycled, so it belongs with fuelRefineJob on the additive-and-
+  // automated side of that line, not with the finite builds.
+  //
+  // It joins fuelRefineJob and shipRepair as the third neither-axis kind. Flipping either
+  // half here without first closing the loop above would reopen the faucet.
+  salvageJob:              { fleetAdmin: false, crafting: false },
 };
 
 // Exported so App.svelte can display/gate on this exact value (Reset button
@@ -7498,6 +7518,35 @@ export function resolveProcesses(
           s.id === shipId ? { ...s, damaged: undefined, repairDamage: undefined } : s,
         );
       }
+    } else if (process.effect.type === "salvageResolve") {
+      // ⚠️ DELIBERATE NO-OP PLACEHOLDER. UNIT 2.3 IMPLEMENTS THIS BRANCH.
+      //
+      // Crafting 0.13.3 Phase 2 splits the salvage work across units on purpose. Unit 2.2
+      // (this one) declares the TYPES only: the "salvageJob" kind, this "salvageResolve"
+      // effect, its XP row and the duration math. Unit 2.3 lands the actual resolution
+      // together with the rng move it depends on, and Unit 2.4 lands the slot count and
+      // the adapter row that let a job be created at all.
+      //
+      // WHY A BRANCH IS HERE AT ALL: the chain's closing `else` narrows to whatever
+      // effect arms are left, and without this case that `else` would receive a
+      // salvageResolve effect and read `.facility` off it. TypeScript catches that as a
+      // compile error today, which is the good outcome, but the fix cannot be to widen the
+      // `else`: at runtime a salvageResolve landing in the facility branch would level up
+      // a facility named `undefined`. So the branch is explicit and does nothing.
+      //
+      // WHAT NOTHING COSTS US RIGHT NOW: a process taking this branch is dropped from
+      // activeProcesses with no effect applied, so its target would be neither consumed
+      // nor rewarded. That is a real hazard in the abstract, and it is UNREACHABLE in
+      // practice this unit: nothing can create a process of this shape yet. There is no
+      // console for it, no auto rule, and the Salvage Bay queue adapter is still the
+      // double-braked stub from Unit 1.3 (hasFreeSlot always false AND canStart always
+      // refuses), so no promotion pass can mint one. The only way to reach this line is a
+      // hand-edited save, where dropping the process silently is strictly safer than
+      // applying a half-built effect.
+      //
+      // Not touching state also means the closed-form parity guarantee is untouched: this
+      // branch draws no rng and writes nothing, so one big offline resolve and many small
+      // live steps remain byte-identical, which is why parity stays at its Unit 2.1 count.
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same

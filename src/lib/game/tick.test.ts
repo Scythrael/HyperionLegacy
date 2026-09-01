@@ -2860,6 +2860,10 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
     equipmentStorageUpgrade: { type: "equipmentStorageLevelUp" },
     docksExpansion: { type: "docksCapacityUp" },
     shipRepair: { type: "clearShipDamage", shipId: "ship-1" },
+    // Crafting 0.13.3 (Unit 2.2). The target is a plausible-but-absent instance id on
+    // purpose: this suite only exercises XP ROUTING, and a salvageResolve effect is a
+    // no-op in the resolver until Unit 2.3, so nothing here depends on the id resolving.
+    salvageJob: { type: "salvageResolve", target: { kind: "equipment", instanceId: "eq-1" } },
   };
   // Expected contribution of ONE completed process of each kind. FA XP lumps
   // FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks (0.12.1: was the bare
@@ -2879,6 +2883,15 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
     // Combat 0.13.0 (Phase 11): a ship repair is a consequence, not an achievement/production
     // job, so it grants NEITHER axis (joins fuelRefineJob as the only neither-axis kind).
     shipRepair: { fa: false, crafting: false },
+    // Crafting 0.13.3 (Unit 2.2, design §7.1): a salvageJob grants NEITHER axis, and the
+    // crafting half is the ANTI-FAUCET GUARD, not a stylistic call. Recycling returns only
+    // 30 to 40 percent of an item's inputs, so if it also paid crafting XP then
+    // craft -> recycle -> craft would pay XP on every lap while destroying value, earning
+    // levels for materials already spent and producing nothing. This row is the assertion
+    // that keeps that loop shut; flipping it green here without closing the loop in the
+    // economy would reopen the faucet. Third neither-axis kind, with fuelRefineJob and
+    // shipRepair.
+    salvageJob: { fa: false, crafting: false },
   };
 
   const D = 30; // durationTicks used for every single-process case

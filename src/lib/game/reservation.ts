@@ -1,5 +1,5 @@
 // ============================================================================
-// Derived SALVAGE RESERVATIONS (Crafting 0.13.3, Phase 2 Unit 2.1)
+// Derived SALVAGE RESERVATIONS (Crafting 0.13.3, Phase 2 Units 2.1 + 2.2)
 // Author: Scythrael (via Claude) | 2026-09-01
 // Design: docs/plans/2026-09-01-crafting-0.13.3-design.md section 7.3
 // Plan:   docs/plans/2026-09-01-crafting-0.13.3-plan.md (Phase 2, Unit 2.1)
@@ -12,15 +12,18 @@
 //   half and a reward half would mean inventing a serializable snapshot payload for
 //   each and carrying it through the save (a large amount of surgery on working code,
 //   Omega 15a). This module closes the SAME window a different way: while a salvage
-//   order is queued (and, from Unit 2.2 on, while its job is in flight) its target is
-//   RESERVED, so nothing else may consume it.
+//   order is QUEUED, and while its promoted job is IN FLIGHT, its target is RESERVED, so
+//   nothing else may consume it. Those two windows are contiguous, which is the whole
+//   point: there is no instant between "queued" and "running" where the target looks
+//   free.
 //
-// DERIVED, NEVER STORED. The reservation set is recomputed from state.processQueue on
-// every read, exactly the way allocation.ts's allocatedItem is recomputed from the
-// active craft lines. There is no second ledger, so there is nothing that can drift
-// out of sync with the queue, and cancelling an order releases its reservation with no
-// unwind step (removeQueuedOrder drops the entry and the reservation simply stops
-// being derived).
+// DERIVED, NEVER STORED. The reservation set is recomputed from state.processQueue plus
+// state.activeProcesses on every read, exactly the way allocation.ts's allocatedItem is
+// recomputed from the active craft lines. There is no second ledger, so there is nothing
+// that can drift out of sync with the queue, and cancelling an order releases its
+// reservation with no unwind step (removeQueuedOrder drops the entry and the reservation
+// simply stops being derived). A completing job releases its reservation the same way:
+// the resolver drops the process and the derivation stops seeing it, with no bookkeeping.
 //
 // WHY ITS OWN MODULE AND NOT salvage.ts (the file the build plan named):
 //   salvage.ts already imports onMissionLock FROM equipment.ts (one source of truth for
@@ -39,7 +42,7 @@
 //
 // Contents (core -> accessors -> predicate):
 //   SalvageReservations          the one-pass result shape (all three target arms)
-//   salvageReservations          THE single pass over the queue; call this once per render
+//   salvageReservations          THE single pass over queue + in-flight; call once per render
 //   salvageReservedInstanceIds   accessor: equipment instance ids spoken for
 //   salvageReservedShipIds       accessor: hull ids spoken for
 //   salvageReservedMaterialCount accessor: how many units of one salvaged material are spoken for
@@ -71,8 +74,8 @@ export interface SalvageReservations {
 // ----------------------------------------------------------------------------
 // salvageReservations
 // ----------------------------------------------------------------------------
-// THE single pass. Walks state.processQueue once and bins every salvage order's target
-// by arm.
+// THE single pass. Walks state.processQueue and state.activeProcesses once each and bins
+// every salvage target it finds, by arm.
 //
 // ⚠️ CALL THIS ONCE, NOT PER TILE. The three accessors below are thin wrappers that
 // each re-run this pass, which is correct but linear in the queue; a Salvage Bay grid
@@ -80,17 +83,24 @@ export interface SalvageReservations {
 // and read the returned containers, the same "one pass, indexed" posture
 // craftQueue.ts's runningRowsFor takes over activeProcesses.
 //
-// ⚠️ IN-FLIGHT JOBS ARE NOT SCANNED YET, AND THAT IS NOT AN OVERSIGHT. Design section
-// 7.3 defines the reserved set as "queued OR in flight", but the "salvageJob"
-// TimedProcessKind and the { type: "salvageResolve"; target } ProcessEffect do not
-// exist until Unit 2.2, so there is literally no in-flight salvage to enumerate and no
-// effect arm to narrow on (a `effect.type === "salvageResolve"` comparison against
-// today's ProcessEffect union is a compile error, not a no-op). THE EXTENSION POINT IS
-// MARKED BELOW: Unit 2.2/2.4 adds a second loop over state.activeProcesses that feeds
-// the SAME three bins, and every consumer of this module then picks the in-flight case
-// up for free. Landing the guard one unit before the thing it guards is deliberate
-// (build plan Unit 2.1, "the guard exists before the thing it guards"): until 2.2 lands
-// both loops would return the same empty result anyway.
+// TWO SOURCES, ONE ANSWER (design section 7.3: the reserved set is "queued OR in
+// flight"). A target is spoken for from the moment the player queues it until the moment
+// its job resolves, which spans two different places in state:
+//   state.processQueue    orders WAITING for a free Salvage Bay slot
+//   state.activeProcesses jobs ALREADY RUNNING (a "salvageJob" carrying a
+//                         { type: "salvageResolve"; target } effect)
+// Both loops feed the SAME bin() helper below, which is what guarantees the two cases
+// reserve IDENTICALLY. If they diverged, the handoff moment (an order leaving the queue
+// to become a process) would open a one-tick window where the target looked free and
+// could be installed or queued a second time, and salvage is the one kind that does NOT
+// deduct at start, so nothing else would catch it.
+//
+// ⚠️ THE IN-FLIGHT LOOP MATTERS EVEN MORE THAN THE QUEUED ONE. A queued order has not
+// touched anything yet, so a lost reservation there is a mistake the player can undo. An
+// in-flight job is already counting down toward consuming its target, so a lost
+// reservation there means the piece can be installed on a ship and then destroyed under
+// the pilot. That is why this loop lands the same unit the effect arm becomes
+// expressible (Unit 2.2), not later with the code that creates the jobs (Unit 2.4).
 //
 // PURE: reads state, allocates fresh containers, mutates nothing.
 export function salvageReservations(state: GameState): SalvageReservations {
@@ -109,18 +119,36 @@ export function salvageReservations(state: GameState): SalvageReservations {
     bin(job.order.target, instanceIds, shipIds, materialCounts);
   }
 
-  // --- EXTENSION POINT (Unit 2.2 / 2.4) -------------------------------------
-  // for (const process of state.activeProcesses) {
-  //   if (process.effect.type === "salvageResolve") bin(process.effect.target, ...);
-  // }
-  // Add it HERE, feeding the same bin() helper, and nothing downstream changes.
+  // --- IN-FLIGHT JOBS (Unit 2.2, the extension point Unit 2.1 marked) --------
+  // The second source. Narrows on the EFFECT, not on process.kind, for two reasons:
+  //   1. the effect is what carries the target, so this is the narrowing that actually
+  //      produces the value bin() needs (a kind check would still need a second cast);
+  //   2. it cannot go stale against the kind. A process whose effect resolves a salvage
+  //      reserves its target no matter what its `kind` string says, which is the honest
+  //      reading and survives a hand-edited or mislabelled save.
+  // `?? []` for the same defensive reason as the queue loop above: a hand-built fixture
+  // can arrive without the field, and a reservation read must never be the thing that
+  // throws.
+  for (const process of state.activeProcesses ?? []) {
+    if (process.effect.type !== "salvageResolve") continue;
+    bin(process.effect.target, instanceIds, shipIds, materialCounts);
+  }
 
   return { instanceIds, shipIds, materialCounts };
 }
 
-// Files one target into the right bin. Factored out (rather than inlined in the loop)
-// precisely so the in-flight loop above can reuse it verbatim when Unit 2.2 lands, which
-// is what guarantees a queued and an in-flight salvage reserve IDENTICALLY.
+// Files one target into the right bin. Factored out (rather than inlined in either loop)
+// precisely so BOTH sources above call it verbatim, which is what guarantees a queued and
+// an in-flight salvage reserve IDENTICALLY rather than by two hand-kept-in-sync copies.
+//
+// ⚠️ NOTE THE TWO DIFFERENT MEANINGS OF "the same target twice", both correct:
+//   unique arms (equipment, ship) DEDUPE, because the container is a Set. An order that
+//     has just been promoted can legitimately appear as a queued row and a running job in
+//     the same read window, and one hull is one hull however many rows point at it.
+//   the material arm ACCUMULATES, because units are fungible. One unit in flight plus one
+//     unit queued really is TWO units spoken for, which is what keeps "Held: N (M queued)"
+//     honest. This is not a dedupe failure; the two arms are answering different
+//     questions.
 //
 // The switch is EXHAUSTIVE over SalvageTargetRef's three arms with no default branch, so
 // adding a fourth arm to the union is a COMPILE ERROR here rather than a target that
@@ -152,7 +180,7 @@ function bin(
 // ----------------------------------------------------------------------------
 // Accessors (the names design section 7.3 declared)
 // ----------------------------------------------------------------------------
-// Every equipment instance id currently spoken for by a queued (later: in-flight)
+// Every equipment instance id currently spoken for by a queued OR IN-FLIGHT
 // salvage. This is the set canFitEquipment consults so a reserved piece cannot be
 // installed out from under its job, and the set the Phase 4 Salvage Bay / Ships tiles
 // read to render the "queued for salvage" marker.
@@ -160,7 +188,7 @@ export function salvageReservedInstanceIds(state: GameState): Set<string> {
   return salvageReservations(state).instanceIds;
 }
 
-// Every hull id currently spoken for by a queued (later: in-flight) teardown. Exported
+// Every hull id currently spoken for by a queued OR IN-FLIGHT teardown. Exported
 // for the Phase 4 Docks / Ships readouts and for the enqueue duplicate check; the fit
 // gate deliberately does NOT consult it (see isDuplicateSalvageTarget's header).
 export function salvageReservedShipIds(state: GameState): Set<string> {
@@ -179,8 +207,13 @@ export function salvageReservedMaterialCount(state: GameState, itemId: string): 
 // ----------------------------------------------------------------------------
 // isDuplicateSalvageTarget
 // ----------------------------------------------------------------------------
-// "Is this exact target ALREADY queued?" The enqueue gate's question, and the reason
+// "Is this exact target ALREADY spoken for?" The enqueue gate's question, and the reason
 // design section 7.3 says a reserved instance cannot be queued twice.
+//
+// As of Unit 2.2 this reads the WIDER set: a unique target is a duplicate whether its
+// first order is still waiting in the queue or is already running as a job. That is the
+// correct reading and it closes a real hole, since a piece being torn down right now is
+// the LAST thing that should accept a second order.
 //
 // ⚠️ THE MATERIAL ARM ALWAYS ANSWERS FALSE, DELIBERATELY. Two rules meet here and only
 // one reading satisfies both:

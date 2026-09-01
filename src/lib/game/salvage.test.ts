@@ -58,6 +58,15 @@ import {
   type QueuedJob,
   type QueuedOrder,
   type SalvageTargetRef,
+  // Crafting 0.13.3 (Phase 2 Unit 2.2): the in-flight process shape + the pure duration
+  // math the Salvage Bay will size its jobs with.
+  type TimedProcess,
+  salvageDurationTicks,
+  SALVAGE_BASE_TICKS,
+  SALVAGE_TICKS_PER_ILEVEL,
+  SALVAGE_TICKS_PER_QUALITY,
+  SALVAGE_MATERIAL_TICKS,
+  SALVAGE_SHIP_BUILD_DIVISOR,
 } from "./model";
 import Decimal from "break_infinity.js";
 import { getBucket, itemTotal } from "./inventory";
@@ -821,18 +830,20 @@ describe("salvageShip: refuses to break down the fleet's only hull (last-ship so
 });
 
 // ============================================================================
-// DERIVED SALVAGE RESERVATIONS (Crafting 0.13.3, Phase 2 Unit 2.1)
+// DERIVED SALVAGE RESERVATIONS (Crafting 0.13.3, Phase 2 Units 2.1 + 2.2)
 // (design 2026-09-01-crafting-0.13.3-design.md section 7.3.)
 //
 // Salvage is the one process that consumes its target at COMPLETION rather than at
 // start, so the thing that closes the double-spend window is not a deduction, it is a
-// reservation DERIVED from the queue on every read. These cases pin that derivation:
+// reservation DERIVED from state on every read. These cases pin that derivation:
 // what it contains, what it deliberately does NOT contain, and that it dedupes.
 //
-// ⚠️ IN-FLIGHT JOBS ARE OUT OF SCOPE HERE BY CONSTRUCTION. The "salvageJob" process
-// kind does not exist until Unit 2.2, so there is nothing in flight to assert on; the
-// helper carries a marked extension point for that second source and these cases are
-// extended alongside it.
+// TWO SOURCES, asserted separately and together (Unit 2.2 added the second):
+//   QUEUED    a "salvage" order sitting in state.processQueue
+//   IN FLIGHT a "salvageJob" in state.activeProcesses carrying a salvageResolve effect
+// The pair matters more than either alone. Promotion moves a target from the first list
+// to the second, so if only one source were scanned the handoff would flash a window
+// where the target read as free, and salvage has no start-time deduction to catch that.
 // ============================================================================
 
 // Wrap loose orders into the QueuedJob rows GameState actually stores. Ids mirror the
@@ -850,6 +861,26 @@ function stateWithSalvageQueue(...targets: SalvageTargetRef[]): GameState {
       ...targets.map((target) => ({ facility: "salvageBay" as const, order: { type: "salvage" as const, target } }))
     ),
   };
+}
+
+// Wrap loose targets into the RUNNING "salvageJob" processes GameState actually stores.
+// Ids mirror the engine's own "proc-N" minting so a fixture reads like a real save. The
+// durations are arbitrary here: the reservation derivation reads only the effect's
+// target and never the countdown, which is exactly the decoupling being asserted.
+function salvageJobs(...targets: SalvageTargetRef[]): TimedProcess[] {
+  return targets.map((target, i) => ({
+    id: `proc-${i + 1}`,
+    kind: "salvageJob" as const,
+    remainingTicks: 5,
+    durationTicks: 5,
+    effect: { type: "salvageResolve" as const, target },
+  }));
+}
+
+// A fresh state with these salvage jobs already IN FLIGHT and nothing queued. The mirror
+// image of stateWithSalvageQueue, so the two sources can be asserted to behave the same.
+function stateWithSalvageInFlight(...targets: SalvageTargetRef[]): GameState {
+  return { ...freshState(), activeProcesses: salvageJobs(...targets) };
 }
 
 describe("salvageReservations: the derived set is exactly what the queue names (0.13.3 Unit 2.1)", () => {
@@ -939,6 +970,234 @@ describe("salvageReservations: the derived set is exactly what the queue names (
     first.instanceIds.add("eq-tampered");
     // A second read is unaffected: nothing is cached and nothing is handed out twice.
     expect(salvageReservations(state).instanceIds.has("eq-tampered")).toBe(false);
+  });
+});
+
+// ----------------------------------------------------------------------------
+// The IN-FLIGHT arm (Unit 2.2). Same derivation, second source.
+// ----------------------------------------------------------------------------
+// The queued arm above proves the reservation reads the QUEUE. These prove it reads
+// RUNNING JOBS too, and, more importantly, that the two sources agree: a target must be
+// equally protected before and after promotion, because promotion is exactly the moment
+// a naive single-source implementation would drop the reservation for one tick.
+describe("salvageReservations: in-flight salvageJobs reserve identically to queued orders (0.13.3 Unit 2.2)", () => {
+  it("bins all three target arms off a running job's salvageResolve effect", () => {
+    const state = stateWithSalvageInFlight(
+      { kind: "equipment", instanceId: "eq-7" },
+      { kind: "ship", shipId: "ship-4" },
+      { kind: "material", itemId: HOUSING }
+    );
+    const reserved = salvageReservations(state);
+    expect([...reserved.instanceIds]).toEqual(["eq-7"]);
+    expect([...reserved.shipIds]).toEqual(["ship-4"]);
+    expect(reserved.materialCounts.get(HOUSING)).toBe(1);
+  });
+
+  it("produces the EXACT same reservation whether a target is queued or in flight", () => {
+    // The core promise. If these two ever diverge, the promotion handoff has a hole.
+    const targets: SalvageTargetRef[] = [
+      { kind: "equipment", instanceId: "eq-7" },
+      { kind: "ship", shipId: "ship-4" },
+      { kind: "material", itemId: HOUSING },
+    ];
+    const queued = salvageReservations(stateWithSalvageQueue(...targets));
+    const inFlight = salvageReservations(stateWithSalvageInFlight(...targets));
+    expect([...inFlight.instanceIds]).toEqual([...queued.instanceIds]);
+    expect([...inFlight.shipIds]).toEqual([...queued.shipIds]);
+    expect([...inFlight.materialCounts]).toEqual([...queued.materialCounts]);
+  });
+
+  it("DEDUPES a unique target that is both queued and in flight", () => {
+    // The overlap window itself: an order that has just been promoted can legitimately
+    // still be visible in one list while already present in the other (or a save can be
+    // hand-edited into that shape). A hull is one hull and a piece is one piece however
+    // many rows point at it, so the unique bins count it ONCE.
+    const state: GameState = {
+      ...stateWithSalvageQueue(
+        { kind: "equipment", instanceId: "eq-7" },
+        { kind: "ship", shipId: "ship-4" }
+      ),
+      activeProcesses: salvageJobs(
+        { kind: "equipment", instanceId: "eq-7" },
+        { kind: "ship", shipId: "ship-4" }
+      ),
+    };
+    const reserved = salvageReservations(state);
+    expect(reserved.instanceIds.size).toBe(1);
+    expect(reserved.shipIds.size).toBe(1);
+    expect(salvageReservedInstanceIds(state).has("eq-7")).toBe(true);
+    expect(salvageReservedShipIds(state).has("ship-4")).toBe(true);
+  });
+
+  it("ACCUMULATES a fungible material across the two sources, because units are not identities", () => {
+    // The deliberate asymmetry with the case above. One unit being torn down right now
+    // plus two more units queued really is THREE units spoken for; collapsing them would
+    // make "Held: N (M queued)" under-report and let the player over-commit their stock.
+    const state: GameState = {
+      ...stateWithSalvageQueue(
+        { kind: "material", itemId: HOUSING },
+        { kind: "material", itemId: HOUSING }
+      ),
+      activeProcesses: salvageJobs({ kind: "material", itemId: HOUSING }),
+    };
+    expect(salvageReservedMaterialCount(state, HOUSING)).toBe(3);
+  });
+
+  it("reserves NOTHING for a running process that is not a salvage", () => {
+    // The narrowing has to be on the EFFECT, not on "there is a process". Every other
+    // in-flight job in the game (a refine, an upgrade, a repair) must pass through this
+    // loop untouched, or the reservation would start blocking unrelated actions.
+    const state: GameState = {
+      ...freshState(),
+      activeProcesses: [
+        { id: "proc-1", kind: "refineJob", remainingTicks: 3, durationTicks: 3, effect: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(1) } },
+        { id: "proc-2", kind: "shipRepair", remainingTicks: 9, durationTicks: 9, effect: { type: "clearShipDamage", shipId: "ship-4" } },
+        { id: "proc-3", kind: "facilityUpgrade", remainingTicks: 2, durationTicks: 2, effect: { type: "facilityLevelUp", facility: "refinery" } },
+      ],
+    };
+    const reserved = salvageReservations(state);
+    expect(reserved.instanceIds.size).toBe(0);
+    // A repair names a shipId too. It must NOT land in the hull bin, or repairing a ship
+    // would make it look like it was queued for teardown.
+    expect(reserved.shipIds.size).toBe(0);
+    expect(reserved.materialCounts.size).toBe(0);
+  });
+
+  it("treats a save with no activeProcesses at all as nothing in flight, never a throw", () => {
+    // Same defensive posture the processQueue arm has. A hand-built fixture can arrive
+    // without the field and a reservation read must not be the thing that dies.
+    const legacy = { ...freshState(), activeProcesses: undefined as unknown as TimedProcess[] };
+    expect(salvageReservations(legacy).instanceIds.size).toBe(0);
+    expect(salvageReservedMaterialCount(legacy, HOUSING)).toBe(0);
+  });
+
+  it("refuses a duplicate order against an IN-FLIGHT unique target, not just a queued one", () => {
+    // A piece being torn down right now is the last thing that should accept a second
+    // order: the second could only ever resolve as a stale no-op holding a depth slot.
+    const state = stateWithSalvageInFlight(
+      { kind: "equipment", instanceId: "eq-7" },
+      { kind: "ship", shipId: "ship-4" }
+    );
+    expect(isDuplicateSalvageTarget(state, { kind: "equipment", instanceId: "eq-7" })).toBe(true);
+    expect(isDuplicateSalvageTarget(state, { kind: "ship", shipId: "ship-4" })).toBe(true);
+    // Untouched targets still clear, and a fungible material still never blocks.
+    expect(isDuplicateSalvageTarget(state, { kind: "equipment", instanceId: "eq-8" })).toBe(false);
+    expect(isDuplicateSalvageTarget(state, { kind: "material", itemId: HOUSING })).toBe(false);
+  });
+});
+
+// ============================================================================
+// SALVAGE DURATION (Crafting 0.13.3, Phase 2 Unit 2.2)
+// (design section 7.2.)
+//
+// How long a promoted salvage takes. Pure arithmetic over numbers the caller already
+// holds, so it is pinned here on its own, one unit before anything can create a job.
+//
+// ⚠️ THESE CASES ASSERT THE SHAPE, NOT THE BALANCE. Every constant is a first-pass
+// tunable, so each expectation is DERIVED from the exported constants rather than
+// hard-coding a tick count. Retuning a coefficient should move the game, not break the
+// suite; changing the FORMULA should break it.
+// ============================================================================
+describe("salvageDurationTicks: deterministic whole-tick durations for every target kind", () => {
+  it("returns a positive INTEGER for every arm", () => {
+    // Load-bearing, not cosmetic: remainingTicks is decremented in whole ticks, so a
+    // fractional duration would never land exactly on 0 and a 0 duration would complete
+    // on its own start tick. Either one is a Salvage Bay slot that misbehaves.
+    const durations = [
+      salvageDurationTicks({ kind: "equipment", iLevel: 37, quality: 3 }),
+      salvageDurationTicks({ kind: "material" }),
+      salvageDurationTicks({ kind: "ship", buildDurationTicks: 400 }),
+    ];
+    for (const d of durations) {
+      expect(Number.isInteger(d)).toBe(true);
+      expect(d).toBeGreaterThan(0);
+    }
+  });
+
+  it("is a pure function: the same spec always yields the same answer", () => {
+    // No rng, no state, no clock. This is what lets the live path and the offline path
+    // size the identical job.
+    const spec = { kind: "equipment" as const, iLevel: 22, quality: 4 };
+    expect(salvageDurationTicks(spec)).toBe(salvageDurationTicks(spec));
+    expect(salvageDurationTicks(spec)).toBe(salvageDurationTicks({ ...spec }));
+  });
+
+  it("equipment: base plus the iLevel term plus the quality term, rounded up", () => {
+    const iLevel = 30;
+    const quality = 2;
+    const expected = Math.ceil(
+      SALVAGE_BASE_TICKS + iLevel * SALVAGE_TICKS_PER_ILEVEL + quality * SALVAGE_TICKS_PER_QUALITY
+    );
+    expect(salvageDurationTicks({ kind: "equipment", iLevel, quality })).toBe(expected);
+  });
+
+  it("equipment: a bare Q0 iLevel-0 piece costs exactly the floor", () => {
+    expect(salvageDurationTicks({ kind: "equipment", iLevel: 0, quality: 0 })).toBe(SALVAGE_BASE_TICKS);
+  });
+
+  it("equipment: duration rises with BOTH iLevel and quality, never falls", () => {
+    // The monotonicity is the design intent (a better piece takes longer to break down).
+    // Asserted as a relation so it survives any retune of the coefficients.
+    const base = salvageDurationTicks({ kind: "equipment", iLevel: 10, quality: 1 });
+    expect(salvageDurationTicks({ kind: "equipment", iLevel: 40, quality: 1 })).toBeGreaterThan(base);
+    expect(salvageDurationTicks({ kind: "equipment", iLevel: 10, quality: 5 })).toBeGreaterThan(base);
+  });
+
+  it("equipment: a fractional iLevel term is rounded UP, never truncated", () => {
+    // iLevel contributes a half tick per point on purpose, so an ODD iLevel produces a
+    // .5 that must round up. Truncating instead would let a duration drift below the
+    // curve and, at the extreme, toward 0.
+    const odd = salvageDurationTicks({ kind: "equipment", iLevel: 1, quality: 0 });
+    expect(odd).toBe(Math.ceil(SALVAGE_BASE_TICKS + SALVAGE_TICKS_PER_ILEVEL));
+    expect(odd).toBeGreaterThan(SALVAGE_BASE_TICKS);
+  });
+
+  it("material: flat, ignoring anything else", () => {
+    // A salvaged material is a stackable item with no iLevel and no quality to scale on.
+    expect(salvageDurationTicks({ kind: "material" })).toBe(SALVAGE_MATERIAL_TICKS);
+  });
+
+  it("ship: a share of the hull's own build time, so a bigger hull takes longer", () => {
+    const build = 600;
+    expect(salvageDurationTicks({ kind: "ship", buildDurationTicks: build })).toBe(
+      Math.ceil(build / SALVAGE_SHIP_BUILD_DIVISOR)
+    );
+    // Derived from the build, so the relation holds across hull types with no second table.
+    expect(salvageDurationTicks({ kind: "ship", buildDurationTicks: 1200 })).toBeGreaterThan(
+      salvageDurationTicks({ kind: "ship", buildDurationTicks: 600 })
+    );
+  });
+
+  it("ship: a build duration that is not divisible rounds UP rather than down", () => {
+    expect(salvageDurationTicks({ kind: "ship", buildDurationTicks: SALVAGE_SHIP_BUILD_DIVISOR + 1 })).toBe(2);
+  });
+
+  it("survives garbage inputs with the base duration instead of NaN or 0", () => {
+    // The stuck-countdown hazard. A NaN or 0 duration is a slot occupied forever with no
+    // player action that can clear it, so every nonsense input clamps to something sane.
+    const garbage = [
+      salvageDurationTicks({ kind: "equipment", iLevel: NaN, quality: NaN }),
+      salvageDurationTicks({ kind: "equipment", iLevel: -50, quality: -3 }),
+      salvageDurationTicks({ kind: "equipment", iLevel: undefined as unknown as number, quality: undefined as unknown as number }),
+      salvageDurationTicks({ kind: "ship", buildDurationTicks: NaN }),
+      salvageDurationTicks({ kind: "ship", buildDurationTicks: 0 }),
+      salvageDurationTicks({ kind: "ship", buildDurationTicks: -10 }),
+    ];
+    for (const d of garbage) {
+      expect(Number.isInteger(d)).toBe(true);
+      expect(d).toBe(SALVAGE_BASE_TICKS);
+    }
+  });
+
+  it("carries NO Decimal anywhere in a salvageResolve effect, so save hydration needs no branch", () => {
+    // The same verification Unit 1.1 did for the queue schema. hydrateDecimals (save.ts)
+    // revives an effect only when it has an "amount" key; a Decimal smuggled onto this
+    // effect would therefore load back as a bare string and throw on first arithmetic.
+    // Asserting the shape here is cheaper than discovering it after a save round-trip.
+    const [job] = salvageJobs({ kind: "equipment", instanceId: "eq-7" });
+    expect("amount" in job.effect).toBe(false);
+    const roundTripped = JSON.parse(JSON.stringify(job)) as TimedProcess;
+    expect(roundTripped).toEqual(job);
   });
 });
 
