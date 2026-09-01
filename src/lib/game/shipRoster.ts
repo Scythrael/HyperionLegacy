@@ -1,5 +1,5 @@
 // ============================================================================
-// shipRoster.ts -- pure view-model for the Ships-tab fleet roster (0.13.2, Unit 3)
+// shipRoster.ts: pure view-model for the Ships-tab fleet roster (0.13.2, Unit 3)
 // Author: Claude (Opus 4.8) | 2026-09-01
 //
 // WHAT THIS IS. The Ships tab (0.13.2) upgrades the old flat card grid into a
@@ -117,7 +117,7 @@ const STATUS_SORT_RANK: Record<ShipStatus, number> = {
 };
 
 // ----------------------------------------------------------------------------
-// deriveStatus -- the captain-and-status read, mirroring the live card EXACTLY
+// deriveStatus: the captain-and-status read, mirroring the live card EXACTLY
 // ----------------------------------------------------------------------------
 // Resolve a hull's aboard captain (by assignedCaptainId, the single source of truth
 // for assignment) and its activity status from that captain's mission. This is the
@@ -149,7 +149,7 @@ function deriveStatus(
 }
 
 // ----------------------------------------------------------------------------
-// deriveAttention -- the attention predicate (damaged OR empty required combat slot)
+// deriveAttention: the attention predicate (damaged OR empty required combat slot)
 // ----------------------------------------------------------------------------
 // A ship "needs attention" when either:
 //   1. it is DAMAGED (ship.damaged === true: it limped home from a lost patrol and
@@ -193,7 +193,7 @@ function deriveAttention(
 }
 
 // ----------------------------------------------------------------------------
-// buildRow -- fold one ShipInstance into a fully-derived ShipRosterRow
+// buildRow: fold one ShipInstance into a fully-derived ShipRosterRow
 // ----------------------------------------------------------------------------
 // Reads the ship's fitted gear ONCE (equippedFor) and reuses it for both the Battle
 // Rating (via the same shipToCombatant + battleRating path the install panel uses) and
@@ -280,7 +280,7 @@ function sortRows(rows: ShipRosterRow[], sortKey: ShipSortKey): ShipRosterRow[] 
 }
 
 // ----------------------------------------------------------------------------
-// buildShipRoster -- the one public entry point
+// buildShipRoster: the one public entry point
 // ----------------------------------------------------------------------------
 // Fold the live fleet into the shaped, grouped, sorted view model the Ships tab
 // renders. Order of operations (documented so the interactions are painfully clear):

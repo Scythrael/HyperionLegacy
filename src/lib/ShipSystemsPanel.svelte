@@ -71,6 +71,13 @@
   // reimplements the combat fold (that stays in combat/bridge.ts).
   import { combatHullTypeOf, shipToCombatant } from "./game/combat/bridge";
   import { computeCombatReadout } from "./game/combatFit";
+  // 0.13.2 Unit 5: the PURE "what if I installed this?" helper. applyHypotheticalInstall
+  // builds the gear array a real fitEquipment would produce (never mutating state);
+  // readoutFor folds that array's Battle Rating + combat readout through the SAME pure fns
+  // the real install uses, so the compare view can NEVER drift from the installed result
+  // (pinned by shipLoadout.test.ts's fidelity test). The install itself still routes through
+  // the existing onInstall -> fitEquipment path; this only PREVIEWS the outcome.
+  import { applyHypotheticalInstall, readoutFor, type InstallTarget } from "./game/shipLoadout";
   import { weaponDisplayName } from "./game/combat/combatView";
   import { WEAPON_DEFS } from "./game/combat/weapons";
   import { battleRating } from "./game/combat/rating";
@@ -180,6 +187,13 @@
   let selectedSlot: EquipmentSlotType | null = null;
   let selectedHardpoint: number | null = null;
   let selectedBay: number | null = null;
+  // 0.13.2 Unit 5: the spare currently CHOSEN in the install flow (its id), driving the
+  // current-vs-candidate compare. Null = no spare picked yet (the flow shows just the tile
+  // list). This one shared reactive drives BOTH presentations: on a wide viewport the compare
+  // renders beside the list and updates in place as this changes; on a narrow viewport the CSS
+  // drills to the compare when it is set (see the .ss-flow container-query rules), so there is
+  // no matchMedia code-fork and no duplicated markup.
+  let installCandidateId: string | null = null;
 
   // The floating EquipmentTooltip currently shown (hover on desktop, tap-pin on mobile).
   // 0.13.2 Unit 4: the tooltip is DISPLAY-ONLY now. It carries NO Install / Uninstall
@@ -248,6 +262,7 @@
     selectedSlot = null;
     selectedHardpoint = null;
     selectedBay = null;
+    installCandidateId = null;
     activeTip = null;
     tipPinned = false;
     tipVisible = false;
@@ -476,6 +491,127 @@
           ? "Drone Pod"
           : "";
 
+  // --- Install flow reads (0.13.2 Unit 5: INSTALLED banner + compare) ----------
+  // The open target as the pure helper's InstallTarget (which slot / hardpoint / bay was
+  // tapped). Mirrors the three mutually-exclusive selections; null when no picker is open.
+  // Used to pin the INSTALLED banner and to feed applyHypotheticalInstall.
+  $: installTarget =
+    selectedSlot !== null
+      ? ({ kind: "slot" } as InstallTarget)
+      : selectedHardpoint !== null
+        ? ({ kind: "hardpoint", index: selectedHardpoint } as InstallTarget)
+        : selectedBay !== null
+          ? ({ kind: "bay", index: selectedBay } as InstallTarget)
+          : null;
+
+  // The piece CURRENTLY installed at the open target (the INSTALLED banner pins this). For a
+  // singleton slot it is that slot's occupant; for a weapon hardpoint / drone bay it is the
+  // piece in that indexed cell (null when the cell is empty, i.e. installing into a blank).
+  $: installedPiece =
+    selectedSlot !== null
+      ? fittedBySlot[selectedSlot] ?? null
+      : selectedHardpoint !== null
+        ? mountedWeapons[selectedHardpoint] ?? null
+        : selectedBay !== null
+          ? mountedPods[selectedBay] ?? null
+          : null;
+
+  // If the chosen candidate is no longer among the compatible spares (it was just installed
+  // elsewhere, salvaged, or the picker switched slots), drop the selection so the compare
+  // never points at a vanished piece. Guarded to assign ONLY when stale, so it cannot loop.
+  $: if (installCandidateId !== null && !pickerSpares.some((s) => s.id === installCandidateId)) {
+    installCandidateId = null;
+  }
+  // The chosen spare instance (or null before one is picked).
+  $: installCandidate =
+    installCandidateId !== null ? pickerSpares.find((s) => s.id === installCandidateId) ?? null : null;
+  // Is the chosen candidate an ECONOMY system (cargo / FTL / reactor / rig)? Economy pieces
+  // change the economy-derived stats (shipDerivedStats), combat pieces change the combat
+  // readout, so the compare rows below branch on this to show the RELEVANT stat set.
+  $: candidateIsEconomy =
+    installCandidate !== null && SYSTEM_SLOTS.some((s) => s.slotType === installCandidate.slotType);
+
+  // The hypothetical gear array with the candidate installed (the SAME shape fitEquipment
+  // would produce), and the two readouts (current vs candidate) folded through the pure
+  // helper. Guarded on the hull resolving (shipDef + combat class + an open target).
+  $: candidateGear =
+    installCandidate !== null && installTarget !== null
+      ? applyHypotheticalInstall(fittedPieces, installCandidate, installTarget)
+      : null;
+  // Only folded while a candidate is being compared (the compare's stat rows read it); the
+  // headline current BR otherwise falls back to battleRatingValue, the SAME fold, so no
+  // per-tick readout runs when the flow is idle.
+  $: currentReadout =
+    installCandidate && shipDef && combatHullType
+      ? readoutFor(fittedPieces, shipDef, combatHullType, shipDef.weaponHardpoints, shipDef.droneBays ?? 0)
+      : null;
+  $: candidateReadout =
+    candidateGear && shipDef && combatHullType
+      ? readoutFor(candidateGear, shipDef, combatHullType, shipDef.weaponHardpoints, shipDef.droneBays ?? 0)
+      : null;
+
+  // The compare's Battle Rating headline: current -> candidate, and the net delta.
+  $: compareCurrentBR = currentReadout ? currentReadout.rating : battleRatingValue;
+  $: compareCandidateBR = candidateReadout ? candidateReadout.rating : null;
+  $: compareNet =
+    compareCurrentBR !== null && compareCandidateBR !== null ? compareCandidateBR - compareCurrentBR : null;
+
+  // The per-stat compare rows shown when a candidate is chosen. Combat pieces read the two
+  // CombatReadouts (hull / shield / recharge / weapons / pods); economy pieces read the two
+  // shipDerivedStats folds (extraction / cargo / FTL / fuel / power / mass). Each row carries
+  // the current + candidate display text, the raw delta, and good / bad flags so the markup
+  // colors an improvement green and a regression red (higher is better for every stat here
+  // EXCEPT Power Draw + Mass, where lower is better).
+  type CompareRow = { label: string; curText: string; candText: string; deltaText: string | null; good: boolean; bad: boolean };
+  const ECON_LOWER_IS_BETTER = new Set<string>(["Power Draw", "Mass"]);
+  function statValueText(row: StatRow, which: "base" | "fitted"): string {
+    const v = which === "base" ? row.base : row.fitted;
+    return row.kind === "pct" ? "×" + v.toFixed(2) : fmtFlat(Number(v.toFixed(1)));
+  }
+  $: compareRows = ((): CompareRow[] => {
+    if (!installCandidate || !candidateGear) return [];
+    // ECONOMY: diff the derived stats with base = the CURRENTLY-installed loadout and
+    // fitted = the hypothetical candidate loadout, reusing the exact rows the live board shows.
+    if (candidateIsEconomy) {
+      if (!ship || !fitStats) return [];
+      const candStats = shipDerivedStats(ship, candidateGear);
+      return buildLiveRows(fitStats, candStats).map((r) => {
+        const delta = r.fitted - r.base;
+        const zero = Math.abs(delta) < 1e-9;
+        const lowerBetter = ECON_LOWER_IS_BETTER.has(r.label);
+        const good = !zero && (lowerBetter ? delta < 0 : delta > 0);
+        const bad = !zero && !good;
+        // Percent stats report the change in points, flat stats as the raw number.
+        const deltaText = zero
+          ? null
+          : r.kind === "pct"
+            ? `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(0)} pts`
+            : `${delta > 0 ? "+" : ""}${fmtFlat(Number(delta.toFixed(1)))}`;
+        return { label: r.label, curText: statValueText(r, "base"), candText: statValueText(r, "fitted"), deltaText, good, bad };
+      });
+    }
+    // COMBAT: diff the two folded combat readouts. Every stat here is higher-is-better.
+    if (!currentReadout || !candidateReadout) return [];
+    const cur = currentReadout.combat;
+    const cand = candidateReadout.combat;
+    const defs = [
+      { label: "Hull integrity", cv: cur.hullTotal, dv: cand.hullTotal, show: true },
+      { label: "Shield capacity", cv: cur.shieldTotal, dv: cand.shieldTotal, show: true },
+      { label: "Shield recharge", cv: cur.rechargeTotal, dv: cand.rechargeTotal, show: true },
+      { label: "Ablative armor", cv: cur.ablativeArmor, dv: cand.ablativeArmor, show: cur.ablativeArmor > 0 || cand.ablativeArmor > 0 },
+      { label: "Weapons mounted", cv: cur.mountedWeapons.length, dv: cand.mountedWeapons.length, show: true },
+      { label: "Drone pods", cv: cur.mountedPods.length, dv: cand.mountedPods.length, show: hasDroneBays },
+    ];
+    return defs
+      .filter((d) => d.show)
+      .map((d) => {
+        const delta = d.dv - d.cv;
+        const zero = Math.abs(delta) < 1e-9;
+        const deltaText = zero ? null : `${delta > 0 ? "+" : ""}${fmtFlat(Number(delta.toFixed(1)))}`;
+        return { label: d.label, curText: fmtFlat(d.cv), candText: fmtFlat(d.dv), deltaText, good: !zero && delta > 0, bad: !zero && delta < 0 };
+      });
+  })();
+
   // --- Formatting helpers -----------------------------------------------------
   function fmtFlat(v: number): string {
     return Number.isInteger(v) ? v.toString() : v.toFixed(1);
@@ -497,6 +633,14 @@
     const sign = d > 0 ? "+" : "";
     if (row.kind === "pct") return `${sign}${(d * 100).toFixed(0)} pts`;
     return `${sign}${fmtFlat(Number(d.toFixed(1)))} gear`;
+  }
+  // A signed Battle-Rating delta for the tiles + the compare headline, e.g. "+68 BR" /
+  // "-22 BR" / "±0 BR". formatNumber handles the magnitude (thousands separators); the sign
+  // is prefixed here so a negative delta never mis-renders. 0.13.2 Unit 5.
+  function fmtBRDelta(delta: number): string {
+    if (delta === 0) return "±0 BR"; // plus-minus sign for a no-change swap
+    const sign = delta > 0 ? "+" : "-";
+    return `${sign}${formatNumber(Math.abs(delta))} BR`;
   }
   // Repair ETA in the mockup's "~3m 20s left" shape (seconds only under a minute).
   function formatEta(sec: number): string {
@@ -708,11 +852,14 @@
   // Selecting a slot / hardpoint / bay opens its install picker, clearing the other
   // two (mutual exclusivity) and closing any open tooltip. Re-selecting the same one
   // toggles the picker closed.
+  // Opening (or switching) a picker always clears the chosen compare candidate, so the flow
+  // reopens on the tile LIST rather than a stale compare from a previous slot (0.13.2 Unit 5).
   function selectSlot(slotType: EquipmentSlotType): void {
     const willOpen = selectedSlot !== slotType;
     selectedHardpoint = null;
     selectedBay = null;
     selectedSlot = willOpen ? slotType : null;
+    installCandidateId = null;
     closeTip(true);
   }
   function selectHardpoint(index: number): void {
@@ -720,6 +867,7 @@
     selectedSlot = null;
     selectedBay = null;
     selectedHardpoint = willOpen ? index : null;
+    installCandidateId = null;
     closeTip(true);
   }
   function selectBay(index: number): void {
@@ -727,7 +875,32 @@
     selectedSlot = null;
     selectedHardpoint = null;
     selectedBay = willOpen ? index : null;
+    installCandidateId = null;
     closeTip(true);
+  }
+  // 0.13.2 Unit 5: choose / clear the spare being compared. selectCandidate drives the
+  // current-vs-candidate compare (in place on wide, drill on narrow); clearCandidate is the
+  // compare's Back control (returns to the tile list on narrow, clears the compare on wide).
+  // Selecting dismisses any pinned info tooltip so it never floats over the compare.
+  function selectCandidate(id: string): void {
+    installCandidateId = id;
+    closeTip(true);
+  }
+  function clearCandidate(): void {
+    installCandidateId = null;
+  }
+
+  // The net Battle-Rating delta a spare would produce IF installed at the open target, shown
+  // on each tile (e.g. "+68 BR"). Folds the hypothetical gear through the SAME pure readout
+  // the compare uses (single source of truth), so a tile's number and the compare's headline
+  // always agree. Null when the hull / target does not resolve (no number shown then). This
+  // is a cheap per-tile fold (battleRating is a plain scalar composite, no sim), matching the
+  // roster's per-row rating cost; no Monte-Carlo forecast runs here.
+  function spareNetRating(spare: EquipmentInstance): number | null {
+    if (!shipDef || !combatHullType || installTarget === null || compareCurrentBR === null) return null;
+    const gear = applyHypotheticalInstall(fittedPieces, spare, installTarget);
+    const r = readoutFor(gear, shipDef, combatHullType, shipDef.weaponHardpoints, shipDef.droneBays ?? 0);
+    return r.rating - compareCurrentBR;
   }
 
   // 0.13.2 Unit 4: INFO-toggle for a filled tile. The tile is now a display-only info
@@ -746,6 +919,7 @@
     selectedSlot = null;
     selectedHardpoint = null;
     selectedBay = null;
+    installCandidateId = null;
     closeTip(true);
   }
   function handleUninstall(instanceId: string): void {
@@ -763,6 +937,7 @@
     selectedSlot = null;
     selectedHardpoint = null;
     selectedBay = null;
+    installCandidateId = null;
     closeTip(true);
   }
 
@@ -1145,12 +1320,20 @@
           </div>
         {/if}
 
-        <!-- INSTALL PICKER: opens when a slot's Install / Swap button is pressed. Each spare
-             is a ROW: a display-only info trigger (hover / tap for its floating tooltip) plus
-             a STABLE Install button routing to handleInstall -> onInstall -> fitEquipment. The
-             per-spare gate (canFitEquipment) disables + explains a blocked install (e.g. all
-             hardpoints full: uninstall first). Unit 5 upgrades this into the INSTALLED-banner +
-             side-by-side compare; Unit 4 keeps it a simple, stable list. -->
+        <!-- INSTALL FLOW (0.13.2 Unit 5): opens when a slot's Install / Swap button is pressed.
+             Structure (the user-approved mockup cb4befba):
+               1. INSTALLED banner: pins the currently-equipped piece for this slot at the top.
+               2. A master-detail area (.ss-flow): a scrollable compatible-spare TILE LIST (each
+                  tile shows its net Battle Rating delta) + a current-vs-candidate COMPARISON.
+                  ONE responsive component: on a WIDE container the list + compare render side by
+                  side and the compare updates in place as a tile is clicked; on a NARROW container
+                  the CSS drills (list first, tap a tile -> the compare, Back returns). One shared
+                  reactive (installCandidateId) drives both, never duplicated markup, no matchMedia.
+               3. Cancel closes the whole flow.
+             Every action is a STABLE button: selecting a tile, Back, Install, Cancel. NOTHING lives
+             in a tooltip (tiles carry a display-only hover / focus info tooltip). Install routes
+             through handleInstall -> onInstall -> fitEquipment, gated per candidate by
+             canFitEquipment (disabled + reason when blocked). Damaged / on-mission locks preserved. -->
         {#if pickerActive}
           <div class="ss-picker">
             <div class="ss-picker-head">
@@ -1162,40 +1345,116 @@
             {:else if pickerSpares.length === 0}
               <p class="ss-note ss-note-dim">No spare {pickerLabel} systems in storage. Fabricate one, or uninstall from another ship.</p>
             {:else}
-              <div class="ss-spare-list">
-                {#each pickerSpares as spare (spare.id)}
-                  {@const gate = canFitEquipment(safeState, shipId, spare.id)}
-                  <div class="ss-spare-row">
-                    <button
-                      type="button"
-                      class="ss-slot-info"
-                      aria-label={`${spareLabel(spare)}: ${spare.rarity} grade, iL ${spare.iLevel}. Details.`}
-                      on:click={(e) => clickInfo(e, spare)}
-                      on:mouseenter={(e) => hoverTip(spare, e.currentTarget)}
-                      on:mouseleave={hoverOut}
-                      on:focus={(e) => hoverTip(spare, e.currentTarget)}
-                      on:blur={hoverOut}
-                    >
-                      <span class="ss-tile" style="--tc: {equipmentRarityColor(spare.rarity)}">
-                        <span class="ss-tile-dot"></span>
-                        <span class="ss-tile-ic">{tileIcon(spare)}</span>
-                        <span class="ss-tile-il">iL {spare.iLevel}</span>
-                      </span>
-                      <span class="ss-slot-text">
-                        <span class="ss-slot-label">{spareLabel(spare)}</span>
-                        <span class="ss-slot-sub">{spare.rarity} &middot; iL {spare.iLevel}</span>
-                      </span>
-                    </button>
-                    <button
-                      class="ss-act ss-act-install"
-                      disabled={!gate.ok}
-                      title={gate.ok ? undefined : reasonText(gate.reason)}
-                      on:click={() => handleInstall(spare.id)}
-                    >{gate.ok ? "Install" : "Blocked"}</button>
-                  </div>
-                {/each}
+              <!-- 1. INSTALLED banner: the piece currently in this slot / hardpoint / bay. -->
+              <div class="ss-installed">
+                <span class="ss-installed-tag">Installed</span>
+                {#if installedPiece}
+                  <span class="ss-tile" style="--tc: {equipmentRarityColor(installedPiece.rarity)}">
+                    <span class="ss-tile-dot"></span>
+                    <span class="ss-tile-ic">{tileIcon(installedPiece)}</span>
+                    <span class="ss-tile-il">iL {installedPiece.iLevel}</span>
+                  </span>
+                  <span class="ss-slot-text">
+                    <span class="ss-slot-label">{spareLabel(installedPiece)}</span>
+                    <span class="ss-slot-sub">{installedPiece.rarity} &middot; iL {installedPiece.iLevel}</span>
+                  </span>
+                {:else}
+                  <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic">+</span></span>
+                  <span class="ss-slot-text">
+                    <span class="ss-slot-label">Nothing installed</span>
+                    <span class="ss-slot-sub">{pickerLabel} slot is empty</span>
+                  </span>
+                {/if}
               </div>
-              <p class="ss-note ss-note-dim">Hover or tap a spare for its stats. Install puts it in the selected slot.</p>
+
+              <!-- 2. Master-detail: tile list + compare (see .ss-flow container-query CSS). -->
+              <div class="ss-flow" class:has-candidate={installCandidateId !== null}>
+                <!-- LIST pane: compatible spares as tiles, each with its net BR delta. -->
+                <div class="ss-flow-list">
+                  <div class="ss-spare-list">
+                    {#each pickerSpares as spare (spare.id)}
+                      {@const gate = canFitEquipment(safeState, shipId, spare.id)}
+                      {@const net = spareNetRating(spare)}
+                      <button
+                        type="button"
+                        class="ss-spare-tile"
+                        class:sel={installCandidateId === spare.id}
+                        class:blocked={!gate.ok}
+                        aria-pressed={installCandidateId === spare.id}
+                        aria-label={`${spareLabel(spare)}: ${spare.rarity} grade, iL ${spare.iLevel}.${gate.ok ? "" : " Cannot install: " + reasonText(gate.reason) + "."} Compare.`}
+                        on:click={() => selectCandidate(spare.id)}
+                        on:mouseenter={(e) => hoverTip(spare, e.currentTarget)}
+                        on:mouseleave={hoverOut}
+                        on:focus={(e) => hoverTip(spare, e.currentTarget)}
+                        on:blur={hoverOut}
+                      >
+                        <span class="ss-tile" style="--tc: {equipmentRarityColor(spare.rarity)}">
+                          <span class="ss-tile-dot"></span>
+                          <span class="ss-tile-ic">{tileIcon(spare)}</span>
+                          <span class="ss-tile-il">iL {spare.iLevel}</span>
+                        </span>
+                        <span class="ss-slot-text">
+                          <span class="ss-slot-label">{spareLabel(spare)}</span>
+                          <span class="ss-slot-sub">{spare.rarity} &middot; iL {spare.iLevel}</span>
+                        </span>
+                        <span class="ss-spare-net">
+                          {#if !gate.ok}
+                            <span class="ss-blocked-tag">Blocked</span>
+                          {:else if net !== null}
+                            <span class="ss-br-delta" class:up={net > 0} class:down={net < 0}>{fmtBRDelta(net)}</span>
+                          {/if}
+                        </span>
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+
+                <!-- COMPARE pane: current (installed) vs the chosen candidate. -->
+                <div class="ss-flow-compare">
+                  {#if installCandidate}
+                    {@const gate = canFitEquipment(safeState, shipId, installCandidate.id)}
+                    <div class="ss-compare">
+                      <div class="ss-compare-head">
+                        <button class="ss-back" on:click={clearCandidate} aria-label="Back to the spare list">&#8592; Back</button>
+                        <span class="ss-compare-title">Comparison</span>
+                      </div>
+                      <!-- Battle Rating headline: current -> candidate (net). -->
+                      {#if compareCurrentBR !== null && compareCandidateBR !== null && compareNet !== null}
+                        <div class="ss-compare-br">
+                          <span class="ss-compare-br-vals">{formatNumber(compareCurrentBR)} &rarr; {formatNumber(compareCandidateBR)}</span>
+                          <span class="ss-br-delta" class:up={compareNet > 0} class:down={compareNet < 0}>{fmtBRDelta(compareNet)}</span>
+                          <span class="ss-compare-br-tag">Battle Rating</span>
+                        </div>
+                      {/if}
+                      <!-- Per-stat deltas (combat stats for a combat piece, economy stats for an
+                           economy piece). Green when the candidate is better, red when worse. -->
+                      <div class="ss-compare-rows">
+                        {#each compareRows as row (row.label)}
+                          <div class="ss-crow">
+                            <span class="ss-ck">{row.label}</span>
+                            <span class="ss-cv">
+                              <span class="ss-cv-old">{row.curText}</span>
+                              <span class="ss-cv-arrow">&rarr;</span>
+                              <span class="ss-cv-new" class:up={row.good} class:down={row.bad}>{row.candText}</span>
+                              {#if row.deltaText}<small class="ss-cv-delta" class:up={row.good} class:down={row.bad}>({row.deltaText})</small>{/if}
+                            </span>
+                          </div>
+                        {/each}
+                      </div>
+                      <!-- Commit: the stable Install button (never in a tooltip). Gated per
+                           candidate; on-mission / damaged locks preserved via the gate + shipDamaged. -->
+                      <button
+                        class="ss-act ss-act-install ss-install-commit"
+                        disabled={!gate.ok || shipDamaged}
+                        title={gate.ok ? undefined : reasonText(gate.reason)}
+                        on:click={() => handleInstall(installCandidate.id)}
+                      >{gate.ok ? "Install" : "Blocked: " + reasonText(gate.reason)}</button>
+                    </div>
+                  {:else}
+                    <p class="ss-note ss-note-dim ss-compare-empty">Select a system to compare it with what is installed.</p>
+                  {/if}
+                </div>
+              </div>
             {/if}
           </div>
         {:else}
@@ -1930,11 +2189,17 @@
     background: rgba(248, 113, 113, 0.2);
   }
 
-  /* INSTALL PICKER: a dashed panel holding the compatible-spare rows. */
+  /* INSTALL FLOW (0.13.2 Unit 5): a dashed panel holding the INSTALLED banner, the
+     master-detail area (spare tile list + compare), and the Cancel control. It is the
+     CONTAINER whose width the .ss-flow container query keys off, so the master-detail
+     decision responds to the panel's OWN width (not the viewport): the left fit-col is only
+     ~half the board on desktop, so a viewport media query would wrongly go side-by-side while
+     the actual space is narrow. container-type: inline-size makes the query measure this box. */
   .ss-picker {
     border: 1px dashed rgba(var(--color-accent-rgb), 0.35);
     background: var(--color-bg-deep);
     padding: 11px;
+    container-type: inline-size;
   }
   .ss-picker-head {
     display: flex;
@@ -1961,25 +2226,261 @@
     color: var(--color-text-primary);
     border-color: var(--color-accent);
   }
-  /* Scrollable compatible-spare list: each row = display-only info trigger + Install. */
+  /* INSTALLED BANNER (0.13.2 Unit 5): pins the currently-equipped piece at the top of the
+     flow. Full-surface accent tint (never a left-edge stripe), tile + label like a slot row. */
+  .ss-installed {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 9px;
+    margin-bottom: 10px;
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+  }
+  .ss-installed-tag {
+    flex: 0 0 auto;
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+    align-self: flex-start;
+  }
+
+  /* MASTER-DETAIL FLOW. DEFAULT (and the container-query fallback when unsupported): a
+     single column with BOTH panes visible. The narrow container query below turns it into a
+     DRILL (list first, then the compare); the wide container query lays them side by side. */
+  .ss-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ss-flow-list,
+  .ss-flow-compare {
+    min-width: 0;
+  }
+  /* NARROW container (the phone / cramped-column case): drill. Show the list until a spare is
+     chosen, then swap to the compare (Back returns). One shared reactive (has-candidate) gates
+     which pane shows, so there is no matchMedia fork and no duplicated markup. */
+  @container (max-width: 439px) {
+    .ss-flow:not(.has-candidate) .ss-flow-compare {
+      display: none;
+    }
+    .ss-flow.has-candidate .ss-flow-list {
+      display: none;
+    }
+  }
+  /* WIDE container (desktop / roomy board): list + compare side by side, both always present;
+     clicking a tile updates the compare IN PLACE. The list takes a fixed-ish left column, the
+     compare flexes to fill the rest. */
+  @container (min-width: 440px) {
+    .ss-flow {
+      flex-direction: row;
+      align-items: flex-start;
+    }
+    .ss-flow-list {
+      flex: 0 0 44%;
+    }
+    .ss-flow-compare {
+      flex: 1;
+    }
+  }
+
+  /* Scrollable compatible-spare list: each entry is a stable SELECT button (tile + net BR). */
   .ss-spare-list {
     display: flex;
     flex-direction: column;
     gap: 7px;
-    max-height: 240px;
+    max-height: 300px;
     overflow-y: auto;
     scrollbar-width: none;
   }
   .ss-spare-list::-webkit-scrollbar {
     display: none;
   }
-  .ss-spare-row {
+  /* One spare TILE row: a stable button (click selects it for the compare). Bare-button chrome
+     so it reads as a row, with a hover / focus / selected affordance. NOT an action-in-tooltip:
+     the tooltip on hover is display-only; this button's action is SELECT (open the compare). */
+  .ss-spare-tile {
+    appearance: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 6px 8px;
     background: rgba(var(--color-accent-rgb), 0.04);
     border: 1px solid var(--color-border);
+    cursor: pointer;
+    width: 100%;
+  }
+  .ss-spare-tile:hover:not(.blocked),
+  .ss-spare-tile:focus-visible {
+    outline: none;
+    border-color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.1);
+  }
+  .ss-spare-tile:focus-visible {
+    outline: 1px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  .ss-spare-tile.sel {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.12);
+  }
+  /* A blocked spare (canFitEquipment not ok): dimmed, but still clickable so the compare can
+     explain WHY (the Install button there shows the reason). */
+  .ss-spare-tile.blocked {
+    opacity: 0.6;
+  }
+  .ss-spare-net {
+    margin-left: auto;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+  }
+  /* Net Battle-Rating delta chip: green when installing raises BR, red when it lowers it,
+     neutral at zero. Reused for the tile chips AND the compare headline. */
+  .ss-br-delta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+  }
+  .ss-br-delta.up {
+    color: var(--color-success);
+  }
+  .ss-br-delta.down {
+    color: var(--color-danger);
+  }
+  .ss-blocked-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-danger);
+    white-space: nowrap;
+  }
+
+  /* COMPARE PANE: current-vs-candidate. Full-surface accent tint, its own inset card. */
+  .ss-compare {
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid var(--color-border);
+    padding: 9px 10px;
+  }
+  .ss-compare-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .ss-compare-title {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    margin-left: auto;
+  }
+  .ss-back {
+    appearance: none;
+    font: inherit;
+    font-size: 11px;
+    padding: 3px 9px;
+    cursor: pointer;
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
+    color: var(--color-text-secondary);
+  }
+  .ss-back:hover,
+  .ss-back:focus-visible {
+    outline: none;
+    color: var(--color-text-primary);
+    border-color: var(--color-accent);
+  }
+  /* Battle Rating headline: the current -> candidate values + the net delta chip. */
+  .ss-compare-br {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 7px 9px;
+    margin-bottom: 8px;
+    background: rgba(var(--color-accent-rgb), 0.06);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.25);
+  }
+  .ss-compare-br-vals {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--color-text-primary);
+  }
+  .ss-compare-br-tag {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+  }
+  .ss-compare-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 10px;
+  }
+  .ss-crow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 12px;
+    padding: 2px 0;
+  }
+  .ss-ck {
+    color: var(--color-text-secondary);
+    min-width: 0;
+  }
+  .ss-cv {
+    font-family: var(--font-mono);
+    text-align: right;
+    white-space: nowrap;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+  }
+  .ss-cv-old {
+    color: var(--color-text-dim);
+  }
+  .ss-cv-arrow {
+    color: var(--color-text-dim);
+  }
+  .ss-cv-new {
+    color: var(--color-text-primary);
+  }
+  .ss-cv-new.up,
+  .ss-cv-delta.up {
+    color: var(--color-success);
+  }
+  .ss-cv-new.down,
+  .ss-cv-delta.down {
+    color: var(--color-danger);
+  }
+  .ss-cv-delta {
+    font-size: 10px;
+  }
+  /* The compare's commit button: full-width so it reads as the primary action of the pane. */
+  .ss-install-commit {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .ss-compare-empty {
+    text-align: center;
+    padding: 16px 8px;
   }
   .ss-picker-hint {
     text-align: center;
