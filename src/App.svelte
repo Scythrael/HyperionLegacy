@@ -296,6 +296,15 @@
   // touches the live tick loop. The forecast drives it from a FIXED seed, never the live
   // patrol master seed. All display-only + pure.
   import { battleRating, DEFAULT_SAMPLES } from "./lib/game/combat/rating";
+  // Ships-tab roster view-model (0.13.2 Unit 3): the pure sorter/filter/grouper that
+  // shapes the fleet into the roster's favorites/class/attention groups. All roster
+  // shaping lives there (node-tested); the markup below is a thin presenter over it.
+  import {
+    buildShipRoster,
+    type ShipSortKey,
+    type ShipFilterKey,
+    type ShipStatus,
+  } from "./lib/game/shipRoster";
   import { threatAssessment, type ThreatAssessment } from "./lib/game/combat/threatAssessment";
   import { resolvePatrolWaves } from "./lib/game/combat/patrolReplay";
   // Equipment 0.11.0 Phase D (2026-07-20): salvageEquipment(state, id) recycles ONE
@@ -569,6 +578,10 @@
     saveSalvageConfirmQualities,
     salvageNeedsConfirm,
   } from "./lib/salvageConfirmPreference";
+  // Ship favorites (0.13.2 Ships tab, Unit 3): the per-device localStorage set of
+  // favorited ship ids the roster pins to a Favorites group. Same NOT-on-save posture as
+  // the salvage-confirm pref above (no schema change / no SAVE_VERSION bump).
+  import { loadShipFavorites, saveShipFavorites } from "./lib/shipFavoritesPreference";
   // Combat-log DISPLAY preferences (Combat 0.13.0). localStorage-backed, surfaced in
   // the Options settings as the first section of a growing accessibility/theming hub.
   import {
@@ -1080,6 +1093,65 @@
     shipsView = "grid";
     selectedShipId = null;
   }
+
+  // ── Ships-tab roster controls (0.13.2 Unit 3) ────────────────────────────────
+  // Non-persisted UI selections that shape the roster grid (they reset on reload, like
+  // every other transient view control). The sort defaults to "attention" so the hulls
+  // that need the player (damaged / an empty required combat slot) lead the list.
+  let shipSortKey: ShipSortKey = "attention";
+  let shipFilterKey: ShipFilterKey = "all";
+  let shipSearch = "";
+
+  // Favorites: the per-device set of favorited ship ids, loaded from localStorage at
+  // declaration (mirroring salvageConfirmQualities above). NOT on GameState, so it adds no
+  // save-schema change. toggleShipFavorite flips one id and re-persists; it REASSIGNS the
+  // Set (never mutates in place) so the $: shipRoster derive below actually re-runs, since
+  // Svelte reactivity keys on assignment, not on Set mutation.
+  let shipFavorites: Set<string> = loadShipFavorites();
+  function toggleShipFavorite(shipId: string): void {
+    const next = new Set(shipFavorites);
+    if (next.has(shipId)) {
+      next.delete(shipId);
+    } else {
+      next.add(shipId);
+    }
+    shipFavorites = next; // reassign so the reactive roster rebuilds
+    saveShipFavorites(shipFavorites);
+  }
+
+  // The shaped roster (favorites/class/attention groups). Rebuilds whenever the fleet,
+  // the controls, or the favorites change. buildShipRoster is pure + cheap (one gear
+  // fetch per ship), so a per-tick rebuild is fine for 50+ hulls.
+  $: shipRoster = buildShipRoster(state, {
+    sortKey: shipSortKey,
+    filterKey: shipFilterKey,
+    searchText: shipSearch,
+    favorites: shipFavorites,
+  });
+
+  // Human labels for a ship's activity status (the roster row's meta line). A tiny map
+  // rather than an inline {#if} chain per row, so the row markup stays compact.
+  const SHIP_STATUS_LABEL: Record<ShipStatus, string> = {
+    parked: "Parked",
+    idle: "Idle",
+    gathering: "Gathering",
+    patrol: "On patrol",
+  };
+
+  // The roster's sort + filter option lists, as data (label + key), so the control
+  // markup is a single loop and adding an option later is a one-line edit here.
+  const SHIP_SORT_OPTIONS: { key: ShipSortKey; label: string }[] = [
+    { key: "attention", label: "Attention" },
+    { key: "name", label: "Name" },
+    { key: "class", label: "Class" },
+    { key: "rating", label: "Rating" },
+    { key: "status", label: "Status" },
+  ];
+  const SHIP_FILTER_OPTIONS: { key: ShipFilterKey; label: string }[] = [
+    { key: "all", label: "All" },
+    { key: "needsOrders", label: "Needs orders" },
+    { key: "byClass", label: "By class" },
+  ];
 
   // The Logistics top rail, in display order. Crew Equipment is a locked reserved
   // slot (same honest "coming soon" affordance the System / Battlespace slots use);
@@ -7328,13 +7400,14 @@
              DROPPED, its per-hull management is now ONLY here; the Docks facility
              under Facilities keeps only ship-storage capacity + expansion.) -->
         {#if shipsView === "grid"}
-        <!-- FLEET grid. The SAME responsive card grid the Captain Roster uses
-             (.roster-grid: auto-fill, fills the desktop width with more cards per
-             row and collapses to one column on mobile, no media query). Each card
-             shows glyph + hull type + the captain aboard (resolved by
-             assignedCaptainId, the single source of truth) + idle/on-mission/parked
-             status; tapping a card selects that ship (selectedShipId) and swaps this
-             page to that ship's console (shipsView = "ship"). -->
+        <!-- FLEET ROSTER (0.13.2 Unit 3). Upgrades the old flat card grid into a
+             sortable / favoritable / filterable LIST. All the shaping (favorites
+             pinned to a top group, class grouping, attention-first sort, search) is
+             done in the pure buildShipRoster (shipRoster.ts, node-tested); this markup
+             is a thin presenter over shipRoster.groups. Behavior preserved: tapping a
+             row still selects the hull (selectedShipId) and swaps to that ship's page
+             (shipsView = "ship"); the ★ favorite toggle is a SEPARATE control so the
+             rest of the row is the open-the-ship target. -->
         {#if state.ships.length === 0}
           <Panel>
             <div class="panel-title">SHIPS</div>
@@ -7343,45 +7416,91 @@
             </p>
           </Panel>
         {:else}
-        <div class="roster-grid">
-          {#each state.ships as ship (ship.id)}
-            {@const def = SHIP_TYPES[ship.typeKey]}
-            <!-- The captain flying THIS hull, resolved by assignedCaptainId, or
-                 null when the hull is parked with no captain. onMission gates the
-                 status line the same way the Docks does. -->
-            {@const shipCaptain = ship.assignedCaptainId === null
-              ? null
-              : state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null}
-            <button
-              class="roster-card"
-              on:click={() => {
-                selectedShipId = ship.id;
-                shipsView = "ship";
-              }}
-            >
-              <div class="roster-card-head">
-                <div class="roster-card-glyph" aria-hidden="true">🚀</div>
-                <div class="roster-card-heading">
-                  <div class="research-name">{def?.label ?? ship.typeKey}</div>
-                  <div class="roster-card-sub">Captain: {shipCaptain === null ? "Parked" : shipCaptain.label}</div>
-                </div>
-              </div>
-              <div class="roster-card-lines">
-                <div class="roster-card-line">
-                  {#if shipCaptain === null}
-                    Status: Parked
-                  {:else if shipCaptain.mission === null}
-                    Status: Idle
-                  {:else if shipCaptain.mission.kind === "extraction"}
-                    Status: On mission, {MISSIONS[shipCaptain.mission.missionKey].label}
-                  {:else if shipCaptain.mission.kind === "patrol"}
-                    Status: On patrol, {PATROLS[shipCaptain.mission.patrolKey].label}
-                  {/if}
-                </div>
-              </div>
-            </button>
-          {/each}
+        <!-- ROSTER CONTROLS: a search box, a sort <select> (data-driven from
+             SHIP_SORT_OPTIONS), and filter chips (SHIP_FILTER_OPTIONS). All three bind
+             the non-persisted control state; the reactive shipRoster rebuilds on change.
+             Wraps on narrow so it never forces horizontal scroll at 375px. -->
+        <div class="ship-roster-controls">
+          <input
+            class="ship-roster-search"
+            type="text"
+            placeholder="Search ships"
+            bind:value={shipSearch}
+            aria-label="Search ships by name or class"
+          />
+          <label class="ship-roster-sort">
+            <span class="ship-roster-sort-label">Sort</span>
+            <select class="modal-input ship-roster-sort-select" bind:value={shipSortKey} aria-label="Sort ships by">
+              {#each SHIP_SORT_OPTIONS as opt (opt.key)}
+                <option value={opt.key}>{opt.label}</option>
+              {/each}
+            </select>
+          </label>
+          <div class="ship-roster-chips" role="group" aria-label="Filter ships">
+            {#each SHIP_FILTER_OPTIONS as opt (opt.key)}
+              <button
+                class="ship-chip"
+                class:active={shipFilterKey === opt.key}
+                aria-pressed={shipFilterKey === opt.key}
+                on:click={() => (shipFilterKey = opt.key)}
+              >
+                {opt.label}
+              </button>
+            {/each}
+          </div>
         </div>
+
+        {#if shipRoster.groups.length === 0}
+          <!-- Every ship was filtered out by the search / needs-orders filter. -->
+          <p class="research-status">No ships match the current search or filter.</p>
+        {:else}
+          {#each shipRoster.groups as group (group.label ?? "__all__")}
+            <!-- A group header renders only for a labelled group (Favorites, All ships,
+                 or a hull-class name under By class); a null label is a header-less flat list. -->
+            {#if group.label !== null}
+              <div class="ship-roster-group-label">{group.label}</div>
+            {/if}
+            <div class="ship-roster-list">
+              {#each group.rows as row (row.id)}
+                <!-- One compact row. .attention tints the row amber when the hull needs
+                     the player (damaged / an empty required combat slot). Keyed by row.id
+                     (the stable ship id), and every field is precomputed in the row model,
+                     so the row does NO rescanning per tick. -->
+                <div class="ship-row" class:attention={row.needsAttention}>
+                  <button
+                    class="ship-row-main"
+                    on:click={() => {
+                      selectedShipId = row.id;
+                      shipsView = "ship";
+                    }}
+                  >
+                    <span class="ship-row-glyph" aria-hidden="true">🚀</span>
+                    <span class="ship-row-body">
+                      <span class="ship-row-name">{row.name}</span>
+                      <span class="ship-row-meta">{row.className} · {row.captainName ?? "No captain"} · {SHIP_STATUS_LABEL[row.status]}</span>
+                      {#if row.needsAttention}
+                        <span class="ship-row-attn">⚠ {row.attentionReason}</span>
+                      {/if}
+                    </span>
+                    <span class="ship-row-rating" title="Battle Rating">BR {row.battleRating}</span>
+                  </button>
+                  <!-- ★ favorite toggle. A SEPARATE sibling button (never nested inside
+                       the open-the-ship button, which would be invalid HTML); stopPropagation
+                       is belt-and-suspenders so a future wrapping never opens the ship. -->
+                  <button
+                    class="ship-fav"
+                    class:on={row.favorite}
+                    aria-pressed={row.favorite}
+                    title={row.favorite ? "Remove from favorites" : "Add to favorites"}
+                    on:click|stopPropagation={() => toggleShipFavorite(row.id)}
+                  >
+                    {row.favorite ? "★" : "☆"}
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/each}
+        {/if}
         {/if}
         {:else}
         <!-- SHIP page (selected hull, FLAT). Design doc 4a: "pull up a ship; SEE
@@ -11436,6 +11555,140 @@
   .roster-card-sub { font-size: 11px; color: var(--color-text-secondary); }
   .roster-card-lines { display: flex; flex-direction: column; gap: 4px; }
   .roster-card-line { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
+
+  /* ── Ships-tab roster (0.13.2 Unit 3) ──────────────────────────────────────
+     A compact sortable/favoritable LIST (not the old card grid). All rows + controls
+     use the game's full-surface accent tint (a flat accent-over-panel wash), never a
+     left-edge stripe. Everything reflows / wraps so the roster never forces horizontal
+     scroll at 375px. */
+  .ship-roster-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .ship-roster-search {
+    flex: 1 1 160px;
+    min-width: 0; /* allow the search box to shrink instead of forcing overflow */
+    padding: 7px 10px;
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.06), rgba(var(--color-accent-rgb), 0.06)), var(--color-bg-mid);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.25);
+    border-radius: 8px;
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: 13px;
+  }
+  .ship-roster-search:focus { outline: none; border-color: var(--color-accent); }
+  .ship-roster-sort { display: flex; align-items: center; gap: 6px; }
+  .ship-roster-sort-label { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+  .ship-roster-sort-select { font-size: 13px; }
+  .ship-roster-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* Filter chips: full-surface tint idiom, brighter when active (the selected filter). */
+  .ship-chip {
+    padding: 6px 12px;
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.06), rgba(var(--color-accent-rgb), 0.06)), var(--color-bg-mid);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.25);
+    border-radius: 999px;
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .ship-chip:hover { border-color: var(--color-accent); }
+  .ship-chip.active {
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.18), rgba(var(--color-accent-rgb), 0.18)), var(--color-bg-mid);
+    border-color: var(--color-accent);
+    color: var(--color-text-primary);
+  }
+
+  /* Group header (Favorites / All ships / a hull-class name). */
+  .ship-roster-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-secondary);
+    margin: 12px 0 6px;
+  }
+  .ship-roster-group-label:first-child { margin-top: 0; }
+  .ship-roster-list { display: flex; flex-direction: column; gap: 6px; }
+
+  /* One row = the open-the-ship button + the ★ toggle, side by side. */
+  .ship-row {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.06), rgba(var(--color-accent-rgb), 0.06)), var(--color-bg-mid);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    border-radius: 10px;
+    overflow: hidden; /* keep the child buttons' corners inside the rounded row */
+  }
+  .ship-row:hover { border-color: var(--color-accent); }
+  /* Attention tint: an amber (warning) full-surface wash + border, so a damaged /
+     under-installed hull reads at a glance without a left stripe. */
+  .ship-row.attention {
+    background: linear-gradient(rgba(var(--color-warning-rgb, 251, 191, 36), 0.12), rgba(var(--color-warning-rgb, 251, 191, 36), 0.12)), var(--color-bg-mid);
+    border-color: var(--color-warning);
+  }
+  .ship-row-main {
+    flex: 1 1 auto;
+    min-width: 0; /* lets the text ellipsis work instead of overflowing the row */
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .ship-row-glyph { flex: 0 0 auto; font-size: 18px; }
+  .ship-row-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .ship-row-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ship-row-meta {
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ship-row-attn { font-size: 11px; color: var(--color-warning); font-weight: 600; }
+  .ship-row-rating {
+    flex: 0 0 auto;
+    align-self: center;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--color-text-secondary);
+    padding: 2px 8px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.25);
+    border-radius: 999px;
+  }
+  /* ★ favorite toggle: a slim full-height control at the row's trailing edge. */
+  .ship-fav {
+    flex: 0 0 auto;
+    width: 40px;
+    background: none;
+    border: none;
+    border-left: 1px solid rgba(var(--color-accent-rgb), 0.15);
+    color: var(--color-text-secondary);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .ship-fav:hover { color: var(--color-accent); }
+  .ship-fav.on { color: var(--color-warning); }
+
   /* Captain console back-to-grid row: the back button beside the captain name
      as the detail heading (identity). Keeping the name here lets the leveling /
      talents panels stay VERBATIM while the page still names who you are on. */

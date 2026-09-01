@@ -17,6 +17,7 @@
   --color-text-secondary: #8fa3ad;
   --color-text-dim: #5a7a85;
   --color-warning: #fbbf24;
+  --color-warning-rgb: 251, 191, 36; /* R,G,B triplet matching --color-warning, for rgba() tints (Ships-tab attention row) */
   --color-danger: #f87171;
   --color-success: #34d399;
 
