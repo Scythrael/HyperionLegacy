@@ -2263,6 +2263,46 @@
     if (target !== null) jumpToActivity(target);
   }
 
+  // Deep-link to a SPECIFIC facility's upgrade location (0.13.1 follow-up). Used only by the
+  // "<Facility> upgrade ready" prompt (the SINGLE-available-upgrade case, which carries a
+  // facilityKey). This is the ONE place that maps a model FACILITIES key to where that
+  // facility's upgrade Build control actually lives, since the mapping is not 1:1: most
+  // facilities are foundry-console cards (activeFoundryFacility), both Warehouse tiers share
+  // the one "warehouse" card, and Mission Control's upgrade lives under Operations, not the
+  // Facilities console. Any UNMAPPED key (a future facility) safely lands on the Facilities
+  // overview, the same place the aggregate "N upgrades ready" prompt routes to, so a new
+  // facility can never dead-end, only miss the deep-link until it is added here.
+  function jumpToFacilityUpgrade(facilityKey: string): void {
+    switch (facilityKey) {
+      case "refinery":
+      case "fabricator":
+      case "research":
+      case "fuelStorage":
+      case "shipyard":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = facilityKey as FoundryFacilityKey;
+        break;
+      case "warehouseT1":
+      case "warehouseT2":
+        // Both warehouse tiers are managed on the single "warehouse" console card.
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "warehouse";
+        break;
+      case "missionControl":
+        // Mission Control's upgrade lives in Operations (moved there in the 0.12.0 console),
+        // NOT the Facilities console.
+        activeTab = "fleetOperations";
+        activeOperationsTab = "missionControl";
+        break;
+      default:
+        // Unknown facility: land on the Facilities overview (all cards + Build buttons).
+        activeTab = "facilities";
+        facilitiesView = "dashboard";
+    }
+  }
+
   // --- Home dashboard "Needs your orders" ticker (0.13.1, Unit 6) ----------------------
   // The section can hold several actionable-idle prompts at once. Showing them ALL, always,
   // grows the board without bound and (worse) invites the player to tap a prompt that is
@@ -8783,7 +8823,7 @@
           <button
             type="button"
             class="home-prompt"
-            on:click={() => jumpToActivity(prompt.jumpTarget)}
+            on:click={() => prompt.facilityKey != null ? jumpToFacilityUpgrade(prompt.facilityKey) : jumpToActivity(prompt.jumpTarget)}
             aria-label={`${prompt.label}. Go to setup.`}
           >
             <span class="home-pulse" aria-hidden="true"></span>

@@ -402,20 +402,22 @@ describe("buildHomeDashboard, needs-orders + caught-up (Unit 2)", () => {
     expect(promptById(buildHomeDashboard(docksFull), "idle-shipyard")).toBeUndefined();
   });
 
-  it("surfaces the aggregate facility-upgrade prompt (singular) when exactly one upgrade is startable", () => {
+  it("names the specific facility and carries its key when exactly one upgrade is startable", () => {
     // freshState seeds credits 0 + Fleet Admiral level 1, so NO facility upgrade is startable
     // (every credit rung wants FA level 3+ and/or credits the fresh player lacks). Grant just
     // the Shipyard FOUNDING rung's exact gates (credits 2000 + FA level 3, materials {}), while
     // staying UNDER the 5000-credit research/fabricator rungs and with 0 commonOre (so the
     // Refinery founding rung's 100-ore cost stays unmet). That leaves EXACTLY one facility
-    // (shipyard) whose next upgrade canBuildFacilityUpgrade approves, so the aggregate prompt
-    // reads the singular "1 facility upgrade ready" and routes to the Facilities overview.
+    // (shipyard) whose next upgrade canBuildFacilityUpgrade approves. In the single case the
+    // prompt NAMES that facility ("Shipyard upgrade ready") and carries its facilityKey so the
+    // UI can deep-link straight to it, instead of the generic "1 facility upgrade ready".
     const oneReady = { ...freshState(), credits: new Decimal(2000), fleetAdminLevel: 3 };
     const model = buildHomeDashboard(oneReady);
     const upgrade = promptById(model, "idle-facility-upgrade");
     expect(upgrade).toBeDefined();
     expect(upgrade!.jumpTarget).toBe("facilities");
-    expect(upgrade!.label).toBe("1 facility upgrade ready");
+    expect(upgrade!.label).toBe("Shipyard upgrade ready");
+    expect(upgrade!.facilityKey).toBe("shipyard");
     expect(model.allCaughtUp).toBe(false);
   });
 
@@ -434,6 +436,9 @@ describe("buildHomeDashboard, needs-orders + caught-up (Unit 2)", () => {
     const match = upgrade!.label.match(/^(\d+) facility upgrades ready$/);
     expect(match).not.toBeNull();
     expect(Number(match![1])).toBeGreaterThanOrEqual(2);
+    // The aggregate (multi) case carries NO facilityKey: there is no single facility to
+    // deep-link to, so the UI routes to the Facilities overview via jumpTarget alone.
+    expect(upgrade!.facilityKey).toBeUndefined();
   });
 
   it("produces NO facility-upgrade prompt for a fresh admiral (nothing affordable/unlocked)", () => {

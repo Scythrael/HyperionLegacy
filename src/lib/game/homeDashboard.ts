@@ -134,6 +134,12 @@ export interface Prompt {
   label: string;                 // the amber prompt line (e.g. "Research bay idle, 1 slot free")
   detail: string | null;         // optional amber sub-line
   jumpTarget: JumpTarget;        // a prompt ALWAYS routes somewhere (it is actionable by definition)
+  // A specific FACILITIES key when this prompt is about ONE named facility (the sole
+  // available facility upgrade), so the UI can deep-link to THAT facility's upgrade
+  // location rather than the generic Facilities overview. Absent/undefined for every
+  // other prompt (they route by jumpTarget alone). See buildNeedsOrders + App's
+  // jumpToFacilityUpgrade. Only meaningful alongside jumpTarget "facilities".
+  facilityKey?: string;
 }
 
 // One NOT-YET-UNLOCKED slot (dimmed chip, bottom). STUB in Unit 1 (Unit 3 fills it).
@@ -553,21 +559,31 @@ function buildNeedsOrders(state: GameState): Prompt[] {
   // FACILITIES.length gate calls per tick, each cheap (structural checks + a tiny materials
   // loop), well within the once-per-tick budget (design Section 10).
   let upgradesReady = 0;
+  let soleUpgradeKey: string | null = null; // the ONLY startable facility (meaningful iff upgradesReady === 1)
   for (const facilityKey of Object.keys(FACILITIES)) {
-    if (canBuildFacilityUpgrade(state, facilityKey).ok) upgradesReady += 1;
+    if (canBuildFacilityUpgrade(state, facilityKey).ok) {
+      upgradesReady += 1;
+      soleUpgradeKey = facilityKey;
+    }
   }
   if (upgradesReady > 0) {
+    // With EXACTLY ONE upgrade available we already know WHICH facility it is, so naming it
+    // and deep-linking straight to that facility (App's jumpToFacilityUpgrade maps the key to
+    // its upgrade location) beats a generic "1 facility upgrade ready" that hides the info we
+    // have. With several, there is no single destination, so we aggregate the count and route
+    // to the Facilities OVERVIEW where every card + its live Build button is visible.
+    const single = upgradesReady === 1 && soleUpgradeKey !== null;
     prompts.push({
       id: "idle-facility-upgrade",
       icon: "facility",
-      label:
-        upgradesReady === 1
-          ? "1 facility upgrade ready"
-          : `${upgradesReady} facility upgrades ready`,
+      label: single
+        ? `${FACILITIES[soleUpgradeKey!]?.label ?? soleUpgradeKey} upgrade ready`
+        : `${upgradesReady} facility upgrades ready`,
       detail: null,
-      // No single facility to drill into (the count spans several), so route to the
-      // Facilities OVERVIEW where every card + its live Build button is visible.
       jumpTarget: "facilities",
+      // Carry the facility key ONLY in the single case, so the UI deep-links to it; the
+      // aggregate case leaves it unset and falls back to the overview via jumpTarget.
+      ...(single ? { facilityKey: soleUpgradeKey! } : {}),
     });
   }
 
