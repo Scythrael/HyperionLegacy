@@ -2095,6 +2095,19 @@
     // Autosave every 30s, tech spec §6.
     saveHandle = setInterval(doSave, 30000);
 
+    // Home "Needs your orders" ticker cadence (0.13.1, Unit 6). A UI-only timer that
+    // advances the collapsed, DISPLAY-ONLY ticker. It HOLDS (does not advance) when the list
+    // is expanded (the player is reading the full stationary list), when there is 0 or 1
+    // prompt (nothing to rotate through), or when the player prefers reduced motion, so
+    // honoring that preference is simply a no-op cycle rather than a separate code path.
+    // Reads the reactive dashboardModel at FIRE time, so it always rotates the current set.
+    prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    needsTickerHandle = setInterval(() => {
+      const n = dashboardModel.needsOrders.length;
+      if (needsExpanded || prefersReducedMotion || n <= 1) return;
+      needsTickerIndex = (needsTickerIndex + 1) % n;
+    }, NEEDS_TICKER_INTERVAL_MS);
+
     const onUnload = () => doSave();
     window.addEventListener("beforeunload", onUnload);
     return () => window.removeEventListener("beforeunload", onUnload);
@@ -2103,6 +2116,7 @@
   onDestroy(() => {
     clearInterval(tickHandle);
     clearInterval(saveHandle);
+    clearInterval(needsTickerHandle);
   });
 
   function doDispatchCaptainOnMission(captainId: number, missionKey: MissionKey) {
@@ -2248,6 +2262,28 @@
   function jumpToActivityRow(target: JumpTarget | null): void {
     if (target !== null) jumpToActivity(target);
   }
+
+  // --- Home dashboard "Needs your orders" ticker (0.13.1, Unit 6) ----------------------
+  // The section can hold several actionable-idle prompts at once. Showing them ALL, always,
+  // grows the board without bound and (worse) invites the player to tap a prompt that is
+  // about to shift position, the same moving-tap-target failure the equipment tooltip had.
+  // So the COLLAPSED view is a compact, DISPLAY-ONLY ticker: it rotates through the prompts
+  // on a fixed UI cadence and is NOT itself a tap target. To ACT, the player taps the
+  // stationary "Show all" toggle, which expands the full list of real, non-moving prompt
+  // buttons. A single prompt needs no rotation, so that case renders the one actionable
+  // button directly (no ticker, no toggle).
+  //
+  // NEEDS_TICKER_INTERVAL_MS is a UI-only cadence ("every tick or two" at default speed),
+  // deliberately DECOUPLED from the game tick: it never varies with the player's game-speed
+  // setting, never advances while offline, and carries ZERO parity risk (it touches no game
+  // state, only this view index).
+  const NEEDS_TICKER_INTERVAL_MS = 3200;
+  let needsExpanded = false; // false = compact ticker, true = full stationary list
+  let needsTickerIndex = 0; // which prompt the collapsed ticker currently shows
+  let needsTickerHandle: ReturnType<typeof setInterval>;
+  // Set once in onMount. When true, the ticker holds on one prompt instead of rotating, so
+  // honoring the OS reduced-motion preference is a frozen cycle, not a separate render path.
+  let prefersReducedMotion = false;
 
   // Fleet Operations captain-selection popup handlers (2026-07-07 Fleet
   // Operations Mission UI), open/close just manage missionPopupKey/
@@ -4215,6 +4251,14 @@
   // as the fleet ticks. buildHomeDashboard is a pure function (homeDashboard.ts); all the
   // hard derivation + availability logic lives there and is unit-tested in node.
   $: dashboardModel = buildHomeDashboard(state);
+  // Keep the collapsed-ticker index in range as the prompt list shrinks (the player clears a
+  // prompt by giving those orders), so the ticker never points past the end of needsOrders.
+  $: if (needsTickerIndex >= dashboardModel.needsOrders.length) needsTickerIndex = 0;
+  // The prompt the collapsed ticker is currently displaying. Falls back to the first prompt
+  // (never a stale index), and is null only when there are none (the ticker is not rendered
+  // then). Used by the DISPLAY-ONLY ticker markup below.
+  $: needsTickerPrompt =
+    dashboardModel.needsOrders[needsTickerIndex] ?? dashboardModel.needsOrders[0] ?? null;
   // Fleet-wide tick readout (collapsed from per-captain activeCycle/
   // activeBarSeconds/activeTickProgress/activeTickRemaining during the UI
   // Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md).
@@ -8729,6 +8773,29 @@
           </span>
         {/snippet}
 
+        <!-- One actionable NEEDS-YOUR-ORDERS prompt as a full-width button (0.13.1, Unit 6).
+             A snippet so the single-prompt case and the expanded full-list case render an
+             identical, STATIONARY button without duplicating markup. The WHOLE prompt is one
+             button (no nested interactive elements): tapping anywhere on it, or the "Go"
+             affordance, routes to its setup tab via jumpToActivity. These buttons never move
+             (unlike the collapsed ticker), so they are always safe tap targets. -->
+        {#snippet needsPromptButton(prompt: Prompt)}
+          <button
+            type="button"
+            class="home-prompt"
+            on:click={() => jumpToActivity(prompt.jumpTarget)}
+            aria-label={`${prompt.label}. Go to setup.`}
+          >
+            <span class="home-pulse" aria-hidden="true"></span>
+            <span class="home-ico" aria-hidden="true">{homeIconGlyph(prompt.icon)}</span>
+            <span class="home-prompt-txt">
+              <span class="home-l1">{prompt.label}</span>
+              {#if prompt.detail !== null}<span class="home-prompt-detail">{prompt.detail}</span>{/if}
+            </span>
+            <span class="home-go" aria-hidden="true">Go →</span>
+          </button>
+        {/snippet}
+
         <Panel>
           <div class="panel-title">COMMAND HOME</div>
           <p class="home-dash-sub">
@@ -8745,26 +8812,60 @@
               <span class="home-sec-rule"></span>
             </div>
 
-            {#if dashboardModel.needsOrders.length > 0}
+            {#if dashboardModel.needsOrders.length === 1}
+              <!-- Single prompt: nothing to rotate, so render the one actionable button
+                   directly (no ticker, no toggle). -->
+              <div class="home-needs">
+                {@render needsPromptButton(dashboardModel.needsOrders[0])}
+              </div>
+            {:else if dashboardModel.needsOrders.length > 1 && !needsExpanded}
+              <!-- COLLAPSED: a compact, DISPLAY-ONLY ticker (NOT a tap target) that rotates
+                   through the prompts, plus a STATIONARY "Show all" toggle that reveals the
+                   real, actionable buttons. The {#key} remount restarts the fade each change
+                   (the fade is disabled under prefers-reduced-motion by the CSS media query,
+                   matching the frozen index the ticker interval holds in that case). -->
+              <div class="home-ticker-wrap">
+                <div class="home-ticker">
+                  {#if needsTickerPrompt !== null}
+                    {#key needsTickerPrompt.id}
+                      <div class="home-ticker-item">
+                        <span class="home-pulse" aria-hidden="true"></span>
+                        <span class="home-ico" aria-hidden="true">{homeIconGlyph(needsTickerPrompt.icon)}</span>
+                        <span class="home-prompt-txt">
+                          <span class="home-l1">{needsTickerPrompt.label}</span>
+                          {#if needsTickerPrompt.detail !== null}<span class="home-prompt-detail">{needsTickerPrompt.detail}</span>{/if}
+                        </span>
+                      </div>
+                    {/key}
+                  {/if}
+                </div>
+                <div class="home-ticker-foot">
+                  <!-- Position dots (display-only, aria-hidden): which prompt of N the ticker
+                       is currently on, so the rotation reads as a rotation, not a live edit. -->
+                  <span class="home-dots" aria-hidden="true">
+                    {#each dashboardModel.needsOrders as prompt, i (prompt.id)}
+                      <span class="home-dot" class:home-dot-on={i === needsTickerIndex}></span>
+                    {/each}
+                  </span>
+                  <button type="button" class="home-needs-toggle" on:click={() => (needsExpanded = true)}>
+                    Show all {dashboardModel.needsOrders.length} →
+                  </button>
+                </div>
+              </div>
+            {:else if dashboardModel.needsOrders.length > 1}
+              <!-- EXPANDED: the full list of STATIONARY, actionable prompt buttons (none move),
+                   plus a "Show less" toggle back to the compact ticker. -->
               <div class="home-needs">
                 {#each dashboardModel.needsOrders as prompt (prompt.id)}
-                  <!-- The WHOLE prompt is one button (no nested interactive elements): tapping
-                       anywhere on it, or the "Go" affordance, routes to its setup tab. -->
-                  <button
-                    type="button"
-                    class="home-prompt"
-                    on:click={() => jumpToActivity(prompt.jumpTarget)}
-                    aria-label={`${prompt.label}. Go to setup.`}
-                  >
-                    <span class="home-pulse" aria-hidden="true"></span>
-                    <span class="home-ico" aria-hidden="true">{homeIconGlyph(prompt.icon)}</span>
-                    <span class="home-prompt-txt">
-                      <span class="home-l1">{prompt.label}</span>
-                      {#if prompt.detail !== null}<span class="home-prompt-detail">{prompt.detail}</span>{/if}
-                    </span>
-                    <span class="home-go" aria-hidden="true">Go →</span>
-                  </button>
+                  {@render needsPromptButton(prompt)}
                 {/each}
+                <button
+                  type="button"
+                  class="home-needs-toggle home-needs-toggle-less"
+                  on:click={() => (needsExpanded = false)}
+                >
+                  Show less ↑
+                </button>
               </div>
             {:else if dashboardModel.allCaughtUp}
               <!-- Earned-breather state (design Section 7 outcome 3): nothing actionable
@@ -11598,6 +11699,73 @@
     font-weight: 600;
   }
 
+  /* --- NEEDS YOUR ORDERS ticker (0.13.1, Unit 6): the compact collapsed view --- */
+  /* Wrapper holds the display-only ticker plus its footer (dots + Show-all toggle). */
+  .home-ticker-wrap { display: flex; flex-direction: column; gap: 7px; }
+  /* The ticker "window": a fixed-height amber card matching a prompt's look, but it is a
+     plain DIV, never a button, so the rotating content is never a tap target. min-height
+     holds the row steady so a one-line and a two-line (with detail) prompt do not make the
+     board jump as the ticker rotates. */
+  .home-ticker {
+    position: relative;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    padding: 9px 11px;
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .home-ticker-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+    /* Re-mounted by the {#key} each rotation, so this fade restarts on every change,
+       giving a soft crossfade-in without importing a Svelte transition. Killed under
+       prefers-reduced-motion below. */
+    animation: home-ticker-in 0.4s ease-out;
+  }
+  @keyframes home-ticker-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  /* Footer row: position dots on the left, the stationary Show-all toggle on the right. */
+  .home-ticker-foot { display: flex; align-items: center; gap: 10px; }
+  .home-dots { display: flex; align-items: center; gap: 5px; flex: 1; min-width: 0; }
+  .home-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--color-warning) 25%, transparent);
+    flex: none;
+    transition: background 0.2s;
+  }
+  .home-dot-on { background: var(--color-warning); }
+  /* Show-all / Show-less toggle: a stationary button (this, not the ticker, is where the
+     player acts to reveal the full list). Understated so it does not compete with prompts. */
+  .home-needs-toggle {
+    flex: none;
+    margin-left: auto;
+    font-family: var(--font-display);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-warning);
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .home-needs-toggle:hover { border-color: color-mix(in srgb, var(--color-warning) 55%, transparent); }
+  .home-needs-toggle:focus-visible { outline: 2px solid var(--color-warning); outline-offset: 2px; }
+  /* The Show-less toggle sits under the expanded list, aligned right on its own row. */
+  .home-needs-toggle-less { align-self: flex-end; margin-top: 1px; }
+
   /* Caught-up banner: calm green, the earned breather. */
   .home-caughtup {
     display: flex;
@@ -11725,8 +11893,11 @@
     padding: 0 6px;
   }
 
-  /* Reduced-motion: kill the amber prompt pulse (design / a11y requirement). */
+  /* Reduced-motion: kill the amber prompt pulse AND the ticker crossfade (design / a11y
+     requirement). The ticker interval also holds the index in this case (prefersReducedMotion
+     in onMount), so the ticker is fully still, no pulse, no fade, no rotation. */
   @media (prefers-reduced-motion: reduce) {
     .home-pulse { animation: none; }
+    .home-ticker-item { animation: none; }
   }
 </style>
