@@ -584,7 +584,10 @@
   } from "./lib/salvageConfirmPreference";
   // Ship favorites (0.13.2 Ships tab, Unit 3): the per-device localStorage set of
   // favorited ship ids the roster pins to a Favorites group. Same NOT-on-save posture as
-  // the salvage-confirm pref above (no schema change / no SAVE_VERSION bump).
+  // refineConfirmEnabled / the combat-log display prefs below (no schema change / no
+  // SAVE_VERSION bump). This posture is right for a pure DISPLAY preference: it stays here
+  // precisely because nothing in the tick reads it, which is exactly what stopped being
+  // true of the salvage-confirm pref (it now gates auto-salvage, so it moved into the save).
   import { loadShipFavorites, saveShipFavorites } from "./lib/shipFavoritesPreference";
   // Combat-log DISPLAY preferences (Combat 0.13.0). localStorage-backed, surfaced in
   // the Options settings as the first section of a growing accessibility/theming hub.
@@ -3665,10 +3668,19 @@
 
   // ── Per-quality confirm preference (0.11.2 Task 13b) ──────────────────────
   // The set of quality tiers that REQUIRE a confirm before salvaging, loaded from
-  // localStorage (loadSalvageConfirmQualities), NOT on GameState, exactly like
-  // refineConfirmEnabled above. The default is ALL tiers (confirm everything). The
-  // Salvage Bay Options control below toggles individual tiers on/off; toggling
-  // persists immediately via saveSalvageConfirmQualities. Loaded on mount.
+  // localStorage (loadSalvageConfirmQualities). The default is ALL tiers (confirm
+  // everything). The Salvage Bay Options control below toggles individual tiers on/off;
+  // toggling persists immediately via saveSalvageConfirmQualities. Loaded on mount.
+  //
+  // ⚠️ MID-MIGRATION (Crafting 0.13.3, Phase 1 Unit 1.1). This preference is MOVING onto
+  // GameState (state.salvageConfirmQualities), because the 0.13.3 auto-salvage rules run
+  // in the tick including the OFFLINE catch-up path, which can only read the save. The
+  // v39->v40 migration already ADDS the saved field and SEEDS it from this same
+  // localStorage value, so no player loses a setting. This UI deliberately still reads and
+  // writes localStorage: repointing the checkboxes at game state is a LATER unit, and
+  // leaving this path working means the console keeps behaving correctly in between. When
+  // that unit lands, this declaration and the toggle below move to the state-update path
+  // and salvageConfirmPreference.ts is retired.
   let salvageConfirmQualities: number[] = loadSalvageConfirmQualities();
 
   // Map a salvaged material's ItemRarity (model.ts: "common" | "uncommon" | "rare" |

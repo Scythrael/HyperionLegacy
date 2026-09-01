@@ -27,8 +27,19 @@ import { clampInventoryToCaps, installMissingCombatBaselines } from "./tick";
 // failed write reports false exactly as the old catch did. One-way import (safeStorage
 // imports nothing from game/), so no module cycle.
 import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
+// Crafting 0.13.3 (Phase 1 Unit 1.1): the v39->v40 migration SEEDS the newly saved
+// salvageConfirmQualities from the player's existing localStorage preference, so a player
+// who already opted some quality tiers out of the confirm dialog does not silently lose
+// that choice when the setting moves into the save. This is the ONLY reader of the old
+// module in the engine, and it is a one-time seed: after the migration has run, the save
+// is the single source of truth. loadSalvageConfirmQualities is itself store-guarded (it
+// returns the confirm-every-tier default when localStorage is blocked, absent, or holds a
+// malformed value), so the migration can call it unconditionally and can never throw. One
+// way import (salvageConfirmPreference imports only game/inventory + safeStorage, never
+// save.ts), so this introduces no module cycle.
+import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 39;
+export const SAVE_VERSION = 40;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1570,6 +1581,60 @@ const MIGRATIONS: Record<number, Migration> = {
     });
     return { ...state, equipment };
   },
+  // v39 -> v40: the QUEUED-ORDER SCHEMA seed (Crafting 0.13.3, Phase 1 Unit 1.1; design
+  // 2026-09-01-crafting-0.13.3-design.md §10, plan Phase 1 Unit 1.1 + its RESOLVED
+  // ASSUMPTION section). PURELY ADDITIVE: this step defaults four brand-new fields onto an
+  // older save and TOUCHES NOTHING ELSE. It deletes nothing, transforms nothing, and
+  // recomputes nothing; every pre-existing field rides through on the `...state` spread.
+  //
+  // WHAT IS SEEDED (the same values freshState() gives a brand-new save, so a migrated save
+  // and a fresh save are indistinguishable in shape):
+  //   - processQueue: []            the empty flat queue of QUEUED ORDERS
+  //   - nextQueueId: 1              monotonic id source, first minted id is "q-1"
+  //   - autoSalvage: all off        opt in; an automation that destroys items is never on by default
+  //   - salvageConfirmQualities:    SEEDED FROM localStorage, see below
+  //
+  // THE localStorage SEED, and why it is here. salvageConfirmQualities (which quality tiers
+  // require a confirm before salvaging) used to live ONLY in localStorage. It moves into the
+  // save because the 0.13.3 auto-salvage rules run in the TICK, including the offline
+  // catch-up path, and offline can only read the save: a localStorage-only preference is
+  // invisible there, so an offline run could destroy an item that a live run would have
+  // stopped to ask about. Reading the old value HERE (rather than defaulting it) is what
+  // stops a player who had already opted tiers out from silently losing that choice on the
+  // first load after the upgrade. loadSalvageConfirmQualities never throws: a blocked,
+  // absent, or malformed store yields its own confirm-EVERY-tier safe default, which is
+  // also the correct value for a player who never touched the setting.
+  //
+  // SCOPE NOTE (deliberate, mid-phase): this step only ADDS and SEEDS the field. The Salvage
+  // Bay UI still reads and writes the localStorage value through salvageConfirmPreference.ts,
+  // and that path is intentionally left working so the console keeps behaving correctly until
+  // a later unit repoints the checkboxes at the saved field. Because the seed only runs on
+  // the v39->v40 step, a value written to localStorage AFTER the migration has run does not
+  // re-seed; that is expected and is resolved when the UI is repointed.
+  //
+  // IDEMPOTENT + SAFE ON A SAVE THAT ALREADY HAS THE FIELDS: each field uses `??`, so an
+  // already-migrated (or hand-edited, or already-v40) state keeps its OWN values and this
+  // step becomes a value-level no-op. In particular a player who has already customized
+  // autoSalvage or salvageConfirmQualities is never reset to the defaults by a re-run.
+  //
+  // NO NEW DECIMALS, VERIFIED: QueuedJob / QueuedOrder / SalvageTargetRef carry only id
+  // strings, string-literal keys and plain numbers (CraftLineMode's batch `remaining`);
+  // AutoSalvageRules carries booleans and plain numbers; salvageConfirmQualities is a
+  // number[]. So all four fields ride hydrateDecimals's `...state` spread verbatim and
+  // hydrateDecimals needs NO new branch, exactly like `ships` / `equipment` / `refineLines`.
+  // See the ⚠️ warning on QueuedJob (model.ts) before ever adding a Decimal to that shape.
+  //
+  // craftingLevel / craftingXp are DELIBERATELY NOT TOUCHED. Every save already carries them
+  // (backfilled by MIGRATIONS[26]), and 0.13.3's crafting-XP reweighting applies going
+  // forward only: grandfathering an existing player's crafting level is a design decision,
+  // not an oversight, so this step must not recompute or reset either field.
+  39: (state: any): any => ({
+    ...state,
+    processQueue: state.processQueue ?? [],
+    nextQueueId: state.nextQueueId ?? 1,
+    autoSalvage: state.autoSalvage ?? { enabled: false, maxQuality: null, duplicates: false, keepPerVariety: 1 },
+    salvageConfirmQualities: state.salvageConfirmQualities ?? loadSalvageConfirmQualities(),
+  }),
 };
 
 export function migrate(save: SaveFile): GameState {

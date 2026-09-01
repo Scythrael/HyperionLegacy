@@ -5,7 +5,12 @@ import Decimal from "break_infinity.js";
 // dependency, allocation.ts imports the recipe registries FROM this file at
 // runtime, and a value import back would create a cycle; `import type` is erased at
 // compile time, so there is no runtime import cycle.
-import type { CraftLine } from "./allocation";
+// Crafting 0.13.3 (Phase 1 Unit 1.1) widens this same type-only import: a QUEUED craft
+// order carries the recipe kind + run mode a LINE would be configured with, so the queue
+// reuses allocation.ts's CraftLineKind / CraftLineMode rather than minting parallel unions
+// that could drift from what startLine actually accepts. Still type-only (erased), so the
+// no-runtime-cycle property above is unchanged.
+import type { CraftLine, CraftLineKind, CraftLineMode } from "./allocation";
 // Quality rolls (Equipment 0.11.0, Phase 4, Task 9b): rollQuality's tier ceiling is the
 // SAME quality-bucket range inventory.ts already owns (tiers 0..5, QUALITY_TIERS === 6).
 // Imported so the roll and the storage share ONE source of truth for the ceiling rather
@@ -2922,6 +2927,91 @@ export const FACILITIES: Record<string, FacilityDef> = {
 // and tick.ts (startLine / cancelLine / processRefineLines / processFabricateLines).
 // C6's save migration drops any legacy refineOrder / fabricateOrder key off old saves.
 
+// --- Crafting 0.13.3 (Phase 1 Unit 1.1): the queued-order SCHEMA ---------------
+// docs/plans/2026-09-01-crafting-0.13.3-design.md §5.1 (data model) + §10 (save).
+//
+// SCHEMA ONLY IN THIS UNIT. These types and the four GameState fields below are
+// DEFINED and SEEDED here and nothing reads them yet: the mutation API and the
+// adapter table land in Unit 1.3, and the promotion pass that runs them inside
+// economyTick lands in Unit 1.4. Landing the schema first is deliberate (the
+// SAVE_VERSION bump is the one step every later unit depends on, and an additive
+// migration is far safer to review on its own than bundled with engine behavior).
+
+// The facilities that can hold a queue. A named union, not a bare string, so a
+// future queue-capable facility (the 0.13.4 Research queue) slots in as ONE new
+// literal and every exhaustive consumer (the Unit 1.3 QUEUE_ADAPTERS Record) turns
+// into a COMPILE ERROR until it is handled, rather than silently missing a row.
+export type QueueFacilityKey = "refinery" | "fabricator" | "salvageBay";
+
+// What a queued SALVAGE order points at. The design never defined this shape; the
+// build plan's assumption 3 fixes it as the three things the Salvage Bay can already
+// act on. Every arm is PLAIN STRINGS on purpose (an id, never an object graph and
+// never a Decimal), so a queued salvage order round-trips through JSON untouched.
+export type SalvageTargetRef =
+  | { kind: "equipment"; instanceId: string }
+  | { kind: "material"; itemId: string }
+  | { kind: "ship"; shipId: string };
+
+// The player's unit of QUEUED INTENT.
+//
+// WHY an ORDER and not a job: for the Refinery and the Fabricator the thing a player
+// configures is a LINE (recipe + batch count or continuous), not a single iteration.
+// Carrying the line's own config here means promotion can hand this straight to the
+// proven canStartLine / startLine pair (tick.ts) instead of duplicating the per
+// iteration engine, so a queued order can never disagree with what the configurator's
+// Start button would have done. For salvage the unit genuinely IS one target, which
+// the second arm expresses without a second queue.
+export type QueuedOrder =
+  | { type: "craftLine"; kind: CraftLineKind; recipeKey: string; mode: CraftLineMode }
+  | { type: "salvage"; target: SalvageTargetRef };
+
+// One entry in GameState.processQueue.
+//
+// ⚠️ NO DECIMAL ON THIS SHAPE, AND IT MUST STAY THAT WAY. Every field here is an id
+// string, a string-literal key, or a plain number (CraftLineMode's batch `remaining`),
+// so the whole array rides hydrateDecimals's `...state` spread verbatim and needs NO
+// hydration branch, exactly like `ships` / `equipment` / `refineLines`. Adding a
+// Decimal-typed field to QueuedJob (or to QueuedOrder / SalvageTargetRef) WITHOUT
+// adding a matching revive in save.ts's hydrateDecimals would produce a plain STRING
+// on load and throw on the first .plus() / .gte(). That is the difference between a
+// one-line migration and a serialization bug (design §10), so: keep the shape plain.
+export interface QueuedJob {
+  id: string;              // "q-N", minted from state.nextQueueId (mirrors nextProcessId's "proc-N")
+  facility: QueueFacilityKey;
+  order: QueuedOrder;
+}
+
+// The opt-in auto-salvage rules (design §7.6).
+//
+// WHY THESE LIVE IN THE SAVE AND NOT IN localStorage: they change what the TICK does,
+// and the offline catch-up path can only read the save. A localStorage-only rule would
+// be invisible offline, so a player's offline run would behave differently from their
+// live run (a parity break) and could destroy items the live path would have spared.
+//
+// No Decimal here either (two booleans, a nullable plain number, a plain number), so
+// this field needs no hydration branch for the same reason QueuedJob does not.
+export interface AutoSalvageRules {
+  enabled: boolean;          // master switch, default false (opt in, never on by surprise)
+  maxQuality: number | null; // auto-queue spares at or below this quality tier; null = rule off
+  duplicates: boolean;       // auto-queue duplicates beyond keepPerVariety
+  keepPerVariety: number;    // how many of a variety to KEEP; fixed at 1 this release, not yet player-editable
+}
+
+// The "confirm everything" default for salvageConfirmQualities: every quality tier
+// requires a confirm until the player opts a tier out. DERIVED from the canonical
+// QUALITY_TIERS ceiling (inventory.ts) rather than a hardcoded [0..5], so a new top
+// tier is automatically guarded instead of silently shipping UNconfirmed.
+//
+// ⚠️ DELIBERATE (temporary) DUPLICATE of ALL_QUALITIES in src/lib/salvageConfirmPreference.ts
+// (Omega 4 flag). Both derive from the SAME QUALITY_TIERS constant so they cannot
+// disagree on a value, and the duplication is short-lived by design: that module is
+// reduced to a one-time migration reader in this release and retired once the seed has
+// run everywhere. It is NOT imported here because game/ owning its own fresh-state
+// default keeps the engine free of a dependency on a UI-preference module.
+export function freshSalvageConfirmQualities(): number[] {
+  return Array.from({ length: QUALITY_TIERS }, (_, i) => i);
+}
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence, every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
@@ -3089,6 +3179,56 @@ export interface GameState {
   // spread. Task B2 fills the rung table; this field's engine (the purchase action) is
   // Task B2's job, B1 only DEFINES + seeds it and reads it in equipmentStorageCap.
   equipmentStorageLevel: number;
+  // --- Crafting 0.13.3 (Phase 1 Unit 1.1) ---------------------------------------
+  // The QUEUE: orders waiting for a free facility slot. ONE FLAT ARRAY across every
+  // queue-capable facility, mirroring activeProcesses exactly (one field, one
+  // migration, one pass, one save shape). Per-facility DEPTH is then DERIVED by
+  // counting entries whose `facility` matches, never stored, so it cannot drift from
+  // the talent that grants it. A per-facility array shape would instead FREEZE the
+  // facility set into the schema, so adding the Research queue in 0.13.4 would need
+  // another migration; a flat array plus a widened union needs none.
+  //
+  // ARRAY INDEX IS THE QUEUE ORDER (FIFO). Nothing sorts or reorders this array; the
+  // Unit 1.4 promotion pass SKIPS a blocked entry in place rather than moving it.
+  //
+  // NOTHING READS THIS YET (Unit 1.1 is schema only). freshState seeds []; the
+  // v39->v40 migration (save.ts, MIGRATIONS[39]) backfills [] onto existing saves.
+  // Carries no Decimal (see QueuedJob's warning above), so hydrateDecimals is unchanged.
+  processQueue: QueuedJob[];
+  // Monotonic id source for new QueuedJob.id ("q-N"); never reused, mirrors
+  // nextShipId ("ship-N") / nextProcessId ("proc-N") / nextCraftLineId ("craft-N").
+  // freshState seeds 1 so the first minted id is "q-1"; the v39->v40 migration
+  // backfills 1. A counter (not queue.length) so a removed entry can never let a
+  // later enqueue reissue a live id.
+  nextQueueId: number;
+  // The opt-in auto-salvage rules, in the SAVE because they run in the tick and the
+  // offline path can only read the save (see AutoSalvageRules above for the full
+  // rationale). freshState seeds the all-off default; the v39->v40 migration
+  // backfills the identical default. Nothing evaluates these until Phase 5.
+  autoSalvage: AutoSalvageRules;
+  // The per-quality salvage-confirm preference: the quality tiers that REQUIRE a
+  // confirmation before salvaging. Same semantics as the localStorage predecessor in
+  // src/lib/salvageConfirmPreference.ts (a tier PRESENT in this array needs a confirm;
+  // absent means salvage immediately), so nothing about the player-facing meaning
+  // changes, only where it is stored.
+  //
+  // WHY IT MOVED OUT OF localStorage AND INTO THE SAVE (user decision, 2026-09-01):
+  // the Phase 5 auto-salvage rules must never auto-salvage a tier the player asked to
+  // be asked about, and those rules run in the tick INCLUDING the offline catch-up
+  // path, which can only read the save. A localStorage-only preference is invisible
+  // there, so offline would silently destroy an item live would have stopped to ask
+  // about. ACCEPTED TRADEOFF: the preference stops being per-device and now follows
+  // the save across devices (chosen deliberately over mirroring, which would leave two
+  // sources of truth free to drift).
+  //
+  // ⚠️ UNIT 1.1 SEEDS THIS FIELD BUT NOTHING READS IT YET. The Salvage Bay UI still
+  // reads and writes the localStorage value through salvageConfirmPreference.ts, and
+  // that path is left working ON PURPOSE so the console keeps behaving correctly
+  // mid-phase; a later unit repoints the checkboxes at this field and makes the save
+  // the single source of truth. The v39->v40 migration SEEDS this from the existing
+  // localStorage value so no player silently loses a setting they already chose.
+  // freshState seeds the confirm-every-tier default (freshSalvageConfirmQualities).
+  salvageConfirmQualities: number[];
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -6403,5 +6543,20 @@ export function freshState(): GameState {
     // no upgrade rung purchased (level 0). Old saves reach the same shape via the
     // v28->v29 migration (save.ts). See the field comment on GameState above.
     equipmentStorageLevel: 0,
+    // Crafting 0.13.3 (Phase 1 Unit 1.1): a brand-new save starts with an EMPTY queue,
+    // the id counter at 1 (first minted id "q-1"), auto-salvage fully OFF (opt in), and
+    // the confirm-every-tier salvage default. Existing saves reach the IDENTICAL shape
+    // via the v39->v40 migration (save.ts, MIGRATIONS[39]) so a fresh save and a
+    // migrated save are indistinguishable in shape. Nothing reads any of these yet.
+    //
+    // The one intended difference from the migration: the migration SEEDS
+    // salvageConfirmQualities from the player's existing localStorage preference, while
+    // freshState uses the plain default. That is correct and deliberate: freshState must
+    // stay a PURE function (dozens of tests build fixtures from it, and a new game is a
+    // new game), so it never reaches for a browser store.
+    processQueue: [],
+    nextQueueId: 1,
+    autoSalvage: { enabled: false, maxQuality: null, duplicates: false, keepPerVariety: 1 },
+    salvageConfirmQualities: freshSalvageConfirmQualities(),
   };
 }
