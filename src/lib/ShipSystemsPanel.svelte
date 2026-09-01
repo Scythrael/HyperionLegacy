@@ -82,6 +82,9 @@
   import { WEAPON_DEFS } from "./game/combat/weapons";
   import { battleRating } from "./game/combat/rating";
   import { formatNumber } from "./game/format";
+  // Shared modal a11y action (0.13.2 QA): traps Tab focus inside the install modal, closes it on
+  // Escape, and restores focus to the opener on close. Same action the app's other modals use.
+  import { focusTrap } from "./focusTrap";
   // The SAME reusable rarity-bordered card the Warehouse Ship Systems bay uses, plus
   // its module-exported single-source helpers (rarity color + variety glyph). Reused
   // here so a tile + its tooltip read the piece's identity in EXACTLY the format the
@@ -966,25 +969,8 @@
     pickerTrigger = null;
   }
 
-  // Bug fix (0.13.2 QA): the install picker renders at the BOTTOM of the panel, after every
-  // slot group, inside the scrolling .tab-scroll-area. On a tall mobile panel, tapping a Swap /
-  // Install button set the slot's selected-highlight but the picker itself opened BELOW the fold
-  // (off-screen), so it looked like nothing happened. This Svelte action fires when the picker
-  // mounts (the {#if pickerActive} block) and scrolls it into view so the install flow always
-  // appears where the player is looking. block:"start" gives the flow a clean "take over the
-  // view" feel. behavior:"auto" (instant) ON PURPOSE: this is a deliberate reveal, and a long
-  // (~900px) SMOOTH scroll here was getting interrupted mid-animation and never landing (the
-  // bug this replaces); an instant jump is robust and reads correctly for a tap-to-open action.
-  // requestAnimationFrame waits one frame so the picker's final laid-out position is used.
-  function scrollPickerIntoView(node: HTMLElement) {
-    // Scroll SYNCHRONOUSLY on mount (no requestAnimationFrame): the action fires after Svelte
-    // has mounted the picker + its content, so the layout is already committed and
-    // scrollIntoView reflows + scrolls against the final position immediately. rAF was avoided
-    // deliberately: it is gated on the page compositing, so it never fires while the tab is
-    // backgrounded, which would silently skip the scroll. behavior:"auto" (instant) reads
-    // correctly for a deliberate tap-to-open reveal.
-    node.scrollIntoView({ behavior: "auto", block: "start" });
-  }
+  // (0.13.2 QA: the earlier scrollPickerIntoView action was removed. The install flow is now a
+  // MODAL over a dimmed board, so it is always in view and needs no scroll-into-view hack.)
 
   // A short label for a spare in the picker list + its info button aria-label. Weapons
   // and drone pods carry no economy "variety" label in EQUIPMENT_SLOTS, so they resolve
@@ -1380,10 +1366,23 @@
              through handleInstall -> onInstall -> fitEquipment, gated per candidate by
              canFitEquipment (disabled + reason when blocked). Damaged / on-mission locks preserved. -->
         {#if pickerActive}
-          <div class="ss-picker" use:scrollPickerIntoView>
+          <!-- Install flow as a MODAL (0.13.2 QA fix): it reveals over a dimmed board (a bottom
+               sheet on mobile, a centered popup on desktop, see the .ss-modal-backdrop CSS)
+               instead of scroll-jumping to an inline section. Backdrop click (self only), Escape
+               (the shared focusTrap action), and the header close button all dismiss it; focus is
+               trapped inside while it is open. -->
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: the backdrop is a presentation dimmer whose only job is click-to-dismiss; keyboard users dismiss with Escape (the focusTrap on the dialog panel below) or the header close button, and every real control lives inside the panel. -->
+          <div class="ss-modal-backdrop" on:click|self={closePicker}>
+          <div
+            class="ss-picker"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Install ${pickerLabel}`}
+            use:focusTrap={closePicker}
+          >
             <div class="ss-picker-head">
               <span>Install &middot; {pickerLabel}</span>
-              <button class="ss-picker-close" on:click={closePicker} aria-label="Cancel install">Cancel</button>
+              <button class="ss-picker-close" on:click={closePicker} aria-label="Close install">&times;</button>
             </div>
             {#if shipDamaged}
               <p class="ss-note ss-note-dim">Repair the ship before installing new ship systems.</p>
@@ -1501,6 +1500,7 @@
                 </div>
               </div>
             {/if}
+          </div>
           </div>
         {:else}
           <p class="ss-note ss-note-dim ss-picker-hint">Use a slot's Install or Swap button to change its system. Hover a tile for its details.</p>
@@ -2255,32 +2255,76 @@
      decision responds to the panel's OWN width (not the viewport): the left fit-col is only
      ~half the board on desktop, so a viewport media query would wrongly go side-by-side while
      the actual space is narrow. container-type: inline-size makes the query measure this box. */
+  /* INSTALL MODAL (0.13.2 QA fix): the install flow reveals as a popup over a dimmed board
+     instead of an inline scroll-to section. MOBILE (default) = a bottom sheet (thumb-reachable,
+     slides up); DESKTOP (>= 700px) = a centered popup. The panel KEEPS container-type:inline-size
+     so the master-detail flow's own container query still drives list-vs-side-by-side off the
+     PANEL width (the mobile sheet is narrow -> drill list/compare; the desktop popup is wider ->
+     side by side). position:fixed escapes the panel's scroll ancestor (verified: no transformed
+     ancestor in the chain) to cover the viewport. */
+  .ss-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: flex-end; /* mobile: sheet anchored to the bottom */
+    justify-content: center;
+    background: rgba(4, 6, 10, 0.66);
+  }
   .ss-picker {
-    border: 1px dashed rgba(var(--color-accent-rgb), 0.35);
-    background: var(--color-bg-deep);
-    padding: 11px;
+    width: 100%;
+    max-height: 88vh;
+    overflow-y: auto;
+    padding: 12px;
+    background: var(--color-bg-mid);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    border-radius: 16px 16px 0 0; /* rounded top edge for the sheet */
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
     container-type: inline-size;
+  }
+  @media (min-width: 700px) {
+    .ss-modal-backdrop {
+      align-items: center;
+      padding: 24px;
+    }
+    .ss-picker {
+      max-width: 540px;
+      max-height: 85vh;
+      border-radius: 14px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+    }
   }
   .ss-picker-head {
     display: flex;
     align-items: center;
     gap: 8px;
+    /* Sticky so the title + close X stay reachable while the modal body scrolls. */
+    position: sticky;
+    top: -12px; /* cancel the panel's 12px top padding so it pins flush to the panel top */
+    background: var(--color-bg-mid);
+    padding: 12px 0 9px;
+    margin: -12px 0 9px;
+    z-index: 1;
     font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-accent-bright);
-    margin-bottom: 9px;
   }
   .ss-picker-close {
     margin-left: auto;
-    padding: 3px 9px;
-    font-size: 10px;
-    letter-spacing: 0.05em;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    line-height: 1;
     cursor: pointer;
     background: rgba(var(--color-accent-rgb), 0.08);
     border: 1px solid rgba(var(--color-accent-rgb), 0.35);
     color: var(--color-text-secondary);
+    border-radius: 7px;
   }
   .ss-picker-close:hover {
     color: var(--color-text-primary);
