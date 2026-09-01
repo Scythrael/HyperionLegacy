@@ -966,6 +966,26 @@
     pickerTrigger = null;
   }
 
+  // Bug fix (0.13.2 QA): the install picker renders at the BOTTOM of the panel, after every
+  // slot group, inside the scrolling .tab-scroll-area. On a tall mobile panel, tapping a Swap /
+  // Install button set the slot's selected-highlight but the picker itself opened BELOW the fold
+  // (off-screen), so it looked like nothing happened. This Svelte action fires when the picker
+  // mounts (the {#if pickerActive} block) and scrolls it into view so the install flow always
+  // appears where the player is looking. block:"start" gives the flow a clean "take over the
+  // view" feel. behavior:"auto" (instant) ON PURPOSE: this is a deliberate reveal, and a long
+  // (~900px) SMOOTH scroll here was getting interrupted mid-animation and never landing (the
+  // bug this replaces); an instant jump is robust and reads correctly for a tap-to-open action.
+  // requestAnimationFrame waits one frame so the picker's final laid-out position is used.
+  function scrollPickerIntoView(node: HTMLElement) {
+    // Scroll SYNCHRONOUSLY on mount (no requestAnimationFrame): the action fires after Svelte
+    // has mounted the picker + its content, so the layout is already committed and
+    // scrollIntoView reflows + scrolls against the final position immediately. rAF was avoided
+    // deliberately: it is gated on the page compositing, so it never fires while the tab is
+    // backgrounded, which would silently skip the scroll. behavior:"auto" (instant) reads
+    // correctly for a deliberate tap-to-open reveal.
+    node.scrollIntoView({ behavior: "auto", block: "start" });
+  }
+
   // A short label for a spare in the picker list + its info button aria-label. Weapons
   // and drone pods carry no economy "variety" label in EQUIPMENT_SLOTS, so they resolve
   // through the same helpers the readout uses (weaponDisplayName / droneRoleName); every
@@ -1360,7 +1380,7 @@
              through handleInstall -> onInstall -> fitEquipment, gated per candidate by
              canFitEquipment (disabled + reason when blocked). Damaged / on-mission locks preserved. -->
         {#if pickerActive}
-          <div class="ss-picker">
+          <div class="ss-picker" use:scrollPickerIntoView>
             <div class="ss-picker-head">
               <span>Install &middot; {pickerLabel}</span>
               <button class="ss-picker-close" on:click={closePicker} aria-label="Cancel install">Cancel</button>
@@ -2186,6 +2206,21 @@
     display: flex;
     gap: 6px;
     flex: 0 0 auto;
+  }
+  /* Bug fix (0.13.2 QA): a weapon / drone-bay TILE is narrow in the multi-column grid
+     (minmax 110px), so a side-by-side Swap + Uninstall overflowed the tile (worst at 2+
+     hardpoints, when the grid splits into columns). Inside a tile ONLY, stack the actions
+     vertically and fill the tile width so they always fit. The full-width Defense / Systems
+     ROWS keep the horizontal .ss-slot-actions (they have room). */
+  .ss-hp .ss-slot-actions {
+    flex-direction: column;
+    align-self: stretch;
+    width: 100%;
+    gap: 5px;
+  }
+  .ss-hp .ss-act {
+    width: 100%;
+    text-align: center;
   }
   .ss-act {
     flex: 0 0 auto;
