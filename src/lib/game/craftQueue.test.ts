@@ -32,6 +32,17 @@ import {
   freshState,
   HOMEWORLD_TALENTS,
   QUEUE_DEPTH_PER_NODE,
+  // Crafting 0.13.3 (Phase 2 Unit 2.4): the Salvage Bay fixtures + the duration math a
+  // promoted salvageJob must be sized by (read from the source, never hard-coded, so a
+  // retune of the constants retunes these cases with it).
+  generateStandardIssue,
+  salvageDurationTicks,
+  equipmentStorageCap,
+  equipmentAtCap,
+  BLUEPRINTS,
+  SHIP_TYPES,
+  type CaptainMissionState,
+  type EquipmentInstance,
   type GameState,
   type HomeworldTalentKey,
   type QueueFacilityKey,
@@ -58,7 +69,17 @@ import {
   tick,
   refineSlotCount,
   fabricateSlotCount,
+  // Unit 2.4: the Salvage Bay's real adapter parts.
+  SALVAGE_SLOT_COUNT,
+  canStartSalvage,
+  startSalvageJob,
+  salvageJobsInFlight,
+  salvageJobDurationTicks,
 } from "./tick";
+// Unit 2.4: the DERIVED reservation, to prove a completing job releases its target with
+// no bookkeeping. Imported from "./salvage" (the surface the build plan promised callers),
+// which re-exports reservation.ts.
+import { salvageReservedInstanceIds, salvageReservedShipIds } from "./salvage";
 // Unit 1.5: the READ-ONLY view model under test at the bottom of this file. It is
 // imported FROM tick.ts's side of the fence, never the other way around (build plan
 // assumption 1), which is why these live in their own import block.
@@ -741,6 +762,56 @@ describe("respec shrinks depth: over-depth queues DRAIN, they are never truncate
   });
 });
 
+// ---------------------------------------------------------------------------
+// Crafting 0.13.3, Phase 2 Unit 2.4: the SALVAGE BAY fixtures
+//
+// Declared here, above their first use in the adapter cases below, and shared with the
+// full Unit 2.4 section at the bottom of this file. They mirror salvage.test.ts's
+// timedSalvageState so the two suites exercise the same shapes: one spare CRAFTED system,
+// a second idle hull (the last-hull guard needs two), and a stock of the salvaged material
+// the loot roll consumes.
+// ---------------------------------------------------------------------------
+
+// The equipment blueprint the spare fixtures are crafted from. Real key, so the piece is
+// genuinely salvageable (a recipe to refund) rather than merely shaped like one.
+const SALVAGE_BP = "prospectorHoldBp";
+// The salvaged material with a real loot pool (the Damaged Reactor Housing, whose id is
+// still the legacy intactReactorCore).
+const HOUSING = "intactReactorCore";
+const SPARE_ID = "sp-1";
+
+// One spare CRAFTED system: a real Standard-Issue baseline with only the three fields
+// salvage reads overridden (spare, crafted, quality), exactly as salvage.test.ts builds
+// its pieces.
+function craftedSpare(id: string, quality = 3): EquipmentInstance {
+  const base = generateStandardIssue({ slotType: "cargoBay", fittedToShipId: null, allocateId: () => id });
+  return { ...base, fittedToShipId: null, blueprintKey: SALVAGE_BP, quality };
+}
+
+// A state where all three salvage arms have a real, valid target and the queue is deep
+// enough (the full talent chain, depth 4) that a queueFull refusal can never be what a
+// Salvage Bay case is actually measuring.
+function salvageBayState(): GameState {
+  const base = freshState();
+  return {
+    ...base,
+    // Top of the loot ladder, so the material arm's tier draw is not degenerate.
+    fleetAdminLevel: 40,
+    unlockedHomeworldTalents: QUEUE_CHAIN,
+    ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }],
+    equipment: [...base.equipment, craftedSpare(SPARE_ID)],
+    inventory: { ...base.inventory, [HOUSING]: [new Decimal(3)] },
+  };
+}
+
+// (The three order shapes come from salvageOrder / shipSalvageOrder /
+// materialSalvageOrder above; nothing new is needed here.)
+
+// The in-flight salvage jobs on a state, the same set the adapter counts for slots.
+function salvageJobs(state: GameState) {
+  return state.activeProcesses.filter((p) => p.kind === "salvageJob");
+}
+
 describe("QUEUE_ADAPTERS: exhaustive over QueueFacilityKey", () => {
   it("has a complete row for every facility, and the iteration order lists them all", () => {
     // The Record type makes a MISSING row a compile error; this case is the runtime
@@ -760,22 +831,19 @@ describe("QUEUE_ADAPTERS: exhaustive over QueueFacilityKey", () => {
     expect([...QUEUE_FACILITY_ORDER].sort()).toEqual([...QUEUE_FACILITIES].sort());
   });
 
-  it("salvageBay is a STUB this unit and can never be promoted", () => {
-    // Phase 2 Unit 2.4 replaces this row with the real canStartSalvage / startSalvageJob
-    // delegation. Until then it is braked TWICE (no free slot AND a refusing gate), so a
-    // promotion pass cannot promote a salvage order however it is written.
-    const state = enqueueAll(craftState(), [{ facility: "salvageBay", order: salvageOrder() }]);
-    const adapter = QUEUE_ADAPTERS.salvageBay;
-    expect(adapter.hasFreeSlot(state)).toBe(false);
+  it("salvageBay DELEGATES to canStartSalvage / startSalvageJob, holding no gate logic of its own", () => {
+    // Phase 2 Unit 2.4 replaced Unit 1.3's double-braked stub with the real row. Asserting
+    // FUNCTION IDENTITY (not just equivalent behavior) is the point: it proves the table
+    // cannot grow a second opinion about whether a salvage may run, exactly as the
+    // craft-line rows delegate wholesale to canStartLine / startLine.
+    expect(QUEUE_ADAPTERS.salvageBay.canStart).toBe(canStartSalvage);
+    expect(QUEUE_ADAPTERS.salvageBay.start).toBe(startSalvageJob);
 
-    const gate = adapter.canStart(state, salvageOrder());
-    expect(gate.ok).toBe(false);
-    if (gate.ok) throw new Error("unreachable, narrowing only");
-    expect(gate.reason).toBe("notImplemented");
-
-    const started = adapter.start(state, salvageOrder());
-    expect(started.started).toBe(false);
-    expect(started.next).toBe(state); // same-ref no-op: it spent nothing and queued nothing
+    // And the stub's two brakes are genuinely gone: an empty bay has room, and a real
+    // spare passes the gate.
+    const state = salvageBayState();
+    expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(state)).toBe(true);
+    expect(QUEUE_ADAPTERS.salvageBay.canStart(state, salvageOrder(SPARE_ID))).toEqual({ ok: true });
   });
 });
 
@@ -1102,10 +1170,11 @@ describe("promoteQueuedOrders: a free slot pulls the oldest eligible order out o
     expect(queueIds(promoted)).toEqual(["q-3"]);
   });
 
-  it("never promotes a salvageBay entry while its adapter is a stub", () => {
-    // The stub is braked twice (no free slot AND a refusing gate). The promotion pass
-    // must respect that rather than reaching around it: Phase 2 Unit 2.4 is what makes
-    // salvage promotable, not this unit.
+  it("never promotes a salvageBay entry whose target has gone stale, however long it waits", () => {
+    // Unit 2.4 made the Salvage Bay promotable, so what this case now pins is the OTHER
+    // half: promotion is gated on the target still being real. "eq-1" names no piece in
+    // this save, so canStartSalvage answers notFound and the entry simply waits, visibly,
+    // instead of burning a bay slot on a countdown that could only end in nothing.
     const loaded = enqueueAll(craftState({ commonOre: 100 }), [
       { facility: "salvageBay", order: salvageOrder() },
     ]);
@@ -1116,11 +1185,9 @@ describe("promoteQueuedOrders: a free slot pulls the oldest eligible order out o
     const advanced = tick(500, loaded, seededRng());
     expect(queuedForFacility(advanced, "salvageBay").map((j) => j.id)).toEqual(["q-1"]);
     // The entry is byte-identical after 500 ticks: nothing consumed it, nothing rewrote
-    // it. (There is deliberately no assertion on a "salvageJob" process kind here: that
-    // kind does not exist until Phase 2 Unit 2.2, so asserting on it now would be a
-    // ghost check that compiles today only by accident.)
+    // it, and no salvageJob was ever created for it.
     expect(advanced.processQueue).toEqual(loaded.processQueue);
-    expect(advanced.activeProcesses).toEqual([]);
+    expect(salvageJobs(advanced)).toEqual([]);
   });
 
   it("draws NO rng, which is what keeps the seeded stream's position untouched", () => {
@@ -1606,9 +1673,10 @@ describe("buildCraftQueue: eligibility is the ADAPTER's answer, never a second o
     expect(refineryRows.some((r) => r.canStart)).toBe(true);
     expect(refineryRows.some((r) => !r.canStart)).toBe(true);
     expect(refineryRows[1].blockReason).toBe("notFound");
-    // The Salvage Bay stub refuses everything until Phase 2 Unit 2.4, with its own
-    // typed reason rather than a made-up one.
-    expect(buildCraftQueue(loaded, "salvageBay").queued[0].blockReason).toBe("notImplemented");
+    // The Salvage Bay row speaks SALVAGE's own reason vocabulary (Unit 2.4), not a
+    // made-up queue-local one: "eq-1" names no piece in this save, so the gate answers
+    // exactly what a live salvage of it would.
+    expect(buildCraftQueue(loaded, "salvageBay").queued[0].blockReason).toBe("notFound");
   });
 
   it("reports the LINE ENGINE's own reason when a queued order cannot afford its inputs", () => {
@@ -1766,14 +1834,13 @@ describe("buildCraftQueue: empty states", () => {
     expect(unbuilt.canEnqueue).toBe(true); // depth is a talent, not a facility level
   });
 
-  it("reflects the Salvage Bay's Phase 1 STUB rather than inventing a slot count", () => {
-    // The view-model twin of the QUEUE_ADAPTERS salvageBay stub: nothing runs there yet
-    // (the salvageJob kind lands in Phase 2 Unit 2.2) and it has no slot count until
-    // Unit 2.4, so slotsTotal is null rather than a guessed 0 or 1.
+  it("reports the Salvage Bay's REAL slot count and its free, empty bay (Unit 2.4)", () => {
+    // The view-model twin of the real adapter row: an idle bay has its slot free and
+    // reports SALVAGE_SLOT_COUNT rather than the Phase 1 stub's null.
     const view = buildCraftQueue(craftState(), "salvageBay");
     expect(view.running).toEqual([]);
-    expect(view.slotsTotal).toBeNull();
-    expect(view.hasFreeSlot).toBe(false);
+    expect(view.slotsTotal).toBe(SALVAGE_SLOT_COUNT);
+    expect(view.hasFreeSlot).toBe(true);
     expect(view.queued).toEqual([]);
   });
 });
@@ -1855,5 +1922,442 @@ describe("buildCraftQueue is PURE: it derives, it never writes", () => {
     first.queued[0].nextToPromote = true;
     expect(buildCraftQueue(loaded, "refinery").queued[0].nextToPromote).toBe(false);
     expect(loaded.processQueue).toHaveLength(1);
+  });
+});
+
+// ============================================================================
+// Crafting 0.13.3, PHASE 2 UNIT 2.4: the Salvage Bay becomes queueable end to end
+// (design 2026-09-01-crafting-0.13.3-design.md sections 7.2 + 7.3 + 7.6;
+//  build plan Phase 2 Unit 2.4 + assumption 4.)
+//
+// Units 2.1 to 2.3 built the halves: the derived reservation, the salvageJob kind and its
+// effect, the duration math, and the completion branch that resolves one on the seeded
+// stream. What was missing was the middle, because nothing could CREATE a salvage job.
+// This section covers the two functions that close that gap (canStartSalvage,
+// startSalvageJob), the real adapter row they are wired into, and the end-to-end path a
+// player actually takes: enqueue, promote, resolve, reward, reservation released.
+//
+// THE CASE THAT MATTERS MOST is the equipment-cap one. Salvaging is HOW a full spare pool
+// is relieved, so a cap check anywhere in the promotion path would re-open the softlock
+// 0.11.1 shipped an emergency fix for. It is pinned explicitly below.
+// ============================================================================
+
+// A captain genuinely out on a mission, the state that arms the shared onMissionLock the
+// ship arm consults. Shape copied from salvage.test.ts's own fixture so both suites
+// exercise the identical lock.
+function activeMission(): CaptainMissionState {
+  return {
+    kind: "extraction",
+    missionKey: "shortOreRun",
+    phase: "transitOut",
+    phaseProgressTicks: 0,
+    cargo: {} as CaptainMissionState["cargo"],
+    recalled: false,
+  };
+}
+
+// Everything a queued salvage can touch, in one comparable shape: queueSnapshot's fields
+// (inventory per bucket, processes, lines, the queue, every id counter) PLUS the stores
+// only salvage writes. Equipment and ships are compared whole, because a teardown moves
+// pieces between them and a divergence there is exactly what a desynchronized stream
+// produces.
+function salvageSnapshot(state: GameState) {
+  return {
+    ...queueSnapshot(state),
+    equipment: state.equipment,
+    ships: state.ships,
+    credits: state.credits.toString(),
+    nextEquipmentId: state.nextEquipmentId,
+    nextShipId: state.nextShipId,
+  };
+}
+
+describe("SALVAGE_SLOT_COUNT: one bay, no upgrade track (build plan assumption 4)", () => {
+  it("is a flat 1, and the adapter counts in-flight jobs against it", () => {
+    // The value is asserted so a retune is a deliberate, visible edit rather than a silent
+    // behavior change. The Salvage Bay is deliberately non-leveled: queue DEPTH, not slot
+    // count, is its throughput knob this release.
+    expect(SALVAGE_SLOT_COUNT).toBe(1);
+
+    const idle = salvageBayState();
+    expect(salvageJobsInFlight(idle)).toEqual([]);
+    expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(idle)).toBe(true);
+
+    // One job in flight fills the bay.
+    const busy = startSalvageJob(idle, salvageOrder(SPARE_ID)).next;
+    expect(salvageJobsInFlight(busy)).toHaveLength(1);
+    expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(busy)).toBe(false);
+  });
+
+  it("counts a job by its EFFECT, so the slot count and the reservation can never disagree", () => {
+    // salvageJobsInFlight narrows on effect.type === "salvageResolve", the same narrowing
+    // reservation.ts uses. Every other process kind is invisible to it, so a craft running
+    // elsewhere never occupies a bay slot.
+    const withCraft = startLine(craftState({ commonOre: 100 }), "refine", REFINE_KEY, {
+      kind: "batch",
+      remaining: 1,
+    }).next;
+    const stepped = economyTick(withCraft, 1);
+    expect(stepped.activeProcesses.length).toBeGreaterThan(0); // non-vacuous
+    expect(salvageJobsInFlight(stepped)).toEqual([]);
+    expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(stepped)).toBe(true);
+  });
+});
+
+describe("canStartSalvage: the promotion gate, per target arm", () => {
+  it("passes a real spare, and refuses a target that no longer exists", () => {
+    const state = salvageBayState();
+    expect(canStartSalvage(state, salvageOrder(SPARE_ID))).toEqual({ ok: true });
+    // Gone since it was queued (salvaged another way, or a hand-edited id). Refused with
+    // the identity reason rather than promoted into a countdown that ends in nothing.
+    expect(canStartSalvage(state, salvageOrder("ghost-1"))).toEqual({ ok: false, reason: "notFound" });
+  });
+
+  it("refuses a spare that has since been INSTALLED on a hull", () => {
+    // The reservation makes this hard to reach (Unit 2.1 blocks installing a reserved
+    // piece), but the gate confirms it independently: salvageEquipment refuses a fitted
+    // piece, so promoting one would burn the bay for a guaranteed no-op.
+    const state = salvageBayState();
+    const installed: GameState = {
+      ...state,
+      equipment: state.equipment.map((e) => (e.id === SPARE_ID ? { ...e, fittedToShipId: "ship-2" } : e)),
+    };
+    expect(canStartSalvage(installed, salvageOrder(SPARE_ID))).toEqual({ ok: false, reason: "fitted" });
+  });
+
+  it("gates the MATERIAL arm on category and on actually holding one", () => {
+    const state = salvageBayState();
+    expect(canStartSalvage(state, materialSalvageOrder(HOUSING))).toEqual({ ok: true });
+
+    // Not a salvaged material at all (commonOre is raw loot with no loot pool), the same
+    // category gate salvageSalvagedMaterial applies.
+    expect(canStartSalvage(state, materialSalvageOrder("commonOre"))).toEqual({
+      ok: false,
+      reason: "notSalvagedMaterial",
+    });
+
+    // Held zero: the order WAITS rather than being refused at enqueue, which is the
+    // fungible-target rule (queue three, hold one, the extras simply wait).
+    const empty: GameState = { ...state, inventory: { ...state.inventory, [HOUSING]: [new Decimal(0)] } };
+    expect(canStartSalvage(empty, materialSalvageOrder(HOUSING))).toEqual({ ok: false, reason: "noneHeld" });
+  });
+
+  it("applies salvageShip's three gates, in salvageShip's own order", () => {
+    const state = salvageBayState();
+    expect(canStartSalvage(state, shipSalvageOrder("ship-2"))).toEqual({ ok: true });
+    expect(canStartSalvage(state, shipSalvageOrder("ship-404"))).toEqual({ ok: false, reason: "shipNotFound" });
+
+    // LAST HULL: the peace-design softlock guard, enforced at promotion too so the player
+    // sees a reason instead of a countdown that could only end in a refusal.
+    const lone: GameState = { ...state, ships: [state.ships[0]] };
+    expect(canStartSalvage(lone, shipSalvageOrder(lone.ships[0].id))).toEqual({ ok: false, reason: "lastShip" });
+
+    // ON MISSION wins over lastShip, because "recall it first" is the step the player can
+    // actually take. The fresh save's captain is assigned to the lone hull and sent out.
+    const captain = state.captains[0];
+    const flying: GameState = {
+      ...lone,
+      captains: state.captains.map((c) => (c.id === captain.id ? { ...c, mission: activeMission() } : c)),
+      ships: lone.ships.map((s) => ({ ...s, assignedCaptainId: captain.id })),
+    };
+    expect(canStartSalvage(flying, shipSalvageOrder(lone.ships[0].id))).toEqual({
+      ok: false,
+      reason: "shipOnMission",
+    });
+  });
+
+  it("answers wrongFacility for an order shape that is not a salvage at all", () => {
+    expect(canStartSalvage(salvageBayState(), refineOrder())).toEqual({ ok: false, reason: "wrongFacility" });
+  });
+
+  it("reports noSlot while the bay is busy, the same token every other facility uses", () => {
+    const busy = startSalvageJob(salvageBayState(), salvageOrder(SPARE_ID)).next;
+    expect(canStartSalvage(busy, materialSalvageOrder(HOUSING))).toEqual({ ok: false, reason: "noSlot" });
+  });
+
+  it("⚠️ NEVER consults the equipment storage cap: the escape valve survives the queue", () => {
+    // THE SOFTLOCK CASE (design section 7.3). A player whose spare pool is FULL must still
+    // be able to queue and promote a salvage, because salvaging is the action that empties
+    // it. A cap check anywhere in this path re-opens the 0.11.1 softlock wearing a queue.
+    const base = salvageBayState();
+    const cap = equipmentStorageCap(base);
+    const spares = Array.from({ length: cap }, (_, i) => craftedSpare(`full-${i + 1}`, 0));
+    const full: GameState = { ...base, equipment: [...base.equipment, ...spares] };
+    expect(equipmentAtCap(full)).toBe(true); // non-vacuous: the pool really is full
+
+    // The gate passes AT the cap, for a spare AND for a hull teardown (which returns even
+    // MORE pieces to the pool).
+    expect(canStartSalvage(full, salvageOrder(SPARE_ID))).toEqual({ ok: true });
+    expect(canStartSalvage(full, shipSalvageOrder("ship-2"))).toEqual({ ok: true });
+
+    // And it promotes for real, through the whole pass, with the pool still full.
+    const loaded = enqueueAll(full, [{ facility: "salvageBay", order: salvageOrder(SPARE_ID) }]);
+    const promoted = promoteQueuedOrders(loaded);
+    expect(queueIds(promoted)).toEqual([]);
+    expect(salvageJobsInFlight(promoted)).toHaveLength(1);
+  });
+});
+
+describe("startSalvageJob: a timed job that consumes NOTHING at start", () => {
+  it("creates a salvageJob carrying the salvageResolve effect and the target's own duration", () => {
+    const state = salvageBayState();
+    const result = startSalvageJob(state, salvageOrder(SPARE_ID));
+    expect(result.started).toBe(true);
+
+    const jobs = salvageJobsInFlight(result.next);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].kind).toBe("salvageJob");
+    expect(jobs[0].effect).toEqual({
+      type: "salvageResolve",
+      target: { kind: "equipment", instanceId: SPARE_ID },
+    });
+
+    // The duration is the Unit 2.2 math over THIS piece's stored numbers, recomputed from
+    // the source rather than hard-coded so a retune of the constants retunes this case.
+    const piece = state.equipment.find((e) => e.id === SPARE_ID);
+    if (piece === undefined) throw new Error("fixture lost its spare");
+    const expected = salvageDurationTicks({ kind: "equipment", iLevel: piece.iLevel, quality: piece.quality });
+    expect(jobs[0].durationTicks).toBe(expected);
+    expect(jobs[0].remainingTicks).toBe(expected);
+    expect(expected).toBeGreaterThan(1); // non-vacuous: a real countdown, not an instant
+  });
+
+  it("sizes the material arm flat and the ship arm off the hull's own build time", () => {
+    const state = salvageBayState();
+    const material = salvageJobsInFlight(startSalvageJob(state, materialSalvageOrder(HOUSING)).next)[0];
+    expect(material.durationTicks).toBe(salvageDurationTicks({ kind: "material" }));
+
+    const teardown = salvageJobsInFlight(startSalvageJob(state, shipSalvageOrder("ship-2")).next)[0];
+    const buildTicks = SHIP_TYPES.generalFreighter.buildRecipe.durationTicks;
+    expect(teardown.durationTicks).toBe(salvageDurationTicks({ kind: "ship", buildDurationTicks: buildTicks }));
+    // A hull teardown really is the long one, which is the point of scaling it off the build.
+    expect(teardown.durationTicks).toBeGreaterThan(material.durationTicks);
+    // The exported helper agrees with what the start path actually used.
+    expect(salvageJobDurationTicks(state, { kind: "ship", shipId: "ship-2" })).toBe(teardown.durationTicks);
+  });
+
+  it("spends NOTHING at start: the target is still there, and so is every material", () => {
+    // The deliberate deviation (design section 7.3): salvage consumes and rewards
+    // atomically at COMPLETION, and the derived reservation protects the target meanwhile.
+    // A deduction here would double-charge the player.
+    const state = salvageBayState();
+    const started = startSalvageJob(state, materialSalvageOrder(HOUSING)).next;
+    expect(itemTotal(started.inventory, HOUSING).toString()).toBe("3");
+    expect(inventorySnapshot(started)).toEqual(inventorySnapshot(state));
+    expect(started.equipment).toEqual(state.equipment);
+    expect(started.ships).toEqual(state.ships);
+    expect(started.credits.toString()).toBe(state.credits.toString());
+
+    // The spare arm likewise: the piece is still in the pool, now RESERVED by the job.
+    const spareStarted = startSalvageJob(state, salvageOrder(SPARE_ID)).next;
+    expect(spareStarted.equipment.find((e) => e.id === SPARE_ID)).toBeDefined();
+    expect([...salvageReservedInstanceIds(spareStarted)]).toEqual([SPARE_ID]);
+  });
+
+  it("is a same-REFERENCE no-op when the gate refuses", () => {
+    const state = salvageBayState();
+    const refused = startSalvageJob(state, salvageOrder("ghost-1"));
+    expect(refused.started).toBe(false);
+    expect(refused.next).toBe(state);
+    // A non-salvage shape too, which cannot reach startProcess at all.
+    expect(startSalvageJob(state, refineOrder()).next).toBe(state);
+  });
+
+  it("draws NO rng at start: every salvage roll still happens at completion", () => {
+    const spy = vi.spyOn(Math, "random");
+    try {
+      const started = startSalvageJob(salvageBayState(), salvageOrder(SPARE_ID));
+      expect(started.started).toBe(true); // non-vacuous
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("promoteQueuedOrders: the Salvage Bay promotes like every other facility", () => {
+  it("promotes a queued salvage into a real job and REMOVES it from the queue", () => {
+    const loaded = enqueueAll(salvageBayState(), [{ facility: "salvageBay", order: salvageOrder(SPARE_ID) }]);
+    expect(salvageJobsInFlight(loaded)).toEqual([]);
+
+    const promoted = promoteQueuedOrders(loaded);
+    expect(queueIds(promoted)).toEqual([]);
+    const jobs = salvageJobsInFlight(promoted);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].effect.target).toEqual({ kind: "equipment", instanceId: SPARE_ID });
+    // The reservation moved from the queue to the job with NO GAP: the piece is spoken for
+    // on both sides of the handoff.
+    expect([...salvageReservedInstanceIds(promoted)]).toEqual([SPARE_ID]);
+  });
+
+  it("respects SALVAGE_SLOT_COUNT: a second order waits for the bay", () => {
+    const loaded = enqueueAll(salvageBayState(), [
+      { facility: "salvageBay", order: salvageOrder(SPARE_ID) },
+      { facility: "salvageBay", order: materialSalvageOrder(HOUSING) },
+    ]);
+    const promoted = promoteQueuedOrders(loaded);
+
+    // Exactly one job started, in queue order, and the runner-up kept its place.
+    expect(salvageJobsInFlight(promoted)).toHaveLength(SALVAGE_SLOT_COUNT);
+    expect(queueIds(promoted)).toEqual(["q-2"]);
+    // Promoting again changes nothing while the bay is busy (same-reference no-op).
+    expect(promoteQueuedOrders(promoted)).toBe(promoted);
+  });
+
+  it("leaves a stale target queued instead of burning the bay on it", () => {
+    // Skip-on-block with a salvage head: the ghost is stepped over, the real order behind
+    // it promotes, and the ghost keeps its position for the player to remove.
+    const loaded = enqueueAll(salvageBayState(), [
+      { facility: "salvageBay", order: salvageOrder("ghost-1") },
+      { facility: "salvageBay", order: salvageOrder(SPARE_ID) },
+    ]);
+    const promoted = promoteQueuedOrders(loaded);
+    expect(queueIds(promoted)).toEqual(["q-1"]);
+    expect(salvageJobsInFlight(promoted)[0].effect.target).toEqual({
+      kind: "equipment",
+      instanceId: SPARE_ID,
+    });
+  });
+});
+
+describe("the Salvage Bay end to end: enqueue, promote, resolve, reward, release", () => {
+  it("runs a spare from a queued order to recovered materials across live ticks", () => {
+    const base = salvageBayState();
+    const queued = enqueueOrder(base, "salvageBay", salvageOrder(SPARE_ID));
+    expect(queued.queued).toBe(true);
+    const loaded = queued.next;
+
+    // The piece is reserved from the moment it is queued, BEFORE anything runs.
+    expect([...salvageReservedInstanceIds(loaded)]).toEqual([SPARE_ID]);
+    // Its recipe inputs are the reward to look for, read off the blueprint data.
+    const inputs = Object.keys(BLUEPRINTS[SALVAGE_BP].recipe.inputs);
+    const before = inputs.map((id) => itemTotal(loaded.inventory, id).toString());
+
+    // One tick promotes it (the promotion pass runs in economyTick's tail).
+    const afterOne = economyTick(loaded, 1, seededRng());
+    expect(queueIds(afterOne)).toEqual([]);
+    expect(salvageJobsInFlight(afterOne)).toHaveLength(1);
+    const duration = salvageJobsInFlight(afterOne)[0].durationTicks;
+
+    // Step past the countdown: the job resolves through the Unit 2.3 completion branch.
+    const done = stepTicks(afterOne, duration + 1, seededRng());
+    expect(salvageJobsInFlight(done)).toEqual([]);
+    // REWARD APPLIED: the spare is consumed and its recipe inputs came back.
+    expect(done.equipment.find((e) => e.id === SPARE_ID)).toBeUndefined();
+    const after = inputs.map((id) => itemTotal(done.inventory, id).toString());
+    expect(after).not.toEqual(before);
+    expect(inputs.some((id) => itemTotal(done.inventory, id).gt(0))).toBe(true);
+    // RESERVATION RELEASED, with no bookkeeping: the job is gone, so nothing derives it.
+    expect(salvageReservedInstanceIds(done).size).toBe(0);
+    expect(done.processQueue).toEqual([]);
+  });
+
+  it("runs a queued HULL teardown to completion, freeing the berth and its reservation", () => {
+    const base = salvageBayState();
+    const loaded = enqueueAll(base, [{ facility: "salvageBay", order: shipSalvageOrder("ship-2") }]);
+    expect([...salvageReservedShipIds(loaded)]).toEqual(["ship-2"]);
+
+    const teardownTicks = salvageJobDurationTicks(base, { kind: "ship", shipId: "ship-2" });
+    const done = stepTicks(loaded, teardownTicks + 2, seededRng());
+
+    expect(done.ships.find((s) => s.id === "ship-2")).toBeUndefined();
+    expect(done.credits.gt(base.credits)).toBe(true); // the build-credit refund landed
+    expect(salvageJobsInFlight(done)).toEqual([]);
+    expect(salvageReservedShipIds(done).size).toBe(0);
+    expect(done.processQueue).toEqual([]);
+  });
+});
+
+describe("⚠️ parity: a Salvage Bay queue drains identically offline and live", () => {
+  it("parity: queued salvages promote, complete and pay out the same across tick(span) and stepped ticks", () => {
+    // The Unit 2.4 parity case the build plan asks for. TWO queued salvages on ONE bay
+    // slot, so the span covers a promotion, a completion, and the promotion the freed slot
+    // allows: the exact interleaving where a divergence in promotion timing or in draw
+    // order would show up as different loot.
+    const base = enqueueAll(salvageBayState(), [
+      { facility: "salvageBay", order: salvageOrder(SPARE_ID) },
+      { facility: "salvageBay", order: materialSalvageOrder(HOUSING) },
+    ]);
+    const SPAN = 60; // whole ticks only: tick()'s trailing-fractional artifact is not in play
+
+    const jumped = tick(SPAN, base, seededRng());
+    const { final: stepped, log } = stepTicksLogged(base, SPAN, seededRng());
+
+    // Deep-equal over everything a salvage can write, INCLUDING per-quality inventory
+    // buckets (a loot roll deposits at its tier's quality, so a desynchronized stream
+    // corrupts the bucket split first, while totals can still agree).
+    expect(salvageSnapshot(jumped)).toEqual(salvageSnapshot(stepped));
+
+    // NON-VACUITY: both orders really promoted, on two DIFFERENT ticks (the second had to
+    // wait for the bay), and both really completed with their rewards applied.
+    expect(log.map((entry) => entry.split(":")[1])).toEqual(["q-1", "q-2"]);
+    expect(new Set(log.map((entry) => entry.split(":")[0])).size).toBe(2);
+    expect(queueIds(jumped)).toEqual([]);
+    expect(salvageJobsInFlight(jumped)).toEqual([]);
+    expect(jumped.equipment.find((e) => e.id === SPARE_ID)).toBeUndefined(); // spare recycled
+    expect(itemTotal(jumped.inventory, HOUSING).toString()).toBe("2");       // one Housing rolled
+  });
+});
+
+describe("buildCraftQueue: the Salvage Bay reports real running rows (Unit 2.4)", () => {
+  it("renders one row per in-flight job, with the target's label and raw tick counts", () => {
+    const base = salvageBayState();
+    const running = promoteQueuedOrders(
+      enqueueAll(base, [{ facility: "salvageBay", order: salvageOrder(SPARE_ID) }])
+    );
+    const job = salvageJobsInFlight(running)[0];
+
+    const view = buildCraftQueue(running, "salvageBay");
+    expect(view.slotsTotal).toBe(SALVAGE_SLOT_COUNT);
+    expect(view.runningCount).toBe(1);
+    expect(view.hasFreeSlot).toBe(false); // the bay's only slot is taken
+    expect(view.running).toEqual([
+      {
+        id: job.id, // the PROCESS id: a salvage job has no owning line
+        label: salvageTargetLabel(running, { kind: "equipment", instanceId: SPARE_ID }),
+        modeLabel: "salvage",
+        continuous: false,
+        remaining: 0,
+        progress: 0, // freshly started: nothing has elapsed yet
+        remainingTicks: job.durationTicks,
+        durationTicks: job.durationTicks,
+      },
+    ]);
+  });
+
+  it("advances the row's progress as the job runs, and drops it when the job completes", () => {
+    const base = salvageBayState();
+    const started = promoteQueuedOrders(
+      enqueueAll(base, [{ facility: "salvageBay", order: materialSalvageOrder(HOUSING) }])
+    );
+    const duration = salvageJobsInFlight(started)[0].durationTicks;
+
+    const midway = stepTicks(started, 2, seededRng());
+    const row = buildCraftQueue(midway, "salvageBay").running[0];
+    expect(row.remainingTicks).toBe(duration - 2);
+    expect(row.progress).toBeCloseTo(2 / duration);
+
+    const done = stepTicks(midway, duration, seededRng());
+    const finished = buildCraftQueue(done, "salvageBay");
+    expect(finished.running).toEqual([]);
+    expect(finished.hasFreeSlot).toBe(true);
+  });
+
+  it("shows a QUEUED salvage row blocked by the running one, with the noSlot reason", () => {
+    // The queue and the running list explaining each other, which is why they are built
+    // from one derivation: the row above the queue IS the reason the queue is waiting.
+    const loaded = promoteQueuedOrders(
+      enqueueAll(salvageBayState(), [
+        { facility: "salvageBay", order: salvageOrder(SPARE_ID) },
+        { facility: "salvageBay", order: materialSalvageOrder(HOUSING) },
+      ])
+    );
+    const view = buildCraftQueue(loaded, "salvageBay");
+    expect(view.running).toHaveLength(1);
+    expect(view.queued).toHaveLength(1);
+    expect(view.queued[0].canStart).toBe(false);
+    expect(view.queued[0].blockReason).toBe("noSlot");
+    expect(view.queued[0].modeLabel).toBe("salvage");
+    expect(view.nextToPromoteId).toBeNull(); // nothing can promote while the bay is busy
   });
 });

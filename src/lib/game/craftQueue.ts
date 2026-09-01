@@ -71,6 +71,11 @@ import {
   queueDepth,
   queuedForFacility,
   refineSlotCount,
+  // Crafting 0.13.3 (Phase 2 Unit 2.4): the Salvage Bay's real slot count and the ONE
+  // definition of "a salvage job is running". Both come from tick.ts for the same reason
+  // refineSlotCount does: the engine owns the answer and this module only renders it.
+  SALVAGE_SLOT_COUNT,
+  salvageJobsInFlight,
   type EnqueueBlockReason,
   type QueueBlockReason,
 } from "./tick";
@@ -122,9 +127,13 @@ export interface CraftQueueRow {
   // The RAW reason, never a sentence. The player-facing text is produced by
   // App.svelte's existing startLineBlockText seam (design section 5.4), so there is
   // one wording of "not enough Titanium Ingot" in the game and the queue borrows it.
-  // ⚠️ QueueBlockReason widens StartLineBlockReason by two queue-only members
-  // (wrongFacility, notImplemented), so Phase 4 must extend that mapper to cover
-  // them rather than letting them fall through to a generic string.
+  // ⚠️ PHASE 4 MUST ROUTE THIS BY ORDER TYPE, not by token alone (Unit 2.4).
+  // QueueBlockReason spans BOTH gate vocabularies: canStartLine's for a craftLine
+  // order (startLineBlockText) and salvage.ts's for a salvage order
+  // (salvageRejectText, which App.svelte already has). `notFound` is in both with
+  // two different readings, so the mapper picks its wording from `order.type`. The
+  // shared `noSlot` and the queue-only `wrongFacility` are handled before that
+  // split, since neither salvage mapper knows them.
   blockReason: QueueBlockReason | null;
   canMoveUp: boolean;                  // false at this facility's first position (moveQueuedOrder no-ops)
   canMoveDown: boolean;                // false at this facility's last position
@@ -138,11 +147,11 @@ export interface CraftQueueView {
   // --- running work (the slots) ---
   running: CraftQueueRunningRow[];
   runningCount: number;         // running.length, hoisted so the "N / M running" readout is field-only
-  // Total SLOTS at this facility, or null when the facility has no slot count yet.
-  // The Salvage Bay's own count arrives with its real adapter in Phase 2 Unit 2.4;
-  // reporting null (rather than inventing 0 or 1 here) keeps this module honest about
-  // what the engine currently knows. Refinery / Fabricator delegate to the same
-  // refineSlotCount / fabricateSlotCount the consoles already read.
+  // Total SLOTS at this facility, or null for a future queue-capable facility whose
+  // slot model has not landed yet. Every facility that exists today reports a real
+  // number: Refinery and Fabricator delegate to the same refineSlotCount /
+  // fabricateSlotCount the consoles already read, and the Salvage Bay reports
+  // SALVAGE_SLOT_COUNT (Phase 2 Unit 2.4).
   slotsTotal: number | null;
   hasFreeSlot: boolean;         // delegated to the adapter, the same question promotion asks
 
@@ -311,14 +320,14 @@ function isContinuous(mode: CraftLineMode): boolean {
 // The production lines a facility is currently running, or an empty list for a
 // facility that has none.
 //
-// ⚠️ THE SALVAGE BAY RUNS NOTHING IN PHASE 1, and that is not an oversight: the
-// salvageJob process kind does not exist until Phase 2 Unit 2.2, so there is no
-// in-flight salvage work to enumerate and inventing a placeholder row would be a
-// lie. This branch is the view-model twin of the QUEUE_ADAPTERS salvageBay stub and
-// is filled in alongside it (Unit 2.4), at which point it enumerates activeProcesses
-// of kind "salvageJob".
+// ⚠️ THE SALVAGE BAY RUNS JOBS, NOT LINES (Phase 2 Unit 2.4). The Refinery and the
+// Fabricator hold a CraftLine per slot with a TimedProcess attached to it; the Salvage
+// Bay has no line layer at all, its job IS the unit of work. Both shapes land on the
+// same row model on purpose, because the console renders "running above queued" from
+// ONE derivation and a queued salvage row's block reason is frequently the noSlot the
+// running list sits right above to explain.
 function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueueRunningRow[] {
-  if (facility === "salvageBay") return [];
+  if (facility === "salvageBay") return salvageRunningRows(state);
 
   const kind: CraftLineKind = facility === "refinery" ? "refine" : "fabricate";
   const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
@@ -353,10 +362,53 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
   });
 }
 
-// The facility's total SLOT count, or null when the engine has no count for it yet
-// (see CraftQueueView.slotsTotal). Delegates to the exported slot helpers so the
-// queue panel's "N / M running" and the console's own slot readout can never
-// disagree about M.
+// The IN-FLIGHT salvage jobs as running rows, in activeProcesses order.
+//
+// Enumerated through tick.ts's salvageJobsInFlight, never by a local scan of
+// activeProcesses: that helper is the single definition of "a salvage is running", and
+// it is the same one the adapter's hasFreeSlot counts against SALVAGE_SLOT_COUNT. A
+// second local predicate here could disagree, and the row list would then contradict the
+// slot readout printed beside it.
+//
+// The three fields whose meaning differs from a craft line, and why:
+//   id          the PROCESS id ("proc-N"), because a salvage job has no owning line. It is
+//               stable for the job's whole life, which is all a row key needs. There is
+//               deliberately no Cancel target: cancelling an in-flight salvage is not a
+//               shipped action (a queued one is removed from the queue instead).
+//   modeLabel   the literal "salvage", matching queuedModeLabel's salvage arm, so a row
+//               does not change vocabulary the moment it promotes.
+//   remaining   always 0: a job is one indivisible piece of work with nothing queued
+//               behind it inside itself, which is exactly what the craft-line model calls
+//               "finishing its current run".
+function salvageRunningRows(state: GameState): CraftQueueRunningRow[] {
+  return salvageJobsInFlight(state).map((job) => ({
+    id: job.id,
+    // Named through the same helper a QUEUED salvage row uses, so the target reads
+    // identically before and after promotion (and falls back to the raw id if it has
+    // gone, which is a real state: a stale target is a fail-safe no-op at completion).
+    label: salvageTargetLabel(state, job.effect.target),
+    modeLabel: "salvage",
+    continuous: false, // a job ends; only a craft LINE can run until cancelled
+    remaining: 0,
+    // The same 0-duration guard the line rows use: a malformed job reads 0 progress
+    // rather than dividing by zero.
+    progress: job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 0,
+    // RAW ticks, never formatted here (preservation inventory items 0.1 + 0.2): the
+    // console runs them through the existing readout helpers with the player's
+    // showTickCounts preference and state.tickDurationSeconds. Non-null on every salvage
+    // row, because unlike a craft line the job IS the work: there is no "configured but
+    // not yet started" state to represent.
+    remainingTicks: job.remainingTicks,
+    durationTicks: job.durationTicks,
+  }));
+}
+
+// The facility's total SLOT count. Delegates to the exported slot helpers so the queue
+// panel's "N / M running" and the console's own slot readout can never disagree about M.
+//
+// Returns `number | null` still, even though every facility now has a count: the null arm
+// is the honest answer for a future queue-capable facility whose slot model has not landed
+// yet, and removing it would force the next such facility to invent a fake number.
 function slotsTotalFor(state: GameState, facility: QueueFacilityKey): number | null {
   switch (facility) {
     case "refinery":
@@ -364,7 +416,9 @@ function slotsTotalFor(state: GameState, facility: QueueFacilityKey): number | n
     case "fabricator":
       return fabricateSlotCount(state);
     case "salvageBay":
-      return null; // Phase 2 Unit 2.4 introduces SALVAGE_SLOT_COUNT
+      // A flat constant, not a derivation: the Salvage Bay is deliberately non-leveled and
+      // its throughput knob is QUEUE DEPTH, not parallel slots. See SALVAGE_SLOT_COUNT.
+      return SALVAGE_SLOT_COUNT;
   }
 }
 

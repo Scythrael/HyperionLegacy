@@ -138,6 +138,11 @@ import {
   // it, so a fourth arm becomes a compile error there rather than a silently unhandled
   // target.
   type SalvageTargetRef,
+  // Crafting 0.13.3 (Phase 2 Unit 2.4): the PURE duration function Unit 2.2 landed, read
+  // by startSalvageJob below to size a salvageJob's countdown. It lives in model.ts (not
+  // here) so it can be unit-tested with no GameState at all: it speaks in NUMBERS, and
+  // this file does the one lookup that turns a target id into those numbers.
+  salvageDurationTicks,
 } from "./model";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
@@ -161,7 +166,12 @@ import { isDuplicateSalvageTarget } from "./reservation";
 //
 // The invariant that replaced the old grep is enforced by the rewritten guard in
 // salvage.test.ts: every salvage call site in THIS file passes rng.
-import { salvageEquipment, salvageSalvagedMaterial, salvageShip } from "./salvage";
+//
+// Crafting 0.13.3 (Phase 2 Unit 2.4) also pulls SalvageRejectReason across, TYPE-ONLY.
+// canStartSalvage answers in salvage.ts's OWN reason vocabulary rather than inventing a
+// parallel one, exactly as the refine/fabricate adapters answer in canStartLine's: one
+// wording of "that hull's captain is flying" in the game, and the queue borrows it.
+import { salvageEquipment, salvageSalvagedMaterial, salvageShip, type SalvageRejectReason } from "./salvage";
 import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // Combat 0.13.0 (Phase 9b.5a): patrol dispatch helpers. combatHullTypeOf gates the
 // combat-hull requirement + resolves the CombatHullType for the drone default;
@@ -218,7 +228,11 @@ import { computeItemLevel, generateEquipment, generateWeapon, generateDronePod, 
 // Equipment 0.11.0 (Task 13/14): equippedFor resolves a ship's fitted pieces so both
 // the mission-resolution seam (economyTick) and the dispatch gate (canDispatch) can
 // fold equipment stats into shipDerivedStats from the SAME single source of truth.
-import { equippedFor } from "./equipment";
+// Crafting 0.13.3 (Phase 2 Unit 2.4): onMissionLock is the SHARED "this hull's captain is
+// flying" guard (one source of truth for install, ship swap and hull teardown alike).
+// canStartSalvage's ship arm reuses it rather than re-reading captain.mission itself, so a
+// queued teardown is refused by exactly the rule salvageShip will apply at completion.
+import { equippedFor, onMissionLock } from "./equipment";
 // Crafting Allocation Redesign (Task C2): the per-slot line engine below reuses C1's
 // pure allocation core, `lineInputsPerIteration` builds a line's per-iteration input
 // map from the recipe registries (the SAME map startRefineJob/startFabricateJob build
@@ -4716,6 +4730,57 @@ export function shipBuildSlotCount(state: GameState): number {
   return Math.min(BUILD_CONCURRENCY_CAP, buildableBays);
 }
 
+// ----------------------------------------------------------------------------
+// SALVAGE BAY SLOTS (Crafting 0.13.3, Phase 2 Unit 2.4, build plan assumption 4)
+// ----------------------------------------------------------------------------
+// How many salvage jobs may be IN FLIGHT at once. It sits here, beside refineSlotCount /
+// fabricateSlotCount / shipyardBayCount, because it answers the same question they do and
+// the queue's hasFreeSlot reads all four through the same adapter shape.
+//
+// ⚠️ A FLAT CONSTANT, NOT A DERIVATION, AND DELIBERATELY WITHOUT AN UPGRADE TRACK. The
+// three helpers above all derive their counts from reached FACILITIES upgrade rungs, so a
+// bare `1` here looks at first glance like an oversight. It is not:
+//   1. The Salvage Bay is one of the three NON-LEVELED facilities (with the Warehouse's
+//      storage track and the Docks, per the 0.13.3 preservation inventory item 1a): its
+//      console shows a SUBTITLE, not "Level N", and FACILITIES carries no salvageBay
+//      upgrade array to scan. There are no rungs to sum, so there is nothing to derive.
+//   2. QUEUE DEPTH, NOT SLOT COUNT, IS THE SALVAGE BAY'S THROUGHPUT KNOB this release.
+//      The player buys the fleetLogisticsQueue talent chain and queues more teardowns; the
+//      bay still works one at a time. That keeps exactly ONE progression axis on this
+//      facility instead of two competing ones, and it is why the design asked for a queue
+//      here rather than for parallel slots.
+//   3. Adding a level track to the Salvage Bay is scope the design did not ask for
+//      (it would need rungs, costs, a console Upgrades block and a migration decision).
+// If a later release does want parallel salvage, this becomes a derived helper with the
+// same signature the adapter already calls, and nothing else moves. FIRST-PASS TUNABLE.
+export const SALVAGE_SLOT_COUNT = 1;
+
+// A salvage job that is ALREADY RUNNING, with its effect narrowed so the target is
+// reachable without a second cast at every call site.
+export type SalvageJobProcess = TimedProcess & {
+  effect: Extract<ProcessEffect, { type: "salvageResolve" }>;
+};
+
+// Every in-flight salvage job, in activeProcesses order.
+//
+// THE single definition of "a salvage is running", so the three consumers cannot drift:
+// the adapter's hasFreeSlot counts these against SALVAGE_SLOT_COUNT, canStartSalvage's
+// material arm counts the ones already committed to an item id, and the Phase 4 view model
+// renders one progress row per entry.
+//
+// ⚠️ NARROWED ON THE EFFECT, NOT ON process.kind, for the two reasons reservation.ts's
+// in-flight loop gives: the effect is what carries the target (so this is the narrowing
+// that actually produces the value callers need), and it cannot go stale against the kind
+// on a hand-edited or mislabelled save. reservation.ts derives its reserved set the same
+// way, so a job is reserved and occupies a slot under exactly one condition.
+export function salvageJobsInFlight(state: GameState): SalvageJobProcess[] {
+  // `?? []` for the same defensive reason every other activeProcesses reader carries it:
+  // a hand-built fixture can arrive without the field, and a slot count must never throw.
+  return (state.activeProcesses ?? []).filter(
+    (process): process is SalvageJobProcess => process.effect.type === "salvageResolve"
+  );
+}
+
 // ============================================================================
 // Shipyard build engine, Phase 5, Task S3
 // (docs/plans/2026-07-16-shipyard-plan.md §S3, design §5). Three functions built on
@@ -6103,11 +6168,13 @@ export function cancelLine(state: GameState, lineId: string): GameState {
 // Crafting 0.13.3 (Phase 1 Unit 1.3): QUEUE MUTATION API + QUEUE_ADAPTERS
 // (docs/plans/2026-09-01-crafting-0.13.3-design.md §5.1, §5.3, §5.6).
 //
-// ⚠️ STILL NOT WIRED INTO THE TICK. Everything below is either a pure reader or a
-// pure state transform that a UI handler calls; NOTHING here runs inside
-// economyTick yet. The promotion pass that consumes QUEUE_ADAPTERS lands in Unit
-// 1.4. That is why this unit cannot move a single tick's behavior, and why closed-
-// form parity is preserved BY CONSTRUCTION here rather than by argument.
+// ⚠️ WHAT RUNS IN THE TICK AND WHAT DOES NOT (updated by Unit 1.4, then 2.4).
+// The MUTATION API (enqueue / remove / move) is still UI-only: those are pure state
+// transforms a handler calls, and nothing in the tick invokes them. QUEUE_ADAPTERS
+// is the other half: it is consumed by promoteQueuedOrders, which DOES run inside
+// economyTick's tail (see that function's header for the parity argument). So an
+// edit to a gate below changes tick behavior, while an edit to a mutation function
+// cannot.
 //
 // WHY THIS LIVES IN tick.ts AND NOT IN craftQueue.ts (build plan assumptions 1+2):
 // the refinery and fabricator adapters delegate WHOLESALE to canStartLine /
@@ -6118,19 +6185,39 @@ export function cancelLine(state: GameState, lineId: string): GameState {
 
 // Why a queued order cannot start RIGHT NOW, as reported by an adapter's canStart.
 //
-// It is the line engine's own StartLineBlockReason WIDENED by exactly two queue-only
-// cases, deliberately not a fresh parallel union: a queued refine/fabricate order's
-// block reason IS whatever the configurator's disabled Start button would say for the
-// same order, so the queue and the console can never tell the player two different
-// stories about the same recipe (design §5.6, "zero new gate logic").
+// It is the two EXISTING gate vocabularies widened by exactly ONE queue-only case,
+// deliberately not a fresh parallel union: a queued order's block reason IS whatever the
+// gate that will actually refuse it says, so the queue and the console can never tell the
+// player two different stories about the same order (design §5.6, "zero new gate logic").
+//   StartLineBlockReason  , canStartLine's own tokens, for a queued refine/fabricate
+//                    order. Exactly what the configurator's disabled Start button shows.
+//   SalvageRejectReason   , (Unit 2.4) salvage.ts's own tokens, for a queued salvage
+//                    order. Exactly what the Salvage Bay's live instant path already
+//                    surfaces through App.svelte's salvageRejectText mapper, so a queued
+//                    teardown and an instant one explain a flying captain the same way.
 //   wrongFacility  , the order's shape does not belong to the facility holding it (a
 //                    salvage order parked on the Refinery, or a fabricate line parked
 //                    on the Refinery). Unreachable through enqueueOrder, which refuses
 //                    the same mismatch up front; kept because an adapter must still
 //                    answer honestly if a hand-edited save presents one.
-//   notImplemented , the facility's adapter is a STUB. Only the Salvage Bay returns
-//                    this, and only until Phase 2 Unit 2.4 fills the row in.
-export type QueueBlockReason = StartLineBlockReason | "wrongFacility" | "notImplemented";
+//
+// ⚠️ ONE TOKEN, `notFound`, IS IN BOTH IMPORTED UNIONS, and it means "the thing this
+// order names does not exist" in both. The two READINGS differ (no such recipe vs no such
+// equipment instance), so a Phase 4 text mapper must pick its wording from the ORDER's
+// type (craftLine -> startLineBlockText, salvage -> salvageRejectText) rather than from
+// the token alone. That routing is honest, it is the same per-kind split the adapters
+// already make, and the row carries `order` precisely so it can be made.
+//
+// ⚠️ `noSlot` IS SHARED IN THE OTHER DIRECTION: canStartSalvage returns the line engine's
+// noSlot for a busy Salvage Bay because the meaning is identical (every slot at this
+// facility is occupied). A salvage row can therefore carry a token salvageRejectText does
+// not handle, which is the other half of the same Phase 4 routing note.
+//
+// (Unit 1.3's `notImplemented` member was REMOVED by Unit 2.4: the Salvage Bay was its
+// only producer and it now has a real adapter, so keeping it would be an unreachable
+// reason that Phase 4 would have to invent player-facing text for. A future stubbed
+// facility re-adds it in the same commit that stubs the row.)
+export type QueueBlockReason = StartLineBlockReason | SalvageRejectReason | "wrongFacility";
 
 // The per-facility divergence, isolated behind one shape (design §5.6).
 //
@@ -6143,8 +6230,8 @@ export type QueueAdapter = {
   // Is there room to promote ANYTHING into this facility right now? This is the only
   // genuinely per-facility question: the Refinery compares refineLines.length against
   // refineSlotCount, the Fabricator compares fabricateLines.length against
-  // fabricateSlotCount, and the Salvage Bay will count in-flight jobs against its own
-  // slot constant in Unit 2.4.
+  // fabricateSlotCount, and the Salvage Bay counts in-flight jobs against its own
+  // SALVAGE_SLOT_COUNT constant.
   hasFreeSlot(state: GameState): boolean;
   // May THIS queued order start right now? Pure predicate, spends nothing.
   canStart(state: GameState, order: QueuedOrder): { ok: true } | { ok: false; reason: QueueBlockReason };
@@ -6206,6 +6293,206 @@ function craftLineQueueAdapter(kind: CraftLineKind): QueueAdapter {
   };
 }
 
+// ----------------------------------------------------------------------------
+// canStartSalvage (Crafting 0.13.3, Phase 2 Unit 2.4, design §7.3 + §7.6)
+// ----------------------------------------------------------------------------
+// THE gate for promoting a queued salvage order RIGHT NOW. Pure predicate: reads state,
+// spends nothing, draws nothing, mirroring canStartLine's shape and posture exactly.
+//
+// ⚠️ IT NEVER CONSULTS equipmentStorageCap, AND THAT IS A HARD GUARANTEE, NOT AN
+// OVERSIGHT (design §7.3, salvage.ts's file header). Salvaging is HOW a full spare pool is
+// relieved: it is the always-available storage escape valve that 0.11.1 shipped as an
+// emergency softlock fix. A cap check here would mean a player whose pool is full could no
+// longer queue the very action that empties it, which is the softlock coming back wearing
+// a queue. The in-flight piece keeps occupying its slot until completion, which is honest
+// and does not weaken the guarantee. Anyone adding a storage gate to this function is
+// re-opening a shipped softlock; there is an explicit test pinning it.
+//
+// GATE ORDER, deliberate and mirroring canStartLine's (cheapest and most fundamental
+// first), which decides WHICH reason surfaces when several apply:
+//   shape (wrongFacility) -> concurrency (noSlot) -> per-arm target validity.
+//
+// ⚠️ THE ARM CHECKS ARE A BEST-EFFORT PRE-FLIGHT, NOT A SECOND COPY OF salvage.ts's GATES.
+// They exist so the player is not made to watch a countdown that can only end in nothing,
+// and they cover every reason a target realistically goes bad between queueing and
+// promotion (consumed elsewhere, installed on a hull, recalled, torn down, spent). What
+// they deliberately do NOT do is re-derive salvage.ts's deeper rules (the baseline-vs-
+// recipe classification behind `noRecipe`, the loot-pool data gap): duplicating those
+// would be two copies of a classification that can drift (Omega 4). The resolver's
+// documented STALE-TARGET FAIL-SAFE (resolveSalvageEffect) is the backstop that makes
+// that safe: anything this pre-flight misses resolves as a no-op, consuming nothing.
+//
+// ⚠️ A UNIQUE TARGET ALREADY OWNED BY AN IN-FLIGHT JOB IS NOT CHECKED HERE, on purpose.
+// enqueueOrder already refuses it (isDuplicateSalvageTarget reads the queued AND the
+// in-flight set), so it takes a hand-edited save to produce one, and even then it cannot
+// double-consume: the first job consumes the target and the second resolves as a stale
+// no-op. The material arm is different and IS bounded below, because units are fungible
+// and the queue is allowed to hold more orders than the player holds units.
+export function canStartSalvage(
+  state: GameState,
+  order: QueuedOrder
+): { ok: true } | { ok: false; reason: QueueBlockReason } {
+  // --- Shape: only a salvage order belongs here. Same first gate the craft-line adapter
+  // makes, and unreachable through enqueueOrder, which refuses the mismatch up front.
+  if (order.type !== "salvage") return { ok: false, reason: "wrongFacility" };
+
+  // --- Concurrency: one job per slot, the Salvage Bay twin of canStartLine's noSlot gate
+  // (which compares a facility's lines against its slot count). Reported with the LINE
+  // ENGINE's token because the meaning is identical, so a queued row reads "waiting for a
+  // free slot" the same way at every facility.
+  if (salvageJobsInFlight(state).length >= SALVAGE_SLOT_COUNT) {
+    return { ok: false, reason: "noSlot" };
+  }
+
+  // --- Target validity, per arm. EXHAUSTIVE over SalvageTargetRef's three arms with no
+  // default branch, so a fourth arm is a compile error here rather than a target that
+  // silently promotes and then resolves into nothing.
+  const target = order.target;
+  switch (target.kind) {
+    case "equipment": {
+      const piece = state.equipment.find((e) => e.id === target.instanceId);
+      // Gone since it was queued (salvaged another way, or a stale hand-edited id).
+      if (piece === undefined) return { ok: false, reason: "notFound" };
+      // INSTALLED since it was queued. salvageEquipment refuses a fitted piece outright,
+      // so promoting one would burn a slot for a guaranteed no-op. The reservation makes
+      // this hard to reach (a reserved instance cannot be installed, Unit 2.1), but the
+      // reservation is derived and this is the cheap, honest confirmation of it.
+      if (piece.fittedToShipId !== null) return { ok: false, reason: "fitted" };
+      return { ok: true };
+    }
+    case "material": {
+      // Identity: only a `salvagedMaterial` carries a loot pool. This ONE line mirrors
+      // salvageSalvagedMaterial's own category gate (an unknown id fails it too, since
+      // ITEMS[id] is undefined); the pool-data check behind the same reason is left to the
+      // resolver rather than copied, per the pre-flight note above.
+      if (ITEMS[target.itemId]?.category !== "salvagedMaterial") {
+        return { ok: false, reason: "notSalvagedMaterial" };
+      }
+      // ⚠️ THE BOUND ON A FUNGIBLE TARGET, AND THE ONE SUBTLE COUNT IN THIS FUNCTION.
+      // Queued orders reserve a unit each (reservation.ts) but consume NOTHING until they
+      // complete, so the units actually spoken for RIGHT NOW are the IN-FLIGHT ones. The
+      // comparison must therefore be against in-flight jobs only: counting queued orders
+      // too would include THIS order (canStart is asked while it is still in the queue)
+      // plus its siblings, and a player holding one unit with one queued order would be
+      // refused forever, which is precisely the case the queue exists to serve.
+      //
+      // ⚠️ WITH SALVAGE_SLOT_COUNT AT 1 THE IN-FLIGHT TERM IS CURRENTLY ZERO: the noSlot
+      // gate above has already refused if anything is running, so this reduces exactly to
+      // salvageSalvagedMaterial's own "hold at least one" gate and is behavior-identical
+      // to it today. It is written as the INVARIANT rather than as today's value for the
+      // same reason shipBuildSlotCount is a min() instead of a bare `return 1`: raise the
+      // slot count later and the bound still holds, with no second edit and no window
+      // where two jobs are committed to one unit.
+      const committed = salvageJobsInFlight(state).filter(
+        (job) => job.effect.target.kind === "material" && job.effect.target.itemId === target.itemId
+      ).length;
+      // lte, not lt: `held` must cover every in-flight job AND this one.
+      if (itemTotal(state.inventory, target.itemId).lte(committed)) {
+        return { ok: false, reason: "noneHeld" };
+      }
+      return { ok: true };
+    }
+    case "ship": {
+      // The three gates salvageShip applies, IN ITS ORDER, so the most specific and most
+      // actionable reason wins here exactly as it does there (a lone hull that is out
+      // flying reports "recall it first", the step the player can actually take).
+      const ship = state.ships.find((s) => s.id === target.shipId);
+      if (ship === undefined) return { ok: false, reason: "shipNotFound" };
+      // The SHARED flying-captain lock, reused rather than re-read (Omega 4).
+      if (!onMissionLock(state, target.shipId).ok) return { ok: false, reason: "shipOnMission" };
+      // The last-hull softlock guard. A hard player-protection floor, not a balance knob,
+      // so it is enforced at promotion too and not left to the resolver: a queued teardown
+      // of a fleet that has since shrunk to one hull WAITS (visibly, with a reason) instead
+      // of burning a countdown to reach a refusal.
+      if (state.ships.length === 1) return { ok: false, reason: "lastShip" };
+      return { ok: true };
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// startSalvageJob (Crafting 0.13.3, Phase 2 Unit 2.4, design §7.2 + §7.3)
+// ----------------------------------------------------------------------------
+// Promote a queued salvage order into a real, timed, offline-safe salvageJob.
+//
+// ⚠️ IT CONSUMES NOTHING AT START. Every other start in this engine deducts its inputs
+// atomically (startProcess's header explains that this is what closes the double-spend
+// window), and salvage deliberately deviates: it consumes AND rewards atomically at
+// COMPLETION so it can reuse the three proven salvage functions whole (design §7.3, see
+// resolveSalvageEffect). The `{}` inputs argument below is that deviation, spelled out.
+// What closes the window instead is the DERIVED reservation: the target is spoken for
+// from the moment it is queued, through the countdown, until the resolver consumes it,
+// with no gap. Passing inputs here would double-charge the player, since the salvage
+// functions consume the target themselves at the end.
+//
+// GATED TWICE BY ONE PREDICATE, the startLine idiom: canStartSalvage runs here, and the
+// promotion pass runs it before calling this, so a job can never start on a target the
+// queue row would have shown as blocked. A refusal is a same-REFERENCE no-op.
+//
+// DRAWS NO RNG, which is what keeps promotion outside the seeded stream entirely: the
+// duration is a pure function of the target's own stored numbers, and every salvage roll
+// still happens at completion inside resolveProcesses (see promoteQueuedOrders' property 2).
+export function startSalvageJob(
+  state: GameState,
+  order: QueuedOrder
+): { next: GameState; started: boolean } {
+  if (!canStartSalvage(state, order).ok) return { next: state, started: false };
+  // Narrowing only: canStartSalvage already refused every non-salvage shape above, so this
+  // cannot be reached with anything else. Written as a guard rather than a cast so the
+  // compiler proves it instead of being told.
+  if (order.type !== "salvage") return { next: state, started: false };
+
+  return startProcess(
+    state,
+    "salvageJob",
+    {}, // ⚠️ no inputs: consume-at-completion, see the header
+    salvageJobDurationTicks(state, order.target),
+    { type: "salvageResolve", target: order.target }
+  );
+}
+
+// How long THIS target takes to break down: the one lookup that turns a target's ids into
+// the plain numbers salvageDurationTicks speaks in.
+//
+// Split out from startSalvageJob so the id-to-numbers lookup (which needs GameState) stays
+// separate from the arithmetic (which does not), the same split SalvageDurationSpec was
+// introduced for in Unit 2.2. It is also what lets Phase 4 show a queued row's expected
+// duration by calling the same function the start path uses.
+//
+// DEFENSIVE ON EVERY LOOKUP even though canStartSalvage has already proven the equipment
+// and ship arms resolve: a duration is a countdown, and a countdown built on undefined
+// would be NaN, which never reaches zero and would occupy the bay forever with no player
+// action able to clear it. Every fallback lands on salvageDurationTicks' own clamped base
+// duration, which is merely wrong-ish rather than a soft lock.
+export function salvageJobDurationTicks(state: GameState, target: SalvageTargetRef): number {
+  switch (target.kind) {
+    case "equipment": {
+      const piece = state.equipment.find((e) => e.id === target.instanceId);
+      // A legacy piece minted before iLevel existed reads 0 on both axes, which
+      // salvageDurationTicks clamps to the base duration.
+      return salvageDurationTicks({
+        kind: "equipment",
+        iLevel: piece?.iLevel ?? 0,
+        quality: piece?.quality ?? 0,
+      });
+    }
+    case "material":
+      // Flat: a loot roll has no iLevel or quality to scale on.
+      return salvageDurationTicks({ kind: "material" });
+    case "ship": {
+      const ship = state.ships.find((s) => s.id === target.shipId);
+      const buildTicks = ship === undefined ? 0 : SHIP_TYPES[ship.typeKey]?.buildRecipe.durationTicks ?? 0;
+      // ⚠️ THE HULL'S BASE BUILD TIME, NOT shipBuildEffectiveTicks. The Shipyard's
+      // build-speed upgrades make BUILDING faster; they say nothing about how fast a hull
+      // comes apart, and folding them in here would make a teardown quietly depend on a
+      // facility the Salvage Bay has no relationship with. Base time keeps the teardown a
+      // property of the HULL (a battleship costs more than a frigate) and keeps this
+      // function pure over static data.
+      return salvageDurationTicks({ kind: "ship", buildDurationTicks: buildTicks });
+    }
+  }
+}
+
 // ⚠️ EXHAUSTIVE ON PURPOSE, the same trick PROCESS_XP_AWARDS uses: because this is
 // typed Record<QueueFacilityKey, QueueAdapter>, adding a facility to the union WITHOUT
 // adding its row here is a COMPILE ERROR. A new queue-capable facility (the 0.13.4
@@ -6214,19 +6501,20 @@ function craftLineQueueAdapter(kind: CraftLineKind): QueueAdapter {
 export const QUEUE_ADAPTERS: Record<QueueFacilityKey, QueueAdapter> = {
   refinery: craftLineQueueAdapter("refine"),
   fabricator: craftLineQueueAdapter("fabricate"),
-  // ⚠️ STUB, COMPLETED BY PHASE 2 UNIT 2.4 (canStartSalvage / startSalvageJob).
-  // The row exists now only to keep the Record exhaustive without pulling the salvage
-  // work forward. It is deliberately braked TWICE so no promotion pass, however it is
-  // written, can promote a Salvage Bay order this unit: hasFreeSlot always says there
-  // is no room, AND canStart always refuses with a typed reason. start is a same-ref
-  // no-op for the same reason. Nothing can currently CREATE a salvage order either
-  // (there is no UI and no auto rule yet), so this is unreachable in practice; it is
-  // written safe anyway, because "unreachable" is a property that quietly stops being
-  // true one unit later.
+  // Crafting 0.13.3 (Phase 2 Unit 2.4): THE REAL ROW. This replaces Unit 1.3's
+  // deliberately double-braked stub (hasFreeSlot false + a "notImplemented" refusal), so
+  // salvage is queueable end to end from here on.
+  //
+  // Same posture as the craft-line rows above: ZERO gate logic lives in the table. Each
+  // member is a one-line delegation to the function that owns the question, so the queue
+  // can never form a second opinion about whether a salvage may run.
   salvageBay: {
-    hasFreeSlot: () => false,
-    canStart: () => ({ ok: false, reason: "notImplemented" }),
-    start: (state) => ({ next: state, started: false }),
+    // The bay's own divergence: it counts in-flight JOBS against its own slot constant,
+    // where the craft facilities count LINES against a derived slot count. See
+    // SALVAGE_SLOT_COUNT for why this one is a flat constant with no upgrade track.
+    hasFreeSlot: (state) => salvageJobsInFlight(state).length < SALVAGE_SLOT_COUNT,
+    canStart: canStartSalvage,
+    start: startSalvageJob,
   },
 };
 
@@ -6480,8 +6768,9 @@ export function promoteQueuedOrders(state: GameState): GameState {
   for (const facility of QUEUE_FACILITY_ORDER) {
     const adapter = QUEUE_ADAPTERS[facility];
     // Cheapest possible rejection first: no room at this facility means there is no
-    // point building its waiting list at all. (The Salvage Bay stub answers false here
-    // until Phase 2 Unit 2.4; that is one of its two brakes.)
+    // point building its waiting list at all. (Every facility answers this its own way:
+    // lines against a derived slot count, or in-flight salvage jobs against
+    // SALVAGE_SLOT_COUNT. The pass does not know or care which.)
     if (!adapter.hasFreeSlot(working)) continue;
 
     // This facility's waiting orders, in queue order, SNAPSHOTTED before the scan.
