@@ -770,8 +770,44 @@
   // Drydock; Warehouse to Stores; Mission Control to Operations), and the emptied
   // Facilities tab was then removed (Task 7). The union below is the resulting
   // program set (see the .nav-tabs row for their left-to-right order).
-  type TabKey = "home" | "personnel" | "facilities" | "logistics" | "fleetOperations";
+  // 0.13.2 Ships tab (Unit 1): "ships" is the 6th perspective, promoted out of
+  // the Logistics sub-tab so ship management is a first-class destination (the
+  // real roster relocates here in Unit 2; this unit only stands up the nav +
+  // an empty content branch). activeTab is NOT persisted, so adding a union
+  // member needs no save migration.
+  type TabKey = "home" | "personnel" | "ships" | "facilities" | "logistics" | "fleetOperations";
   let activeTab: TabKey = "home";
+
+  // Bottom-nav model (0.13.2 Ships tab, Unit 1). WHY data-driven: the bar used
+  // to be six near-identical hand-written <button class="nav-tab"> that differed
+  // only by key/label; lifting them to one array + one {#each} kills that
+  // duplication and makes the Unit 6 attention-dot a one-line change in a single
+  // template instead of six. Order is the locked design order (Home, Crew,
+  // Ships, Facilities, Logistics, Ops); Ships sits next to Crew on purpose.
+  //   - key   : the TabKey this button selects (drives class:active + on:click).
+  //   - label : the short caption under the icon (kept tiny so six fit a ~360px
+  //             phone width without overflow). "Crew" is the player-facing name
+  //             for the personnel perspective; "Ops" abbreviates fleetOperations.
+  //   - iconPaths : SVG path "d" strings drawn as stroke lines in a 0 0 24 24
+  //             viewBox (Feather-style line icons). Stored as data (not inline
+  //             markup) so the whole button, including its icon, renders from one
+  //             template. Multiple entries = multiple <path> (e.g. a circle plus
+  //             a body line). All inherit currentColor, so the existing
+  //             active/inactive coloring keeps working untouched.
+  const NAV_TABS: { key: TabKey; label: string; iconPaths: string[] }[] = [
+    // Home: a house (roof, walls, doorway).
+    { key: "home", label: "Home", iconPaths: ["M3 11l9-7 9 7", "M5 9.5V20h14V9.5", "M10 20v-5h4v5"] },
+    // Crew: a person (head circle + shoulders arc).
+    { key: "personnel", label: "Crew", iconPaths: ["M12 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", "M5 20c0-3.9 3.1-7 7-7s7 3.1 7 7"] },
+    // Ships: a starship delta/arrowhead (a fleet game, so a hull silhouette, not a boat).
+    { key: "ships", label: "Ships", iconPaths: ["M12 3l8 17-8-4-8 4z"] },
+    // Facilities: a building (outline + ground line + doorway + window ticks).
+    { key: "facilities", label: "Facilities", iconPaths: ["M4 21V8l8-4 8 4v13", "M4 21h16", "M9 21v-4h6v4", "M8 10h2M14 10h2M8 14h2M14 14h2"] },
+    // Logistics: an isometric cube/crate (hex outline + top edges + front seam).
+    { key: "logistics", label: "Logistics", iconPaths: ["M12 3l9 5v8l-9 5-9-5V8z", "M3 8l9 5 9-5", "M12 13v8"] },
+    // Ops: a target/crosshair (outer ring + inner ring + four ticks).
+    { key: "fleetOperations", label: "Ops", iconPaths: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z", "M12 2v3M12 19v3M2 12h3M19 12h3"] },
+  ];
 
   // Home program (0.11.2 Shell Correction, Task 1): the landing program, first
   // on the bottom nav. 0.12.0 "Console" nav (Home is the PATTERN-SETTER for the
@@ -7475,6 +7511,21 @@
       </div>
       {/if}
 
+      {#if activeTab === "ships"}
+      <!-- SHIPS program (0.13.2 Ships tab, Unit 1). Placeholder ONLY: this unit
+           stands up the 6th nav tab and its content branch; the real fleet
+           roster + equip board relocate here out of Logistics in Unit 2. The
+           branch exists now (peer to the other five activeTab branches) so the
+           new nav button lands somewhere real and the relocation in Unit 2 is a
+           move-into-an-existing-slot, not a nav-and-content change at once. -->
+      <div class="tab-scroll-area">
+        <Panel>
+          <div class="panel-title">SHIPS</div>
+          <p class="prestige-text">Fleet management is moving here. The roster and ship outfitting arrive in the next update (Unit 2 of the Ships tab redesign). For now, manage ships from the Logistics tab.</p>
+        </Panel>
+      </div>
+      {/if}
+
       {#if activeTab === "personnel"}
       <!-- PERSONNEL program (0.12.0 "Console" nav, Phase 1). The person
            perspective: the Fleet Admiral and the Captains. Replaces the old
@@ -9604,12 +9655,22 @@
       {/if}
     </main>
 
+    <!-- Bottom nav (0.13.2 Ships tab, Unit 1). Rendered from the NAV_TABS data
+         array (declared in the script) so all six tabs share ONE button + ONE
+         icon template instead of six hand-written buttons. Behavior is identical
+         to the old inline buttons: class:active tracks activeTab and the click
+         selects it. Each icon is stroke-only (fill:none) so it inherits the
+         tab's currentColor for the active/inactive treatment; aria-hidden keeps
+         it out of the a11y tree since the visible label already names the tab. -->
     <div class="nav-tabs">
-      <button class="nav-tab" class:active={activeTab === "home"} on:click={() => (activeTab = "home")}>Home</button>
-      <button class="nav-tab" class:active={activeTab === "personnel"} on:click={() => (activeTab = "personnel")}>Personnel</button>
-      <button class="nav-tab" class:active={activeTab === "facilities"} on:click={() => (activeTab = "facilities")}>Facilities</button>
-      <button class="nav-tab" class:active={activeTab === "logistics"} on:click={() => (activeTab = "logistics")}>Logistics</button>
-      <button class="nav-tab" class:active={activeTab === "fleetOperations"} on:click={() => (activeTab = "fleetOperations")}>Operations</button>
+      {#each NAV_TABS as tab (tab.key)}
+        <button class="nav-tab" class:active={activeTab === tab.key} on:click={() => (activeTab = tab.key)}>
+          <svg class="nav-tab-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            {#each tab.iconPaths as d}<path d={d} />{/each}
+          </svg>
+          <span class="nav-tab-label">{tab.label}</span>
+        </button>
+      {/each}
     </div>
   </div>
 
@@ -10603,17 +10664,40 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
     flex-shrink: 0;
   }
+  /* .nav-tab is now an icon-over-label stack (0.13.2 Ships tab, Unit 1). WHY the
+     column flex + tighter type: the bar went from 5 tabs to 6, so each tab is
+     narrower (~60px on a 360px phone). Stacking a ~19px icon above a small
+     uppercase label keeps all six legible and overflow-free at that width; the
+     label shrank to 8px / 0.3px tracking (was 10px / 0.5px) so the longest
+     caption ("Facilities") still fits its column without wrapping. Coloring is
+     unchanged: color lives on .nav-tab and both the SVG (stroke=currentColor)
+     and the label (currentColor) inherit it, so the active accent still applies
+     to the whole stack. */
   .nav-tab {
     flex: 1;
+    min-width: 0; /* let equal-flex columns shrink below content width instead of forcing horizontal overflow */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
     background: transparent;
     border: none;
     border-top: 2px solid transparent;
-    padding: 12px 4px 10px;
+    padding: 9px 2px 8px;
     color: var(--color-text-secondary);
-    font-size: 10px;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
     cursor: pointer;
+  }
+  .nav-tab-icon {
+    width: 19px;
+    height: 19px;
+    flex-shrink: 0;
+  }
+  .nav-tab-label {
+    font-size: 8px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    line-height: 1;
+    white-space: nowrap;
   }
   .nav-tab.active {
     color: var(--color-accent-bright);
