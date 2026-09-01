@@ -19,6 +19,13 @@ import { describe, it, expect } from "vitest";
 // ?raw keeps this a pure Vite/Vitest concern with no Node type dependency (the app
 // tsconfig deliberately excludes @types/node), so `npm run check` stays clean.
 import tickSource from "./tick.ts?raw";
+// Crafting 0.13.3 (Unit 2.3): salvage.ts's own source, for the no-import-cycle half of
+// the rewritten guard below (tick.ts may depend on salvage.ts; the reverse must not hold).
+import salvageSource from "./salvage.ts?raw";
+// Crafting 0.13.3 (Unit 2.3): the economy seam salvage now runs inside. resolveProcesses
+// resolves a completed salvageJob; economyTick + tick are the two chunkings the
+// offline==live parity suite at the bottom of this file compares.
+import { resolveProcesses, economyTick, tick } from "./tick";
 import {
   salvageEquipment,
   salvageSalvagedMaterial,
@@ -308,16 +315,112 @@ describe("salvageEquipment: SOFTLOCK RELIEF, salvage works AT the storage cap (T
   });
 });
 
-describe("salvageEquipment: LIVE-ONLY, never wired into an economy-tick path (Task C1)", () => {
-  it("is not referenced anywhere in tick.ts (economyTick / tick / resolveProcesses live there)", () => {
-    // GUARD: salvage is a discrete live action, not a timed/offline process. tick.ts
-    // owns economyTick, the offline tick(), and resolveProcesses; if salvageEquipment
-    // ever appears there, the parity boundary has been breached. A source grep is the
-    // most direct, maintainable proof of the negative.
-    expect(tickSource).not.toContain("salvageEquipment");
-    expect(tickSource).not.toContain("salvageSalvagedMaterial");
-    expect(tickSource).not.toContain("salvageShip");
-    expect(tickSource).not.toContain("./salvage");
+// ============================================================================
+// THE REWRITTEN SOURCE GUARD (Crafting 0.13.3, Phase 2 Unit 2.3, design section 7.5)
+// ============================================================================
+// ⚠️ WHAT THIS GUARD DEFENDS, IN ONE SENTENCE:
+//
+//     SALVAGE MUST NEVER ROLL ON AN UNSEEDED STREAM INSIDE THE ECONOMY SEAM.
+//
+// Read that before touching anything below, because the guard that used to live here
+// asserted something else and this is the second version of it.
+//
+// VERSION 1 (0.11.0 - 0.13.2) asserted a PROXY: the strings "salvageEquipment",
+// "salvageSalvagedMaterial", "salvageShip" and "./salvage" never appeared in tick.ts at
+// all. That was a perfectly good proxy while salvage was a live-only instant action,
+// because the only way for salvage to reach the tick was to be named there.
+//
+// VERSION 2 (this one) exists because 0.13.3 made salvage a TIMED, queued process. The
+// proxy is now FALSE BY DESIGN: resolveProcesses calls all three functions. The
+// invariant, however, is unchanged and MORE load-bearing than before, because salvage
+// rolls now happen inside the offline-catch-up seam where an unseeded draw would make a
+// long offline span recover different materials than the identical span played live.
+//
+// So the proxy was REPLACED, not deleted, by three assertions on the real thing:
+//   1. every salvage call site in tick.ts passes the threaded `rng` (the count of calls
+//      that pass it equals the total count of calls, and that count is not zero);
+//   2. tick.ts never CALLS Math.random: every occurrence in its code is the injectable
+//      `rng` parameter's DEFAULT, never a direct draw;
+//   3. salvage.ts still imports nothing from tick.ts, so the dependency direction is
+//      one-way and no import cycle exists.
+//
+// ASSERTIONS 1 AND 2 COMPOSE, AND NEITHER IS SUFFICIENT ALONE. Assertion 1 catches a call
+// that simply forgot its argument (the parameter has a Math.random default, so a dropped
+// argument compiles cleanly and fails silently at runtime, which is the nastiest shape
+// this bug has). Assertion 2 catches the other direction: an unseeded source handed IN,
+// including through the intermediate helper the branch calls, which assertion 1 cannot
+// see because the helper's own name is not a salvage function's. Both mutations were
+// tried against this guard before it was committed, and each is caught by exactly one of
+// the two, which is why both are here.
+//
+// IF YOU ARE HERE BECAUSE THIS FAILED: do not relax the assertion. A failure means either
+// a salvage call in the tick path forgot its rng argument (offline and live will diverge
+// silently, and the player who was away all night gets different loot than the player who
+// watched it), or something in tick.ts started drawing bare randomness. Fix the call, not
+// the guard. The behavioral proof that backs these greps is the offline==live parity
+// suite at the bottom of this file; the greps exist because a grep fails on the LINE that
+// broke, while the parity test fails somewhere far downstream.
+// ============================================================================
+
+// Strip comments before grepping, so PROSE mentioning a salvage function or Math.random
+// cannot satisfy (or break) an assertion about CODE. This is the reason version 1's own
+// comment had to warn future authors not to name the functions in tick.ts's comments; the
+// guard now handles that itself instead of constraining how the source may be written.
+// Deliberately simple (block comments, then line comments to end of line): tick.ts holds
+// no string literal containing "//" or "/*", and even if one appeared the only effect
+// would be to hide code from the grep, which the non-zero call-count assertion catches.
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+}
+
+// Every CALL of a salvage function (the name followed by an open paren). The import
+// statement lists the same three names without parens, so it is correctly not a call.
+const SALVAGE_CALL = /\bsalvage(?:Equipment|SalvagedMaterial|Ship)\s*\(/g;
+// The same call WITH `rng` somewhere in its argument list. `[^)]*` cannot span a nested
+// paren, which is fine and intentional: every tick-path salvage call passes plain
+// identifiers, and a call complex enough to nest parens deserves to be looked at by hand.
+const SALVAGE_CALL_WITH_RNG = /\bsalvage(?:Equipment|SalvagedMaterial|Ship)\s*\([^)]*\brng\b[^)]*\)/g;
+
+function countMatches(source: string, pattern: RegExp): number {
+  return source.match(pattern)?.length ?? 0;
+}
+
+describe("⚠️ GUARD: salvage in the tick path is rng-THREADED, never unseeded (0.13.3 Unit 2.3)", () => {
+  it("EVERY salvage call in tick.ts passes the threaded rng, and there is at least one", () => {
+    const code = stripComments(tickSource);
+    const calls = countMatches(code, SALVAGE_CALL);
+    const threaded = countMatches(code, SALVAGE_CALL_WITH_RNG);
+
+    // NON-VACUITY FIRST. Without this, deleting the salvage wiring entirely would make
+    // 0 === 0 and the guard would pass while defending nothing. Three arms, three calls.
+    expect(calls).toBeGreaterThanOrEqual(3);
+    // THE INVARIANT: not "some call passes rng" but "the ones that pass it are ALL of
+    // them". A single forgotten argument makes these two numbers differ.
+    expect(threaded).toBe(calls);
+  });
+
+  it("tick.ts never CALLS Math.random: every occurrence is an injectable rng parameter's default", () => {
+    const code = stripComments(tickSource);
+    const total = countMatches(code, /Math\.random/g);
+    // `= Math.random` is the default-parameter form (`rng: () => number = Math.random`).
+    // Anything else, and specifically the call form `Math.random()`, is a direct draw.
+    const asDefault = countMatches(code, /=\s*Math\.random/g);
+
+    // Non-vacuous: the injectable-with-default pattern really is in use here.
+    expect(total).toBeGreaterThan(0);
+    // The invariant: no direct draws. A new `Math.random()` anywhere in tick.ts breaks
+    // the seeded stream for everything downstream of it, salvage included.
+    expect(asDefault).toBe(total);
+    expect(code).not.toContain("Math.random()");
+  });
+
+  it("salvage.ts imports nothing from tick.ts, so the dependency direction stays one-way", () => {
+    // tick.ts -> salvage.ts is now a real edge. The reverse edge would close a cycle, and
+    // a cycle between the economy resolver and a reward module is the kind of thing that
+    // works in Vite and explodes in a different bundler at a module-init order change.
+    // reservation.ts exists precisely so neither side needs the other (see its header).
+    const code = stripComments(salvageSource);
+    expect(code).not.toContain("./tick");
   });
 });
 
@@ -1226,5 +1329,413 @@ describe("isDuplicateSalvageTarget: unique targets refuse a second order, fungib
       { kind: "material", itemId: HOUSING }
     );
     expect(isDuplicateSalvageTarget(state, { kind: "material", itemId: HOUSING })).toBe(false);
+  });
+});
+
+// ============================================================================
+// TIMED SALVAGE: resolution inside the tick, on the seeded stream
+// (Crafting 0.13.3, Phase 2 Unit 2.3; design sections 7.3 + 7.4)
+// ============================================================================
+// A salvageJob's completion is the ONE place salvage consumes its target and grants its
+// reward, and it is the first salvage that ever happens inside the offline-catch-up seam.
+// Two separate things therefore need proving, and they are proved separately below:
+//
+//   CORRECTNESS  each of the three target arms resolves through the process path to
+//                EXACTLY what the live instant path produces from the same draws, because
+//                both call the same unchanged function (the reward math is untouched by
+//                this unit, Omega 15a). Plus: a stale target is a fail-safe no-op, and a
+//                completing job releases its reservation.
+//   DETERMINISM  a salvage completing inside one long offline span produces a byte-
+//                identical result to the same span stepped one tick at a time. That is
+//                the whole reason the rng had to move onto resolveProcesses' threaded
+//                stream, and it is the last suite in this file.
+// ============================================================================
+
+// One in-flight salvageJob with a CHOSEN countdown, so a fixture can stagger several
+// completions across a span (the shared salvageJobs helper above fixes every job at 5
+// ticks, which is right for the reservation tests and useless for ordering ones).
+// remainingTicks === durationTicks: a job that has not been advanced yet.
+function salvageJobAt(target: SalvageTargetRef, ticks: number, id = "proc-1"): TimedProcess {
+  return {
+    id,
+    kind: "salvageJob",
+    remainingTicks: ticks,
+    durationTicks: ticks,
+    effect: { type: "salvageResolve", target },
+  };
+}
+
+// A strict scripted rng: returns `values` in order and THROWS on overrun. The throw is a
+// deliberate tripwire, not a convenience: these tests assert the DRAW COUNT of each arm
+// (1 / 2 / 1, the counts salvage.ts's header calls load-bearing), and a silent undefined
+// would read as 0 and mask exactly the divergence being tested for.
+function strictRng(values: number[]): () => number {
+  let i = 0;
+  return () => {
+    if (i >= values.length) {
+      throw new Error(`scripted rng overrun: asked for draw ${i + 1} of only ${values.length}`);
+    }
+    return values[i++];
+  };
+}
+
+// Forwards to `inner` and counts the draws taken, so a test can assert that two chunkings
+// consumed the SAME number of values from the stream (a draw-count divergence is how a
+// stream desynchronizes even when a single completion looks correct).
+function countingRng(inner: () => number): { rng: () => number; draws: () => number } {
+  let n = 0;
+  return {
+    rng: () => {
+      n += 1;
+      return inner();
+    },
+    draws: () => n,
+  };
+}
+
+// The state every timed-salvage test starts from. Deliberately rich enough that all three
+// arms have a real target and that a wrong answer is visible:
+//   sp-1   a spare CRAFTED system (quality 3), the equipment arm's target
+//   cr-2   a CRAFTED system installed on ship-2, must come BACK as a spare on teardown
+//   bl-2   a Standard-Issue baseline installed on ship-2, must be DISCARDED on teardown
+//   ship-2 an idle second hull, the ship arm's target (the last-hull guard needs two)
+//   3x the Damaged Reactor Housing, the material arm's target, with two left over
+// Fleet Admiral level is the top of the ladder so the loot roll has SEVERAL eligible
+// tiers: at level 1 only one tier is reachable and the tier draw would be degenerate,
+// which would quietly weaken every determinism assertion built on it.
+// freshState's own ship-1 baselines stay in the pool as untouched bystanders.
+function timedSalvageState(): GameState {
+  const base = freshState();
+  const spare = makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality: 3, id: "sp-1" });
+  const onShipCrafted: EquipmentInstance = {
+    ...makePiece({ slotType: "cargoBay", fitted: true, crafted: true, quality: 1, id: "cr-2" }),
+    fittedToShipId: "ship-2",
+  };
+  const onShipBaseline: EquipmentInstance = {
+    ...makePiece({ slotType: "ftlDrive", fitted: true, crafted: false, quality: 0, id: "bl-2" }),
+    fittedToShipId: "ship-2",
+  };
+  return {
+    ...base,
+    fleetAdminLevel: MAX_CEILING_LEVEL,
+    ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }],
+    equipment: [...base.equipment, spare, onShipCrafted, onShipBaseline],
+    inventory: { ...base.inventory, [HOUSING]: [new Decimal(3)] },
+  };
+}
+
+// Everything a salvage can touch, flattened into one plain comparable object. This is what
+// the parity assertions deep-compare, and it covers every accumulator the salvageResolve
+// branch writes plus the bookkeeping around it:
+//   inventory   PER QUALITY BUCKET, not just totals. The bucket split is what a divergent
+//               stream corrupts first (a loot roll deposits at its TIER'S quality), so
+//               comparing totals alone would miss the exact failure this suite exists for.
+//   equipment   consumed spares, systems returned from a torn-down hull, ids intact
+//   ships       the hull the teardown removed
+//   credits     the teardown's credit refund (Decimal to string: exact, no float compare)
+//   processes   completed jobs dropped, survivors kept in order with their countdowns
+//   ids         nextEquipmentId / nextShipId, so no minting drifted between the paths
+function salvageFingerprint(state: GameState) {
+  const inventory: Record<string, string[]> = {};
+  for (const itemId of Object.keys(state.inventory).sort()) {
+    inventory[itemId] = (state.inventory[itemId] ?? []).map((d) => d.toString());
+  }
+  return {
+    inventory,
+    equipment: state.equipment,
+    ships: state.ships,
+    credits: state.credits.toString(),
+    activeProcesses: state.activeProcesses,
+    processQueue: state.processQueue,
+    nextEquipmentId: state.nextEquipmentId,
+    nextShipId: state.nextShipId,
+  };
+}
+
+describe("salvageResolve: each target arm resolves through the process path (0.13.3 Unit 2.3)", () => {
+  it("the EQUIPMENT arm recycles the spare exactly as the live instant path does, off the passed rng", () => {
+    const state = timedSalvageState();
+    const jobState: GameState = {
+      ...state,
+      activeProcesses: [salvageJobAt({ kind: "equipment", instanceId: "sp-1" }, 1)],
+    };
+
+    // The SAME single scripted draw down both paths. If the resolver reimplemented the
+    // reward math (or drew a different number of times), these two would not agree.
+    const viaTick = resolveProcesses(jobState, 1, strictRng([0.5])).next;
+    const viaLive = salvageEquipment(state, "sp-1", strictRng([0.5]));
+    if (!viaLive.ok) throw new Error("expected the live salvage to succeed");
+
+    expect(salvageFingerprint(viaTick).inventory).toEqual(salvageFingerprint(viaLive.next).inventory);
+    expect(viaTick.equipment).toEqual(viaLive.next.equipment);
+    // NON-VACUOUS: the spare is really gone and real scrap really landed.
+    expect(viaTick.equipment.find((e) => e.id === "sp-1")).toBeUndefined();
+    expect(Object.keys(SALVAGE_BP_INPUTS).some((id) => itemTotal(viaTick.inventory, id).gt(0))).toBe(true);
+    // The job resolved exactly once and was dropped.
+    expect(viaTick.activeProcesses).toEqual([]);
+  });
+
+  it("the MATERIAL arm rolls the loot pool exactly as the live instant path does, on TWO draws", () => {
+    const state = timedSalvageState();
+    const jobState: GameState = {
+      ...state,
+      activeProcesses: [salvageJobAt({ kind: "material", itemId: HOUSING }, 1)],
+    };
+
+    // Exactly two scripted values: the tier draw then the item draw. strictRng throws on a
+    // third, so this also pins the documented draw COUNT of this arm.
+    const viaTick = resolveProcesses(jobState, 1, strictRng([0.2, 0.7])).next;
+    const viaLive = salvageSalvagedMaterial(state, HOUSING, strictRng([0.2, 0.7]));
+    if (!viaLive.ok) throw new Error("expected the live salvage to succeed");
+
+    expect(salvageFingerprint(viaTick).inventory).toEqual(salvageFingerprint(viaLive.next).inventory);
+    // NON-VACUOUS: one Housing consumed (3 to 2) and the rolled drop deposited at its
+    // tier's QUALITY bucket, the bucket-level detail a totals-only check would miss.
+    expect(itemTotal(viaTick.inventory, HOUSING).toString()).toBe("2");
+    const rolled = viaLive.rolled;
+    if (rolled === undefined) throw new Error("expected the live roll to report its drop");
+    expect(getBucket(viaTick.inventory, rolled.itemId, rolled.quality).toNumber()).toBe(1);
+    expect(viaTick.activeProcesses).toEqual([]);
+  });
+
+  it("the SHIP arm tears the hull down exactly as the live instant path does, returning crafted systems and credits", () => {
+    const state = timedSalvageState();
+    const jobState: GameState = {
+      ...state,
+      activeProcesses: [salvageJobAt({ kind: "ship", shipId: "ship-2" }, 1)],
+    };
+
+    const viaTick = resolveProcesses(jobState, 1, strictRng([0.5])).next;
+    const viaLive = salvageShip(state, "ship-2", strictRng([0.5]));
+    if (!viaLive.ok) throw new Error("expected the live salvage to succeed");
+
+    expect(salvageFingerprint(viaTick).inventory).toEqual(salvageFingerprint(viaLive.next).inventory);
+    expect(viaTick.equipment).toEqual(viaLive.next.equipment);
+    expect(viaTick.ships).toEqual(viaLive.next.ships);
+    expect(viaTick.credits.toString()).toBe(viaLive.next.credits.toString());
+    // NON-VACUOUS, and specifically the three hull-teardown rules: the hull is gone, its
+    // CRAFTED system came back as a spare, its BASELINE was discarded, credits were paid.
+    expect(viaTick.ships.find((s) => s.id === "ship-2")).toBeUndefined();
+    expect(viaTick.equipment.find((e) => e.id === "cr-2")?.fittedToShipId).toBeNull();
+    expect(viaTick.equipment.find((e) => e.id === "bl-2")).toBeUndefined();
+    expect(viaTick.credits.gt(state.credits)).toBe(true);
+    expect(viaTick.activeProcesses).toEqual([]);
+  });
+
+  it("resolves SEVERAL salvages completing in one call cumulatively, never discarding an earlier one", () => {
+    // The accumulator hazard, asserted directly. Each salvage function takes a whole state
+    // and returns a whole state, so a resolver that handed each one the UNTOUCHED incoming
+    // state would silently keep only the last result. Three arms complete in one call here.
+    const state = timedSalvageState();
+    const jobState: GameState = {
+      ...state,
+      activeProcesses: [
+        salvageJobAt({ kind: "equipment", instanceId: "sp-1" }, 1, "proc-1"),
+        salvageJobAt({ kind: "material", itemId: HOUSING }, 1, "proc-2"),
+        salvageJobAt({ kind: "ship", shipId: "ship-2" }, 1, "proc-3"),
+      ],
+    };
+    const out = resolveProcesses(jobState, 1, mulberry32(11)).next;
+
+    // ALL THREE effects are present in the ONE returned state.
+    expect(out.equipment.find((e) => e.id === "sp-1")).toBeUndefined(); // equipment arm
+    expect(itemTotal(out.inventory, HOUSING).toString()).toBe("2");     // material arm
+    expect(out.ships.find((s) => s.id === "ship-2")).toBeUndefined();   // ship arm
+    expect(out.credits.gt(state.credits)).toBe(true);                   // the ship arm's refund
+    expect(out.activeProcesses).toEqual([]);
+  });
+});
+
+describe("salvageResolve: a stale target is a fail-safe no-op (0.13.3 Unit 2.3)", () => {
+  // The design's rule (section 7.3) and the clearShipDamage precedent: a target that no
+  // longer exists must drop its process WITHOUT throwing and WITHOUT touching state. Each
+  // case below uses a counting rng to also prove the stream is untouched, because a
+  // rejected salvage that still drew would desynchronize every completion after it.
+  const staleCases: { label: string; target: SalvageTargetRef; prepare?: (s: GameState) => GameState }[] = [
+    {
+      label: "an equipment instance that no longer exists (already salvaged)",
+      target: { kind: "equipment", instanceId: "ghost-1" },
+    },
+    {
+      label: "an equipment instance that has since been INSTALLED on a ship",
+      target: { kind: "equipment", instanceId: "sp-1" },
+      prepare: (s) => ({
+        ...s,
+        equipment: s.equipment.map((e) => (e.id === "sp-1" ? { ...e, fittedToShipId: "ship-1" } : e)),
+      }),
+    },
+    { label: "a hull that is already gone", target: { kind: "ship", shipId: "ship-gone" } },
+    {
+      label: "the fleet's LAST hull (the softlock guard now fires)",
+      target: { kind: "ship", shipId: "ship-1" },
+      prepare: (s) => ({ ...s, ships: s.ships.filter((ship) => ship.id === "ship-1") }),
+    },
+    {
+      label: "a salvaged material the player no longer holds",
+      target: { kind: "material", itemId: HOUSING },
+      prepare: (s) => ({ ...s, inventory: { ...s.inventory, [HOUSING]: [new Decimal(0)] } }),
+    },
+    {
+      label: "an item id that is not a salvaged material at all",
+      target: { kind: "material", itemId: "commonOre" },
+    },
+  ];
+
+  for (const testCase of staleCases) {
+    it(`drops the process, changes nothing and draws nothing for ${testCase.label}`, () => {
+      const base = testCase.prepare ? testCase.prepare(timedSalvageState()) : timedSalvageState();
+      const jobState: GameState = { ...base, activeProcesses: [salvageJobAt(testCase.target, 1)] };
+
+      // strictRng([]) throws on the FIRST draw: reaching for the stream at all fails here.
+      const counted = countingRng(strictRng([]));
+      const out = resolveProcesses(jobState, 1, counted.rng).next;
+
+      // The process is dropped (no slot held forever by a target that can never resolve).
+      expect(out.activeProcesses).toEqual([]);
+      // Nothing else moved: the fingerprint matches the input state with the job removed.
+      expect(salvageFingerprint(out)).toEqual(salvageFingerprint({ ...base, activeProcesses: [] }));
+      // And the seeded stream is exactly where it was.
+      expect(counted.draws()).toBe(0);
+    });
+  }
+
+  it("never throws, even on a hand-edited save naming three impossible targets at once", () => {
+    const base = timedSalvageState();
+    const jobState: GameState = {
+      ...base,
+      activeProcesses: [
+        salvageJobAt({ kind: "equipment", instanceId: "ghost-1" }, 1, "proc-1"),
+        salvageJobAt({ kind: "material", itemId: "notAnItemAtAll" }, 1, "proc-2"),
+        salvageJobAt({ kind: "ship", shipId: "ghost-hull" }, 1, "proc-3"),
+      ],
+    };
+    expect(() => resolveProcesses(jobState, 1, strictRng([]))).not.toThrow();
+    const out = resolveProcesses(jobState, 1, strictRng([])).next;
+    expect(salvageFingerprint(out)).toEqual(salvageFingerprint({ ...base, activeProcesses: [] }));
+  });
+});
+
+describe("salvageResolve: completing a job RELEASES its derived reservation (0.13.3 Unit 2.3)", () => {
+  it("a target reserved while in flight is free again the moment its job resolves", () => {
+    const base = timedSalvageState();
+    const jobState: GameState = {
+      ...base,
+      activeProcesses: [
+        salvageJobAt({ kind: "equipment", instanceId: "sp-1" }, 3, "proc-1"),
+        salvageJobAt({ kind: "ship", shipId: "ship-2" }, 3, "proc-2"),
+      ],
+    };
+    // BEFORE: both unique targets are spoken for, so nothing else can install or requeue them.
+    expect(salvageReservedInstanceIds(jobState).has("sp-1")).toBe(true);
+    expect(salvageReservedShipIds(jobState).has("ship-2")).toBe(true);
+
+    // PART WAY: still in flight, so still reserved. The reservation is not a completion
+    // side effect, it is derived from the process existing at all.
+    const midway = resolveProcesses(jobState, 1, mulberry32(3)).next;
+    expect(salvageReservedInstanceIds(midway).has("sp-1")).toBe(true);
+    expect(salvageReservedShipIds(midway).has("ship-2")).toBe(true);
+
+    // COMPLETE: the processes are dropped, so the derivation stops seeing them. No unwind
+    // step exists or is needed, which is the whole point of deriving instead of storing.
+    const done = resolveProcesses(midway, 5, mulberry32(3)).next;
+    expect(done.activeProcesses).toEqual([]);
+    expect(salvageReservedInstanceIds(done).size).toBe(0);
+    expect(salvageReservedShipIds(done).size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⚠️ THE POINT OF THE WHOLE UNIT: offline == live PARITY for timed salvage
+// ---------------------------------------------------------------------------
+// Salvage draws randomly, and as of this unit it draws INSIDE the economy seam. So a
+// player who closes the tab for a long span and a player who watches the same span tick by
+// must receive the IDENTICAL salvage results. That holds only because the salvage
+// functions draw through resolveProcesses' threaded seeded rng instead of a bare
+// Math.random of their own, which is exactly what these tests catch: each path runs its
+// OWN fresh generator over the SAME seed, so any unseeded draw anywhere in the chain makes
+// the two results differ and fails the deep compare.
+//
+// Chunkings compared (the two real shapes the shipped game uses):
+//   OFFLINE  one tick(span) call, which internally steps economyTick(_,1) per whole tick
+//   LIVE     a hand-stepped economyTick(_,1) loop, the App.svelte poll shape
+describe("⚠️ offline==live parity for timed salvage (tick(span) == looping economyTick(_,1))", () => {
+  const SPAN = 20; // tickDurationSeconds is 1, so 20 seconds is 20 whole ticks, no remainder
+  const SEED = 909;
+
+  // Three jobs completing at DIFFERENT ticks inside the span (4, 7 and 11), one per arm.
+  // Staggered on purpose: identical countdowns would complete in one batch and could not
+  // detect an ordering divergence, and the interleaving is what makes the shared stream's
+  // position meaningful (the material arm's TWO draws sit between the other two arms'
+  // single draws).
+  function spanState(): GameState {
+    const base = timedSalvageState();
+    return {
+      ...base,
+      activeProcesses: [
+        salvageJobAt({ kind: "equipment", instanceId: "sp-1" }, 4, "proc-1"),
+        salvageJobAt({ kind: "material", itemId: HOUSING }, 7, "proc-2"),
+        salvageJobAt({ kind: "ship", shipId: "ship-2" }, 11, "proc-3"),
+      ],
+    };
+  }
+
+  it("a salvage job completing inside ONE long offline span lands byte-identically to the span stepped one tick at a time", () => {
+    const jumped = tick(SPAN, spanState(), mulberry32(SEED));
+    let stepped = spanState();
+    const liveRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    // THE PARITY ASSERTION: everything a salvage can touch, deep-equal, including the
+    // per-QUALITY-BUCKET inventory split (a loot roll deposits at its tier's quality, so
+    // the buckets are where a divergent stream shows up first), the equipment pool, the
+    // fleet, the credit balance, the surviving processes and the id counters.
+    expect(salvageFingerprint(jumped)).toEqual(salvageFingerprint(stepped));
+
+    // NON-VACUITY: all three salvages really did resolve inside the span. Without this the
+    // assertion above could pass by comparing two untouched states.
+    expect(jumped.equipment.find((e) => e.id === "sp-1")).toBeUndefined(); // equipment arm ran
+    expect(itemTotal(jumped.inventory, HOUSING).toString()).toBe("2");     // material arm ran
+    expect(jumped.ships.find((s) => s.id === "ship-2")).toBeUndefined();   // ship arm ran
+    expect(jumped.credits.gt(0)).toBe(true);                               // the refund landed
+    expect(jumped.activeProcesses).toEqual([]);                            // all three dropped
+    expect(Object.keys(SALVAGE_BP_INPUTS).some((id) => itemTotal(jumped.inventory, id).gt(0))).toBe(true);
+  });
+
+  it("both chunkings consume the SAME number of draws (4: equipment 1 + material 2 + ship 1)", () => {
+    // A deep-equal result could in principle be reached while consuming the stream
+    // differently (two draws that happen to floor to the same amounts). Counting the draws
+    // pins the stream POSITION too, which is what every completion AFTER a salvage
+    // depends on. The expected total is the three arms' documented counts summed.
+    const jumpedCount = countingRng(mulberry32(SEED));
+    tick(SPAN, spanState(), jumpedCount.rng);
+
+    const steppedCount = countingRng(mulberry32(SEED));
+    let stepped = spanState();
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, steppedCount.rng);
+
+    expect(jumpedCount.draws()).toBe(steppedCount.draws());
+    expect(jumpedCount.draws()).toBe(4);
+  });
+
+  it("is NOT comparing two constants: a different seed produces a different result", () => {
+    // The control. Every parity test risks passing because the outcome does not depend on
+    // the rng at all, in which case it proves nothing. Changing only the seed must change
+    // what was recovered, which shows the compared value really is stream-driven.
+    const seedA = tick(SPAN, spanState(), mulberry32(SEED));
+    const seedB = tick(SPAN, spanState(), mulberry32(SEED + 1));
+    expect(salvageFingerprint(seedA)).not.toEqual(salvageFingerprint(seedB));
+  });
+
+  it("parity holds when the span is chunked UNEVENLY around the completions", () => {
+    // A third chunking for good measure: one 9-tick run (past completions 1 and 2) then an
+    // 11-tick run (past completion 3), on ONE continuous stream. The countdown arithmetic
+    // is closed-form and the draws stay in order, so this must land where the other two did.
+    const rng = mulberry32(SEED);
+    let split = spanState();
+    for (let i = 0; i < 9; i++) split = economyTick(split, 1, rng);
+    for (let i = 0; i < SPAN - 9; i++) split = economyTick(split, 1, rng);
+
+    const jumped = tick(SPAN, spanState(), mulberry32(SEED));
+    expect(salvageFingerprint(split)).toEqual(salvageFingerprint(jumped));
   });
 });

@@ -133,17 +133,35 @@ import {
   type QueueFacilityKey,
   type QueuedJob,
   type QueuedOrder,
+  // Crafting 0.13.3 (Phase 2 Unit 2.3): the three-armed target a salvageResolve effect
+  // carries. Type-only; the exhaustive switch in resolveSalvageEffect below is typed off
+  // it, so a fourth arm becomes a compile error there rather than a silently unhandled
+  // target.
+  type SalvageTargetRef,
 } from "./model";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
-// Imported from reservation.ts, the type-only leaf module, and NOT from the salvage
-// module: salvage is still a live-only instant action this unit, and salvage.test.ts's
-// load-bearing source grep proves this file holds no import of it and calls none of its
-// three functions until Unit 2.3 moves salvage into the tick path and rewrites that
-// guard. ⚠️ THE GUARD GREPS THIS FILE'S RAW SOURCE, so it sees comments too: naming the
-// salvage module's import path or its function names in prose here would fail the guard
-// as surely as a real call would. That is why this comment spells neither out.
+// Implemented in reservation.ts (a leaf both this file and equipment.ts can depend on
+// without closing an import cycle) and re-exported from the salvage module for callers.
 import { isDuplicateSalvageTarget } from "./reservation";
+// Crafting 0.13.3 (Phase 2 Unit 2.3, design sections 7.4 + 7.5): THE RNG MOVE.
+//
+// Salvage used to be forbidden here. It was a live-only INSTANT action drawing bare
+// Math.random, and salvage.test.ts held a source grep asserting these three names never
+// appeared in this file. Timed salvage retires that boundary: a salvageJob completes
+// INSIDE resolveProcesses, so its rolls must ride the SAME seeded, threaded rng every
+// other completion draws from, or a big offline catch-up would recover different
+// materials than the identical span played live.
+//
+// The three functions are unchanged (Omega 15a: their reward math is proven and is not
+// touched by this unit). Each already accepted an injectable `rng` that defaulted to
+// Math.random for tests; the tick path now passes resolveProcesses' threaded rng
+// explicitly, while the live instant paths in App.svelte keep passing nothing and keep
+// their real-random default. One implementation, two correct callers.
+//
+// The invariant that replaced the old grep is enforced by the rewritten guard in
+// salvage.test.ts: every salvage call site in THIS file passes rng.
+import { salvageEquipment, salvageSalvagedMaterial, salvageShip } from "./salvage";
 import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // Combat 0.13.0 (Phase 9b.5a): patrol dispatch helpers. combatHullTypeOf gates the
 // combat-hull requirement + resolves the CombatHullType for the drone default;
@@ -7066,6 +7084,87 @@ export function fuelRunwayProjection(input: {
   return finalize(iceRunway + phase2);
 }
 
+// ----------------------------------------------------------------------------
+// resolveSalvageEffect (Crafting 0.13.3, Phase 2 Unit 2.3, design section 7.3 + 7.4)
+// ----------------------------------------------------------------------------
+// Resolve ONE completed salvageJob by delegating to the proven salvage function for its
+// target arm, and hand back the resulting state, or `null` when the target is stale.
+//
+// WHY DELEGATE INSTEAD OF REIMPLEMENTING: the recovery band, the quality bonus, the
+// talent auto-apply, the loot ceiling, the baseline-destroy declutter, the last-hull
+// guard and the crafted-systems-return-to-spares rule are all already written, all
+// already tested, and all shared with the live instant paths. Re-expressing any of that
+// here would be two copies of the reward math that could drift (Omega 4 + Omega 15a).
+// This unit is plumbing and determinism only: not one number changes.
+//
+// ⚠️ CONSUME AT COMPLETION, THE DELIBERATE DEVIATION. Every other timed process deducts
+// its inputs at START, which is what closes the double-spend window. Salvage consumes its
+// target AND grants its reward ATOMICALLY HERE, at completion, in one call, because
+// splitting these three functions into a consume half and a reward half would mean
+// inventing a serializable snapshot payload for each (blueprint key, quality, hull BOM)
+// and carrying it through the save. The double-spend window is closed a different way
+// instead: reservation.ts derives the reserved set from the queue PLUS the in-flight
+// jobs, so a target is spoken for from the moment it is queued until the moment this
+// function consumes it. See reservation.ts's header for the full argument.
+//
+// ⚠️ THE `scratch` STATE IS NOT `state`. resolveProcesses accumulates its completions in
+// LOCALS and only assembles the final state at the end, so a salvage must see (and build
+// on) what earlier completions in this same call already did. The caller therefore passes
+// a state carrying the CURRENT accumulators, and copies the four fields a salvage can
+// write back out of the returned state. All three functions return `{ ...input, ...}`, so
+// copying all four back on every arm is correct whichever arm ran, and cannot rot into
+// an arm-to-field mapping that disagrees with salvage.ts.
+//
+// ⚠️ STALE TARGETS ARE A FAIL-SAFE NO-OP, NEVER A THROW. A piece installed on a ship
+// since the order was placed, an instance that no longer exists, a hull already torn
+// down or lost, or the last-hull guard now firing: every one of those is a rejection the
+// salvage functions ALREADY express as a same-reference no-op plus a reason. This
+// function maps all of them to `null`, the caller applies nothing, and the process is
+// dropped. Nothing is ever partially applied, because each salvage function computes its
+// whole new state and returns it in one piece. Precedent: the clearShipDamage branch's
+// documented "a STALE shipId hits no row and is a harmless no-op". The reason is
+// deliberately discarded rather than logged: GameState carries no event log to write to,
+// and inventing one for this branch is Phase 4 UI work, not plumbing.
+//
+// DRAW DISCIPLINE (what makes offline == live): each arm draws a FIXED, documented number
+// of times off the passed rng, and only on the success path (every rejection returns
+// before its draw). A rejection is a pure function of state, so both the offline and the
+// live path reject the same completions at the same points and the stream stays in
+// lockstep. Draw counts, from salvage.ts: equipment 1 (the recovery band), material 2
+// (loot tier, then item within tier), ship 1 (the recovery band).
+//
+// The switch is EXHAUSTIVE over SalvageTargetRef's three arms with NO default branch and
+// a declared return type, so adding a fourth arm is a COMPILE ERROR here (the same trick
+// reservation.ts's bin() and QUEUE_ADAPTERS' Record use) rather than a target that
+// silently resolves to nothing. PURE apart from the rng draws it delegates.
+function resolveSalvageEffect(
+  scratch: GameState,
+  target: SalvageTargetRef,
+  rng: () => number
+): GameState | null {
+  switch (target.kind) {
+    case "equipment": {
+      // Recycle one spare crafted system back into a fraction of its recipe inputs (or
+      // destroy a spare Standard-Issue baseline for nothing, the storage escape valve).
+      const result = salvageEquipment(scratch, target.instanceId, rng);
+      return result.ok ? result.next : null;
+    }
+    case "material": {
+      // Consume one salvaged material for its tiered, FA-level-gated loot roll.
+      const result = salvageSalvagedMaterial(scratch, target.itemId, rng);
+      return result.ok ? result.next : null;
+    }
+    case "ship": {
+      // Tear a whole hull down: crafted systems back to the spare pool, baselines
+      // discarded, a rolled fraction of the build components + credits refunded, the
+      // docks slot freed. This is the TIMED teardown salvage.ts's header has said was
+      // coming since 0.11.1; the instant form stays for the live path.
+      const result = salvageShip(scratch, target.shipId, rng);
+      return result.ok ? result.next : null;
+    }
+  }
+}
+
 // Advances every active process by `ticksElapsed` and resolves completions. THE
 // single completion resolver (Task 9 calls it from BOTH tick() and the live loop).
 //
@@ -7188,6 +7287,14 @@ export function resolveProcesses(
   // one branch increments it). Unlike equipmentStorageLevel (a stored LEVEL a derived
   // cap reads), this IS the cap itself, so the +1 lands here directly.
   let shipStorageCapacity = state.shipStorageCapacity;
+  // Crafting 0.13.3 (Phase 2 Unit 2.3): the credit balance, threaded so a completing
+  // salvageJob that tears a HULL down can refund its share of the build credits (the one
+  // salvage arm that pays credits as well as materials). Seeded from the incoming state,
+  // so a call that completes no hull teardown returns it EXACTLY === state.credits: this
+  // is the only branch that ever reassigns it, and the empty/no-completion early-out
+  // returns before this line is even read. Decimal, like every other currency field, and
+  // replaced (never mutated) by salvage.ts's own `.plus`.
+  let credits = state.credits;
   let fleetAdminXpDelta = 0;
   // Crafting Level XP (Equipment 0.11.0, Phase 3): accumulates CRAFTING_XP_PER_DURATION_TICK
   // * durationTicks for every PRODUCTION job (refine / fabricate / ship-build) that completes
@@ -7519,34 +7626,52 @@ export function resolveProcesses(
         );
       }
     } else if (process.effect.type === "salvageResolve") {
-      // ⚠️ DELIBERATE NO-OP PLACEHOLDER. UNIT 2.3 IMPLEMENTS THIS BRANCH.
+      // Crafting 0.13.3 (Phase 2 Unit 2.3, design sections 7.3 + 7.4): a completed
+      // salvageJob CONSUMES its target and GRANTS its reward, atomically, right here.
+      // This replaces Unit 2.2's deliberate no-op placeholder.
       //
-      // Crafting 0.13.3 Phase 2 splits the salvage work across units on purpose. Unit 2.2
-      // (this one) declares the TYPES only: the "salvageJob" kind, this "salvageResolve"
-      // effect, its XP row and the duration math. Unit 2.3 lands the actual resolution
-      // together with the rng move it depends on, and Unit 2.4 lands the slot count and
-      // the adapter row that let a job be created at all.
+      // ⚠️ THE ONE DELIBERATE DEVIATION FROM THE ENGINE'S CONVENTION. Every other kind
+      // deducts at START and merely deposits here. Salvage does BOTH halves at
+      // completion, in one indivisible call, so it can reuse the three proven salvage
+      // functions whole instead of being split into a consume half and a reward half that
+      // would need a serializable snapshot carried through the save. What protects the
+      // target in the meantime is the DERIVED reservation (reservation.ts): a target is
+      // spoken for from the moment it is queued, through its in-flight countdown, until
+      // this line consumes it, with no gap between those two windows. Completing the job
+      // is also what RELEASES the reservation, at zero bookkeeping cost: the process is
+      // dropped below (never pushed to stillActive), so the next derivation simply stops
+      // seeing it.
       //
-      // WHY A BRANCH IS HERE AT ALL: the chain's closing `else` narrows to whatever
-      // effect arms are left, and without this case that `else` would receive a
-      // salvageResolve effect and read `.facility` off it. TypeScript catches that as a
-      // compile error today, which is the good outcome, but the fix cannot be to widen the
-      // `else`: at runtime a salvageResolve landing in the facility branch would level up
-      // a facility named `undefined`. So the branch is explicit and does nothing.
+      // ⚠️ THE SCRATCH STATE IS THE ACCUMULATORS, NOT `state`. Salvage is the only effect
+      // whose implementation lives outside this function and speaks in whole GameStates,
+      // so it is handed one built from the CURRENT accumulators. Without that, two
+      // salvages completing in the same call would each build on the untouched incoming
+      // state and the second would silently discard the first (a real data-loss shape,
+      // and the very thing "atomic" has to mean here). The four fields a salvage can
+      // write are copied straight back out; the rest of the scratch state is read-only to
+      // salvage.ts and is discarded with it.
+      const scratch: GameState = { ...state, inventory, equipment, ships, credits };
+      const resolved = resolveSalvageEffect(scratch, process.effect.target, rng);
+      if (resolved !== null) {
+        // Applied as ONE step: these four assignments cannot interleave with anything, and
+        // resolveSalvageEffect either produced a fully-formed state or produced null.
+        inventory = resolved.inventory;
+        equipment = resolved.equipment;
+        ships = resolved.ships;
+        credits = resolved.credits;
+      }
+      // resolved === null: a STALE or refused target (already salvaged, since installed,
+      // hull gone, last-hull guard now firing, none of that material held any more).
+      // Apply NOTHING and let the process drop, exactly as the clearShipDamage branch
+      // above treats a stale shipId. It is the safe direction: the target keeps existing
+      // and the player can queue it again, whereas a throw here would take the whole tick
+      // down and a partial apply would corrupt the save.
       //
-      // WHAT NOTHING COSTS US RIGHT NOW: a process taking this branch is dropped from
-      // activeProcesses with no effect applied, so its target would be neither consumed
-      // nor rewarded. That is a real hazard in the abstract, and it is UNREACHABLE in
-      // practice this unit: nothing can create a process of this shape yet. There is no
-      // console for it, no auto rule, and the Salvage Bay queue adapter is still the
-      // double-braked stub from Unit 1.3 (hasFreeSlot always false AND canStart always
-      // refuses), so no promotion pass can mint one. The only way to reach this line is a
-      // hand-edited save, where dropping the process silently is strictly safer than
-      // applying a half-built effect.
-      //
-      // Not touching state also means the closed-form parity guarantee is untouched: this
-      // branch draws no rng and writes nothing, so one big offline resolve and many small
-      // live steps remain byte-identical, which is why parity stays at its Unit 2.1 count.
+      // PARITY: this branch draws from the SAME threaded rng every other completion uses,
+      // a fixed count per arm, in activeProcesses array order like every other completion,
+      // and only on the success path. So a salvage completing inside one long offline span
+      // draws exactly what the same salvage draws stepped live (⚠️ the behavioral proof is
+      // the offline==live parity test in salvage.test.ts).
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -7603,6 +7728,11 @@ export function resolveProcesses(
       // docksExpansion this call. Value-identical to state.shipStorageCapacity when no
       // expansion completed (seeded from it, only the docksCapacityUp branch increments it).
       shipStorageCapacity,
+      // Crafting 0.13.3 (Phase 2 Unit 2.3): the credit balance, raised by any completing
+      // HULL teardown this call. Value-identical to state.credits when no teardown
+      // completed (seeded from it, and only the salvageResolve branch reassigns it), so
+      // every save without a salvage job lands byte-identical to before this unit.
+      credits,
       activeProcesses: stillActive,
     },
     fleetAdminXpDelta,

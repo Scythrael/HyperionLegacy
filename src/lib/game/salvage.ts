@@ -9,27 +9,41 @@
 //                            inputs back (Task C1).
 //   salvageSalvagedMaterial  consume one SALVAGED MATERIAL -> a weighted, tiered,
 //                            progression-gated LOOT roll for one material drop (C2/C3).
-// BOTH are LIVE-ONLY instant actions under the SAME parity boundary (see below).
+// BOTH run on TWO CALLERS now (live instant + timed job), under the SAME rng rule (below).
 //
-// salvageEquipment: a LIVE-ONLY, player-initiated INSTANT action that consumes a
-// SPARE CRAFTED ship system and returns a fraction of the materials that crafted it
-// (its blueprint recipe.inputs) to inventory at quality tier 0, freeing a storage
-// slot. It is the always-available escape valve that keeps a full equipment store
-// from ever becoming a softlock (the guarantee deferred from Task B1): the storage
-// cap is NEVER consulted here, so any spare can always be recycled.
+// salvageEquipment: consumes a SPARE CRAFTED ship system and returns a fraction of the
+// materials that crafted it (its blueprint recipe.inputs) to inventory at quality tier 0,
+// freeing a storage slot. It is the always-available escape valve that keeps a full
+// equipment store from ever becoming a softlock (the guarantee deferred from Task B1):
+// the storage cap is NEVER consulted here, so any spare can always be recycled.
 //
-// PARITY BOUNDARY (why this file has no offline-parity concern, and MUST NOT):
-//   - This action is DISCRETE and INSTANT, triggered by a player click, not by the
-//     passage of time. It is NOT a ProcessLine, has no duration, and does NOT run
-//     inside economyTick / the offline tick() / resolveProcesses.
-//   - It uses Math.random directly (injectable ONLY so tests can pin the roll). A
-//     random INSTANT action is fine precisely because it never executes in the
-//     offline-catch-up seam, where a divergent RNG stream would break parity.
-//   - DO NOT wire salvageEquipment, salvageSalvagedMaterial, OR salvageShip into any
-//     economy-tick path. salvage.test.ts greps tick.ts to prove ALL THREE stay out; that
-//     guard is load-bearing. (salvageShip is INSTANT this patch but is slated to become a
-//     multi-tick TIMED teardown in a later task, at which point it moves into the tick path
-//     and takes on its OWN offline-parity obligation, see the salvageShip header.)
+// ⚠️ PARITY BOUNDARY, REWRITTEN FOR CRAFTING 0.13.3 (Phase 2 Unit 2.3, design 7.4/7.5).
+// This file USED to say "never wire any of these into an economy-tick path", and
+// salvage.test.ts held a source grep on tick.ts proving it. That boundary is GONE: 0.13.3
+// makes salvage a TIMED, queued process, so a salvageJob completing inside
+// resolveProcesses now calls all three of these functions. The rule that replaced it:
+//
+//   THE RNG IS THE BOUNDARY. Every function here draws through its injected `rng`
+//   parameter and NEVER through a bare Math.random of its own. The parameter defaults to
+//   Math.random, which is correct and only correct for the LIVE INSTANT callers
+//   (App.svelte's recycle / loot-roll / hull-teardown buttons): a player-clicked action
+//   happens at a real moment in real time and has nothing to stay in lockstep with. The
+//   TICK caller must ALWAYS pass resolveProcesses' threaded seeded rng instead, because a
+//   completion inside the offline-catch-up seam has to draw exactly what the same
+//   completion draws live, or a long offline span recovers different materials than the
+//   identical span played at the keyboard.
+//
+//   DRAW COUNTS ARE FIXED AND DOCUMENTED, which is what makes the stream position
+//   predictable across a whole span of completions: salvageEquipment draws ONCE (the
+//   recovery band), salvageSalvagedMaterial draws EXACTLY TWICE (loot tier, then item
+//   within the tier), salvageShip draws ONCE (the recovery band). Every rejection returns
+//   BEFORE its draw, so a refused salvage costs the stream nothing. Changing any of those
+//   counts changes the stream for every later completion in the same span: treat them as
+//   load-bearing, not as an implementation detail.
+//
+//   salvage.test.ts still greps tick.ts, but for the REAL invariant now: every salvage
+//   call site there passes rng, and tick.ts adds no bare Math.random. See that guard's
+//   own header for what it defends and why it was not simply deleted.
 //
 // IMMUTABILITY: like every equipment.ts / tick.ts state-transform, this returns a
 // NEW GameState and never mutates the input. On a rejected salvage it returns the
@@ -188,9 +202,9 @@ export type SalvageRejectReason =
 // each of its blueprint's crafting inputs to inventory at quality tier 0, and free
 // the storage slot it occupied.
 //
-// rng defaults to Math.random and is injectable ONLY for tests (see the PARITY
-// BOUNDARY note at the top: this is a live instant action, so a real random roll is
-// correct here).
+// rng: ONE draw, the recovery band. The default (Math.random) serves the LIVE instant
+// caller; the timed salvageJob completion in resolveProcesses passes the seeded, threaded
+// stream instead. See the rewritten PARITY BOUNDARY note at the top of this file.
 //
 // TALENT AUTO-APPLY (Task C4): the combined FA salvage talent's yield bump is folded
 // in INTERNALLY via salvageTalentBonus(state), so the talent ALWAYS takes effect in
@@ -306,12 +320,11 @@ export function salvageEquipment(
 // and rolls its weighted, TIERED loot pool (SALVAGE_LOOT_POOLS, model.ts) for a single
 // material drop, deposited at the rolled tier's quality.
 //
-// SAME PARITY BOUNDARY as salvageEquipment (see the file header): this is a LIVE-ONLY,
-// player-initiated INSTANT action. It uses Math.random (injectable ONLY for tests) and
-// MUST NOT be wired into economyTick / the offline tick() / resolveProcesses. A random
-// instant action is fine precisely because it never runs in the offline-catch-up seam.
-// salvage.test.ts greps tick.ts to prove BOTH salvage functions stay out; that guard is
-// load-bearing.
+// SAME RNG RULE as salvageEquipment (see the rewritten PARITY BOUNDARY note in the file
+// header): the live instant caller takes the Math.random default, and the timed
+// salvageJob completion in resolveProcesses passes the seeded threaded stream. This is
+// the two-draw arm (tier, then item), and that count is load-bearing for the stream
+// position of every completion after it in the same span.
 
 // ----------------------------------------------------------------------------
 // Progression-gated ceiling (the tunable FA-level thresholds)
@@ -369,10 +382,10 @@ function weightedPick<T extends { weight: number }>(items: T[], rng: () => numbe
 // Consume ONE unit of a salvaged material and roll its tiered loot pool for a single
 // drop, deposited at the rolled tier's quality bucket.
 //
-// rng defaults to Math.random, injectable ONLY for tests (see the parity note above).
-// It makes exactly TWO draws per successful roll: (1) pick the tier among the
+// rng: exactly TWO draws per successful roll, (1) pick the tier among the
 // ceiling-eligible tiers by tier weight, (2) pick the item within that tier by drop
-// weight.
+// weight. The default (Math.random) serves the LIVE instant caller; the timed salvageJob
+// completion passes the seeded threaded stream. See the file-header rng rule.
 //
 // TALENT AUTO-APPLY (Task C4): the combined FA salvage talent's ceiling bump is folded
 // in INTERNALLY via salvageTalentBonus(state), so the talent ALWAYS raises the loot
@@ -452,21 +465,20 @@ export function salvageSalvagedMaterial(
 // LIVE-ONLY, INSTANT, same-ref-reject shape, but operates on a ShipInstance instead of a
 // spare EquipmentInstance and additionally refunds credits.
 //
-// ⚠️ DELIBERATELY INSTANT FOR NOW: unlike recycling one spare system, physically tearing an
-// entire hull apart is NOT a plausibly-instant act. This function is intentionally instant
-// THIS patch to ship the capability with the same simple, proven live-action shape as the
-// other two salvages; a FUTURE task converts it into a MULTI-TICK TIMED teardown process
-// (a TimedProcess / ProcessLine with a durationTicks, like a ship BUILD in reverse). Do NOT
-// treat this instant form as final. When the timed version lands it must move OUT of this
-// live-only file into the process engine, at which point the parity concerns below change,
-// so the conversion is not a trivial rename.
+// ⚠️ THE TIMED TEARDOWN THIS HEADER PROMISED HAS LANDED (Crafting 0.13.3 Unit 2.3). This
+// used to be instant-only, with a note saying a future task would convert it into a
+// multi-tick process. That task is done, and it did NOT need this function moved or
+// rewritten: the process engine now runs a salvageJob whose completion calls THIS
+// function, so the teardown takes real time (a share of the hull's own build duration,
+// SALVAGE_SHIP_BUILD_DIVISOR) while the reward math stays the one proven copy. The
+// INSTANT form is still reachable from the live Docks button and stays supported; the two
+// callers differ ONLY in which rng they hand in.
 //
-// SAME PARITY BOUNDARY as the other two salvages (see the file header): this is a LIVE-ONLY,
-// player-initiated INSTANT action. It uses Math.random (injectable ONLY for tests) and MUST
-// NOT be wired into economyTick / the offline tick() / resolveProcesses. salvage.test.ts
-// greps tick.ts to prove ALL THREE salvage functions stay out of the economy seam; that
-// guard is load-bearing. (Once salvageShip becomes a timed teardown it WILL live in the
-// tick path, and THAT change must carry its own offline==live parity proof.)
+// SAME RNG RULE as the other two salvages (see the rewritten PARITY BOUNDARY note in the
+// file header): ONE draw, the recovery band. The default (Math.random) serves the live
+// instant caller; the timed completion in resolveProcesses passes the seeded threaded
+// stream, which is what makes a hull torn down during a long offline span recover exactly
+// what it would have recovered live.
 
 // The result of a ship salvage. Discriminated union in the SAME posture as SalvageResult:
 // on SUCCESS a NEW state plus `recovered` (the per-component amounts deposited at quality 0)
@@ -487,8 +499,8 @@ export type SalvageShipResult =
 // of the hull's build components (at quality 0) + build credits, and remove the ship from
 // the fleet (freeing a docks slot immediately).
 //
-// rng defaults to Math.random and is injectable ONLY for tests (see the PARITY BOUNDARY note
-// above: this is a live instant action, so a real random roll is correct here).
+// rng: ONE draw, the recovery band. Default Math.random for the live instant caller, the
+// seeded threaded stream from the timed salvageJob completion (see the rng rule above).
 //
 // REJECTS (same-ref no-op + reason): the ship id must resolve to a real hull (shipNotFound),
 // its assigned captain must NOT be on an active mission (shipOnMission, via the shared
