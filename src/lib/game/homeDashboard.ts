@@ -59,6 +59,7 @@ import {
   canResearch,
   canStartLine,
   canBuildShip,
+  canBuildFacilityUpgrade,
 } from "./tick";
 
 // ---------------------------------------------------------------------------
@@ -67,11 +68,15 @@ import {
 
 // The nav destinations a Home row/prompt can jump to (design Section 8). A flat
 // string union, one literal per setup tab the dashboard routes into, so the Unit 3
-// jumpToActivity(target) dispatcher is a single typed switch. Kept to EXACTLY the
-// seven Section-8 destinations; a running row whose real destination is not one of
-// these (a Warehouse or Ship-Systems-storage upgrade, see labelForProcess) carries a
-// null jumpTarget instead of an invented one, and the UI renders it as a plain,
-// non-navigable status row.
+// jumpToActivity(target) dispatcher is a single typed switch. The first seven are the
+// Section-8 setup destinations; "facilities" (0.13.1 follow-up) is the Facilities
+// OVERVIEW (the dashboard of all facility cards), the landing for the aggregate
+// "facility upgrade(s) ready" prompt (buildNeedsOrders below), which points at no single
+// facility, so it routes to the overview where every card + its Build button lives, not
+// into one foundry console. A running row whose real destination is not one of these (a
+// Warehouse or Ship-Systems-storage upgrade, see labelForProcess) carries a null
+// jumpTarget instead of an invented one, and the UI renders it as a plain, non-navigable
+// status row.
 export type JumpTarget =
   | "gathering"
   | "combat"
@@ -79,7 +84,8 @@ export type JumpTarget =
   | "refinery"
   | "fabricator"
   | "shipyard"
-  | "fuelDepot";
+  | "fuelDepot"
+  | "facilities";
 
 // Which FLAVOR of in-progress row this is. Drives how the UI reads the optional
 // fields: a "patrol" row is the only kind that carries `combat` (and has a null ETA,
@@ -532,6 +538,36 @@ function buildNeedsOrders(state: GameState): Prompt[] {
       label: "Shipyard idle",
       detail: null,
       jumpTarget: "shipyard",
+    });
+  }
+
+  // --- Facility upgrades (idle = no upgrade in flight for that facility): ONE aggregate
+  // prompt counting the facilities whose NEXT upgrade is startable RIGHT NOW. canBuildFacilityUpgrade
+  // (tick.ts) is the EXACT gate the facility Upgrades-tab Build button reads: it folds in the
+  // track-maxed, one-upgrade-per-facility-in-flight (so an upgrade ALREADY running yields
+  // not-ok and never double-counts, matching the In-Progress list), FA-level, talent,
+  // research, facility-level, credit, and material gates, so this re-derives NO cost/level
+  // math. Unlike the per-slot prompts above, this iterates the whole FACILITIES registry and
+  // AGGREGATES into a single prompt (not one per facility) to avoid clutter at a progressed
+  // player's scale (each facility routes to the same Facilities overview anyway). Up to
+  // FACILITIES.length gate calls per tick, each cheap (structural checks + a tiny materials
+  // loop), well within the once-per-tick budget (design Section 10).
+  let upgradesReady = 0;
+  for (const facilityKey of Object.keys(FACILITIES)) {
+    if (canBuildFacilityUpgrade(state, facilityKey).ok) upgradesReady += 1;
+  }
+  if (upgradesReady > 0) {
+    prompts.push({
+      id: "idle-facility-upgrade",
+      icon: "facility",
+      label:
+        upgradesReady === 1
+          ? "1 facility upgrade ready"
+          : `${upgradesReady} facility upgrades ready`,
+      detail: null,
+      // No single facility to drill into (the count spans several), so route to the
+      // Facilities OVERVIEW where every card + its live Build button is visible.
+      jumpTarget: "facilities",
     });
   }
 

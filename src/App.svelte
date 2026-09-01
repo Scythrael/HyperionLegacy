@@ -2191,6 +2191,16 @@
         facilitiesView = "console";
         activeFoundryFacility = "fuelStorage";
         break;
+      case "facilities":
+        // The Facilities OVERVIEW (the dashboard of all facility cards), NOT a single foundry
+        // console: the aggregate "facility upgrade(s) ready" prompt spans several facilities, so
+        // it lands the player on the overview where every card + its live Build button is shown
+        // (they then pick which to upgrade). This is the bottom-nav Facilities landing
+        // (activeTab "facilities" + facilitiesView "dashboard", App.svelte:9431 / the dashboard
+        // block at :4984), distinct from the foundry cases above which drill into a console.
+        activeTab = "facilities";
+        facilitiesView = "dashboard";
+        break;
       default: {
         // Exhaustiveness guard: a JumpTarget added to the union without a case above makes
         // `target` fail to narrow to `never`, a COMPILE error, so this switch can never

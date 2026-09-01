@@ -312,14 +312,27 @@ describe("buildHomeDashboard, needs-orders + caught-up (Unit 2)", () => {
   });
 
   it("produces NO prompt anywhere and reports caught up when nothing is actionable", () => {
-    // A structurally-blank fleet: no captains (nothing to dispatch) and every facility at
-    // level 0 (unbuilt), so researchSlotCount / fabricateSlotCount / refineSlotCount are all
-    // 0 (noSlot for every craft/research gate) and the shipyard is unfounded (notFounded).
-    // Every gate is blocked at its structural check, INDEPENDENT of credits/inventory, so no
-    // slot is actionable. That is the caught-up state: zero prompts, allCaughtUp true.
-    // (Note the Local Asteroid run costs zero fuel by design, so a captain WITH a hull is
-    // always dispatchable; this state removes the captains to reach a true nothing-actionable
-    // board rather than trying to strand a captain, which the anti-softlock run forbids.)
+    // A genuinely nothing-actionable fleet, modeled on a REACHABLE save (credits 0, nothing
+    // researched, no captains). Facility levels use freshState's REAL seed: the pre-granted
+    // Research Lab / Fabricator / Mission Control sit at level 1 (never level 0 in real play),
+    // while the Refinery / Shipyard / Warehouse / Fuel Depot sit at level 0. WHY the real seed
+    // and not an all-level-0 map: a level-0 pre-granted facility would expose its ZERO-COST,
+    // ungated FOUNDING rung, which canBuildFacilityUpgrade correctly reports as startable, so
+    // the new aggregate facility-upgrade prompt would fire on an unreachable configuration.
+    // With the real seed every gate is blocked:
+    //   - no captains          -> no dispatch prompt,
+    //   - Research: free slot but 0 credits (every blueprint costs >= 500) -> canResearch "credits",
+    //   - Fabricator: free slot but nothing researched (researchedBlueprints []) -> canStartLine not ok,
+    //   - Refinery: level 0 -> refineSlotCount 0 -> canStartLine "refine" noSlot,
+    //   - Shipyard: level 0 -> canBuildShip notFounded,
+    //   - Facility upgrades: Mission Control maxed (lone rung), Research/Fabricator 1->2 want
+    //     5000 credits + FA level, Refinery founding wants 100 ore, Shipyard founding wants 2000
+    //     credits + FA level, Warehouse/Fuel foundings want huge ore -> canBuildFacilityUpgrade
+    //     ok for none.
+    // So no slot is actionable: zero prompts, allCaughtUp true. (Note the Local Asteroid run
+    // costs zero fuel by design, so a captain WITH a hull is always dispatchable; this state
+    // removes the captains to reach a true nothing-actionable board rather than stranding one,
+    // which the anti-softlock run forbids.)
     const blank = {
       ...freshState(),
       captains: [],
@@ -328,9 +341,9 @@ describe("buildHomeDashboard, needs-orders + caught-up (Unit 2)", () => {
         warehouseT1: { level: 0 },
         warehouseT2: { level: 0 },
         fuelStorage: { level: 0 },
-        missionControl: { level: 0 },
-        research: { level: 0 },
-        fabricator: { level: 0 },
+        missionControl: { level: 1 },
+        research: { level: 1 },
+        fabricator: { level: 1 },
         shipyard: { level: 0 },
       },
     };
@@ -387,6 +400,48 @@ describe("buildHomeDashboard, needs-orders + caught-up (Unit 2)", () => {
     // Same state, but the docks are full (capacity == the one seeded ship): no prompt.
     const docksFull = { ...buildable, shipStorageCapacity: buildable.ships.length };
     expect(promptById(buildHomeDashboard(docksFull), "idle-shipyard")).toBeUndefined();
+  });
+
+  it("surfaces the aggregate facility-upgrade prompt (singular) when exactly one upgrade is startable", () => {
+    // freshState seeds credits 0 + Fleet Admiral level 1, so NO facility upgrade is startable
+    // (every credit rung wants FA level 3+ and/or credits the fresh player lacks). Grant just
+    // the Shipyard FOUNDING rung's exact gates (credits 2000 + FA level 3, materials {}), while
+    // staying UNDER the 5000-credit research/fabricator rungs and with 0 commonOre (so the
+    // Refinery founding rung's 100-ore cost stays unmet). That leaves EXACTLY one facility
+    // (shipyard) whose next upgrade canBuildFacilityUpgrade approves, so the aggregate prompt
+    // reads the singular "1 facility upgrade ready" and routes to the Facilities overview.
+    const oneReady = { ...freshState(), credits: new Decimal(2000), fleetAdminLevel: 3 };
+    const model = buildHomeDashboard(oneReady);
+    const upgrade = promptById(model, "idle-facility-upgrade");
+    expect(upgrade).toBeDefined();
+    expect(upgrade!.jumpTarget).toBe("facilities");
+    expect(upgrade!.label).toBe("1 facility upgrade ready");
+    expect(model.allCaughtUp).toBe(false);
+  });
+
+  it("pluralizes the aggregate facility-upgrade prompt and carries the count when several are startable", () => {
+    // Ample credits + FA level 3 clears the credit + FA gates on MULTIPLE facilities at once
+    // (the Shipyard founding rung AND the Research + Fabricator level 1->2 rungs), so more than
+    // one facility is startable. The prompt must read the PLURAL "N facility upgrades ready" with
+    // the real count as its leading number (proving both the pluralization and count-in-label),
+    // still routed to the Facilities overview.
+    const manyReady = { ...freshState(), credits: new Decimal(1e12), fleetAdminLevel: 3 };
+    const model = buildHomeDashboard(manyReady);
+    const upgrade = promptById(model, "idle-facility-upgrade");
+    expect(upgrade).toBeDefined();
+    expect(upgrade!.jumpTarget).toBe("facilities");
+    // Label shape "N facility upgrades ready" with N >= 2 (parse the leading count off the label).
+    const match = upgrade!.label.match(/^(\d+) facility upgrades ready$/);
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBeGreaterThanOrEqual(2);
+  });
+
+  it("produces NO facility-upgrade prompt for a fresh admiral (nothing affordable/unlocked)", () => {
+    // freshState: credits 0, Fleet Admiral level 1, 0 commonOre. Every facility's next rung is
+    // blocked (unmet credits / FA level / materials, or a lone maxed rung), so canBuildFacilityUpgrade
+    // is ok for none of them. The idle-but-nothing-available rule => no upgrade prompt at all.
+    const model = buildHomeDashboard(freshState());
+    expect(promptById(model, "idle-facility-upgrade")).toBeUndefined();
   });
 });
 
