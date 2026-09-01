@@ -1092,6 +1092,31 @@
   // never re-steals focus. null means "no pending restore" (a fresh entry into the Ships tab).
   let pendingFocusShipId: string | null = null;
 
+  // 0.13.3 Unit 0.1 (captain-page return path). A NON-PERSISTED, one-shot marker recording
+  // WHERE the player entered the ship loadout board FROM. It exists because 0.13.2 retired
+  // the Ship Systems modal: the captain page's shortcut now NAVIGATES to the Ships tab, so
+  // without a breadcrumb both the Back control and the board's onClose drop the player on
+  // the ships roster and there is no way back to the captain they came from (the one genuine
+  // accidental side effect the 0.13.2 regression audit found). null means "entered normally
+  // from the ships roster", which keeps today's behavior byte-for-byte; a set marker means
+  // "came from THAT captain's console, go back there".
+  //
+  // The captain is stored by ID, never by activeCaptainIndex: an index can point at a
+  // different captain (or past the end) if the roster changes while the board is open, and
+  // an id either resolves to the right captain or cleanly does not resolve at all.
+  //
+  // This is UI navigation context only, so it never touches the save (no SAVE_VERSION bump).
+  let shipsReturnTo: { captainId: number } | null = null;
+
+  // 0.13.3 Unit 0.1 (a11y focus management, captain return path). The sibling of
+  // pendingFocusShipId for the OTHER return path. When we send the player back to a captain
+  // console, the ship page unmounts and the whole Personnel branch remounts, so without help
+  // focus would fall to <body> (the same WCAG 2.4.3 failure Unit 7 fixed on the roster path).
+  // The captain page's "Captains" back control consumes this on mount and immediately clears
+  // it, so a NORMAL roster-card entry into a captain console (marker false) is unchanged and
+  // never steals focus.
+  let pendingFocusCaptainBack = false;
+
   // Vanished-hull guard. If the selected ship disappears while its page is open
   // (the player salvaged it, so it is no longer in state.ships), fall back to the
   // grid and clear the dangling id so the next card tap starts clean. This reads
@@ -1103,6 +1128,50 @@
     selectedShipId !== null &&
     !state.ships.some((s) => s.id === selectedShipId)
   ) {
+    shipsView = "grid";
+    selectedShipId = null;
+    // The hull the player was sent here to outfit no longer exists, so the breadcrumb back
+    // to the captain is meaningless. Clear it here (0.13.3 Unit 0.1) so it can never fire on
+    // some later, unrelated Back press.
+    shipsReturnTo = null;
+  }
+
+  // 0.13.3 Unit 0.1. THE single exit from the ship loadout board, shared by the "Ships" back
+  // control and the board's own onClose, so the two can never disagree about where "back"
+  // goes. Consumes shipsReturnTo (reading it, then clearing it before anything else) and
+  // branches:
+  //   - marker set + that captain still exists: return to Personnel > Captain Roster on THAT
+  //     captain's console, exactly the state a roster-card tap produces, plus a focus hand-off.
+  //   - no marker (entered from the ships roster), or the captain has vanished: today's
+  //     behavior verbatim, back to the ships roster with pendingFocusShipId restoring focus to
+  //     the row we came from. The vanished-captain case deliberately stays on the Ships tab
+  //     rather than guessing at another captain: the player is already here, and landing them
+  //     on the ships roster is the same no-surprise fallback the vanished-hull guard uses.
+  function returnFromShipPage(): void {
+    // Consume FIRST. Whatever happens below, this marker is spent, so a later Back press on a
+    // roster-entered ship can never inherit a stale captain origin.
+    const returnTo = shipsReturnTo;
+    shipsReturnTo = null;
+
+    if (returnTo !== null) {
+      const captainIndex = state.captains.findIndex((c) => c.id === returnTo.captainId);
+      if (captainIndex !== -1) {
+        // Leave the Ships tab clean behind us (grid + no dangling selection), then reproduce
+        // the captain console the same way tapping a roster card does: index + inner view +
+        // the Personnel top rail on "roster" (the captain console only renders under it).
+        shipsView = "grid";
+        selectedShipId = null;
+        activeCaptainIndex = captainIndex;
+        personnelRosterView = "captain";
+        activePersonnelTab = "roster";
+        activeTab = "personnel";
+        pendingFocusCaptainBack = true;
+        return;
+      }
+    }
+
+    // Roster origin (or an origin captain that no longer exists): unchanged 0.13.2 behavior.
+    pendingFocusShipId = selectedShipId;
     shipsView = "grid";
     selectedShipId = null;
   }
@@ -7550,6 +7619,11 @@
                     on:click={() => {
                       selectedShipId = row.id;
                       shipsView = "ship";
+                      // 0.13.3 Unit 0.1: this is the ROSTER entry point, so there is no
+                      // captain to return to. Clearing here (rather than trusting the exit to
+                      // have consumed it) means the marker can never survive into a board the
+                      // player opened themselves from the roster.
+                      shipsReturnTo = null;
                     }}
                   >
                     <span class="ship-row-glyph" aria-hidden="true">🚀</span>
@@ -7611,22 +7685,35 @@
         {@const onMission = assignedCaptain !== null && assignedCaptain.mission !== null}
         {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
         {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
+        <!-- 0.13.3 Unit 0.1: the captain this board will return to, or null when the player
+             arrived from the ships roster. Resolved by ID and re-resolved every render, so a
+             captain who disappears while the board is open silently reverts the control to
+             the plain "Ships" back it has always been (the same fallback returnFromShipPage
+             takes). The id is copied into a local const first because narrowing a mutable
+             module-level let inside the find callback is not sound. -->
+        {@const shipsReturnCaptainId = shipsReturnTo?.captainId ?? null}
+        {@const shipsReturnCaptain = shipsReturnCaptainId === null
+          ? null
+          : state.captains.find((c) => c.id === shipsReturnCaptainId) ?? null}
         <div class="roster-back-row">
           <!-- Back to the roster. 0.13.2 Unit 7 (a11y): use:focusOnMount lands keyboard focus
                HERE when the drill-down opens (the row button that opened it has unmounted, so
                without this focus would fall to <body>). On Back we record the hull id in
-               pendingFocusShipId so the grid can return focus to the row we came from. -->
+               pendingFocusShipId so the grid can return focus to the row we came from.
+               0.13.3 Unit 0.1: the click body moved into returnFromShipPage(), which keeps that
+               roster behavior verbatim but ALSO honors a captain origin (reached via the captain
+               page's Ship Systems shortcut) by returning to that captain instead. The label
+               NAMES the actual destination: a control reading "Ships" that lands the player on
+               a captain console would be a worse papercut than the one this unit fixes. -->
           <button
             class="dev-btn"
-            aria-label="Back to ships roster"
+            aria-label={shipsReturnCaptain === null
+              ? "Back to ships roster"
+              : `Back to ${shipsReturnCaptain.label}`}
             use:focusOnMount
-            on:click={() => {
-              pendingFocusShipId = selectedShipId;
-              shipsView = "grid";
-              selectedShipId = null;
-            }}
+            on:click={returnFromShipPage}
           >
-            ← Ships
+            ← {shipsReturnCaptain === null ? "Ships" : shipsReturnCaptain.label}
           </button>
           <div class="research-name roster-detail-name">{def?.label ?? ship.typeKey}</div>
         </div>
@@ -7703,8 +7790,10 @@
              MULTI-slot weapon / drone handling, and the SAME computeCombatReadout live
              readout; Unit 4 moved its actions out of the tooltip onto stable buttons and
              folded its layout into the board. statusLabel is computed HERE (App owns
-             MISSIONS / PATROLS + the exact wording) and passed in. onClose returns to the
-             roster grid (the panel's vanished-hull fallback + any future close affordance). -->
+             MISSIONS / PATROLS + the exact wording) and passed in. onClose shares the ONE exit
+             the Back control uses (returnFromShipPage, 0.13.3 Unit 0.1): the ships roster
+             normally, or the originating captain when the board was opened from the captain
+             page. Covers the panel's vanished-hull fallback + any future close affordance. -->
         {@const shipStatusLabel = assignedCaptain === null
           ? "Parked"
           : assignedCaptain.mission === null
@@ -7721,10 +7810,7 @@
           onUninstall={uninstallSystem}
           onRepair={repairShipNow}
           onRename={handleRenameShip}
-          onClose={() => {
-            shipsView = "grid";
-            selectedShipId = null;
-          }}
+          onClose={returnFromShipPage}
         />
         {/if}
         {/if}
@@ -8010,9 +8096,18 @@
             <!-- Back to the roster grid. Also closes the Talents modal so it can
                  never linger open into the next captain the player selects (the
                  modal is gated on this same captain view, so a stale-true flag
-                 would otherwise pop it straight open on the next card tap). -->
+                 would otherwise pop it straight open on the next card tap).
+                 0.13.3 Unit 0.1 (a11y): focusOnMount is GATED on pendingFocusCaptainBack, so
+                 it fires ONLY when the player was just returned here from the ship loadout
+                 board (whose controls have unmounted, leaving focus on <body>). A normal
+                 roster-card tap leaves the flag false and this control does not grab focus,
+                 keeping that path exactly as it is today. -->
             <button
               class="dev-btn"
+              use:focusOnMount={{
+                when: pendingFocusCaptainBack,
+                onFocused: () => (pendingFocusCaptainBack = false),
+              }}
               on:click={() => {
                 captainTalentsModalOpen = false;
                 personnelRosterView = "grid";
@@ -8064,6 +8159,12 @@
                 title={activeCaptainShip === null ? "This captain has no assigned ship" : undefined}
                 on:click={() => {
                   if (activeCaptainShip) {
+                    // 0.13.3 Unit 0.1: drop the breadcrumb BEFORE navigating, so the loadout
+                    // board's Back / close knows the player came from this captain and can
+                    // return them here instead of stranding them on the ships roster. Stored
+                    // by captain id, never by activeCaptainIndex, since the index can point
+                    // somewhere else by the time Back is pressed.
+                    shipsReturnTo = { captainId: activeCaptain.id };
                     selectedShipId = activeCaptainShip.id;
                     shipsView = "ship";
                     activeTab = "ships";
