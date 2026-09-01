@@ -126,6 +126,13 @@ import {
   REPAIR_TICKS_PER_HULL,
   SHIPYARD_BAY_BASE,
   BUILD_CONCURRENCY_CAP,
+  // Crafting 0.13.3 (Phase 1 Unit 1.3): the queued-order schema Unit 1.1 landed. The
+  // queue mutation API + QUEUE_ADAPTERS below are typed entirely off these three, so
+  // widening QueueFacilityKey (a 0.13.4 Research queue) breaks the adapter Record here
+  // at compile time rather than silently missing a row at runtime.
+  type QueueFacilityKey,
+  type QueuedJob,
+  type QueuedOrder,
 } from "./model";
 import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // Combat 0.13.0 (Phase 9b.5a): patrol dispatch helpers. combatHullTypeOf gates the
@@ -6022,6 +6029,299 @@ export function cancelLine(state: GameState, lineId: string): GameState {
     refineLines: inRefine ? rebuild(refineLines) : refineLines,
     fabricateLines: inFabricate ? rebuild(fabricateLines) : fabricateLines,
   };
+}
+
+// ============================================================================
+// Crafting 0.13.3 (Phase 1 Unit 1.3): QUEUE MUTATION API + QUEUE_ADAPTERS
+// (docs/plans/2026-09-01-crafting-0.13.3-design.md §5.1, §5.3, §5.6).
+//
+// ⚠️ STILL NOT WIRED INTO THE TICK. Everything below is either a pure reader or a
+// pure state transform that a UI handler calls; NOTHING here runs inside
+// economyTick yet. The promotion pass that consumes QUEUE_ADAPTERS lands in Unit
+// 1.4. That is why this unit cannot move a single tick's behavior, and why closed-
+// form parity is preserved BY CONSTRUCTION here rather than by argument.
+//
+// WHY THIS LIVES IN tick.ts AND NOT IN craftQueue.ts (build plan assumptions 1+2):
+// the refinery and fabricator adapters delegate WHOLESALE to canStartLine /
+// startLine, which live in this file. Keeping the table here points the dependency
+// one way: craftQueue.ts (the Unit 1.5 read-only view model) imports from tick.ts
+// and tick.ts never imports craftQueue.ts, so there is no import cycle to unpick.
+// ============================================================================
+
+// Why a queued order cannot start RIGHT NOW, as reported by an adapter's canStart.
+//
+// It is the line engine's own StartLineBlockReason WIDENED by exactly two queue-only
+// cases, deliberately not a fresh parallel union: a queued refine/fabricate order's
+// block reason IS whatever the configurator's disabled Start button would say for the
+// same order, so the queue and the console can never tell the player two different
+// stories about the same recipe (design §5.6, "zero new gate logic").
+//   wrongFacility  , the order's shape does not belong to the facility holding it (a
+//                    salvage order parked on the Refinery, or a fabricate line parked
+//                    on the Refinery). Unreachable through enqueueOrder, which refuses
+//                    the same mismatch up front; kept because an adapter must still
+//                    answer honestly if a hand-edited save presents one.
+//   notImplemented , the facility's adapter is a STUB. Only the Salvage Bay returns
+//                    this, and only until Phase 2 Unit 2.4 fills the row in.
+export type QueueBlockReason = StartLineBlockReason | "wrongFacility" | "notImplemented";
+
+// The per-facility divergence, isolated behind one shape (design §5.6).
+//
+// The promotion pass in Unit 1.4 knows NOTHING about facilities: it asks hasFreeSlot
+// whether there is room, canStart whether a given queued order may go now, and start
+// to actually launch it. Every facility-specific detail (which slot count to read,
+// which gate to consult, which start function to call) lives in a row of the table
+// below and nowhere else.
+export type QueueAdapter = {
+  // Is there room to promote ANYTHING into this facility right now? This is the only
+  // genuinely per-facility question: the Refinery compares refineLines.length against
+  // refineSlotCount, the Fabricator compares fabricateLines.length against
+  // fabricateSlotCount, and the Salvage Bay will count in-flight jobs against its own
+  // slot constant in Unit 2.4.
+  hasFreeSlot(state: GameState): boolean;
+  // May THIS queued order start right now? Pure predicate, spends nothing.
+  canStart(state: GameState, order: QueuedOrder): { ok: true } | { ok: false; reason: QueueBlockReason };
+  // Start it. Keeps the START family's { next, started } shape (startProcess /
+  // startLine): a refusal returns the SAME state reference plus started:false, so a
+  // blocked start can never be mistaken for a no-op change.
+  start(state: GameState, order: QueuedOrder): { next: GameState; started: boolean };
+};
+
+// Iterations a queued craft line reserves at promotion: a batch reserves its full
+// count, a continuous line reserves exactly its ONE queued next iteration.
+//
+// This MIRRORS startLine's own inline derivation (`mode.kind === "batch" ? ... : 1`)
+// on purpose rather than editing startLine to share it: startLine is proven, working
+// code and consolidating it is a separate, approvable change (Omega 4 + 15a). The
+// number matters because it is the count canStartLine's affordability gate validates,
+// so the queue must ask the gate about the SAME count startLine will later reserve.
+function queuedLineIterations(mode: CraftLineMode): number {
+  return mode.kind === "batch" ? mode.remaining : 1;
+}
+
+// Builds the Refinery / Fabricator adapter rows from ONE definition, parameterized by
+// the CraftLineKind. Both facilities run the same line engine, so writing the row twice
+// would be two chances to drift; the only asymmetry (which lines array and which slot
+// count to read) is expressed as two ternaries here, exactly as canStartLine expresses
+// it in its own noSlot gate.
+function craftLineQueueAdapter(kind: CraftLineKind): QueueAdapter {
+  // A queued order belongs to this adapter only if it is a craft line of this adapter's
+  // kind. Narrowing once here lets canStart/start below stay one-liners over the gate.
+  const matches = (order: QueuedOrder): order is Extract<QueuedOrder, { type: "craftLine" }> =>
+    order.type === "craftLine" && order.kind === kind;
+
+  return {
+    hasFreeSlot(state) {
+      // The SAME comparison canStartLine's noSlot gate makes (one line per slot). It is
+      // duplicated rather than delegated because the promotion pass needs the cheap
+      // "is there any point scanning this facility" answer BEFORE it has an order in
+      // hand, and canStartLine cannot be asked without one.
+      const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
+      const slotCount = kind === "refine" ? refineSlotCount(state) : fabricateSlotCount(state);
+      return lines.length < slotCount;
+    },
+    canStart(state, order) {
+      if (!matches(order)) return { ok: false, reason: "wrongFacility" };
+      // WHOLESALE delegation. No queue-specific affordability, research, tier, storage
+      // or slot logic exists anywhere: whatever the configurator's Start button says
+      // about this recipe is what the queued row says, forever.
+      return canStartLine(state, kind, order.recipeKey, queuedLineIterations(order.mode));
+    },
+    start(state, order) {
+      if (!matches(order)) return { next: state, started: false };
+      // startLine re-runs canStartLine internally, so promotion is gated twice by the
+      // same predicate and can never start a line the gate would refuse. Its `reason`
+      // is dropped here deliberately: the promotion pass asks canStart for the reason
+      // it displays, and the start path only needs to know whether it took.
+      const result = startLine(state, kind, order.recipeKey, order.mode);
+      return { next: result.next, started: result.started };
+    },
+  };
+}
+
+// ⚠️ EXHAUSTIVE ON PURPOSE, the same trick PROCESS_XP_AWARDS uses: because this is
+// typed Record<QueueFacilityKey, QueueAdapter>, adding a facility to the union WITHOUT
+// adding its row here is a COMPILE ERROR. A new queue-capable facility (the 0.13.4
+// Research queue) therefore cannot slip in as a silently missing row that the promotion
+// pass would skip at runtime with no explanation.
+export const QUEUE_ADAPTERS: Record<QueueFacilityKey, QueueAdapter> = {
+  refinery: craftLineQueueAdapter("refine"),
+  fabricator: craftLineQueueAdapter("fabricate"),
+  // ⚠️ STUB, COMPLETED BY PHASE 2 UNIT 2.4 (canStartSalvage / startSalvageJob).
+  // The row exists now only to keep the Record exhaustive without pulling the salvage
+  // work forward. It is deliberately braked TWICE so no promotion pass, however it is
+  // written, can promote a Salvage Bay order this unit: hasFreeSlot always says there
+  // is no room, AND canStart always refuses with a typed reason. start is a same-ref
+  // no-op for the same reason. Nothing can currently CREATE a salvage order either
+  // (there is no UI and no auto rule yet), so this is unreachable in practice; it is
+  // written safe anyway, because "unreachable" is a property that quietly stops being
+  // true one unit later.
+  salvageBay: {
+    hasFreeSlot: () => false,
+    canStart: () => ({ ok: false, reason: "notImplemented" }),
+    start: (state) => ({ next: state, started: false }),
+  },
+};
+
+// The FIXED facility iteration order for Unit 1.4's promotion pass.
+//
+// Declared as a literal tuple, never derived from Object.keys(QUEUE_ADAPTERS): key
+// order on a runtime object is an implementation detail, and promotion order has to be
+// a stable, stated property of the engine (design §5.5) because it decides which
+// facility wins a contested material when several could promote in the same tick.
+export const QUEUE_FACILITY_ORDER = ["refinery", "fabricator", "salvageBay"] as const satisfies readonly QueueFacilityKey[];
+
+// Compile-time proof the tuple above lists EVERY QueueFacilityKey. If a key is added to
+// the union and not to the tuple, this alias stops being `never`, the annotation stops
+// accepting `true`, and npm run check fails. (The `satisfies` above only proves the
+// listed keys are valid, not that they are complete; this proves the other half.)
+type UnlistedQueueFacility = Exclude<QueueFacilityKey, (typeof QUEUE_FACILITY_ORDER)[number]>;
+const QUEUE_FACILITY_ORDER_IS_EXHAUSTIVE: UnlistedQueueFacility extends never ? true : false = true;
+void QUEUE_FACILITY_ORDER_IS_EXHAUSTIVE; // type-level assertion only, no runtime role
+
+// --- The mutation API (pure, immutable, same-ref no-ops) ---------------------
+// All three functions below follow the file's established transform idiom: they take
+// state, return a NEW state, mutate nothing they were handed, and return the SAME
+// reference when nothing changed (the cancelLine / startProcess convention), so a
+// caller can cheaply tell "nothing happened" from "something happened".
+
+// Why a queued order could NOT be added. Deliberately tiny, because enqueue asks only
+// two questions (see canEnqueueOrder):
+//   queueFull     , this facility already holds queueDepth(state) waiting orders
+//   wrongFacility , the order's shape does not belong at this facility
+export type EnqueueBlockReason = "queueFull" | "wrongFacility";
+
+// Does this order shape belong at this facility? A craft line goes to the facility that
+// runs its kind; a salvage target goes to the Salvage Bay. Checked at enqueue so a
+// nonsense entry can never take up a depth slot forever (it could never promote, and
+// the row would show a block reason no player action could clear).
+function orderMatchesFacility(facility: QueueFacilityKey, order: QueuedOrder): boolean {
+  if (facility === "salvageBay") return order.type === "salvage";
+  if (order.type !== "craftLine") return false;
+  return facility === "refinery" ? order.kind === "refine" : order.kind === "fabricate";
+}
+
+// The waiting orders held by ONE facility, in queue order (array index IS the order).
+// Derived on read by filtering the flat array, never a stored per-facility list: the
+// flat array is the single source of truth for both the order and the counts, so the
+// two cannot drift. Exported because the depth readouts and the Unit 1.5 view model
+// both need exactly this list.
+export function queuedForFacility(state: GameState, facility: QueueFacilityKey): QueuedJob[] {
+  return (state.processQueue ?? []).filter((job) => job.facility === facility);
+}
+
+// THE DEPTH GATE. Pure predicate, mirrors canStartLine's shape (typed reason, cheapest
+// check first), and is the ONLY place the depth cap is enforced.
+//
+// ⚠️ TWO RULES THIS ENCODES, both easy to get wrong later:
+//
+//   1. DEPTH IS COUNTED PER FACILITY. queueDepth(state) returns ONE number that applies
+//      to EACH facility independently (design §5.2), so the count compared against it
+//      is the number of entries whose `facility` matches, never processQueue.length.
+//      Counting the whole array would let a full Refinery queue silently block the
+//      Fabricator, the exact cross-facility starvation the per-facility model exists to
+//      prevent.
+//
+//   2. AFFORDABILITY IS NOT CHECKED HERE, ON PURPOSE. Queuing work you cannot start yet
+//      IS the feature (design §5.3: a queued order reserves nothing and is gated at
+//      PROMOTION time by canStartLine). An enqueue-time materials check would make the
+//      queue useless for exactly the case it exists to serve.
+export function canEnqueueOrder(
+  state: GameState,
+  facility: QueueFacilityKey,
+  order: QueuedOrder
+): { ok: true } | { ok: false; reason: EnqueueBlockReason } {
+  if (!orderMatchesFacility(facility, order)) return { ok: false, reason: "wrongFacility" };
+  if (queuedForFacility(state, facility).length >= queueDepth(state)) {
+    return { ok: false, reason: "queueFull" };
+  }
+  return { ok: true };
+}
+
+// Appends a queued order to a facility's queue.
+//
+// Returns the START family's shape ({ next, started/queued, reason? }) so the UI can
+// show WHY a click did nothing, exactly as startLine surfaces canStartLine's reason.
+// On a refusal the SAME state reference comes back and nextQueueId is NOT consumed.
+//
+// ⚠️ THE DEPTH CAP IS ENFORCED HERE AND ONLY HERE (build plan Unit 1.3 decision).
+// Nothing re-validates depth afterward, which is what produces the DRAIN behavior on a
+// respec: respecHomeworldTalents refunds queueDepth nodes, so a player can end a respec
+// holding MORE queued orders at a facility than the new, smaller depth allows. Those
+// existing entries are LEFT ALONE. They simply drain (promote or get removed) and
+// cannot be replaced until the facility is back under the new cap. This deliberately
+// mirrors the over-cap inventory precedent: nothing the player already owns is ever
+// destroyed by a cap shrinking, they just cannot add more. Enforcing depth on read (or
+// truncating on respec) would instead delete configured work as a side effect of a
+// refund, which is a data-loss shape and a peace violation.
+export function enqueueOrder(
+  state: GameState,
+  facility: QueueFacilityKey,
+  order: QueuedOrder
+): { next: GameState; queued: boolean; reason?: EnqueueBlockReason } {
+  const gate = canEnqueueOrder(state, facility, order);
+  if (!gate.ok) return { next: state, queued: false, reason: gate.reason };
+
+  // Mint from nextQueueId and bump it, exactly as nextProcessId mints "proc-N" and
+  // nextCraftLineId mints "craft-N". MONOTONIC AND NEVER REUSED: a removal does not
+  // rewind the counter, so an id that has been handed out can never name a second,
+  // different order later (a stale UI reference then resolves to nothing, which is
+  // safe, instead of to somebody else's job, which is not).
+  const job: QueuedJob = { id: `q-${state.nextQueueId}`, facility, order };
+  return {
+    next: {
+      ...state,
+      processQueue: [...(state.processQueue ?? []), job],
+      nextQueueId: state.nextQueueId + 1,
+    },
+    queued: true,
+  };
+}
+
+// Removes ONE waiting order by id. A queued order reserves nothing (design §5.3), so
+// there is no ledger to unwind: dropping the entry is the whole operation. An unknown
+// id is a same-reference no-op (a double click, or a row the promotion pass already
+// consumed, must not throw or clear the queue).
+export function removeQueuedOrder(state: GameState, id: string): GameState {
+  const queue = state.processQueue ?? [];
+  if (!queue.some((job) => job.id === id)) return state; // unknown id -> same-ref no-op
+  return { ...state, processQueue: queue.filter((job) => job.id !== id) };
+}
+
+// Moves ONE waiting order up or down within ITS OWN facility's queue.
+//
+// The array is flat across facilities but the array INDEX is the queue order, so a
+// reorder has to swap the entry with its nearest SAME-FACILITY neighbour rather than
+// with whatever happens to sit beside it (build plan assumption 14). Interleaved
+// entries belonging to other facilities are stepped over and left exactly where they
+// are, so moving a Refinery order can never perturb the Fabricator's queue order.
+//
+// "up" means earlier in the queue (promotes sooner). Already first/last for its own
+// facility is a same-reference no-op, not an error.
+export function moveQueuedOrder(state: GameState, id: string, direction: "up" | "down"): GameState {
+  const queue = state.processQueue ?? [];
+  const index = queue.findIndex((job) => job.id === id);
+  if (index < 0) return state; // unknown id -> same-ref no-op
+
+  // Walk outward from the entry until another entry of the SAME facility is found. The
+  // scan (rather than index +/- 1) is the whole point: with a flat array the neighbour
+  // that matters can be several positions away behind other facilities' entries.
+  const facility = queue[index].facility;
+  const step = direction === "up" ? -1 : 1;
+  let neighbour = -1;
+  for (let i = index + step; i >= 0 && i < queue.length; i += step) {
+    if (queue[i].facility === facility) {
+      neighbour = i;
+      break;
+    }
+  }
+  if (neighbour < 0) return state; // already at this facility's boundary -> same-ref no-op
+
+  // Swap the two positions only. Everything between them keeps its index, which is what
+  // guarantees other facilities' relative order survives untouched.
+  const next = [...queue];
+  next[index] = queue[neighbour];
+  next[neighbour] = queue[index];
+  return { ...state, processQueue: next };
 }
 
 // ============================================================================
