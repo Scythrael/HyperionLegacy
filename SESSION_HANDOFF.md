@@ -1,12 +1,14 @@
 # Session Handoff — The First Cause (fleet-admiral)
 
-_Last updated: 2026-08-28. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*\_LOCKED / \*\_STATUS docs before working._
+_Last updated: 2026-09-01. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*\_LOCKED / \*\_STATUS docs before working._
 
 ## Where things stand RIGHT NOW
 
-- **✅ COMBAT 1.0 PROMOTED TO PROD 2026-08-28.** `main`: `e282614` → `b6749f5` (clean fast-forward). **PROD == staging == `b6749f5`, SAVE_VERSION 39, 0.12.1 → Combat 1.0 LIVE.** Full QA passed desktop+mobile (161-case sheet); reactor-gate = A (patrol-only, no change); the save-persist safeguard shipped in the bundle. The promotion required a `git merge -s ours origin/main` to fold in the HISTORY of 4 prod-only hotfix commits (`e282614` facility-tooltip flicker, `6bf513f` storage-tooltip flicker, `441161a` over-cap inventory clamp, `18c28e6` SubTabs short-viewport) whose FIXES were already ported into this branch, so main fast-forwarded with the QA'd tree byte-identical and zero regression. ⚠️ Lesson: ALWAYS `git log main ^branch` before a promotion (the hotfix-trap). **Everything in the "Remaining before prod promotion" section below is now DONE. NEXT = 0.13.1 QoL bundle** (salvage-queue, auto-salvage, loadout-presets, tooltip system, and the newly-committed Home mission-control dashboard for new-player onboarding, all in SUGGESTIONS.md).
-- **SAVE_VERSION = 39.** Migrations `MIGRATIONS[37]`/`[38]` are on staging but NOT yet on prod, so still editable until the promotion. Once promoted, they freeze.
-- **Gates green at the tip:** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, unrelated), `npx vitest run -t "parit"` = 101, `npx vitest run` = 1881 passed / 74 files (was 1872/72 before the save-persist safeguard below).
+- **✅ 0.13.1 "COMMAND HOME" PROMOTED TO PROD 2026-09-01.** `main`: `be5c919` → `56812c5` (clean fast-forward, pre-flight `git log main ^branch` empty, no hotfix trap). **PROD == staging == `56812c5`, APP_VERSION 0.13.1, SAVE_VERSION 39 (unchanged).** The 0.13.1 Home mission-control dashboard: live In-Progress board (every job + mission, tap to jump), Needs-your-orders (idle+actionable prompts) as a counter + display-only cycling ticker + expand-to-act, the aggregate/named facility-upgrade prompt (single case names the facility AND deep-links onto its Upgrades tab via `jumpToFacilityUpgrade`), locked/coming-soon chips, and an all-caught-up state. Pure UI/model, no economy change. User ran full QA 33/33 (desktop+mobile) + Claude live-verified the ticker/upgrade flow; gates green (check 0, suite 1900, parity 101). Also folded in this cycle: the fuel-cap clamp hotfix (`be5c919`, was already on prod). Model lives in `src/lib/game/homeDashboard.ts` (+ `.test.ts`, 18 tests); UI + nav in `src/App.svelte`.
+- **PRIOR: Combat 1.0 promoted 2026-08-28** (`b6749f5`, SAVE_VERSION 39). Detail preserved below as history.
+- **NEXT = 0.13.2 SHIPS-TAB REDESIGN** (display-only-tooltips global rule + a 6th "Ships" bottom-nav tab + SVG nav icons + drill-down full-screen equip view with side-by-side comparison-diff install flow + nav attention dots; responsive-first, mockup-first). Fixes the live prod tooltip-vanish bug. Then the UI-readiness checkpoint, then 0.13.3 crafting overhaul. Full cadence in SUGGESTIONS.md (~line 1006) + [[project_fleet_admiral_combat_1.0]] memory.
+- **SAVE_VERSION = 39,** unchanged since Combat 1.0 (0.13.1 added no migrations).
+- **Gates green at the 0.13.1 tip (`56812c5`):** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, unrelated), `npx vitest run -t "parit"` = 101, `npx vitest run` = 1900 passed / 75 files.
 
 ## ⚑ UNCOMMITTED THIS SESSION (2026-08-28): save-persist safeguard
 
