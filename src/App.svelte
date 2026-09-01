@@ -2273,28 +2273,56 @@
   // overview, the same place the aggregate "N upgrades ready" prompt routes to, so a new
   // facility can never dead-end, only miss the deep-link until it is added here.
   function jumpToFacilityUpgrade(facilityKey: string): void {
+    // Every mapped case lands the player ON that facility's UPGRADES view, so the Build
+    // button is visible the instant they arrive (no extra tap to find it). Each foundry
+    // console keeps its OWN sub-tab state, so we select the correct "upgrades" sub-tab per
+    // facility (and note the Warehouse's literal is "upgrade", singular, unlike the rest).
     switch (facilityKey) {
       case "refinery":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "refinery";
+        activeRefinerySubTab = "upgrades";
+        break;
       case "fabricator":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "fabricator";
+        activeFabricatorSubTab = "upgrades";
+        break;
       case "research":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "research";
+        activeResearchSubTab = "upgrades";
+        break;
       case "fuelStorage":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "fuelStorage";
+        activeFuelStorageSubTab = "upgrades";
+        break;
       case "shipyard":
         activeTab = "facilities";
         facilitiesView = "console";
-        activeFoundryFacility = facilityKey as FoundryFacilityKey;
+        activeFoundryFacility = "shipyard";
+        activeShipyardSubTab = "upgrades";
         break;
       case "warehouseT1":
       case "warehouseT2":
-        // Both warehouse tiers are managed on the single "warehouse" console card.
+        // Both warehouse tiers are managed on the single "warehouse" console card; its
+        // upgrade sub-tab literal is "upgrade" (singular), unlike the others.
         activeTab = "facilities";
         facilitiesView = "console";
         activeFoundryFacility = "warehouse";
+        activeWarehouseCat = "upgrade";
         break;
       case "missionControl":
         // Mission Control's upgrade lives in Operations (moved there in the 0.12.0 console),
-        // NOT the Facilities console.
+        // NOT the Facilities console; land on its Upgrades sub-tab there.
         activeTab = "fleetOperations";
         activeOperationsTab = "missionControl";
+        activeMissionControlSubTab = "upgrades";
         break;
       default:
         // Unknown facility: land on the Facilities overview (all cards + Build buttons).
