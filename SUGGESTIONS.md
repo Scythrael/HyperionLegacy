@@ -779,6 +779,40 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   Fabricator pass. Build the flat order system first; layer auto-chain on top once components have a real
   sink (Shipyard) and the BOM shapes are known.
 
+- **QUEUEING BUILD ORDERS + AUTOMATION (umbrella idea, user 2026-09-01; FUTURE, NOT SCHEDULED, FORM TBD).**
+  User: "An idea for the future. I'm not sure if I will implement it, or when I do, in what form. Queueing
+  build orders / automation." This is the general umbrella over several facets ALREADY logged as separate
+  entries: the Refinery batch/continuous ORDERS + the Fabricator build-to-target auto-chain (both above),
+  the salvage-as-timed-QUEUE + its shared order engine, and the auto-salvage RULES (all ~lines 1004-1007).
+  What it ADDS beyond those: extend queueing to **BUILD orders that are currently one-at-a-time**, i.e.
+  FACILITY UPGRADES (one in-flight per facility today, gated by `canBuildFacilityUpgrade`) and SHIP BUILDS
+  (per shipyard bay) — let the player line up "upgrade Refinery to L5" or "build 3 frigates" and have each
+  auto-start the next when the running one completes. Plus a general AUTOMATION layer (opt-in rules that
+  auto-queue when conditions are met), of which auto-salvage is the first instance.
+  - **Why (fits the core value):** automation is the ultimate click-reducer; it is squarely
+    [[feedback_build_ease_of_use_sell_peace]] (fewer clicks, no babysitting, background progress).
+  - **Design landmines to settle when picked up (do NOT hand-wave):**
+    1. **Reservation timing.** Reserve materials/credits at QUEUE time (safe, but locks resources) or at
+       each item's START time (flexible, but a queued item can find itself unaffordable)? The existing gates
+       are reservation-aware; a multi-item queue must pick a policy and show it, or a queued build silently
+       stalls. The refinery-orders entry already leans "per-iteration atomic deduct at each start + pause
+       + auto-resume on affordability"; keep that pattern for consistency.
+    2. **Parity-safe auto-start-next.** Offline == live is a hard invariant (resolveProcesses/tick). Any
+       "when process A completes, auto-start process B" MUST happen INSIDE the shared resolveProcesses path
+       (and resolve closed-form across long offline gaps), never in a UI-only handler, or offline and live
+       diverge and the parity suite breaks.
+    3. **Peace test.** Automation is PRO-peace ONLY while it is opt-in, default-off, clearly shown, and
+       never spends resources the player was hoarding or makes a surprise irreversible move (respects the
+       [[feedback_build_ease_of_use_sell_peace]] "chosen, recoverable risk" refinement). An always-on rule
+       that quietly drains credits is a peace violation.
+    4. **Share ONE order/queue engine** across refinery, fabricator, salvage, facility upgrades, and ship
+       builds rather than a bespoke queue per facility (the salvage entry already calls for this). The build
+       order across the 0.13.x cluster is: shared order engine first, then per-facility UIs, then automation
+       rules on top.
+  Given the crafting-side facets are already slated for the 0.13.3 crafting overhaul, the BUILD-order +
+  general-automation extension is a natural POST-0.13.3 follow-up (or its own later .x), but explicitly
+  left unscheduled/form-TBD per the user.
+
 - **Re-wire the industry Homeworld-talent branch to buff the new Fabricator (2026-07-16, from Fabricator
   Task F5).** Retiring the legacy `RECIPES` instant-craft (F5) orphaned the `recipeBonusOutput` talent
   effect, which only ever buffed the legacy `fabricateComponents` craft. Its two industry-branch nodes
