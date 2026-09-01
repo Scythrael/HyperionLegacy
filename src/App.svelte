@@ -601,6 +601,9 @@
     type CombatLogSpeed,
   } from "./lib/combatLogPreference";
   import { focusTrap } from "./lib/focusTrap";
+  // 0.13.2 Unit 7: mount-time focus mover for the non-modal Ships drill-down (open lands
+  // focus on the back control, close returns it to the originating roster row). See focusOnMount.ts.
+  import { focusOnMount } from "./lib/focusOnMount";
 
   // DEV_MODE, Vercel §9.5.3: true on Preview, false on Production. Locally,
   // set VITE_DEV_MODE=true in .env.local (see .env.example).
@@ -1082,6 +1085,12 @@
   // is null while on the grid; a card tap sets it AND flips the view to "ship".
   let shipsView: "grid" | "ship" = "grid";
   let selectedShipId: string | null = null;
+  // 0.13.2 Unit 7 (a11y focus management): a ONE-SHOT marker naming the roster row focus
+  // should return to when the drill-down closes back to the grid. Set to the ship id at the
+  // moment Back is pressed; the matching row's focusOnMount action consumes it (moving focus
+  // onto that row) and immediately clears it, so a later unrelated remount of the same row
+  // never re-steals focus. null means "no pending restore" (a fresh entry into the Ships tab).
+  let pendingFocusShipId: string | null = null;
 
   // Vanished-hull guard. If the selected ship disappears while its page is open
   // (the player salvaged it, so it is no longer in state.ships), fall back to the
@@ -7536,6 +7545,8 @@
                 <div class="ship-row" class:attention={row.needsAttention}>
                   <button
                     class="ship-row-main"
+                    aria-label={`Open ${row.name}${row.hasCustomName ? ", " + row.className : ""}. ${SHIP_STATUS_LABEL[row.status]}. Battle Rating ${row.battleRating}.${row.needsAttention ? " Needs attention: " + row.attentionReason + "." : ""}`}
+                    use:focusOnMount={{ when: row.id === pendingFocusShipId, onFocused: () => (pendingFocusShipId = null) }}
                     on:click={() => {
                       selectedShipId = row.id;
                       shipsView = "ship";
@@ -7544,7 +7555,11 @@
                     <span class="ship-row-glyph" aria-hidden="true">🚀</span>
                     <span class="ship-row-body">
                       <span class="ship-row-name">{row.name}</span>
-                      <span class="ship-row-meta">{row.className} · {row.captainName ?? "No captain"} · {SHIP_STATUS_LABEL[row.status]}</span>
+                      <!-- Meta line (0.13.2 Unit 7): show the hull class here ONLY when the ship
+                           has a custom name, so an UNNAMED hull (whose display name already IS the
+                           class label) does not print the class twice. hasCustomName is precomputed
+                           in the pure row model (shipRoster.ts). -->
+                      <span class="ship-row-meta">{#if row.hasCustomName}{row.className} · {/if}{row.captainName ?? "No captain"} · {SHIP_STATUS_LABEL[row.status]}</span>
                       {#if row.needsAttention}
                         <span class="ship-row-attn">⚠ {row.attentionReason}</span>
                       {/if}
@@ -7558,6 +7573,7 @@
                     class="ship-fav"
                     class:on={row.favorite}
                     aria-pressed={row.favorite}
+                    aria-label={row.favorite ? `Remove ${row.name} from favorites` : `Add ${row.name} to favorites`}
                     title={row.favorite ? "Remove from favorites" : "Add to favorites"}
                     on:click|stopPropagation={() => toggleShipFavorite(row.id)}
                   >
@@ -7596,9 +7612,16 @@
         {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
         {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
         <div class="roster-back-row">
+          <!-- Back to the roster. 0.13.2 Unit 7 (a11y): use:focusOnMount lands keyboard focus
+               HERE when the drill-down opens (the row button that opened it has unmounted, so
+               without this focus would fall to <body>). On Back we record the hull id in
+               pendingFocusShipId so the grid can return focus to the row we came from. -->
           <button
             class="dev-btn"
+            aria-label="Back to ships roster"
+            use:focusOnMount
             on:click={() => {
+              pendingFocusShipId = selectedShipId;
               shipsView = "grid";
               selectedShipId = null;
             }}

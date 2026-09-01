@@ -72,6 +72,7 @@ export interface ShipRosterRow {
 	id: string;                       // ShipInstance.id, the stable row key + favorite key
 	name: string;                     // display name: ship.name ?? hull-class label
 	className: string;                // hull-class label (SHIP_TYPES[typeKey].label)
+	hasCustomName: boolean;           // true when the player named the hull (name differs from the class label)
 	captainName: string | null;       // aboard captain's label, or null when parked
 	status: ShipStatus;               // activity bucket (see ShipStatus)
 	damaged: boolean;                 // ship.damaged === true (limped home from a lost patrol)
@@ -225,6 +226,14 @@ function buildRow(state: GameState, ship: ShipInstance, favorites: Set<string>):
 	const className = def?.label ?? ship.typeKey;
 	const name = ship.name ?? className;
 
+	// hasCustomName drives a DISPLAY-ONLY choice in the row markup (0.13.2 Unit 7): an
+	// UNNAMED hull falls back to its class label for `name`, so repeating className in the
+	// meta line would read the class twice ("General Freighter . General Freighter . ..."). The
+	// row template shows className in the meta line ONLY when the player actually named the hull
+	// (name !== className). A defensively-named hull that happens to match its class label reads
+	// as "unnamed" here, which is the correct de-duplicated display either way.
+	const hasCustomName = name !== className;
+
 	const { captainName, status } = deriveStatus(state, ship);
 
 	// The fitted combat gear, fetched once and shared by the rating + attention folds.
@@ -253,6 +262,7 @@ function buildRow(state: GameState, ship: ShipInstance, favorites: Set<string>):
 		id: ship.id,
 		name,
 		className,
+		hasCustomName,
 		captainName,
 		status,
 		damaged: ship.damaged === true,

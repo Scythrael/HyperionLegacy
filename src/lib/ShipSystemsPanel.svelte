@@ -187,6 +187,13 @@
   let selectedSlot: EquipmentSlotType | null = null;
   let selectedHardpoint: number | null = null;
   let selectedBay: number | null = null;
+  // 0.13.2 Unit 7 (a11y focus management): the Swap / Install button that OPENED the install
+  // flow, captured so a Cancel can return focus to it (the picker's Cancel button unmounts, so
+  // without this focus would fall to <body>). The slot tiles stay mounted while the picker is
+  // open and Cancel changes no gear, so the trigger is still connected on the Cancel path; we
+  // guard on isConnected anyway. A committed Install does NOT restore here (its slot re-renders
+  // into a filled tile), so this is Cancel-only, matching closePicker's single caller.
+  let pickerTrigger: HTMLElement | null = null;
   // 0.13.2 Unit 5: the spare currently CHOSEN in the install flow (its id), driving the
   // current-vs-candidate compare. Null = no spare picked yet (the flow shows just the tile
   // list). This one shared reactive drives BOTH presentations: on a wide viewport the compare
@@ -294,7 +301,7 @@
   // The header title is the ship's DISPLAY name: its custom `name` if set, else the
   // hull-type label (e.g. "General Freighter"). `shipHasCustomName` gates the hull-
   // class SUBTITLE so an UN-named ship does not show its hull label twice (title +
-  // subtitle) -- a renamed ship shows name-over-class, an un-named ship shows just
+  // subtitle): a renamed ship shows name-over-class, an un-named ship shows just
   // the class as the title.
   $: shipDisplayName = ship ? (ship.name ?? shipDef?.label ?? shipId) : "";
   $: shipHasCustomName = ship?.name !== undefined && ship.name.length > 0;
@@ -854,8 +861,14 @@
   // toggles the picker closed.
   // Opening (or switching) a picker always clears the chosen compare candidate, so the flow
   // reopens on the tile LIST rather than a stale compare from a previous slot (0.13.2 Unit 5).
+  // 0.13.2 Unit 7: remember which button opened the picker (the one the click just focused)
+  // so a Cancel can hand focus back to it. Captured only when the picker is OPENING.
+  function captureTrigger(willOpen: boolean): void {
+    pickerTrigger = willOpen && typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+  }
   function selectSlot(slotType: EquipmentSlotType): void {
     const willOpen = selectedSlot !== slotType;
+    captureTrigger(willOpen);
     selectedHardpoint = null;
     selectedBay = null;
     selectedSlot = willOpen ? slotType : null;
@@ -864,6 +877,7 @@
   }
   function selectHardpoint(index: number): void {
     const willOpen = selectedHardpoint !== index;
+    captureTrigger(willOpen);
     selectedSlot = null;
     selectedBay = null;
     selectedHardpoint = willOpen ? index : null;
@@ -872,6 +886,7 @@
   }
   function selectBay(index: number): void {
     const willOpen = selectedBay !== index;
+    captureTrigger(willOpen);
     selectedSlot = null;
     selectedHardpoint = null;
     selectedBay = willOpen ? index : null;
@@ -920,6 +935,9 @@
     selectedHardpoint = null;
     selectedBay = null;
     installCandidateId = null;
+    // Drop the captured trigger: a commit re-renders the slot into a filled tile, so the old
+    // button node is gone and must not be refocused (the Cancel-only restore lives in closePicker).
+    pickerTrigger = null;
     closeTip(true);
   }
   function handleUninstall(instanceId: string): void {
@@ -939,6 +957,13 @@
     selectedBay = null;
     installCandidateId = null;
     closeTip(true);
+    // 0.13.2 Unit 7 (a11y): return focus to the button that opened the flow so a keyboard
+    // user is not dropped onto <body>. Guarded on isConnected (belt-and-suspenders: Cancel
+    // changes no gear, so the trigger tile is still mounted here).
+    if (pickerTrigger && pickerTrigger.isConnected) {
+      pickerTrigger.focus();
+    }
+    pickerTrigger = null;
   }
 
   // A short label for a spare in the picker list + its info button aria-label. Weapons

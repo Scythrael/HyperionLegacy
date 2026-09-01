@@ -1,5 +1,5 @@
 // ============================================================================
-// shipRoster.test.ts -- unit tests for the pure Ships-tab roster view-model.
+// shipRoster.test.ts: unit tests for the pure Ships-tab roster view-model.
 // Author: Claude (Opus 4.8) | 2026-09-01
 //
 // Covers buildShipRoster's shaping contract (0.13.2 Unit 3):
@@ -287,6 +287,29 @@ describe("buildShipRoster attention predicate", () => {
 		const row = rowFor(stateWith([good], combatKit("ship-A")), "ship-A");
 		expect(row?.needsAttention).toBe(false);
 		expect(row?.attentionReason).toBeNull();
+	});
+
+	it("hasCustomName is true only when the ship name differs from its class label", () => {
+		// Named hull: name "Falcon" differs from the "Destroyer" class label => custom.
+		const named = ship({ id: "ship-named", name: "Falcon", typeKey: "destroyer" });
+		// Unnamed hull: name omitted, so the row falls back to the class label => NOT custom
+		// (this is the row whose meta line must not repeat the class, 0.13.2 Unit 7).
+		const unnamed = ship({ id: "ship-unnamed", typeKey: "destroyer" });
+		// A name that happens to equal the class label reads as NOT custom (correct de-dup).
+		const echo = ship({ id: "ship-echo", name: "Destroyer", typeKey: "destroyer" });
+		const equip = [...combatKit("ship-named"), ...combatKit("ship-unnamed"), ...combatKit("ship-echo")];
+		const st = stateWith([named, unnamed, echo], equip);
+
+		const namedRow = rowFor(st, "ship-named");
+		expect(namedRow?.hasCustomName).toBe(true);
+		expect(namedRow?.name).toBe("Falcon");
+
+		const unnamedRow = rowFor(st, "ship-unnamed");
+		expect(unnamedRow?.hasCustomName).toBe(false);
+		expect(unnamedRow?.name).toBe("Destroyer"); // fell back to the class label
+		expect(unnamedRow?.className).toBe("Destroyer");
+
+		expect(rowFor(st, "ship-echo")?.hasCustomName).toBe(false);
 	});
 
 	it("derives status + captain from the assigned captain's mission", () => {
