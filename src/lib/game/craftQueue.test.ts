@@ -59,6 +59,15 @@ import {
   refineSlotCount,
   fabricateSlotCount,
 } from "./tick";
+// Unit 1.5: the READ-ONLY view model under test at the bottom of this file. It is
+// imported FROM tick.ts's side of the fence, never the other way around (build plan
+// assumption 1), which is why these live in their own import block.
+import {
+  buildCraftQueue,
+  buildAllCraftQueues,
+  craftLineOutputLabel,
+  salvageTargetLabel,
+} from "./craftQueue";
 import { itemTotal } from "./inventory";
 
 // The three rungs of the queue-depth chain, in ladder order. Named once here so a
@@ -1267,5 +1276,489 @@ describe("âš ï¸ promoteQueuedOrders: offline == live parity (the hard inv
     expect(jumped.lifetimeStats.itemsRefined.titaniumIngot.toString()).not.toBe("0");
     expect(jumped.processQueue).toEqual([]);
     expect(jumped.nextQueueId).toBe(base.nextQueueId);
+  });
+});
+
+// ============================================================================
+// Crafting 0.13.3, Phase 1 Unit 1.5: craftQueue.ts, the READ-ONLY view model
+//
+// Everything below tests the PURE DERIVATION the Phase 4 consoles will bind to.
+// The unit under test owns no gates of its own: its whole job is to ask the engine
+// (QUEUE_ADAPTERS[facility].canStart, canEnqueueOrder, queueDepth, queuedForFacility,
+// refineSlotCount / fabricateSlotCount) and to shape the answers for a row. So these
+// cases are written to fail if the model ever starts THINKING instead of asking:
+// several assert the model's field against the engine function's own return value
+// rather than against a hardcoded expectation, which is the only assertion shape
+// that catches a re-derivation that happens to agree today.
+//
+// NO CASE HERE CARRIES "parity" IN ITS NAME, deliberately: this unit cannot move the
+// tick (it never writes state, and nothing in the tick path imports it), so the
+// release's parity filter must read the same 106 before and after.
+// ============================================================================
+
+// Advance a state by whole economy ticks with a fresh deterministic stream. A thin
+// alias over the existing stepTicks so the Unit 1.5 cases read in their own terms.
+function advance(state: GameState, ticks: number): GameState {
+  return stepTicks(state, ticks, seededRng());
+}
+
+// The in-flight job belonging to a line, resolved the way the live line card resolves
+// it. Used so the running-row cases assert the view MIRRORS the real process instead
+// of hardcoding a duration a speed multiplier could legitimately change.
+function jobForLine(state: GameState, lineId: string) {
+  return state.activeProcesses.find((p) => p.lineId === lineId);
+}
+
+describe("buildCraftQueue: RUNNING work sits alongside the QUEUED orders", () => {
+  it("reports the facility's running lines and its waiting orders in one model", () => {
+    // One slot at refinery level 1, so the started line occupies it and the queued
+    // order genuinely waits. This is the ordinary shape of a live queue.
+    const started = startLine(craftState({ commonOre: 200 }), "refine", REFINE_KEY, {
+      kind: "batch",
+      remaining: 3,
+    }).next;
+    const loaded = enqueueAll(started, [{ facility: "refinery", order: refineOrder(REFINE_KEY, 2) }]);
+    // Two ticks: the first starts the line's first iteration, the second steps it, so
+    // the row has real (non-zero) progress to report.
+    const state = advance(loaded, 2);
+
+    const view = buildCraftQueue(state, "refinery");
+    expect(view.facility).toBe("refinery");
+
+    // RUNNING: one line, named by what it produces, carrying the job's own raw ticks.
+    expect(view.running).toHaveLength(1);
+    expect(view.runningCount).toBe(1);
+    const line = state.refineLines[0];
+    const job = jobForLine(state, line.id);
+    expect(job).toBeDefined();
+    expect(view.running[0]).toEqual({
+      id: line.id,
+      label: "Titanium Ingot",
+      modeLabel: `batch ${line.remaining}`,
+      continuous: false,
+      remaining: line.remaining,
+      progress: (job!.durationTicks - job!.remainingTicks) / job!.durationTicks,
+      remainingTicks: job!.remainingTicks,
+      durationTicks: job!.durationTicks,
+    });
+    // Non-vacuous: the bar is genuinely partway, not the 0 an absent job would give.
+    expect(view.running[0].progress).toBeGreaterThan(0);
+
+    // QUEUED: the waiting order is still waiting (the only slot is taken).
+    expect(view.queued.map((row) => row.id)).toEqual(["q-1"]);
+    expect(view.hasFreeSlot).toBe(false);
+    expect(view.slotsTotal).toBe(refineSlotCount(state));
+  });
+
+  it("reports a line whose first iteration has not started yet as zero progress, null ticks", () => {
+    // startLine appends the LINE; the engine starts its first job on the next tick.
+    // The live card shows "Queued, starts next tick" in exactly this window, so the
+    // model has to distinguish "no job in flight" (null ticks) from "job at 0 percent".
+    const state = startLine(craftState({ commonOre: 200 }), "refine", REFINE_KEY, {
+      kind: "continuous",
+    }).next;
+    expect(jobForLine(state, state.refineLines[0].id)).toBeUndefined();
+
+    const row = buildCraftQueue(state, "refinery").running[0];
+    expect(row.progress).toBe(0);
+    expect(row.remainingTicks).toBeNull();
+    expect(row.durationTicks).toBeNull();
+    // A continuous line reads as continuous, which is what drives the design section
+    // 5.4 "queued orders wait for another slot" warning above the queue.
+    expect(row.continuous).toBe(true);
+    expect(row.modeLabel).toBe("continuous");
+  });
+
+  it("reads a drained batch line as finishing its current run", () => {
+    // remaining 0 means every iteration has been started: the line is finishing its
+    // last in-flight one and has nothing left to cancel. Same wording as the card.
+    const started = startLine(craftState({ commonOre: 200 }), "refine", REFINE_KEY, {
+      kind: "batch",
+      remaining: 1,
+    }).next;
+    const state = advance(started, 2);
+    expect(state.refineLines[0].remaining).toBe(0);
+    expect(buildCraftQueue(state, "refinery").running[0].modeLabel).toBe("finishing current run");
+  });
+});
+
+describe("buildCraftQueue: queued rows carry label, mode and position", () => {
+  it("names a refine order by its output item and a fabricate order by its blueprint output", () => {
+    const loaded = enqueueAll(deepQueueState(), [
+      { facility: "refinery", order: refineOrder() },
+      { facility: "fabricator", order: fabricateOrder(FABRICATE_KEY, 3) },
+    ]);
+
+    const refinery = buildCraftQueue(loaded, "refinery").queued[0];
+    expect(refinery.label).toBe("Titanium Ingot");
+    expect(refinery.modeLabel).toBe("batch 1");
+    expect(refinery.summary).toBe("Titanium Ingot · batch 1");
+
+    const fabricator = buildCraftQueue(loaded, "fabricator").queued[0];
+    expect(fabricator.label).toBe("Frame Segment");
+    expect(fabricator.modeLabel).toBe("batch 3");
+    expect(fabricator.summary).toBe("Frame Segment · batch 3");
+  });
+
+  it("keeps rows in QUEUE ORDER with 1-based positions, and reorder controls that match moveQueuedOrder", () => {
+    // The array index IS the queue order, so position is index + 1, and the move
+    // controls are disabled exactly where moveQueuedOrder would be a no-op.
+    const loaded = enqueueAll(deepQueueState(), [
+      { facility: "refinery", order: refineOrder() },
+      { facility: "fabricator", order: fabricateOrder() }, // interleaved: must not shift the refinery rows
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder() },
+    ]);
+
+    const rows = buildCraftQueue(loaded, "refinery").queued;
+    expect(rows.map((r) => r.id)).toEqual(["q-1", "q-3", "q-4"]);
+    expect(rows.map((r) => r.position)).toEqual([1, 2, 3]);
+    expect(rows.map((r) => r.canMoveUp)).toEqual([false, true, true]);
+    expect(rows.map((r) => r.canMoveDown)).toEqual([true, true, false]);
+
+    // The controls agree with the mutation API: a disabled control's action is a
+    // same-reference no-op, an enabled control's action really reorders.
+    expect(moveQueuedOrder(loaded, "q-1", "up")).toBe(loaded);
+    expect(moveQueuedOrder(loaded, "q-4", "down")).toBe(loaded);
+    const reordered = moveQueuedOrder(loaded, "q-3", "up");
+    expect(queueShape(reordered)).toEqual([
+      "refinery:q-3",
+      "fabricator:q-2",
+      "refinery:q-1",
+      "refinery:q-4",
+    ]);
+    // Derived, never cached: the next build reflects the new order immediately.
+    expect(buildCraftQueue(reordered, "refinery").queued.map((r) => r.id)).toEqual(["q-3", "q-1", "q-4"]);
+  });
+
+  it("carries the raw order through, so a console can re-open a configurator on it", () => {
+    const order = refineOrder(REFINE_KEY, 7);
+    const loaded = enqueueAll(craftState(), [{ facility: "refinery", order }]);
+    expect(buildCraftQueue(loaded, "refinery").queued[0].order).toEqual(order);
+  });
+
+  it("labels every blueprint OUTPUT SHAPE the fabricator can mint, and falls back on an unknown key", () => {
+    // ONE naming path (craftLineOutputLabel) covering all four shapes, so the queue
+    // cannot become the surface that renders a raw internal key at the player.
+    expect(craftLineOutputLabel("refine", REFINE_KEY)).toBe("Titanium Ingot");      // refine output item
+    expect(craftLineOutputLabel("fabricate", FABRICATE_KEY)).toBe("Frame Segment"); // material blueprint
+    expect(craftLineOutputLabel("fabricate", "prospectorHoldBp")).toBe("Cargo Bay · Prospector Hold"); // equipment
+    expect(craftLineOutputLabel("fabricate", "railgunBp")).toBe("Railgun");         // weapon, " Blueprint" stripped
+    // Defensive: a retired key renders itself, never "undefined" and never a throw.
+    expect(craftLineOutputLabel("refine", "noSuchRecipe")).toBe("noSuchRecipe");
+    expect(craftLineOutputLabel("fabricate", "noSuchBlueprint")).toBe("noSuchBlueprint");
+  });
+
+  it("labels a queued SALVAGE target by the thing it points at, and survives a stale one", () => {
+    // Salvage orders cannot promote until Phase 2, but they can already be HELD, so
+    // their rows have to read honestly now.
+    const base = craftState();
+    const seeded = base.equipment.find((e) => e.slotType === "cargoBay");
+    expect(seeded).toBeDefined();
+    const crafted = { ...seeded!, id: "eq-crafted", blueprintKey: "prospectorHoldBp" };
+    const baseline = { ...seeded!, id: "eq-baseline", blueprintKey: null };
+    const state: GameState = { ...base, equipment: [crafted, baseline] };
+
+    expect(salvageTargetLabel(state, { kind: "equipment", instanceId: "eq-crafted" })).toBe(
+      "Cargo Bay · Prospector Hold"
+    );
+    // The baseline reads as a baseline: it is DESTROYED rather than salvaged, and the
+    // Salvage Bay's label flip depends on the player telling the two apart.
+    expect(salvageTargetLabel(state, { kind: "equipment", instanceId: "eq-baseline" })).toBe(
+      "Cargo Bay · Standard-Issue"
+    );
+    expect(salvageTargetLabel(state, { kind: "material", itemId: "titaniumIngot" })).toBe("Titanium Ingot");
+    // Stale / vanished targets fall back to the raw id (a stale target is a fail-safe
+    // no-op at completion, so its row must stay renderable until then).
+    expect(salvageTargetLabel(state, { kind: "equipment", instanceId: "eq-gone" })).toBe("eq-gone");
+    expect(salvageTargetLabel(state, { kind: "ship", shipId: "ship-gone" })).toBe("ship-gone");
+
+    // And the row builder routes a salvage order through that same label.
+    const queuedSalvage = enqueueAll(state, [{ facility: "salvageBay", order: salvageOrder("eq-crafted") }]);
+    const row = buildCraftQueue(queuedSalvage, "salvageBay").queued[0];
+    expect(row.label).toBe("Cargo Bay · Prospector Hold");
+    expect(row.modeLabel).toBe("salvage");
+    expect(row.continuous).toBe(false);
+  });
+});
+
+describe("buildCraftQueue: eligibility is the ADAPTER's answer, never a second opinion", () => {
+  it("mirrors QUEUE_ADAPTERS[facility].canStart for every row, at every facility", () => {
+    // The assertion that catches a re-derivation: each row is compared against the
+    // adapter's OWN return value for the same order, not against a literal.
+    const loaded = enqueueAll(deepQueueState({ commonOre: 200, titaniumIngot: 40 }), [
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder("noSuchRecipe") }, // a hand-edited / retired key
+      { facility: "fabricator", order: fabricateOrder() },
+      { facility: "salvageBay", order: salvageOrder() },
+    ]);
+
+    for (const facility of QUEUE_FACILITIES) {
+      const view = buildCraftQueue(loaded, facility);
+      const waiting = queuedForFacility(loaded, facility);
+      expect(view.queued).toHaveLength(waiting.length);
+      waiting.forEach((job, i) => {
+        const gate = QUEUE_ADAPTERS[facility].canStart(loaded, job.order);
+        expect(view.queued[i].id).toBe(job.id);
+        expect(view.queued[i].canStart).toBe(gate.ok);
+        expect(view.queued[i].blockReason).toBe(gate.ok ? null : gate.reason);
+      });
+    }
+
+    // Non-vacuous: the fixture really does contain BOTH a startable row and a blocked
+    // one, so the loop above compared both branches.
+    const refineryRows = buildCraftQueue(loaded, "refinery").queued;
+    expect(refineryRows.some((r) => r.canStart)).toBe(true);
+    expect(refineryRows.some((r) => !r.canStart)).toBe(true);
+    expect(refineryRows[1].blockReason).toBe("notFound");
+    // The Salvage Bay stub refuses everything until Phase 2 Unit 2.4, with its own
+    // typed reason rather than a made-up one.
+    expect(buildCraftQueue(loaded, "salvageBay").queued[0].blockReason).toBe("notImplemented");
+  });
+
+  it("reports the LINE ENGINE's own reason when a queued order cannot afford its inputs", () => {
+    // A free slot (refinery level 2, one line running) plus not enough ore: the row
+    // must read "materials", the same reason the configurator's disabled Start shows,
+    // because both come from canStartLine.
+    const poor = startLine(deepQueueState({ commonOre: 20, refineryLevel: 2 }), "refine", REFINE_KEY, {
+      kind: "batch",
+      remaining: 1,
+    }).next;
+    const loaded = enqueueAll(poor, [{ facility: "refinery", order: refineOrder(REFINE_KEY, 1) }]);
+
+    const view = buildCraftQueue(loaded, "refinery");
+    expect(view.hasFreeSlot).toBe(true); // 1 line of 2 slots, so the block is NOT the slot
+    expect(view.queued[0].canStart).toBe(false);
+    expect(view.queued[0].blockReason).toBe("materials");
+    // A blocked row is never the promotion preview.
+    expect(view.queued[0].nextToPromote).toBe(false);
+    expect(view.nextToPromoteId).toBeNull();
+  });
+
+  it("previews the first ELIGIBLE row as next to promote, skipping a blocked one ahead of it", () => {
+    // Skip-on-block as the display sees it: a blocked head does not claim the slot.
+    // The head here is an unresearched blueprint (an unambiguous, permanent block) and
+    // the row behind it is a plain affordable order.
+    const loaded = enqueueAll(deepQueueState({ titaniumIngot: 40, fabricatorLevel: 2 }), [
+      { facility: "fabricator", order: fabricateOrder("prospectorHoldBp") }, // not researched here
+      { facility: "fabricator", order: fabricateOrder(FABRICATE_KEY) },
+    ]);
+
+    const view = buildCraftQueue(loaded, "fabricator");
+    expect(view.hasFreeSlot).toBe(true);
+    expect(view.queued[0].blockReason).toBe("notResearched");
+    expect(view.queued[0].nextToPromote).toBe(false);
+    expect(view.queued[1].canStart).toBe(true);
+    expect(view.queued[1].nextToPromote).toBe(true);
+    expect(view.nextToPromoteId).toBe("q-2");
+
+    // And the ENGINE agrees: one tick promotes exactly the previewed order and leaves
+    // the blocked head in place, in position. The preview is a display of what the
+    // pass would do, so a divergence here would mean the model is lying to the player.
+    const ticked = advance(loaded, 1);
+    expect(queueIds(ticked)).toEqual(["q-1"]);
+    expect(ticked.fabricateLines).toHaveLength(1);
+  });
+
+  it("previews nothing while every slot is busy, however startable the rows look", () => {
+    // hasFreeSlot is asked first, so a full facility has no preview at all. Note the
+    // rows themselves also read blocked, with "noSlot": canStartLine includes the slot
+    // gate, so a healthy queue says "waiting for a free line" rather than "ready".
+    const busy = startLine(deepQueueState({ commonOre: 400 }), "refine", REFINE_KEY, {
+      kind: "continuous",
+    }).next;
+    const loaded = enqueueAll(busy, [{ facility: "refinery", order: refineOrder() }]);
+
+    const view = buildCraftQueue(loaded, "refinery");
+    expect(view.hasFreeSlot).toBe(false);
+    expect(view.nextToPromoteId).toBeNull();
+    expect(view.queued.every((r) => !r.nextToPromote)).toBe(true);
+    expect(view.queued[0].blockReason).toBe("noSlot");
+  });
+});
+
+describe("buildCraftQueue: depth used vs total, and the enqueue gate", () => {
+  it("mirrors queuedForFacility and queueDepth PER FACILITY", () => {
+    const loaded = enqueueAll(deepQueueState(), [
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder() },
+      { facility: "fabricator", order: fabricateOrder() },
+    ]);
+
+    for (const facility of QUEUE_FACILITIES) {
+      const view = buildCraftQueue(loaded, facility);
+      expect(view.depthUsed).toBe(queuedForFacility(loaded, facility).length);
+      expect(view.depthTotal).toBe(queueDepth(loaded));
+      expect(view.depthFree).toBe(view.depthTotal - view.depthUsed);
+      expect(view.overDepth).toBe(false);
+    }
+    // Per facility, not shared: the refinery's two entries do not eat the fabricator's
+    // room, which is the whole point of counting per facility.
+    expect(buildCraftQueue(loaded, "refinery").depthUsed).toBe(2);
+    expect(buildCraftQueue(loaded, "fabricator").depthUsed).toBe(1);
+    expect(buildCraftQueue(loaded, "salvageBay").depthUsed).toBe(0);
+    expect(buildCraftQueue(loaded, "fabricator").canEnqueue).toBe(true);
+  });
+
+  it("closes canEnqueue at the cap, with canEnqueueOrder's own reason", () => {
+    // Base depth 1: one waiting order fills the refinery's queue.
+    const loaded = enqueueAll(craftState(), [{ facility: "refinery", order: refineOrder() }]);
+    const view = buildCraftQueue(loaded, "refinery");
+
+    expect(view.depthUsed).toBe(1);
+    expect(view.depthTotal).toBe(1);
+    expect(view.depthFree).toBe(0);
+    expect(view.canEnqueue).toBe(false);
+    expect(view.enqueueBlockReason).toBe("queueFull");
+    // The model's verdict IS the gate's verdict: a real enqueue attempt is refused
+    // with the same reason the disabled Add control will show.
+    expect(enqueueOrder(loaded, "refinery", refineOrder()).reason).toBe("queueFull");
+    // ... while a facility with room still reads open.
+    expect(buildCraftQueue(loaded, "fabricator").canEnqueue).toBe(true);
+    expect(buildCraftQueue(loaded, "fabricator").enqueueBlockReason).toBeNull();
+  });
+
+  it("reports the respec OVER-CAP state honestly: used above total, no negative free, no room", () => {
+    // The drain state (see enqueueOrder's header): a talent refund can leave a facility
+    // holding more waiting orders than the new depth allows. Nothing is destroyed, so
+    // the console has to be able to say "3 / 1" without rendering a negative number.
+    const invested: GameState = {
+      ...craftState(),
+      unlockedHomeworldTalents: QUEUE_CHAIN,
+      credits: new Decimal(1000),
+    };
+    const loaded = enqueueAll(invested, [
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder() },
+    ]);
+    const shrunk = respecHomeworldTalents(loaded).next;
+
+    const view = buildCraftQueue(shrunk, "refinery");
+    expect(view.depthUsed).toBe(3);
+    expect(view.depthTotal).toBe(QUEUE_DEPTH_BASE); // 1
+    expect(view.overDepth).toBe(true);
+    expect(view.depthFree).toBe(0); // clamped, never -2
+    expect(view.canEnqueue).toBe(false);
+    expect(view.enqueueBlockReason).toBe("queueFull");
+    // All three rows survive, in order, with working controls: managing this list is
+    // the player's only way back under the cap.
+    expect(view.queued.map((r) => r.id)).toEqual(["q-1", "q-2", "q-3"]);
+    expect(view.queued.map((r) => r.position)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("buildCraftQueue: empty states", () => {
+  it("distinguishes an empty queue WITH room from one at depth (design 8.0 item 0.8)", () => {
+    // The Phase 4 empty states depend on exactly this: "queue something here" versus
+    // "this queue is full", told apart from the same empty `queued` list.
+    const roomyView = buildCraftQueue(craftState(), "refinery");
+    expect(roomyView.queued).toEqual([]);
+    expect(roomyView.running).toEqual([]);
+    expect(roomyView.runningCount).toBe(0);
+    expect(roomyView.depthUsed).toBe(0);
+    expect(roomyView.depthFree).toBe(1);
+    expect(roomyView.canEnqueue).toBe(true);
+    expect(roomyView.nextToPromoteId).toBeNull();
+
+    // A fresh save has an UNBUILT refinery (level 0, zero slots), a third and equally
+    // distinguishable empty state: no queue, no running work, and no slot either.
+    const unbuilt = buildCraftQueue(freshState(), "refinery");
+    expect(unbuilt.slotsTotal).toBe(0);
+    expect(unbuilt.hasFreeSlot).toBe(false);
+    expect(unbuilt.running).toEqual([]);
+    expect(unbuilt.queued).toEqual([]);
+    expect(unbuilt.canEnqueue).toBe(true); // depth is a talent, not a facility level
+  });
+
+  it("reflects the Salvage Bay's Phase 1 STUB rather than inventing a slot count", () => {
+    // The view-model twin of the QUEUE_ADAPTERS salvageBay stub: nothing runs there yet
+    // (the salvageJob kind lands in Phase 2 Unit 2.2) and it has no slot count until
+    // Unit 2.4, so slotsTotal is null rather than a guessed 0 or 1.
+    const view = buildCraftQueue(craftState(), "salvageBay");
+    expect(view.running).toEqual([]);
+    expect(view.slotsTotal).toBeNull();
+    expect(view.hasFreeSlot).toBe(false);
+    expect(view.queued).toEqual([]);
+  });
+});
+
+describe("buildAllCraftQueues", () => {
+  it("returns one view per facility, in QUEUE_FACILITY_ORDER, each equal to the single build", () => {
+    // The Facilities dashboard (design 8.1) needs every card's queue at once, and it
+    // must list them in the order the engine actually walks, not in object-key order.
+    const loaded = enqueueAll(deepQueueState(), [
+      { facility: "fabricator", order: fabricateOrder() },
+      { facility: "refinery", order: refineOrder() },
+    ]);
+
+    const all = buildAllCraftQueues(loaded);
+    expect(all.map((v) => v.facility)).toEqual([...QUEUE_FACILITY_ORDER]);
+    for (const view of all) {
+      expect(view).toEqual(buildCraftQueue(loaded, view.facility));
+    }
+  });
+});
+
+describe("buildCraftQueue is PURE: it derives, it never writes", () => {
+  it("mutates nothing on a deeply frozen state, at any facility", () => {
+    // Object.freeze plus ESM strict mode turns any assignment into a THROW, so a model
+    // that tried to stamp a field onto a job, sort the queue in place, or cache
+    // anything on state would fail here rather than silently corrupting a save.
+    //
+    // The fixture is built so NOTHING can promote across the two ticks (the refinery's
+    // only slot is taken, the fabricate order cannot afford its ingots, the salvage row
+    // is stubbed), which is what lets the case assert the queue is untouched.
+    const loaded = enqueueAll(
+      startLine(deepQueueState({ commonOre: 200 }), "refine", REFINE_KEY, { kind: "batch", remaining: 2 }).next,
+      [
+        { facility: "refinery", order: refineOrder() },
+        { facility: "fabricator", order: fabricateOrder() },
+        { facility: "salvageBay", order: salvageOrder() },
+      ]
+    );
+    const state = advance(loaded, 2);
+    expect(queueIds(state)).toEqual(["q-1", "q-2", "q-3"]);
+
+    Object.freeze(state);
+    Object.freeze(state.processQueue);
+    state.processQueue.forEach((job) => {
+      Object.freeze(job);
+      Object.freeze(job.order);
+    });
+    Object.freeze(state.refineLines);
+    state.refineLines.forEach((line) => Object.freeze(line));
+    Object.freeze(state.fabricateLines);
+    Object.freeze(state.activeProcesses);
+    state.activeProcesses.forEach((p) => Object.freeze(p));
+    Object.freeze(state.inventory);
+    Object.freeze(state.equipment);
+
+    const before = queueSnapshot(state);
+    for (const facility of QUEUE_FACILITIES) buildCraftQueue(state, facility);
+    buildAllCraftQueues(state);
+
+    // Nothing observable moved, and the identities the tick relies on are untouched.
+    expect(queueSnapshot(state)).toEqual(before);
+    expect(queueIds(state)).toEqual(["q-1", "q-2", "q-3"]);
+  });
+
+  it("returns a FRESH model every call, so a console can never mutate the game through it", () => {
+    // The rows are plain data the UI is free to hold, so they must not alias anything
+    // the engine reads back. Two builds are equal in value and distinct in identity.
+    const loaded = enqueueAll(craftState(), [{ facility: "refinery", order: refineOrder() }]);
+    const first = buildCraftQueue(loaded, "refinery");
+    const second = buildCraftQueue(loaded, "refinery");
+
+    expect(first).toEqual(second);
+    expect(first).not.toBe(second);
+    expect(first.queued).not.toBe(second.queued);
+    expect(first.queued[0]).not.toBe(second.queued[0]);
+
+    // Scribbling on a returned row changes nothing about the next build (and nothing
+    // about the state), the property a reactive console depends on.
+    first.queued[0].nextToPromote = true;
+    expect(buildCraftQueue(loaded, "refinery").queued[0].nextToPromote).toBe(false);
+    expect(loaded.processQueue).toHaveLength(1);
   });
 });
