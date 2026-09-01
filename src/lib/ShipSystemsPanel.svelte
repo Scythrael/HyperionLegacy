@@ -969,8 +969,23 @@
     pickerTrigger = null;
   }
 
-  // (0.13.2 QA: the earlier scrollPickerIntoView action was removed. The install flow is now a
-  // MODAL over a dimmed board, so it is always in view and needs no scroll-into-view hack.)
+  // Portal action (0.13.2 QA): move the install modal's backdrop to <body> on mount so it
+  // escapes this panel's DEEPLY-NESTED ancestors. A position:fixed element is trapped (sized to
+  // an ancestor instead of the viewport) if ANY ancestor establishes a containing block via
+  // transform / filter / backdrop-filter / will-change / contain / perspective, which is why the
+  // app's root-level modals cover the screen but this one, buried inside the ships panel, did not
+  // (the board was left undimmed and the sheet rendered low). Re-parenting to <body> guarantees
+  // the backdrop is viewport-fixed. Scoped styles survive the move (Svelte keeps the hash class on
+  // the node), and Svelte still drives its reactivity + events by node reference. node.remove() on
+  // destroy is safe whether Svelte already detached it or not.
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        node.remove();
+      },
+    };
+  }
 
   // A short label for a spare in the picker list + its info button aria-label. Weapons
   // and drone pods carry no economy "variety" label in EQUIPMENT_SLOTS, so they resolve
@@ -1170,6 +1185,10 @@
                       <span class="ss-tile-ic">+</span>
                     </span>
                     <span class="ss-hp-name">Empty</span>
+                    <!-- Reserve the rarity line a filled tile shows below its name (0.13.2 QA
+                         nitpick), so an empty tile's Install button aligns with a filled tile's
+                         Swap button across the hardpoint grid instead of sitting one line higher. -->
+                    <span class="ss-hp-q" aria-hidden="true">&nbsp;</span>
                   </div>
                   <div class="ss-slot-actions">
                     <button
@@ -1372,7 +1391,7 @@
                (the shared focusTrap action), and the header close button all dismiss it; focus is
                trapped inside while it is open. -->
           <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: the backdrop is a presentation dimmer whose only job is click-to-dismiss; keyboard users dismiss with Escape (the focusTrap on the dialog panel below) or the header close button, and every real control lives inside the panel. -->
-          <div class="ss-modal-backdrop" on:click|self={closePicker}>
+          <div class="ss-modal-backdrop" use:portal on:click|self={closePicker}>
           <div
             class="ss-picker"
             role="dialog"
@@ -2276,6 +2295,9 @@
     max-height: 88vh;
     overflow-y: auto;
     padding: 12px;
+    /* Clear the mobile browser's bottom chrome / gesture bar so the sheet's last row is not
+       tucked behind it (0.13.2 QA); 0 on desktop, so the centered popup is unaffected. */
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
     background: var(--color-bg-mid);
     border: 1px solid rgba(var(--color-accent-rgb), 0.4);
     border-radius: 16px 16px 0 0; /* rounded top edge for the sheet */
