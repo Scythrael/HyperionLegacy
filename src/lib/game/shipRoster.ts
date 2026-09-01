@@ -193,6 +193,28 @@ function deriveAttention(
 }
 
 // ----------------------------------------------------------------------------
+// shipNeedsAttention: the PUBLIC per-ship attention flag (0.13.2, Unit 6)
+// ----------------------------------------------------------------------------
+// The Ships bottom-nav attention dot (App.svelte navAttention) lights when ANY hull in
+// the fleet needs the player. It asks THIS predicate over the WHOLE fleet, which is the
+// EXACT same deriveAttention the roster rows use (damaged OR an empty required combat
+// slot), so the nav dot and a row's amber flag can never disagree. It runs over state.ships
+// directly, NOT over the shaped roster, on purpose: the dot must reflect the true fleet
+// even when the roster's search text or filter chip is hiding the hull that needs orders,
+// so it must not read the filtered view model. Fetches the ship's fitted gear once, folds
+// it through deriveAttention, and returns just the boolean. PURE.
+//
+// COST NOTE (Omega 14 / the plan's "keep it cheap"): this is a second gear fetch +
+// computeCombatReadout per ship per tick on top of the roster's own fold (buildRow). For a
+// realistic fleet (dozens of hulls) that is a few extra microsecond-scale folds per tick,
+// well within budget; it is the price of a dot that is correct regardless of the roster
+// filter. If a very large fleet ever makes this measurable, cache the per-ship result
+// keyed by (ship.id, its gear signature) rather than coupling the dot to the filtered roster.
+export function shipNeedsAttention(state: GameState, ship: ShipInstance): boolean {
+	return deriveAttention(ship, equippedFor(state, ship.id)).needsAttention;
+}
+
+// ----------------------------------------------------------------------------
 // buildRow: fold one ShipInstance into a fully-derived ShipRosterRow
 // ----------------------------------------------------------------------------
 // Reads the ship's fitted gear ONCE (equippedFor) and reuses it for both the Battle

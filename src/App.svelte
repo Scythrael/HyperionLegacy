@@ -301,6 +301,10 @@
   // shaping lives there (node-tested); the markup below is a thin presenter over it.
   import {
     buildShipRoster,
+    // 0.13.2 Ships tab, Unit 6: the per-ship attention predicate, so the Ships nav dot
+    // (navAttention below) can ask the SAME "does this hull need me" question the roster
+    // rows use, over the whole fleet, without re-deriving damaged / empty-slot logic here.
+    shipNeedsAttention,
     type ShipSortKey,
     type ShipFilterKey,
     type ShipStatus,
@@ -2266,40 +2270,75 @@
   // + facilitiesView = "console", App.svelte:4896-4897 etc.); Home additionally sets each
   // facility's ACTION sub-tab so the player lands ready to act (research list / refine orders
   // / craft / build), not on the facility's Overview. Wired to actual buttons in Unit 5.
-  function jumpToActivity(target: JumpTarget): void {
+  // 0.13.2 Ships tab, Unit 6: the SINGLE source of "which bottom-nav tab does this
+  // JumpTarget route to". jumpToActivity (below) owns the FULL routing (the tab PLUS the
+  // deep sub-tab / foundry-facility state); this helper factors out just the tab half so
+  // TWO callers can share it without drifting: jumpToActivity itself (it now sets activeTab
+  // from this, keeping its own sub-tab assignments), and the nav attention dot (navAttention
+  // below), which lights exactly the tab a prompt's Go button would open. Keeping the
+  // JumpTarget -> TabKey map in ONE place is what guarantees the dot and the jump agree.
+  // PURE: a total map with the same exhaustiveness guard as jumpToActivity, so a new
+  // JumpTarget is a compile error here until it is routed to a tab.
+  function tabForJumpTarget(target: JumpTarget): TabKey {
     switch (target) {
-      // Operations bucket: the two captain-mission arms (design Section 8).
+      // Operations bucket: the two captain-mission arms both live under the Ops tab.
       case "gathering":
-        activeTab = "fleetOperations";
+      case "combat":
+        return "fleetOperations";
+      // Facilities bucket: every foundry console (research / refinery / fabricator /
+      // shipyard / fuel depot) and the facilities overview all live under the Facilities tab.
+      case "research":
+      case "refinery":
+      case "fabricator":
+      case "shipyard":
+      case "fuelDepot":
+      case "facilities":
+        return "facilities";
+      default: {
+        // Exhaustiveness guard: a JumpTarget added to the union without a case above makes
+        // `target` fail to narrow to `never`, a COMPILE error, so this map can never silently
+        // omit a destination. The return keeps the function total for the type checker; it is
+        // never reached at runtime.
+        const _exhaustive: never = target;
+        void _exhaustive;
+        return "home";
+      }
+    }
+  }
+
+  function jumpToActivity(target: JumpTarget): void {
+    // Single-sourced tab half (Unit 6): the destination TAB comes from tabForJumpTarget so
+    // the nav dot and this jump can never point at different tabs. The switch below then
+    // only sets the DEEP state (foundry facility + action sub-tab) each destination needs.
+    activeTab = tabForJumpTarget(target);
+    switch (target) {
+      // Operations bucket: the two captain-mission arms (design Section 8). Tab set above;
+      // here we only pick the Operations sub-tab.
+      case "gathering":
         activeOperationsTab = "gathering";
         break;
       case "combat":
-        activeTab = "fleetOperations";
         activeOperationsTab = "combat";
         break;
       // Facilities bucket: the console view + the specific foundry facility + its action
-      // sub-tab. activeTab -> "facilities" IS required here because Home is a different
-      // program than the dashboard cards (which live inside Facilities, so they never set it).
+      // sub-tab. (The tab itself is set above; Home is a different program than the dashboard
+      // cards, which live inside Facilities and so never set the tab.)
       case "research":
-        activeTab = "facilities";
         facilitiesView = "console";
         activeFoundryFacility = "research";
         activeResearchSubTab = "research";
         break;
       case "refinery":
-        activeTab = "facilities";
         facilitiesView = "console";
         activeFoundryFacility = "refinery";
         activeRefinerySubTab = "orders";
         break;
       case "fabricator":
-        activeTab = "facilities";
         facilitiesView = "console";
         activeFoundryFacility = "fabricator";
         activeFabricatorSubTab = "craft";
         break;
       case "shipyard":
-        activeTab = "facilities";
         facilitiesView = "console";
         activeFoundryFacility = "shipyard";
         activeShipyardSubTab = "build";
@@ -2307,7 +2346,6 @@
       case "fuelDepot":
         // The Fuel Depot has no action sub-tab worth pre-selecting (topping up is passive),
         // so it opens on the facility's default view, matching the dashboard card's nav.
-        activeTab = "facilities";
         facilitiesView = "console";
         activeFoundryFacility = "fuelStorage";
         break;
@@ -2316,9 +2354,8 @@
         // console: the aggregate "facility upgrade(s) ready" prompt spans several facilities, so
         // it lands the player on the overview where every card + its live Build button is shown
         // (they then pick which to upgrade). This is the bottom-nav Facilities landing
-        // (activeTab "facilities" + facilitiesView "dashboard", App.svelte:9431 / the dashboard
-        // block at :4984), distinct from the foundry cases above which drill into a console.
-        activeTab = "facilities";
+        // (facilitiesView "dashboard"), distinct from the foundry cases above which drill into
+        // a console.
         facilitiesView = "dashboard";
         break;
       default: {
@@ -2330,6 +2367,24 @@
         break;
       }
     }
+  }
+
+  // Nav attention dots (0.13.2 Ships tab, Unit 6): fold the two already-derived signals
+  // into the set of tabs to dot. PURE (reads its two args, allocates a fresh Set, mutates
+  // nothing). See the navAttention reactive above for WHY each signal is chosen and why the
+  // ships pass reads state.ships (not the filtered roster). Kept as a named function so the
+  // rule reads top-to-bottom; the reactive line names dashboardModel + state as its deps.
+  function deriveNavAttention(model: HomeDashboardModel, s: GameState): Set<TabKey> {
+    const tabs = new Set<TabKey>();
+    // Every actionable Home prompt lights the tab its own Go button would open.
+    for (const prompt of model.needsOrders) {
+      tabs.add(tabForJumpTarget(prompt.jumpTarget));
+    }
+    // The Ships tab lights when any hull in the whole fleet needs the player.
+    if (s.ships.some((ship) => shipNeedsAttention(s, ship))) {
+      tabs.add("ships");
+    }
+    return tabs;
   }
 
   // Home dashboard (0.13.1, Unit 5): map the pure model's flat icon HINT strings to a
@@ -4428,6 +4483,25 @@
   // then). Used by the DISPLAY-ONLY ticker markup below.
   $: needsTickerPrompt =
     dashboardModel.needsOrders[needsTickerIndex] ?? dashboardModel.needsOrders[0] ?? null;
+
+  // Nav attention dots (0.13.2 Ships tab, Unit 6): the set of bottom-nav tabs that have
+  // something actionable right now, so the nav can show an amber dot on each. It is built
+  // from the SAME two signals the surfaces themselves use, so a dot never disagrees with
+  // the screen it points at:
+  //   - every Home dashboard prompt (dashboardModel.needsOrders, the idle-and-actionable
+  //     list) contributes the tab its Go button would open, via tabForJumpTarget (the ONE
+  //     JumpTarget -> TabKey map, above). So a lit tab is exactly where that prompt routes,
+  //     and the dot clears the instant the prompt clears (both read the one dashboardModel).
+  //   - "ships" is added when ANY hull needs attention (damaged / an empty required combat
+  //     slot), asked through shipNeedsAttention (shipRoster.ts, the SAME predicate the roster
+  //     rows use) over the WHOLE fleet (state.ships), NOT the shaped roster, so the dot
+  //     reflects the true fleet regardless of the roster's search text or filter chip.
+  // This only FOLDS already-derived outputs (dashboardModel + a cheap per-ship pass); it
+  // does not rebuild the dashboard or the roster. Home itself never lights (no JumpTarget
+  // maps to "home", and Home is where the prompts are read, not acted on). deriveNavAttention
+  // is a plain function so the logic reads top-to-bottom; the $: line lists dashboardModel +
+  // state as its reactive dependencies so the set refreshes as either changes.
+  $: navAttention = deriveNavAttention(dashboardModel, state);
   // Fleet-wide tick readout (collapsed from per-captain activeCycle/
   // activeBarSeconds/activeTickProgress/activeTickRemaining during the UI
   // Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md).
@@ -9780,10 +9854,26 @@
          it out of the a11y tree since the visible label already names the tab. -->
     <div class="nav-tabs">
       {#each NAV_TABS as tab (tab.key)}
-        <button class="nav-tab" class:active={activeTab === tab.key} on:click={() => (activeTab = tab.key)}>
-          <svg class="nav-tab-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            {#each tab.iconPaths as d}<path d={d} />{/each}
-          </svg>
+        <!-- The attention dot (Unit 6): shown when this tab's perspective has something
+             actionable (navAttention). It is aria-hidden (decorative); the meaning reaches
+             assistive tech through the button's aria-label, which appends "(needs attention)"
+             only while the dot is up (undefined otherwise, so the label falls back to the
+             visible caption text). The dot lives inside a zero-layout icon wrap so it anchors
+             to the glyph's top-right corner, not the tab's full width. -->
+        <button
+          class="nav-tab"
+          class:active={activeTab === tab.key}
+          on:click={() => (activeTab = tab.key)}
+          aria-label={navAttention.has(tab.key) ? `${tab.label} (needs attention)` : undefined}
+        >
+          <span class="nav-tab-icon-wrap">
+            <svg class="nav-tab-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              {#each tab.iconPaths as d}<path d={d} />{/each}
+            </svg>
+            {#if navAttention.has(tab.key)}
+              <span class="nav-attention-dot" aria-hidden="true"></span>
+            {/if}
+          </span>
           <span class="nav-tab-label">{tab.label}</span>
         </button>
       {/each}
@@ -10788,6 +10878,52 @@
     width: 19px;
     height: 19px;
     flex-shrink: 0;
+  }
+  /* Attention-dot anchor (0.13.2 Ships tab, Unit 6): a zero-layout wrapper around the
+     icon so the dot can sit at the icon's top-right corner rather than the tab's full
+     width, keeping it visually tied to the glyph. line-height:0 stops the inline box
+     from adding stray vertical space above the label. */
+  .nav-tab-icon-wrap {
+    position: relative;
+    display: inline-flex;
+    line-height: 0;
+  }
+  /* The amber attention dot (0.13.2 Ships tab, Unit 6). Reuses the Home board's needs-you
+     idiom, an amber (--color-warning) dot with a soft glow ring, so it reads as the SAME
+     "needs you" signal across the app. The 2px ring in the bar's own background color
+     separates the dot from the icon edge. A gentle pulse animates ONLY the outer glow (the
+     ring + fill hold steady), and is switched off under prefers-reduced-motion below, where
+     the base box-shadow leaves a STATIC dot + glow. aria-hidden in the markup: the button's
+     aria-label carries the meaning for assistive tech. */
+  .nav-attention-dot {
+    position: absolute;
+    top: -3px;
+    right: -5px;
+    width: 7px;
+    height: 7px;
+    border-radius: 99px;
+    background: var(--color-warning);
+    box-shadow:
+      0 0 0 2px var(--color-panel-bg-strong),
+      0 0 5px 1px color-mix(in srgb, var(--color-warning) 55%, transparent);
+    animation: nav-attention-pulse 2.4s ease-out infinite;
+  }
+  @keyframes nav-attention-pulse {
+    0% {
+      box-shadow:
+        0 0 0 2px var(--color-panel-bg-strong),
+        0 0 0 0 color-mix(in srgb, var(--color-warning) 45%, transparent);
+    }
+    70% {
+      box-shadow:
+        0 0 0 2px var(--color-panel-bg-strong),
+        0 0 0 6px color-mix(in srgb, var(--color-warning) 0%, transparent);
+    }
+    100% {
+      box-shadow:
+        0 0 0 2px var(--color-panel-bg-strong),
+        0 0 0 0 color-mix(in srgb, var(--color-warning) 0%, transparent);
+    }
   }
   .nav-tab-label {
     font-size: 8px;
@@ -12282,5 +12418,8 @@
   @media (prefers-reduced-motion: reduce) {
     .home-pulse { animation: none; }
     .home-ticker-item { animation: none; }
+    /* Unit 6: no pulsing nav dot for reduced-motion users. The base box-shadow above
+       still paints a static amber dot + glow, so the signal stays visible, just still. */
+    .nav-attention-dot { animation: none; }
   }
 </style>
