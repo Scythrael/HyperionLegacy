@@ -1,15 +1,18 @@
 // ============================================================================
-// craftQueue.test.ts : Crafting 0.13.3, Phase 1 Units 1.2 + 1.3
+// craftQueue.test.ts : Crafting 0.13.3, Phase 1 Units 1.2 + 1.3 + 1.4
 //
 // Unit 1.2 covers the queue-DEPTH half of the queue engine: the
 // fleetLogisticsQueue1/2/3 talent chain (model.ts) and the derive-on-read
 // queueDepth helper (tick.ts).
 //
-// Unit 1.3 (appended at the bottom of this file) covers the pure QUEUE MUTATION
-// API (canEnqueueOrder / enqueueOrder / removeQueuedOrder / moveQueuedOrder /
-// queuedForFacility) and the QUEUE_ADAPTERS table. NOTHING in either unit touches
-// TICK behavior, because none exists yet: Unit 1.4 lands the promotion pass that
-// consumes the adapters, and it extends THIS file rather than starting a new one.
+// Unit 1.3 covers the pure QUEUE MUTATION API (canEnqueueOrder / enqueueOrder /
+// removeQueuedOrder / moveQueuedOrder / queuedForFacility) and the QUEUE_ADAPTERS
+// table. Neither unit touches TICK behavior.
+//
+// Unit 1.4 (appended at the bottom of this file) is where the queue finally MOVES:
+// promoteQueuedOrders, wired into economyTick's tail. That makes this the
+// PARITY-CRITICAL section of the file, and its cases carry "parity" in their names
+// on purpose so the release's parity filter sweeps them up with the rest.
 //
 // The two rules worth pinning hardest (design 2026-09-01-crafting-0.13.3-design.md
 // section 5.2) are the ones a later unit could quietly break:
@@ -23,7 +26,7 @@
 // have their own coverage in tick.test.ts.
 // ============================================================================
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import Decimal from "break_infinity.js";
 import {
   freshState,
@@ -48,7 +51,15 @@ import {
   removeQueuedOrder,
   respecHomeworldTalents,
   startLine,
+  // Unit 1.4: the promotion pass + the two tick entry points its parity is measured
+  // against (economyTick is the live cadence, tick is the offline catch-up).
+  promoteQueuedOrders,
+  economyTick,
+  tick,
+  refineSlotCount,
+  fabricateSlotCount,
 } from "./tick";
+import { itemTotal } from "./inventory";
 
 // The three rungs of the queue-depth chain, in ladder order. Named once here so a
 // rename shows up as one compile error instead of nine string literals below.
@@ -762,5 +773,499 @@ describe("queuedForFacility", () => {
     for (const facility of QUEUE_FACILITIES) {
       expect(queuedForFacility(freshState(), facility)).toEqual([]);
     }
+  });
+});
+
+// ============================================================================
+// Unit 1.4: promoteQueuedOrders, the promotion pass in economyTick's tail.
+//
+// âš ï¸ THE PARITY-CRITICAL SECTION. The hard invariant of the whole engine is that an
+// offline span resolves exactly as the same span of live play would: completion order
+// and rng draw order are identical whether the player watched it or was away for two
+// days. Promotion now runs inside that seam, so every case below that carries "parity"
+// in its name exists to prove the queue did not put a crack in it.
+//
+// How the parity cases are built, and why they are honest:
+//   - Both paths start from the SAME state object and are advanced by the SAME number
+//     of WHOLE ticks: path A is one tick(SPAN, ...) offline catch-up, path B is SPAN
+//     hand-stepped economyTick(_, 1) calls (which is what a live poll does per bar).
+//     Whole ticks only, so tick()'s documented trailing-fractional artifact is not in
+//     play and the comparison is exact.
+//   - Each path gets its OWN freshly seeded rng from the same seed. A constant rng
+//     would hide a difference in draw COUNT or ORDER; a seeded sequence surfaces one as
+//     a value divergence downstream.
+//   - The comparison is a deep-equal over queueSnapshot: inventory (per quality
+//     bucket), activeProcesses, both line arrays, the remaining processQueue, all three
+//     monotonic id counters, crafting level/XP and the lifetime produced counters.
+//   - Every parity case also asserts NON-VACUITY: real promotions happened across the
+//     span, so a pass cannot come from two identically inert states.
+// ============================================================================
+
+// A deterministic rng, freshly seeded per path. A linear congruential step, not a good
+// generator and not meant to be: it only has to be REPEATABLE and to change value on
+// every draw, so that two paths drawing a different number of times cannot both produce
+// the same snapshot.
+function seededRng(): () => number {
+  let seed = 123456789;
+  return () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+}
+
+// Decimal maps (lifetimeStats counters) reduced to comparable strings.
+function decimalMap(map: Record<string, Decimal>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of Object.keys(map).sort()) out[key] = map[key].toString();
+  return out;
+}
+
+// Inventory reduced to comparable strings, PER QUALITY BUCKET (not itemTotal), so a
+// divergence that happens to preserve a total still fails the comparison.
+function inventorySnapshot(state: GameState): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const key of Object.keys(state.inventory).sort()) {
+    out[key] = state.inventory[key].map((amount) => amount.toString());
+  }
+  return out;
+}
+
+// Everything the promotion pass can touch, or can cause to be touched, in one
+// comparable shape. Processes carry lineId so the job-to-line tie has to survive both
+// paths identically, and the id counters are included because a divergence in HOW MANY
+// lines/jobs/orders were minted is exactly the shape a promotion bug takes.
+function queueSnapshot(state: GameState) {
+  return {
+    inventory: inventorySnapshot(state),
+    processes: state.activeProcesses.map((p) => ({
+      id: p.id,
+      kind: p.kind,
+      remainingTicks: p.remainingTicks,
+      durationTicks: p.durationTicks,
+      lineId: p.lineId,
+    })),
+    refineLines: state.refineLines,
+    fabricateLines: state.fabricateLines,
+    processQueue: state.processQueue,
+    nextProcessId: state.nextProcessId,
+    nextCraftLineId: state.nextCraftLineId,
+    nextQueueId: state.nextQueueId,
+    craftingLevel: state.craftingLevel,
+    craftingXp: state.craftingXp.toString(),
+    itemsRefined: decimalMap(state.lifetimeStats.itemsRefined),
+    itemsCrafted: decimalMap(state.lifetimeStats.itemsCrafted),
+  };
+}
+
+// Path B: hand-stepped economyTick, one WHOLE tick at a time, the exact cadence the
+// live poll runs and the exact cadence tick()'s offline loop runs internally.
+function stepTicks(state: GameState, n: number, rng: () => number): GameState {
+  let s = state;
+  for (let i = 0; i < n; i++) s = economyTick(s, 1, rng);
+  return s;
+}
+
+// Path B with a PROMOTION LOG: records "t<tick>:<queueId>" for the tick each queued
+// order left the queue. This is the sequence a parity case compares against, because
+// the final state alone cannot show WHEN each promotion happened.
+function stepTicksLogged(state: GameState, n: number, rng: () => number): { final: GameState; log: string[] } {
+  let s = state;
+  const log: string[] = [];
+  for (let i = 1; i <= n; i++) {
+    const before = (s.processQueue ?? []).map((job) => job.id); // queue order
+    s = economyTick(s, 1, rng);
+    const after = new Set((s.processQueue ?? []).map((job) => job.id));
+    for (const id of before) if (!after.has(id)) log.push(`t${i}:${id}`);
+  }
+  return { final: s, log };
+}
+
+// A craftState with the full queue-depth chain learned, so a case can hold several
+// waiting orders per facility without the depth cap being the thing under test.
+function deepQueueState(opts: Parameters<typeof craftState>[0] = {}): GameState {
+  return { ...craftState(opts), unlockedHomeworldTalents: QUEUE_CHAIN };
+}
+
+// The queue reduced to ids in array order, the shape the ordering assertions want.
+function queueIds(state: GameState): string[] {
+  return (state.processQueue ?? []).map((job) => job.id);
+}
+
+describe("promoteQueuedOrders: a free slot pulls the oldest eligible order out of the queue", () => {
+  it("promotes a waiting order into a real line and REMOVES it from the queue", () => {
+    const loaded = enqueueAll(craftState({ commonOre: 100 }), [
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 2) },
+    ]);
+    expect(loaded.refineLines).toHaveLength(0);
+
+    const promoted = promoteQueuedOrders(loaded);
+
+    // The order is now real running work, configured exactly as startLine would have.
+    expect(promoted.refineLines).toHaveLength(1);
+    expect(promoted.refineLines[0]).toEqual({
+      id: "craft-1",
+      kind: "refine",
+      recipeKey: REFINE_KEY,
+      remaining: 2,
+      mode: { kind: "batch", remaining: 2 },
+    });
+    expect(promoted.nextCraftLineId).toBe(2);
+    // And it is GONE from the queue: an order that promoted twice would double-book.
+    expect(promoted.processQueue).toEqual([]);
+    // The input is untouched (immutability), including the array it was handed.
+    expect(loaded.processQueue).toHaveLength(1);
+    expect(loaded.refineLines).toHaveLength(0);
+  });
+
+  it("is a same-REFERENCE no-op when the queue is empty, so it cannot perturb anything", () => {
+    // The case that covers every save predating the feature and every player who never
+    // queues: promotion must be provably inert, not merely value-equal.
+    const empty = craftState({ commonOre: 100 });
+    expect(empty.processQueue).toEqual([]);
+    expect(promoteQueuedOrders(empty)).toBe(empty);
+    const fresh = freshState();
+    expect(promoteQueuedOrders(fresh)).toBe(fresh);
+  });
+
+  it("is a same-REFERENCE no-op when nothing in the queue can start", () => {
+    // No free slot (refinery unbuilt) -> the scan never even builds a waiting list.
+    const unbuilt = enqueueAll(craftState({ commonOre: 100, refineryLevel: 0 }), [
+      { facility: "refinery", order: refineOrder() },
+    ]);
+    expect(promoteQueuedOrders(unbuilt)).toBe(unbuilt);
+
+    // Free slot, but the order is unaffordable -> skipped, and nothing was spent.
+    const broke = enqueueAll(craftState({ commonOre: 0 }), [{ facility: "refinery", order: refineOrder() }]);
+    expect(promoteQueuedOrders(broke)).toBe(broke);
+  });
+
+  it("waits while the slot is busy, then promotes on the tick the running line clears", () => {
+    // Refinery level 1 = ONE slot. A batch-1 line occupies it; the queued order behind
+    // it must not start until that line has finished and been removed.
+    const busy = startLine(craftState({ commonOre: 100 }), "refine", REFINE_KEY, { kind: "batch", remaining: 1 });
+    expect(busy.started).toBe(true);
+    const loaded = enqueueAll(busy.next, [{ facility: "refinery", order: refineOrder() }]);
+    expect(refineSlotCount(loaded)).toBe(1);
+    expect(promoteQueuedOrders(loaded)).toBe(loaded); // slot busy -> nothing moves
+
+    // Drive real ticks until the running line's single 12-tick iteration completes and
+    // stepCraftLine removes the line, freeing the slot for the queued order.
+    let s = loaded;
+    let promotedAtTick = 0;
+    for (let i = 1; i <= 40 && promotedAtTick === 0; i++) {
+      s = economyTick(s, 1);
+      if ((s.processQueue ?? []).length === 0) promotedAtTick = i;
+    }
+    expect(promotedAtTick).toBeGreaterThan(1); // it genuinely waited
+    expect(s.refineLines).toHaveLength(1);
+    expect(s.refineLines[0].id).toBe("craft-2"); // a NEW line, not the finished one
+    expect(queueIds(s)).toEqual([]);
+  });
+
+  it("fills EVERY free slot in one tick, and never more than the free slots", () => {
+    // Refinery level 2 = TWO slots, three orders waiting. Exactly two may promote this
+    // tick; the third has to stay queued, in its place.
+    const loaded = enqueueAll(deepQueueState({ commonOre: 400, refineryLevel: 2 }), [
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder() },
+    ]);
+    expect(refineSlotCount(loaded)).toBe(2);
+
+    const promoted = promoteQueuedOrders(loaded);
+    expect(promoted.refineLines).toHaveLength(2);
+    expect(promoted.refineLines.map((l) => l.id)).toEqual(["craft-1", "craft-2"]);
+    // The overflow entry is untouched and still first in line for next tick.
+    expect(queueIds(promoted)).toEqual(["q-3"]);
+    // hasFreeSlot is re-checked per promotion, so a second pass on the SAME state adds
+    // nothing: the slots are full now.
+    expect(promoteQueuedOrders(promoted)).toBe(promoted);
+  });
+
+  it("promotes across DIFFERENT facilities in one tick, each bounded by its own slots", () => {
+    const loaded = enqueueAll(deepQueueState({ commonOre: 100, titaniumIngot: 20 }), [
+      { facility: "refinery", order: refineOrder() },
+      { facility: "fabricator", order: fabricateOrder() },
+      { facility: "fabricator", order: fabricateOrder() },
+    ]);
+    expect(fabricateSlotCount(loaded)).toBe(1);
+
+    const promoted = promoteQueuedOrders(loaded);
+    expect(promoted.refineLines).toHaveLength(1);
+    expect(promoted.fabricateLines).toHaveLength(1);
+    // The Fabricator's single slot took one order; the other waits. The Refinery's own
+    // slot was never affected by the Fabricator being full (per facility, always).
+    expect(queueIds(promoted)).toEqual(["q-3"]);
+  });
+
+  it("never promotes a salvageBay entry while its adapter is a stub", () => {
+    // The stub is braked twice (no free slot AND a refusing gate). The promotion pass
+    // must respect that rather than reaching around it: Phase 2 Unit 2.4 is what makes
+    // salvage promotable, not this unit.
+    const loaded = enqueueAll(craftState({ commonOre: 100 }), [
+      { facility: "salvageBay", order: salvageOrder() },
+    ]);
+    expect(promoteQueuedOrders(loaded)).toBe(loaded);
+    expect(queueIds(loaded)).toEqual(["q-1"]);
+
+    // Not even across a long offline span, where every other facility drains.
+    const advanced = tick(500, loaded, seededRng());
+    expect(queuedForFacility(advanced, "salvageBay").map((j) => j.id)).toEqual(["q-1"]);
+    // The entry is byte-identical after 500 ticks: nothing consumed it, nothing rewrote
+    // it. (There is deliberately no assertion on a "salvageJob" process kind here: that
+    // kind does not exist until Phase 2 Unit 2.2, so asserting on it now would be a
+    // ghost check that compiles today only by accident.)
+    expect(advanced.processQueue).toEqual(loaded.processQueue);
+    expect(advanced.activeProcesses).toEqual([]);
+  });
+
+  it("draws NO rng, which is what keeps the seeded stream's position untouched", () => {
+    // Structural half: the function takes state and nothing else, so there is no rng it
+    // COULD thread. Behavioral half: a promoting call touches Math.random zero times.
+    expect(promoteQueuedOrders.length).toBe(1);
+    const loaded = enqueueAll(deepQueueState({ commonOre: 400, titaniumIngot: 20, refineryLevel: 2 }), [
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder() },
+      { facility: "fabricator", order: fabricateOrder() },
+    ]);
+    const spy = vi.spyOn(Math, "random");
+    try {
+      const promoted = promoteQueuedOrders(loaded);
+      expect(promoted.refineLines).toHaveLength(2); // non-vacuous: it really promoted
+      expect(promoted.fabricateLines).toHaveLength(1);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("promoteQueuedOrders: SKIP-ON-BLOCK, and the array is never reordered", () => {
+  it("steps over a blocked head, promotes a later eligible entry, and leaves the head in place", () => {
+    // 100 commonOre = 5 affordable iterations. The head asks for 99, which canStartLine
+    // refuses with `materials`; the entry behind it asks for 1, which it allows. Strict
+    // head-of-line blocking would idle the Refinery here for as long as the head stayed
+    // unaffordable, which offline means the entire span.
+    const loaded = enqueueAll(deepQueueState({ commonOre: 100 }), [
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 99) },
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
+    ]);
+    expect(QUEUE_ADAPTERS.refinery.canStart(loaded, refineOrder(REFINE_KEY, 99))).toEqual({
+      ok: false,
+      reason: "materials",
+    });
+
+    const promoted = promoteQueuedOrders(loaded);
+    // The facility is NOT idle: the later entry ran.
+    expect(promoted.refineLines).toHaveLength(1);
+    expect(promoted.refineLines[0].remaining).toBe(1);
+    // The skipped entry kept its position (still index 0) and its id. Nothing sorted,
+    // nothing rotated, nothing silently reordered behind the player's back.
+    expect(queueIds(promoted)).toEqual(["q-1"]);
+    expect(promoted.processQueue[0].order).toEqual(refineOrder(REFINE_KEY, 99));
+  });
+
+  it("keeps the relative order of everything it skipped and everything it left behind", () => {
+    // Two blocked entries around one affordable entry, plus a Fabricator entry that has
+    // no free slot. Only q-3 may go; q-1, q-2 and q-4 must come out in the same order.
+    const busyFab = startLine(
+      deepQueueState({ commonOre: 100, titaniumIngot: 20 }),
+      "fabricate",
+      FABRICATE_KEY,
+      { kind: "continuous" }
+    );
+    expect(busyFab.started).toBe(true);
+    const loaded = enqueueAll(busyFab.next, [
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 99) },
+      { facility: "refinery", order: refineOrder("noSuchRecipe", 1) },
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
+      { facility: "fabricator", order: fabricateOrder() },
+    ]);
+
+    const promoted = promoteQueuedOrders(loaded);
+    expect(promoted.refineLines).toHaveLength(1);
+    expect(queueIds(promoted)).toEqual(["q-1", "q-2", "q-4"]);
+    expect(promoted.processQueue.map((j) => j.facility)).toEqual(["refinery", "refinery", "fabricator"]);
+  });
+
+  it("mints ids monotonically across promotion and never reuses a queue id", () => {
+    // A promoted order's id must never come back around: a stale UI row that resolves to
+    // nothing is safe, one that resolves to somebody else's order is not.
+    const loaded = enqueueAll(deepQueueState({ commonOre: 400, refineryLevel: 2 }), [
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder() },
+    ]);
+    const promoted = promoteQueuedOrders(loaded);
+    expect(queueIds(promoted)).toEqual(["q-3"]);
+    expect(promoted.nextQueueId).toBe(4); // promotion does NOT rewind the counter
+
+    const readded = enqueueOrder(promoted, "refinery", refineOrder());
+    expect(readded.queued).toBe(true);
+    expect(queueIds(readded.next)).toEqual(["q-3", "q-4"]);
+    const everyId = ["q-1", "q-2", ...queueIds(readded.next)];
+    expect(new Set(everyId).size).toBe(everyId.length);
+  });
+});
+
+describe("âš ï¸ promoteQueuedOrders: offline == live parity (the hard invariant)", () => {
+  it("parity: an offline span with a queue promoting throughout deep-equals the same span stepped one tick at a time", () => {
+    // THE test. Two Refinery slots and one Fabricator slot, five waiting orders, and a
+    // span long enough for three separate rounds of promotion:
+    //   t1    : q-1 + q-2 fill both refine slots, q-4 fills the fabricate slot
+    //   ~t26  : both batch-2 refine lines have finished and cleared -> q-3 promotes
+    //   ~t122 : the 120-tick fabricate craft has finished and cleared -> q-5 promotes
+    // At SPAN the queue is drained and q-5's craft is still in flight, so the compared
+    // states hold running work, finished work and spent materials all at once.
+    const base = enqueueAll(deepQueueState({ commonOre: 400, titaniumIngot: 8, refineryLevel: 2 }), [
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 2) },
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 2) },
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 2) },
+      { facility: "fabricator", order: fabricateOrder(FABRICATE_KEY, 1) },
+      { facility: "fabricator", order: fabricateOrder(FABRICATE_KEY, 1) },
+    ]);
+    const SPAN = 200; // whole ticks only: tick()'s trailing-fractional artifact is not in play
+
+    // Path A: ONE offline catch-up call. Path B: SPAN hand-stepped live ticks.
+    const jumped = tick(SPAN, base, seededRng());
+    const { final: stepped, log } = stepTicksLogged(base, SPAN, seededRng());
+
+    expect(queueSnapshot(jumped)).toEqual(queueSnapshot(stepped));
+
+    // NON-VACUITY. The queue really drained, over three distinct ticks, in queue order.
+    expect(log).toHaveLength(5);
+    expect(log.map((entry) => entry.split(":")[1])).toEqual(["q-1", "q-2", "q-4", "q-3", "q-5"]);
+    expect(new Set(log.map((entry) => entry.split(":")[0])).size).toBe(3);
+    expect(queueIds(jumped)).toEqual([]);
+    // Real production happened: 3 batch-2 refine lines = 6 refine jobs.
+    expect(jumped.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("6");
+    expect(itemTotal(jumped.inventory, "frameSegment").toString()).toBe("1");
+    expect(jumped.craftingXp.toString()).not.toBe("0");
+    // And the last promoted order is still running at SPAN, so the compared snapshots
+    // include in-flight work tied to a line that only exists because of a promotion.
+    const inFlight = jumped.activeProcesses.filter((p) => p.kind === "fabricateJob");
+    expect(inFlight).toHaveLength(1);
+    expect(jumped.fabricateLines).toHaveLength(1);
+    expect(inFlight[0].lineId).toBe(jumped.fabricateLines[0].id);
+  });
+
+  it("parity: a head unaffordable at tick k becomes affordable at k+m and promotes at exactly k+m on BOTH paths", () => {
+    // A continuous refine line drips out one titaniumIngot every 12 ticks. The queued
+    // fabricate order needs 4 of them, so it is blocked for the first three completions
+    // and promotes on the tick the fourth lands. Both paths must agree on that tick, not
+    // merely on the end state.
+    const running = startLine(craftState({ commonOre: 80, titaniumIngot: 0 }), "refine", REFINE_KEY, {
+      kind: "continuous",
+    });
+    expect(running.started).toBe(true);
+    const base = enqueueAll(running.next, [{ facility: "fabricator", order: fabricateOrder() }]);
+    const SPAN = 120;
+
+    // Find the promotion tick by live stepping, then hold BOTH paths to it.
+    const { log } = stepTicksLogged(base, SPAN, seededRng());
+    expect(log).toHaveLength(1);
+    const promotionTick = Number(log[0].slice(1).split(":")[0]);
+    expect(promotionTick).toBeGreaterThan(1); // it genuinely waited: NOT promoted on sight
+
+    // One tick BEFORE: still queued, no fabricate line, and the two paths agree.
+    const beforeJumped = tick(promotionTick - 1, base, seededRng());
+    const beforeStepped = stepTicks(base, promotionTick - 1, seededRng());
+    expect(queueSnapshot(beforeJumped)).toEqual(queueSnapshot(beforeStepped));
+    expect(queueIds(beforeJumped)).toEqual(["q-1"]);
+    expect(beforeJumped.fabricateLines).toHaveLength(0);
+
+    // ON the tick: promoted on both paths, same state, and the craft is under way.
+    const atJumped = tick(promotionTick, base, seededRng());
+    const atStepped = stepTicks(base, promotionTick, seededRng());
+    expect(queueSnapshot(atJumped)).toEqual(queueSnapshot(atStepped));
+    expect(queueIds(atJumped)).toEqual([]);
+    expect(atJumped.fabricateLines).toHaveLength(1);
+    expect(atJumped.activeProcesses.some((p) => p.kind === "fabricateJob")).toBe(true);
+  });
+
+  it("parity: skip-on-block resolves identically offline and live, and does not idle the facility", () => {
+    // The head asks for 99 iterations and is never affordable across the whole span, so
+    // it is skipped every single tick. The offline path must skip it exactly as often
+    // and land in the same place: same remaining queue, same array position.
+    const base = enqueueAll(deepQueueState({ commonOre: 100 }), [
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 99) },
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
+    ]);
+    const SPAN = 60;
+
+    const jumped = tick(SPAN, base, seededRng());
+    const { final: stepped, log } = stepTicksLogged(base, SPAN, seededRng());
+
+    expect(queueSnapshot(jumped)).toEqual(queueSnapshot(stepped));
+
+    // NON-VACUITY: the later entry ran (the facility was never idled by the blocked
+    // head), the blocked head is still queued, still at index 0, still itself.
+    expect(log).toEqual(["t1:q-2"]);
+    expect(queueIds(jumped)).toEqual(["q-1"]);
+    expect(jumped.processQueue[0].order).toEqual(refineOrder(REFINE_KEY, 99));
+    expect(jumped.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
+  });
+
+  it("parity: facility iteration order is declared, stable across runs, and identical on both paths", () => {
+    // The queue array holds the Fabricator's order FIRST, but QUEUE_FACILITY_ORDER puts
+    // the Refinery first, so the Refinery's line is minted first. That is the whole
+    // point of iterating a literal tuple instead of Object.keys: which facility wins a
+    // contested tick is a stated property of the engine, not an object-key accident.
+    // Both orders are CONTINUOUS so their lines outlive the span and the minted ids are
+    // still readable at the end of it (a batch-1 refine line would have finished and been
+    // removed by tick 13, erasing the very evidence this case is about).
+    const continuousRefine: QueuedOrder = {
+      type: "craftLine",
+      kind: "refine",
+      recipeKey: REFINE_KEY,
+      mode: { kind: "continuous" },
+    };
+    const continuousFabricate: QueuedOrder = {
+      type: "craftLine",
+      kind: "fabricate",
+      recipeKey: FABRICATE_KEY,
+      mode: { kind: "continuous" },
+    };
+    const base = enqueueAll(craftState({ commonOre: 100, titaniumIngot: 20 }), [
+      { facility: "fabricator", order: continuousFabricate },
+      { facility: "refinery", order: continuousRefine },
+    ]);
+    expect(queueIds(base)).toEqual(["q-1", "q-2"]);
+    expect([...QUEUE_FACILITY_ORDER]).toEqual(["refinery", "fabricator", "salvageBay"]);
+
+    // Repeated runs of the pure pass agree with each other, every time.
+    for (let run = 0; run < 5; run++) {
+      const promoted = promoteQueuedOrders(base);
+      expect(promoted.refineLines[0].id).toBe("craft-1"); // refinery promoted FIRST
+      expect(promoted.fabricateLines[0].id).toBe("craft-2"); // fabricator SECOND
+      expect(queueIds(promoted)).toEqual([]);
+    }
+
+    // And the offline path mints them in that same order across a real span.
+    const SPAN = 30;
+    const jumped = tick(SPAN, base, seededRng());
+    const stepped = stepTicks(base, SPAN, seededRng());
+    expect(queueSnapshot(jumped)).toEqual(queueSnapshot(stepped));
+    expect(jumped.refineLines.map((l) => l.id)).toEqual(["craft-1"]);
+    expect(jumped.fabricateLines.map((l) => l.id)).toEqual(["craft-2"]);
+  });
+
+  it("parity: an EMPTY queue leaves the tick byte-identical, offline and live alike", () => {
+    // The regression guard for every existing save. With no queued work the promotion
+    // pass is a same-reference no-op, so a span with the queue field present but empty
+    // must land exactly where the same span landed before this unit existed.
+    const base = startLine(craftState({ commonOre: 400, titaniumIngot: 20 }), "refine", REFINE_KEY, {
+      kind: "continuous",
+    }).next;
+    expect(base.processQueue).toEqual([]);
+    const SPAN = 100;
+
+    const jumped = tick(SPAN, base, seededRng());
+    const stepped = stepTicks(base, SPAN, seededRng());
+    expect(queueSnapshot(jumped)).toEqual(queueSnapshot(stepped));
+    // Non-vacuous (the span really produced) and the queue never gained an entry.
+    expect(jumped.lifetimeStats.itemsRefined.titaniumIngot.toString()).not.toBe("0");
+    expect(jumped.processQueue).toEqual([]);
+    expect(jumped.nextQueueId).toBe(base.nextQueueId);
   });
 });

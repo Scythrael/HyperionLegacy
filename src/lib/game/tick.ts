@@ -2891,6 +2891,25 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   } = resolveProcesses(postMissionState, ticksElapsed, rng);
   fleetAdminXpDelta += processFleetAdminXpDelta;
 
+  // Crafting 0.13.3 (Phase 1 Unit 1.4, design §5.5): promote WAITING queued orders into
+  // real running work, at THE one correct seam: AFTER resolveProcesses (so a facility
+  // whose work completed this tick is seen in its post-completion state) and BEFORE
+  // processRefineLines / processFabricateLines (so a line promoted here is STEPPED by the
+  // line engine this SAME tick and starts its first iteration immediately, exactly as a
+  // slot freed by a completion is refilled the same tick today). Placing it after the line
+  // engines instead would fill a slot the engines just released one tick sooner, but the
+  // promoted line would then idle until the next tick's engine pass: the first job would
+  // start on the SAME tick either way, and this placement is strictly faster for the case
+  // where the slot was ALREADY free (a fresh queue, or a facility just upgraded).
+  // This is the ONLY call site, by design: promotion running exactly once per whole tick
+  // inside economyTick is what makes offline catch-up identical to live play BY
+  // CONSTRUCTION (tick() steps economyTick(_,1) per whole tick, App.svelte calls
+  // economyTick(state,1) per whole tick). It draws NO rng, so it cannot perturb the seeded
+  // stream's position, and it is a same-reference no-op on an empty queue, so every save
+  // without queued work lands byte-identical to before this unit. See promoteQueuedOrders'
+  // own header for the full parity argument.
+  const postPromotionState = promoteQueuedOrders(postProcessState);
+
   // Crafting Allocation Redesign (Task C2): process the per-slot REFINE production LINES
   // AFTER resolveProcesses, so a slot freed by a job COMPLETING this tick is immediately
   // refillable this SAME tick (no idle gap for a continuous line). REPLACES the retired
@@ -2905,7 +2924,7 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // pass below. Living HERE inside economyTick is what makes it run identically on the live
   // path (App.svelte per bar) and the offline path (tick() steps economyTick(_,1) per tick)
   //, the one-seam offline==live guarantee, now over multiple lines (see the C2 parity test).
-  const postRefineLinesState = processRefineLines(postProcessState);
+  const postRefineLinesState = processRefineLines(postPromotionState);
 
   // Process the per-slot FABRICATE production LINES at the SAME per-tick seam, AFTER
   // resolveProcesses (a fabricate slot freed this tick is refillable this tick) and AFTER
@@ -2949,8 +2968,9 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
   // fabricateLines/fuel, the loot fold + resolveProcesses + processRefineLines +
   // processFabricateLines + processFuelPipelines above already produced their final values
   // on postFuelState. Threaded through postFuelState so every engine's newly-started jobs
-  // ride into the returned state; with no lines and no depot pipeline postFuelState ===
-  // postProcessState, so this is byte-identical to before those features.
+  // ride into the returned state; with no lines, no depot pipeline and (0.13.3) an empty
+  // processQueue, postFuelState === postProcessState, so this is byte-identical to before
+  // those features.
   // (Fuel batches + fabricate jobs + ship repairs award NO FA XP, see resolveProcesses.)
   const postFleetAdminXpState = applyFleetAdminXp(postRepairState, fleetAdminXpDelta);
 
@@ -6322,6 +6342,118 @@ export function moveQueuedOrder(state: GameState, id: string, direction: "up" | 
   next[index] = queue[neighbour];
   next[neighbour] = queue[index];
   return { ...state, processQueue: next };
+}
+
+// --- THE PROMOTION PASS (Crafting 0.13.3, Phase 1 Unit 1.4) -----------------
+// promoteQueuedOrders(state): for every facility with a free slot, launch the oldest
+// ELIGIBLE waiting order into real running work and drop it from the queue.
+// (docs/plans/2026-09-01-crafting-0.13.3-design.md §5.4 + §5.5.)
+//
+// ⚠️ THIS IS THE PARITY-CRITICAL FUNCTION OF THE RELEASE. Read the four properties
+// below before changing a line of it.
+//
+// 1. OFFLINE == LIVE IS TRUE BY CONSTRUCTION, NOT BY ARGUMENT.
+//    This pass has exactly ONE call site: economyTick's tail, between resolveProcesses
+//    and processRefineLines. The live poll (App.svelte) calls economyTick(state, 1)
+//    once per whole tick, and the offline catch-up (tick(), see its header) steps a span
+//    as `economyTick(next, 1, rng)` once per whole tick. Same function, same cadence,
+//    same position within the tick, so the pass runs exactly ONCE PER TICK on both
+//    paths, and a queue draining across a two-day offline span promotes the same orders,
+//    in the same sequence, as it would for a player who watched every tick of it. There
+//    is no closed-form promotion shortcut anywhere that could disagree with the stepped
+//    path, because there is no second path. This is the same one-seam guarantee
+//    processRefineLines / processFabricateLines / processFuelPipelines /
+//    processShipRepairs already rest on, and it is exactly why this pass MUST NEVER be
+//    called from a UI handler, however much more responsive that would feel.
+//    The known, bounded trailing-fractional artifact documented in tick() applies to
+//    this pass exactly as it applies to those four tail passes: an offline catch-up's
+//    sub-tick remainder fires them one extra time, so at most ONE extra promotion per
+//    catch-up, self-correcting on the next whole tick. No NEW class of divergence, and
+//    the existing artifact is not made worse.
+//
+// 2. PROMOTION DRAWS NO RNG, so it cannot move the seeded stream's position.
+//    Every path it can take runs canStartLine (a pure predicate over inventory,
+//    research, tier, slots and caps) and startLine (a pure append of a CraftLine).
+//    Neither reads a random number and neither COMPLETES anything: materials are
+//    deducted later, at startProcess inside stepCraftLine, and every rng draw in the
+//    economy still happens at process COMPLETION inside resolveProcesses. If a future
+//    adapter row ever needs a draw at promotion time, that is a parity-breaking change
+//    to be designed rather than slipped in: the pass would then have to take the
+//    threaded rng and every draw would have to be ordered by this function's iteration.
+//
+// 3. ITERATION ORDER IS DECLARED, NEVER DISCOVERED.
+//    Facilities are walked in QUEUE_FACILITY_ORDER (a literal tuple), never
+//    Object.keys(QUEUE_ADAPTERS), because promotion order decides which facility wins a
+//    contested material when two could promote on the same tick, and that has to be a
+//    stated property of the engine rather than a runtime object's key order. Within one
+//    facility, entries are taken in ARRAY ORDER: the index IS the queue order.
+//
+// 4. SKIP-ON-BLOCK, AND THE ARRAY IS NEVER REORDERED (design §5.4).
+//    If the head entry cannot start right now (unaffordable, warehouse full, not
+//    researched, ...) it is SKIPPED and the scan continues to the next entry of the same
+//    facility. Strict head-of-line blocking is tidier on paper, but it produces the
+//    worst outcome this release exists to delete: you return after eight hours to find
+//    one unaffordable order at the head and every slot idle the entire time. A skipped
+//    entry KEEPS ITS POSITION and is retried first next tick, so the player's ordering
+//    is never silently rewritten, only occasionally stepped over.
+//
+// PURE, and a same-REFERENCE no-op when nothing promotes (an empty queue exits on the
+// first line), so a save with no queued work cannot be perturbed by this pass at all.
+export function promoteQueuedOrders(state: GameState): GameState {
+  // Empty queue -> same-reference no-op. True for every save that predates the feature
+  // and every player who never queues anything, so it is checked first and costs one
+  // length read. (`?? []` tolerates a pre-0.13.3 save that predates the field.)
+  if ((state.processQueue ?? []).length === 0) return state;
+
+  // Threaded immutably: each promotion produces a new state that the NEXT promotion's
+  // gate sees, so two orders competing for the same material on the same tick cannot
+  // both be told they are affordable (the second asks canStartLine against stock the
+  // first has already reserved). The input state is never mutated.
+  let working = state;
+
+  for (const facility of QUEUE_FACILITY_ORDER) {
+    const adapter = QUEUE_ADAPTERS[facility];
+    // Cheapest possible rejection first: no room at this facility means there is no
+    // point building its waiting list at all. (The Salvage Bay stub answers false here
+    // until Phase 2 Unit 2.4; that is one of its two brakes.)
+    if (!adapter.hasFreeSlot(working)) continue;
+
+    // This facility's waiting orders, in queue order, SNAPSHOTTED before the scan.
+    // Snapshotting matters: a promotion below removes its entry from
+    // working.processQueue, and iterating a list while removing from it skips entries.
+    // Only this facility's own entries are removed by this scan, so the snapshot stays a
+    // faithful view of what is still waiting here.
+    for (const job of queuedForFacility(working, facility)) {
+      // RE-CHECKED PER PROMOTION, not once per facility: a facility with N free slots may
+      // promote up to N entries this tick and not one more. startLine appends a line, so
+      // hasFreeSlot (lines.length < slotCount) shrinks as slots fill, and this break is
+      // what stops the scan the moment the last one is taken.
+      if (!adapter.hasFreeSlot(working)) break;
+
+      // Skip-on-block (property 4 above). The reason is deliberately dropped: a queued
+      // row derives its block text by asking canStart again at render time (never
+      // stored, so it cannot go stale), leaving this pass nothing to record.
+      if (!adapter.canStart(working, job.order).ok) continue;
+
+      // start re-runs the same gate internally, so a promotion is gated twice by ONE
+      // predicate and can never launch work the configurator's Start button would
+      // refuse. `started:false` after an ok gate is unreachable today; it is handled as a
+      // skip (not a throw, not a silent drop) so that a future adapter whose start can
+      // refuse for its own reasons simply leaves the entry queued for a retry next tick.
+      const { next, started } = adapter.start(working, job.order);
+      if (!started) continue;
+
+      // Promoted: the order is real running work now, so it leaves the queue. Removed
+      // IMMEDIATELY (rather than collected and filtered once at the end) so `working`
+      // stays internally consistent for every gate that follows: the Phase 2 salvage
+      // reservations derive from processQueue, and they must not count an order that has
+      // already become a job. filter preserves array order, so the REMAINING queue keeps
+      // its exact positions, including any entry this scan skipped.
+      working = { ...next, processQueue: (next.processQueue ?? []).filter((entry) => entry.id !== job.id) };
+    }
+  }
+
+  return working; // === state (same reference) when nothing was promoted
 }
 
 // ============================================================================
