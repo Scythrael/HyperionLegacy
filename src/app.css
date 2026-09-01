@@ -1,5 +1,9 @@
 /* Theme tokens, tech spec §9.6.2. Change the palette here, never inline. */
 :root {
+  /* The game is a dark UI across every theme (only the accent changes), so tell the browser: it
+     renders default UA surfaces (scrollbars, form controls) dark and reinforces the dark mobile
+     chrome / nav-bar tint set by the theme-color meta in index.html. */
+  color-scheme: dark;
   --color-bg-deep: #060a12;
   --color-bg-mid: #0a1120;
   --color-panel-bg: rgba(20, 40, 60, 0.32);

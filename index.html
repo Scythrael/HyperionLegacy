@@ -8,6 +8,12 @@
          app.css that reserves space for gesture-nav home indicators is a
          silent no-op there. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- theme-color tints the mobile browser chrome (Android toolbar + the nav-bar strip behind
+         the system buttons) to the game's dark ground so it matches the page instead of defaulting
+         to a white bar. Safe as a single static value: every theme shares the same background
+         (--color-bg-deep #060a12); only the accent color changes per theme, so this never needs to
+         be per-theme. Paired with color-scheme:dark in app.css. -->
+    <meta name="theme-color" content="#060a12" />
     <title>Hyperion Legacy [prototype]</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
