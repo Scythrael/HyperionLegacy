@@ -3178,20 +3178,15 @@
     return (v * 100).toFixed(1) + "%";
   }
 
-  // ── REAL Ship Systems screen (0.11.0 equipment fitting UI) ────────────────
-  // The player-facing install/uninstall panel (ShipSystemsPanel.svelte), opened
-  // as a modal over the current tab. Two entry points (the Docks ship list and
-  // the Fleet Captain's Overview) open the SAME panel for a target shipId; this
-  // one piece of state tracks which ship is open (null = closed). Unlike the
-  // DEV_MODE harness above, this is NOT dev-gated, it is the shipped screen.
-  let shipSystemsShipId: string | null = null;
-
-  function openShipSystems(shipId: string) {
-    shipSystemsShipId = shipId;
-  }
-  function closeShipSystems() {
-    shipSystemsShipId = null;
-  }
+  // ── REAL Ship Systems screen (0.11.0 equipment fitting UI; 0.13.2 Unit 4) ─────
+  // The player-facing install / uninstall surface is ShipSystemsPanel.svelte. As of
+  // 0.13.2 Unit 4 (Ships-tab redesign) it is NO LONGER a modal: it renders INLINE as the
+  // Ships tab's ship-detail loadout board (embedded), so there is ONE full-screen equip
+  // view rather than a dialog floating over the ship page. The old modal state
+  // (shipSystemsShipId) + openShipSystems / closeShipSystems + the modal render block were
+  // retired; both former entry points (the ship-detail page and the captain page) now
+  // route through selectedShipId + shipsView = "ship" (+ activeTab = "ships" for the
+  // captain-page shortcut). See the Ships tab content branch + the ship-detail render.
 
   // ── Combat View (Combat 0.13.0, Phase 12b Unit C) ─────────────────────────
   // The DISPLAY-ONLY "watch the combat" screen (CombatView.svelte), opened as a
@@ -7383,22 +7378,20 @@
            modal wiring is untouched this unit. -->
       <div class="tab-scroll-area">
         <!-- SHIPS console (originally 0.12.0 Console, Phase 2 / CN3b; relocated to
-             the Ships tab in 0.13.2 Unit 2). The Ships tab's flagship screen: view
-             the fleet, open a hull, and outfit it. It mirrors the Personnel Captain
-             Roster's grid-then-detail model EXACTLY (a single console page that swaps
-             IN PLACE between a card grid and a flat detail page via shipsView, NO
-             nested tab row), so the two consoles read identically. The three cross-perspective actions on the ship page
-             (Ship Installs / Assign Captain / Salvage) are the EXISTING flows reused
-             verbatim from the Drydock Docks list and the captain page, only their
-             ENTRY POINT is the ship (design doc 3: buckets are for finding, actions
-             bridge across perspectives). The installed-systems paper-doll + full
-             stat breakdown live in the ShipSystemsPanel MODAL (opened by Ship
-             Installs via the existing openShipSystems invocation, verbatim), the
-             SAME modal the Docks and the captain Leveling panel already open; the
-             ship page does NOT duplicate that content inline. (CN4b update: the
-             Drydock Docks list that these flows first came from has since been
-             DROPPED, its per-hull management is now ONLY here; the Docks facility
-             under Facilities keeps only ship-storage capacity + expansion.) -->
+             the Ships tab in 0.13.2 Unit 2; equip view rebuilt in 0.13.2 Unit 4). The
+             Ships tab's flagship screen: view the fleet, open a hull, and outfit it. It
+             mirrors the Personnel Captain Roster's grid-then-detail model (a single console
+             page that swaps IN PLACE between the roster and a flat detail page via shipsView,
+             NO nested tab row). The ship page's cross-perspective actions (Assign Captain /
+             Salvage) are the EXISTING flows reused verbatim from the captain page, only their
+             ENTRY POINT is the ship (design doc 3: buckets are for finding, actions bridge
+             across perspectives). 0.13.2 Unit 4: the installed-systems board + full stat
+             breakdown now render INLINE on the ship page via an EMBEDDED ShipSystemsPanel
+             (the Layout C loadout board) instead of a modal-on-top, so tapping a roster row
+             opens ONE full-screen equip view. (CN4b update: the Drydock Docks list that these
+             flows first came from has since been DROPPED, its per-hull management is now ONLY
+             here; the Docks facility under Facilities keeps only ship-storage capacity +
+             expansion.) -->
         {#if shipsView === "grid"}
         <!-- FLEET ROSTER (0.13.2 Unit 3). Upgrades the old flat card grid into a
              sortable / favoritable / filterable LIST. All the shaping (favorites
@@ -7505,9 +7498,11 @@
         {:else}
         <!-- SHIP page (selected hull, FLAT). Design doc 4a: "pull up a ship; SEE
              its captain ... installed systems, and the full stat breakdown. Outfit
-             it in place." Kept FLAT (identity + actions shown directly, the full
-             installed-systems paper-doll + stat breakdown in the summoned modal),
-             NOT a nested inner tab row, honoring the same FLATTEN principle the
+             it in place." 0.13.2 Unit 4 delivers exactly that: the header actions
+             (Assign / Salvage) sit directly above an INLINE loadout board (the
+             embedded ShipSystemsPanel) that shows the installed systems + full stat
+             breakdown + install / uninstall in place, NOT a summoned modal. Kept FLAT
+             (no nested inner tab row), honoring the same FLATTEN principle the
              captain page uses. The hull is looked up INLINE from selectedShipId
              (so a reassign/salvage reflects live); if it has vanished the
              vanished-hull guard above has already flipped back to the grid, so the
@@ -7539,34 +7534,11 @@
           <div class="research-name roster-detail-name">{def?.label ?? ship.typeKey}</div>
         </div>
 
-        <!-- SHIP IDENTITY (composed read, cheap fields only). Hull type, the
-             captain aboard (a READ; assigning is an action below), and status.
-             The full installed-systems + stat breakdown deliberately live in the
-             Ship Installs modal (the paper-doll), NOT duplicated here. -->
-        <Panel>
-          <div class="panel-title">SHIP</div>
-          <div class="research-name">{def?.label ?? ship.typeKey}</div>
-          <div class="research-cost">Captain: {assignedCaptain === null ? "None, parked" : assignedCaptain.label}</div>
-          <div class="research-cost">
-            {#if assignedCaptain === null}
-              Status: Parked
-            {:else if assignedCaptain.mission === null}
-              Status: Idle
-            {:else if assignedCaptain.mission.kind === "extraction"}
-              Status: On mission, {MISSIONS[assignedCaptain.mission.missionKey].label}
-            {:else if assignedCaptain.mission.kind === "patrol"}
-              Status: On patrol, {PATROLS[assignedCaptain.mission.patrolKey].label}
-            {/if}
-          </div>
-        </Panel>
-
-        <!-- SHIP ACTIONS (0.12.0 Console Phase 2). Cross-perspective affordances
-             reached from the ITEM (the ship); each is an EXISTING flow reused
-             verbatim, only the entry point differs:
-               - Ship Installs: opens the ShipSystemsPanel paper-doll modal via the
-                 SAME openShipSystems(ship.id) invocation the Docks + captain page
-                 use. Always enabled (it works for a parked hull too; the on-mission
-                 install lock is enforced INSIDE the panel, not here).
+        <!-- SHIP ACTIONS (0.12.0 Console Phase 2; 0.13.2 Unit 4). Cross-perspective
+             affordances reached from the ITEM (the ship); each is an EXISTING flow reused
+             verbatim, only the entry point differs. These are the loadout board's stable
+             HEADER actions (design 3 "Equip view" header): they sit directly above the
+             inline board, NOT inside a tooltip.
                - Assign Captain: the Docks' exact three-case ship-side logic:
                  PARKED -> openAssignPicker (pick an idle captain), disabled when no
                  idle captain exists; ASSIGNED + captain IDLE -> openSwapPicker (pick
@@ -7577,59 +7549,86 @@
                  the Docks Salvage button uses (on-mission lock + captain-aboard
                  warning + doSalvageShip). Disabled on-mission (salvageShip enforces
                  the same lock). On success the selectedShip reactive resolves to
-                 null and the page falls back to the grid automatically. -->
-        <Panel>
-          <div class="panel-title">SHIP ACTIONS</div>
-          <div class="dev-row">
+                 null and the page falls back to the grid automatically.
+             0.13.2 Unit 4 dropped the old "Ship Installs" button + the separate SHIP
+             identity Panel: install / uninstall now live inline on the loadout board
+             below (ONE full-screen equip view, no modal-on-top), and the board's own
+             header carries the ship name / class / captain / status / Battle Rating, so
+             a second identity Panel would just duplicate it. -->
+        <div class="dev-row ship-detail-actions">
+          {#if assignedCaptain === null}
             <button
               class="dev-btn"
-              on:click={() => openShipSystems(ship.id)}
+              disabled={idleCaptains.length === 0}
+              title={idleCaptains.length === 0 ? "No idle captain, recall one first" : undefined}
+              on:click={() => openAssignPicker(ship.id)}
             >
-              Ship Installs
+              Assign Captain
             </button>
-
-            {#if assignedCaptain === null}
-              <button
-                class="dev-btn"
-                disabled={idleCaptains.length === 0}
-                title={idleCaptains.length === 0 ? "No idle captain, recall one first" : undefined}
-                on:click={() => openAssignPicker(ship.id)}
-              >
-                Assign Captain
-              </button>
-            {:else if onMission}
-              <button class="dev-btn" disabled title="On a mission, recall first">
-                Assign Captain
-              </button>
-            {:else}
-              <button
-                class="dev-btn"
-                disabled={parkedShips.length === 0}
-                title={parkedShips.length === 0 ? "No spare ship, buy or free one" : undefined}
-                on:click={() => openSwapPicker(assignedCaptain.id)}
-              >
-                Assign Captain
-              </button>
-            {/if}
-
-            <!-- Salvage is BLOCKED for the fleet's only hull (state.ships.length === 1): tearing
-                 it down would strand the player with no ship and no mission income, a practical
-                 softlock (salvageShip enforces the same lastShip guard server-side). Disabled +
-                 reason here mirrors the on-mission block so the player sees WHY before clicking. -->
+          {:else if onMission}
+            <button class="dev-btn" disabled title="On a mission, recall first">
+              Assign Captain
+            </button>
+          {:else}
             <button
-              class="dev-btn danger"
-              disabled={onMission || state.ships.length === 1}
-              title={onMission
-                ? "On a mission, recall first"
-                : state.ships.length === 1
-                  ? "Cannot salvage your last ship: your fleet would be left with no hull"
-                  : "Break down this hull for parts"}
-              on:click={() => requestSalvage("ship", ship.id, def?.label ?? ship.typeKey)}
+              class="dev-btn"
+              disabled={parkedShips.length === 0}
+              title={parkedShips.length === 0 ? "No spare ship, buy or free one" : undefined}
+              on:click={() => openSwapPicker(assignedCaptain.id)}
             >
-              Salvage
+              Assign Captain
             </button>
-          </div>
-        </Panel>
+          {/if}
+
+          <!-- Salvage is BLOCKED for the fleet's only hull (state.ships.length === 1): tearing
+               it down would strand the player with no ship and no mission income, a practical
+               softlock (salvageShip enforces the same lastShip guard server-side). Disabled +
+               reason here mirrors the on-mission block so the player sees WHY before clicking. -->
+          <button
+            class="dev-btn danger"
+            disabled={onMission || state.ships.length === 1}
+            title={onMission
+              ? "On a mission, recall first"
+              : state.ships.length === 1
+                ? "Cannot salvage your last ship: your fleet would be left with no hull"
+                : "Break down this hull for parts"}
+            on:click={() => requestSalvage("ship", ship.id, def?.label ?? ship.typeKey)}
+          >
+            Salvage
+          </button>
+        </div>
+
+        <!-- THE LOADOUT BOARD (0.13.2 Unit 4, Layout C). The ShipSystemsPanel is now the
+             ship-detail page's PRIMARY content, rendered INLINE (embedded) instead of as a
+             modal-on-top: tapping a roster row opens ONE full-screen equip view. The panel
+             preserves all its pure wiring (equipment.ts / combatFit.ts / bridge / rating),
+             the damaged lock, the never-empty-economy vs allow-empty-combat rules, the
+             MULTI-slot weapon / drone handling, and the SAME computeCombatReadout live
+             readout; Unit 4 moved its actions out of the tooltip onto stable buttons and
+             folded its layout into the board. statusLabel is computed HERE (App owns
+             MISSIONS / PATROLS + the exact wording) and passed in. onClose returns to the
+             roster grid (the panel's vanished-hull fallback + any future close affordance). -->
+        {@const shipStatusLabel = assignedCaptain === null
+          ? "Parked"
+          : assignedCaptain.mission === null
+            ? "Idle"
+            : assignedCaptain.mission.kind === "extraction"
+              ? `On mission: ${MISSIONS[assignedCaptain.mission.missionKey].label}`
+              : `On patrol: ${PATROLS[assignedCaptain.mission.patrolKey].label}`}
+        <ShipSystemsPanel
+          embedded
+          {state}
+          shipId={ship.id}
+          statusLabel={shipStatusLabel}
+          onInstall={installSystem}
+          onUninstall={uninstallSystem}
+          onRepair={repairShipNow}
+          onRename={handleRenameShip}
+          onClose={() => {
+            shipsView = "grid";
+            selectedShipId = null;
+          }}
+        />
         {/if}
         {/if}
       </div>
@@ -7953,18 +7952,26 @@
                 Currently on: {PATROLS[activeCaptain.mission.patrolKey].label}
               {/if}
             </div>
-            <!-- Ship Systems shortcut (0.11.0): opens the SAME install screen
-                 the Docks ship list opens, targeting THIS captain's assigned
-                 hull. assignedCaptainId is the single source of truth, so we
-                 resolve the ship by it; disabled with a reason when the captain
-                 is flying no hull (parked with no ship assigned). -->
+            <!-- Ship Systems shortcut (0.11.0; 0.13.2 Unit 4). Targets THIS captain's
+                 assigned hull. assignedCaptainId is the single source of truth, so we
+                 resolve the ship by it; disabled with a reason when the captain is flying
+                 no hull (parked with no ship assigned). 0.13.2 retired the Ship Systems
+                 MODAL: instead of opening a dialog, this now NAVIGATES to the Ships tab and
+                 opens that hull's full-screen loadout board (selectedShipId + shipsView),
+                 the single equip surface, so both entry points land on the same board. -->
             {@const activeCaptainShip = state.ships.find((s) => s.assignedCaptainId === activeCaptain.id) ?? null}
             <div class="dev-row" style="margin-top: 10px;">
               <button
                 class="dev-btn"
                 disabled={activeCaptainShip === null}
                 title={activeCaptainShip === null ? "This captain has no assigned ship" : undefined}
-                on:click={() => activeCaptainShip && openShipSystems(activeCaptainShip.id)}
+                on:click={() => {
+                  if (activeCaptainShip) {
+                    selectedShipId = activeCaptainShip.id;
+                    shipsView = "ship";
+                    activeTab = "ships";
+                  }
+                }}
               >
                 Ship Systems
               </button>
@@ -10047,28 +10054,9 @@
        orphaned .tooltip-backdrop / .talent-tooltip CSS was removed in Task 17; the
        DELETE SAVE / respec / Import modals below are untouched. -->
 
-  {#if shipSystemsShipId !== null}
-    <!-- Ship Systems modal (0.11.0). Reuses the shared .modal-backdrop + focusTrap
-         pattern every other modal uses (Escape closes via closeShipSystems, focus
-         trapped + restored). The panel (ShipSystemsPanel.svelte) is NOT wrapped in
-         Panel.svelte: it renders its OWN opaque dialog surface so it stays legible
-         on Brave (which lacks backdrop-filter blur) and owns its internal scroll
-         (the right-hand stats column) WITHOUT a new hard 100vh/100dvh (scroll-
-         containment invariant, docs/plans/2026-07-07-scroll-containment-locked-
-         placeholders-design.md). `state` is passed in read-only; Install/Uninstall
-         route back to installSystem/uninstallSystem, where persistence lives. -->
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Ship Systems" use:focusTrap={closeShipSystems}>
-      <ShipSystemsPanel
-        {state}
-        shipId={shipSystemsShipId}
-        onInstall={installSystem}
-        onUninstall={uninstallSystem}
-        onRepair={repairShipNow}
-        onRename={handleRenameShip}
-        onClose={closeShipSystems}
-      />
-    </div>
-  {/if}
+  <!-- Ship Systems modal RETIRED in 0.13.2 Unit 4: ShipSystemsPanel now renders inline as
+       the Ships tab's ship-detail loadout board (embedded), not as a modal-on-top. See the
+       Ships tab content branch (activeTab === "ships") for the inline render. -->
 
   {#if combatViewCaptain !== null}
     <!-- Combat View modal (Combat 0.13.0, Phase 12b Unit C). Same shared

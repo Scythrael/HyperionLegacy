@@ -110,6 +110,19 @@
   // CLEARS the custom name back to the hull default (renameShip handles the trim).
   export let onRename: (shipId: string, name: string) => void;
   export let onClose: () => void;
+  // 0.13.2 Unit 4 (Ships-tab redesign, Layout C loadout board): when EMBEDDED the panel
+  // is no longer a modal-on-top, it IS the full-screen ship-detail equip surface rendered
+  // inline in the Ships tab. Embedded drops the modal chrome (the "SHIP SYSTEMS" title +
+  // the close button) and lets the host .tab-scroll-area own the page scroll (the two
+  // inner columns stop scrolling independently), so there is ONE equip view, not a small
+  // dialog floating over the ship page. Defaults false so the component stays reusable as
+  // a standalone dialog if ever mounted that way again.
+  export let embedded = false;
+  // The host-computed status line (e.g. "On patrol, Sector Sweep") shown in the embedded
+  // board header. The host (App.svelte) already owns MISSIONS / PATROLS + the exact status
+  // wording the roster uses, so it is passed in rather than re-derived here (one source of
+  // truth for the label, no drift). Empty string hides the row.
+  export let statusLabel = "";
 
   // --- Slot metadata ----------------------------------------------------------
   // The installable SINGLETON slots, grouped by function to match the mockup. Each
@@ -168,11 +181,14 @@
   let selectedHardpoint: number | null = null;
   let selectedBay: number | null = null;
 
-  // The floating EquipmentTooltip currently shown (hover on desktop, tap-pin on
-  // mobile). `action` picks which button is injected into the card's footer.
+  // The floating EquipmentTooltip currently shown (hover on desktop, tap-pin on mobile).
+  // 0.13.2 Unit 4: the tooltip is DISPLAY-ONLY now. It carries NO Install / Uninstall
+  // button anymore (those moved to the stable slot/tile buttons below), so it no longer
+  // needs an `action` discriminator; it just previews the piece a player is hovering /
+  // tapping for info. EquipmentTooltip itself renders its action footer only when the host
+  // passes slot content, so passing none (see the markup) leaves it purely informational.
   //   pinned, opened by a tap/click (persists until dismissed) vs a transient hover.
-  type TipAction = "install" | "uninstall";
-  let activeTip: { piece: EquipmentInstance; action: TipAction; el: HTMLElement } | null = null;
+  let activeTip: { piece: EquipmentInstance; el: HTMLElement } | null = null;
   let tipPinned = false;
   // The floating wrapper element + its JS-computed viewport-clamped position. Kept
   // invisible (tipVisible false) for one frame after opening so it can be MEASURED
@@ -617,12 +633,12 @@
   // Open the floating tooltip for a piece. Rendered invisibly for one frame, then
   // measured + positioned + shown, so it never flashes at the wrong spot. Blocked
   // while the ship is damaged (tiles are locked then).
-  async function openTip(piece: EquipmentInstance, action: TipAction, el: HTMLElement, pinned: boolean): Promise<void> {
+  async function openTip(piece: EquipmentInstance, el: HTMLElement, pinned: boolean): Promise<void> {
     if (shipDamaged) return;
     // A fresh open (hover swap, click-pin, or picker open) supersedes any pending
     // grace-delay hide, so a stale timer can never close the tooltip we just opened.
     cancelTipHide();
-    activeTip = { piece, action, el };
+    activeTip = { piece, el };
     // A pin only sticks on a coarse (touch) pointer. On a hover-capable device the
     // click still opens the tooltip, but leaving it UNPINNED means a subsequent hover
     // (e.g. onto a spare tile in the picker) can replace it, so desktop previewing is
@@ -646,9 +662,9 @@
   // Desktop hover preview: only when nothing is pinned (a pin outranks a hover). Entering
   // ANOTHER tile during the grace window cancels the pending hide and swaps the preview
   // (openTip cancels it), so moving between tiles keeps the spare-hover-preview working.
-  function hoverTip(piece: EquipmentInstance, action: TipAction, el: HTMLElement): void {
+  function hoverTip(piece: EquipmentInstance, el: HTMLElement): void {
     if (tipPinned) return;
-    void openTip(piece, action, el, false);
+    void openTip(piece, el, false);
   }
   // Pointer / focus left the tile. Do NOT hide at once: schedule the grace-delay hide so
   // the cursor can travel the gap onto the floating tooltip (which cancels it on enter)
@@ -714,37 +730,15 @@
     closeTip(true);
   }
 
-  // Clicking a SLOT tile (singleton / hardpoint / bay): open (toggle) its picker, and
-  // for a FILLED tile also pin its floating tooltip so a mobile tap reveals the piece
-  // detail + Uninstall (QA #8). Empty tiles just open the picker. Locked while damaged.
-  function clickSingleton(e: MouseEvent, meta: SlotMeta, fitted: EquipmentInstance | null): void {
+  // 0.13.2 Unit 4: INFO-toggle for a filled tile. The tile is now a display-only info
+  // affordance (the real Swap / Uninstall are separate stable buttons), so clicking /
+  // tapping it just opens + pins the floating tooltip for that piece. openTip pins only on
+  // a coarse (touch) pointer, so a desktop user keeps hover-preview and a keyboard
+  // Enter/Space (which fires this same click) pins like a tap. Locked while damaged, matching
+  // every other action on a damaged hull.
+  function clickInfo(e: MouseEvent, piece: EquipmentInstance): void {
     if (shipDamaged) return;
-    const willOpen = selectedSlot !== meta.slotType;
-    selectSlot(meta.slotType);
-    if (willOpen && fitted) void openTip(fitted, "uninstall", e.currentTarget as HTMLElement, true);
-  }
-  function clickHardpoint(e: MouseEvent, index: number, weapon: EquipmentInstance | null): void {
-    if (shipDamaged) return;
-    const willOpen = selectedHardpoint !== index;
-    selectHardpoint(index);
-    if (willOpen && weapon) void openTip(weapon, "uninstall", e.currentTarget as HTMLElement, true);
-  }
-  function clickBay(e: MouseEvent, index: number, pod: EquipmentInstance | null): void {
-    if (shipDamaged) return;
-    const willOpen = selectedBay !== index;
-    selectBay(index);
-    if (willOpen && pod) void openTip(pod, "uninstall", e.currentTarget as HTMLElement, true);
-  }
-  // Clicking a SPARE tile OPENS + PINS its floating tooltip (the same "see the stats,
-  // then confirm" flow a FILLED tile already uses for Uninstall), rather than installing
-  // on the spot. The spare tooltip renders the Install button in EquipmentTooltip's action
-  // slot; THAT button is the real install action (it calls handleInstall). This gives a
-  // deliberate confirm step that matters most on MOBILE, where a direct tap-installs was
-  // easy to misfire. openTip pins only on a coarse (touch) pointer, so desktop keeps its
-  // hover preview and a keyboard Enter/Space (which fires this same click) pins like a tap.
-  function clickSpare(e: MouseEvent, spare: EquipmentInstance): void {
-    if (shipDamaged) return;
-    void openTip(spare, "install", e.currentTarget as HTMLElement, true);
+    void openTip(piece, e.currentTarget as HTMLElement, true);
   }
 
   function handleInstall(instanceId: string): void {
@@ -761,21 +755,51 @@
   function handleRepair(): void {
     onRepair(shipId);
   }
+
+  // 0.13.2 Unit 4: close the install picker (clear all three mutually-exclusive
+  // selections + any open info tooltip). Routed to a stable Cancel button in the picker
+  // and used when an install completes.
+  function closePicker(): void {
+    selectedSlot = null;
+    selectedHardpoint = null;
+    selectedBay = null;
+    closeTip(true);
+  }
+
+  // A short label for a spare in the picker list + its info button aria-label. Weapons
+  // and drone pods carry no economy "variety" label in EQUIPMENT_SLOTS, so they resolve
+  // through the same helpers the readout uses (weaponDisplayName / droneRoleName); every
+  // other slot uses its EQUIPMENT_SLOTS display label. The floating tooltip still shows
+  // the full identity on hover / tap; this is just the row's at-a-glance name.
+  function spareLabel(piece: EquipmentInstance): string {
+    if (piece.slotType === "weapon") return weaponName(piece);
+    if (piece.slotType === "droneBay") return `${droneRoleName(piece.droneRole)} drone`;
+    return EQUIPMENT_SLOTS[piece.slotType]?.label ?? piece.slotType;
+  }
 </script>
 
-<div class="ss-dialog">
+<div class="ss-dialog" class:embedded>
   {#if !ship || !shipDef}
     <!-- Defensive: the target ship vanished (deleted / stale id). Never crash the
-         modal; show a recoverable message with a way out. -->
+         surface; show a recoverable message with a way out. Embedded hides the modal
+         title/close (the host Ships tab owns the back control + the vanished-hull guard
+         has already flipped to the grid, so this branch is belt-and-suspenders). -->
     <div class="ss-header">
-      <div class="ss-title">SHIP SYSTEMS</div>
-      <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">&#10005;</button>
+      {#if !embedded}
+        <div class="ss-title">SHIP SYSTEMS</div>
+        <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">&#10005;</button>
+      {/if}
     </div>
     <p class="ss-empty">This ship is no longer available.</p>
   {:else}
-    <!-- HEADER: title on the left; hull + commanding captain on the right. -->
-    <header class="ss-header">
-      <div class="ss-title">SHIP SYSTEMS</div>
+    <!-- HEADER: modal title (dialog only) + hull identity. Embedded, the title + close
+         are dropped (the Ships-tab header supplies the back control + cross-perspective
+         actions); the identity block carries the board's ship name / class / captain /
+         status / Battle Rating. -->
+    <header class="ss-header" class:embedded>
+      {#if !embedded}
+        <div class="ss-title">SHIP SYSTEMS</div>
+      {/if}
       <div class="ss-ident">
         <div class="ss-ident-text">
           <!-- Renamable Ships: the ship's DISPLAY name is a click-to-edit title.
@@ -816,10 +840,23 @@
           {:else}
             <div class="ss-captain-name ss-parked">Unassigned / Parked</div>
           {/if}
+          <!-- Embedded board header only: the host-computed status line + the ship's
+               advisory Battle Rating, so the loadout board's header carries status + BR
+               (the modal showed these only in the readout column). -->
+          {#if embedded}
+            {#if statusLabel}
+              <div class="ss-status-line">{statusLabel}</div>
+            {/if}
+            {#if battleRatingValue !== null}
+              <div class="ss-header-br">Battle Rating <strong>{formatNumber(battleRatingValue)}</strong></div>
+            {/if}
+          {/if}
         </div>
         <div class="ss-portrait" aria-hidden="true">{assignedCaptain ? "\u{1F9D1}‍\u{1F680}" : "⚓"}</div>
       </div>
-      <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">&#10005;</button>
+      {#if !embedded}
+        <button class="ss-close" on:click={onClose} aria-label="Close Ship Systems">&#10005;</button>
+      {/if}
     </header>
 
     <!-- DAMAGED BANNER (QA #3): a prominent repair strip while the ship is damaged. It
@@ -862,229 +899,307 @@
       </div>
     {/if}
 
-    <div class="ss-main">
-      <!-- LEFT: the function-grouped install tiles + the spare-pool picker. -->
+    <div class="ss-main" class:embedded>
+      <!-- LEFT: the loadout board (0.13.2 Unit 4, Layout C). Function-grouped slots, each
+           slot / tile carrying STABLE Install-Swap + Uninstall BUTTONS (never an action in a
+           tooltip). Offense is an auto-scaling weapon-tile grid; Defense + Systems are rows;
+           Drone Bays (carrier-only) mirror Offense. The spare-pool PICKER opens below when a
+           slot's Install / Swap is pressed. Info is a DISPLAY-ONLY floating tooltip on
+           hover / tap of a tile (no button lives inside it). -->
       <div class="ss-fit-col">
-        <!-- WEAPONS: one tile per hardpoint (every hull has hardpoints now). -->
+        <!-- OFFENSE: an auto-scaling weapon-tile grid. One card per hardpoint, filled or
+             empty; the grid template is repeat(auto-fill, minmax(...)) so it reflows from
+             1 up to many hardpoints without crowding (4-, 7-, 8+-hardpoint hulls all lay
+             out cleanly, and the hull identity never gets squeezed). -->
         <div class="ss-group">
           <div class="ss-group-head">
-            Weapons <span class="ss-group-cap">{mountedWeapons.length} / {hardpointCap} hardpoints</span>
+            Offense <span class="ss-group-cap">{mountedWeapons.length} / {hardpointCap} hardpoints</span>
           </div>
-          <div class="ss-tiles">
+          <div class="ss-hp-grid">
             {#each Array.from({ length: hardpointCap }) as _, hpIndex (hpIndex)}
               {@const weapon = mountedWeapons[hpIndex] ?? null}
-              {#if weapon}
-                <button
-                  type="button"
-                  class="ss-tile"
-                  class:sel={selectedHardpoint === hpIndex}
-                  class:locked={shipDamaged}
-                  disabled={shipDamaged}
-                  style="--tc: {equipmentRarityColor(weapon.rarity)}"
-                  aria-label={`Weapon hardpoint: ${weaponName(weapon)}, iL ${weapon.iLevel}`}
-                  on:click={(e) => clickHardpoint(e, hpIndex, weapon)}
-                  on:mouseenter={(e) => hoverTip(weapon, "uninstall", e.currentTarget)}
-                  on:mouseleave={hoverOut}
-                  on:focus={(e) => hoverTip(weapon, "uninstall", e.currentTarget)}
-                  on:blur={hoverOut}
-                >
-                  <span class="ss-tile-dot"></span>
-                  <span class="ss-tile-ic">{tileIcon(weapon)}</span>
-                  <span class="ss-tile-il">iL {weapon.iLevel}</span>
-                </button>
-              {:else}
-                <button
-                  type="button"
-                  class="ss-tile ss-tile-empty"
-                  class:sel={selectedHardpoint === hpIndex}
-                  class:locked={shipDamaged}
-                  disabled={shipDamaged}
-                  title="Empty hardpoint, tap to install a weapon"
-                  on:click={(e) => clickHardpoint(e, hpIndex, null)}
-                >
-                  <span class="ss-tile-ic">+</span>
-                  <span class="ss-tile-il">empty</span>
-                </button>
-              {/if}
+              <div class="ss-hp" class:sel={selectedHardpoint === hpIndex} class:locked={shipDamaged}>
+                <div class="ss-hp-num">HP {hpIndex + 1}</div>
+                {#if weapon}
+                  <!-- INFO trigger (display-only tooltip): hover previews, tap pins on touch. -->
+                  <button
+                    type="button"
+                    class="ss-hp-info"
+                    style="--tc: {equipmentRarityColor(weapon.rarity)}"
+                    aria-label={`Weapon on hardpoint ${hpIndex + 1}: ${weaponName(weapon)}, ${weapon.rarity} grade, iL ${weapon.iLevel}. Details.`}
+                    on:click={(e) => clickInfo(e, weapon)}
+                    on:mouseenter={(e) => hoverTip(weapon, e.currentTarget)}
+                    on:mouseleave={hoverOut}
+                    on:focus={(e) => hoverTip(weapon, e.currentTarget)}
+                    on:blur={hoverOut}
+                  >
+                    <span class="ss-tile" style="--tc: {equipmentRarityColor(weapon.rarity)}">
+                      <span class="ss-tile-dot"></span>
+                      <span class="ss-tile-ic">{tileIcon(weapon)}</span>
+                      <span class="ss-tile-il">iL {weapon.iLevel}</span>
+                    </span>
+                    <span class="ss-hp-name">{weaponName(weapon)}</span>
+                    <span class="ss-hp-q">{weapon.rarity}</span>
+                  </button>
+                  <!-- STABLE ACTION BUTTONS (never in the tooltip). Swap opens the picker for
+                       THIS hardpoint; Uninstall removes this exact weapon (a MULTI slot, so
+                       uninstall is by instance id). Both locked while damaged; Uninstall also
+                       locked on-mission (the same lock unfitEquipmentInstance enforces). -->
+                  <div class="ss-slot-actions">
+                    <button
+                      class="ss-act ss-act-swap"
+                      disabled={shipDamaged}
+                      on:click={() => selectHardpoint(hpIndex)}
+                    >Swap</button>
+                    <button
+                      class="ss-act ss-act-uninstall"
+                      disabled={onMission || shipDamaged}
+                      title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+                      on:click={() => handleUninstall(weapon.id)}
+                    >Uninstall</button>
+                  </div>
+                {:else}
+                  <div class="ss-hp-info ss-hp-empty">
+                    <span class="ss-tile ss-tile-empty">
+                      <span class="ss-tile-ic">+</span>
+                    </span>
+                    <span class="ss-hp-name">Empty</span>
+                  </div>
+                  <div class="ss-slot-actions">
+                    <button
+                      class="ss-act ss-act-install"
+                      disabled={shipDamaged}
+                      on:click={() => selectHardpoint(hpIndex)}
+                    >Install</button>
+                  </div>
+                {/if}
+              </div>
             {/each}
           </div>
         </div>
 
-        <!-- DEFENSE: shield emitter + hull plating singletons (combat, all hulls). -->
+        <!-- DEFENSE: shield emitter + hull plating singletons (combat, all hulls), as rows. -->
         <div class="ss-group">
           <div class="ss-group-head">Defense</div>
-          <div class="ss-tiles">
+          <div class="ss-rows">
             {#each DEFENSE_SLOTS as meta (meta.slotType)}
               {@const fitted = fittedBySlot[meta.slotType]}
-              {#if fitted}
-                <button
-                  type="button"
-                  class="ss-tile"
-                  class:sel={selectedSlot === meta.slotType}
-                  class:locked={shipDamaged}
-                  disabled={shipDamaged}
-                  style="--tc: {equipmentRarityColor(fitted.rarity)}"
-                  aria-label={`${meta.label}: ${fitted.rarity} grade, iL ${fitted.iLevel}`}
-                  on:click={(e) => clickSingleton(e, meta, fitted)}
-                  on:mouseenter={(e) => hoverTip(fitted, "uninstall", e.currentTarget)}
-                  on:mouseleave={hoverOut}
-                  on:focus={(e) => hoverTip(fitted, "uninstall", e.currentTarget)}
-                  on:blur={hoverOut}
-                >
-                  <span class="ss-tile-dot"></span>
-                  <span class="ss-tile-ic">{tileIcon(fitted)}</span>
-                  <span class="ss-tile-il">iL {fitted.iLevel}</span>
-                </button>
-              {:else}
-                <button
-                  type="button"
-                  class="ss-tile ss-tile-empty"
-                  class:sel={selectedSlot === meta.slotType}
-                  class:locked={shipDamaged}
-                  disabled={shipDamaged}
-                  title={`Empty ${meta.label}, tap to install`}
-                  on:click={(e) => clickSingleton(e, meta, null)}
-                >
-                  <span class="ss-tile-ic">+</span>
-                  <span class="ss-tile-il">empty</span>
-                </button>
-              {/if}
+              <div class="ss-slot" class:sel={selectedSlot === meta.slotType} class:locked={shipDamaged}>
+                {#if fitted}
+                  <button
+                    type="button"
+                    class="ss-slot-info"
+                    aria-label={`${meta.label}: ${fitted.rarity} grade, iL ${fitted.iLevel}. Details.`}
+                    on:click={(e) => clickInfo(e, fitted)}
+                    on:mouseenter={(e) => hoverTip(fitted, e.currentTarget)}
+                    on:mouseleave={hoverOut}
+                    on:focus={(e) => hoverTip(fitted, e.currentTarget)}
+                    on:blur={hoverOut}
+                  >
+                    <span class="ss-tile" style="--tc: {equipmentRarityColor(fitted.rarity)}">
+                      <span class="ss-tile-dot"></span>
+                      <span class="ss-tile-ic">{tileIcon(fitted)}</span>
+                      <span class="ss-tile-il">iL {fitted.iLevel}</span>
+                    </span>
+                    <span class="ss-slot-text">
+                      <span class="ss-slot-label">{meta.label}</span>
+                      <span class="ss-slot-sub">{fitted.rarity} &middot; iL {fitted.iLevel}</span>
+                    </span>
+                  </button>
+                  <div class="ss-slot-actions">
+                    <button class="ss-act ss-act-swap" disabled={shipDamaged} on:click={() => selectSlot(meta.slotType)}>Swap</button>
+                    <button
+                      class="ss-act ss-act-uninstall"
+                      disabled={onMission || shipDamaged}
+                      title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+                      on:click={() => handleUninstall(fitted.id)}
+                    >Uninstall</button>
+                  </div>
+                {:else}
+                  <div class="ss-slot-info ss-slot-info-empty">
+                    <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic">+</span></span>
+                    <span class="ss-slot-text">
+                      <span class="ss-slot-label">{meta.label}</span>
+                      <span class="ss-slot-sub">Empty</span>
+                    </span>
+                  </div>
+                  <div class="ss-slot-actions">
+                    <button class="ss-act ss-act-install" disabled={shipDamaged} on:click={() => selectSlot(meta.slotType)}>Install</button>
+                  </div>
+                {/if}
+              </div>
             {/each}
           </div>
         </div>
 
-        <!-- SHIP SYSTEMS: the economy singleton slots (never truly empty, an uninstall
-             auto-restores a Standard-Issue baseline). -->
+        <!-- SYSTEMS: the economy singleton slots (never truly empty, an uninstall
+             auto-restores an empty slot that is economically identical to its baseline). -->
         <div class="ss-group">
           <div class="ss-group-head">
-            Ship Systems <span class="ss-group-cap">{visibleSystemSlots.length} slots</span>
+            Systems <span class="ss-group-cap">{visibleSystemSlots.length} slots</span>
           </div>
-          <div class="ss-tiles">
+          <div class="ss-rows">
             {#each visibleSystemSlots as meta (meta.slotType)}
               {@const fitted = fittedBySlot[meta.slotType]}
-              {#if fitted}
-                <button
-                  type="button"
-                  class="ss-tile"
-                  class:sel={selectedSlot === meta.slotType}
-                  class:locked={shipDamaged}
-                  disabled={shipDamaged}
-                  style="--tc: {equipmentRarityColor(fitted.rarity)}"
-                  aria-label={`${meta.label}: ${fitted.rarity} grade, iL ${fitted.iLevel}`}
-                  on:click={(e) => clickSingleton(e, meta, fitted)}
-                  on:mouseenter={(e) => hoverTip(fitted, "uninstall", e.currentTarget)}
-                  on:mouseleave={hoverOut}
-                  on:focus={(e) => hoverTip(fitted, "uninstall", e.currentTarget)}
-                  on:blur={hoverOut}
-                >
-                  <span class="ss-tile-dot"></span>
-                  <span class="ss-tile-ic">{tileIcon(fitted)}</span>
-                  <span class="ss-tile-il">iL {fitted.iLevel}</span>
-                </button>
-              {:else}
-                <button
-                  type="button"
-                  class="ss-tile ss-tile-empty"
-                  class:sel={selectedSlot === meta.slotType}
-                  class:locked={shipDamaged}
-                  disabled={shipDamaged}
-                  title={`Empty ${meta.label}, tap to install`}
-                  on:click={(e) => clickSingleton(e, meta, null)}
-                >
-                  <span class="ss-tile-ic">+</span>
-                  <span class="ss-tile-il">empty</span>
-                </button>
-              {/if}
+              <div class="ss-slot" class:sel={selectedSlot === meta.slotType} class:locked={shipDamaged}>
+                {#if fitted}
+                  <button
+                    type="button"
+                    class="ss-slot-info"
+                    aria-label={`${meta.label}: ${fitted.rarity} grade, iL ${fitted.iLevel}. Details.`}
+                    on:click={(e) => clickInfo(e, fitted)}
+                    on:mouseenter={(e) => hoverTip(fitted, e.currentTarget)}
+                    on:mouseleave={hoverOut}
+                    on:focus={(e) => hoverTip(fitted, e.currentTarget)}
+                    on:blur={hoverOut}
+                  >
+                    <span class="ss-tile" style="--tc: {equipmentRarityColor(fitted.rarity)}">
+                      <span class="ss-tile-dot"></span>
+                      <span class="ss-tile-ic">{tileIcon(fitted)}</span>
+                      <span class="ss-tile-il">iL {fitted.iLevel}</span>
+                    </span>
+                    <span class="ss-slot-text">
+                      <span class="ss-slot-label">{meta.label}</span>
+                      <span class="ss-slot-sub">{fitted.rarity} &middot; iL {fitted.iLevel}</span>
+                    </span>
+                  </button>
+                  <div class="ss-slot-actions">
+                    <button class="ss-act ss-act-swap" disabled={shipDamaged} on:click={() => selectSlot(meta.slotType)}>Swap</button>
+                    <button
+                      class="ss-act ss-act-uninstall"
+                      disabled={onMission || shipDamaged}
+                      title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+                      on:click={() => handleUninstall(fitted.id)}
+                    >Uninstall</button>
+                  </div>
+                {:else}
+                  <div class="ss-slot-info ss-slot-info-empty">
+                    <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic">+</span></span>
+                    <span class="ss-slot-text">
+                      <span class="ss-slot-label">{meta.label}</span>
+                      <span class="ss-slot-sub">Empty</span>
+                    </span>
+                  </div>
+                  <div class="ss-slot-actions">
+                    <button class="ss-act ss-act-install" disabled={shipDamaged} on:click={() => selectSlot(meta.slotType)}>Install</button>
+                  </div>
+                {/if}
+              </div>
             {/each}
           </div>
         </div>
 
-        <!-- DRONE BAYS: carrier-only (a hangar capacity, not a universal slot). -->
+        <!-- DRONE BAYS: carrier-only (a hangar capacity, not a universal slot). Same
+             auto-scaling tile grid as Offense. -->
         {#if hasDroneBays}
           <div class="ss-group">
             <div class="ss-group-head">
               Drone Bays <span class="ss-group-cap">{mountedPods.length} / {droneBayCap} bays</span>
             </div>
-            <div class="ss-tiles">
+            <div class="ss-hp-grid">
               {#each Array.from({ length: droneBayCap }) as _, bayIndex (bayIndex)}
                 {@const pod = mountedPods[bayIndex] ?? null}
-                {#if pod}
-                  <button
-                    type="button"
-                    class="ss-tile"
-                    class:sel={selectedBay === bayIndex}
-                    class:locked={shipDamaged}
-                    disabled={shipDamaged}
-                    style="--tc: {equipmentRarityColor(pod.rarity)}"
-                    aria-label={`Drone bay: ${droneRoleName(pod.droneRole)}, iL ${pod.iLevel}`}
-                    on:click={(e) => clickBay(e, bayIndex, pod)}
-                    on:mouseenter={(e) => hoverTip(pod, "uninstall", e.currentTarget)}
-                    on:mouseleave={hoverOut}
-                    on:focus={(e) => hoverTip(pod, "uninstall", e.currentTarget)}
-                    on:blur={hoverOut}
-                  >
-                    <span class="ss-tile-dot"></span>
-                    <span class="ss-tile-ic">{tileIcon(pod)}</span>
-                    <span class="ss-tile-il">iL {pod.iLevel}</span>
-                  </button>
-                {:else}
-                  <button
-                    type="button"
-                    class="ss-tile ss-tile-empty"
-                    class:sel={selectedBay === bayIndex}
-                    class:locked={shipDamaged}
-                    disabled={shipDamaged}
-                    title="Empty drone bay, tap to install a pod"
-                    on:click={(e) => clickBay(e, bayIndex, null)}
-                  >
-                    <span class="ss-tile-ic">+</span>
-                    <span class="ss-tile-il">empty</span>
-                  </button>
-                {/if}
+                <div class="ss-hp" class:sel={selectedBay === bayIndex} class:locked={shipDamaged}>
+                  <div class="ss-hp-num">Bay {bayIndex + 1}</div>
+                  {#if pod}
+                    <button
+                      type="button"
+                      class="ss-hp-info"
+                      style="--tc: {equipmentRarityColor(pod.rarity)}"
+                      aria-label={`Drone pod in bay ${bayIndex + 1}: ${droneRoleName(pod.droneRole)}, iL ${pod.iLevel}. Details.`}
+                      on:click={(e) => clickInfo(e, pod)}
+                      on:mouseenter={(e) => hoverTip(pod, e.currentTarget)}
+                      on:mouseleave={hoverOut}
+                      on:focus={(e) => hoverTip(pod, e.currentTarget)}
+                      on:blur={hoverOut}
+                    >
+                      <span class="ss-tile" style="--tc: {equipmentRarityColor(pod.rarity)}">
+                        <span class="ss-tile-dot"></span>
+                        <span class="ss-tile-ic">{tileIcon(pod)}</span>
+                        <span class="ss-tile-il">iL {pod.iLevel}</span>
+                      </span>
+                      <span class="ss-hp-name">{droneRoleName(pod.droneRole)}</span>
+                      <span class="ss-hp-q">{pod.rarity}</span>
+                    </button>
+                    <div class="ss-slot-actions">
+                      <button class="ss-act ss-act-swap" disabled={shipDamaged} on:click={() => selectBay(bayIndex)}>Swap</button>
+                      <button
+                        class="ss-act ss-act-uninstall"
+                        disabled={onMission || shipDamaged}
+                        title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
+                        on:click={() => handleUninstall(pod.id)}
+                      >Uninstall</button>
+                    </div>
+                  {:else}
+                    <div class="ss-hp-info ss-hp-empty">
+                      <span class="ss-tile ss-tile-empty"><span class="ss-tile-ic">+</span></span>
+                      <span class="ss-hp-name">Empty</span>
+                    </div>
+                    <div class="ss-slot-actions">
+                      <button class="ss-act ss-act-install" disabled={shipDamaged} on:click={() => selectBay(bayIndex)}>Install</button>
+                    </div>
+                  {/if}
+                </div>
               {/each}
             </div>
           </div>
         {/if}
 
-        <!-- INSTALL PICKER (the reduced ss-control, QA #8): opens when a slot is tapped.
-             The spares are TILES too, each with its own tooltip + Install button; tapping
-             a spare tile OPENS + PINS that tooltip so the player sees the stats and then
-             installs from its Install button. One consistent flow for every slot type. -->
+        <!-- INSTALL PICKER: opens when a slot's Install / Swap button is pressed. Each spare
+             is a ROW: a display-only info trigger (hover / tap for its floating tooltip) plus
+             a STABLE Install button routing to handleInstall -> onInstall -> fitEquipment. The
+             per-spare gate (canFitEquipment) disables + explains a blocked install (e.g. all
+             hardpoints full: uninstall first). Unit 5 upgrades this into the INSTALLED-banner +
+             side-by-side compare; Unit 4 keeps it a simple, stable list. -->
         {#if pickerActive}
           <div class="ss-picker">
-            <div class="ss-picker-head">Install &middot; {pickerLabel}</div>
+            <div class="ss-picker-head">
+              <span>Install &middot; {pickerLabel}</span>
+              <button class="ss-picker-close" on:click={closePicker} aria-label="Cancel install">Cancel</button>
+            </div>
             {#if shipDamaged}
               <p class="ss-note ss-note-dim">Repair the ship before installing new ship systems.</p>
             {:else if pickerSpares.length === 0}
               <p class="ss-note ss-note-dim">No spare {pickerLabel} systems in storage. Fabricate one, or uninstall from another ship.</p>
             {:else}
-              <div class="ss-tiles">
+              <div class="ss-spare-list">
                 {#each pickerSpares as spare (spare.id)}
                   {@const gate = canFitEquipment(safeState, shipId, spare.id)}
-                  <button
-                    type="button"
-                    class="ss-tile"
-                    class:blocked={!gate.ok}
-                    style="--tc: {equipmentRarityColor(spare.rarity)}"
-                    disabled={!gate.ok}
-                    title={gate.ok ? undefined : reasonText(gate.reason)}
-                    on:click={(e) => clickSpare(e, spare)}
-                    on:mouseenter={(e) => hoverTip(spare, "install", e.currentTarget)}
-                    on:mouseleave={hoverOut}
-                    on:focus={(e) => hoverTip(spare, "install", e.currentTarget)}
-                    on:blur={hoverOut}
-                  >
-                    <span class="ss-tile-dot"></span>
-                    <span class="ss-tile-ic">{tileIcon(spare)}</span>
-                    <span class="ss-tile-il">iL {spare.iLevel}</span>
-                  </button>
+                  <div class="ss-spare-row">
+                    <button
+                      type="button"
+                      class="ss-slot-info"
+                      aria-label={`${spareLabel(spare)}: ${spare.rarity} grade, iL ${spare.iLevel}. Details.`}
+                      on:click={(e) => clickInfo(e, spare)}
+                      on:mouseenter={(e) => hoverTip(spare, e.currentTarget)}
+                      on:mouseleave={hoverOut}
+                      on:focus={(e) => hoverTip(spare, e.currentTarget)}
+                      on:blur={hoverOut}
+                    >
+                      <span class="ss-tile" style="--tc: {equipmentRarityColor(spare.rarity)}">
+                        <span class="ss-tile-dot"></span>
+                        <span class="ss-tile-ic">{tileIcon(spare)}</span>
+                        <span class="ss-tile-il">iL {spare.iLevel}</span>
+                      </span>
+                      <span class="ss-slot-text">
+                        <span class="ss-slot-label">{spareLabel(spare)}</span>
+                        <span class="ss-slot-sub">{spare.rarity} &middot; iL {spare.iLevel}</span>
+                      </span>
+                    </button>
+                    <button
+                      class="ss-act ss-act-install"
+                      disabled={!gate.ok}
+                      title={gate.ok ? undefined : reasonText(gate.reason)}
+                      on:click={() => handleInstall(spare.id)}
+                    >{gate.ok ? "Install" : "Blocked"}</button>
+                  </div>
                 {/each}
               </div>
-              <p class="ss-note ss-note-dim">Tap a spare to view its stats, then Install. Hover for a preview.</p>
+              <p class="ss-note ss-note-dim">Hover or tap a spare for its stats. Install puts it in the selected slot.</p>
             {/if}
           </div>
         {:else}
-          <p class="ss-note ss-note-dim ss-picker-hint">Tap a slot to install or uninstall a system. Hover a tile for its details.</p>
+          <p class="ss-note ss-note-dim ss-picker-hint">Use a slot's Install or Swap button to change its system. Hover a tile for its details.</p>
         {/if}
       </div>
 
@@ -1195,13 +1310,15 @@
     </div>
   {/if}
 
-  <!-- FLOATING TOOLTIP: one JS-positioned wrapper around the reusable EquipmentTooltip,
-       clamped inside the viewport (see positionTip). The Install / Uninstall button is
-       injected into EquipmentTooltip's action <slot>; EquipmentTooltip's internals are
-       preserved apart from the df53dd5 weapon/drone blueprint name resolver. -->
+  <!-- FLOATING TOOLTIP (0.13.2 Unit 4: DISPLAY-ONLY): one JS-positioned wrapper around the
+       reusable EquipmentTooltip, clamped inside the viewport (see positionTip). It carries
+       NO action button anymore. Install / Uninstall / Swap are stable buttons on the slots
+       above; EquipmentTooltip renders its action footer only when a host passes slot content,
+       so passing NONE here leaves it purely informational. This is the display-only-tooltips
+       principle (design S1): actions never live in a hover / float surface. EquipmentTooltip's
+       internals stay preserved (the only branch edit was the df53dd5 blueprint name resolver). -->
   {#if activeTip}
     {@const tipPiece = activeTip.piece}
-    {@const tipAction = activeTip.action}
     <div
       class="ss-tip-float"
       bind:this={tipEl}
@@ -1210,33 +1327,7 @@
       on:pointerenter={cancelTipHide}
       on:pointerleave={scheduleTipHide}
     >
-      <EquipmentTooltip piece={tipPiece}>
-        {#if tipAction === "uninstall"}
-          <!-- Every installed system, economy OR combat, Standard-Issue baseline OR crafted, can be
-               uninstalled to an empty slot (user call 2026-08-26). Uninstalling an economy baseline
-               destroys the free floor and empties the slot (equipment.ts unfitEquipmentInstance);
-               uninstalling a crafted piece returns it to the warehouse. An empty economy slot is
-               economically identical to its baseline (+0), so this never costs the player a stat. -->
-          <button
-            class="ss-btn ss-btn-uninstall"
-            disabled={onMission || shipDamaged}
-            title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
-            on:click={() => handleUninstall(tipPiece.id)}
-          >
-            Uninstall
-          </button>
-        {:else}
-          {@const gate = canFitEquipment(safeState, shipId, tipPiece.id)}
-          <button
-            class="ss-btn ss-btn-install"
-            disabled={!gate.ok || shipDamaged}
-            title={gate.ok ? undefined : reasonText(gate.reason)}
-            on:click={() => handleInstall(tipPiece.id)}
-          >
-            {gate.ok ? "Install" : "Blocked"}
-          </button>
-        {/if}
-      </EquipmentTooltip>
+      <EquipmentTooltip piece={tipPiece} />
     </div>
   {/if}
 </div>
@@ -1256,6 +1347,15 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     color: var(--color-text-primary);
   }
+  /* EMBEDDED (0.13.2 Unit 4): the board is the full-width ship-detail surface inside the
+     Ships tab's .tab-scroll-area, NOT a modal card. Drop the modal width cap + the hard
+     max-height + the drop shadow (the host region owns the page scroll). Keep the accented
+     border + full-surface tint so it still reads as the game's paneled surface. */
+  .ss-dialog.embedded {
+    width: 100%;
+    max-height: none;
+    box-shadow: none;
+  }
 
   /* HEADER */
   .ss-header {
@@ -1265,6 +1365,40 @@
     padding: 12px 14px;
     border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.25);
     flex-shrink: 0;
+  }
+  /* Embedded header: no modal title pushing the identity right, so left-align the
+     identity block and let the portrait sit beside it. */
+  .ss-header.embedded {
+    align-items: center;
+  }
+  .ss-header.embedded .ss-ident {
+    flex: 1;
+    gap: 12px;
+  }
+  .ss-header.embedded .ss-ident-text {
+    text-align: left;
+  }
+  .ss-header.embedded .ss-name-btn,
+  .ss-header.embedded .ss-name-input {
+    text-align: left;
+  }
+  /* Status line + Battle Rating in the embedded board header. */
+  .ss-status-line {
+    font-size: 10px;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .ss-header-br {
+    font-size: 10px;
+    color: var(--color-text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-top: 1px;
+  }
+  .ss-header-br strong {
+    color: var(--color-accent-bright);
+    font-family: var(--font-mono);
   }
   .ss-title {
     font-family: var(--font-display);
@@ -1534,6 +1668,17 @@
       overflow: visible;
     }
   }
+  /* EMBEDDED (0.13.2 Unit 4): the host .tab-scroll-area is the ONE scroll region, so the
+     two columns must NOT scroll independently here (that would trap content in a nested
+     scroller inside the page). Let them flow at their natural height and hand all overflow
+     to the page. The 720px stacking rule above still applies on phones. */
+  .ss-main.embedded {
+    overflow: visible;
+  }
+  .ss-main.embedded .ss-fit-col,
+  .ss-main.embedded .ss-stats-col {
+    overflow: visible;
+  }
 
   /* FUNCTION GROUP (Weapons / Defense / Ship Systems / Drone Bays). */
   .ss-group-head {
@@ -1553,19 +1698,17 @@
     color: var(--color-text-dim);
     letter-spacing: 0.05em;
   }
-  .ss-tiles {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
   /* ONE ICON TILE: rarity-colored top border + corner dot (--tc), variety glyph, iL
-     badge. Mirrors App.svelte's .systems-tile (the Warehouse bay) so the two read
-     alike. A real <button> so it is keyboard-focusable with no a11y tabindex warning. */
+     badge. Mirrors App.svelte's .systems-tile (the Warehouse bay) so the two read alike.
+     0.13.2 Unit 4: this is now a NON-interactive <span> (the visual only); the interactive
+     info affordance is the wrapping .ss-hp-info / .ss-slot-info button, and the real actions
+     are the stable .ss-act buttons. So no cursor / hover / focus states live on the tile. */
   .ss-tile {
     position: relative;
-    width: 60px;
-    height: 60px;
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
     background: rgba(var(--color-accent-rgb), 0.05);
     border: 1px solid var(--color-border);
     border-top: 3px solid var(--tc, var(--color-border));
@@ -1575,31 +1718,19 @@
     justify-content: center;
     gap: 3px;
     padding: 4px;
-    cursor: pointer;
     font-family: var(--font-body);
-    transition: border-color 0.12s, transform 0.1s;
-  }
-  .ss-tile:hover,
-  .ss-tile:focus-visible {
-    border-color: var(--color-border-strong);
-    transform: translateY(-1px);
-    outline: none;
-  }
-  .ss-tile.sel {
-    box-shadow: 0 0 0 2px var(--color-accent);
-    border-color: var(--color-accent);
   }
   .ss-tile-dot {
     position: absolute;
-    top: 5px;
-    right: 6px;
+    top: 4px;
+    right: 5px;
     width: 7px;
     height: 7px;
     border-radius: 50%;
     background: var(--tc, var(--color-text-dim));
   }
   .ss-tile-ic {
-    font-size: 24px;
+    font-size: 22px;
     line-height: 1;
   }
   .ss-tile-il {
@@ -1615,41 +1746,240 @@
     background: transparent;
   }
   .ss-tile-empty .ss-tile-ic {
-    font-size: 22px;
+    font-size: 20px;
     color: var(--color-text-dim);
-  }
-  .ss-tile-empty .ss-tile-il {
-    color: var(--color-text-dim);
-  }
-  /* A spare that cannot be installed right now (gate blocked): dimmed + not-allowed. */
-  .ss-tile.blocked {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  /* Locked while the ship is damaged: dimmed, non-interactive (QA #3). */
-  .ss-tile.locked,
-  .ss-tile:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-    transform: none;
-  }
-  .ss-tile.blocked:disabled {
-    opacity: 0.4;
   }
 
-  /* INSTALL PICKER (the reduced ss-control): a dashed panel holding spare tiles. */
+  /* OFFENSE / DRONE-BAY auto-scaling tile grid. repeat(auto-fill, minmax(...)) reflows the
+     hardpoint cards from one column up to as many as fit, so a 4-, 7- or 8+-hardpoint hull
+     all lay out without crowding and the hull identity never gets squeezed. */
+  .ss-hp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px;
+  }
+  /* ONE HARDPOINT / DRONE-BAY CARD: numbered header, the tile visual + name + quality, then
+     the stable action buttons. Full-surface accent tint (never a left-edge stripe). */
+  .ss-hp {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 6px;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid var(--color-border);
+  }
+  .ss-hp.sel {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px var(--color-accent);
+  }
+  .ss-hp.locked {
+    opacity: 0.45;
+  }
+  .ss-hp-num {
+    align-self: flex-start;
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+  }
+  /* The display-only INFO trigger (hover / tap for the floating tooltip). Bare button
+     chrome so it reads as the tile, with a subtle hover / focus affordance. */
+  .ss-hp-info,
+  .ss-slot-info {
+    appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .ss-hp-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+  }
+  .ss-hp-info:hover,
+  .ss-hp-info:focus-visible,
+  .ss-slot-info:hover,
+  .ss-slot-info:focus-visible {
+    outline: none;
+    color: var(--color-accent-bright);
+  }
+  .ss-hp-info:focus-visible,
+  .ss-slot-info:focus-visible {
+    outline: 1px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  .ss-hp-name {
+    font-size: 10px;
+    color: var(--color-text-primary);
+    text-align: center;
+    line-height: 1.2;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ss-hp-q {
+    font-size: 9px;
+    text-transform: capitalize;
+    color: var(--color-text-secondary);
+  }
+  .ss-hp-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    color: var(--color-text-dim);
+  }
+
+  /* DEFENSE / SYSTEMS ROWS: tile + label/quality on the left, stable buttons on the right. */
+  .ss-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ss-slot {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 9px;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid var(--color-border);
+  }
+  .ss-slot.sel {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px var(--color-accent);
+  }
+  .ss-slot.locked {
+    opacity: 0.45;
+  }
+  .ss-slot-info,
+  .ss-slot-info-empty {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+  }
+  .ss-slot-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .ss-slot-label {
+    font-size: 12px;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ss-slot-sub {
+    font-size: 10px;
+    color: var(--color-text-secondary);
+    text-transform: capitalize;
+  }
+  .ss-slot-info-empty {
+    color: var(--color-text-dim);
+  }
+  .ss-slot-info-empty .ss-slot-sub {
+    color: var(--color-text-dim);
+  }
+
+  /* STABLE ACTION BUTTONS (Install / Swap / Uninstall) on every slot + in the picker. The
+     display-only-tooltips principle: actions are ALWAYS visible buttons, never in a float. */
+  .ss-slot-actions {
+    display: flex;
+    gap: 6px;
+    flex: 0 0 auto;
+  }
+  .ss-act {
+    flex: 0 0 auto;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 650;
+    cursor: pointer;
+    background: rgba(var(--color-accent-rgb), 0.12);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.5);
+    color: var(--color-accent-bright);
+    white-space: nowrap;
+  }
+  .ss-act:hover:not(:disabled) {
+    background: rgba(var(--color-accent-rgb), 0.22);
+  }
+  .ss-act:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .ss-act-uninstall {
+    color: var(--color-danger);
+    border-color: rgba(248, 113, 113, 0.5);
+    background: rgba(248, 113, 113, 0.1);
+  }
+  .ss-act-uninstall:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.2);
+  }
+
+  /* INSTALL PICKER: a dashed panel holding the compatible-spare rows. */
   .ss-picker {
     border: 1px dashed rgba(var(--color-accent-rgb), 0.35);
     background: var(--color-bg-deep);
     padding: 11px;
   }
   .ss-picker-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-accent-bright);
     margin-bottom: 9px;
+  }
+  .ss-picker-close {
+    margin-left: auto;
+    padding: 3px 9px;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
+    color: var(--color-text-secondary);
+  }
+  .ss-picker-close:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-accent);
+  }
+  /* Scrollable compatible-spare list: each row = display-only info trigger + Install. */
+  .ss-spare-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    max-height: 240px;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .ss-spare-list::-webkit-scrollbar {
+    display: none;
+  }
+  .ss-spare-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    background: rgba(var(--color-accent-rgb), 0.04);
+    border: 1px solid var(--color-border);
   }
   .ss-picker-hint {
     text-align: center;
@@ -1734,45 +2064,25 @@
     margin-right: 5px;
   }
 
-  /* ACTION BUTTONS injected into the floating tooltip's footer slot. */
-  .ss-btn {
-    flex: 0 0 auto;
-    padding: 6px 12px;
-    font-size: 11px;
-    font-weight: 650;
-    cursor: pointer;
-    background: rgba(var(--color-accent-rgb), 0.12);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.5);
-    color: var(--color-accent-bright);
-  }
-  .ss-btn:hover:not(:disabled) {
-    background: rgba(var(--color-accent-rgb), 0.22);
-  }
-  .ss-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  .ss-btn-uninstall {
-    color: var(--color-danger);
-    border-color: rgba(248, 113, 113, 0.5);
-    background: rgba(248, 113, 113, 0.1);
-  }
-  .ss-btn-uninstall:hover:not(:disabled) {
-    background: rgba(248, 113, 113, 0.2);
-  }
   /* FLOATING TOOLTIP WRAPPER: position:fixed so it escapes the panel's inner scroll
      clipping; JS sets left/top (viewport-clamped) + toggles visibility. High z-index
-     so it sits above the modal surface.
+     so it sits above the surface.
 
      CLAMP DEPENDENCY (do not break): positionTip() computes left/top in VIEWPORT
      coordinates and this element is position:fixed, so the two only coincide while the
-     nearest fixed-positioning containing block is the viewport itself. The host
-     .modal-backdrop (App.svelte) provides that: its backdrop-filter makes it the
-     containing block for position:fixed descendants, and it is a full-viewport,
-     origin (0,0), unbordered, untransformed fixed element (position:fixed; inset:0),
-     so its padding box top-left sits exactly at viewport (0,0). If .modal-backdrop
-     ever gains a border, a transform, or stops covering the whole viewport, this
-     tooltip's placement math goes wrong and must be revisited.
+     nearest fixed-positioning containing block is the viewport itself.
+       - MODAL mode: the host .modal-backdrop (App.svelte) is that containing block: its
+         backdrop-filter makes it the containing block for position:fixed descendants, and
+         it is a full-viewport, origin (0,0), unbordered, untransformed fixed element
+         (position:fixed; inset:0), so its padding box top-left sits exactly at viewport (0,0).
+       - EMBEDDED mode (0.13.2 Unit 4): there is NO .modal-backdrop; the board renders inline
+         in the Ships tab. None of its ancestors (.root / .frame / .tab-body / .tab-scroll-area)
+         establishes a fixed-positioning containing block (no transform / filter / perspective /
+         will-change / contain on any of them, verified 2026-09-01), so this fixed element
+         resolves against the viewport DIRECTLY, at origin (0,0). Same coordinate space, so the
+         clamp math is unchanged. If any of those ancestors ever gains a transform / filter /
+         etc (or .modal-backdrop gains a border / transform / stops covering the viewport in the
+         modal case), this tooltip's placement math goes wrong and must be revisited.
 
      max-height caps an over-tall tooltip (a legendary piece with many rolled affixes
      on a short/landscape phone) to the viewport minus the 8px top + 8px bottom margins
