@@ -3394,6 +3394,28 @@ export interface RefineRecipeDef {
   input: Record<string, Decimal>;      // deducted ATOMICALLY at job start (design §4)
   output: { itemId: string; amount: Decimal }; // granted on completion (marks discovered)
   durationTicks: number;               // FIXED job length; also the lump Fleet Admiral XP awarded
+  // Crafting 0.13.3 (Phase 3 Unit 3.1, design §6.1): this recipe's CRAFTING-XP weight,
+  // in quarters (the numerator over CRAFTING_XP_WEIGHT_DENOM). ABSENT on every recipe
+  // shipped so far, which is the point: absent means REFINE_XP_WEIGHT_NUM (1, i.e. a
+  // 0.25x multiplier on the base rate), and both current recipes sit on that default.
+  //
+  // WHY THE FIELD EXISTS AT ALL, given nothing overrides it yet. Crafting level drives
+  // crafted-equipment iLevel, so every crafting activity has to feed it, but bulk
+  // refining must NOT be a viable road to the iLevel ceiling: it is high volume, low
+  // value, ungated by research, and endlessly repeatable off mission loot. The weight
+  // model is what stops it leading (see craftingProgress.ts's header for the arithmetic
+  // proof). This field is the per-recipe tuning knob for that model, so a future tier-2
+  // refine recipe declares its own worth HERE, in the data table, instead of forcing a
+  // branch into the award function.
+  //
+  // WHY NOT DERIVE THE WEIGHT FROM THE OUTPUT ITEM'S TIER: `ITEMS[].tier` is the
+  // WAREHOUSE storage tier (what cap bucket the item lives in), not a recipe value tier,
+  // and every current item is T1. Reading it would silently tie XP value to a storage
+  // concern and would read the same for every recipe anyway.
+  //
+  // OPTIONAL, not defaulted in the table, so adding it needs no save migration and no
+  // edit to the existing rows: it is static content data, never persisted.
+  xpWeightNum?: number;
 }
 
 // Phase 1 seeds ONE real recipe, same "no placeholders" discipline as
@@ -5693,20 +5715,107 @@ export const FLEET_ADMIN_XP_PER_DURATION_TICK = 5;
 // closed-form parity stays exact (integer * integer durationTicks, no float drift):
 // see resolveProcesses' craftingXpDelta accumulation + its parity test. 2 (not 1) so a
 // dropped-multiplication bug is observable in tests (2*d != d) while leaving headroom.
+//
+// ⚠️ 0.13.3 (Phase 3 Unit 3.1): this is now the BASE rate, not the whole story. Every
+// crafting-XP award is this rate scaled by a per-kind/per-tier WEIGHT so that cheap,
+// endlessly-repeatable refining cannot outpace real production (design §6.1). The weight
+// table and the award function live in craftingProgress.ts; the constants they read live
+// just below. Unit 3.1 is the module only: the resolveProcesses call site still awards
+// the flat `rate * durationTicks` form described above until Unit 3.2 swaps it over.
 export const CRAFTING_XP_PER_DURATION_TICK = 2;
 
-// ⚠️ TUNABLE (launch placeholder). XP required to go from `level` to `level+1`. A gently
-// rising quadratic (polynomial in level): the per-level cost grows with level, so early
-// crafting levels come quickly and later ones cost progressively more, without any
-// per-level hand-tuning. Scale (500) is deliberately far smaller than the Fleet Admiral
-// curve's (375000) because crafting XP income is smaller + slower (only completed
-// production jobs feed it, not every mission tick fleet-wide). Decimal-typed to match
-// craftingXp's idle-scale Decimal accumulator (GameState.craftingXp) and to compose with
-// applyCraftingXp's Decimal fold; the caller compares/subtracts it against craftingXp
-// directly. Both the scale AND the quadratic shape are first-pass values to be tuned
-// against real on-device play, do NOT treat 500 or the exponent as final.
+// --- Crafting XP weights (0.13.3 Phase 3 Unit 3.1, design §6.1) --------------
+// The award is `floor(durationTicks * CRAFTING_XP_PER_DURATION_TICK * weightNum /
+// CRAFTING_XP_WEIGHT_DENOM)`. Weights are expressed as a NUMERATOR over this shared
+// denominator (quarters) rather than as a fractional multiplier, so every input to the
+// award is an integer and the single division floors ONCE at the end. That keeps the
+// award exactly integer, which is what the closed-form offline==live parity depends on
+// (see CRAFTING_XP_PER_DURATION_TICK's note above: integer times integer, no float
+// drift). A 0.25 multiplier written as a float would reintroduce exactly the drift that
+// comment calls load bearing.
+//
+// The DENOMINATOR is 4 because the smallest weight the design needs is a quarter of the
+// base rate (refining). Raising it later is safe: it only makes the grid finer.
+export const CRAFTING_XP_WEIGHT_DENOM = 4;
+
+// Refining: 1/4 of the base rate. The deliberate laggard. See RefineRecipeDef.xpWeightNum
+// for why refining must contribute without being able to lead.
+export const REFINE_XP_WEIGHT_NUM = 1;
+
+// Fabricating a MATERIAL blueprint: 4/4 (1.0x) PER BLUEPRINT TIER. Tier 1 lands exactly on
+// the pre-0.13.3 flat rate on purpose, so the pacing players already know is the anchor the
+// rest of the table is measured against, and tier is the value axis on top of it.
+export const MATERIAL_FABRICATE_XP_WEIGHT_NUM_PER_TIER = 4;
+
+// Fabricating a blueprint that MINTS AN INSTANCE (equipment, weapon, drone pod): 6/4 (1.5x)
+// per blueprint tier. Highest per-tick rate in the game because crafting level exists to
+// drive crafted-equipment iLevel: the activity the stat feeds should be the best way to
+// raise it. Discriminated by blueprintMintsEquipmentInstance, not by a second data field.
+export const EQUIPMENT_FABRICATE_XP_WEIGHT_NUM_PER_TIER = 6;
+
+// Building a hull: 12/4 (3.0x), flat, not per tier. The largest, rarest and most
+// component-hungry build in the game, and it already scales its own reward through a much
+// longer durationTicks, so a tier multiplier on top would double-count the size.
+export const SHIP_BUILD_XP_WEIGHT_NUM = 12;
+
+// --- Crafting level curve (0.13.3 Phase 3 Unit 3.1, design §6.3) -------------
+// ⚠️ TUNABLE. XP required to go from `level` to `level+1`:
+//
+//     craftingXpForNext(L) = CRAFT_XP_BASE * L^2 * (1 + L / CRAFT_XP_KNEE)
+//
+// SUPERSEDES the pre-0.13.3 `500 * L^2`. Two things changed and both were deliberate:
+//
+//   SHAPE. A quadratic with a linear multiplier is a cubic in disguise: below the knee
+//   the `L / KNEE` term is small and it behaves like the old quadratic (gentle early
+//   levels), past the knee it turns hard. forNext(40) / forNext(10) is 32x here versus
+//   16x on the old pure quadratic. Chosen over a raw exponential, whose late levels stop
+//   being expensive and start being unreachable, and over a hand-authored per-level
+//   table, which is 50 numbers to maintain and retune.
+//
+//   SCALE. The absolute numbers DROP (level 10 costs 18,000 here versus 50,000 before)
+//   because the weight model above cut low-value income hard: refining now pays a quarter
+//   of what it did. The curve is retuned to match the new income, not to make levels
+//   cheaper in real terms.
+//
+// ⚠️ WRITTEN AS A GROUPED INTEGER EXPRESSION, NOT AS THE DESIGN'S PROSE FORM. The design
+// writes the curve as `BASE * L^2 * (1 + L / KNEE)`. Coded literally, that evaluates
+// `1 + L/20` as a binary float FIRST and multiplies an inexact factor through, which
+// drifts: at level 7 it yields 7938.000000000001 and at level 21 it yields
+// 108485.99999999999, and it misses the exact integer on 49 of the first 500 levels.
+// The algebraically identical grouping used below does every multiplication in whole
+// numbers and divides ONCE at the end:
+//
+//     BASE * L^2 * (KNEE + L) / KNEE
+//
+// The numerator is an exact integer, the quotient is always an integer (the curve is
+// 120*L^2 + 6*L^3), and IEEE division of two exactly-representable integers whose exact
+// quotient is representable is itself exact. This is the same "group the integers, divide
+// once, no fractional intermediate" discipline the XP weight model uses, for the same
+// reason. Do not "simplify" it back to the prose form.
+//
+// (Precision footnote, pre-existing and harmless: the return value is a break_infinity
+// Decimal, which is a mantissa/exponent pair of doubles, not an arbitrary-precision
+// decimal. Storing a large exact integer in it can cost the last bit or two above roughly
+// level 46. That is a property of the Decimal accumulator this curve has always returned
+// into, it is a relative error around 1e-16, and it is invisible to the only thing that
+// consumes the value: a `gte` comparison and a subtraction inside foldXpLevelUps. Every
+// level in the reachable band, including the level-40 tier-2 iLevel ceiling, is exact.)
+//
+// GRANDFATHERING (design §6.5). Changing this curve does NOT re-derive anybody's level.
+// applyCraftingXp (tick.ts) folds a delta FORWARD from the stored (craftingXp,
+// craftingLevel) pair and never recomputes a level from cumulative XP, so an existing save
+// keeps the level it earned and simply meets the new threshold on its NEXT level-up.
+// Silently demoting a player because the designer retuned a curve is exactly the surprise
+// the project's "sell peace" rule forbids. Accepted consequence: saves from before this
+// change hold a level that would now cost more to earn. That is a one-time generosity.
+export const CRAFT_XP_BASE = 120;
+export const CRAFT_XP_KNEE = 20;
+
+// Decimal-typed to match craftingXp's idle-scale Decimal accumulator (GameState.craftingXp)
+// and to compose with applyCraftingXp's Decimal fold; the caller compares/subtracts it
+// against craftingXp directly.
 export function craftingXpForNext(level: number): Decimal {
-  return new Decimal(500).times(level).times(level);
+  return new Decimal((CRAFT_XP_BASE * level * level * (CRAFT_XP_KNEE + level)) / CRAFT_XP_KNEE);
 }
 
 // ============================================================================

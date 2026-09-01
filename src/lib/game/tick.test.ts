@@ -3159,9 +3159,9 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
   // Fixture: a fresh state (idle captains, no lines, no fuel pipeline, so the ONLY economy
   // activity is resolveProcesses -> applyCraftingXp) seeded with three producing jobs that
   // complete at ticks 300 / 400 / 700. With CRAFTING_XP_PER_DURATION_TICK = 2 and the
-  // craftingXpForNext quadratic, the cumulative award (2 * (300+400+700) = 2800) crosses two
-  // thresholds (f(1)=500, f(2)=2000 -> 2500 consumed), landing at craftingLevel 3 with a
-  // remainder of 300. The stepped path crosses those thresholds at DIFFERENT ticks than the
+  // craftingXpForNext curve, the cumulative award (2 * (300+400+700) = 2800) crosses three
+  // thresholds (f(1)=126, f(2)=528, f(3)=1242 -> 1896 consumed), landing at craftingLevel 4
+  // with a remainder of 904. The stepped path crosses those thresholds at DIFFERENT ticks than the
   // one big fold, which is exactly the associativity under test. Derived from the curve so a
   // retune of craftingXpForNext can't silently stop the scenario from crossing 2+ levels.
   it("stepped-fold parity: one big-span economyTick lands the SAME final craftingLevel + craftingXp remainder as many single-tick steps (crosses 2+ levels)", () => {
@@ -3186,9 +3186,16 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
     expect(jumped.craftingLevel).toBe(stepped.craftingLevel);
     expect(jumped.craftingXp.equals(stepped.craftingXp)).toBe(true);
     // Prove the scenario genuinely CROSSED at least two levels (else parity would be
-    // vacuous), and pin the exact curve-derived landing: 2800 XP - f(1) - f(2) = 300 at L3.
-    expect(jumped.craftingLevel).toBe(3);
-    expect(jumped.craftingXp.equals(300)).toBe(true);
+    // vacuous), and pin the exact curve-derived landing.
+    //
+    // ⚠️ VALUE CHANGE, 0.13.3 Phase 3 Unit 3.1 (design section 6.3), case count UNCHANGED.
+    // craftingXpForNext was retuned from `500 * L^2` to the grouped form of
+    // `120 * L^2 * (1 + L / 20)`, so the same 2800 XP now clears one more threshold:
+    // 2800 - f(1)126 - f(2)528 - f(3)1242 = 904 at level 4 (it was 2800 - 500 - 2000 = 300
+    // at level 3). The PARITY assertions above are untouched and still pass, which is the
+    // point: a curve retune moves the landing, never the offline==live agreement.
+    expect(jumped.craftingLevel).toBe(4);
+    expect(jumped.craftingXp.equals(904)).toBe(true);
   });
 });
 
