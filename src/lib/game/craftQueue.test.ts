@@ -417,6 +417,101 @@ describe("enqueueOrder: the depth cap is enforced PER FACILITY, at enqueue", () 
   });
 });
 
+// ---------------------------------------------------------------------------
+// Crafting 0.13.3, Phase 2 Unit 2.1: the DUPLICATE-SALVAGE-TARGET gate
+// (design 2026-09-01-crafting-0.13.3-design.md section 7.3, "a reserved instance
+// cannot be queued twice").
+//
+// Salvage consumes its target at COMPLETION rather than at start, so a queued salvage
+// RESERVES its target. A second order on the same UNIQUE target could therefore only
+// ever resolve as a stale no-op while permanently holding a depth slot, which is why it
+// is refused here. A FUNGIBLE salvaged material is deliberately exempt: bounding that at
+// enqueue would be an affordability check, and rule 2 of canEnqueueOrder says
+// affordability is never an enqueue gate.
+// ---------------------------------------------------------------------------
+
+// The two non-equipment salvage arms, which salvageOrder() above does not cover.
+function shipSalvageOrder(shipId = "ship-9"): QueuedOrder {
+  return { type: "salvage", target: { kind: "ship", shipId } };
+}
+function materialSalvageOrder(itemId = "intactReactorCore"): QueuedOrder {
+  return { type: "salvage", target: { kind: "material", itemId } };
+}
+
+describe("canEnqueueOrder: a UNIQUE salvage target cannot be queued twice", () => {
+  it("refuses a second order on the same equipment instance with alreadyQueued", () => {
+    // Depth 4 (the full talent chain), so a queueFull refusal is impossible here and the
+    // only thing that can refuse the second order is the duplicate gate itself.
+    const state = enqueueAll(deepQueueState(), [{ facility: "salvageBay", order: salvageOrder("eq-1") }]);
+    expect(canEnqueueOrder(state, "salvageBay", salvageOrder("eq-1"))).toEqual({
+      ok: false,
+      reason: "alreadyQueued",
+    });
+    const rejected = enqueueOrder(state, "salvageBay", salvageOrder("eq-1"));
+    expect(rejected.queued).toBe(false);
+    expect(rejected.reason).toBe("alreadyQueued");
+    // A refusal is a same-ref no-op and does NOT consume an id (enqueueOrder's contract).
+    expect(rejected.next).toBe(state);
+    expect(state.nextQueueId).toBe(2);
+  });
+
+  it("refuses a second teardown of the same hull, and accepts a different hull", () => {
+    const state = enqueueAll(deepQueueState(), [{ facility: "salvageBay", order: shipSalvageOrder("ship-9") }]);
+    expect(enqueueOrder(state, "salvageBay", shipSalvageOrder("ship-9")).reason).toBe("alreadyQueued");
+    expect(enqueueOrder(state, "salvageBay", shipSalvageOrder("ship-8")).queued).toBe(true);
+  });
+
+  it("accepts a DIFFERENT instance, so the gate is per target and not a wall", () => {
+    const state = enqueueAll(deepQueueState(), [{ facility: "salvageBay", order: salvageOrder("eq-1") }]);
+    expect(enqueueOrder(state, "salvageBay", salvageOrder("eq-2")).queued).toBe(true);
+  });
+
+  it("keeps accepting the SAME salvaged material, because a material is fungible", () => {
+    // Three queued rolls of one material id is legitimate intent (you may hold three, or
+    // expect to). The bound lands at promotion, where canStartSalvage refuses noneHeld
+    // and the extra orders simply wait, so no double-consume is possible either way.
+    const state = enqueueAll(deepQueueState(), [
+      { facility: "salvageBay", order: materialSalvageOrder() },
+      { facility: "salvageBay", order: materialSalvageOrder() },
+      { facility: "salvageBay", order: materialSalvageOrder() },
+    ]);
+    expect(queuedForFacility(state, "salvageBay")).toHaveLength(3);
+    expect(canEnqueueOrder(state, "salvageBay", materialSalvageOrder()).ok).toBe(true);
+  });
+
+  it("leaves craft-line enqueues completely untouched (duplicates are the norm there)", () => {
+    // Two identical refine orders is an ordinary thing to want, and the salvage gate must
+    // never leak into that path.
+    const state = enqueueAll(deepQueueState({ commonOre: 200 }), [
+      { facility: "refinery", order: refineOrder() },
+      { facility: "refinery", order: refineOrder() },
+    ]);
+    expect(queuedForFacility(state, "refinery")).toHaveLength(2);
+    expect(canEnqueueOrder(state, "refinery", refineOrder()).ok).toBe(true);
+  });
+
+  it("does not confuse the three target arms, which are separate namespaces", () => {
+    // A queued hull teardown of "eq-1" must not block an equipment salvage of "eq-1".
+    const state = enqueueAll(deepQueueState(), [{ facility: "salvageBay", order: shipSalvageOrder("eq-1") }]);
+    expect(canEnqueueOrder(state, "salvageBay", salvageOrder("eq-1")).ok).toBe(true);
+  });
+
+  it("releases the block as soon as the order is cancelled", () => {
+    // Derived, never stored: removeQueuedOrder is the whole release path.
+    const state = enqueueAll(deepQueueState(), [{ facility: "salvageBay", order: salvageOrder("eq-1") }]);
+    expect(canEnqueueOrder(state, "salvageBay", salvageOrder("eq-1")).ok).toBe(false);
+    const cleared = removeQueuedOrder(state, "q-1");
+    expect(canEnqueueOrder(cleared, "salvageBay", salvageOrder("eq-1")).ok).toBe(true);
+  });
+
+  it("still reports queueFull, not alreadyQueued, when the depth cap is the real problem", () => {
+    // Base depth is 1. A DIFFERENT target hitting a full queue must get the reason that
+    // tells the player what to do (cancel something), not the duplicate reason.
+    const state = enqueueAll(craftState(), [{ facility: "salvageBay", order: salvageOrder("eq-1") }]);
+    expect(enqueueOrder(state, "salvageBay", salvageOrder("eq-2")).reason).toBe("queueFull");
+  });
+});
+
 describe("enqueueOrder: ids mint monotonically and are never reused", () => {
   it("mints q-N from nextQueueId and bumps it once per accepted order", () => {
     const state: GameState = { ...craftState(), unlockedHomeworldTalents: QUEUE_CHAIN };

@@ -42,6 +42,7 @@
 //   SALVAGE_QUALITY_BONUS_PER_TIER       small per-quality-tier yield bonus
 //   SalvageResult                        the discriminated success | reject union
 //   salvageEquipment                     the action
+//   (re-exported from reservation.ts)    the DERIVED salvage-reservation helpers, 0.13.3
 // ============================================================================
 
 import Decimal from "break_infinity.js";
@@ -52,6 +53,23 @@ import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
 // mission?" guard. salvageShip (below) reuses it verbatim so a hull that is locked for
 // INSTALLING mid-mission is locked for SALVAGE too, one source of truth for that lock.
 import { onMissionLock } from "./equipment";
+
+// --- Derived salvage reservations (Crafting 0.13.3, Phase 2 Unit 2.1) --------
+// Re-exported so "the salvage reservation helpers live in salvage.ts" stays TRUE for
+// callers, which is where the build plan said to look for them. They are IMPLEMENTED in
+// reservation.ts because the consumer that matters most, canFitEquipment, lives in
+// equipment.ts, and this file already imports equipment.ts (onMissionLock above): a
+// direct definition here would force equipment.ts to import salvage.ts and close an
+// import CYCLE. reservation.ts is a type-only leaf both sides can depend on. See its
+// header for the full reasoning and for the in-flight extension point Unit 2.2 fills in.
+export {
+  salvageReservations,
+  salvageReservedInstanceIds,
+  salvageReservedShipIds,
+  salvageReservedMaterialCount,
+  isDuplicateSalvageTarget,
+  type SalvageReservations,
+} from "./reservation";
 
 // ----------------------------------------------------------------------------
 // salvageTalentBonus (0.11.0 Storage/Salvage, Task C4)

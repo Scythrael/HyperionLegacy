@@ -28,6 +28,15 @@ import {
   SALVAGE_FRACTION_MAX,
   SALVAGE_QUALITY_BONUS_PER_TIER,
   SALVAGE_CEILING_THRESHOLDS,
+  // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED reservation helpers. Imported from
+  // "./salvage" ON PURPOSE even though reservation.ts implements them, because that is
+  // the surface the build plan promised callers; importing them here also keeps the
+  // re-export line in salvage.ts covered.
+  salvageReservations,
+  salvageReservedInstanceIds,
+  salvageReservedShipIds,
+  salvageReservedMaterialCount,
+  isDuplicateSalvageTarget,
 } from "./salvage";
 import {
   freshState,
@@ -46,6 +55,9 @@ import {
   type EquipmentInstance,
   type EquipmentSlotType,
   type CaptainMissionState,
+  type QueuedJob,
+  type QueuedOrder,
+  type SalvageTargetRef,
 } from "./model";
 import Decimal from "break_infinity.js";
 import { getBucket, itemTotal } from "./inventory";
@@ -805,5 +817,155 @@ describe("salvageShip: refuses to break down the fleet's only hull (last-ship so
     // ship-1 torn down, ship-2 remains as the fleet's surviving hull.
     expect(result.next.ships.find((s) => s.id === "ship-1")).toBeUndefined();
     expect(result.next.ships.find((s) => s.id === "ship-2")).toBeDefined();
+  });
+});
+
+// ============================================================================
+// DERIVED SALVAGE RESERVATIONS (Crafting 0.13.3, Phase 2 Unit 2.1)
+// (design 2026-09-01-crafting-0.13.3-design.md section 7.3.)
+//
+// Salvage is the one process that consumes its target at COMPLETION rather than at
+// start, so the thing that closes the double-spend window is not a deduction, it is a
+// reservation DERIVED from the queue on every read. These cases pin that derivation:
+// what it contains, what it deliberately does NOT contain, and that it dedupes.
+//
+// ⚠️ IN-FLIGHT JOBS ARE OUT OF SCOPE HERE BY CONSTRUCTION. The "salvageJob" process
+// kind does not exist until Unit 2.2, so there is nothing in flight to assert on; the
+// helper carries a marked extension point for that second source and these cases are
+// extended alongside it.
+// ============================================================================
+
+// Wrap loose orders into the QueuedJob rows GameState actually stores. Ids mirror the
+// engine's own "q-N" minting so a fixture reads like a real save.
+function queuedJobs(...orders: { facility: QueuedJob["facility"]; order: QueuedOrder }[]): QueuedJob[] {
+  return orders.map((entry, i) => ({ id: `q-${i + 1}`, facility: entry.facility, order: entry.order }));
+}
+
+// A fresh state holding exactly these salvage-bay orders. Nothing else is touched: the
+// reservation is a pure function of processQueue, so the rest of the save is noise.
+function stateWithSalvageQueue(...targets: SalvageTargetRef[]): GameState {
+  return {
+    ...freshState(),
+    processQueue: queuedJobs(
+      ...targets.map((target) => ({ facility: "salvageBay" as const, order: { type: "salvage" as const, target } }))
+    ),
+  };
+}
+
+describe("salvageReservations: the derived set is exactly what the queue names (0.13.3 Unit 2.1)", () => {
+  it("is empty in every bin for a queue with nothing in it", () => {
+    const reserved = salvageReservations(freshState());
+    expect(reserved.instanceIds.size).toBe(0);
+    expect(reserved.shipIds.size).toBe(0);
+    expect(reserved.materialCounts.size).toBe(0);
+  });
+
+  it("bins all three SalvageTargetRef arms into their own container", () => {
+    const state = stateWithSalvageQueue(
+      { kind: "equipment", instanceId: "eq-7" },
+      { kind: "ship", shipId: "ship-4" },
+      { kind: "material", itemId: HOUSING }
+    );
+    const reserved = salvageReservations(state);
+    expect([...reserved.instanceIds]).toEqual(["eq-7"]);
+    expect([...reserved.shipIds]).toEqual(["ship-4"]);
+    expect(reserved.materialCounts.get(HOUSING)).toBe(1);
+    // Bins never bleed into one another: a hull id is not an instance id.
+    expect(reserved.instanceIds.has("ship-4")).toBe(false);
+    expect(reserved.shipIds.has("eq-7")).toBe(false);
+  });
+
+  it("dedupes UNIQUE targets and ACCUMULATES fungible ones", () => {
+    // Two orders on one instance and two on one hull (only reachable through a
+    // hand-edited save, since canEnqueueOrder refuses the duplicate) still count once:
+    // a unique thing is either spoken for or it is not.
+    const state = stateWithSalvageQueue(
+      { kind: "equipment", instanceId: "eq-7" },
+      { kind: "equipment", instanceId: "eq-7" },
+      { kind: "ship", shipId: "ship-4" },
+      { kind: "ship", shipId: "ship-4" },
+      // A salvaged material is FUNGIBLE, so three queued orders reserve three UNITS.
+      // That count is what makes the console's "Held: N (M queued)" honest.
+      { kind: "material", itemId: HOUSING },
+      { kind: "material", itemId: HOUSING },
+      { kind: "material", itemId: HOUSING }
+    );
+    const reserved = salvageReservations(state);
+    expect(reserved.instanceIds.size).toBe(1);
+    expect(reserved.shipIds.size).toBe(1);
+    expect(reserved.materialCounts.get(HOUSING)).toBe(3);
+  });
+
+  it("reserves NOTHING for a queued craft line (design section 5.3: a queued order reserves nothing)", () => {
+    const state: GameState = {
+      ...freshState(),
+      processQueue: queuedJobs(
+        { facility: "refinery", order: { type: "craftLine", kind: "refine", recipeKey: "refineCommonOre", mode: { kind: "batch", remaining: 5 } } },
+        { facility: "fabricator", order: { type: "craftLine", kind: "fabricate", recipeKey: "frameSegmentBp", mode: { kind: "continuous" } } }
+      ),
+    };
+    const reserved = salvageReservations(state);
+    expect(reserved.instanceIds.size).toBe(0);
+    expect(reserved.shipIds.size).toBe(0);
+    expect(reserved.materialCounts.size).toBe(0);
+  });
+
+  it("treats a save with no processQueue at all as an empty queue, never a throw", () => {
+    // The `?? []` every other processQueue reader uses. The cast is the point of the
+    // case: an older fixture (or a save built before SAVE_VERSION 40) can legitimately
+    // arrive without the field, and a reservation read must not be the thing that dies.
+    const legacy = { ...freshState(), processQueue: undefined as unknown as QueuedJob[] };
+    expect(salvageReservations(legacy).instanceIds.size).toBe(0);
+    expect(salvageReservedMaterialCount(legacy, HOUSING)).toBe(0);
+  });
+
+  it("hands each accessor the same answer the single pass gives", () => {
+    const state = stateWithSalvageQueue(
+      { kind: "equipment", instanceId: "eq-7" },
+      { kind: "ship", shipId: "ship-4" },
+      { kind: "material", itemId: HOUSING },
+      { kind: "material", itemId: HOUSING }
+    );
+    expect([...salvageReservedInstanceIds(state)]).toEqual(["eq-7"]);
+    expect([...salvageReservedShipIds(state)]).toEqual(["ship-4"]);
+    expect(salvageReservedMaterialCount(state, HOUSING)).toBe(2);
+    // An item nobody queued reads 0, not undefined, so a UI can subtract it blind.
+    expect(salvageReservedMaterialCount(state, "titaniumIngot")).toBe(0);
+  });
+
+  it("allocates fresh containers per call (no shared mutable state between reads)", () => {
+    const state = stateWithSalvageQueue({ kind: "equipment", instanceId: "eq-7" });
+    const first = salvageReservations(state);
+    first.instanceIds.add("eq-tampered");
+    // A second read is unaffected: nothing is cached and nothing is handed out twice.
+    expect(salvageReservations(state).instanceIds.has("eq-tampered")).toBe(false);
+  });
+});
+
+describe("isDuplicateSalvageTarget: unique targets refuse a second order, fungible ones do not", () => {
+  it("reports a queued equipment instance and a queued hull as duplicates", () => {
+    const state = stateWithSalvageQueue(
+      { kind: "equipment", instanceId: "eq-7" },
+      { kind: "ship", shipId: "ship-4" }
+    );
+    expect(isDuplicateSalvageTarget(state, { kind: "equipment", instanceId: "eq-7" })).toBe(true);
+    expect(isDuplicateSalvageTarget(state, { kind: "ship", shipId: "ship-4" })).toBe(true);
+  });
+
+  it("clears an unqueued target of either unique kind", () => {
+    const state = stateWithSalvageQueue({ kind: "equipment", instanceId: "eq-7" });
+    expect(isDuplicateSalvageTarget(state, { kind: "equipment", instanceId: "eq-8" })).toBe(false);
+    expect(isDuplicateSalvageTarget(state, { kind: "ship", shipId: "ship-4" })).toBe(false);
+  });
+
+  it("NEVER calls a salvaged material a duplicate, however many are queued", () => {
+    // Deliberate: queueing more salvages than you hold is the "queue work you cannot
+    // afford yet" case the queue exists for, and it is bounded at PROMOTION (noneHeld),
+    // never at enqueue. Blocking it here would be an affordability gate in disguise.
+    const state = stateWithSalvageQueue(
+      { kind: "material", itemId: HOUSING },
+      { kind: "material", itemId: HOUSING }
+    );
+    expect(isDuplicateSalvageTarget(state, { kind: "material", itemId: HOUSING })).toBe(false);
   });
 });

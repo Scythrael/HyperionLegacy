@@ -3250,6 +3250,10 @@
         return "assign a matching captain first (hull is parked)";
       case "slotNotInstallable":
         return "this slot is not installable";
+      // Crafting 0.13.3 (Unit 2.1): the piece is reserved by a queued salvage order.
+      // Actionable on purpose (cancel the order), because it is fully reversible.
+      case "queuedForSalvage":
+        return "queued for salvage (cancel the salvage order to install it)";
       case "hardpointsFull":
         return "all weapon hardpoints are full (uninstall a weapon first)";
       case "baysFull":

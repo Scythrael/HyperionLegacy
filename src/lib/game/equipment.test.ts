@@ -27,7 +27,15 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { freshState } from "./model";
-import type { GameState, EquipmentInstance, EquipmentSlotType } from "./model";
+import type {
+  GameState,
+  EquipmentInstance,
+  EquipmentSlotType,
+  // Crafting 0.13.3 (Phase 2 Unit 2.1): the queued-salvage shapes the new
+  // queuedForSalvage gate case builds its fixture from.
+  QueuedJob,
+  SalvageTargetRef,
+} from "./model";
 import {
   equippedFor,
   fittedInSlot,
@@ -717,4 +725,114 @@ describe("economy uninstall pools the piece (integrity + recoverability)", () =>
       expect(next.nextEquipmentId).toBe(77);
     });
   }
+});
+
+// ----------------------------------------------------------------------------
+// canFitEquipment: the SALVAGE RESERVATION gate (Crafting 0.13.3, Phase 2 Unit 2.1)
+// ----------------------------------------------------------------------------
+// (design 2026-09-01-crafting-0.13.3-design.md section 7.3.)
+//
+// Salvage consumes its target at COMPLETION, not at start, so a queued salvage order
+// protects its target with a DERIVED reservation instead of a deduction. canFitEquipment
+// is the CENTRAL seam that enforces it (design risk 4): every install path in the app
+// goes through this gate, so guarding here covers all of them at once.
+
+// Park a salvage order for `instanceId` in the queue. Only processQueue is touched: the
+// reservation is derived from it and from nothing else.
+function withQueuedSalvage(state: GameState, target: SalvageTargetRef): GameState {
+  const job: QueuedJob = { id: "q-1", facility: "salvageBay", order: { type: "salvage", target } };
+  return { ...state, processQueue: [...(state.processQueue ?? []), job] };
+}
+
+describe("canFitEquipment: a piece reserved by a queued salvage cannot be installed", () => {
+  it("rejects the reserved instance with queuedForSalvage", () => {
+    const spare = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });
+    const base = withEquipment(freshState(), spare);
+    // Precondition: with nothing queued this exact install is allowed, so the ONLY
+    // difference between the two verdicts below is the queued order.
+    expect(canFitEquipment(base, "ship-1", "equip-1")).toEqual({ ok: true });
+
+    const reserved = withQueuedSalvage(base, { kind: "equipment", instanceId: "equip-1" });
+    expect(canFitEquipment(reserved, "ship-1", "equip-1")).toEqual({
+      ok: false,
+      reason: "queuedForSalvage",
+    });
+  });
+
+  it("still allows a DIFFERENT spare while one is reserved (the gate is per instance)", () => {
+    const reservedPiece = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });
+    const freePiece = makeEquip({ id: "equip-2", slotType: "ftlDrive", fittedToShipId: null });
+    const state = withQueuedSalvage(withEquipment(freshState(), reservedPiece, freePiece), {
+      kind: "equipment",
+      instanceId: "equip-1",
+    });
+    expect(canFitEquipment(state, "ship-1", "equip-2")).toEqual({ ok: true });
+  });
+
+  it("does not reserve anything when the queued salvage names a HULL or a MATERIAL", () => {
+    // The three SalvageTargetRef arms are separate namespaces. A queued teardown of
+    // "equip-1" the SHIP would be a different thing entirely, and must not leak into
+    // the equipment bin (which is what an id-only, arm-blind check would have done).
+    const spare = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });
+    const base = withEquipment(freshState(), spare);
+    expect(canFitEquipment(withQueuedSalvage(base, { kind: "ship", shipId: "equip-1" }), "ship-1", "equip-1")).toEqual({ ok: true });
+    expect(canFitEquipment(withQueuedSalvage(base, { kind: "material", itemId: "equip-1" }), "ship-1", "equip-1")).toEqual({ ok: true });
+  });
+
+  it("releases the reservation the moment the order leaves the queue", () => {
+    // Derived, never stored: emptying processQueue is the whole cancel path, there is no
+    // ledger to unwind and nothing that can be left behind.
+    const spare = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });
+    const reserved = withQueuedSalvage(withEquipment(freshState(), spare), {
+      kind: "equipment",
+      instanceId: "equip-1",
+    });
+    const cancelled: GameState = { ...reserved, processQueue: [] };
+    expect(canFitEquipment(cancelled, "ship-1", "equip-1")).toEqual({ ok: true });
+  });
+
+  it("surfaces queuedForSalvage as a reason distinct from every other block token", () => {
+    // Guards against the reason being folded into an existing one (which would make the
+    // console say something untrue and unactionable, e.g. "this slot is not installable").
+    const spare = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });
+    const reserved = withQueuedSalvage(withEquipment(freshState(), spare), {
+      kind: "equipment",
+      instanceId: "equip-1",
+    });
+    const verdict = canFitEquipment(reserved, "ship-1", "equip-1");
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    const otherReasons = [
+      "noInstance",
+      "slotNotInstallable",
+      "noShip",
+      "onMission",
+      "hullSpec",
+      "captainSpec",
+      "captainSpecParked",
+      "hardpointsFull",
+      "baysFull",
+    ];
+    expect(otherReasons).not.toContain(verdict.reason);
+    expect(verdict.reason).toBe("queuedForSalvage");
+  });
+
+  it("is checked BEFORE the ship lookup, so a reserved piece reads the same on any hull", () => {
+    // Ordering matters for what the player is told: a reserved piece is uninstallable
+    // everywhere, so the reservation must win over a hull-specific complaint rather than
+    // sending the player off to find "the right ship" for a piece that is about to be
+    // recycled anyway.
+    const spare = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });
+    const reserved = withQueuedSalvage(withEquipment(freshState(), spare), {
+      kind: "equipment",
+      instanceId: "equip-1",
+    });
+    expect(canFitEquipment(reserved, "no-such-ship", "equip-1")).toEqual({
+      ok: false,
+      reason: "queuedForSalvage",
+    });
+    // ...while a nonexistent INSTANCE still loses to noInstance, which is more
+    // fundamental still (there is nothing to reserve).
+    expect(canFitEquipment(reserved, "ship-1", "ghost")).toEqual({ ok: false, reason: "noInstance" });
+  });
 });

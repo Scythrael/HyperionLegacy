@@ -134,6 +134,16 @@ import {
   type QueuedJob,
   type QueuedOrder,
 } from "./model";
+// Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
+// enqueue gate consults so one target cannot be queued twice (design section 7.3).
+// Imported from reservation.ts, the type-only leaf module, and NOT from the salvage
+// module: salvage is still a live-only instant action this unit, and salvage.test.ts's
+// load-bearing source grep proves this file holds no import of it and calls none of its
+// three functions until Unit 2.3 moves salvage into the tick path and rewrites that
+// guard. ⚠️ THE GUARD GREPS THIS FILE'S RAW SOURCE, so it sees comments too: naming the
+// salvage module's import path or its function names in prose here would fail the guard
+// as surely as a real call would. That is why this comment spells neither out.
+import { isDuplicateSalvageTarget } from "./reservation";
 import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // Combat 0.13.0 (Phase 9b.5a): patrol dispatch helpers. combatHullTypeOf gates the
 // combat-hull requirement + resolves the CombatHullType for the drone default;
@@ -6205,10 +6215,13 @@ void QUEUE_FACILITY_ORDER_IS_EXHAUSTIVE; // type-level assertion only, no runtim
 // caller can cheaply tell "nothing happened" from "something happened".
 
 // Why a queued order could NOT be added. Deliberately tiny, because enqueue asks only
-// two questions (see canEnqueueOrder):
-//   queueFull     , this facility already holds queueDepth(state) waiting orders
-//   wrongFacility , the order's shape does not belong at this facility
-export type EnqueueBlockReason = "queueFull" | "wrongFacility";
+// three questions (see canEnqueueOrder):
+//   queueFull       , this facility already holds queueDepth(state) waiting orders
+//   wrongFacility   , the order's shape does not belong at this facility
+//   alreadyQueued   , (0.13.3 Unit 2.1) this salvage order names a UNIQUE target that a
+//                     queued salvage already owns. Salvage-only: no craft-line order can
+//                     ever produce it, because a recipe is not a unique consumable.
+export type EnqueueBlockReason = "queueFull" | "wrongFacility" | "alreadyQueued";
 
 // Does this order shape belong at this facility? A craft line goes to the facility that
 // runs its kind; a salvage target goes to the Salvage Bay. Checked at enqueue so a
@@ -6245,12 +6258,27 @@ export function queuedForFacility(state: GameState, facility: QueueFacilityKey):
 //      IS the feature (design §5.3: a queued order reserves nothing and is gated at
 //      PROMOTION time by canStartLine). An enqueue-time materials check would make the
 //      queue useless for exactly the case it exists to serve.
+//
+//   3. (0.13.3 Unit 2.1) A UNIQUE SALVAGE TARGET CANNOT BE QUEUED TWICE. This is NOT a
+//      contradiction of rule 2: it is a duplicate check, not an affordability check.
+//      Salvage is the one process that consumes at COMPLETION rather than at start, so a
+//      queued salvage RESERVES its target (design §7.3, reservation.ts). A second order
+//      on the same equipment instance or the same hull could therefore only ever resolve
+//      as a stale no-op, while permanently occupying a depth slot the player cannot clear
+//      by playing. A FUNGIBLE salvaged material is deliberately exempt (queue three, hold
+//      one, the extras simply wait at promotion), which is rule 2 doing its job.
 export function canEnqueueOrder(
   state: GameState,
   facility: QueueFacilityKey,
   order: QueuedOrder
 ): { ok: true } | { ok: false; reason: EnqueueBlockReason } {
   if (!orderMatchesFacility(facility, order)) return { ok: false, reason: "wrongFacility" };
+  // Checked before the depth cap so the player is told the REAL problem: "you already
+  // queued that one" is actionable, while a queueFull reason on a duplicate would send
+  // them to cancel some unrelated order for a slot the duplicate could never use.
+  if (order.type === "salvage" && isDuplicateSalvageTarget(state, order.target)) {
+    return { ok: false, reason: "alreadyQueued" };
+  }
   if (queuedForFacility(state, facility).length >= queueDepth(state)) {
     return { ok: false, reason: "queueFull" };
   }

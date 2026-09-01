@@ -375,17 +375,24 @@ function slotsTotalFor(state: GameState, facility: QueueFacilityKey): number | n
 // A shape-only stand-in order per facility, used for ONE purpose: asking the REAL
 // canEnqueueOrder "is there room here?" without a concrete order in hand.
 //
-// WHY A PROBE RATHER THAN A COUNT COMPARISON. canEnqueueOrder answers two questions
-// (does this order belong at this facility, and is the facility at depth) and it is
+// WHY A PROBE RATHER THAN A COUNT COMPARISON. canEnqueueOrder answers the "does this
+// order belong at this facility" and "is the facility at depth" questions and it is
 // the only place the depth cap is enforced. Comparing depthUsed against depthTotal
 // here would be a second, drift-capable copy of that rule, which is exactly what
 // this module is written to avoid. A probe that MATCHES its facility can only ever
 // come back with the depth answer, so canEnqueue is the cap gate's own verdict.
 //
-// The probe is never enqueued, never leaves this module, and its payload is never
-// read: canEnqueueOrder inspects only the order's SHAPE. Typed as an exhaustive
+// The probe is never enqueued and never leaves this module. Typed as an exhaustive
 // Record so a new QueueFacilityKey is a compile error here too, the same discipline
 // QUEUE_ADAPTERS uses.
+//
+// ⚠️ THE SALVAGE PROBE'S EMPTY instanceId IS LOAD-BEARING as of 0.13.3 Unit 2.1. That
+// unit added the duplicate-target gate, so canEnqueueOrder now reads a salvage order's
+// TARGET as well as its shape: a probe naming a REAL instance that the player had already
+// queued would come back "alreadyQueued" and the console would report the Salvage Bay as
+// unable to accept anything, which is a lie about the depth cap. The empty-string id can
+// never match a minted EquipmentInstance id, so the probe still asks only the depth
+// question. Keep it empty.
 const ENQUEUE_PROBE: Record<QueueFacilityKey, QueuedOrder> = {
   refinery: { type: "craftLine", kind: "refine", recipeKey: "", mode: { kind: "continuous" } },
   fabricator: { type: "craftLine", kind: "fabricate", recipeKey: "", mode: { kind: "continuous" } },

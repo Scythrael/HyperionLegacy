@@ -55,6 +55,12 @@ import type {
   CaptainTalentBranch,
 } from "./model";
 import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue, isStandardIssueBaseline } from "./model";
+// Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED set of equipment instances a queued
+// (later: in-flight) salvage owns. Imported from reservation.ts and NOT from salvage.ts
+// on purpose: salvage.ts imports onMissionLock from THIS file, so reaching for it here
+// would close an equipment <-> salvage import cycle. reservation.ts is the type-only
+// leaf both sides depend on instead.
+import { salvageReservedInstanceIds } from "./reservation";
 
 // The slot-type partitions the fit gate (canFitEquipment) and the mutators read. Sets (not arrays)
 // for O(1) membership; typed to EquipmentSlotType so a slot rename is a compile error.
@@ -142,6 +148,13 @@ export type EquipFitBlockReason =
   // former "combatSlotNotInstallable" member: the three combat slots (weapon / shieldEmitters /
   // hullPlating) are now player-installable, so that reason is no longer produced.
   | "slotNotInstallable"
+  // Crafting 0.13.3 (Phase 2 Unit 2.1): the piece is RESERVED by a queued (later: in-flight)
+  // salvage order, so installing it would hand the same instance to two consumers. Salvage is
+  // the one process that consumes at COMPLETION rather than at start (design section 7.3), and
+  // this reason is how that deviation stays safe: the reservation is derived from the queue on
+  // every read, so it appears the moment the order is queued and disappears the moment the
+  // order is cancelled, with no ledger to unwind. Cancel the salvage to install the piece.
+  | "queuedForSalvage"
   | "noShip"
   | "onMission"
   | "hullSpec"
@@ -239,7 +252,8 @@ export function onMissionLock(
 //
 // GATE ORDER (cheapest / most-fundamental first, and determines WHICH reason
 // surfaces when several fail): instance exists (noInstance) -> slot is installable
-// (slotNotInstallable) -> ship exists + on-mission lock (noShip / onMission) -> the
+// (slotNotInstallable) -> the piece is not reserved by a queued salvage (queuedForSalvage,
+// 0.13.3 Unit 2.1) -> ship exists + on-mission lock (noShip / onMission) -> the
 // slot's equipRequirement, hull first then captain (hullSpec / captainSpec /
 // captainSpecParked) -> weapon hardpoint capacity (hardpointsFull, weapon only).
 export function canFitEquipment(
@@ -261,6 +275,22 @@ export function canFitEquipment(
   // entry, no combat handling) would fall through to {ok:true}.
   if (!ECONOMY_INSTALLABLE_SLOTS.has(instance.slotType) && !COMBAT_SLOT_TYPES.has(instance.slotType)) {
     return { ok: false, reason: "slotNotInstallable" };
+  }
+
+  // --- Salvage reservation guard (Crafting 0.13.3, Phase 2 Unit 2.1). A piece that a
+  // queued (later: in-flight) salvage order owns cannot be installed: salvage consumes its
+  // target at COMPLETION rather than at start, so the ONLY thing standing between "queued
+  // for salvage" and "also bolted to a hull" is this check. THIS IS THE CENTRAL SEAM ON
+  // PURPOSE (design risk 4): every install path in the app goes through canFitEquipment, so
+  // guarding here covers all of them, and a future consumer of spare equipment that skips
+  // this gate is the one way double consumption could come back.
+  // Checked with the other pure properties of the PIECE (before any ship lookup), because a
+  // reserved instance is uninstallable on every hull, not on a particular one; ordering it
+  // here also means the player sees "queued for salvage" rather than an unrelated hull-spec
+  // complaint. Cheap: one derived pass over processQueue, which is depth-bounded (a handful
+  // of entries), not over the whole equipment pool.
+  if (salvageReservedInstanceIds(state).has(instanceId)) {
+    return { ok: false, reason: "queuedForSalvage" };
   }
 
   // --- Ship existence + on-mission lock (shared with unfitEquipment). This also
