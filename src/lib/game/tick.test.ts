@@ -33,6 +33,10 @@ import {
   canBuildFacilityUpgrade,
   MAX_LEVEL_UPS_PER_TICK,
   foldXpLevelUps,
+  // 0.13.3 Unit 3.2: the REAL duration derivation at a given refinery level, so the
+  // "a speed rung buys throughput, not XP rate" test derives its two durations from the
+  // live facility table instead of hardcoding 12 and 8.
+  refineJobDurationTicks,
 } from "./tick";
 import Decimal from "break_infinity.js";
 import {
@@ -47,6 +51,10 @@ import {
   FLEET_ADMIN_XP_PER_DURATION_TICK,
   ITEMS,
   BLUEPRINTS,
+  // 0.13.3 Unit 3.2: the shipped refine recipes (their real output items and durations)
+  // and the facility table (the refinery's top level), both read rather than hardcoded.
+  REFINE_RECIPES,
+  FACILITIES,
   type GameState,
   type CaptainMissionState,
   type MissionKey,
@@ -2855,7 +2863,13 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
     facilityUpgrade: { type: "facilityLevelUp", facility: "refinery" },
     fuelRefineJob: { type: "addFuel", amount: new Decimal(50) },
     researchProject: { type: "unlockBlueprint", key: "someBlueprint" },
-    fabricateJob: { type: "addItem", itemId: "alloy", amount: new Decimal(1) },
+    // ⚠️ 0.13.3 Unit 3.2 FIXTURE CHANGE: was `itemId: "alloy"`, an item that does not
+    // exist in ITEMS. That was harmless while the crafting award ignored the payload and
+    // keyed only off process.kind. It is NOT harmless now: the weighted award identifies
+    // the blueprint behind a material fabricate BY ITS OUTPUT ITEM, so an unresolvable
+    // output would price at 0 and this row would silently stop testing what it says it
+    // tests. `frameSegment` is frameSegmentBp's real output (a tier-1 MATERIAL blueprint).
+    fabricateJob: { type: "addItem", itemId: "frameSegment", amount: new Decimal(1) },
     shipBuild: { type: "addShip", typeKey: "prospectorMiner" },
     equipmentStorageUpgrade: { type: "equipmentStorageLevelUp" },
     docksExpansion: { type: "docksCapacityUp" },
@@ -2867,22 +2881,34 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
   };
   // Expected contribution of ONE completed process of each kind. FA XP lumps
   // FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks (0.12.1: was the bare
-  // durationTicks); crafting XP lumps CRAFTING_XP_PER_DURATION_TICK * duration.
-  // `fa` / `crafting` here are booleans (does this kind feed that axis today).
+  // durationTicks). `fa` / `crafting` are booleans (does this kind feed that axis at
+  // all), and `craftingXp` is the EXACT number the crafting axis receives.
+  //
+  // ⚠️ 0.13.3 Unit 3.2, VALUE CHANGE (row set and both booleans UNCHANGED): crafting XP
+  // is no longer a flat CRAFTING_XP_PER_DURATION_TICK * durationTicks for every feeding
+  // kind. It is now floor(durationTicks * 2 * weightNum / 4), weighted by what the job
+  // produced (design section 6.1). At D = 30 ticks that is:
+  //   refineJob     weight 1  -> floor(30 * 2 * 1 / 4) =   15  (was 60, a quarter of it)
+  //   fabricateJob  weight 4  -> floor(30 * 2 * 4 / 4) =   60  (tier-1 MATERIAL blueprint,
+  //                                                             which is exactly the OLD
+  //                                                             flat rate: that is the
+  //                                                             deliberate anchor)
+  //   shipBuild     weight 12 -> floor(30 * 2 * 12 / 4) = 180  (was 60, 3x it)
+  // The two booleans keep this a routing test; the number keeps it a characterization.
   // ⚠️ 0.12.1: researchProject / fabricateJob / shipBuild flipped fa false -> true
   // (finite, high-value builds now grant FA XP). Only fuelRefineJob feeds neither.
-  const expectations: Record<TimedProcessKind, { fa: boolean; crafting: boolean }> = {
-    refineJob: { fa: true, crafting: true },
-    facilityUpgrade: { fa: true, crafting: false },
-    fuelRefineJob: { fa: false, crafting: false },
-    researchProject: { fa: true, crafting: false },
-    fabricateJob: { fa: true, crafting: true },
-    shipBuild: { fa: true, crafting: true },
-    equipmentStorageUpgrade: { fa: true, crafting: false },
-    docksExpansion: { fa: true, crafting: false },
+  const expectations: Record<TimedProcessKind, { fa: boolean; crafting: boolean; craftingXp: number }> = {
+    refineJob: { fa: true, crafting: true, craftingXp: 15 },
+    facilityUpgrade: { fa: true, crafting: false, craftingXp: 0 },
+    fuelRefineJob: { fa: false, crafting: false, craftingXp: 0 },
+    researchProject: { fa: true, crafting: false, craftingXp: 0 },
+    fabricateJob: { fa: true, crafting: true, craftingXp: 60 },
+    shipBuild: { fa: true, crafting: true, craftingXp: 180 },
+    equipmentStorageUpgrade: { fa: true, crafting: false, craftingXp: 0 },
+    docksExpansion: { fa: true, crafting: false, craftingXp: 0 },
     // Combat 0.13.0 (Phase 11): a ship repair is a consequence, not an achievement/production
     // job, so it grants NEITHER axis (joins fuelRefineJob as the only neither-axis kind).
-    shipRepair: { fa: false, crafting: false },
+    shipRepair: { fa: false, crafting: false, craftingXp: 0 },
     // Crafting 0.13.3 (Unit 2.2, design §7.1): a salvageJob grants NEITHER axis, and the
     // crafting half is the ANTI-FAUCET GUARD, not a stylistic call. Recycling returns only
     // 30 to 40 percent of an item's inputs, so if it also paid crafting XP then
@@ -2891,20 +2917,24 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
     // that keeps that loop shut; flipping it green here without closing the loop in the
     // economy would reopen the faucet. Third neither-axis kind, with fuelRefineJob and
     // shipRepair.
-    salvageJob: { fa: false, crafting: false },
+    salvageJob: { fa: false, crafting: false, craftingXp: 0 },
   };
 
   const D = 30; // durationTicks used for every single-process case
 
   for (const kind of Object.keys(expectations) as TimedProcessKind[]) {
-    const { fa, crafting } = expectations[kind];
-    it(`${kind}: FA XP ${fa ? "awarded" : "none"}, crafting XP ${crafting ? "awarded" : "none"} on completion`, () => {
+    const { fa, crafting, craftingXp } = expectations[kind];
+    it(`${kind}: FA XP ${fa ? "awarded" : "none"}, crafting XP ${crafting ? `${craftingXp}` : "none"} on completion`, () => {
       const state = withProcesses([
         { id: "proc-1", kind, remainingTicks: D, durationTicks: D, effect: effectForKind[kind] },
       ]);
       const { fleetAdminXpDelta, craftingXpDelta } = resolveProcesses(state, D); // exactly completes it
       expect(fleetAdminXpDelta).toBe(fa ? FLEET_ADMIN_XP_PER_DURATION_TICK * D : 0);
-      expect(craftingXpDelta).toBe(crafting ? CRAFTING_XP_PER_DURATION_TICK * D : 0);
+      // WHETHER (the PROCESS_XP_AWARDS gate) and HOW MUCH (the weight) are asserted
+      // separately, because they are separate mechanisms and a regression in either one
+      // should be nameable on its own.
+      expect(craftingXpDelta > 0).toBe(crafting);
+      expect(craftingXpDelta).toBe(craftingXp);
     });
   }
 });
@@ -3043,24 +3073,41 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
   const addFuel = (amount: number): ProcessEffect => ({ type: "addFuel", amount: new Decimal(amount) });
   const unlock = (key: string): ProcessEffect => ({ type: "unlockBlueprint", key });
 
-  it("a single completed refineJob awards craftingXpDelta = CRAFTING_XP_PER_DURATION_TICK * durationTicks, once", () => {
+  // ⚠️ 0.13.3 Unit 3.2, VALUE CHANGE: a refine job is now WEIGHTED at a quarter of the
+  // base rate, so this 4-tick job pays floor(4 * 2 * 1 / 4) = 2, where it used to pay the
+  // flat CRAFTING_XP_PER_DURATION_TICK * 4 = 8. The assertion's intent (one completed
+  // refine job contributes its own award, exactly once) is unchanged.
+  it("a single completed refineJob awards its WEIGHTED award (a quarter of the old flat rate), once", () => {
     const durationTicks = 4;
     const state = withProcesses([
       { id: "proc-1", kind: "refineJob", remainingTicks: durationTicks, durationTicks, effect: addItem("titaniumIngot", 5) },
     ]);
     const { craftingXpDelta } = resolveProcesses(state, durationTicks); // exactly reaches 0
-    expect(craftingXpDelta).toBe(CRAFTING_XP_PER_DURATION_TICK * durationTicks);
+    expect(craftingXpDelta).toBe(2);
+    // Said the other way, so a future retune of the weight has to face this explicitly:
+    // the same job under the pre-0.13.3 flat rate would have paid four times as much.
+    expect(craftingXpDelta * 4).toBe(CRAFTING_XP_PER_DURATION_TICK * durationTicks);
   });
 
-  it("fabricateJob and shipBuild ALSO award crafting XP (the three producing kinds)", () => {
+  // ⚠️ 0.13.3 Unit 3.2, VALUE + FIXTURE CHANGE. The fixture's fabricate output moved from
+  // the non-existent "alloy" to `frameSegment` (frameSegmentBp's real output) because the
+  // weighted award identifies a material fabricate by its output item; "alloy" would now
+  // price at 0 and quietly gut the test. Values: fabricate 120 ticks at a tier-1 material
+  // weight of 4 = floor(120 * 2 * 4 / 4) = 240 (unchanged from the old flat rate, which is
+  // the intended anchor), shipBuild 300 ticks at weight 12 = floor(300 * 2 * 12 / 4) =
+  // 1800 (was 600). Total 2040, was 840.
+  it("fabricateJob and shipBuild ALSO award crafting XP, at their own weights (the three producing kinds)", () => {
     const fab = 120;
     const build = 300;
     const state = withProcesses([
-      { id: "proc-1", kind: "fabricateJob", remainingTicks: fab, durationTicks: fab, effect: addItem("alloy", 1) },
+      { id: "proc-1", kind: "fabricateJob", remainingTicks: fab, durationTicks: fab, effect: addItem("frameSegment", 1) },
       { id: "proc-2", kind: "shipBuild", remainingTicks: build, durationTicks: build, effect: addShip() },
     ]);
     const { craftingXpDelta } = resolveProcesses(state, build); // big enough to complete both
-    expect(craftingXpDelta).toBe(CRAFTING_XP_PER_DURATION_TICK * (fab + build));
+    expect(craftingXpDelta).toBe(240 + 1800);
+    // A tier-1 MATERIAL fabricate is the anchor the weight table is calibrated around: it
+    // pays exactly what the old flat rate paid. Everything else moved relative to it.
+    expect(240).toBe(CRAFTING_XP_PER_DURATION_TICK * fab);
   });
 
   it("facilityUpgrade, fuelRefineJob, and researchProject award NO crafting XP (not production of an item/hull)", () => {
@@ -3093,7 +3140,7 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
     const seed = (): TimedProcess[] => [
       { id: "proc-1", kind: "refineJob", remainingTicks: 1, durationTicks: 1, effect: addItem("titaniumIngot", 5) },
       { id: "proc-2", kind: "refineJob", remainingTicks: 10, durationTicks: 10, effect: addItem("titaniumIngot", 3) },
-      { id: "proc-3", kind: "fabricateJob", remainingTicks: 25, durationTicks: 25, effect: addItem("alloy", 2) },
+      { id: "proc-3", kind: "fabricateJob", remainingTicks: 25, durationTicks: 25, effect: addItem("frameSegment", 2) },
       { id: "proc-4", kind: "facilityUpgrade", remainingTicks: 40, durationTicks: 40, effect: levelUp("refinery") },
       { id: "proc-5", kind: "shipBuild", remainingTicks: 60, durationTicks: 60, effect: addShip() },
       { id: "proc-6", kind: "fuelRefineJob", remainingTicks: 80, durationTicks: 80, effect: addFuel(9) },
@@ -3114,9 +3161,21 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
     }
 
     expect(jumped.craftingXpDelta).toBe(steppedCraftingXp); // paths agree (the whole point)
-    // Pin the exact expected total: producing kinds are refine(1) + refine(10) +
-    // fabricate(25) + shipBuild(60) = 96 durationTicks; the three excluded kinds add 0.
-    expect(jumped.craftingXpDelta).toBe(CRAFTING_XP_PER_DURATION_TICK * 96);
+    // ⚠️ 0.13.3 Unit 3.2, VALUE CHANGE (case count and seed durations UNCHANGED; only the
+    // fabricate fixture's output item moved to a real one, see the sibling test's note).
+    // Each producing job is now priced by its own weight instead of one flat rate:
+    //   refine(1)     floor(1 * 2 * 1 / 4)   =    0  ⚠️ a 1-tick refine genuinely floors to
+    //                                              zero. Kept deliberately: it is the same
+    //                                              zero on BOTH paths, which is the point of
+    //                                              this test, and no shipped recipe is
+    //                                              anywhere near 1 tick (the fastest is 8).
+    //   refine(10)    floor(10 * 2 * 1 / 4)  =    5
+    //   fabricate(25) floor(25 * 2 * 4 / 4)  =   50  (tier-1 material blueprint)
+    //   shipBuild(60) floor(60 * 2 * 12 / 4) =  360
+    // Total 415, where the old flat rate gave 2 * 96 = 192. The three excluded kinds still
+    // add 0. THE PARITY ASSERTION ABOVE IS UNTOUCHED and still passes, which is exactly
+    // what a value-only change should look like: awards move, agreement does not.
+    expect(jumped.craftingXpDelta).toBe(0 + 5 + 50 + 360);
   });
 
   it("end-to-end: a completed refineJob raises state.craftingXp via applyCraftingXp fold (delta actually reaches state)", () => {
@@ -3130,7 +3189,10 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
     ]);
     const { craftingXpDelta } = resolveProcesses(state, durationTicks);
     const folded = applyCraftingXp(state, craftingXpDelta);
-    expect(folded.craftingXp.equals(CRAFTING_XP_PER_DURATION_TICK * durationTicks)).toBe(true);
+    // ⚠️ 0.13.3 Unit 3.2, VALUE CHANGE: floor(4 * 2 * 1 / 4) = 2, was the flat 2 * 4 = 8.
+    // The seam under test (the resolver's delta actually reaches state.craftingXp) is
+    // unchanged; only the amount travelling through it moved.
+    expect(folded.craftingXp.equals(2)).toBe(true);
     expect(folded.craftingLevel).toBe(1); // small job, no level-up
   });
 
@@ -3158,17 +3220,23 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
   //
   // Fixture: a fresh state (idle captains, no lines, no fuel pipeline, so the ONLY economy
   // activity is resolveProcesses -> applyCraftingXp) seeded with three producing jobs that
-  // complete at ticks 300 / 400 / 700. With CRAFTING_XP_PER_DURATION_TICK = 2 and the
-  // craftingXpForNext curve, the cumulative award (2 * (300+400+700) = 2800) crosses three
-  // thresholds (f(1)=126, f(2)=528, f(3)=1242 -> 1896 consumed), landing at craftingLevel 4
-  // with a remainder of 904. The stepped path crosses those thresholds at DIFFERENT ticks than the
-  // one big fold, which is exactly the associativity under test. Derived from the curve so a
-  // retune of craftingXpForNext can't silently stop the scenario from crossing 2+ levels.
+  // complete at ticks 300 / 400 / 700. The stepped path crosses the level thresholds at
+  // DIFFERENT ticks than the one big fold, which is exactly the associativity under test.
+  //
+  // ⚠️ 0.13.3 Unit 3.2, VALUE CHANGE (case count and job durations UNCHANGED; the fabricate
+  // fixture's output item moved to a real one, `frameSegment`, for the reason noted on the
+  // sibling tests). The three awards are now weighted rather than flat:
+  //   refine(300)     floor(300 * 2 * 1 / 4)  =  150  (was 600)
+  //   shipBuild(400)  floor(400 * 2 * 12 / 4) = 2400  (was 800)
+  //   fabricate(700)  floor(700 * 2 * 4 / 4)  = 1400  (was 1400, the tier-1 material anchor)
+  // Total 3950 (was 2800), which still crosses three thresholds on the same curve
+  // (f(1)=126, f(2)=528, f(3)=1242, so 1896 consumed and f(4)=2304 not reached), landing at
+  // craftingLevel 4 with a remainder of 2054 (was 904 at the same level 4).
   it("stepped-fold parity: one big-span economyTick lands the SAME final craftingLevel + craftingXp remainder as many single-tick steps (crosses 2+ levels)", () => {
     const seededState = () => withProcesses([
       { id: "proc-1", kind: "refineJob", remainingTicks: 300, durationTicks: 300, effect: addItem("titaniumIngot", 5) },
       { id: "proc-2", kind: "shipBuild", remainingTicks: 400, durationTicks: 400, effect: addShip() },
-      { id: "proc-3", kind: "fabricateJob", remainingTicks: 700, durationTicks: 700, effect: addItem("alloy", 2) },
+      { id: "proc-3", kind: "fabricateJob", remainingTicks: 700, durationTicks: 700, effect: addItem("frameSegment", 2) },
     ]);
     const span = 700; // completes all three producing jobs
     const constRng = () => 0; // no missions active on a fresh state, so rng is never consumed; injected for determinism regardless
@@ -3190,12 +3258,243 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
     //
     // ⚠️ VALUE CHANGE, 0.13.3 Phase 3 Unit 3.1 (design section 6.3), case count UNCHANGED.
     // craftingXpForNext was retuned from `500 * L^2` to the grouped form of
-    // `120 * L^2 * (1 + L / 20)`, so the same 2800 XP now clears one more threshold:
-    // 2800 - f(1)126 - f(2)528 - f(3)1242 = 904 at level 4 (it was 2800 - 500 - 2000 = 300
-    // at level 3). The PARITY assertions above are untouched and still pass, which is the
-    // point: a curve retune moves the landing, never the offline==live agreement.
+    // `120 * L^2 * (1 + L / 20)`, so the then-2800 XP cleared one more threshold than
+    // before: level 4 rather than level 3.
+    // ⚠️ VALUE CHANGE AGAIN, Unit 3.2 (design section 6.1), case count still UNCHANGED.
+    // The awards themselves are now weighted, so the total is 3950 rather than 2800:
+    // 3950 - f(1)126 - f(2)528 - f(3)1242 = 2054, still short of f(4)=2304, so it lands at
+    // level 4 with 2054 banked. The PARITY assertions above are untouched and still pass,
+    // which is the point in both cases: a retune moves the landing, never the offline==live
+    // agreement.
     expect(jumped.craftingLevel).toBe(4);
-    expect(jumped.craftingXp.equals(904)).toBe(true);
+    expect(jumped.craftingXp.equals(2054)).toBe(true);
+  });
+});
+
+// ============================================================================
+// The WEIGHTED crafting-XP award, wired into the real tick (0.13.3 Phase 3 Unit 3.2)
+// ----------------------------------------------------------------------------
+// craftingProgress.test.ts already proves the weight MATH against design tables 6.2 and
+// 6.3. These tests prove something different and not implied by it: that the engine
+// actually calls that math, that the PROCESS_XP_AWARDS gate still decides WHICH kinds
+// reach it, and that swapping a flat award for a weighted one did not disturb the
+// offline == live guarantee.
+//
+// WHY THE TWO-GATE SPLIT IS TESTED SEPARATELY (design section 6.1). The table answers
+// WHETHER, the weight answers HOW MUCH. A test suite that only checked totals could not
+// tell "salvage is weighted 0" from "salvage never reaches the award", and only the
+// second is a lock: a weight is a tuning number somebody will edit one day, while the
+// crafting:false row makes the salvage faucet a compile-visible policy decision.
+// ============================================================================
+describe("resolveProcesses awards the WEIGHTED crafting XP, per completing kind (0.13.3 Unit 3.2)", () => {
+  const withProcesses = (activeProcesses: TimedProcess[], extra: Partial<GameState> = {}): GameState => ({
+    ...freshState(),
+    activeProcesses,
+    ...extra,
+  });
+  const job = (kind: TimedProcessKind, durationTicks: number, effect: ProcessEffect, id = "proc-1"): TimedProcess => ({
+    id,
+    kind,
+    remainingTicks: durationTicks,
+    durationTicks,
+    effect,
+  });
+  // The award of a single job of `kind` / `durationTicks` / `effect`, taken through the
+  // REAL resolver rather than by calling craftingProgress directly. A constant rng keeps
+  // the equipment-mint branch (which draws quality / rarity / affixes) deterministic; the
+  // award itself never touches the stream, which is half of why parity is undisturbed.
+  const awardFor = (kind: TimedProcessKind, durationTicks: number, effect: ProcessEffect): number =>
+    resolveProcesses(withProcesses([job(kind, durationTicks, effect)]), durationTicks, () => 0.5).craftingXpDelta;
+
+  it("a completing refineJob pays the QUARTER-weighted award, at both shipped recipes' real durations (design table 6.2)", () => {
+    // The bulk-refining brake, measured where the player actually meets it. Titanium Ore
+    // is a 12-tick recipe and the Wafer a 20-tick one, so at weight 1 they pay
+    // floor(12 * 2 * 1 / 4) = 6 and floor(20 * 2 * 1 / 4) = 10. Under the old flat rate
+    // they paid 24 and 40: four times as much, for the same wall time.
+    const ore = REFINE_RECIPES.refineCommonOre;
+    const wafer = REFINE_RECIPES.refinePolysilicateWafer;
+    const oreAward = awardFor("refineJob", ore.durationTicks, { type: "addItem", itemId: ore.output.itemId, amount: ore.output.amount });
+    const waferAward = awardFor("refineJob", wafer.durationTicks, { type: "addItem", itemId: wafer.output.itemId, amount: wafer.output.amount });
+
+    expect(oreAward).toBe(6);
+    expect(waferAward).toBe(10);
+    // Stated as the RATIO too, so a future rate change cannot quietly restore parity with
+    // fabrication while leaving the absolute numbers looking plausible.
+    expect(oreAward * 4).toBe(CRAFTING_XP_PER_DURATION_TICK * ore.durationTicks);
+    expect(waferAward * 4).toBe(CRAFTING_XP_PER_DURATION_TICK * wafer.durationTicks);
+  });
+
+  it("a completing MATERIAL fabricateJob pays 4 x its blueprint's tier, resolved from the OUTPUT ITEM", () => {
+    // A material fabricate completes with a bare addItem, carrying no blueprint key, so
+    // the award identifies the blueprint through craftingProgress's output-item reverse
+    // index. This test is that bridge's end-to-end proof: a tier-1 and a tier-2 material
+    // craft of the same shape must price differently, which can only happen if the index
+    // resolved each output to its real blueprint.
+    const t1 = BLUEPRINTS.frameSegmentBp;       // tier 1, outputs "frameSegment"
+    const t2 = BLUEPRINTS.structuralAssemblyBp; // tier 2, outputs "structuralAssembly"
+    expect(t1.tier).toBe(1); // preconditions, so a content retune fails HERE, loudly
+    expect(t2.tier).toBe(2);
+
+    const D = 120;
+    const t1Award = awardFor("fabricateJob", D, { type: "addItem", itemId: t1.recipe.outputItem!, amount: new Decimal(1) });
+    const t2Award = awardFor("fabricateJob", D, { type: "addItem", itemId: t2.recipe.outputItem!, amount: new Decimal(1) });
+
+    expect(t1Award).toBe(240); // floor(120 * 2 * 4 / 4), exactly the OLD flat rate: the anchor
+    expect(t2Award).toBe(480); // floor(120 * 2 * 8 / 4), double, because tier is the value axis
+    expect(t2Award).toBe(t1Award * 2);
+  });
+
+  it("a completing INSTANCE-MINTING fabricateJob pays 6 x tier, MORE than the material craft it otherwise looks like", () => {
+    // The whole point of the reweight: crafting level governs the iLevel of minted gear,
+    // so minting gear must be the best way to raise it. Same duration, same tier, higher
+    // award. An equipment fabricate completes with addEquipment(blueprintKey), so this arm
+    // reads the blueprint directly rather than through the output-item index.
+    const t1 = BLUEPRINTS.prospectorHoldBp; // tier 1, mints a cargoBay instance
+    const t2 = BLUEPRINTS.haulerHoldBp;     // tier 2, mints a cargoBay instance
+    expect(t1.tier).toBe(1);
+    expect(t2.tier).toBe(2);
+
+    const D = 120;
+    const t1Award = awardFor("fabricateJob", D, { type: "addEquipment", blueprintKey: t1.key });
+    const t2Award = awardFor("fabricateJob", D, { type: "addEquipment", blueprintKey: t2.key });
+    const materialSameTier = awardFor("fabricateJob", D, { type: "addItem", itemId: BLUEPRINTS.frameSegmentBp.recipe.outputItem!, amount: new Decimal(1) });
+
+    expect(t1Award).toBe(360); // floor(120 * 2 * 6 / 4)
+    expect(t2Award).toBe(720); // floor(120 * 2 * 12 / 4)
+    // THE ORDERING THAT MATTERS, asserted as a relation rather than only as two numbers.
+    expect(t1Award).toBeGreaterThan(materialSameTier);
+    expect(t1Award * 2).toBe(t2Award);
+  });
+
+  it("a completing shipBuild pays the flat ship weight (3x), scaling only through the hull's own duration", () => {
+    // A hull carries no tier multiplier on top: its size is already expressed in a far
+    // longer durationTicks, and multiplying by tier as well would count that size twice.
+    const addShipEffect: ProcessEffect = { type: "addShip", typeKey: "prospectorMiner" };
+    expect(awardFor("shipBuild", 300, addShipEffect)).toBe(1800);  // design table 6.2, corvette row
+    expect(awardFor("shipBuild", 1200, addShipEffect)).toBe(7200); // design table 6.2, largest-hull row
+    // Flat weight means a hull four times as long is worth exactly four times as much.
+    expect(awardFor("shipBuild", 1200, addShipEffect)).toBe(awardFor("shipBuild", 300, addShipEffect) * 4);
+  });
+
+  it("⚠️ ANTI-FAUCET: a salvageJob that really resolves pays ZERO crafting XP through the whole tick, while a refine in the same span pays", () => {
+    // The lock from Unit 2.2, now proved END TO END through tick() rather than only
+    // through the PROCESS_XP_AWARDS table. The salvage here is a REAL one (it consumes a
+    // Damaged Reactor Housing and deposits a rolled drop), so this is not the vacuous case
+    // of a stale target that no-ops before anything can pay out. The refine job alongside
+    // it is the non-vacuity control: it proves the crafting axis was live this span, so
+    // the salvage's zero is a decision rather than a silent dead path.
+    const HOUSING = "intactReactorCore";
+    const ore = REFINE_RECIPES.refineCommonOre;
+    const seeded = (): GameState => withProcesses(
+      [
+        job("salvageJob", 5, { type: "salvageResolve", target: { kind: "material", itemId: HOUSING } }, "proc-1"),
+        job("refineJob", ore.durationTicks, { type: "addItem", itemId: ore.output.itemId, amount: ore.output.amount }, "proc-2"),
+      ],
+      { inventory: { ...freshState().inventory, [HOUSING]: [new Decimal(3)] } },
+    );
+
+    const after = tick(30, seeded(), mulberry32Task19(4242)); // 30 ticks completes both
+
+    // NON-VACUITY FIRST: the salvage genuinely happened (a Housing was consumed) and both
+    // jobs completed. Without this, the zero below would prove nothing.
+    expect(itemTotal(after.inventory, HOUSING).toString()).toBe("2");
+    expect(after.activeProcesses).toEqual([]);
+    // The crafting axis moved, and moved by EXACTLY the refine job's weighted award. Every
+    // point is accounted for, so the salvage contributed none of it.
+    expect(after.craftingXp.equals(6)).toBe(true);
+    expect(after.craftingLevel).toBe(1);
+
+    // And with the salvage ALONE, the axis does not move at all.
+    const salvageOnly = tick(30, withProcesses(
+      [job("salvageJob", 5, { type: "salvageResolve", target: { kind: "material", itemId: HOUSING } })],
+      { inventory: { ...freshState().inventory, [HOUSING]: [new Decimal(3)] } },
+    ), mulberry32Task19(4242));
+    expect(itemTotal(salvageOnly.inventory, HOUSING).toString()).toBe("2"); // it really resolved
+    expect(salvageOnly.craftingXp.equals(0)).toBe(true);
+    expect(salvageOnly.craftingLevel).toBe(1);
+  });
+
+  it("⚠️ offline==live PARITY: a span completing FIVE different job kinds lands the same craftingXp + craftingLevel either way", () => {
+    // The parity claim for this unit, on the mixed case that matters. The award is a pure
+    // integer function of a process's own durationTicks and static content data: no rng, no
+    // state read, no effect on completion order or draw counts. So chunking cannot move it,
+    // and the flooring happens once per job on both paths rather than once per chunk.
+    //
+    // The span deliberately mixes all three producing kinds, an instance mint (which DOES
+    // draw rng, so the streams have to stay aligned), a real salvage (which also draws) and
+    // two non-crafting kinds.
+    const HOUSING = "intactReactorCore";
+    const ore = REFINE_RECIPES.refineCommonOre;
+    const seeded = (): GameState => withProcesses(
+      [
+        job("refineJob", ore.durationTicks, { type: "addItem", itemId: ore.output.itemId, amount: ore.output.amount }, "proc-1"),
+        job("fabricateJob", 120, { type: "addItem", itemId: BLUEPRINTS.frameSegmentBp.recipe.outputItem!, amount: new Decimal(1) }, "proc-2"),
+        job("fabricateJob", 150, { type: "addEquipment", blueprintKey: "prospectorHoldBp" }, "proc-3"),
+        job("shipBuild", 300, { type: "addShip", typeKey: "prospectorMiner" }, "proc-4"),
+        job("salvageJob", 60, { type: "salvageResolve", target: { kind: "material", itemId: HOUSING } }, "proc-5"),
+        job("facilityUpgrade", 40, { type: "facilityLevelUp", facility: "refinery" }, "proc-6"),
+        job("fuelRefineJob", 80, { type: "addFuel", amount: new Decimal(50) }, "proc-7"),
+      ],
+      { inventory: { ...freshState().inventory, [HOUSING]: [new Decimal(3)] } },
+    );
+    const SPAN = 350; // whole ticks, and long enough to complete every job above
+    const SEED = 99;
+
+    // Path A: ONE offline catch-up call. Path B: SPAN hand-stepped live ticks, same seed.
+    const jumped = tick(SPAN, seeded(), mulberry32Task19(SEED));
+    let stepped = seeded();
+    const liveRng = mulberry32Task19(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    // THE PARITY ASSERTION, on both persisted crafting fields.
+    expect(jumped.craftingLevel).toBe(stepped.craftingLevel);
+    expect(jumped.craftingXp.toString()).toBe(stepped.craftingXp.toString());
+
+    // NON-VACUITY: everything really completed, and the total is the sum of the four
+    // producing jobs at their own weights, with the salvage / upgrade / fuel adding zero:
+    //   refine(12)     floor(12 * 2 * 1 / 4)   =    6
+    //   fabricate(120) floor(120 * 2 * 4 / 4)  =  240   (tier-1 material)
+    //   fabricate(150) floor(150 * 2 * 6 / 4)  =  450   (tier-1 instance mint)
+    //   shipBuild(300) floor(300 * 2 * 12 / 4) = 1800
+    // Total 2496, which crosses f(1)=126, f(2)=528 and f(3)=1242 (1896 consumed) and stops
+    // short of f(4)=2304, landing at level 4 with 600 banked.
+    expect(jumped.activeProcesses).toEqual([]);
+    // The instance mint really ran (asserted by IDENTITY, not by a pool count: the
+    // completing shipBuild also parks a hull that comes with its own Standard-Issue
+    // baselines, so a raw length here would be a brittle proxy for the wrong thing).
+    expect(jumped.equipment.some((e) => e.blueprintKey === "prospectorHoldBp")).toBe(true);
+    expect(jumped.craftingLevel).toBe(4);
+    expect(jumped.craftingXp.equals(600)).toBe(true);
+  });
+
+  it("⚠️ the refinery SPEED rung still buys throughput, never crafting XP per tick, through the real tick path", () => {
+    // Unit 3.1b's invariant, re-proved where it can actually break. refine.test.ts pins it
+    // against craftingProgress directly; this pins it against the ENGINE, which is what
+    // would matter if a future change applied the speed multiplier to the award instead of
+    // to the duration. Fewer ticks per job must mean proportionally fewer XP per job and
+    // the SAME XP per tick, or a speed upgrade quietly becomes an XP upgrade and design
+    // 6.4's bulk-refining proof (rate = slots x XP-per-tick) stops holding.
+    const MAXED_REFINERY_LEVEL = FACILITIES.refinery.upgrades.length;
+
+    for (const [key, recipe] of Object.entries(REFINE_RECIPES)) {
+      const effect: ProcessEffect = { type: "addItem", itemId: recipe.output.itemId, amount: recipe.output.amount };
+      // Durations taken from the REAL derivation at each refinery level, never hardcoded,
+      // so a retune of the rung retunes this test with it.
+      const rates = [3, MAXED_REFINERY_LEVEL].map((level) => {
+        const facilities = { refinery: { level } };
+        const ticks = refineJobDurationTicks({ ...freshState(), facilities }, recipe.durationTicks);
+        // Through economyTick, so the award goes all the way onto state.craftingXp via the
+        // applyCraftingXp fold rather than being read off the resolver's return value.
+        const after = economyTick(withProcesses([job("refineJob", ticks, effect)], { facilities }), ticks, () => 0.5);
+        return { ticks, xp: after.craftingXp.toNumber() };
+      });
+      const [base, sped] = rates;
+
+      expect(sped.ticks, key).toBeLessThan(base.ticks); // the rung really does something
+      expect(sped.xp, key).toBeLessThan(base.xp);       // so a single job pays LESS
+      expect(sped.xp / sped.ticks, key).toBe(base.xp / base.ticks); // but the RATE is untouched
+      expect(base.xp / base.ticks, key).toBe(0.5);      // and it is the quarter-weighted rate
+    }
   });
 });
 

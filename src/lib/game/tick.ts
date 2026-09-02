@@ -15,7 +15,10 @@ import {
   xpForNextLevel,
   xpForNextFleetAdminLevel,
   craftingXpForNext,
-  CRAFTING_XP_PER_DURATION_TICK,
+  // ⚠️ Crafting 0.13.3 (Phase 3 Unit 3.2): CRAFTING_XP_PER_DURATION_TICK is NO LONGER
+  // imported here. It is now one factor inside craftingXpAwardForProcess (see the
+  // craftingProgress import below), which owns the whole crafting-XP award. Reading the
+  // bare rate in this file again would be the start of a second, unweighted award path.
   // 0.12.1 FA-XP unblock: the per-durationTick FA XP multiplier for a completed
   // FA-feeding process, the FA twin of CRAFTING_XP_PER_DURATION_TICK. Sized in
   // model.ts (tunable placeholder). Applied in resolveProcesses' completion lump.
@@ -225,6 +228,22 @@ import { rollWaveLoot, type PatrolLootTable } from "./combat/patrolLoot";
 // EquipmentInstance from an INJECTED seeded rng (so the mint is offline==live reproducible), and
 // EQUIPMENT_ILEVEL_CAP_PER_TIER is the first-pass per-tier level ceiling the mint feeds in.
 import { computeItemLevel, generateEquipment, generateWeapon, generateDronePod, EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
+// Crafting 0.13.3 (Phase 3 Unit 3.2): the WEIGHTED crafting-XP award for a completed
+// process. Replaces the flat `CRAFTING_XP_PER_DURATION_TICK * durationTicks` lump that
+// paid bulk refining exactly as well per unit time as top-tier fabrication.
+//
+// WHY THE MATH LIVES IN THE MODULE AND NOT HERE. Pricing a completed job needs the
+// recipe or blueprint behind it (a refine recipe's optional xpWeightNum, a blueprint's
+// tier, and whether it mints an instance), plus the output-item reverse index that
+// recovers that source from a completion effect which only carries an item id. That is
+// a self-contained body of static-data reasoning with its own worked proof in
+// craftingProgress.test.ts, and it is deliberately NOT inlined into this 8k-line engine
+// file: one award formula, one place, testable without constructing a world.
+//
+// DEPENDENCY DIRECTION IS FINE. craftingProgress.ts imports only model.ts and itemgen.ts,
+// both of which tick.ts already sits above, so this arrow adds no cycle. It is the exact
+// opposite of craftQueue.ts, which imports FROM tick.ts and must never be imported BY it.
+import { craftingXpAwardForProcess } from "./craftingProgress";
 // Equipment 0.11.0 (Task 13/14): equippedFor resolves a ship's fitted pieces so both
 // the mission-resolution seam (economyTick) and the dispatch gate (canDispatch) can
 // fold equipment stats into shipDerivedStats from the SAME single source of truth.
@@ -781,6 +800,16 @@ export function foldXpLevelUps(
 //     shipBuild now feed BOTH axes.
 // Closed-form parity is unaffected: each award still fires exactly once, on the
 // completion tick that drops the process (see the parity tests).
+//
+// ⚠️ Crafting 0.13.3 (Phase 3 Unit 3.2), READ THIS BEFORE EDITING THE `crafting` COLUMN.
+// This table is now the WHETHER half of a two-part decision. It still solely decides
+// which kinds feed the crafting axis; craftingProgress.ts's craftingXpAwardForProcess
+// decides HOW MUCH a kind that does feed it earns (design section 6.1). The two must
+// agree, and the split is on purpose: this Record is the compile-time exhaustiveness
+// guard (a new TimedProcessKind cannot compile without a row), while the weights are
+// content-data math with their own proof suite. A kind set false here earns ZERO no
+// matter what weight the module would give it, which is precisely how salvageJob's
+// anti-faucet lock below is enforced.
 //
 // ⚠️ DESIGN NOTE (0.12.1): fabricateJob / shipBuild / researchProject NOW grant FA
 // XP (flipped from false). These are finite, high-value, blueprint-gated builds; a
@@ -7596,10 +7625,15 @@ function resolveSalvageEffect(
 //
 // CRAFTING XP (Equipment 0.11.0, Phase 3) is lumped the SAME way, on a DIFFERENT
 // set of kinds: a completed PRODUCTION job (refineJob / fabricateJob / shipBuild)
-// contributes CRAFTING_XP_PER_DURATION_TICK * durationTicks to craftingXpDelta,
-// exactly once. economyTick folds it via applyCraftingXp. So this resolver returns
-// TWO independent XP deltas (Fleet Admiral + crafting), each closed-form for the
-// same "fires exactly once per completion" reason.
+// contributes its award to craftingXpDelta, exactly once. economyTick folds it via
+// applyCraftingXp. So this resolver returns TWO independent XP deltas (Fleet Admiral +
+// crafting), each closed-form for the same "fires exactly once per completion" reason.
+//
+// ⚠️ Crafting 0.13.3 (Phase 3 Unit 3.2): that crafting award is no longer the flat
+// CRAFTING_XP_PER_DURATION_TICK * durationTicks. It is craftingXpAwardForProcess, which
+// WEIGHTS the same duration by what was produced (design section 6.1). Still an integer
+// function of durationTicks alone, so the closed-form property is untouched; only the
+// numbers moved. See the completion site below for which gate decides what.
 export function resolveProcesses(
   state: GameState,
   ticksElapsed: number,
@@ -7683,9 +7717,10 @@ export function resolveProcesses(
   // replaced (never mutated) by salvage.ts's own `.plus`.
   let credits = state.credits;
   let fleetAdminXpDelta = 0;
-  // Crafting Level XP (Equipment 0.11.0, Phase 3): accumulates CRAFTING_XP_PER_DURATION_TICK
-  // * durationTicks for every PRODUCTION job (refine / fabricate / ship-build) that completes
-  // this call, lumped once on completion exactly like fleetAdminXpDelta above. economyTick
+  // Crafting Level XP (Equipment 0.11.0, Phase 3; reweighted in 0.13.3 Unit 3.2):
+  // accumulates craftingXpAwardForProcess(process) for every PRODUCTION job (refine /
+  // fabricate / ship-build) that completes this call, lumped once on completion exactly
+  // like fleetAdminXpDelta above (0.13.2 and earlier: a flat rate x durationTicks). economyTick
   // folds the returned total through applyCraftingXp (the crafting twin of applyFleetAdminXp).
   // Seeded 0, so a call that completes no producing job returns 0 (a same-value no-op through
   // the fold). Closed-form for the SAME reason fleetAdminXpDelta is: each producing process
@@ -8081,7 +8116,30 @@ export function resolveProcesses(
       fleetAdminXpDelta += FLEET_ADMIN_XP_PER_DURATION_TICK * process.durationTicks;
     }
     if (xpAward.crafting) {
-      craftingXpDelta += CRAFTING_XP_PER_DURATION_TICK * process.durationTicks;
+      // ⚠️ Crafting 0.13.3 (Phase 3 Unit 3.2, design section 6.1): TWO GATES, ONE AWARD.
+      //
+      //   WHETHER  this `if`, driven by PROCESS_XP_AWARDS above. That exhaustive Record
+      //            stays the ONLY authority on which kinds feed the crafting axis, which
+      //            is what makes salvageJob's crafting:false an actual lock: a salvage
+      //            completion never reaches this line at all, so no weight, present or
+      //            future, can reopen the craft -> recycle -> craft XP faucet.
+      //   HOW MUCH craftingXpAwardForProcess, which prices the job from its recipe or
+      //            blueprint: refining at a quarter of the base rate, material fabrication
+      //            at the old flat rate per tier, instance-minting (equipment / weapon /
+      //            drone) fabrication at 1.5x per tier, a hull at 3x. The point of the
+      //            weights is that the stat governing crafted gear is earned by crafting
+      //            gear, not by grinding ore, which the flat rate rewarded equally.
+      //
+      // Deliberately kept as two gates rather than folding "whether" into the weight (a
+      // 0 weight would award 0 anyway): the table is the compile-time exhaustiveness
+      // guard that forces every NEW TimedProcessKind to declare its axes on the spot, and
+      // collapsing it into the weight table would trade that guard for a silent default.
+      //
+      // PARITY UNCHANGED. This is still one lump, on the completion tick, computed as a
+      // pure integer function of the process's own durationTicks and static content data.
+      // No rng, no state read, no change to completion order or draw counts, so N ticks
+      // in one span still lands exactly where N single ticks do (see the parity tests).
+      craftingXpDelta += craftingXpAwardForProcess(process);
     }
   }
 

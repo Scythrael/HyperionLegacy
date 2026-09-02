@@ -55,8 +55,9 @@
 // Everything here is a function of static content data plus plain numbers, so the
 // live path and the offline path compute identical results by construction.
 //
-// SCOPE FENCE (Unit 3.1 is the module only):
-//   - resolveProcesses still awards the old flat form. Unit 3.2 swaps the call site.
+// SCOPE FENCE (updated by Unit 3.2, which wired the award in):
+//   - ✅ resolveProcesses (tick.ts) now awards craftingXpAwardForProcess. That is the
+//     ONE call site of this module's award path, and the only one it should ever have.
 //   - computeItemLevel is untouched. Unit 3.3 adds the craftingItemLevel talent.
 //   - the readouts below exist for the Phase 4 consoles; nothing renders them yet.
 //
@@ -88,10 +89,17 @@ import { EQUIPMENT_ILEVEL_CAP_PER_TIER, computeItemLevel } from "./itemgen";
 // Re-exported so a consumer needs ONE import for the whole crafting-progress story
 // (curve plus weights plus readouts) instead of reaching into model.ts for half of
 // it. The curve itself deliberately still LIVES in model.ts beside
-// CRAFTING_XP_PER_DURATION_TICK, because applyCraftingXp (tick.ts) consumes it and
-// tick.ts must not import this view-side module (the same one-way dependency rule
-// craftQueue.ts's header states). This is a re-export, not a second copy: there is
-// exactly one curve in the codebase and it is the one below.
+// CRAFTING_XP_PER_DURATION_TICK, where applyCraftingXp (tick.ts) reads it directly.
+// This is a re-export, not a second copy: there is exactly one curve in the codebase
+// and it is the one below.
+//
+// ⚠️ DEPENDENCY DIRECTION (corrected by Unit 3.2, which made tick.ts an importer).
+// This module sits ABOVE model.ts and itemgen.ts and BELOW tick.ts: tick.ts imports
+// craftingXpAwardForProcess from here, and this file imports nothing from tick.ts, so
+// the arrow is one-way and there is no cycle. Do not confuse that with craftQueue.ts,
+// which is a VIEW model that imports FROM tick.ts and therefore must never be imported
+// BY it. The rule both files obey is the same one (arrows point one way); the two files
+// simply sit on opposite sides of the engine.
 export { craftingXpForNext };
 
 // ============================================================================
@@ -213,7 +221,10 @@ export function craftingXpPerTick(subject: CraftingXpSubject): number {
 // --- Resolving a live process to its subject --------------------------------
 // ============================================================================
 //
-// ⚠️ BUILD-TIME FINDING, flagged for Unit 3.2 (Omega 8: no silent assumptions).
+// ⚠️ BUILD-TIME FINDING from Unit 3.1, CONSUMED AS DESIGNED by Unit 3.2 (Omega 8: no
+// silent assumptions). 3.2 wired the award through this bridge and did NOT add a
+// sourceKey to TimedProcess, because that is a save-shape change and is only warranted
+// the day outputs actually collide. The guard below is what tells us that day arrived.
 // Design 6.1 says the weight is read off the blueprint and needs "no data change".
 // That is true for an EQUIPMENT fabricate, whose completion effect carries
 // { type: "addEquipment", blueprintKey }. It is NOT true for the other two producing
@@ -268,7 +279,9 @@ function buildOutputIndex<T>(entries: readonly (readonly [string, T])[]): Readon
 // gives the "does this kind pay at all" question, and the two must agree: that table
 // decides WHETHER a kind feeds the crafting axis, this function decides HOW MUCH. A
 // kind marked crafting:true there and "none" here would pay nothing; a kind marked
-// crafting:false there is never asked. Unit 3.2 keeps both and wires them together.
+// crafting:false there is never asked. Unit 3.2 wired the two together and kept BOTH:
+// the `if (xpAward.crafting)` gate in resolveProcesses is what makes salvageJob's zero a
+// LOCK rather than a weight some later retune could nudge off zero.
 export function craftingXpSubjectForProcess(process: TimedProcess): CraftingXpSubject {
   const kind: TimedProcessKind = process.kind;
   switch (kind) {
